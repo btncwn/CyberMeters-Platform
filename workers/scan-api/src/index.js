@@ -964,6 +964,93 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP) {
   };
 }
 
+// ── DNS Brute-Force Discovery ─────────────────────────────────────────────────
+// Small curated wordlist (≤75 labels) probed with A-record DoH lookups.
+// Runs in parallel with Phase 1 modules; bounded by an 8-second hard cap.
+// Results are merged into modules.subdomains.items so takeover + exposure
+// detection automatically benefit from the expanded list.
+
+const BRUTE_FORCE_WORDLIST = [
+  // Auth / access
+  "api", "app", "portal", "admin", "login", "auth", "sso", "vpn", "remote",
+  // Mail
+  "mail", "webmail", "smtp", "mx", "ftp", "ssh", "rdp",
+  // Non-prod environments
+  "dev", "staging", "test", "qa", "uat", "beta",
+  // Operations / management
+  "dashboard", "status", "docs", "support",
+  // CDN / media
+  "cdn", "static", "assets", "media", "images", "files", "upload", "downloads",
+  // Observability
+  "grafana", "kibana", "prometheus", "monitor", "monitoring",
+  // Source control / CI-CD
+  "git", "gitlab", "bitbucket", "jenkins", "ci", "build", "deploy",
+  // Artifact repos
+  "nexus", "artifactory", "sonar",
+  // Data stores
+  "db", "database", "redis", "mongo", "elastic", "kafka", "solr",
+  // Archive / backup
+  "old", "legacy", "archive", "backup", "backups",
+  // Commerce
+  "shop", "store", "booking", "payments", "checkout",
+];
+
+/**
+ * Probe the wordlist against `domain` via DoH A-record lookups.
+ * Returns any names that resolve, with source = "dns_bruteforce".
+ * Hard-capped at 8 seconds — returns whatever has resolved by then.
+ */
+async function runBruteforceModule(domain) {
+  const HARD_CAP_MS = 8_000;
+
+  const empty = (error = null) => ({
+    checked: 0,
+    found:   0,
+    items:   [],
+    source:  "dns_bruteforce",
+    error,
+  });
+
+  try {
+    const candidates = BRUTE_FORCE_WORDLIST.map((label) => `${label}.${domain}`);
+
+    const settled = await Promise.race([
+      Promise.allSettled(
+        candidates.map((host) =>
+          dnsQuery(host, "A").then((r) => ({ host, answers: r.Answer || [] }))
+        )
+      ),
+      // Hard cap: resolve with an empty-array sentinel so the race always resolves
+      new Promise((resolve) => setTimeout(() => resolve([]), HARD_CAP_MS)),
+    ]);
+
+    // If the timeout fired, `settled` is [] (not an allSettled array)
+    if (!Array.isArray(settled) || settled.length === 0) {
+      return { checked: candidates.length, found: 0, items: [], source: "dns_bruteforce", error: "timed out" };
+    }
+
+    const found = [];
+    for (const s of settled) {
+      if (s.status !== "fulfilled") continue;
+      const { host, answers } = s.value;
+      if (answers && answers.length > 0) {
+        const ips = answers.filter((a) => a.type === 1).map((a) => a.data);
+        found.push({ hostname: host, ip_addresses: ips, source: "dns_bruteforce" });
+      }
+    }
+
+    return {
+      checked: candidates.length,
+      found:   found.length,
+      items:   found,
+      source:  "dns_bruteforce",
+      error:   null,
+    };
+  } catch (err) {
+    return empty(err?.message ?? "Brute-force module failed");
+  }
+}
+
 // ── Module 6: Subdomain Takeover Detection ────────────────────────────────────
 
 /**
@@ -1278,6 +1365,128 @@ async function runTakeoverModule(domain, subdomains) {
     source,
     error: null,
   };
+}
+
+// ── Cloud Storage Discovery ───────────────────────────────────────────────────
+// Pattern-based detection of cloud storage references across all discovered
+// hostnames and exposure assets.  No additional HTTP calls — pure analysis of
+// data already present in other modules.
+//
+// Risk labels:
+//   "cloud_storage_reference"  — pattern match only (info/low)
+//   "potentially_public_storage" — HTTP evidence of public access (medium)
+//   Currently only pattern matching is implemented; HTTP confirmation is deferred.
+
+const CLOUD_STORAGE_PATTERNS = [
+  {
+    provider:  "AWS S3",
+    patterns:  ["s3.amazonaws.com", "s3-website", "s3-website-", ".amazonaws.com"],
+    risk_level: "medium",
+  },
+  {
+    provider:  "Azure Blob Storage",
+    patterns:  ["blob.core.windows.net", "web.core.windows.net"],
+    risk_level: "medium",
+  },
+  {
+    provider:  "Google Cloud Storage",
+    patterns:  ["storage.googleapis.com"],
+    risk_level: "medium",
+  },
+  {
+    provider:  "Firebase / GCP",
+    patterns:  ["firebaseapp.com", "appspot.com"],
+    risk_level: "low",
+  },
+];
+
+function detectCloudProvider(value) {
+  if (!value) return null;
+  const v = value.toLowerCase();
+  for (const def of CLOUD_STORAGE_PATTERNS) {
+    for (const pat of def.patterns) {
+      if (v.includes(pat)) return def;
+    }
+  }
+  return null;
+}
+
+/**
+ * Scan subdomains and exposure assets for cloud storage indicators.
+ * Pure computation — zero additional network calls.
+ */
+function runCloudStorageModule(domain, modules) {
+  try {
+    const findings = [];
+    const seen     = new Set();    // deduplicate by asset+provider
+
+    // Helper to record a finding without duplicates
+    function record(asset, provider, evidence, risk_level) {
+      const key = `${asset}::${provider}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      findings.push({
+        asset,
+        provider,
+        type:       "cloud_storage_reference",
+        evidence,
+        risk_level,
+      });
+    }
+
+    // ── 1. Scan subdomain hostnames ───────────────────────────────────────
+    const subItems = modules?.subdomains?.items || [];
+    for (const hostname of subItems) {
+      const match = detectCloudProvider(hostname);
+      if (match) {
+        record(hostname, match.provider, `hostname contains "${match.patterns.find(p => hostname.toLowerCase().includes(p))}"`, match.risk_level);
+      }
+    }
+
+    // ── 2. Scan brute-force finds ─────────────────────────────────────────
+    const bruteItems = (modules?.dns_bruteforce?.items || []);
+    for (const item of bruteItems) {
+      const match = detectCloudProvider(item.hostname);
+      if (match) {
+        record(item.hostname, match.provider, `brute-force hostname contains cloud storage pattern`, match.risk_level);
+      }
+    }
+
+    // ── 3. Scan exposure asset URLs, CNAMEs, redirect_to ─────────────────
+    const exposureAssets = modules?.asset_exposure?.assets || [];
+    for (const asset of exposureAssets) {
+      const checks = [
+        { value: asset.url,         label: "URL" },
+        { value: asset.cname,       label: "CNAME" },
+        { value: asset.redirect_to, label: "redirect" },
+      ];
+      for (const { value, label } of checks) {
+        const match = detectCloudProvider(value);
+        if (match) {
+          record(
+            asset.hostname || asset.url,
+            match.provider,
+            `${label} contains "${match.patterns.find(p => (value || "").toLowerCase().includes(p))}"`,
+            match.risk_level
+          );
+        }
+      }
+    }
+
+    return {
+      checked:  subItems.length + bruteItems.length + exposureAssets.length,
+      findings,
+      source:   "hostname_pattern_match",
+      error:    null,
+    };
+  } catch (err) {
+    return {
+      checked:  0,
+      findings: [],
+      source:   "hostname_pattern_match",
+      error:    err?.message ?? "Cloud storage module failed",
+    };
+  }
 }
 
 // ── Module 7: Asset Exposure Engine ──────────────────────────────────────────
@@ -2879,6 +3088,390 @@ async function runHistoricalModule(scanId, domain, currentScore, currentFindings
   };
 }
 
+// ── normalizeHostname ─────────────────────────────────────────────────────────
+// Returns a bare, lowercase hostname with no trailing dot.
+// Accepts either a plain hostname ("api.example.com") or a full URL
+// ("https://api.example.com/path") and extracts just the host part.
+function normalizeHostname(value) {
+  if (!value) return null;
+  const s = String(value).trim();
+  if (!s) return null;
+  let host = s;
+  if (/^https?:\/\//i.test(s)) {
+    try {
+      host = new URL(s).hostname;
+    } catch {
+      return null;
+    }
+  }
+  host = host.toLowerCase().replace(/\.$/, "");
+  // Must contain at least one dot and no spaces to be a valid hostname
+  if (!host || host.includes(" ") || !host.includes(".")) return null;
+  return host;
+}
+
+// ── Asset Inventory Upsert ────────────────────────────────────────────────────
+// Persists cross-scan asset state into workspace_assets + asset_events.
+// Called AFTER the scan completion status is written to D1 so a upsert failure
+// can never leave a scan stuck in "running".
+//
+// One domain can belong to multiple workspaces — we upsert into each.
+// Uses D1 batch() to minimise round-trips.
+
+async function upsertAssetInventory(scanId, domainId, domain, modules, env) {
+  const now = new Date().toISOString();
+
+  // ── Collect all discovered hostnames from this scan ───────────────────────
+  const wildcardDns = modules?.subdomains?.wildcard_dns === true;
+
+  const allAssets = [];
+
+  // Root domain is always an asset, even if CT/bruteforce finds nothing.
+  // This prevents inventory from staying empty for domains with no discovered subdomains.
+  const _rootHost = normalizeHostname(domain);
+  if (_rootHost) allAssets.push({
+    hostname:   _rootHost,
+    asset_type: "root_domain",
+    source:     "scan_root",
+    wildcard:   0,
+    risk_level: null,
+    cloud:      null,
+  });
+
+  // CT-discovered subdomains
+  for (const hostname of modules?.subdomains?.items || []) {
+    const h = normalizeHostname(hostname);
+    if (!h) continue;
+    allAssets.push({
+      hostname:   h,
+      asset_type: "subdomain",
+      source:     "certificate_transparency",
+      wildcard:   wildcardDns ? 1 : 0,
+      risk_level: null,
+      cloud:      null,
+    });
+  }
+
+  // DNS brute-force
+  for (const item of modules?.dns_bruteforce?.items || []) {
+    const h = normalizeHostname(item.hostname);
+    if (!h) continue;
+    allAssets.push({
+      hostname:     h,
+      asset_type:   "subdomain",
+      source:       "dns_bruteforce",
+      wildcard:     0,
+      risk_level:   null,
+      cloud:        null,
+      ip_addresses: JSON.stringify(item.ip_addresses || []),
+    });
+  }
+
+  // Cloud storage findings
+  for (const finding of modules?.cloud_storage_discovery?.findings || []) {
+    const h = normalizeHostname(finding.asset);
+    if (!h) continue;
+    const existing = allAssets.find((a) => a.hostname === h);
+    if (existing) {
+      existing.cloud      = finding.provider;
+      existing.risk_level = finding.risk_level;
+    } else {
+      allAssets.push({
+        hostname:   h,
+        asset_type: "cloud_storage",
+        source:     "hostname_pattern_match",
+        wildcard:   0,
+        cloud:      finding.provider,
+        risk_level: finding.risk_level,
+      });
+    }
+  }
+
+  // Exposure-probed assets
+  for (const asset of modules?.asset_exposure?.assets || []) {
+    const h = normalizeHostname(asset.hostname || asset.url);
+    if (!h) continue;
+    const existing = allAssets.find((a) => a.hostname === h);
+    if (existing) {
+      existing.ip_addresses = existing.ip_addresses ?? JSON.stringify(asset.ip ? [asset.ip] : []);
+      existing.redirect_to  = asset.redirect_to ?? null;
+    } else {
+      allAssets.push({
+        hostname:     h,
+        asset_type:   "exposed_service",
+        source:       "exposure_probe",
+        wildcard:     0,
+        redirect_to:  asset.redirect_to ?? null,
+        risk_level:   null,
+        cloud:        null,
+      });
+    }
+  }
+
+  // ── Deduplicate allAssets by hostname ────────────────────────────────────
+  // CT and DNS brute-force can both discover the same hostname.  Duplicate
+  // entries would produce two INSERTs with the same (workspace_id, hostname),
+  // violating the UNIQUE constraint and failing the entire D1 batch silently.
+  // Keep first occurrence; merge extra fields (ip_addresses, cloud, risk_level)
+  // from any subsequent occurrence of the same hostname.
+  const assetMap = new Map();
+  for (const asset of allAssets) {
+    const existing = assetMap.get(asset.hostname);
+    if (!existing) {
+      assetMap.set(asset.hostname, { ...asset });
+    } else {
+      // Merge non-null fields from duplicate entry
+      if (asset.ip_addresses != null) existing.ip_addresses = asset.ip_addresses;
+      if (asset.cloud       != null) existing.cloud         = asset.cloud;
+      if (asset.risk_level  != null) existing.risk_level    = asset.risk_level;
+      if (asset.redirect_to != null) existing.redirect_to   = asset.redirect_to;
+    }
+  }
+  const deduplicatedAssets = [...assetMap.values()];
+
+  // Takeover risk annotations (applied to deduplicated list)
+  const takeoverRiskMap = new Map(
+    (modules?.subdomain_takeover?.risks || []).map((r) => [normalizeHostname(r.host), r])
+  );
+  for (const asset of deduplicatedAssets) {
+    const risk = takeoverRiskMap.get(asset.hostname);
+    if (risk) asset.risk_level = risk.severity ?? "high";
+  }
+
+  // Replace allAssets with deduplicated list from here on
+  const finalAssets = deduplicatedAssets;
+
+  console.log("[inventory]", JSON.stringify({
+    domain,
+    assets_found:  finalAssets.length,
+    wildcard_dns:  wildcardDns,
+  }));
+
+  if (finalAssets.length === 0) return;
+
+  // ── Look up workspaces linked to this domain ──────────────────────────────
+  let wsRows;
+  try {
+    const r = await env.cybermeters_db
+      .prepare(`SELECT workspace_id FROM workspace_domains WHERE domain_id = ?`)
+      .bind(domainId)
+      .all();
+    wsRows = r.results || [];
+  } catch (e) {
+    console.error("[inventory] workspace lookup failed:", e?.message);
+    return;
+  }
+
+  console.log("[inventory]", JSON.stringify({
+    domain,
+    workspaces: wsRows.length,
+    domain_id:  domainId,
+  }));
+
+  if (wsRows.length === 0) return;
+
+  // ── For each workspace: diff against existing assets, batch-upsert ────────
+  for (const { workspace_id } of wsRows) {
+    try {
+      // Fetch all existing assets for this workspace+domain in one query
+      const existingResult = await env.cybermeters_db
+        .prepare(
+          `SELECT id, hostname, status FROM workspace_assets
+           WHERE workspace_id = ? AND domain_id = ?`
+        )
+        .bind(workspace_id, domainId)
+        .all();
+
+      const existingMap = new Map(
+        (existingResult.results || []).map((r) => [r.hostname, r])
+      );
+
+      const currentHostnames = new Set(finalAssets.map((a) => a.hostname));
+      const stmts = [];
+
+      // Upsert each discovered asset
+      for (const asset of finalAssets) {
+        const existing = existingMap.get(asset.hostname);
+        if (!existing) {
+          // New asset — INSERT OR IGNORE guards against any residual duplicates
+          const assetId = createId("asset");
+          stmts.push(
+            env.cybermeters_db
+              .prepare(
+                `INSERT OR IGNORE INTO workspace_assets
+                   (id, workspace_id, domain_id, hostname, asset_type, source,
+                    first_seen, last_seen, status, wildcard_dns,
+                    ip_addresses, cname, redirect_to, cloud_provider,
+                    risk_level, metadata_json, created_at, updated_at)
+                 VALUES (?,?,?,?,?,?,?,?,'active',?,?,?,?,?,?,?,?,?)`
+              )
+              .bind(
+                assetId, workspace_id, domainId, asset.hostname,
+                asset.asset_type ?? "subdomain",
+                asset.source ?? "certificate_transparency",
+                now, now,
+                asset.wildcard ?? 0,
+                asset.ip_addresses ?? null,
+                asset.cname ?? null,
+                asset.redirect_to ?? null,
+                asset.cloud ?? null,
+                asset.risk_level ?? null,
+                null,    // metadata_json
+                now, now
+              )
+          );
+          stmts.push(
+            env.cybermeters_db
+              .prepare(
+                `INSERT INTO asset_events
+                   (id, workspace_id, domain_id, asset_id, scan_id,
+                    event_type, hostname, severity, description, created_at)
+                 VALUES (?,?,?,?,?,'new_asset_discovered',?,'info',?,?)`
+              )
+              .bind(
+                createId("evt"), workspace_id, domainId, assetId, scanId,
+                asset.hostname,
+                `New asset discovered: ${asset.hostname} (${asset.source ?? "ct"})`,
+                now
+              )
+          );
+        } else {
+          // Existing asset — update last_seen + status
+          stmts.push(
+            env.cybermeters_db
+              .prepare(
+                `UPDATE workspace_assets
+                 SET last_seen = ?, status = 'active',
+                     risk_level = COALESCE(?, risk_level),
+                     cloud_provider = COALESCE(?, cloud_provider),
+                     redirect_to = COALESCE(?, redirect_to),
+                     updated_at = ?
+                 WHERE workspace_id = ? AND hostname = ?`
+              )
+              .bind(
+                now,
+                asset.risk_level ?? null,
+                asset.cloud ?? null,
+                asset.redirect_to ?? null,
+                now,
+                workspace_id, asset.hostname
+              )
+          );
+          // Asset reappeared after being inactive
+          if (existing.status === "inactive") {
+            stmts.push(
+              env.cybermeters_db
+                .prepare(
+                  `INSERT INTO asset_events
+                     (id, workspace_id, domain_id, asset_id, scan_id,
+                      event_type, hostname, severity, description, created_at)
+                   VALUES (?,?,?,?,?,'asset_reappeared',?,'medium',?,?)`
+                )
+                .bind(
+                  createId("evt"), workspace_id, domainId,
+                  existing.id, scanId,
+                  asset.hostname,
+                  `Asset reappeared after being absent: ${asset.hostname}`,
+                  now
+                )
+            );
+          }
+        }
+      }
+
+      // Mark assets from a previous scan that are no longer visible
+      for (const [hostname, existing] of existingMap) {
+        if (!currentHostnames.has(hostname) && existing.status === "active") {
+          stmts.push(
+            env.cybermeters_db
+              .prepare(
+                `UPDATE workspace_assets
+                 SET status = 'inactive', updated_at = ?
+                 WHERE workspace_id = ? AND hostname = ?`
+              )
+              .bind(now, workspace_id, hostname)
+          );
+          stmts.push(
+            env.cybermeters_db
+              .prepare(
+                `INSERT INTO asset_events
+                   (id, workspace_id, domain_id, asset_id, scan_id,
+                    event_type, hostname, severity, description, created_at)
+                 VALUES (?,?,?,?,?,'asset_no_longer_seen',?,'low',?,?)`
+              )
+              .bind(
+                createId("evt"), workspace_id, domainId,
+                existing.id, scanId,
+                hostname,
+                `Asset no longer seen in latest scan: ${hostname}`,
+                now
+              )
+          );
+        }
+      }
+
+      // Takeover risk events
+      for (const risk of modules?.subdomain_takeover?.risks || []) {
+        const existingAsset = existingMap.get(risk.host) ?? { id: null };
+        stmts.push(
+          env.cybermeters_db
+            .prepare(
+              `INSERT INTO asset_events
+                 (id, workspace_id, domain_id, asset_id, scan_id,
+                  event_type, hostname, severity, description, created_at)
+               VALUES (?,?,?,?,?,'takeover_risk_detected',?,'high',?,?)`
+            )
+            .bind(
+              createId("evt"), workspace_id, domainId,
+              existingAsset.id ?? null, scanId,
+              risk.host,
+              `Subdomain takeover risk: ${risk.host} → ${risk.cname} (${risk.provider ?? risk.service})`,
+              now
+            )
+        );
+      }
+
+      // Wildcard DNS event (once per scan per workspace, if detected)
+      if (wildcardDns) {
+        stmts.push(
+          env.cybermeters_db
+            .prepare(
+              `INSERT INTO asset_events
+                 (id, workspace_id, domain_id, asset_id, scan_id,
+                  event_type, hostname, severity, description, created_at)
+               VALUES (?,?,?,null,?,'wildcard_dns_detected',?,'info',?,?)`
+            )
+            .bind(
+              createId("evt"), workspace_id, domainId,
+              scanId, domain,
+              `Wildcard DNS detected for ${domain} — CT results may include false positives`,
+              now
+            )
+        );
+      }
+
+      // Execute all statements in a single D1 batch round-trip
+      console.log("[inventory]", JSON.stringify({
+        domain, workspace_id, stmts: stmts.length,
+      }));
+
+      if (stmts.length > 0) {
+        try {
+          await env.cybermeters_db.batch(stmts);
+        } catch (batchErr) {
+          // Surface the real error so it appears in Cloudflare Workers logs
+          console.error("[inventory] D1 batch failed:", batchErr?.message, batchErr?.cause);
+          throw batchErr;   // re-throw so the outer per-workspace catch sees it
+        }
+      }
+
+    } catch (e) {
+      // Per-workspace failure is non-fatal — continue with next workspace
+      console.error("[inventory] workspace upsert error for", workspace_id, ":", e?.message);
+    }
+  }
+}
+
 // ── Main Scan Engine (runs via ctx.waitUntil) ─────────────────────────────────
 
 async function runScanEngine(scanId, domainId, domain, env) {
@@ -2891,11 +3484,11 @@ async function runScanEngine(scanId, domainId, domain, env) {
       .bind(scanId)
       .run();
 
-    // Phase 1: Run the 7 core modules in parallel.
-    // Subdomain discovery (crt.sh) has a 25s timeout but does not block the
-    // other modules — all run concurrently via Promise.allSettled.
-    // WHOIS uses RDAP (HTTP+JSON) — 12s timeout, fully non-blocking.
-    const [dnsSettled, sslSettled, headersSettled, emailSettled, subdomainsSettled, techSettled, whoisSettled] =
+    // Phase 1: Run the 8 core modules in parallel.
+    // • Subdomain discovery: 15s hard cap (parallel crt.sh 12s + CertSpotter 8s + wildcard DNS)
+    // • DNS brute-force: 8s hard cap, runs concurrently — results merged after phase completes
+    // • WHOIS uses RDAP (HTTP+JSON) — 12s timeout, fully non-blocking.
+    const [dnsSettled, sslSettled, headersSettled, emailSettled, subdomainsSettled, techSettled, whoisSettled, bruteforceSettled] =
       await Promise.allSettled([
         runDnsModule(domain),
         runSslModule(domain),
@@ -2904,6 +3497,7 @@ async function runScanEngine(scanId, domainId, domain, env) {
         runSubdomainsModule(domain),
         runTechModule(domain),
         runWhoisModule(domain),
+        runBruteforceModule(domain),
       ]);
 
     const subdomainsResult = subdomainsSettled.status === "fulfilled"
@@ -2913,10 +3507,23 @@ async function runScanEngine(scanId, domainId, domain, env) {
           wildcard_dns: false, wildcard_test_host: null, wildcard_warning: null,
           error: subdomainsSettled.reason?.message ?? "Subdomain module failed" };
 
-    // Phase 2: Takeover detection — depends on discovered subdomains as input.
+    const bruteforceResult = bruteforceSettled.status === "fulfilled"
+      ? bruteforceSettled.value
+      : { checked: 0, found: 0, items: [], source: "dns_bruteforce",
+          error: bruteforceSettled.reason?.message ?? "Brute-force module failed" };
+
+    // Merge brute-force finds into the subdomain item list (deduplicated).
+    // Takeover and exposure modules receive the enriched list.
+    const ctHostnames = new Set(subdomainsResult.items);
+    const bruteNewItems = (bruteforceResult.items || [])
+      .map((i) => i.hostname)
+      .filter((h) => h && !ctHostnames.has(h));
+    const mergedSubdomainItems = [...subdomainsResult.items, ...bruteNewItems];
+
+    // Phase 2: Takeover detection — uses merged (CT + brute-force) subdomain list.
     let takeoverResult;
     try {
-      takeoverResult = await runTakeoverModule(domain, subdomainsResult.items || []);
+      takeoverResult = await runTakeoverModule(domain, mergedSubdomainItems);
     } catch (err) {
       takeoverResult = { checked: 0, potential_risks: 0, risks: [], source: "subdomain_cname_fingerprint", error: err.message };
     }
@@ -2925,7 +3532,7 @@ async function runScanEngine(scanId, domainId, domain, env) {
     // Runs after takeover (sequential) to bound total concurrent I/O.
     let assetExposureResult;
     try {
-      assetExposureResult = await runExposureModule(domain, subdomainsResult.items || []);
+      assetExposureResult = await runExposureModule(domain, mergedSubdomainItems);
     } catch (err) {
       assetExposureResult = {
         checked:   0,
@@ -2966,6 +3573,8 @@ async function runScanEngine(scanId, domainId, domain, env) {
       whois_intelligence: whoisSettled.status === "fulfilled"
         ? whoisSettled.value
         : { error: whoisSettled.reason?.message ?? "WHOIS module failed" },
+
+      dns_bruteforce: bruteforceResult,
     };
 
     // Compute Cyber Metrics Score
@@ -3040,6 +3649,10 @@ async function runScanEngine(scanId, domainId, domain, env) {
       modules.subdomain_takeover,
     );
 
+    // Phase 7: Cloud storage discovery — pure pattern analysis, zero I/O.
+    // Needs subdomains + dns_bruteforce + asset_exposure to be complete first.
+    modules.cloud_storage_discovery = runCloudStorageModule(domain, modules);
+
     const completedAt = new Date().toISOString();
 
     // Build full structured report
@@ -3098,6 +3711,13 @@ async function runScanEngine(scanId, domainId, domain, env) {
         )
         .run();
     }
+
+    // Phase 8: Asset Inventory Upsert — runs AFTER completion status is written.
+    // Failure here cannot leave the scan stuck in "running".
+    // Uses D1 batch() to minimise round-trips.
+    try {
+      await upsertAssetInventory(scanId, domainId, domain, modules, env);
+    } catch { /* non-fatal — inventory update will catch up on next scan */ }
 
   } catch (err) {
     // Best-effort: write failure state to R2 and D1.
@@ -4116,14 +4736,14 @@ export default {
       try {
         body = await request.json();
       } catch {
-        return json({ error: "Invalid JSON body" }, { status: 400 });
+        return json({ error: "Invalid JSON body" }, 400);
       }
 
       const domain      = body.domain?.trim().toLowerCase();
       const workspaceId = body.workspace_id ? String(body.workspace_id).trim() : null;
 
       if (!isValidDomain(domain)) {
-        return json({ error: "Invalid domain" }, { status: 400 });
+        return json({ error: "Invalid domain" }, 400);
       }
 
       // Optional workspace validation — 404 early if supplied ID doesn't exist
@@ -4133,7 +4753,7 @@ export default {
           .bind(workspaceId)
           .first();
         if (!ws) {
-          return json({ error: "Workspace not found" }, { status: 404 });
+          return json({ error: "Workspace not found" }, 404);
         }
       }
 
@@ -4271,12 +4891,12 @@ export default {
         .first();
 
       if (!scan) {
-        return json({ error: "Scan not found" }, { status: 404 });
+        return json({ error: "Scan not found" }, 404);
       }
 
       const obj = await env.cybermeters_reports.get(`reports/${scanId}.json`);
       if (!obj) {
-        return json({ error: "Report not found" }, { status: 404 });
+        return json({ error: "Report not found" }, 404);
       }
 
       const raw = await obj.json();
@@ -4350,7 +4970,7 @@ export default {
         .first();
 
       if (!scan) {
-        return json({ error: "Scan not found" }, { status: 404 });
+        return json({ error: "Scan not found" }, 404);
       }
 
       return json({
@@ -4369,7 +4989,7 @@ export default {
       const domain = decodeURIComponent(parts[3]);
 
       if (!isValidDomain(domain)) {
-        return json({ error: "Invalid domain" }, { status: 400 });
+        return json({ error: "Invalid domain" }, 400);
       }
 
       const history = await env.cybermeters_db
@@ -4391,17 +5011,17 @@ export default {
       try {
         body = await request.json();
       } catch {
-        return json({ error: "Invalid JSON body" }, { status: 400 });
+        return json({ error: "Invalid JSON body" }, 400);
       }
 
       const domain    = (body.domain || "").trim().toLowerCase();
       const frequency = (body.frequency || "daily").trim().toLowerCase();
 
       if (!isValidDomain(domain)) {
-        return json({ error: "Invalid domain" }, { status: 400 });
+        return json({ error: "Invalid domain" }, 400);
       }
       if (!["daily", "weekly"].includes(frequency)) {
-        return json({ error: "frequency must be 'daily' or 'weekly'" }, { status: 400 });
+        return json({ error: "frequency must be 'daily' or 'weekly'" }, 400);
       }
 
       // Create the table if it doesn't exist yet (idempotent)
@@ -4468,7 +5088,7 @@ export default {
     ) {
       const schedId = url.pathname.split("/").pop();
       if (!schedId) {
-        return json({ error: "Missing schedule id" }, { status: 400 });
+        return json({ error: "Missing schedule id" }, 400);
       }
 
       try {
@@ -4478,10 +5098,10 @@ export default {
           .run();
 
         if (result.meta?.changes === 0) {
-          return json({ error: "Schedule not found" }, { status: 404 });
+          return json({ error: "Schedule not found" }, 404);
         }
       } catch {
-        return json({ error: "Schedule not found" }, { status: 404 });
+        return json({ error: "Schedule not found" }, 404);
       }
 
       return json({ deleted: schedId });
@@ -4503,7 +5123,7 @@ export default {
           .prepare(`SELECT id, name, created_at FROM workspaces WHERE id = ?`)
           .bind(wsId).first();
       } catch { /* fall through */ }
-      if (!ws) return json({ error: "Workspace not found" }, { status: 404 });
+      if (!ws) return json({ error: "Workspace not found" }, 404);
 
       // 2. Stats (4 parallel D1 queries)
       const [domRow, scanRow, avgRow, latestRow] = await Promise.all([
@@ -4646,7 +5266,7 @@ export default {
           },
         });
       } catch (e) {
-        return json({ error: "PDF generation failed", detail: e.message }, { status: 500 });
+        return json({ error: "PDF generation failed", detail: e.message }, 500);
       }
     }
 
@@ -4658,7 +5278,7 @@ export default {
           .all();
         return json({ workspaces: result.results });
       } catch {
-        return json({ error: "Database error" }, { status: 500 });
+        return json({ error: "Database error" }, 500);
       }
     }
 
@@ -4668,7 +5288,7 @@ export default {
       try { body = await request.json(); } catch { body = {}; }
       const name = (body.name || "").trim();
       if (!name) {
-        return json({ error: "name is required" }, { status: 400 });
+        return json({ error: "name is required" }, 400);
       }
       const id         = `workspace_${crypto.randomUUID()}`;
       const created_at = new Date().toISOString();
@@ -4679,7 +5299,173 @@ export default {
           .run();
         return json({ workspace: { id, name, created_at } }, 201);
       } catch {
-        return json({ error: "Database error" }, { status: 500 });
+        return json({ error: "Database error" }, 500);
+      }
+    }
+
+    // ── /api/workspaces/:id/assets/* ────────────────────────────────────────
+    // Handles list, events, summary, timeline, and per-asset detail.
+    const assetsMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/assets(\/[^/]*)?$/);
+    if (assetsMatch && request.method === "GET") {
+      const wsId  = assetsMatch[1];
+      const sub   = assetsMatch[2] ?? "";   // "", "/events", "/summary", "/timeline", "/:assetId"
+
+      // Verify workspace exists and enforce tenant isolation
+      let ws;
+      try {
+        ws = await env.cybermeters_db
+          .prepare(`SELECT id FROM workspaces WHERE id = ?`)
+          .bind(wsId)
+          .first();
+      } catch {
+        return json({ error: "Database error" }, 500);
+      }
+      if (!ws) return json({ error: "Workspace not found" }, 404);
+
+      // ── GET /api/workspaces/:id/assets ───────────────────────────────────
+      if (sub === "") {
+        const statusFilter = url.searchParams.get("status");
+        const limit        = Math.min(parseInt(url.searchParams.get("limit") || "200", 10), 500);
+        try {
+          const where = statusFilter ? "AND status = ?" : "";
+          const binds = statusFilter ? [wsId, statusFilter, limit] : [wsId, limit];
+          const result = await env.cybermeters_db
+            .prepare(
+              `SELECT id, workspace_id, domain_id, hostname, asset_type, source,
+                      first_seen, last_seen, status, wildcard_dns,
+                      ip_addresses, cname, redirect_to, cloud_provider,
+                      risk_level, metadata_json, created_at, updated_at
+               FROM workspace_assets
+               WHERE workspace_id = ? ${where}
+               ORDER BY last_seen DESC LIMIT ?`
+            )
+            .bind(...binds)
+            .all();
+          return json({ workspace_id: wsId, count: result.results.length, assets: result.results });
+        } catch {
+          return json({ error: "Database error" }, 500);
+        }
+      }
+
+      // ── GET /api/workspaces/:id/assets/events ────────────────────────────
+      if (sub === "/events") {
+        const limit = Math.min(parseInt(url.searchParams.get("limit") || "100", 10), 500);
+        try {
+          const result = await env.cybermeters_db
+            .prepare(
+              `SELECT id, workspace_id, domain_id, asset_id, scan_id,
+                      event_type, hostname, severity, description, created_at
+               FROM asset_events
+               WHERE workspace_id = ?
+               ORDER BY created_at DESC LIMIT ?`
+            )
+            .bind(wsId, limit)
+            .all();
+          return json({ workspace_id: wsId, count: result.results.length, events: result.results });
+        } catch {
+          return json({ error: "Database error" }, 500);
+        }
+      }
+
+      // ── GET /api/workspaces/:id/assets/summary ───────────────────────────
+      if (sub === "/summary") {
+        try {
+          const [all, active, inactive, rootDomains, subdomains, exposedSvcs, cloudStorage, wildcardAssets, takeoverRisks] =
+            await env.cybermeters_db.batch([
+              env.cybermeters_db.prepare(`SELECT COUNT(*) AS n FROM workspace_assets WHERE workspace_id = ?`).bind(wsId),
+              env.cybermeters_db.prepare(`SELECT COUNT(*) AS n FROM workspace_assets WHERE workspace_id = ? AND status = 'active'`).bind(wsId),
+              env.cybermeters_db.prepare(`SELECT COUNT(*) AS n FROM workspace_assets WHERE workspace_id = ? AND status = 'inactive'`).bind(wsId),
+              env.cybermeters_db.prepare(`SELECT COUNT(*) AS n FROM workspace_assets WHERE workspace_id = ? AND asset_type = 'root_domain'`).bind(wsId),
+              env.cybermeters_db.prepare(`SELECT COUNT(*) AS n FROM workspace_assets WHERE workspace_id = ? AND asset_type = 'subdomain'`).bind(wsId),
+              env.cybermeters_db.prepare(`SELECT COUNT(*) AS n FROM workspace_assets WHERE workspace_id = ? AND asset_type = 'exposed_service'`).bind(wsId),
+              env.cybermeters_db.prepare(`SELECT COUNT(*) AS n FROM workspace_assets WHERE workspace_id = ? AND asset_type = 'cloud_storage'`).bind(wsId),
+              env.cybermeters_db.prepare(`SELECT COUNT(*) AS n FROM workspace_assets WHERE workspace_id = ? AND wildcard_dns = 1`).bind(wsId),
+              env.cybermeters_db.prepare(`SELECT COUNT(*) AS n FROM workspace_assets WHERE workspace_id = ? AND risk_level IN ('high','critical')`).bind(wsId),
+            ]);
+          return json({
+            workspace_id:       wsId,
+            total_assets:       all.results[0]?.n         ?? 0,
+            active_assets:      active.results[0]?.n      ?? 0,
+            inactive_assets:    inactive.results[0]?.n    ?? 0,
+            root_domains:       rootDomains.results[0]?.n ?? 0,
+            subdomains:         subdomains.results[0]?.n  ?? 0,
+            exposed_services:   exposedSvcs.results[0]?.n ?? 0,
+            cloud_storage_assets: cloudStorage.results[0]?.n ?? 0,
+            wildcard_assets:    wildcardAssets.results[0]?.n ?? 0,
+            takeover_risks:     takeoverRisks.results[0]?.n  ?? 0,
+          });
+        } catch {
+          return json({ error: "Database error" }, 500);
+        }
+      }
+
+      // ── GET /api/workspaces/:id/assets/timeline ──────────────────────────
+      if (sub === "/timeline") {
+        try {
+          const result = await env.cybermeters_db
+            .prepare(
+              `SELECT date(created_at) AS day, event_type, COUNT(*) AS count
+               FROM asset_events
+               WHERE workspace_id = ?
+               GROUP BY day, event_type
+               ORDER BY day ASC`
+            )
+            .bind(wsId)
+            .all();
+
+          // Pivot rows into { day, new_asset_discovered, asset_reappeared, ... }
+          const dayMap = new Map();
+          const EVENT_TYPES = [
+            "new_asset_discovered", "asset_reappeared", "asset_no_longer_seen",
+            "takeover_risk_detected", "wildcard_dns_detected", "cloud_storage_detected",
+          ];
+          for (const row of result.results) {
+            if (!dayMap.has(row.day)) {
+              const entry = { day: row.day };
+              for (const t of EVENT_TYPES) entry[t] = 0;
+              dayMap.set(row.day, entry);
+            }
+            if (EVENT_TYPES.includes(row.event_type)) {
+              dayMap.get(row.day)[row.event_type] = row.count;
+            }
+          }
+          return json({ workspace_id: wsId, timeline: [...dayMap.values()] });
+        } catch {
+          return json({ error: "Database error" }, 500);
+        }
+      }
+
+      // ── GET /api/workspaces/:id/assets/:assetId ──────────────────────────
+      {
+        const assetId = sub.slice(1);   // strip leading "/"
+        try {
+          const asset = await env.cybermeters_db
+            .prepare(
+              `SELECT id, workspace_id, domain_id, hostname, asset_type, source,
+                      first_seen, last_seen, status, wildcard_dns,
+                      ip_addresses, cname, redirect_to, cloud_provider,
+                      risk_level, metadata_json, created_at, updated_at
+               FROM workspace_assets
+               WHERE id = ? AND workspace_id = ?`
+            )
+            .bind(assetId, wsId)
+            .first();
+          if (!asset) return json({ error: "Asset not found" }, 404);
+
+          const eventsResult = await env.cybermeters_db
+            .prepare(
+              `SELECT id, scan_id, event_type, hostname, severity, description, created_at
+               FROM asset_events
+               WHERE asset_id = ? AND workspace_id = ?
+               ORDER BY created_at DESC LIMIT 50`
+            )
+            .bind(assetId, wsId)
+            .all();
+
+          return json({ asset, events: eventsResult.results });
+        } catch {
+          return json({ error: "Database error" }, 500);
+        }
       }
     }
 
@@ -4705,10 +5491,10 @@ export default {
           .bind(workspaceId)
           .first();
       } catch {
-        return json({ error: "Database error" }, { status: 500 });
+        return json({ error: "Database error" }, 500);
       }
       if (!workspace) {
-        return json({ error: "Workspace not found" }, { status: 404 });
+        return json({ error: "Workspace not found" }, 404);
       }
 
       // ── GET /api/workspaces/:id ── (with inline statistics) ──────────
@@ -4772,7 +5558,7 @@ export default {
             },
           });
         } catch {
-          return json({ error: "Database error" }, { status: 500 });
+          return json({ error: "Database error" }, 500);
         }
       }
 
@@ -4787,11 +5573,11 @@ export default {
             .bind(workspaceId, linkedDomainId)
             .run();
           if (del.meta.changes === 0) {
-            return json({ error: "Domain link not found" }, { status: 404 });
+            return json({ error: "Domain link not found" }, 404);
           }
           return json({ success: true, workspace_id: workspaceId, domain_id: linkedDomainId });
         } catch {
-          return json({ error: "Database error" }, { status: 500 });
+          return json({ error: "Database error" }, 500);
         }
       }
 
@@ -4822,7 +5608,7 @@ export default {
             .all();
           return json({ workspace_id: workspaceId, domains: result.results });
         } catch {
-          return json({ error: "Database error" }, { status: 500 });
+          return json({ error: "Database error" }, 500);
         }
       }
 
@@ -4866,12 +5652,12 @@ export default {
             201
           );
         } catch {
-          return json({ error: "Database error" }, { status: 500 });
+          return json({ error: "Database error" }, 500);
         }
       }
     }
 
-    return json({ error: "Not found" }, { status: 404 });
+    return json({ error: "Not found" }, 404);
   },
 
   // ── Cron Handler ──────────────────────────────────────────────────────
