@@ -312,7 +312,126 @@ async function runEmailModule(domain) {
   };
 }
 
-// ── Module 5: Subdomain Discovery (Certificate Transparency) ─────────────────
+// ── Module 5: Technology Detection ───────────────────────────────────────────
+// Ported from tech_fingerprint.py — collects response headers and infers the
+// technology stack.  Runs in Phase 1 parallel with the other core modules.
+// Never throws; returns { error } on failure so the scan pipeline continues.
+
+/** Return true if a string matches a version-like pattern (e.g. "PHP/8.1.2"). */
+function looksVersioned(s) {
+  if (!s) return false;
+  // Matches "/1.2", "/ 2", "1.2.3", " v2.4" etc.
+  return /[\/\s][0-9]+\.[0-9]/.test(s) || /[\/\s][0-9]{1,3}$/.test(s.trim());
+}
+
+async function runTechModule(domain) {
+  let res = null;
+  let bodySnippet = "";
+
+  try {
+    res = await safeFetch(`https://${domain}`, {
+      method:   "GET",
+      redirect: "follow",
+    });
+    if (res) {
+      // Read first 4 KB of body — enough for <script src> / vite markers in <head>
+      const reader = res.body?.getReader();
+      if (reader) {
+        const { value } = await reader.read();
+        reader.cancel();
+        if (value) bodySnippet = new TextDecoder().decode(value.slice(0, 4096));
+      }
+    }
+  } catch {
+    return { error: "Tech module fetch failed" };
+  }
+
+  if (!res) return { error: "Tech module: no response" };
+
+  const h = (name) => res.headers.get(name) ?? null;
+
+  const server     = h("server");
+  const poweredBy  = h("x-powered-by");
+  const ct         = h("content-type");
+  const hsts       = h("strict-transport-security");
+  const csp        = h("content-security-policy");
+  const xfo        = h("x-frame-options");
+  const xcto       = h("x-content-type-options");
+  const cfRay      = h("cf-ray");
+  const finalUrl   = res.url || `https://${domain}`;
+  const statusCode = res.status;
+
+  // ── Inferred technologies ────────────────────────────────────────────────
+  const technologies = [];
+
+  const serverLc    = (server    || "").toLowerCase();
+  const poweredByLc = (poweredBy || "").toLowerCase();
+  const bodyLc      = bodySnippet.toLowerCase();
+
+  if (cfRay || serverLc.includes("cloudflare"))          technologies.push("Cloudflare");
+  if (serverLc.includes("nginx"))                        technologies.push("nginx");
+  if (serverLc.includes("apache"))                       technologies.push("Apache");
+  if (serverLc.includes("iis"))                          technologies.push("Microsoft IIS");
+  if (serverLc.includes("openresty"))                    technologies.push("OpenResty");
+  if (serverLc.includes("litespeed"))                    technologies.push("LiteSpeed");
+  if (poweredByLc.includes("express"))                   technologies.push("Express");
+  if (poweredByLc.includes("php"))                       technologies.push("PHP");
+  if (poweredByLc.includes("asp.net"))                   technologies.push("ASP.NET");
+  if (poweredByLc.includes("next.js"))                   technologies.push("Next.js");
+  if (poweredByLc.includes("django"))                    technologies.push("Django");
+  if (bodyLc.includes("/assets/index-") ||
+      bodyLc.includes("vite") ||
+      bodyLc.includes("__vite_"))                        technologies.push("React/Vite");
+  if (!technologies.some(t => t === "React/Vite") &&
+      bodyLc.includes("_next/static"))                   technologies.push("Next.js");
+  if (bodyLc.includes("wp-content") ||
+      bodyLc.includes("wp-includes"))                    technologies.push("WordPress");
+  if (bodyLc.includes("drupal"))                         technologies.push("Drupal");
+  if (bodyLc.includes("joomla"))                         technologies.push("Joomla");
+
+  // ── Informational findings (no score impact) ─────────────────────────────
+  // Only raised when headers expose specific version strings — not for generic
+  // server names.  "Do not penalize generic Server header yet."
+  const infoFindings = [];
+
+  if (poweredBy && looksVersioned(poweredBy)) {
+    infoFindings.push({
+      id:           "tech_xpoweredby_version_disclosure",
+      severity:     "low",
+      title:        "X-Powered-By header exposes technology version",
+      description:  `The X-Powered-By header discloses a version string: "${poweredBy}". ` +
+                    "Attackers can use version information to target known CVEs. Remove or mask this header.",
+      score_impact: 0,
+    });
+  }
+
+  if (server && looksVersioned(server)) {
+    infoFindings.push({
+      id:           "tech_server_version_disclosure",
+      severity:     "low",
+      title:        "Server header exposes software version",
+      description:  `The Server header discloses a version string: "${server}". ` +
+                    "Consider configuring your web server to return a generic or empty Server header.",
+      score_impact: 0,
+    });
+  }
+
+  return {
+    final_url:                 finalUrl,
+    status_code:               statusCode,
+    server,
+    x_powered_by:              poweredBy,
+    content_type:              ct,
+    strict_transport_security: hsts,
+    content_security_policy:   csp,
+    x_frame_options:           xfo,
+    x_content_type_options:    xcto,
+    technologies:              [...new Set(technologies)],  // deduplicate
+    info_findings:             infoFindings,
+  };
+}
+
+// ── Module 6: Subdomain Discovery (Certificate Transparency) ─────────────────
 
 /**
  * Subdomain names whose presence suggests a development, staging, or
@@ -678,6 +797,1007 @@ async function runExposureModule(domain, subdomains) {
     assets,
     source,
     error: null,
+  };
+}
+
+// ── Intelligence Module: CVE Correlation ─────────────────────────────────────
+// Ported from cve_lookup.py — queries NVD API for technologies detected by
+// runTechModule.  Only queries technologies present in ALLOWED_CVE_TECHNOLOGIES.
+// Limited to 3 technologies and 5 CVEs each to bound runtime inside ctx.waitUntil.
+// Never throws; returns graceful empty results on failure.
+
+/** Technologies we query the NVD for — mirrors cve_lookup.py ALLOWED_CVE_TECHNOLOGIES */
+const ALLOWED_CVE_TECHNOLOGIES = new Set([
+  "apache", "nginx", "iis", "wordpress", "drupal", "joomla", "php",
+  "tomcat", "jetty", "node.js", "express", "django", "flask", "rails",
+  "ruby", "python", "perl", "cgi", "asp.net", "openresty", "lighttpd",
+  "caddy", "tengine",
+]);
+
+/** NVD keyword search terms — mirrors cve_lookup.py keyword_map */
+const CVE_KEYWORD_MAP = {
+  "apache":    "apache http server",
+  "nginx":     "nginx",
+  "iis":       "microsoft iis",
+  "wordpress": "wordpress",
+  "drupal":    "drupal",
+  "joomla":    "joomla",
+  "php":       "php",
+  "tomcat":    "apache tomcat",
+  "jetty":     "eclipse jetty",
+  "node.js":   "node.js",
+  "express":   "expressjs",
+  "django":    "django",
+  "flask":     "flask",
+  "rails":     "ruby on rails",
+  "asp.net":   "asp.net",
+  "openresty": "openresty",
+  "lighttpd":  "lighttpd",
+};
+
+/**
+ * Normalise a raw header/technology string to a known canonical name.
+ * Mirrors cve_lookup.py normalize_technology().
+ */
+function normalizeTechnology(tech) {
+  if (!tech) return null;
+  const t = tech.toLowerCase().trim();
+  const map = {
+    "apache": "apache",        "apache/": "apache",      "apache httpd": "apache",
+    "nginx": "nginx",          "nginx/": "nginx",
+    "iis": "iis",              "microsoft-iis": "iis",   "microsoft iis": "iis",
+    "wordpress": "wordpress",  "wp": "wordpress",
+    "drupal": "drupal",        "joomla": "joomla",
+    "php": "php",              "php/": "php",
+    "tomcat": "tomcat",        "apache-tomcat": "tomcat",
+    "jetty": "jetty",          "eclipse-jetty": "jetty",
+    "node.js": "node.js",      "nodejs": "node.js",
+    "express": "express",      "expressjs": "express",
+    "django": "django",        "flask": "flask",
+    "rails": "rails",          "ruby on rails": "rails",
+    "ruby": "ruby",            "python": "python",       "perl": "perl",
+    "cgi": "cgi",              "asp.net": "asp.net",     "aspnet": "asp.net",
+    "openresty": "openresty",  "lighttpd": "lighttpd",
+    "caddy": "caddy",          "tengine": "tengine",
+  };
+  if (map[t]) return map[t];
+  for (const [key, val] of Object.entries(map)) {
+    if (t.includes(key)) return val;
+  }
+  return null;
+}
+
+/** Query NVD for HIGH+ CVEs for a single technology.  Returns [] on any failure. */
+async function lookupCvesForTechnology(techName, maxResults = 5) {
+  if (!ALLOWED_CVE_TECHNOLOGIES.has(techName)) return [];
+  const keyword = CVE_KEYWORD_MAP[techName] || techName;
+  const url = new URL("https://services.nvd.nist.gov/rest/json/cves/2.0");
+  url.searchParams.set("keywordSearch",   keyword);
+  url.searchParams.set("resultsPerPage",  String(maxResults));
+  url.searchParams.set("cvssV3Severity",  "HIGH");
+  try {
+    const res = await safeFetch(url.toString(), {
+      headers: { "User-Agent": "CyberMeters-Scanner/1.0" },
+      signal:  AbortSignal.timeout(10_000),
+    });
+    if (!res || res.status !== 200) return [];
+    const data = await res.json();
+    const cves = [];
+    for (const item of (data.vulnerabilities || []).slice(0, maxResults)) {
+      const cve  = item.cve || {};
+      const cveId = cve.id;
+      let description = "";
+      for (const d of (cve.descriptions || [])) {
+        if (d.lang === "en") { description = d.value || ""; break; }
+      }
+      const metrics = cve.metrics || {};
+      let cvssScore = null, severity = "UNKNOWN";
+      if (metrics.cvssMetricV31?.length) {
+        const m = metrics.cvssMetricV31[0].cvssData || {};
+        cvssScore = m.baseScore; severity = m.baseSeverity || "UNKNOWN";
+      } else if (metrics.cvssMetricV30?.length) {
+        const m = metrics.cvssMetricV30[0].cvssData || {};
+        cvssScore = m.baseScore; severity = m.baseSeverity || "UNKNOWN";
+      } else if (metrics.cvssMetricV2?.length) {
+        const m = metrics.cvssMetricV2[0].cvssData || {};
+        cvssScore = m.baseScore;
+        severity = cvssScore >= 7 ? "HIGH" : cvssScore >= 4 ? "MEDIUM" : "LOW";
+      }
+      if (cveId) {
+        cves.push({
+          cve_id:      cveId,
+          severity,
+          cvss_score:  cvssScore,
+          description: description.length > 300 ? description.slice(0, 297) + "..." : description,
+          technology:  techName,
+        });
+      }
+    }
+    return cves;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Run CVE correlation for detected technologies.
+ * Ported from cve_lookup.correlate_cves() — limits to 3 technologies,
+ * 300ms delay between NVD requests to respect free-tier rate limits,
+ * skips exploit-db check (Worker network budget).
+ */
+async function runCveModule(techModule) {
+  if (!techModule || techModule.error) {
+    return {
+      technologies_checked: [], results: {}, total_cves: 0,
+      critical_count: 0, high_count: 0, source: "nvd_api",
+    };
+  }
+
+  // Collect candidates from inferred tech list + raw header values
+  const candidates = new Set();
+  for (const t of (techModule.technologies || [])) {
+    const n = normalizeTechnology(t);
+    if (n && ALLOWED_CVE_TECHNOLOGIES.has(n)) candidates.add(n);
+  }
+  for (const header of [techModule.server, techModule.x_powered_by]) {
+    const n = normalizeTechnology(header || "");
+    if (n && ALLOWED_CVE_TECHNOLOGIES.has(n)) candidates.add(n);
+  }
+
+  // Limit to 3 to bound runtime (NVD free tier: no API key → 5 req/30s)
+  const toCheck = [...candidates].slice(0, 3);
+  const results = {};
+  let totalCves = 0, criticalCount = 0, highCount = 0;
+
+  for (const tech of toCheck) {
+    const cves = await lookupCvesForTechnology(tech);
+    if (cves.length > 0) {
+      results[tech] = cves;
+      totalCves   += cves.length;
+      for (const c of cves) {
+        if (c.severity === "CRITICAL") criticalCount++;
+        else if (c.severity === "HIGH") highCount++;
+      }
+    }
+    // Respect NVD free-tier rate limit between requests
+    if (toCheck.indexOf(tech) < toCheck.length - 1) {
+      await new Promise(r => setTimeout(r, 300));
+    }
+  }
+
+  return {
+    technologies_checked: toCheck,
+    results,
+    total_cves:     totalCves,
+    critical_count: criticalCount,
+    high_count:     highCount,
+    source:         "nvd_api",
+  };
+}
+
+// ── Intelligence Module: CISA KEV Lookup ─────────────────────────────────────
+// Ported from kev_lookup.py — fetches the CISA Known Exploited Vulnerabilities
+// catalog and matches against detected technologies (keyword match on product /
+// vendor fields) AND any CVE IDs returned by runCveModule (exact match).
+// Runs in parallel with runCveModule; CVE ID cross-referencing is done inside
+// runRiskModule after both complete.
+
+const CISA_KEV_URL =
+  "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json";
+
+/**
+ * Fetch CISA KEV catalog and match against detected technologies.
+ * Ported from kev_lookup.correlate_kev() with added technology keyword matching.
+ */
+async function runKevModule(techModule) {
+  const detectedTechs = (techModule?.technologies || []).map(t => t.toLowerCase());
+  // Include normalised server/x-powered-by values as additional keyword hints
+  for (const h of [techModule?.server, techModule?.x_powered_by]) {
+    const n = normalizeTechnology(h || "");
+    if (n && !detectedTechs.includes(n)) detectedTechs.push(n);
+  }
+
+  try {
+    const res = await safeFetch(CISA_KEV_URL, { signal: AbortSignal.timeout(15_000) });
+    if (!res || res.status !== 200) {
+      return { matches: [], checked: 0, matched: 0, source: "cisa_kev", error: "KEV catalog fetch failed" };
+    }
+    const data = await res.json();
+    const vulnerabilities = data.vulnerabilities || [];
+    const matches = [];
+
+    for (const vuln of vulnerabilities) {
+      const product = (vuln.product        || "").toLowerCase();
+      const vendor  = (vuln.vendorProject   || "").toLowerCase();
+      // Keyword match: does the KEV product/vendor mention any of our detected techs?
+      const techMatch = detectedTechs.some(t => t.length >= 3 && (product.includes(t) || vendor.includes(t)));
+      if (!techMatch) continue;
+      matches.push({
+        cve_id:              vuln.cveID,
+        vendor_project:      vuln.vendorProject,
+        product:             vuln.product,
+        vulnerability_name:  vuln.vulnerabilityName,
+        date_added:          vuln.dateAdded,
+        required_action:     vuln.requiredAction,
+        due_date:            vuln.dueDate,
+        short_description:   vuln.shortDescription || "",
+        match_type:          "technology_keyword",
+      });
+    }
+
+    // Most recently added exploited vulns first
+    matches.sort((a, b) => (b.date_added || "").localeCompare(a.date_added || ""));
+
+    // Cap at 25 to avoid bloating the report JSON
+    const capped = matches.slice(0, 25);
+
+    return {
+      matches:    capped,
+      checked:    vulnerabilities.length,
+      matched:    capped.length,
+      source:     "cisa_kev",
+    };
+  } catch (err) {
+    return {
+      matches: [], checked: 0, matched: 0,
+      source:  "cisa_kev",
+      error:   err.message ?? "KEV module failed",
+    };
+  }
+}
+
+// ── Intelligence Module: Risk Engine ─────────────────────────────────────────
+// Ported from risk_engine.py — maps findings to business risk categories with
+// improved business-impact language.  Pure computation, no I/O.
+// Adds a KEV business-impact summary when kev matches are present.
+
+/** Per-finding business-impact annotations keyed by finding id */
+const RISK_CATEGORY_MAP = {
+  "dns_no_resolution":                  { category: "Availability",    impact: "Domain resolution failure prevents all customer access and online business operations." },
+  "ssl_expired":                        { category: "Data Security",   impact: "Expired certificate causes browser warnings and exposes users to man-in-the-middle attacks, risking loss of transaction integrity and customer trust." },
+  "ssl_expiring_soon":                  { category: "Availability",    impact: "Certificate expiry within days will cause customer-facing service outages and potential data interception if not renewed." },
+  "ssl_no_https":                       { category: "Data Security",   impact: "Unencrypted HTTP communications expose customer credentials and sensitive data to network-level interception." },
+  "ssl_no_redirect":                    { category: "Data Security",   impact: "Missing HTTP→HTTPS redirect allows clients to transmit data unencrypted, creating data leakage risk and browser security warnings." },
+  "headers_csp_missing":                { category: "Web Security",    impact: "Absence of Content-Security-Policy enables cross-site scripting attacks that can steal user sessions, inject malicious code, and exfiltrate data." },
+  "headers_hsts_missing":               { category: "Data Security",   impact: "Without HSTS enforcement, users can be silently downgraded to unencrypted HTTP connections subject to credential theft." },
+  "headers_xfo_missing":                { category: "Web Security",    impact: "Clickjacking attacks can deceive users into performing unintended actions, including credential submission and financial transactions." },
+  "headers_referrer_missing":           { category: "Web Security",    impact: "Sensitive URL parameters and paths may be leaked to third-party services via the Referer header." },
+  "headers_permissions_missing":        { category: "Web Security",    impact: "Unrestricted browser API access (camera, microphone, location) increases the blast radius of any XSS vulnerability." },
+  "email_no_spf":                       { category: "Brand Risk",      impact: "Attackers can send phishing email impersonating your domain to customers and partners, undermining brand trust and enabling fraud." },
+  "email_no_dmarc":                     { category: "Brand Risk",      impact: "Without DMARC, email spoofing is trivially exploitable. Creates regulatory exposure under GDPR/FCA where email fraud targeting customers is reportable." },
+  "email_weak_dmarc":                   { category: "Brand Risk",      impact: "DMARC in monitoring-only mode provides visibility but no protection. Spoofed emails still reach recipients." },
+  "email_no_dkim":                      { category: "Brand Risk",      impact: "Missing DKIM allows attackers to forge email content in transit without detection." },
+  "subdomain_takeover_risk":            { category: "Data Security",   impact: "Attackers can claim unclaimed DNS targets and serve malicious content or phishing pages under your trusted domain, bypassing browser security controls." },
+  "tech_xpoweredby_version_disclosure": { category: "Reconnaissance",  impact: "Version disclosure accelerates targeted exploitation by eliminating attacker reconnaissance time for known CVEs." },
+  "tech_server_version_disclosure":     { category: "Reconnaissance",  impact: "Exposed server version enables immediate targeting of known CVEs specific to your software revision." },
+};
+
+/** Default business impact narratives by severity when no specific mapping exists */
+const SEVERITY_DEFAULT_IMPACT = {
+  critical: "Immediate threat to business continuity, customer data, or regulatory compliance. Executive escalation required.",
+  high:     "Significant security risk with active exploitation potential. Remediation required within 30 days.",
+  medium:   "Moderate risk that broadens the attack surface. Schedule remediation within 90 days.",
+  low:      "Low-impact finding that improves defence-in-depth. Address in next maintenance cycle.",
+};
+
+/**
+ * Enrich findings with business risk context and generate a risk narrative.
+ * Ported from risk_engine.generate_findings() and calculate_attack_surface_score()
+ * with enhanced business-impact language.
+ */
+function runRiskModule(findings, modules) {
+  const categories = {
+    "Data Security":  [],
+    "Web Security":   [],
+    "Brand Risk":     [],
+    "Availability":   [],
+    "Reconnaissance": [],
+    "Other":          [],
+  };
+
+  let criticalCount = 0, highCount = 0, mediumCount = 0, lowCount = 0;
+  const enrichedFindings = [];
+
+  for (const f of findings) {
+    const sev = (f.severity || "").toLowerCase();
+    if (sev === "critical")    criticalCount++;
+    else if (sev === "high")   highCount++;
+    else if (sev === "medium") mediumCount++;
+    else if (sev === "low")    lowCount++;
+
+    const mapped  = RISK_CATEGORY_MAP[f.id] || null;
+    const category       = mapped?.category || "Other";
+    const businessImpact = mapped?.impact   || SEVERITY_DEFAULT_IMPACT[sev] || "";
+
+    const enriched = { ...f, business_impact: businessImpact, risk_category: category };
+    enrichedFindings.push(enriched);
+    categories[category].push(enriched);
+  }
+
+  // KEV matches warrant a board-level risk notice regardless of score
+  const kevMatches = modules.known_exploited_vulnerabilities?.matches || [];
+  if (kevMatches.length > 0) {
+    const kevNote = {
+      id:             "kev_active_exploitation",
+      severity:       "critical",
+      title:          `${kevMatches.length} CISA Known Exploited Vulnerabilit${kevMatches.length === 1 ? "y" : "ies"} detected in technology stack`,
+      description:    "Vulnerabilities on the CISA KEV list carry confirmed active exploitation evidence. CISA mandates remediation for US federal systems; all organisations should treat these as immediate priorities.",
+      business_impact:"Active exploitation confirmed. Material risk of ransomware, data breach, or regulatory penalty (GDPR breach notification obligation may apply). Board-level escalation warranted.",
+      risk_category:  "Data Security",
+      score_impact:   0,
+    };
+    enrichedFindings.unshift(kevNote);
+    categories["Data Security"].unshift(kevNote);
+    criticalCount++;
+  }
+
+  // CVE intelligence summary
+  const cveIntel = modules.cve_intelligence || {};
+  if ((cveIntel.critical_count || 0) > 0 || (cveIntel.high_count || 0) > 0) {
+    const cveNote = {
+      id:             "cve_high_severity_detected",
+      severity:       cveIntel.critical_count > 0 ? "critical" : "high",
+      title:          `${cveIntel.total_cves} known CVE${cveIntel.total_cves !== 1 ? "s" : ""} matched to detected technology stack`,
+      description:    `NVD lookup matched ${cveIntel.total_cves} CVE(s) across ${(cveIntel.technologies_checked || []).join(", ")}. ${cveIntel.critical_count || 0} critical, ${cveIntel.high_count || 0} high severity.`,
+      business_impact:"Known vulnerabilities in deployed technologies increase the likelihood of exploitation by automated scanners and targeted attacks. Immediate patching or compensating controls required.",
+      risk_category:  "Data Security",
+      score_impact:   0,
+    };
+    enrichedFindings.push(cveNote);
+    categories["Data Security"].push(cveNote);
+    if (cveNote.severity === "critical") criticalCount++;
+    else highCount++;
+  }
+
+  // Build overall risk narrative
+  let overallRisk, narrative;
+  if (criticalCount > 0) {
+    overallRisk = "Critical";
+    narrative   = `${criticalCount} critical issue${criticalCount > 1 ? "s require" : " requires"} immediate executive attention. Business operations, customer data, or regulatory compliance are at direct risk.`;
+  } else if (highCount > 0) {
+    overallRisk = "High";
+    narrative   = `${highCount} high-severity issue${highCount > 1 ? "s present" : " presents"} significant security risk. These should be addressed within 30 days to reduce exposure to active threat actors.`;
+  } else if (mediumCount > 0) {
+    overallRisk = "Moderate";
+    narrative   = `${mediumCount} medium-severity issue${mediumCount > 1 ? "s have been" : " has been"} identified. These findings expand the attack surface and should be included in the next security roadmap cycle.`;
+  } else {
+    overallRisk = "Low";
+    narrative   = "No critical or high-severity issues detected. Continue security monitoring and address any low-severity findings in the next maintenance cycle.";
+  }
+
+  // Drop empty categories before returning
+  const populatedCategories = {};
+  for (const [cat, items] of Object.entries(categories)) {
+    if (items.length > 0) populatedCategories[cat] = items;
+  }
+
+  return {
+    overall_risk_level: overallRisk,
+    narrative,
+    risk_categories:    populatedCategories,
+    finding_counts:     { critical: criticalCount, high: highCount, medium: mediumCount, low: lowCount },
+    enriched_findings:  enrichedFindings,
+  };
+}
+
+// ── Intelligence Module: Remediation Prioritization ──────────────────────────
+// Ported from remediation_prioritization.py — converts findings into a P1/P2/P3
+// remediation roadmap keyed for the executive PDF report.
+// KEV matches always become P1 regardless of CVSS.
+// Subdomain takeover risks also escalate to P1 (attacker can serve content under
+// the domain).
+
+/**
+ * Generate a prioritised remediation plan from findings, KEV matches, and
+ * takeover risks.  Pure computation, no I/O.
+ * Ported from remediation_prioritization.generate_remediation_plan().
+ */
+function runRemediationModule(findings, kevModule, takeoverModule) {
+  const p1 = [];  // Immediate — KEV + Critical + Takeover
+  const p2 = [];  // High priority — High severity
+  const p3 = [];  // Planned — Medium + Low
+
+  // 1. KEV matches → always P1 (mirrors remediation_prioritization.py)
+  for (const match of (kevModule?.matches || [])) {
+    p1.push({
+      title:    `Remediate ${match.cve_id} — ${match.vulnerability_name || match.product || "Known Exploited Vulnerability"}`,
+      reason:   "Listed in CISA Known Exploited Vulnerabilities catalog with confirmed active exploitation in the wild.",
+      action:   match.required_action || "Apply vendor security update per CISA advisory immediately.",
+      source:   "cisa_kev",
+      cve_id:   match.cve_id,
+      due_date: match.due_date || null,
+    });
+  }
+
+  // 2. Subdomain takeover risks → P1 (attacker-controlled content under your domain)
+  for (const risk of (takeoverModule?.risks || [])) {
+    const host = risk.subdomain || risk.hostname || risk.cname || "unknown";
+    p1.push({
+      title:  `Reclaim dangling DNS record for ${host}`,
+      reason: risk.risk_reason || "Unclaimed subdomain CNAME target allows an attacker to take over this hostname.",
+      action: "Delete the dangling CNAME record or re-register the cloud service the CNAME points to.",
+      source: "subdomain_takeover",
+    });
+  }
+
+  // 3. Scan findings by severity
+  for (const f of findings) {
+    const sev = (f.severity || "").toLowerCase();
+    if (sev === "informational") continue;  // Informational items not actionable enough for roadmap
+
+    const item = {
+      title:  f.title || f.id,
+      reason: `${f.severity} severity — ${f.description?.slice(0, 120) || ""}`.trim(),
+      action: f.recommendation || "Review and remediate per security best practices.",
+      source: f.module || "scan",
+    };
+
+    if (sev === "critical")                    p1.push(item);
+    else if (sev === "high")                   p2.push(item);
+    else if (sev === "medium" || sev === "low") p3.push(item);
+  }
+
+  // De-duplicate by title (KEV items may overlap with CVE findings from computeScore)
+  const dedup = (list) => {
+    const seen = new Set();
+    return list.filter(item => {
+      if (seen.has(item.title)) return false;
+      seen.add(item.title);
+      return true;
+    });
+  };
+
+  const cleanP1 = dedup(p1);
+  const cleanP2 = dedup(p2);
+  const cleanP3 = dedup(p3);
+
+  return {
+    p1_immediate:  cleanP1,
+    p2_high:       cleanP2,
+    p3_medium_low: cleanP3,
+    summary: {
+      p1_count: cleanP1.length,
+      p2_count: cleanP2.length,
+      p3_count: cleanP3.length,
+      total:    cleanP1.length + cleanP2.length + cleanP3.length,
+    },
+  };
+}
+
+// ── Intelligence Module: Email Security Intelligence ─────────────────────────
+// Ported from email_security/ package:
+//   spf.py, dmarc.py, mta_sts.py, tls_rpt.py, starttls.py,
+//   scoring.py, intelligence.py, business_impact.py
+//
+// Design decisions vs. Python originals:
+//   • SPF + DMARC + DKIM: reuses runEmailModule DNS results (no extra queries)
+//   • MTA-STS: HTTP fetch to https://mta-sts.<domain>/.well-known/mta-sts.txt
+//   • TLS-RPT: new DNS TXT query on _smtp._tls.<domain> via existing dnsQuery()
+//   • STARTTLS: raw TCP port 25 is unavailable in Worker runtime → structured stub
+//   • Score weights preserved exactly from scoring.py v1.1:
+//       DMARC=50, SPF=20, DKIM=20, MTA-STS=5, TLS-RPT=5
+//   • All failures are swallowed; no scan can fail because of this module
+
+/** Parse a DMARC TXT record string into key→value pairs */
+function parseDmarcRecord(record) {
+  if (!record) return {};
+  const out = {};
+  for (const chunk of record.split(";")) {
+    const part = chunk.trim();
+    if (!part.includes("=")) continue;
+    const eq  = part.indexOf("=");
+    const key = part.slice(0, eq).trim().toLowerCase();
+    const val = part.slice(eq + 1).trim().replace(/^"(.*)"$/, "$1");
+    if (["p", "sp", "rua", "ruf", "adkim", "aspf"].includes(key)) {
+      out[key] = val;
+    } else if (key === "pct") {
+      const n = parseInt(val, 10);
+      out.pct = isNaN(n) ? 100 : Math.max(0, Math.min(100, n));
+    } else {
+      out[key] = val;
+    }
+  }
+  return out;
+}
+
+/**
+ * Enrich existing SPF result (from runEmailModule) with status/score/issue.
+ * Ported from spf.py analyze_spf() — status enum: PASS / SOFTFAIL / FAIL / PARTIAL / MISSING.
+ */
+function enrichSpf(emailMod) {
+  const spf    = emailMod?.spf || {};
+  const record = spf.record || null;
+  if (!spf.present || !record) {
+    return { status: "MISSING", record: null, score: 0, issue: "No SPF record found." };
+  }
+  if (record.includes("+all")) {
+    return { status: "FAIL",     record, score: 5,  issue: "SPF uses +all — any mail server is authorised to send on behalf of this domain." };
+  }
+  if (record.includes("-all")) {
+    return { status: "PASS",     record, score: 20, issue: "" };
+  }
+  if (record.includes("~all")) {
+    return { status: "SOFTFAIL", record, score: 15, issue: "SPF uses ~all (softfail) — not fully strict." };
+  }
+  return   { status: "PARTIAL", record, score: 10, issue: "SPF record present but does not end with -all." };
+}
+
+/**
+ * Enrich existing DMARC result (from runEmailModule) with full policy breakdown.
+ * Ported from dmarc.py DMARCScanner.scan() — parses pct, sp, rua, ruf from raw record.
+ * Status enum: FULLY_PROTECTED / PARTIAL_PROTECTED / REPORTING_ONLY / MISSING / ERROR
+ */
+function enrichDmarc(emailMod) {
+  const dmarc     = emailMod?.dmarc || {};
+  const rawRecord = dmarc.record || null;
+
+  if (!dmarc.present || !rawRecord) {
+    return {
+      status: "MISSING", policy: null, subdomain_policy: null, pct: 0,
+      rua: null, ruf: null, risk_level: "CRITICAL",
+      message: "DMARC record not found. Email spoofing risk is high.",
+      record: null,
+    };
+  }
+
+  const parsed = parseDmarcRecord(rawRecord);
+  const policy = parsed.p    || "none";
+  const sp     = parsed.sp   || null;
+  const pct    = typeof parsed.pct === "number" ? parsed.pct : 100;
+  const rua    = parsed.rua  || null;
+  const ruf    = parsed.ruf  || null;
+
+  let status, riskLevel, message;
+  if (policy === "reject" && pct === 100) {
+    status = "FULLY_PROTECTED";   riskLevel = "LOW";
+    message = "Full DMARC protection active (p=reject, pct=100).";
+  } else if (policy === "reject" && pct < 100) {
+    status = "PARTIAL_PROTECTED"; riskLevel = "MEDIUM";
+    message = `DMARC protection is partial (p=reject, pct=${pct}).`;
+  } else if (policy === "quarantine" && pct === 100) {
+    status = "PARTIAL_PROTECTED"; riskLevel = "MEDIUM";
+    message = "Quarantine policy is active (pct=100). Move to p=reject for full protection.";
+  } else if (policy === "quarantine" && pct < 100) {
+    status = "PARTIAL_PROTECTED"; riskLevel = "HIGH";
+    message = `Quarantine policy is partial (pct=${pct}).`;
+  } else if (policy === "none") {
+    status = "REPORTING_ONLY";    riskLevel = "HIGH";
+    message = "DMARC is in reporting-only mode (p=none). Enforcement is not active.";
+  } else {
+    status = "ERROR";             riskLevel = "HIGH";
+    message = `Unknown or unparseable DMARC policy: '${policy}'.`;
+  }
+
+  return { status, policy, subdomain_policy: sp, pct, rua, ruf, risk_level: riskLevel, message, record: rawRecord };
+}
+
+/**
+ * Enrich existing DKIM result (from runEmailModule).
+ * Status: VERIFIED (selector found) / NOT_VERIFIED (no selector found).
+ */
+function enrichDkim(emailMod) {
+  const dkim = emailMod?.dkim || {};
+  if (dkim.present && dkim.selector) {
+    return { status: "VERIFIED",     selector: dkim.selector, issue: "" };
+  }
+  return   { status: "NOT_VERIFIED", selector: null,          issue: "No DKIM record found on common selectors." };
+}
+
+/**
+ * Fetch and parse MTA-STS policy.
+ * Ported from mta_sts.py analyze_mta_sts() — HTTP GET, not DNS.
+ */
+async function fetchMtaSts(domain) {
+  const result = { enabled: false, policy_mode: null, mx_patterns: [], max_age: null, errors: [] };
+  try {
+    const res = await safeFetch(`https://mta-sts.${domain}/.well-known/mta-sts.txt`, {
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res || res.status !== 200) return result;
+    result.enabled = true;
+    const text = await res.text();
+    for (const raw of text.split(/\r?\n/)) {
+      const line = raw.trim();
+      if (line.startsWith("mode:")) {
+        result.policy_mode = line.split(":", 2)[1]?.trim() || null;
+      } else if (line.startsWith("mx:")) {
+        const mx = line.split(":", 2)[1]?.trim();
+        if (mx) result.mx_patterns.push(mx);
+      } else if (line.startsWith("max_age:")) {
+        const n = parseInt((line.split(":", 2)[1] || "").trim(), 10);
+        if (!isNaN(n)) result.max_age = n;
+      }
+    }
+  } catch (e) {
+    result.errors.push(e?.message ?? "MTA-STS fetch failed");
+  }
+  return result;
+}
+
+/**
+ * Check TLS-RPT DNS record.
+ * Ported from tls_rpt.py analyze_tls_rpt() — queries _smtp._tls.<domain> TXT.
+ */
+async function checkTlsRpt(domain) {
+  const recordName = `_smtp._tls.${domain}`;
+  const result = { enabled: false, record_name: recordName, record: null, reporting_uris: [], errors: [] };
+  try {
+    const res     = await dnsQuery(recordName, "TXT");
+    const answers = res?.Answer || [];
+    for (const ans of answers) {
+      const txt = ans.data || "";
+      if (txt.toLowerCase().startsWith("v=tlsrptv1")) {
+        result.enabled = true;
+        result.record  = txt;
+        for (const part of txt.split(";")) {
+          const p = part.trim();
+          if (p.toLowerCase().startsWith("rua=")) {
+            result.reporting_uris = p.slice(p.indexOf("=") + 1)
+              .split(",").map(u => u.trim()).filter(Boolean);
+          }
+        }
+        return result;
+      }
+    }
+    if (answers.length > 0) result.errors.push("No valid TLS-RPT record found (missing v=TLSRPTv1).");
+    else                    result.errors.push("No TXT record found at " + recordName + ".");
+  } catch (e) {
+    result.errors.push(e?.message ?? "TLS-RPT DNS query failed");
+  }
+  return result;
+}
+
+/**
+ * STARTTLS — cannot open raw TCP sockets from Cloudflare Worker runtime.
+ * Returns structured stub preserving starttls.py data model with MX records
+ * from the existing DNS module so the data is still useful.
+ */
+function buildStarttlsStub(dnsModule) {
+  const mxRecords = (dnsModule?.mx_records || []).map(r => {
+    const raw    = (r.value || "").trim();
+    const parts  = raw.split(/\s+/);
+    const host   = parts[parts.length - 1].replace(/\.$/, "");
+    const prio   = parts.length >= 2 ? parseInt(parts[0], 10) : 0;
+    return { priority: isNaN(prio) ? 0 : prio, host };
+  });
+  return {
+    method:                   "not_supported_in_worker_runtime",
+    warning:                  "Raw SMTP connections to port 25 cannot be established from Cloudflare Worker runtime. STARTTLS support cannot be tested directly. Use a dedicated server-side probe for full STARTTLS validation.",
+    mx_records:               mxRecords,
+    starttls_supported_hosts: null,
+    starttls_failed_hosts:    null,
+    score:                    null,
+  };
+}
+
+/**
+ * Compute weighted email security score.
+ * Ported from scoring.py EmailScoringEngine v1.1.
+ * Weights: DMARC=50, SPF=20, DKIM=20, MTA-STS=5, TLS-RPT=5 (exact match).
+ * DMARC interpolation bands preserved exactly (reject 75-100%, quarantine 37.5-62.5%).
+ */
+function computeEmailScore(spf, dmarc, dkim, mtaSts, tlsRpt) {
+  const W = { spf: 20, dkim: 20, dmarc: 50, mta_sts: 5, tls_rpt: 5 };
+
+  // SPF — mirrors _score_spf()
+  let spfScore = 0;
+  switch (spf.status) {
+    case "PASS":     spfScore = W.spf; break;
+    case "SOFTFAIL": spfScore = Math.round(W.spf * 0.75); break;
+    case "PARTIAL":  spfScore = Math.round(W.spf * 0.50); break;
+    case "FAIL":     spfScore = Math.round(W.spf * 0.25); break;
+    // MISSING → 0
+  }
+
+  // DKIM — mirrors _score_dkim()
+  let dkimScore = 0;
+  if (dkim.status === "VERIFIED")     dkimScore = W.dkim;
+  else if (dkim.status === "NOT_VERIFIED") dkimScore = Math.round(W.dkim * 0.5);
+
+  // DMARC — mirrors _score_dmarc() with exact fraction bands
+  let dmarcScore = 0;
+  const dPolicy = dmarc.policy || "none";
+  const dPct    = typeof dmarc.pct === "number" ? Math.max(0, Math.min(100, dmarc.pct)) : 100;
+  if (dmarc.status === "MISSING") {
+    dmarcScore = 0;
+  } else if (dmarc.status === "ERROR") {
+    dmarcScore = Math.round(W.dmarc * 0.125);                            // 6
+  } else if (dPolicy === "reject") {
+    // 75%→100% of weight interpolated by pct  (38 .. 50)
+    dmarcScore = Math.round(W.dmarc * 0.75 + W.dmarc * 0.25 * (dPct / 100));
+  } else if (dPolicy === "quarantine") {
+    // 37.5%→62.5% of weight interpolated by pct  (19 .. 31)
+    dmarcScore = Math.round(W.dmarc * 0.375 + W.dmarc * 0.25 * (dPct / 100));
+  } else {
+    // none or unknown — fixed at 25%  (13)
+    dmarcScore = Math.round(W.dmarc * 0.25);
+  }
+
+  // MTA-STS — mirrors _score_mta_sts()
+  let mtaScore = 0;
+  if (mtaSts.enabled && mtaSts.policy_mode === "enforce") mtaScore = W.mta_sts;
+  else if (mtaSts.enabled)                                mtaScore = Math.round(W.mta_sts * 0.6);
+
+  // TLS-RPT — mirrors _score_tls_rpt()
+  const tlsRptScore = tlsRpt.enabled ? W.tls_rpt : 0;
+
+  const total = spfScore + dkimScore + dmarcScore + mtaScore + tlsRptScore;
+
+  let status;
+  if (total >= 90)      status = "EXCELLENT";
+  else if (total >= 70) status = "GOOD";
+  else if (total >= 50) status = "FAIR";
+  else if (total >= 30) status = "POOR";
+  else                  status = "CRITICAL";
+
+  return { total, spf: spfScore, dkim: dkimScore, dmarc: dmarcScore, mta_sts: mtaScore, tls_rpt: tlsRptScore, status };
+}
+
+/**
+ * Convert technical results to business impact statements.
+ * Ported from business_impact.py BusinessImpactEngine.generate().
+ */
+function buildEmailBusinessImpacts(spf, dmarc, dkim, mtaSts, tlsRpt) {
+  const impacts = [];
+
+  // DMARC
+  if (dmarc.status === "MISSING") {
+    impacts.push({
+      technical:        "DMARC Missing",
+      risk_level:       "CRITICAL",
+      business_impact:  "Attackers may impersonate your company and send fraudulent emails to customers, suppliers, or staff.",
+      recommendation:   "Add a DMARC record and move towards p=reject after validating all legitimate email sources.",
+    });
+  } else if (dmarc.status === "REPORTING_ONLY") {
+    impacts.push({
+      technical:        "DMARC Reporting Only",
+      risk_level:       "HIGH",
+      business_impact:  "Your domain is collecting DMARC reports but is not actively blocking spoofed emails.",
+      recommendation:   "Move from p=none to p=quarantine, then to p=reject once email flows are fully validated.",
+    });
+  } else if (dmarc.status === "PARTIAL_PROTECTED") {
+    impacts.push({
+      technical:        "DMARC Partial Protection",
+      risk_level:       dmarc.risk_level || "MEDIUM",
+      business_impact:  "Some spoofed emails may still reach recipients because DMARC is not fully enforced.",
+      recommendation:   "Increase DMARC enforcement to p=reject with pct=100 where safe to do so.",
+    });
+  }
+
+  // DKIM
+  if (dkim.status === "NOT_VERIFIED") {
+    impacts.push({
+      technical:        "DKIM Not Verified",
+      risk_level:       "MEDIUM",
+      business_impact:  "Email authentication could not be confirmed from common DKIM selectors. This may affect deliverability and receiver trust.",
+      recommendation:   "Verify DKIM signing with your email provider and publish the correct DKIM DNS records.",
+    });
+  }
+
+  // SPF
+  if (spf.status === "MISSING") {
+    impacts.push({
+      technical:        "SPF Missing",
+      risk_level:       "HIGH",
+      business_impact:  "Mail servers cannot verify which systems are authorised to send email on behalf of your domain, enabling impersonation.",
+      recommendation:   "Publish an SPF TXT record listing all authorised sending services and end with -all.",
+    });
+  } else if (spf.status === "SOFTFAIL") {
+    impacts.push({
+      technical:        "SPF SoftFail",
+      risk_level:       "MEDIUM",
+      business_impact:  "Your SPF record uses softfail (~all) which is not fully strict, reducing protection against spoofed email.",
+      recommendation:   "Consider changing ~all to -all after confirming all legitimate email sources are listed.",
+    });
+  } else if (spf.status === "FAIL") {
+    impacts.push({
+      technical:        "SPF Permissive Policy (+all)",
+      risk_level:       "HIGH",
+      business_impact:  "Your SPF policy allows any mail server to send email using your domain, providing no meaningful protection.",
+      recommendation:   "Remove +all and replace with -all after enumerating all authorised sending IP ranges.",
+    });
+  }
+
+  // MTA-STS
+  if (!mtaSts.enabled) {
+    impacts.push({
+      technical:        "MTA-STS Missing",
+      risk_level:       "LOW",
+      business_impact:  "Inbound email transport encryption is not strictly enforced, reducing resilience against TLS downgrade attacks.",
+      recommendation:   "Enable MTA-STS after SPF, DKIM, and DMARC are fully deployed and validated.",
+    });
+  }
+
+  // TLS-RPT
+  if (!tlsRpt.enabled) {
+    impacts.push({
+      technical:        "TLS-RPT Missing",
+      risk_level:       "LOW",
+      business_impact:  "You will not receive automated reports about email TLS delivery failures or configuration problems.",
+      recommendation:   "Add a TLS-RPT DNS TXT record so email delivery security issues are monitored automatically.",
+    });
+  }
+
+  return impacts;
+}
+
+/**
+ * Build CyberMeters findings for the email intelligence module.
+ * Only the 7 finding types specified in the sprint.  score_impact: 0 on all —
+ * deductions are already handled by computeScore (modules.email_security path).
+ * These findings live in modules.email_security_intelligence.findings only,
+ * NOT in the main findings array, to avoid double-counting.
+ */
+function buildEmailIntelFindings(spf, dmarc, dkim, mtaSts, tlsRpt) {
+  const findings = [];
+
+  if (dmarc.status === "MISSING") {
+    findings.push({
+      id:             "email_intel_dmarc_missing",
+      module:         "email_security_intelligence",
+      severity:       "high",
+      title:          "DMARC record is missing",
+      description:    "No DMARC record was found at _dmarc.<domain>. Without DMARC, your domain can be trivially spoofed to send phishing emails to customers and business partners.",
+      recommendation: "Publish a DMARC TXT record. Start with p=none to collect aggregate reports (rua=), then graduate to p=quarantine and p=reject.",
+      score_impact:   0,
+    });
+  } else if (dmarc.status === "REPORTING_ONLY") {
+    findings.push({
+      id:             "email_intel_dmarc_reporting_only",
+      module:         "email_security_intelligence",
+      severity:       "medium",
+      title:          "DMARC is in monitoring mode only (p=none)",
+      description:    "A DMARC record exists but enforcement is disabled (p=none). Spoofed emails purporting to come from this domain will still reach recipients.",
+      recommendation: "Review DMARC aggregate reports and migrate to p=quarantine, then p=reject once all email sources are validated.",
+      score_impact:   0,
+    });
+  }
+
+  if (spf.status === "MISSING") {
+    findings.push({
+      id:             "email_intel_spf_missing",
+      module:         "email_security_intelligence",
+      severity:       "high",
+      title:          "SPF record is missing",
+      description:    "No SPF TXT record was found. Receiving mail servers cannot verify which IP addresses are authorised to send email for this domain.",
+      recommendation: "Publish an SPF TXT record listing all services that send email for this domain. End with -all to reject unauthorised senders.",
+      score_impact:   0,
+    });
+  } else if (spf.status === "FAIL") {
+    findings.push({
+      id:             "email_intel_spf_permissive",
+      module:         "email_security_intelligence",
+      severity:       "high",
+      title:          "SPF record uses +all (permits any sender)",
+      description:    `The SPF record "${spf.record}" uses +all, meaning any IP address in the world is authorised to send email on behalf of this domain.`,
+      recommendation: "Remove +all and replace with -all after listing all legitimate sending sources explicitly.",
+      score_impact:   0,
+    });
+  }
+
+  if (dkim.status === "NOT_VERIFIED") {
+    findings.push({
+      id:             "email_intel_dkim_not_found",
+      module:         "email_security_intelligence",
+      severity:       "medium",
+      title:          "DKIM signing record not found on common selectors",
+      description:    "No DKIM public key record was detected using common selector names. Without DKIM, email content signatures cannot be verified by recipients.",
+      recommendation: "Configure DKIM signing with your email service provider and publish the DKIM public key as a TXT record at <selector>._domainkey.<domain>.",
+      score_impact:   0,
+    });
+  }
+
+  if (!mtaSts.enabled) {
+    findings.push({
+      id:             "email_intel_mta_sts_missing",
+      module:         "email_security_intelligence",
+      severity:       "low",
+      title:          "MTA-STS policy not published",
+      description:    "No MTA-STS policy was found at https://mta-sts.<domain>/.well-known/mta-sts.txt. MTA-STS instructs sending servers to require TLS for delivery to this domain.",
+      recommendation: "Publish an MTA-STS policy file and a supporting _mta-sts.<domain> DNS TXT record once SPF, DKIM, and DMARC are fully deployed.",
+      score_impact:   0,
+    });
+  }
+
+  if (!tlsRpt.enabled) {
+    findings.push({
+      id:             "email_intel_tls_rpt_missing",
+      module:         "email_security_intelligence",
+      severity:       "low",
+      title:          "TLS-RPT reporting not configured",
+      description:    "No TLS-RPT record was found at _smtp._tls.<domain>. Without TLS-RPT you will not receive automated reports about email TLS delivery failures.",
+      recommendation: "Add a TLS-RPT TXT record at _smtp._tls.<domain>: v=TLSRPTv1; rua=mailto:<address>",
+      score_impact:   0,
+    });
+  }
+
+  return findings;
+}
+
+/**
+ * Main Email Security Intelligence orchestrator.
+ * Ported from intelligence.py build_email_security_intelligence().
+ *
+ * Reuses runEmailModule results for SPF/DMARC/DKIM to avoid redundant DNS queries.
+ * Adds MTA-STS (HTTP), TLS-RPT (DNS), STARTTLS stub, weighted score, business impacts.
+ *
+ * @param {string} domain    — domain under scan
+ * @param {object} emailMod  — modules.email_security (from runEmailModule)
+ * @param {object} dnsModule — modules.dns (from runDnsModule — supplies MX for STARTTLS stub)
+ */
+async function runEmailIntelModule(domain, emailMod, dnsModule) {
+  // Step 1: Enrich existing results — no extra DNS calls needed
+  const spf   = enrichSpf(emailMod);
+  const dmarc = enrichDmarc(emailMod);
+  const dkim  = enrichDkim(emailMod);
+
+  // Step 2: MTA-STS + TLS-RPT in parallel (both are fast, independent)
+  const [mtaStsSettled, tlsRptSettled] = await Promise.allSettled([
+    fetchMtaSts(domain),
+    checkTlsRpt(domain),
+  ]);
+  const mtaSts = mtaStsSettled.status === "fulfilled"
+    ? mtaStsSettled.value
+    : { enabled: false, policy_mode: null, mx_patterns: [], max_age: null, errors: ["MTA-STS fetch failed"] };
+  const tlsRpt = tlsRptSettled.status === "fulfilled"
+    ? tlsRptSettled.value
+    : { enabled: false, record_name: `_smtp._tls.${domain}`, record: null, reporting_uris: [], errors: ["TLS-RPT lookup failed"] };
+
+  // Step 3: STARTTLS stub (raw TCP port 25 not available in Worker)
+  const starttls = buildStarttlsStub(dnsModule);
+
+  // Step 4: Weighted email security score (scoring.py weights: DMARC=50,SPF=20,DKIM=20,MTA-STS=5,TLS-RPT=5)
+  const scoreResult = computeEmailScore(spf, dmarc, dkim, mtaSts, tlsRpt);
+
+  // Step 5: Business impact statements (business_impact.py)
+  const businessImpacts = buildEmailBusinessImpacts(spf, dmarc, dkim, mtaSts, tlsRpt);
+
+  // Step 6: Strengths (intelligence.py pattern)
+  const strengths = [];
+  if (spf.status === "PASS")               strengths.push("SPF record published with -all enforcement.");
+  else if (spf.status === "SOFTFAIL")      strengths.push("SPF record is present (softfail mode).");
+  if (dkim.status === "VERIFIED")          strengths.push(`DKIM signing configured (selector: ${dkim.selector}).`);
+  if (dmarc.status === "FULLY_PROTECTED")  strengths.push("DMARC fully enforced (p=reject, pct=100).");
+  else if (dmarc.status === "PARTIAL_PROTECTED") strengths.push(`DMARC enforcement partially active (${dmarc.policy}, pct=${dmarc.pct}).`);
+  if (mtaSts.enabled && mtaSts.policy_mode === "enforce") strengths.push("MTA-STS enabled in enforce mode — inbound TLS delivery is required.");
+  else if (mtaSts.enabled)                 strengths.push("MTA-STS policy is published.");
+  if (tlsRpt.enabled)                      strengths.push("TLS-RPT configured — email TLS delivery problems will be reported.");
+  if (dmarc.rua)                           strengths.push("DMARC aggregate reporting (rua) is configured.");
+
+  // Step 7: Rating and business risk level
+  const total = scoreResult.total;
+  let rating, businessRisk;
+  if (total >= 90)      { rating = "Excellent"; businessRisk = "Low"; }
+  else if (total >= 70) { rating = "Good";      businessRisk = "Low"; }
+  else if (total >= 50) { rating = "Fair";      businessRisk = "Moderate"; }
+  else if (total >= 30) { rating = "Poor";      businessRisk = "High"; }
+  else                  { rating = "Critical";  businessRisk = "Critical"; }
+
+  // Step 8: Module-scoped findings (score_impact: 0 — not added to main findings array)
+  const findings = buildEmailIntelFindings(spf, dmarc, dkim, mtaSts, tlsRpt);
+
+  return {
+    domain,
+    spf,
+    dkim,
+    dmarc,
+    mta_sts:              mtaSts,
+    tls_rpt:              tlsRpt,
+    starttls,
+    email_security_score: scoreResult.total,
+    email_score_breakdown: {
+      spf:      scoreResult.spf,
+      dkim:     scoreResult.dkim,
+      dmarc:    scoreResult.dmarc,
+      mta_sts:  scoreResult.mta_sts,
+      tls_rpt:  scoreResult.tls_rpt,
+      status:   scoreResult.status,
+    },
+    rating,
+    business_email_risk:  businessRisk,
+    strengths,
+    findings,
+    business_impacts:     businessImpacts,
   };
 }
 
@@ -1136,16 +2256,17 @@ async function runScanEngine(scanId, domainId, domain, env) {
       .bind(scanId)
       .run();
 
-    // Phase 1: Run the 5 core modules in parallel.
+    // Phase 1: Run the 6 core modules in parallel.
     // Subdomain discovery (crt.sh) has a 25s timeout but does not block the
     // other modules — all run concurrently via Promise.allSettled.
-    const [dnsSettled, sslSettled, headersSettled, emailSettled, subdomainsSettled] =
+    const [dnsSettled, sslSettled, headersSettled, emailSettled, subdomainsSettled, techSettled] =
       await Promise.allSettled([
         runDnsModule(domain),
         runSslModule(domain),
         runHeadersModule(domain),
         runEmailModule(domain),
         runSubdomainsModule(domain),
+        runTechModule(domain),
       ]);
 
     const subdomainsResult = subdomainsSettled.status === "fulfilled"
@@ -1198,10 +2319,25 @@ async function runScanEngine(scanId, domainId, domain, env) {
       subdomain_takeover: takeoverResult,
 
       asset_exposure: assetExposureResult,
+
+      technology_detection: techSettled.status === "fulfilled"
+        ? techSettled.value
+        : { error: techSettled.reason?.message ?? "Technology module failed" },
     };
 
     // Compute Cyber Metrics Score
     const { score, risk_level, findings, recommendations } = computeScore(modules, domain);
+
+    // Append technology detection info-findings (score_impact: 0 — informational only)
+    const techMod = modules.technology_detection;
+    if (techMod && !techMod.error && Array.isArray(techMod.info_findings)) {
+      for (const f of techMod.info_findings) {
+        findings.push({
+          module:      "technology_detection",
+          ...f,
+        });
+      }
+    }
 
     // Phase 4: Historical Change Detection — runs after computeScore so current
     // score and findings are known. Mutates modules in place before R2 write.
@@ -1226,6 +2362,40 @@ async function runScanEngine(scanId, domainId, domain, env) {
         error:              err.message ?? "Historical module failed",
       };
     }
+
+    // Phase 5: CVE + KEV + Email Intelligence (all parallel)
+    // • CVE: queries NVD for high/critical CVEs per detected technology
+    // • KEV: fetches CISA catalog and matches by technology keyword
+    // • EmailIntel: enriches SPF/DMARC/DKIM, adds MTA-STS + TLS-RPT, computes email score
+    const [cveSettled, kevSettled, emailIntelSettled] = await Promise.allSettled([
+      runCveModule(modules.technology_detection),
+      runKevModule(modules.technology_detection),
+      runEmailIntelModule(domain, modules.email_security, modules.dns),
+    ]);
+
+    modules.cve_intelligence = cveSettled.status === "fulfilled"
+      ? cveSettled.value
+      : { technologies_checked: [], results: {}, total_cves: 0, critical_count: 0, high_count: 0,
+          source: "nvd_api", error: cveSettled.reason?.message ?? "CVE module failed" };
+
+    modules.known_exploited_vulnerabilities = kevSettled.status === "fulfilled"
+      ? kevSettled.value
+      : { matches: [], checked: 0, matched: 0,
+          source: "cisa_kev", error: kevSettled.reason?.message ?? "KEV module failed" };
+
+    modules.email_security_intelligence = emailIntelSettled.status === "fulfilled"
+      ? emailIntelSettled.value
+      : { error: emailIntelSettled.reason?.message ?? "Email intelligence module failed" };
+
+    // Phase 6: Risk intelligence + Remediation plan (pure computation — no I/O)
+    // Risk module enriches all findings with business-impact language and risk categories.
+    // Remediation module converts findings + KEV matches into P1/P2/P3 roadmap.
+    modules.risk_intelligence = runRiskModule(findings, modules);
+    modules.remediation_plan  = runRemediationModule(
+      findings,
+      modules.known_exploited_vulnerabilities,
+      modules.subdomain_takeover,
+    );
 
     const completedAt = new Date().toISOString();
 
