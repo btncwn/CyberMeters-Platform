@@ -33,4 +33,18 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ domain }),
     }),
+
+  /** GET /api/schedules */
+  getSchedules: () => request('/schedules'),
+
+  /** POST /api/schedules  body: { domain, frequency } */
+  createSchedule: (domain, frequency) =>
+    request('/schedules', {
+      method: 'POST',
+      body: JSON.stringify({ domain, frequency }),
+    }),
+
+  /** DELETE /api/schedules/:id */
+  deleteSchedule: (id) =>
+    request(`/schedules/${id}`, { method: 'DELETE' }),
 }

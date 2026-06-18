@@ -82,3 +82,13 @@ CREATE TABLE IF NOT EXISTS reports (
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (scan_id) REFERENCES scans(id)
 );
+
+CREATE TABLE IF NOT EXISTS scheduled_scans (
+    id TEXT PRIMARY KEY,
+    domain TEXT NOT NULL,
+    frequency TEXT NOT NULL DEFAULT 'daily',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    last_run_at TEXT,
+    next_run_at TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);

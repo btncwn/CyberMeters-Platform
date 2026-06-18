@@ -1273,11 +1273,89 @@ async function runScanEngine(scanId, domainId, domain, env) {
   }
 }
 
+// ── Scheduled Scan Helpers ────────────────────────────────────────────────────
+
+/**
+ * Return the ISO timestamp for the next run based on frequency.
+ * Supported: 'daily' (24 h) and 'weekly' (7 days). Defaults to daily.
+ */
+function computeNextRunAt(frequency) {
+  const hours = frequency === "weekly" ? 7 * 24 : 24;
+  return new Date(Date.now() + hours * 60 * 60 * 1_000).toISOString();
+}
+
+/**
+ * Create and run a scan for one scheduled_scans row.
+ * This function is always called inside ctx.waitUntil() so it is safe to await
+ * runScanEngine directly — we are already within the extended Worker lifetime.
+ * Never throws — a failure on one schedule must not abort others.
+ */
+async function triggerScheduledScan(schedule, env) {
+  const userId   = "user_demo";
+  const domainId = createId("domain");
+  const scanId   = createId("scan");
+  const now      = new Date().toISOString();
+
+  try {
+    // Ensure demo user exists
+    await env.cybermeters_db
+      .prepare(
+        `INSERT INTO users (id, email, name, plan)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(id) DO NOTHING`
+      )
+      .bind(userId, "demo@cybermeters.com", "Demo User", "free")
+      .run();
+
+    // Register domain row for this scan
+    await env.cybermeters_db
+      .prepare(`INSERT INTO domains (id, user_id, domain) VALUES (?, ?, ?)`)
+      .bind(domainId, userId, schedule.domain)
+      .run();
+
+    // Create scan row
+    await env.cybermeters_db
+      .prepare(`INSERT INTO scans (id, domain_id, domain, status) VALUES (?, ?, ?, ?)`)
+      .bind(scanId, domainId, schedule.domain, "running")
+      .run();
+
+    // Write placeholder report so GET /report returns 200 immediately
+    await env.cybermeters_reports.put(
+      `reports/${scanId}.json`,
+      JSON.stringify({
+        scan_id:             scanId,
+        domain_id:           domainId,
+        domain:              schedule.domain,
+        status:              "running",
+        cyber_metrics_score: 0,
+        risk_level:          "unknown",
+        findings:            [],
+        recommendations:     [],
+        message:             "Scheduled scan in progress.",
+      }, null, 2),
+      { httpMetadata: { contentType: "application/json" } }
+    );
+
+    // Stamp last_run_at and compute next_run_at before starting the engine
+    await env.cybermeters_db
+      .prepare(
+        `UPDATE scheduled_scans SET last_run_at = ?, next_run_at = ? WHERE id = ?`
+      )
+      .bind(now, computeNextRunAt(schedule.frequency), schedule.id)
+      .run();
+
+    // Run the full scan engine — awaited inside waitUntil context
+    await runScanEngine(scanId, domainId, schedule.domain, env);
+  } catch {
+    // Graceful failure — one schedule erroring must not affect the others
+  }
+}
+
 // ── CORS ──────────────────────────────────────────────────────────────────────
 
 const corsHeaders = {
   "Access-Control-Allow-Origin":  "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
@@ -1526,6 +1604,134 @@ export default {
       return json({ domain, scans: history.results });
     }
 
+    // ── POST /api/schedules ─────────────────────────────────────────────
+    if (request.method === "POST" && url.pathname === "/api/schedules") {
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return json({ error: "Invalid JSON body" }, { status: 400 });
+      }
+
+      const domain    = (body.domain || "").trim().toLowerCase();
+      const frequency = (body.frequency || "daily").trim().toLowerCase();
+
+      if (!isValidDomain(domain)) {
+        return json({ error: "Invalid domain" }, { status: 400 });
+      }
+      if (!["daily", "weekly"].includes(frequency)) {
+        return json({ error: "frequency must be 'daily' or 'weekly'" }, { status: 400 });
+      }
+
+      // Create the table if it doesn't exist yet (idempotent)
+      await env.cybermeters_db
+        .prepare(
+          `CREATE TABLE IF NOT EXISTS scheduled_scans (
+             id TEXT PRIMARY KEY,
+             domain TEXT NOT NULL,
+             frequency TEXT NOT NULL DEFAULT 'daily',
+             enabled INTEGER NOT NULL DEFAULT 1,
+             last_run_at TEXT,
+             next_run_at TEXT,
+             created_at TEXT DEFAULT (datetime('now'))
+           )`
+        )
+        .run();
+
+      const schedId    = createId("sched");
+      const nextRunAt  = computeNextRunAt(frequency);
+      const createdAt  = new Date().toISOString();
+
+      await env.cybermeters_db
+        .prepare(
+          `INSERT INTO scheduled_scans (id, domain, frequency, enabled, next_run_at, created_at)
+           VALUES (?, ?, ?, 1, ?, ?)`
+        )
+        .bind(schedId, domain, frequency, nextRunAt, createdAt)
+        .run();
+
+      return json({
+        schedule: {
+          id:          schedId,
+          domain,
+          frequency,
+          enabled:     1,
+          last_run_at: null,
+          next_run_at: nextRunAt,
+          created_at:  createdAt,
+        },
+      }, 201);
+    }
+
+    // ── GET /api/schedules ──────────────────────────────────────────────
+    if (request.method === "GET" && url.pathname === "/api/schedules") {
+      // Return empty list if table doesn't exist yet
+      try {
+        const result = await env.cybermeters_db
+          .prepare(
+            `SELECT id, domain, frequency, enabled, last_run_at, next_run_at, created_at
+             FROM scheduled_scans
+             ORDER BY created_at DESC`
+          )
+          .all();
+        return json({ schedules: result.results });
+      } catch {
+        return json({ schedules: [] });
+      }
+    }
+
+    // ── DELETE /api/schedules/:id ───────────────────────────────────────
+    if (
+      request.method === "DELETE" &&
+      url.pathname.startsWith("/api/schedules/")
+    ) {
+      const schedId = url.pathname.split("/").pop();
+      if (!schedId) {
+        return json({ error: "Missing schedule id" }, { status: 400 });
+      }
+
+      try {
+        const result = await env.cybermeters_db
+          .prepare(`DELETE FROM scheduled_scans WHERE id = ?`)
+          .bind(schedId)
+          .run();
+
+        if (result.meta?.changes === 0) {
+          return json({ error: "Schedule not found" }, { status: 404 });
+        }
+      } catch {
+        return json({ error: "Schedule not found" }, { status: 404 });
+      }
+
+      return json({ deleted: schedId });
+    }
+
     return json({ error: "Not found" }, { status: 404 });
+  },
+
+  // ── Cron Handler ──────────────────────────────────────────────────────
+  async scheduled(event, env, ctx) {
+    const now = new Date().toISOString();
+
+    let result;
+    try {
+      result = await env.cybermeters_db
+        .prepare(
+          `SELECT id, domain, frequency
+           FROM scheduled_scans
+           WHERE enabled = 1
+             AND (next_run_at IS NULL OR next_run_at <= ?)`
+        )
+        .bind(now)
+        .all();
+    } catch {
+      // Table may not exist yet — nothing to process
+      return;
+    }
+
+    for (const schedule of (result.results || [])) {
+      // Each schedule runs independently so one failure cannot abort others
+      ctx.waitUntil(triggerScheduledScan(schedule, env));
+    }
   },
 };
