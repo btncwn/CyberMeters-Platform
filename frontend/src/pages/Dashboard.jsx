@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   RefreshCw, AlertTriangle, ShieldAlert, Eye, Wifi,
@@ -27,74 +27,157 @@ function relativeTime(str) {
   return `${Math.floor(h / 24)}d ago`
 }
 
-function deriveInsights(scans) {
+/* ─── Derive insights from real scan data + optional report ─────────────── */
+
+function deriveInsights(scans, report) {
   const completed = scans.filter(s => s.status === 'completed')
   const failed    = scans.filter(s => s.status === 'failed').length
   const active    = scans.filter(s => ['queued','running','processing'].includes(s.status)).length
   const domains   = [...new Set(scans.map(s => s.domain))]
 
-  let score = null
-  if (completed.length > 0) {
-    const successRate = completed.length / Math.max(scans.length, 1)
-    score = Math.max(0, Math.min(100, Math.round(40 + successRate * 55 - failed * 3)))
-  }
+  // Score: use the real score from D1 (set by scan engine on the latest completed scan)
+  const latestCompleted = completed[0] || null
+  const score = latestCompleted?.score ?? null
+  const riskLevel = latestCompleted?.rating ?? null
 
+  // Health categories: derive from report modules if available, else use scan counts
+  const mods = report?.modules ?? {}
   const healthCategories = [
-    { label: 'DNS',              status: completed.length > 0 ? 'good'    : 'unknown' },
-    { label: 'SSL',              status: completed.length > 0 ? 'good'    : 'unknown' },
-    { label: 'Email Security',   status: failed > 0            ? 'warning' : completed.length > 0 ? 'good' : 'unknown' },
-    { label: 'Security Headers', status: failed > 1            ? 'danger'  : completed.length > 0 ? 'good' : 'unknown' },
-    { label: 'Subdomains',       status: completed.length > 0 ? 'good'    : 'unknown' },
-    { label: 'Certificates',     status: completed.length > 0 ? 'good'    : 'unknown' },
+    {
+      label:  'DNS',
+      status: mods.dns
+        ? (mods.dns.resolves ? 'good' : 'danger')
+        : (completed.length > 0 ? 'good' : 'unknown'),
+    },
+    {
+      label:  'SSL / HTTPS',
+      status: mods.ssl
+        ? (mods.ssl.https_available ? (mods.ssl.http_redirects_to_https ? 'good' : 'warning') : 'danger')
+        : (completed.length > 0 ? 'good' : 'unknown'),
+    },
+    {
+      label:  'Email Security',
+      status: mods.email_security
+        ? (!mods.email_security.spf?.present || !mods.email_security.dmarc?.present
+            ? 'warning'
+            : mods.email_security.dmarc?.policy === 'none' ? 'warning' : 'good')
+        : (failed > 0 ? 'warning' : completed.length > 0 ? 'good' : 'unknown'),
+    },
+    {
+      label:  'Security Headers',
+      status: mods.headers
+        ? (mods.headers.missing?.length > 3 ? 'danger' : mods.headers.missing?.length > 1 ? 'warning' : 'good')
+        : (completed.length > 0 ? 'good' : 'unknown'),
+    },
+    {
+      label:  'IPv6',
+      status: mods.dns
+        ? (mods.dns.has_ipv6 ? 'good' : 'warning')
+        : 'unknown',
+    },
+    {
+      label:  'DKIM Signing',
+      status: mods.email_security
+        ? (mods.email_security.dkim?.present ? 'good' : 'warning')
+        : 'unknown',
+    },
   ]
 
-  const findings = []
-  if (scans.length === 0) {
-    findings.push({ id: 'f0', title: 'No domains scanned',            risk: 'high',   detail: 'Add a domain to begin your security assessment' })
-  }
-  if (failed > 0) {
-    findings.push({ id: 'f1', title: 'Scan failures detected',        risk: 'high',   detail: `${failed} scan(s) did not complete successfully` })
-  }
-  if (active > 0) {
-    findings.push({ id: 'f2', title: 'Active scans in progress',      risk: 'medium', detail: `${active} scan(s) currently running` })
-  }
-  if (domains.length > 3) {
-    findings.push({ id: 'f3', title: 'Large domain surface detected', risk: 'medium', detail: `${domains.length} unique domains monitored` })
-  }
-  if (completed.length === 0 && scans.length > 0) {
-    findings.push({ id: 'f4', title: 'No completed assessments yet',  risk: 'medium', detail: 'Run a scan to see security posture results' })
-  }
+  // Findings: use real findings from report, fall back to status-based notices
+  const findings = report?.findings
+    ? report.findings.slice(0, 5).map((f, i) => ({
+        id:     f.id || `rf${i}`,
+        title:  f.title,
+        detail: f.description,
+        risk:   f.severity === 'critical' ? 'critical'
+              : f.severity === 'high'     ? 'high'
+              : f.severity === 'medium'   ? 'medium'
+              : 'low',
+        scanId: report.scan_id,
+      }))
+    : buildStatusFindings(scans, failed, active, domains)
 
-  const trend = scans.slice(0, 7).reverse().map((s, i) => ({
-    label: s.domain?.split('.')[0] || `#${i + 1}`,
-    value: s.status === 'completed' ? 72 + (i * 3 % 15) : 48,
-    date:  s.created_at,
-  }))
+  // Trend: use real scores from D1 (completed scans only, newest-last for chart)
+  const trend = completed
+    .slice(0, 7)
+    .reverse()
+    .map((s, i) => ({
+      label: s.domain?.split('.')[0] || `#${i + 1}`,
+      value: s.score ?? 0,
+      date:  s.created_at,
+    }))
 
+  // Recommended actions
   const actions = []
   if (scans.length === 0) {
-    actions.push({ id: 'a1', priority: 1, title: 'Run your first security scan',  desc: 'Add a domain to discover your external attack surface exposure.',   cta: 'Start Scan', href: '/scans/new'  })
+    actions.push({ id: 'a1', priority: 1, title: 'Run your first security scan',  desc: 'Add a domain to discover your external attack surface exposure.',   cta: 'Start Scan', href: '/scans/new' })
   } else if (failed > 0) {
     actions.push({ id: 'a2', priority: 1, title: 'Investigate failed scans',      desc: `${failed} scan(s) returned errors. Review and retry to ensure full coverage.`, cta: 'View Scans', href: '/scans' })
   }
   if (domains.length > 0) {
-    actions.push({ id: 'a3', priority: 2, title: 'Schedule regular assessments',  desc: 'Enable weekly automated scans to track your security posture over time.', cta: 'Configure',  href: '/settings'  })
-    actions.push({ id: 'a4', priority: 3, title: 'Export security report',        desc: 'Share your cyber risk posture with stakeholders or clients as a PDF.',    cta: 'Reports',    href: '/reports'   })
+    actions.push({ id: 'a3', priority: 2, title: 'Schedule regular assessments',  desc: 'Enable weekly automated scans to track your security posture over time.', cta: 'Configure',  href: '/settings' })
+    actions.push({ id: 'a4', priority: 3, title: 'Export security report',        desc: 'Share your cyber risk posture with stakeholders or clients as a PDF.',    cta: 'Reports',    href: '/reports'  })
+  }
+  // Surface top recommendations from the report
+  if (report?.recommendations?.length) {
+    const topRec = report.recommendations[0]
+    actions.unshift({
+      id:       'ar1',
+      priority: 1,
+      title:    topRec.title,
+      desc:     topRec.description,
+      cta:      'View Details',
+      href:     `/scans/${report.scan_id}`,
+    })
   }
 
-  return { score, completed, failed, active, domains, healthCategories, findings, trend, actions }
+  // Count critical & high findings from report
+  const criticalCount = report?.findings?.filter(f => f.severity === 'critical').length ?? 0
+  const highCount     = report?.findings?.filter(f => f.severity === 'high').length ?? 0
+
+  return {
+    score, riskLevel, completed, failed, active, domains,
+    healthCategories, findings, trend, actions,
+    criticalCount, highCount,
+  }
+}
+
+function buildStatusFindings(scans, failed, active, domains) {
+  const out = []
+  if (scans.length === 0)
+    out.push({ id: 'f0', title: 'No domains scanned',           risk: 'high',   detail: 'Add a domain to begin your security assessment' })
+  if (failed > 0)
+    out.push({ id: 'f1', title: 'Scan failures detected',       risk: 'high',   detail: `${failed} scan(s) did not complete successfully` })
+  if (active > 0)
+    out.push({ id: 'f2', title: 'Active scans in progress',     risk: 'medium', detail: `${active} scan(s) currently running` })
+  if (domains.length > 3)
+    out.push({ id: 'f3', title: 'Multiple domains tracked',     risk: 'medium', detail: `${domains.length} unique domains monitored` })
+  return out
 }
 
 /* ─── Score Ring ───────────────────────────────────────────────────────── */
 
-function ScoreRing({ score }) {
+const RISK_COLOR = {
+  excellent: '#00876A', good: '#00876A', moderate: '#F59E0B',
+  high: '#F97316', critical: '#EF4444',
+}
+const RISK_TEXT_CLS = {
+  excellent: 'text-brand-600', good: 'text-brand-600', moderate: 'text-amber-500',
+  high: 'text-orange-500', critical: 'text-red-500',
+}
+const RISK_LABEL = {
+  excellent: 'Excellent', good: 'Good', moderate: 'Moderate Risk',
+  high: 'High Risk', critical: 'Critical Risk',
+}
+
+function ScoreRing({ score, riskLevel }) {
   const r    = 88
   const circ = 2 * Math.PI * r
-  const fill = score !== null ? circ * (score / 100) : 0
 
-  const color   = score === null ? '#E5E7EB' : score >= 75 ? '#00876A' : score >= 50 ? '#F59E0B' : '#EF4444'
-  const label   = score === null ? 'No data yet' : score >= 75 ? 'Low Risk' : score >= 50 ? 'Moderate Risk' : 'High Risk'
-  const valCls  = score === null ? 'text-gray-300' : score >= 75 ? 'text-brand-600' : score >= 50 ? 'text-amber-500' : 'text-red-500'
+  const color  = riskLevel ? (RISK_COLOR[riskLevel] || '#E5E7EB') : score === null ? '#E5E7EB' : score >= 75 ? '#00876A' : score >= 50 ? '#F59E0B' : '#EF4444'
+  const fill   = score !== null ? circ * (score / 100) : 0
+  const valCls = riskLevel ? (RISK_TEXT_CLS[riskLevel] || 'text-gray-300') : score === null ? 'text-gray-300' : score >= 75 ? 'text-brand-600' : score >= 50 ? 'text-amber-500' : 'text-red-500'
+  const label  = riskLevel ? (RISK_LABEL[riskLevel] || 'Unknown') : score === null ? 'No data yet' : score >= 75 ? 'Low Risk' : score >= 50 ? 'Moderate Risk' : 'High Risk'
 
   return (
     <div className="flex flex-col items-center select-none">
@@ -172,19 +255,20 @@ function HealthPill({ label, status }) {
 function TrendChart({ points }) {
   if (!points || points.length < 2) {
     return (
-      <div className="h-36 flex items-center justify-center text-gray-300 text-sm">
+      <div className="h-36 flex flex-col items-center justify-center gap-2 text-gray-300 text-sm">
+        <TrendingUp className="w-6 h-6" />
         Run more scans to see trend data
       </div>
     )
   }
   const W = 600, H = 130, PX = 24, PY = 16
   const vals = points.map(p => p.value)
-  const min  = Math.min(...vals) - 8
-  const max  = Math.max(...vals) + 8
+  const min  = Math.max(0, Math.min(...vals) - 8)
+  const max  = Math.min(100, Math.max(...vals) + 8)
   const xStep = (W - PX * 2) / (points.length - 1)
   const coords = points.map((p, i) => ({
     x: PX + i * xStep,
-    y: PY + (1 - (p.value - min) / (max - min)) * (H - PY * 2),
+    y: PY + (1 - (p.value - min) / Math.max(1, max - min)) * (H - PY * 2),
   }))
   const pathD = coords.map((c, i) => `${i === 0 ? 'M' : 'L'}${c.x},${c.y}`).join(' ')
   const areaD = `${pathD} L${coords[coords.length-1].x},${H} L${coords[0].x},${H}Z`
@@ -226,11 +310,27 @@ function RiskBadge({ risk }) {
 /* ─── Main Dashboard ───────────────────────────────────────────────────── */
 
 export default function Dashboard() {
-  const [scans, setScans]         = useState([])
-  const [loading, setLoading]     = useState(true)
-  const [error, setError]         = useState(null)
+  const [scans,      setScans]      = useState([])
+  const [report,     setReport]     = useState(null)
+  const [loading,    setLoading]    = useState(true)
+  const [error,      setError]      = useState(null)
   const [refreshing, setRefreshing] = useState(false)
+  const reportFetchedForRef = useRef(null) // tracks which scan ID we fetched report for
   const navigate = useNavigate()
+
+  const loadReport = useCallback(async (scanId) => {
+    if (reportFetchedForRef.current === scanId) return
+    reportFetchedForRef.current = scanId
+    try {
+      const r = await api.getScanReport(scanId)
+      // Only use the report if the scan is completed with real data
+      if (r.status === 'completed' && (r.findings?.length > 0 || r.cyber_metrics_score > 0)) {
+        setReport(r)
+      }
+    } catch {
+      // silently fail — dashboard degrades gracefully without the report
+    }
+  }, [])
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
@@ -238,18 +338,25 @@ export default function Dashboard() {
     setError(null)
     try {
       const data = await api.getScans()
-      setScans(data.scans || [])
+      const list = data.scans || []
+      setScans(list)
+
+      // Fetch report for the latest completed scan to populate health + findings
+      const latestCompleted = list.find(s => s.status === 'completed')
+      if (latestCompleted && reportFetchedForRef.current !== latestCompleted.id) {
+        loadReport(latestCompleted.id)
+      }
     } catch (e) {
       setError(e.message)
     } finally {
       setLoading(false)
       setRefreshing(false)
     }
-  }, [])
+  }, [loadReport])
 
   useEffect(() => { load() }, [load])
 
-  const ins = deriveInsights(scans)
+  const ins        = deriveInsights(scans, report)
   const latestScan = scans[0] || null
 
   if (loading) {
@@ -298,7 +405,7 @@ export default function Dashboard() {
           {/* Score ring */}
           <div className="flex flex-col items-center justify-center gap-4 px-10 py-10 lg:border-r border-gray-100 lg:min-w-[280px]">
             <span className="label">Cyber Metrics Score</span>
-            <ScoreRing score={ins.score} />
+            <ScoreRing score={ins.score} riskLevel={ins.riskLevel} />
             <p className="text-center text-gray-400 text-xs leading-relaxed max-w-[200px]">
               {ins.score === null
                 ? 'Run your first scan to generate your score.'
@@ -308,14 +415,23 @@ export default function Dashboard() {
                     ? `Moderate exposure. ${ins.findings.length} issue${ins.findings.length !== 1 ? 's' : ''} require attention.`
                     : 'Critical exposures detected — immediate action required.'}
             </p>
+            {report && (
+              <Link
+                to={`/scans/${report.scan_id}`}
+                className="text-xs text-brand-600 hover:text-brand-700 font-semibold flex items-center gap-1"
+              >
+                View full report <ChevronRight className="w-3 h-3" />
+              </Link>
+            )}
           </div>
-          {/* Quick stats grid */}
+
+          {/* Stats grid — real counts */}
           <div className="flex-1 grid grid-cols-2 divide-x divide-y divide-gray-100">
             {[
-              { label: 'Total Scans',      value: scans.length,      sub: 'all time'           },
-              { label: 'Completed',        value: ins.completed.length, sub: 'successful'       },
-              { label: 'Active Scans',     value: ins.active,         sub: 'currently running'  },
-              { label: 'Domains Tracked',  value: ins.domains.length, sub: 'unique domains'     },
+              { label: 'Total Scans',     value: scans.length,         sub: 'all time'          },
+              { label: 'Completed',       value: ins.completed.length, sub: 'successful'         },
+              { label: 'Active Scans',    value: ins.active,           sub: 'currently running'  },
+              { label: 'Domains Tracked', value: ins.domains.length,   sub: 'unique domains'     },
             ].map(({ label, value, sub }) => (
               <div key={label} className="flex flex-col justify-center px-8 py-7">
                 <span className="text-4xl font-bold text-gray-900">{value}</span>
@@ -334,10 +450,10 @@ export default function Dashboard() {
           <Link to="/scans" className="btn-ghost text-xs">View all <ChevronRight className="w-3.5 h-3.5" /></Link>
         </div>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <ExposureCard icon={ShieldAlert}   label="Critical Findings"  value={ins.failed}         color="red"    />
-          <ExposureCard icon={AlertTriangle} label="KEV Matches"        value={Math.max(0,ins.failed-1)} color="orange" />
-          <ExposureCard icon={Eye}           label="Hidden Assets"      value={ins.domains.length} color="amber"  />
-          <ExposureCard icon={Wifi}          label="Exposed Services"   value={ins.active}         color="brand"  />
+          <ExposureCard icon={ShieldAlert}   label="Critical Findings"  value={ins.criticalCount}         color="red"    />
+          <ExposureCard icon={AlertTriangle} label="High Risk Findings"  value={ins.highCount}             color="orange" />
+          <ExposureCard icon={Eye}           label="Domains Tracked"     value={ins.domains.length}        color="amber"  />
+          <ExposureCard icon={Wifi}          label="Scans In Progress"   value={ins.active}                color="brand"  />
         </div>
       </section>
 
@@ -346,7 +462,12 @@ export default function Dashboard() {
 
         {/* Security Health */}
         <div className="lg:col-span-2 card p-6">
-          <h2 className="text-base font-bold text-gray-900 mb-6">Security Health</h2>
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-base font-bold text-gray-900">Security Health</h2>
+            {report && (
+              <span className="text-[10px] text-gray-400 font-medium">{report.domain}</span>
+            )}
+          </div>
           <div className="grid grid-cols-3 gap-x-4 gap-y-6">
             {ins.healthCategories.map(({ label, status }) => (
               <HealthPill key={label} label={label} status={status} />
@@ -362,8 +483,13 @@ export default function Dashboard() {
 
         {/* Top Findings */}
         <div className="lg:col-span-3 card overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-100">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
             <h2 className="text-base font-bold text-gray-900">Top Findings</h2>
+            {report && (
+              <Link to={`/scans/${report.scan_id}`} className="text-xs text-brand-600 hover:text-brand-700 font-semibold flex items-center gap-1">
+                Full report <ChevronRight className="w-3 h-3" />
+              </Link>
+            )}
           </div>
           {ins.findings.length === 0 ? (
             <div className="flex flex-col items-center gap-3 py-12 text-center px-6">
@@ -371,18 +497,20 @@ export default function Dashboard() {
                 <CheckCircle className="w-6 h-6 text-brand-600" />
               </div>
               <p className="text-sm font-semibold text-gray-900">No findings</p>
-              <p className="text-xs text-gray-400">All scans completed without issues</p>
+              <p className="text-xs text-gray-400">All checks passed on the latest completed scan</p>
             </div>
           ) : (
             <ul className="divide-y divide-gray-50">
               {ins.findings.map((f, i) => (
                 <li
                   key={f.id}
-                  onClick={() => navigate('/scans')}
+                  onClick={() => f.scanId ? navigate(`/scans/${f.scanId}`) : navigate('/scans')}
                   className="flex items-start gap-4 px-6 py-4 hover:bg-gray-50 cursor-pointer transition-colors"
                 >
                   <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-[11px] font-bold text-white flex-shrink-0 mt-0.5 ${
-                    f.risk === 'high' ? 'bg-red-500' : f.risk === 'medium' ? 'bg-amber-400' : 'bg-blue-400'
+                    f.risk === 'critical' ? 'bg-red-500'    :
+                    f.risk === 'high'     ? 'bg-orange-500' :
+                    f.risk === 'medium'   ? 'bg-amber-400'  : 'bg-blue-400'
                   }`}>{i + 1}</div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-gray-900">{f.title}</p>
@@ -400,8 +528,12 @@ export default function Dashboard() {
       <div className="card p-6">
         <div className="flex items-center justify-between mb-5">
           <div>
-            <h2 className="text-base font-bold text-gray-900">Exposure Trend</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Attack surface score across recent scans</p>
+            <h2 className="text-base font-bold text-gray-900">Score Trend</h2>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {ins.trend.length > 0
+                ? 'Cyber Metrics Score across completed scans'
+                : 'Score history will appear after completed scans'}
+            </p>
           </div>
           <span className="flex items-center gap-1.5 text-xs text-brand-600 font-semibold">
             <TrendingUp className="w-3.5 h-3.5" />
@@ -416,7 +548,7 @@ export default function Dashboard() {
         <section>
           <h2 className="text-lg font-bold text-gray-900 mb-4">Recommended Actions</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {ins.actions.map((action, i) => (
+            {ins.actions.slice(0, 3).map((action, i) => (
               <div key={action.id} className="card p-5 flex flex-col gap-4 hover:shadow-card-md transition-shadow">
                 <div className="flex items-start gap-3">
                   <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold text-white flex-shrink-0 mt-0.5 ${
@@ -454,6 +586,10 @@ export default function Dashboard() {
                   <Globe className="w-3.5 h-3.5 text-gray-400" />
                 </div>
                 <span className="text-sm font-semibold text-gray-900 flex-1 truncate">{scan.domain}</span>
+                {/* Show real score if available */}
+                {scan.score != null && (
+                  <span className="text-sm font-bold text-brand-600 flex-shrink-0">{scan.score}</span>
+                )}
                 <span className="flex items-center gap-1.5 text-xs text-gray-500">
                   {scan.status === 'completed'
                     ? <CheckCircle className="w-4 h-4 text-brand-600" />

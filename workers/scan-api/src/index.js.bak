@@ -583,7 +583,7 @@ const corsHeaders = {
 };
 
 function json(data, status = 200) {
-  return Response.json(data, { status, headers: corsHeaders });
+  return json(data, { status, headers: corsHeaders });
 }
 
 // ── Worker Handler ────────────────────────────────────────────────────────────
