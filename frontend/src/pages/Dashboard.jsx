@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import {
   RefreshCw, AlertTriangle, ShieldAlert, Eye, Wifi,
   Globe, CheckCircle, XCircle, AlertCircle, ChevronRight,
-  ArrowUpRight, ScanLine, Clock, TrendingUp,
+  ArrowUpRight, ScanLine, Clock, TrendingUp, Briefcase,
 } from 'lucide-react'
 import { api } from '../api'
 import Spinner from '../components/Spinner'
@@ -307,6 +307,41 @@ function RiskBadge({ risk }) {
   return <span className="badge-low">Low</span>
 }
 
+/* ─── No-workspace empty state ─────────────────────────────────────────── */
+
+function NoWorkspaceState() {
+  return (
+    <div className="max-w-screen-xl mx-auto px-6 py-8">
+      <div className="flex items-center justify-between gap-4 mb-8">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Security Overview</h1>
+          <p className="text-sm text-gray-400 mt-0.5">Select a workspace to view security data</p>
+        </div>
+      </div>
+      <div className="card p-12 flex flex-col items-center text-center">
+        <div className="w-14 h-14 rounded-2xl bg-brand-50 flex items-center justify-center mb-4">
+          <Briefcase className="w-7 h-7 text-brand-600" />
+        </div>
+        <h3 className="text-lg font-semibold text-gray-900 mb-2">No workspace selected</h3>
+        <p className="text-sm text-gray-400 mb-6 max-w-sm">
+          The dashboard is scoped to a workspace. Select one from the workspace selector in the top nav,
+          or create a new workspace to get started.
+        </p>
+        <div className="flex items-center gap-3">
+          <Link to="/workspaces" className="btn-primary">
+            <Briefcase className="w-4 h-4" />
+            Go to Workspaces
+          </Link>
+          <Link to="/scans/new" className="btn-secondary">
+            <ScanLine className="w-4 h-4" />
+            New Scan
+          </Link>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /* ─── Main Dashboard ───────────────────────────────────────────────────── */
 
 export default function Dashboard() {
@@ -315,15 +350,36 @@ export default function Dashboard() {
   const [loading,    setLoading]    = useState(true)
   const [error,      setError]      = useState(null)
   const [refreshing, setRefreshing] = useState(false)
+
+  // Workspace isolation — read from localStorage; re-derive on storage events
+  const [activeWorkspaceId,   setActiveWorkspaceId]   = useState(() => localStorage.getItem('cybermeters_workspace_id'))
+  const [activeWorkspaceName, setActiveWorkspaceName] = useState(() => localStorage.getItem('cybermeters_workspace_name'))
+
   const reportFetchedForRef = useRef(null) // tracks which scan ID we fetched report for
   const navigate = useNavigate()
+
+  // Keep workspace state in sync when the nav selector changes it
+  useEffect(() => {
+    function onStorage(e) {
+      if (e.key === 'cybermeters_workspace_id') {
+        setActiveWorkspaceId(e.newValue)
+        setScans([])
+        setReport(null)
+        reportFetchedForRef.current = null
+      }
+      if (e.key === 'cybermeters_workspace_name') {
+        setActiveWorkspaceName(e.newValue)
+      }
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
 
   const loadReport = useCallback(async (scanId) => {
     if (reportFetchedForRef.current === scanId) return
     reportFetchedForRef.current = scanId
     try {
       const r = await api.getScanReport(scanId)
-      // Only use the report if the scan is completed with real data
       if (r.status === 'completed' && (r.findings?.length > 0 || r.cyber_metrics_score > 0)) {
         setReport(r)
       }
@@ -333,15 +389,32 @@ export default function Dashboard() {
   }, [])
 
   const load = useCallback(async (silent = false) => {
+    // Re-read from localStorage on each load — ensures consistency if selector
+    // wrote to localStorage but the storage event hasn't fired yet (same tab).
+    const wsId = localStorage.getItem('cybermeters_workspace_id')
+    const wsName = localStorage.getItem('cybermeters_workspace_name')
+    setActiveWorkspaceId(wsId)
+    setActiveWorkspaceName(wsName)
+
+    // Security gate — never call global /api/scans when a workspace is set.
+    // If no workspace is selected, leave scans empty and show the empty state.
+    if (!wsId) {
+      setLoading(false)
+      setRefreshing(false)
+      setScans([])
+      setReport(null)
+      return
+    }
+
     if (!silent) setLoading(true)
     else setRefreshing(true)
     setError(null)
     try {
-      const data = await api.getScans()
+      const data = await api.getWorkspaceScans(wsId)
       const list = data.scans || []
       setScans(list)
 
-      // Fetch report for the latest completed scan to populate health + findings
+      // Fetch report for the latest completed scan in this workspace
       const latestCompleted = list.find(s => s.status === 'completed')
       if (latestCompleted && reportFetchedForRef.current !== latestCompleted.id) {
         loadReport(latestCompleted.id)
@@ -367,6 +440,11 @@ export default function Dashboard() {
     )
   }
 
+  // Security gate — no workspace selected → show neutral empty state, no data
+  if (!activeWorkspaceId) {
+    return <NoWorkspaceState />
+  }
+
   return (
     <div className="max-w-screen-xl mx-auto px-6 py-8 space-y-8">
 
@@ -375,9 +453,16 @@ export default function Dashboard() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Security Overview</h1>
           <p className="text-sm text-gray-400 mt-0.5">
+            {activeWorkspaceName && (
+              <span className="inline-flex items-center gap-1 mr-2">
+                <Briefcase className="w-3 h-3" />
+                <span className="font-medium text-gray-500">{activeWorkspaceName}</span>
+                <span className="text-gray-300">·</span>
+              </span>
+            )}
             {latestScan
               ? `Last assessment: ${latestScan.domain} · ${relativeTime(latestScan.created_at)}`
-              : 'No scans yet — run your first assessment below'}
+              : 'No scans in this workspace yet'}
           </p>
         </div>
         <div className="flex items-center gap-2">
