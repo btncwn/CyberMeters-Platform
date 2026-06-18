@@ -13,3 +13,10 @@ bucket_name = "cybermeters-reports"
 
 [triggers]
 crons = ["0 * * * *"]
+
+# Alert email recipients and sender.
+# RESEND_API_KEY must be set as a Wrangler secret (never committed):
+#   wrangler secret put RESEND_API_KEY
+[vars]
+ALERT_EMAIL_TO   = "ttrnn47@gmail.com"
+ALERT_EMAIL_FROM = "alerts@cybermeters.com"

@@ -210,6 +210,7 @@ Reads the scan report JSON from R2 and returns it in a structured format.
 | `subdomains` | Certificate Transparency lookup via crt.sh; sensitive-name classification |
 | `subdomain_takeover` | CNAME-based takeover detection against 4 known vulnerable hosting providers |
 | `asset_exposure` | HTTP/HTTPS reachability probe of up to 50 subdomains; collects status, title, server, tech stack |
+| `historical_changes` | Diff of current scan vs. previous scan for the same domain; score delta, new/removed findings, new subdomains, new takeover risks, new exposed assets |
 
 **`modules.subdomains` shape**
 
@@ -239,6 +240,34 @@ Each entry in `risks`:
 | `cname` | string | The dangling CNAME target |
 | `evidence` | string | Body text fragment that confirmed the takeover |
 | `severity` | string | Always `"high"` |
+
+**`modules.historical_changes` shape**
+
+| Field | Type | Description |
+|---|---|---|
+| `has_previous` | boolean | `false` on the first scan for a domain; all other fields are omitted when `false` |
+| `previous_scan_id` | string | ID of the scan this diff is compared against |
+| `previous_score` | number | Score from the previous scan |
+| `current_score` | number | Score from this scan |
+| `score_change` | number | `current_score − previous_score` (negative = degraded) |
+| `new_findings` | object[] | Findings present in this scan but absent from the previous one |
+| `resolved_findings` | object[] | Findings present in the previous scan but absent from this one |
+| `new_subdomains` | string[] | Hostnames discovered in this scan that were not in the previous scan |
+| `removed_subdomains` | string[] | Hostnames present in the previous scan that are no longer detected |
+| `new_takeover_risks` | object[] | Confirmed takeover risks that are new since the last scan; same shape as `modules.subdomain_takeover.risks` |
+| `new_exposed_assets` | object[] | Reachable assets that are new since the last scan; same shape as entries in `modules.asset_exposure.assets` |
+
+Each entry in `new_findings` / `resolved_findings`:
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | string | Finding identifier |
+| `module` | string | Source module |
+| `severity` | string | `critical`, `high`, `medium`, `low` |
+| `title` | string | Human-readable finding title |
+| `score_impact` | number | Points deducted by this finding |
+
+---
 
 **`modules.asset_exposure` shape**
 
@@ -366,6 +395,146 @@ Returns all scans for a given domain, newest first.
 ```bash
 curl https://cybermeters-platform.ttrnn47.workers.dev/api/domain/example.com/history
 ```
+
+---
+
+## Schedules
+
+### Create Schedule
+
+```
+POST /api/schedules
+```
+
+**Request body**
+```json
+{
+  "domain": "example.com",
+  "frequency": "daily"
+}
+```
+
+`frequency` must be `"daily"` or `"weekly"`.
+
+**Response — 201 Created**
+```json
+{
+  "schedule": {
+    "id": "sched_abc123",
+    "domain": "example.com",
+    "frequency": "daily",
+    "enabled": 1,
+    "last_run_at": null,
+    "next_run_at": null,
+    "created_at": "2026-06-18 10:00:00"
+  }
+}
+```
+
+**Response — 400 Bad Request**
+```json
+{ "error": "domain and frequency (daily|weekly) required" }
+```
+
+**curl**
+```bash
+curl -X POST https://cybermeters-platform.ttrnn47.workers.dev/api/schedules \
+  -H "Content-Type: application/json" \
+  -d '{"domain": "example.com", "frequency": "daily"}'
+```
+
+---
+
+### List Schedules
+
+```
+GET /api/schedules
+```
+
+**Response**
+```json
+{
+  "schedules": [
+    {
+      "id": "sched_abc123",
+      "domain": "example.com",
+      "frequency": "daily",
+      "enabled": 1,
+      "last_run_at": "2026-06-18 10:00:00",
+      "next_run_at": "2026-06-19 10:00:00",
+      "created_at": "2026-06-18 09:00:00"
+    }
+  ]
+}
+```
+
+Returns `{ "schedules": [] }` if no schedules have been created yet.
+
+**curl**
+```bash
+curl https://cybermeters-platform.ttrnn47.workers.dev/api/schedules
+```
+
+---
+
+### Delete Schedule
+
+```
+DELETE /api/schedules/:id
+```
+
+**Response — 200 OK**
+```json
+{ "deleted": "sched_abc123" }
+```
+
+**Response — 404 Not Found**
+```json
+{ "error": "Schedule not found" }
+```
+
+**curl**
+```bash
+curl -X DELETE https://cybermeters-platform.ttrnn47.workers.dev/api/schedules/sched_abc123
+```
+
+---
+
+### How scheduled scans work
+
+The Worker registers a cron trigger that fires at the top of every hour (`0 * * * *`). When the cron fires, the Worker queries D1 for all enabled schedules whose `next_run_at` is in the past, then calls `ctx.waitUntil(triggerScheduledScan(schedule, env))` for each one. Each scheduled scan:
+
+1. Creates a domain row, scan row, and placeholder R2 report.
+2. Stamps `last_run_at` and computes `next_run_at` (`+24h` for daily, `+7d` for weekly).
+3. Runs the full scan engine (`runScanEngine`) — identical to a manual `POST /api/scan`.
+4. After the engine finishes, reads the completed R2 report and sends an email alert if warranted (see Email Alerts below).
+
+---
+
+## Email Alerts
+
+Email alerts are sent automatically after a scheduled scan completes, when the completed report contains security-relevant changes compared to the previous scan. Alerts are delivered via the [Resend](https://resend.com) API.
+
+### Alert trigger conditions
+
+| Condition | Threshold |
+|---|---|
+| Score drop | `score_change ≤ −10` |
+| New subdomain takeover risk | 1 or more new entries in `historical_changes.new_takeover_risks` |
+| New exposed asset | 1 or more new entries in `historical_changes.new_exposed_assets` |
+| New high/critical finding | 1 or more entries in `historical_changes.new_findings` with `severity: "high"` or `"critical"` |
+
+Alerts are only sent when `historical_changes.has_previous` is `true` (i.e. the domain has been scanned before). First scans never trigger alerts.
+
+### Configuration
+
+| Setting | How to configure |
+|---|---|
+| `RESEND_API_KEY` | Wrangler secret — `wrangler secret put RESEND_API_KEY` (never committed) |
+| `ALERT_EMAIL_TO` | `wrangler.toml [vars]` — recipient address (default `ttrnn47@gmail.com`) |
+| `ALERT_EMAIL_FROM` | `wrangler.toml [vars]` — sender address (must be a verified Resend domain) |
+
+If `RESEND_API_KEY` is not set, the alert phase is skipped silently. Email delivery errors never affect scan completion — all alert errors are swallowed.
 
 ---
 

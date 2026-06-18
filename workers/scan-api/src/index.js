@@ -1273,6 +1273,168 @@ async function runScanEngine(scanId, domainId, domain, env) {
   }
 }
 
+// ── Email Alert Engine ────────────────────────────────────────────────────────
+
+/**
+ * Inspect historical_changes and findings from a completed scheduled scan.
+ * Returns an array of trigger objects when an alert is warranted, or null
+ * when nothing notable changed (or when there is no previous scan to compare).
+ *
+ * Alert conditions:
+ *   • Score dropped by 10+ points
+ *   • One or more new subdomain takeover risks
+ *   • One or more new reachable exposed assets
+ *   • One or more new findings with severity 'high' or 'critical'
+ */
+function shouldSendAlert(historicalChanges) {
+  if (!historicalChanges || !historicalChanges.has_previous) return null;
+
+  const triggers = [];
+
+  if (historicalChanges.score_change != null && historicalChanges.score_change <= -10) {
+    triggers.push({
+      type:   "score_drop",
+      detail: `Score dropped ${historicalChanges.score_change} points ` +
+              `(${historicalChanges.previous_score} → ${historicalChanges.current_score})`,
+    });
+  }
+
+  if (historicalChanges.new_takeover_risks?.length > 0) {
+    triggers.push({
+      type:  "takeover_risk",
+      count: historicalChanges.new_takeover_risks.length,
+      hosts: historicalChanges.new_takeover_risks.map((r) => r.host),
+    });
+  }
+
+  if (historicalChanges.new_exposed_assets?.length > 0) {
+    triggers.push({
+      type:  "exposed_asset",
+      count: historicalChanges.new_exposed_assets.length,
+      hosts: historicalChanges.new_exposed_assets.map((a) => a.host),
+    });
+  }
+
+  const criticalNew = (historicalChanges.new_findings || []).filter(
+    (f) => f.severity === "high" || f.severity === "critical"
+  );
+  if (criticalNew.length > 0) {
+    triggers.push({
+      type:     "new_finding",
+      findings: criticalNew.map((f) => ({ title: f.title, severity: f.severity })),
+    });
+  }
+
+  return triggers.length > 0 ? triggers : null;
+}
+
+/**
+ * Build a plain-text and HTML email body for a set of alert triggers.
+ */
+function buildAlertEmail(domain, scanId, triggers) {
+  const count   = triggers.length;
+  const subject = `⚠ CyberMeters Alert: ${domain} — ` +
+                  `${count} issue${count !== 1 ? "s" : ""} detected`;
+
+  // Plain-text summary lines
+  const lines = [];
+  for (const t of triggers) {
+    if (t.type === "score_drop") {
+      lines.push(`Score drop: ${t.detail}`);
+    } else if (t.type === "takeover_risk") {
+      lines.push(
+        `${t.count} new subdomain takeover risk${t.count !== 1 ? "s" : ""}: ` +
+        t.hosts.join(", ")
+      );
+    } else if (t.type === "exposed_asset") {
+      lines.push(
+        `${t.count} new exposed asset${t.count !== 1 ? "s" : ""}: ` +
+        t.hosts.join(", ")
+      );
+    } else if (t.type === "new_finding") {
+      const titles = t.findings.map((f) => `${f.severity}: ${f.title}`).join("; ");
+      lines.push(
+        `${t.findings.length} new high/critical finding${t.findings.length !== 1 ? "s" : ""}: ` +
+        titles
+      );
+    }
+  }
+
+  const reportUrl = `https://cybermeters.pages.dev/scans/${scanId}`;
+
+  const text =
+    `CyberMeters scheduled scan alert for ${domain}\n\n` +
+    lines.map((l) => `• ${l}`).join("\n") +
+    `\n\nView full report: ${reportUrl}`;
+
+  const listItems = lines
+    .map((l) => `<li style="margin-bottom:8px">${l}</li>`)
+    .join("\n      ");
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#111;max-width:600px;margin:0 auto;padding:24px;">
+  <div style="border-left:4px solid #00876A;padding-left:16px;margin-bottom:20px;">
+    <h2 style="margin:0 0 4px;color:#00876A;font-size:18px;">CyberMeters Alert</h2>
+    <p style="margin:0;color:#555;font-size:14px;">
+      Scheduled scan completed for <strong>${domain}</strong>
+    </p>
+  </div>
+  <ul style="padding-left:20px;line-height:1.7;font-size:14px;color:#333;">
+      ${listItems}
+  </ul>
+  <p style="margin-top:24px;">
+    <a href="${reportUrl}"
+       style="background:#00876A;color:white;padding:10px 20px;border-radius:8px;
+              text-decoration:none;font-size:14px;font-weight:600;display:inline-block;">
+      View Full Report
+    </a>
+  </p>
+  <hr style="border:none;border-top:1px solid #eee;margin:28px 0;" />
+  <p style="font-size:12px;color:#999;margin:0;">
+    CyberMeters &mdash; Attack Surface Management<br>
+    This alert fired because a scheduled scan detected security-relevant changes.
+  </p>
+</body>
+</html>`;
+
+  return { subject, text, html };
+}
+
+/**
+ * POST an email via the Resend API.
+ *
+ * Requires:
+ *   env.RESEND_API_KEY   — Wrangler secret  (wrangler secret put RESEND_API_KEY)
+ *   env.ALERT_EMAIL_TO   — recipient address (wrangler.toml [vars])
+ *   env.ALERT_EMAIL_FROM — sender address   (wrangler.toml [vars], must be a
+ *                          verified Resend domain or the Resend sandbox address)
+ *
+ * If RESEND_API_KEY is absent the function returns immediately — alerts are
+ * silently skipped rather than crashing the scan pipeline.
+ * All errors are swallowed for the same reason.
+ */
+async function sendAlertEmail(subject, text, html, env) {
+  if (!env.RESEND_API_KEY) return;
+
+  const to   = env.ALERT_EMAIL_TO   || "ttrnn47@gmail.com";
+  const from = env.ALERT_EMAIL_FROM || "alerts@cybermeters.com";
+
+  try {
+    await fetch("https://api.resend.com/emails", {
+      method:  "POST",
+      headers: {
+        "Content-Type":  "application/json",
+        "Authorization": `Bearer ${env.RESEND_API_KEY}`,
+      },
+      body:   JSON.stringify({ from, to: [to], subject, text, html }),
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    // Email delivery errors must never affect scan completion or D1/R2 writes.
+  }
+}
+
 // ── Scheduled Scan Helpers ────────────────────────────────────────────────────
 
 /**
@@ -1346,6 +1508,25 @@ async function triggerScheduledScan(schedule, env) {
 
     // Run the full scan engine — awaited inside waitUntil context
     await runScanEngine(scanId, domainId, schedule.domain, env);
+
+    // Email alert phase: read the completed report and fire an alert if warranted.
+    // Runs after runScanEngine so historical_changes is fully populated in R2.
+    // All errors are swallowed — alert failure must never surface to the user.
+    try {
+      const obj = await env.cybermeters_reports.get(`reports/${scanId}.json`);
+      if (obj) {
+        const report   = await obj.json();
+        const triggers = shouldSendAlert(report.modules?.historical_changes);
+        if (triggers) {
+          const { subject, text, html } = buildAlertEmail(
+            schedule.domain, scanId, triggers
+          );
+          await sendAlertEmail(subject, text, html, env);
+        }
+      }
+    } catch {
+      // Alert errors must not affect scan completion
+    }
   } catch {
     // Graceful failure — one schedule erroring must not affect the others
   }

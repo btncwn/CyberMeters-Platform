@@ -61,8 +61,6 @@ GET /api/scans/:id/report
 
 GET /api/domain/:domain/history
 
-Planned:
-
 POST /api/schedules
 
 GET /api/schedules
@@ -131,7 +129,7 @@ Table: scans
 - created_at
 - completed_at
 
-Table: scheduled_scans (planned)
+Table: scheduled_scans
 
 - id
 - domain
@@ -191,14 +189,11 @@ Completed:
 ✅ Takeover Detection
 ✅ Asset Exposure
 ✅ Historical Monitoring
-
-Current Phase:
-
-🚧 Scheduled Scans v1
+✅ Scheduled Scans v1
+✅ Email Alerts v1
 
 Next:
 
-- Email Alerts v1
 - TLS Intelligence v1
 - Exposure Intelligence v2
 - Authentication
