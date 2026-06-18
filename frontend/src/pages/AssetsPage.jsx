@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { RefreshCw, ScanLine, Server } from 'lucide-react'
+import { RefreshCw, ScanLine, Server, ExternalLink } from 'lucide-react'
+import { api } from '../api'
 import Spinner from '../components/Spinner'
 import AssetSummary from '../components/AssetSummary'
 import AssetInventory from '../components/AssetInventory'
@@ -9,75 +10,109 @@ import AssetEmptyState from '../components/AssetEmptyState'
 /**
  * Assets Page — /assets
  *
- * Current state: frontend-only, no API calls.
- * All data props are empty/zero — shows professional empty state with feature preview.
+ * Data source (v1): latest completed scan's report via GET /api/scans/:id/report
+ * Reads modules.subdomains from the report to populate the asset view.
  *
- * API integration checklist (future):
- *   □ Add api.getAssets() to src/api.js pointing at GET /api/assets
- *   □ Replace `assetData` constant below with the useCallback + useEffect fetch pattern
- *   □ Remove `loading = false` override once real fetch is wired
- *   □ Pass real data into <AssetSummary /> and <AssetInventory /> props
+ * Future: dedicated GET /api/assets endpoint aggregating across all scans.
  */
 
-// ─── Placeholder data structure ───────────────────────────────────────────────
-// Replace this with the API response once GET /api/assets is implemented.
+// ─── Data mapping ─────────────────────────────────────────────────────────────
 
-const EMPTY_ASSETS = {
-  summary: {
-    domains:         0,
-    subdomains:      0,
-    certificates:    0,
-    exposedServices: 0,
-    hiddenAssets:    0,
-  },
-  inventory: {
-    domains:      [],
-    subdomains:   [],
+/**
+ * Build the AssetSummary + AssetInventory data structures from a scan report.
+ * Only modules.subdomains is populated in v1; other categories are zeros/empty.
+ */
+function buildAssetData(report) {
+  const sub = report?.modules?.subdomains
+
+  // Subdomains
+  const subItems = (sub?.items || []).map((hostname) => ({
+    id:            hostname,
+    hostname,
+    parent_domain: report.domain,
+    ip:            null,   // not available from CT source
+    risk:          sub?.sensitive?.includes(hostname) ? 'medium' : null,
+    last_seen:     report.completed_at
+      ? new Date(report.completed_at).toLocaleDateString(undefined, { dateStyle: 'medium' })
+      : null,
+  }))
+
+  const summary = {
+    domains:         1,                          // the scanned root domain
+    subdomains:      sub?.count ?? 0,
+    certificates:    0,                          // future module
+    exposedServices: 0,                          // future module
+    hiddenAssets:    sub?.sensitive?.length ?? 0, // sensitive = potential hidden risk
+  }
+
+  const inventory = {
+    domains: [{
+      id:        report.domain,
+      domain:    report.domain,
+      status:    'active',
+      risk:      report.risk_level === 'critical' ? 'critical'
+               : report.risk_level === 'high'     ? 'high'
+               : report.risk_level === 'moderate' ? 'medium'
+               : 'low',
+      last_seen: report.completed_at
+        ? new Date(report.completed_at).toLocaleDateString(undefined, { dateStyle: 'medium' })
+        : null,
+    }],
+    subdomains:   subItems,
     certificates: [],
     services:     [],
-  },
-  // trends will come from the API — e.g. { domains: 'up', trendValues: { domains: '+2 this week' } }
-  trends:      {},
-  trendValues: {},
+  }
+
+  return { summary, inventory, report }
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function hasAnyAssets(data) {
-  const s = data.summary
+function hasAnyAssets(summary) {
   return (
-    s.domains > 0       ||
-    s.subdomains > 0    ||
-    s.certificates > 0  ||
-    s.exposedServices > 0 ||
-    s.hiddenAssets > 0
+    summary.subdomains > 0    ||
+    summary.certificates > 0  ||
+    summary.exposedServices > 0
   )
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function AssetsPage() {
-  // When the API is ready, replace these with real fetch state:
-  const [assetData,  setAssetData]  = useState(EMPTY_ASSETS)
-  const [loading,    setLoading]    = useState(false)   // set to true when real fetch is added
+  const [assetData,  setAssetData]  = useState(null)
+  const [loading,    setLoading]    = useState(true)
   const [error,      setError]      = useState(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [sourceInfo, setSourceInfo] = useState(null)  // { scanId, domain, completedAt }
+  const reportFetchedRef = useRef(null)
 
-  /**
-   * load() — wire this to api.getAssets() when the endpoint exists.
-   *
-   * Example:
-   *   const data = await api.getAssets()
-   *   setAssetData(data)
-   */
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
     else setRefreshing(true)
     setError(null)
+
     try {
-      // TODO: const data = await api.getAssets()
-      // TODO: setAssetData(data)
-      // For now: no-op — shows empty state
+      // Step 1: get scan list and find latest completed scan
+      const listData = await api.getScans()
+      const scans    = listData.scans || []
+      const latest   = scans.find(s => s.status === 'completed')
+
+      if (!latest) {
+        setAssetData(null)
+        setLoading(false)
+        setRefreshing(false)
+        return
+      }
+
+      // Step 2: fetch the report — skip if already fetched for this scan
+      if (reportFetchedRef.current !== latest.id) {
+        reportFetchedRef.current = latest.id
+        const report = await api.getScanReport(latest.id)
+        setAssetData(buildAssetData(report))
+        setSourceInfo({
+          scanId:      latest.id,
+          domain:      latest.domain,
+          completedAt: report.completed_at,
+        })
+      }
     } catch (e) {
       setError(e.message)
     } finally {
@@ -88,8 +123,6 @@ export default function AssetsPage() {
 
   useEffect(() => { load() }, [load])
 
-  const isEmpty = !hasAnyAssets(assetData)
-
   // ── Loading ────────────────────────────────────────────────────────────
   if (loading) {
     return (
@@ -98,6 +131,8 @@ export default function AssetsPage() {
       </div>
     )
   }
+
+  const isEmpty = !assetData || !hasAnyAssets(assetData.summary)
 
   return (
     <div className="max-w-screen-xl mx-auto px-6 py-8 space-y-8">
@@ -114,13 +149,7 @@ export default function AssetsPage() {
           <p className="text-sm text-gray-400 mt-0.5 ml-10">
             {isEmpty
               ? 'Discover and monitor your full external attack surface'
-              : `${
-                  assetData.summary.domains +
-                  assetData.summary.subdomains +
-                  assetData.summary.certificates +
-                  assetData.summary.exposedServices +
-                  assetData.summary.hiddenAssets
-                } assets across all categories`}
+              : `${assetData.summary.subdomains} subdomains discovered across ${assetData.summary.domains} domain${assetData.summary.domains !== 1 ? 's' : ''}`}
           </p>
         </div>
 
@@ -147,24 +176,38 @@ export default function AssetsPage() {
         </div>
       )}
 
+      {/* Data source attribution */}
+      {sourceInfo && !isEmpty && (
+        <div className="flex items-center justify-between px-4 py-2.5 bg-brand-50 border border-brand-100 rounded-xl">
+          <p className="text-xs text-brand-700">
+            <span className="font-semibold">Asset data source:</span>{' '}
+            Certificate Transparency logs via crt.sh · Last scanned:{' '}
+            <span className="font-semibold">{sourceInfo.domain}</span>
+            {sourceInfo.completedAt && (
+              <> · {new Date(sourceInfo.completedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}</>
+            )}
+          </p>
+          <Link
+            to={`/scans/${sourceInfo.scanId}`}
+            className="text-xs font-semibold text-brand-700 hover:text-brand-800 flex items-center gap-1 flex-shrink-0 ml-4"
+          >
+            View scan <ExternalLink className="w-3 h-3" />
+          </Link>
+        </div>
+      )}
+
       {isEmpty ? (
-        /* ── Empty state ── */
         <AssetEmptyState />
       ) : (
-        /* ── Populated view ── */
         <>
-          {/* Asset Summary cards */}
           <AssetSummary
             domains={assetData.summary.domains}
             subdomains={assetData.summary.subdomains}
             certificates={assetData.summary.certificates}
             exposedServices={assetData.summary.exposedServices}
             hiddenAssets={assetData.summary.hiddenAssets}
-            trends={assetData.trends}
-            trendValues={assetData.trendValues}
           />
 
-          {/* Asset Inventory + Risk Indicators */}
           <AssetInventory
             domains={assetData.inventory.domains}
             subdomains={assetData.inventory.subdomains}

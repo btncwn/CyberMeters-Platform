@@ -271,6 +271,110 @@ async function runEmailModule(domain) {
   };
 }
 
+// ── Module 5: Subdomain Discovery (Certificate Transparency) ─────────────────
+
+/**
+ * Subdomain names whose presence suggests a development, staging, or
+ * administrative asset — used for risk detection only, not for blocking.
+ */
+const SENSITIVE_LABELS = new Set([
+  "dev", "development", "develop",
+  "staging", "stage", "stg", "stag",
+  "test", "testing", "tests",
+  "qa", "uat", "sandbox",
+  "alpha", "beta",
+  "preprod", "pre-prod", "pre",
+  "demo",
+  "admin", "administrator", "admins", "adm",
+  "cp", "cpanel", "webmin", "plesk", "whm",
+  "manager", "manage", "control", "panel",
+  "backup", "backups", "bak",
+  "old", "legacy", "archive", "temp", "tmp",
+  "internal", "intranet", "corp", "private",
+  "vpn", "ssh", "ftp",
+  "db", "database", "sql", "mysql", "mongo",
+  "jenkins", "ci", "cd", "build",
+  "jira", "confluence", "wiki",
+]);
+
+function isSensitiveSubdomain(hostname, domain) {
+  // Strip the root domain to get the subdomain part(s)
+  const sub = hostname.endsWith("." + domain)
+    ? hostname.slice(0, -(domain.length + 1))
+    : hostname;
+
+  // Split on dots and check each label
+  return sub.split(".").some((label) => {
+    const l = label.toLowerCase();
+    if (SENSITIVE_LABELS.has(l)) return true;
+    // Pattern variants like dev1, test2, stage-eu, etc.
+    if (/^(dev|test|stage|stg|qa|uat|sandbox)\d*$/.test(l)) return true;
+    if (/^(dev|test|stage|stg)-/.test(l) || /-(dev|test|stage|stg)$/.test(l)) return true;
+    return false;
+  });
+}
+
+async function runSubdomainsModule(domain) {
+  const source = "certificate_transparency";
+
+  let rawData;
+  try {
+    const res = await fetch(
+      `https://crt.sh/?q=${encodeURIComponent("%." + domain)}&output=json`,
+      {
+        headers: { Accept: "application/json", "User-Agent": "CyberMeters/1.0" },
+        signal: AbortSignal.timeout(25_000),
+      }
+    );
+
+    if (!res.ok) {
+      return { count: 0, items: [], sensitive: [], source, error: `crt.sh HTTP ${res.status}` };
+    }
+
+    // Guard: check content-type — crt.sh sometimes returns HTML on errors
+    const ct = res.headers.get("content-type") || "";
+    if (!ct.includes("json")) {
+      return { count: 0, items: [], sensitive: [], source, error: "crt.sh returned non-JSON response" };
+    }
+
+    rawData = await res.json();
+  } catch (err) {
+    // Timeout, network error, or JSON parse failure — scan still completes
+    return { count: 0, items: [], sensitive: [], source, error: err.message };
+  }
+
+  if (!Array.isArray(rawData)) {
+    return { count: 0, items: [], sensitive: [], source, error: "Unexpected crt.sh response shape" };
+  }
+
+  // Extract unique hostnames from name_value and common_name fields.
+  // Process first 2000 entries max to bound memory and CPU.
+  const seen = new Set();
+  const slice = rawData.slice(0, 2_000);
+
+  for (const entry of slice) {
+    const names = [
+      ...(entry.name_value || "").split(/\n/),
+      entry.common_name || "",
+    ];
+    for (const raw of names) {
+      const name = raw.trim().toLowerCase();
+      if (!name || name.startsWith("*")) continue;           // skip wildcards
+      if (!name.endsWith("." + domain) && name !== domain) continue; // skip unrelated
+      seen.add(name);
+      if (seen.size >= 200) break;                           // cap at 200 unique
+    }
+    if (seen.size >= 200) break;
+  }
+
+  const items = [...seen].sort();
+
+  // Classify sensitive subdomains
+  const sensitive = items.filter((h) => isSensitiveSubdomain(h, domain));
+
+  return { count: items.length, items, sensitive, source };
+}
+
 // ── Cyber Metrics Scoring Engine ──────────────────────────────────────────────
 
 function computeScore(modules, domain) {
@@ -423,6 +527,51 @@ function computeScore(modules, domain) {
     });
   }
 
+  // ── Subdomains ─────────────────────────────────────────────────────────
+  const subMod = modules.subdomains;
+  if (subMod && !subMod.error) {
+    const sensitiveList = subMod.sensitive || [];
+
+    // One finding + deduction per sensitive subdomain, capped at 4 findings / -20 pts
+    const cappedSensitive = sensitiveList.slice(0, 4);
+    for (const sub of cappedSensitive) {
+      finding({
+        id:           `subdomain_sensitive_${sub.replace(/\./g, "_")}`,
+        module:       "subdomains",
+        severity:     "medium",
+        title:        "Potentially Sensitive Subdomain Discovered",
+        description:  `The subdomain "${sub}" suggests a development, staging, or administrative asset may be publicly reachable. Verify this asset is intentional and properly secured.`,
+        score_impact: -5,
+      });
+    }
+    if (cappedSensitive.length > 0) {
+      recommendations.push({
+        priority:    2,
+        module:      "subdomains",
+        title:       "Review Sensitive Subdomains",
+        description: `${sensitiveList.length} subdomain${sensitiveList.length !== 1 ? "s" : ""} with names suggesting development or administrative use were found in Certificate Transparency logs. Ensure these are either firewalled, require authentication, or are decommissioned if unused: ${sensitiveList.slice(0, 5).join(", ")}`,
+      });
+    }
+
+    // Large attack surface
+    if (subMod.count > 20) {
+      finding({
+        id:           "subdomains_large_attack_surface",
+        module:       "subdomains",
+        severity:     "low",
+        title:        "Large Subdomain Attack Surface",
+        description:  `${subMod.count} subdomains were found in Certificate Transparency logs for ${domain}. A larger attack surface increases exposure risk — ensure all subdomains are actively maintained.`,
+        score_impact: -3,
+      });
+      recommendations.push({
+        priority:    3,
+        module:      "subdomains",
+        title:       "Audit and Reduce Subdomain Attack Surface",
+        description: `Review all ${subMod.count} discovered subdomains. Decommission unused ones and ensure each points to an actively maintained service.`,
+      });
+    }
+  }
+
   // Clamp and classify
   score = Math.max(0, Math.min(100, Math.round(score)));
 
@@ -457,13 +606,16 @@ async function runScanEngine(scanId, domainId, domain, env) {
       .bind(scanId)
       .run();
 
-    // Run all 4 modules in parallel
-    const [dnsSettled, sslSettled, headersSettled, emailSettled] =
+    // Run all 5 modules in parallel.
+    // Subdomain discovery (crt.sh) has a 25s timeout but does not block the
+    // other modules — all run concurrently via Promise.allSettled.
+    const [dnsSettled, sslSettled, headersSettled, emailSettled, subdomainsSettled] =
       await Promise.allSettled([
         runDnsModule(domain),
         runSslModule(domain),
         runHeadersModule(domain),
         runEmailModule(domain),
+        runSubdomainsModule(domain),
       ]);
 
     const modules = {
@@ -482,6 +634,11 @@ async function runScanEngine(scanId, domainId, domain, env) {
       email_security: emailSettled.status === "fulfilled"
         ? emailSettled.value
         : { error: emailSettled.reason?.message ?? "Email module failed" },
+
+      subdomains: subdomainsSettled.status === "fulfilled"
+        ? subdomainsSettled.value
+        : { count: 0, items: [], sensitive: [], source: "certificate_transparency",
+            error: subdomainsSettled.reason?.message ?? "Subdomain module failed" },
     };
 
     // Compute Cyber Metrics Score
