@@ -3,7 +3,8 @@ import { useParams, Link, useNavigate } from 'react-router-dom'
 import {
   RefreshCw, Briefcase, Globe, ScanLine, BarChart2,
   Plus, X, Trash2, ChevronLeft, Clock, Zap, CheckCircle,
-  FileDown,
+  FileDown, Server, AlertTriangle, Cloud, Activity, Layers,
+  ArrowRight, Shield,
 } from 'lucide-react'
 import { api } from '../api'
 import Spinner from '../components/Spinner'
@@ -154,13 +155,14 @@ export default function WorkspaceDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
 
-  const [workspace, setWorkspace] = useState(null)
-  const [stats, setStats]         = useState(null)
-  const [domains, setDomains]     = useState([])
-  const [loading, setLoading]     = useState(true)
-  const [error, setError]         = useState(null)
-  const [refreshing, setRefreshing] = useState(false)
-  const [showAdd, setShowAdd]     = useState(false)
+  const [workspace,    setWorkspace]    = useState(null)
+  const [stats,        setStats]        = useState(null)
+  const [domains,      setDomains]      = useState([])
+  const [assetSummary, setAssetSummary] = useState(null)
+  const [loading,      setLoading]      = useState(true)
+  const [error,        setError]        = useState(null)
+  const [refreshing,   setRefreshing]   = useState(false)
+  const [showAdd,      setShowAdd]      = useState(false)
 
   // Per-domain scan state: { [domain]: 'idle' | 'scanning' | 'queued' }
   const [scanState, setScanState] = useState({})
@@ -181,6 +183,11 @@ export default function WorkspaceDetailPage() {
       setWorkspace(wsData.workspace)
       setStats(wsData.stats)
       setDomains(domainsData.domains || [])
+
+      // Asset summary — fetch separately so a failure here never blocks the page
+      api.getWorkspaceAssetsSummary(id)
+        .then(d => setAssetSummary(d))
+        .catch(() => { /* graceful — section stays hidden */ })
       // Keep workspace name in localStorage in sync
       if (wsData.workspace?.name) {
         localStorage.setItem('cybermeters_workspace_id', id)
@@ -383,6 +390,48 @@ export default function WorkspaceDetailPage() {
           iconBg="bg-amber-50"
         />
       </div>
+
+      {/* Asset Inventory summary */}
+      {assetSummary && (
+        <div className="card p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-lg bg-brand-50 flex items-center justify-center flex-shrink-0">
+                <Server className="w-4 h-4 text-brand-600" />
+              </div>
+              <span className="text-sm font-semibold text-gray-900">Asset Inventory</span>
+            </div>
+            <Link
+              to="/assets"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand-600 hover:text-brand-700 transition-colors"
+            >
+              View Assets
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+            {[
+              { icon: Layers,        label: 'Total',          value: assetSummary.total_assets,          ic: 'text-brand-600',  bg: 'bg-brand-50'  },
+              { icon: Shield,        label: 'Active',         value: assetSummary.active_assets,         ic: 'text-green-600',  bg: 'bg-green-50'  },
+              { icon: Activity,      label: 'Inactive',       value: assetSummary.inactive_assets,       ic: 'text-gray-400',   bg: 'bg-gray-100'  },
+              { icon: Server,        label: 'Subdomains',     value: assetSummary.subdomains,            ic: 'text-blue-600',   bg: 'bg-blue-50'   },
+              { icon: Globe,         label: 'Exposed',        value: assetSummary.exposed_services,      ic: 'text-amber-600',  bg: 'bg-amber-50'  },
+              { icon: Cloud,         label: 'Cloud',          value: assetSummary.cloud_storage_assets,  ic: 'text-purple-600', bg: 'bg-purple-50' },
+              { icon: AlertTriangle, label: 'Takeover Risks', value: assetSummary.takeover_risks,        ic: 'text-red-600',    bg: 'bg-red-50'    },
+            ].map(({ icon: Icon, label, value, ic, bg }) => (
+              <div key={label} className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-gray-50">
+                <div className={`w-7 h-7 rounded-lg ${bg} flex items-center justify-center flex-shrink-0`}>
+                  <Icon className={`w-3.5 h-3.5 ${ic}`} />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-lg font-bold text-gray-900 leading-none">{value ?? '—'}</div>
+                  <div className="text-[10px] text-gray-400 mt-0.5 truncate">{label}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Domains table */}
       <div className="card overflow-hidden">
