@@ -4830,10 +4830,9 @@ function computeNextRunAt(frequency) {
  * Never throws — a failure on one schedule must not abort others.
  */
 async function triggerScheduledScan(schedule, env) {
-  const userId   = "user_demo";
-  const domainId = createId("domain");
-  const scanId   = createId("scan");
-  const now      = new Date().toISOString();
+  const userId = "user_demo";
+  const scanId = createId("scan");
+  const now    = new Date().toISOString();
 
   try {
     // Ensure demo user exists
@@ -4846,11 +4845,37 @@ async function triggerScheduledScan(schedule, env) {
       .bind(userId, "demo@cybermeters.com", "Demo User", "free")
       .run();
 
-    // Register domain row for this scan
-    await env.cybermeters_db
-      .prepare(`INSERT INTO domains (id, user_id, domain) VALUES (?, ?, ?)`)
-      .bind(domainId, userId, schedule.domain)
-      .run();
+    // ── Reuse existing domain row so inventory stays on one domain_id ─────────
+    // Creating a new row on every run fragments history and breaks workspace links.
+    let domainId;
+    const existingDomain = await env.cybermeters_db
+      .prepare(`SELECT id FROM domains WHERE user_id = ? AND domain = ? LIMIT 1`)
+      .bind(userId, schedule.domain)
+      .first();
+
+    if (existingDomain) {
+      domainId = existingDomain.id;
+    } else {
+      domainId = createId("domain");
+      await env.cybermeters_db
+        .prepare(`INSERT INTO domains (id, user_id, domain) VALUES (?, ?, ?)`)
+        .bind(domainId, userId, schedule.domain)
+        .run();
+    }
+
+    // ── Ensure workspace_domains link exists (idempotent) ─────────────────────
+    // This allows upsertAssetInventory and sendAssetChangeAlert to find the
+    // workspace for this domain, even if the schedule was created before the
+    // workspace link was set up.
+    if (schedule.workspace_id) {
+      await env.cybermeters_db
+        .prepare(
+          `INSERT OR IGNORE INTO workspace_domains (workspace_id, domain_id)
+           VALUES (?, ?)`
+        )
+        .bind(schedule.workspace_id, domainId)
+        .run();
+    }
 
     // Create scan row
     await env.cybermeters_db
@@ -4883,8 +4908,58 @@ async function triggerScheduledScan(schedule, env) {
       .bind(now, computeNextRunAt(schedule.frequency), schedule.id)
       .run();
 
+    console.log("[scheduled-monitoring]", JSON.stringify({
+      schedule_id:  schedule.id,
+      workspace_id: schedule.workspace_id ?? null,
+      domain:       schedule.domain,
+      scan_id:      scanId,
+      domain_id:    domainId,
+    }));
+
     // Run the full scan engine — awaited inside waitUntil context
     await runScanEngine(scanId, domainId, schedule.domain, env);
+
+    // ── Update asset counts after scan completes ───────────────────────────────
+    if (schedule.workspace_id) {
+      try {
+        const [eventsResult, totalResult] = await Promise.all([
+          env.cybermeters_db
+            .prepare(
+              `SELECT event_type FROM asset_events
+               WHERE scan_id = ? AND workspace_id = ?`
+            )
+            .bind(scanId, schedule.workspace_id)
+            .all(),
+          env.cybermeters_db
+            .prepare(
+              `SELECT COUNT(*) AS n FROM workspace_assets
+               WHERE workspace_id = ? AND status = 'active'`
+            )
+            .bind(schedule.workspace_id)
+            .first(),
+        ]);
+        const changeCount = (eventsResult.results || []).filter(
+          (e) => e.event_type === "new_asset_discovered" || e.event_type === "asset_reappeared"
+        ).length;
+        await env.cybermeters_db
+          .prepare(
+            `UPDATE scheduled_scans
+             SET last_asset_count = ?, asset_change_count = ?
+             WHERE id = ?`
+          )
+          .bind(totalResult?.n ?? 0, changeCount, schedule.id)
+          .run();
+        console.log("[scheduled-monitoring]", JSON.stringify({
+          schedule_id:        schedule.id,
+          workspace_id:       schedule.workspace_id,
+          scan_id:            scanId,
+          last_asset_count:   totalResult?.n ?? 0,
+          asset_change_count: changeCount,
+        }));
+      } catch (e) {
+        console.error("[scheduled-monitoring] asset count update failed:", e?.message);
+      }
+    }
 
     // ── Alert phase ──────────────────────────────────────────────────────────
     // Runs after runScanEngine so historical_changes and SSL data are fully
@@ -5264,8 +5339,9 @@ export default {
         return json({ error: "Invalid JSON body" }, 400);
       }
 
-      const domain    = (body.domain || "").trim().toLowerCase();
-      const frequency = (body.frequency || "daily").trim().toLowerCase();
+      const domain      = (body.domain || "").trim().toLowerCase();
+      const frequency   = (body.frequency || "daily").trim().toLowerCase();
+      const workspaceId = (body.workspace_id || "").trim() || null;
 
       if (!isValidDomain(domain)) {
         return json({ error: "Invalid domain" }, 400);
@@ -5274,7 +5350,7 @@ export default {
         return json({ error: "frequency must be 'daily' or 'weekly'" }, 400);
       }
 
-      // Create the table if it doesn't exist yet (idempotent)
+      // Create the table if it doesn't exist yet (idempotent — includes new columns)
       await env.cybermeters_db
         .prepare(
           `CREATE TABLE IF NOT EXISTS scheduled_scans (
@@ -5284,6 +5360,9 @@ export default {
              enabled INTEGER NOT NULL DEFAULT 1,
              last_run_at TEXT,
              next_run_at TEXT,
+             workspace_id TEXT,
+             last_asset_count INTEGER DEFAULT 0,
+             asset_change_count INTEGER DEFAULT 0,
              created_at TEXT DEFAULT (datetime('now'))
            )`
         )
@@ -5295,21 +5374,24 @@ export default {
 
       await env.cybermeters_db
         .prepare(
-          `INSERT INTO scheduled_scans (id, domain, frequency, enabled, next_run_at, created_at)
-           VALUES (?, ?, ?, 1, ?, ?)`
+          `INSERT INTO scheduled_scans (id, domain, frequency, enabled, next_run_at, workspace_id, created_at)
+           VALUES (?, ?, ?, 1, ?, ?, ?)`
         )
-        .bind(schedId, domain, frequency, nextRunAt, createdAt)
+        .bind(schedId, domain, frequency, nextRunAt, workspaceId, createdAt)
         .run();
 
       return json({
         schedule: {
-          id:          schedId,
+          id:                 schedId,
           domain,
           frequency,
-          enabled:     1,
-          last_run_at: null,
-          next_run_at: nextRunAt,
-          created_at:  createdAt,
+          enabled:            1,
+          workspace_id:       workspaceId,
+          last_asset_count:   0,
+          asset_change_count: 0,
+          last_run_at:        null,
+          next_run_at:        nextRunAt,
+          created_at:         createdAt,
         },
       }, 201);
     }
@@ -5320,7 +5402,9 @@ export default {
       try {
         const result = await env.cybermeters_db
           .prepare(
-            `SELECT id, domain, frequency, enabled, last_run_at, next_run_at, created_at
+            `SELECT id, domain, frequency, enabled, workspace_id,
+                    last_asset_count, asset_change_count,
+                    last_run_at, next_run_at, created_at
              FROM scheduled_scans
              ORDER BY created_at DESC`
           )
@@ -5918,7 +6002,7 @@ export default {
     try {
       result = await env.cybermeters_db
         .prepare(
-          `SELECT id, domain, frequency
+          `SELECT id, domain, frequency, workspace_id
            FROM scheduled_scans
            WHERE enabled = 1
              AND (next_run_at IS NULL OR next_run_at <= ?)`
