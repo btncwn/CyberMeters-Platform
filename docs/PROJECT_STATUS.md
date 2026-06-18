@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-Dashboard v1 and SaaS foundation are complete.
+Dashboard v1 + SaaS foundation + Workspace API v1 complete.
 
 ## Completed
 
@@ -15,13 +15,26 @@ Dashboard v1 and SaaS foundation are complete.
 - Domain history API implemented
 - Initial JSON report storage in R2 implemented
 - Dashboard v1 created with real API integration
+- Workspace database schema v1 (workspaces + workspace_domains tables)
+- Workspace API v1 (GET/POST /api/workspaces, GET/POST /api/workspaces/:id/domains, DELETE /api/workspaces/:id/domains/:domainId)
 
 ## Current Backend APIs
 
-- POST /api/scan
-- GET /api/scans
-- GET /api/scans/:id
-- GET /api/domain/:domain/history
+| Route | Status | Notes |
+|---|---|---|
+| `POST /api/scan` | ✅ Live | Creates domain + scan row, stores placeholder R2 report |
+| `GET /api/scans` | ✅ Live | Returns 20 most recent scans |
+| `GET /api/scans/:id` | ✅ Live | Returns scan metadata |
+| `GET /api/domain/:domain/history` | ✅ Live | Returns all scans for a domain |
+| `GET /api/workspaces` | ✅ Live | Returns all workspaces |
+| `POST /api/workspaces` | ✅ Live | Creates a workspace |
+| `GET /api/workspaces/:id/domains` | ✅ Live | Returns domains linked to workspace with latest scan data |
+| `POST /api/workspaces/:id/domains` | ✅ Live | Adds a domain to a workspace (reuses existing domain row) |
+| `DELETE /api/workspaces/:id/domains/:domainId` | ✅ Live | Removes workspace↔domain link only |
+
+## D1 Schema
+
+Tables: `users`, `domains`, `scans`, `findings`, `hidden_assets`, `kev_matches`, `remediation_items`, `reports`, `workspaces`, `workspace_domains`
 
 ## Next Priority
 

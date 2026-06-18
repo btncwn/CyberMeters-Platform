@@ -33,6 +33,19 @@ cybermeters-reports
 - GET /api/scans
 - GET /api/scans/:id
 - GET /api/domain/:domain/history
+- GET /api/workspaces
+- POST /api/workspaces
+- GET /api/workspaces/:id/domains
+- POST /api/workspaces/:id/domains
+- DELETE /api/workspaces/:id/domains/:domainId
+
+## D1 Schema
+
+Core tables: users, domains, scans, findings, hidden_assets, kev_matches, remediation_items, reports
+
+Workspace tables (migration 003-workspaces.sql):
+- workspaces: id (TEXT PK), name (TEXT), created_at (DATETIME)
+- workspace_domains: workspace_id + domain_id composite PK; no cascade delete
 
 ## Current Status
 
@@ -45,6 +58,8 @@ cybermeters-reports
 - Scan Detail API
 - Domain History API
 - Dashboard v1
+- Workspace schema v1 (workspaces + workspace_domains tables)
+- Workspace API v1 (5 routes — CRUD for workspaces and domain links)
 
 ### In Progress
 

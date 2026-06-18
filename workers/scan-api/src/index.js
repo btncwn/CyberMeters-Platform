@@ -155,6 +155,178 @@ export default {
       });
     }
 
+    // ── Workspace Routes ──────────────────────────────────────────────────────
+
+    // GET /api/workspaces
+    if (request.method === "GET" && url.pathname === "/api/workspaces") {
+      try {
+        const result = await env.cybermeters_db
+          .prepare(`SELECT id, name, created_at FROM workspaces ORDER BY created_at DESC`)
+          .all();
+        return Response.json({ workspaces: result.results });
+      } catch {
+        return Response.json({ error: "Database error" }, { status: 500 });
+      }
+    }
+
+    // POST /api/workspaces
+    if (request.method === "POST" && url.pathname === "/api/workspaces") {
+      let body;
+      try { body = await request.json(); } catch { body = {}; }
+      const name = (body.name || "").trim();
+      if (!name) {
+        return Response.json({ error: "name is required" }, { status: 400 });
+      }
+      const id = `workspace_${crypto.randomUUID()}`;
+      const created_at = new Date().toISOString();
+      try {
+        await env.cybermeters_db
+          .prepare(`INSERT INTO workspaces (id, name, created_at) VALUES (?, ?, ?)`)
+          .bind(id, name, created_at)
+          .run();
+        return Response.json({ workspace: { id, name, created_at } }, { status: 201 });
+      } catch {
+        return Response.json({ error: "Database error" }, { status: 500 });
+      }
+    }
+
+    // Routes that need a workspace ID
+    // Matches: /api/workspaces/:id
+    //          /api/workspaces/:id/domains
+    //          /api/workspaces/:id/domains/:domainId
+    const workspaceMatch = url.pathname.match(
+      /^\/api\/workspaces\/([^/]+)(\/domains(?:\/([^/]+))?)?$/
+    );
+
+    if (workspaceMatch) {
+      const workspaceId  = workspaceMatch[1];
+      const domainSegment = workspaceMatch[2]; // "/domains" | "/domains/:domainId" | undefined
+      const linkedDomainId = workspaceMatch[3]; // domainId component, if present
+
+      // Verify workspace exists for all sub-routes
+      let workspace;
+      try {
+        workspace = await env.cybermeters_db
+          .prepare(`SELECT id, name FROM workspaces WHERE id = ?`)
+          .bind(workspaceId)
+          .first();
+      } catch {
+        return Response.json({ error: "Database error" }, { status: 500 });
+      }
+      if (!workspace) {
+        return Response.json({ error: "Workspace not found" }, { status: 404 });
+      }
+
+      // DELETE /api/workspaces/:id/domains/:domainId
+      // Remove workspace↔domain link only — does NOT delete the domain row.
+      if (request.method === "DELETE" && domainSegment && linkedDomainId) {
+        try {
+          const del = await env.cybermeters_db
+            .prepare(
+              `DELETE FROM workspace_domains WHERE workspace_id = ? AND domain_id = ?`
+            )
+            .bind(workspaceId, linkedDomainId)
+            .run();
+          if (del.meta.changes === 0) {
+            return Response.json({ error: "Domain link not found" }, { status: 404 });
+          }
+          return Response.json({
+            success: true,
+            workspace_id: workspaceId,
+            domain_id: linkedDomainId,
+          });
+        } catch {
+          return Response.json({ error: "Database error" }, { status: 500 });
+        }
+      }
+
+      // GET /api/workspaces/:id/domains
+      // Returns domains linked to this workspace, enriched with latest scan data.
+      if (request.method === "GET" && domainSegment === "/domains") {
+        try {
+          const result = await env.cybermeters_db
+            .prepare(
+              `SELECT
+                 d.id          AS domain_id,
+                 d.domain,
+                 s.id          AS last_scan_id,
+                 s.score       AS latest_score,
+                 s.status      AS latest_status,
+                 s.created_at  AS last_scanned_at
+               FROM workspace_domains wd
+               JOIN   domains d ON d.id = wd.domain_id
+               LEFT JOIN scans s ON s.id = (
+                 SELECT id FROM scans
+                 WHERE  domain_id = d.id
+                 ORDER  BY created_at DESC
+                 LIMIT  1
+               )
+               WHERE wd.workspace_id = ?
+               ORDER BY d.domain ASC`
+            )
+            .bind(workspaceId)
+            .all();
+          return Response.json({ workspace_id: workspaceId, domains: result.results });
+        } catch {
+          return Response.json({ error: "Database error" }, { status: 500 });
+        }
+      }
+
+      // POST /api/workspaces/:id/domains
+      // Reuses existing domain row if present; creates one otherwise.
+      // Idempotent link via INSERT OR IGNORE.
+      if (request.method === "POST" && domainSegment === "/domains") {
+        let body;
+        try { body = await request.json(); } catch { body = {}; }
+        const raw = (body.domain || "").trim().toLowerCase();
+        if (!isValidDomain(raw)) {
+          return Response.json(
+            { error: "domain is required and must be a valid domain" },
+            { status: 400 }
+          );
+        }
+
+        try {
+          // Reuse existing domain row or create new one
+          let domainRow = await env.cybermeters_db
+            .prepare(`SELECT id, domain FROM domains WHERE domain = ? LIMIT 1`)
+            .bind(raw)
+            .first();
+
+          if (!domainRow) {
+            const newDomainId = createId("domain");
+            await env.cybermeters_db
+              .prepare(`INSERT INTO domains (id, user_id, domain) VALUES (?, ?, ?)`)
+              .bind(newDomainId, "user_demo", raw)
+              .run();
+            domainRow = { id: newDomainId, domain: raw };
+          }
+
+          // Link domain to workspace — silent no-op if already linked
+          await env.cybermeters_db
+            .prepare(
+              `INSERT OR IGNORE INTO workspace_domains (workspace_id, domain_id)
+               VALUES (?, ?)`
+            )
+            .bind(workspaceId, domainRow.id)
+            .run();
+
+          return Response.json(
+            {
+              domain: {
+                domain_id:    domainRow.id,
+                domain:       domainRow.domain,
+                workspace_id: workspaceId,
+              },
+            },
+            { status: 201 }
+          );
+        } catch {
+          return Response.json({ error: "Database error" }, { status: 500 });
+        }
+      }
+    }
+
     return Response.json(
       { error: "Not found" },
       { status: 404 }
