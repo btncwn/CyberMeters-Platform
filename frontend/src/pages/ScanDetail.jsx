@@ -374,18 +374,20 @@ function EmailPanel({ email }) {
  * A row of labelled pills showing changed items (new subdomains, findings, etc.)
  * tone: 'bad' (red) | 'good' (green/brand) | 'neutral' (amber)
  */
-function ChangeList({ title, items, renderItem, tone }) {
+function ChangeList({ title, items, total, renderItem, tone }) {
   const toneStyle = {
     bad:     'bg-red-50 text-red-700',
     good:    'bg-brand-50 text-brand-700',
     neutral: 'bg-amber-50 text-amber-700',
   }[tone] || 'bg-gray-100 text-gray-600'
 
+  const overflow = (total ?? items.length) - items.length
+
   return (
     <div className="px-6 py-3 border-b border-gray-50 last:border-0">
       <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
         {title}{' '}
-        <span className="font-normal text-gray-300 normal-case tracking-normal">({items.length})</span>
+        <span className="font-normal text-gray-300 normal-case tracking-normal">({total ?? items.length})</span>
       </p>
       <div className="flex flex-wrap gap-1.5">
         {items.map((item, i) => (
@@ -393,6 +395,11 @@ function ChangeList({ title, items, renderItem, tone }) {
             {renderItem(item)}
           </span>
         ))}
+        {overflow > 0 && (
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-400">
+            +{overflow} more
+          </span>
+        )}
       </div>
     </div>
   )
@@ -453,27 +460,33 @@ function ChangesPanel({ changes }) {
       ) : (
         <>
           {changes.new_findings.length > 0 && (
-            <ChangeList title="New Findings" items={changes.new_findings}
+            <ChangeList title="New Findings" items={changes.new_findings.slice(0, 5)}
+              total={changes.new_findings.length}
               renderItem={f => f.title} tone="bad" />
           )}
           {changes.resolved_findings.length > 0 && (
-            <ChangeList title="Resolved Findings" items={changes.resolved_findings}
+            <ChangeList title="Resolved Findings" items={changes.resolved_findings.slice(0, 5)}
+              total={changes.resolved_findings.length}
               renderItem={f => f.title} tone="good" />
           )}
           {changes.new_takeover_risks.length > 0 && (
-            <ChangeList title="New Takeover Risks" items={changes.new_takeover_risks}
+            <ChangeList title="New Takeover Risks" items={changes.new_takeover_risks.slice(0, 5)}
+              total={changes.new_takeover_risks.length}
               renderItem={r => r.host} tone="bad" />
           )}
           {changes.new_exposed_assets.length > 0 && (
-            <ChangeList title="New Exposed Assets" items={changes.new_exposed_assets}
+            <ChangeList title="New Exposed Assets" items={changes.new_exposed_assets.slice(0, 5)}
+              total={changes.new_exposed_assets.length}
               renderItem={a => a.host} tone="neutral" />
           )}
           {changes.new_subdomains.length > 0 && (
-            <ChangeList title="New Subdomains" items={changes.new_subdomains}
+            <ChangeList title="New Subdomains" items={changes.new_subdomains.slice(0, 5)}
+              total={changes.new_subdomains.length}
               renderItem={h => h} tone="neutral" />
           )}
           {changes.removed_subdomains.length > 0 && (
-            <ChangeList title="Removed Subdomains" items={changes.removed_subdomains}
+            <ChangeList title="Removed Subdomains" items={changes.removed_subdomains.slice(0, 5)}
+              total={changes.removed_subdomains.length}
               renderItem={h => h} tone="good" />
           )}
         </>
@@ -527,6 +540,14 @@ function ReportView({ report }) {
         <SectionHeader icon={Shield} title={`Recommended Actions (${recommendations?.length ?? 0})`} />
         <RecommendationsPanel recommendations={recommendations} />
       </div>
+
+      {/* Changes Since Last Scan */}
+      {modules?.historical_changes && (
+        <div className="card overflow-hidden">
+          <SectionHeader icon={History} title="Changes Since Last Scan" />
+          <ChangesPanel changes={modules.historical_changes} />
+        </div>
+      )}
 
       {/* DNS */}
       <div className="card overflow-hidden">
