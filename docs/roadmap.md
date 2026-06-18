@@ -1,40 +1,29 @@
 # CyberMeters Roadmap
 
-## Phase 1 - MVP
+## Completed
 
-- Domain Scan
-- Attack Surface Score
-- Executive Intelligence
-- Hidden Asset Discovery
-- KEV Intelligence
-- Remediation Prioritization
+- Worker API
+- D1 database
+- R2 storage
+- Scan queue
+- Scan detail API
+- Domain history API
+- Dashboard v1
 
-## Phase 2 - Cyber MOT
+## Next Sprint
 
-- Cyber MOT Score
-- Email Security Score
-- Exposure Timeline
-- Historical Tracking
+- Connect Attack Surface Discovery engine
+- Generate real scan result JSON
+- Store completed scan reports in R2
+- Update scan status from queued to completed
+- Add Cyber MOT Score calculation
 
-## Phase 3 - Continuous Monitoring
-
-- Daily Scans
-- Weekly Scans
-- Exposure Alerts
-- New KEV Detection
-- New Asset Detection
-
-## Phase 4 - Commercial Platform
+## Later
 
 - Authentication
-- Customer Dashboard
-- PDF Portal
-- Subscription Plans
-
-## Phase 5 - ASM Platform
-
-- Multi-Domain Management
-- Organization Dashboard
-- API Access
-- White-Label Reporting
-
+- Multi-tenant accounts
+- Scheduled scans
+- PDF reports
+- Email notifications
+- Billing and payment plans
+- Custom domain
