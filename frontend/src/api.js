@@ -27,11 +27,11 @@ export const api = {
   /** GET /api/domain/:domain/history */
   getDomainHistory: (domain) => request(`/domain/${encodeURIComponent(domain)}/history`),
 
-  /** POST /api/scan  body: { domain } */
-  createScan: (domain) =>
+  /** POST /api/scan  body: { domain, workspace_id? } */
+  createScan: (domain, workspaceId) =>
     request('/scan', {
       method: 'POST',
-      body: JSON.stringify({ domain }),
+      body: JSON.stringify({ domain, ...(workspaceId ? { workspace_id: workspaceId } : {}) }),
     }),
 
   /** GET /api/schedules */
@@ -47,4 +47,36 @@ export const api = {
   /** DELETE /api/schedules/:id */
   deleteSchedule: (id) =>
     request(`/schedules/${id}`, { method: 'DELETE' }),
+
+  // ── Workspaces ────────────────────────────────────────────────────────
+
+  /** GET /api/workspaces */
+  getWorkspaces: () => request('/workspaces'),
+
+  /** POST /api/workspaces  body: { name } */
+  createWorkspace: (name) =>
+    request('/workspaces', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    }),
+
+  /** GET /api/workspaces/:id  (includes stats) */
+  getWorkspace: (id) => request(`/workspaces/${id}`),
+
+  /** GET /api/workspaces/:id/domains */
+  getWorkspaceDomains: (id) => request(`/workspaces/${id}/domains`),
+
+  /** POST /api/workspaces/:id/domains  body: { domain } */
+  addDomainToWorkspace: (workspaceId, domain) =>
+    request(`/workspaces/${workspaceId}/domains`, {
+      method: 'POST',
+      body: JSON.stringify({ domain }),
+    }),
+
+  /** DELETE /api/workspaces/:id/domains/:domainId */
+  removeDomainFromWorkspace: (workspaceId, domainId) =>
+    request(`/workspaces/${workspaceId}/domains/${domainId}`, { method: 'DELETE' }),
+
+  /** GET /api/scans?workspace_id= */
+  getWorkspaceScans: (workspaceId) => request(`/scans?workspace_id=${workspaceId}`),
 }
