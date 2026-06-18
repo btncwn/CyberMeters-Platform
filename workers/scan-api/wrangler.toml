@@ -1,3 +1,8 @@
 name = "cybermeters-platform"
 main = "src/index.js"
 compatibility_date = "2026-06-18"
+
+[[d1_databases]]
+binding = "cybermeters_db"
+database_name = "cybermeters-db"
+database_id = "fd6792cb-441a-44a7-8ca2-9a0b411ec706"
