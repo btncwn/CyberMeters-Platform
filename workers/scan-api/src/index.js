@@ -161,10 +161,51 @@ async function runSslModule(domain) {
     }
   }
 
+  // ── SSL Certificate Expiry (via Certificate Transparency / crt.sh) ──────────
+  // Workers cannot inspect TLS handshake details on outbound fetch() calls, so
+  // we query crt.sh for the most recently issued valid certificate and compute
+  // days until expiry.  Best-effort — failure leaves cert_expiry_days as null.
+  let cert_expiry_days = null;
+  let cert_not_after   = null;
+  try {
+    const crtRes = await fetch(
+      `https://crt.sh/?q=${encodeURIComponent(domain)}&output=json`,
+      {
+        headers: { Accept: "application/json", "User-Agent": "CyberMeters/1.0" },
+        signal:  AbortSignal.timeout(8_000),
+      }
+    );
+    if (crtRes.ok) {
+      const ct = crtRes.headers.get("content-type") || "";
+      if (ct.includes("json")) {
+        const certs = await crtRes.json();
+        if (Array.isArray(certs)) {
+          const now = Date.now();
+          // Keep only certs that are currently valid (not yet expired).
+          // Sort by not_after descending so the longest-lived cert comes first —
+          // that is the one most likely still active on the server.
+          const valid = certs
+            .filter(c => c.not_after && new Date(c.not_after).getTime() > now)
+            .sort((a, b) => new Date(b.not_after).getTime() - new Date(a.not_after).getTime());
+          if (valid.length > 0) {
+            cert_not_after   = valid[0].not_after;
+            cert_expiry_days = Math.floor(
+              (new Date(cert_not_after).getTime() - now) / 86_400_000
+            );
+          }
+        }
+      }
+    }
+  } catch {
+    // crt.sh unavailable — cert expiry data omitted, scan still completes
+  }
+
   return {
-    https_available:       httpsOk || wwwHttpsOk,
-    http_redirects_to_https: httpRedirectsToHttps,
-    www_fallback_used:     !httpsOk && wwwHttpsOk,
+    https_available:          httpsOk || wwwHttpsOk,
+    http_redirects_to_https:  httpRedirectsToHttps,
+    www_fallback_used:        !httpsOk && wwwHttpsOk,
+    cert_expiry_days,
+    cert_not_after,
   };
 }
 
@@ -1407,18 +1448,20 @@ function buildAlertEmail(domain, scanId, triggers) {
  * Requires:
  *   env.RESEND_API_KEY   — Wrangler secret  (wrangler secret put RESEND_API_KEY)
  *   env.ALERT_EMAIL_TO   — recipient address (wrangler.toml [vars])
- *   env.ALERT_EMAIL_FROM — sender address   (wrangler.toml [vars], must be a
- *                          verified Resend domain or the Resend sandbox address)
+ *   fromKey              — which env var to use for the sender address:
+ *                            "ALERT_EMAIL_FROM"  alerts@cybermeters.com  (default)
+ *                            "SAFE_EMAIL_FROM"   safe@cybermeters.com
+ *                            "HELLO_EMAIL_FROM"  hello@cybermeters.com
  *
  * If RESEND_API_KEY is absent the function returns immediately — alerts are
  * silently skipped rather than crashing the scan pipeline.
  * All errors are swallowed for the same reason.
  */
-async function sendAlertEmail(subject, text, html, env) {
+async function sendAlertEmail(subject, text, html, env, fromKey = "ALERT_EMAIL_FROM") {
   if (!env.RESEND_API_KEY) return;
 
-  const to   = env.ALERT_EMAIL_TO   || "ttrnn47@gmail.com";
-  const from = env.ALERT_EMAIL_FROM || "alerts@cybermeters.com";
+  const to   = env.ALERT_EMAIL_TO || "ttrnn47@gmail.com";
+  const from = env[fromKey] || env.ALERT_EMAIL_FROM || "alerts@cybermeters.com";
 
   try {
     await fetch("https://api.resend.com/emails", {
@@ -1433,6 +1476,199 @@ async function sendAlertEmail(subject, text, html, env) {
   } catch {
     // Email delivery errors must never affect scan completion or D1/R2 writes.
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Dedicated alert functions — each fires via the appropriate sender address
+// and is swallowed on error so the scan pipeline is never interrupted.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * sendScoreDropAlert — fires when the Cyber Metrics Score drops ≥ 10 points
+ * compared to the previous scan for the same domain.
+ * Sender: ALERT_EMAIL_FROM (alerts@cybermeters.com)
+ */
+async function sendScoreDropAlert(domain, scanId, scoreDrop, prevScore, currScore, env) {
+  const reportUrl = `https://cybermeters.pages.dev/scans/${scanId}`;
+  const subject   = `⚠ CyberMeters: ${domain} score dropped ${Math.abs(scoreDrop)} points`;
+
+  const text =
+    `Security score drop detected for ${domain}\n\n` +
+    `Previous score : ${prevScore}\n` +
+    `Current score  : ${currScore}\n` +
+    `Change         : ${scoreDrop} points\n\n` +
+    `A score drop of this magnitude typically indicates new critical or high-severity\n` +
+    `findings on your attack surface. Review the full report immediately.\n\n` +
+    `View report: ${reportUrl}`;
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#111;max-width:600px;margin:0 auto;padding:24px;">
+  <div style="border-left:4px solid #EF4444;padding-left:16px;margin-bottom:20px;">
+    <h2 style="margin:0 0 4px;color:#EF4444;font-size:18px;">Score Drop Detected</h2>
+    <p style="margin:0;color:#555;font-size:14px;">Scheduled scan for <strong>${domain}</strong></p>
+  </div>
+  <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:20px;">
+    <tr>
+      <td style="padding:8px 12px;background:#F9FAFB;border-radius:6px 6px 0 0;color:#555;width:50%;">Previous score</td>
+      <td style="padding:8px 12px;background:#F9FAFB;border-radius:6px 6px 0 0;font-weight:700;">${prevScore}</td>
+    </tr>
+    <tr>
+      <td style="padding:8px 12px;background:#FEF2F2;color:#555;">Current score</td>
+      <td style="padding:8px 12px;background:#FEF2F2;font-weight:700;color:#EF4444;">${currScore}</td>
+    </tr>
+    <tr>
+      <td style="padding:8px 12px;background:#F9FAFB;border-radius:0 0 6px 6px;color:#555;">Change</td>
+      <td style="padding:8px 12px;background:#F9FAFB;border-radius:0 0 6px 6px;font-weight:700;color:#EF4444;">${scoreDrop} points</td>
+    </tr>
+  </table>
+  <p style="font-size:14px;color:#555;line-height:1.6;">
+    A drop of this magnitude typically indicates new critical or high-severity findings
+    on your attack surface. Review the full report immediately.
+  </p>
+  <p style="margin-top:24px;">
+    <a href="${reportUrl}" style="background:#EF4444;color:white;padding:10px 20px;border-radius:8px;text-decoration:none;font-size:14px;font-weight:600;display:inline-block;">
+      View Full Report
+    </a>
+  </p>
+  <hr style="border:none;border-top:1px solid #eee;margin:28px 0;" />
+  <p style="font-size:12px;color:#999;margin:0;">CyberMeters — Attack Surface Management</p>
+</body>
+</html>`;
+
+  await sendAlertEmail(subject, text, html, env, "ALERT_EMAIL_FROM");
+}
+
+/**
+ * sendTakeoverAlert — fires when new subdomain takeover risks are detected
+ * that were not present in the previous scan.
+ * Sender: SAFE_EMAIL_FROM (safe@cybermeters.com)
+ */
+async function sendTakeoverAlert(domain, scanId, risks, env) {
+  const reportUrl = `https://cybermeters.pages.dev/scans/${scanId}`;
+  const count     = risks.length;
+  const subject   = `🚨 CyberMeters: ${count} new takeover risk${count !== 1 ? "s" : ""} on ${domain}`;
+
+  const riskLines = risks.map(r => `• ${r.host} (${r.provider || "unknown provider"})`).join("\n");
+  const text =
+    `Subdomain takeover risk detected for ${domain}\n\n` +
+    `${count} new takeover risk${count !== 1 ? "s" : ""} found:\n` +
+    riskLines + "\n\n" +
+    `These subdomains have dangling CNAME records pointing to unclaimed cloud\n` +
+    `resources. An attacker could claim the target and serve malicious content\n` +
+    `on your domain.\n\n` +
+    `View report: ${reportUrl}`;
+
+  const riskRows = risks
+    .map(r => `<tr>
+      <td style="padding:8px 12px;font-family:monospace;font-size:13px;">${r.host}</td>
+      <td style="padding:8px 12px;color:#555;font-size:13px;">${r.provider || "—"}</td>
+    </tr>`)
+    .join("\n");
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#111;max-width:600px;margin:0 auto;padding:24px;">
+  <div style="border-left:4px solid #F97316;padding-left:16px;margin-bottom:20px;">
+    <h2 style="margin:0 0 4px;color:#F97316;font-size:18px;">Subdomain Takeover Risk</h2>
+    <p style="margin:0;color:#555;font-size:14px;">
+      ${count} new risk${count !== 1 ? "s" : ""} detected on <strong>${domain}</strong>
+    </p>
+  </div>
+  <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:20px;">
+    <thead>
+      <tr style="background:#FFF7ED;">
+        <th style="padding:8px 12px;text-align:left;color:#555;font-weight:600;">Subdomain</th>
+        <th style="padding:8px 12px;text-align:left;color:#555;font-weight:600;">Provider</th>
+      </tr>
+    </thead>
+    <tbody>${riskRows}</tbody>
+  </table>
+  <p style="font-size:14px;color:#555;line-height:1.6;">
+    These subdomains have dangling CNAME records pointing to unclaimed cloud resources.
+    An attacker could claim the target and serve malicious content on your domain.
+    Remove or update the DNS records immediately.
+  </p>
+  <p style="margin-top:24px;">
+    <a href="${reportUrl}" style="background:#F97316;color:white;padding:10px 20px;border-radius:8px;text-decoration:none;font-size:14px;font-weight:600;display:inline-block;">
+      View Full Report
+    </a>
+  </p>
+  <hr style="border:none;border-top:1px solid #eee;margin:28px 0;" />
+  <p style="font-size:12px;color:#999;margin:0;">CyberMeters — Attack Surface Management</p>
+</body>
+</html>`;
+
+  await sendAlertEmail(subject, text, html, env, "SAFE_EMAIL_FROM");
+}
+
+/**
+ * sendSslExpiryAlert — fires when the SSL certificate for a domain expires
+ * within 30 days (cert_expiry_days from runSslModule).
+ *
+ * Sender selection:
+ *   ≤ 14 days  → ALERT_EMAIL_FROM (alerts@)   — urgent security alert
+ *   15–30 days → SAFE_EMAIL_FROM  (safe@)      — advance security warning
+ *   HELLO_EMAIL_FROM is reserved for welcome/contact emails only.
+ */
+async function sendSslExpiryAlert(domain, scanId, daysUntilExpiry, certNotAfter, env) {
+  const reportUrl = `https://cybermeters.pages.dev/scans/${scanId}`;
+  const urgency   = daysUntilExpiry <= 7  ? "CRITICAL"
+                  : daysUntilExpiry <= 14 ? "URGENT"
+                  : "WARNING";
+  // Route to appropriate sender based on urgency window
+  const fromKey   = daysUntilExpiry <= 14 ? "ALERT_EMAIL_FROM" : "SAFE_EMAIL_FROM";
+  const subject   = `[${urgency}] SSL certificate for ${domain} expires in ${daysUntilExpiry} day${daysUntilExpiry !== 1 ? "s" : ""}`;
+
+  const expiryStr = certNotAfter
+    ? new Date(certNotAfter).toUTCString().slice(0, 22) + " UTC"
+    : "unknown";
+
+  const text =
+    `SSL certificate expiry warning for ${domain}\n\n` +
+    `Days until expiry : ${daysUntilExpiry}\n` +
+    `Certificate expires: ${expiryStr}\n\n` +
+    `An expired SSL certificate will cause browsers to show security warnings\n` +
+    `to all visitors, effectively taking your site offline. Renew immediately.\n\n` +
+    `View report: ${reportUrl}`;
+
+  const barColor  = daysUntilExpiry <= 7  ? "#EF4444"
+                  : daysUntilExpiry <= 14 ? "#F97316"
+                  : "#F59E0B";
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#111;max-width:600px;margin:0 auto;padding:24px;">
+  <div style="border-left:4px solid ${barColor};padding-left:16px;margin-bottom:20px;">
+    <h2 style="margin:0 0 4px;color:${barColor};font-size:18px;">SSL Certificate Expiry — ${urgency}</h2>
+    <p style="margin:0;color:#555;font-size:14px;"><strong>${domain}</strong></p>
+  </div>
+  <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:20px;">
+    <tr>
+      <td style="padding:8px 12px;background:#FFFBEB;color:#555;border-radius:6px 6px 0 0;width:50%;">Days remaining</td>
+      <td style="padding:8px 12px;background:#FFFBEB;font-weight:700;color:${barColor};font-size:20px;">${daysUntilExpiry}</td>
+    </tr>
+    <tr>
+      <td style="padding:8px 12px;background:#F9FAFB;color:#555;border-radius:0 0 6px 6px;">Expiry date</td>
+      <td style="padding:8px 12px;background:#F9FAFB;font-weight:600;">${expiryStr}</td>
+    </tr>
+  </table>
+  <p style="font-size:14px;color:#555;line-height:1.6;">
+    An expired SSL certificate causes browsers to show security warnings to all visitors,
+    effectively taking your site offline. Renew the certificate immediately via your
+    hosting provider, Let's Encrypt, or your certificate authority.
+  </p>
+  <p style="margin-top:24px;">
+    <a href="${reportUrl}" style="background:${barColor};color:white;padding:10px 20px;border-radius:8px;text-decoration:none;font-size:14px;font-weight:600;display:inline-block;">
+      View Full Report
+    </a>
+  </p>
+  <hr style="border:none;border-top:1px solid #eee;margin:28px 0;" />
+  <p style="font-size:12px;color:#999;margin:0;">CyberMeters — Attack Surface Management</p>
+</body>
+</html>`;
+
+  await sendAlertEmail(subject, text, html, env, fromKey);
 }
 
 // ── Scheduled Scan Helpers ────────────────────────────────────────────────────
@@ -1509,19 +1745,59 @@ async function triggerScheduledScan(schedule, env) {
     // Run the full scan engine — awaited inside waitUntil context
     await runScanEngine(scanId, domainId, schedule.domain, env);
 
-    // Email alert phase: read the completed report and fire an alert if warranted.
-    // Runs after runScanEngine so historical_changes is fully populated in R2.
-    // All errors are swallowed — alert failure must never surface to the user.
+    // ── Alert phase ──────────────────────────────────────────────────────────
+    // Runs after runScanEngine so historical_changes and SSL data are fully
+    // written to R2.  Each alert is fire-and-forget from its own try/catch so
+    // one delivery failure never blocks the others, and no error ever surfaces
+    // to callers or interrupts scan completion.
     try {
       const obj = await env.cybermeters_reports.get(`reports/${scanId}.json`);
       if (obj) {
-        const report   = await obj.json();
-        const triggers = shouldSendAlert(report.modules?.historical_changes);
-        if (triggers) {
-          const { subject, text, html } = buildAlertEmail(
-            schedule.domain, scanId, triggers
+        const report = await obj.json();
+        const hist   = report.modules?.historical_changes;
+        const ssl    = report.modules?.ssl;
+
+        // 1. Score drop ≥ 10 points
+        if (hist?.has_previous && hist.score_change != null && hist.score_change <= -10) {
+          try {
+            await sendScoreDropAlert(
+              schedule.domain, scanId,
+              hist.score_change, hist.previous_score, hist.current_score,
+              env
+            );
+          } catch { /* swallow */ }
+        }
+
+        // 2. New subdomain takeover risks
+        if (hist?.new_takeover_risks?.length > 0) {
+          try {
+            await sendTakeoverAlert(schedule.domain, scanId, hist.new_takeover_risks, env);
+          } catch { /* swallow */ }
+        }
+
+        // 3. SSL certificate expires within 30 days
+        if (ssl?.cert_expiry_days != null && ssl.cert_expiry_days <= 30) {
+          try {
+            await sendSslExpiryAlert(
+              schedule.domain, scanId,
+              ssl.cert_expiry_days, ssl.cert_not_after,
+              env
+            );
+          } catch { /* swallow */ }
+        }
+
+        // 4. New critical or high-severity findings (via generic alert path)
+        if (hist?.has_previous) {
+          const criticalNew = (hist.new_findings || []).filter(
+            f => f.severity === "critical" || f.severity === "high"
           );
-          await sendAlertEmail(subject, text, html, env);
+          if (criticalNew.length > 0) {
+            try {
+              const triggers = [{ type: "new_finding", findings: criticalNew.map(f => ({ title: f.title, severity: f.severity })) }];
+              const { subject, text, html } = buildAlertEmail(schedule.domain, scanId, triggers);
+              await sendAlertEmail(subject, text, html, env, "ALERT_EMAIL_FROM");
+            } catch { /* swallow */ }
+          }
         }
       }
     } catch {
