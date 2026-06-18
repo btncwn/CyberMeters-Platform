@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { RefreshCw, ScanLine, Server, ExternalLink } from 'lucide-react'
+import { RefreshCw, ScanLine, Server, ExternalLink, AlertTriangle } from 'lucide-react'
 import { api } from '../api'
 import Spinner from '../components/Spinner'
 import AssetSummary from '../components/AssetSummary'
@@ -63,7 +63,9 @@ function buildAssetData(report) {
     services:     [],
   }
 
-  return { summary, inventory, report }
+  const takeover = report?.modules?.subdomain_takeover ?? null
+
+  return { summary, inventory, report, takeover }
 }
 
 function hasAnyAssets(summary) {
@@ -207,6 +209,49 @@ export default function AssetsPage() {
             exposedServices={assetData.summary.exposedServices}
             hiddenAssets={assetData.summary.hiddenAssets}
           />
+
+          {/* Subdomain Takeover Risks */}
+          {assetData.takeover?.risks?.length > 0 && (
+            <div className="card p-0 overflow-hidden border border-red-100">
+              <div className="flex items-center gap-3 px-5 py-3 bg-red-50 border-b border-red-100">
+                <div className="w-7 h-7 rounded-lg bg-red-100 flex items-center justify-center flex-shrink-0">
+                  <AlertTriangle className="w-4 h-4 text-red-600" />
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-sm font-semibold text-red-800">
+                    Subdomain Takeover Risk{assetData.takeover.risks.length > 1 ? 's' : ''} Detected
+                  </span>
+                  <span className="text-xs text-red-500">
+                    {assetData.takeover.risks.length} vulnerable subdomain{assetData.takeover.risks.length > 1 ? 's' : ''} · {assetData.takeover.checked} checked
+                  </span>
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="data-table w-full">
+                  <thead>
+                    <tr>
+                      <th>Host</th>
+                      <th>Vulnerable Service</th>
+                      <th>CNAME Target</th>
+                      <th>Evidence</th>
+                      <th>Severity</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {assetData.takeover.risks.map((risk) => (
+                      <tr key={risk.host}>
+                        <td><span className="mono text-xs">{risk.host}</span></td>
+                        <td className="font-medium">{risk.service}</td>
+                        <td><span className="mono text-xs text-gray-500">{risk.cname}</span></td>
+                        <td className="text-xs text-gray-400 italic">"{risk.evidence}"</td>
+                        <td><span className="badge-high">High</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           <AssetInventory
             domains={assetData.inventory.domains}

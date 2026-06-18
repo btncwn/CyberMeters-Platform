@@ -375,6 +375,116 @@ async function runSubdomainsModule(domain) {
   return { count: items.length, items, sensitive, source };
 }
 
+// ── Module 6: Subdomain Takeover Detection ────────────────────────────────────
+
+/**
+ * Known vulnerable service fingerprints for CNAME-based subdomain takeover.
+ * cname_suffix: what the CNAME target ends with (indicates unclaimed service)
+ * body_pattern: text returned by the provider when the resource doesn't exist
+ */
+const TAKEOVER_FINGERPRINTS = [
+  {
+    service:      "GitHub Pages",
+    cname_suffix: "github.io",
+    body_pattern: "There isn't a GitHub Pages site here.",
+  },
+  {
+    service:      "Heroku",
+    cname_suffix: "herokuapp.com",
+    body_pattern: "No such app",
+  },
+  {
+    service:      "Azure",
+    cname_suffix: "azurewebsites.net",
+    body_pattern: "404 Web Site not found",
+  },
+  {
+    service:      "Netlify",
+    cname_suffix: "netlify.app",
+    body_pattern: "Not Found",
+  },
+];
+
+/**
+ * Check discovered subdomains for dangling CNAME records pointing to
+ * unclaimed resources on known hosting platforms.
+ *
+ * Requires modules.subdomains.items as input — always runs after subdomain
+ * discovery so no extra CT lookups are needed.
+ */
+async function runTakeoverModule(domain, subdomains) {
+  const source = "subdomain_cname_fingerprint";
+
+  if (!subdomains || subdomains.length === 0) {
+    return { checked: 0, potential_risks: 0, risks: [], source, error: null };
+  }
+
+  // Cap at 100 to bound concurrent I/O without sacrificing coverage
+  const targets = subdomains.slice(0, 100);
+
+  // Step 1: CNAME lookups for all targets in parallel
+  const cnameResults = await Promise.allSettled(
+    targets.map((host) => dnsQuery(host, "CNAME"))
+  );
+
+  // Step 2: collect candidates whose CNAME resolves to a known vulnerable provider
+  const candidates = [];
+  for (let i = 0; i < targets.length; i++) {
+    const r = cnameResults[i];
+    if (r.status !== "fulfilled") continue;
+    const answers = r.value.Answer || [];
+    for (const answer of answers) {
+      const cname = (answer.data || "").toLowerCase().replace(/\.$/, "");
+      for (const fp of TAKEOVER_FINGERPRINTS) {
+        if (cname === fp.cname_suffix || cname.endsWith("." + fp.cname_suffix)) {
+          candidates.push({ host: targets[i], cname, fingerprint: fp });
+          break;
+        }
+      }
+    }
+  }
+
+  if (candidates.length === 0) {
+    return { checked: targets.length, potential_risks: 0, risks: [], source, error: null };
+  }
+
+  // Step 3: fetch each candidate to confirm takeover via body fingerprint
+  const bodyResults = await Promise.allSettled(
+    candidates.map((c) =>
+      safeFetch(`https://${c.host}`, { method: "GET", redirect: "follow" })
+    )
+  );
+
+  const risks = [];
+  for (let i = 0; i < candidates.length; i++) {
+    const { host, cname, fingerprint } = candidates[i];
+    const settled = bodyResults[i];
+    if (settled.status !== "fulfilled" || !settled.value) continue;
+    try {
+      const text = await settled.value.text();
+      if (text.includes(fingerprint.body_pattern)) {
+        risks.push({
+          host,
+          service:  fingerprint.service,
+          cname,
+          evidence: fingerprint.body_pattern,
+          severity: "high",
+        });
+      }
+    } catch {
+      // body read error — skip this candidate
+    }
+  }
+
+  return {
+    checked:         targets.length,
+    potential_risks: candidates.length,
+    risks,
+    source,
+    error: null,
+  };
+}
+
 // ── Cyber Metrics Scoring Engine ──────────────────────────────────────────────
 
 function computeScore(modules, domain) {
@@ -572,6 +682,28 @@ function computeScore(modules, domain) {
     }
   }
 
+  // ── Subdomain Takeover ─────────────────────────────────────────────────
+  const takeoverMod = modules.subdomain_takeover;
+  if (takeoverMod && !takeoverMod.error && takeoverMod.risks?.length > 0) {
+    const riskCount = takeoverMod.risks.length;
+    // −15 for a single risk; −25 max for multiple
+    const impact = riskCount === 1 ? -15 : -25;
+    finding({
+      id:           "subdomain_takeover",
+      module:       "subdomain_takeover",
+      severity:     "high",
+      title:        `Subdomain Takeover Risk${riskCount > 1 ? "s" : ""} Detected`,
+      description:  `${riskCount} subdomain${riskCount > 1 ? "s" : ""} with dangling CNAME records pointing to unclaimed services ${riskCount > 1 ? "were" : "was"} found: ${takeoverMod.risks.map((r) => r.host).join(", ")}. These may be vulnerable to hijacking by a third party.`,
+      score_impact: impact,
+    });
+    recommendations.push({
+      priority:    1,
+      module:      "subdomain_takeover",
+      title:       "Fix Dangling DNS Records",
+      description: `Remove or update the CNAME records for: ${takeoverMod.risks.map((r) => `${r.host} → ${r.cname}`).join("; ")}. Either reclaim the service, point the CNAME to a valid endpoint, or delete the DNS record entirely.`,
+    });
+  }
+
   // Clamp and classify
   score = Math.max(0, Math.min(100, Math.round(score)));
 
@@ -606,7 +738,7 @@ async function runScanEngine(scanId, domainId, domain, env) {
       .bind(scanId)
       .run();
 
-    // Run all 5 modules in parallel.
+    // Phase 1: Run the 5 core modules in parallel.
     // Subdomain discovery (crt.sh) has a 25s timeout but does not block the
     // other modules — all run concurrently via Promise.allSettled.
     const [dnsSettled, sslSettled, headersSettled, emailSettled, subdomainsSettled] =
@@ -617,6 +749,19 @@ async function runScanEngine(scanId, domainId, domain, env) {
         runEmailModule(domain),
         runSubdomainsModule(domain),
       ]);
+
+    const subdomainsResult = subdomainsSettled.status === "fulfilled"
+      ? subdomainsSettled.value
+      : { count: 0, items: [], sensitive: [], source: "certificate_transparency",
+          error: subdomainsSettled.reason?.message ?? "Subdomain module failed" };
+
+    // Phase 2: Takeover detection — depends on discovered subdomains as input.
+    let takeoverResult;
+    try {
+      takeoverResult = await runTakeoverModule(domain, subdomainsResult.items || []);
+    } catch (err) {
+      takeoverResult = { checked: 0, potential_risks: 0, risks: [], source: "subdomain_cname_fingerprint", error: err.message };
+    }
 
     const modules = {
       dns: dnsSettled.status === "fulfilled"
@@ -635,10 +780,9 @@ async function runScanEngine(scanId, domainId, domain, env) {
         ? emailSettled.value
         : { error: emailSettled.reason?.message ?? "Email module failed" },
 
-      subdomains: subdomainsSettled.status === "fulfilled"
-        ? subdomainsSettled.value
-        : { count: 0, items: [], sensitive: [], source: "certificate_transparency",
-            error: subdomainsSettled.reason?.message ?? "Subdomain module failed" },
+      subdomains: subdomainsResult,
+
+      subdomain_takeover: takeoverResult,
     };
 
     // Compute Cyber Metrics Score

@@ -208,6 +208,7 @@ Reads the scan report JSON from R2 and returns it in a structured format.
 | `headers` | HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy |
 | `email_security` | SPF TXT record, DMARC policy, DKIM (13 common selectors probed) |
 | `subdomains` | Certificate Transparency lookup via crt.sh; sensitive-name classification |
+| `subdomain_takeover` | CNAME-based takeover detection against 4 known vulnerable hosting providers |
 
 **`modules.subdomains` shape**
 
@@ -218,6 +219,34 @@ Reads the scan report JSON from R2 and returns it in a structured format.
 | `sensitive` | string[] | Subset of `items` whose labels match dev/staging/admin/backup patterns |
 | `source` | string | Always `"certificate_transparency"` in v1 |
 | `error` | string? | Present only when the CT lookup failed; scan still completes |
+
+**`modules.subdomain_takeover` shape**
+
+| Field | Type | Description |
+|---|---|---|
+| `checked` | number | Number of subdomains checked for takeover (capped at 100) |
+| `potential_risks` | number | Subdomains whose CNAME matched a known vulnerable provider (pre-confirmation) |
+| `risks` | object[] | Confirmed takeover risks (CNAME match + body fingerprint confirmed) |
+| `error` | string? | Present only if the module itself errored; scan still completes |
+
+Each entry in `risks`:
+
+| Field | Type | Description |
+|---|---|---|
+| `host` | string | The vulnerable subdomain |
+| `service` | string | Provider name (e.g. `"GitHub Pages"`, `"Heroku"`) |
+| `cname` | string | The dangling CNAME target |
+| `evidence` | string | Body text fragment that confirmed the takeover |
+| `severity` | string | Always `"high"` |
+
+**Takeover fingerprints (v1)**
+
+| Service | CNAME suffix | Body fingerprint |
+|---|---|---|
+| GitHub Pages | `github.io` | `There isn't a GitHub Pages site here.` |
+| Heroku | `herokuapp.com` | `No such app` |
+| Azure | `azurewebsites.net` | `404 Web Site not found` |
+| Netlify | `netlify.app` | `Not Found` |
 
 **Sensitive subdomain label patterns (v1)**
 
@@ -242,6 +271,8 @@ Labels matched against each dot-separated part of the subdomain: `dev`, `develop
 | DKIM not detected | −5 |
 | Sensitive subdomain discovered | −5 each (max 4 findings, −20 cap) |
 | >20 subdomains (large attack surface) | −3 |
+| Subdomain takeover risk (1 subdomain) | −15 |
+| Subdomain takeover risks (2+ subdomains) | −25 (single finding, max cap) |
 
 **Response — scan not found (404)**
 ```json
@@ -315,4 +346,5 @@ curl https://cybermeters-platform.ttrnn47.workers.dev/api/domain/example.com/his
 - No mock data — all findings are derived from live DNS, HTTP, header, and Certificate Transparency responses at scan time.
 - DKIM discovery probes 13 common selectors in parallel. A DKIM finding of "not detected" means none of the probed selectors returned a valid record; custom selectors are not exhausted.
 - Subdomain discovery uses Certificate Transparency logs only (crt.sh). Results are capped at 200 unique hostnames. If crt.sh is unreachable or times out (25 s), `modules.subdomains` returns `count: 0` with an `error` field and the rest of the scan completes normally. No paid APIs or Shodan are used.
-- All five scan modules run in parallel via `Promise.allSettled`. A failure in any single module does not prevent the others from completing.
+- The first five scan modules run in parallel via `Promise.allSettled`. The takeover module (`subdomain_takeover`) runs in a second phase using the discovered subdomains as input. A failure in any module does not prevent the others from completing.
+- Takeover detection checks up to 100 subdomains. For each, it looks up the CNAME record via DoH. If the CNAME target matches a known vulnerable provider, it fetches the URL and checks the response body for the provider's "unclaimed resource" fingerprint text. Both checks must pass for a risk to be reported.

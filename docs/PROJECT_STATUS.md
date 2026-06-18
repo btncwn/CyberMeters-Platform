@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-Scan Engine v1 + Asset Intelligence v1 complete. Platform is live on Cloudflare.
+Scan Engine v1 + Asset Intelligence v1 + Subdomain Takeover Detection v1 complete. Platform is live on Cloudflare.
 
 ---
 
@@ -39,8 +39,9 @@ Scan Engine v1 + Asset Intelligence v1 complete. Platform is live on Cloudflare.
 | Security Headers | ✅ Live | HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy |
 | Email Security | ✅ Live | SPF, DMARC (policy), DKIM (13 selectors) |
 | Subdomain Discovery | ✅ Live | Certificate Transparency via crt.sh; sensitive-name classification |
+| Subdomain Takeover Detection | ✅ Live | CNAME check + body fingerprint against 4 providers (GitHub Pages, Heroku, Azure, Netlify) |
 
-All modules run in parallel via `Promise.allSettled`. Individual module failures do not fail the scan.
+The first 5 modules run in parallel via `Promise.allSettled`. The takeover module runs in a second phase, using discovered subdomains as input. Individual module failures do not fail the scan.
 
 ---
 
@@ -50,6 +51,7 @@ All modules run in parallel via `Promise.allSettled`. Individual module failures
 - Risk levels: Excellent (90–100), Good (75–89), Moderate (50–74), High (25–49), Critical (0–24)
 - Score and rating written to D1 on completion; full report written to R2
 - Subdomain scoring: −5 per sensitive subdomain (cap −20); −3 for >20 subdomains
+- Takeover scoring: −15 for 1 confirmed risk; −25 (single finding) for 2+ risks
 
 ---
 
