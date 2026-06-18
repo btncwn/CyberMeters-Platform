@@ -3719,6 +3719,13 @@ async function runScanEngine(scanId, domainId, domain, env) {
       await upsertAssetInventory(scanId, domainId, domain, modules, env);
     } catch { /* non-fatal — inventory update will catch up on next scan */ }
 
+    // Phase 9: Asset Change Alert — one grouped email per workspace per scan.
+    // Reads asset_events written by Phase 8, deduped via asset_alert_records.
+    // Fully non-fatal — swallows all errors.
+    try {
+      await sendAssetChangeAlert(domainId, domain, scanId, env);
+    } catch { /* non-fatal */ }
+
   } catch (err) {
     // Best-effort: write failure state to R2 and D1.
     // Each write is individually guarded so one failure cannot prevent the other.
@@ -3750,6 +3757,249 @@ async function runScanEngine(scanId, domainId, domain, env) {
         .bind(scanId)
         .run();
     } catch { /* D1 write failure — scan will remain 'running' but we cannot do more */ }
+  }
+}
+
+// ── Asset Change Alert Engine ─────────────────────────────────────────────────
+//
+// Fires once per workspace per scan, grouped into a single summary email.
+// Dedup is enforced by asset_alert_records UNIQUE(workspace_id, scan_id):
+//   INSERT OR IGNORE silently no-ops if an alert was already sent.
+//
+// Alert-worthy event types and their severity contribution:
+//   takeover_risk_detected  → critical
+//   new_asset_discovered    → high
+//   wildcard_dns_detected   → medium
+//   cloud_storage_detected  → medium
+//   asset_reappeared        → medium
+//   asset_no_longer_seen    → info  (included in summary but does not trigger alone)
+
+const ASSET_ALERT_EVENTS = new Set([
+  "new_asset_discovered",
+  "asset_reappeared",
+  "asset_no_longer_seen",
+  "takeover_risk_detected",
+  "cloud_storage_detected",
+  "wildcard_dns_detected",
+]);
+
+// Severity thresholds — highest matching rule wins.
+function assetAlertSeverity(counts) {
+  if ((counts.takeover_risk_detected || 0) > 0) return "critical";
+  if ((counts.new_asset_discovered    || 0) > 0) return "high";
+  if ((counts.wildcard_dns_detected   || 0) > 0 ||
+      (counts.cloud_storage_detected  || 0) > 0 ||
+      (counts.asset_reappeared        || 0) > 0)   return "medium";
+  return "info";
+}
+
+// Returns true when there is something worth emailing about.
+// asset_no_longer_seen alone is not alert-worthy.
+function assetAlertWorthy(counts) {
+  return (
+    (counts.new_asset_discovered   || 0) > 0 ||
+    (counts.asset_reappeared       || 0) > 0 ||
+    (counts.takeover_risk_detected || 0) > 0 ||
+    (counts.cloud_storage_detected || 0) > 0 ||
+    (counts.wildcard_dns_detected  || 0) > 0
+  );
+}
+
+function buildAssetAlertEmail(domain, workspaceId, scanId, counts, topHostnames, severity) {
+  const assetsUrl = `https://cybermeters.pages.dev/assets`;
+
+  const SEVERITY_COLOR = {
+    critical: "#dc2626",
+    high:     "#ea580c",
+    medium:   "#d97706",
+    info:     "#00876A",
+  };
+  const color = SEVERITY_COLOR[severity] || SEVERITY_COLOR.info;
+
+  const LABELS = {
+    new_asset_discovered:   "New assets discovered",
+    asset_reappeared:       "Assets reappeared",
+    asset_no_longer_seen:   "Assets no longer seen",
+    takeover_risk_detected: "Subdomain takeover risks",
+    cloud_storage_detected: "Cloud storage references",
+    wildcard_dns_detected:  "Wildcard DNS events",
+  };
+
+  const lines = [];
+  for (const [type, label] of Object.entries(LABELS)) {
+    const n = counts[type] || 0;
+    if (n > 0) lines.push(`${label}: ${n}`);
+  }
+
+  const hostList = (topHostnames || []).slice(0, 5);
+  const hostLine = hostList.length > 0
+    ? `Top affected hostnames: ${hostList.join(", ")}`
+    : null;
+
+  const subject = severity === "critical"
+    ? `🚨 CyberMeters: Takeover risk on ${domain}`
+    : severity === "high"
+    ? `⚠ CyberMeters: New assets detected on ${domain}`
+    : `CyberMeters: Asset changes on ${domain}`;
+
+  const text = [
+    `Asset change alert for ${domain} (workspace ${workspaceId})`,
+    `Severity: ${severity.toUpperCase()}`,
+    "",
+    ...lines,
+    ...(hostLine ? [hostLine] : []),
+    "",
+    `View asset inventory: ${assetsUrl}`,
+  ].join("\n");
+
+  const listItems = lines
+    .map((l) => `<li style="margin-bottom:6px">${l}</li>`)
+    .join("\n      ");
+
+  const hostnameSection = hostList.length > 0
+    ? `<p style="font-size:13px;color:#555;margin-top:12px;">
+        <strong>Affected hostnames:</strong> ${hostList.map((h) => `<code style="background:#f3f4f6;padding:1px 5px;border-radius:4px;font-size:12px">${h}</code>`).join(" ")}
+       </p>`
+    : "";
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#111;max-width:600px;margin:0 auto;padding:24px;">
+  <div style="border-left:4px solid ${color};padding-left:16px;margin-bottom:20px;">
+    <h2 style="margin:0 0 4px;color:${color};font-size:18px;">Asset Change Alert</h2>
+    <p style="margin:0;color:#555;font-size:14px;">
+      Scan completed for <strong>${domain}</strong> &mdash;
+      <span style="font-weight:600;color:${color};text-transform:uppercase;font-size:12px">${severity}</span>
+    </p>
+  </div>
+  <ul style="padding-left:20px;line-height:1.8;font-size:14px;color:#333;">
+    ${listItems}
+  </ul>
+  ${hostnameSection}
+  <p style="margin-top:24px;">
+    <a href="${assetsUrl}"
+       style="background:${color};color:white;padding:10px 20px;border-radius:8px;
+              text-decoration:none;font-size:14px;font-weight:600;display:inline-block;">
+      View Asset Inventory
+    </a>
+  </p>
+  <hr style="border:none;border-top:1px solid #eee;margin:28px 0;" />
+  <p style="font-size:12px;color:#999;margin:0;">
+    CyberMeters &mdash; Attack Surface Management<br>
+    Scan ID: <code style="font-size:11px">${scanId}</code>
+  </p>
+</body>
+</html>`;
+
+  return { subject, text, html };
+}
+
+/**
+ * sendAssetChangeAlert
+ *
+ * Called once per scan after upsertAssetInventory completes.
+ * Looks up all workspaces that own this domain, queries asset_events for this
+ * scan, builds a grouped summary, and sends one email per workspace.
+ *
+ * Dedup: INSERT OR IGNORE into asset_alert_records prevents re-sends.
+ * The whole function is non-fatal — any error is swallowed.
+ */
+async function sendAssetChangeAlert(domainId, domain, scanId, env) {
+  try {
+    // Find all workspaces that own this domain
+    const wsResult = await env.cybermeters_db
+      .prepare(`SELECT workspace_id FROM workspace_domains WHERE domain_id = ?`)
+      .bind(domainId)
+      .all();
+    const workspaceIds = (wsResult.results || []).map((r) => r.workspace_id);
+    if (workspaceIds.length === 0) return;
+
+    // Fetch all asset events for this scan (across all workspaces in one query)
+    const eventsResult = await env.cybermeters_db
+      .prepare(
+        `SELECT workspace_id, event_type, hostname
+         FROM asset_events
+         WHERE scan_id = ?`
+      )
+      .bind(scanId)
+      .all();
+    const allEvents = eventsResult.results || [];
+
+    // Group events by workspace_id
+    const byWorkspace = new Map();
+    for (const ev of allEvents) {
+      if (!byWorkspace.has(ev.workspace_id)) byWorkspace.set(ev.workspace_id, []);
+      byWorkspace.get(ev.workspace_id).push(ev);
+    }
+
+    for (const workspace_id of workspaceIds) {
+      try {
+        const events = byWorkspace.get(workspace_id) || [];
+        if (events.length === 0) continue;
+
+        // Count events by type
+        const counts = {};
+        const hostnamesByType = {};
+        for (const ev of events) {
+          if (!ASSET_ALERT_EVENTS.has(ev.event_type)) continue;
+          counts[ev.event_type] = (counts[ev.event_type] || 0) + 1;
+          if (ev.hostname) {
+            if (!hostnamesByType[ev.event_type]) hostnamesByType[ev.event_type] = [];
+            hostnamesByType[ev.event_type].push(ev.hostname);
+          }
+        }
+
+        if (!assetAlertWorthy(counts)) continue;
+
+        const severity = assetAlertSeverity(counts);
+
+        // Collect top hostnames — prioritise high-severity event types
+        const topHostnames = [
+          ...(hostnamesByType.takeover_risk_detected || []),
+          ...(hostnamesByType.new_asset_discovered   || []),
+          ...(hostnamesByType.cloud_storage_detected || []),
+          ...(hostnamesByType.wildcard_dns_detected  || []),
+          ...(hostnamesByType.asset_reappeared       || []),
+        ].filter((v, i, a) => a.indexOf(v) === i).slice(0, 5);
+
+        // Dedup: INSERT OR IGNORE — if this (workspace_id, scan_id) already has a
+        // record the insert is silently skipped and we don't send the email again.
+        const now    = new Date().toISOString();
+        const recId  = createId("aar");
+        const insert = await env.cybermeters_db
+          .prepare(
+            `INSERT OR IGNORE INTO asset_alert_records
+               (id, workspace_id, scan_id, domain, severity, event_counts, top_hostnames, sent_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+          )
+          .bind(
+            recId,
+            workspace_id,
+            scanId,
+            domain,
+            severity,
+            JSON.stringify(counts),
+            JSON.stringify(topHostnames),
+            now
+          )
+          .run();
+
+        // meta.changes === 0 means the row already existed — skip email
+        if (!insert.meta || insert.meta.changes === 0) continue;
+
+        // Build + send email
+        const { subject, text, html } = buildAssetAlertEmail(
+          domain, workspace_id, scanId, counts, topHostnames, severity
+        );
+        await sendAlertEmail(subject, text, html, env, "ALERT_EMAIL_FROM");
+
+        console.log("[asset-alert] sent", JSON.stringify({ workspace_id, scanId, severity, counts }));
+      } catch (wsErr) {
+        console.error("[asset-alert] workspace error", workspace_id, wsErr?.message);
+      }
+    }
+  } catch (err) {
+    console.error("[asset-alert] failed:", err?.message);
   }
 }
 
