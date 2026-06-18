@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { RefreshCw, ScanLine, Server, ExternalLink, AlertTriangle } from 'lucide-react'
+import { RefreshCw, ScanLine, Server, ExternalLink, AlertTriangle, Globe } from 'lucide-react'
 import { api } from '../api'
 import Spinner from '../components/Spinner'
 import AssetSummary from '../components/AssetSummary'
@@ -37,12 +37,14 @@ function buildAssetData(report) {
       : null,
   }))
 
+  const exposure = report?.modules?.asset_exposure ?? null
+
   const summary = {
-    domains:         1,                          // the scanned root domain
+    domains:         1,
     subdomains:      sub?.count ?? 0,
-    certificates:    0,                          // future module
-    exposedServices: 0,                          // future module
-    hiddenAssets:    sub?.sensitive?.length ?? 0, // sensitive = potential hidden risk
+    certificates:    0,                                // future module
+    exposedServices: exposure?.reachable ?? 0,         // live HTTP probe count
+    hiddenAssets:    sub?.sensitive?.length ?? 0,
   }
 
   const inventory = {
@@ -65,7 +67,23 @@ function buildAssetData(report) {
 
   const takeover = report?.modules?.subdomain_takeover ?? null
 
-  return { summary, inventory, report, takeover }
+  return { summary, inventory, report, takeover, exposure }
+}
+
+// HTTP status pill shown in the exposed assets table
+function StatusBadge({ status }) {
+  if (!status) return <span className="text-xs text-gray-400">Unreachable</span>
+  if (status === 200)
+    return <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">200 OK</span>
+  if (status >= 301 && status <= 308)
+    return <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">{status} Redirect</span>
+  if (status === 401)
+    return <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">401 Auth Required</span>
+  if (status === 403)
+    return <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">403 Forbidden</span>
+  if (status === 404)
+    return <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-500">404 Not Found</span>
+  return <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-600">{status}</span>
 }
 
 function hasAnyAssets(summary) {
@@ -252,6 +270,80 @@ export default function AssetsPage() {
               </div>
             </div>
           )}
+
+          {/* Exposed Assets */}
+          {(() => {
+            const exp = assetData.exposure
+            if (!exp || !exp.assets) return null
+            const reachable = exp.assets.filter(a => a.reachable)
+            if (reachable.length === 0) return null
+            return (
+              <div className="card p-0 overflow-hidden">
+                <div className="flex items-center gap-3 px-5 py-3 border-b border-gray-100">
+                  <div className="w-7 h-7 rounded-lg bg-amber-50 flex items-center justify-center flex-shrink-0">
+                    <Globe className="w-4 h-4 text-amber-500" />
+                  </div>
+                  <div className="flex items-baseline gap-2 min-w-0">
+                    <span className="text-sm font-semibold text-gray-900">Exposed Assets</span>
+                    <span className="text-xs text-gray-400">
+                      {reachable.length} reachable · {exp.checked} checked
+                    </span>
+                  </div>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="data-table w-full">
+                    <thead>
+                      <tr>
+                        <th>Host</th>
+                        <th>Status</th>
+                        <th>Title</th>
+                        <th>Server</th>
+                        <th>Tech</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {reachable.map((asset) => (
+                        <tr key={asset.host}>
+                          <td>
+                            <a
+                              href={asset.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="mono text-xs text-brand-600 hover:underline"
+                            >
+                              {asset.host}
+                            </a>
+                          </td>
+                          <td><StatusBadge status={asset.status} /></td>
+                          <td className="text-xs text-gray-600 max-w-[200px] truncate">
+                            {asset.title || <span className="text-gray-300">—</span>}
+                          </td>
+                          <td className="text-xs text-gray-500">
+                            {asset.server || <span className="text-gray-300">—</span>}
+                          </td>
+                          <td>
+                            <div className="flex flex-wrap gap-1">
+                              {(asset.tech || []).map(t => (
+                                <span
+                                  key={t}
+                                  className="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-gray-100 text-gray-600"
+                                >
+                                  {t}
+                                </span>
+                              ))}
+                              {(!asset.tech || asset.tech.length === 0) && (
+                                <span className="text-gray-300 text-xs">—</span>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )
+          })()}
 
           <AssetInventory
             domains={assetData.inventory.domains}

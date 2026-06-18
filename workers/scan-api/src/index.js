@@ -485,6 +485,161 @@ async function runTakeoverModule(domain, subdomains) {
   };
 }
 
+// ── Module 7: Asset Exposure Engine ──────────────────────────────────────────
+
+/**
+ * Derive tech stack hints from response headers and a body snippet.
+ * No remote lookups — purely from what the server returned.
+ */
+function detectTech(headers, body) {
+  const tech = new Set();
+  const b = body.toLowerCase();
+
+  // Server header
+  const server = (headers.get("server") || "").toLowerCase();
+  if (server.includes("nginx"))      tech.add("Nginx");
+  if (server.includes("apache"))     tech.add("Apache");
+  if (server.includes("cloudflare")) tech.add("Cloudflare");
+  if (server.includes("litespeed"))  tech.add("LiteSpeed");
+  if (server.includes("iis"))        tech.add("IIS");
+  if (server.includes("gunicorn"))   tech.add("Gunicorn");
+  if (server.includes("caddy"))      tech.add("Caddy");
+  if (server.includes("openresty"))  tech.add("OpenResty");
+
+  // X-Powered-By header
+  const powered = (headers.get("x-powered-by") || "").toLowerCase();
+  if (powered.includes("php"))        tech.add("PHP");
+  if (powered.includes("asp.net"))    tech.add("ASP.NET");
+  if (powered.includes("express"))    tech.add("Express");
+  if (powered.includes("next.js"))    tech.add("Next.js");
+
+  // Cloudflare-specific headers
+  if (headers.get("cf-ray"))          tech.add("Cloudflare");
+
+  // Platform headers
+  if (headers.get("x-shopify-shop-api-call-limit")) tech.add("Shopify");
+  const xgen = headers.get("x-generator") || "";
+  if (xgen.toLowerCase().includes("drupal"))  tech.add("Drupal");
+  if (headers.get("x-drupal-cache"))          tech.add("Drupal");
+  if (headers.get("x-pingback"))              tech.add("WordPress");
+
+  // Body patterns — first 8 KB only
+  if (b.includes("wp-content") || b.includes("wp-json") || b.includes("/wp-admin")) {
+    tech.add("WordPress");
+  }
+  if (b.includes("__next_data__") || b.includes("/_next/static")) tech.add("Next.js");
+  if (b.includes("data-reactroot") || b.includes("__reactrootcontainer")) tech.add("React");
+  if (b.includes("ng-version=") || b.includes("ng-app") || b.includes("[ng-")) tech.add("Angular");
+  if (b.includes("__vue_app__") || b.includes("vue.min.js"))                  tech.add("Vue.js");
+  if (b.includes("jquery"))    tech.add("jQuery");
+  if (b.includes("bootstrap")) tech.add("Bootstrap");
+  if (!tech.has("Drupal") && b.includes("drupal"))  tech.add("Drupal");
+  if (b.includes("joomla"))    tech.add("Joomla");
+  if (b.includes("laravel"))   tech.add("Laravel");
+  if (b.includes("django"))    tech.add("Django");
+
+  return [...tech];
+}
+
+/**
+ * Probe a single host over HTTPS (with HTTP fallback) and return exposure metadata.
+ * Never throws — returns a reachable:false record on total failure.
+ */
+async function probeAsset(host) {
+  for (const proto of ["https", "http"]) {
+    const url = `${proto}://${host}`;
+    let res = null;
+    try {
+      res = await fetch(url, {
+        method:   "GET",
+        redirect: "follow",
+        signal:   AbortSignal.timeout(8_000),
+      });
+    } catch {
+      // Timeout or network error — try HTTP fallback
+      continue;
+    }
+
+    const status      = res.status;
+    const reachable   = status < 500;
+    const server      = res.headers.get("server") || null;
+    const rawCT       = res.headers.get("content-type") || null;
+    const contentType = rawCT ? rawCT.split(";")[0].trim() : null;
+
+    let title = null;
+    let tech  = [];
+
+    if (rawCT?.includes("text/html")) {
+      try {
+        const body    = await res.text();
+        const snippet = body.slice(0, 8_192);
+        const m       = snippet.match(/<title[^>]*>([^<]{1,200})<\/title>/i);
+        title = m ? m[1].trim() : null;
+        tech  = detectTech(res.headers, snippet);
+      } catch {
+        tech = detectTech(res.headers, "");
+      }
+    } else {
+      tech = detectTech(res.headers, "");
+    }
+
+    return {
+      host,
+      url:          res.url || url,
+      status,
+      reachable,
+      title,
+      server,
+      content_type: contentType,
+      tech,
+    };
+  }
+
+  // Both HTTPS and HTTP unreachable
+  return {
+    host,
+    url:          `https://${host}`,
+    status:       null,
+    reachable:    false,
+    title:        null,
+    server:       null,
+    content_type: null,
+    tech:         [],
+  };
+}
+
+/**
+ * Probe all discovered subdomains for HTTP/HTTPS reachability and collect
+ * lightweight exposure metadata (status, title, server header, tech stack).
+ * Cap at 50 subdomains for v1.
+ */
+async function runExposureModule(domain, subdomains) {
+  const source = "http_probe";
+
+  if (!subdomains || subdomains.length === 0) {
+    return { checked: 0, reachable: 0, assets: [], source, error: null };
+  }
+
+  const targets = subdomains.slice(0, 50);
+
+  // All probes run in parallel; individual failures return reachable:false records
+  const settled = await Promise.allSettled(targets.map((host) => probeAsset(host)));
+
+  const assets = settled
+    .filter((r) => r.status === "fulfilled")
+    .map((r) => r.value);
+
+  const reachableCount = assets.filter((a) => a.reachable).length;
+
+  return {
+    checked:   targets.length,
+    reachable: reachableCount,
+    assets,
+    source,
+    error: null,
+  };
+}
+
 // ── Cyber Metrics Scoring Engine ──────────────────────────────────────────────
 
 function computeScore(modules, domain) {
@@ -704,6 +859,80 @@ function computeScore(modules, domain) {
     });
   }
 
+  // ── Asset Exposure ─────────────────────────────────────────────────────
+  const exposureMod = modules.asset_exposure;
+  if (exposureMod && !exposureMod.error && exposureMod.assets?.length > 0) {
+    // Only 200-status assets are considered risky; 401/403 are informational
+    const ok200 = exposureMod.assets.filter((a) => a.status === 200);
+
+    // Sensitive management / monitoring tools
+    const TOOL_RE = /jenkins|grafana|kibana|phpmyadmin|portainer|prometheus|vault\s*ui|rancher/i;
+    const toolAssets = ok200.filter(
+      (a) => TOOL_RE.test(a.title || "") || (a.tech || []).some((t) => TOOL_RE.test(t))
+    );
+    if (toolAssets.length > 0) {
+      finding({
+        id:           "asset_exposure_sensitive_tool",
+        module:       "asset_exposure",
+        severity:     "high",
+        title:        `Sensitive Management Tool${toolAssets.length > 1 ? "s" : ""} Exposed`,
+        description:  `${toolAssets.length} management or monitoring tool${toolAssets.length > 1 ? "s are" : " is"} publicly reachable: ${toolAssets.map((a) => a.host).join(", ")}. These provide privileged access and should not be internet-facing.`,
+        score_impact: -10,
+      });
+      recommendations.push({
+        priority:    1,
+        module:      "asset_exposure",
+        title:       "Restrict Access to Management Tools",
+        description: `Firewall or VPN-protect the following interfaces and allow only trusted IP ranges: ${toolAssets.map((a) => `${a.host}${a.title ? ` (${a.title})` : ""}`).join(", ")}.`,
+      });
+    }
+
+    // Administrative / login interfaces (not already caught as tools)
+    const ADMIN_HOST_RE  = /\b(admin|cp|cpanel|panel|portal|login|dashboard|manage|control)\b/;
+    const ADMIN_TITLE_RE = /\b(login|admin|dashboard|control\s*panel|portal|management|sign[\s-]in)\b/i;
+    const adminAssets = ok200.filter(
+      (a) =>
+        !toolAssets.includes(a) &&
+        (ADMIN_HOST_RE.test(a.host) || ADMIN_TITLE_RE.test(a.title || ""))
+    );
+    if (adminAssets.length > 0) {
+      finding({
+        id:           "asset_exposure_admin_interface",
+        module:       "asset_exposure",
+        severity:     "medium",
+        title:        `Administrative Interface${adminAssets.length > 1 ? "s" : ""} Publicly Reachable`,
+        description:  `${adminAssets.length} administrative or login interface${adminAssets.length > 1 ? "s are" : " is"} publicly accessible: ${adminAssets.map((a) => a.host).join(", ")}. Restrict access to authorised IP ranges or enforce MFA.`,
+        score_impact: -8,
+      });
+      recommendations.push({
+        priority:    2,
+        module:      "asset_exposure",
+        title:       "Restrict Administrative Interfaces",
+        description: `Limit the following admin interfaces to trusted IP ranges or protect with a VPN or MFA: ${adminAssets.map((a) => a.host).join(", ")}.`,
+      });
+    }
+
+    // Development / staging environments
+    const DEV_HOST_RE = /\b(dev|develop|development|staging|stage|stg|test|testing|qa|uat|sandbox|alpha|beta|preprod)\b/;
+    const devAssets = ok200.filter((a) => DEV_HOST_RE.test(a.host));
+    if (devAssets.length > 0) {
+      finding({
+        id:           "asset_exposure_dev_env",
+        module:       "asset_exposure",
+        severity:     "medium",
+        title:        `Development Environment${devAssets.length > 1 ? "s" : ""} Publicly Reachable`,
+        description:  `${devAssets.length} development or staging environment${devAssets.length > 1 ? "s are" : " is"} publicly accessible: ${devAssets.map((a) => a.host).join(", ")}. These often contain debug endpoints, test credentials, or reduced security controls.`,
+        score_impact: -5,
+      });
+      recommendations.push({
+        priority:    2,
+        module:      "asset_exposure",
+        title:       "Restrict Development Environments",
+        description: `Development and staging environments should not be publicly accessible. Firewall or add authentication to: ${devAssets.map((a) => a.host).join(", ")}.`,
+      });
+    }
+  }
+
   // Clamp and classify
   score = Math.max(0, Math.min(100, Math.round(score)));
 
@@ -763,6 +992,21 @@ async function runScanEngine(scanId, domainId, domain, env) {
       takeoverResult = { checked: 0, potential_risks: 0, risks: [], source: "subdomain_cname_fingerprint", error: err.message };
     }
 
+    // Phase 3: Asset exposure probing — HTTP/HTTPS reachability + metadata.
+    // Runs after takeover (sequential) to bound total concurrent I/O.
+    let assetExposureResult;
+    try {
+      assetExposureResult = await runExposureModule(domain, subdomainsResult.items || []);
+    } catch (err) {
+      assetExposureResult = {
+        checked:   0,
+        reachable: 0,
+        assets:    [],
+        source:    "http_probe",
+        error:     err.message ?? "Asset exposure module failed",
+      };
+    }
+
     const modules = {
       dns: dnsSettled.status === "fulfilled"
         ? dnsSettled.value
@@ -783,6 +1027,8 @@ async function runScanEngine(scanId, domainId, domain, env) {
       subdomains: subdomainsResult,
 
       subdomain_takeover: takeoverResult,
+
+      asset_exposure: assetExposureResult,
     };
 
     // Compute Cyber Metrics Score
@@ -1024,6 +1270,27 @@ export default {
 
       const raw = await obj.json();
 
+      // Normalise modules — ensure every module key is present even for reports
+      // stored before a module was introduced (backward-compatible defaults).
+      const storedModules = raw.modules ?? {};
+      const normalisedModules = {
+        ...storedModules,
+        asset_exposure: storedModules.asset_exposure ?? {
+          checked:   0,
+          reachable: 0,
+          assets:    [],
+          source:    "http_probe",
+          error:     null,
+        },
+        subdomain_takeover: storedModules.subdomain_takeover ?? {
+          checked:         0,
+          potential_risks: 0,
+          risks:           [],
+          source:          "subdomain_cname_fingerprint",
+          error:           null,
+        },
+      };
+
       return json({
         scan_id:             scan.id,
         domain:              scan.domain,
@@ -1032,7 +1299,7 @@ export default {
         risk_level:          raw.risk_level          ?? "unknown",
         findings:            Array.isArray(raw.findings)        ? raw.findings        : [],
         recommendations:     Array.isArray(raw.recommendations) ? raw.recommendations : [],
-        modules:             raw.modules ?? {},
+        modules:             normalisedModules,
         ...(raw.started_at   ? { started_at:   raw.started_at   } : {}),
         ...(raw.completed_at ? { completed_at: raw.completed_at } : {}),
         ...(raw.failed_at    ? { failed_at:    raw.failed_at    } : {}),

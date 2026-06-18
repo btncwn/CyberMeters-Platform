@@ -209,6 +209,7 @@ Reads the scan report JSON from R2 and returns it in a structured format.
 | `email_security` | SPF TXT record, DMARC policy, DKIM (13 common selectors probed) |
 | `subdomains` | Certificate Transparency lookup via crt.sh; sensitive-name classification |
 | `subdomain_takeover` | CNAME-based takeover detection against 4 known vulnerable hosting providers |
+| `asset_exposure` | HTTP/HTTPS reachability probe of up to 50 subdomains; collects status, title, server, tech stack |
 
 **`modules.subdomains` shape**
 
@@ -238,6 +239,33 @@ Each entry in `risks`:
 | `cname` | string | The dangling CNAME target |
 | `evidence` | string | Body text fragment that confirmed the takeover |
 | `severity` | string | Always `"high"` |
+
+**`modules.asset_exposure` shape**
+
+| Field | Type | Description |
+|---|---|---|
+| `checked` | number | Subdomains probed (capped at 50) |
+| `reachable` | number | Subdomains that returned any HTTP status < 500 |
+| `assets` | object[] | One entry per checked subdomain |
+| `source` | string | Always `"http_probe"` in v1 |
+| `error` | string\|null | Module-level error; null on success |
+
+Each entry in `assets`:
+
+| Field | Type | Description |
+|---|---|---|
+| `host` | string | Subdomain hostname |
+| `url` | string | Final URL after redirects |
+| `status` | number\|null | HTTP status code; null if unreachable |
+| `reachable` | boolean | `true` when status < 500 and not null |
+| `title` | string\|null | `<title>` tag content from HTML response |
+| `server` | string\|null | Value of the `Server` response header |
+| `content_type` | string\|null | MIME type from `Content-Type` header |
+| `tech` | string[] | Tech stack hints derived from headers and body |
+
+**Asset exposure tech detection (v1)**
+
+Tech hints are derived from response headers (`Server`, `X-Powered-By`, `CF-Ray`, etc.) and the first 8 KB of HTML body. Detected technologies include: Nginx, Apache, Cloudflare, IIS, LiteSpeed, Caddy, OpenResty, PHP, ASP.NET, Express, Next.js, WordPress, React, Angular, Vue.js, jQuery, Bootstrap, Drupal, Joomla, Laravel, Django, Shopify.
 
 **Takeover fingerprints (v1)**
 
@@ -273,6 +301,10 @@ Labels matched against each dot-separated part of the subdomain: `dev`, `develop
 | >20 subdomains (large attack surface) | −3 |
 | Subdomain takeover risk (1 subdomain) | −15 |
 | Subdomain takeover risks (2+ subdomains) | −25 (single finding, max cap) |
+| Management tool exposed (Jenkins, Grafana, Kibana, etc.) — status 200 | −10 |
+| Admin/login/dashboard interface exposed — status 200 | −8 |
+| Dev/staging/test environment exposed — status 200 | −5 |
+| Asset returning 401 or 403 | 0 (informational only) |
 
 **Response — scan not found (404)**
 ```json
@@ -347,4 +379,5 @@ curl https://cybermeters-platform.ttrnn47.workers.dev/api/domain/example.com/his
 - DKIM discovery probes 13 common selectors in parallel. A DKIM finding of "not detected" means none of the probed selectors returned a valid record; custom selectors are not exhausted.
 - Subdomain discovery uses Certificate Transparency logs only (crt.sh). Results are capped at 200 unique hostnames. If crt.sh is unreachable or times out (25 s), `modules.subdomains` returns `count: 0` with an `error` field and the rest of the scan completes normally. No paid APIs or Shodan are used.
 - The first five scan modules run in parallel via `Promise.allSettled`. The takeover module (`subdomain_takeover`) runs in a second phase using the discovered subdomains as input. A failure in any module does not prevent the others from completing.
+- Asset exposure probing checks up to 50 subdomains. Each probe prefers HTTPS; falls back to HTTP only if HTTPS is unreachable. A per-request timeout of 8 s is applied. 401 and 403 responses are included in reachable counts but generate no score deductions — they indicate an access-controlled surface, not a misconfiguration.
 - Takeover detection checks up to 100 subdomains. For each, it looks up the CNAME record via DoH. If the CNAME target matches a known vulnerable provider, it fetches the URL and checks the response body for the provider's "unclaimed resource" fingerprint text. Both checks must pass for a risk to be reported.
