@@ -474,65 +474,413 @@ function isSensitiveSubdomain(hostname, domain) {
   });
 }
 
-async function runSubdomainsModule(domain) {
-  const source = "certificate_transparency";
+// ── Module 6: WHOIS Intelligence ─────────────────────────────────────────────
+// Uses RDAP (Registration Data Access Protocol) — the modern HTTP+JSON
+// replacement for port-43 WHOIS, which is blocked in Cloudflare Workers.
+// Queries authoritative TLD registries first (Verisign, Nominet, PIR), then
+// falls back to rdap.org as a universal aggregator.
+// Never throws — returns { error } on any failure so the scan continues.
 
-  let rawData;
+/**
+ * Extract the registered (eTLD+1) domain from any hostname.
+ * Handles two-label second-level domains under .uk so that
+ * blackbullbarbers.co.uk is NOT reduced to co.uk.
+ *
+ * Rules (no external packages):
+ *   .co.uk / .org.uk / .ac.uk / .gov.uk / .ltd.uk / .plc.uk / .me.uk / .net.uk
+ *     → keep last 3 labels   (eTLD = 2 labels)
+ *   everything else
+ *     → keep last 2 labels   (eTLD = 1 label)
+ *
+ * Examples:
+ *   app.blackbullbarbers.co.uk  → blackbullbarbers.co.uk
+ *   blackbullbarbers.co.uk      → blackbullbarbers.co.uk  (no-op)
+ *   sub.example.com             → example.com
+ *   example.com                 → example.com             (no-op)
+ */
+function getRegisteredDomain(hostname) {
+  const parts = hostname.toLowerCase().split(".");
+
+  // Known two-label SLDs under .uk that act as effective TLDs
+  const UK_SECOND_LEVELS = new Set([
+    "co", "org", "ac", "gov", "ltd", "plc", "me", "net", "sch",
+  ]);
+
+  if (parts.length >= 3) {
+    const tld     = parts[parts.length - 1];   // e.g. "uk"
+    const sld     = parts[parts.length - 2];   // e.g. "co"
+    if (tld === "uk" && UK_SECOND_LEVELS.has(sld)) {
+      // eTLD is "co.uk" — registered domain is label + co.uk (3 parts total)
+      return parts.slice(-3).join(".");
+    }
+  }
+
+  // Default: eTLD is the single last label — registered domain is last 2 labels
+  return parts.slice(-2).join(".");
+}
+
+/**
+ * Return an ordered list of RDAP URLs to try for a given registered domain.
+ * Authoritative registries are tried first to avoid aggregator blocks (403).
+ * rdap.org is always the final fallback.
+ */
+function getRdapUrls(registeredDomain) {
+  const enc  = encodeURIComponent(registeredDomain);
+  const tld  = registeredDomain.split(".").pop().toLowerCase();
+  const sld  = registeredDomain.split(".").slice(-2).join(".").toLowerCase();
+
+  const urls = [];
+
+  // TLD-specific authoritative endpoints
+  if (tld === "com") {
+    urls.push(`https://rdap.verisign.com/com/v1/domain/${enc}`);
+  } else if (tld === "net") {
+    urls.push(`https://rdap.verisign.com/net/v1/domain/${enc}`);
+  } else if (tld === "org") {
+    urls.push(`https://rdap.publicinterestregistry.org/rdap/org/domain/${enc}`);
+  } else if (tld === "uk" || sld.endsWith(".uk")) {
+    urls.push(`https://rdap.nominet.uk/uk/domain/${enc}`);
+  } else if (tld === "io") {
+    urls.push(`https://rdap.nic.io/domain/${enc}`);
+  } else if (tld === "co") {
+    urls.push(`https://rdap.nic.co/domain/${enc}`);
+  } else if (tld === "app" || tld === "dev") {
+    // Google Registry
+    urls.push(`https://rdap.nic.google/domain/${enc}`);
+  }
+
+  // Universal aggregator as final fallback (always included)
+  urls.push(`https://rdap.org/domain/${enc}`);
+
+  return urls;
+}
+
+const RDAP_UA = "CyberMeters/1.0 (https://cybermeters.com)";
+
+async function runWhoisModule(domain) {
   try {
-    const res = await fetch(
+    // Strip subdomains — WHOIS is authoritative at the registered domain level.
+    // e.g. sub.example.com → example.com
+    //      app.blackbullbarbers.co.uk → blackbullbarbers.co.uk
+    const registeredDomain = getRegisteredDomain(domain);
+
+    // Try each RDAP provider in order; stop at the first 200 response.
+    // Skip on 403/404 and continue — only fail if every provider fails.
+    const rdapUrls  = getRdapUrls(registeredDomain);
+    let   data      = null;
+    const errors    = [];
+
+    for (const rdapUrl of rdapUrls) {
+      let res;
+      try {
+        res = await safeFetch(rdapUrl, {
+          headers: {
+            Accept:       "application/rdap+json, application/json",
+            "User-Agent": RDAP_UA,
+          },
+          signal: AbortSignal.timeout(12_000),
+        });
+      } catch (fetchErr) {
+        errors.push(`${rdapUrl} → network error: ${fetchErr.message ?? "timeout"}`);
+        continue;
+      }
+
+      if (res && res.ok) {
+        try {
+          data = await res.json();
+        } catch {
+          errors.push(`${rdapUrl} → JSON parse failed`);
+          continue;
+        }
+        break; // success — stop trying further providers
+      }
+
+      // 404 = domain not in this registry (try next), 403 = blocked (try next)
+      errors.push(`${rdapUrl} → HTTP ${res?.status ?? "unknown"}`);
+    }
+
+    if (!data) {
+      return { error: `All RDAP providers failed: ${errors.join("; ")}` };
+    }
+
+    // ── Extract dates from the events array ───────────────────────────────────
+    let creationDate    = null;
+    let expirationDate  = null;
+    let updatedDate     = null;
+
+    for (const event of data.events || []) {
+      const action = (event.eventAction || "").toLowerCase();
+      if (action === "registration")          creationDate   = event.eventDate ?? null;
+      else if (action === "expiration")       expirationDate = event.eventDate ?? null;
+      else if (action === "last changed")     updatedDate    = event.eventDate ?? null;
+      else if (action === "last update of rdap database") {
+        // Some registries only publish this — fall back for updated_date
+        if (!updatedDate) updatedDate = event.eventDate ?? null;
+      }
+    }
+
+    // ── Extract registrar from entities ──────────────────────────────────────
+    let registrar = null;
+    for (const entity of data.entities || []) {
+      if (!(entity.roles || []).includes("registrar")) continue;
+      // Try vCard fn field first
+      const vcard = entity.vcardArray?.[1] ?? [];
+      for (const field of vcard) {
+        if (field[0] === "fn" && field[3]) { registrar = field[3]; break; }
+      }
+      // Fallback: publicIds IANA registrar id
+      if (!registrar && entity.publicIds?.length) {
+        registrar = entity.publicIds[0].identifier ?? null;
+      }
+      if (registrar) break;
+    }
+
+    // ── Name servers ──────────────────────────────────────────────────────────
+    const nameServers = (data.nameservers || [])
+      .map(ns => (ns.ldhName || ns.unicodeName || "").toLowerCase())
+      .filter(Boolean);
+
+    // ── Registration status ───────────────────────────────────────────────────
+    const registrationStatus = (data.status || []).join(", ") || null;
+
+    // ── Derived temporal fields ───────────────────────────────────────────────
+    const now = Date.now();
+
+    const createdMs     = creationDate   ? new Date(creationDate).getTime()   : null;
+    const expiresMs     = expirationDate ? new Date(expirationDate).getTime() : null;
+
+    const domainAgeDays    = createdMs != null && !isNaN(createdMs)
+      ? Math.max(0, Math.floor((now - createdMs) / 86_400_000))
+      : null;
+    const daysUntilExpiry  = expiresMs != null && !isNaN(expiresMs)
+      ? Math.floor((expiresMs - now) / 86_400_000)
+      : null;
+
+    // ── Findings ──────────────────────────────────────────────────────────────
+    // score_impact is 0 — WHOIS findings are informational/advisory only and
+    // do NOT feed into computeScore to avoid double-counting.
+    const findings = [];
+    let riskLevel = "Low";
+
+    if (daysUntilExpiry != null) {
+      if (daysUntilExpiry <= 0) {
+        riskLevel = "High";
+        findings.push({
+          id:             "whois_domain_expired",
+          title:          "Domain has expired",
+          description:    `Domain ${registeredDomain} expiration date has passed (${daysUntilExpiry === 0 ? "today" : `${Math.abs(daysUntilExpiry)} days ago`}). The domain may be available for registration by a third party.`,
+          severity:       "high",
+          score_impact:   0,
+          module:         "whois_intelligence",
+          recommendation: "Renew domain immediately through your registrar. Check whether the grace period is still active.",
+        });
+      } else if (daysUntilExpiry <= 30) {
+        riskLevel = "High";
+        findings.push({
+          id:             "whois_expiry_critical",
+          title:          "Domain expires within 30 days",
+          description:    `Domain ${registeredDomain} expires in ${daysUntilExpiry} day${daysUntilExpiry !== 1 ? "s" : ""}. Without renewal, services will stop and the domain may be seized.`,
+          severity:       "high",
+          score_impact:   0,
+          module:         "whois_intelligence",
+          recommendation: "Renew domain immediately and enable auto-renew to eliminate expiry risk.",
+        });
+      } else if (daysUntilExpiry <= 90) {
+        if (riskLevel === "Low") riskLevel = "Medium";
+        findings.push({
+          id:             "whois_expiry_warning",
+          title:          "Domain expires within 90 days",
+          description:    `Domain ${registeredDomain} expires in ${daysUntilExpiry} days. Proactive renewal avoids service disruption and domain-hijacking risk.`,
+          severity:       "medium",
+          score_impact:   0,
+          module:         "whois_intelligence",
+          recommendation: "Schedule domain renewal and enable auto-renew at your registrar.",
+        });
+      }
+    }
+
+    if (domainAgeDays != null && domainAgeDays < 180) {
+      findings.push({
+        id:             "whois_new_domain",
+        title:          "Recently registered domain",
+        description:    `Domain was registered ${domainAgeDays} day${domainAgeDays !== 1 ? "s" : ""} ago. Newly registered domains carry elevated phishing-association and fraud-signal risk in email and threat-intel systems.`,
+        severity:       "low",
+        score_impact:   0,
+        module:         "whois_intelligence",
+        recommendation: "Verify domain ownership and configure SPF/DMARC/DKIM to reduce spam-score impact. Monitor for unauthorised use.",
+      });
+    }
+
+    if (registrar) {
+      findings.push({
+        id:             "whois_registrar_info",
+        title:          "Registrar identified",
+        description:    `Domain is registered through ${registrar}${registrationStatus ? ` (status: ${registrationStatus})` : ""}.`,
+        severity:       "informational",
+        score_impact:   0,
+        module:         "whois_intelligence",
+        recommendation: null,
+      });
+    }
+
+    // ── Recommendations ───────────────────────────────────────────────────────
+    const recommendations = [
+      daysUntilExpiry != null && daysUntilExpiry <= 90
+        ? "Renew domain before expiration to prevent service outages and domain-hijacking."
+        : null,
+      "Enable auto-renew with your registrar to eliminate accidental expiry risk.",
+      "Monitor for unauthorised registrar or nameserver changes (auth-code theft).",
+      registrar ? null : "Verify registrar details — RDAP returned no registrar entity.",
+    ].filter(Boolean);
+
+    return {
+      domain:              registeredDomain,
+      registrar:           registrar ?? null,
+      creation_date:       creationDate ?? null,
+      updated_date:        updatedDate  ?? null,
+      expiration_date:     expirationDate ?? null,
+      domain_age_days:     domainAgeDays,
+      days_until_expiry:   daysUntilExpiry,
+      name_servers:        nameServers,
+      registration_status: registrationStatus,
+      risk_level:          riskLevel,
+      findings,
+      recommendations,
+      source:              "rdap",
+    };
+  } catch (err) {
+    return { error: err?.message ?? "WHOIS/RDAP lookup failed" };
+  }
+}
+
+// ── Subdomain Discovery v2 ────────────────────────────────────────────────────
+// Two Certificate Transparency sources run in parallel:
+//   1. crt.sh          — certificate search (wildcard query, large historical set)
+//   2. CertSpotter     — issuance index (different index, no API key required)
+// Results are merged and deduplicated into a single sorted list.
+// If one source fails the other still contributes — scan never aborts.
+// Per-source counts and errors are exposed in modules.subdomains.sources.
+
+async function runSubdomainsModule(domain) {
+  const SOURCE    = "certificate_transparency_multi_source";
+  const PER_CAP   = 200;  // max unique names accepted from each source
+  const MERGE_CAP = 300;  // cap on the merged deduplicated set
+
+  // Fire both CT sources concurrently — independent AbortSignals.
+  const [crtShSettled, certSpotterSettled] = await Promise.allSettled([
+    fetch(
       `https://crt.sh/?q=${encodeURIComponent("%." + domain)}&output=json`,
       {
-        headers: { Accept: "application/json", "User-Agent": "CyberMeters/1.0" },
-        signal: AbortSignal.timeout(25_000),
+        headers: { Accept: "application/json", "User-Agent": RDAP_UA },
+        signal:  AbortSignal.timeout(25_000),
       }
-    );
+    ),
+    fetch(
+      `https://api.certspotter.com/v1/issuances?domain=${encodeURIComponent(domain)}&include_subdomains=true&expand=dns_names`,
+      {
+        headers: { Accept: "application/json", "User-Agent": RDAP_UA },
+        signal:  AbortSignal.timeout(20_000),
+      }
+    ),
+  ]);
 
-    if (!res.ok) {
-      return { count: 0, items: [], sensitive: [], source, error: `crt.sh HTTP ${res.status}` };
+  const seen    = new Set();
+  const sources = { crt_sh: null, certspotter: null };
+
+  // ── Source 1: crt.sh ───────────────────────────────────────────────────────
+  try {
+    const res = crtShSettled.status === "fulfilled" ? crtShSettled.value : null;
+
+    if (!res) {
+      sources.crt_sh = { count: 0, error: crtShSettled.reason?.message ?? "fetch failed" };
+    } else if (!res.ok) {
+      sources.crt_sh = { count: 0, error: `HTTP ${res.status}` };
+    } else {
+      const ct = res.headers.get("content-type") || "";
+      if (!ct.includes("json")) {
+        sources.crt_sh = { count: 0, error: "non-JSON response" };
+      } else {
+        const rawData = await res.json();
+        if (!Array.isArray(rawData)) {
+          sources.crt_sh = { count: 0, error: "unexpected response shape" };
+        } else {
+          const before = seen.size;
+          outer: for (const entry of rawData.slice(0, 2_000)) {
+            const names = [
+              ...(entry.name_value || "").split(/\n/),
+              entry.common_name || "",
+            ];
+            for (const raw of names) {
+              const name = raw.trim().toLowerCase();
+              if (!name || name.startsWith("*")) continue;
+              if (!name.endsWith("." + domain) && name !== domain) continue;
+              seen.add(name);
+              if (seen.size - before >= PER_CAP) break outer;
+            }
+          }
+          sources.crt_sh = { count: seen.size - before, error: null };
+        }
+      }
     }
-
-    // Guard: check content-type — crt.sh sometimes returns HTML on errors
-    const ct = res.headers.get("content-type") || "";
-    if (!ct.includes("json")) {
-      return { count: 0, items: [], sensitive: [], source, error: "crt.sh returned non-JSON response" };
-    }
-
-    rawData = await res.json();
   } catch (err) {
-    // Timeout, network error, or JSON parse failure — scan still completes
-    return { count: 0, items: [], sensitive: [], source, error: err.message };
+    sources.crt_sh = { count: 0, error: err.message ?? "parse error" };
   }
 
-  if (!Array.isArray(rawData)) {
-    return { count: 0, items: [], sensitive: [], source, error: "Unexpected crt.sh response shape" };
-  }
+  // ── Source 2: CertSpotter ─────────────────────────────────────────────────
+  // Response: [{ dns_names: ["sub.example.com", ...], ... }, ...]
+  try {
+    const res = certSpotterSettled.status === "fulfilled" ? certSpotterSettled.value : null;
 
-  // Extract unique hostnames from name_value and common_name fields.
-  // Process first 2000 entries max to bound memory and CPU.
-  const seen = new Set();
-  const slice = rawData.slice(0, 2_000);
-
-  for (const entry of slice) {
-    const names = [
-      ...(entry.name_value || "").split(/\n/),
-      entry.common_name || "",
-    ];
-    for (const raw of names) {
-      const name = raw.trim().toLowerCase();
-      if (!name || name.startsWith("*")) continue;           // skip wildcards
-      if (!name.endsWith("." + domain) && name !== domain) continue; // skip unrelated
-      seen.add(name);
-      if (seen.size >= 200) break;                           // cap at 200 unique
+    if (!res) {
+      sources.certspotter = { count: 0, error: certSpotterSettled.reason?.message ?? "fetch failed" };
+    } else if (!res.ok) {
+      sources.certspotter = { count: 0, error: `HTTP ${res.status}` };
+    } else {
+      const rawData = await res.json();
+      if (!Array.isArray(rawData)) {
+        sources.certspotter = { count: 0, error: "unexpected response shape" };
+      } else {
+        const before = seen.size;
+        outer: for (const entry of rawData) {
+          for (const name of entry.dns_names || []) {
+            const n = name.trim().toLowerCase();
+            if (!n || n.startsWith("*")) continue;
+            if (!n.endsWith("." + domain) && n !== domain) continue;
+            seen.add(n);
+            if (seen.size - before >= PER_CAP) break outer;
+          }
+        }
+        sources.certspotter = { count: seen.size - before, error: null };
+      }
     }
-    if (seen.size >= 200) break;
+  } catch (err) {
+    sources.certspotter = { count: 0, error: err.message ?? "parse error" };
   }
 
-  const items = [...seen].sort();
+  // ── Both sources failed ───────────────────────────────────────────────────
+  if (seen.size === 0 && sources.crt_sh?.error && sources.certspotter?.error) {
+    return {
+      count: 0, items: [], sensitive: [],
+      source: SOURCE, sources,
+      error: `Both CT sources failed — crt.sh: ${sources.crt_sh.error}; certspotter: ${sources.certspotter.error}`,
+    };
+  }
 
-  // Classify sensitive subdomains
+  // ── Merge, cap, sort ──────────────────────────────────────────────────────
+  // Trim to MERGE_CAP after deduplication. The Set iteration order is insertion
+  // order (crt.sh first), so crt.sh results are never dropped in favour of
+  // CertSpotter-only entries unless the total exceeds MERGE_CAP.
+  const items     = [...seen].slice(0, MERGE_CAP).sort();
   const sensitive = items.filter((h) => isSensitiveSubdomain(h, domain));
 
-  return { count: items.length, items, sensitive, source };
+  return {
+    count:  items.length,
+    items,
+    sensitive,
+    source: SOURCE,
+    sources,
+    error:  null,
+  };
 }
 
 // ── Module 6: Subdomain Takeover Detection ────────────────────────────────────
@@ -2256,10 +2604,11 @@ async function runScanEngine(scanId, domainId, domain, env) {
       .bind(scanId)
       .run();
 
-    // Phase 1: Run the 6 core modules in parallel.
+    // Phase 1: Run the 7 core modules in parallel.
     // Subdomain discovery (crt.sh) has a 25s timeout but does not block the
     // other modules — all run concurrently via Promise.allSettled.
-    const [dnsSettled, sslSettled, headersSettled, emailSettled, subdomainsSettled, techSettled] =
+    // WHOIS uses RDAP (HTTP+JSON) — 12s timeout, fully non-blocking.
+    const [dnsSettled, sslSettled, headersSettled, emailSettled, subdomainsSettled, techSettled, whoisSettled] =
       await Promise.allSettled([
         runDnsModule(domain),
         runSslModule(domain),
@@ -2267,11 +2616,13 @@ async function runScanEngine(scanId, domainId, domain, env) {
         runEmailModule(domain),
         runSubdomainsModule(domain),
         runTechModule(domain),
+        runWhoisModule(domain),
       ]);
 
     const subdomainsResult = subdomainsSettled.status === "fulfilled"
       ? subdomainsSettled.value
-      : { count: 0, items: [], sensitive: [], source: "certificate_transparency",
+      : { count: 0, items: [], sensitive: [], source: "certificate_transparency_multi_source",
+          sources: { crt_sh: { count: 0, error: "module rejected" }, certspotter: { count: 0, error: "module rejected" } },
           error: subdomainsSettled.reason?.message ?? "Subdomain module failed" };
 
     // Phase 2: Takeover detection — depends on discovered subdomains as input.
@@ -2323,6 +2674,10 @@ async function runScanEngine(scanId, domainId, domain, env) {
       technology_detection: techSettled.status === "fulfilled"
         ? techSettled.value
         : { error: techSettled.reason?.message ?? "Technology module failed" },
+
+      whois_intelligence: whoisSettled.status === "fulfilled"
+        ? whoisSettled.value
+        : { error: whoisSettled.reason?.message ?? "WHOIS module failed" },
     };
 
     // Compute Cyber Metrics Score
