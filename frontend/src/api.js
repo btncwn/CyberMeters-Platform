@@ -21,6 +21,9 @@ export const api = {
   /** GET /api/scans/:id */
   getScan: (id) => request(`/scans/${id}`),
 
+  /** GET /api/scans/:id/report */
+  getScanReport: (id) => request(`/scans/${id}/report`),
+
   /** GET /api/domain/:domain/history */
   getDomainHistory: (domain) => request(`/domain/${encodeURIComponent(domain)}/history`),
 
