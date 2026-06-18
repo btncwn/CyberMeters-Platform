@@ -79,4 +79,19 @@ export const api = {
 
   /** GET /api/scans?workspace_id= */
   getWorkspaceScans: (workspaceId) => request(`/scans?workspace_id=${workspaceId}`),
+
+  /**
+   * GET /api/workspaces/:id/report
+   * Returns a Blob (application/pdf) — bypasses the JSON request() helper.
+   */
+  getWorkspaceReport: async (id) => {
+    const res = await fetch(`${BASE}/workspaces/${id}/report`, {
+      headers: { Accept: 'application/pdf' },
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }))
+      throw new Error(err.error || `HTTP ${res.status}`)
+    }
+    return res.blob()
+  },
 }

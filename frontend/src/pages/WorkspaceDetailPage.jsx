@@ -3,6 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom'
 import {
   RefreshCw, Briefcase, Globe, ScanLine, BarChart2,
   Plus, X, Trash2, ChevronLeft, Clock, Zap, CheckCircle,
+  FileDown,
 } from 'lucide-react'
 import { api } from '../api'
 import Spinner from '../components/Spinner'
@@ -165,6 +166,8 @@ export default function WorkspaceDetailPage() {
   const [scanState, setScanState] = useState({})
   // Per-domain remove state
   const [removing, setRemoving]   = useState({})
+  const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState(null)
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
@@ -194,6 +197,30 @@ export default function WorkspaceDetailPage() {
   useEffect(() => { load() }, [load])
 
   // ── Scan Now ────────────────────────────────────────────────────────────────
+
+  // ── Export PDF ──────────────────────────────────────────────────────────
+
+  async function handleExportPdf() {
+    setExporting(true)
+    setExportError(null)
+    try {
+      const blob = await api.getWorkspaceReport(id)
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href     = url
+      a.download = `cybermeters-${(workspace?.name || id).replace(/[^a-z0-9]/gi, '-').toLowerCase()}-report.pdf`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      setExportError(e.message)
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  // ── Scan Now ────────────────────────────────────────────────────────────
 
   async function handleScanNow(domain) {
     setScanState(s => ({ ...s, [domain]: 'scanning' }))
@@ -297,6 +324,17 @@ export default function WorkspaceDetailPage() {
               <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
               Refresh
             </button>
+            <button
+              onClick={handleExportPdf}
+              disabled={exporting}
+              className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Download executive PDF report for this workspace"
+            >
+              {exporting
+                ? <><RefreshCw className="w-4 h-4 animate-spin" />Generating…</>
+                : <><FileDown className="w-4 h-4" />Export PDF</>
+              }
+            </button>
             <button onClick={() => setShowAdd(true)} className="btn-primary">
               <Plus className="w-4 h-4" />
               Add Domain
@@ -306,6 +344,11 @@ export default function WorkspaceDetailPage() {
       </div>
 
       {error && <ErrorAlert message={error} />}
+      {exportError && (
+        <div className="flex items-center gap-3 px-4 py-3 bg-red-50 border border-red-100 rounded-xl text-sm text-red-700">
+          PDF export failed: {exportError}
+        </div>
+      )}
 
       {/* Stats cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

@@ -1671,6 +1671,458 @@ async function sendSslExpiryAlert(domain, scanId, daysUntilExpiry, certNotAfter,
   await sendAlertEmail(subject, text, html, env, fromKey);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Executive PDF Report Generator
+// Pure-JS PDF/1.4 — no npm packages. Uses built-in Type1 fonts only.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Sanitise a value to printable ASCII and escape PDF literal string delimiters.
+ */
+function pdfEsc(v) {
+  return String(v == null ? "" : v)
+    .replace(/[^\x20-\x7E]/g, " ")
+    .replace(/\\/g, "\\\\")
+    .replace(/\(/g, "\\(")
+    .replace(/\)/g, "\\)");
+}
+
+/** Return [r, g, b] as 0-1 floats from a #RRGGBB string. */
+function hexToRgbF(hex) {
+  const h = hex.replace("#", "");
+  return [
+    parseInt(h.slice(0, 2), 16) / 255,
+    parseInt(h.slice(2, 4), 16) / 255,
+    parseInt(h.slice(4, 6), 16) / 255,
+  ];
+}
+
+/**
+ * Assemble a PDF 1.4 document from an array of content-stream strings.
+ *
+ * Fixed object layout (1-indexed):
+ *   1  = Catalog
+ *   2  = Pages tree
+ *   3  = /F1  Helvetica        (regular)
+ *   4  = /F2  Helvetica-Bold   (bold)
+ *   For page i (0-based):
+ *     5 + i*2     = content stream object
+ *     5 + i*2 + 1 = page object
+ *
+ * All stream content must be ASCII-only (guaranteed by pdfEsc) so
+ * stream.length === byte length and TextEncoder output is identical.
+ */
+function assemblePdf(streams) {
+  const n   = streams.length;
+  const cId = (i) => 5 + i * 2;       // content stream object id
+  const pId = (i) => 5 + i * 2 + 1;  // page object id
+  const totalObjs = 4 + n * 2;
+
+  let out      = "%PDF-1.4\n";
+  const offsets = {};
+
+  const addObj = (id, data) => {
+    offsets[id] = out.length;
+    out += `${id} 0 obj\n${data}\nendobj\n`;
+  };
+
+  addObj(1, "<< /Type /Catalog /Pages 2 0 R >>");
+  addObj(
+    2,
+    `<< /Type /Pages /Kids [${Array.from({ length: n }, (_, i) => `${pId(i)} 0 R`).join(" ")}] /Count ${n} >>`
+  );
+  addObj(3, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
+  addObj(4, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>");
+
+  for (let i = 0; i < n; i++) {
+    const s = streams[i];
+    addObj(cId(i), `<< /Length ${s.length} >>\nstream\n${s}\nendstream`);
+    addObj(
+      pId(i),
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] ` +
+      `/Contents ${cId(i)} 0 R ` +
+      `/Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> >>`
+    );
+  }
+
+  // Cross-reference table — each entry is exactly 20 bytes
+  const xrefPos = out.length;
+  out += `xref\n0 ${totalObjs + 1}\n`;
+  out += "0000000000 65535 f \n";
+  for (let i = 1; i <= totalObjs; i++) {
+    out += (offsets[i] || 0).toString().padStart(10, "0") + " 00000 n \n";
+  }
+  out +=
+    `trailer\n<< /Size ${totalObjs + 1} /Root 1 0 R >>\n` +
+    `startxref\n${xrefPos}\n%%EOF`;
+
+  return out;
+}
+
+/**
+ * Build PDF content streams for a workspace executive report.
+ * Returns an array of strings (one per page) for assemblePdf().
+ *
+ * Pages:
+ *   1  Cover — score, workspace name, date
+ *   2  Executive Summary + Domain Inventory
+ *   3  Security Findings (may overflow to additional pages automatically)
+ *   last  Recommendations + Historical Trend
+ */
+function buildPdfStreams({ workspace, stats, domains, findings, recommendations, trend }) {
+  const PW = 612, PH = 792;   // page width/height (pts, US Letter)
+  const ML = 50;               // left margin
+  const MR = 50;               // right margin
+  const MT = 50;               // top margin for content
+  const MB = 55;               // bottom margin (footer zone)
+  const CW = PW - ML - MR;    // content width
+
+  // Brand palette
+  const BRAND   = "#00876A";
+  const GRAY    = "#555555";
+  const LGRAY   = "#888888";
+  const XGRAY   = "#CCCCCC";
+  const BG1     = "#F8F9FA";
+  const BG2     = "#F3F4F6";
+
+  const streams  = [];
+  let   curStream = "";
+  let   curY      = MT;        // y from top of page
+
+  // ── Low-level drawing ops (all coordinates are "y from top") ─────────────
+
+  const op = (s) => { curStream += s + "\n"; };
+
+  // Draw text at absolute position.  fontId: 1=regular 2=bold.
+  const txt = (x, yTop, str, fontId, sz, hex = "#000000") => {
+    if (!str) return;
+    const [r, g, b] = hexToRgbF(hex);
+    const pdfY      = PH - yTop;
+    op("BT");
+    op(`${r.toFixed(3)} ${g.toFixed(3)} ${b.toFixed(3)} rg`);
+    op(`/F${fontId} ${sz} Tf`);
+    op(`1 0 0 1 ${x} ${pdfY} Tm`);
+    op(`(${pdfEsc(str)}) Tj`);
+    op("ET");
+  };
+
+  // Filled rectangle.  yTop = distance from page top to top edge of rect.
+  const fillRect = (x, yTop, w, h, hex) => {
+    const [r, g, b] = hexToRgbF(hex);
+    const pdfY      = PH - yTop - h;   // PDF y = bottom-left of rect
+    op("q");
+    op(`${r.toFixed(3)} ${g.toFixed(3)} ${b.toFixed(3)} rg`);
+    op(`${x} ${pdfY} ${w} ${h} re f`);
+    op("Q");
+  };
+
+  // Horizontal rule.
+  const hline = (x1, x2, yTop, lw = 0.5, hex = "#DDDDDD") => {
+    const [r, g, b] = hexToRgbF(hex);
+    const pdfY      = PH - yTop;
+    op("q");
+    op(`${r.toFixed(3)} ${g.toFixed(3)} ${b.toFixed(3)} RG`);
+    op(`${lw} w`);
+    op(`${x1} ${pdfY} m ${x2} ${pdfY} l S`);
+    op("Q");
+  };
+
+  // ── Page management ───────────────────────────────────────────────────────
+
+  const addFooter = () => {
+    const pageNum = streams.length + 1;
+    hline(ML, PW - MR, PH - MB + 8, 0.5, XGRAY);
+    txt(ML, PH - MB + 22, "Generated by CyberMeters | app.cybermeters.com", 1, 7, LGRAY);
+    txt(PW - MR - 40, PH - MB + 22, `Page ${pageNum}`, 1, 7, LGRAY);
+  };
+
+  const endPage = () => {
+    addFooter();
+    streams.push(curStream);
+    curStream = "";
+    curY      = MT;
+  };
+
+  // Start a new page if the next block of `needed` pts would overflow.
+  const checkBreak = (needed) => {
+    if (curY + needed > PH - MB) endPage();
+  };
+
+  // Coloured section header bar.
+  const sectionBar = (label) => {
+    checkBreak(30);
+    fillRect(ML, curY, CW, 20, BRAND);
+    txt(ML + 8, curY + 14, label, 2, 10, "#FFFFFF");
+    curY += 26;
+  };
+
+  // ── Rating helpers ────────────────────────────────────────────────────────
+
+  const scoreToRating = (s) =>
+    s == null  ? "N/A"       :
+    s >= 90    ? "Excellent" :
+    s >= 75    ? "Good"      :
+    s >= 50    ? "Moderate"  :
+    s >= 25    ? "High Risk" : "Critical";
+
+  const scoreToColor = (s) =>
+    s == null ? LGRAY :
+    s >= 75   ? BRAND :
+    s >= 50   ? "#F59E0B" : "#EF4444";
+
+  // ── Derived values ────────────────────────────────────────────────────────
+
+  const avgScore = stats.cyber_score_average != null
+    ? Math.round(stats.cyber_score_average)
+    : null;
+
+  const genDate = new Date().toLocaleDateString("en-US", {
+    year: "numeric", month: "long", day: "numeric",
+  });
+
+  const latestDate = stats.latest_scan
+    ? new Date(
+        (stats.latest_scan.created_at || "").replace(" ", "T") + "Z"
+      ).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
+    : "N/A";
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PAGE 1 — COVER
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // Header banner
+  fillRect(0, 0, PW, 64, BRAND);
+  txt(ML, 22,  "CYBERMETERS",                 2, 18, "#FFFFFF");
+  txt(ML, 44,  "Attack Surface Management",   1, 10, "#B2DFDB");
+  txt(PW - MR - 160, 44, genDate,             1,  9, "#B2DFDB");
+
+  curY = 106;
+
+  txt(ML, curY, "EXECUTIVE SECURITY REPORT", 2, 9, BRAND);
+  curY += 26;
+
+  // Workspace name
+  txt(ML, curY, (workspace.name || "Workspace").slice(0, 50), 2, 26, "#111111");
+  curY += 44;
+
+  hline(ML, PW - MR, curY, 1, "#E0E0E0");
+  curY += 20;
+
+  // Three KPI boxes
+  const BOX_H = 82;
+  const boxes = [
+    { label: "CYBER SCORE",        value: avgScore != null ? String(avgScore) : "N/A", sub: scoreToRating(avgScore), valueHex: scoreToColor(avgScore), x: ML },
+    { label: "DOMAINS MONITORED",  value: String(stats.total_domains  || 0), sub: "In workspace",      valueHex: "#111111", x: ML + 186 },
+    { label: "TOTAL SCANS",        value: String(stats.total_scans    || 0), sub: "Completed",         valueHex: "#111111", x: ML + 372 },
+  ];
+  for (const box of boxes) {
+    fillRect(box.x, curY, 166, BOX_H, BG1);
+    txt(box.x + 10, curY + 18, box.label,    2,  8, LGRAY);
+    txt(box.x + 10, curY + 52, box.value,    2, 30, box.valueHex);
+    txt(box.x + 10, curY + 70, box.sub,      1,  8, GRAY);
+  }
+  curY += BOX_H + 20;
+
+  hline(ML, PW - MR, curY, 0.5, "#E0E0E0");
+  curY += 16;
+
+  txt(ML, curY, "CONFIDENTIAL — For authorised distribution only.", 2, 8, LGRAY);
+  curY += 14;
+  txt(ML, curY, "This document contains sensitive information about your external attack surface.", 1, 8, LGRAY);
+
+  endPage();   // page 1 done
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PAGE 2 — EXECUTIVE SUMMARY + DOMAIN INVENTORY
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  sectionBar("EXECUTIVE SUMMARY");
+
+  const summaryRows = [
+    ["Total Domains",       String(stats.total_domains  || 0)],
+    ["Total Scans",         String(stats.total_scans    || 0)],
+    ["Average Cyber Score", avgScore != null ? `${avgScore} / 100 — ${scoreToRating(avgScore)}` : "No completed scans"],
+    ["Latest Assessment",   latestDate],
+    ["Report Generated",    genDate],
+  ];
+  for (const [label, value] of summaryRows) {
+    checkBreak(20);
+    txt(ML,       curY, label + ":", 2,  9, GRAY);
+    txt(ML + 180, curY, value,       1,  9, "#111111");
+    curY += 18;
+  }
+
+  curY += 14;
+  sectionBar("DOMAIN INVENTORY");
+
+  // Table header row
+  const DC = [ML, ML + 222, ML + 292, ML + 380];   // column x positions
+  fillRect(ML, curY, CW, 18, BG2);
+  txt(DC[0] + 4, curY + 13, "Domain",    2, 8, "#333333");
+  txt(DC[1] + 4, curY + 13, "Score",     2, 8, "#333333");
+  txt(DC[2] + 4, curY + 13, "Rating",    2, 8, "#333333");
+  txt(DC[3] + 4, curY + 13, "Last Scan", 2, 8, "#333333");
+  curY += 20;
+
+  for (const d of (domains || [])) {
+    checkBreak(17);
+    const ds = d.latest_score;
+    const domScore  = ds != null ? String(ds) : "—";
+    const domRating = ds != null ? scoreToRating(ds) : "N/A";
+    const domDate   = d.last_scanned_at
+      ? new Date((d.last_scanned_at || "").replace(" ", "T") + "Z")
+          .toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+      : "Never";
+
+    hline(ML, PW - MR, curY, 0.3, "#EEEEEE");
+    txt(DC[0] + 4, curY + 12, d.domain,  1, 8, "#111111");
+    txt(DC[1] + 4, curY + 12, domScore,  1, 8, scoreToColor(ds));
+    txt(DC[2] + 4, curY + 12, domRating, 1, 8, GRAY);
+    txt(DC[3] + 4, curY + 12, domDate,   1, 8, GRAY);
+    curY += 16;
+  }
+  if (!(domains || []).length) {
+    txt(ML + 4, curY + 12, "No domains in this workspace.", 1, 8, LGRAY);
+    curY += 16;
+  }
+
+  endPage();   // page 2 done
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PAGE 3 — SECURITY FINDINGS (may overflow to extra pages)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  sectionBar("SECURITY FINDINGS");
+
+  const SEV_ORDER  = ["critical", "high", "medium", "low"];
+  const SEV_LABEL  = { critical: "CRITICAL", high: "HIGH", medium: "MEDIUM", low: "LOW" };
+  const SEV_COLOR  = { critical: "#EF4444", high: "#F97316", medium: "#F59E0B", low: "#3B82F6" };
+  const SEV_BGCOL  = { critical: "#FEE2E2", high: "#FFF0E6", medium: "#FFFBEB", low: "#EFF6FF" };
+
+  const grouped = {};
+  for (const sev of SEV_ORDER) grouped[sev] = [];
+  for (const f of (findings || [])) {
+    const s = (f.severity || "low").toLowerCase();
+    if (grouped[s]) grouped[s].push(f);
+  }
+
+  let findingNum = 1;
+  for (const sev of SEV_ORDER) {
+    const items = grouped[sev];
+    if (!items.length) continue;
+
+    checkBreak(30);
+    fillRect(ML, curY, CW, 18, SEV_BGCOL[sev]);
+    txt(ML + 6, curY + 13, `${SEV_LABEL[sev]}  (${items.length})`, 2, 9, SEV_COLOR[sev]);
+    curY += 22;
+
+    for (const f of items) {
+      checkBreak(44);
+
+      // Finding title + domain on same line
+      txt(ML + 8, curY, `${findingNum}.  ${(f.title || "Untitled").slice(0, 68)}`, 2, 9, "#111111");
+      txt(PW - MR - 110, curY, (f.domain || "").slice(0, 28), 1, 7, LGRAY);
+      curY += 14;
+
+      // Description (truncated to fit one line ~95 chars)
+      const desc = (f.recommendation || "").slice(0, 100);
+      if (desc) {
+        txt(ML + 14, curY, desc, 1, 8, GRAY);
+        curY += 13;
+      }
+
+      hline(ML + 6, PW - MR, curY, 0.3, "#EEEEEE");
+      curY += 7;
+      findingNum++;
+    }
+    curY += 6;
+  }
+
+  if (!(findings || []).length) {
+    txt(ML, curY, "No findings recorded for this workspace.", 1, 9, LGRAY);
+    curY += 16;
+  }
+
+  endPage();   // findings page(s) done
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // FINAL PAGE — RECOMMENDATIONS + HISTORICAL TREND
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  sectionBar("RECOMMENDATIONS");
+
+  const recs = (recommendations || []).slice(0, 10);
+  if (recs.length) {
+    for (let i = 0; i < recs.length; i++) {
+      const r = recs[i];
+      checkBreak(52);
+
+      // Priority badge
+      fillRect(ML, curY, 20, 20, BRAND);
+      txt(ML + 5, curY + 14, String(r.priority || i + 1), 2, 9, "#FFFFFF");
+
+      txt(ML + 28, curY + 14, (r.title || "Action Required").slice(0, 70), 2, 9, "#111111");
+      curY += 22;
+
+      const action = (r.action || "").slice(0, 110);
+      if (action) {
+        txt(ML + 28, curY, action, 1, 8, GRAY);
+        curY += 13;
+      }
+      if (r.domain) {
+        txt(ML + 28, curY, `Domain: ${r.domain}`, 1, 7, LGRAY);
+        curY += 12;
+      }
+      hline(ML, PW - MR, curY + 2, 0.3, "#EEEEEE");
+      curY += 10;
+    }
+  } else {
+    txt(ML, curY, "No recommendations available.", 1, 9, LGRAY);
+    curY += 16;
+  }
+
+  curY += 14;
+  checkBreak(80);
+  sectionBar("HISTORICAL TREND");
+
+  // Trend table header
+  const TC = [ML, ML + 150, ML + 250, ML + 340, ML + 430];
+  fillRect(ML, curY, CW, 18, BG2);
+  txt(TC[0] + 4, curY + 13, "Domain",         2, 8, "#333333");
+  txt(TC[1] + 4, curY + 13, "Date",           2, 8, "#333333");
+  txt(TC[2] + 4, curY + 13, "Previous",       2, 8, "#333333");
+  txt(TC[3] + 4, curY + 13, "Current",        2, 8, "#333333");
+  txt(TC[4] + 4, curY + 13, "Change",         2, 8, "#333333");
+  curY += 20;
+
+  for (const t of (trend || [])) {
+    checkBreak(17);
+    const change      = t.score_change != null
+      ? (t.score_change >= 0 ? `+${t.score_change}` : String(t.score_change))
+      : "—";
+    const changeColor = t.score_change == null  ? GRAY
+      : t.score_change > 0  ? BRAND
+      : t.score_change < 0  ? "#EF4444" : GRAY;
+
+    hline(ML, PW - MR, curY, 0.3, "#EEEEEE");
+    txt(TC[0] + 4, curY + 12, (t.domain           || "—").slice(0, 25), 1, 8, "#111111");
+    txt(TC[1] + 4, curY + 12, (t.date             || "—"),               1, 8, GRAY);
+    txt(TC[2] + 4, curY + 12, t.previous_score != null ? String(t.previous_score) : "—", 1, 8, GRAY);
+    txt(TC[3] + 4, curY + 12, t.current_score  != null ? String(t.current_score)  : "—", 1, 8, GRAY);
+    txt(TC[4] + 4, curY + 12, change, 2, 8, changeColor);
+    curY += 16;
+  }
+
+  if (!(trend || []).length) {
+    txt(ML, curY, "No trend data yet. Run multiple scans per domain to populate this section.", 1, 8, LGRAY);
+    curY += 14;
+  }
+
+  endPage();   // final page done
+
+  return streams;
+}
+
 // ── Scheduled Scan Helpers ────────────────────────────────────────────────────
 
 /**
@@ -2217,6 +2669,167 @@ export default {
     }
 
     // ── Workspace Routes ──────────────────────────────────────────────────
+
+    // GET /api/workspaces/:id/report — executive PDF report
+    // Tested before the generic wsMatch so "/report" is never confused with a
+    // domain ID.
+    const reportMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/report$/);
+    if (reportMatch && request.method === "GET") {
+      const wsId = reportMatch[1];
+
+      // 1. Workspace row
+      let ws;
+      try {
+        ws = await env.cybermeters_db
+          .prepare(`SELECT id, name, created_at FROM workspaces WHERE id = ?`)
+          .bind(wsId).first();
+      } catch { /* fall through */ }
+      if (!ws) return json({ error: "Workspace not found" }, { status: 404 });
+
+      // 2. Stats (4 parallel D1 queries)
+      const [domRow, scanRow, avgRow, latestRow] = await Promise.all([
+        env.cybermeters_db.prepare(
+          `SELECT COUNT(*) AS n FROM workspace_domains WHERE workspace_id = ?`
+        ).bind(wsId).first(),
+        env.cybermeters_db.prepare(
+          `SELECT COUNT(DISTINCT s.id) AS n
+           FROM scans s
+           JOIN domains d ON d.id = s.domain_id
+           JOIN workspace_domains wd ON wd.domain_id = d.id
+           WHERE wd.workspace_id = ? AND s.status = 'completed'`
+        ).bind(wsId).first(),
+        env.cybermeters_db.prepare(
+          `SELECT AVG(s.score) AS avg
+           FROM scans s
+           JOIN domains d ON d.id = s.domain_id
+           JOIN workspace_domains wd ON wd.domain_id = d.id
+           WHERE wd.workspace_id = ? AND s.status = 'completed' AND s.score IS NOT NULL`
+        ).bind(wsId).first(),
+        env.cybermeters_db.prepare(
+          `SELECT s.id, s.domain, s.created_at
+           FROM scans s
+           JOIN domains d ON d.id = s.domain_id
+           JOIN workspace_domains wd ON wd.domain_id = d.id
+           WHERE wd.workspace_id = ? AND s.status = 'completed'
+           ORDER BY s.created_at DESC LIMIT 1`
+        ).bind(wsId).first(),
+      ]).catch(() => [null, null, null, null]);
+
+      const stats = {
+        total_domains:        domRow?.n    ?? 0,
+        total_scans:          scanRow?.n   ?? 0,
+        cyber_score_average:  avgRow?.avg  ?? null,
+        latest_scan:          latestRow    ?? null,
+      };
+
+      // 3. Domains enriched with latest scan
+      let domains = [];
+      try {
+        const dr = await env.cybermeters_db.prepare(
+          `SELECT d.id AS domain_id, d.domain,
+                  s.id AS last_scan_id, s.score AS latest_score,
+                  s.status AS latest_status, s.created_at AS last_scanned_at
+           FROM workspace_domains wd
+           JOIN domains d ON d.id = wd.domain_id
+           LEFT JOIN scans s ON s.id = (
+             SELECT id FROM scans WHERE domain_id = d.id ORDER BY created_at DESC LIMIT 1
+           )
+           WHERE wd.workspace_id = ?
+           ORDER BY d.domain ASC`
+        ).bind(wsId).all();
+        domains = dr.results || [];
+      } catch { /* tolerate */ }
+
+      // 4. Top findings (ordered by severity then recency)
+      let findings = [];
+      try {
+        const fr = await env.cybermeters_db.prepare(
+          `SELECT f.title, f.severity, f.recommendation, s.domain
+           FROM findings f
+           JOIN scans s ON s.id = f.scan_id
+           JOIN domains d ON d.id = s.domain_id
+           JOIN workspace_domains wd ON wd.domain_id = d.id
+           WHERE wd.workspace_id = ?
+           ORDER BY CASE f.severity
+             WHEN 'critical' THEN 1 WHEN 'high' THEN 2
+             WHEN 'medium'   THEN 3                ELSE 4 END,
+             s.created_at DESC
+           LIMIT 30`
+        ).bind(wsId).all();
+        findings = fr.results || [];
+      } catch { /* tolerate */ }
+
+      // 5. Recommendations
+      let recommendations = [];
+      try {
+        const rr = await env.cybermeters_db.prepare(
+          `SELECT r.title, r.priority, r.action, r.reason, s.domain
+           FROM remediation_items r
+           JOIN scans s ON s.id = r.scan_id
+           JOIN domains d ON d.id = s.domain_id
+           JOIN workspace_domains wd ON wd.domain_id = d.id
+           WHERE wd.workspace_id = ?
+           ORDER BY r.priority ASC
+           LIMIT 10`
+        ).bind(wsId).all();
+        recommendations = rr.results || [];
+      } catch { /* tolerate */ }
+
+      // 6. Historical trend — last 2 completed scans per domain
+      let trend = [];
+      try {
+        const tr = await env.cybermeters_db.prepare(
+          `SELECT s.domain, s.score AS current_score, s.created_at
+           FROM scans s
+           JOIN domains d ON d.id = s.domain_id
+           JOIN workspace_domains wd ON wd.domain_id = d.id
+           WHERE wd.workspace_id = ? AND s.status = 'completed' AND s.score IS NOT NULL
+           ORDER BY s.created_at DESC
+           LIMIT 20`
+        ).bind(wsId).all();
+
+        // Group by domain, keep newest two
+        const byDomain = {};
+        for (const row of (tr.results || [])) {
+          if (!byDomain[row.domain]) byDomain[row.domain] = [];
+          if (byDomain[row.domain].length < 2) byDomain[row.domain].push(row);
+        }
+        for (const [domain, rows] of Object.entries(byDomain)) {
+          const cur  = rows[0];
+          const prev = rows[1] ?? null;
+          trend.push({
+            domain,
+            date: cur.created_at
+              ? new Date((cur.created_at || "").replace(" ", "T") + "Z")
+                  .toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+              : "—",
+            current_score:  cur.current_score,
+            previous_score: prev?.current_score ?? null,
+            score_change:   prev != null ? cur.current_score - prev.current_score : null,
+          });
+        }
+      } catch { /* tolerate */ }
+
+      // 7. Build PDF
+      try {
+        const streams = buildPdfStreams({ workspace: ws, stats, domains, findings, recommendations, trend });
+        const pdfText = assemblePdf(streams);
+        const pdfBytes = new TextEncoder().encode(pdfText);
+        const safeName = (ws.name || "workspace").replace(/[^a-zA-Z0-9]+/g, "-").toLowerCase();
+
+        return new Response(pdfBytes, {
+          status: 200,
+          headers: {
+            ...corsHeaders,
+            "Content-Type":        "application/pdf",
+            "Content-Disposition": `attachment; filename="cybermeters-${safeName}-report.pdf"`,
+            "Content-Length":      String(pdfBytes.length),
+          },
+        });
+      } catch (e) {
+        return json({ error: "PDF generation failed", detail: e.message }, { status: 500 });
+      }
+    }
 
     // GET /api/workspaces — list all workspaces
     if (request.method === "GET" && url.pathname === "/api/workspaces") {
