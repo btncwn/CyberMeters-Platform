@@ -3,7 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, RefreshCw, Globe, Hash, AlertCircle, ScanLine,
   ChevronRight, Shield, FileText, CheckCircle, XCircle, Mail,
-  Lock, Server, Clock,
+  Lock, Server, Clock, History,
 } from 'lucide-react'
 import { api } from '../api'
 import StatusBadge from '../components/StatusBadge'
@@ -364,6 +364,120 @@ function EmailPanel({ email }) {
           <p className="text-[11px] text-gray-400 mt-1">Common selectors probed — custom selector may be in use.</p>
         )}
       </div>
+    </div>
+  )
+}
+
+// ── Historical Changes ───────────────────────────────────────────────────────
+
+/**
+ * A row of labelled pills showing changed items (new subdomains, findings, etc.)
+ * tone: 'bad' (red) | 'good' (green/brand) | 'neutral' (amber)
+ */
+function ChangeList({ title, items, renderItem, tone }) {
+  const toneStyle = {
+    bad:     'bg-red-50 text-red-700',
+    good:    'bg-brand-50 text-brand-700',
+    neutral: 'bg-amber-50 text-amber-700',
+  }[tone] || 'bg-gray-100 text-gray-600'
+
+  return (
+    <div className="px-6 py-3 border-b border-gray-50 last:border-0">
+      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+        {title}{' '}
+        <span className="font-normal text-gray-300 normal-case tracking-normal">({items.length})</span>
+      </p>
+      <div className="flex flex-wrap gap-1.5">
+        {items.map((item, i) => (
+          <span key={i} className={`inline-flex items-center px-2 py-0.5 rounded mono text-xs ${toneStyle}`}>
+            {renderItem(item)}
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function ChangesPanel({ changes }) {
+  if (!changes) return null
+
+  if (!changes.has_previous) {
+    return (
+      <div className="px-6 py-5 flex items-center gap-2.5 text-sm text-gray-400">
+        <History className="w-4 h-4 flex-shrink-0 text-gray-300" />
+        First scan for this domain — no historical data to compare against.
+      </div>
+    )
+  }
+
+  const delta = changes.score_change
+  const deltaStr = delta != null
+    ? (delta > 0 ? `+${delta}` : String(delta))
+    : null
+  const deltaColor =
+    delta > 0  ? 'text-brand-600' :
+    delta < 0  ? 'text-red-500'   : 'text-gray-400'
+
+  const noChanges =
+    changes.new_subdomains.length === 0 &&
+    changes.removed_subdomains.length === 0 &&
+    changes.new_findings.length === 0 &&
+    changes.resolved_findings.length === 0 &&
+    changes.new_takeover_risks.length === 0 &&
+    changes.new_exposed_assets.length === 0
+
+  return (
+    <div className="divide-y divide-gray-50">
+
+      {/* Score comparison */}
+      <div className="px-6 py-4 flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-gray-900">Score Comparison</p>
+          <p className="text-[11px] text-gray-300 mono mt-0.5 truncate">vs {changes.previous_scan_id}</p>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0 text-sm">
+          <span className="text-gray-400">{changes.previous_score ?? '—'}</span>
+          <span className="text-gray-200">→</span>
+          <span className="font-bold text-gray-900">{changes.current_score}</span>
+          {deltaStr && (
+            <span className={`font-bold ${deltaColor}`}>({deltaStr})</span>
+          )}
+        </div>
+      </div>
+
+      {noChanges ? (
+        <div className="px-6 py-4 flex items-center gap-2 text-sm text-gray-400">
+          <CheckCircle className="w-4 h-4 text-brand-500 flex-shrink-0" />
+          No changes detected since the previous scan.
+        </div>
+      ) : (
+        <>
+          {changes.new_findings.length > 0 && (
+            <ChangeList title="New Findings" items={changes.new_findings}
+              renderItem={f => f.title} tone="bad" />
+          )}
+          {changes.resolved_findings.length > 0 && (
+            <ChangeList title="Resolved Findings" items={changes.resolved_findings}
+              renderItem={f => f.title} tone="good" />
+          )}
+          {changes.new_takeover_risks.length > 0 && (
+            <ChangeList title="New Takeover Risks" items={changes.new_takeover_risks}
+              renderItem={r => r.host} tone="bad" />
+          )}
+          {changes.new_exposed_assets.length > 0 && (
+            <ChangeList title="New Exposed Assets" items={changes.new_exposed_assets}
+              renderItem={a => a.host} tone="neutral" />
+          )}
+          {changes.new_subdomains.length > 0 && (
+            <ChangeList title="New Subdomains" items={changes.new_subdomains}
+              renderItem={h => h} tone="neutral" />
+          )}
+          {changes.removed_subdomains.length > 0 && (
+            <ChangeList title="Removed Subdomains" items={changes.removed_subdomains}
+              renderItem={h => h} tone="good" />
+          )}
+        </>
+      )}
     </div>
   )
 }
