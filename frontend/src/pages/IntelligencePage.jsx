@@ -1,0 +1,1049 @@
+import { useState, useEffect, useCallback } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import {
+  Brain, Briefcase, CheckCircle, XCircle, AlertCircle, AlertTriangle,
+  Shield, ShieldAlert, Mail, Cpu, Bug, Flame, RefreshCw,
+  ChevronRight, TrendingUp, TrendingDown, Info, Globe,
+} from 'lucide-react'
+import { api } from '../api'
+import Spinner from '../components/Spinner'
+import ErrorAlert from '../components/ErrorAlert'
+
+// ── Design-system helpers ─────────────────────────────────────────────────────
+
+const SEV_BADGE = {
+  critical:      'badge-critical',
+  high:          'badge-high',
+  medium:        'badge-medium',
+  low:           'badge-low',
+  informational: 'text-xs font-semibold px-2.5 py-0.5 rounded-full bg-gray-100 text-gray-500 border border-gray-200',
+}
+
+const SEV_DOT = {
+  critical: 'bg-red-500',
+  high:     'bg-orange-500',
+  medium:   'bg-amber-400',
+  low:      'bg-blue-400',
+}
+
+const RISK_LEVEL_STYLE = {
+  Critical:   { pill: 'bg-red-50 text-red-700 border-red-100',       dot: 'bg-red-500'    },
+  High:       { pill: 'bg-orange-50 text-orange-700 border-orange-100', dot: 'bg-orange-500' },
+  Moderate:   { pill: 'bg-amber-50 text-amber-700 border-amber-100',  dot: 'bg-amber-400'  },
+  Low:        { pill: 'bg-brand-50 text-brand-700 border-brand-100',  dot: 'bg-brand-500'  },
+  Excellent:  { pill: 'bg-brand-50 text-brand-700 border-brand-100',  dot: 'bg-brand-500'  },
+}
+
+const EMAIL_SCORE_STYLE = {
+  EXCELLENT: { color: '#00876A', label: 'Excellent', cls: 'text-brand-600' },
+  GOOD:      { color: '#00876A', label: 'Good',      cls: 'text-brand-600' },
+  FAIR:      { color: '#F59E0B', label: 'Fair',      cls: 'text-amber-500' },
+  POOR:      { color: '#F97316', label: 'Poor',      cls: 'text-orange-500' },
+  CRITICAL:  { color: '#EF4444', label: 'Critical',  cls: 'text-red-500'   },
+}
+
+const DMARC_STATUS_STYLE = {
+  FULLY_PROTECTED:  'bg-brand-50 text-brand-700 border-brand-100',
+  PARTIAL_PROTECTED:'bg-amber-50 text-amber-700 border-amber-100',
+  REPORTING_ONLY:   'bg-orange-50 text-orange-700 border-orange-100',
+  MISSING:          'bg-red-50 text-red-700 border-red-100',
+  ERROR:            'bg-gray-100 text-gray-500 border-gray-200',
+}
+
+const SPF_STATUS_STYLE = {
+  PASS:     'bg-brand-50 text-brand-700 border-brand-100',
+  SOFTFAIL: 'bg-amber-50 text-amber-700 border-amber-100',
+  PARTIAL:  'bg-amber-50 text-amber-700 border-amber-100',
+  FAIL:     'bg-red-50 text-red-700 border-red-100',
+  MISSING:  'bg-red-50 text-red-700 border-red-100',
+}
+
+const P_COLOR = {
+  p1: { bg: 'bg-red-50', border: 'border-red-100', text: 'text-red-700', dot: 'bg-red-500', badge: 'bg-red-500 text-white', header: 'bg-red-500' },
+  p2: { bg: 'bg-orange-50', border: 'border-orange-100', text: 'text-orange-700', dot: 'bg-orange-500', badge: 'bg-orange-500 text-white', header: 'bg-orange-500' },
+  p3: { bg: 'bg-gray-50', border: 'border-gray-200', text: 'text-gray-600', dot: 'bg-gray-400', badge: 'bg-gray-400 text-white', header: 'bg-gray-400' },
+}
+
+// ── Shared primitives ─────────────────────────────────────────────────────────
+
+function SectionHeader({ icon: Icon, title, aside, iconBg = 'bg-brand-100', iconColor = 'text-brand-700' }) {
+  return (
+    <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gray-50">
+      <div className="flex items-center gap-2.5">
+        <div className={`w-6 h-6 rounded-md ${iconBg} flex items-center justify-center`}>
+          <Icon className={`w-3.5 h-3.5 ${iconColor}`} />
+        </div>
+        <h2 className="text-sm font-bold text-gray-900">{title}</h2>
+      </div>
+      {aside && <div>{aside}</div>}
+    </div>
+  )
+}
+
+function StatusPill({ value, trueLabel = 'Yes', falseLabel = 'No', nullLabel = '—' }) {
+  if (value == null) return <span className="text-xs text-gray-300">{nullLabel}</span>
+  return value
+    ? <span className="inline-flex items-center gap-1 text-xs font-semibold text-brand-700 bg-brand-50 border border-brand-100 px-2 py-0.5 rounded-full">
+        <CheckCircle className="w-3 h-3" />{trueLabel}
+      </span>
+    : <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-700 bg-red-50 border border-red-100 px-2 py-0.5 rounded-full">
+        <XCircle className="w-3 h-3" />{falseLabel}
+      </span>
+}
+
+function EmptyState({ icon: Icon = Info, title, subtitle }) {
+  return (
+    <div className="flex flex-col items-center gap-2 py-10 text-center px-6">
+      <div className="w-10 h-10 rounded-2xl bg-gray-100 flex items-center justify-center">
+        <Icon className="w-5 h-5 text-gray-400" />
+      </div>
+      <p className="text-sm font-semibold text-gray-500">{title}</p>
+      {subtitle && <p className="text-xs text-gray-400">{subtitle}</p>}
+    </div>
+  )
+}
+
+// ── Score ring (reused from ScanDetail pattern) ───────────────────────────────
+
+function ScoreRing({ score, status, size = 'md' }) {
+  const cfg = EMAIL_SCORE_STYLE[status] || EMAIL_SCORE_STYLE.FAIR
+  const r   = size === 'sm' ? 36 : 48
+  const vb  = size === 'sm' ? 84 : 108
+  const sw  = size === 'sm' ? 8  : 9
+  const circ = 2 * Math.PI * r
+  const fill = score != null ? circ * (score / 100) : 0
+
+  return (
+    <div className="flex flex-col items-center select-none">
+      <div className={size === 'sm' ? 'relative w-[84px] h-[84px]' : 'relative w-[108px] h-[108px]'}>
+        <svg viewBox={`0 0 ${vb} ${vb}`} className="w-full h-full -rotate-90">
+          <circle cx={vb/2} cy={vb/2} r={r} fill="none" stroke="#F3F4F6" strokeWidth={sw} />
+          {score != null && (
+            <circle cx={vb/2} cy={vb/2} r={r} fill="none"
+              stroke={cfg.color} strokeWidth={sw} strokeLinecap="round"
+              strokeDasharray={`${fill} ${circ - fill}`} />
+          )}
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          {score != null
+            ? <><span className={`${size === 'sm' ? 'text-xl' : 'text-2xl'} font-bold ${cfg.cls}`}>{score}</span>
+                <span className="text-[9px] text-gray-300 font-semibold">/100</span></>
+            : <span className="text-gray-300 text-xs">—</span>}
+        </div>
+      </div>
+      {status && (
+        <span className="text-xs font-bold px-2.5 py-0.5 rounded-full mt-1"
+              style={{ background: cfg.color + '18', color: cfg.color }}>
+          {cfg.label}
+        </span>
+      )}
+    </div>
+  )
+}
+
+// ── No workspace state ────────────────────────────────────────────────────────
+
+function NoWorkspaceState() {
+  return (
+    <div className="max-w-screen-xl mx-auto px-6 py-8">
+      <div className="card p-12 flex flex-col items-center text-center gap-4">
+        <div className="w-14 h-14 rounded-2xl bg-brand-50 flex items-center justify-center">
+          <Brain className="w-7 h-7 text-brand-600" />
+        </div>
+        <div>
+          <h3 className="text-base font-bold text-gray-900 mb-1">No workspace selected</h3>
+          <p className="text-sm text-gray-400 max-w-xs">
+            Intelligence data is scoped to your active workspace. Select one to view threat intelligence.
+          </p>
+        </div>
+        <Link to="/workspaces" className="btn-primary">
+          <Briefcase className="w-4 h-4" />
+          Go to Workspaces
+        </Link>
+      </div>
+    </div>
+  )
+}
+
+// ── Section: Risk Intelligence ────────────────────────────────────────────────
+
+function RiskIntelligenceSection({ risk }) {
+  if (!risk || risk.error) {
+    return (
+      <div className="card overflow-hidden">
+        <SectionHeader icon={TrendingUp} title="Risk Intelligence" iconBg="bg-red-50" iconColor="text-red-600" />
+        <EmptyState icon={Info} title="No risk data" subtitle={risk?.error} />
+      </div>
+    )
+  }
+
+  const lvlStyle = RISK_LEVEL_STYLE[risk.overall_risk_level] || RISK_LEVEL_STYLE.Moderate
+  const counts   = risk.finding_counts || {}
+  const cats     = risk.risk_categories || {}
+
+  const catIcons = {
+    'Data Security':  { icon: Shield,      bg: 'bg-red-50',    color: 'text-red-500'    },
+    'Web Security':   { icon: Globe,       bg: 'bg-orange-50', color: 'text-orange-500' },
+    'Brand Risk':     { icon: AlertTriangle,bg:'bg-amber-50',  color: 'text-amber-500'  },
+    'Availability':   { icon: TrendingDown,bg: 'bg-blue-50',   color: 'text-blue-500'   },
+    'Reconnaissance': { icon: Bug,         bg: 'bg-purple-50', color: 'text-purple-500' },
+    'Other':          { icon: Info,        bg: 'bg-gray-100',  color: 'text-gray-400'   },
+  }
+
+  return (
+    <div className="card overflow-hidden">
+      <SectionHeader
+        icon={TrendingUp}
+        title="Risk Intelligence"
+        iconBg="bg-red-50"
+        iconColor="text-red-600"
+        aside={
+          <span className={`text-xs font-bold px-3 py-1 rounded-full border ${lvlStyle.pill}`}>
+            {risk.overall_risk_level} Risk
+          </span>
+        }
+      />
+
+      {/* Narrative */}
+      <div className="px-6 py-4 border-b border-gray-50">
+        <p className="text-sm text-gray-700 leading-relaxed">{risk.narrative}</p>
+      </div>
+
+      {/* Finding counts */}
+      <div className="grid grid-cols-4 divide-x divide-gray-100 border-b border-gray-100">
+        {[
+          { label: 'Critical', count: counts.critical, style: 'text-red-600 bg-red-50', border: 'border-red-100' },
+          { label: 'High',     count: counts.high,     style: 'text-orange-600 bg-orange-50', border: 'border-orange-100' },
+          { label: 'Medium',   count: counts.medium,   style: 'text-amber-600 bg-amber-50',   border: 'border-amber-100' },
+          { label: 'Low',      count: counts.low,      style: 'text-blue-600 bg-blue-50',     border: 'border-blue-100' },
+        ].map(({ label, count, style }) => (
+          <div key={label} className="flex flex-col items-center py-4 gap-0.5">
+            <span className={`text-xl font-bold ${style.split(' ')[0]}`}>{count ?? 0}</span>
+            <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">{label}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Risk categories */}
+      {Object.entries(cats).length > 0 && (
+        <div className="divide-y divide-gray-50">
+          {Object.entries(cats).map(([cat, items]) => {
+            const cfg = catIcons[cat] || catIcons.Other
+            const CatIcon = cfg.icon
+            return (
+              <div key={cat} className="px-6 py-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className={`w-5 h-5 rounded-md ${cfg.bg} flex items-center justify-center`}>
+                    <CatIcon className={`w-3 h-3 ${cfg.color}`} />
+                  </div>
+                  <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">{cat}</span>
+                  <span className="text-xs text-gray-300">({items.length})</span>
+                </div>
+                <div className="space-y-2">
+                  {items.map((f, i) => (
+                    <div key={f.id || i} className="flex items-start gap-3 pl-1">
+                      <div className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${SEV_DOT[f.severity?.toLowerCase()] || 'bg-gray-300'}`} />
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-gray-800">{f.title}</p>
+                        {f.business_impact && (
+                          <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">{f.business_impact}</p>
+                        )}
+                      </div>
+                      <span className={`flex-shrink-0 ${SEV_BADGE[f.severity?.toLowerCase()] || SEV_BADGE.informational}`}>
+                        {f.severity}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Section: Remediation Plan ─────────────────────────────────────────────────
+
+function RemediationItem({ item, index, tier }) {
+  const c = P_COLOR[tier]
+  return (
+    <div className={`flex items-start gap-3 p-3 rounded-xl border ${c.bg} ${c.border}`}>
+      <div className={`w-5 h-5 rounded-full ${c.badge} flex items-center justify-center text-[10px] font-bold flex-shrink-0 mt-0.5`}>
+        {index + 1}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-xs font-semibold text-gray-900 leading-snug">{item.title}</p>
+        {item.reason && <p className="text-[11px] text-gray-500 mt-0.5 leading-relaxed">{item.reason}</p>}
+        {item.action && (
+          <p className={`text-[11px] font-medium mt-1 leading-relaxed ${c.text}`}>{item.action}</p>
+        )}
+        {item.due_date && (
+          <p className="text-[10px] text-gray-400 mt-0.5">Due: {item.due_date}</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function RemediationSection({ plan }) {
+  const [activeTab, setActiveTab] = useState('p1')
+
+  if (!plan || plan.error) {
+    return (
+      <div className="card overflow-hidden">
+        <SectionHeader icon={Shield} title="Remediation Plan" iconBg="bg-orange-50" iconColor="text-orange-600" />
+        <EmptyState icon={Info} title="No remediation plan" subtitle={plan?.error} />
+      </div>
+    )
+  }
+
+  const summary = plan.summary || {}
+  const tiers   = [
+    { key: 'p1', label: 'P1 — Immediate', count: summary.p1_count || 0, items: plan.p1_immediate || [],     ...P_COLOR.p1 },
+    { key: 'p2', label: 'P2 — High',      count: summary.p2_count || 0, items: plan.p2_high || [],          ...P_COLOR.p2 },
+    { key: 'p3', label: 'P3 — Planned',   count: summary.p3_count || 0, items: plan.p3_medium_low || [],    ...P_COLOR.p3 },
+  ]
+  const active = tiers.find(t => t.key === activeTab)
+
+  return (
+    <div className="card overflow-hidden">
+      <SectionHeader
+        icon={Shield}
+        title="Remediation Plan"
+        iconBg="bg-orange-50"
+        iconColor="text-orange-600"
+        aside={
+          <span className="text-xs text-gray-400">{summary.total ?? 0} total actions</span>
+        }
+      />
+
+      {/* Tier tabs */}
+      <div className="flex border-b border-gray-100">
+        {tiers.map(t => (
+          <button
+            key={t.key}
+            onClick={() => setActiveTab(t.key)}
+            className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-xs font-semibold transition-colors
+              ${activeTab === t.key
+                ? `${t.bg} ${t.text} border-b-2 ${t.border.replace('border-', 'border-b-')}`
+                : 'text-gray-500 hover:bg-gray-50'}`}
+          >
+            <span className={`w-4 h-4 rounded-full ${t.badge} flex items-center justify-center text-[9px] font-bold`}>
+              {t.count}
+            </span>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Items */}
+      <div className="p-4 space-y-2.5 max-h-[480px] overflow-y-auto">
+        {!active?.items?.length ? (
+          <div className="flex items-center gap-2 py-6 justify-center text-sm text-gray-400">
+            <CheckCircle className="w-4 h-4 text-brand-500" />
+            No {activeTab.toUpperCase()} items
+          </div>
+        ) : (
+          active.items.map((item, i) => (
+            <RemediationItem key={i} item={item} index={i} tier={activeTab} />
+          ))
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Section: Email Security Intelligence ─────────────────────────────────────
+
+function ScoreBar({ label, value, max }) {
+  const pct = max > 0 ? Math.round((value / max) * 100) : 0
+  const color = pct >= 80 ? '#00876A' : pct >= 50 ? '#F59E0B' : '#EF4444'
+  return (
+    <div className="flex items-center gap-3">
+      <span className="text-xs text-gray-500 w-16 text-right flex-shrink-0">{label}</span>
+      <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+        <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: color }} />
+      </div>
+      <span className="text-xs font-bold text-gray-700 w-12 flex-shrink-0">{value}/{max}</span>
+    </div>
+  )
+}
+
+function EmailIntelSection({ intel }) {
+  if (!intel || intel.error) {
+    return (
+      <div className="card overflow-hidden">
+        <SectionHeader icon={Mail} title="Email Security Intelligence" iconBg="bg-blue-50" iconColor="text-blue-600" />
+        <EmptyState icon={Mail} title="No email intelligence data" subtitle={intel?.error} />
+      </div>
+    )
+  }
+
+  const { spf, dkim, dmarc, mta_sts, tls_rpt, starttls } = intel
+  const score     = intel.email_security_score
+  const breakdown = intel.email_score_breakdown || {}
+  const W = { spf: 20, dkim: 20, dmarc: 50, mta_sts: 5, tls_rpt: 5 }
+
+  const dmarcStyle = DMARC_STATUS_STYLE[dmarc?.status] || DMARC_STATUS_STYLE.ERROR
+  const spfStyle   = SPF_STATUS_STYLE[spf?.status]     || SPF_STATUS_STYLE.MISSING
+
+  return (
+    <div className="card overflow-hidden">
+      <SectionHeader
+        icon={Mail}
+        title="Email Security Intelligence"
+        iconBg="bg-blue-50"
+        iconColor="text-blue-600"
+        aside={
+          <span className={`text-xs font-bold px-2.5 py-1 rounded-full border ${
+            DMARC_STATUS_STYLE[intel.business_email_risk === 'Low' ? 'FULLY_PROTECTED' : intel.business_email_risk === 'Moderate' ? 'PARTIAL_PROTECTED' : 'MISSING']
+          }`}>
+            {intel.business_email_risk || '—'} Risk
+          </span>
+        }
+      />
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-gray-100">
+        {/* Score ring */}
+        <div className="flex flex-col items-center justify-center py-6 gap-4">
+          <ScoreRing score={score} status={breakdown.status} />
+          <div className="w-full max-w-[200px] space-y-2 px-4">
+            <ScoreBar label="DMARC"   value={breakdown.dmarc   ?? 0} max={W.dmarc}   />
+            <ScoreBar label="SPF"     value={breakdown.spf     ?? 0} max={W.spf}     />
+            <ScoreBar label="DKIM"    value={breakdown.dkim    ?? 0} max={W.dkim}    />
+            <ScoreBar label="MTA-STS" value={breakdown.mta_sts ?? 0} max={W.mta_sts} />
+            <ScoreBar label="TLS-RPT" value={breakdown.tls_rpt ?? 0} max={W.tls_rpt} />
+          </div>
+        </div>
+
+        {/* Controls grid */}
+        <div className="divide-y divide-gray-50">
+          {/* SPF */}
+          <div className="px-5 py-3">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-semibold text-gray-600">SPF</span>
+              <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${spfStyle}`}>
+                {spf?.status || 'MISSING'}
+              </span>
+            </div>
+            {spf?.record && <p className="text-[10px] text-gray-400 mono break-all">{spf.record}</p>}
+            {spf?.issue  && <p className="text-[10px] text-orange-500 mt-0.5">{spf.issue}</p>}
+          </div>
+
+          {/* DMARC */}
+          <div className="px-5 py-3">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-semibold text-gray-600">DMARC</span>
+              <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${dmarcStyle}`}>
+                {dmarc?.status || 'MISSING'}
+              </span>
+            </div>
+            {dmarc?.policy && (
+              <p className="text-[10px] text-gray-500">
+                Policy: <span className="font-semibold">{dmarc.policy}</span>
+                {dmarc.pct != null && <span className="text-gray-400"> · pct={dmarc.pct}</span>}
+                {dmarc.subdomain_policy && <span className="text-gray-400"> · sp={dmarc.subdomain_policy}</span>}
+              </p>
+            )}
+            {dmarc?.message && <p className="text-[10px] text-gray-400 mt-0.5 leading-snug">{dmarc.message}</p>}
+            {dmarc?.rua    && <p className="text-[10px] text-brand-600 mt-0.5 mono break-all">rua: {dmarc.rua}</p>}
+          </div>
+
+          {/* DKIM */}
+          <div className="px-5 py-3">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-semibold text-gray-600">DKIM</span>
+              <StatusPill value={dkim?.status === 'VERIFIED'} trueLabel="Verified" falseLabel="Not found" />
+            </div>
+            {dkim?.selector && <p className="text-[10px] text-gray-400 mono">Selector: {dkim.selector}</p>}
+          </div>
+
+          {/* MTA-STS */}
+          <div className="px-5 py-3">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-semibold text-gray-600">MTA-STS</span>
+              <StatusPill value={mta_sts?.enabled} trueLabel="Enabled" falseLabel="Not configured" />
+            </div>
+            {mta_sts?.policy_mode && (
+              <p className="text-[10px] text-gray-500">
+                Mode: <span className="font-semibold">{mta_sts.policy_mode}</span>
+                {mta_sts.max_age && <span className="text-gray-400"> · max_age={mta_sts.max_age}s</span>}
+              </p>
+            )}
+          </div>
+
+          {/* TLS-RPT */}
+          <div className="px-5 py-3">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-semibold text-gray-600">TLS-RPT</span>
+              <StatusPill value={tls_rpt?.enabled} trueLabel="Configured" falseLabel="Not configured" />
+            </div>
+            {tls_rpt?.reporting_uris?.length > 0 && (
+              <p className="text-[10px] text-gray-400 mono break-all">{tls_rpt.reporting_uris.join(', ')}</p>
+            )}
+          </div>
+
+          {/* STARTTLS */}
+          <div className="px-5 py-3">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-semibold text-gray-600">STARTTLS</span>
+              <span className="text-[10px] text-gray-400 italic">Cannot probe from cloud</span>
+            </div>
+            {starttls?.mx_records?.length > 0 && (
+              <p className="text-[10px] text-gray-400">
+                MX: {starttls.mx_records.slice(0, 2).map(r => r.host).join(', ')}
+                {starttls.mx_records.length > 2 && ` +${starttls.mx_records.length - 2} more`}
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Strengths */}
+      {intel.strengths?.length > 0 && (
+        <div className="px-6 py-4 border-t border-gray-100 bg-brand-50/40">
+          <p className="text-[10px] font-bold text-brand-700 uppercase tracking-widest mb-2">Strengths</p>
+          <ul className="space-y-1">
+            {intel.strengths.map((s, i) => (
+              <li key={i} className="flex items-start gap-1.5 text-xs text-brand-800">
+                <CheckCircle className="w-3 h-3 flex-shrink-0 mt-0.5 text-brand-600" />
+                {s}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Business impacts */}
+      {intel.business_impacts?.length > 0 && (
+        <div className="divide-y divide-gray-50 border-t border-gray-100">
+          <div className="px-6 py-3 bg-gray-50">
+            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Business Impacts</p>
+          </div>
+          {intel.business_impacts.map((imp, i) => {
+            const rlStyle = { CRITICAL: 'badge-critical', HIGH: 'badge-high', MEDIUM: 'badge-medium', LOW: 'badge-low' }
+            return (
+              <div key={i} className="px-6 py-3 flex items-start gap-3">
+                <AlertCircle className={`w-4 h-4 flex-shrink-0 mt-0.5 ${
+                  imp.risk_level === 'CRITICAL' ? 'text-red-500' :
+                  imp.risk_level === 'HIGH'     ? 'text-orange-500' :
+                  imp.risk_level === 'MEDIUM'   ? 'text-amber-500' : 'text-blue-400'}`} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-start gap-2 justify-between">
+                    <p className="text-xs font-semibold text-gray-800">{imp.technical}</p>
+                    <span className={`flex-shrink-0 ${rlStyle[imp.risk_level] || rlStyle.LOW}`}>{imp.risk_level}</span>
+                  </div>
+                  <p className="text-[11px] text-gray-500 mt-0.5 leading-relaxed">{imp.business_impact}</p>
+                  {imp.recommendation && (
+                    <p className="text-[11px] text-brand-600 font-medium mt-1 leading-relaxed">→ {imp.recommendation}</p>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Email intel findings */}
+      {intel.findings?.length > 0 && (
+        <div className="border-t border-gray-100">
+          <div className="px-6 py-3 bg-gray-50">
+            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Email Security Findings</p>
+          </div>
+          <ul className="divide-y divide-gray-50">
+            {intel.findings.map((f, i) => (
+              <li key={f.id || i} className="flex items-start gap-3 px-6 py-3">
+                <div className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${SEV_DOT[f.severity] || 'bg-gray-300'}`} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-gray-800">{f.title}</p>
+                  <p className="text-[11px] text-gray-400 mt-0.5 leading-relaxed">{f.description}</p>
+                  {f.recommendation && (
+                    <p className="text-[11px] text-brand-600 font-medium mt-1">→ {f.recommendation}</p>
+                  )}
+                </div>
+                <span className={`flex-shrink-0 ${SEV_BADGE[f.severity] || SEV_BADGE.informational}`}>{f.severity}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Section: Technology Detection ─────────────────────────────────────────────
+
+function TechDetectionSection({ tech }) {
+  if (!tech || tech.error) {
+    return (
+      <div className="card overflow-hidden">
+        <SectionHeader icon={Cpu} title="Technology Detection" iconBg="bg-purple-50" iconColor="text-purple-600" />
+        <EmptyState icon={Cpu} title="No technology data" subtitle={tech?.error} />
+      </div>
+    )
+  }
+
+  const techs = tech.technologies || []
+
+  const TECH_COLORS = {
+    'Cloudflare':    'bg-orange-50 text-orange-700 border-orange-100',
+    'nginx':         'bg-green-50 text-green-700 border-green-100',
+    'Apache':        'bg-red-50 text-red-700 border-red-100',
+    'Microsoft IIS': 'bg-blue-50 text-blue-700 border-blue-100',
+    'Express':       'bg-gray-100 text-gray-600 border-gray-200',
+    'PHP':           'bg-violet-50 text-violet-700 border-violet-100',
+    'ASP.NET':       'bg-blue-50 text-blue-700 border-blue-100',
+    'React/Vite':    'bg-cyan-50 text-cyan-700 border-cyan-100',
+    'Next.js':       'bg-gray-900 text-white border-gray-700',
+    'WordPress':     'bg-blue-50 text-blue-700 border-blue-100',
+    'Drupal':        'bg-blue-50 text-blue-700 border-blue-100',
+    'Joomla':       'bg-orange-50 text-orange-700 border-orange-100',
+  }
+
+  return (
+    <div className="card overflow-hidden">
+      <SectionHeader icon={Cpu} title="Technology Detection" iconBg="bg-purple-50" iconColor="text-purple-600" />
+
+      {/* Tech stack */}
+      <div className="px-6 py-4 border-b border-gray-100">
+        {techs.length === 0 ? (
+          <p className="text-xs text-gray-400">No technologies identified.</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {techs.map((t, i) => (
+              <span key={i} className={`text-xs font-semibold px-3 py-1 rounded-full border ${TECH_COLORS[t] || 'bg-gray-100 text-gray-600 border-gray-200'}`}>
+                {t}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Header details */}
+      <div className="divide-y divide-gray-50">
+        {[
+          { label: 'Final URL',       value: tech.final_url         },
+          { label: 'Status Code',     value: tech.status_code       },
+          { label: 'Server',          value: tech.server            },
+          { label: 'X-Powered-By',    value: tech.x_powered_by      },
+          { label: 'Content-Type',    value: tech.content_type      },
+          { label: 'HSTS',            value: tech.strict_transport_security ? '✓ Present' : null },
+          { label: 'CSP',             value: tech.content_security_policy   ? '✓ Present' : null },
+          { label: 'X-Frame-Options', value: tech.x_frame_options           },
+        ].filter(r => r.value != null).map(({ label, value }) => (
+          <div key={label} className="flex items-start justify-between gap-4 px-6 py-2.5">
+            <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide flex-shrink-0 pt-0.5">{label}</span>
+            <span className="text-xs text-gray-700 text-right mono break-all">{String(value)}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Info findings (version disclosure) */}
+      {tech.info_findings?.length > 0 && (
+        <div className="border-t border-gray-100">
+          <div className="px-6 py-3 bg-amber-50/60">
+            <p className="text-[10px] font-bold text-amber-700 uppercase tracking-widest">Version Disclosure Findings</p>
+          </div>
+          {tech.info_findings.map((f, i) => (
+            <div key={i} className="px-6 py-3 border-t border-gray-50 flex items-start gap-3">
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-xs font-semibold text-gray-800">{f.title}</p>
+                <p className="text-[11px] text-gray-400 mt-0.5 leading-relaxed">{f.description}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Section: CVE Intelligence ─────────────────────────────────────────────────
+
+function CveIntelSection({ cve }) {
+  if (!cve || cve.error) {
+    return (
+      <div className="card overflow-hidden">
+        <SectionHeader icon={Bug} title="CVE Intelligence" iconBg="bg-red-50" iconColor="text-red-600" />
+        <EmptyState icon={Bug} title="No CVE data" subtitle={cve?.error} />
+      </div>
+    )
+  }
+
+  const results = cve.results || {}
+  const checked = cve.technologies_checked || []
+
+  const CVE_SEV_STYLE = {
+    CRITICAL: 'bg-red-100 text-red-700',
+    HIGH:     'bg-orange-100 text-orange-700',
+    MEDIUM:   'bg-amber-100 text-amber-700',
+    LOW:      'bg-blue-100 text-blue-700',
+    UNKNOWN:  'bg-gray-100 text-gray-500',
+  }
+
+  return (
+    <div className="card overflow-hidden">
+      <SectionHeader
+        icon={Bug}
+        title="CVE Intelligence"
+        iconBg="bg-red-50"
+        iconColor="text-red-600"
+        aside={
+          <div className="flex items-center gap-3 text-xs text-gray-400">
+            <span><span className="font-bold text-red-600">{cve.critical_count ?? 0}</span> critical</span>
+            <span><span className="font-bold text-orange-600">{cve.high_count ?? 0}</span> high</span>
+            <span className="text-gray-300">{cve.total_cves ?? 0} total</span>
+          </div>
+        }
+      />
+
+      {checked.length === 0 ? (
+        <EmptyState icon={CheckCircle} title="No technologies to query" subtitle="Technology detection did not identify any software matching the CVE allow-list." />
+      ) : (
+        <div className="divide-y divide-gray-100">
+          {checked.map(tech => {
+            const cves = results[tech] || []
+            return (
+              <div key={tech}>
+                <div className="px-6 py-3 bg-gray-50 flex items-center justify-between">
+                  <span className="text-xs font-bold text-gray-700 capitalize">{tech}</span>
+                  <span className="text-[10px] text-gray-400">{cves.length} CVE{cves.length !== 1 ? 's' : ''}</span>
+                </div>
+                {cves.length === 0 ? (
+                  <div className="px-6 py-3 text-xs text-gray-400">No HIGH+ CVEs found.</div>
+                ) : (
+                  <div className="divide-y divide-gray-50">
+                    {cves.map(c => (
+                      <div key={c.cve_id} className="flex items-start gap-3 px-6 py-3">
+                        <div className="flex-shrink-0 pt-0.5">
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded mono ${CVE_SEV_STYLE[c.severity] || CVE_SEV_STYLE.UNKNOWN}`}>
+                            {c.cve_id}
+                          </span>
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[11px] text-gray-600 leading-relaxed">{c.description}</p>
+                        </div>
+                        <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${CVE_SEV_STYLE[c.severity] || CVE_SEV_STYLE.UNKNOWN}`}>
+                            {c.severity}
+                          </span>
+                          {c.cvss_score != null && (
+                            <span className="text-[10px] text-gray-400 font-mono">{c.cvss_score}</span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Section: Known Exploited Vulnerabilities ──────────────────────────────────
+
+function KevSection({ kev }) {
+  if (!kev || kev.error) {
+    return (
+      <div className="card overflow-hidden">
+        <SectionHeader icon={Flame} title="Known Exploited Vulnerabilities" iconBg="bg-red-50" iconColor="text-red-600" />
+        <EmptyState icon={Flame} title="No KEV data" subtitle={kev?.error} />
+      </div>
+    )
+  }
+
+  const matches = kev.matches || []
+
+  return (
+    <div className="card overflow-hidden">
+      <SectionHeader
+        icon={Flame}
+        title="CISA Known Exploited Vulnerabilities"
+        iconBg="bg-red-50"
+        iconColor="text-red-600"
+        aside={
+          matches.length > 0
+            ? <span className="badge-critical">{matches.length} match{matches.length !== 1 ? 'es' : ''}</span>
+            : <span className="text-xs text-brand-600 font-semibold flex items-center gap-1"><CheckCircle className="w-3.5 h-3.5" />No matches</span>
+        }
+      />
+
+      <div className="px-6 py-2.5 border-b border-gray-100 bg-gray-50 flex items-center justify-between text-[10px] text-gray-400">
+        <span>Catalog size: {kev.checked?.toLocaleString() ?? '—'} entries</span>
+        <span>Source: CISA KEV</span>
+      </div>
+
+      {matches.length === 0 ? (
+        <div className="flex flex-col items-center gap-2 py-10 text-center px-6">
+          <div className="w-10 h-10 rounded-2xl bg-brand-50 flex items-center justify-center">
+            <CheckCircle className="w-5 h-5 text-brand-600" />
+          </div>
+          <p className="text-sm font-semibold text-gray-700">No KEV matches detected</p>
+          <p className="text-xs text-gray-400">No technology-keyword matches found in the CISA Known Exploited Vulnerabilities catalog.</p>
+        </div>
+      ) : (
+        <ul className="divide-y divide-gray-50">
+          {matches.map((m, i) => (
+            <li key={m.cve_id || i} className="px-6 py-4">
+              <div className="flex items-start gap-3">
+                <ShieldAlert className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap mb-1">
+                    <span className="text-xs font-bold mono text-red-700 bg-red-50 border border-red-100 px-2 py-0.5 rounded">
+                      {m.cve_id}
+                    </span>
+                    <span className="text-xs text-gray-500 font-medium">{m.vendor_project} — {m.product}</span>
+                  </div>
+                  <p className="text-xs font-semibold text-gray-800">{m.vulnerability_name}</p>
+                  {m.short_description && (
+                    <p className="text-[11px] text-gray-400 mt-0.5 leading-relaxed">{m.short_description}</p>
+                  )}
+                  {m.required_action && (
+                    <p className="text-[11px] text-red-600 font-medium mt-1 leading-relaxed">Required: {m.required_action}</p>
+                  )}
+                  <div className="flex items-center gap-3 mt-1.5 text-[10px] text-gray-400">
+                    {m.date_added && <span>Added: {m.date_added}</span>}
+                    {m.due_date   && <span className="text-red-500 font-semibold">Due: {m.due_date}</span>}
+                  </div>
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+// ── Summary bar ───────────────────────────────────────────────────────────────
+
+function SummaryBar({ risk, emailIntel, remPlan, kev }) {
+  const emailScore  = emailIntel?.email_security_score ?? null
+  const emailStatus = emailIntel?.email_score_breakdown?.status
+  const emailCfg    = EMAIL_SCORE_STYLE[emailStatus] || EMAIL_SCORE_STYLE.FAIR
+
+  const riskLvl = risk?.overall_risk_level || '—'
+  const rlStyle = RISK_LEVEL_STYLE[riskLvl] || { pill: 'bg-gray-100 text-gray-500 border-gray-200', dot: 'bg-gray-400' }
+
+  const p1Count  = remPlan?.summary?.p1_count ?? 0
+  const kevCount = kev?.matched ?? 0
+
+  return (
+    <div className="card-md grid grid-cols-2 sm:grid-cols-4 divide-x divide-gray-100">
+      {/* Email score */}
+      <div className="flex flex-col items-center justify-center py-5 gap-1">
+        <span className="label text-[9px]">Email Security</span>
+        {emailScore != null
+          ? <span className="text-2xl font-bold" style={{ color: emailCfg.color }}>{emailScore}</span>
+          : <span className="text-2xl font-bold text-gray-300">—</span>}
+        <span className="text-[10px] font-semibold text-gray-400">/100 · {emailCfg.label || '—'}</span>
+      </div>
+      {/* Risk level */}
+      <div className="flex flex-col items-center justify-center py-5 gap-1.5">
+        <span className="label text-[9px]">Risk Level</span>
+        <span className={`text-xs font-bold px-3 py-1 rounded-full border ${rlStyle.pill}`}>{riskLvl}</span>
+      </div>
+      {/* P1 actions */}
+      <div className="flex flex-col items-center justify-center py-5 gap-1">
+        <span className="label text-[9px]">P1 Actions</span>
+        <span className={`text-2xl font-bold ${p1Count > 0 ? 'text-red-600' : 'text-brand-600'}`}>{p1Count}</span>
+        <span className="text-[10px] font-semibold text-gray-400">Immediate</span>
+      </div>
+      {/* KEV matches */}
+      <div className="flex flex-col items-center justify-center py-5 gap-1">
+        <span className="label text-[9px]">KEV Matches</span>
+        <span className={`text-2xl font-bold ${kevCount > 0 ? 'text-red-600' : 'text-brand-600'}`}>{kevCount}</span>
+        <span className="text-[10px] font-semibold text-gray-400">CISA catalog</span>
+      </div>
+    </div>
+  )
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
+
+export default function IntelligencePage() {
+  const navigate = useNavigate()
+
+  const [activeWorkspaceId,   setActiveWorkspaceId]   = useState(() => localStorage.getItem('cybermeters_workspace_id'))
+  const [activeWorkspaceName, setActiveWorkspaceName] = useState(() => localStorage.getItem('cybermeters_workspace_name'))
+  const [scans,     setScans]     = useState([])
+  const [selectedId, setSelectedId] = useState(null)
+  const [report,    setReport]    = useState(null)
+  const [loading,   setLoading]   = useState(false)
+  const [refreshing,setRefreshing]= useState(false)
+  const [error,     setError]     = useState(null)
+
+  // Track workspace changes from WorkspaceSelector in Layout
+  useEffect(() => {
+    function onStorage() {
+      setActiveWorkspaceId(localStorage.getItem('cybermeters_workspace_id'))
+      setActiveWorkspaceName(localStorage.getItem('cybermeters_workspace_name'))
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
+
+  const load = useCallback(async (silent = false) => {
+    const wsId = localStorage.getItem('cybermeters_workspace_id')
+    if (!wsId) return
+    if (!silent) setLoading(true)
+    else setRefreshing(true)
+    setError(null)
+    try {
+      const data = await api.getWorkspaceScans(wsId)
+      const all  = (data.scans || data || []).filter(s => s.status === 'completed')
+      setScans(all)
+      const latest = all[0]
+      if (latest) {
+        setSelectedId(s => s || latest.id)
+      }
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+      setRefreshing(false)
+    }
+  }, [])
+
+  useEffect(() => { if (activeWorkspaceId) load() }, [activeWorkspaceId, load])
+
+  // Load report whenever selected scan changes
+  useEffect(() => {
+    if (!selectedId) return
+    let cancelled = false
+    setReport(null)
+    setError(null)
+    setLoading(true)
+    api.getScanReport(selectedId)
+      .then(r => { if (!cancelled) setReport(r) })
+      .catch(e => { if (!cancelled) setError(e.message) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [selectedId])
+
+  if (!activeWorkspaceId) return <NoWorkspaceState />
+
+  const modules = report?.modules || {}
+  const scanObj = scans.find(s => s.id === selectedId)
+
+  return (
+    <div className="max-w-screen-xl mx-auto px-6 py-8 space-y-6">
+
+      {/* Page header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <div className="w-7 h-7 rounded-lg bg-brand-50 flex items-center justify-center">
+              <Brain className="w-4 h-4 text-brand-600" />
+            </div>
+            <h1 className="text-xl font-bold text-gray-900">Intelligence Dashboard</h1>
+          </div>
+          <p className="text-sm text-gray-400">
+            {activeWorkspaceName
+              ? <><span className="font-medium text-gray-600">{activeWorkspaceName}</span> — threat intelligence from latest scan</>
+              : 'Advanced threat intelligence from scan data'
+            }
+          </p>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {/* Scan picker */}
+          {scans.length > 1 && (
+            <select
+              value={selectedId || ''}
+              onChange={e => setSelectedId(e.target.value)}
+              className="input text-sm py-2 max-w-[220px]"
+            >
+              {scans.map(s => (
+                <option key={s.id} value={s.id}>{s.domain} — {new Date(s.created_at).toLocaleDateString()}</option>
+              ))}
+            </select>
+          )}
+          <button onClick={() => load(true)} disabled={refreshing} className="btn-secondary">
+            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      {/* Error */}
+      {error && <ErrorAlert message={error} onRetry={() => load()} />}
+
+      {/* Loading */}
+      {loading && (
+        <div className="flex items-center justify-center py-32">
+          <Spinner size="lg" />
+        </div>
+      )}
+
+      {/* No scans */}
+      {!loading && !error && scans.length === 0 && (
+        <div className="card p-12 flex flex-col items-center text-center gap-4">
+          <div className="w-14 h-14 rounded-2xl bg-gray-100 flex items-center justify-center">
+            <Brain className="w-7 h-7 text-gray-400" />
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-gray-900 mb-1">No completed scans</h3>
+            <p className="text-sm text-gray-400">Run a scan in this workspace to see intelligence data.</p>
+          </div>
+          <button onClick={() => navigate('/scans/new')} className="btn-primary">
+            <ChevronRight className="w-4 h-4" />
+            Start a Scan
+          </button>
+        </div>
+      )}
+
+      {/* Content — only when report is loaded */}
+      {!loading && !error && report && (
+        <>
+          {/* Domain context bar */}
+          {scanObj && (
+            <div className="flex items-center gap-3 text-sm">
+              <Globe className="w-4 h-4 text-gray-400 flex-shrink-0" />
+              <span className="font-semibold text-gray-700">{scanObj.domain}</span>
+              <span className="text-gray-300">·</span>
+              <span className="text-gray-400">Score {scanObj.score ?? '—'} / 100</span>
+              <span className="text-gray-300">·</span>
+              <span className="text-gray-400">{new Date(scanObj.created_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}</span>
+              <Link to={`/scans/${scanObj.id}`} className="btn-ghost ml-auto text-xs">
+                Full Report <ChevronRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
+          )}
+
+          {/* Summary bar */}
+          <SummaryBar
+            risk={modules.risk_intelligence}
+            emailIntel={modules.email_security_intelligence}
+            remPlan={modules.remediation_plan}
+            kev={modules.known_exploited_vulnerabilities}
+          />
+
+          {/* Main grid: 2/3 + 1/3 */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+            {/* Left — main content */}
+            <div className="lg:col-span-2 space-y-6">
+              <RiskIntelligenceSection    risk={modules.risk_intelligence} />
+              <RemediationSection         plan={modules.remediation_plan} />
+              <EmailIntelSection          intel={modules.email_security_intelligence} />
+              <CveIntelSection            cve={modules.cve_intelligence} />
+            </div>
+
+            {/* Right sidebar */}
+            <div className="space-y-6">
+              <KevSection         kev={modules.known_exploited_vulnerabilities} />
+              <TechDetectionSection tech={modules.technology_detection} />
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}

@@ -3,18 +3,19 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Server, ScanLine, FileBarChart2,
   Settings, Shield, Plus, Bell, ChevronDown, Calendar,
-  Briefcase, ChevronRight, Check,
+  Briefcase, ChevronRight, Check, Brain,
 } from 'lucide-react'
 import { api } from '../api'
 
 const NAV = [
-  { to: '/dashboard',  icon: LayoutDashboard, label: 'Dashboard'  },
-  { to: '/workspaces', icon: Briefcase,       label: 'Workspaces' },
-  { to: '/assets',     icon: Server,          label: 'Assets'     },
-  { to: '/scans',      icon: ScanLine,        label: 'Scans'      },
-  { to: '/schedules',  icon: Calendar,        label: 'Schedules'  },
-  { to: '/reports',    icon: FileBarChart2,   label: 'Reports'    },
-  { to: '/settings',   icon: Settings,        label: 'Settings'   },
+  { to: '/dashboard',    icon: LayoutDashboard, label: 'Dashboard'    },
+  { to: '/workspaces',   icon: Briefcase,       label: 'Workspaces'   },
+  { to: '/intelligence', icon: Brain,           label: 'Intelligence' },
+  { to: '/assets',       icon: Server,          label: 'Assets'       },
+  { to: '/scans',        icon: ScanLine,        label: 'Scans'        },
+  { to: '/schedules',    icon: Calendar,        label: 'Schedules'    },
+  { to: '/reports',      icon: FileBarChart2,   label: 'Reports'      },
+  { to: '/settings',     icon: Settings,        label: 'Settings'     },
 ]
 
 // ── Workspace Selector Dropdown ───────────────────────────────────────────────

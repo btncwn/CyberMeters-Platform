@@ -11,6 +11,7 @@ import SchedulesPage from './pages/SchedulesPage'
 import SettingsPage from './pages/SettingsPage'
 import WorkspacesPage from './pages/WorkspacesPage'
 import WorkspaceDetailPage from './pages/WorkspaceDetailPage'
+import IntelligencePage from './pages/IntelligencePage'
 
 export default function App() {
   return (
@@ -21,6 +22,7 @@ export default function App() {
           <Route path="dashboard"               element={<Dashboard />}           />
           <Route path="workspaces"              element={<WorkspacesPage />}      />
           <Route path="workspaces/:id"          element={<WorkspaceDetailPage />} />
+          <Route path="intelligence"            element={<IntelligencePage />}    />
           <Route path="scans"                   element={<ScansPage />}           />
           <Route path="scans/new"               element={<NewScan />}             />
           <Route path="scans/:id"               element={<ScanDetail />}          />
