@@ -172,7 +172,13 @@ Reads the scan report JSON from R2 and returns it in a structured format.
     "dns":            { "resolves": true, "has_ipv6": false, "has_mx": true, "nameservers": ["ns1.example.com."] },
     "ssl":            { "https_available": true, "http_redirects_to_https": true },
     "headers":        { "accessible": true, "status_code": 200, "present": ["x-content-type-options"], "missing": ["strict-transport-security"] },
-    "email_security": { "spf": { "present": true }, "dmarc": { "present": true, "policy": "quarantine" }, "dkim": { "present": false, "selector": null } }
+    "email_security": { "spf": { "present": true }, "dmarc": { "present": true, "policy": "quarantine" }, "dkim": { "present": false, "selector": null } },
+    "subdomains": {
+      "count": 12,
+      "items": ["www.example.com", "mail.example.com", "dev.example.com", "staging.example.com"],
+      "sensitive": ["dev.example.com", "staging.example.com"],
+      "source": "certificate_transparency"
+    }
   }
 }
 ```
@@ -188,7 +194,7 @@ Reads the scan report JSON from R2 and returns it in a structured format.
 | `risk_level` | string | `excellent` (90–100), `good` (75–89), `moderate` (50–74), `high` (25–49), `critical` (0–24) |
 | `findings` | array | Issues found. Each has `id`, `module`, `severity`, `title`, `description`, `score_impact` |
 | `recommendations` | array | Remediation steps sorted by `priority` (1 = most urgent) |
-| `modules` | object | Raw output from each of the 4 scan modules |
+| `modules` | object | Raw output from each of the 5 scan modules |
 | `started_at` | string | ISO 8601 — when the engine started |
 | `completed_at` | string | ISO 8601 — when the engine finished (only on `completed`) |
 | `failed_at` | string | ISO 8601 — when the engine failed (only on `failed`) |
@@ -200,7 +206,22 @@ Reads the scan report JSON from R2 and returns it in a structured format.
 | `dns` | A/AAAA resolution, MX records, IPv6, nameservers |
 | `ssl` | HTTPS availability, HTTP→HTTPS redirect |
 | `headers` | HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy |
-| `email_security` | SPF TXT record, DMARC policy, DKIM (11 common selectors probed) |
+| `email_security` | SPF TXT record, DMARC policy, DKIM (13 common selectors probed) |
+| `subdomains` | Certificate Transparency lookup via crt.sh; sensitive-name classification |
+
+**`modules.subdomains` shape**
+
+| Field | Type | Description |
+|---|---|---|
+| `count` | number | Total unique subdomains discovered |
+| `items` | string[] | All discovered hostnames, alphabetically sorted, capped at 200 |
+| `sensitive` | string[] | Subset of `items` whose labels match dev/staging/admin/backup patterns |
+| `source` | string | Always `"certificate_transparency"` in v1 |
+| `error` | string? | Present only when the CT lookup failed; scan still completes |
+
+**Sensitive subdomain label patterns (v1)**
+
+Labels matched against each dot-separated part of the subdomain: `dev`, `development`, `staging`, `stage`, `stg`, `test`, `testing`, `qa`, `uat`, `sandbox`, `alpha`, `beta`, `preprod`, `demo`, `admin`, `administrator`, `cp`, `cpanel`, `webmin`, `plesk`, `backup`, `bak`, `old`, `legacy`, `archive`, `temp`, `internal`, `intranet`, `vpn`, `ssh`, `ftp`, `db`, `jenkins`, `ci`, `jira`, `wiki` — plus numeric variants (`dev1`, `test2`, `stage-eu`, etc.).
 
 **Scoring deductions**
 
@@ -219,6 +240,8 @@ Reads the scan report JSON from R2 and returns it in a structured format.
 | DMARC policy is `none` | −5 |
 | Missing SPF | −10 |
 | DKIM not detected | −5 |
+| Sensitive subdomain discovered | −5 each (max 4 findings, −20 cap) |
+| >20 subdomains (large attack surface) | −3 |
 
 **Response — scan not found (404)**
 ```json
@@ -289,5 +312,7 @@ curl https://cybermeters-platform.ttrnn47.workers.dev/api/domain/example.com/his
 - Reports are stored in R2 at key `reports/<scan_id>.json`.
 - Scan lifecycle: `POST /api/scan` creates the row at status `running`, writes a placeholder R2 report, then fires the engine asynchronously. The engine updates D1 and R2 when done.
 - `cyber_metrics_score`, `risk_level`, `findings`, `recommendations`, and `modules` are all `0`/`"unknown"`/`[]`/`{}` in the placeholder report and are fully populated only when status is `completed`.
-- No mock data — all findings are derived from live DNS, HTTP, and header responses at scan time.
+- No mock data — all findings are derived from live DNS, HTTP, header, and Certificate Transparency responses at scan time.
 - DKIM discovery probes 13 common selectors in parallel. A DKIM finding of "not detected" means none of the probed selectors returned a valid record; custom selectors are not exhausted.
+- Subdomain discovery uses Certificate Transparency logs only (crt.sh). Results are capped at 200 unique hostnames. If crt.sh is unreachable or times out (25 s), `modules.subdomains` returns `count: 0` with an `error` field and the rest of the scan completes normally. No paid APIs or Shodan are used.
+- All five scan modules run in parallel via `Promise.allSettled`. A failure in any single module does not prevent the others from completing.

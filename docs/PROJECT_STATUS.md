@@ -2,27 +2,93 @@
 
 ## Current Phase
 
-Dashboard v1 and SaaS foundation are complete.
+Scan Engine v1 + Asset Intelligence v1 complete. Platform is live on Cloudflare.
 
-## Completed
+---
 
-- Cloudflare Worker deployed
-- D1 database connected
-- R2 bucket connected
-- Scan submission API implemented
-- Scan history API implemented
-- Scan detail API implemented
-- Domain history API implemented
-- Initial JSON report storage in R2 implemented
-- Dashboard v1 created with real API integration
+## Infrastructure
 
-## Current Backend APIs
+| Component | Status | Detail |
+|---|---|---|
+| Cloudflare Worker | ✅ Live | `cybermeters-platform.ttrnn47.workers.dev` |
+| Cloudflare D1 | ✅ Connected | `cybermeters-db` |
+| Cloudflare R2 | ✅ Connected | `cybermeters-reports` |
+| Cloudflare Pages | ✅ Live | Frontend deployed |
+| CORS | ✅ Enabled | All origins, preflight handled |
 
-- POST /api/scan
-- GET /api/scans
-- GET /api/scans/:id
-- GET /api/domain/:domain/history
+---
 
-## Next Priority
+## Backend APIs
 
-Connect the Attack Surface Discovery engine so queued scans become completed scans with real findings, Cyber MOT Score, KEV intelligence, and remediation recommendations.
+| Route | Status | Notes |
+|---|---|---|
+| `POST /api/scan` | ✅ Live | Triggers async scan engine via `ctx.waitUntil` |
+| `GET /api/scans` | ✅ Live | Returns 20 most recent scans with score + rating |
+| `GET /api/scans/:id` | ✅ Live | Returns scan metadata |
+| `GET /api/scans/:id/report` | ✅ Live | Returns full structured report from R2 |
+| `GET /api/domain/:domain/history` | ✅ Live | Returns all scans for a domain |
+
+---
+
+## Scan Engine Modules
+
+| Module | Status | What it does |
+|---|---|---|
+| DNS Analysis | ✅ Live | A/AAAA/MX/NS records via Cloudflare DoH |
+| SSL Detection | ✅ Live | HTTPS availability + HTTP→HTTPS redirect |
+| Security Headers | ✅ Live | HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy |
+| Email Security | ✅ Live | SPF, DMARC (policy), DKIM (13 selectors) |
+| Subdomain Discovery | ✅ Live | Certificate Transparency via crt.sh; sensitive-name classification |
+
+All modules run in parallel via `Promise.allSettled`. Individual module failures do not fail the scan.
+
+---
+
+## Cyber Metrics Score
+
+- Starts at 100, deductions applied per finding
+- Risk levels: Excellent (90–100), Good (75–89), Moderate (50–74), High (25–49), Critical (0–24)
+- Score and rating written to D1 on completion; full report written to R2
+- Subdomain scoring: −5 per sensitive subdomain (cap −20); −3 for >20 subdomains
+
+---
+
+## Frontend Pages
+
+| Page | Status | Notes |
+|---|---|---|
+| Dashboard (`/dashboard`) | ✅ Live | Real score, findings, health from report API |
+| Scans (`/scans`) | ✅ Live | Full scan list with status + score |
+| Scan Detail (`/scans/:id`) | ✅ Live | Score ring, findings, all 5 module panels |
+| Assets (`/assets`) | ✅ Live | Subdomains from CT populated from latest completed scan |
+| Reports (`/reports`) | 🔲 Stub | Coming soon |
+| Settings (`/settings`) | 🔲 Stub | Coming soon |
+| New Scan (`/scans/new`) | ✅ Live | Domain submission form |
+| Domain History | ✅ Live | Per-domain scan history |
+
+---
+
+## Asset Intelligence v1
+
+- Subdomains discovered via Certificate Transparency (crt.sh), capped at 200 per scan
+- Sensitive subdomain detection: dev, staging, admin, backup, and 40+ label patterns
+- Assets page reads `modules.subdomains` from the latest completed scan's report
+- `AssetSummary`, `AssetInventory`, `AssetEmptyState` components wired to real data
+- Source attribution shown in UI (domain, scan date, link to full scan report)
+
+---
+
+## Not Started
+
+| Feature | Priority |
+|---|---|
+| Authentication | High |
+| Multi-tenant accounts | High |
+| Scheduled / recurring scans | Medium |
+| PDF report export | Medium |
+| Email notifications | Medium |
+| Exposed services module (port scan) | Medium |
+| TLS certificate detail module | Medium |
+| CISA KEV correlation | Medium |
+| Billing | Low |
+| Custom domain | Low |
