@@ -1,24 +1,31 @@
-import React from "react";
-import { createRoot } from "react-dom/client";
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import Layout from './components/Layout'
+import Dashboard from './pages/Dashboard'
+import NewScan from './pages/NewScan'
+import ScanDetail from './pages/ScanDetail'
+import DomainHistory from './pages/DomainHistory'
+import ScansPage from './pages/ScansPage'
+import AssetsPage from './pages/AssetsPage'
+import ReportsPage from './pages/ReportsPage'
+import SettingsPage from './pages/SettingsPage'
 
-function App() {
+export default function App() {
   return (
-    <main style={{ fontFamily: "Arial, sans-serif", padding: "40px" }}>
-      <h1>CyberMeters</h1>
-      <p>Cloud-native Cyber MOT and Attack Surface Management platform.</p>
-
-      <section>
-        <h2>Platform Capabilities</h2>
-        <ul>
-          <li>Attack Surface Discovery</li>
-          <li>Hidden Asset Intelligence</li>
-          <li>CISA KEV Intelligence</li>
-          <li>Executive Risk Reporting</li>
-          <li>Remediation Prioritization</li>
-        </ul>
-      </section>
-    </main>
-  );
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<Layout />}>
+          <Route index element={<Navigate to="/dashboard" replace />} />
+          <Route path="dashboard"               element={<Dashboard />}    />
+          <Route path="scans"                   element={<ScansPage />}    />
+          <Route path="scans/new"               element={<NewScan />}      />
+          <Route path="scans/:id"               element={<ScanDetail />}   />
+          <Route path="domain/:domain/history"  element={<DomainHistory />} />
+          <Route path="assets"                  element={<AssetsPage />}   />
+          <Route path="reports"                 element={<ReportsPage />}  />
+          <Route path="settings"               element={<SettingsPage />} />
+          <Route path="*"                       element={<Navigate to="/dashboard" replace />} />
+        </Route>
+      </Routes>
+    </BrowserRouter>
+  )
 }
-
-createRoot(document.getElementById("root")).render(<App />);
