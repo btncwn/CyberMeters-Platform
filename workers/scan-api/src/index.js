@@ -438,6 +438,7 @@ async function runTechModule(domain) {
  * administrative asset — used for risk detection only, not for blocking.
  */
 const SENSITIVE_LABELS = new Set([
+  // Non-production environments
   "dev", "development", "develop",
   "staging", "stage", "stg", "stag",
   "test", "testing", "tests",
@@ -445,15 +446,35 @@ const SENSITIVE_LABELS = new Set([
   "alpha", "beta",
   "preprod", "pre-prod", "pre",
   "demo",
+  // Admin / control panels
   "admin", "administrator", "admins", "adm",
   "cp", "cpanel", "webmin", "plesk", "whm",
   "manager", "manage", "control", "panel",
+  "dashboard", "portal",
+  // Authentication / access
+  "auth", "login", "sso", "oauth",
+  "vpn", "remote", "rdp",
+  // Data / storage
+  "db", "database", "sql", "mysql", "mongo", "mongodb",
+  "redis", "elastic", "elasticsearch",
+  "kafka", "solr",
   "backup", "backups", "bak",
-  "old", "legacy", "archive", "temp", "tmp",
+  // Observability / monitoring
+  "monitor", "monitoring", "grafana", "kibana", "prometheus",
+  // Source control / CI/CD
+  "git", "gitlab", "bitbucket", "github",
+  "jenkins", "ci", "cd", "build", "deploy",
+  "sonar", "sonarqube", "nexus", "artifactory",
+  // Apps / API / mobile
+  "api", "app", "mobile",
+  // Internal / sensitive
   "internal", "intranet", "corp", "private",
-  "vpn", "ssh", "ftp",
-  "db", "database", "sql", "mysql", "mongo",
-  "jenkins", "ci", "cd", "build",
+  "old", "legacy", "archive", "temp", "tmp",
+  // Mail
+  "mail", "webmail", "smtp", "mx",
+  // Remote access
+  "ftp", "ssh",
+  // Collaboration
   "jira", "confluence", "wiki",
 ]);
 
@@ -763,34 +784,89 @@ async function runWhoisModule(domain) {
 
 async function runSubdomainsModule(domain) {
   const SOURCE    = "certificate_transparency_multi_source";
-  const PER_CAP   = 200;  // max unique names accepted from each source
-  const MERGE_CAP = 300;  // cap on the merged deduplicated set
+  const PER_CAP   = 200;   // max unique names from each CT source
+  const MERGE_CAP = 300;   // cap on the merged deduplicated set
+  const HARD_CAP_MS = 15_000; // wall-clock hard cap for the whole module
 
-  // Fire both CT sources concurrently — independent AbortSignals.
-  const [crtShSettled, certSpotterSettled] = await Promise.allSettled([
-    fetch(
-      `https://crt.sh/?q=${encodeURIComponent("%." + domain)}&output=json`,
-      {
-        headers: { Accept: "application/json", "User-Agent": RDAP_UA },
-        signal:  AbortSignal.timeout(25_000),
-      }
-    ),
-    fetch(
-      `https://api.certspotter.com/v1/issuances?domain=${encodeURIComponent(domain)}&include_subdomains=true&expand=dns_names`,
-      {
-        headers: { Accept: "application/json", "User-Agent": RDAP_UA },
-        signal:  AbortSignal.timeout(20_000),
-      }
-    ),
-  ]);
+  // Graceful fallback — returned on hard-cap timeout or unexpected throw
+  const emptyResult = (error, wildcardDns = false, wildcardHost = null) => ({
+    count:              0,
+    items:              [],
+    sensitive:          [],
+    source:             SOURCE,
+    sources:            { crt_sh: { count: 0, error }, certspotter: { count: 0, error } },
+    wildcard_dns:       wildcardDns,
+    wildcard_test_host: wildcardHost,
+    wildcard_warning:   null,
+    error,
+  });
+
+  try {
+    // Race the inner async work against a hard-cap timer.
+    // If the hard cap fires first the scan continues with an empty result;
+    // the inner work is abandoned (Cloudflare GC's the hanging fetch).
+    return await Promise.race([
+      _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP),
+      new Promise((resolve) =>
+        setTimeout(() =>
+          resolve(emptyResult("Subdomain discovery timed out (15s hard cap)")),
+          HARD_CAP_MS
+        )
+      ),
+    ]);
+  } catch (err) {
+    return emptyResult(err?.message ?? "Subdomain module threw unexpectedly");
+  }
+}
+
+/**
+ * Inner implementation — separated so the hard-cap race wrapper stays clean.
+ * All 4 network calls fire in parallel:
+ *   • Wildcard DNS A  (6 s DoH timeout via dnsQuery)
+ *   • Wildcard DNS AAAA
+ *   • crt.sh          (12 s)
+ *   • CertSpotter     ( 8 s)
+ * Total worst-case I/O = max(6, 12) = 12 s (well under the 15 s hard cap).
+ */
+async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP) {
+  const wildcardLabel = `cybermeters-wildcard-check-${Math.random().toString(36).slice(2, 10)}`;
+  const wildcardHost  = `${wildcardLabel}.${domain}`;
+
+  // ── Fire all 4 network calls in parallel ────────────────────────────────
+  const [wASettled, wAAAASettled, crtShSettled, certSpotterSettled] =
+    await Promise.allSettled([
+      dnsQuery(wildcardHost, "A"),
+      dnsQuery(wildcardHost, "AAAA"),
+      fetch(
+        `https://crt.sh/?q=${encodeURIComponent("%." + domain)}&output=json`,
+        {
+          headers: { Accept: "application/json", "User-Agent": RDAP_UA },
+          signal:  AbortSignal.timeout(12_000),
+        }
+      ),
+      fetch(
+        `https://api.certspotter.com/v1/issuances?domain=${encodeURIComponent(domain)}&include_subdomains=true&expand=dns_names`,
+        {
+          headers: { Accept: "application/json", "User-Agent": RDAP_UA },
+          signal:  AbortSignal.timeout(8_000),
+        }
+      ),
+    ]);
+
+  // ── Wildcard DNS result ─────────────────────────────────────────────────
+  const aAnswers    = wASettled.status    === "fulfilled" ? (wASettled.value.Answer    || []) : [];
+  const aaaaAnswers = wAAAASettled.status === "fulfilled" ? (wAAAASettled.value.Answer || []) : [];
+  const wildcardDns     = aAnswers.length > 0 || aaaaAnswers.length > 0;
+  const wildcardWarning = wildcardDns
+    ? "Wildcard DNS detected. Subdomain discovery results may include false positives."
+    : null;
 
   const seen    = new Set();
   const sources = { crt_sh: null, certspotter: null };
 
-  // ── Source 1: crt.sh ───────────────────────────────────────────────────────
+  // ── Source 1: crt.sh ───────────────────────────────────────────────────
   try {
     const res = crtShSettled.status === "fulfilled" ? crtShSettled.value : null;
-
     if (!res) {
       sources.crt_sh = { count: 0, error: crtShSettled.reason?.message ?? "fetch failed" };
     } else if (!res.ok) {
@@ -826,11 +902,10 @@ async function runSubdomainsModule(domain) {
     sources.crt_sh = { count: 0, error: err.message ?? "parse error" };
   }
 
-  // ── Source 2: CertSpotter ─────────────────────────────────────────────────
+  // ── Source 2: CertSpotter ─────────────────────────────────────────────
   // Response: [{ dns_names: ["sub.example.com", ...], ... }, ...]
   try {
     const res = certSpotterSettled.status === "fulfilled" ? certSpotterSettled.value : null;
-
     if (!res) {
       sources.certspotter = { count: 0, error: certSpotterSettled.reason?.message ?? "fetch failed" };
     } else if (!res.ok) {
@@ -857,29 +932,35 @@ async function runSubdomainsModule(domain) {
     sources.certspotter = { count: 0, error: err.message ?? "parse error" };
   }
 
-  // ── Both sources failed ───────────────────────────────────────────────────
+  // ── Both sources failed ───────────────────────────────────────────────
   if (seen.size === 0 && sources.crt_sh?.error && sources.certspotter?.error) {
     return {
-      count: 0, items: [], sensitive: [],
-      source: SOURCE, sources,
+      count:              0,
+      items:              [],
+      sensitive:          [],
+      source:             SOURCE,
+      sources,
+      wildcard_dns:       wildcardDns,
+      wildcard_test_host: wildcardHost,
+      wildcard_warning:   wildcardWarning,
       error: `Both CT sources failed — crt.sh: ${sources.crt_sh.error}; certspotter: ${sources.certspotter.error}`,
     };
   }
 
-  // ── Merge, cap, sort ──────────────────────────────────────────────────────
-  // Trim to MERGE_CAP after deduplication. The Set iteration order is insertion
-  // order (crt.sh first), so crt.sh results are never dropped in favour of
-  // CertSpotter-only entries unless the total exceeds MERGE_CAP.
+  // ── Merge, cap, sort ─────────────────────────────────────────────────
   const items     = [...seen].slice(0, MERGE_CAP).sort();
   const sensitive = items.filter((h) => isSensitiveSubdomain(h, domain));
 
   return {
-    count:  items.length,
+    count:              items.length,
     items,
     sensitive,
-    source: SOURCE,
+    source:             SOURCE,
     sources,
-    error:  null,
+    wildcard_dns:       wildcardDns,
+    wildcard_test_host: wildcardHost,
+    wildcard_warning:   wildcardWarning,
+    error:              null,
   };
 }
 
@@ -891,25 +972,230 @@ async function runSubdomainsModule(domain) {
  * body_pattern: text returned by the provider when the resource doesn't exist
  */
 const TAKEOVER_FINGERPRINTS = [
+  // ── Git hosting / Pages ───────────────────────────────────────────────────
   {
-    service:      "GitHub Pages",
+    service: "GitHub Pages", provider: "GitHub Pages",
     cname_suffix: "github.io",
     body_pattern: "There isn't a GitHub Pages site here.",
+    risk: "high",
   },
   {
-    service:      "Heroku",
+    service: "GitLab Pages", provider: "GitLab Pages",
+    cname_suffix: "gitlab.io",
+    body_pattern: "The page you're looking for could not be found",
+    risk: "high",
+  },
+  {
+    service: "Bitbucket Pages", provider: "Bitbucket Pages",
+    cname_suffix: "bitbucket.io",
+    body_pattern: "Repository not found",
+    risk: "high",
+  },
+  // ── PaaS / hosting platforms ─────────────────────────────────────────────
+  {
+    service: "Heroku", provider: "Heroku",
     cname_suffix: "herokuapp.com",
     body_pattern: "No such app",
+    risk: "high",
   },
   {
-    service:      "Azure",
+    service: "Azure App Service", provider: "Azure",
     cname_suffix: "azurewebsites.net",
     body_pattern: "404 Web Site not found",
+    risk: "high",
   },
   {
-    service:      "Netlify",
+    service: "Azure Traffic Manager", provider: "Azure",
+    cname_suffix: "trafficmanager.net",
+    body_pattern: "404 Not Found",
+    risk: "high",
+  },
+  {
+    service: "Netlify", provider: "Netlify",
     cname_suffix: "netlify.app",
+    body_pattern: "Not Found - Request ID:",
+    risk: "high",
+  },
+  {
+    service: "Vercel", provider: "Vercel",
+    cname_suffix: "vercel.app",
+    body_pattern: "The deployment you are looking for",
+    risk: "high",
+  },
+  {
+    service: "Vercel (legacy)", provider: "Vercel",
+    cname_suffix: "now.sh",
+    body_pattern: "The deployment you are looking for",
+    risk: "high",
+  },
+  {
+    service: "Render", provider: "Render",
+    cname_suffix: "onrender.com",
     body_pattern: "Not Found",
+    risk: "high",
+  },
+  {
+    service: "Fly.io", provider: "Fly.io",
+    cname_suffix: "fly.dev",
+    body_pattern: "404 Not Found",
+    risk: "high",
+  },
+  {
+    service: "Railway", provider: "Railway",
+    cname_suffix: "railway.app",
+    body_pattern: "Application not found",
+    risk: "high",
+  },
+  {
+    service: "Surge.sh", provider: "Surge.sh",
+    cname_suffix: "surge.sh",
+    body_pattern: "project not found",
+    risk: "high",
+  },
+  // ── CDN ───────────────────────────────────────────────────────────────────
+  {
+    service: "Fastly", provider: "Fastly",
+    cname_suffix: "fastly.net",
+    body_pattern: "Fastly error: unknown domain",
+    risk: "high",
+  },
+  // ── E-commerce / CMS ─────────────────────────────────────────────────────
+  {
+    service: "Shopify", provider: "Shopify",
+    cname_suffix: "myshopify.com",
+    body_pattern: "Sorry, this shop is currently unavailable",
+    risk: "high",
+  },
+  {
+    service: "Squarespace", provider: "Squarespace",
+    cname_suffix: "squarespace.com",
+    body_pattern: "No Such Account",
+    risk: "high",
+  },
+  {
+    service: "Ghost", provider: "Ghost",
+    cname_suffix: "ghost.io",
+    body_pattern: "The thing you were looking for is no longer here",
+    risk: "high",
+  },
+  {
+    service: "Tilda", provider: "Tilda",
+    cname_suffix: "tilda.ws",
+    body_pattern: "Please renew your subscription",
+    risk: "medium",
+  },
+  {
+    service: "Webflow", provider: "Webflow",
+    cname_suffix: "webflow.io",
+    body_pattern: "The page you are looking for doesn't exist",
+    risk: "high",
+  },
+  {
+    service: "Cargo", provider: "Cargo",
+    cname_suffix: "cargocollective.com",
+    body_pattern: "404 Not Found",
+    risk: "medium",
+  },
+  // ── Managed WordPress ─────────────────────────────────────────────────────
+  {
+    service: "WP Engine", provider: "WP Engine",
+    cname_suffix: "wpengine.com",
+    body_pattern: "The site you were looking for couldn't be found",
+    risk: "high",
+  },
+  {
+    service: "Kinsta", provider: "Kinsta",
+    cname_suffix: "kinsta.cloud",
+    body_pattern: "No Site For Domain",
+    risk: "high",
+  },
+  {
+    service: "Pantheon", provider: "Pantheon",
+    cname_suffix: "pantheonsite.io",
+    body_pattern: "404 error unknown site!",
+    risk: "high",
+  },
+  // ── Marketing / landing pages ─────────────────────────────────────────────
+  {
+    service: "Unbounce", provider: "Unbounce",
+    cname_suffix: "unbouncepages.com",
+    body_pattern: "The requested URL was not found",
+    risk: "high",
+  },
+  {
+    service: "Launchrock", provider: "Launchrock",
+    cname_suffix: "launchrock.com",
+    body_pattern: "It looks like you may have taken a wrong turn",
+    risk: "medium",
+  },
+  // ── Support / docs platforms ───────────────────────────────────────────────
+  {
+    service: "Zendesk", provider: "Zendesk",
+    cname_suffix: "zendesk.com",
+    body_pattern: "Help Center Closed",
+    risk: "high",
+  },
+  {
+    service: "Intercom Help", provider: "Intercom",
+    cname_suffix: "custom.intercom.help",
+    body_pattern: "This page is reserved for artistic",
+    risk: "high",
+  },
+  {
+    service: "UserVoice", provider: "UserVoice",
+    cname_suffix: "uservoice.com",
+    body_pattern: "This UserVoice subdomain is currently available",
+    risk: "high",
+  },
+  {
+    service: "Helpjuice", provider: "Helpjuice",
+    cname_suffix: "helpjuice.com",
+    body_pattern: "We could not find what you're looking for",
+    risk: "high",
+  },
+  {
+    service: "ReadMe", provider: "ReadMe",
+    cname_suffix: "readme.io",
+    body_pattern: "Project doesnt exist",
+    risk: "high",
+  },
+  // ── Social / blogs ─────────────────────────────────────────────────────────
+  {
+    service: "Tumblr", provider: "Tumblr",
+    cname_suffix: "tumblr.com",
+    body_pattern: "Whatever you were looking for doesn't currently exist",
+    risk: "high",
+  },
+  // ── Object storage / static sites ─────────────────────────────────────────
+  {
+    service: "AWS S3 (us-east-1)", provider: "AWS S3",
+    cname_suffix: "s3-website-us-east-1.amazonaws.com",
+    body_pattern: "NoSuchBucket",
+    risk: "high",
+  },
+  {
+    service: "AWS S3 (us-west-2)", provider: "AWS S3",
+    cname_suffix: "s3-website-us-west-2.amazonaws.com",
+    body_pattern: "NoSuchBucket",
+    risk: "high",
+  },
+  {
+    service: "AWS S3 (eu-west-1)", provider: "AWS S3",
+    cname_suffix: "s3-website-eu-west-1.amazonaws.com",
+    body_pattern: "NoSuchBucket",
+    risk: "high",
+  },
+  {
+    service: "AWS S3 (ap-southeast-1)", provider: "AWS S3",
+    cname_suffix: "s3-website-ap-southeast-1.amazonaws.com",
+    body_pattern: "NoSuchBucket",
+    risk: "high",
+  },
+  {
+    service: "Azure Blob Storage", provider: "Azure",
+    cname_suffix: "blob.core.windows.net",
+    body_pattern: "The specified container does not exist",
+    risk: "high",
   },
 ];
 
@@ -974,9 +1260,10 @@ async function runTakeoverModule(domain, subdomains) {
         risks.push({
           host,
           service:  fingerprint.service,
+          provider: fingerprint.provider ?? fingerprint.service,
           cname,
           evidence: fingerprint.body_pattern,
-          severity: "high",
+          severity: fingerprint.risk ?? "high",
         });
       }
     } catch {
@@ -2623,6 +2910,7 @@ async function runScanEngine(scanId, domainId, domain, env) {
       ? subdomainsSettled.value
       : { count: 0, items: [], sensitive: [], source: "certificate_transparency_multi_source",
           sources: { crt_sh: { count: 0, error: "module rejected" }, certspotter: { count: 0, error: "module rejected" } },
+          wildcard_dns: false, wildcard_test_host: null, wildcard_warning: null,
           error: subdomainsSettled.reason?.message ?? "Subdomain module failed" };
 
     // Phase 2: Takeover detection — depends on discovered subdomains as input.
@@ -2812,30 +3100,36 @@ async function runScanEngine(scanId, domainId, domain, env) {
     }
 
   } catch (err) {
-    // Write failure state to both R2 and D1
+    // Best-effort: write failure state to R2 and D1.
+    // Each write is individually guarded so one failure cannot prevent the other.
+    // The D1 status write is the most critical — it stops the UI polling loop.
     const failedAt = new Date().toISOString();
 
-    await env.cybermeters_reports.put(
-      `reports/${scanId}.json`,
-      JSON.stringify({
-        scan_id:             scanId,
-        domain,
-        status:              "failed",
-        cyber_metrics_score: 0,
-        risk_level:          "unknown",
-        findings:            [],
-        recommendations:     [],
-        error:               err.message,
-        started_at:          startedAt,
-        failed_at:           failedAt,
-      }, null, 2),
-      { httpMetadata: { contentType: "application/json" } }
-    );
+    try {
+      await env.cybermeters_reports.put(
+        `reports/${scanId}.json`,
+        JSON.stringify({
+          scan_id:             scanId,
+          domain,
+          status:              "failed",
+          cyber_metrics_score: 0,
+          risk_level:          "unknown",
+          findings:            [],
+          recommendations:     [],
+          error:               err?.message ?? "Unknown scan engine error",
+          started_at:          startedAt,
+          failed_at:           failedAt,
+        }, null, 2),
+        { httpMetadata: { contentType: "application/json" } }
+      );
+    } catch { /* R2 write failure — non-fatal */ }
 
-    await env.cybermeters_db
-      .prepare(`UPDATE scans SET status = 'failed' WHERE id = ?`)
-      .bind(scanId)
-      .run();
+    try {
+      await env.cybermeters_db
+        .prepare(`UPDATE scans SET status = 'failed' WHERE id = ?`)
+        .bind(scanId)
+        .run();
+    } catch { /* D1 write failure — scan will remain 'running' but we cannot do more */ }
   }
 }
 
