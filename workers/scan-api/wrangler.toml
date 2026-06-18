@@ -10,3 +10,15 @@ database_id = "fd6792cb-441a-44a7-8ca2-9a0b411ec706"
 [[r2_buckets]]
 binding = "cybermeters_reports"
 bucket_name = "cybermeters-reports"
+
+[triggers]
+crons = ["0 * * * *"]
+
+# Alert email recipients and sender.
+# RESEND_API_KEY must be set as a Wrangler secret (never committed):
+#   wrangler secret put RESEND_API_KEY
+[vars]
+ALERT_EMAIL_TO   = "ttrnn47@gmail.com"
+ALERT_EMAIL_FROM = "alerts@cybermeters.com"
+SAFE_EMAIL_FROM = "safe@cybermeters.com"
+HELLO_EMAIL_FROM = "hello@cybermeters.com"

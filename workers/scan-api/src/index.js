@@ -1,225 +1,2076 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// CyberMeters Scan API — Cloudflare Worker
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── Utilities ────────────────────────────────────────────────────────────────
+
 function createId(prefix) {
   return `${prefix}_${crypto.randomUUID()}`;
 }
 
 function isValidDomain(domain) {
-  return typeof domain === "string" &&
-    /^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(domain);
+  return (
+    typeof domain === "string" &&
+    /^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(domain)
+  );
 }
 
-export default {
-  async fetch(request, env) {
-    const url = new URL(request.url);
+/**
+ * DNS-over-HTTPS query via Cloudflare (1.1.1.1).
+ * Workers have no raw socket access; DoH is the Cloudflare-native approach.
+ */
+async function dnsQuery(name, type) {
+  const res = await fetch(
+    `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}`,
+    {
+      headers: { Accept: "application/dns-json" },
+      signal: AbortSignal.timeout(6_000),
+    }
+  );
+  if (!res.ok) throw new Error(`DoH ${res.status} for ${type} ${name}`);
+  return res.json();
+}
 
-    if (request.method === "GET" && url.pathname === "/health") {
-      return Response.json({
-        status: "ok",
-        service: "cybermeters-scan-api"
+/**
+ * HTTP fetch that never throws — returns null on timeout / network error.
+ */
+async function safeFetch(url, options = {}) {
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    return null;
+  }
+}
+
+// ── Security Headers Config ───────────────────────────────────────────────────
+
+const SECURITY_HEADERS = [
+  {
+    name:         "strict-transport-security",
+    label:        "HTTP Strict Transport Security (HSTS)",
+    severity:     "high",
+    score_impact: -5,
+    recommendation:
+      'Add: Strict-Transport-Security: max-age=31536000; includeSubDomains; preload',
+  },
+  {
+    name:         "content-security-policy",
+    label:        "Content Security Policy (CSP)",
+    severity:     "medium",
+    score_impact: -3,
+    recommendation:
+      "Add a Content-Security-Policy header to restrict which resources the browser may load.",
+  },
+  {
+    name:         "x-frame-options",
+    label:        "X-Frame-Options",
+    severity:     "medium",
+    score_impact: -2,
+    recommendation: "Add: X-Frame-Options: DENY to prevent clickjacking attacks.",
+  },
+  {
+    name:         "x-content-type-options",
+    label:        "X-Content-Type-Options",
+    severity:     "low",
+    score_impact: -2,
+    recommendation: "Add: X-Content-Type-Options: nosniff to prevent MIME-type sniffing.",
+  },
+  {
+    name:         "referrer-policy",
+    label:        "Referrer-Policy",
+    severity:     "low",
+    score_impact: -1,
+    recommendation:
+      "Add: Referrer-Policy: strict-origin-when-cross-origin",
+  },
+  {
+    name:         "permissions-policy",
+    label:        "Permissions-Policy",
+    severity:     "info",
+    score_impact: -1,
+    recommendation:
+      "Add a Permissions-Policy header to restrict access to browser APIs (camera, microphone, geolocation).",
+  },
+];
+
+// ── Module 1: DNS Analysis ────────────────────────────────────────────────────
+
+async function runDnsModule(domain) {
+  const [aRes, aaaaRes, nsRes, mxRes] = await Promise.allSettled([
+    dnsQuery(domain, "A"),
+    dnsQuery(domain, "AAAA"),
+    dnsQuery(domain, "NS"),
+    dnsQuery(domain, "MX"),
+  ]);
+
+  const pick = (r) =>
+    r.status === "fulfilled" ? r.value.Answer || [] : [];
+
+  const aRecords    = pick(aRes);
+  const aaaaRecords = pick(aaaaRes);
+  const nsRecords   = pick(nsRes);
+  const mxRecords   = pick(mxRes);
+
+  return {
+    resolves:    aRecords.length > 0 || aaaaRecords.length > 0,
+    has_ipv6:    aaaaRecords.length > 0,
+    has_mx:      mxRecords.length > 0,
+    nameservers: nsRecords.map((r) => r.data).filter(Boolean),
+    a_records:   aRecords.map((r) => ({ value: r.data, ttl: r.TTL })),
+    aaaa_records: aaaaRecords.map((r) => ({ value: r.data, ttl: r.TTL })),
+    mx_records:  mxRecords.map((r) => ({ value: r.data, ttl: r.TTL })),
+  };
+}
+
+// ── Module 2: SSL Detection ───────────────────────────────────────────────────
+
+async function runSslModule(domain) {
+  // Try HTTPS on the bare domain
+  const httpsRes = await safeFetch(`https://${domain}`, {
+    method: "HEAD",
+    redirect: "manual",
+  });
+  const httpsOk = httpsRes !== null && httpsRes.status < 500;
+
+  // Try www. fallback if bare domain HTTPS fails
+  let wwwHttpsOk = false;
+  if (!httpsOk && !domain.startsWith("www.")) {
+    const wwwRes = await safeFetch(`https://www.${domain}`, {
+      method: "HEAD",
+      redirect: "manual",
+    });
+    wwwHttpsOk = wwwRes !== null && wwwRes.status < 500;
+  }
+
+  // Check whether plain HTTP redirects to HTTPS
+  const httpRes = await safeFetch(`http://${domain}`, {
+    method: "HEAD",
+    redirect: "manual",
+  });
+  let httpRedirectsToHttps = false;
+  if (httpRes) {
+    const loc = httpRes.headers.get("location") || "";
+    if (
+      [301, 302, 307, 308].includes(httpRes.status) &&
+      loc.startsWith("https://")
+    ) {
+      httpRedirectsToHttps = true;
+    }
+  }
+
+  return {
+    https_available:       httpsOk || wwwHttpsOk,
+    http_redirects_to_https: httpRedirectsToHttps,
+    www_fallback_used:     !httpsOk && wwwHttpsOk,
+  };
+}
+
+// ── Module 3: Security Headers Analysis ──────────────────────────────────────
+
+async function runHeadersModule(domain) {
+  let headerValues = {};
+  let accessible   = false;
+  let statusCode   = null;
+  let responseUrl  = null;
+
+  // Prefer HTTPS; fall back to HTTP
+  for (const proto of ["https", "http"]) {
+    const res = await safeFetch(`${proto}://${domain}`, {
+      method: "GET",
+      redirect: "follow",
+    });
+    if (res) {
+      accessible  = true;
+      statusCode  = res.status;
+      responseUrl = res.url;
+      for (const h of SECURITY_HEADERS) {
+        headerValues[h.name] = res.headers.get(h.name) || null;
+      }
+      break;
+    }
+  }
+
+  const present = SECURITY_HEADERS.filter((h) => !!headerValues[h.name]).map((h) => h.name);
+  const missing = SECURITY_HEADERS.filter((h) => !headerValues[h.name]).map((h) => h.name);
+
+  return {
+    accessible,
+    status_code:  statusCode,
+    response_url: responseUrl,
+    present,
+    missing,
+    values: headerValues,
+  };
+}
+
+// ── Module 4: Email Security (SPF / DMARC / DKIM) ────────────────────────────
+
+// Common DKIM selectors to probe — best-effort discovery
+const DKIM_SELECTORS = [
+  "default", "mail", "google", "k1", "selector1", "selector2",
+  "dkim", "smtp", "email", "mailchimp", "sendgrid", "s1", "s2",
+];
+
+async function runEmailModule(domain) {
+  // Fire all queries in parallel: SPF (TXT on root) + DMARC + DKIM selectors
+  const [spfRes, dmarcRes, ...dkimResults] = await Promise.allSettled([
+    dnsQuery(domain, "TXT"),
+    dnsQuery(`_dmarc.${domain}`, "TXT"),
+    ...DKIM_SELECTORS.map((sel) => dnsQuery(`${sel}._domainkey.${domain}`, "TXT")),
+  ]);
+
+  // SPF — look for v=spf1 in root TXT records
+  const rootTxt  = spfRes.status === "fulfilled" ? (spfRes.value.Answer || []) : [];
+  const spfRecs  = rootTxt.filter((r) => r.data?.includes("v=spf1"));
+  const hasSPF   = spfRecs.length > 0;
+
+  // DMARC — _dmarc.<domain> TXT
+  const dmarcTxt  = dmarcRes.status === "fulfilled" ? (dmarcRes.value.Answer || []) : [];
+  const dmarcRecs = dmarcTxt.filter((r) => r.data?.includes("v=DMARC1"));
+  const hasDMARC  = dmarcRecs.length > 0;
+
+  // Parse DMARC policy tag
+  let dmarcPolicy = null;
+  if (hasDMARC && dmarcRecs[0]?.data) {
+    const m = dmarcRecs[0].data.match(/p=([^;"\s]+)/);
+    dmarcPolicy = m ? m[1].trim().toLowerCase() : null;
+  }
+
+  // DKIM — first selector with a valid public key record
+  let dkimSelector = null;
+  for (let i = 0; i < DKIM_SELECTORS.length; i++) {
+    const r = dkimResults[i];
+    if (r.status === "fulfilled" && r.value.Answer?.length > 0) {
+      const valid = r.value.Answer.filter(
+        (a) => a.data?.includes("v=DKIM1") || a.data?.includes("p=")
+      );
+      if (valid.length > 0) {
+        dkimSelector = DKIM_SELECTORS[i];
+        break;
+      }
+    }
+  }
+
+  return {
+    spf: {
+      present: hasSPF,
+      record:  hasSPF ? spfRecs[0].data : null,
+    },
+    dmarc: {
+      present: hasDMARC,
+      policy:  dmarcPolicy,
+      record:  hasDMARC ? dmarcRecs[0].data : null,
+    },
+    dkim: {
+      present:  dkimSelector !== null,
+      selector: dkimSelector,
+    },
+  };
+}
+
+// ── Module 5: Subdomain Discovery (Certificate Transparency) ─────────────────
+
+/**
+ * Subdomain names whose presence suggests a development, staging, or
+ * administrative asset — used for risk detection only, not for blocking.
+ */
+const SENSITIVE_LABELS = new Set([
+  "dev", "development", "develop",
+  "staging", "stage", "stg", "stag",
+  "test", "testing", "tests",
+  "qa", "uat", "sandbox",
+  "alpha", "beta",
+  "preprod", "pre-prod", "pre",
+  "demo",
+  "admin", "administrator", "admins", "adm",
+  "cp", "cpanel", "webmin", "plesk", "whm",
+  "manager", "manage", "control", "panel",
+  "backup", "backups", "bak",
+  "old", "legacy", "archive", "temp", "tmp",
+  "internal", "intranet", "corp", "private",
+  "vpn", "ssh", "ftp",
+  "db", "database", "sql", "mysql", "mongo",
+  "jenkins", "ci", "cd", "build",
+  "jira", "confluence", "wiki",
+]);
+
+function isSensitiveSubdomain(hostname, domain) {
+  // Strip the root domain to get the subdomain part(s)
+  const sub = hostname.endsWith("." + domain)
+    ? hostname.slice(0, -(domain.length + 1))
+    : hostname;
+
+  // Split on dots and check each label
+  return sub.split(".").some((label) => {
+    const l = label.toLowerCase();
+    if (SENSITIVE_LABELS.has(l)) return true;
+    // Pattern variants like dev1, test2, stage-eu, etc.
+    if (/^(dev|test|stage|stg|qa|uat|sandbox)\d*$/.test(l)) return true;
+    if (/^(dev|test|stage|stg)-/.test(l) || /-(dev|test|stage|stg)$/.test(l)) return true;
+    return false;
+  });
+}
+
+async function runSubdomainsModule(domain) {
+  const source = "certificate_transparency";
+
+  let rawData;
+  try {
+    const res = await fetch(
+      `https://crt.sh/?q=${encodeURIComponent("%." + domain)}&output=json`,
+      {
+        headers: { Accept: "application/json", "User-Agent": "CyberMeters/1.0" },
+        signal: AbortSignal.timeout(25_000),
+      }
+    );
+
+    if (!res.ok) {
+      return { count: 0, items: [], sensitive: [], source, error: `crt.sh HTTP ${res.status}` };
+    }
+
+    // Guard: check content-type — crt.sh sometimes returns HTML on errors
+    const ct = res.headers.get("content-type") || "";
+    if (!ct.includes("json")) {
+      return { count: 0, items: [], sensitive: [], source, error: "crt.sh returned non-JSON response" };
+    }
+
+    rawData = await res.json();
+  } catch (err) {
+    // Timeout, network error, or JSON parse failure — scan still completes
+    return { count: 0, items: [], sensitive: [], source, error: err.message };
+  }
+
+  if (!Array.isArray(rawData)) {
+    return { count: 0, items: [], sensitive: [], source, error: "Unexpected crt.sh response shape" };
+  }
+
+  // Extract unique hostnames from name_value and common_name fields.
+  // Process first 2000 entries max to bound memory and CPU.
+  const seen = new Set();
+  const slice = rawData.slice(0, 2_000);
+
+  for (const entry of slice) {
+    const names = [
+      ...(entry.name_value || "").split(/\n/),
+      entry.common_name || "",
+    ];
+    for (const raw of names) {
+      const name = raw.trim().toLowerCase();
+      if (!name || name.startsWith("*")) continue;           // skip wildcards
+      if (!name.endsWith("." + domain) && name !== domain) continue; // skip unrelated
+      seen.add(name);
+      if (seen.size >= 200) break;                           // cap at 200 unique
+    }
+    if (seen.size >= 200) break;
+  }
+
+  const items = [...seen].sort();
+
+  // Classify sensitive subdomains
+  const sensitive = items.filter((h) => isSensitiveSubdomain(h, domain));
+
+  return { count: items.length, items, sensitive, source };
+}
+
+// ── Module 6: Subdomain Takeover Detection ────────────────────────────────────
+
+/**
+ * Known vulnerable service fingerprints for CNAME-based subdomain takeover.
+ * cname_suffix: what the CNAME target ends with (indicates unclaimed service)
+ * body_pattern: text returned by the provider when the resource doesn't exist
+ */
+const TAKEOVER_FINGERPRINTS = [
+  {
+    service:      "GitHub Pages",
+    cname_suffix: "github.io",
+    body_pattern: "There isn't a GitHub Pages site here.",
+  },
+  {
+    service:      "Heroku",
+    cname_suffix: "herokuapp.com",
+    body_pattern: "No such app",
+  },
+  {
+    service:      "Azure",
+    cname_suffix: "azurewebsites.net",
+    body_pattern: "404 Web Site not found",
+  },
+  {
+    service:      "Netlify",
+    cname_suffix: "netlify.app",
+    body_pattern: "Not Found",
+  },
+];
+
+/**
+ * Check discovered subdomains for dangling CNAME records pointing to
+ * unclaimed resources on known hosting platforms.
+ *
+ * Requires modules.subdomains.items as input — always runs after subdomain
+ * discovery so no extra CT lookups are needed.
+ */
+async function runTakeoverModule(domain, subdomains) {
+  const source = "subdomain_cname_fingerprint";
+
+  if (!subdomains || subdomains.length === 0) {
+    return { checked: 0, potential_risks: 0, risks: [], source, error: null };
+  }
+
+  // Cap at 100 to bound concurrent I/O without sacrificing coverage
+  const targets = subdomains.slice(0, 100);
+
+  // Step 1: CNAME lookups for all targets in parallel
+  const cnameResults = await Promise.allSettled(
+    targets.map((host) => dnsQuery(host, "CNAME"))
+  );
+
+  // Step 2: collect candidates whose CNAME resolves to a known vulnerable provider
+  const candidates = [];
+  for (let i = 0; i < targets.length; i++) {
+    const r = cnameResults[i];
+    if (r.status !== "fulfilled") continue;
+    const answers = r.value.Answer || [];
+    for (const answer of answers) {
+      const cname = (answer.data || "").toLowerCase().replace(/\.$/, "");
+      for (const fp of TAKEOVER_FINGERPRINTS) {
+        if (cname === fp.cname_suffix || cname.endsWith("." + fp.cname_suffix)) {
+          candidates.push({ host: targets[i], cname, fingerprint: fp });
+          break;
+        }
+      }
+    }
+  }
+
+  if (candidates.length === 0) {
+    return { checked: targets.length, potential_risks: 0, risks: [], source, error: null };
+  }
+
+  // Step 3: fetch each candidate to confirm takeover via body fingerprint
+  const bodyResults = await Promise.allSettled(
+    candidates.map((c) =>
+      safeFetch(`https://${c.host}`, { method: "GET", redirect: "follow" })
+    )
+  );
+
+  const risks = [];
+  for (let i = 0; i < candidates.length; i++) {
+    const { host, cname, fingerprint } = candidates[i];
+    const settled = bodyResults[i];
+    if (settled.status !== "fulfilled" || !settled.value) continue;
+    try {
+      const text = await settled.value.text();
+      if (text.includes(fingerprint.body_pattern)) {
+        risks.push({
+          host,
+          service:  fingerprint.service,
+          cname,
+          evidence: fingerprint.body_pattern,
+          severity: "high",
+        });
+      }
+    } catch {
+      // body read error — skip this candidate
+    }
+  }
+
+  return {
+    checked:         targets.length,
+    potential_risks: candidates.length,
+    risks,
+    source,
+    error: null,
+  };
+}
+
+// ── Module 7: Asset Exposure Engine ──────────────────────────────────────────
+
+/**
+ * Derive tech stack hints from response headers and a body snippet.
+ * No remote lookups — purely from what the server returned.
+ */
+function detectTech(headers, body) {
+  const tech = new Set();
+  const b = body.toLowerCase();
+
+  // Server header
+  const server = (headers.get("server") || "").toLowerCase();
+  if (server.includes("nginx"))      tech.add("Nginx");
+  if (server.includes("apache"))     tech.add("Apache");
+  if (server.includes("cloudflare")) tech.add("Cloudflare");
+  if (server.includes("litespeed"))  tech.add("LiteSpeed");
+  if (server.includes("iis"))        tech.add("IIS");
+  if (server.includes("gunicorn"))   tech.add("Gunicorn");
+  if (server.includes("caddy"))      tech.add("Caddy");
+  if (server.includes("openresty"))  tech.add("OpenResty");
+
+  // X-Powered-By header
+  const powered = (headers.get("x-powered-by") || "").toLowerCase();
+  if (powered.includes("php"))        tech.add("PHP");
+  if (powered.includes("asp.net"))    tech.add("ASP.NET");
+  if (powered.includes("express"))    tech.add("Express");
+  if (powered.includes("next.js"))    tech.add("Next.js");
+
+  // Cloudflare-specific headers
+  if (headers.get("cf-ray"))          tech.add("Cloudflare");
+
+  // Platform headers
+  if (headers.get("x-shopify-shop-api-call-limit")) tech.add("Shopify");
+  const xgen = headers.get("x-generator") || "";
+  if (xgen.toLowerCase().includes("drupal"))  tech.add("Drupal");
+  if (headers.get("x-drupal-cache"))          tech.add("Drupal");
+  if (headers.get("x-pingback"))              tech.add("WordPress");
+
+  // Body patterns — first 8 KB only
+  if (b.includes("wp-content") || b.includes("wp-json") || b.includes("/wp-admin")) {
+    tech.add("WordPress");
+  }
+  if (b.includes("__next_data__") || b.includes("/_next/static")) tech.add("Next.js");
+  if (b.includes("data-reactroot") || b.includes("__reactrootcontainer")) tech.add("React");
+  if (b.includes("ng-version=") || b.includes("ng-app") || b.includes("[ng-")) tech.add("Angular");
+  if (b.includes("__vue_app__") || b.includes("vue.min.js"))                  tech.add("Vue.js");
+  if (b.includes("jquery"))    tech.add("jQuery");
+  if (b.includes("bootstrap")) tech.add("Bootstrap");
+  if (!tech.has("Drupal") && b.includes("drupal"))  tech.add("Drupal");
+  if (b.includes("joomla"))    tech.add("Joomla");
+  if (b.includes("laravel"))   tech.add("Laravel");
+  if (b.includes("django"))    tech.add("Django");
+
+  return [...tech];
+}
+
+/**
+ * Probe a single host over HTTPS (with HTTP fallback) and return exposure metadata.
+ * Never throws — returns a reachable:false record on total failure.
+ */
+async function probeAsset(host) {
+  for (const proto of ["https", "http"]) {
+    const url = `${proto}://${host}`;
+    let res = null;
+    try {
+      res = await fetch(url, {
+        method:   "GET",
+        redirect: "follow",
+        signal:   AbortSignal.timeout(8_000),
+      });
+    } catch {
+      // Timeout or network error — try HTTP fallback
+      continue;
+    }
+
+    const status      = res.status;
+    const reachable   = status < 500;
+    const server      = res.headers.get("server") || null;
+    const rawCT       = res.headers.get("content-type") || null;
+    const contentType = rawCT ? rawCT.split(";")[0].trim() : null;
+
+    let title = null;
+    let tech  = [];
+
+    if (rawCT?.includes("text/html")) {
+      try {
+        const body    = await res.text();
+        const snippet = body.slice(0, 8_192);
+        const m       = snippet.match(/<title[^>]*>([^<]{1,200})<\/title>/i);
+        title = m ? m[1].trim() : null;
+        tech  = detectTech(res.headers, snippet);
+      } catch {
+        tech = detectTech(res.headers, "");
+      }
+    } else {
+      tech = detectTech(res.headers, "");
+    }
+
+    return {
+      host,
+      url:          res.url || url,
+      status,
+      reachable,
+      title,
+      server,
+      content_type: contentType,
+      tech,
+    };
+  }
+
+  // Both HTTPS and HTTP unreachable
+  return {
+    host,
+    url:          `https://${host}`,
+    status:       null,
+    reachable:    false,
+    title:        null,
+    server:       null,
+    content_type: null,
+    tech:         [],
+  };
+}
+
+/**
+ * Probe all discovered subdomains for HTTP/HTTPS reachability and collect
+ * lightweight exposure metadata (status, title, server header, tech stack).
+ * Cap at 50 subdomains for v1.
+ */
+async function runExposureModule(domain, subdomains) {
+  const source = "http_probe";
+
+  if (!subdomains || subdomains.length === 0) {
+    return { checked: 0, reachable: 0, assets: [], source, error: null };
+  }
+
+  const targets = subdomains.slice(0, 50);
+
+  // All probes run in parallel; individual failures return reachable:false records
+  const settled = await Promise.allSettled(targets.map((host) => probeAsset(host)));
+
+  const assets = settled
+    .filter((r) => r.status === "fulfilled")
+    .map((r) => r.value);
+
+  const reachableCount = assets.filter((a) => a.reachable).length;
+
+  return {
+    checked:   targets.length,
+    reachable: reachableCount,
+    assets,
+    source,
+    error: null,
+  };
+}
+
+// ── Cyber Metrics Scoring Engine ──────────────────────────────────────────────
+
+function computeScore(modules, domain) {
+  let score = 100;
+  const findings        = [];
+  const recommendations = [];
+
+  function finding(f) {
+    score += f.score_impact; // negative number
+    findings.push(f);
+  }
+
+  // ── DNS ────────────────────────────────────────────────────────────────
+  if (!modules.dns?.resolves) {
+    finding({
+      id:           "dns_no_resolution",
+      module:       "dns",
+      severity:     "critical",
+      title:        "Domain Does Not Resolve",
+      description:  `No A or AAAA DNS records found for ${domain}. The domain cannot be reached.`,
+      score_impact: -30,
+    });
+    recommendations.push({
+      priority:    1,
+      module:      "dns",
+      title:       "Fix DNS Configuration",
+      description: "Ensure A records are published for your domain pointing to your server's IP address.",
+    });
+  }
+
+  // ── SSL ────────────────────────────────────────────────────────────────
+  if (!modules.ssl?.https_available) {
+    finding({
+      id:           "ssl_not_available",
+      module:       "ssl",
+      severity:     "critical",
+      title:        "HTTPS Not Available",
+      description:  `${domain} does not serve content over HTTPS. All traffic is transmitted unencrypted.`,
+      score_impact: -25,
+    });
+    recommendations.push({
+      priority:    1,
+      module:      "ssl",
+      title:       "Install a TLS Certificate",
+      description: "Enable HTTPS using a free certificate from Let's Encrypt via Certbot, or through your hosting provider.",
+    });
+  } else if (!modules.ssl?.http_redirects_to_https) {
+    finding({
+      id:           "ssl_no_http_redirect",
+      module:       "ssl",
+      severity:     "medium",
+      title:        "HTTP Does Not Redirect to HTTPS",
+      description:  `Plain HTTP (port 80) requests to ${domain} are not redirected to HTTPS, allowing unencrypted access.`,
+      score_impact: -5,
+    });
+    recommendations.push({
+      priority:    2,
+      module:      "ssl",
+      title:       "Enforce HTTPS Redirect",
+      description: "Configure your web server or CDN to issue a 301 redirect from http:// to https:// for all requests.",
+    });
+  }
+
+  // ── Security Headers ───────────────────────────────────────────────────
+  if (modules.headers?.accessible) {
+    for (const h of SECURITY_HEADERS) {
+      if (!modules.headers.values?.[h.name]) {
+        finding({
+          id:           `header_missing_${h.name.replace(/-/g, "_")}`,
+          module:       "headers",
+          severity:     h.severity,
+          title:        `Missing ${h.label} Header`,
+          description:  `The ${h.label} header (${h.name}) was not returned in HTTP responses from ${domain}.`,
+          score_impact: h.score_impact,
+        });
+        recommendations.push({
+          priority:    h.severity === "high" ? 2 : 3,
+          module:      "headers",
+          title:       `Add ${h.label} Header`,
+          description: h.recommendation,
+        });
+      }
+    }
+  }
+
+  // ── Email Security ─────────────────────────────────────────────────────
+  if (!modules.email_security?.dmarc?.present) {
+    finding({
+      id:           "email_missing_dmarc",
+      module:       "email_security",
+      severity:     "high",
+      title:        "Missing DMARC Policy",
+      description:  `No DMARC TXT record found at _dmarc.${domain}. Email spoofing of this domain is not prevented.`,
+      score_impact: -15,
+    });
+    recommendations.push({
+      priority:    1,
+      module:      "email_security",
+      title:       "Implement DMARC",
+      description: `Create a TXT record at _dmarc.${domain}: v=DMARC1; p=quarantine; rua=mailto:dmarc-reports@${domain}`,
+    });
+  } else if (modules.email_security.dmarc.policy === "none") {
+    finding({
+      id:           "email_dmarc_policy_none",
+      module:       "email_security",
+      severity:     "medium",
+      title:        "DMARC Policy is Monitor-Only (p=none)",
+      description:  `DMARC is configured at _dmarc.${domain} but the policy is p=none — emails are not quarantined or rejected.`,
+      score_impact: -5,
+    });
+    recommendations.push({
+      priority:    2,
+      module:      "email_security",
+      title:       "Strengthen DMARC Policy",
+      description: "Change DMARC policy from p=none to p=quarantine or p=reject to actively block spoofed emails.",
+    });
+  }
+
+  if (!modules.email_security?.spf?.present) {
+    finding({
+      id:           "email_missing_spf",
+      module:       "email_security",
+      severity:     "high",
+      title:        "Missing SPF Record",
+      description:  `No SPF TXT record found for ${domain}. Any mail server can send email claiming to originate from this domain.`,
+      score_impact: -10,
+    });
+    recommendations.push({
+      priority:    1,
+      module:      "email_security",
+      title:       "Add SPF Record",
+      description: `Create a TXT record on ${domain}: v=spf1 include:your-mail-provider.com ~all`,
+    });
+  }
+
+  if (!modules.email_security?.dkim?.present) {
+    finding({
+      id:           "email_dkim_not_detected",
+      module:       "email_security",
+      severity:     "medium",
+      title:        "DKIM Not Detected",
+      description:  `No DKIM public key record found for ${domain} using common selectors. DKIM may use a custom selector or may not be configured.`,
+      score_impact: -5,
+    });
+    recommendations.push({
+      priority:    2,
+      module:      "email_security",
+      title:       "Enable DKIM Signing",
+      description: "Configure your email provider to sign outbound mail with DKIM and publish the public key as a TXT record.",
+    });
+  }
+
+  // ── Subdomains ─────────────────────────────────────────────────────────
+  const subMod = modules.subdomains;
+  if (subMod && !subMod.error) {
+    const sensitiveList = subMod.sensitive || [];
+
+    // One finding + deduction per sensitive subdomain, capped at 4 findings / -20 pts
+    const cappedSensitive = sensitiveList.slice(0, 4);
+    for (const sub of cappedSensitive) {
+      finding({
+        id:           `subdomain_sensitive_${sub.replace(/\./g, "_")}`,
+        module:       "subdomains",
+        severity:     "medium",
+        title:        "Potentially Sensitive Subdomain Discovered",
+        description:  `The subdomain "${sub}" suggests a development, staging, or administrative asset may be publicly reachable. Verify this asset is intentional and properly secured.`,
+        score_impact: -5,
+      });
+    }
+    if (cappedSensitive.length > 0) {
+      recommendations.push({
+        priority:    2,
+        module:      "subdomains",
+        title:       "Review Sensitive Subdomains",
+        description: `${sensitiveList.length} subdomain${sensitiveList.length !== 1 ? "s" : ""} with names suggesting development or administrative use were found in Certificate Transparency logs. Ensure these are either firewalled, require authentication, or are decommissioned if unused: ${sensitiveList.slice(0, 5).join(", ")}`,
       });
     }
 
-    if (request.method === "POST" && url.pathname === "/api/scan") {
-      const body = await request.json();
-      const domain = body.domain;
+    // Large attack surface
+    if (subMod.count > 20) {
+      finding({
+        id:           "subdomains_large_attack_surface",
+        module:       "subdomains",
+        severity:     "low",
+        title:        "Large Subdomain Attack Surface",
+        description:  `${subMod.count} subdomains were found in Certificate Transparency logs for ${domain}. A larger attack surface increases exposure risk — ensure all subdomains are actively maintained.`,
+        score_impact: -3,
+      });
+      recommendations.push({
+        priority:    3,
+        module:      "subdomains",
+        title:       "Audit and Reduce Subdomain Attack Surface",
+        description: `Review all ${subMod.count} discovered subdomains. Decommission unused ones and ensure each points to an actively maintained service.`,
+      });
+    }
+  }
 
-      if (!isValidDomain(domain)) {
-        return Response.json(
-          { status: "error", message: "Invalid domain" },
-          { status: 400 }
-        );
-      }
+  // ── Subdomain Takeover ─────────────────────────────────────────────────
+  const takeoverMod = modules.subdomain_takeover;
+  if (takeoverMod && !takeoverMod.error && takeoverMod.risks?.length > 0) {
+    const riskCount = takeoverMod.risks.length;
+    // −15 for a single risk; −25 max for multiple
+    const impact = riskCount === 1 ? -15 : -25;
+    finding({
+      id:           "subdomain_takeover",
+      module:       "subdomain_takeover",
+      severity:     "high",
+      title:        `Subdomain Takeover Risk${riskCount > 1 ? "s" : ""} Detected`,
+      description:  `${riskCount} subdomain${riskCount > 1 ? "s" : ""} with dangling CNAME records pointing to unclaimed services ${riskCount > 1 ? "were" : "was"} found: ${takeoverMod.risks.map((r) => r.host).join(", ")}. These may be vulnerable to hijacking by a third party.`,
+      score_impact: impact,
+    });
+    recommendations.push({
+      priority:    1,
+      module:      "subdomain_takeover",
+      title:       "Fix Dangling DNS Records",
+      description: `Remove or update the CNAME records for: ${takeoverMod.risks.map((r) => `${r.host} → ${r.cname}`).join("; ")}. Either reclaim the service, point the CNAME to a valid endpoint, or delete the DNS record entirely.`,
+    });
+  }
 
-      const userId = "user_demo";
-      const domainId = createId("domain");
-      const scanId = createId("scan");
-      const createdAt = new Date().toISOString();
-      const reportKey = `reports/${scanId}.json`;
+  // ── Asset Exposure ─────────────────────────────────────────────────────
+  const exposureMod = modules.asset_exposure;
+  if (exposureMod && !exposureMod.error && exposureMod.assets?.length > 0) {
+    // Only 200-status assets are considered risky; 401/403 are informational
+    const ok200 = exposureMod.assets.filter((a) => a.status === 200);
 
-      await env.cybermeters_db.prepare(
+    // Sensitive management / monitoring tools
+    const TOOL_RE = /jenkins|grafana|kibana|phpmyadmin|portainer|prometheus|vault\s*ui|rancher/i;
+    const toolAssets = ok200.filter(
+      (a) => TOOL_RE.test(a.title || "") || (a.tech || []).some((t) => TOOL_RE.test(t))
+    );
+    if (toolAssets.length > 0) {
+      finding({
+        id:           "asset_exposure_sensitive_tool",
+        module:       "asset_exposure",
+        severity:     "high",
+        title:        `Sensitive Management Tool${toolAssets.length > 1 ? "s" : ""} Exposed`,
+        description:  `${toolAssets.length} management or monitoring tool${toolAssets.length > 1 ? "s are" : " is"} publicly reachable: ${toolAssets.map((a) => a.host).join(", ")}. These provide privileged access and should not be internet-facing.`,
+        score_impact: -10,
+      });
+      recommendations.push({
+        priority:    1,
+        module:      "asset_exposure",
+        title:       "Restrict Access to Management Tools",
+        description: `Firewall or VPN-protect the following interfaces and allow only trusted IP ranges: ${toolAssets.map((a) => `${a.host}${a.title ? ` (${a.title})` : ""}`).join(", ")}.`,
+      });
+    }
+
+    // Administrative / login interfaces (not already caught as tools)
+    const ADMIN_HOST_RE  = /\b(admin|cp|cpanel|panel|portal|login|dashboard|manage|control)\b/;
+    const ADMIN_TITLE_RE = /\b(login|admin|dashboard|control\s*panel|portal|management|sign[\s-]in)\b/i;
+    const adminAssets = ok200.filter(
+      (a) =>
+        !toolAssets.includes(a) &&
+        (ADMIN_HOST_RE.test(a.host) || ADMIN_TITLE_RE.test(a.title || ""))
+    );
+    if (adminAssets.length > 0) {
+      finding({
+        id:           "asset_exposure_admin_interface",
+        module:       "asset_exposure",
+        severity:     "medium",
+        title:        `Administrative Interface${adminAssets.length > 1 ? "s" : ""} Publicly Reachable`,
+        description:  `${adminAssets.length} administrative or login interface${adminAssets.length > 1 ? "s are" : " is"} publicly accessible: ${adminAssets.map((a) => a.host).join(", ")}. Restrict access to authorised IP ranges or enforce MFA.`,
+        score_impact: -8,
+      });
+      recommendations.push({
+        priority:    2,
+        module:      "asset_exposure",
+        title:       "Restrict Administrative Interfaces",
+        description: `Limit the following admin interfaces to trusted IP ranges or protect with a VPN or MFA: ${adminAssets.map((a) => a.host).join(", ")}.`,
+      });
+    }
+
+    // Development / staging environments
+    const DEV_HOST_RE = /\b(dev|develop|development|staging|stage|stg|test|testing|qa|uat|sandbox|alpha|beta|preprod)\b/;
+    const devAssets = ok200.filter((a) => DEV_HOST_RE.test(a.host));
+    if (devAssets.length > 0) {
+      finding({
+        id:           "asset_exposure_dev_env",
+        module:       "asset_exposure",
+        severity:     "medium",
+        title:        `Development Environment${devAssets.length > 1 ? "s" : ""} Publicly Reachable`,
+        description:  `${devAssets.length} development or staging environment${devAssets.length > 1 ? "s are" : " is"} publicly accessible: ${devAssets.map((a) => a.host).join(", ")}. These often contain debug endpoints, test credentials, or reduced security controls.`,
+        score_impact: -5,
+      });
+      recommendations.push({
+        priority:    2,
+        module:      "asset_exposure",
+        title:       "Restrict Development Environments",
+        description: `Development and staging environments should not be publicly accessible. Firewall or add authentication to: ${devAssets.map((a) => a.host).join(", ")}.`,
+      });
+    }
+  }
+
+  // Clamp and classify
+  score = Math.max(0, Math.min(100, Math.round(score)));
+
+  const risk_level =
+    score >= 90 ? "excellent" :
+    score >= 75 ? "good"      :
+    score >= 50 ? "moderate"  :
+    score >= 25 ? "high"      : "critical";
+
+  // Deduplicate recommendations and sort by priority
+  const seen = new Set();
+  const uniqueRecs = recommendations.filter((r) => {
+    const key = r.title;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  uniqueRecs.sort((a, b) => a.priority - b.priority);
+
+  return { score, risk_level, findings, recommendations: uniqueRecs };
+}
+
+// ── Module 8: Historical Change Detection ─────────────────────────────────────
+
+/**
+ * Compare the current scan's results against the most recent previous completed
+ * scan for the same domain. Requires D1 + R2 access via `env`.
+ *
+ * Must be called AFTER computeScore so current score and findings are available.
+ * Never throws — all errors produce a safe fallback shape.
+ */
+async function runHistoricalModule(scanId, domain, currentScore, currentFindings, currentModules, env) {
+  const source = "previous_scan_comparison";
+
+  // Canonical empty result for any case where comparison is impossible
+  const empty = (hasPrev, prevId, prevScore, error) => ({
+    has_previous:       hasPrev,
+    previous_scan_id:   prevId,
+    previous_score:     prevScore,
+    current_score:      currentScore,
+    score_change:       prevScore != null ? currentScore - prevScore : null,
+    new_subdomains:     [],
+    removed_subdomains: [],
+    new_findings:       [],
+    resolved_findings:  [],
+    new_takeover_risks: [],
+    new_exposed_assets: [],
+    source,
+    error: error ?? null,
+  });
+
+  // Step 1: find the most recent previous completed scan for this domain in D1
+  let prevScan;
+  try {
+    prevScan = await env.cybermeters_db
+      .prepare(
+        `SELECT id, score FROM scans
+         WHERE domain = ? AND status = 'completed' AND id != ?
+         ORDER BY created_at DESC LIMIT 1`
+      )
+      .bind(domain, scanId)
+      .first();
+  } catch (err) {
+    return empty(false, null, null, `D1 query failed: ${err.message}`);
+  }
+
+  if (!prevScan) {
+    // First completed scan for this domain — nothing to compare against
+    return empty(false, null, null, null);
+  }
+
+  // Step 2: read previous report from R2
+  let prevReport;
+  try {
+    const obj = await env.cybermeters_reports.get(`reports/${prevScan.id}.json`);
+    if (!obj) {
+      return empty(true, prevScan.id, prevScan.score ?? null, "Previous report not found in R2");
+    }
+    prevReport = await obj.json();
+  } catch (err) {
+    return empty(true, prevScan.id, prevScan.score ?? null, `R2 read failed: ${err.message}`);
+  }
+
+  // Resolve previous score — prefer D1 column (written on completion) then R2 field
+  const prevScore = prevScan.score != null
+    ? prevScan.score
+    : (prevReport.cyber_metrics_score ?? null);
+
+  // Step 3: Diff subdomains
+  const currSubSet = new Set(currentModules.subdomains?.items || []);
+  const prevSubSet = new Set(prevReport.modules?.subdomains?.items || []);
+  const newSubdomains     = [...currSubSet].filter((h) => !prevSubSet.has(h));
+  const removedSubdomains = [...prevSubSet].filter((h) => !currSubSet.has(h));
+
+  // Step 4: Diff findings by ID
+  const currFindingIds = new Set((currentFindings || []).map((f) => f.id));
+  const prevFindingIds = new Set((prevReport.findings || []).map((f) => f.id));
+
+  const currFindingMap = Object.fromEntries((currentFindings || []).map((f) => [f.id, f]));
+  const prevFindingMap = Object.fromEntries((prevReport.findings || []).map((f) => [f.id, f]));
+
+  const newFindings = [...currFindingIds]
+    .filter((id) => !prevFindingIds.has(id))
+    .map((id) => {
+      const f = currFindingMap[id];
+      return { id: f.id, module: f.module, severity: f.severity, title: f.title };
+    });
+
+  const resolvedFindings = [...prevFindingIds]
+    .filter((id) => !currFindingIds.has(id))
+    .map((id) => {
+      const f = prevFindingMap[id];
+      return { id: f.id, module: f.module, severity: f.severity, title: f.title };
+    });
+
+  // Step 5: Diff takeover risks by host
+  const prevTakeoverHosts = new Set(
+    (prevReport.modules?.subdomain_takeover?.risks || []).map((r) => r.host)
+  );
+  const newTakeoverRisks = (currentModules.subdomain_takeover?.risks || [])
+    .filter((r) => !prevTakeoverHosts.has(r.host))
+    .map(({ host, service, cname, severity }) => ({ host, service, cname, severity }));
+
+  // Step 6: Diff reachable exposed assets by host
+  const prevExposedHosts = new Set(
+    (prevReport.modules?.asset_exposure?.assets || [])
+      .filter((a) => a.reachable)
+      .map((a) => a.host)
+  );
+  const newExposedAssets = (currentModules.asset_exposure?.assets || [])
+    .filter((a) => a.reachable && !prevExposedHosts.has(a.host))
+    .map(({ host, url, status, title, server, tech }) => ({ host, url, status, title, server, tech }));
+
+  return {
+    has_previous:       true,
+    previous_scan_id:   prevScan.id,
+    previous_score:     prevScore,
+    current_score:      currentScore,
+    score_change:       prevScore != null ? currentScore - prevScore : null,
+    new_subdomains:     newSubdomains,
+    removed_subdomains: removedSubdomains,
+    new_findings:       newFindings,
+    resolved_findings:  resolvedFindings,
+    new_takeover_risks: newTakeoverRisks,
+    new_exposed_assets: newExposedAssets,
+    source,
+    error: null,
+  };
+}
+
+// ── Main Scan Engine (runs via ctx.waitUntil) ─────────────────────────────────
+
+async function runScanEngine(scanId, domainId, domain, env) {
+  const startedAt = new Date().toISOString();
+
+  try {
+    // Mark scan as running in D1
+    await env.cybermeters_db
+      .prepare(`UPDATE scans SET status = 'running' WHERE id = ?`)
+      .bind(scanId)
+      .run();
+
+    // Phase 1: Run the 5 core modules in parallel.
+    // Subdomain discovery (crt.sh) has a 25s timeout but does not block the
+    // other modules — all run concurrently via Promise.allSettled.
+    const [dnsSettled, sslSettled, headersSettled, emailSettled, subdomainsSettled] =
+      await Promise.allSettled([
+        runDnsModule(domain),
+        runSslModule(domain),
+        runHeadersModule(domain),
+        runEmailModule(domain),
+        runSubdomainsModule(domain),
+      ]);
+
+    const subdomainsResult = subdomainsSettled.status === "fulfilled"
+      ? subdomainsSettled.value
+      : { count: 0, items: [], sensitive: [], source: "certificate_transparency",
+          error: subdomainsSettled.reason?.message ?? "Subdomain module failed" };
+
+    // Phase 2: Takeover detection — depends on discovered subdomains as input.
+    let takeoverResult;
+    try {
+      takeoverResult = await runTakeoverModule(domain, subdomainsResult.items || []);
+    } catch (err) {
+      takeoverResult = { checked: 0, potential_risks: 0, risks: [], source: "subdomain_cname_fingerprint", error: err.message };
+    }
+
+    // Phase 3: Asset exposure probing — HTTP/HTTPS reachability + metadata.
+    // Runs after takeover (sequential) to bound total concurrent I/O.
+    let assetExposureResult;
+    try {
+      assetExposureResult = await runExposureModule(domain, subdomainsResult.items || []);
+    } catch (err) {
+      assetExposureResult = {
+        checked:   0,
+        reachable: 0,
+        assets:    [],
+        source:    "http_probe",
+        error:     err.message ?? "Asset exposure module failed",
+      };
+    }
+
+    const modules = {
+      dns: dnsSettled.status === "fulfilled"
+        ? dnsSettled.value
+        : { error: dnsSettled.reason?.message ?? "DNS module failed" },
+
+      ssl: sslSettled.status === "fulfilled"
+        ? sslSettled.value
+        : { error: sslSettled.reason?.message ?? "SSL module failed" },
+
+      headers: headersSettled.status === "fulfilled"
+        ? headersSettled.value
+        : { error: headersSettled.reason?.message ?? "Headers module failed" },
+
+      email_security: emailSettled.status === "fulfilled"
+        ? emailSettled.value
+        : { error: emailSettled.reason?.message ?? "Email module failed" },
+
+      subdomains: subdomainsResult,
+
+      subdomain_takeover: takeoverResult,
+
+      asset_exposure: assetExposureResult,
+    };
+
+    // Compute Cyber Metrics Score
+    const { score, risk_level, findings, recommendations } = computeScore(modules, domain);
+
+    // Phase 4: Historical Change Detection — runs after computeScore so current
+    // score and findings are known. Mutates modules in place before R2 write.
+    try {
+      modules.historical_changes = await runHistoricalModule(
+        scanId, domain, score, findings, modules, env
+      );
+    } catch (err) {
+      modules.historical_changes = {
+        has_previous:       false,
+        previous_scan_id:   null,
+        previous_score:     null,
+        current_score:      score,
+        score_change:       null,
+        new_subdomains:     [],
+        removed_subdomains: [],
+        new_findings:       [],
+        resolved_findings:  [],
+        new_takeover_risks: [],
+        new_exposed_assets: [],
+        source:             "previous_scan_comparison",
+        error:              err.message ?? "Historical module failed",
+      };
+    }
+
+    const completedAt = new Date().toISOString();
+
+    // Build full structured report
+    const report = {
+      scan_id:             scanId,
+      domain_id:           domainId,
+      domain,
+      status:              "completed",
+      cyber_metrics_score: score,
+      risk_level,
+      started_at:          startedAt,
+      completed_at:        completedAt,
+      findings,
+      recommendations,
+      modules,
+    };
+
+    // Write completed report to R2
+    await env.cybermeters_reports.put(
+      `reports/${scanId}.json`,
+      JSON.stringify(report, null, 2),
+      { httpMetadata: { contentType: "application/json" } }
+    );
+
+    // Update D1 scans row
+    await env.cybermeters_db
+      .prepare(`UPDATE scans SET status = 'completed', score = ?, rating = ? WHERE id = ?`)
+      .bind(score, risk_level, scanId)
+      .run();
+
+    // Persist findings to D1
+    for (const f of findings) {
+      await env.cybermeters_db
+        .prepare(
+          `INSERT INTO findings (id, scan_id, severity, title, recommendation)
+           VALUES (?, ?, ?, ?, ?)`
+        )
+        .bind(createId("finding"), scanId, f.severity, f.title, f.description)
+        .run();
+    }
+
+    // Persist remediation items to D1
+    for (const r of recommendations) {
+      await env.cybermeters_db
+        .prepare(
+          `INSERT INTO remediation_items (id, scan_id, priority, title, reason, action)
+           VALUES (?, ?, ?, ?, ?, ?)`
+        )
+        .bind(
+          createId("rem"),
+          scanId,
+          String(r.priority),
+          r.title,
+          r.module,
+          r.description
+        )
+        .run();
+    }
+
+  } catch (err) {
+    // Write failure state to both R2 and D1
+    const failedAt = new Date().toISOString();
+
+    await env.cybermeters_reports.put(
+      `reports/${scanId}.json`,
+      JSON.stringify({
+        scan_id:             scanId,
+        domain,
+        status:              "failed",
+        cyber_metrics_score: 0,
+        risk_level:          "unknown",
+        findings:            [],
+        recommendations:     [],
+        error:               err.message,
+        started_at:          startedAt,
+        failed_at:           failedAt,
+      }, null, 2),
+      { httpMetadata: { contentType: "application/json" } }
+    );
+
+    await env.cybermeters_db
+      .prepare(`UPDATE scans SET status = 'failed' WHERE id = ?`)
+      .bind(scanId)
+      .run();
+  }
+}
+
+// ── Email Alert Engine ────────────────────────────────────────────────────────
+
+/**
+ * Inspect historical_changes and findings from a completed scheduled scan.
+ * Returns an array of trigger objects when an alert is warranted, or null
+ * when nothing notable changed (or when there is no previous scan to compare).
+ *
+ * Alert conditions:
+ *   • Score dropped by 10+ points
+ *   • One or more new subdomain takeover risks
+ *   • One or more new reachable exposed assets
+ *   • One or more new findings with severity 'high' or 'critical'
+ */
+function shouldSendAlert(historicalChanges) {
+  if (!historicalChanges || !historicalChanges.has_previous) return null;
+
+  const triggers = [];
+
+  if (historicalChanges.score_change != null && historicalChanges.score_change <= -10) {
+    triggers.push({
+      type:   "score_drop",
+      detail: `Score dropped ${historicalChanges.score_change} points ` +
+              `(${historicalChanges.previous_score} → ${historicalChanges.current_score})`,
+    });
+  }
+
+  if (historicalChanges.new_takeover_risks?.length > 0) {
+    triggers.push({
+      type:  "takeover_risk",
+      count: historicalChanges.new_takeover_risks.length,
+      hosts: historicalChanges.new_takeover_risks.map((r) => r.host),
+    });
+  }
+
+  if (historicalChanges.new_exposed_assets?.length > 0) {
+    triggers.push({
+      type:  "exposed_asset",
+      count: historicalChanges.new_exposed_assets.length,
+      hosts: historicalChanges.new_exposed_assets.map((a) => a.host),
+    });
+  }
+
+  const criticalNew = (historicalChanges.new_findings || []).filter(
+    (f) => f.severity === "high" || f.severity === "critical"
+  );
+  if (criticalNew.length > 0) {
+    triggers.push({
+      type:     "new_finding",
+      findings: criticalNew.map((f) => ({ title: f.title, severity: f.severity })),
+    });
+  }
+
+  return triggers.length > 0 ? triggers : null;
+}
+
+/**
+ * Build a plain-text and HTML email body for a set of alert triggers.
+ */
+function buildAlertEmail(domain, scanId, triggers) {
+  const count   = triggers.length;
+  const subject = `⚠ CyberMeters Alert: ${domain} — ` +
+                  `${count} issue${count !== 1 ? "s" : ""} detected`;
+
+  // Plain-text summary lines
+  const lines = [];
+  for (const t of triggers) {
+    if (t.type === "score_drop") {
+      lines.push(`Score drop: ${t.detail}`);
+    } else if (t.type === "takeover_risk") {
+      lines.push(
+        `${t.count} new subdomain takeover risk${t.count !== 1 ? "s" : ""}: ` +
+        t.hosts.join(", ")
+      );
+    } else if (t.type === "exposed_asset") {
+      lines.push(
+        `${t.count} new exposed asset${t.count !== 1 ? "s" : ""}: ` +
+        t.hosts.join(", ")
+      );
+    } else if (t.type === "new_finding") {
+      const titles = t.findings.map((f) => `${f.severity}: ${f.title}`).join("; ");
+      lines.push(
+        `${t.findings.length} new high/critical finding${t.findings.length !== 1 ? "s" : ""}: ` +
+        titles
+      );
+    }
+  }
+
+  const reportUrl = `https://cybermeters.pages.dev/scans/${scanId}`;
+
+  const text =
+    `CyberMeters scheduled scan alert for ${domain}\n\n` +
+    lines.map((l) => `• ${l}`).join("\n") +
+    `\n\nView full report: ${reportUrl}`;
+
+  const listItems = lines
+    .map((l) => `<li style="margin-bottom:8px">${l}</li>`)
+    .join("\n      ");
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#111;max-width:600px;margin:0 auto;padding:24px;">
+  <div style="border-left:4px solid #00876A;padding-left:16px;margin-bottom:20px;">
+    <h2 style="margin:0 0 4px;color:#00876A;font-size:18px;">CyberMeters Alert</h2>
+    <p style="margin:0;color:#555;font-size:14px;">
+      Scheduled scan completed for <strong>${domain}</strong>
+    </p>
+  </div>
+  <ul style="padding-left:20px;line-height:1.7;font-size:14px;color:#333;">
+      ${listItems}
+  </ul>
+  <p style="margin-top:24px;">
+    <a href="${reportUrl}"
+       style="background:#00876A;color:white;padding:10px 20px;border-radius:8px;
+              text-decoration:none;font-size:14px;font-weight:600;display:inline-block;">
+      View Full Report
+    </a>
+  </p>
+  <hr style="border:none;border-top:1px solid #eee;margin:28px 0;" />
+  <p style="font-size:12px;color:#999;margin:0;">
+    CyberMeters &mdash; Attack Surface Management<br>
+    This alert fired because a scheduled scan detected security-relevant changes.
+  </p>
+</body>
+</html>`;
+
+  return { subject, text, html };
+}
+
+/**
+ * POST an email via the Resend API.
+ *
+ * Requires:
+ *   env.RESEND_API_KEY   — Wrangler secret  (wrangler secret put RESEND_API_KEY)
+ *   env.ALERT_EMAIL_TO   — recipient address (wrangler.toml [vars])
+ *   env.ALERT_EMAIL_FROM — sender address   (wrangler.toml [vars], must be a
+ *                          verified Resend domain or the Resend sandbox address)
+ *
+ * If RESEND_API_KEY is absent the function returns immediately — alerts are
+ * silently skipped rather than crashing the scan pipeline.
+ * All errors are swallowed for the same reason.
+ */
+async function sendAlertEmail(subject, text, html, env) {
+  if (!env.RESEND_API_KEY) return;
+
+  const to   = env.ALERT_EMAIL_TO   || "ttrnn47@gmail.com";
+  const from = env.ALERT_EMAIL_FROM || "alerts@cybermeters.com";
+
+  try {
+    await fetch("https://api.resend.com/emails", {
+      method:  "POST",
+      headers: {
+        "Content-Type":  "application/json",
+        "Authorization": `Bearer ${env.RESEND_API_KEY}`,
+      },
+      body:   JSON.stringify({ from, to: [to], subject, text, html }),
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    // Email delivery errors must never affect scan completion or D1/R2 writes.
+  }
+}
+
+// ── Scheduled Scan Helpers ────────────────────────────────────────────────────
+
+/**
+ * Return the ISO timestamp for the next run based on frequency.
+ * Supported: 'daily' (24 h) and 'weekly' (7 days). Defaults to daily.
+ */
+function computeNextRunAt(frequency) {
+  const hours = frequency === "weekly" ? 7 * 24 : 24;
+  return new Date(Date.now() + hours * 60 * 60 * 1_000).toISOString();
+}
+
+/**
+ * Create and run a scan for one scheduled_scans row.
+ * This function is always called inside ctx.waitUntil() so it is safe to await
+ * runScanEngine directly — we are already within the extended Worker lifetime.
+ * Never throws — a failure on one schedule must not abort others.
+ */
+async function triggerScheduledScan(schedule, env) {
+  const userId   = "user_demo";
+  const domainId = createId("domain");
+  const scanId   = createId("scan");
+  const now      = new Date().toISOString();
+
+  try {
+    // Ensure demo user exists
+    await env.cybermeters_db
+      .prepare(
         `INSERT INTO users (id, email, name, plan)
          VALUES (?, ?, ?, ?)
          ON CONFLICT(id) DO NOTHING`
       )
+      .bind(userId, "demo@cybermeters.com", "Demo User", "free")
+      .run();
+
+    // Register domain row for this scan
+    await env.cybermeters_db
+      .prepare(`INSERT INTO domains (id, user_id, domain) VALUES (?, ?, ?)`)
+      .bind(domainId, userId, schedule.domain)
+      .run();
+
+    // Create scan row
+    await env.cybermeters_db
+      .prepare(`INSERT INTO scans (id, domain_id, domain, status) VALUES (?, ?, ?, ?)`)
+      .bind(scanId, domainId, schedule.domain, "running")
+      .run();
+
+    // Write placeholder report so GET /report returns 200 immediately
+    await env.cybermeters_reports.put(
+      `reports/${scanId}.json`,
+      JSON.stringify({
+        scan_id:             scanId,
+        domain_id:           domainId,
+        domain:              schedule.domain,
+        status:              "running",
+        cyber_metrics_score: 0,
+        risk_level:          "unknown",
+        findings:            [],
+        recommendations:     [],
+        message:             "Scheduled scan in progress.",
+      }, null, 2),
+      { httpMetadata: { contentType: "application/json" } }
+    );
+
+    // Stamp last_run_at and compute next_run_at before starting the engine
+    await env.cybermeters_db
+      .prepare(
+        `UPDATE scheduled_scans SET last_run_at = ?, next_run_at = ? WHERE id = ?`
+      )
+      .bind(now, computeNextRunAt(schedule.frequency), schedule.id)
+      .run();
+
+    // Run the full scan engine — awaited inside waitUntil context
+    await runScanEngine(scanId, domainId, schedule.domain, env);
+
+    // Email alert phase: read the completed report and fire an alert if warranted.
+    // Runs after runScanEngine so historical_changes is fully populated in R2.
+    // All errors are swallowed — alert failure must never surface to the user.
+    try {
+      const obj = await env.cybermeters_reports.get(`reports/${scanId}.json`);
+      if (obj) {
+        const report   = await obj.json();
+        const triggers = shouldSendAlert(report.modules?.historical_changes);
+        if (triggers) {
+          const { subject, text, html } = buildAlertEmail(
+            schedule.domain, scanId, triggers
+          );
+          await sendAlertEmail(subject, text, html, env);
+        }
+      }
+    } catch {
+      // Alert errors must not affect scan completion
+    }
+  } catch {
+    // Graceful failure — one schedule erroring must not affect the others
+  }
+}
+
+// ── CORS ──────────────────────────────────────────────────────────────────────
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin":  "*",
+  "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+};
+
+function json(data, status = 200) {
+  return Response.json(data, { status, headers: corsHeaders });
+}
+
+// ── Worker Handler ────────────────────────────────────────────────────────────
+
+export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+
+    // ── OPTIONS preflight ───────────────────────────────────────────────
+    if (request.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: corsHeaders });
+    }
+
+    // ── GET /health ─────────────────────────────────────────────────────
+    if (request.method === "GET" && url.pathname === "/health") {
+      return json({
+        status:  "ok",
+        service: "cybermeters-scan-api",
+      });
+    }
+
+    // ── POST /api/scan ──────────────────────────────────────────────────
+    if (request.method === "POST" && url.pathname === "/api/scan") {
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return json({ error: "Invalid JSON body" }, { status: 400 });
+      }
+
+      const domain      = body.domain?.trim().toLowerCase();
+      const workspaceId = body.workspace_id ? String(body.workspace_id).trim() : null;
+
+      if (!isValidDomain(domain)) {
+        return json({ error: "Invalid domain" }, { status: 400 });
+      }
+
+      // Optional workspace validation — 404 early if supplied ID doesn't exist
+      if (workspaceId) {
+        const ws = await env.cybermeters_db
+          .prepare(`SELECT id FROM workspaces WHERE id = ?`)
+          .bind(workspaceId)
+          .first();
+        if (!ws) {
+          return json({ error: "Workspace not found" }, { status: 404 });
+        }
+      }
+
+      const userId   = "user_demo";
+      const domainId = createId("domain");
+      const scanId   = createId("scan");
+      const reportKey = `reports/${scanId}.json`;
+
+      // Ensure demo user exists
+      await env.cybermeters_db
+        .prepare(
+          `INSERT INTO users (id, email, name, plan)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(id) DO NOTHING`
+        )
         .bind(userId, "demo@cybermeters.com", "Demo User", "free")
         .run();
 
-      await env.cybermeters_db.prepare(
-        `INSERT INTO domains (id, user_id, domain)
-         VALUES (?, ?, ?)`
-      )
-        .bind(domainId, userId, domain)
+      // Register domain — reuse existing row for same domain string
+      const existingDomain = await env.cybermeters_db
+        .prepare(`SELECT id FROM domains WHERE domain = ? LIMIT 1`)
+        .bind(domain)
+        .first();
+
+      const resolvedDomainId = existingDomain ? existingDomain.id : domainId;
+
+      if (!existingDomain) {
+        await env.cybermeters_db
+          .prepare(`INSERT INTO domains (id, user_id, domain) VALUES (?, ?, ?)`)
+          .bind(domainId, userId, domain)
+          .run();
+      }
+
+      // Link domain to workspace if workspace_id was provided
+      if (workspaceId) {
+        await env.cybermeters_db
+          .prepare(
+            `INSERT OR IGNORE INTO workspace_domains (workspace_id, domain_id)
+             VALUES (?, ?)`
+          )
+          .bind(workspaceId, resolvedDomainId)
+          .run();
+      }
+
+      // Create scan row — status 'running' (engine starts immediately)
+      await env.cybermeters_db
+        .prepare(
+          `INSERT INTO scans (id, domain_id, domain, status) VALUES (?, ?, ?, ?)`
+        )
+        .bind(scanId, resolvedDomainId, domain, "running")
         .run();
 
-      await env.cybermeters_db.prepare(
-        `INSERT INTO scans (id, domain_id, domain, status)
-         VALUES (?, ?, ?, ?)`
-      )
-        .bind(scanId, domainId, domain, "queued")
-        .run();
-
+      // Write placeholder report to R2 so GET /report returns 200 immediately
       await env.cybermeters_reports.put(
         reportKey,
         JSON.stringify({
-          scan_id: scanId,
-          domain_id: domainId,
+          scan_id:             scanId,
+          domain_id:           resolvedDomainId,
           domain,
-          status: "queued",
-          created_at: createdAt,
-          report_type: "initial_scan_record",
-          message: "Initial queued scan report stored in R2"
+          status:              "running",
+          cyber_metrics_score: 0,
+          risk_level:          "unknown",
+          findings:            [],
+          recommendations:     [],
+          message:             "Scan engine is running. Poll GET /api/scans/:id for completion.",
         }, null, 2),
-        {
-          httpMetadata: {
-            contentType: "application/json"
-          }
-        }
+        { httpMetadata: { contentType: "application/json" } }
       );
 
-      return Response.json({
-        status: "queued",
-        scan_id: scanId,
-        domain_id: domainId,
-        domain,
-        report_key: reportKey,
-        message: "Scan request stored in D1 and initial report stored in R2"
-      });
+      // Fire the scan engine after the response is sent
+      ctx.waitUntil(runScanEngine(scanId, resolvedDomainId, domain, env));
+
+      return json(
+        {
+          status:       "running",
+          scan_id:      scanId,
+          domain_id:    resolvedDomainId,
+          domain,
+          report_key:   reportKey,
+          ...(workspaceId ? { workspace_id: workspaceId } : {}),
+          message:      "Scan engine started. Poll GET /api/scans/:id until status is completed, then GET /api/scans/:id/report.",
+        },
+        202
+      );
     }
 
+    // ── GET /api/scans ──────────────────────────────────────────────────
+    // Supports optional ?workspace_id= to scope results to a single workspace.
     if (request.method === "GET" && url.pathname === "/api/scans") {
-      const result = await env.cybermeters_db.prepare(
-        `SELECT id, domain, status, created_at
-         FROM scans
-         ORDER BY created_at DESC
-         LIMIT 20`
-      ).all();
+      const wsFilter = url.searchParams.get("workspace_id");
 
-      return Response.json({
-        scans: result.results
+      let result;
+      if (wsFilter) {
+        // Return only scans whose domain is linked to the requested workspace
+        result = await env.cybermeters_db
+          .prepare(
+            `SELECT s.id, s.domain, s.status, s.score, s.rating, s.created_at
+             FROM scans s
+             JOIN domains d ON d.id = s.domain_id
+             JOIN workspace_domains wd ON wd.domain_id = d.id
+             WHERE wd.workspace_id = ?
+             ORDER BY s.created_at DESC
+             LIMIT 20`
+          )
+          .bind(wsFilter)
+          .all();
+      } else {
+        result = await env.cybermeters_db
+          .prepare(
+            `SELECT id, domain, status, score, rating, created_at
+             FROM scans
+             ORDER BY created_at DESC
+             LIMIT 20`
+          )
+          .all();
+      }
+
+      return json({ scans: result.results, ...(wsFilter ? { workspace_id: wsFilter } : {}) });
+    }
+
+    // ── GET /api/scans/:id/report ───────────────────────────────────────
+    // Must be checked BEFORE the generic /api/scans/:id route below.
+    if (
+      request.method === "GET" &&
+      /^\/api\/scans\/[^/]+\/report$/.test(url.pathname)
+    ) {
+      const scanId = url.pathname.split("/")[3];
+
+      const scan = await env.cybermeters_db
+        .prepare(
+          `SELECT id, domain_id, domain, status, score, rating, created_at
+           FROM scans WHERE id = ?`
+        )
+        .bind(scanId)
+        .first();
+
+      if (!scan) {
+        return json({ error: "Scan not found" }, { status: 404 });
+      }
+
+      const obj = await env.cybermeters_reports.get(`reports/${scanId}.json`);
+      if (!obj) {
+        return json({ error: "Report not found" }, { status: 404 });
+      }
+
+      const raw = await obj.json();
+
+      // Normalise modules — ensure every module key is present even for reports
+      // stored before a module was introduced (backward-compatible defaults).
+      const storedModules = raw.modules ?? {};
+      const normalisedModules = {
+        ...storedModules,
+        asset_exposure: storedModules.asset_exposure ?? {
+          checked:   0,
+          reachable: 0,
+          assets:    [],
+          source:    "http_probe",
+          error:     null,
+        },
+        subdomain_takeover: storedModules.subdomain_takeover ?? {
+          checked:         0,
+          potential_risks: 0,
+          risks:           [],
+          source:          "subdomain_cname_fingerprint",
+          error:           null,
+        },
+        historical_changes: storedModules.historical_changes ?? {
+          has_previous:       false,
+          previous_scan_id:   null,
+          previous_score:     null,
+          current_score:      null,
+          score_change:       null,
+          new_subdomains:     [],
+          removed_subdomains: [],
+          new_findings:       [],
+          resolved_findings:  [],
+          new_takeover_risks: [],
+          new_exposed_assets: [],
+          source:             "previous_scan_comparison",
+          error:              null,
+        },
+      };
+
+      return json({
+        scan_id:             scan.id,
+        domain:              scan.domain,
+        status:              scan.status,
+        cyber_metrics_score: raw.cyber_metrics_score ?? 0,
+        risk_level:          raw.risk_level          ?? "unknown",
+        findings:            Array.isArray(raw.findings)        ? raw.findings        : [],
+        recommendations:     Array.isArray(raw.recommendations) ? raw.recommendations : [],
+        modules:             normalisedModules,
+        ...(raw.started_at   ? { started_at:   raw.started_at   } : {}),
+        ...(raw.completed_at ? { completed_at: raw.completed_at } : {}),
+        ...(raw.failed_at    ? { failed_at:    raw.failed_at    } : {}),
+        ...(raw.message      ? { message:      raw.message      } : {}),
+        ...(raw.error        ? { error:        raw.error        } : {}),
       });
     }
 
+    // ── GET /api/scans/:id ──────────────────────────────────────────────
     if (
       request.method === "GET" &&
       url.pathname.startsWith("/api/scans/")
     ) {
       const scanId = url.pathname.split("/").pop();
 
-      const scan = await env.cybermeters_db.prepare(
-        `SELECT id, domain_id, domain, status, created_at
-         FROM scans
-         WHERE id = ?`
-      )
+      const scan = await env.cybermeters_db
+        .prepare(
+          `SELECT id, domain_id, domain, status, score, rating, created_at
+           FROM scans WHERE id = ?`
+        )
         .bind(scanId)
         .first();
 
       if (!scan) {
-        return Response.json(
-          { error: "Scan not found" },
-          { status: 404 }
-        );
+        return json({ error: "Scan not found" }, { status: 404 });
       }
 
-      return Response.json({
+      return json({
         scan,
-        report_key: `reports/${scan.id}.json`
+        report_key: `reports/${scan.id}.json`,
       });
     }
 
+    // ── GET /api/domain/:domain/history ────────────────────────────────
     if (
       request.method === "GET" &&
       url.pathname.startsWith("/api/domain/") &&
       url.pathname.endsWith("/history")
     ) {
-      const parts = url.pathname.split("/");
+      const parts  = url.pathname.split("/");
       const domain = decodeURIComponent(parts[3]);
 
       if (!isValidDomain(domain)) {
-        return Response.json(
-          { error: "Invalid domain" },
-          { status: 400 }
-        );
+        return json({ error: "Invalid domain" }, { status: 400 });
       }
 
-      const history = await env.cybermeters_db.prepare(
-        `SELECT id, domain_id, domain, status, created_at
-         FROM scans
-         WHERE domain = ?
-         ORDER BY created_at DESC`
-      )
+      const history = await env.cybermeters_db
+        .prepare(
+          `SELECT id, domain_id, domain, status, score, rating, created_at
+           FROM scans
+           WHERE domain = ?
+           ORDER BY created_at DESC`
+        )
         .bind(domain)
         .all();
 
-      return Response.json({
-        domain,
-        scans: history.results
-      });
+      return json({ domain, scans: history.results });
     }
 
-    // ── Workspace Routes ──────────────────────────────────────────────────────
+    // ── POST /api/schedules ─────────────────────────────────────────────
+    if (request.method === "POST" && url.pathname === "/api/schedules") {
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return json({ error: "Invalid JSON body" }, { status: 400 });
+      }
 
-    // GET /api/workspaces
+      const domain    = (body.domain || "").trim().toLowerCase();
+      const frequency = (body.frequency || "daily").trim().toLowerCase();
+
+      if (!isValidDomain(domain)) {
+        return json({ error: "Invalid domain" }, { status: 400 });
+      }
+      if (!["daily", "weekly"].includes(frequency)) {
+        return json({ error: "frequency must be 'daily' or 'weekly'" }, { status: 400 });
+      }
+
+      // Create the table if it doesn't exist yet (idempotent)
+      await env.cybermeters_db
+        .prepare(
+          `CREATE TABLE IF NOT EXISTS scheduled_scans (
+             id TEXT PRIMARY KEY,
+             domain TEXT NOT NULL,
+             frequency TEXT NOT NULL DEFAULT 'daily',
+             enabled INTEGER NOT NULL DEFAULT 1,
+             last_run_at TEXT,
+             next_run_at TEXT,
+             created_at TEXT DEFAULT (datetime('now'))
+           )`
+        )
+        .run();
+
+      const schedId    = createId("sched");
+      const nextRunAt  = computeNextRunAt(frequency);
+      const createdAt  = new Date().toISOString();
+
+      await env.cybermeters_db
+        .prepare(
+          `INSERT INTO scheduled_scans (id, domain, frequency, enabled, next_run_at, created_at)
+           VALUES (?, ?, ?, 1, ?, ?)`
+        )
+        .bind(schedId, domain, frequency, nextRunAt, createdAt)
+        .run();
+
+      return json({
+        schedule: {
+          id:          schedId,
+          domain,
+          frequency,
+          enabled:     1,
+          last_run_at: null,
+          next_run_at: nextRunAt,
+          created_at:  createdAt,
+        },
+      }, 201);
+    }
+
+    // ── GET /api/schedules ──────────────────────────────────────────────
+    if (request.method === "GET" && url.pathname === "/api/schedules") {
+      // Return empty list if table doesn't exist yet
+      try {
+        const result = await env.cybermeters_db
+          .prepare(
+            `SELECT id, domain, frequency, enabled, last_run_at, next_run_at, created_at
+             FROM scheduled_scans
+             ORDER BY created_at DESC`
+          )
+          .all();
+        return json({ schedules: result.results });
+      } catch {
+        return json({ schedules: [] });
+      }
+    }
+
+    // ── DELETE /api/schedules/:id ───────────────────────────────────────
+    if (
+      request.method === "DELETE" &&
+      url.pathname.startsWith("/api/schedules/")
+    ) {
+      const schedId = url.pathname.split("/").pop();
+      if (!schedId) {
+        return json({ error: "Missing schedule id" }, { status: 400 });
+      }
+
+      try {
+        const result = await env.cybermeters_db
+          .prepare(`DELETE FROM scheduled_scans WHERE id = ?`)
+          .bind(schedId)
+          .run();
+
+        if (result.meta?.changes === 0) {
+          return json({ error: "Schedule not found" }, { status: 404 });
+        }
+      } catch {
+        return json({ error: "Schedule not found" }, { status: 404 });
+      }
+
+      return json({ deleted: schedId });
+    }
+
+    // ── Workspace Routes ──────────────────────────────────────────────────
+
+    // GET /api/workspaces — list all workspaces
     if (request.method === "GET" && url.pathname === "/api/workspaces") {
       try {
         const result = await env.cybermeters_db
           .prepare(`SELECT id, name, created_at FROM workspaces ORDER BY created_at DESC`)
           .all();
-        return Response.json({ workspaces: result.results });
+        return json({ workspaces: result.results });
       } catch {
-        return Response.json({ error: "Database error" }, { status: 500 });
+        return json({ error: "Database error" }, { status: 500 });
       }
     }
 
-    // POST /api/workspaces
+    // POST /api/workspaces — create a workspace
     if (request.method === "POST" && url.pathname === "/api/workspaces") {
       let body;
       try { body = await request.json(); } catch { body = {}; }
       const name = (body.name || "").trim();
       if (!name) {
-        return Response.json({ error: "name is required" }, { status: 400 });
+        return json({ error: "name is required" }, { status: 400 });
       }
-      const id = `workspace_${crypto.randomUUID()}`;
+      const id         = `workspace_${crypto.randomUUID()}`;
       const created_at = new Date().toISOString();
       try {
         await env.cybermeters_db
           .prepare(`INSERT INTO workspaces (id, name, created_at) VALUES (?, ?, ?)`)
           .bind(id, name, created_at)
           .run();
-        return Response.json({ workspace: { id, name, created_at } }, { status: 201 });
+        return json({ workspace: { id, name, created_at } }, 201);
       } catch {
-        return Response.json({ error: "Database error" }, { status: 500 });
+        return json({ error: "Database error" }, { status: 500 });
       }
     }
 
-    // Routes that need a workspace ID
-    // Matches: /api/workspaces/:id
-    //          /api/workspaces/:id/domains
-    //          /api/workspaces/:id/domains/:domainId
-    const workspaceMatch = url.pathname.match(
-      /^\/api\/workspaces\/([^/]+)(\/domains(?:\/([^/]+))?)?$/
+    // Routes that carry a workspace ID
+    // Matches:  /api/workspaces/:id
+    //           /api/workspaces/:id/domains
+    //           /api/workspaces/:id/domains/:domainId
+    //           /api/workspaces/:id/stats
+    const wsMatch = url.pathname.match(
+      /^\/api\/workspaces\/([^/]+)(\/domains(?:\/([^/]+))?|\/stats)?$/
     );
 
-    if (workspaceMatch) {
-      const workspaceId  = workspaceMatch[1];
-      const domainSegment = workspaceMatch[2]; // "/domains" | "/domains/:domainId" | undefined
-      const linkedDomainId = workspaceMatch[3]; // domainId component, if present
+    if (wsMatch) {
+      const workspaceId   = wsMatch[1];
+      const subResource   = wsMatch[2];          // "/domains", "/domains/:id", "/stats", or undefined
+      const linkedDomainId = wsMatch[3];         // domain ID component if present
 
       // Verify workspace exists for all sub-routes
       let workspace;
       try {
         workspace = await env.cybermeters_db
-          .prepare(`SELECT id, name FROM workspaces WHERE id = ?`)
+          .prepare(`SELECT id, name, created_at FROM workspaces WHERE id = ?`)
           .bind(workspaceId)
           .first();
       } catch {
-        return Response.json({ error: "Database error" }, { status: 500 });
+        return json({ error: "Database error" }, { status: 500 });
       }
       if (!workspace) {
-        return Response.json({ error: "Workspace not found" }, { status: 404 });
+        return json({ error: "Workspace not found" }, { status: 404 });
       }
 
-      // DELETE /api/workspaces/:id/domains/:domainId
-      // Remove workspace↔domain link only — does NOT delete the domain row.
-      if (request.method === "DELETE" && domainSegment && linkedDomainId) {
+      // ── GET /api/workspaces/:id ── (with inline statistics) ──────────
+      if (request.method === "GET" && !subResource) {
+        try {
+          const [domainsRow, scansRow, avgRow, latestRow] = await Promise.all([
+            // total_domains
+            env.cybermeters_db
+              .prepare(`SELECT COUNT(*) AS n FROM workspace_domains WHERE workspace_id = ?`)
+              .bind(workspaceId).first(),
+
+            // total_scans
+            env.cybermeters_db
+              .prepare(
+                `SELECT COUNT(DISTINCT s.id) AS n
+                 FROM workspace_domains wd
+                 JOIN domains d ON d.id = wd.domain_id
+                 JOIN scans   s ON s.domain_id = d.id
+                 WHERE wd.workspace_id = ?`
+              )
+              .bind(workspaceId).first(),
+
+            // cyber_score_average (completed scans only)
+            env.cybermeters_db
+              .prepare(
+                `SELECT ROUND(AVG(s.score), 1) AS avg
+                 FROM workspace_domains wd
+                 JOIN domains d ON d.id = wd.domain_id
+                 JOIN scans   s ON s.domain_id = d.id
+                 WHERE wd.workspace_id = ?
+                   AND s.status = 'completed'
+                   AND s.score  IS NOT NULL`
+              )
+              .bind(workspaceId).first(),
+
+            // latest_scan
+            env.cybermeters_db
+              .prepare(
+                `SELECT s.id, s.domain, s.status, s.score, s.rating, s.created_at
+                 FROM workspace_domains wd
+                 JOIN domains d ON d.id = wd.domain_id
+                 JOIN scans   s ON s.domain_id = d.id
+                 WHERE wd.workspace_id = ?
+                 ORDER BY s.created_at DESC
+                 LIMIT 1`
+              )
+              .bind(workspaceId).first(),
+          ]);
+
+          return json({
+            workspace: {
+              id:         workspace.id,
+              name:       workspace.name,
+              created_at: workspace.created_at,
+            },
+            stats: {
+              total_domains:       domainsRow?.n ?? 0,
+              total_scans:         scansRow?.n  ?? 0,
+              cyber_score_average: avgRow?.avg   ?? null,
+              latest_scan:         latestRow     ?? null,
+            },
+          });
+        } catch {
+          return json({ error: "Database error" }, { status: 500 });
+        }
+      }
+
+      // ── DELETE /api/workspaces/:id/domains/:domainId ──────────────────
+      // Removes the workspace↔domain link only. Domain row is untouched.
+      if (request.method === "DELETE" && subResource && linkedDomainId) {
         try {
           const del = await env.cybermeters_db
             .prepare(
@@ -228,21 +2079,17 @@ export default {
             .bind(workspaceId, linkedDomainId)
             .run();
           if (del.meta.changes === 0) {
-            return Response.json({ error: "Domain link not found" }, { status: 404 });
+            return json({ error: "Domain link not found" }, { status: 404 });
           }
-          return Response.json({
-            success: true,
-            workspace_id: workspaceId,
-            domain_id: linkedDomainId,
-          });
+          return json({ success: true, workspace_id: workspaceId, domain_id: linkedDomainId });
         } catch {
-          return Response.json({ error: "Database error" }, { status: 500 });
+          return json({ error: "Database error" }, { status: 500 });
         }
       }
 
-      // GET /api/workspaces/:id/domains
-      // Returns domains linked to this workspace, enriched with latest scan data.
-      if (request.method === "GET" && domainSegment === "/domains") {
+      // ── GET /api/workspaces/:id/domains ───────────────────────────────
+      // Returns linked domains enriched with latest scan data per domain.
+      if (request.method === "GET" && subResource === "/domains") {
         try {
           const result = await env.cybermeters_db
             .prepare(
@@ -258,78 +2105,90 @@ export default {
                LEFT JOIN scans s ON s.id = (
                  SELECT id FROM scans
                  WHERE  domain_id = d.id
-                 ORDER  BY created_at DESC
-                 LIMIT  1
+                 ORDER  BY created_at DESC LIMIT 1
                )
                WHERE wd.workspace_id = ?
                ORDER BY d.domain ASC`
             )
             .bind(workspaceId)
             .all();
-          return Response.json({ workspace_id: workspaceId, domains: result.results });
+          return json({ workspace_id: workspaceId, domains: result.results });
         } catch {
-          return Response.json({ error: "Database error" }, { status: 500 });
+          return json({ error: "Database error" }, { status: 500 });
         }
       }
 
-      // POST /api/workspaces/:id/domains
-      // Reuses existing domain row if present; creates one otherwise.
+      // ── POST /api/workspaces/:id/domains ─────────────────────────────
+      // Reuse existing domain row if present; create new one otherwise.
       // Idempotent link via INSERT OR IGNORE.
-      if (request.method === "POST" && domainSegment === "/domains") {
+      if (request.method === "POST" && subResource === "/domains") {
         let body;
         try { body = await request.json(); } catch { body = {}; }
         const raw = (body.domain || "").trim().toLowerCase();
         if (!isValidDomain(raw)) {
-          return Response.json(
+          return json(
             { error: "domain is required and must be a valid domain" },
             { status: 400 }
           );
         }
-
         try {
-          // Reuse existing domain row or create new one
           let domainRow = await env.cybermeters_db
             .prepare(`SELECT id, domain FROM domains WHERE domain = ? LIMIT 1`)
             .bind(raw)
             .first();
 
           if (!domainRow) {
-            const newDomainId = createId("domain");
+            const newId = createId("domain");
             await env.cybermeters_db
               .prepare(`INSERT INTO domains (id, user_id, domain) VALUES (?, ?, ?)`)
-              .bind(newDomainId, "user_demo", raw)
+              .bind(newId, "user_demo", raw)
               .run();
-            domainRow = { id: newDomainId, domain: raw };
+            domainRow = { id: newId, domain: raw };
           }
 
-          // Link domain to workspace — silent no-op if already linked
           await env.cybermeters_db
             .prepare(
-              `INSERT OR IGNORE INTO workspace_domains (workspace_id, domain_id)
-               VALUES (?, ?)`
+              `INSERT OR IGNORE INTO workspace_domains (workspace_id, domain_id) VALUES (?, ?)`
             )
             .bind(workspaceId, domainRow.id)
             .run();
 
-          return Response.json(
-            {
-              domain: {
-                domain_id:    domainRow.id,
-                domain:       domainRow.domain,
-                workspace_id: workspaceId,
-              },
-            },
-            { status: 201 }
+          return json(
+            { domain: { domain_id: domainRow.id, domain: domainRow.domain, workspace_id: workspaceId } },
+            201
           );
         } catch {
-          return Response.json({ error: "Database error" }, { status: 500 });
+          return json({ error: "Database error" }, { status: 500 });
         }
       }
     }
 
-    return Response.json(
-      { error: "Not found" },
-      { status: 404 }
-    );
-  }
+    return json({ error: "Not found" }, { status: 404 });
+  },
+
+  // ── Cron Handler ──────────────────────────────────────────────────────
+  async scheduled(event, env, ctx) {
+    const now = new Date().toISOString();
+
+    let result;
+    try {
+      result = await env.cybermeters_db
+        .prepare(
+          `SELECT id, domain, frequency
+           FROM scheduled_scans
+           WHERE enabled = 1
+             AND (next_run_at IS NULL OR next_run_at <= ?)`
+        )
+        .bind(now)
+        .all();
+    } catch {
+      // Table may not exist yet — nothing to process
+      return;
+    }
+
+    for (const schedule of (result.results || [])) {
+      // Each schedule runs independently so one failure cannot abort others
+      ctx.waitUntil(triggerScheduledScan(schedule, env));
+    }
+  },
 };

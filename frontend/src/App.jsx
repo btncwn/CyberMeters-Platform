@@ -7,6 +7,7 @@ import DomainHistory from './pages/DomainHistory'
 import ScansPage from './pages/ScansPage'
 import AssetsPage from './pages/AssetsPage'
 import ReportsPage from './pages/ReportsPage'
+import SchedulesPage from './pages/SchedulesPage'
 import SettingsPage from './pages/SettingsPage'
 
 export default function App() {
@@ -21,8 +22,9 @@ export default function App() {
           <Route path="scans/:id"               element={<ScanDetail />}   />
           <Route path="domain/:domain/history"  element={<DomainHistory />} />
           <Route path="assets"                  element={<AssetsPage />}   />
-          <Route path="reports"                 element={<ReportsPage />}  />
-          <Route path="settings"               element={<SettingsPage />} />
+          <Route path="reports"                 element={<ReportsPage />}   />
+          <Route path="schedules"              element={<SchedulesPage />} />
+          <Route path="settings"               element={<SettingsPage />}  />
           <Route path="*"                       element={<Navigate to="/dashboard" replace />} />
         </Route>
       </Routes>

@@ -21,6 +21,9 @@ export const api = {
   /** GET /api/scans/:id */
   getScan: (id) => request(`/scans/${id}`),
 
+  /** GET /api/scans/:id/report */
+  getScanReport: (id) => request(`/scans/${id}/report`),
+
   /** GET /api/domain/:domain/history */
   getDomainHistory: (domain) => request(`/domain/${encodeURIComponent(domain)}/history`),
 
@@ -30,4 +33,18 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ domain }),
     }),
+
+  /** GET /api/schedules */
+  getSchedules: () => request('/schedules'),
+
+  /** POST /api/schedules  body: { domain, frequency } */
+  createSchedule: (domain, frequency) =>
+    request('/schedules', {
+      method: 'POST',
+      body: JSON.stringify({ domain, frequency }),
+    }),
+
+  /** DELETE /api/schedules/:id */
+  deleteSchedule: (id) =>
+    request(`/schedules/${id}`, { method: 'DELETE' }),
 }

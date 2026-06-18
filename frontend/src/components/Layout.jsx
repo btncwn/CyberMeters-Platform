@@ -1,13 +1,14 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Server, ScanLine, FileBarChart2,
-  Settings, Shield, Plus, Bell, ChevronDown,
+  Settings, Shield, Plus, Bell, ChevronDown, Calendar,
 } from 'lucide-react'
 
 const NAV = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/assets',    icon: Server,          label: 'Assets'    },
   { to: '/scans',     icon: ScanLine,        label: 'Scans'     },
+  { to: '/schedules', icon: Calendar,        label: 'Schedules' },
   { to: '/reports',   icon: FileBarChart2,   label: 'Reports'   },
   { to: '/settings',  icon: Settings,        label: 'Settings'  },
 ]
