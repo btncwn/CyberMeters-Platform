@@ -1,12 +1,3 @@
-name = "cybermeters-scan-api"
+name = "cybermeters-platform"
 main = "src/index.js"
 compatibility_date = "2026-06-18"
-
-[[d1_databases]]
-binding = "DB"
-database_name = "cybermeters-db"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
-
-[[r2_buckets]]
-binding = "REPORTS"
-bucket_name = "cybermeters-reports"
