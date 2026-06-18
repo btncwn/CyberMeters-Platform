@@ -28,3 +28,7 @@ venv/
 # Wrangler
 .wrangler/
 workers/scan-api/.wrangler/
+
+# Wrangler
+.wrangler/
+workers/scan-api/.wrangler/
