@@ -24,3 +24,7 @@ frontend/dist/
 __pycache__/
 *.pyc
 venv/
+
+# Wrangler
+.wrangler/
+workers/scan-api/.wrangler/
