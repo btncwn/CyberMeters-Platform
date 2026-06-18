@@ -1,228 +1,779 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// CyberMeters Scan API — Cloudflare Worker
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── Utilities ────────────────────────────────────────────────────────────────
+
 function createId(prefix) {
   return `${prefix}_${crypto.randomUUID()}`;
 }
 
 function isValidDomain(domain) {
-  return typeof domain === "string" &&
-    /^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(domain);
+  return (
+    typeof domain === "string" &&
+    /^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(domain)
+  );
 }
 
+/**
+ * DNS-over-HTTPS query via Cloudflare (1.1.1.1).
+ * Workers have no raw socket access; DoH is the Cloudflare-native approach.
+ */
+async function dnsQuery(name, type) {
+  const res = await fetch(
+    `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}`,
+    {
+      headers: { Accept: "application/dns-json" },
+      signal: AbortSignal.timeout(6_000),
+    }
+  );
+  if (!res.ok) throw new Error(`DoH ${res.status} for ${type} ${name}`);
+  return res.json();
+}
+
+/**
+ * HTTP fetch that never throws — returns null on timeout / network error.
+ */
+async function safeFetch(url, options = {}) {
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    return null;
+  }
+}
+
+// ── Security Headers Config ───────────────────────────────────────────────────
+
+const SECURITY_HEADERS = [
+  {
+    name:         "strict-transport-security",
+    label:        "HTTP Strict Transport Security (HSTS)",
+    severity:     "high",
+    score_impact: -5,
+    recommendation:
+      'Add: Strict-Transport-Security: max-age=31536000; includeSubDomains; preload',
+  },
+  {
+    name:         "content-security-policy",
+    label:        "Content Security Policy (CSP)",
+    severity:     "medium",
+    score_impact: -3,
+    recommendation:
+      "Add a Content-Security-Policy header to restrict which resources the browser may load.",
+  },
+  {
+    name:         "x-frame-options",
+    label:        "X-Frame-Options",
+    severity:     "medium",
+    score_impact: -2,
+    recommendation: "Add: X-Frame-Options: DENY to prevent clickjacking attacks.",
+  },
+  {
+    name:         "x-content-type-options",
+    label:        "X-Content-Type-Options",
+    severity:     "low",
+    score_impact: -2,
+    recommendation: "Add: X-Content-Type-Options: nosniff to prevent MIME-type sniffing.",
+  },
+  {
+    name:         "referrer-policy",
+    label:        "Referrer-Policy",
+    severity:     "low",
+    score_impact: -1,
+    recommendation:
+      "Add: Referrer-Policy: strict-origin-when-cross-origin",
+  },
+  {
+    name:         "permissions-policy",
+    label:        "Permissions-Policy",
+    severity:     "info",
+    score_impact: -1,
+    recommendation:
+      "Add a Permissions-Policy header to restrict access to browser APIs (camera, microphone, geolocation).",
+  },
+];
+
+// ── Module 1: DNS Analysis ────────────────────────────────────────────────────
+
+async function runDnsModule(domain) {
+  const [aRes, aaaaRes, nsRes, mxRes] = await Promise.allSettled([
+    dnsQuery(domain, "A"),
+    dnsQuery(domain, "AAAA"),
+    dnsQuery(domain, "NS"),
+    dnsQuery(domain, "MX"),
+  ]);
+
+  const pick = (r) =>
+    r.status === "fulfilled" ? r.value.Answer || [] : [];
+
+  const aRecords    = pick(aRes);
+  const aaaaRecords = pick(aaaaRes);
+  const nsRecords   = pick(nsRes);
+  const mxRecords   = pick(mxRes);
+
+  return {
+    resolves:    aRecords.length > 0 || aaaaRecords.length > 0,
+    has_ipv6:    aaaaRecords.length > 0,
+    has_mx:      mxRecords.length > 0,
+    nameservers: nsRecords.map((r) => r.data).filter(Boolean),
+    a_records:   aRecords.map((r) => ({ value: r.data, ttl: r.TTL })),
+    aaaa_records: aaaaRecords.map((r) => ({ value: r.data, ttl: r.TTL })),
+    mx_records:  mxRecords.map((r) => ({ value: r.data, ttl: r.TTL })),
+  };
+}
+
+// ── Module 2: SSL Detection ───────────────────────────────────────────────────
+
+async function runSslModule(domain) {
+  // Try HTTPS on the bare domain
+  const httpsRes = await safeFetch(`https://${domain}`, {
+    method: "HEAD",
+    redirect: "manual",
+  });
+  const httpsOk = httpsRes !== null && httpsRes.status < 500;
+
+  // Try www. fallback if bare domain HTTPS fails
+  let wwwHttpsOk = false;
+  if (!httpsOk && !domain.startsWith("www.")) {
+    const wwwRes = await safeFetch(`https://www.${domain}`, {
+      method: "HEAD",
+      redirect: "manual",
+    });
+    wwwHttpsOk = wwwRes !== null && wwwRes.status < 500;
+  }
+
+  // Check whether plain HTTP redirects to HTTPS
+  const httpRes = await safeFetch(`http://${domain}`, {
+    method: "HEAD",
+    redirect: "manual",
+  });
+  let httpRedirectsToHttps = false;
+  if (httpRes) {
+    const loc = httpRes.headers.get("location") || "";
+    if (
+      [301, 302, 307, 308].includes(httpRes.status) &&
+      loc.startsWith("https://")
+    ) {
+      httpRedirectsToHttps = true;
+    }
+  }
+
+  return {
+    https_available:       httpsOk || wwwHttpsOk,
+    http_redirects_to_https: httpRedirectsToHttps,
+    www_fallback_used:     !httpsOk && wwwHttpsOk,
+  };
+}
+
+// ── Module 3: Security Headers Analysis ──────────────────────────────────────
+
+async function runHeadersModule(domain) {
+  let headerValues = {};
+  let accessible   = false;
+  let statusCode   = null;
+  let responseUrl  = null;
+
+  // Prefer HTTPS; fall back to HTTP
+  for (const proto of ["https", "http"]) {
+    const res = await safeFetch(`${proto}://${domain}`, {
+      method: "GET",
+      redirect: "follow",
+    });
+    if (res) {
+      accessible  = true;
+      statusCode  = res.status;
+      responseUrl = res.url;
+      for (const h of SECURITY_HEADERS) {
+        headerValues[h.name] = res.headers.get(h.name) || null;
+      }
+      break;
+    }
+  }
+
+  const present = SECURITY_HEADERS.filter((h) => !!headerValues[h.name]).map((h) => h.name);
+  const missing = SECURITY_HEADERS.filter((h) => !headerValues[h.name]).map((h) => h.name);
+
+  return {
+    accessible,
+    status_code:  statusCode,
+    response_url: responseUrl,
+    present,
+    missing,
+    values: headerValues,
+  };
+}
+
+// ── Module 4: Email Security (SPF / DMARC / DKIM) ────────────────────────────
+
+// Common DKIM selectors to probe — best-effort discovery
+const DKIM_SELECTORS = [
+  "default", "mail", "google", "k1", "selector1", "selector2",
+  "dkim", "smtp", "email", "mailchimp", "sendgrid", "s1", "s2",
+];
+
+async function runEmailModule(domain) {
+  // Fire all queries in parallel: SPF (TXT on root) + DMARC + DKIM selectors
+  const [spfRes, dmarcRes, ...dkimResults] = await Promise.allSettled([
+    dnsQuery(domain, "TXT"),
+    dnsQuery(`_dmarc.${domain}`, "TXT"),
+    ...DKIM_SELECTORS.map((sel) => dnsQuery(`${sel}._domainkey.${domain}`, "TXT")),
+  ]);
+
+  // SPF — look for v=spf1 in root TXT records
+  const rootTxt  = spfRes.status === "fulfilled" ? (spfRes.value.Answer || []) : [];
+  const spfRecs  = rootTxt.filter((r) => r.data?.includes("v=spf1"));
+  const hasSPF   = spfRecs.length > 0;
+
+  // DMARC — _dmarc.<domain> TXT
+  const dmarcTxt  = dmarcRes.status === "fulfilled" ? (dmarcRes.value.Answer || []) : [];
+  const dmarcRecs = dmarcTxt.filter((r) => r.data?.includes("v=DMARC1"));
+  const hasDMARC  = dmarcRecs.length > 0;
+
+  // Parse DMARC policy tag
+  let dmarcPolicy = null;
+  if (hasDMARC && dmarcRecs[0]?.data) {
+    const m = dmarcRecs[0].data.match(/p=([^;"\s]+)/);
+    dmarcPolicy = m ? m[1].trim().toLowerCase() : null;
+  }
+
+  // DKIM — first selector with a valid public key record
+  let dkimSelector = null;
+  for (let i = 0; i < DKIM_SELECTORS.length; i++) {
+    const r = dkimResults[i];
+    if (r.status === "fulfilled" && r.value.Answer?.length > 0) {
+      const valid = r.value.Answer.filter(
+        (a) => a.data?.includes("v=DKIM1") || a.data?.includes("p=")
+      );
+      if (valid.length > 0) {
+        dkimSelector = DKIM_SELECTORS[i];
+        break;
+      }
+    }
+  }
+
+  return {
+    spf: {
+      present: hasSPF,
+      record:  hasSPF ? spfRecs[0].data : null,
+    },
+    dmarc: {
+      present: hasDMARC,
+      policy:  dmarcPolicy,
+      record:  hasDMARC ? dmarcRecs[0].data : null,
+    },
+    dkim: {
+      present:  dkimSelector !== null,
+      selector: dkimSelector,
+    },
+  };
+}
+
+// ── Cyber Metrics Scoring Engine ──────────────────────────────────────────────
+
+function computeScore(modules, domain) {
+  let score = 100;
+  const findings        = [];
+  const recommendations = [];
+
+  function finding(f) {
+    score += f.score_impact; // negative number
+    findings.push(f);
+  }
+
+  // ── DNS ────────────────────────────────────────────────────────────────
+  if (!modules.dns?.resolves) {
+    finding({
+      id:           "dns_no_resolution",
+      module:       "dns",
+      severity:     "critical",
+      title:        "Domain Does Not Resolve",
+      description:  `No A or AAAA DNS records found for ${domain}. The domain cannot be reached.`,
+      score_impact: -30,
+    });
+    recommendations.push({
+      priority:    1,
+      module:      "dns",
+      title:       "Fix DNS Configuration",
+      description: "Ensure A records are published for your domain pointing to your server's IP address.",
+    });
+  }
+
+  // ── SSL ────────────────────────────────────────────────────────────────
+  if (!modules.ssl?.https_available) {
+    finding({
+      id:           "ssl_not_available",
+      module:       "ssl",
+      severity:     "critical",
+      title:        "HTTPS Not Available",
+      description:  `${domain} does not serve content over HTTPS. All traffic is transmitted unencrypted.`,
+      score_impact: -25,
+    });
+    recommendations.push({
+      priority:    1,
+      module:      "ssl",
+      title:       "Install a TLS Certificate",
+      description: "Enable HTTPS using a free certificate from Let's Encrypt via Certbot, or through your hosting provider.",
+    });
+  } else if (!modules.ssl?.http_redirects_to_https) {
+    finding({
+      id:           "ssl_no_http_redirect",
+      module:       "ssl",
+      severity:     "medium",
+      title:        "HTTP Does Not Redirect to HTTPS",
+      description:  `Plain HTTP (port 80) requests to ${domain} are not redirected to HTTPS, allowing unencrypted access.`,
+      score_impact: -5,
+    });
+    recommendations.push({
+      priority:    2,
+      module:      "ssl",
+      title:       "Enforce HTTPS Redirect",
+      description: "Configure your web server or CDN to issue a 301 redirect from http:// to https:// for all requests.",
+    });
+  }
+
+  // ── Security Headers ───────────────────────────────────────────────────
+  if (modules.headers?.accessible) {
+    for (const h of SECURITY_HEADERS) {
+      if (!modules.headers.values?.[h.name]) {
+        finding({
+          id:           `header_missing_${h.name.replace(/-/g, "_")}`,
+          module:       "headers",
+          severity:     h.severity,
+          title:        `Missing ${h.label} Header`,
+          description:  `The ${h.label} header (${h.name}) was not returned in HTTP responses from ${domain}.`,
+          score_impact: h.score_impact,
+        });
+        recommendations.push({
+          priority:    h.severity === "high" ? 2 : 3,
+          module:      "headers",
+          title:       `Add ${h.label} Header`,
+          description: h.recommendation,
+        });
+      }
+    }
+  }
+
+  // ── Email Security ─────────────────────────────────────────────────────
+  if (!modules.email_security?.dmarc?.present) {
+    finding({
+      id:           "email_missing_dmarc",
+      module:       "email_security",
+      severity:     "high",
+      title:        "Missing DMARC Policy",
+      description:  `No DMARC TXT record found at _dmarc.${domain}. Email spoofing of this domain is not prevented.`,
+      score_impact: -15,
+    });
+    recommendations.push({
+      priority:    1,
+      module:      "email_security",
+      title:       "Implement DMARC",
+      description: `Create a TXT record at _dmarc.${domain}: v=DMARC1; p=quarantine; rua=mailto:dmarc-reports@${domain}`,
+    });
+  } else if (modules.email_security.dmarc.policy === "none") {
+    finding({
+      id:           "email_dmarc_policy_none",
+      module:       "email_security",
+      severity:     "medium",
+      title:        "DMARC Policy is Monitor-Only (p=none)",
+      description:  `DMARC is configured at _dmarc.${domain} but the policy is p=none — emails are not quarantined or rejected.`,
+      score_impact: -5,
+    });
+    recommendations.push({
+      priority:    2,
+      module:      "email_security",
+      title:       "Strengthen DMARC Policy",
+      description: "Change DMARC policy from p=none to p=quarantine or p=reject to actively block spoofed emails.",
+    });
+  }
+
+  if (!modules.email_security?.spf?.present) {
+    finding({
+      id:           "email_missing_spf",
+      module:       "email_security",
+      severity:     "high",
+      title:        "Missing SPF Record",
+      description:  `No SPF TXT record found for ${domain}. Any mail server can send email claiming to originate from this domain.`,
+      score_impact: -10,
+    });
+    recommendations.push({
+      priority:    1,
+      module:      "email_security",
+      title:       "Add SPF Record",
+      description: `Create a TXT record on ${domain}: v=spf1 include:your-mail-provider.com ~all`,
+    });
+  }
+
+  if (!modules.email_security?.dkim?.present) {
+    finding({
+      id:           "email_dkim_not_detected",
+      module:       "email_security",
+      severity:     "medium",
+      title:        "DKIM Not Detected",
+      description:  `No DKIM public key record found for ${domain} using common selectors. DKIM may use a custom selector or may not be configured.`,
+      score_impact: -5,
+    });
+    recommendations.push({
+      priority:    2,
+      module:      "email_security",
+      title:       "Enable DKIM Signing",
+      description: "Configure your email provider to sign outbound mail with DKIM and publish the public key as a TXT record.",
+    });
+  }
+
+  // Clamp and classify
+  score = Math.max(0, Math.min(100, Math.round(score)));
+
+  const risk_level =
+    score >= 90 ? "excellent" :
+    score >= 75 ? "good"      :
+    score >= 50 ? "moderate"  :
+    score >= 25 ? "high"      : "critical";
+
+  // Deduplicate recommendations and sort by priority
+  const seen = new Set();
+  const uniqueRecs = recommendations.filter((r) => {
+    const key = r.title;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  uniqueRecs.sort((a, b) => a.priority - b.priority);
+
+  return { score, risk_level, findings, recommendations: uniqueRecs };
+}
+
+// ── Main Scan Engine (runs via ctx.waitUntil) ─────────────────────────────────
+
+async function runScanEngine(scanId, domainId, domain, env) {
+  const startedAt = new Date().toISOString();
+
+  try {
+    // Mark scan as running in D1
+    await env.cybermeters_db
+      .prepare(`UPDATE scans SET status = 'running' WHERE id = ?`)
+      .bind(scanId)
+      .run();
+
+    // Run all 4 modules in parallel
+    const [dnsSettled, sslSettled, headersSettled, emailSettled] =
+      await Promise.allSettled([
+        runDnsModule(domain),
+        runSslModule(domain),
+        runHeadersModule(domain),
+        runEmailModule(domain),
+      ]);
+
+    const modules = {
+      dns: dnsSettled.status === "fulfilled"
+        ? dnsSettled.value
+        : { error: dnsSettled.reason?.message ?? "DNS module failed" },
+
+      ssl: sslSettled.status === "fulfilled"
+        ? sslSettled.value
+        : { error: sslSettled.reason?.message ?? "SSL module failed" },
+
+      headers: headersSettled.status === "fulfilled"
+        ? headersSettled.value
+        : { error: headersSettled.reason?.message ?? "Headers module failed" },
+
+      email_security: emailSettled.status === "fulfilled"
+        ? emailSettled.value
+        : { error: emailSettled.reason?.message ?? "Email module failed" },
+    };
+
+    // Compute Cyber Metrics Score
+    const { score, risk_level, findings, recommendations } = computeScore(modules, domain);
+
+    const completedAt = new Date().toISOString();
+
+    // Build full structured report
+    const report = {
+      scan_id:             scanId,
+      domain_id:           domainId,
+      domain,
+      status:              "completed",
+      cyber_metrics_score: score,
+      risk_level,
+      started_at:          startedAt,
+      completed_at:        completedAt,
+      findings,
+      recommendations,
+      modules,
+    };
+
+    // Write completed report to R2
+    await env.cybermeters_reports.put(
+      `reports/${scanId}.json`,
+      JSON.stringify(report, null, 2),
+      { httpMetadata: { contentType: "application/json" } }
+    );
+
+    // Update D1 scans row
+    await env.cybermeters_db
+      .prepare(`UPDATE scans SET status = 'completed', score = ?, rating = ? WHERE id = ?`)
+      .bind(score, risk_level, scanId)
+      .run();
+
+    // Persist findings to D1
+    for (const f of findings) {
+      await env.cybermeters_db
+        .prepare(
+          `INSERT INTO findings (id, scan_id, severity, title, recommendation)
+           VALUES (?, ?, ?, ?, ?)`
+        )
+        .bind(createId("finding"), scanId, f.severity, f.title, f.description)
+        .run();
+    }
+
+    // Persist remediation items to D1
+    for (const r of recommendations) {
+      await env.cybermeters_db
+        .prepare(
+          `INSERT INTO remediation_items (id, scan_id, priority, title, reason, action)
+           VALUES (?, ?, ?, ?, ?, ?)`
+        )
+        .bind(
+          createId("rem"),
+          scanId,
+          String(r.priority),
+          r.title,
+          r.module,
+          r.description
+        )
+        .run();
+    }
+
+  } catch (err) {
+    // Write failure state to both R2 and D1
+    const failedAt = new Date().toISOString();
+
+    await env.cybermeters_reports.put(
+      `reports/${scanId}.json`,
+      JSON.stringify({
+        scan_id:             scanId,
+        domain,
+        status:              "failed",
+        cyber_metrics_score: 0,
+        risk_level:          "unknown",
+        findings:            [],
+        recommendations:     [],
+        error:               err.message,
+        started_at:          startedAt,
+        failed_at:           failedAt,
+      }, null, 2),
+      { httpMetadata: { contentType: "application/json" } }
+    );
+
+    await env.cybermeters_db
+      .prepare(`UPDATE scans SET status = 'failed' WHERE id = ?`)
+      .bind(scanId)
+      .run();
+  }
+}
+
+// ── Worker Handler ────────────────────────────────────────────────────────────
+
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    // ── GET /health ──────────────────────────────────────────────────────
+    // ── GET /health ─────────────────────────────────────────────────────
     if (request.method === "GET" && url.pathname === "/health") {
       return Response.json({
-        status: "ok",
-        service: "cybermeters-scan-api"
+        status:  "ok",
+        service: "cybermeters-scan-api",
       });
     }
 
-    // ── POST /api/scan ───────────────────────────────────────────────────
+    // ── POST /api/scan ──────────────────────────────────────────────────
     if (request.method === "POST" && url.pathname === "/api/scan") {
-      const body = await request.json();
-      const domain = body.domain;
-
-      if (!isValidDomain(domain)) {
-        return Response.json(
-          { status: "error", message: "Invalid domain" },
-          { status: 400 }
-        );
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return Response.json({ error: "Invalid JSON body" }, { status: 400 });
       }
 
-      const userId = "user_demo";
+      const domain = body.domain?.trim().toLowerCase();
+
+      if (!isValidDomain(domain)) {
+        return Response.json({ error: "Invalid domain" }, { status: 400 });
+      }
+
+      const userId   = "user_demo";
       const domainId = createId("domain");
-      const scanId = createId("scan");
-      const createdAt = new Date().toISOString();
+      const scanId   = createId("scan");
       const reportKey = `reports/${scanId}.json`;
 
-      await env.cybermeters_db.prepare(
-        `INSERT INTO users (id, email, name, plan)
-         VALUES (?, ?, ?, ?)
-         ON CONFLICT(id) DO NOTHING`
-      )
+      // Ensure demo user exists
+      await env.cybermeters_db
+        .prepare(
+          `INSERT INTO users (id, email, name, plan)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(id) DO NOTHING`
+        )
         .bind(userId, "demo@cybermeters.com", "Demo User", "free")
         .run();
 
-      await env.cybermeters_db.prepare(
-        `INSERT INTO domains (id, user_id, domain)
-         VALUES (?, ?, ?)`
-      )
+      // Register domain
+      await env.cybermeters_db
+        .prepare(`INSERT INTO domains (id, user_id, domain) VALUES (?, ?, ?)`)
         .bind(domainId, userId, domain)
         .run();
 
-      await env.cybermeters_db.prepare(
-        `INSERT INTO scans (id, domain_id, domain, status)
-         VALUES (?, ?, ?, ?)`
-      )
-        .bind(scanId, domainId, domain, "queued")
+      // Create scan row — status 'running' (engine starts immediately)
+      await env.cybermeters_db
+        .prepare(
+          `INSERT INTO scans (id, domain_id, domain, status) VALUES (?, ?, ?, ?)`
+        )
+        .bind(scanId, domainId, domain, "running")
         .run();
 
+      // Write placeholder report to R2 so GET /report returns 200 immediately
       await env.cybermeters_reports.put(
         reportKey,
         JSON.stringify({
-          scan_id: scanId,
-          domain_id: domainId,
+          scan_id:             scanId,
+          domain_id:           domainId,
           domain,
-          status: "queued",
-          created_at: createdAt,
+          status:              "running",
           cyber_metrics_score: 0,
-          risk_level: "unknown",
-          findings: [],
-          recommendations: [],
-          report_type: "initial_scan_record",
-          message: "Initial queued scan report stored in R2"
+          risk_level:          "unknown",
+          findings:            [],
+          recommendations:     [],
+          message:             "Scan engine is running. Poll GET /api/scans/:id for completion.",
         }, null, 2),
-        {
-          httpMetadata: {
-            contentType: "application/json"
-          }
-        }
+        { httpMetadata: { contentType: "application/json" } }
       );
 
-      return Response.json({
-        status: "queued",
-        scan_id: scanId,
-        domain_id: domainId,
-        domain,
-        report_key: reportKey,
-        message: "Scan request stored in D1 and initial report stored in R2"
-      });
+      // Fire the scan engine after the response is sent
+      ctx.waitUntil(runScanEngine(scanId, domainId, domain, env));
+
+      return Response.json(
+        {
+          status:     "running",
+          scan_id:    scanId,
+          domain_id:  domainId,
+          domain,
+          report_key: reportKey,
+          message:    "Scan engine started. Poll GET /api/scans/:id until status is completed, then GET /api/scans/:id/report.",
+        },
+        { status: 202 }
+      );
     }
 
-    // ── GET /api/scans ───────────────────────────────────────────────────
+    // ── GET /api/scans ──────────────────────────────────────────────────
     if (request.method === "GET" && url.pathname === "/api/scans") {
-      const result = await env.cybermeters_db.prepare(
-        `SELECT id, domain, status, created_at
-         FROM scans
-         ORDER BY created_at DESC
-         LIMIT 20`
-      ).all();
+      const result = await env.cybermeters_db
+        .prepare(
+          `SELECT id, domain, status, score, rating, created_at
+           FROM scans
+           ORDER BY created_at DESC
+           LIMIT 20`
+        )
+        .all();
 
-      return Response.json({
-        scans: result.results
-      });
+      return Response.json({ scans: result.results });
     }
 
-    // ── GET /api/scans/:id/report ────────────────────────────────────────
-    // Must be checked BEFORE the generic /api/scans/:id handler below.
+    // ── GET /api/scans/:id/report ───────────────────────────────────────
+    // Must be checked BEFORE the generic /api/scans/:id route below.
     if (
       request.method === "GET" &&
       /^\/api\/scans\/[^/]+\/report$/.test(url.pathname)
     ) {
       const scanId = url.pathname.split("/")[3];
 
-      // 1. Verify the scan exists in D1
-      const scan = await env.cybermeters_db.prepare(
-        `SELECT id, domain_id, domain, status, created_at
-         FROM scans
-         WHERE id = ?`
-      )
+      const scan = await env.cybermeters_db
+        .prepare(
+          `SELECT id, domain_id, domain, status, score, rating, created_at
+           FROM scans WHERE id = ?`
+        )
         .bind(scanId)
         .first();
 
       if (!scan) {
-        return Response.json(
-          { error: "Scan not found" },
-          { status: 404 }
-        );
+        return Response.json({ error: "Scan not found" }, { status: 404 });
       }
 
-      // 2. Read the report from R2
-      const reportKey = `reports/${scanId}.json`;
-      const obj = await env.cybermeters_reports.get(reportKey);
-
+      const obj = await env.cybermeters_reports.get(`reports/${scanId}.json`);
       if (!obj) {
-        return Response.json(
-          { error: "Report not found" },
-          { status: 404 }
-        );
+        return Response.json({ error: "Report not found" }, { status: 404 });
       }
 
-      // 3. Parse the stored JSON
       const raw = await obj.json();
 
-      // 4. Return structured response — all required fields guaranteed,
-      //    extra fields from the report passed through as-is.
       return Response.json({
-        scan_id: scan.id,
-        domain: scan.domain,
-        status: scan.status,
+        scan_id:             scan.id,
+        domain:              scan.domain,
+        status:              scan.status,
         cyber_metrics_score: raw.cyber_metrics_score ?? 0,
-        risk_level: raw.risk_level ?? "unknown",
-        findings: Array.isArray(raw.findings) ? raw.findings : [],
-        recommendations: Array.isArray(raw.recommendations) ? raw.recommendations : [],
-        // Pass through any additional fields the scan engine may have written
-        ...(raw.report_type   ? { report_type: raw.report_type }     : {}),
-        ...(raw.created_at    ? { created_at: raw.created_at }       : {}),
-        ...(raw.completed_at  ? { completed_at: raw.completed_at }   : {}),
-        ...(raw.message       ? { message: raw.message }             : {}),
+        risk_level:          raw.risk_level          ?? "unknown",
+        findings:            Array.isArray(raw.findings)        ? raw.findings        : [],
+        recommendations:     Array.isArray(raw.recommendations) ? raw.recommendations : [],
+        modules:             raw.modules ?? {},
+        ...(raw.started_at   ? { started_at:   raw.started_at   } : {}),
+        ...(raw.completed_at ? { completed_at: raw.completed_at } : {}),
+        ...(raw.failed_at    ? { failed_at:    raw.failed_at    } : {}),
+        ...(raw.message      ? { message:      raw.message      } : {}),
+        ...(raw.error        ? { error:        raw.error        } : {}),
       });
     }
 
-    // ── GET /api/scans/:id ───────────────────────────────────────────────
+    // ── GET /api/scans/:id ──────────────────────────────────────────────
     if (
       request.method === "GET" &&
       url.pathname.startsWith("/api/scans/")
     ) {
       const scanId = url.pathname.split("/").pop();
 
-      const scan = await env.cybermeters_db.prepare(
-        `SELECT id, domain_id, domain, status, created_at
-         FROM scans
-         WHERE id = ?`
-      )
+      const scan = await env.cybermeters_db
+        .prepare(
+          `SELECT id, domain_id, domain, status, score, rating, created_at
+           FROM scans WHERE id = ?`
+        )
         .bind(scanId)
         .first();
 
       if (!scan) {
-        return Response.json(
-          { error: "Scan not found" },
-          { status: 404 }
-        );
+        return Response.json({ error: "Scan not found" }, { status: 404 });
       }
 
       return Response.json({
         scan,
-        report_key: `reports/${scan.id}.json`
+        report_key: `reports/${scan.id}.json`,
       });
     }
 
-    // ── GET /api/domain/:domain/history ──────────────────────────────────
+    // ── GET /api/domain/:domain/history ────────────────────────────────
     if (
       request.method === "GET" &&
       url.pathname.startsWith("/api/domain/") &&
       url.pathname.endsWith("/history")
     ) {
-      const parts = url.pathname.split("/");
+      const parts  = url.pathname.split("/");
       const domain = decodeURIComponent(parts[3]);
 
       if (!isValidDomain(domain)) {
-        return Response.json(
-          { error: "Invalid domain" },
-          { status: 400 }
-        );
+        return Response.json({ error: "Invalid domain" }, { status: 400 });
       }
 
-      const history = await env.cybermeters_db.prepare(
-        `SELECT id, domain_id, domain, status, created_at
-         FROM scans
-         WHERE domain = ?
-         ORDER BY created_at DESC`
-      )
+      const history = await env.cybermeters_db
+        .prepare(
+          `SELECT id, domain_id, domain, status, score, rating, created_at
+           FROM scans
+           WHERE domain = ?
+           ORDER BY created_at DESC`
+        )
         .bind(domain)
         .all();
 
-      return Response.json({
-        domain,
-        scans: history.results
-      });
+      return Response.json({ domain, scans: history.results });
     }
 
-    return Response.json(
-      { error: "Not found" },
-      { status: 404 }
-    );
-  }
+    return Response.json({ error: "Not found" }, { status: 404 });
+  },
 };
