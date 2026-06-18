@@ -99,11 +99,15 @@ const SECURITY_HEADERS = [
 // ── Module 1: DNS Analysis ────────────────────────────────────────────────────
 
 async function runDnsModule(domain) {
-  const [aRes, aaaaRes, nsRes, mxRes] = await Promise.allSettled([
+  // CAA runs here alongside A/AAAA/NS/MX — all parallel, no extra round-trip cost.
+  // Placing CAA in the DNS module avoids adding subrequests to later phases
+  // where the free-plan 50-subrequest budget may already be exhausted.
+  const [aRes, aaaaRes, nsRes, mxRes, caaRes] = await Promise.allSettled([
     dnsQuery(domain, "A"),
     dnsQuery(domain, "AAAA"),
     dnsQuery(domain, "NS"),
     dnsQuery(domain, "MX"),
+    dnsQuery(domain, "CAA"),
   ]);
 
   const pick = (r) =>
@@ -114,14 +118,42 @@ async function runDnsModule(domain) {
   const nsRecords   = pick(nsRes);
   const mxRecords   = pick(mxRes);
 
+  // ── CAA Record Analysis ─────────────────────────────────────────────────
+  let caa;
+  if (caaRes.status === "fulfilled") {
+    const answers = caaRes.value.Answer || [];
+    const records = answers.map((r) => (r.data || "").trim()).filter(Boolean);
+    function extractCaaTag(tag) {
+      return records
+        .filter((r) => new RegExp(`^0\\s+${tag}\\s+`, "i").test(r))
+        .map((r) => r.replace(new RegExp(`^0\\s+${tag}\\s+"?`, "i"), "").replace(/"$/, "").trim())
+        .filter(Boolean);
+    }
+    caa = {
+      present:          records.length > 0,
+      records,
+      issuers:          extractCaaTag("issue"),
+      wildcard_issuers: extractCaaTag("issuewild"),
+      iodef:            extractCaaTag("iodef"),
+      error:            null,
+    };
+  } else {
+    caa = {
+      present: false, records: [], issuers: [],
+      wildcard_issuers: [], iodef: [],
+      error: caaRes.reason?.message ?? "CAA lookup failed",
+    };
+  }
+
   return {
-    resolves:    aRecords.length > 0 || aaaaRecords.length > 0,
-    has_ipv6:    aaaaRecords.length > 0,
-    has_mx:      mxRecords.length > 0,
-    nameservers: nsRecords.map((r) => r.data).filter(Boolean),
-    a_records:   aRecords.map((r) => ({ value: r.data, ttl: r.TTL })),
+    resolves:     aRecords.length > 0 || aaaaRecords.length > 0,
+    has_ipv6:     aaaaRecords.length > 0,
+    has_mx:       mxRecords.length > 0,
+    nameservers:  nsRecords.map((r) => r.data).filter(Boolean),
+    a_records:    aRecords.map((r) => ({ value: r.data, ttl: r.TTL })),
     aaaa_records: aaaaRecords.map((r) => ({ value: r.data, ttl: r.TTL })),
-    mx_records:  mxRecords.map((r) => ({ value: r.data, ttl: r.TTL })),
+    mx_records:   mxRecords.map((r) => ({ value: r.data, ttl: r.TTL })),
+    caa,
   };
 }
 
@@ -216,6 +248,7 @@ async function runHeadersModule(domain) {
   let accessible   = false;
   let statusCode   = null;
   let responseUrl  = null;
+  let setCookieRaw = [];   // captured here so enrichment module needs no extra fetch
 
   // Prefer HTTPS; fall back to HTTP
   for (const proto of ["https", "http"]) {
@@ -230,6 +263,13 @@ async function runHeadersModule(domain) {
       for (const h of SECURITY_HEADERS) {
         headerValues[h.name] = res.headers.get(h.name) || null;
       }
+      // Capture Set-Cookie — Cloudflare Workers supports getAll() for this header
+      // because multiple Set-Cookie values cannot be safely comma-joined.
+      try {
+        setCookieRaw = typeof res.headers.getAll === "function"
+          ? res.headers.getAll("set-cookie")
+          : (res.headers.get("set-cookie") || "").split(/\r?\n/).filter(Boolean);
+      } catch { setCookieRaw = []; }
       break;
     }
   }
@@ -239,11 +279,12 @@ async function runHeadersModule(domain) {
 
   return {
     accessible,
-    status_code:  statusCode,
-    response_url: responseUrl,
+    status_code:   statusCode,
+    response_url:  responseUrl,
     present,
     missing,
-    values: headerValues,
+    values:        headerValues,
+    set_cookie_raw: setCookieRaw,   // raw Set-Cookie header values for enrichment module
   };
 }
 
@@ -310,6 +351,98 @@ async function runEmailModule(domain) {
       selector: dkimSelector,
     },
   };
+}
+
+// ── Module: Domain Security Enrichment ───────────────────────────────────────
+//
+// Three low-cost checks that run in parallel during Phase 1:
+//
+//   CAA     — DNS CAA record lookup (DoH).  Detects missing CAA, lists allowed
+//             CAs, wildcard issuers, and IODEF incident-report addresses.
+//
+//   HSTS    — Parses the Strict-Transport-Security header from the live HTTPS
+//             response.  Computes preload eligibility (max-age >= 1 yr,
+//             includeSubDomains, preload directive all required).
+//
+//   Cookies — Parses Set-Cookie headers from the same HTTPS response.
+//             Flags cookies missing the Secure, HttpOnly, or SameSite attributes.
+//
+// All three sub-checks are internally parallel (Promise.allSettled). Individual
+// sub-failures are non-fatal and leave only that sub-section errored.
+
+/**
+ * Pure computation — zero network I/O.
+ *
+ * Reads data already captured by earlier modules:
+ *   CAA    ← modules.dns.caa        (added to runDnsModule in Phase 1)
+ *   HSTS   ← modules.headers.values["strict-transport-security"]
+ *   Cookies ← modules.headers.set_cookie_raw  (added to runHeadersModule)
+ *
+ * This design avoids consuming additional subrequests on Cloudflare Workers'
+ * free-plan 50-subrequest budget.
+ */
+function runDomainSecurityEnrichmentModule(domain, modules) {
+  // ── 1. CAA — read from DNS module ────────────────────────────────────────
+  const caa = modules?.dns?.caa ?? {
+    present: false, records: [], issuers: [],
+    wildcard_issuers: [], iodef: [],
+    error: "skipped_due_to_subrequest_budget",
+  };
+
+  // ── 2. HSTS — read from headers module ───────────────────────────────────
+  const hstsRaw = modules?.headers?.values?.["strict-transport-security"] || null;
+  let hsts;
+  if (hstsRaw) {
+    const parts  = hstsRaw.toLowerCase().split(";").map((p) => p.trim());
+    const maxDir = parts.find((p) => p.startsWith("max-age"));
+    let maxAge   = null;
+    if (maxDir) {
+      const m = maxDir.match(/max-age\s*=\s*(\d+)/);
+      if (m) maxAge = parseInt(m[1], 10);
+    }
+    const inclSub = parts.includes("includesubdomains");
+    const preDir  = parts.includes("preload");
+    hsts = {
+      present:            true,
+      value:              hstsRaw,
+      max_age:            maxAge,
+      include_subdomains: inclSub,
+      preload_directive:  preDir,
+      preload_eligible:   maxAge !== null && maxAge >= 31_536_000 && inclSub && preDir,
+      error:              null,
+    };
+  } else {
+    hsts = {
+      present: false, value: null, max_age: null,
+      include_subdomains: false, preload_directive: false,
+      preload_eligible: false, error: null,
+    };
+  }
+
+  // ── 3. Cookies — read from headers module ────────────────────────────────
+  const rawCookies = modules?.headers?.set_cookie_raw || [];
+  const parsed = rawCookies.map((raw) => {
+    const parts  = raw.split(";").map((p) => p.trim());
+    const name   = (parts[0] || "").split("=")[0].trim();
+    const attrs  = parts.slice(1).map((p) => p.toLowerCase());
+    const ss     = attrs.find((a) => a.startsWith("samesite="));
+    return {
+      name,
+      secure:   attrs.includes("secure"),
+      httponly: attrs.includes("httponly"),
+      samesite: ss ? ss.split("=")[1] : null,
+    };
+  });
+  const cookies = {
+    found:          parsed.length,
+    cookies:        parsed,
+    insecure_count: parsed.filter((c) => !c.secure).length,
+    no_httponly:    parsed.filter((c) => !c.httponly).length,
+    no_samesite:    parsed.filter((c) => !c.samesite).length,
+    error:          null,
+  };
+
+  return { caa, hsts, cookies, source: "dns_headers_analysis", error: null };
 }
 
 // ── Module 5: Technology Detection ───────────────────────────────────────────
@@ -3767,6 +3900,106 @@ async function runScanEngine(scanId, domainId, domain, env) {
       }
     }
 
+    // Append domain security enrichment findings (score_impact: 0 — no major scoring changes)
+    const enrichMod = modules.domain_security_enrichment;
+    if (enrichMod && !enrichMod.error) {
+      // ── CAA ──────────────────────────────────────────────────────────────
+      if (enrichMod.caa && !enrichMod.caa.error) {
+        if (!enrichMod.caa.present) {
+          findings.push({
+            id:             "dse_missing_caa",
+            module:         "domain_security_enrichment",
+            severity:       "medium",
+            score_impact:   0,
+            title:          "No CAA DNS Record",
+            description:    "This domain has no CAA (Certification Authority Authorization) record. Without CAA, any publicly trusted CA can issue TLS certificates for this domain, increasing the risk of mis-issuance.",
+            recommendation: `Add a DNS CAA record to restrict which CAs may issue certificates. Example: \`0 issue "letsencrypt.org"\`, \`0 issue "pki.goog"\`. Add \`0 iodef "mailto:security@${domain}"\` to receive mis-issuance reports.`,
+          });
+        } else if (enrichMod.caa.issuers.length === 0 && enrichMod.caa.records.length > 0) {
+          findings.push({
+            id:             "dse_caa_no_issuers",
+            module:         "domain_security_enrichment",
+            severity:       "low",
+            score_impact:   0,
+            title:          "CAA Record Present But No Issuers Listed",
+            description:    `A CAA record exists but contains no \`issue\` or \`issuewild\` tags, which effectively blocks all certificate issuance for this domain.`,
+            recommendation: `Add at least one \`0 issue "<ca>"\` tag to allow your CA to issue certificates.`,
+          });
+        }
+      }
+
+      // ── HSTS ─────────────────────────────────────────────────────────────
+      if (enrichMod.hsts && !enrichMod.hsts.error && enrichMod.hsts.present) {
+        const h = enrichMod.hsts;
+        if (h.max_age !== null && h.max_age < 31_536_000) {
+          findings.push({
+            id:             "dse_hsts_short_maxage",
+            module:         "domain_security_enrichment",
+            severity:       "low",
+            score_impact:   0,
+            title:          "HSTS max-age Below Recommended Minimum",
+            description:    `The HSTS header specifies max-age=${h.max_age} seconds (${Math.round(h.max_age / 86400)} days). The recommended minimum is 31,536,000 (365 days) to qualify for the HSTS preload list and ensure robust protection.`,
+            recommendation: "Set Strict-Transport-Security: max-age=31536000; includeSubDomains; preload",
+          });
+        }
+        if (!h.preload_eligible && h.present) {
+          const missing = [];
+          if (!h.include_subdomains)   missing.push("includeSubDomains");
+          if (!h.preload_directive)    missing.push("preload directive");
+          if (h.max_age === null || h.max_age < 31_536_000) missing.push("max-age ≥ 31536000");
+          if (missing.length > 0) {
+            findings.push({
+              id:             "dse_hsts_not_preload_eligible",
+              module:         "domain_security_enrichment",
+              severity:       "low",
+              score_impact:   0,
+              title:          "HSTS Not Eligible for Preload List",
+              description:    `This domain's HSTS configuration is missing the following preload requirements: ${missing.join(", ")}. Preloaded HSTS protects users on their very first visit before any HSTS header is seen.`,
+              recommendation: "Update to: Strict-Transport-Security: max-age=31536000; includeSubDomains; preload — then submit to https://hstspreload.org",
+            });
+          }
+        }
+      }
+
+      // ── Cookies ───────────────────────────────────────────────────────────
+      if (enrichMod.cookies && !enrichMod.cookies.error && enrichMod.cookies.found > 0) {
+        const c = enrichMod.cookies;
+        if (c.insecure_count > 0) {
+          findings.push({
+            id:             "dse_cookie_no_secure",
+            module:         "domain_security_enrichment",
+            severity:       "high",
+            score_impact:   0,
+            title:          `${c.insecure_count} Cookie${c.insecure_count > 1 ? "s" : ""} Missing Secure Flag`,
+            description:    `${c.insecure_count} of ${c.found} cookie${c.found > 1 ? "s" : ""} set by ${domain} lack the Secure flag. These cookies may be transmitted over unencrypted HTTP connections, exposing session tokens to network interception.`,
+            recommendation: "Add the Secure attribute to all session and authentication cookies: Set-Cookie: name=value; Secure; HttpOnly; SameSite=Strict",
+          });
+        }
+        if (c.no_httponly > 0) {
+          findings.push({
+            id:             "dse_cookie_no_httponly",
+            module:         "domain_security_enrichment",
+            severity:       "medium",
+            score_impact:   0,
+            title:          `${c.no_httponly} Cookie${c.no_httponly > 1 ? "s" : ""} Missing HttpOnly Flag`,
+            description:    `${c.no_httponly} cookie${c.no_httponly > 1 ? "s are" : " is"} accessible via JavaScript. If an XSS vulnerability exists, these cookies can be exfiltrated by injected scripts.`,
+            recommendation: "Add HttpOnly to all cookies that do not need to be accessed by JavaScript (session tokens, auth cookies).",
+          });
+        }
+        if (c.no_samesite > 0) {
+          findings.push({
+            id:             "dse_cookie_no_samesite",
+            module:         "domain_security_enrichment",
+            severity:       "low",
+            score_impact:   0,
+            title:          `${c.no_samesite} Cookie${c.no_samesite > 1 ? "s" : ""} Missing SameSite Attribute`,
+            description:    `${c.no_samesite} cookie${c.no_samesite > 1 ? "s do" : " does"} not specify a SameSite attribute. Without SameSite, browsers may send these cookies in cross-site requests, enabling CSRF attacks.`,
+            recommendation: "Set SameSite=Strict or SameSite=Lax on all cookies. Use SameSite=None; Secure only for cookies that must be sent in cross-site contexts.",
+          });
+        }
+      }
+    }
+
     // Phase 4: Historical Change Detection — runs after computeScore so current
     // score and findings are known. Mutates modules in place before R2 write.
     try {
@@ -3832,6 +4065,20 @@ async function runScanEngine(scanId, domainId, domain, env) {
     // Phase 7b: Admin surface detection — pure fingerprint pass over HTTP probe
     // results already collected by runExposureModule.  Zero additional I/O.
     modules.admin_surface_detection = runAdminSurfaceModule(modules);
+
+    // Phase 7c: Domain security enrichment — pure computation, zero network I/O.
+    // Reads CAA from modules.dns.caa, HSTS from modules.headers, cookies from
+    // modules.headers.set_cookie_raw.  All data was captured in Phase 1.
+    try {
+      modules.domain_security_enrichment = runDomainSecurityEnrichmentModule(domain, modules);
+    } catch {
+      modules.domain_security_enrichment = {
+        caa:     { present: false, records: [], issuers: [], wildcard_issuers: [], iodef: [], error: "enrichment failed" },
+        hsts:    { present: false, value: null, max_age: null, include_subdomains: false, preload_directive: false, preload_eligible: false, error: "enrichment failed" },
+        cookies: { found: 0, cookies: [], insecure_count: 0, no_httponly: 0, no_samesite: 0, error: "enrichment failed" },
+        source:  "dns_headers_analysis", error: "enrichment failed",
+      };
+    }
 
     const completedAt = new Date().toISOString();
 
