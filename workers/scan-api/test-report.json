@@ -1,0 +1,9 @@
+{
+  "scan_id": "scan_410c45d9-ba06-4a2d-b586-ce1289ef9cae",
+  "domain_id": "domain_aba30ef5-d711-4be4-95bc-705a56398e1f",
+  "domain": "blackbullbarbers.co.uk",
+  "status": "queued",
+  "created_at": "2026-06-18T08:56:03.544Z",
+  "report_type": "initial_scan_record",
+  "message": "Initial queued scan report stored in R2"
+}

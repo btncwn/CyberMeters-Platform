@@ -6,3 +6,7 @@ compatibility_date = "2026-06-18"
 binding = "cybermeters_db"
 database_name = "cybermeters-db"
 database_id = "fd6792cb-441a-44a7-8ca2-9a0b411ec706"
+
+[[r2_buckets]]
+binding = "cybermeters_reports"
+bucket_name = "cybermeters-reports"
