@@ -1644,6 +1644,140 @@ async function runExposureModule(domain, subdomains) {
   };
 }
 
+// ── Admin Surface Detection Module ───────────────────────────────────────────
+//
+// Pure function — reads existing asset_exposure probe results with no extra I/O.
+// Fingerprints each reachable HTTP asset by title, Server header, and hostname
+// pattern to identify exposed administrative interfaces and high-value services.
+//
+// Confidence rules:
+//   "confirmed" — title + (host OR server) both match
+//   "high"      — title alone, OR host + server both match
+//   "medium"    — hostname alone matches a specific-enough pattern
+//
+// No I/O means this can run synchronously after the exposure module without
+// consuming additional CPU budget or Worker timeout.
+
+const ADMIN_SURFACE_SIGS = [
+  // ── CI/CD ─────────────────────────────────────────────────────────────────
+  { product: "Jenkins",                category: "admin_panel",    risk_level: "critical",
+    title_re: /\bjenkins\b/i,          server_re: /\bjetty\b/i,    host_re: /\b(jenkins|hudson)\b/i },
+
+  // ── Monitoring ────────────────────────────────────────────────────────────
+  { product: "Grafana",                category: "monitoring",     risk_level: "high",
+    title_re: /\bgrafana\b/i,          server_re: /\bgrafana\b/i,  host_re: /\bgrafana\b/i },
+
+  { product: "Kibana",                 category: "monitoring",     risk_level: "critical",
+    title_re: /\bkibana\b/i,           server_re: null,            host_re: /\bkibana\b/i },
+
+  { product: "Elasticsearch",          category: "infrastructure", risk_level: "critical",
+    title_re: /\belasticsearch\b/i,    server_re: /\belastic(search)?\b/i, host_re: /\b(elasticsearch|elastic)\b/i },
+
+  { product: "Prometheus",             category: "monitoring",     risk_level: "high",
+    title_re: /\bprometheus\b/i,       server_re: null,            host_re: /\b(prometheus|prom)\b/i },
+
+  // ── Database Management UIs ───────────────────────────────────────────────
+  { product: "phpMyAdmin",             category: "admin_panel",    risk_level: "critical",
+    title_re: /\bphpmyadmin\b/i,       server_re: null,            host_re: /\b(phpmyadmin|pma)\b/i },
+
+  { product: "Adminer",                category: "admin_panel",    risk_level: "high",
+    title_re: /\badminer\b/i,          server_re: null,            host_re: /\badminer\b/i },
+
+  // ── DevOps / Code Quality ─────────────────────────────────────────────────
+  { product: "SonarQube",              category: "source_control", risk_level: "high",
+    title_re: /\bsonarqube\b/i,        server_re: null,            host_re: /\b(sonarqube|sonar)\b/i },
+
+  { product: "RabbitMQ",               category: "infrastructure", risk_level: "high",
+    title_re: /\brabbitmq\b/i,         server_re: /\bcowboy\b/i,   host_re: /\b(rabbitmq|amqp|broker)\b/i },
+
+  { product: "GitLab",                 category: "source_control", risk_level: "medium",
+    title_re: /\bgitlab\b/i,           server_re: null,            host_re: /\bgitlab\b/i },
+
+  // ── Collaboration / Issue Tracking ────────────────────────────────────────
+  { product: "Jira",                   category: "collaboration",  risk_level: "medium",
+    title_re: /\bjira\b/i,             server_re: null,            host_re: /\bjira\b/i },
+
+  { product: "Confluence",             category: "collaboration",  risk_level: "medium",
+    title_re: /\bconfluence\b/i,       server_re: null,            host_re: /\bconfluence\b/i },
+
+  // ── VPN / Remote Access ───────────────────────────────────────────────────
+  { product: "OpenVPN Access Server",  category: "vpn",            risk_level: "high",
+    title_re: /\bopenvpn\b/i,          server_re: /\bopenvpn\b/i,  host_re: /\bopenvpn\b/i },
+
+  { product: "Fortinet SSL VPN",       category: "vpn",            risk_level: "high",
+    title_re: /ssl[\s-]?vpn|fortinet|forticlient/i,
+    server_re: /\bfortinet\b|\bfortigate\b/i,
+    host_re:   /\b(forti|fortigate|sslvpn)\b/i },
+
+  { product: "Palo Alto GlobalProtect", category: "vpn",           risk_level: "high",
+    title_re: /globalprotect|palo[\s-]?alto/i,
+    server_re: /\bpanos\b/i,
+    host_re:   /\b(globalprotect|paloalto)\b/i },
+
+  { product: "Citrix Gateway",         category: "vpn",            risk_level: "high",
+    title_re: /\bcitrix\b|\bnetscaler\b/i,
+    server_re: /\bCitrix\b|\bNetScaler\b/i,
+    host_re:   /\b(citrix|netscaler)\b/i },
+
+  // ── Email Infrastructure ──────────────────────────────────────────────────
+  { product: "Outlook Web Access",     category: "collaboration",  risk_level: "medium",
+    title_re: /outlook\s*web\s*a(?:pp|ccess)|owa\b/i,
+    server_re: /\bMicrosoft-IIS\b/i,
+    host_re:   /\b(owa|webmail)\b/i },
+
+  { product: "Exchange Admin Center",  category: "admin_panel",    risk_level: "high",
+    title_re: /exchange\s*admin(?:\s*center)?/i,
+    server_re: /\bMicrosoft-IIS\b/i,
+    host_re:   /\b(exchange|eac)\b/i },
+];
+
+/**
+ * Detect exposed administrative interfaces from existing HTTP probe results.
+ * Pure synchronous — no network I/O.  Called after runExposureModule completes.
+ */
+function runAdminSurfaceModule(modules) {
+  const exposureAssets = modules?.asset_exposure?.assets || [];
+  const reachable      = exposureAssets.filter((a) => a.reachable);
+
+  const seen     = new Set();   // deduplicate (hostname, product)
+  const services = [];
+
+  for (const asset of reachable) {
+    for (const sig of ADMIN_SURFACE_SIGS) {
+      const key = `${asset.host}::${sig.product}`;
+      if (seen.has(key)) continue;
+
+      const titleHit  = sig.title_re  ? sig.title_re.test(asset.title  || "") : false;
+      const serverHit = sig.server_re ? sig.server_re.test(asset.server || "") : false;
+      const hostHit   = sig.host_re   ? sig.host_re.test(asset.host    || "") : false;
+
+      let confidence = null;
+      if      (titleHit && (hostHit || serverHit)) confidence = "confirmed";
+      else if (titleHit)                            confidence = "high";
+      else if (hostHit  && serverHit)               confidence = "high";
+      else if (hostHit)                             confidence = "medium";
+
+      if (!confidence) continue;
+
+      seen.add(key);
+      services.push({
+        hostname:   asset.host,
+        product:    sig.product,
+        category:   sig.category,
+        confidence,
+        risk_level: sig.risk_level,
+      });
+    }
+  }
+
+  return {
+    detected: services.length,
+    services,
+    source:   "asset_exposure_fingerprint",
+    error:    null,
+  };
+}
+
 // ── Intelligence Module: CVE Correlation ─────────────────────────────────────
 // Ported from cve_lookup.py — queries NVD API for technologies detected by
 // runTechModule.  Only queries technologies present in ALLOWED_CVE_TECHNOLOGIES.
@@ -3591,6 +3725,48 @@ async function runScanEngine(scanId, domainId, domain, env) {
       }
     }
 
+    // Append admin surface detection findings (score_impact: 0 — no scoring changes in Phase 1)
+    const adminMod = modules.admin_surface_detection;
+    if (adminMod && !adminMod.error && adminMod.detected > 0) {
+      const criticalSvcs = adminMod.services.filter((s) => s.risk_level === "critical");
+      const highSvcs     = adminMod.services.filter((s) => s.risk_level === "high");
+      const mediumSvcs   = adminMod.services.filter((s) => s.risk_level === "medium");
+
+      if (criticalSvcs.length > 0) {
+        findings.push({
+          id:           "admin_surface_critical",
+          module:       "admin_surface_detection",
+          severity:     "critical",
+          score_impact: 0,
+          title:        `Critical Admin Interface${criticalSvcs.length > 1 ? "s" : ""} Exposed`,
+          description:  `${criticalSvcs.length} critical administrative interface${criticalSvcs.length > 1 ? "s are" : " is"} publicly reachable: ${criticalSvcs.map((s) => `${s.hostname} (${s.product})`).join(", ")}. These provide direct access to sensitive systems and should never be internet-facing.`,
+          recommendation: `Immediately restrict access to: ${criticalSvcs.map((s) => s.hostname).join(", ")}. Place behind VPN or allowlist-only firewall rules.`,
+        });
+      }
+      if (highSvcs.length > 0) {
+        findings.push({
+          id:           "admin_surface_high",
+          module:       "admin_surface_detection",
+          severity:     "high",
+          score_impact: 0,
+          title:        `High-Risk Admin Interface${highSvcs.length > 1 ? "s" : ""} Exposed`,
+          description:  `${highSvcs.length} high-risk administrative interface${highSvcs.length > 1 ? "s are" : " is"} publicly reachable: ${highSvcs.map((s) => `${s.hostname} (${s.product})`).join(", ")}.`,
+          recommendation: `Restrict access to: ${highSvcs.map((s) => s.hostname).join(", ")} via VPN or IP allowlist.`,
+        });
+      }
+      if (mediumSvcs.length > 0) {
+        findings.push({
+          id:           "admin_surface_medium",
+          module:       "admin_surface_detection",
+          severity:     "medium",
+          score_impact: 0,
+          title:        `Collaboration Tool${mediumSvcs.length > 1 ? "s" : ""} Publicly Accessible`,
+          description:  `${mediumSvcs.length} collaboration or source-control service${mediumSvcs.length > 1 ? "s are" : " is"} publicly accessible: ${mediumSvcs.map((s) => `${s.hostname} (${s.product})`).join(", ")}. Verify these require authentication and enforce MFA.`,
+          recommendation: `Ensure ${mediumSvcs.map((s) => s.hostname).join(", ")} enforce MFA and are patched to the latest version.`,
+        });
+      }
+    }
+
     // Phase 4: Historical Change Detection — runs after computeScore so current
     // score and findings are known. Mutates modules in place before R2 write.
     try {
@@ -3652,6 +3828,10 @@ async function runScanEngine(scanId, domainId, domain, env) {
     // Phase 7: Cloud storage discovery — pure pattern analysis, zero I/O.
     // Needs subdomains + dns_bruteforce + asset_exposure to be complete first.
     modules.cloud_storage_discovery = runCloudStorageModule(domain, modules);
+
+    // Phase 7b: Admin surface detection — pure fingerprint pass over HTTP probe
+    // results already collected by runExposureModule.  Zero additional I/O.
+    modules.admin_surface_detection = runAdminSurfaceModule(modules);
 
     const completedAt = new Date().toISOString();
 
@@ -3719,6 +3899,13 @@ async function runScanEngine(scanId, domainId, domain, env) {
       await upsertAssetInventory(scanId, domainId, domain, modules, env);
     } catch { /* non-fatal — inventory update will catch up on next scan */ }
 
+    // Phase 8b: Admin Surface Events — one asset_event per detected service per workspace.
+    // Runs after upsertAssetInventory so workspace_assets rows are already present,
+    // allowing asset_id FK resolution.
+    try {
+      await insertAdminSurfaceEvents(scanId, domainId, modules.admin_surface_detection, env);
+    } catch { /* non-fatal */ }
+
     // Phase 9: Asset Change Alert — one grouped email per workspace per scan.
     // Reads asset_events written by Phase 8, deduped via asset_alert_records.
     // Fully non-fatal — swallows all errors.
@@ -3760,6 +3947,70 @@ async function runScanEngine(scanId, domainId, domain, env) {
   }
 }
 
+// ── Admin Surface Event Insertion ────────────────────────────────────────────
+//
+// Writes one asset_event per detected admin service per workspace per scan.
+// Called after upsertAssetInventory so workspace_assets rows already exist.
+// All errors are non-fatal — the scan is already marked completed by this point.
+
+async function insertAdminSurfaceEvents(scanId, domainId, adminModule, env) {
+  if (!adminModule || !adminModule.detected || adminModule.services.length === 0) return;
+
+  let wsRows;
+  try {
+    const r = await env.cybermeters_db
+      .prepare(`SELECT workspace_id FROM workspace_domains WHERE domain_id = ?`)
+      .bind(domainId)
+      .all();
+    wsRows = r.results || [];
+  } catch {
+    return;
+  }
+  if (wsRows.length === 0) return;
+
+  const now = new Date().toISOString();
+
+  for (const { workspace_id } of wsRows) {
+    for (const svc of adminModule.services) {
+      try {
+        // Resolve asset_id if the asset was already upserted by upsertAssetInventory
+        const assetRow = await env.cybermeters_db
+          .prepare(`SELECT id FROM workspace_assets WHERE workspace_id = ? AND hostname = ?`)
+          .bind(workspace_id, svc.hostname)
+          .first();
+
+        await env.cybermeters_db
+          .prepare(
+            `INSERT INTO asset_events
+               (id, workspace_id, domain_id, asset_id, scan_id,
+                event_type, hostname, severity, description, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          )
+          .bind(
+            createId("evt"),
+            workspace_id,
+            domainId,
+            assetRow?.id ?? null,
+            scanId,
+            "admin_surface_detected",
+            svc.hostname,
+            svc.risk_level,
+            `${svc.product} (${svc.category}) detected on ${svc.hostname} — confidence: ${svc.confidence}`,
+            now
+          )
+          .run();
+      } catch { /* non-fatal per service */ }
+    }
+  }
+
+  console.log("[admin-surface]", JSON.stringify({
+    scan_id:      scanId,
+    domain_id:    domainId,
+    detected:     adminModule.detected,
+    workspaces:   wsRows.length,
+  }));
+}
+
 // ── Asset Change Alert Engine ─────────────────────────────────────────────────
 //
 // Fires once per workspace per scan, grouped into a single summary email.
@@ -3781,15 +4032,17 @@ const ASSET_ALERT_EVENTS = new Set([
   "takeover_risk_detected",
   "cloud_storage_detected",
   "wildcard_dns_detected",
+  "admin_surface_detected",
 ]);
 
 // Severity thresholds — highest matching rule wins.
 function assetAlertSeverity(counts) {
   if ((counts.takeover_risk_detected || 0) > 0) return "critical";
-  if ((counts.new_asset_discovered    || 0) > 0) return "high";
-  if ((counts.wildcard_dns_detected   || 0) > 0 ||
-      (counts.cloud_storage_detected  || 0) > 0 ||
-      (counts.asset_reappeared        || 0) > 0)   return "medium";
+  if ((counts.admin_surface_detected || 0) > 0) return "high";
+  if ((counts.new_asset_discovered   || 0) > 0) return "high";
+  if ((counts.wildcard_dns_detected  || 0) > 0 ||
+      (counts.cloud_storage_detected || 0) > 0 ||
+      (counts.asset_reappeared       || 0) > 0)  return "medium";
   return "info";
 }
 
@@ -3801,7 +4054,8 @@ function assetAlertWorthy(counts) {
     (counts.asset_reappeared       || 0) > 0 ||
     (counts.takeover_risk_detected || 0) > 0 ||
     (counts.cloud_storage_detected || 0) > 0 ||
-    (counts.wildcard_dns_detected  || 0) > 0
+    (counts.wildcard_dns_detected  || 0) > 0 ||
+    (counts.admin_surface_detected || 0) > 0
   );
 }
 
@@ -5801,6 +6055,106 @@ export default {
           return json({ error: "Database error" }, 500);
         }
       }
+    }
+
+    // ── /api/workspaces/:id/alerts/* ────────────────────────────────────────
+    // GET /api/workspaces/:id/alerts          — list alerts, filterable by severity
+    // GET /api/workspaces/:id/alerts/summary  — severity counts + last alert timestamp
+    const alertsMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/alerts(\/[^/]*)?$/);
+    if (alertsMatch && request.method === "GET") {
+      const wsId = alertsMatch[1];
+      const sub  = alertsMatch[2] ?? "";   // "" or "/summary"
+
+      // Tenant isolation — verify workspace exists
+      let wsExists;
+      try {
+        wsExists = await env.cybermeters_db
+          .prepare(`SELECT id FROM workspaces WHERE id = ?`)
+          .bind(wsId)
+          .first();
+      } catch {
+        return json({ error: "Database error" }, 500);
+      }
+      if (!wsExists) return json({ error: "Workspace not found" }, 404);
+
+      // ── GET /api/workspaces/:id/alerts/summary ─────────────────────────────
+      if (sub === "/summary") {
+        try {
+          const [total, critical, high, medium, low, latest] =
+            await env.cybermeters_db.batch([
+              env.cybermeters_db
+                .prepare(`SELECT COUNT(*) AS n FROM asset_alert_records WHERE workspace_id = ?`)
+                .bind(wsId),
+              env.cybermeters_db
+                .prepare(`SELECT COUNT(*) AS n FROM asset_alert_records WHERE workspace_id = ? AND severity = 'critical'`)
+                .bind(wsId),
+              env.cybermeters_db
+                .prepare(`SELECT COUNT(*) AS n FROM asset_alert_records WHERE workspace_id = ? AND severity = 'high'`)
+                .bind(wsId),
+              env.cybermeters_db
+                .prepare(`SELECT COUNT(*) AS n FROM asset_alert_records WHERE workspace_id = ? AND severity = 'medium'`)
+                .bind(wsId),
+              env.cybermeters_db
+                .prepare(`SELECT COUNT(*) AS n FROM asset_alert_records WHERE workspace_id = ? AND severity = 'low'`)
+                .bind(wsId),
+              env.cybermeters_db
+                .prepare(`SELECT sent_at FROM asset_alert_records WHERE workspace_id = ? ORDER BY sent_at DESC LIMIT 1`)
+                .bind(wsId),
+            ]);
+          return json({
+            workspace_id:       wsId,
+            total:              total.results[0]?.n    ?? 0,
+            critical:           critical.results[0]?.n ?? 0,
+            high:               high.results[0]?.n     ?? 0,
+            medium:             medium.results[0]?.n   ?? 0,
+            low:                low.results[0]?.n      ?? 0,
+            last_alert_at:      latest.results[0]?.sent_at ?? null,
+          });
+        } catch {
+          return json({ error: "Database error" }, 500);
+        }
+      }
+
+      // ── GET /api/workspaces/:id/alerts ─────────────────────────────────────
+      if (sub === "") {
+        const severityFilter = url.searchParams.get("severity");
+        const limit          = Math.min(parseInt(url.searchParams.get("limit") || "50", 10), 200);
+        const VALID_SEVERITIES = new Set(["critical", "high", "medium", "low", "info"]);
+
+        if (severityFilter && !VALID_SEVERITIES.has(severityFilter)) {
+          return json({ error: "Invalid severity value" }, 400);
+        }
+
+        try {
+          const where  = severityFilter ? "AND severity = ?" : "";
+          const binds  = severityFilter ? [wsId, severityFilter, limit] : [wsId, limit];
+          const result = await env.cybermeters_db
+            .prepare(
+              `SELECT id, workspace_id, scan_id, domain, severity,
+                      event_counts, top_hostnames, sent_at
+               FROM asset_alert_records
+               WHERE workspace_id = ? ${where}
+               ORDER BY sent_at DESC
+               LIMIT ?`
+            )
+            .bind(...binds)
+            .all();
+
+          // Parse JSON columns so consumers don't have to
+          const alerts = (result.results || []).map((row) => ({
+            ...row,
+            event_counts:  row.event_counts  ? JSON.parse(row.event_counts)  : {},
+            top_hostnames: row.top_hostnames ? JSON.parse(row.top_hostnames) : [],
+          }));
+
+          return json({ workspace_id: wsId, count: alerts.length, alerts });
+        } catch {
+          return json({ error: "Database error" }, 500);
+        }
+      }
+
+      // Unknown sub-resource
+      return json({ error: "Not found" }, 404);
     }
 
     // Routes that carry a workspace ID
