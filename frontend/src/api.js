@@ -80,6 +80,21 @@ export const api = {
   /** GET /api/scans?workspace_id= */
   getWorkspaceScans: (workspaceId) => request(`/scans?workspace_id=${workspaceId}`),
 
+  // ── Asset Inventory ───────────────────────────────────────────────────────
+
+  /** GET /api/workspaces/:id/assets  (optional ?status=active|inactive &limit=N) */
+  getWorkspaceAssets: (id) => request(`/workspaces/${id}/assets?limit=500`),
+
+  /** GET /api/workspaces/:id/assets/summary */
+  getWorkspaceAssetsSummary: (id) => request(`/workspaces/${id}/assets/summary`),
+
+  /** GET /api/workspaces/:id/assets/timeline */
+  getWorkspaceAssetsTimeline: (id) => request(`/workspaces/${id}/assets/timeline`),
+
+  /** GET /api/workspaces/:id/assets/:assetId */
+  getWorkspaceAsset: (workspaceId, assetId) =>
+    request(`/workspaces/${workspaceId}/assets/${assetId}`),
+
   /**
    * GET /api/workspaces/:id/report
    * Returns a Blob (application/pdf) — bypasses the JSON request() helper.
