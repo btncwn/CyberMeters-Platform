@@ -292,12 +292,12 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* ── 1. Cyber MOT Score ── */}
+      {/* ── 1. Cyber Metrics Score ── */}
       <div className="card-md overflow-hidden">
         <div className="flex flex-col lg:flex-row">
           {/* Score ring */}
           <div className="flex flex-col items-center justify-center gap-4 px-10 py-10 lg:border-r border-gray-100 lg:min-w-[280px]">
-            <span className="label">Cyber MOT Score</span>
+            <span className="label">Cyber Metrics Score</span>
             <ScoreRing score={ins.score} />
             <p className="text-center text-gray-400 text-xs leading-relaxed max-w-[200px]">
               {ins.score === null
