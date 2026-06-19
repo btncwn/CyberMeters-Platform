@@ -119,6 +119,16 @@ const ENTERPRISE_BENCHMARK = [
 // Fast O(1) membership test used in computeScore
 const ENTERPRISE_DOMAINS = new Set(ENTERPRISE_BENCHMARK.map(b => b.domain));
 
+// Security posture category metadata — shared by computeSecurityPosture and
+// the /scorecard/pdf-data route.  Defined at module scope so both can reference it.
+const POSTURE_WEIGHTS = {
+  email_security:   { label: 'Email Security',     pct: 20 },
+  ssl_certificates: { label: 'SSL & Certificates', pct: 20 },
+  attack_surface:   { label: 'Attack Surface',     pct: 25 },
+  third_party_risk: { label: 'Third-Party Risk',   pct: 15 },
+  admin_exposure:   { label: 'Admin Exposure',     pct: 20 },
+};
+
 // ── Module 1: DNS Analysis ────────────────────────────────────────────────────
 
 async function runDnsModule(domain) {
@@ -10019,6 +10029,318 @@ export default {
       }
 
       return json({ workspace_id: wsId, count: vendors.length, vendors });
+    }
+
+    // ── GET /api/workspaces/:id/scorecard/pdf-data ──────────────────────────
+    // Board-level executive security report data model.
+    // No PDF generation — pure JSON for frontend rendering / export.
+    //
+    // Sections returned:
+    //   workspace, generated_at, overall_score, security_posture,
+    //   executive_summary (strengths / weaknesses / priority_actions),
+    //   findings_summary, top_risks, top_recommendations,
+    //   risk_trend (last 30 scans), asset_inventory (with 30d deltas),
+    //   vendor_risk, brand_monitoring, certificate_intelligence
+    const pdfDataMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/scorecard\/pdf-data$/);
+    if (pdfDataMatch && request.method === 'GET') {
+      const wsId = pdfDataMatch[1];
+      try {
+
+      // Workspace guard
+      let ws;
+      try {
+        ws = await env.cybermeters_db
+          .prepare('SELECT id, name, created_at FROM workspaces WHERE id = ?')
+          .bind(wsId).first();
+      } catch { return json({ error: 'Database error' }, 500); }
+      if (!ws) return json({ error: 'Workspace not found' }, 404);
+
+      const generatedAt = new Date().toISOString();
+      const now30dAgo   = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+      // ── Scorecard data (reuses existing function — 3 DB queries + 1 R2) ────
+      const sc = await buildScorecardData(wsId, env);
+      if (!sc) return json({ error: 'Database error' }, 500);
+
+      // ── Extra DB queries (all parallel, all tolerate failures) ────────────
+      const [trendR, topRisksR, infoCntR, assetDeltaR, vendorDeltaR] = await Promise.allSettled([
+
+        // Risk trend — last 30 completed scans across workspace domains
+        env.cybermeters_db.prepare(
+          `SELECT s.domain, s.score, s.created_at
+           FROM scans s
+           JOIN domains d ON d.id = s.domain_id
+           JOIN workspace_domains wd ON wd.domain_id = d.id
+           WHERE wd.workspace_id = ? AND s.status = 'completed' AND s.score IS NOT NULL
+           ORDER BY s.created_at DESC LIMIT 30`
+        ).bind(wsId).all(),
+
+        // Fetch up to 200 findings (newest first per severity) so JS can
+        // deduplicate before applying the final top-10 cap.
+        env.cybermeters_db.prepare(
+          `SELECT f.title, f.severity, f.recommendation, s.domain, s.created_at
+           FROM findings f
+           JOIN scans s ON s.id = f.scan_id
+           JOIN domains d ON d.id = s.domain_id
+           JOIN workspace_domains wd ON wd.domain_id = d.id
+           WHERE wd.workspace_id = ?
+           ORDER BY CASE f.severity
+             WHEN 'critical' THEN 1 WHEN 'high' THEN 2
+             WHEN 'medium'   THEN 3 WHEN 'low'  THEN 4 ELSE 5 END,
+             s.created_at DESC
+           LIMIT 200`
+        ).bind(wsId).all(),
+
+        // Info-severity finding count (not in the scorecard batch)
+        env.cybermeters_db.prepare(
+          `SELECT COUNT(*) AS n FROM findings f
+           JOIN scans s ON s.id = f.scan_id
+           JOIN domains d ON d.id = s.domain_id
+           JOIN workspace_domains wd ON wd.domain_id = d.id
+           WHERE wd.workspace_id = ? AND f.severity = 'info'`
+        ).bind(wsId).first(),
+
+        // Asset count before the 30d window (for delta)
+        env.cybermeters_db.prepare(
+          `SELECT COUNT(*) AS n FROM workspace_assets
+           WHERE workspace_id = ? AND status = 'active' AND first_seen < ?`
+        ).bind(wsId, now30dAgo).first(),
+
+        // Vendor count before the 30d window (for delta)
+        env.cybermeters_db.prepare(
+          `SELECT COUNT(*) AS n FROM workspace_vendors
+           WHERE workspace_id = ? AND status = 'active' AND first_seen < ?`
+        ).bind(wsId, now30dAgo).first(),
+      ]);
+
+      // ── Risk trend ────────────────────────────────────────────────────────
+      const trendRows  = (trendR.status === 'fulfilled' ? trendR.value?.results : null) ?? [];
+      // Reverse so oldest→newest for charting
+      const risk_trend = [...trendRows].reverse().map(r => ({
+        date:   typeof r.created_at === 'string' ? r.created_at.slice(0, 10) : null,
+        domain: r.domain ?? null,
+        score:  r.score  ?? null,
+      }));
+
+      // ── Top risks — deduplicate, sort, cap at 10 ─────────────────────────
+      // SQL returns newest-first within each severity tier, so the first row
+      // for each (title, domain, recommendation) key IS the newest occurrence.
+      const SEVERITY_ORDER = { critical: 1, high: 2, medium: 3, low: 4, info: 5 };
+      const topRisksRows   = (topRisksR.status === 'fulfilled' ? topRisksR.value?.results : null) ?? [];
+      const _seenRisks     = new Set();
+      const top_risks      = topRisksRows
+        .reduce((acc, r) => {
+          const key = `${r.title ?? ''}|${r.domain ?? ''}|${r.recommendation ?? ''}`;
+          if (!_seenRisks.has(key)) {
+            _seenRisks.add(key);
+            acc.push({
+              title:          r.title          ?? '',
+              severity:       r.severity       ?? 'medium',
+              recommendation: r.recommendation ?? '',
+              domain:         r.domain         ?? null,
+              date:           typeof r.created_at === 'string' ? r.created_at.slice(0, 10) : null,
+            });
+          }
+          return acc;
+        }, [])
+        .sort((a, b) =>
+          (SEVERITY_ORDER[a.severity] ?? 5) - (SEVERITY_ORDER[b.severity] ?? 5)
+        )
+        .slice(0, 10);
+
+      // ── Findings summary ──────────────────────────────────────────────────
+      const infoCount       = (infoCntR.status === 'fulfilled' ? infoCntR.value?.n : null) ?? 0;
+      const findings_summary = {
+        critical: sc.critical_findings ?? 0,
+        high:     sc.high_findings     ?? 0,
+        medium:   sc.medium_findings   ?? 0,
+        low:      sc.low_findings      ?? 0,
+        info:     infoCount,
+        total:    (sc.critical_findings ?? 0) + (sc.high_findings ?? 0) +
+                  (sc.medium_findings   ?? 0) + (sc.low_findings   ?? 0) + infoCount,
+      };
+
+      // ── Asset inventory with 30d deltas ───────────────────────────────────
+      const assetsOld  = (assetDeltaR.status  === 'fulfilled' ? assetDeltaR.value?.n  : null) ?? null;
+      const vendorsOld = (vendorDeltaR.status === 'fulfilled' ? vendorDeltaR.value?.n : null) ?? null;
+      const asset_inventory = {
+        assets: {
+          current:   sc.active_assets ?? 0,
+          delta_30d: assetsOld  !== null ? (sc.active_assets  ?? 0) - assetsOld  : null,
+        },
+        vendors: {
+          current:   sc.vendors_detected ?? 0,
+          delta_30d: vendorsOld !== null ? (sc.vendors_detected ?? 0) - vendorsOld : null,
+        },
+        brand_candidates: {
+          current:   sc.brand_risks?.total ?? 0,
+          delta_30d: null,  // no first_seen on brand_assets
+        },
+        third_party_services: {
+          current:   sc.third_party_assets ?? 0,
+          delta_30d: null,
+        },
+        saas_exposures: {
+          current:   sc.saas_exposures ?? 0,
+          delta_30d: null,
+        },
+        new_assets_30d:   sc.new_assets_30d   ?? 0,
+        asset_events_30d: sc.asset_events_30d ?? 0,
+      };
+
+      // ── Executive summary — strengths / weaknesses / priority actions ─────
+      const sp = sc.security_posture ?? null;
+
+      const strengths        = [];
+      const weaknesses       = [];
+      const priority_actions = [];
+
+      // Strengths
+      if ((sc.critical_findings ?? 0) === 0 && (sc.high_findings ?? 0) === 0) {
+        strengths.push('No critical or high-severity security findings detected.');
+      }
+      if ((sc.brand_risks?.high ?? 0) === 0 && (sc.brand_risks?.active ?? 0) === 0) {
+        strengths.push('No active brand impersonation or typosquat domains detected.');
+      }
+      if ((sc.admin_surfaces ?? 0) === 0) {
+        strengths.push('No exposed admin or management interfaces found.');
+      }
+      if (sp?.email_security?.status === 'good') {
+        strengths.push('Email security posture is strong — SPF, DMARC, and DKIM are in place.');
+      }
+      if (sp?.ssl_certificates?.status === 'good') {
+        strengths.push('SSL and certificate configuration is fully validated.');
+      }
+      if ((sc.vendors_detected ?? 0) > 0 && (sc.vendor_risk?.high ?? 0) === 0) {
+        strengths.push(`${sc.vendors_detected} third-party vendors detected — none rated high-risk.`);
+      }
+      if (strengths.length === 0) {
+        strengths.push('Security monitoring is active — run additional scans to build baseline.');
+      }
+
+      // Weaknesses
+      if ((sc.critical_findings ?? 0) > 0) {
+        weaknesses.push(`${sc.critical_findings} critical finding${sc.critical_findings !== 1 ? 's' : ''} require immediate remediation.`);
+      }
+      if ((sc.high_findings ?? 0) > 0) {
+        weaknesses.push(`${sc.high_findings} high-severity finding${sc.high_findings !== 1 ? 's' : ''} should be addressed urgently.`);
+      }
+      if (sp?.email_security?.score != null && sp.email_security.score < 70) {
+        weaknesses.push('Email security posture is weak — spoofing risk remains elevated.');
+      }
+      if ((sc.brand_risks?.high ?? 0) > 0) {
+        weaknesses.push(`${sc.brand_risks.high} high-risk typosquat domain${sc.brand_risks.high !== 1 ? 's' : ''} are actively resolving (phishing risk).`);
+      }
+      if ((sc.admin_surfaces ?? 0) > 0) {
+        weaknesses.push(`${sc.admin_surfaces} admin surface${sc.admin_surfaces !== 1 ? 's' : ''} exposed to the public internet.`);
+      }
+      if ((sc.vendor_risk?.high ?? 0) > 0) {
+        weaknesses.push(`${sc.vendor_risk.high} high-risk vendor${sc.vendor_risk.high !== 1 ? 's' : ''} in the supply chain.`);
+      }
+      if (weaknesses.length === 0 && (sc.medium_findings ?? 0) > 0) {
+        weaknesses.push(`${sc.medium_findings} medium-severity finding${sc.medium_findings !== 1 ? 's' : ''} noted — review and remediate.`);
+      }
+
+      // Priority actions — DB recommendations + posture-derived
+      for (const r of (sc.top_recommendations ?? []).slice(0, 3)) {
+        priority_actions.push(r.title + (r.description ? ` — ${r.description}` : ''));
+      }
+      if (sp) {
+        for (const catKey of ['email_security', 'ssl_certificates', 'admin_exposure']) {
+          const cat = sp[catKey];
+          if (cat?.status === 'critical' || cat?.status === 'warning') {
+            const reason = cat.reasons?.[0];
+            if (reason && priority_actions.length < 5) {
+              priority_actions.push(`[${POSTURE_WEIGHTS[catKey]?.label ?? catKey}] ${reason}`);
+            }
+          }
+        }
+      }
+
+      const executive_summary = {
+        strengths:        strengths.slice(0, 5),
+        weaknesses:       weaknesses.slice(0, 5),
+        priority_actions: priority_actions.slice(0, 5),
+      };
+
+      // ── Top recommendations ───────────────────────────────────────────────
+      const top_recommendations = (sc.top_recommendations ?? []).map(r => ({
+        title:       r.title       ?? '',
+        description: r.description ?? '',
+        priority:    r.priority    ?? 3,
+      }));
+      // Pad to 10 with posture-derived actions when DB has fewer
+      if (sp && top_recommendations.length < 10) {
+        for (const catKey of Object.keys(POSTURE_WEIGHTS)) {
+          const cat = sp[catKey];
+          if (!cat || cat.score === null || (cat.score ?? 100) >= 90) continue;
+          for (const reason of (cat.reasons ?? [])) {
+            if (top_recommendations.length >= 10) break;
+            top_recommendations.push({
+              title:       `Improve ${POSTURE_WEIGHTS[catKey].label}`,
+              description: reason,
+              priority:    cat.status === 'critical' ? 1 : cat.status === 'warning' ? 2 : 3,
+            });
+          }
+          if (top_recommendations.length >= 10) break;
+        }
+      }
+
+      // ── Vendor risk ───────────────────────────────────────────────────────
+      const vendor_risk = {
+        total:  sc.vendors_detected    ?? 0,
+        high:   sc.vendor_risk?.high   ?? 0,
+        medium: sc.vendor_risk?.medium ?? 0,
+        low:    sc.vendor_risk?.low    ?? 0,
+      };
+
+      // ── Brand monitoring ──────────────────────────────────────────────────
+      const brand_monitoring = {
+        total_candidates: sc.brand_risks?.total  ?? 0,
+        active_risks:     sc.brand_risks?.active ?? 0,
+        high:             sc.brand_risks?.high   ?? 0,
+        medium:           sc.brand_risks?.medium ?? 0,
+        low:              sc.brand_risks?.low    ?? 0,
+      };
+
+      // ── Certificate intelligence ──────────────────────────────────────────
+      const certR     = sc.certificate_risks ?? {};
+      const certificate_intelligence = {
+        risk_level:        certR.risk_level        ?? null,
+        signals:           certR.signals           ?? 0,
+        days_until_expiry: certR.days_until_expiry ?? null,
+        status: certR.risk_level === 'critical' ? 'critical'
+              : certR.risk_level === 'high'     ? 'warning'
+              : (certR.signals   ?? 0) > 0      ? 'warning'
+              : certR.risk_level === null        ? 'unknown' : 'ok',
+      };
+
+      return json({
+        workspace:               { id: ws.id, name: ws.name, created_at: ws.created_at },
+        generated_at:            generatedAt,
+        overall_score:           sc.security_score    ?? null,
+        risk_rating:             sc.risk_rating       ?? 'unknown',
+        security_posture:        sc.security_posture  ?? null,
+        executive_summary,
+        findings_summary,
+        top_risks,
+        top_recommendations:     top_recommendations.slice(0, 10),
+        risk_trend,
+        asset_inventory,
+        vendor_risk,
+        brand_monitoring,
+        certificate_intelligence,
+        last_scan_at:            sc.last_scan_at         ?? null,
+        last_scanned_domain:     sc.last_scanned_domain  ?? null,
+      });
+
+      } catch (err) {
+        return json({
+          error:  'PDF data failed',
+          detail: String(err?.message ?? err),
+          stack:  String(err?.stack   ?? '').slice(0, 1000),
+        }, 500);
+      }
     }
 
     // ── Executive Security Scorecard Routes ──────────────────────────────────
