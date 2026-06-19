@@ -2558,6 +2558,206 @@ function runSaasExposureModule(modules) {
   }
 }
 
+// ── Certificate Intelligence ─────────────────────────────────────────────────
+// Correlates SSL certificate data with CT-discovered hostname inventory to
+// produce a certificate-level intelligence view.
+//
+// Data sources (already in modules — zero new network calls):
+//   modules.ssl          → cert_expiry_days, cert_not_after, https_available
+//   modules.subdomains   → CT-sourced hostname list, sensitive[], wildcard_dns,
+//                          sources (crt_sh + certspotter counts)
+//   modules.dns_bruteforce → brute-forced hostnames
+//   domain               → apex for sensitive-label checks
+//
+// Suspicious signals emitted:
+//   certificate_expiring_soon    (< 30 days)
+//   certificate_expiring_critical(< 14 days)
+//   wildcard_dns_detected        (wildcard DNS ↔ likely wildcard cert)
+//   sensitive_hosts_in_ct        (admin/vpn/portal/sso/login/mail/dev/staging etc.)
+//   high_subdomain_growth        (CT count > 50 — large attack surface)
+//   ct_source_discrepancy        (one source >> the other — may indicate stale CT log)
+//   no_https                     (HTTPS unavailable)
+
+/** Hostnames whose labels indicate certificate-relevant sensitivity */
+const CERT_SENSITIVE_LABELS = new Set([
+  "admin", "vpn", "portal", "login", "sso", "mail", "webmail",
+  "dev", "staging", "stage", "test", "qa", "sandbox",
+  "remote", "auth", "oauth", "api", "app", "dashboard",
+]);
+
+function isCertSensitiveHost(hostname, domain) {
+  const sub = hostname.endsWith("." + domain)
+    ? hostname.slice(0, -(domain.length + 1))
+    : hostname;
+  return sub.split(".").some((label) => CERT_SENSITIVE_LABELS.has(label.toLowerCase()));
+}
+
+/**
+ * runCertificateIntelligenceModule(modules, domain) — pure computation, zero I/O.
+ *
+ * Returns:
+ *   { total_certificates_seen, certificate_status, issuer, subject,
+ *     expires_at, days_until_expiry, issued_for_sensitive_hosts,
+ *     newly_observed_hosts, suspicious_certificate_signals,
+ *     certificate_risk_level, source: "ssl_ct_correlation", error: null }
+ */
+function runCertificateIntelligenceModule(modules, domain) {
+  try {
+    const ssl      = modules?.ssl       || {};
+    const subMod   = modules?.subdomains || {};
+    const brute    = modules?.dns_bruteforce || {};
+
+    // ── Certificate expiry data ───────────────────────────────────────────
+    const days_until_expiry = ssl.cert_expiry_days ?? null;
+    const expires_at        = ssl.cert_not_after   ?? null;
+    const https_available   = ssl.https_available  ?? false;
+
+    // ── CT hostname inventory ─────────────────────────────────────────────
+    const ctHosts    = Array.isArray(subMod.items)    ? subMod.items    : [];
+    const bruteHosts = Array.isArray(brute.items)     ? brute.items.map((i) => i.hostname || i).filter(Boolean) : [];
+    const allHosts   = [...new Set([...ctHosts, ...bruteHosts])];
+
+    const total_certificates_seen = allHosts.length;
+
+    // ── Sensitive hosts in CT ─────────────────────────────────────────────
+    const issued_for_sensitive_hosts = allHosts
+      .filter((h) => isCertSensitiveHost(h, domain))
+      .sort();
+
+    // Also capture the pre-classified sensitive list from subdomains module
+    const subSensitive = Array.isArray(subMod.sensitive) ? subMod.sensitive : [];
+    const allSensitive = [...new Set([...issued_for_sensitive_hosts, ...subSensitive])].sort();
+
+    // ── CT source health ──────────────────────────────────────────────────
+    const crtShCount    = subMod.sources?.crt_sh?.count     ?? 0;
+    const certSpotCount = subMod.sources?.certspotter?.count ?? 0;
+    const crtShError    = subMod.sources?.crt_sh?.error     ?? null;
+    const certSpotError = subMod.sources?.certspotter?.error ?? null;
+
+    // ── Suspicious signal detection ───────────────────────────────────────
+    const suspicious_certificate_signals = [];
+
+    if (!https_available) {
+      suspicious_certificate_signals.push({
+        signal:      "no_https",
+        severity:    "high",
+        description: "HTTPS is not available on this domain. Certificate may be missing or misconfigured.",
+      });
+    }
+
+    if (days_until_expiry !== null && days_until_expiry < 14) {
+      suspicious_certificate_signals.push({
+        signal:      "certificate_expiring_critical",
+        severity:    "critical",
+        description: `Certificate expires in ${days_until_expiry} day${days_until_expiry === 1 ? "" : "s"} (${expires_at}). Immediate renewal required to avoid service outage.`,
+      });
+    } else if (days_until_expiry !== null && days_until_expiry < 30) {
+      suspicious_certificate_signals.push({
+        signal:      "certificate_expiring_soon",
+        severity:    "medium",
+        description: `Certificate expires in ${days_until_expiry} day${days_until_expiry === 1 ? "" : "s"} (${expires_at}). Renewal recommended within the next week.`,
+      });
+    }
+
+    if (subMod.wildcard_dns) {
+      suspicious_certificate_signals.push({
+        signal:      "wildcard_dns_detected",
+        severity:    "medium",
+        description: "Wildcard DNS is active on this domain. Any subdomain resolves — likely a wildcard certificate is in use, which expands the attack surface.",
+      });
+    }
+
+    if (allSensitive.length > 0) {
+      suspicious_certificate_signals.push({
+        signal:      "sensitive_hosts_in_ct",
+        severity:    allSensitive.length >= 5 ? "high" : "medium",
+        description: `${allSensitive.length} certificate-issued hostname${allSensitive.length > 1 ? "s" : ""} with sensitive labels detected in Certificate Transparency logs: ${allSensitive.slice(0, 10).join(", ")}${allSensitive.length > 10 ? ` (+${allSensitive.length - 10} more)` : ""}.`,
+        hostnames:   allSensitive,
+      });
+    }
+
+    if (total_certificates_seen > 50) {
+      suspicious_certificate_signals.push({
+        signal:      "high_subdomain_growth",
+        severity:    "medium",
+        description: `${total_certificates_seen} unique hostnames found in CT logs — large certificate footprint that expands the potential attack surface.`,
+      });
+    }
+
+    // CT discrepancy: one source returning 2× or more than the other
+    if (crtShCount > 0 && certSpotCount > 0) {
+      const ratio = Math.max(crtShCount, certSpotCount) / Math.min(crtShCount, certSpotCount);
+      if (ratio >= 2) {
+        suspicious_certificate_signals.push({
+          signal:      "ct_source_discrepancy",
+          severity:    "info",
+          description: `CT sources returned different hostname counts — crt.sh: ${crtShCount}, CertSpotter: ${certSpotCount}. Some hostnames may only appear in one log.`,
+        });
+      }
+    } else if (crtShError && certSpotError) {
+      suspicious_certificate_signals.push({
+        signal:      "ct_sources_unavailable",
+        severity:    "info",
+        description: "Both Certificate Transparency sources were unavailable during this scan. CT hostname inventory may be incomplete.",
+      });
+    }
+
+    // ── Certificate risk level ────────────────────────────────────────────
+    let certificate_risk_level = "low";
+    const hasCritical = suspicious_certificate_signals.some((s) => s.severity === "critical");
+    const hasHigh     = suspicious_certificate_signals.some((s) => s.severity === "high");
+    const hasMedium   = suspicious_certificate_signals.some((s) => s.severity === "medium");
+
+    if (hasCritical || !https_available) certificate_risk_level = "critical";
+    else if (hasHigh)                    certificate_risk_level = "high";
+    else if (hasMedium)                  certificate_risk_level = "medium";
+
+    // ── Newly observed hosts (all CT hosts are "newly observed" relative to
+    //    baseline — true delta tracking requires historical DB rows which are
+    //    captured in asset_events via upsertAssetInventory) ─────────────────
+    const newly_observed_hosts = allSensitive;   // surface the sensitive subset
+
+    return {
+      total_certificates_seen,
+      certificate_status:    https_available ? "valid" : "unavailable",
+      // Issuer/subject not available without a TLS handshake inspection;
+      // Workers cannot inspect outbound TLS.  These fields are reserved for
+      // future integration with a cert-inspection proxy.
+      issuer:                null,
+      subject:               domain,
+      expires_at,
+      days_until_expiry,
+      issued_for_sensitive_hosts: allSensitive,
+      newly_observed_hosts,
+      ct_sources:            { crt_sh: crtShCount, certspotter: certSpotCount },
+      wildcard_dns:          subMod.wildcard_dns ?? false,
+      wildcard_warning:      subMod.wildcard_warning ?? null,
+      suspicious_certificate_signals,
+      certificate_risk_level,
+      source:                "ssl_ct_correlation",
+      error:                 null,
+    };
+  } catch (err) {
+    return {
+      total_certificates_seen:    0,
+      certificate_status:         "unknown",
+      issuer:                     null,
+      subject:                    domain,
+      expires_at:                 null,
+      days_until_expiry:          null,
+      issued_for_sensitive_hosts: [],
+      newly_observed_hosts:       [],
+      ct_sources:                 { crt_sh: 0, certspotter: 0 },
+      wildcard_dns:               false,
+      wildcard_warning:           null,
+      suspicious_certificate_signals: [],
+      certificate_risk_level:     "unknown",
+      source:                     "ssl_ct_correlation",
+      error:                      err?.message ?? "Certificate intelligence failed",
+    };
+  }
+}
+
 // ── Module 7: Asset Exposure Engine ──────────────────────────────────────────
 
 /**
@@ -5129,6 +5329,11 @@ async function runScanEngine(scanId, domainId, domain, env) {
     // identify externally accessible SaaS portals, admin interfaces and tenant URLs.
     modules.saas_exposure = runSaasExposureModule(modules);
 
+    // Phase 7h: Certificate Intelligence — pure computation, zero I/O.
+    // Correlates modules.ssl + modules.subdomains (CT data) to produce
+    // expiry status, sensitive-host inventory, and suspicious signal list.
+    modules.certificate_intelligence = runCertificateIntelligenceModule(modules, domain);
+
     const completedAt = new Date().toISOString();
 
     // Build full structured report
@@ -5206,6 +5411,12 @@ async function runScanEngine(scanId, domainId, domain, env) {
     // Uses workspace lookup internally. Preserves first_seen; marks unseen vendors inactive.
     try {
       await upsertVendorInventory(domainId, modules.vendor_risk, env);
+    } catch { /* non-fatal */ }
+
+    // Phase 8d: Certificate Events — fires asset_events for sensitive CT hosts,
+    // expiry warnings, and growth signals.
+    try {
+      await insertCertificateEvents(scanId, domainId, modules.certificate_intelligence, env);
     } catch { /* non-fatal */ }
 
     // Phase 9: Asset Change Alert — one grouped email per workspace per scan.
@@ -5448,6 +5659,116 @@ function buildAssetAlertEmail(domain, workspaceId, scanId, counts, topHostnames,
 </html>`;
 
   return { subject, text, html };
+}
+
+// ── Certificate Event Insertion ──────────────────────────────────────────────
+//
+// Fires asset_events for certificate-level signals detected by
+// runCertificateIntelligenceModule.  One event per signal type per scan.
+// All errors are non-fatal.
+
+/**
+ * insertCertificateEvents(scanId, domainId, certMod, env)
+ *
+ * Event types written:
+ *   certificate_sensitive_host_detected — sensitive hostnames in CT logs
+ *   certificate_expiring_soon           — expiry < 30 days
+ *   certificate_growth_detected         — CT count > 50 hostnames
+ */
+async function insertCertificateEvents(scanId, domainId, certMod, env) {
+  if (!certMod || certMod.error) return;
+
+  let wsRows;
+  try {
+    const r = await env.cybermeters_db
+      .prepare("SELECT workspace_id FROM workspace_domains WHERE domain_id = ?")
+      .bind(domainId)
+      .all();
+    wsRows = r.results || [];
+  } catch {
+    return;
+  }
+  if (wsRows.length === 0) return;
+
+  const now = new Date().toISOString();
+
+  for (const { workspace_id } of wsRows) {
+    // 1. Sensitive hosts detected in CT
+    if (certMod.issued_for_sensitive_hosts?.length > 0) {
+      try {
+        await env.cybermeters_db
+          .prepare(
+            `INSERT OR IGNORE INTO asset_events
+               (id, workspace_id, domain_id, scan_id, event_type,
+                hostname, severity, description, created_at)
+             VALUES (?, ?, ?, ?, 'certificate_sensitive_host_detected',
+                     ?, ?, ?, ?)`
+          )
+          .bind(
+            createId("asev"),
+            workspace_id,
+            domainId,
+            scanId,
+            certMod.issued_for_sensitive_hosts[0],   // first / most notable
+            certMod.issued_for_sensitive_hosts.length >= 5 ? "high" : "medium",
+            `${certMod.issued_for_sensitive_hosts.length} sensitive hostname(s) found in CT logs: ` +
+              certMod.issued_for_sensitive_hosts.slice(0, 5).join(", "),
+            now
+          )
+          .run();
+      } catch { /* non-fatal */ }
+    }
+
+    // 2. Certificate expiring soon
+    const days = certMod.days_until_expiry;
+    if (days !== null && days < 30) {
+      try {
+        await env.cybermeters_db
+          .prepare(
+            `INSERT OR IGNORE INTO asset_events
+               (id, workspace_id, domain_id, scan_id, event_type,
+                hostname, severity, description, created_at)
+             VALUES (?, ?, ?, ?, 'certificate_expiring_soon',
+                     ?, ?, ?, ?)`
+          )
+          .bind(
+            createId("asev"),
+            workspace_id,
+            domainId,
+            scanId,
+            null,
+            days < 14 ? "critical" : "medium",
+            `Certificate expires in ${days} day${days === 1 ? "" : "s"} (${certMod.expires_at}).`,
+            now
+          )
+          .run();
+      } catch { /* non-fatal */ }
+    }
+
+    // 3. Unusual certificate growth
+    if (certMod.total_certificates_seen > 50) {
+      try {
+        await env.cybermeters_db
+          .prepare(
+            `INSERT OR IGNORE INTO asset_events
+               (id, workspace_id, domain_id, scan_id, event_type,
+                hostname, severity, description, created_at)
+             VALUES (?, ?, ?, ?, 'certificate_growth_detected',
+                     ?, 'medium', ?, ?)`
+          )
+          .bind(
+            createId("asev"),
+            workspace_id,
+            domainId,
+            scanId,
+            null,
+            `${certMod.total_certificates_seen} unique hostnames found in CT logs.`,
+            now
+          )
+          .run();
+      } catch { /* non-fatal */ }
+    }
+  }
 }
 
 // ── Vendor Inventory Upsert ───────────────────────────────────────────────────
@@ -7805,6 +8126,149 @@ export default {
           return json({ error: "Database error" }, 500);
         }
       }
+    }
+
+    // ── Certificate Intelligence routes ────────────────────────────────────
+    // GET /api/workspaces/:id/certificates
+    //   Returns latest certificate_intelligence per domain in workspace.
+    //   Each entry: { domain, certificate_risk_level, days_until_expiry,
+    //     expires_at, total_certificates_seen, issued_for_sensitive_hosts,
+    //     wildcard_dns, suspicious_certificate_signals, ct_sources }
+    //
+    // GET /api/workspaces/:id/certificates/timeline
+    //   Returns certificate-related asset_events from the last 90 days,
+    //   grouped by day: [{ day, events:[{event_type, severity, description}] }]
+    const certMatch = url.pathname.match(
+      /^\/api\/workspaces\/([^/]+)\/certificates(\/timeline)?$/
+    );
+    if (certMatch && request.method === "GET") {
+      const wsId        = certMatch[1];
+      const isTimeline  = !!certMatch[2];
+
+      // 1. Get domain IDs for workspace
+      let domainIds;
+      try {
+        const r = await env.cybermeters_db
+          .prepare("SELECT domain_id FROM workspace_domains WHERE workspace_id = ?")
+          .bind(wsId)
+          .all();
+        domainIds = (r.results || []).map((row) => row.domain_id);
+      } catch {
+        return json({ error: "Database error" }, 500);
+      }
+
+      // ── /certificates/timeline ──────────────────────────────────────────
+      if (isTimeline) {
+        if (domainIds.length === 0) {
+          return json({ workspace_id: wsId, days: 90, timeline: [] });
+        }
+
+        // Query asset_events for cert-related event types in this workspace
+        let events;
+        try {
+          const cutoff = new Date(Date.now() - 90 * 86_400_000).toISOString();
+          const r = await env.cybermeters_db
+            .prepare(
+              `SELECT event_type, severity, description, hostname,
+                      DATE(created_at) AS day
+               FROM asset_events
+               WHERE workspace_id = ?
+                 AND event_type IN (
+                       'certificate_sensitive_host_detected',
+                       'certificate_expiring_soon',
+                       'certificate_growth_detected'
+                     )
+                 AND created_at >= ?
+               ORDER BY created_at DESC`
+            )
+            .bind(wsId, cutoff)
+            .all();
+          events = r.results || [];
+        } catch {
+          return json({ error: "Database error" }, 500);
+        }
+
+        // Group by day
+        const dayMap = new Map();
+        for (const ev of events) {
+          if (!dayMap.has(ev.day)) dayMap.set(ev.day, []);
+          dayMap.get(ev.day).push({
+            event_type:  ev.event_type,
+            severity:    ev.severity,
+            description: ev.description,
+            hostname:    ev.hostname || null,
+          });
+        }
+
+        const timeline = [...dayMap.entries()]
+          .sort(([a], [b]) => b.localeCompare(a))
+          .map(([day, evts]) => ({ day, events: evts }));
+
+        return json({ workspace_id: wsId, days: 90, timeline });
+      }
+
+      // ── /certificates ───────────────────────────────────────────────────
+      if (domainIds.length === 0) {
+        return json({ workspace_id: wsId, total: 0, certificates: [] });
+      }
+
+      // Latest completed scan per domain
+      const scanResults = await Promise.allSettled(
+        domainIds.map((did) =>
+          env.cybermeters_db
+            .prepare(
+              "SELECT id, domain_id FROM scans WHERE domain_id = ? " +
+              "AND status = 'completed' ORDER BY created_at DESC LIMIT 1"
+            )
+            .bind(did)
+            .first()
+        )
+      );
+      const scanRows = scanResults
+        .map((r) => (r.status === "fulfilled" && r.value ? r.value : null))
+        .filter(Boolean);
+
+      // Fetch R2 reports in parallel
+      const r2Results = await Promise.allSettled(
+        scanRows.map((s) => env.cybermeters_reports.get(`reports/${s.id}.json`))
+      );
+
+      const certificates = [];
+      for (let i = 0; i < r2Results.length; i++) {
+        if (r2Results[i].status !== "fulfilled" || !r2Results[i].value) continue;
+        let report;
+        try { report = await r2Results[i].value.json(); } catch { continue; }
+
+        const ci = report?.modules?.certificate_intelligence;
+        if (!ci) continue;
+
+        certificates.push({
+          domain:                       report.domain || null,
+          certificate_risk_level:       ci.certificate_risk_level,
+          certificate_status:           ci.certificate_status,
+          days_until_expiry:            ci.days_until_expiry,
+          expires_at:                   ci.expires_at,
+          total_certificates_seen:      ci.total_certificates_seen,
+          issued_for_sensitive_hosts:   ci.issued_for_sensitive_hosts || [],
+          wildcard_dns:                 ci.wildcard_dns,
+          wildcard_warning:             ci.wildcard_warning || null,
+          ct_sources:                   ci.ct_sources || {},
+          suspicious_certificate_signals: ci.suspicious_certificate_signals || [],
+          scan_id:                      scanRows[i]?.id || null,
+        });
+      }
+
+      // Sort: critical first, then high, medium, low
+      const riskOrder = { critical: 0, high: 1, medium: 2, low: 3, unknown: 4 };
+      certificates.sort(
+        (a, b) => (riskOrder[a.certificate_risk_level] ?? 5) - (riskOrder[b.certificate_risk_level] ?? 5)
+      );
+
+      return json({
+        workspace_id: wsId,
+        total:        certificates.length,
+        certificates,
+      });
     }
 
     // ── SaaS Exposure Discovery route ─────────────────────────────────────
