@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { FileText, Download, Plus, RefreshCw, AlertTriangle, Clock } from 'lucide-react'
+import { FileText, Download, Plus, RefreshCw, AlertTriangle, Clock, Calendar, Trash2, ToggleLeft, ToggleRight } from 'lucide-react'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { api } from '../../api'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
@@ -46,6 +46,191 @@ const REPORT_TYPES = [
   { value: 'weekly_executive',    label: 'Weekly Executive' },
   { value: 'monthly_executive',   label: 'Monthly Executive' },
 ]
+
+const SCHEDULE_TYPES = [
+  { value: 'weekly_executive',    label: 'Weekly Executive',    freq: 'weekly'    },
+  { value: 'monthly_executive',   label: 'Monthly Executive',   freq: 'monthly'   },
+  { value: 'quarterly_executive', label: 'Quarterly Executive', freq: 'quarterly' },
+]
+
+const FREQ_LABELS = { weekly: 'Weekly', monthly: 'Monthly', quarterly: 'Quarterly' }
+
+function fmtNextRun(str) {
+  if (!str) return '—'
+  const s = str.includes('T') ? str : str.replace(' ', 'T') + 'Z'
+  const d = new Date(s)
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+// ── Scheduled Reports Card ────────────────────────────────────────────────────
+
+function ScheduledReportsCard({ wsId }) {
+  const [schedules,  setSchedules]  = useState([])
+  const [loading,    setLoading]    = useState(true)
+  const [error,      setError]      = useState(null)
+  const [creating,   setCreating]   = useState(false)
+  const [createErr,  setCreateErr]  = useState(null)
+  const [showForm,   setShowForm]   = useState(false)
+  const [selType,    setSelType]    = useState('monthly_executive')
+  const [selFreq,    setSelFreq]    = useState('monthly')
+
+  const load = async () => {
+    if (!wsId) return
+    setLoading(true); setError(null)
+    try {
+      const data = await api.getScheduledReports(wsId)
+      setSchedules(data.scheduled_reports || [])
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { load() }, [wsId])
+
+  async function handleCreate() {
+    setCreating(true); setCreateErr(null)
+    try {
+      await api.createScheduledReport(wsId, selType, selFreq)
+      setShowForm(false)
+      await load()
+    } catch (e) {
+      setCreateErr(e.message)
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  async function handleToggle(sr) {
+    try {
+      await api.updateScheduledReport(wsId, sr.id, !sr.enabled)
+      await load()
+    } catch { /* show nothing — list refreshes */ }
+  }
+
+  async function handleDelete(srId) {
+    try {
+      await api.deleteScheduledReport(wsId, srId)
+      await load()
+    } catch { /* non-fatal */ }
+  }
+
+  return (
+    <div className="card p-6 mt-6">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Calendar className="w-4 h-4 text-gray-400" />
+          <h2 className="text-sm font-semibold text-gray-900">Scheduled Reports</h2>
+        </div>
+        <button
+          onClick={() => { setShowForm(v => !v); setCreateErr(null) }}
+          className="btn-secondary text-xs py-1.5 px-3 flex items-center gap-1"
+        >
+          <Plus className="w-3.5 h-3.5" /> New Schedule
+        </button>
+      </div>
+
+      {/* Create form */}
+      {showForm && (
+        <div className="mb-4 p-4 bg-gray-50 rounded-xl border border-gray-100">
+          <p className="text-xs font-medium text-gray-700 mb-3">New scheduled report</p>
+          <div className="flex flex-wrap items-end gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Report type</label>
+              <select
+                value={selType}
+                onChange={e => setSelType(e.target.value)}
+                className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+              >
+                {SCHEDULE_TYPES.map(t => (
+                  <option key={t.value} value={t.value}>{t.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Frequency</label>
+              <select
+                value={selFreq}
+                onChange={e => setSelFreq(e.target.value)}
+                className="text-sm border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+              >
+                <option value="weekly">Weekly (Mondays)</option>
+                <option value="monthly">Monthly (1st)</option>
+                <option value="quarterly">Quarterly (1st of quarter)</option>
+              </select>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={handleCreate}
+                disabled={creating}
+                className="btn-primary text-sm py-1.5 px-3"
+              >
+                {creating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : 'Create'}
+              </button>
+              <button
+                onClick={() => setShowForm(false)}
+                className="btn-ghost text-sm py-1.5 px-3"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+          {createErr && (
+            <p className="mt-2 text-xs text-red-500">{createErr}</p>
+          )}
+        </div>
+      )}
+
+      {error && <p className="text-xs text-red-500 py-2">{error}</p>}
+
+      {!loading && !error && schedules.length === 0 && (
+        <div className="py-8 text-center">
+          <Calendar className="w-8 h-8 text-gray-200 mx-auto mb-2" />
+          <p className="text-sm text-gray-400">No scheduled reports configured.</p>
+        </div>
+      )}
+
+      {schedules.length > 0 && (
+        <div className="divide-y divide-gray-50">
+          {schedules.map(sr => (
+            <div key={sr.id} className="flex items-center justify-between py-3 gap-3">
+              <div className="flex-1 min-w-0">
+                <p className={`text-sm font-medium ${sr.enabled ? 'text-gray-800' : 'text-gray-400'}`}>
+                  {fmtType(sr.report_type)}
+                  <span className="ml-2 text-xs font-normal text-gray-400">{FREQ_LABELS[sr.frequency] ?? sr.frequency}</span>
+                </p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Next run: {fmtNextRun(sr.next_run_at)}
+                  {sr.last_run_at && ` · Last: ${fmtDateTime(sr.last_run_at)}`}
+                </p>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <button
+                  onClick={() => handleToggle(sr)}
+                  title={sr.enabled ? 'Disable' : 'Enable'}
+                  className="text-gray-400 hover:text-brand-600 transition-colors"
+                >
+                  {sr.enabled
+                    ? <ToggleRight className="w-5 h-5 text-brand-500" />
+                    : <ToggleLeft  className="w-5 h-5 text-gray-300"  />
+                  }
+                </button>
+                <button
+                  onClick={() => handleDelete(sr.id)}
+                  title="Delete schedule"
+                  className="text-gray-300 hover:text-red-500 transition-colors"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
@@ -283,6 +468,9 @@ export default function WorkspaceReportsPage() {
           </div>
         </div>
       )}
+
+      {/* Scheduled Reports */}
+      <ScheduledReportsCard wsId={wsId} />
 
     </WsPage>
   )
