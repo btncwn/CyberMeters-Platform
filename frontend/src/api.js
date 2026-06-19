@@ -158,6 +158,20 @@ export const api = {
   /** GET /api/workspaces/:id/alerts */
   getWorkspaceAlerts: (id) => request(`/workspaces/${id}/alerts`),
 
+  // ── Portfolio APIs ────────────────────────────────────────────────────────
+
+  /** GET /api/portfolio/overview */
+  getPortfolioOverview: () => request('/portfolio/overview'),
+
+  /** GET /api/portfolio/workspaces */
+  getPortfolioWorkspaces: () => request('/portfolio/workspaces'),
+
+  /** GET /api/portfolio/alerts  optional: ?limit=N */
+  getPortfolioAlerts: (limit = 50) => request(`/portfolio/alerts?limit=${limit}`),
+
+  /** GET /api/portfolio/trends */
+  getPortfolioTrends: () => request('/portfolio/trends'),
+
   /**
    * GET /api/workspaces/:id/report
    * Returns a Blob (application/pdf) — bypasses the JSON request() helper.

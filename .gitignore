@@ -33,3 +33,4 @@ workers/scan-api/.wrangler/
 .wrangler/
 workers/scan-api/.wrangler/
 *.pdf
+*.pdf

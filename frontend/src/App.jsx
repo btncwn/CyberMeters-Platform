@@ -21,6 +21,7 @@ import CloudAssetsPage      from './pages/ws/CloudAssetsPage'
 import AdminSurfacesPage    from './pages/ws/AdminSurfacesPage'
 import CertificatesPage     from './pages/ws/CertificatesPage'
 import BrandMonitoringPage  from './pages/ws/BrandMonitoringPage'
+import PortfolioPage        from './pages/PortfolioPage'
 
 export default function App() {
   return (
@@ -29,6 +30,7 @@ export default function App() {
         <Route path="/" element={<Layout />}>
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard"               element={<Dashboard />}           />
+          <Route path="portfolio"               element={<PortfolioPage />}        />
           <Route path="workspaces"              element={<WorkspacesPage />}      />
           <Route path="workspaces/:id"          element={<WorkspaceDetailPage />} />
           <Route path="intelligence"            element={<IntelligencePage />}    />

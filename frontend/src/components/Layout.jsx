@@ -3,12 +3,13 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Server, ScanLine, FileBarChart2,
   Settings, Shield, Plus, Bell, ChevronDown, Calendar,
-  Briefcase, ChevronRight, Check, Brain,
+  Briefcase, ChevronRight, Check, Brain, Layers,
 } from 'lucide-react'
 import { api } from '../api'
 
 const NAV = [
   { to: '/dashboard',    icon: LayoutDashboard, label: 'Dashboard'    },
+  { to: '/portfolio',    icon: Layers,          label: 'Portfolio'    },
   { to: '/ws/dashboard', icon: Shield,          label: 'Workspace'    },
   { to: '/workspaces',   icon: Briefcase,       label: 'Workspaces'   },
   { to: '/intelligence', icon: Brain,           label: 'Intelligence' },
