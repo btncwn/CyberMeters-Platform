@@ -100,6 +100,9 @@ export const api = {
   /** GET /api/workspaces/:id/scorecard */
   getWorkspaceScorecard: (id) => request(`/workspaces/${id}/scorecard`),
 
+  /** GET /api/workspaces/:id/scorecard/report */
+  getWorkspaceScorecardReport: (id) => request(`/workspaces/${id}/scorecard/report`),
+
   /** GET /api/workspaces/:id/posture */
   getWorkspacePosture: (id) => request(`/workspaces/${id}/posture`),
 
