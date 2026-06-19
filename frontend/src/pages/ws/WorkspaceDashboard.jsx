@@ -16,6 +16,7 @@ import { useAuth } from '../../context/AuthContext'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
 import StatCard from '../../components/StatCard'
 import WorkspaceMembersPanel from '../../components/WorkspaceMembersPanel'
+import ActivityTimeline from '../../components/ActivityTimeline'
 
 function fmt(str) {
   if (!str) return '—'
@@ -529,6 +530,9 @@ export default function WorkspaceDashboard() {
 
           {/* Team members */}
           <WorkspaceMembersPanel workspaceId={wsId} currentUser={user} />
+
+          {/* Activity timeline */}
+          <ActivityTimeline workspaceId={wsId} />
 
           {/* Empty state: no scans yet */}
           {noScans ? (

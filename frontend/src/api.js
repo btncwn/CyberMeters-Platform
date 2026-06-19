@@ -300,6 +300,17 @@ export const api = {
    */
   getSubscription: () => request('/account/subscription'),
 
+  // ── Workspace Activity (Audit Trail) ─────────────────────────────────────
+
+  /**
+   * GET /api/workspaces/:id/activity
+   * Optional: ?limit=N &offset=N &event_type=X
+   */
+  getWorkspaceActivity: (workspaceId, params = {}) => {
+    const q = new URLSearchParams(params).toString()
+    return request(`/workspaces/${workspaceId}/activity${q ? `?${q}` : ''}`)
+  },
+
   // ── Workspace Members (RBAC) ─────────────────────────────────────────────
 
   /** GET /api/workspaces/:id/members  → { members: [...] } */

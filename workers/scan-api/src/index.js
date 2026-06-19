@@ -5958,6 +5958,34 @@ async function runScanEngine(scanId, domainId, domain, env) {
       await createNotificationsForDomain(domainId, domain, scanId, score, risk_level, findings, env);
     } catch { /* non-fatal */ }
 
+    // Phase 11: Audit — scan completed. Fire per-workspace. Non-fatal.
+    try {
+      const wsRows = await env.cybermeters_db
+        .prepare("SELECT workspace_id FROM workspace_domains WHERE domain_id = ?")
+        .bind(domainId)
+        .all();
+      for (const { workspace_id } of (wsRows.results || [])) {
+        await createAuditEvent(env, {
+          workspace_id,
+          event_type:  "scan_completed",
+          entity_type: "scan",
+          entity_id:   scanId,
+          description: `Scan completed for ${domain} — score ${score}, risk ${risk_level}`,
+          metadata:    { scan_id: scanId, domain, domain_id: domainId, score, risk_level },
+        });
+      }
+      // Also fire a workspace-agnostic event if domain has no workspaces
+      if ((wsRows.results || []).length === 0) {
+        await createAuditEvent(env, {
+          event_type:  "scan_completed",
+          entity_type: "scan",
+          entity_id:   scanId,
+          description: `Scan completed for ${domain} — score ${score}, risk ${risk_level}`,
+          metadata:    { scan_id: scanId, domain, domain_id: domainId, score, risk_level },
+        });
+      }
+    } catch { /* non-fatal */ }
+
   } catch (err) {
     // Best-effort: write failure state to R2 and D1.
     // Each write is individually guarded so one failure cannot prevent the other.
@@ -9210,8 +9238,8 @@ async function generateWorkspaceExecutiveReport(workspaceId, env, options = {}) 
     `UPDATE workspace_reports SET status = 'completed', generated_at = ? WHERE id = ?`
   ).bind(generatedAt, reportId).run();
 
-  // Notification — report generated. Non-fatal: report generation must not fail
-  // if notification persistence is unavailable.
+  // Notification + audit — report generated. Non-fatal: report generation must not fail
+  // if notification or audit persistence is unavailable.
   try {
     await createNotificationEvent(env, workspaceId, {
       type:     "report_generated",
@@ -9219,6 +9247,14 @@ async function generateWorkspaceExecutiveReport(workspaceId, env, options = {}) 
       title:    `Executive report ready`,
       message:  `${report_type.replace(/_/g, " ")} report for period ${period} is available for download.`,
       metadata: { report_id: reportId, report_type, report_period: period },
+    });
+    await createAuditEvent(env, {
+      workspace_id: workspaceId,
+      event_type:   "report_generated",
+      entity_type:  "report",
+      entity_id:    reportId,
+      description:  `Executive report generated (${report_type}, period ${period})`,
+      metadata:     { report_id: reportId, report_type, report_period: period },
     });
   } catch { /* non-fatal */ }
 
@@ -9419,6 +9455,47 @@ async function createNotificationEvent(env, workspace_id, { type, severity = "in
   } catch { /* non-fatal */ }
 }
 
+// ── Audit Trail Helper ───────────────────────────────────────────────────────
+
+/**
+ * createAuditEvent — inserts one row into audit_events.
+ *
+ * Always non-fatal. Audit failures must never break business logic.
+ *
+ * @param {object} env              - Worker env bindings
+ * @param {object} opts
+ *   workspace_id  {string|null}   - Workspace context (null for auth events)
+ *   user_id       {string|null}   - Acting user (null for system events)
+ *   event_type    {string}        - e.g. 'domain_verified', 'scan_completed'
+ *   entity_type   {string|null}   - e.g. 'domain', 'scan', 'member', 'report'
+ *   entity_id     {string|null}   - ID of the affected entity
+ *   description   {string|null}   - Human-readable summary
+ *   metadata      {object|null}   - Arbitrary JSON context
+ */
+async function createAuditEvent(env, {
+  workspace_id  = null,
+  user_id       = null,
+  event_type,
+  entity_type   = null,
+  entity_id     = null,
+  description   = null,
+  metadata      = null,
+} = {}) {
+  if (!event_type) return;
+  try {
+    const id       = createId("audit");
+    const metaJson = metadata ? JSON.stringify(metadata) : null;
+    await env.cybermeters_db
+      .prepare(
+        `INSERT INTO audit_events
+           (id, workspace_id, user_id, event_type, entity_type, entity_id, description, metadata_json, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+      )
+      .bind(id, workspace_id, user_id, event_type, entity_type, entity_id, description, metaJson)
+      .run();
+  } catch { /* non-fatal */ }
+}
+
 /**
  * createNotificationsForDomain — fires workspace-level notifications for a
  * completed scan. Looks up all workspace_ids associated with the domain,
@@ -9483,7 +9560,7 @@ async function createNotificationsForDomain(domainId, domain, scanId, score, ris
 
 const corsHeaders = {
   "Access-Control-Allow-Origin":  "*",
-  "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, PATCH, PUT, DELETE, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
 
@@ -9594,6 +9671,15 @@ export default {
           .bind(user.id)
           .run();
 
+        // Audit: login
+        await createAuditEvent(env, {
+          user_id:     user.id,
+          event_type:  "login",
+          entity_type: "user",
+          entity_id:   user.id,
+          description: `${user.email} signed in`,
+        });
+
         return json({
           token,
           user: {
@@ -9628,10 +9714,24 @@ export default {
         if (rawToken) {
           try {
             const tokenHash = await hashToken(rawToken);
+            // Resolve user before deleting session so we can audit
+            const sessionRow = await env.cybermeters_db
+              .prepare("SELECT user_id FROM user_sessions WHERE token_hash = ?")
+              .bind(tokenHash)
+              .first();
             await env.cybermeters_db
               .prepare("DELETE FROM user_sessions WHERE token_hash = ?")
               .bind(tokenHash)
               .run();
+            if (sessionRow?.user_id) {
+              await createAuditEvent(env, {
+                user_id:     sessionRow.user_id,
+                event_type:  "logout",
+                entity_type: "user",
+                entity_id:   sessionRow.user_id,
+                description: "User signed out",
+              });
+            }
           } catch { /* silent — token may already be expired */ }
         }
       }
@@ -9919,6 +10019,19 @@ export default {
         }, null, 2),
         { httpMetadata: { contentType: "application/json" } }
       );
+
+      // Audit — scan started. Non-fatal.
+      try {
+        await createAuditEvent(env, {
+          workspace_id: workspaceId ?? null,
+          user_id:      userId ?? null,
+          event_type:   "scan_started",
+          entity_type:  "scan",
+          entity_id:    scanId,
+          description:  `Scan started for ${domain}`,
+          metadata:     { scan_id: scanId, domain, domain_id: resolvedDomainId, workspace_id: workspaceId ?? null },
+        });
+      } catch { /* non-fatal */ }
 
       // Fire the scan engine after the response is sent
       ctx.waitUntil(runScanEngine(scanId, resolvedDomainId, domain, env));
@@ -10815,6 +10928,16 @@ export default {
             .bind(createId("wm"), id, creator.id)
             .run();
         }
+        // Audit: workspace created
+        await createAuditEvent(env, {
+          workspace_id: id,
+          user_id:      creator?.id ?? null,
+          event_type:   "workspace_created",
+          entity_type:  "workspace",
+          entity_id:    id,
+          description:  `Workspace "${name}" created`,
+          metadata:     { workspace_name: name },
+        });
         return json({ workspace: { id, name, created_at } }, 201);
       } catch {
         return json({ error: "Database error" }, 500);
@@ -12905,6 +13028,17 @@ export default {
           .bind(memberId, workspaceId, target.id, rawRole, user.id)
           .run();
 
+        // Audit: member added
+        await createAuditEvent(env, {
+          workspace_id: workspaceId,
+          user_id:      user.id,
+          event_type:   "workspace_member_added",
+          entity_type:  "member",
+          entity_id:    target.id,
+          description:  `${user.email} added ${target.email} as ${rawRole}`,
+          metadata:     { added_user_id: target.id, added_email: target.email, role: rawRole },
+        });
+
         return json({
           member: {
             workspace_id: workspaceId,
@@ -12956,7 +13090,79 @@ export default {
           .bind(memberId)
           .run();
 
+        // Audit: member removed
+        await createAuditEvent(env, {
+          workspace_id: workspaceId,
+          user_id:      user.id,
+          event_type:   "workspace_member_removed",
+          entity_type:  "member",
+          entity_id:    row.user_id,
+          description:  `${user.email} removed member with role ${row.role}`,
+          metadata:     { removed_member_id: memberId, removed_user_id: row.user_id, role: row.role },
+        });
+
         return json({ success: true, removed_id: memberId });
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
+    // ── GET /api/workspaces/:id/activity ─────────────────────────────────────
+    // Returns paginated audit events for a workspace.
+    // Query params: ?limit=N (max 100) &event_type=X &offset=N
+    const activityMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/activity$/);
+    if (activityMatch && request.method === "GET") {
+      const workspaceId = activityMatch[1];
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, workspaceId, "workspace:read", env);
+      if (!access) return json({ error: "Forbidden" }, 403);
+
+      try {
+        const limit     = Math.min(parseInt(url.searchParams.get("limit")  || "50", 10), 100);
+        const offset    = Math.max(parseInt(url.searchParams.get("offset") || "0",  10), 0);
+        const eventType = url.searchParams.get("event_type") || null;
+
+        let query, binds;
+        if (eventType) {
+          query = `SELECT id, user_id, event_type, entity_type, entity_id, description, metadata_json, created_at
+                   FROM audit_events
+                   WHERE workspace_id = ? AND event_type = ?
+                   ORDER BY created_at DESC LIMIT ? OFFSET ?`;
+          binds = [workspaceId, eventType, limit, offset];
+        } else {
+          query = `SELECT id, user_id, event_type, entity_type, entity_id, description, metadata_json, created_at
+                   FROM audit_events
+                   WHERE workspace_id = ?
+                   ORDER BY created_at DESC LIMIT ? OFFSET ?`;
+          binds = [workspaceId, limit, offset];
+        }
+
+        const result = await env.cybermeters_db.prepare(query).bind(...binds).all();
+        const events = (result.results || []).map(r => ({
+          ...r,
+          metadata: r.metadata_json ? JSON.parse(r.metadata_json) : null,
+          metadata_json: undefined,
+        }));
+
+        // Enrich with actor email from users table (best-effort JOIN avoided via batch)
+        const userIds = [...new Set(events.map(e => e.user_id).filter(Boolean))];
+        let userMap = {};
+        if (userIds.length) {
+          const placeholders = userIds.map(() => "?").join(",");
+          const usersR = await env.cybermeters_db
+            .prepare(`SELECT id, name, email FROM users WHERE id IN (${placeholders})`)
+            .bind(...userIds)
+            .all();
+          for (const u of (usersR.results || [])) userMap[u.id] = { name: u.name, email: u.email };
+        }
+
+        const enriched = events.map(e => ({
+          ...e,
+          actor: e.user_id ? (userMap[e.user_id] ?? { name: null, email: null }) : null,
+        }));
+
+        return json({ events: enriched, limit, offset, count: enriched.length });
       } catch (e) {
         return json({ error: e.message }, 500);
       }
@@ -13026,6 +13232,7 @@ export default {
           .first();
         if (!ws) return json({ error: "Workspace not found" }, 404);
 
+        const notifUser = await requireAuth(request, env);
         if (notifId === "all") {
           // Mark all unread notifications for this workspace as read
           await env.cybermeters_db
@@ -13033,6 +13240,15 @@ export default {
                       WHERE workspace_id = ? AND status = 'unread'`)
             .bind(workspaceId)
             .run();
+          // Audit: bulk mark read
+          await createAuditEvent(env, {
+            workspace_id: workspaceId,
+            user_id:      notifUser?.id ?? null,
+            event_type:   "notification_read",
+            entity_type:  "notification",
+            description:  "All notifications marked as read",
+            metadata:     { bulk: true },
+          });
           return json({ success: true, marked: "all" });
         }
         // Mark a specific notification as read
@@ -13045,6 +13261,15 @@ export default {
           .prepare(`UPDATE notification_events SET status = 'read', read_at = datetime('now') WHERE id = ?`)
           .bind(notifId)
           .run();
+        // Audit: single notification read
+        await createAuditEvent(env, {
+          workspace_id: workspaceId,
+          user_id:      notifUser?.id ?? null,
+          event_type:   "notification_read",
+          entity_type:  "notification",
+          entity_id:    notifId,
+          description:  "Notification marked as read",
+        });
         return json({ success: true, id: notifId });
       } catch (e) {
         return json({ error: e.message }, 500);
@@ -13132,6 +13357,16 @@ export default {
 
           imported++;
         }
+
+        // Audit: domain import completed
+        await createAuditEvent(env, {
+          workspace_id: workspaceId,
+          user_id:      importUser?.id ?? null,
+          event_type:   "domain_imported",
+          entity_type:  "domain",
+          description:  `Imported ${imported} domain${imported !== 1 ? "s" : ""} (${skipped} skipped, ${invalid.length} invalid)`,
+          metadata:     { imported, skipped, invalid: invalid.length, total: rawList.length },
+        });
 
         return json({ imported, skipped, invalid: invalid.length, total: rawList.length }, 200);
       } catch (e) {
@@ -13296,7 +13531,7 @@ export default {
                       WHERE id = ?`)
             .bind(domainId)
             .run();
-          // Notification — fire-and-forget for all linked workspaces
+          // Notifications + audit — fire-and-forget for all linked workspaces
           try {
             const wsR = await env.cybermeters_db
               .prepare("SELECT workspace_id FROM workspace_domains WHERE domain_id = ?")
@@ -13307,6 +13542,15 @@ export default {
                 title: `${domain} ownership verified`,
                 message: `Domain verified via DNS TXT record at _cybermeters.${domain}.`,
                 metadata: { domain, domain_id: domainId, method: "dns_txt" },
+              });
+              await createAuditEvent(env, {
+                workspace_id,
+                user_id:     dvcUser?.id ?? null,
+                event_type:  "domain_verified",
+                entity_type: "domain",
+                entity_id:   domainId,
+                description: `${domain} ownership verified via DNS TXT`,
+                metadata:    { domain, domain_id: domainId, method: "dns_txt" },
               });
             }
           } catch { /* non-fatal */ }
@@ -13347,7 +13591,7 @@ export default {
                       WHERE id = ?`)
             .bind(domainId)
             .run();
-          // Notification — fire-and-forget for all linked workspaces
+          // Notifications + audit — fire-and-forget for all linked workspaces
           try {
             const wsR = await env.cybermeters_db
               .prepare("SELECT workspace_id FROM workspace_domains WHERE domain_id = ?")
@@ -13358,6 +13602,15 @@ export default {
                 title: `${domain} ownership verified`,
                 message: `Domain verified via HTML file at ${htmlUrl}.`,
                 metadata: { domain, domain_id: domainId, method: "html_file" },
+              });
+              await createAuditEvent(env, {
+                workspace_id,
+                user_id:     dvcUser?.id ?? null,
+                event_type:  "domain_verified",
+                entity_type: "domain",
+                entity_id:   domainId,
+                description: `${domain} ownership verified via HTML file`,
+                metadata:    { domain, domain_id: domainId, method: "html_file" },
               });
             }
           } catch { /* non-fatal */ }
@@ -13591,6 +13844,17 @@ export default {
             )
             .bind(workspaceId, domainRow.id)
             .run();
+
+          // Audit: domain added
+          await createAuditEvent(env, {
+            workspace_id: workspaceId,
+            user_id:      addDomUser?.id ?? null,
+            event_type:   "domain_added",
+            entity_type:  "domain",
+            entity_id:    domainRow.id,
+            description:  `Domain ${domainRow.domain} added to workspace`,
+            metadata:     { domain: domainRow.domain, domain_id: domainRow.id },
+          });
 
           return json(
             { domain: { domain_id: domainRow.id, domain: domainRow.domain, workspace_id: workspaceId } },
