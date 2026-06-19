@@ -1,131 +1,477 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+# CyberMeters Platform — AI Engineering Context
 
-## Repository Layout
+Version: June 2026
 
-```
+---
+
+# Project Overview
+
+CyberMeters is a production-oriented:
+
+* Attack Surface Management (ASM) Platform
+* Security Posture Management (SPM) Platform
+* Portfolio Monitoring Platform
+* Executive Reporting Platform
+
+CyberMeters is no longer a scanner project.
+
+CyberMeters is currently in the Productization Phase.
+
+Primary objective:
+
+Convert the existing ASM platform into a commercially viable multi-tenant SaaS product.
+
+---
+
+# Current Strategic Status
+
+| Area                 | Completion |
+| -------------------- | ---------: |
+| Core Scanner Engine  |        92% |
+| ASM Engine           |        82% |
+| Reporting Platform   |        90% |
+| Historical Tracking  |        90% |
+| Asset Inventory      |        90% |
+| Portfolio Platform   |        85% |
+| Product Platform     |        35% |
+| Commercial Readiness |        50% |
+
+---
+
+# Current Priorities
+
+Priority order:
+
+1. Authentication
+2. Domain Ownership Verification
+3. Notifications
+4. Dedicated Asset Inventory API
+5. RBAC
+6. Customer Portal
+7. Billing
+8. Team Management
+
+New scanner development is not currently a priority.
+
+---
+
+# Repository Layout
+
 CyberMeters-Platform/
-├── frontend/                  # React SPA (Vite + Tailwind)
-├── workers/scan-api/          # Cloudflare Worker (single file: src/index.js)
-├── database/schema.sql        # D1 SQLite schema (source of truth)
-└── docs/                      # API_REFERENCE.md, PROJECT_STATUS.md, ARCHITECTURE.md
-```
 
-## Commands
+frontend/
+workers/scan-api/
+database/schema.sql
+docs/
 
-### Frontend (`frontend/`)
-```bash
-npm run dev      # Vite dev server on 0.0.0.0 (connects to live Worker API)
-npm run build    # Production build → dist/
-npm run preview  # Serve dist/ locally
-```
+---
 
-### Worker (`workers/scan-api/`)
-```bash
-npm run dev      # wrangler dev — local Worker with real D1/R2 bindings
-npm run deploy   # wrangler deploy — push to production
+# Commands
 
-# Syntax check before deploying (no test suite exists):
+## Frontend
+
+npm run dev
+npm run build
+npm run preview
+
+## Worker
+
+npm run dev
+npm run deploy
+
+Syntax check:
+
 node --input-type=module --check < src/index.js
-```
 
-### Database
-```bash
-# Apply schema to remote D1
+## Database
+
 wrangler d1 execute cybermeters-db --remote --file=../../database/schema.sql
-# Query remote D1
-wrangler d1 execute cybermeters-db --remote --command="SELECT * FROM scans ORDER BY created_at DESC LIMIT 5"
-```
 
-## Architecture
+---
 
-### Data Flow
+# Current Architecture
 
-```
-POST /api/scan
-  → D1: insert scan row (status=running)
-  → R2: write placeholder report JSON
-  → return 202 immediately
-  → ctx.waitUntil(runScanEngine(...))   ← async, after response
+Frontend:
 
-runScanEngine
-  → Promise.allSettled([dns, ssl, headers, email, subdomains])  ← all parallel
-  → computeScore(modules, domain)
-  → R2: overwrite report with completed JSON
-  → D1: UPDATE scans SET status='completed', score=?, rating=?
-  → D1: INSERT findings + remediation_items rows
-```
+* React
+* Vite
+* Tailwind CSS
 
-### Worker (`workers/scan-api/src/index.js`)
+Backend:
 
-Single-file Worker. Key sections in order:
-1. **Utilities** — `createId()`, `isValidDomain()`, `dnsQuery()` (DoH via `cloudflare-dns.com/dns-query`), `safeFetch()`
-2. **Config constants** — `SECURITY_HEADERS[]`, `DKIM_SELECTORS[]`, `SENSITIVE_LABELS` Set
-3. **Scan modules** — `runDnsModule`, `runSslModule`, `runHeadersModule`, `runEmailModule`, `runSubdomainsModule`
-4. **`computeScore(modules, domain)`** — mutates a score starting at 100; each finding calls the inner `finding(f)` helper which deducts `f.score_impact`
-5. **`runScanEngine(scanId, domainId, domain, env)`** — orchestrator, called via `ctx.waitUntil()`
-6. **CORS** — `corsHeaders` constant + `json(data, status)` helper wrapping `Response.json`
-7. **`export default { fetch(request, env, ctx) }`** — route dispatcher; OPTIONS → 404 in order
+* Cloudflare Workers
 
-**Route ordering matters:** `/api/scans/:id/report` regex must be tested *before* `/api/scans/:id` `startsWith` check.
+Storage:
 
-Worker bindings (from `wrangler.toml`):
-- `env.cybermeters_db` → D1 database `cybermeters-db`
-- `env.cybermeters_reports` → R2 bucket `cybermeters-reports`
+* Cloudflare D1
+* Cloudflare R2
 
-R2 key convention: `reports/{scan_id}.json`
+Hosting:
 
-### Frontend
+* Cloudflare Pages
 
-**API layer** (`src/api.js`): single `request()` wrapper; base URL from `VITE_API_BASE_URL` env var (falls back to live Worker URL). All pages import `{ api }`.
+Architecture goal:
 
-**Page → data pattern** (consistent across all pages):
-```js
-const load = useCallback(async (silent = false) => { ... }, [deps])
-useEffect(() => { load() }, [load])
-```
-Silent refreshes (`load(true)`) set `refreshing` instead of `loading` to avoid full re-renders.
+Remain fully Cloudflare-native.
 
-**ScanDetail polling**: `setInterval` via `useRef` polls every 4 s while `scan.status` is in `{queued, running, processing}`; clears on completion and triggers `loadReport()`.
+Do not introduce:
 
-**Dashboard score**: reads `scan.score` and `scan.rating` directly from the `GET /api/scans` list (D1 columns), then fetches the full report for the latest completed scan to populate findings and health indicators.
+* Express.js
+* Traditional Node servers
+* Dedicated VPS infrastructure
 
-**AssetsPage**: reads `modules.subdomains` from `GET /api/scans/:id/report` for the latest completed scan. No dedicated assets API yet.
+unless explicitly requested.
 
-### Design System
+---
 
-Tailwind-based; custom utilities in `src/index.css`:
-- `.card` / `.card-md` — white rounded cards with shadow
-- `.btn-primary` / `.btn-secondary` / `.btn-ghost`
-- `.badge-critical` / `.badge-high` / `.badge-medium` / `.badge-low`
-- `.label` — tiny uppercase tracking label
-- `.mono` — monospace font class
-- `.input` — styled form input
-- `.data-table` — styled `<table>` with `th`/`td` classes
+# Current Scan Modules
 
-Brand color: `brand-600` = `#00876A` (green). No dark theme — white/light backgrounds only.
+Implemented:
 
-SPA routing: `public/_redirects` contains `/* /index.html 200` for Cloudflare Pages.
+* DNS Analysis
+* SSL Analysis
+* Security Headers
+* Email Security
+* Subdomain Discovery
+* Subdomain Takeover Detection
+* Asset Exposure Detection
+* Historical Tracking
+* Executive Reporting
 
-### D1 Schema Key Points
+---
 
-- `scans.score INTEGER` and `scans.rating TEXT` — written by the scan engine on completion; read by `GET /api/scans` list and `GET /api/scans/:id`
-- `findings.recommendation` stores the finding *description* (not a separate recommendations table)
-- `remediation_items.action` stores the recommendation description; `.reason` stores the module name
-- `reports` table exists in schema but is unused — R2 is the source of truth for report JSON
+# Current Platform Modules
 
-## Cloudflare Worker Constraints
+Implemented:
 
-- No raw DNS sockets → use DoH: `https://cloudflare-dns.com/dns-query?name=X&type=Y` with `Accept: application/dns-json`
-- No npm packages at runtime → all logic is in `src/index.js` (no bundler for the Worker)
-- CPU time limit (free plan: 10 ms excluding I/O) → `ctx.waitUntil()` for all heavy work post-response
-- `AbortSignal.timeout(ms)` is available for per-fetch timeouts
-- All modules use `Promise.allSettled` so one failure never aborts others
+* Dashboard
+* Portfolio Dashboard
+* Workspace Dashboard
+* Historical Monitoring
+* Reports
+* Workspace Reports
+* Asset Events
+* Scheduled Scans
 
-## Development Rules (from `docs/CLAUDE_CONTEXT.md`)
+---
 
-- No mock data, no fake findings, no hardcoded scores
-- Use real API responses only; all scan findings derive from live external checks
-- Keep architecture Cloudflare-native (Worker + D1 + R2 + Pages)
-- Prioritise attack surface intelligence features
+# Known Architectural Notes
+
+Assets Page currently consumes:
+
+modules.subdomains
+
+from report JSON.
+
+There is no dedicated Asset Inventory API yet.
+
+Future asset work should consider:
+
+* Dedicated asset APIs
+* Asset lifecycle tracking
+* Portfolio-level asset intelligence
+
+---
+
+# Engineering Constitution
+
+## Rule 1 — Never Rewrite Working Systems
+
+If existing functionality works:
+
+* Do not redesign it
+* Do not replace it
+* Extend it
+
+---
+
+## Rule 2 — Backward Compatibility Is Mandatory
+
+Do not break:
+
+* Existing scans
+* Reports
+* Portfolio APIs
+* Frontend pages
+* Scheduled scans
+
+---
+
+## Rule 3 — Reuse Before Creating
+
+Before adding:
+
+* Functions
+* APIs
+* Tables
+* Components
+
+Check whether similar functionality already exists.
+
+Avoid duplicate logic.
+
+---
+
+## Rule 4 — Productization First
+
+Prefer:
+
+* Authentication
+* Domain Verification
+* Notifications
+* RBAC
+* Customer Portal
+* Billing
+
+over:
+
+* New scanning engines
+
+---
+
+## Rule 5 — Historical Data Is Sacred
+
+Never delete:
+
+* Scans
+* Findings
+* Assets
+* Reports
+* Events
+
+Prefer:
+
+* archived
+* inactive
+* resolved
+
+---
+
+## Rule 6 — Multi-Tenant Design
+
+Assume future support for:
+
+* Multiple customers
+* Multiple users
+* Multiple workspaces
+* MSP environments
+
+Avoid single-user assumptions.
+
+---
+
+## Rule 7 — Security First
+
+Every feature must consider:
+
+* Authentication
+* Authorization
+* Data isolation
+* Auditability
+* Report access control
+
+---
+
+## Rule 8 — Cloudflare Native
+
+All implementations must remain compatible with:
+
+* Workers
+* D1
+* R2
+* Pages
+
+---
+
+## Rule 9 — Database Safety
+
+Schema changes require:
+
+* Migration file
+* Validation commands
+* Rollback strategy
+
+Never silently modify production tables.
+
+---
+
+## Rule 10 — No N+1 Queries
+
+Use:
+
+* JOIN
+* GROUP BY
+* Aggregation
+* Batch processing
+
+Avoid per-row queries.
+
+---
+
+## Rule 11 — Validation Required
+
+Every sprint must include:
+
+npm run build
+
+wrangler deploy
+
+curl validation commands
+
+---
+
+## Rule 12 — No Placeholder Implementations
+
+Avoid:
+
+* TODOs
+* Fake logic
+* Mock findings
+* Hardcoded scores
+
+---
+
+## Rule 13 — Ownership Verification Is Strategic
+
+Future onboarding must support:
+
+* DNS TXT verification
+* HTML verification
+* Email verification
+
+---
+
+## Rule 14 — Portfolio-Level Thinking
+
+Every feature should consider:
+
+* Domain level
+* Workspace level
+* Customer level
+* Portfolio level
+
+---
+
+## Rule 15 — Commercial Readiness
+
+Choose implementations that improve:
+
+* Beta readiness
+* Customer onboarding
+* Revenue generation
+* Operational scalability
+
+---
+
+## Rule 16 — Duplicate Feature Detection
+
+Before implementing:
+
+Check:
+
+* Existing APIs
+* Existing pages
+* Existing tables
+* Existing modules
+
+Never build duplicates.
+
+---
+
+## Rule 17 — Sprint Awareness
+
+Before proposing work:
+
+Review:
+
+* Current branch
+* Recent commits
+* Latest completed sprint
+
+Avoid re-proposing completed work.
+
+---
+
+## Rule 18 — Historical Tracking First
+
+Prefer data that supports:
+
+* first_seen
+* last_seen
+* created_at
+* updated_at
+
+Trendable data is preferred.
+
+---
+
+## Rule 19 — API Stability
+
+Existing APIs are public contracts.
+
+Do not:
+
+* Rename fields
+* Remove fields
+* Change response structures
+
+without versioning.
+
+Prefer:
+
+/api/v1/
+
+for future evolution.
+
+---
+
+## Rule 20 — Mandatory Sprint Format
+
+Every implementation response must contain:
+
+Goal
+
+Current State
+
+Tasks
+
+Validation
+
+Expected Outcome
+
+Suggested Commit
+
+---
+
+# Development Workflow
+
+Before implementing any feature:
+
+1. Review current architecture
+2. Review existing APIs
+3. Review database schema
+4. Review active branch
+5. Review latest commits
+6. Review roadmap priority
+7. Check for duplicate functionality
+
+Only then propose implementation.
+
+---
+
+# Final Directive
+
+CyberMeters is no longer in the Scanner Development Phase.
+
+CyberMeters is in the Productization Phase.
+
+When uncertain:
+
+* Prefer stability over complexity
+* Prefer reuse over rewrites
+* Prefer productization over new scanners
+* Prefer commercial value over technical novelty
+
+Act as a Senior Software Engineer maintaining a production SaaS platform.

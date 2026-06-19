@@ -1,7 +1,10 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   BarChart2, Shield, Server, AlertTriangle,
   Package2, Zap, Tag, Terminal, TrendingUp, TrendingDown, Minus,
+  Globe, Upload, Plus, FileText, Clock, CheckCircle, Activity,
+  ShieldCheck, Copy, ExternalLink, ChevronDown, ChevronUp,
 } from 'lucide-react'
 import {
   AreaChart, Area, LineChart, Line,
@@ -29,23 +32,438 @@ function ScoreGauge({ score, rating }) {
   )
 }
 
+function HealthBadge({ status }) {
+  const cfg = {
+    healthy: 'bg-brand-50 text-brand-700 border-brand-100',
+    warning: 'bg-amber-50 text-amber-700 border-amber-100',
+    stale:   'bg-red-50 text-red-700 border-red-100',
+  }[status] ?? 'bg-gray-50 text-gray-500 border-gray-100'
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${cfg}`}>
+      {status === 'healthy' && <CheckCircle className="w-3 h-3" />}
+      {status === 'warning' && <Clock className="w-3 h-3" />}
+      {status === 'stale'   && <AlertTriangle className="w-3 h-3" />}
+      {status ?? '—'}
+    </span>
+  )
+}
+
+// ── Domain Verification Panel ────────────────────────────────────────────────
+
+function CopyButton({ text }) {
+  const [copied, setCopied] = useState(false)
+  function copy() {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+  return (
+    <button
+      onClick={copy}
+      title="Copy to clipboard"
+      className="ml-1.5 inline-flex items-center gap-1 text-xs text-gray-400 hover:text-brand-600 transition-colors"
+    >
+      {copied ? <CheckCircle className="w-3.5 h-3.5 text-brand-500" /> : <Copy className="w-3.5 h-3.5" />}
+      {copied ? 'Copied' : 'Copy'}
+    </button>
+  )
+}
+
+function DomainVerificationPanel({ domains, onVerified }) {
+  // Only show domains that are not fully verified
+  const actionable = (domains || []).filter(d => d.verification_status !== 'verified')
+  const [selected,     setSelected]     = useState(null)          // domain_id being worked on
+  const [instructions, setInstructions] = useState(null)          // token + dns + html info
+  const [generating,   setGenerating]   = useState(false)
+  const [verifying,    setVerifying]    = useState(false)
+  const [verifyResult, setVerifyResult] = useState(null)
+  const [genError,     setGenError]     = useState(null)
+  const [tab,          setTab]          = useState('dns')          // 'dns' | 'html'
+  const [expanded,     setExpanded]     = useState(true)
+
+  if (actionable.length === 0) return null
+
+  // If all domains are verified, show a slim "all verified" badge
+  const allVerified = actionable.length === 0
+  if (allVerified) return null
+
+  async function handleGenerate(domainId) {
+    setSelected(domainId)
+    setInstructions(null)
+    setVerifyResult(null)
+    setGenError(null)
+    setGenerating(true)
+    try {
+      const res = await api.generateDomainVerification(domainId)
+      if (res.already_verified) {
+        if (onVerified) onVerified()
+        return
+      }
+      setInstructions(res)
+    } catch (e) {
+      setGenError(e.message)
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  async function handleVerify() {
+    if (!selected || verifying) return
+    setVerifying(true)
+    setVerifyResult(null)
+    try {
+      const res = await api.verifyDomain(selected)
+      setVerifyResult(res)
+      if (res.success && onVerified) setTimeout(onVerified, 1500)
+    } catch (e) {
+      setVerifyResult({ success: false, message: e.message })
+    } finally {
+      setVerifying(false)
+    }
+  }
+
+  return (
+    <div className="card border-amber-100 mb-6 overflow-hidden">
+      {/* Header */}
+      <button
+        onClick={() => setExpanded(v => !v)}
+        className="w-full flex items-center justify-between px-6 py-4 border-b border-amber-100 hover:bg-amber-50/40 transition-colors text-left"
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center">
+            <ShieldCheck className="w-4 h-4 text-amber-500" />
+          </div>
+          <div>
+            <p className="font-semibold text-gray-900 text-sm">
+              Domain Ownership Verification
+            </p>
+            <p className="text-xs text-amber-600">
+              {actionable.length} domain{actionable.length !== 1 ? 's' : ''} require verification
+            </p>
+          </div>
+        </div>
+        {expanded
+          ? <ChevronUp className="w-4 h-4 text-gray-400" />
+          : <ChevronDown className="w-4 h-4 text-gray-400" />
+        }
+      </button>
+
+      {expanded && (
+        <div className="px-6 py-5">
+          {/* Domain list */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-5">
+            {actionable.map(d => {
+              const statusCfg = {
+                unverified: { label: 'Unverified', cls: 'bg-gray-100 text-gray-500' },
+                pending:    { label: 'Pending',    cls: 'bg-amber-100 text-amber-700' },
+                failed:     { label: 'Failed',     cls: 'bg-red-100 text-red-600' },
+              }[d.verification_status] ?? { label: d.verification_status, cls: 'bg-gray-100 text-gray-500' }
+
+              const isActive = selected === d.domain_id
+              return (
+                <div
+                  key={d.domain_id}
+                  className={`p-3 rounded-xl border cursor-pointer transition-all ${
+                    isActive
+                      ? 'border-brand-300 bg-brand-50'
+                      : 'border-gray-100 hover:border-gray-200 bg-white'
+                  }`}
+                  onClick={() => {
+                    setSelected(d.domain_id)
+                    setInstructions(null)
+                    setVerifyResult(null)
+                    setGenError(null)
+                  }}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-medium text-gray-800 truncate">{d.domain}</span>
+                    <span className={`shrink-0 text-xs font-semibold px-2 py-0.5 rounded-full ${statusCfg.cls}`}>
+                      {statusCfg.label}
+                    </span>
+                  </div>
+                  <button
+                    onClick={e => { e.stopPropagation(); handleGenerate(d.domain_id) }}
+                    disabled={generating && selected === d.domain_id}
+                    className="mt-2 text-xs text-brand-600 hover:underline disabled:opacity-50"
+                  >
+                    {generating && selected === d.domain_id ? 'Generating…' : 'Get verification instructions →'}
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+
+          {genError && (
+            <div className="mb-4 px-4 py-3 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600 flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+              {genError}
+            </div>
+          )}
+
+          {/* Instruction panel */}
+          {instructions && (
+            <div className="border border-gray-100 rounded-xl overflow-hidden">
+              {/* Tab switcher */}
+              <div className="flex border-b border-gray-100">
+                {['dns', 'html'].map(t => (
+                  <button
+                    key={t}
+                    onClick={() => setTab(t)}
+                    className={`flex-1 py-2.5 text-xs font-semibold uppercase tracking-wider transition-colors ${
+                      tab === t
+                        ? 'bg-gray-50 text-gray-900 border-b-2 border-brand-500'
+                        : 'text-gray-400 hover:text-gray-700'
+                    }`}
+                  >
+                    {t === 'dns' ? 'DNS TXT Record' : 'HTML File'}
+                  </button>
+                ))}
+              </div>
+
+              <div className="p-5">
+                {tab === 'dns' ? (
+                  <>
+                    <p className="text-xs text-gray-500 mb-4">
+                      Add the following TXT record to your domain's DNS. Changes may take up to 48 hours to propagate.
+                    </p>
+                    <div className="space-y-3">
+                      <div className="bg-gray-50 rounded-lg p-3">
+                        <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-1">Host / Name</p>
+                        <div className="flex items-center gap-1">
+                          <code className="text-xs text-gray-800 break-all">{instructions.dns.host}</code>
+                          <CopyButton text={instructions.dns.host} />
+                        </div>
+                      </div>
+                      <div className="bg-gray-50 rounded-lg p-3">
+                        <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-1">Type</p>
+                        <code className="text-xs text-gray-800">TXT</code>
+                      </div>
+                      <div className="bg-gray-50 rounded-lg p-3">
+                        <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-1">Value</p>
+                        <div className="flex items-center gap-1">
+                          <code className="text-xs text-gray-800 break-all">{instructions.dns.value}</code>
+                          <CopyButton text={instructions.dns.value} />
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-xs text-gray-500 mb-4">
+                      Upload a text file to your web server at the exact URL below. The file must contain only the token string.
+                    </p>
+                    <div className="space-y-3">
+                      <div className="bg-gray-50 rounded-lg p-3">
+                        <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-1">URL</p>
+                        <div className="flex items-center gap-1 flex-wrap">
+                          <code className="text-xs text-gray-800 break-all">{instructions.html.url}</code>
+                          <CopyButton text={instructions.html.url} />
+                          <a href={instructions.html.url} target="_blank" rel="noopener noreferrer" className="ml-1 text-gray-400 hover:text-brand-600">
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </a>
+                        </div>
+                      </div>
+                      <div className="bg-gray-50 rounded-lg p-3">
+                        <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-1">File Content (exact)</p>
+                        <div className="flex items-center gap-1">
+                          <code className="text-xs text-gray-800 break-all">{instructions.html.content}</code>
+                          <CopyButton text={instructions.html.content} />
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {/* Verify button + result */}
+                <div className="mt-5 flex items-center gap-3">
+                  <button
+                    onClick={handleVerify}
+                    disabled={verifying}
+                    className="btn-primary text-sm"
+                  >
+                    {verifying
+                      ? <><Activity className="w-4 h-4 animate-spin" /> Verifying…</>
+                      : <><ShieldCheck className="w-4 h-4" /> Verify Now</>
+                    }
+                  </button>
+                  <span className="text-xs text-gray-400">Checks both DNS and HTML methods</span>
+                </div>
+
+                {verifyResult && (
+                  <div className={`mt-4 p-4 rounded-xl text-sm ${
+                    verifyResult.success
+                      ? 'bg-brand-50 border border-brand-100 text-brand-700'
+                      : 'bg-red-50 border border-red-100 text-red-600'
+                  }`}>
+                    {verifyResult.success
+                      ? <><CheckCircle className="w-4 h-4 inline mr-1.5" />{verifyResult.message}</>
+                      : <><AlertTriangle className="w-4 h-4 inline mr-1.5" />{verifyResult.message}</>
+                    }
+                    {!verifyResult.success && verifyResult.checks && (
+                      <ul className="mt-2 text-xs space-y-1 opacity-80">
+                        <li>DNS TXT: {verifyResult.checks.dns_txt.result}{verifyResult.checks.dns_txt.error ? ` (${verifyResult.checks.dns_txt.error})` : ''}</li>
+                        <li>HTML file: {verifyResult.checks.html_file.result}{verifyResult.checks.html_file.error ? ` (${verifyResult.checks.html_file.error})` : ''}</li>
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Onboarding Widget ────────────────────────────────────────────────────────
+
+function OnboardingWidget({ wsId, onDone }) {
+  const navigate = useNavigate()
+  const [singleDomain,  setSingleDomain]  = useState('')
+  const [bulkText,      setBulkText]      = useState('')
+  const [showBulk,      setShowBulk]      = useState(false)
+  const [importing,     setImporting]     = useState(false)
+  const [importResult,  setImportResult]  = useState(null)
+  const [importError,   setImportError]   = useState(null)
+
+  async function handleStart() {
+    if (importing) return
+    const domains = showBulk
+      ? bulkText.split(/[\n,]+/).map(d => d.trim()).filter(Boolean)
+      : singleDomain.trim() ? [singleDomain.trim()] : []
+
+    if (domains.length === 0) return
+    setImporting(true); setImportError(null); setImportResult(null)
+    try {
+      const result = await api.importWorkspaceDomains(wsId, domains)
+      setImportResult(result)
+      if (result.imported > 0 && onDone) setTimeout(onDone, 1500)
+    } catch (e) {
+      setImportError(e.message)
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  return (
+    <div className="card p-10 text-center max-w-xl mx-auto">
+      <div className="w-14 h-14 rounded-2xl bg-brand-50 flex items-center justify-center mx-auto mb-5">
+        <Globe className="w-7 h-7 text-brand-600" />
+      </div>
+      <h2 className="text-xl font-bold text-gray-900 mb-2">Add your first domain</h2>
+      <p className="text-sm text-gray-400 mb-8">
+        Enter one domain to get started, or import a list to monitor your entire attack surface.
+      </p>
+
+      {!showBulk ? (
+        <div className="flex gap-2 mb-3">
+          <input
+            type="text"
+            className="input flex-1 text-sm"
+            placeholder="example.com"
+            value={singleDomain}
+            onChange={e => setSingleDomain(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleStart()}
+            disabled={importing}
+          />
+          <button
+            onClick={handleStart}
+            disabled={importing || !singleDomain.trim()}
+            className="btn-primary"
+          >
+            {importing
+              ? <Activity className="w-4 h-4 animate-spin" />
+              : <><Plus className="w-4 h-4" /> Start Monitoring</>
+            }
+          </button>
+        </div>
+      ) : (
+        <div className="mb-3 text-left">
+          <label className="label mb-2 block">Paste domains (one per line or comma-separated)</label>
+          <textarea
+            className="input w-full text-sm font-mono"
+            rows={6}
+            placeholder={"example.com\nexample.org\nexample.net"}
+            value={bulkText}
+            onChange={e => setBulkText(e.target.value)}
+            disabled={importing}
+          />
+          <button
+            onClick={handleStart}
+            disabled={importing || !bulkText.trim()}
+            className="btn-primary w-full mt-3"
+          >
+            {importing
+              ? <><Activity className="w-4 h-4 animate-spin" /> Importing…</>
+              : <><Upload className="w-4 h-4" /> Import & Start Monitoring</>
+            }
+          </button>
+        </div>
+      )}
+
+      {!importing && (
+        <button
+          onClick={() => { setShowBulk(v => !v); setSingleDomain(''); setBulkText('') }}
+          className="text-xs text-brand-600 hover:underline mt-1"
+        >
+          {showBulk ? '← Single domain' : 'Import multiple domains'}
+        </button>
+      )}
+
+      {importResult && (
+        <div className="mt-5 p-4 bg-brand-50 rounded-xl text-sm text-brand-700">
+          <CheckCircle className="w-4 h-4 inline mr-1.5" />
+          {importResult.imported} domain{importResult.imported !== 1 ? 's' : ''} added
+          {importResult.skipped > 0 && ` · ${importResult.skipped} already existed`}
+          {importResult.invalid > 0 && ` · ${importResult.invalid} invalid`}
+        </div>
+      )}
+
+      {importError && (
+        <div className="mt-5 p-4 bg-red-50 rounded-xl text-sm text-red-600">
+          <AlertTriangle className="w-4 h-4 inline mr-1.5" />
+          {importError}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Main Page ────────────────────────────────────────────────────────────────
+
 export default function WorkspaceDashboard() {
   const { wsId, wsName } = useWorkspace()
   const [scorecard, setScorecard] = useState(null)
-  const [timeline, setTimeline]   = useState([])
-  const [loading, setLoading]     = useState(true)
-  const [error, setError]         = useState(null)
+  const [timeline,  setTimeline]  = useState([])
+  const [summary,   setSummary]   = useState(null)
+  const [health,    setHealth]    = useState(null)
+  const [domains,   setDomains]   = useState([])
+  const [loading,   setLoading]   = useState(true)
+  const [error,     setError]     = useState(null)
 
   const load = useCallback(async () => {
     if (!wsId) { setLoading(false); return }
     setLoading(true); setError(null)
     try {
-      const [sc, tl] = await Promise.all([
+      const [sc, tl, sm, hl, dm] = await Promise.allSettled([
         api.getWorkspaceScorecard(wsId),
-        api.getWorkspacePostureTimeline(wsId).catch(() => ({ timeline: [] })),
+        api.getWorkspacePostureTimeline(wsId),
+        api.getWorkspaceSummary(wsId),
+        api.getWorkspaceHealth(wsId),
+        api.getWorkspaceDomains(wsId),
       ])
-      setScorecard(sc)
-      setTimeline((tl.timeline || []).slice(-30))
+      if (sc.status === 'fulfilled') setScorecard(sc.value)
+      setTimeline(tl.status === 'fulfilled' ? (tl.value.timeline || []).slice(-30) : [])
+      if (sm.status === 'fulfilled') setSummary(sm.value)
+      if (hl.status === 'fulfilled') setHealth(hl.value)
+      if (dm.status === 'fulfilled') setDomains(dm.value.domains || [])
+
+      // If scorecard errored but not a hard failure, don't block
+      if (sc.status === 'rejected' && tl.status === 'rejected' && sm.status === 'rejected') {
+        throw new Error(sc.reason?.message || 'Failed to load dashboard')
+      }
     } catch (e) {
       setError(e.message)
     } finally {
@@ -58,126 +476,177 @@ export default function WorkspaceDashboard() {
   if (!wsId) return <NoWorkspaceSelected />
 
   const sc = scorecard
+  const noDomains = health?.workspace_status === 'no_domains' || (summary && summary.domains === 0)
+  const noScans   = health?.workspace_status === 'no_scans'
+  const hasCharts = timeline.length > 0
 
   return (
     <WsPage wsId={wsId} wsName={wsName} loading={loading} error={error} onRetry={load}>
-      {/* Header */}
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Executive Dashboard</h1>
-          <p className="text-sm text-gray-400 mt-0.5">
-            {wsName} · Last scan {sc ? fmt(sc.last_scan_at) : '—'}
-          </p>
-        </div>
-        <div className="card px-6 py-4 text-center">
-          <p className="label mb-1">Security Score</p>
-          <ScoreGauge score={sc?.security_score} rating={sc?.risk_rating} />
-          <p className="text-xs font-semibold text-gray-400 mt-1 capitalize">{sc?.risk_rating || '—'}</p>
-        </div>
-      </div>
 
-      {/* KPI Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-        <StatCard icon={Server}       label="Active Assets"    value={sc?.active_assets ?? '—'} sub={`${sc?.new_assets_30d ?? 0} new in 30d`} />
-        <StatCard icon={AlertTriangle} label="Critical Findings" value={sc?.critical_findings ?? '—'} danger={(sc?.critical_findings ?? 0) > 0} />
-        <StatCard icon={Package2}     label="Vendors Detected" value={sc?.vendors_detected ?? '—'} warning={(sc?.vendor_risk?.high ?? 0) > 0} sub={sc?.vendor_risk?.high > 0 ? `${sc.vendor_risk.high} high-risk` : undefined} />
-        <StatCard icon={Zap}          label="SaaS Exposures"   value={sc?.saas_exposures ?? '—'} warning={(sc?.saas_exposures ?? 0) > 0} />
-        <StatCard icon={Tag}          label="Brand Risks"      value={sc?.brand_risks?.active ?? '—'} danger={(sc?.brand_risks?.high ?? 0) > 0} sub={sc?.brand_risks?.high > 0 ? `${sc.brand_risks.high} high-risk` : undefined} />
-        <StatCard icon={Terminal}     label="Admin Surfaces"   value={sc?.admin_surfaces ?? '—'} danger={(sc?.admin_surfaces ?? 0) > 0} />
-        <StatCard icon={Shield}       label="Cert Risk"        value={sc?.certificate_risks?.risk_level ?? '—'} warning={['high','critical'].includes(sc?.certificate_risks?.risk_level)} />
-        <StatCard icon={BarChart2}    label="Events (30d)"     value={sc?.asset_events_30d ?? '—'} sub="surface changes" />
-      </div>
-
-      {/* Charts */}
-      {timeline.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-          {/* Score Trend */}
-          <div className="card p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-semibold text-gray-900">Risk Score Trend</h2>
-              {timeline.length > 1 && (() => {
-                const first = timeline[0]?.score
-                const last  = timeline[timeline.length - 1]?.score
-                const diff  = last - first
-                const Icon  = diff > 0 ? TrendingUp : diff < 0 ? TrendingDown : Minus
-                const color = diff > 0 ? 'text-brand-600' : diff < 0 ? 'text-red-500' : 'text-gray-400'
-                return (
-                  <span className={`flex items-center gap-1 text-sm font-semibold ${color}`}>
-                    <Icon className="w-4 h-4" />
-                    {diff > 0 ? '+' : ''}{diff}
+      {/* ── Onboarding: no domains yet ── */}
+      {noDomains ? (
+        <OnboardingWidget wsId={wsId} onDone={load} />
+      ) : (
+        <>
+          {/* Header */}
+          <div className="flex items-center justify-between mb-8">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">Executive Dashboard</h1>
+              <p className="text-sm text-gray-400 mt-0.5">
+                {wsName}
+                {sc?.last_scan_at ? ` · Last scan ${fmt(sc.last_scan_at)}` : ''}
+                {health && (
+                  <span className="ml-2 inline-flex items-center">
+                    <HealthBadge status={health.monitoring_health} />
                   </span>
-                )
-              })()}
+                )}
+              </p>
             </div>
-            <ResponsiveContainer width="100%" height={160}>
-              <LineChart data={timeline}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#94a3b8' }} tickFormatter={fmt} />
-                <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: '#94a3b8' }} width={28} />
-                <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }} />
-                <Line type="monotone" dataKey="score" stroke="#00876A" strokeWidth={2} dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
+            <div className="card px-6 py-4 text-center">
+              <p className="label mb-1">Security Score</p>
+              <ScoreGauge score={sc?.security_score ?? summary?.latest_score} rating={sc?.risk_rating} />
+              <p className="text-xs font-semibold text-gray-400 mt-1 capitalize">{sc?.risk_rating || '—'}</p>
+            </div>
           </div>
 
-          {/* Asset Growth */}
-          <div className="card p-6">
-            <h2 className="font-semibold text-gray-900 mb-4">Asset Growth</h2>
-            <ResponsiveContainer width="100%" height={160}>
-              <AreaChart data={timeline}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#94a3b8' }} tickFormatter={fmt} />
-                <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} width={28} />
-                <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }} />
-                <Area type="monotone" dataKey="total_assets" stroke="#00876A" fill="#e6f4f1" strokeWidth={2} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      )}
-
-      {/* Executive Summary */}
-      {sc?.executive_summary && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* Good */}
-          <div className="card p-5">
-            <div className="flex items-center gap-2 mb-3">
-              <div className="w-2 h-2 rounded-full bg-brand-500" />
-              <h3 className="font-semibold text-gray-900 text-sm">Good</h3>
+          {/* Summary stat cards */}
+          {summary && (
+            <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-6">
+              <StatCard icon={Globe}       label="Domains"         value={summary.domains}         />
+              <StatCard icon={Server}      label="Active Assets"   value={summary.active_assets}   />
+              <StatCard icon={Package2}    label="Vendors"         value={summary.vendors}         />
+              <StatCard icon={FileText}    label="Reports"         value={summary.reports_count}   />
+              <StatCard icon={Shield}      label="Latest Score"    value={summary.latest_score ?? '—'} />
+              <StatCard icon={AlertTriangle} label="Critical"      value={summary.critical_findings ?? 0} danger={(summary.critical_findings ?? 0) > 0} />
             </div>
-            {sc.executive_summary.good.length === 0
-              ? <p className="text-xs text-gray-400">No positive signals yet.</p>
-              : sc.executive_summary.good.map((s, i) => (
-                  <p key={i} className="text-xs text-gray-600 mb-1.5 leading-relaxed">{s}</p>
-                ))}
-          </div>
+          )}
 
-          {/* Attention */}
-          <div className="card p-5">
-            <div className="flex items-center gap-2 mb-3">
-              <div className="w-2 h-2 rounded-full bg-amber-400" />
-              <h3 className="font-semibold text-gray-900 text-sm">Attention Required</h3>
-            </div>
-            {sc.executive_summary.attention_required.length === 0
-              ? <p className="text-xs text-gray-400">Nothing requires attention.</p>
-              : sc.executive_summary.attention_required.map((s, i) => (
-                  <p key={i} className="text-xs text-gray-600 mb-1.5 leading-relaxed">{s}</p>
-                ))}
-          </div>
+          {/* Domain ownership verification */}
+          <DomainVerificationPanel domains={domains} onVerified={load} />
 
-          {/* Urgent */}
-          <div className="card p-5 border-red-100">
-            <div className="flex items-center gap-2 mb-3">
-              <div className="w-2 h-2 rounded-full bg-red-500" />
-              <h3 className="font-semibold text-gray-900 text-sm">Urgent</h3>
+          {/* Empty state: no scans yet */}
+          {noScans ? (
+            <div className="card p-16 text-center mb-8">
+              <Activity className="w-12 h-12 text-gray-200 mx-auto mb-4" />
+              <p className="text-gray-500 font-medium mb-1">No scans yet.</p>
+              <p className="text-sm text-gray-400 mb-6">Run your first scan to populate security intelligence.</p>
+              <a href="/scans/new" className="btn-primary mx-auto inline-flex items-center gap-2">
+                <Plus className="w-4 h-4" /> Run First Scan
+              </a>
             </div>
-            {sc.executive_summary.urgent.length === 0
-              ? <p className="text-xs text-gray-400">No urgent issues.</p>
-              : sc.executive_summary.urgent.map((s, i) => (
-                  <p key={i} className="text-xs text-red-700 mb-1.5 leading-relaxed">{s}</p>
-                ))}
-          </div>
-        </div>
+          ) : (
+            <>
+              {/* KPI Grid */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                <StatCard icon={Server}        label="Active Assets"    value={sc?.active_assets ?? '—'} sub={`${sc?.new_assets_30d ?? 0} new in 30d`} />
+                <StatCard icon={AlertTriangle} label="Critical Findings" value={sc?.critical_findings ?? '—'} danger={(sc?.critical_findings ?? 0) > 0} />
+                <StatCard icon={Package2}      label="Vendors Detected" value={sc?.vendors_detected ?? '—'} warning={(sc?.vendor_risk?.high ?? 0) > 0} sub={sc?.vendor_risk?.high > 0 ? `${sc.vendor_risk.high} high-risk` : undefined} />
+                <StatCard icon={Zap}           label="SaaS Exposures"   value={sc?.saas_exposures ?? '—'} warning={(sc?.saas_exposures ?? 0) > 0} />
+                <StatCard icon={Tag}           label="Brand Risks"      value={sc?.brand_risks?.active ?? '—'} danger={(sc?.brand_risks?.high ?? 0) > 0} sub={sc?.brand_risks?.high > 0 ? `${sc.brand_risks.high} high-risk` : undefined} />
+                <StatCard icon={Terminal}      label="Admin Surfaces"   value={sc?.admin_surfaces ?? '—'} danger={(sc?.admin_surfaces ?? 0) > 0} />
+                <StatCard icon={Shield}        label="Cert Risk"        value={sc?.certificate_risks?.risk_level ?? '—'} warning={['high','critical'].includes(sc?.certificate_risks?.risk_level)} />
+                <StatCard icon={BarChart2}     label="Events (30d)"     value={sc?.asset_events_30d ?? '—'} sub="surface changes" />
+              </div>
+
+              {/* Charts */}
+              {hasCharts && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                  <div className="card p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <h2 className="font-semibold text-gray-900">Risk Score Trend</h2>
+                      {timeline.length > 1 && (() => {
+                        const first = timeline[0]?.score
+                        const last  = timeline[timeline.length - 1]?.score
+                        const diff  = last - first
+                        const Icon  = diff > 0 ? TrendingUp : diff < 0 ? TrendingDown : Minus
+                        const color = diff > 0 ? 'text-brand-600' : diff < 0 ? 'text-red-500' : 'text-gray-400'
+                        return (
+                          <span className={`flex items-center gap-1 text-sm font-semibold ${color}`}>
+                            <Icon className="w-4 h-4" />
+                            {diff > 0 ? '+' : ''}{diff}
+                          </span>
+                        )
+                      })()}
+                    </div>
+                    <ResponsiveContainer width="100%" height={160}>
+                      <LineChart data={timeline}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                        <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#94a3b8' }} tickFormatter={fmt} />
+                        <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: '#94a3b8' }} width={28} />
+                        <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }} />
+                        <Line type="monotone" dataKey="score" stroke="#00876A" strokeWidth={2} dot={false} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+
+                  <div className="card p-6">
+                    <h2 className="font-semibold text-gray-900 mb-4">Asset Growth</h2>
+                    <ResponsiveContainer width="100%" height={160}>
+                      <AreaChart data={timeline}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                        <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#94a3b8' }} tickFormatter={fmt} />
+                        <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} width={28} />
+                        <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }} />
+                        <Area type="monotone" dataKey="total_assets" stroke="#00876A" fill="#e6f4f1" strokeWidth={2} />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              )}
+
+              {/* Executive Summary */}
+              {sc?.executive_summary ? (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="card p-5">
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="w-2 h-2 rounded-full bg-brand-500" />
+                      <h3 className="font-semibold text-gray-900 text-sm">Good</h3>
+                    </div>
+                    {sc.executive_summary.good.length === 0
+                      ? <p className="text-xs text-gray-400">No positive signals yet.</p>
+                      : sc.executive_summary.good.map((s, i) => (
+                          <p key={i} className="text-xs text-gray-600 mb-1.5 leading-relaxed">{s}</p>
+                        ))}
+                  </div>
+
+                  <div className="card p-5">
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="w-2 h-2 rounded-full bg-amber-400" />
+                      <h3 className="font-semibold text-gray-900 text-sm">Attention Required</h3>
+                    </div>
+                    {sc.executive_summary.attention_required.length === 0
+                      ? <p className="text-xs text-gray-400">Nothing requires attention.</p>
+                      : sc.executive_summary.attention_required.map((s, i) => (
+                          <p key={i} className="text-xs text-gray-600 mb-1.5 leading-relaxed">{s}</p>
+                        ))}
+                  </div>
+
+                  <div className="card p-5 border-red-100">
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="w-2 h-2 rounded-full bg-red-500" />
+                      <h3 className="font-semibold text-gray-900 text-sm">Urgent</h3>
+                    </div>
+                    {sc.executive_summary.urgent.length === 0
+                      ? <p className="text-xs text-gray-400">No urgent issues.</p>
+                      : sc.executive_summary.urgent.map((s, i) => (
+                          <p key={i} className="text-xs text-red-700 mb-1.5 leading-relaxed">{s}</p>
+                        ))}
+                  </div>
+                </div>
+              ) : (
+                /* No executive summary — prompt to generate a report */
+                <div className="card p-10 text-center">
+                  <FileText className="w-10 h-10 text-gray-200 mx-auto mb-3" />
+                  <p className="text-gray-500 font-medium mb-1">No executive summary yet.</p>
+                  <p className="text-sm text-gray-400 mb-5">Generate your first executive report to see an AI-powered summary here.</p>
+                  <a href="/ws/reports" className="btn-secondary mx-auto inline-flex items-center gap-2">
+                    <FileText className="w-4 h-4" /> Generate Report
+                  </a>
+                </div>
+              )}
+            </>
+          )}
+        </>
       )}
     </WsPage>
   )
