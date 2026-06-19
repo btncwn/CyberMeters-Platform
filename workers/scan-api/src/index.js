@@ -4902,25 +4902,39 @@ async function runHistoricalModule(scanId, domain, currentScore, currentFindings
 }
 
 // ── normalizeHostname ─────────────────────────────────────────────────────────
-// Returns a bare, lowercase hostname with no trailing dot.
-// Accepts either a plain hostname ("api.example.com") or a full URL
-// ("https://api.example.com/path") and extracts just the host part.
+// Returns a bare, lowercase hostname with no trailing dot, port, path, query,
+// or fragment.  Accepts:
+//   • Plain hostname          "api.example.com"
+//   • Hostname with port      "api.example.com:8443"
+//   • Full URL                "https://api.example.com/path?x=1"
+//   • URL without scheme      "//api.example.com/path"
+//   • Hostname with path      "api.example.com/path"   (no scheme)
 function normalizeHostname(value) {
   if (!value) return null;
-  const s = String(value).trim();
+  let s = String(value).trim();
   if (!s) return null;
-  let host = s;
+
+  // Normalise scheme-relative URLs so the URL parser can handle them
+  if (s.startsWith("//")) s = "https:" + s;
+
   if (/^https?:\/\//i.test(s)) {
     try {
-      host = new URL(s).hostname;
+      s = new URL(s).hostname;
     } catch {
       return null;
     }
+  } else {
+    // No scheme — strip any path/query/fragment that follows the first "/"
+    const slashIdx = s.indexOf("/");
+    if (slashIdx !== -1) s = s.slice(0, slashIdx);
+    // Strip port number (":digits" at end)
+    s = s.replace(/:\d+$/, "");
   }
-  host = host.toLowerCase().replace(/\.$/, "");
+
+  s = s.toLowerCase().replace(/\.$/, "");
   // Must contain at least one dot and no spaces to be a valid hostname
-  if (!host || host.includes(" ") || !host.includes(".")) return null;
-  return host;
+  if (!s || s.includes(" ") || !s.includes(".")) return null;
+  return s;
 }
 
 // ── Asset Inventory Upsert ────────────────────────────────────────────────────
@@ -5001,8 +5015,12 @@ async function upsertAssetInventory(scanId, domainId, domain, modules, env) {
   }
 
   // Exposure-probed assets
+  // probeAsset() returns { host, url, ... } — use .host (the probe target) as the
+  // canonical key.  .url is the post-redirect URL and may resolve to a *different*
+  // hostname (e.g. probing blackbullbarbers.co.uk → redirect → www.blackbullbarbers.co.uk).
+  // Falling back to .url would create spurious separate asset rows for the same host.
   for (const asset of modules?.asset_exposure?.assets || []) {
-    const h = normalizeHostname(asset.hostname || asset.url);
+    const h = normalizeHostname(asset.host || asset.hostname || asset.url);
     if (!h) continue;
     const existing = allAssets.find((a) => a.hostname === h);
     if (existing) {
@@ -5086,18 +5104,37 @@ async function upsertAssetInventory(scanId, domainId, domain, modules, env) {
   // ── For each workspace: diff against existing assets, batch-upsert ────────
   for (const { workspace_id } of wsRows) {
     try {
-      // Fetch all existing assets for this workspace+domain in one query
-      const existingResult = await env.cybermeters_db
-        .prepare(
-          `SELECT id, hostname, status FROM workspace_assets
-           WHERE workspace_id = ? AND domain_id = ?`
-        )
-        .bind(workspace_id, domainId)
-        .all();
+      // Fetch existing assets + recent events in a single batch round-trip.
+      // recent_events is used to suppress flip-flop alert noise:
+      //   • asset_no_longer_seen is only emitted if last_seen was > 2 h ago
+      //     AND no asset_no_longer_seen already fired for this hostname today.
+      //   • asset_reappeared is only emitted if it hasn't fired today.
+      const [existingResult, recentEvtResult] = await env.cybermeters_db.batch([
+        env.cybermeters_db
+          .prepare(
+            `SELECT id, hostname, status, last_seen FROM workspace_assets
+             WHERE workspace_id = ? AND domain_id = ?`
+          )
+          .bind(workspace_id, domainId),
+        env.cybermeters_db
+          .prepare(
+            `SELECT event_type, hostname FROM asset_events
+             WHERE workspace_id = ? AND domain_id = ?
+               AND created_at >= datetime('now', '-24 hours')`
+          )
+          .bind(workspace_id, domainId),
+      ]);
 
       const existingMap = new Map(
         (existingResult.results || []).map((r) => [r.hostname, r])
       );
+
+      // Set of "event_type:hostname" pairs already fired in the last 24 h
+      const recentEvtSet = new Set(
+        (recentEvtResult.results || []).map((r) => `${r.event_type}:${r.hostname}`)
+      );
+
+      const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
 
       const currentHostnames = new Set(finalAssets.map((a) => a.hostname));
       const stmts = [];
@@ -5170,8 +5207,10 @@ async function upsertAssetInventory(scanId, domainId, domain, modules, env) {
                 workspace_id, asset.hostname
               )
           );
-          // Asset reappeared after being inactive
-          if (existing.status === "inactive") {
+          // Asset reappeared after being inactive — suppress if already fired today
+          if (existing.status === "inactive" &&
+              !recentEvtSet.has(`asset_reappeared:${asset.hostname}`)) {
+            recentEvtSet.add(`asset_reappeared:${asset.hostname}`);
             stmts.push(
               env.cybermeters_db
                 .prepare(
@@ -5192,9 +5231,19 @@ async function upsertAssetInventory(scanId, domainId, domain, modules, env) {
         }
       }
 
-      // Mark assets from a previous scan that are no longer visible
+      // Mark assets from a previous scan that are no longer visible.
+      // Flip-flop noise reduction:
+      //   • Only mark inactive (and emit event) if last_seen was > 2 h ago.
+      //     This prevents CT-source flakiness from toggling asset state within
+      //     the same scan day.
+      //   • Skip the event if asset_no_longer_seen already fired for this
+      //     hostname in the last 24 h.
       for (const [hostname, existing] of existingMap) {
         if (!currentHostnames.has(hostname) && existing.status === "active") {
+          const lastSeenMs = existing.last_seen ? new Date(existing.last_seen).getTime() : 0;
+          const ageMs = Date.now() - lastSeenMs;
+          if (ageMs < TWO_HOURS_MS) continue; // Too recent — skip to avoid flip-flop
+
           stmts.push(
             env.cybermeters_db
               .prepare(
@@ -5204,22 +5253,26 @@ async function upsertAssetInventory(scanId, domainId, domain, modules, env) {
               )
               .bind(now, workspace_id, hostname)
           );
-          stmts.push(
-            env.cybermeters_db
-              .prepare(
-                `INSERT INTO asset_events
-                   (id, workspace_id, domain_id, asset_id, scan_id,
-                    event_type, hostname, severity, description, created_at)
-                 VALUES (?,?,?,?,?,'asset_no_longer_seen',?,'low',?,?)`
-              )
-              .bind(
-                createId("evt"), workspace_id, domainId,
-                existing.id, scanId,
-                hostname,
-                `Asset no longer seen in latest scan: ${hostname}`,
-                now
-              )
-          );
+
+          if (!recentEvtSet.has(`asset_no_longer_seen:${hostname}`)) {
+            recentEvtSet.add(`asset_no_longer_seen:${hostname}`);
+            stmts.push(
+              env.cybermeters_db
+                .prepare(
+                  `INSERT INTO asset_events
+                     (id, workspace_id, domain_id, asset_id, scan_id,
+                      event_type, hostname, severity, description, created_at)
+                   VALUES (?,?,?,?,?,'asset_no_longer_seen',?,'low',?,?)`
+                )
+                .bind(
+                  createId("evt"), workspace_id, domainId,
+                  existing.id, scanId,
+                  hostname,
+                  `Asset no longer seen in latest scan: ${hostname}`,
+                  now
+                )
+            );
+          }
         }
       }
 
@@ -8977,6 +9030,155 @@ async function collectPdfData(wsId, env) {
   };
 }
 
+// ── Executive Report Archive ──────────────────────────────────────────────────
+// generateWorkspaceExecutiveReport — collect data, build PDF, upload to R2,
+// write a workspace_reports row.  Returns the completed row on success.
+// Throws on fatal error (the row is marked failed before throwing).
+
+async function generateWorkspaceExecutiveReport(workspaceId, env, options = {}) {
+  const {
+    report_type   = 'manual',
+    report_period = null,
+    scan_id       = null,
+  } = options;
+
+  const now = new Date();
+
+  // ── Derive report_period when not supplied ────────────────────────────────
+  const period = report_period ?? (() => {
+    if (report_type === 'weekly_executive') {
+      // ISO 8601 week: YYYY-Www (Thursday-anchored)
+      const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+      d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));  // move to Thursday
+      const year = d.getUTCFullYear();
+      const wk   = Math.ceil((((d - Date.UTC(year, 0, 1)) / 86400000) + 1) / 7);
+      return `${year}-W${String(wk).padStart(2, '0')}`;
+    }
+    if (report_type === 'monthly_executive') {
+      return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+    }
+    if (report_type === 'scan_snapshot' && scan_id) {
+      return `scan-${scan_id}`;
+    }
+    // manual: timestamp-based period so re-runs don't collide
+    const ts = now.toISOString().replace(/[-:T]/g, '').slice(0, 14);
+    return `manual-${ts}`;
+  })();
+
+  const reportId  = createId('rpt');
+  const createdAt = now.toISOString();
+  const r2Key     = `reports/executive/${workspaceId}/${report_type}/${period}/executive-report.pdf`;
+
+  // Insert a pending row first so we can always flip it to failed on error
+  await env.cybermeters_db.prepare(
+    `INSERT INTO workspace_reports
+       (id, workspace_id, report_type, report_period, report_key, status, created_at)
+     VALUES (?, ?, ?, ?, ?, 'pending', ?)`
+  ).bind(reportId, workspaceId, report_type, period, r2Key, createdAt).run();
+
+  let pdfData, bytes;
+  try {
+    pdfData = await collectPdfData(workspaceId, env);
+    if (!pdfData) throw new Error('Workspace not found');
+    bytes   = buildExecutivePdf(pdfData);
+  } catch (genErr) {
+    await env.cybermeters_db.prepare(
+      `UPDATE workspace_reports
+         SET status = 'failed', generated_at = ?, metadata_json = ?
+       WHERE id = ?`
+    ).bind(new Date().toISOString(), JSON.stringify({ error: String(genErr?.message ?? genErr) }), reportId).run();
+    throw genErr;
+  }
+
+  const generatedAt = new Date().toISOString();
+
+  await env.cybermeters_reports.put(r2Key, bytes, {
+    httpMetadata: { contentType: 'application/pdf' },
+    customMetadata: {
+      workspace_id:  workspaceId,
+      report_type,
+      report_period: period,
+      generated_at:  generatedAt,
+    },
+  });
+
+  await env.cybermeters_db.prepare(
+    `UPDATE workspace_reports SET status = 'completed', generated_at = ? WHERE id = ?`
+  ).bind(generatedAt, reportId).run();
+
+  return {
+    id:            reportId,
+    workspace_id:  workspaceId,
+    report_type,
+    report_period: period,
+    report_key:    r2Key,
+    status:        'completed',
+    generated_at:  generatedAt,
+    created_at:    createdAt,
+  };
+}
+
+// generateScheduledReports — called from scheduled() via ctx.waitUntil().
+// Generates weekly reports on Mondays, monthly reports on the 1st of the month.
+// Skips if a report for the same (workspace, type, period) already exists.
+
+async function generateScheduledReports(now, env) {
+  const d   = new Date(now);
+  const dow = d.getUTCDay();   // 0=Sun … 6=Sat
+  const dom = d.getUTCDate();  // 1–31
+
+  const doWeekly  = dow === 1;  // Monday
+  const doMonthly = dom === 1;  // 1st of month
+
+  if (!doWeekly && !doMonthly) return;
+
+  let workspaces;
+  try {
+    const r = await env.cybermeters_db.prepare('SELECT id FROM workspaces').all();
+    workspaces = r.results ?? [];
+  } catch { return; }
+
+  for (const ws of workspaces) {
+    if (doWeekly) {
+      try {
+        const td = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+        td.setUTCDate(td.getUTCDate() + 4 - (td.getUTCDay() || 7));
+        const year = td.getUTCFullYear();
+        const wk   = Math.ceil((((td - Date.UTC(year, 0, 1)) / 86400000) + 1) / 7);
+        const period = `${year}-W${String(wk).padStart(2, '0')}`;
+
+        const exists = await env.cybermeters_db.prepare(
+          `SELECT id FROM workspace_reports
+           WHERE workspace_id = ? AND report_type = ? AND report_period = ? LIMIT 1`
+        ).bind(ws.id, 'weekly_executive', period).first();
+        if (exists) continue;
+
+        await generateWorkspaceExecutiveReport(ws.id, env, {
+          report_type:   'weekly_executive',
+          report_period: period,
+        });
+      } catch { /* one workspace failing must not abort others */ }
+    }
+
+    if (doMonthly) {
+      try {
+        const period = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+
+        const exists = await env.cybermeters_db.prepare(
+          `SELECT id FROM workspace_reports
+           WHERE workspace_id = ? AND report_type = ? AND report_period = ? LIMIT 1`
+        ).bind(ws.id, 'monthly_executive', period).first();
+        if (exists) continue;
+
+        await generateWorkspaceExecutiveReport(ws.id, env, {
+          report_type:   'monthly_executive',
+          report_period: period,
+        });
+      } catch { /* one workspace failing must not abort others */ }
+    }
+  }
+}
+
 // ── CORS ──────────────────────────────────────────────────────────────────────
 
 const corsHeaders = {
@@ -9554,6 +9756,406 @@ export default {
         });
       } catch (e) {
         return json({ error: "PDF generation failed", detail: e.message }, 500);
+      }
+    }
+
+    // ── Portfolio APIs ────────────────────────────────────────────────────────
+    // GET /api/portfolio/overview   — aggregate stats across all workspaces
+    // GET /api/portfolio/workspaces — per-workspace risk rows, sorted by risk
+    // GET /api/portfolio/alerts     — cross-workspace alert feed
+    // GET /api/portfolio/trends     — 30-day daily aggregate trend
+    // ─────────────────────────────────────────────────────────────────────────
+
+    if (request.method === "GET" && url.pathname === "/api/portfolio/overview") {
+      try {
+        const db = env.cybermeters_db;
+        const [
+          wsRes, domRes, assetRes, vendorRes, brandRes, rptRes,
+          findingsRes, newAssetsRes, newRptsRes, avgScoreRes, highRiskRes,
+        ] = await Promise.allSettled([
+          db.prepare(`SELECT COUNT(*) AS count FROM workspaces`).first(),
+          db.prepare(`SELECT COUNT(*) AS count FROM workspace_domains`).first(),
+          db.prepare(`SELECT COUNT(*) AS count FROM workspace_assets WHERE status='active'`).first(),
+          db.prepare(`SELECT COUNT(*) AS count FROM workspace_vendors WHERE status='active'`).first(),
+          db.prepare(`SELECT COUNT(*) AS count FROM workspace_brand_assets WHERE status='active'`).first(),
+          db.prepare(`SELECT COUNT(*) AS count FROM workspace_reports WHERE status='completed'`).first(),
+          // Critical + high findings from the latest completed scan per domain
+          db.prepare(`
+            WITH lpd AS (
+              SELECT domain_id, MAX(created_at) AS mx
+              FROM scans WHERE status='completed' GROUP BY domain_id
+            )
+            SELECT f.severity, COUNT(*) AS cnt
+            FROM findings f
+            JOIN scans s ON f.scan_id = s.id
+            JOIN lpd   ON s.domain_id = lpd.domain_id AND s.created_at = lpd.mx
+            WHERE f.severity IN ('critical','high')
+            GROUP BY f.severity
+          `).all(),
+          db.prepare(`SELECT COUNT(*) AS count FROM workspace_assets WHERE first_seen >= datetime('now','-7 days')`).first(),
+          db.prepare(`SELECT COUNT(*) AS count FROM workspace_reports WHERE status='completed' AND generated_at >= datetime('now','-30 days')`).first(),
+          // Average score across latest scan per domain
+          db.prepare(`
+            WITH lpd AS (
+              SELECT domain_id, MAX(created_at) AS mx
+              FROM scans WHERE status='completed' GROUP BY domain_id
+            )
+            SELECT AVG(s.score) AS avg_score
+            FROM scans s
+            JOIN lpd ON s.domain_id = lpd.domain_id AND s.created_at = lpd.mx
+            WHERE s.score IS NOT NULL
+          `).first(),
+          // Workspace with most critical findings from latest scans
+          db.prepare(`
+            WITH lpd AS (
+              SELECT domain_id, MAX(created_at) AS mx
+              FROM scans WHERE status='completed' GROUP BY domain_id
+            ),
+            crit AS (
+              SELECT s.domain_id, COUNT(*) AS cnt
+              FROM findings f
+              JOIN scans s ON f.scan_id = s.id
+              JOIN lpd ON s.domain_id = lpd.domain_id AND s.created_at = lpd.mx
+              WHERE f.severity = 'critical'
+              GROUP BY s.domain_id
+            ),
+            ws_crit AS (
+              SELECT wd.workspace_id, SUM(c.cnt) AS total_crit
+              FROM crit c
+              JOIN workspace_domains wd ON c.domain_id = wd.domain_id
+              GROUP BY wd.workspace_id
+            )
+            SELECT w.id, w.name, wc.total_crit
+            FROM ws_crit wc
+            JOIN workspaces w ON w.id = wc.workspace_id
+            ORDER BY wc.total_crit DESC
+            LIMIT 1
+          `).first(),
+        ]);
+
+        const findingsBySev = {};
+        for (const r of (findingsRes.status === 'fulfilled' ? (findingsRes.value?.results ?? []) : [])) {
+          findingsBySev[r.severity] = r.cnt;
+        }
+
+        const avgRaw = avgScoreRes.status === 'fulfilled' ? avgScoreRes.value?.avg_score : null;
+        const hrw    = highRiskRes.status === 'fulfilled'  ? highRiskRes.value : null;
+
+        return json({
+          total_workspaces:       wsRes.status === 'fulfilled'    ? (wsRes.value?.count    ?? 0) : 0,
+          total_domains:          domRes.status === 'fulfilled'   ? (domRes.value?.count   ?? 0) : 0,
+          total_assets:           assetRes.status === 'fulfilled' ? (assetRes.value?.count ?? 0) : 0,
+          total_vendors:          vendorRes.status === 'fulfilled'? (vendorRes.value?.count?? 0) : 0,
+          total_brand_candidates: brandRes.status === 'fulfilled' ? (brandRes.value?.count ?? 0) : 0,
+          total_reports:          rptRes.status === 'fulfilled'   ? (rptRes.value?.count   ?? 0) : 0,
+          critical_findings:      findingsBySev['critical'] ?? 0,
+          high_findings:          findingsBySev['high']     ?? 0,
+          new_assets_7d:          newAssetsRes.status === 'fulfilled' ? (newAssetsRes.value?.count ?? 0) : 0,
+          new_reports_30d:        newRptsRes.status === 'fulfilled'   ? (newRptsRes.value?.count   ?? 0) : 0,
+          average_score:          avgRaw != null ? Math.round(avgRaw) : null,
+          highest_risk_workspace: hrw ? { id: hrw.id, name: hrw.name, critical_findings: hrw.total_crit } : null,
+          generated_at:           new Date().toISOString(),
+        });
+      } catch (err) {
+        return json({ error: String(err?.message ?? err) }, 500);
+      }
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/portfolio/workspaces") {
+      try {
+        const db = env.cybermeters_db;
+        const [
+          wsRes, domCountRes, assetCountRes, vendorCountRes, brandCountRes,
+          findingsRes, scanRes, rptRes,
+        ] = await Promise.allSettled([
+          db.prepare(`SELECT id, name, created_at FROM workspaces ORDER BY created_at`).all(),
+          db.prepare(`SELECT workspace_id, COUNT(*) AS count FROM workspace_domains GROUP BY workspace_id`).all(),
+          db.prepare(`SELECT workspace_id, COUNT(*) AS count FROM workspace_assets WHERE status='active' GROUP BY workspace_id`).all(),
+          db.prepare(`SELECT workspace_id, COUNT(*) AS count FROM workspace_vendors WHERE status='active' GROUP BY workspace_id`).all(),
+          db.prepare(`SELECT workspace_id, COUNT(*) AS count FROM workspace_brand_assets WHERE status='active' GROUP BY workspace_id`).all(),
+          // Critical + high per workspace from latest scan per domain
+          db.prepare(`
+            WITH lpd AS (
+              SELECT domain_id, MAX(created_at) AS mx
+              FROM scans WHERE status='completed' GROUP BY domain_id
+            )
+            SELECT wd.workspace_id, f.severity, COUNT(*) AS cnt
+            FROM findings f
+            JOIN scans s ON f.scan_id = s.id
+            JOIN lpd   ON s.domain_id = lpd.domain_id AND s.created_at = lpd.mx
+            JOIN workspace_domains wd ON s.domain_id = wd.domain_id
+            WHERE f.severity IN ('critical','high')
+            GROUP BY wd.workspace_id, f.severity
+          `).all(),
+          // Latest scan avg score + last_scan_at per workspace
+          db.prepare(`
+            WITH lpd AS (
+              SELECT domain_id, MAX(created_at) AS mx
+              FROM scans WHERE status='completed' GROUP BY domain_id
+            )
+            SELECT wd.workspace_id,
+                   AVG(s.score)      AS avg_score,
+                   MAX(s.created_at) AS last_scan_at
+            FROM scans s
+            JOIN lpd              ON s.domain_id = lpd.domain_id AND s.created_at = lpd.mx
+            JOIN workspace_domains wd ON s.domain_id = wd.domain_id
+            WHERE s.score IS NOT NULL
+            GROUP BY wd.workspace_id
+          `).all(),
+          db.prepare(`
+            SELECT workspace_id, MAX(generated_at) AS last_report_at
+            FROM workspace_reports WHERE status='completed'
+            GROUP BY workspace_id
+          `).all(),
+        ]);
+
+        const workspaces = wsRes.status === 'fulfilled' ? (wsRes.value?.results ?? []) : [];
+
+        // Build lookup maps
+        const domMap    = {};
+        for (const r of (domCountRes.status    === 'fulfilled' ? (domCountRes.value?.results    ?? []) : [])) domMap[r.workspace_id]    = r.count;
+        const assetMap  = {};
+        for (const r of (assetCountRes.status  === 'fulfilled' ? (assetCountRes.value?.results  ?? []) : [])) assetMap[r.workspace_id]  = r.count;
+        const vendorMap = {};
+        for (const r of (vendorCountRes.status === 'fulfilled' ? (vendorCountRes.value?.results ?? []) : [])) vendorMap[r.workspace_id] = r.count;
+        const brandMap  = {};
+        for (const r of (brandCountRes.status  === 'fulfilled' ? (brandCountRes.value?.results  ?? []) : [])) brandMap[r.workspace_id]  = r.count;
+
+        const findingsMap = {};
+        for (const r of (findingsRes.status === 'fulfilled' ? (findingsRes.value?.results ?? []) : [])) {
+          if (!findingsMap[r.workspace_id]) findingsMap[r.workspace_id] = { critical: 0, high: 0 };
+          findingsMap[r.workspace_id][r.severity] = r.cnt;
+        }
+
+        const scanMap = {};
+        for (const r of (scanRes.status === 'fulfilled' ? (scanRes.value?.results ?? []) : [])) scanMap[r.workspace_id] = r;
+
+        const rptMap = {};
+        for (const r of (rptRes.status === 'fulfilled' ? (rptRes.value?.results ?? []) : [])) rptMap[r.workspace_id] = r.last_report_at;
+
+        const now = Date.now();
+        const rows = workspaces.map(ws => {
+          const scan    = scanMap[ws.id]    ?? {};
+          const findings = findingsMap[ws.id] ?? {};
+          const avgScore = scan.avg_score != null ? Math.round(scan.avg_score) : null;
+
+          let risk_rating = null;
+          if (avgScore !== null) {
+            if      (avgScore >= 80) risk_rating = 'Low';
+            else if (avgScore >= 60) risk_rating = 'Medium';
+            else if (avgScore >= 40) risk_rating = 'High';
+            else                     risk_rating = 'Critical';
+          }
+
+          const lastScanAt = scan.last_scan_at ?? null;
+          const status = lastScanAt && (now - new Date(lastScanAt).getTime()) < 30 * 24 * 3600 * 1000
+            ? 'active' : 'inactive';
+
+          return {
+            workspace_id:          ws.id,
+            workspace_name:        ws.name,
+            domains:               domMap[ws.id]    ?? 0,
+            active_assets:         assetMap[ws.id]  ?? 0,
+            vendors:               vendorMap[ws.id] ?? 0,
+            brand_candidates:      brandMap[ws.id]  ?? 0,
+            latest_score:          avgScore,
+            security_posture_score: avgScore,
+            risk_rating,
+            critical_findings:     findings.critical ?? 0,
+            high_findings:         findings.high     ?? 0,
+            last_scan_at:          lastScanAt,
+            last_report_at:        rptMap[ws.id] ?? null,
+            status,
+          };
+        });
+
+        // Sort: critical desc → high desc → score asc (lowest=most risk) → last_scan desc
+        rows.sort((a, b) => {
+          if (b.critical_findings !== a.critical_findings) return b.critical_findings - a.critical_findings;
+          if (b.high_findings     !== a.high_findings)     return b.high_findings     - a.high_findings;
+          const sa = a.latest_score ?? 999, sb = b.latest_score ?? 999;
+          if (sa !== sb) return sa - sb;
+          return (b.last_scan_at ?? '').localeCompare(a.last_scan_at ?? '');
+        });
+
+        return json({ workspaces: rows });
+      } catch (err) {
+        return json({ error: String(err?.message ?? err) }, 500);
+      }
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/portfolio/alerts") {
+      try {
+        const db    = env.cybermeters_db;
+        const limit = Math.min(parseInt(url.searchParams.get('limit') ?? '50', 10) || 50, 200);
+
+        const [eventsRes, brandRes, failedRptsRes] = await Promise.allSettled([
+          // Asset events — deduplicated to one row per (workspace, event_type, hostname, day)
+          // Uses MAX(created_at) to keep the most recent occurrence of each group.
+          db.prepare(`
+            SELECT ae.workspace_id, w.name AS workspace_name,
+                   ae.event_type,
+                   MAX(ae.severity)    AS severity,
+                   ae.hostname,
+                   ae.description,
+                   MAX(ae.created_at) AS created_at
+            FROM asset_events ae
+            JOIN workspaces w ON w.id = ae.workspace_id
+            GROUP BY ae.workspace_id, ae.event_type, ae.hostname, date(ae.created_at)
+            ORDER BY MAX(ae.created_at) DESC
+            LIMIT ?
+          `).bind(limit).all(),
+          // Active brand risks that resolve via DNS
+          db.prepare(`
+            SELECT ba.workspace_id, w.name AS workspace_name,
+                   ba.candidate_domain, ba.risk_level, ba.variant_type, ba.updated_at
+            FROM workspace_brand_assets ba
+            JOIN workspaces w ON w.id = ba.workspace_id
+            WHERE ba.status = 'active' AND ba.dns_resolves = 1
+            ORDER BY ba.updated_at DESC
+            LIMIT ?
+          `).bind(Math.ceil(limit / 3)).all(),
+          // Failed report generations
+          db.prepare(`
+            SELECT wr.workspace_id, w.name AS workspace_name,
+                   wr.report_type, wr.metadata_json, wr.created_at
+            FROM workspace_reports wr
+            JOIN workspaces w ON w.id = wr.workspace_id
+            WHERE wr.status = 'failed'
+            ORDER BY wr.created_at DESC
+            LIMIT ?
+          `).bind(Math.ceil(limit / 5)).all(),
+        ]);
+
+        const alerts = [];
+
+        for (const r of (eventsRes.status === 'fulfilled' ? (eventsRes.value?.results ?? []) : [])) {
+          let title = (r.event_type ?? '').replace(/_/g, ' ');
+          const et = r.event_type;
+          if      (et === 'new_asset_discovered')      title = `New asset: ${r.hostname ?? ''}`;
+          else if (et === 'takeover_risk_detected')    title = `Takeover risk: ${r.hostname ?? ''}`;
+          else if (et === 'wildcard_dns_detected')     title = `Wildcard DNS: ${r.hostname ?? ''}`;
+          else if (et === 'cloud_storage_detected')    title = `Cloud storage exposed: ${r.hostname ?? ''}`;
+          else if (et === 'certificate_expiry_warning')title = `Certificate expiring: ${r.hostname ?? ''}`;
+          else if (et === 'certificate_expired')       title = `Certificate expired: ${r.hostname ?? ''}`;
+          alerts.push({
+            workspace_id:   r.workspace_id,
+            workspace_name: r.workspace_name,
+            type:           et ?? 'unknown',
+            severity:       r.severity ?? 'info',
+            title,
+            description:    r.description ?? null,
+            created_at:     r.created_at,
+          });
+        }
+
+        for (const r of (brandRes.status === 'fulfilled' ? (brandRes.value?.results ?? []) : [])) {
+          const sev = (r.risk_level === 'critical' || r.risk_level === 'high') ? r.risk_level : 'medium';
+          alerts.push({
+            workspace_id:   r.workspace_id,
+            workspace_name: r.workspace_name,
+            type:           'brand_risk',
+            severity:       sev,
+            title:          `Brand risk: ${r.candidate_domain}`,
+            description:    `Active typosquat candidate (${r.variant_type ?? 'unknown variant'}) resolving via DNS`,
+            created_at:     r.updated_at,
+          });
+        }
+
+        for (const r of (failedRptsRes.status === 'fulfilled' ? (failedRptsRes.value?.results ?? []) : [])) {
+          let errMsg = null;
+          try { errMsg = JSON.parse(r.metadata_json)?.error ?? null; } catch {}
+          alerts.push({
+            workspace_id:   r.workspace_id,
+            workspace_name: r.workspace_name,
+            type:           'report_generation_failed',
+            severity:       'high',
+            title:          `Report generation failed (${r.report_type})`,
+            description:    errMsg ?? 'Report generation failed',
+            created_at:     r.created_at,
+          });
+        }
+
+        // Unified sort by created_at desc, then trim to limit
+        alerts.sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''));
+
+        return json({ alerts: alerts.slice(0, limit) });
+      } catch (err) {
+        return json({ error: String(err?.message ?? err) }, 500);
+      }
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/portfolio/trends") {
+      try {
+        const db = env.cybermeters_db;
+
+        const [scanTrendRes, findingsTrendRes, assetTrendRes] = await Promise.allSettled([
+          // Score aggregates per day from all completed scans in last 30 days
+          db.prepare(`
+            SELECT date(created_at)       AS day,
+                   COUNT(*)               AS scans,
+                   ROUND(AVG(score), 1)   AS average_score,
+                   MIN(score)             AS lowest_score,
+                   MAX(score)             AS highest_score
+            FROM scans
+            WHERE status = 'completed'
+              AND created_at >= datetime('now', '-30 days')
+              AND score IS NOT NULL
+            GROUP BY date(created_at)
+            ORDER BY day
+          `).all(),
+          // Critical + high finding counts per day from scans in last 30 days
+          db.prepare(`
+            SELECT date(s.created_at) AS day, f.severity, COUNT(*) AS cnt
+            FROM findings f
+            JOIN scans s ON f.scan_id = s.id
+            WHERE s.status = 'completed'
+              AND s.created_at >= datetime('now', '-30 days')
+              AND f.severity IN ('critical', 'high')
+            GROUP BY date(s.created_at), f.severity
+            ORDER BY day
+          `).all(),
+          // New assets discovered per day in last 30 days
+          db.prepare(`
+            SELECT date(first_seen) AS day, COUNT(*) AS new_assets
+            FROM workspace_assets
+            WHERE first_seen >= datetime('now', '-30 days')
+            GROUP BY date(first_seen)
+            ORDER BY day
+          `).all(),
+        ]);
+
+        // Merge into a single map keyed by day
+        const dayMap = {};
+
+        for (const r of (scanTrendRes.status === 'fulfilled' ? (scanTrendRes.value?.results ?? []) : [])) {
+          dayMap[r.day] = {
+            date:             r.day,
+            scans:            r.scans,
+            average_score:    r.average_score,
+            lowest_score:     r.lowest_score,
+            highest_score:    r.highest_score,
+            critical_findings: 0,
+            high_findings:    0,
+            new_assets:       0,
+          };
+        }
+
+        for (const r of (findingsTrendRes.status === 'fulfilled' ? (findingsTrendRes.value?.results ?? []) : [])) {
+          if (!dayMap[r.day]) dayMap[r.day] = { date: r.day, scans: 0, average_score: null, lowest_score: null, highest_score: null, critical_findings: 0, high_findings: 0, new_assets: 0 };
+          if (r.severity === 'critical') dayMap[r.day].critical_findings = r.cnt;
+          else if (r.severity === 'high') dayMap[r.day].high_findings   = r.cnt;
+        }
+
+        for (const r of (assetTrendRes.status === 'fulfilled' ? (assetTrendRes.value?.results ?? []) : [])) {
+          if (!dayMap[r.day]) dayMap[r.day] = { date: r.day, scans: 0, average_score: null, lowest_score: null, highest_score: null, critical_findings: 0, high_findings: 0, new_assets: 0 };
+          dayMap[r.day].new_assets = r.new_assets;
+        }
+
+        const trend = Object.values(dayMap).sort((a, b) => a.date.localeCompare(b.date));
+        return json({ trend });
+      } catch (err) {
+        return json({ error: String(err?.message ?? err) }, 500);
       }
     }
 
@@ -11611,6 +12213,103 @@ export default {
       }
     }
 
+    // ── POST /api/workspaces/:id/reports/generate ────────────────────────────
+    // Generates a new executive PDF report and stores it in R2 + workspace_reports.
+    // Body: { "report_type": "manual" | "weekly_executive" | "monthly_executive" | "scan_snapshot" }
+    //       Optional: { "report_period": "...", "scan_id": "..." }
+    const rptGenMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/reports\/generate$/);
+    if (rptGenMatch && request.method === 'POST') {
+      const wsId = rptGenMatch[1];
+      try {
+        let body = {};
+        try { body = await request.json(); } catch { /* body is optional */ }
+        const VALID_TYPES = ['manual', 'scan_snapshot', 'weekly_executive', 'monthly_executive'];
+        const report_type = VALID_TYPES.includes(body.report_type) ? body.report_type : 'manual';
+        const row = await generateWorkspaceExecutiveReport(wsId, env, {
+          report_type,
+          report_period: body.report_period ?? null,
+          scan_id:       body.scan_id       ?? null,
+        });
+        return json({ report: row }, 201);
+      } catch (err) {
+        return json({ error: String(err?.message ?? err) }, 500);
+      }
+    }
+
+    // ── GET /api/workspaces/:id/reports ──────────────────────────────────────
+    // List archived reports for a workspace.
+    // Query params: ?report_type=  ?status=
+    const rptListMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/reports$/);
+    if (rptListMatch && request.method === 'GET') {
+      const wsId         = rptListMatch[1];
+      const typeFilter   = url.searchParams.get('report_type');
+      const statusFilter = url.searchParams.get('status');
+      try {
+        let sql    = `SELECT id, workspace_id, report_type, report_period, report_key,
+                             status, generated_at, created_at, metadata_json
+                      FROM workspace_reports WHERE workspace_id = ?`;
+        const params = [wsId];
+        if (typeFilter)   { sql += ' AND report_type = ?'; params.push(typeFilter); }
+        if (statusFilter) { sql += ' AND status = ?';      params.push(statusFilter); }
+        sql += ' ORDER BY created_at DESC LIMIT 100';
+        const { results } = await env.cybermeters_db.prepare(sql).bind(...params).all();
+        return json({ reports: results ?? [] });
+      } catch (err) {
+        return json({ error: String(err?.message ?? err) }, 500);
+      }
+    }
+
+    // ── GET /api/workspaces/:id/reports/:reportId/download ────────────────────
+    // Stream the PDF from R2.  Must be tested before the bare /:reportId route.
+    const rptDownloadMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/reports\/([^/]+)\/download$/);
+    if (rptDownloadMatch && request.method === 'GET') {
+      const wsId     = rptDownloadMatch[1];
+      const reportId = rptDownloadMatch[2];
+      try {
+        const row = await env.cybermeters_db.prepare(
+          `SELECT report_key, report_type, report_period, status
+           FROM workspace_reports WHERE id = ? AND workspace_id = ?`
+        ).bind(reportId, wsId).first();
+        if (!row)                       return json({ error: 'Report not found' }, 404);
+        if (row.status !== 'completed') return json({ error: `Report not ready: ${row.status}` }, 409);
+
+        const obj = await env.cybermeters_reports.get(row.report_key);
+        if (!obj) return json({ error: 'Report file missing from storage' }, 404);
+
+        const slug     = `${row.report_type}-${row.report_period ?? reportId}`;
+        const filename = `cybermeters-report-${slug}.pdf`;
+        return new Response(obj.body, {
+          status: 200,
+          headers: {
+            ...corsHeaders,
+            'Content-Type':        'application/pdf',
+            'Content-Disposition': `attachment; filename="${filename}"`,
+          },
+        });
+      } catch (err) {
+        return json({ error: String(err?.message ?? err) }, 500);
+      }
+    }
+
+    // ── GET /api/workspaces/:id/reports/:reportId ─────────────────────────────
+    // Fetch metadata for a single report.
+    const rptGetMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/reports\/([^/]+)$/);
+    if (rptGetMatch && request.method === 'GET') {
+      const wsId     = rptGetMatch[1];
+      const reportId = rptGetMatch[2];
+      try {
+        const row = await env.cybermeters_db.prepare(
+          `SELECT id, workspace_id, report_type, report_period, report_key,
+                  status, generated_at, created_at, metadata_json
+           FROM workspace_reports WHERE id = ? AND workspace_id = ?`
+        ).bind(reportId, wsId).first();
+        if (!row) return json({ error: 'Report not found' }, 404);
+        return json({ report: row });
+      } catch (err) {
+        return json({ error: String(err?.message ?? err) }, 500);
+      }
+    }
+
     return json({ error: "Not found" }, 404);
   },
 
@@ -11618,6 +12317,7 @@ export default {
   async scheduled(event, env, ctx) {
     const now = new Date().toISOString();
 
+    // ── Scheduled scans ────────────────────────────────────────────────────
     let result;
     try {
       result = await env.cybermeters_db
@@ -11631,12 +12331,16 @@ export default {
         .all();
     } catch {
       // Table may not exist yet — nothing to process
-      return;
     }
 
-    for (const schedule of (result.results || [])) {
+    for (const schedule of (result?.results || [])) {
       // Each schedule runs independently so one failure cannot abort others
       ctx.waitUntil(triggerScheduledScan(schedule, env));
     }
+
+    // ── Scheduled executive reports ────────────────────────────────────────
+    // Weekly on Mondays, monthly on the 1st of the month.
+    // generateScheduledReports is a no-op on all other days.
+    ctx.waitUntil(generateScheduledReports(now, env));
   },
 };
