@@ -1098,43 +1098,29 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP) {
 }
 
 // ── DNS Brute-Force Discovery ─────────────────────────────────────────────────
-// Small curated wordlist (≤75 labels) probed with A-record DoH lookups.
-// Runs in parallel with Phase 1 modules; bounded by an 8-second hard cap.
+// High-value curated wordlist capped at BRUTEFORCE_MAX_NAMES to stay within
+// the Cloudflare Worker free-plan 50-subrequest budget.
+// Runs in parallel with Phase 1 modules; bounded by BRUTEFORCE_TIMEOUT_MS.
 // Results are merged into modules.subdomains.items so takeover + exposure
 // detection automatically benefit from the expanded list.
 
+const BRUTEFORCE_MAX_NAMES  = 15;
+const BRUTEFORCE_TIMEOUT_MS = 6_000;
+
+// High-value names only — exactly BRUTEFORCE_MAX_NAMES entries.
 const BRUTE_FORCE_WORDLIST = [
-  // Auth / access
-  "api", "app", "portal", "admin", "login", "auth", "sso", "vpn", "remote",
-  // Mail
-  "mail", "webmail", "smtp", "mx", "ftp", "ssh", "rdp",
-  // Non-prod environments
-  "dev", "staging", "test", "qa", "uat", "beta",
-  // Operations / management
-  "dashboard", "status", "docs", "support",
-  // CDN / media
-  "cdn", "static", "assets", "media", "images", "files", "upload", "downloads",
-  // Observability
-  "grafana", "kibana", "prometheus", "monitor", "monitoring",
-  // Source control / CI-CD
-  "git", "gitlab", "bitbucket", "jenkins", "ci", "build", "deploy",
-  // Artifact repos
-  "nexus", "artifactory", "sonar",
-  // Data stores
-  "db", "database", "redis", "mongo", "elastic", "kafka", "solr",
-  // Archive / backup
-  "old", "legacy", "archive", "backup", "backups",
-  // Commerce
-  "shop", "store", "booking", "payments", "checkout",
+  "www", "mail", "email", "webmail", "portal",
+  "admin", "api", "app", "dev", "staging",
+  "test", "vpn", "remote", "login", "dashboard",
 ];
 
 /**
  * Probe the wordlist against `domain` via DoH A-record lookups.
  * Returns any names that resolve, with source = "dns_bruteforce".
- * Hard-capped at 8 seconds — returns whatever has resolved by then.
+ * Hard-capped at BRUTEFORCE_TIMEOUT_MS — returns whatever has resolved by then.
  */
 async function runBruteforceModule(domain) {
-  const HARD_CAP_MS = 8_000;
+  const HARD_CAP_MS = BRUTEFORCE_TIMEOUT_MS;
 
   const empty = (error = null) => ({
     checked: 0,
@@ -1145,7 +1131,7 @@ async function runBruteforceModule(domain) {
   });
 
   try {
-    const candidates = BRUTE_FORCE_WORDLIST.map((label) => `${label}.${domain}`);
+    const candidates = BRUTE_FORCE_WORDLIST.slice(0, BRUTEFORCE_MAX_NAMES).map((label) => `${label}.${domain}`);
 
     const settled = await Promise.race([
       Promise.allSettled(
@@ -3739,6 +3725,48 @@ async function upsertAssetInventory(scanId, domainId, domain, modules, env) {
   }
 }
 
+// ── Scan Budget Tracking ──────────────────────────────────────────────────────
+// Pure computation — estimates subrequest usage per module and warns when
+// approaching the Cloudflare Worker free-plan 50-subrequest limit.
+
+function computeScanBudget(bruteforceChecked) {
+  // Approximate subrequest counts based on known module profiles:
+  //   dns             — 5  (A + AAAA + NS + MX + CAA via DoH)
+  //   ssl             — 4  (HTTPS + www-HTTPS fallback + HTTP + crt.sh)
+  //   headers         — 2  (HTTPS + HTTP fallback)
+  //   email_security  — 15 (TXT root + _dmarc + 13 DKIM selector probes)
+  //   ct_discovery    — 4  (wildcard A + AAAA DoH + crt.sh + CertSpotter)
+  //   dns_bruteforce  — actual checked count (capped at BRUTEFORCE_MAX_NAMES)
+  //   asset_exposure  — 0  (variable; counted from HTTP probe results, not tracked here)
+  //   admin_surface   — 0  (pure computation, zero I/O)
+  //   cve_kev         — 2  (NVD 0-3 + CISA KEV 1; use 2 as conservative estimate)
+  //   domain_security_enrichment — 0 (pure computation, zero I/O)
+  const moduleEstimates = {
+    dns:                        5,
+    ssl:                        4,
+    headers:                    2,
+    email_security:             15,
+    ct_discovery:               4,
+    dns_bruteforce:             typeof bruteforceChecked === "number" ? bruteforceChecked : BRUTEFORCE_MAX_NAMES,
+    asset_exposure:             0,
+    admin_surface:              0,
+    cve_kev:                    2,
+    domain_security_enrichment: 0,
+  };
+
+  const total = Object.values(moduleEstimates).reduce((sum, n) => sum + n, 0);
+  const warnings = [];
+  if (total > 45) {
+    warnings.push("Scan is close to Cloudflare Worker subrequest limit.");
+  }
+
+  return {
+    estimated_subrequests_total: total,
+    modules: moduleEstimates,
+    warnings,
+  };
+}
+
 // ── Main Scan Engine (runs via ctx.waitUntil) ─────────────────────────────────
 
 async function runScanEngine(scanId, domainId, domain, env) {
@@ -4079,6 +4107,11 @@ async function runScanEngine(scanId, domainId, domain, env) {
         source:  "dns_headers_analysis", error: "enrichment failed",
       };
     }
+
+    // Phase 7d: Scan budget — pure computation, zero I/O.
+    // Estimates subrequest usage across all modules and warns if close to the
+    // Cloudflare Worker free-plan 50-subrequest limit.
+    modules.scan_budget = computeScanBudget(bruteforceResult.checked);
 
     const completedAt = new Date().toISOString();
 
