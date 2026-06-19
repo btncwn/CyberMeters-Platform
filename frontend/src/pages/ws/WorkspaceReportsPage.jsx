@@ -106,9 +106,15 @@ export default function WorkspaceReportsPage() {
     }
   }
 
-  function handleDownload(reportId) {
-    const url = api.getWorkspaceReportDownloadUrl(wsId, reportId)
-    window.open(url, '_blank', 'noopener,noreferrer')
+  async function handleDownload(reportId) {
+    try {
+      const blob = await api.downloadWorkspaceReport(wsId, reportId)
+      const url = URL.createObjectURL(blob)
+      window.open(url, '_blank', 'noopener,noreferrer')
+      setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    } catch (e) {
+      setGenError(e.message)
+    }
   }
 
   if (!wsId) return <NoWorkspaceSelected />
