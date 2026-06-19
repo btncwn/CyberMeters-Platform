@@ -26,6 +26,7 @@ import CertificatesPage     from './pages/ws/CertificatesPage'
 import BrandMonitoringPage    from './pages/ws/BrandMonitoringPage'
 import WorkspaceReportsPage  from './pages/ws/WorkspaceReportsPage'
 import PortfolioPage         from './pages/PortfolioPage'
+import AcceptInvitationPage  from './pages/AcceptInvitationPage'
 
 /**
  * ProtectedRoute — redirects unauthenticated users to /login.
@@ -78,6 +79,7 @@ function AppRoutes() {
         <Route path="reports"                 element={<ReportsPage />}         />
         <Route path="schedules"               element={<SchedulesPage />}       />
         <Route path="settings"                element={<SettingsPage />}        />
+        <Route path="invitations/:token"      element={<AcceptInvitationPage />} />
         {/* Workspace intelligence pages */}
         <Route path="ws/dashboard"        element={<WorkspaceDashboard />}  />
         <Route path="ws/scorecard"        element={<WorkspaceScorecard />}  />

@@ -50,15 +50,18 @@ function myRoleRank(members, currentUserId) {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function WorkspaceMembersPanel({ workspaceId, currentUser }) {
-  const [members,  setMembers]  = useState([])
-  const [loading,  setLoading]  = useState(false)
-  const [error,    setError]    = useState(null)
+  const [members,     setMembers]     = useState([])
+  const [invitations, setInvitations] = useState([])
+  const [callerRole,  setCallerRole]  = useState(null)
+  const [loading,     setLoading]     = useState(false)
+  const [error,       setError]       = useState(null)
 
-  // Add-member form state
+  // Invite form state
   const [addEmail, setAddEmail] = useState('')
   const [addRole,  setAddRole]  = useState('analyst')
   const [adding,   setAdding]   = useState(false)
   const [addError, setAddError] = useState(null)
+  const [inviteLink, setInviteLink] = useState(null)
 
   const [removingId, setRemovingId] = useState(null)
 
@@ -68,25 +71,39 @@ export default function WorkspaceMembersPanel({ workspaceId, currentUser }) {
     setError(null)
     try {
       const data = await api.getWorkspaceMembers(workspaceId)
-      setMembers(data.members || [])
+      const nextMembers = data.members || []
+      const nextRole = data.caller_role || null
+      setMembers(nextMembers)
+      setCallerRole(nextRole)
+      if ((ROLE_RANK[nextRole] ?? myRoleRank(nextMembers, currentUser?.id)) >= ROLE_RANK.admin) {
+        const inviteData = await api.getWorkspaceInvitations(workspaceId)
+        setInvitations(inviteData.invitations || [])
+      } else {
+        setInvitations([])
+      }
     } catch (e) {
       setError(e.message)
     } finally {
       setLoading(false)
     }
-  }, [workspaceId])
+  }, [workspaceId, currentUser?.id])
 
   useEffect(() => { load() }, [load])
 
-  const isOwner = myRoleRank(members, currentUser?.id) >= ROLE_RANK.owner
+  const effectiveRank = ROLE_RANK[callerRole] ?? myRoleRank(members, currentUser?.id)
+  const isOwner = effectiveRank >= ROLE_RANK.owner
+  const canInvite = effectiveRank >= ROLE_RANK.admin
 
-  async function handleAdd(e) {
+  async function handleInvite(e) {
     e.preventDefault()
     if (!addEmail.trim() || !workspaceId) return
     setAdding(true)
     setAddError(null)
+    setInviteLink(null)
     try {
-      await api.addWorkspaceMember(workspaceId, addEmail.trim(), addRole)
+      const res = await api.createWorkspaceInvitation(workspaceId, addEmail.trim(), addRole)
+      const link = `${window.location.origin}/invitations/${res.token}`
+      setInviteLink(link)
       setAddEmail('')
       setAddRole('analyst')
       await load(true)
@@ -192,15 +209,36 @@ export default function WorkspaceMembersPanel({ workspaceId, currentUser }) {
         </ul>
       )}
 
+      {/* Pending invitations */}
+      {canInvite && invitations.length > 0 && (
+        <div className="border-t border-gray-100 pt-4 mb-4">
+          <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Pending invitations</p>
+          <ul className="space-y-2">
+            {invitations.filter(i => i.status === 'pending').map(inv => (
+              <li key={inv.id} className="flex items-center justify-between gap-2 p-2 rounded-lg bg-gray-50">
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-gray-700 truncate">{inv.email}</p>
+                  <p className="text-[10px] text-gray-400">Expires {inv.expires_at ? new Date(inv.expires_at).toLocaleDateString() : '—'}</p>
+                </div>
+                <RoleBadge role={inv.role} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* Add member form — only visible to owners */}
-      {isOwner && (
+      {canInvite && (
         <div className="border-t border-gray-100 pt-4">
-          <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-3">Add member</p>
-          <form onSubmit={handleAdd} className="flex flex-col gap-2">
+          <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-3">Invite member</p>
+          <form onSubmit={handleInvite} className="flex flex-col gap-2">
             <input
               type="email"
               value={addEmail}
-              onChange={e => setAddEmail(e.target.value)}
+              onChange={e => {
+                setAddEmail(e.target.value)
+                setInviteLink(null)
+              }}
               placeholder="colleague@company.com"
               required
               className="input text-sm"
@@ -214,7 +252,6 @@ export default function WorkspaceMembersPanel({ workspaceId, currentUser }) {
                 <option value="viewer">Viewer — read-only</option>
                 <option value="analyst">Analyst — trigger scans</option>
                 <option value="admin">Admin — manage domains &amp; reports</option>
-                <option value="owner">Owner — full access</option>
               </select>
               <button
                 type="submit"
@@ -222,15 +259,21 @@ export default function WorkspaceMembersPanel({ workspaceId, currentUser }) {
                 className="btn-primary flex items-center gap-1.5 flex-shrink-0 disabled:opacity-50"
               >
                 <UserPlus className="w-4 h-4" />
-                {adding ? 'Adding…' : 'Add'}
+                {adding ? 'Inviting…' : 'Invite'}
               </button>
             </div>
             {addError && (
               <p className="text-xs text-red-500 mt-1">{addError}</p>
             )}
+            {inviteLink && (
+              <div className="p-3 rounded-xl bg-amber-50 border border-amber-100">
+                <p className="text-xs font-semibold text-amber-800 mb-1">Copy this invite link now. It will not be shown again.</p>
+                <code className="block text-xs text-amber-900 break-all bg-white/60 rounded-lg p-2">{inviteLink}</code>
+              </div>
+            )}
           </form>
           <p className="text-[10px] text-gray-400 mt-2">
-            The user must already have a CyberMeters account.
+            No email will be sent. Share the generated invite link manually.
           </p>
         </div>
       )}
