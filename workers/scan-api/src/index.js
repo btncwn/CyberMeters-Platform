@@ -2365,6 +2365,30 @@ const ADMIN_SURFACE_SIGS = [
     title_re: /exchange\s*admin(?:\s*center)?/i,
     server_re: /\bMicrosoft-IIS\b/i,
     host_re:   /\b(exchange|eac)\b/i },
+
+  // ── Virtualisation / Infrastructure Management ────────────────────────────
+  { product: "VMware vCenter",         category: "infrastructure", risk_level: "critical",
+    title_re: /\bvcenter\b|vmware\s+v(?:center|sphere)/i,
+    server_re: /\bvmware\b/i,
+    host_re:   /\b(vcenter|vsphere|vmware|esxi)\b/i },
+
+  // ── Cisco VPN ─────────────────────────────────────────────────────────────
+  { product: "Cisco AnyConnect",       category: "vpn",            risk_level: "high",
+    title_re: /anyconnect|cisco\s+(?:secure\s+)?client|cisco\s+vpn/i,
+    server_re: /\bcisco-anyconnect\b|\bcisco\b/i,
+    host_re:   /\b(anyconnect|cisco(?:-vpn)?|asa)\b/i },
+
+  // ── Monitoring / Alerting ─────────────────────────────────────────────────
+  { product: "Zabbix",                 category: "monitoring",     risk_level: "high",
+    title_re: /\bzabbix\b/i,
+    server_re: null,
+    host_re:   /\bzabbix\b/i },
+
+  // ── Automation / Runbook ──────────────────────────────────────────────────
+  { product: "Rundeck",                category: "admin_panel",    risk_level: "critical",
+    title_re: /\brundeck\b/i,
+    server_re: null,
+    host_re:   /\brundeck\b/i },
 ];
 
 /**
@@ -2396,18 +2420,44 @@ function runAdminSurfaceModule(modules) {
       if (!confidence) continue;
 
       seen.add(key);
+
+      // Build a probable URL from the asset's probed URL or hostname
+      const url = asset.url || `https://${asset.host}`;
+
       services.push({
         hostname:   asset.host,
+        url,
         product:    sig.product,
         category:   sig.category,
+        severity:   sig.risk_level,   // human-readable alias used in UI / API
         confidence,
         risk_level: sig.risk_level,
+        ip_address: asset.ip || null,
+        server:     asset.server || null,
+        title:      asset.title  || null,
       });
     }
   }
 
+  // Sort: confirmed+critical first, then by confidence desc, then severity desc
+  const confOrder = { confirmed: 0, high: 1, medium: 2, low: 3 };
+  const riskOrder = { critical: 0, high: 1, medium: 2, low: 3 };
+  services.sort((a, b) => {
+    const cd = (confOrder[a.confidence] ?? 4) - (confOrder[b.confidence] ?? 4);
+    if (cd !== 0) return cd;
+    return (riskOrder[a.risk_level] ?? 4) - (riskOrder[b.risk_level] ?? 4);
+  });
+
+  const critical = services.filter((s) => s.risk_level === "critical").length;
+  const high     = services.filter((s) => s.risk_level === "high").length;
+  const medium   = services.filter((s) => s.risk_level === "medium").length;
+
   return {
-    detected: services.length,
+    detected: services.length > 0,
+    total:    services.length,
+    critical,
+    high,
+    medium,
     services,
     source:   "asset_exposure_fingerprint",
     error:    null,
@@ -4405,7 +4455,7 @@ async function runScanEngine(scanId, domainId, domain, env) {
 
     // Append admin surface detection findings (score_impact: 0 — no scoring changes in Phase 1)
     const adminMod = modules.admin_surface_detection;
-    if (adminMod && !adminMod.error && adminMod.detected > 0) {
+    if (adminMod && !adminMod.error && adminMod.detected && adminMod.total > 0) {
       const criticalSvcs = adminMod.services.filter((s) => s.risk_level === "critical");
       const highSvcs     = adminMod.services.filter((s) => s.risk_level === "high");
       const mediumSvcs   = adminMod.services.filter((s) => s.risk_level === "medium");
@@ -7317,6 +7367,124 @@ export default {
           return json({ error: "Database error" }, 500);
         }
       }
+    }
+
+    // ── Admin Surfaces route ───────────────────────────────────────────────
+    // GET /api/workspaces/:id/admin-surfaces
+    //   Filters: ?severity=critical|high|medium|low
+    //            ?category=admin_panel|monitoring|vpn|collaboration|infrastructure|source_control
+    //            ?confidence=confirmed|high|medium
+    //   Returns: { workspace_id, total, critical, high, medium, services: [...] }
+    //
+    // Reads the admin_surface_detection module from the latest completed scan
+    // R2 report for each domain in the workspace, then merges and deduplicates.
+    const adminSurfacesMatch = url.pathname.match(
+      /^\/api\/workspaces\/([^/]+)\/admin-surfaces$/
+    );
+    if (adminSurfacesMatch && request.method === "GET") {
+      const wsId = adminSurfacesMatch[1];
+
+      // 1. Get all domain IDs for this workspace
+      let domainIds;
+      try {
+        const r = await env.cybermeters_db
+          .prepare("SELECT domain_id FROM workspace_domains WHERE workspace_id = ?")
+          .bind(wsId)
+          .all();
+        domainIds = (r.results || []).map((row) => row.domain_id);
+      } catch {
+        return json({ error: "Database error" }, 500);
+      }
+
+      if (domainIds.length === 0) {
+        return json({
+          workspace_id: wsId,
+          total: 0, critical: 0, high: 0, medium: 0, services: [],
+        });
+      }
+
+      // 2. Latest completed scan per domain (parallel D1 queries)
+      const scanResults = await Promise.allSettled(
+        domainIds.map((did) =>
+          env.cybermeters_db
+            .prepare(
+              "SELECT id FROM scans WHERE domain_id = ? AND status = 'completed' " +
+              "ORDER BY created_at DESC LIMIT 1"
+            )
+            .bind(did)
+            .first()
+        )
+      );
+      const scanIds = scanResults
+        .map((r) => (r.status === "fulfilled" && r.value ? r.value.id : null))
+        .filter(Boolean);
+
+      // 3. Fetch R2 reports in parallel
+      const r2Results = await Promise.allSettled(
+        scanIds.map((sid) => env.cybermeters_reports.get(`reports/${sid}.json`))
+      );
+
+      // 4. Extract and merge admin_surface_detection.services across reports
+      const seen     = new Set();
+      const services = [];
+
+      for (const r2 of r2Results) {
+        if (r2.status !== "fulfilled" || !r2.value) continue;
+        let report;
+        try { report = await r2.value.json(); } catch { continue; }
+
+        const adminMod = report?.modules?.admin_surface_detection;
+        if (!adminMod?.services?.length) continue;
+
+        for (const svc of adminMod.services) {
+          const key = `${svc.hostname}::${svc.product}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          services.push({
+            hostname:   svc.hostname,
+            url:        svc.url        || `https://${svc.hostname}`,
+            product:    svc.product,
+            category:   svc.category,
+            severity:   svc.severity   || svc.risk_level,
+            confidence: svc.confidence,
+            risk_level: svc.risk_level,
+            ip_address: svc.ip_address || null,
+            server:     svc.server     || null,
+            title:      svc.title      || null,
+            domain:     report.domain  || null,
+          });
+        }
+      }
+
+      // 5. Apply query-string filters
+      const filterSeverity   = url.searchParams.get("severity");
+      const filterCategory   = url.searchParams.get("category");
+      const filterConfidence = url.searchParams.get("confidence");
+
+      const filtered = services.filter((s) => {
+        if (filterSeverity   && s.severity   !== filterSeverity)   return false;
+        if (filterCategory   && s.category   !== filterCategory)   return false;
+        if (filterConfidence && s.confidence !== filterConfidence)  return false;
+        return true;
+      });
+
+      // Sort: confirmed+critical first
+      const confOrder = { confirmed: 0, high: 1, medium: 2, low: 3 };
+      const riskOrder = { critical: 0, high: 1, medium: 2, low: 3 };
+      filtered.sort((a, b) => {
+        const cd = (confOrder[a.confidence] ?? 4) - (confOrder[b.confidence] ?? 4);
+        if (cd !== 0) return cd;
+        return (riskOrder[a.risk_level] ?? 4) - (riskOrder[b.risk_level] ?? 4);
+      });
+
+      return json({
+        workspace_id: wsId,
+        total:    filtered.length,
+        critical: filtered.filter((s) => s.risk_level === "critical").length,
+        high:     filtered.filter((s) => s.risk_level === "high").length,
+        medium:   filtered.filter((s) => s.risk_level === "medium").length,
+        services: filtered,
+      });
     }
 
     // ── Third-Party Asset Discovery routes ────────────────────────────────
