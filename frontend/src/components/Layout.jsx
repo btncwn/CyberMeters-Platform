@@ -9,6 +9,7 @@ import { api } from '../api'
 
 const NAV = [
   { to: '/dashboard',    icon: LayoutDashboard, label: 'Dashboard'    },
+  { to: '/ws/dashboard', icon: Shield,          label: 'Workspace'    },
   { to: '/workspaces',   icon: Briefcase,       label: 'Workspaces'   },
   { to: '/intelligence', icon: Brain,           label: 'Intelligence' },
   { to: '/assets',       icon: Server,          label: 'Assets'       },
@@ -57,7 +58,7 @@ function WorkspaceSelector() {
     setActiveId(ws.id)
     setActiveName(ws.name)
     setOpen(false)
-    navigate(`/workspaces/${ws.id}`)
+    navigate('/ws/dashboard')
   }
 
   function clearWorkspace() {

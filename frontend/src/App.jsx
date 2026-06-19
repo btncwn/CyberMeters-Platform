@@ -12,6 +12,15 @@ import SettingsPage from './pages/SettingsPage'
 import WorkspacesPage from './pages/WorkspacesPage'
 import WorkspaceDetailPage from './pages/WorkspaceDetailPage'
 import IntelligencePage from './pages/IntelligencePage'
+import WorkspaceDashboard   from './pages/ws/WorkspaceDashboard'
+import WorkspaceScorecard   from './pages/ws/WorkspaceScorecard'
+import VendorsPage          from './pages/ws/VendorsPage'
+import ThirdPartyPage       from './pages/ws/ThirdPartyPage'
+import SaasExposurePage     from './pages/ws/SaasExposurePage'
+import CloudAssetsPage      from './pages/ws/CloudAssetsPage'
+import AdminSurfacesPage    from './pages/ws/AdminSurfacesPage'
+import CertificatesPage     from './pages/ws/CertificatesPage'
+import BrandMonitoringPage  from './pages/ws/BrandMonitoringPage'
 
 export default function App() {
   return (
@@ -31,6 +40,16 @@ export default function App() {
           <Route path="reports"                 element={<ReportsPage />}         />
           <Route path="schedules"               element={<SchedulesPage />}       />
           <Route path="settings"               element={<SettingsPage />}         />
+          {/* Workspace intelligence pages */}
+          <Route path="ws/dashboard"       element={<WorkspaceDashboard />}  />
+          <Route path="ws/scorecard"       element={<WorkspaceScorecard />}  />
+          <Route path="ws/vendors"         element={<VendorsPage />}         />
+          <Route path="ws/third-party"     element={<ThirdPartyPage />}      />
+          <Route path="ws/saas-exposure"   element={<SaasExposurePage />}    />
+          <Route path="ws/cloud-assets"    element={<CloudAssetsPage />}     />
+          <Route path="ws/admin-surfaces"  element={<AdminSurfacesPage />}   />
+          <Route path="ws/certificates"    element={<CertificatesPage />}    />
+          <Route path="ws/brand-monitoring" element={<BrandMonitoringPage />} />
           <Route path="*"                       element={<Navigate to="/dashboard" replace />} />
         </Route>
       </Routes>

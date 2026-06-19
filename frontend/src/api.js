@@ -95,6 +95,66 @@ export const api = {
   getWorkspaceAsset: (workspaceId, assetId) =>
     request(`/workspaces/${workspaceId}/assets/${assetId}`),
 
+  // ── Workspace Intelligence APIs ───────────────────────────────────────────
+
+  /** GET /api/workspaces/:id/scorecard */
+  getWorkspaceScorecard: (id) => request(`/workspaces/${id}/scorecard`),
+
+  /** GET /api/workspaces/:id/posture */
+  getWorkspacePosture: (id) => request(`/workspaces/${id}/posture`),
+
+  /** GET /api/workspaces/:id/posture/timeline */
+  getWorkspacePostureTimeline: (id) => request(`/workspaces/${id}/posture/timeline`),
+
+  /** GET /api/workspaces/:id/vendors  optional: ?status=&risk_level=&category= */
+  getWorkspaceVendors: (id, params = {}) => {
+    const q = new URLSearchParams(params).toString()
+    return request(`/workspaces/${id}/vendors${q ? `?${q}` : ''}`)
+  },
+
+  /** GET /api/workspaces/:id/vendors/summary */
+  getWorkspaceVendorsSummary: (id) => request(`/workspaces/${id}/vendors/summary`),
+
+  /** GET /api/workspaces/:id/third-party-assets */
+  getWorkspaceThirdPartyAssets: (id) => request(`/workspaces/${id}/third-party-assets`),
+
+  /** GET /api/workspaces/:id/saas-exposure */
+  getWorkspaceSaasExposure: (id) => request(`/workspaces/${id}/saas-exposure`),
+
+  /** GET /api/workspaces/:id/cloud-assets  optional: ?category=&provider= */
+  getWorkspaceCloudAssets: (id, params = {}) => {
+    const q = new URLSearchParams(params).toString()
+    return request(`/workspaces/${id}/cloud-assets${q ? `?${q}` : ''}`)
+  },
+
+  /** GET /api/workspaces/:id/admin-surfaces  optional: ?severity=&category= */
+  getWorkspaceAdminSurfaces: (id, params = {}) => {
+    const q = new URLSearchParams(params).toString()
+    return request(`/workspaces/${id}/admin-surfaces${q ? `?${q}` : ''}`)
+  },
+
+  /** GET /api/workspaces/:id/certificates */
+  getWorkspaceCertificates: (id) => request(`/workspaces/${id}/certificates`),
+
+  /** GET /api/workspaces/:id/certificates/timeline */
+  getWorkspaceCertificatesTimeline: (id) => request(`/workspaces/${id}/certificates/timeline`),
+
+  /** GET /api/workspaces/:id/brand-monitoring  optional: ?status=&risk_level=&variant_type= */
+  getWorkspaceBrandMonitoring: (id, params = {}) => {
+    const q = new URLSearchParams(params).toString()
+    return request(`/workspaces/${id}/brand-monitoring${q ? `?${q}` : ''}`)
+  },
+
+  /** GET /api/workspaces/:id/brand-monitoring/summary */
+  getWorkspaceBrandMonitoringSummary: (id) => request(`/workspaces/${id}/brand-monitoring/summary`),
+
+  /** POST /api/workspaces/:id/brand-monitoring/refresh */
+  refreshBrandMonitoring: (id) =>
+    request(`/workspaces/${id}/brand-monitoring/refresh`, { method: 'POST' }),
+
+  /** GET /api/workspaces/:id/alerts */
+  getWorkspaceAlerts: (id) => request(`/workspaces/${id}/alerts`),
+
   /**
    * GET /api/workspaces/:id/report
    * Returns a Blob (application/pdf) — bypasses the JSON request() helper.
