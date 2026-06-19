@@ -15,6 +15,104 @@ function isValidDomain(domain) {
   );
 }
 
+function isValidEmail(email) {
+  return typeof email === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+}
+
+// ── Auth Crypto Helpers ────────────────────────────────────────────────────────
+
+/**
+ * Hash a password using PBKDF2-SHA256 (100,000 iterations).
+ * Returns a storable string: "pbkdf2:sha256:100000:<salt_hex>:<hash_hex>"
+ */
+async function hashPassword(password) {
+  const encoder     = new TextEncoder();
+  const salt        = crypto.getRandomValues(new Uint8Array(16));
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]
+  );
+  const hashBits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", hash: "SHA-256", salt, iterations: 100_000 },
+    keyMaterial, 256
+  );
+  const toHex = (buf) => Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+  return `pbkdf2:sha256:100000:${toHex(salt.buffer)}:${toHex(hashBits)}`;
+}
+
+/**
+ * Verify a password against a stored PBKDF2 hash.
+ * Uses constant-time XOR comparison to prevent timing attacks.
+ */
+async function verifyPassword(password, stored) {
+  const parts = stored.split(":");
+  if (parts.length !== 5 || parts[0] !== "pbkdf2" || parts[1] !== "sha256") return false;
+  const iterations  = parseInt(parts[2], 10);
+  const saltBytes   = new Uint8Array(parts[3].match(/../g).map(h => parseInt(h, 16)));
+  const storedHash  = parts[4];
+  const encoder     = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]
+  );
+  const hashBits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", hash: "SHA-256", salt: saltBytes, iterations },
+    keyMaterial, 256
+  );
+  const computed = Array.from(new Uint8Array(hashBits)).map(b => b.toString(16).padStart(2, "0")).join("");
+  // Constant-time string comparison
+  if (computed.length !== storedHash.length) return false;
+  let diff = 0;
+  for (let i = 0; i < computed.length; i++) {
+    diff |= computed.charCodeAt(i) ^ storedHash.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
+/**
+ * Generate a 64-char hex bearer token and return both the raw token (for client)
+ * and its SHA-256 hash (for D1 storage — raw token never persisted).
+ */
+async function generateSessionToken() {
+  const raw     = Array.from(crypto.getRandomValues(new Uint8Array(32))).map(b => b.toString(16).padStart(2, "0")).join("");
+  const hashBuf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw));
+  const hash    = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, "0")).join("");
+  return { raw, hash };
+}
+
+/**
+ * Hash a bearer token string for D1 lookup (same as above but for incoming tokens).
+ */
+async function hashToken(raw) {
+  const hashBuf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw));
+  return Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * Extract and validate Bearer token from Authorization header.
+ * Returns the user row on success, or null.
+ */
+async function requireAuth(request, env) {
+  const authHeader = request.headers.get("Authorization") || "";
+  if (!authHeader.startsWith("Bearer ")) return null;
+  const rawToken = authHeader.slice(7).trim();
+  if (!rawToken) return null;
+  try {
+    const tokenHash = await hashToken(rawToken);
+    const session   = await env.cybermeters_db
+      .prepare(
+        `SELECT s.user_id, u.id, u.email, u.name, u.plan, u.status
+         FROM user_sessions s
+         JOIN users u ON u.id = s.user_id
+         WHERE s.token_hash = ? AND s.expires_at > datetime('now')`
+      )
+      .bind(tokenHash)
+      .first();
+    if (!session || session.status === "suspended") return null;
+    return session;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * DNS-over-HTTPS query via Cloudflare (1.1.1.1).
  * Workers have no raw socket access; DoH is the Cloudflare-native approach.
@@ -9184,7 +9282,7 @@ async function generateScheduledReports(now, env) {
 const corsHeaders = {
   "Access-Control-Allow-Origin":  "*",
   "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
 
 function json(data, status = 200) {
@@ -9208,6 +9306,134 @@ export default {
         status:  "ok",
         service: "cybermeters-scan-api",
       });
+    }
+
+    // ── POST /api/auth/signup ────────────────────────────────────────────
+    if (request.method === "POST" && url.pathname === "/api/auth/signup") {
+      let body;
+      try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+
+      const email    = (body.email    || "").trim().toLowerCase();
+      const password = (body.password || "").trim();
+      const name     = (body.name     || "").trim();
+
+      if (!isValidEmail(email))        return json({ error: "A valid email address is required" }, 400);
+      if (password.length < 8)         return json({ error: "Password must be at least 8 characters" }, 400);
+      if (password.length > 128)       return json({ error: "Password is too long" }, 400);
+
+      try {
+        // Check for duplicate email
+        const existing = await env.cybermeters_db
+          .prepare("SELECT id FROM users WHERE email = ? LIMIT 1")
+          .bind(email)
+          .first();
+        if (existing) return json({ error: "An account with this email already exists" }, 409);
+
+        const userId      = createId("usr");
+        const passwordHash = await hashPassword(password);
+
+        await env.cybermeters_db
+          .prepare(
+            `INSERT INTO users (id, email, name, plan, password_hash, status, created_at)
+             VALUES (?, ?, ?, 'free', ?, 'active', datetime('now'))`
+          )
+          .bind(userId, email, name || null, passwordHash)
+          .run();
+
+        return json({ user_id: userId, email }, 201);
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
+    // ── POST /api/auth/login ─────────────────────────────────────────────
+    if (request.method === "POST" && url.pathname === "/api/auth/login") {
+      let body;
+      try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+
+      const email    = (body.email    || "").trim().toLowerCase();
+      const password = (body.password || "").trim();
+
+      if (!email || !password) return json({ error: "Email and password are required" }, 400);
+
+      try {
+        const user = await env.cybermeters_db
+          .prepare("SELECT id, email, name, plan, password_hash, status FROM users WHERE email = ? LIMIT 1")
+          .bind(email)
+          .first();
+
+        // Always run verifyPassword even if user not found to prevent user-enumeration via timing
+        const storedHash  = user?.password_hash ?? "pbkdf2:sha256:100000:0000000000000000000000000000000000:0000000000000000000000000000000000000000000000000000000000000000";
+        const passwordOk  = await verifyPassword(password, storedHash);
+
+        if (!user || !passwordOk || !user.password_hash) {
+          return json({ error: "Invalid email or password" }, 401);
+        }
+        if (user.status === "suspended") {
+          return json({ error: "Account suspended. Contact support." }, 403);
+        }
+
+        // Generate session token — raw sent to client, hash stored in D1
+        const { raw: token, hash: tokenHash } = await generateSessionToken();
+        const sessionId  = createId("sess");
+        const expiresAt  = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(); // 30 days
+
+        await env.cybermeters_db
+          .prepare(
+            `INSERT INTO user_sessions (id, user_id, token_hash, expires_at)
+             VALUES (?, ?, ?, ?)`
+          )
+          .bind(sessionId, user.id, tokenHash, expiresAt)
+          .run();
+
+        // Update last_login_at
+        await env.cybermeters_db
+          .prepare("UPDATE users SET last_login_at = datetime('now') WHERE id = ?")
+          .bind(user.id)
+          .run();
+
+        return json({
+          token,
+          user: {
+            id:    user.id,
+            email: user.email,
+            name:  user.name,
+            plan:  user.plan,
+          },
+        });
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
+    // ── GET /api/auth/me ─────────────────────────────────────────────────
+    if (request.method === "GET" && url.pathname === "/api/auth/me") {
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      return json({
+        id:    user.id,
+        email: user.email,
+        name:  user.name,
+        plan:  user.plan,
+      });
+    }
+
+    // ── POST /api/auth/logout ────────────────────────────────────────────
+    if (request.method === "POST" && url.pathname === "/api/auth/logout") {
+      const authHeader = request.headers.get("Authorization") || "";
+      if (authHeader.startsWith("Bearer ")) {
+        const rawToken = authHeader.slice(7).trim();
+        if (rawToken) {
+          try {
+            const tokenHash = await hashToken(rawToken);
+            await env.cybermeters_db
+              .prepare("DELETE FROM user_sessions WHERE token_hash = ?")
+              .bind(tokenHash)
+              .run();
+          } catch { /* silent — token may already be expired */ }
+        }
+      }
+      return json({ success: true });
     }
 
     // ── POST /api/scan ──────────────────────────────────────────────────
@@ -12025,6 +12251,474 @@ export default {
       }
     }
 
+    // ── GET /api/workspaces/:id/summary ──────────────────────────────────────
+    const summaryMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/summary$/);
+    if (summaryMatch && request.method === "GET") {
+      const workspaceId = summaryMatch[1];
+      try {
+        const ws = await env.cybermeters_db
+          .prepare("SELECT id, name FROM workspaces WHERE id = ?")
+          .bind(workspaceId)
+          .first();
+        if (!ws) return json({ error: "Workspace not found" }, 404);
+
+        const [
+          domainsResult,
+          assetsResult,
+          vendorsResult,
+          scoreResult,
+          findingsResult,
+          lastScanResult,
+          lastReportResult,
+          reportsCountResult,
+        ] = await Promise.allSettled([
+          env.cybermeters_db
+            .prepare("SELECT COUNT(*) AS cnt FROM workspace_domains WHERE workspace_id = ?")
+            .bind(workspaceId)
+            .first(),
+          env.cybermeters_db
+            .prepare("SELECT COUNT(*) AS cnt FROM workspace_assets WHERE workspace_id = ? AND status = 'active'")
+            .bind(workspaceId)
+            .first(),
+          env.cybermeters_db
+            .prepare("SELECT COUNT(DISTINCT vendor_name) AS cnt FROM vendor_findings WHERE workspace_id = ?")
+            .bind(workspaceId)
+            .first(),
+          env.cybermeters_db
+            .prepare(`
+              WITH lpd AS (
+                SELECT domain_id, MAX(created_at) AS mx
+                FROM scans
+                WHERE workspace_id = ? AND status = 'completed'
+                GROUP BY domain_id
+              )
+              SELECT AVG(s.score) AS avg_score
+              FROM scans s JOIN lpd ON lpd.domain_id = s.domain_id AND lpd.mx = s.created_at
+            `)
+            .bind(workspaceId)
+            .first(),
+          env.cybermeters_db
+            .prepare(`
+              WITH lpd AS (
+                SELECT domain_id, MAX(created_at) AS mx
+                FROM scans
+                WHERE workspace_id = ? AND status = 'completed'
+                GROUP BY domain_id
+              )
+              SELECT
+                SUM(CASE WHEN f.severity = 'critical' THEN 1 ELSE 0 END) AS critical_findings,
+                SUM(CASE WHEN f.severity = 'high'     THEN 1 ELSE 0 END) AS high_findings
+              FROM findings f
+              JOIN scans s ON s.id = f.scan_id
+              JOIN lpd ON lpd.domain_id = s.domain_id AND lpd.mx = s.created_at
+            `)
+            .bind(workspaceId)
+            .first(),
+          env.cybermeters_db
+            .prepare("SELECT MAX(created_at) AS last_scan_at FROM scans WHERE workspace_id = ? AND status = 'completed'")
+            .bind(workspaceId)
+            .first(),
+          env.cybermeters_db
+            .prepare("SELECT MAX(generated_at) AS last_report_at FROM workspace_reports WHERE workspace_id = ? AND status = 'completed'")
+            .bind(workspaceId)
+            .first(),
+          env.cybermeters_db
+            .prepare("SELECT COUNT(*) AS cnt FROM workspace_reports WHERE workspace_id = ?")
+            .bind(workspaceId)
+            .first(),
+        ]);
+
+        const v = (r) => (r.status === "fulfilled" ? r.value : null);
+
+        return json({
+          workspace_id:      ws.id,
+          workspace_name:    ws.name,
+          domains:           v(domainsResult)?.cnt          ?? 0,
+          active_assets:     v(assetsResult)?.cnt           ?? 0,
+          vendors:           v(vendorsResult)?.cnt          ?? 0,
+          latest_score:      v(scoreResult)?.avg_score != null ? Math.round(v(scoreResult).avg_score) : null,
+          critical_findings: v(findingsResult)?.critical_findings ?? 0,
+          high_findings:     v(findingsResult)?.high_findings     ?? 0,
+          last_scan_at:      v(lastScanResult)?.last_scan_at      ?? null,
+          last_report_at:    v(lastReportResult)?.last_report_at  ?? null,
+          reports_count:     v(reportsCountResult)?.cnt           ?? 0,
+        });
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
+    // ── GET /api/workspaces/:id/health ────────────────────────────────────────
+    const healthMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/health$/);
+    if (healthMatch && request.method === "GET") {
+      const workspaceId = healthMatch[1];
+      try {
+        const ws = await env.cybermeters_db
+          .prepare("SELECT id FROM workspaces WHERE id = ?")
+          .bind(workspaceId)
+          .first();
+        if (!ws) return json({ error: "Workspace not found" }, 404);
+
+        const [domR, assetR, reportR, scanR] = await Promise.allSettled([
+          env.cybermeters_db
+            .prepare("SELECT COUNT(*) AS cnt FROM workspace_domains WHERE workspace_id = ?")
+            .bind(workspaceId)
+            .first(),
+          env.cybermeters_db
+            .prepare("SELECT COUNT(*) AS cnt FROM workspace_assets WHERE workspace_id = ? AND status = 'active'")
+            .bind(workspaceId)
+            .first(),
+          env.cybermeters_db
+            .prepare("SELECT COUNT(*) AS cnt FROM workspace_reports WHERE workspace_id = ?")
+            .bind(workspaceId)
+            .first(),
+          env.cybermeters_db
+            .prepare("SELECT MAX(created_at) AS last_scan_at FROM scans WHERE workspace_id = ? AND status = 'completed'")
+            .bind(workspaceId)
+            .first(),
+        ]);
+
+        const v = (r) => (r.status === "fulfilled" ? r.value : null);
+
+        const domains_monitored  = v(domR)?.cnt    ?? 0;
+        const assets_discovered  = v(assetR)?.cnt  ?? 0;
+        const reports_generated  = v(reportR)?.cnt ?? 0;
+        const lastScanAt         = v(scanR)?.last_scan_at ?? null;
+
+        let latest_scan_age_hours = null;
+        if (lastScanAt) {
+          const ageMs = Date.now() - new Date(lastScanAt.includes("T") ? lastScanAt : lastScanAt + "Z").getTime();
+          latest_scan_age_hours = Math.round(ageMs / 3_600_000);
+        }
+
+        // workspace_status
+        let workspace_status;
+        if (domains_monitored === 0) {
+          workspace_status = "no_domains";
+        } else if (!lastScanAt) {
+          workspace_status = "no_scans";
+        } else if (latest_scan_age_hours !== null && latest_scan_age_hours > 168) {
+          workspace_status = "stale"; // older than 7 days
+        } else {
+          workspace_status = "active";
+        }
+
+        // monitoring_health
+        let monitoring_health;
+        if (workspace_status === "no_domains" || workspace_status === "no_scans") {
+          monitoring_health = "stale";
+        } else if (latest_scan_age_hours !== null && latest_scan_age_hours > 72) {
+          monitoring_health = "warning";
+        } else {
+          monitoring_health = "healthy";
+        }
+
+        return json({
+          workspace_status,
+          domains_monitored,
+          assets_discovered,
+          reports_generated,
+          latest_scan_age_hours,
+          latest_report_age_hours: null, // reserved — not critical path
+          monitoring_health,
+        });
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
+    // ── POST /api/workspaces/:id/domains/import ───────────────────────────────
+    const importMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/domains\/import$/);
+    if (importMatch && request.method === "POST") {
+      const workspaceId = importMatch[1];
+      try {
+        const ws = await env.cybermeters_db
+          .prepare("SELECT id FROM workspaces WHERE id = ?")
+          .bind(workspaceId)
+          .first();
+        if (!ws) return json({ error: "Workspace not found" }, 404);
+
+        let body;
+        try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+
+        const rawList = Array.isArray(body.domains) ? body.domains : [];
+        if (rawList.length === 0) return json({ error: "domains array is required and must not be empty" }, 400);
+        if (rawList.length > 500) return json({ error: "Maximum 500 domains per import" }, 400);
+
+        // Normalize + validate
+        const invalid  = [];
+        const valid    = [];
+        const seen     = new Set();
+        for (const raw of rawList) {
+          if (typeof raw !== "string") { invalid.push(String(raw)); continue; }
+          const d = normalizeHostname(raw.trim().toLowerCase());
+          if (!d || !isValidDomain(d)) { invalid.push(raw.trim()); continue; }
+          if (seen.has(d)) continue; // input-level dup
+          seen.add(d);
+          valid.push(d);
+        }
+
+        if (valid.length === 0) {
+          return json({ imported: 0, skipped: 0, invalid: invalid.length, total: rawList.length });
+        }
+
+        // Find existing domains in this workspace
+        const existingRows = await env.cybermeters_db
+          .prepare("SELECT d.domain FROM domains d JOIN workspace_domains wd ON wd.domain_id = d.id WHERE wd.workspace_id = ?")
+          .bind(workspaceId)
+          .all();
+        const existingSet = new Set((existingRows.results || []).map((r) => r.domain));
+
+        let imported = 0;
+        let skipped  = 0;
+
+        for (const domain of valid) {
+          if (existingSet.has(domain)) { skipped++; continue; }
+
+          // Upsert into domains table
+          await env.cybermeters_db
+            .prepare("INSERT INTO domains (id, domain, first_seen) VALUES (?, ?, datetime('now')) ON CONFLICT(domain) DO NOTHING")
+            .bind(createId("dom"), domain)
+            .run();
+
+          const domRow = await env.cybermeters_db
+            .prepare("SELECT id FROM domains WHERE domain = ?")
+            .bind(domain)
+            .first();
+          if (!domRow) { skipped++; continue; }
+
+          // Link to workspace
+          const already = await env.cybermeters_db
+            .prepare("SELECT id FROM workspace_domains WHERE workspace_id = ? AND domain_id = ?")
+            .bind(workspaceId, domRow.id)
+            .first();
+
+          if (already) { skipped++; continue; }
+
+          await env.cybermeters_db
+            .prepare("INSERT INTO workspace_domains (id, workspace_id, domain_id, added_at) VALUES (?, ?, ?, datetime('now'))")
+            .bind(createId("wsd"), workspaceId, domRow.id)
+            .run();
+
+          imported++;
+        }
+
+        return json({ imported, skipped, invalid: invalid.length, total: rawList.length }, 200);
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
+    // ── POST /api/domains/:id/verification ───────────────────────────────────
+    // Generate a cryptographically secure token and return DNS + HTML instructions.
+    // Idempotent: calling again resets to a new pending token.
+    const domVerInitMatch = url.pathname.match(/^\/api\/domains\/([^/]+)\/verification$/);
+    if (domVerInitMatch && request.method === "POST") {
+      const domainId = domVerInitMatch[1];
+      try {
+        const domRow = await env.cybermeters_db
+          .prepare("SELECT id, domain, verification_status FROM domains WHERE id = ?")
+          .bind(domainId)
+          .first();
+        if (!domRow) return json({ error: "Domain not found" }, 404);
+
+        // Already verified — don't reset
+        if (domRow.verification_status === "verified") {
+          return json({
+            already_verified: true,
+            domain: domRow.domain,
+            verification_status: "verified",
+          });
+        }
+
+        // Generate a cryptographically secure 48-char hex token
+        const tokenBytes = new Uint8Array(24);
+        crypto.getRandomValues(tokenBytes);
+        const token = Array.from(tokenBytes).map(b => b.toString(16).padStart(2, "0")).join("");
+
+        await env.cybermeters_db
+          .prepare(`UPDATE domains
+                    SET verification_status = 'pending',
+                        verification_token  = ?,
+                        verification_method = NULL,
+                        verified_at         = NULL,
+                        verification_initiated_at = datetime('now')
+                    WHERE id = ?`)
+          .bind(token, domainId)
+          .run();
+
+        const domain = domRow.domain;
+        return json({
+          domain,
+          domain_id:          domainId,
+          verification_status: "pending",
+          token,
+          dns: {
+            record_type: "TXT",
+            host:        `_cybermeters.${domain}`,
+            value:       `cybermeters-verification=${token}`,
+            instructions: [
+              `Add a DNS TXT record to your domain:`,
+              `  Host:  _cybermeters.${domain}`,
+              `  Type:  TXT`,
+              `  Value: cybermeters-verification=${token}`,
+              `DNS changes can take up to 48 hours to propagate globally.`,
+            ],
+          },
+          html: {
+            url:      `https://${domain}/cybermeters-verification-${token}.html`,
+            content:  token,
+            instructions: [
+              `Create a publicly accessible HTML file at your domain:`,
+              `  URL:     https://${domain}/cybermeters-verification-${token}.html`,
+              `  Content: ${token}`,
+              `The file must be accessible without authentication.`,
+            ],
+          },
+        });
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
+    // ── POST /api/domains/:id/verify ─────────────────────────────────────────
+    // Perform the actual check: DNS TXT or HTML file.
+    // Tries DNS first, then HTML. First passing method wins.
+    const domVerCheckMatch = url.pathname.match(/^\/api\/domains\/([^/]+)\/verify$/);
+    if (domVerCheckMatch && request.method === "POST") {
+      const domainId = domVerCheckMatch[1];
+      try {
+        const domRow = await env.cybermeters_db
+          .prepare("SELECT id, domain, verification_status, verification_token FROM domains WHERE id = ?")
+          .bind(domainId)
+          .first();
+        if (!domRow) return json({ error: "Domain not found" }, 404);
+
+        if (domRow.verification_status === "verified") {
+          return json({
+            success: true,
+            domain: domRow.domain,
+            verification_status: "verified",
+            verification_method: "already_verified",
+            message: "Domain is already verified.",
+          });
+        }
+
+        if (!domRow.verification_token) {
+          return json({
+            error: "No verification token found. Call POST /api/domains/:id/verification first.",
+          }, 400);
+        }
+
+        const domain = domRow.domain;
+        const token  = domRow.verification_token;
+        const expectedTxtValue = `cybermeters-verification=${token}`;
+        const htmlUrl          = `https://${domain}/cybermeters-verification-${token}.html`;
+
+        // ── Method 1: DNS TXT ─────────────────────────────────────────────
+        let dnsVerified = false;
+        let dnsError    = null;
+        try {
+          const txtHost = `_cybermeters.${domain}`;
+          const dnsResult = await dnsQuery(txtHost, "TXT");
+          const answers = dnsResult.Answer || [];
+          dnsVerified = answers.some(a => {
+            // RFC 1035: TXT data arrives with surrounding quotes stripped by DoH JSON
+            const val = String(a.data || "").replace(/^"|"$/g, "").trim();
+            return val === expectedTxtValue;
+          });
+        } catch (e) {
+          dnsError = e.message;
+        }
+
+        if (dnsVerified) {
+          await env.cybermeters_db
+            .prepare(`UPDATE domains
+                      SET verification_status = 'verified',
+                          verification_method = 'dns_txt',
+                          verified_at = datetime('now')
+                      WHERE id = ?`)
+            .bind(domainId)
+            .run();
+          return json({
+            success: true,
+            domain,
+            verification_status: "verified",
+            verification_method: "dns_txt",
+            message: `DNS TXT record verified at _cybermeters.${domain}.`,
+          });
+        }
+
+        // ── Method 2: HTML file ───────────────────────────────────────────
+        let htmlVerified = false;
+        let htmlError    = null;
+        try {
+          const htmlRes = await fetch(htmlUrl, {
+            headers: { "User-Agent": "CyberMeters-Verification/1.0" },
+            signal: AbortSignal.timeout(8_000),
+            redirect: "follow",
+          });
+          if (htmlRes.ok) {
+            const body = (await htmlRes.text()).trim();
+            htmlVerified = body === token;
+          } else {
+            htmlError = `HTTP ${htmlRes.status}`;
+          }
+        } catch (e) {
+          htmlError = e.message;
+        }
+
+        if (htmlVerified) {
+          await env.cybermeters_db
+            .prepare(`UPDATE domains
+                      SET verification_status = 'verified',
+                          verification_method = 'html_file',
+                          verified_at = datetime('now')
+                      WHERE id = ?`)
+            .bind(domainId)
+            .run();
+          return json({
+            success: true,
+            domain,
+            verification_status: "verified",
+            verification_method: "html_file",
+            message: `HTML verification file found at ${htmlUrl}.`,
+          });
+        }
+
+        // ── Both failed ───────────────────────────────────────────────────
+        await env.cybermeters_db
+          .prepare(`UPDATE domains SET verification_status = 'failed' WHERE id = ?`)
+          .bind(domainId)
+          .run();
+
+        return json({
+          success: false,
+          domain,
+          verification_status: "failed",
+          token,
+          checks: {
+            dns_txt: {
+              checked: true,
+              host:    `_cybermeters.${domain}`,
+              expected: expectedTxtValue,
+              result: dnsVerified ? "found" : "not_found",
+              error:  dnsError || null,
+            },
+            html_file: {
+              checked: true,
+              url:    htmlUrl,
+              result: htmlVerified ? "found" : "not_found",
+              error:  htmlError || null,
+            },
+          },
+          message: "Verification failed. Ensure the DNS TXT record or HTML file is in place and try again.",
+        }, 200);
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
     // Routes that carry a workspace ID
     // Matches:  /api/workspaces/:id
     //           /api/workspaces/:id/domains
@@ -12144,12 +12838,17 @@ export default {
           const result = await env.cybermeters_db
             .prepare(
               `SELECT
-                 d.id          AS domain_id,
+                 d.id                        AS domain_id,
                  d.domain,
-                 s.id          AS last_scan_id,
-                 s.score       AS latest_score,
-                 s.status      AS latest_status,
-                 s.created_at  AS last_scanned_at
+                 d.verification_status,
+                 d.verification_method,
+                 d.verification_token,
+                 d.verified_at,
+                 d.verification_initiated_at,
+                 s.id                        AS last_scan_id,
+                 s.score                     AS latest_score,
+                 s.status                    AS latest_status,
+                 s.created_at               AS last_scanned_at
                FROM workspace_domains wd
                JOIN   domains d ON d.id = wd.domain_id
                LEFT JOIN scans s ON s.id = (

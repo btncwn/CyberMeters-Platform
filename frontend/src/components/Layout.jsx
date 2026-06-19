@@ -3,9 +3,10 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Server, ScanLine, FileBarChart2,
   Settings, Shield, Plus, Bell, ChevronDown, Calendar,
-  Briefcase, ChevronRight, Check, Brain, Layers,
+  Briefcase, ChevronRight, Check, Brain, Layers, LogOut, User,
 } from 'lucide-react'
 import { api } from '../api'
+import { useAuth } from '../context/AuthContext'
 
 const NAV = [
   { to: '/dashboard',    icon: LayoutDashboard, label: 'Dashboard'    },
@@ -133,6 +134,86 @@ function WorkspaceSelector() {
   )
 }
 
+// ── User Menu ────────────────────────────────────────────────────────────────
+
+function UserMenu() {
+  const navigate = useNavigate()
+  const { user, logout } = useAuth()
+  const [open, setOpen]   = useState(false)
+  const ref               = useRef(null)
+
+  useEffect(() => {
+    function handler(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const initial = (user?.name || user?.email || 'U')[0].toUpperCase()
+
+  async function handleLogout() {
+    try { await api.authLogout() } catch { /* best-effort */ }
+    logout()
+    navigate('/login', { replace: true })
+  }
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="flex items-center gap-1.5 pl-2 pr-2.5 py-1.5 rounded-xl hover:bg-gray-100 transition-colors ml-1"
+      >
+        <div className="w-7 h-7 rounded-full bg-brand-600 flex items-center justify-center text-xs font-bold text-white">
+          {initial}
+        </div>
+        <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-xl shadow-lg border border-gray-100 py-1 z-50">
+          {/* User info */}
+          <div className="px-4 py-3 border-b border-gray-100">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-full bg-brand-600 flex items-center justify-center text-xs font-bold text-white flex-shrink-0">
+                {initial}
+              </div>
+              <div className="min-w-0">
+                {user?.name && <p className="text-sm font-semibold text-gray-900 truncate">{user.name}</p>}
+                <p className="text-xs text-gray-400 truncate">{user?.email || '—'}</p>
+              </div>
+            </div>
+            {user?.plan && (
+              <span className="mt-2 inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-brand-50 text-brand-700">
+                {user.plan}
+              </span>
+            )}
+          </div>
+
+          {/* Actions */}
+          <button
+            onClick={() => { setOpen(false); navigate('/settings') }}
+            className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+          >
+            <User className="w-4 h-4 text-gray-400" />
+            Account settings
+          </button>
+
+          <div className="border-t border-gray-100 mt-1 pt-1">
+            <button
+              onClick={handleLogout}
+              className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors"
+            >
+              <LogOut className="w-4 h-4" />
+              Sign out
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Layout() {
   const navigate = useNavigate()
 
@@ -185,12 +266,7 @@ export default function Layout() {
               New Scan
             </button>
 
-            <button className="flex items-center gap-1.5 pl-2 pr-2.5 py-1.5 rounded-xl hover:bg-gray-100 transition-colors ml-1">
-              <div className="w-7 h-7 rounded-full bg-brand-600 flex items-center justify-center text-xs font-bold text-white">
-                T
-              </div>
-              <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
-            </button>
+            <UserMenu />
           </div>
         </div>
       </header>

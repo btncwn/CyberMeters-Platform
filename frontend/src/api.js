@@ -1,10 +1,20 @@
+import { TOKEN_KEY } from './context/AuthContext'
+
 const BASE =
   import.meta.env.VITE_API_BASE_URL ||
   'https://cybermeters-platform.ttrnn47.workers.dev/api'
 
+function getAuthHeaders() {
+  const token = localStorage.getItem(TOKEN_KEY)
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
 async function request(path, options = {}) {
   const res = await fetch(`${BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(),
+    },
     ...options,
   })
   if (!res.ok) {
@@ -15,6 +25,28 @@ async function request(path, options = {}) {
 }
 
 export const api = {
+  // ── Authentication ────────────────────────────────────────────────────────
+
+  /** POST /api/auth/signup */
+  authSignup: (email, password, name) =>
+    request('/auth/signup', {
+      method: 'POST',
+      body: JSON.stringify({ email, password, name }),
+    }),
+
+  /** POST /api/auth/login  → { token, user } */
+  authLogin: (email, password) =>
+    request('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    }),
+
+  /** GET /api/auth/me  → { id, email, name, plan } */
+  authMe: () => request('/auth/me'),
+
+  /** POST /api/auth/logout */
+  authLogout: () => request('/auth/logout', { method: 'POST' }),
+
   /** GET /api/scans */
   getScans: () => request('/scans'),
 
@@ -184,6 +216,37 @@ export const api = {
    */
   getWorkspaceReportDownloadUrl: (workspaceId, reportId) =>
     `${BASE}/workspaces/${workspaceId}/reports/${reportId}/download`,
+
+  // ── Domain Ownership Verification ────────────────────────────────────────
+
+  /**
+   * POST /api/domains/:id/verification
+   * Generate a verification token. Returns DNS + HTML instructions.
+   */
+  generateDomainVerification: (domainId) =>
+    request(`/domains/${domainId}/verification`, { method: 'POST' }),
+
+  /**
+   * POST /api/domains/:id/verify
+   * Trigger the actual DNS TXT / HTML file check. Returns success/failure detail.
+   */
+  verifyDomain: (domainId) =>
+    request(`/domains/${domainId}/verify`, { method: 'POST' }),
+
+  // ── Customer Onboarding / Workspace Health ───────────────────────────────
+
+  /** GET /api/workspaces/:id/summary */
+  getWorkspaceSummary: (id) => request(`/workspaces/${id}/summary`),
+
+  /** GET /api/workspaces/:id/health */
+  getWorkspaceHealth: (id) => request(`/workspaces/${id}/health`),
+
+  /** POST /api/workspaces/:id/domains/import  body: { domains: string[] } */
+  importWorkspaceDomains: (id, domains) =>
+    request(`/workspaces/${id}/domains/import`, {
+      method: 'POST',
+      body: JSON.stringify({ domains }),
+    }),
 
   // ── Portfolio APIs ────────────────────────────────────────────────────────
 
