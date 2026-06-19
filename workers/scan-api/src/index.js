@@ -9297,6 +9297,101 @@ async function generateScheduledReports(now, env) {
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
 
+// ── RBAC Helpers ─────────────────────────────────────────────────────────────
+
+/**
+ * Role hierarchy (higher index = more access).
+ * A role satisfies any permission level at or below it.
+ */
+const ROLE_RANK = { viewer: 0, analyst: 1, admin: 2, owner: 3 };
+
+/**
+ * Permission → minimum role required.
+ *
+ * READ permissions are intentionally left open (undefined) in v1 to preserve
+ * backward compatibility with existing integrations. Only WRITE operations
+ * are gated.
+ */
+const PERMISSION_MIN_ROLE = {
+  // Workspace management
+  "workspace:manage_members":  "owner",
+  "workspace:delete":          "owner",
+  "workspace:transfer":        "owner",
+  // Domain management
+  "domain:add":                "admin",
+  "domain:remove":             "admin",
+  "domain:import":             "admin",
+  "domain:verify":             "admin",
+  // Scans
+  "scan:create":               "analyst",
+  // Reports
+  "report:generate":           "admin",
+  // Notifications
+  "notification:mark_read":    "viewer",
+  // Members (read)
+  "member:read":               "viewer",
+};
+
+/**
+ * requireWorkspaceAccess(user, workspaceId, env)
+ *
+ * Resolves the caller's membership in a workspace.
+ * Returns { role } if the user is a member, or null if not.
+ *
+ * Workspaces with NO members are accessible to all authenticated users (v1
+ * backward-compat: workspaces created before RBAC have no member rows).
+ */
+async function requireWorkspaceAccess(user, workspaceId, env) {
+  if (!user || !workspaceId) return null;
+  try {
+    const member = await env.cybermeters_db
+      .prepare(
+        `SELECT role FROM workspace_members
+         WHERE workspace_id = ? AND user_id = ? LIMIT 1`
+      )
+      .bind(workspaceId, user.id)
+      .first();
+
+    if (member) return { role: member.role };
+
+    // v1 compat: if workspace has no members at all, grant analyst access
+    // (unowned workspace — created before RBAC enforcement)
+    const count = await env.cybermeters_db
+      .prepare("SELECT COUNT(*) AS cnt FROM workspace_members WHERE workspace_id = ?")
+      .bind(workspaceId)
+      .first();
+
+    if ((count?.cnt ?? 0) === 0) return { role: "analyst" };
+
+    return null; // workspace has members but this user is not one of them
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * requireWorkspaceRole(user, workspaceId, permission, env)
+ *
+ * Returns the member's role if the user has the minimum role required for
+ * the given permission, or null otherwise.
+ *
+ * Usage:
+ *   const access = await requireWorkspaceRole(user, wsId, "report:generate", env);
+ *   if (!access) return json({ error: "Forbidden" }, 403);
+ */
+async function requireWorkspaceRole(user, workspaceId, permission, env) {
+  const membership = await requireWorkspaceAccess(user, workspaceId, env);
+  if (!membership) return null;
+
+  const minRole  = PERMISSION_MIN_ROLE[permission];
+  if (!minRole) return membership; // permission not restricted — any member passes
+
+  const userRank = ROLE_RANK[membership.role] ?? -1;
+  const minRank  = ROLE_RANK[minRole]         ?? 99;
+
+  return userRank >= minRank ? membership : null;
+}
+
 // ── Notification Helpers ─────────────────────────────────────────────────────
 
 /**
