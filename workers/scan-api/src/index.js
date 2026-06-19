@@ -78,6 +78,13 @@ async function generateSessionToken() {
   return { raw, hash };
 }
 
+async function generateApiToken() {
+  const secret = Array.from(crypto.getRandomValues(new Uint8Array(32))).map(b => b.toString(16).padStart(2, "0")).join("");
+  const raw    = `cm_${secret}`;
+  const hash   = await hashToken(raw);
+  return { raw, hash };
+}
+
 /**
  * Hash a bearer token string for D1 lookup (same as above but for incoming tokens).
  */
@@ -108,6 +115,52 @@ async function requireAuth(request, env) {
       .first();
     if (!session || session.status === "suspended") return null;
     return session;
+  } catch {
+    return null;
+  }
+}
+
+async function requireApiToken(request, env) {
+  const authHeader = request.headers.get("Authorization") || "";
+  if (!authHeader.startsWith("Bearer ")) return null;
+  const rawToken = authHeader.slice(7).trim();
+  if (!rawToken) return null;
+
+  if (!rawToken.startsWith("cm_")) {
+    return requireAuth(request, env);
+  }
+
+  try {
+    const tokenHash = await hashToken(rawToken);
+    const token = await env.cybermeters_db
+      .prepare(
+        `SELECT t.id AS api_token_id, t.user_id,
+                u.id, u.email, u.name, u.plan, u.status
+         FROM api_tokens t
+         JOIN users u ON u.id = t.user_id
+         WHERE t.token_hash = ?
+           AND t.status = 'active'
+           AND (t.expires_at IS NULL OR t.expires_at > datetime('now'))
+         LIMIT 1`
+      )
+      .bind(tokenHash)
+      .first();
+    if (!token || token.status === "suspended") return null;
+
+    await env.cybermeters_db
+      .prepare("UPDATE api_tokens SET last_used_at = datetime('now') WHERE id = ?")
+      .bind(token.api_token_id)
+      .run();
+
+    await createAuditEvent(env, {
+      user_id:     token.user_id,
+      event_type:  "api_token_used",
+      entity_type: "api_token",
+      entity_id:   token.api_token_id,
+      description: "API token used for authentication",
+    });
+
+    return token;
   } catch {
     return null;
   }
@@ -8162,6 +8215,40 @@ function computeNextRunAt(frequency) {
 }
 
 /**
+ * Compute next_run_at for a scheduled_reports row.
+ * weekly   → next Monday 00:00 UTC
+ * monthly  → 1st of next month 00:00 UTC
+ * quarterly→ 1st of next calendar quarter 00:00 UTC
+ */
+function computeScheduledReportNextRunAt(frequency) {
+  const now = new Date();
+  const y   = now.getUTCFullYear();
+  const m   = now.getUTCMonth(); // 0-based
+
+  if (frequency === "weekly") {
+    // Next Monday
+    const d = new Date(Date.UTC(y, m, now.getUTCDate()));
+    const dow = d.getUTCDay(); // 0=Sun
+    const daysUntilMonday = dow === 0 ? 1 : (8 - dow);
+    d.setUTCDate(d.getUTCDate() + daysUntilMonday);
+    return d.toISOString();
+  }
+  if (frequency === "monthly") {
+    // 1st of next month
+    return new Date(Date.UTC(y, m + 1, 1)).toISOString();
+  }
+  if (frequency === "quarterly") {
+    // 1st of next calendar quarter
+    const nextQ = Math.floor(m / 3) + 1;
+    const nextQYear  = y + Math.floor(nextQ / 4);
+    const nextQMonth = (nextQ % 4) * 3; // 0, 3, 6, 9
+    return new Date(Date.UTC(nextQYear, nextQMonth, 1)).toISOString();
+  }
+  // fallback: 30 days
+  return new Date(Date.now() + 30 * 24 * 60 * 60 * 1_000).toISOString();
+}
+
+/**
  * Create and run a scan for one scheduled_scans row.
  * This function is always called inside ctx.waitUntil() so it is safe to await
  * runScanEngine directly — we are already within the extended Worker lifetime.
@@ -9270,6 +9357,73 @@ async function generateWorkspaceExecutiveReport(workspaceId, env, options = {}) 
   };
 }
 
+// processScheduledReports — called from scheduled() via ctx.waitUntil().
+// Checks the scheduled_reports table for due rows, generates reports, updates timestamps.
+async function processScheduledReports(now, env) {
+  let rows;
+  try {
+    const r = await env.cybermeters_db
+      .prepare(
+        `SELECT id, workspace_id, report_type, frequency
+         FROM scheduled_reports
+         WHERE enabled = 1
+           AND (next_run_at IS NULL OR next_run_at <= ?)
+         ORDER BY next_run_at ASC
+         LIMIT 20`
+      )
+      .bind(now)
+      .all();
+    rows = r.results ?? [];
+  } catch {
+    // Table may not exist yet
+    return;
+  }
+
+  for (const sr of rows) {
+    try {
+      const reportRow = await generateWorkspaceExecutiveReport(sr.workspace_id, env, {
+        report_type: sr.report_type,
+      });
+
+      const nextRunAt = computeScheduledReportNextRunAt(sr.frequency);
+      await env.cybermeters_db
+        .prepare(
+          `UPDATE scheduled_reports
+           SET last_run_at = ?, next_run_at = ?
+           WHERE id = ?`
+        )
+        .bind(now, nextRunAt, sr.id)
+        .run();
+
+      // Notification
+      try {
+        await createNotificationEvent(env, sr.workspace_id, {
+          type:     "report_schedule_executed",
+          severity: "info",
+          title:    `Scheduled report generated`,
+          message:  `${sr.report_type.replace(/_/g, ' ')} report generated automatically (${sr.frequency})`,
+          metadata: { scheduled_report_id: sr.id, report_id: reportRow?.id, report_type: sr.report_type },
+        });
+      } catch { /* non-fatal */ }
+
+      // Audit
+      try {
+        await createAuditEvent(env, {
+          workspace_id: sr.workspace_id,
+          event_type:   "scheduled_report_executed",
+          entity_type:  "scheduled_report",
+          entity_id:    sr.id,
+          description:  `Scheduled ${sr.report_type} report generated automatically (${sr.frequency})`,
+          metadata:     { scheduled_report_id: sr.id, report_id: reportRow?.id, report_type: sr.report_type, next_run_at: nextRunAt },
+        });
+      } catch { /* non-fatal */ }
+
+    } catch {
+      // One workspace failing must not abort others
+    }
+  }
+}
+
 // generateScheduledReports — called from scheduled() via ctx.waitUntil().
 // Generates weekly reports on Mondays, monthly reports on the 1st of the month.
 // Skips if a report for the same (workspace, type, period) already exists.
@@ -9359,6 +9513,7 @@ const PERMISSION_MIN_ROLE = {
   "scan:create":               "analyst",
   // Reports
   "report:generate":           "admin",
+  "schedule:manage":            "admin",
   // Notifications
   "notification:mark_read":    "viewer",
   // Members (read)
@@ -9991,6 +10146,100 @@ export default {
             current_period_end: null,
           },
         });
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
+    // ── GET /api/account/api-tokens ─────────────────────────────────────
+    if (request.method === "GET" && url.pathname === "/api/account/api-tokens") {
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      try {
+        const rows = await env.cybermeters_db
+          .prepare(
+            `SELECT id, user_id, name, last_used_at, created_at, expires_at, status
+             FROM api_tokens
+             WHERE user_id = ?
+             ORDER BY created_at DESC`
+          )
+          .bind(user.id)
+          .all();
+        return json({ tokens: rows.results || [] });
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
+    // ── POST /api/account/api-tokens ────────────────────────────────────
+    if (request.method === "POST" && url.pathname === "/api/account/api-tokens") {
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+
+      let body;
+      try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+
+      const name = (body.name || "").trim();
+      if (!name) return json({ error: "name is required" }, 400);
+      if (name.length > 120) return json({ error: "name is too long" }, 400);
+
+      try {
+        const { raw, hash } = await generateApiToken();
+        const tokenId = createId("apitok");
+        await env.cybermeters_db
+          .prepare(
+            `INSERT INTO api_tokens
+               (id, user_id, name, token_hash, status, created_at)
+             VALUES (?, ?, ?, ?, 'active', datetime('now'))`
+          )
+          .bind(tokenId, user.id, name, hash)
+          .run();
+
+        await createAuditEvent(env, {
+          user_id:     user.id,
+          event_type:  "api_token_created",
+          entity_type: "api_token",
+          entity_id:   tokenId,
+          description: `API token "${name}" created`,
+          metadata:    { name },
+        });
+
+        return json({ token: raw }, 201);
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
+    // ── DELETE /api/account/api-tokens/:id ──────────────────────────────
+    const apiTokenDeleteMatch = url.pathname.match(/^\/api\/account\/api-tokens\/([^/]+)$/);
+    if (apiTokenDeleteMatch && request.method === "DELETE") {
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const tokenId = apiTokenDeleteMatch[1];
+
+      try {
+        const tokenRow = await env.cybermeters_db
+          .prepare("SELECT id, name FROM api_tokens WHERE id = ? AND user_id = ?")
+          .bind(tokenId, user.id)
+          .first();
+        if (!tokenRow) return json({ error: "Token not found" }, 404);
+
+        const result = await env.cybermeters_db
+          .prepare("UPDATE api_tokens SET status = 'revoked' WHERE id = ? AND user_id = ?")
+          .bind(tokenId, user.id)
+          .run();
+        if (result.meta?.changes === 0) return json({ error: "Token not found" }, 404);
+
+        await createAuditEvent(env, {
+          user_id:     user.id,
+          event_type:  "api_token_revoked",
+          entity_type: "api_token",
+          entity_id:   tokenId,
+          description: `API token "${tokenRow.name}" revoked`,
+          metadata:    { name: tokenRow.name },
+        });
+
+        return json({ success: true });
       } catch (e) {
         return json({ error: e.message }, 500);
       }
@@ -14261,6 +14510,154 @@ export default {
       }
     }
 
+    // ── GET /api/workspaces/:id/scheduled-reports ────────────────────────────
+    // List all scheduled report configs for a workspace.
+    const srListMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/scheduled-reports$/);
+    if (srListMatch && request.method === 'GET') {
+      const wsId = srListMatch[1];
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, wsId, "workspace:read", env);
+      if (!access) return json({ error: "Forbidden" }, 403);
+      try {
+        const { results } = await env.cybermeters_db
+          .prepare(
+            `SELECT id, workspace_id, report_type, frequency, enabled, last_run_at, next_run_at, created_at
+             FROM scheduled_reports
+             WHERE workspace_id = ?
+             ORDER BY created_at DESC`
+          )
+          .bind(wsId)
+          .all();
+        return json({ scheduled_reports: results ?? [] });
+      } catch (err) {
+        return json({ error: String(err?.message ?? err) }, 500);
+      }
+    }
+
+    // ── POST /api/workspaces/:id/scheduled-reports ────────────────────────────
+    // Create a new scheduled report. Body: { report_type, frequency }
+    // Frequencies: weekly | monthly | quarterly
+    if (srListMatch && request.method === 'POST') {
+      const wsId = srListMatch[1];
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, wsId, "schedule:manage", env);
+      if (!access) return json({ error: "Forbidden — admin role required to manage schedules" }, 403);
+      try {
+        let body = {};
+        try { body = await request.json(); } catch { /* optional */ }
+
+        const VALID_TYPES = ['weekly_executive', 'monthly_executive', 'quarterly_executive', 'manual'];
+        const VALID_FREQS = ['weekly', 'monthly', 'quarterly'];
+        const report_type = VALID_TYPES.includes(body.report_type) ? body.report_type : 'monthly_executive';
+        const frequency   = VALID_FREQS.includes(body.frequency)   ? body.frequency   : 'monthly';
+
+        // Prevent duplicate active schedules for same type+frequency
+        const existing = await env.cybermeters_db
+          .prepare(
+            `SELECT id FROM scheduled_reports
+             WHERE workspace_id = ? AND report_type = ? AND frequency = ? AND enabled = 1 LIMIT 1`
+          )
+          .bind(wsId, report_type, frequency)
+          .first();
+        if (existing) return json({ error: "A schedule for this report type and frequency already exists" }, 409);
+
+        const srId      = createId("sr");
+        const nextRunAt = computeScheduledReportNextRunAt(frequency);
+        const now       = new Date().toISOString();
+
+        await env.cybermeters_db
+          .prepare(
+            `INSERT INTO scheduled_reports (id, workspace_id, report_type, frequency, enabled, next_run_at, created_at)
+             VALUES (?, ?, ?, ?, 1, ?, ?)`
+          )
+          .bind(srId, wsId, report_type, frequency, nextRunAt, now)
+          .run();
+
+        // Audit
+        try {
+          await createAuditEvent(env, {
+            workspace_id: wsId,
+            user_id:      user.id,
+            event_type:   "scheduled_report_created",
+            entity_type:  "scheduled_report",
+            entity_id:    srId,
+            description:  `Scheduled report created: ${report_type} (${frequency})`,
+            metadata:     { scheduled_report_id: srId, report_type, frequency },
+          });
+        } catch { /* non-fatal */ }
+
+        return json({
+          scheduled_report: { id: srId, workspace_id: wsId, report_type, frequency, enabled: 1, next_run_at: nextRunAt, created_at: now }
+        }, 201);
+      } catch (err) {
+        return json({ error: String(err?.message ?? err) }, 500);
+      }
+    }
+
+    // ── DELETE /api/workspaces/:id/scheduled-reports/:srId ───────────────────
+    const srDeleteMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/scheduled-reports\/([^/]+)$/);
+    if (srDeleteMatch && request.method === 'DELETE') {
+      const wsId = srDeleteMatch[1];
+      const srId = srDeleteMatch[2];
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, wsId, "schedule:manage", env);
+      if (!access) return json({ error: "Forbidden — admin role required to manage schedules" }, 403);
+      try {
+        const row = await env.cybermeters_db
+          .prepare("SELECT id FROM scheduled_reports WHERE id = ? AND workspace_id = ? LIMIT 1")
+          .bind(srId, wsId)
+          .first();
+        if (!row) return json({ error: "Schedule not found" }, 404);
+
+        await env.cybermeters_db
+          .prepare("DELETE FROM scheduled_reports WHERE id = ?")
+          .bind(srId)
+          .run();
+
+        try {
+          await createAuditEvent(env, {
+            workspace_id: wsId,
+            user_id:      user.id,
+            event_type:   "scheduled_report_deleted",
+            entity_type:  "scheduled_report",
+            entity_id:    srId,
+            description:  "Scheduled report deleted",
+            metadata:     { scheduled_report_id: srId },
+          });
+        } catch { /* non-fatal */ }
+
+        return json({ deleted: true });
+      } catch (err) {
+        return json({ error: String(err?.message ?? err) }, 500);
+      }
+    }
+
+    // ── PATCH /api/workspaces/:id/scheduled-reports/:srId ────────────────────
+    // Toggle enabled. Body: { enabled: true|false }
+    if (srDeleteMatch && request.method === 'PATCH') {
+      const wsId = srDeleteMatch[1];
+      const srId = srDeleteMatch[2];
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, wsId, "schedule:manage", env);
+      if (!access) return json({ error: "Forbidden — admin role required to manage schedules" }, 403);
+      try {
+        let body = {};
+        try { body = await request.json(); } catch { /* optional */ }
+        const enabled = body.enabled === false ? 0 : 1;
+        await env.cybermeters_db
+          .prepare("UPDATE scheduled_reports SET enabled = ? WHERE id = ? AND workspace_id = ?")
+          .bind(enabled, srId, wsId)
+          .run();
+        return json({ updated: true, enabled: enabled === 1 });
+      } catch (err) {
+        return json({ error: String(err?.message ?? err) }, 500);
+      }
+    }
+
     return json({ error: "Not found" }, 404);
   },
 
@@ -14293,5 +14690,9 @@ export default {
     // Weekly on Mondays, monthly on the 1st of the month.
     // generateScheduledReports is a no-op on all other days.
     ctx.waitUntil(generateScheduledReports(now, env));
+
+    // ── User-configured scheduled reports ─────────────────────────────────
+    // Runs every tick; processScheduledReports checks next_run_at internally.
+    ctx.waitUntil(processScheduledReports(now, env));
   },
 };

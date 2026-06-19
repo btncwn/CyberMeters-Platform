@@ -14,6 +14,7 @@ import { useState, useEffect } from 'react'
 import {
   User, Building2, CreditCard, Save, AlertTriangle,
   CheckCircle, Globe, Briefcase, ChevronDown, Shield,
+  KeyRound, Trash2, Plus,
 } from 'lucide-react'
 import { api } from '../api'
 import { useAuth } from '../context/AuthContext'
@@ -107,6 +108,7 @@ export default function AccountPage() {
   // Remote state
   const [profile,       setProfile]       = useState(null)
   const [subscriptions, setSubscriptions] = useState([])
+  const [apiTokens,     setApiTokens]     = useState([])
   const [loading,       setLoading]       = useState(true)
   const [loadError,     setLoadError]     = useState(null)
 
@@ -123,15 +125,20 @@ export default function AccountPage() {
   const [saving,     setSaving]     = useState(false)
   const [saveError,  setSaveError]  = useState(null)
   const [saveOk,     setSaveOk]     = useState(false)
+  const [tokenName,  setTokenName]  = useState('')
+  const [newToken,   setNewToken]   = useState(null)
+  const [tokenBusy,  setTokenBusy]  = useState(false)
+  const [tokenError, setTokenError] = useState(null)
 
   useEffect(() => {
     async function load() {
       setLoading(true)
       setLoadError(null)
       try {
-        const [profileRes, subRes] = await Promise.allSettled([
+        const [profileRes, subRes, tokenRes] = await Promise.allSettled([
           api.getAccountProfile(),
-          api.getAccountSubscription(),
+          api.getSubscription(),
+          api.getApiTokens(),
         ])
 
         if (profileRes.status === 'fulfilled') {
@@ -151,6 +158,9 @@ export default function AccountPage() {
 
         if (subRes.status === 'fulfilled') {
           setSubscriptions(subRes.value.subscriptions || [])
+        }
+        if (tokenRes.status === 'fulfilled') {
+          setApiTokens(tokenRes.value.tokens || [])
         }
       } finally {
         setLoading(false)
@@ -188,6 +198,40 @@ export default function AccountPage() {
       setSaveError(e.message)
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function handleCreateToken(e) {
+    e.preventDefault()
+    const name = tokenName.trim()
+    if (!name || tokenBusy) return
+    setTokenBusy(true)
+    setTokenError(null)
+    setNewToken(null)
+    try {
+      const res = await api.createApiToken(name)
+      setNewToken(res.token)
+      setTokenName('')
+      const list = await api.getApiTokens()
+      setApiTokens(list.tokens || [])
+    } catch (e) {
+      setTokenError(e.message)
+    } finally {
+      setTokenBusy(false)
+    }
+  }
+
+  async function handleRevokeToken(id) {
+    if (!id || tokenBusy) return
+    setTokenBusy(true)
+    setTokenError(null)
+    try {
+      await api.revokeApiToken(id)
+      setApiTokens(prev => prev.map(t => t.id === id ? { ...t, status: 'revoked' } : t))
+    } catch (e) {
+      setTokenError(e.message)
+    } finally {
+      setTokenBusy(false)
     }
   }
 
@@ -381,6 +425,92 @@ export default function AccountPage() {
                     Unlock unlimited domains, advanced reporting, and MSP portfolio features.
                   </p>
                   <p className="text-[10px] text-brand-400 mt-2">Billing available in an upcoming release.</p>
+                </div>
+              </Section>
+
+              <Section icon={KeyRound} title="API Tokens">
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">
+                      Token name
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={tokenName}
+                        onChange={(e) => {
+                          setTokenName(e.target.value)
+                          setTokenError(null)
+                        }}
+                        placeholder="GitHub Actions"
+                        className="input"
+                        maxLength={120}
+                      />
+                      <button
+                        type="button"
+                        onClick={handleCreateToken}
+                        disabled={tokenBusy || !tokenName.trim()}
+                        className="btn-primary px-3 disabled:opacity-50"
+                      >
+                        <Plus className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {newToken && (
+                    <div className="p-3 rounded-xl bg-amber-50 border border-amber-100">
+                      <p className="text-xs font-semibold text-amber-800 mb-1">Store this token now. It will never be shown again.</p>
+                      <code className="block text-xs text-amber-900 break-all bg-white/60 rounded-lg p-2">{newToken}</code>
+                    </div>
+                  )}
+
+                  {tokenError && (
+                    <div className="flex items-center gap-2 p-3 rounded-xl bg-red-50 border border-red-100">
+                      <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0" />
+                      <p className="text-xs text-red-600">{tokenError}</p>
+                    </div>
+                  )}
+
+                  {apiTokens.length === 0 ? (
+                    <div className="text-center py-5 border border-dashed border-gray-200 rounded-xl">
+                      <KeyRound className="w-7 h-7 text-gray-200 mx-auto mb-2" />
+                      <p className="text-sm text-gray-400">No API tokens yet.</p>
+                    </div>
+                  ) : (
+                    <ul className="space-y-2">
+                      {apiTokens.map(token => (
+                        <li key={token.id} className="p-3 rounded-xl border border-gray-100 bg-gray-50/50">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold text-gray-900 truncate">{token.name}</p>
+                              <p className="text-[10px] text-gray-400 mt-0.5">
+                                Created {token.created_at ? new Date(token.created_at).toLocaleDateString() : 'unknown'}
+                              </p>
+                              <p className="text-[10px] text-gray-400">
+                                Last used {token.last_used_at ? new Date(token.last_used_at).toLocaleDateString() : 'never'}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              <span className={`text-[10px] font-semibold uppercase ${token.status === 'active' ? 'text-green-600' : 'text-gray-400'}`}>
+                                {token.status}
+                              </span>
+                              {token.status === 'active' && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleRevokeToken(token.id)}
+                                  disabled={tokenBusy}
+                                  className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-50"
+                                  title="Revoke token"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               </Section>
             </div>

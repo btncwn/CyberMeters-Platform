@@ -318,6 +318,20 @@ export const api = {
    */
   getSubscription: () => request('/account/subscription'),
 
+  /** GET /api/account/api-tokens */
+  getApiTokens: () => request('/account/api-tokens'),
+
+  /** POST /api/account/api-tokens  body: { name } */
+  createApiToken: (name) =>
+    request('/account/api-tokens', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    }),
+
+  /** DELETE /api/account/api-tokens/:id */
+  revokeApiToken: (id) =>
+    request(`/account/api-tokens/${id}`, { method: 'DELETE' }),
+
   // ── Workspace Activity (Audit Trail) ─────────────────────────────────────
 
   /**
@@ -328,6 +342,36 @@ export const api = {
     const q = new URLSearchParams(params).toString()
     return request(`/workspaces/${workspaceId}/activity${q ? `?${q}` : ''}`)
   },
+
+  // ── Scheduled Reports ────────────────────────────────────────────────────
+
+  /** GET /api/workspaces/:id/scheduled-reports */
+  getScheduledReports: (workspaceId) =>
+    request(`/workspaces/${workspaceId}/scheduled-reports`),
+
+  /**
+   * POST /api/workspaces/:id/scheduled-reports
+   * Body: { report_type, frequency }  frequency ∈ 'weekly' | 'monthly' | 'quarterly'
+   */
+  createScheduledReport: (workspaceId, report_type, frequency) =>
+    request(`/workspaces/${workspaceId}/scheduled-reports`, {
+      method: 'POST',
+      body: JSON.stringify({ report_type, frequency }),
+    }),
+
+  /**
+   * PATCH /api/workspaces/:id/scheduled-reports/:srId
+   * Body: { enabled: boolean }
+   */
+  updateScheduledReport: (workspaceId, srId, enabled) =>
+    request(`/workspaces/${workspaceId}/scheduled-reports/${srId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ enabled }),
+    }),
+
+  /** DELETE /api/workspaces/:id/scheduled-reports/:srId */
+  deleteScheduledReport: (workspaceId, srId) =>
+    request(`/workspaces/${workspaceId}/scheduled-reports/${srId}`, { method: 'DELETE' }),
 
   // ── Workspace Members (RBAC) ─────────────────────────────────────────────
 
