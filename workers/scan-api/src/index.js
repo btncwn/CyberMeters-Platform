@@ -1487,87 +1487,206 @@ async function runTakeoverModule(domain, subdomains) {
 }
 
 // ── Cloud Storage Discovery ───────────────────────────────────────────────────
-// Pattern-based detection of cloud storage references across all discovered
-// hostnames and exposure assets.  No additional HTTP calls — pure analysis of
-// data already present in other modules.
+// Cloud Asset Discovery — pattern-based detection of public cloud services
+// across all discovered hostnames, CNAMEs, URLs and redirect targets.
+// No additional HTTP calls — pure analysis of data already present in other modules.
 //
-// Risk labels:
-//   "cloud_storage_reference"  — pattern match only (info/low)
-//   "potentially_public_storage" — HTTP evidence of public access (medium)
-//   Currently only pattern matching is implemented; HTTP confirmation is deferred.
+// Covers: object storage, CDN, serverless functions, managed PaaS, static hosting.
+//
+// risk_level:
+//   low    — CDN / static hosting (expected public exposure)
+//   medium — managed PaaS / storage (may expose data if misconfigured)
+//   high   — serverless endpoints (direct compute exposure)
 
-const CLOUD_STORAGE_PATTERNS = [
+const CLOUD_ASSET_PATTERNS = [
+
+  // ── Object Storage ────────────────────────────────────────────────────────
   {
-    provider:  "AWS S3",
-    patterns:  ["s3.amazonaws.com", "s3-website", "s3-website-", ".amazonaws.com"],
-    risk_level: "medium",
+    provider:     "AWS S3",
+    category:     "storage",
+    service_type: "object_storage",
+    patterns:     [".s3.amazonaws.com", "s3.amazonaws.com", "s3-website-", ".s3-website."],
+    risk_level:   "medium",
   },
   {
-    provider:  "Azure Blob Storage",
-    patterns:  ["blob.core.windows.net", "web.core.windows.net"],
-    risk_level: "medium",
+    provider:     "Azure Blob Storage",
+    category:     "storage",
+    service_type: "object_storage",
+    patterns:     ["blob.core.windows.net", "table.core.windows.net",
+                   "queue.core.windows.net", "file.core.windows.net"],
+    risk_level:   "medium",
   },
   {
-    provider:  "Google Cloud Storage",
-    patterns:  ["storage.googleapis.com"],
-    risk_level: "medium",
+    provider:     "Azure Static Website",
+    category:     "storage",
+    service_type: "static_website",
+    patterns:     ["web.core.windows.net"],
+    risk_level:   "low",
   },
   {
-    provider:  "Firebase / GCP",
-    patterns:  ["firebaseapp.com", "appspot.com"],
-    risk_level: "low",
+    provider:     "Google Cloud Storage",
+    category:     "storage",
+    service_type: "object_storage",
+    patterns:     ["storage.googleapis.com"],
+    risk_level:   "medium",
+  },
+  {
+    provider:     "Firebase Storage",
+    category:     "storage",
+    service_type: "object_storage",
+    patterns:     ["firebasestorage.googleapis.com"],
+    risk_level:   "medium",
+  },
+
+  // ── CDN ───────────────────────────────────────────────────────────────────
+  {
+    provider:     "AWS CloudFront",
+    category:     "cdn",
+    service_type: "content_delivery",
+    patterns:     [".cloudfront.net"],
+    risk_level:   "low",
+  },
+
+  // ── Serverless / API ──────────────────────────────────────────────────────
+  {
+    provider:     "AWS Lambda URL",
+    category:     "serverless",
+    service_type: "function_url",
+    patterns:     ["lambda-url.", ".on.aws"],
+    risk_level:   "high",
+  },
+  {
+    provider:     "AWS API Gateway",
+    category:     "serverless",
+    service_type: "api_gateway",
+    patterns:     ["execute-api.", ".amazonaws.com/prod", ".amazonaws.com/v1",
+                   ".amazonaws.com/v2", ".amazonaws.com/stage"],
+    risk_level:   "high",
+  },
+  {
+    provider:     "Azure Functions",
+    category:     "serverless",
+    service_type: "function_url",
+    // Distinguished from App Service by common naming: func-* / *-function* / *-api*
+    // Both use azurewebsites.net — we match by common function URL patterns
+    patterns:     [".azurewebsites.net/api/"],
+    risk_level:   "high",
+  },
+
+  // ── Managed PaaS / Hosting ────────────────────────────────────────────────
+  {
+    provider:     "Azure App Service",
+    category:     "paas",
+    service_type: "managed_app",
+    patterns:     [".azurewebsites.net"],
+    risk_level:   "medium",
+  },
+  {
+    provider:     "AWS Elastic Beanstalk",
+    category:     "paas",
+    service_type: "managed_app",
+    patterns:     [".elasticbeanstalk.com"],
+    risk_level:   "medium",
+  },
+  {
+    provider:     "AWS App Runner",
+    category:     "paas",
+    service_type: "managed_app",
+    patterns:     [".awsapprunner.com"],
+    risk_level:   "medium",
+  },
+  {
+    provider:     "Firebase / Google App Engine",
+    category:     "paas",
+    service_type: "managed_app",
+    patterns:     ["firebaseapp.com", "appspot.com", ".web.app"],
+    risk_level:   "low",
+  },
+
+  // ── Static Hosting Platforms ──────────────────────────────────────────────
+  {
+    provider:     "Vercel",
+    category:     "hosting",
+    service_type: "static_hosting",
+    patterns:     [".vercel.app", "vercel-dns.com", ".now.sh"],
+    risk_level:   "low",
+  },
+  {
+    provider:     "Netlify",
+    category:     "hosting",
+    service_type: "static_hosting",
+    patterns:     [".netlify.app", ".netlify.com"],
+    risk_level:   "low",
   },
 ];
 
-function detectCloudProvider(value) {
+/**
+ * detectCloudAsset(value) → { provider, category, service_type, patterns, risk_level } | null
+ * Returns the first matching CLOUD_ASSET_PATTERNS entry.
+ */
+function detectCloudAsset(value) {
   if (!value) return null;
   const v = value.toLowerCase();
-  for (const def of CLOUD_STORAGE_PATTERNS) {
+  for (const def of CLOUD_ASSET_PATTERNS) {
     for (const pat of def.patterns) {
-      if (v.includes(pat)) return def;
+      if (v.includes(pat)) return { def, matchedPattern: pat };
     }
   }
   return null;
 }
 
+// Keep legacy alias so nothing else breaks if it's referenced elsewhere
+const CLOUD_STORAGE_PATTERNS = CLOUD_ASSET_PATTERNS;
+function detectCloudProvider(value) {
+  const r = detectCloudAsset(value);
+  return r ? r.def : null;
+}
+
 /**
- * Scan subdomains and exposure assets for cloud storage indicators.
+ * Scan subdomains and exposure assets for cloud asset indicators.
  * Pure computation — zero additional network calls.
+ *
+ * Returns:
+ *   { checked, findings: [{asset, provider, category, service_type,
+ *     type, evidence, risk_level}], source, error }
  */
 function runCloudStorageModule(domain, modules) {
   try {
     const findings = [];
     const seen     = new Set();    // deduplicate by asset+provider
 
-    // Helper to record a finding without duplicates
-    function record(asset, provider, evidence, risk_level) {
-      const key = `${asset}::${provider}`;
+    function record(asset, def, matchedPattern, evidence) {
+      const key = `${asset}::${def.provider}`;
       if (seen.has(key)) return;
       seen.add(key);
       findings.push({
         asset,
-        provider,
-        type:       "cloud_storage_reference",
-        evidence,
-        risk_level,
+        provider:     def.provider,
+        category:     def.category,
+        service_type: def.service_type,
+        type:         "cloud_asset_reference",
+        evidence:     `${evidence} matched pattern "${matchedPattern}"`,
+        risk_level:   def.risk_level,
       });
     }
 
     // ── 1. Scan subdomain hostnames ───────────────────────────────────────
     const subItems = modules?.subdomains?.items || [];
     for (const hostname of subItems) {
-      const match = detectCloudProvider(hostname);
-      if (match) {
-        record(hostname, match.provider, `hostname contains "${match.patterns.find(p => hostname.toLowerCase().includes(p))}"`, match.risk_level);
-      }
+      const hit = detectCloudAsset(hostname);
+      if (hit) record(hostname, hit.def, hit.matchedPattern, "hostname");
     }
 
     // ── 2. Scan brute-force finds ─────────────────────────────────────────
-    const bruteItems = (modules?.dns_bruteforce?.items || []);
+    const bruteItems = modules?.dns_bruteforce?.items || [];
     for (const item of bruteItems) {
-      const match = detectCloudProvider(item.hostname);
-      if (match) {
-        record(item.hostname, match.provider, `brute-force hostname contains cloud storage pattern`, match.risk_level);
+      const hit = detectCloudAsset(item.hostname);
+      if (hit) record(item.hostname, hit.def, hit.matchedPattern, "brute-force hostname");
+
+      // Also check CNAMEs that brute-force may have resolved
+      if (item.cname) {
+        const cHit = detectCloudAsset(item.cname);
+        if (cHit) record(item.hostname || item.cname, cHit.def, cHit.matchedPattern, "brute-force CNAME");
       }
     }
 
@@ -1580,20 +1699,34 @@ function runCloudStorageModule(domain, modules) {
         { value: asset.redirect_to, label: "redirect" },
       ];
       for (const { value, label } of checks) {
-        const match = detectCloudProvider(value);
-        if (match) {
+        const hit = detectCloudAsset(value);
+        if (hit) {
           record(
             asset.hostname || asset.url,
-            match.provider,
-            `${label} contains "${match.patterns.find(p => (value || "").toLowerCase().includes(p))}"`,
-            match.risk_level
+            hit.def,
+            hit.matchedPattern,
+            label
           );
         }
       }
     }
 
+    // ── 4. Scan takeover-risk CNAMEs ─────────────────────────────────────
+    const takeoverRisks = modules?.subdomain_takeover?.risks || [];
+    for (const risk of takeoverRisks) {
+      if (risk.cname) {
+        const hit = detectCloudAsset(risk.cname);
+        if (hit) record(risk.hostname || risk.cname, hit.def, hit.matchedPattern, "takeover CNAME");
+      }
+    }
+
+    // Sort: high risk first, then medium, then low
+    const riskOrder = { high: 0, medium: 1, low: 2 };
+    findings.sort((a, b) => (riskOrder[a.risk_level] ?? 3) - (riskOrder[b.risk_level] ?? 3));
+
     return {
       checked:  subItems.length + bruteItems.length + exposureAssets.length,
+      total:    findings.length,
       findings,
       source:   "hostname_pattern_match",
       error:    null,
@@ -1601,9 +1734,10 @@ function runCloudStorageModule(domain, modules) {
   } catch (err) {
     return {
       checked:  0,
+      total:    0,
       findings: [],
       source:   "hostname_pattern_match",
-      error:    err?.message ?? "Cloud storage module failed",
+      error:    err?.message ?? "Cloud asset discovery failed",
     };
   }
 }
@@ -2121,6 +2255,305 @@ function runThirdPartyDiscoveryModule(modules) {
       assets:   [],
       source:   "third_party_discovery",
       error:    err?.message ?? "Third-party discovery failed",
+    };
+  }
+}
+
+// ── SaaS Exposure Discovery ───────────────────────────────────────────────────
+// Builds an exposure-focused view on top of vendor_risk.
+//
+// Difference vs. vendor_risk / third_party_assets:
+//   vendor_risk          → "do they use Salesforce?" (signal-level)
+//   third_party_assets   → "what SaaS categories does this org depend on?"
+//   saas_exposure        → "where exactly is the exposed portal/login surface?"
+//                          (tenant URL, admin URL, exposure type, attack vector)
+//
+// For each detected vendor we:
+//   1. Classify the exposure_type  (login_portal / email_gateway / saas_tenant /
+//      support_portal / crm_portal / dev_portal / ecommerce_portal)
+//   2. Extract the tenant-specific URL from CNAME records where possible
+//   3. Attach the known public portal URL and admin URL for the service
+//
+// Zero network I/O — all CNAME data is already in modules from Phase 6.
+
+const SAAS_EXPOSURE_SIGS = [
+  // ── Identity / Email ──────────────────────────────────────────────────────
+  {
+    name:          "Microsoft 365",
+    category:      "email_identity",
+    exposure_type: "login_portal",
+    risk_level:    "high",
+    portal_url:    "https://login.microsoftonline.com",
+    admin_url:     "https://admin.microsoft.com",
+    // Tenant-specific CNAME: mail.company.com → company-com.mail.protection.outlook.com
+    tenant_cname_re: /([^.]+)\.mail\.protection\.outlook\.com/i,
+    attack_surface: "Credential stuffing, phishing, MFA bypass, password spray",
+  },
+  {
+    name:          "Google Workspace",
+    category:      "email_identity",
+    exposure_type: "login_portal",
+    risk_level:    "high",
+    portal_url:    "https://mail.google.com",
+    admin_url:     "https://admin.google.com",
+    tenant_cname_re: null,
+    attack_surface: "Credential stuffing, OAuth token theft, phishing",
+  },
+  {
+    name:          "Proton Mail",
+    category:      "email_identity",
+    exposure_type: "email_gateway",
+    risk_level:    "low",
+    portal_url:    "https://mail.proton.me",
+    admin_url:     "https://account.proton.me",
+    tenant_cname_re: null,
+    attack_surface: "End-to-end encrypted — low external attack surface",
+  },
+  {
+    name:          "Zoho Mail",
+    category:      "email_identity",
+    exposure_type: "login_portal",
+    risk_level:    "medium",
+    portal_url:    "https://mail.zoho.com",
+    admin_url:     "https://mailadmin.zoho.com",
+    tenant_cname_re: null,
+    attack_surface: "Credential stuffing, password spray",
+  },
+
+  // ── Collaboration / Dev ───────────────────────────────────────────────────
+  {
+    name:          "Atlassian",
+    category:      "collaboration",
+    exposure_type: "dev_portal",
+    risk_level:    "high",
+    portal_url:    null,
+    admin_url:     "https://admin.atlassian.com",
+    // Tenant: company.atlassian.net
+    tenant_cname_re: /([^.]+)\.atlassian\.net/i,
+    attack_surface: "Exposed Jira/Confluence issues, credential stuffing, project data leakage",
+  },
+
+  // ── CRM ───────────────────────────────────────────────────────────────────
+  {
+    name:          "Salesforce",
+    category:      "crm",
+    exposure_type: "crm_portal",
+    risk_level:    "high",
+    portal_url:    "https://login.salesforce.com",
+    admin_url:     null,
+    // Tenant: company.my.salesforce.com or company.salesforce.com
+    tenant_cname_re: /([^.]+)(?:\.my)?\.salesforce\.com/i,
+    attack_surface: "CRM data exposure, credential stuffing, OAuth abuse",
+  },
+  {
+    name:          "HubSpot",
+    category:      "crm",
+    exposure_type: "crm_portal",
+    risk_level:    "medium",
+    portal_url:    "https://app.hubspot.com",
+    admin_url:     null,
+    // Tenant pages: tenant.hubspotpagebuilder.com or tenant.hs-sites.com
+    tenant_cname_re: /([^.]+)\.(?:hubspotpagebuilder|hs-sites|hsforms)\.(?:com|net)/i,
+    attack_surface: "Marketing data, contact lists, form submissions exposed",
+  },
+  {
+    name:          "Marketo",
+    category:      "crm",
+    exposure_type: "crm_portal",
+    risk_level:    "medium",
+    portal_url:    "https://app.marketo.com",
+    admin_url:     null,
+    tenant_cname_re: /([^.]+)\.(?:marketo|mktoweb)\.com/i,
+    attack_surface: "Marketing automation data, contact lists",
+  },
+
+  // ── Support ───────────────────────────────────────────────────────────────
+  {
+    name:          "Zendesk",
+    category:      "support",
+    exposure_type: "support_portal",
+    risk_level:    "medium",
+    portal_url:    null,
+    admin_url:     null,
+    // Tenant: company.zendesk.com
+    tenant_cname_re: /([^.]+)\.zendesk\.com/i,
+    attack_surface: "Customer ticket data, agent credential stuffing",
+  },
+  {
+    name:          "Intercom",
+    category:      "support",
+    exposure_type: "support_portal",
+    risk_level:    "low",
+    portal_url:    "https://app.intercom.com",
+    admin_url:     null,
+    tenant_cname_re: /([^.]+)\.(?:intercom\.io|intercomassets\.com)/i,
+    attack_surface: "Customer conversation data",
+  },
+  {
+    name:          "Freshdesk",
+    category:      "support",
+    exposure_type: "support_portal",
+    risk_level:    "low",
+    portal_url:    null,
+    admin_url:     null,
+    tenant_cname_re: /([^.]+)\.(?:freshdesk|freshworks)\.com/i,
+    attack_surface: "Customer ticket data",
+  },
+
+  // ── E-commerce ────────────────────────────────────────────────────────────
+  {
+    name:          "Shopify",
+    category:      "ecommerce",
+    exposure_type: "ecommerce_portal",
+    risk_level:    "medium",
+    portal_url:    "https://accounts.shopify.com",
+    admin_url:     null,
+    // Tenant: company.myshopify.com
+    tenant_cname_re: /([^.]+)\.myshopify\.com/i,
+    attack_surface: "Storefront credentials, order data, customer PII",
+  },
+  {
+    name:          "Squarespace",
+    category:      "ecommerce",
+    exposure_type: "ecommerce_portal",
+    risk_level:    "low",
+    portal_url:    "https://account.squarespace.com",
+    admin_url:     null,
+    tenant_cname_re: /([^.]+)\.squarespace\.com/i,
+    attack_surface: "Website admin, e-commerce data",
+  },
+  {
+    name:          "Webflow",
+    category:      "ecommerce",
+    exposure_type: "ecommerce_portal",
+    risk_level:    "low",
+    portal_url:    "https://webflow.com/dashboard",
+    admin_url:     null,
+    tenant_cname_re: /([^.]+)\.(?:webflow\.io|proxy\.webflow\.com)/i,
+    attack_surface: "Site admin, form submissions",
+  },
+];
+
+/**
+ * Collect all CNAME values from across the scan modules.
+ * Reused from the vendor detection signal extraction logic.
+ */
+function collectAllCnames(modules) {
+  const cnames = [];
+  for (const risk of (modules?.subdomain_takeover?.risks || [])) {
+    if (risk?.cname) cnames.push(risk.cname);
+  }
+  for (const asset of (modules?.asset_exposure?.assets || [])) {
+    if (asset?.cname) cnames.push(asset.cname);
+  }
+  for (const item of (modules?.dns_bruteforce?.items || [])) {
+    if (item?.cname) cnames.push(item.cname);
+  }
+  return cnames;
+}
+
+/**
+ * runSaasExposureModule — pure computation, zero network I/O.
+ *
+ * Cross-references vendor_risk detections with SAAS_EXPOSURE_SIGS to produce
+ * a portal-level exposure inventory: what portals are exposed, what the tenant
+ * URL is (if discoverable), and what the attack surface looks like.
+ *
+ * Returns:
+ *   { detected: bool, total: number,
+ *     exposures: [{name, category, exposure_type, risk_level, portal_url,
+ *       admin_url, tenant_hint, tenant_url, attack_surface, evidence, confidence}],
+ *     source: "saas_exposure_analysis", error: null }
+ */
+function runSaasExposureModule(modules) {
+  try {
+    const detectedVendors = modules?.vendor_risk?.vendors || [];
+    if (detectedVendors.length === 0) {
+      return { detected: false, total: 0, exposures: [], source: "saas_exposure_analysis", error: null };
+    }
+
+    // Collect CNAME strings for tenant extraction
+    const allCnames = collectAllCnames(modules);
+
+    const exposures = [];
+    const riskOrder = { high: 0, medium: 1, low: 2 };
+
+    for (const vendor of detectedVendors) {
+      const sig = SAAS_EXPOSURE_SIGS.find((s) => s.name === vendor.name);
+      if (!sig) continue;
+
+      // Try to extract tenant hint from any CNAME matching the sig's regex
+      let tenant_hint = null;
+      let tenant_url  = null;
+      if (sig.tenant_cname_re) {
+        for (const cname of allCnames) {
+          const m = cname.match(sig.tenant_cname_re);
+          if (m && m[1]) {
+            tenant_hint = m[1];
+            // Build tenant-specific portal URL if we have a template
+            if (sig.name === "Atlassian") {
+              tenant_url = `https://${tenant_hint}.atlassian.net`;
+            } else if (sig.name === "Salesforce") {
+              tenant_url = `https://${tenant_hint}.my.salesforce.com`;
+            } else if (sig.name === "Zendesk") {
+              tenant_url = `https://${tenant_hint}.zendesk.com`;
+            } else if (sig.name === "Shopify") {
+              tenant_url = `https://${tenant_hint}.myshopify.com/admin`;
+            } else if (sig.name === "HubSpot" || sig.name === "Marketo") {
+              tenant_url = sig.portal_url;
+            } else {
+              tenant_url = sig.portal_url;
+            }
+            break;
+          }
+        }
+      }
+
+      // Escalate risk if we found a tenant URL (confirmed direct access)
+      const effective_risk = (tenant_url && riskOrder[sig.risk_level] > riskOrder["high"])
+        ? "high"
+        : sig.risk_level;
+
+      exposures.push({
+        name:           sig.name,
+        category:       sig.category,
+        exposure_type:  sig.exposure_type,
+        risk_level:     effective_risk,
+        portal_url:     tenant_url || sig.portal_url,
+        admin_url:      sig.admin_url || null,
+        tenant_hint:    tenant_hint,
+        tenant_url:     tenant_url,
+        attack_surface: sig.attack_surface,
+        evidence:       vendor.evidence,
+        confidence:     vendor.confidence,
+      });
+    }
+
+    // Sort: high → medium → low, then by exposure_type
+    const expTypeOrder = {
+      login_portal: 0, crm_portal: 1, dev_portal: 2, support_portal: 3,
+      ecommerce_portal: 4, email_gateway: 5,
+    };
+    exposures.sort((a, b) => {
+      const rd = (riskOrder[a.risk_level] ?? 3) - (riskOrder[b.risk_level] ?? 3);
+      if (rd !== 0) return rd;
+      return (expTypeOrder[a.exposure_type] ?? 9) - (expTypeOrder[b.exposure_type] ?? 9);
+    });
+
+    return {
+      detected: exposures.length > 0,
+      total:    exposures.length,
+      exposures,
+      source:   "saas_exposure_analysis",
+      error:    null,
+    };
+  } catch (err) {
+    return {
+      detected:  false,
+      total:     0,
+      exposures: [],
+      source:    "saas_exposure_analysis",
+      error:     err?.message ?? "SaaS exposure module failed",
     };
   }
 }
@@ -4690,6 +5123,11 @@ async function runScanEngine(scanId, domainId, domain, env) {
     // infrastructure/cloud/hosting; remaps to email/crm/collaboration/support/
     // marketing/ecommerce taxonomy.
     modules.third_party_assets = runThirdPartyDiscoveryModule(modules);
+
+    // Phase 7g: SaaS Exposure Discovery — pure computation, zero I/O.
+    // Cross-references vendor_risk detections with known portal/tenant patterns to
+    // identify externally accessible SaaS portals, admin interfaces and tenant URLs.
+    modules.saas_exposure = runSaasExposureModule(modules);
 
     const completedAt = new Date().toISOString();
 
@@ -7367,6 +7805,245 @@ export default {
           return json({ error: "Database error" }, 500);
         }
       }
+    }
+
+    // ── SaaS Exposure Discovery route ─────────────────────────────────────
+    // GET /api/workspaces/:id/saas-exposure
+    //   Filters: ?exposure_type=login_portal|email_gateway|saas_tenant|
+    //                           support_portal|crm_portal|dev_portal|ecommerce_portal
+    //            ?risk_level=low|medium|high
+    //            ?category=email_identity|collaboration|crm|support|ecommerce
+    //   Returns: { workspace_id, total, high_risk, exposures: [...] }
+    const saasExpMatch = url.pathname.match(
+      /^\/api\/workspaces\/([^/]+)\/saas-exposure$/
+    );
+    if (saasExpMatch && request.method === "GET") {
+      const wsId = saasExpMatch[1];
+
+      // 1. Get domain IDs for workspace
+      let domainIds;
+      try {
+        const r = await env.cybermeters_db
+          .prepare("SELECT domain_id FROM workspace_domains WHERE workspace_id = ?")
+          .bind(wsId)
+          .all();
+        domainIds = (r.results || []).map((row) => row.domain_id);
+      } catch {
+        return json({ error: "Database error" }, 500);
+      }
+
+      if (domainIds.length === 0) {
+        return json({ workspace_id: wsId, total: 0, high_risk: 0, exposures: [] });
+      }
+
+      // 2. Latest completed scan per domain
+      const scanResults = await Promise.allSettled(
+        domainIds.map((did) =>
+          env.cybermeters_db
+            .prepare(
+              "SELECT id FROM scans WHERE domain_id = ? AND status = 'completed' " +
+              "ORDER BY created_at DESC LIMIT 1"
+            )
+            .bind(did)
+            .first()
+        )
+      );
+      const scanIds = scanResults
+        .map((r) => (r.status === "fulfilled" && r.value ? r.value.id : null))
+        .filter(Boolean);
+
+      // 3. Fetch R2 reports in parallel
+      const r2Results = await Promise.allSettled(
+        scanIds.map((sid) => env.cybermeters_reports.get(`reports/${sid}.json`))
+      );
+
+      // 4. Merge saas_exposure.exposures across all reports (dedup by name)
+      const seen      = new Set();
+      const exposures = [];
+
+      for (const r2 of r2Results) {
+        if (r2.status !== "fulfilled" || !r2.value) continue;
+        let report;
+        try { report = await r2.value.json(); } catch { continue; }
+
+        const mod = report?.modules?.saas_exposure;
+        if (!mod?.exposures?.length) continue;
+
+        for (const exp of mod.exposures) {
+          if (seen.has(exp.name)) continue;
+          seen.add(exp.name);
+          exposures.push({
+            name:           exp.name,
+            category:       exp.category,
+            exposure_type:  exp.exposure_type,
+            risk_level:     exp.risk_level,
+            portal_url:     exp.portal_url     || null,
+            admin_url:      exp.admin_url      || null,
+            tenant_hint:    exp.tenant_hint    || null,
+            tenant_url:     exp.tenant_url     || null,
+            attack_surface: exp.attack_surface || null,
+            confidence:     exp.confidence,
+            domain:         report.domain      || null,
+          });
+        }
+      }
+
+      // Sort high → medium → low
+      const riskOrder = { high: 0, medium: 1, low: 2 };
+      exposures.sort((a, b) => (riskOrder[a.risk_level] ?? 3) - (riskOrder[b.risk_level] ?? 3));
+
+      // Apply filters
+      const filterExpType  = url.searchParams.get("exposure_type");
+      const filterRisk     = url.searchParams.get("risk_level");
+      const filterCategory = url.searchParams.get("category");
+
+      const filtered = exposures.filter((e) => {
+        if (filterExpType  && e.exposure_type !== filterExpType)  return false;
+        if (filterRisk     && e.risk_level    !== filterRisk)     return false;
+        if (filterCategory && e.category      !== filterCategory) return false;
+        return true;
+      });
+
+      return json({
+        workspace_id: wsId,
+        total:     filtered.length,
+        high_risk: filtered.filter((e) => e.risk_level === "high").length,
+        exposures: filtered,
+      });
+    }
+
+    // ── Cloud Asset Discovery routes ───────────────────────────────────────
+    // GET /api/workspaces/:id/cloud-assets
+    //   Filters: ?category=storage|cdn|serverless|paas|hosting
+    //            ?provider=<name>  ?risk_level=low|medium|high
+    //   Returns: { workspace_id, total, assets: [...] }
+    //
+    // GET /api/workspaces/:id/cloud-assets/summary
+    //   Returns: { workspace_id, total, by_category:{storage,cdn,serverless,paas,hosting},
+    //              high_risk, medium_risk, low_risk, providers:[{name,count}] }
+    const cloudAssetsMatch = url.pathname.match(
+      /^\/api\/workspaces\/([^/]+)\/cloud-assets(\/summary)?$/
+    );
+    if (cloudAssetsMatch && request.method === "GET") {
+      const wsId      = cloudAssetsMatch[1];
+      const isSummary = !!cloudAssetsMatch[2];
+
+      // 1. Get domain IDs for workspace
+      let domainIds;
+      try {
+        const r = await env.cybermeters_db
+          .prepare("SELECT domain_id FROM workspace_domains WHERE workspace_id = ?")
+          .bind(wsId)
+          .all();
+        domainIds = (r.results || []).map((row) => row.domain_id);
+      } catch {
+        return json({ error: "Database error" }, 500);
+      }
+
+      if (domainIds.length === 0) {
+        const empty = isSummary
+          ? { workspace_id: wsId, total: 0,
+              by_category: { storage: 0, cdn: 0, serverless: 0, paas: 0, hosting: 0 },
+              high_risk: 0, medium_risk: 0, low_risk: 0, providers: [] }
+          : { workspace_id: wsId, total: 0, assets: [] };
+        return json(empty);
+      }
+
+      // 2. Latest completed scan per domain
+      const scanResults = await Promise.allSettled(
+        domainIds.map((did) =>
+          env.cybermeters_db
+            .prepare(
+              "SELECT id FROM scans WHERE domain_id = ? AND status = 'completed' " +
+              "ORDER BY created_at DESC LIMIT 1"
+            )
+            .bind(did)
+            .first()
+        )
+      );
+      const scanIds = scanResults
+        .map((r) => (r.status === "fulfilled" && r.value ? r.value.id : null))
+        .filter(Boolean);
+
+      // 3. Fetch R2 reports in parallel
+      const r2Results = await Promise.allSettled(
+        scanIds.map((sid) => env.cybermeters_reports.get(`reports/${sid}.json`))
+      );
+
+      // 4. Merge cloud_storage_discovery.findings across all reports (dedup by asset+provider)
+      const seen   = new Set();
+      const assets = [];
+
+      for (const r2 of r2Results) {
+        if (r2.status !== "fulfilled" || !r2.value) continue;
+        let report;
+        try { report = await r2.value.json(); } catch { continue; }
+
+        const cloudMod = report?.modules?.cloud_storage_discovery;
+        if (!cloudMod?.findings?.length) continue;
+
+        for (const f of cloudMod.findings) {
+          const key = `${f.asset}::${f.provider}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          assets.push({
+            asset:        f.asset,
+            provider:     f.provider,
+            category:     f.category     || "storage",  // backward-compat for old reports
+            service_type: f.service_type || "unknown",
+            evidence:     f.evidence,
+            risk_level:   f.risk_level,
+            domain:       report.domain  || null,
+          });
+        }
+      }
+
+      // Sort: high first
+      const riskOrder = { high: 0, medium: 1, low: 2 };
+      assets.sort((a, b) => (riskOrder[a.risk_level] ?? 3) - (riskOrder[b.risk_level] ?? 3));
+
+      if (isSummary) {
+        const by_category = { storage: 0, cdn: 0, serverless: 0, paas: 0, hosting: 0 };
+        const providerCount = {};
+        let high_risk = 0, medium_risk = 0, low_risk = 0;
+
+        for (const a of assets) {
+          const cat = a.category;
+          if (cat in by_category) by_category[cat]++;
+          if (a.risk_level === "high")        high_risk++;
+          else if (a.risk_level === "medium") medium_risk++;
+          else if (a.risk_level === "low")    low_risk++;
+          providerCount[a.provider] = (providerCount[a.provider] || 0) + 1;
+        }
+
+        const providers = Object.entries(providerCount)
+          .map(([name, count]) => ({ name, count }))
+          .sort((a, b) => b.count - a.count);
+
+        return json({
+          workspace_id: wsId,
+          total: assets.length,
+          by_category,
+          high_risk,
+          medium_risk,
+          low_risk,
+          providers,
+        });
+      }
+
+      // Apply optional filters
+      const filterCategory = url.searchParams.get("category");
+      const filterProvider = url.searchParams.get("provider");
+      const filterRisk     = url.searchParams.get("risk_level");
+
+      const filtered = assets.filter((a) => {
+        if (filterCategory && a.category   !== filterCategory) return false;
+        if (filterProvider && a.provider   !== filterProvider) return false;
+        if (filterRisk     && a.risk_level !== filterRisk)     return false;
+        return true;
+      });
+
+      return json({ workspace_id: wsId, total: filtered.length, assets: filtered });
     }
 
     // ── Admin Surfaces route ───────────────────────────────────────────────
