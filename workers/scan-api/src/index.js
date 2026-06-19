@@ -85,6 +85,13 @@ async function generateApiToken() {
   return { raw, hash };
 }
 
+async function generateInviteToken() {
+  const secret = Array.from(crypto.getRandomValues(new Uint8Array(32))).map(b => b.toString(16).padStart(2, "0")).join("");
+  const raw    = `cmi_${secret}`;
+  const hash   = await hashToken(raw);
+  return { raw, hash };
+}
+
 /**
  * Hash a bearer token string for D1 lookup (same as above but for incoming tokens).
  */
@@ -9501,6 +9508,7 @@ const ROLE_RANK = { viewer: 0, analyst: 1, admin: 2, owner: 3 };
 const PERMISSION_MIN_ROLE = {
   // Workspace management
   "workspace:read":            "viewer",
+  "workspace:invite":          "admin",
   "workspace:manage_members":  "owner",
   "workspace:delete":          "owner",
   "workspace:transfer":        "owner",
@@ -10121,6 +10129,78 @@ export default {
       }
     }
 
+// ── Subscription Entitlements ────────────────────────────────────────────────
+
+/**
+ * Hard limits per plan.
+ * domains_per_workspace and scheduled_reports_per_workspace are workspace-scoped.
+ * workspaces and api_tokens are user-scoped.
+ * enterprise values are intentionally high to avoid special-casing.
+ */
+const PLAN_LIMITS = {
+  free:         { workspaces: 1,   domains_per_workspace: 3,    scheduled_reports_per_workspace: 1,   api_tokens: 1   },
+  starter:      { workspaces: 3,   domains_per_workspace: 25,   scheduled_reports_per_workspace: 5,   api_tokens: 5   },
+  professional: { workspaces: 10,  domains_per_workspace: 100,  scheduled_reports_per_workspace: 25,  api_tokens: 25  },
+  enterprise:   { workspaces: 999, domains_per_workspace: 9999, scheduled_reports_per_workspace: 999, api_tokens: 999 },
+};
+
+/**
+ * Return the limit object for a user's plan.
+ * Defaults to 'free' for unknown/null plan values.
+ */
+function getPlanLimits(plan) {
+  return PLAN_LIMITS[plan] ?? PLAN_LIMITS.free;
+}
+
+/**
+ * Return current usage counts for a user, used both for enforcement
+ * and for the /limits display endpoint.
+ *
+ * @param {object} user
+ * @param {string|null} workspaceId  — if provided, also returns workspace-scoped counts
+ * @param {object} env
+ */
+async function getEntitlementUsage(user, env, workspaceId = null) {
+  const queries = [
+    // workspace count: workspaces owned by or member of
+    env.cybermeters_db.prepare(
+      `SELECT COUNT(DISTINCT w.id) AS cnt
+       FROM workspaces w
+       WHERE w.owner_user_id = ?
+          OR EXISTS (SELECT 1 FROM workspace_members wm WHERE wm.workspace_id = w.id AND wm.user_id = ?)`
+    ).bind(user.id, user.id).first(),
+
+    // active api token count
+    env.cybermeters_db.prepare(
+      `SELECT COUNT(*) AS cnt FROM api_tokens WHERE user_id = ? AND status = 'active'`
+    ).bind(user.id).first(),
+  ];
+
+  const [wsRow, tokRow] = await Promise.all(queries);
+
+  const usage = {
+    workspaces: wsRow?.cnt ?? 0,
+    api_tokens: tokRow?.cnt ?? 0,
+    domains_in_workspace:           null,
+    scheduled_reports_in_workspace: null,
+  };
+
+  if (workspaceId) {
+    const [domRow, srRow] = await Promise.all([
+      env.cybermeters_db.prepare(
+        `SELECT COUNT(*) AS cnt FROM workspace_domains WHERE workspace_id = ?`
+      ).bind(workspaceId).first(),
+      env.cybermeters_db.prepare(
+        `SELECT COUNT(*) AS cnt FROM scheduled_reports WHERE workspace_id = ? AND enabled = 1`
+      ).bind(workspaceId).first(),
+    ]);
+    usage.domains_in_workspace           = domRow?.cnt ?? 0;
+    usage.scheduled_reports_in_workspace = srRow?.cnt  ?? 0;
+  }
+
+  return usage;
+}
+
     // ── GET /api/account/subscription ────────────────────────────────────
     if (request.method === "GET" && url.pathname === "/api/account/subscription") {
       const user = await requireAuth(request, env);
@@ -10144,6 +10224,68 @@ export default {
             billing_email:    user.email,
             trial_ends_at:    null,
             current_period_end: null,
+          },
+        });
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
+    // ── GET /api/account/subscription/limits ─────────────────────────────
+    // Returns current plan limits and usage counts for the authenticated user.
+    if (request.method === "GET" && url.pathname === "/api/account/subscription/limits") {
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      try {
+        const plan   = user.plan || "free";
+        const limits = getPlanLimits(plan);
+
+        // Workspace-scoped: return max domain/schedule count across the user's workspaces
+        const wsRows = await env.cybermeters_db.prepare(
+          `SELECT DISTINCT w.id
+           FROM workspaces w
+           WHERE w.owner_user_id = ?
+              OR EXISTS (SELECT 1 FROM workspace_members wm WHERE wm.workspace_id = w.id AND wm.user_id = ?)`
+        ).bind(user.id, user.id).all();
+        const wsIds = (wsRows.results ?? []).map(r => r.id);
+
+        let maxDomains = 0;
+        let maxScheduledReports = 0;
+
+        if (wsIds.length > 0) {
+          const placeholder = wsIds.map(() => '?').join(',');
+          const [domRow, srRow] = await Promise.all([
+            env.cybermeters_db.prepare(
+              `SELECT MAX(cnt) AS mx FROM (
+                 SELECT COUNT(*) AS cnt FROM workspace_domains
+                 WHERE workspace_id IN (${placeholder})
+                 GROUP BY workspace_id
+               )`
+            ).bind(...wsIds).first(),
+            env.cybermeters_db.prepare(
+              `SELECT MAX(cnt) AS mx FROM (
+                 SELECT COUNT(*) AS cnt FROM scheduled_reports
+                 WHERE workspace_id IN (${placeholder}) AND enabled = 1
+                 GROUP BY workspace_id
+               )`
+            ).bind(...wsIds).first(),
+          ]);
+          maxDomains          = domRow?.mx ?? 0;
+          maxScheduledReports = srRow?.mx  ?? 0;
+        }
+
+        const tokRow = await env.cybermeters_db.prepare(
+          `SELECT COUNT(*) AS cnt FROM api_tokens WHERE user_id = ? AND status = 'active'`
+        ).bind(user.id).first();
+
+        return json({
+          plan,
+          limits,
+          usage: {
+            workspaces:                      wsIds.length,
+            api_tokens:                      tokRow?.cnt ?? 0,
+            max_domains_in_workspace:        maxDomains,
+            max_scheduled_reports_in_workspace: maxScheduledReports,
           },
         });
       } catch (e) {
@@ -10184,6 +10326,18 @@ export default {
       if (name.length > 120) return json({ error: "name is too long" }, 400);
 
       try {
+        // Entitlement: API token limit
+        const tokUsage  = await getEntitlementUsage(user, env);
+        const tokLimits = getPlanLimits(user.plan);
+        if (tokUsage.api_tokens >= tokLimits.api_tokens) {
+          return json({
+            error: `API token limit reached. Your ${user.plan || "free"} plan allows ${tokLimits.api_tokens} active API token${tokLimits.api_tokens === 1 ? "" : "s"}. Revoke an existing token or upgrade your plan.`,
+            code:  "LIMIT_API_TOKENS",
+            limit: tokLimits.api_tokens,
+            usage: tokUsage.api_tokens,
+          }, 403);
+        }
+
         const { raw, hash } = await generateApiToken();
         const tokenId = createId("apitok");
         await env.cybermeters_db
@@ -11373,6 +11527,19 @@ export default {
         // Creator must be authenticated — no anonymous workspace creation.
         const creator = await requireAuth(request, env);
         if (!creator) return json({ error: "Unauthorized" }, 401);
+
+        // Entitlement: workspace limit
+        const wsUsage = await getEntitlementUsage(creator, env);
+        const wsLimits = getPlanLimits(creator.plan);
+        if (wsUsage.workspaces >= wsLimits.workspaces) {
+          return json({
+            error: `Workspace limit reached. Your ${creator.plan || "free"} plan allows ${wsLimits.workspaces} workspace${wsLimits.workspaces === 1 ? "" : "s"}. Upgrade your plan to create more.`,
+            code:  "LIMIT_WORKSPACES",
+            limit: wsLimits.workspaces,
+            usage: wsUsage.workspaces,
+          }, 403);
+        }
+
         await env.cybermeters_db
           .prepare(`INSERT INTO workspaces (id, name, owner_user_id, created_at) VALUES (?, ?, ?, ?)`)
           .bind(id, name, creator?.id ?? null, created_at)
@@ -13485,6 +13652,118 @@ export default {
       }
     }
 
+    // ── GET /api/workspaces/:id/invitations ─────────────────────────────────
+    const invitationsMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/invitations$/);
+    if (invitationsMatch && request.method === "GET") {
+      const workspaceId = invitationsMatch[1];
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, workspaceId, "workspace:invite", env);
+      if (!access) return json({ error: "Forbidden — admin role required to manage invitations" }, 403);
+      try {
+        const result = await env.cybermeters_db
+          .prepare(
+            `SELECT wi.id, wi.workspace_id, wi.email, wi.role, wi.invited_by,
+                    wi.status, wi.expires_at, wi.accepted_at, wi.created_at,
+                    u.email AS invited_by_email, u.name AS invited_by_name
+             FROM workspace_invitations wi
+             LEFT JOIN users u ON u.id = wi.invited_by
+             WHERE wi.workspace_id = ?
+             ORDER BY wi.created_at DESC
+             LIMIT 100`
+          )
+          .bind(workspaceId)
+          .all();
+        return json({ invitations: result.results || [] });
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
+    // ── POST /api/workspaces/:id/invitations ────────────────────────────────
+    if (invitationsMatch && request.method === "POST") {
+      const workspaceId = invitationsMatch[1];
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, workspaceId, "workspace:invite", env);
+      if (!access) return json({ error: "Forbidden — admin role required to invite members" }, 403);
+
+      let body;
+      try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+
+      const email = (body.email || "").trim().toLowerCase();
+      const role  = (body.role || "viewer").trim().toLowerCase();
+      const VALID_INVITE_ROLES = new Set(["viewer", "analyst", "admin"]);
+
+      if (!email) return json({ error: "email is required" }, 400);
+      if (!isValidEmail(email)) return json({ error: "email must be valid" }, 400);
+      if (!VALID_INVITE_ROLES.has(role)) return json({ error: "role must be one of: viewer, analyst, admin" }, 400);
+
+      try {
+        const workspace = await env.cybermeters_db
+          .prepare("SELECT id FROM workspaces WHERE id = ?")
+          .bind(workspaceId)
+          .first();
+        if (!workspace) return json({ error: "Workspace not found" }, 404);
+
+        const existingUser = await env.cybermeters_db
+          .prepare("SELECT id FROM users WHERE email = ? LIMIT 1")
+          .bind(email)
+          .first();
+        if (existingUser) {
+          const existingMember = await env.cybermeters_db
+            .prepare("SELECT id FROM workspace_members WHERE workspace_id = ? AND user_id = ? LIMIT 1")
+            .bind(workspaceId, existingUser.id)
+            .first();
+          if (existingMember) return json({ error: "User is already a workspace member" }, 409);
+        }
+
+        const existingInvite = await env.cybermeters_db
+          .prepare(
+            `SELECT id FROM workspace_invitations
+             WHERE workspace_id = ? AND email = ? AND status = 'pending'
+               AND expires_at > datetime('now')
+             LIMIT 1`
+          )
+          .bind(workspaceId, email)
+          .first();
+        if (existingInvite) return json({ error: "A pending invitation already exists for this email" }, 409);
+
+        const { raw: token, hash: tokenHash } = await generateInviteToken();
+        const inviteId  = createId("wsi");
+        const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+        await env.cybermeters_db
+          .prepare(
+            `INSERT INTO workspace_invitations
+               (id, workspace_id, email, role, token_hash, invited_by, status, expires_at, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, datetime('now'))`
+          )
+          .bind(inviteId, workspaceId, email, role, tokenHash, user.id, expiresAt)
+          .run();
+
+        await createAuditEvent(env, {
+          workspace_id: workspaceId,
+          user_id:      user.id,
+          event_type:   "workspace_invitation_created",
+          entity_type:  "workspace_invitation",
+          entity_id:    inviteId,
+          description:  `${user.email} invited ${email} as ${role}`,
+          metadata:     { invitation_id: inviteId, email, role, expires_at: expiresAt },
+        });
+
+        return json({
+          invitation: {
+            id: inviteId, workspace_id: workspaceId, email, role,
+            status: "pending", expires_at: expiresAt,
+          },
+          token,
+        }, 201);
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
     // ── GET /api/workspaces/:id/members ──────────────────────────────────────
     const membersListMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/members$/);
     if (membersListMatch && request.method === "GET") {
@@ -13634,6 +13913,79 @@ export default {
         });
 
         return json({ success: true, removed_id: memberId });
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
+    // ── POST /api/invitations/:token/accept ─────────────────────────────────
+    const invitationAcceptMatch = url.pathname.match(/^\/api\/invitations\/([^/]+)\/accept$/);
+    if (invitationAcceptMatch && request.method === "POST") {
+      const rawToken = invitationAcceptMatch[1];
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+
+      try {
+        const tokenHash = await hashToken(rawToken);
+        const invite = await env.cybermeters_db
+          .prepare(
+            `SELECT id, workspace_id, email, role, invited_by, status, expires_at
+             FROM workspace_invitations
+             WHERE token_hash = ?
+             LIMIT 1`
+          )
+          .bind(tokenHash)
+          .first();
+
+        if (!invite) return json({ error: "Invitation not found" }, 404);
+        if (invite.status !== "pending") return json({ error: `Invitation is ${invite.status}` }, 409);
+
+        const expiresAt = new Date(invite.expires_at);
+        if (!invite.expires_at || Number.isNaN(expiresAt.getTime()) || expiresAt.getTime() <= Date.now()) {
+          await env.cybermeters_db
+            .prepare("UPDATE workspace_invitations SET status = 'expired' WHERE id = ?")
+            .bind(invite.id)
+            .run();
+          return json({ error: "Invitation expired" }, 410);
+        }
+
+        if ((user.email || "").trim().toLowerCase() !== invite.email) {
+          return json({ error: "Invitation email does not match authenticated user" }, 403);
+        }
+
+        await env.cybermeters_db
+          .prepare(
+            `INSERT INTO workspace_members (id, workspace_id, user_id, role, invited_by, created_at)
+             VALUES (?, ?, ?, ?, ?, datetime('now'))
+             ON CONFLICT(workspace_id, user_id) DO UPDATE SET role = excluded.role`
+          )
+          .bind(createId("wm"), invite.workspace_id, user.id, invite.role, invite.invited_by)
+          .run();
+
+        await env.cybermeters_db
+          .prepare(
+            `UPDATE workspace_invitations
+             SET status = 'accepted', accepted_at = datetime('now')
+             WHERE id = ?`
+          )
+          .bind(invite.id)
+          .run();
+
+        await createAuditEvent(env, {
+          workspace_id: invite.workspace_id,
+          user_id:      user.id,
+          event_type:   "workspace_invitation_accepted",
+          entity_type:  "workspace_invitation",
+          entity_id:    invite.id,
+          description:  `${user.email} accepted workspace invitation as ${invite.role}`,
+          metadata:     { invitation_id: invite.id, invited_email: invite.email, role: invite.role },
+        });
+
+        return json({
+          success: true,
+          workspace_id: invite.workspace_id,
+          role: invite.role,
+        });
       } catch (e) {
         return json({ error: e.message }, 500);
       }
@@ -13855,6 +14207,23 @@ export default {
           return json({ imported: 0, skipped: 0, invalid: invalid.length, total: rawList.length });
         }
 
+        // Entitlement: domain-per-workspace limit — check before touching DB
+        const impUsage  = await getEntitlementUsage(importUser, env, workspaceId);
+        const impLimits = getPlanLimits(importUser.plan);
+        const remaining = impLimits.domains_per_workspace - impUsage.domains_in_workspace;
+        if (remaining <= 0) {
+          return json({
+            error: `Domain limit reached. Your ${importUser.plan || "free"} plan allows ${impLimits.domains_per_workspace} domain${impLimits.domains_per_workspace === 1 ? "" : "s"} per workspace. Upgrade your plan to import more.`,
+            code:  "LIMIT_DOMAINS",
+            limit: impLimits.domains_per_workspace,
+            usage: impUsage.domains_in_workspace,
+          }, 403);
+        }
+        // Trim valid list to what fits
+        const validTrimmed = valid.slice(0, remaining);
+        const trimmedCount = valid.length - validTrimmed.length;
+        const validToImport = validTrimmed;
+
         // Find existing domains in this workspace
         const existingRows = await env.cybermeters_db
           .prepare("SELECT d.domain FROM domains d JOIN workspace_domains wd ON wd.domain_id = d.id WHERE wd.workspace_id = ?")
@@ -13865,7 +14234,7 @@ export default {
         let imported = 0;
         let skipped  = 0;
 
-        for (const domain of valid) {
+        for (const domain of validToImport) {
           if (existingSet.has(domain)) { skipped++; continue; }
 
           // Upsert into domains table
@@ -13906,7 +14275,7 @@ export default {
           metadata:     { imported, skipped, invalid: invalid.length, total: rawList.length },
         });
 
-        return json({ imported, skipped, invalid: invalid.length, total: rawList.length }, 200);
+        return json({ imported, skipped, invalid: invalid.length, trimmed: trimmedCount, total: rawList.length }, 200);
       } catch (e) {
         return json({ error: e.message }, 500);
       }
@@ -14354,6 +14723,18 @@ export default {
           );
         }
         try {
+          // Entitlement: domain-per-workspace limit
+          const domUsage  = await getEntitlementUsage(wsUser, env, workspaceId);
+          const domLimits = getPlanLimits(wsUser.plan);
+          if (domUsage.domains_in_workspace >= domLimits.domains_per_workspace) {
+            return json({
+              error: `Domain limit reached. Your ${wsUser.plan || "free"} plan allows ${domLimits.domains_per_workspace} domain${domLimits.domains_per_workspace === 1 ? "" : "s"} per workspace. Upgrade your plan to add more.`,
+              code:  "LIMIT_DOMAINS",
+              limit: domLimits.domains_per_workspace,
+              usage: domUsage.domains_in_workspace,
+            }, 403);
+          }
+
           let domainRow = await env.cybermeters_db
             .prepare(`SELECT id, domain FROM domains WHERE domain = ? LIMIT 1`)
             .bind(raw)
@@ -14562,6 +14943,18 @@ export default {
           .bind(wsId, report_type, frequency)
           .first();
         if (existing) return json({ error: "A schedule for this report type and frequency already exists" }, 409);
+
+        // Entitlement: scheduled report limit per workspace
+        const srUsage  = await getEntitlementUsage(user, env, wsId);
+        const srLimits = getPlanLimits(user.plan);
+        if (srUsage.scheduled_reports_in_workspace >= srLimits.scheduled_reports_per_workspace) {
+          return json({
+            error: `Scheduled report limit reached. Your ${user.plan || "free"} plan allows ${srLimits.scheduled_reports_per_workspace} scheduled report${srLimits.scheduled_reports_per_workspace === 1 ? "" : "s"} per workspace. Upgrade your plan to add more.`,
+            code:  "LIMIT_SCHEDULED_REPORTS",
+            limit: srLimits.scheduled_reports_per_workspace,
+            usage: srUsage.scheduled_reports_in_workspace,
+          }, 403);
+        }
 
         const srId      = createId("sr");
         const nextRunAt = computeScheduledReportNextRunAt(frequency);

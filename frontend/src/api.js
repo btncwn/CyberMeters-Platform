@@ -318,6 +318,12 @@ export const api = {
    */
   getSubscription: () => request('/account/subscription'),
 
+  /**
+   * GET /api/account/subscription/limits
+   * Returns { plan, limits, usage } — current plan limits and usage counts.
+   */
+  getSubscriptionLimits: () => request('/account/subscription/limits'),
+
   /** GET /api/account/api-tokens */
   getApiTokens: () => request('/account/api-tokens'),
 
@@ -396,6 +402,24 @@ export const api = {
    */
   removeWorkspaceMember: (workspaceId, memberId) =>
     request(`/workspaces/${workspaceId}/members/${memberId}`, { method: 'DELETE' }),
+
+  /** GET /api/workspaces/:id/invitations */
+  getWorkspaceInvitations: (workspaceId) =>
+    request(`/workspaces/${workspaceId}/invitations`),
+
+  /**
+   * POST /api/workspaces/:id/invitations
+   * Body: { email, role }   role ∈ 'viewer' | 'analyst' | 'admin'
+   */
+  createWorkspaceInvitation: (workspaceId, email, role) =>
+    request(`/workspaces/${workspaceId}/invitations`, {
+      method: 'POST',
+      body: JSON.stringify({ email, role }),
+    }),
+
+  /** POST /api/invitations/:token/accept */
+  acceptWorkspaceInvitation: (token) =>
+    request(`/invitations/${encodeURIComponent(token)}/accept`, { method: 'POST' }),
 
   // ── Portfolio APIs ────────────────────────────────────────────────────────
 

@@ -14,7 +14,7 @@ import { useState, useEffect } from 'react'
 import {
   User, Building2, CreditCard, Save, AlertTriangle,
   CheckCircle, Globe, Briefcase, ChevronDown, Shield,
-  KeyRound, Trash2, Plus,
+  KeyRound, Trash2, Plus, Gauge,
 } from 'lucide-react'
 import { api } from '../api'
 import { useAuth } from '../context/AuthContext'
@@ -102,12 +102,82 @@ const COMPANY_SIZES = [
   { value: '1000+',    label: '1,000+ employees'   },
 ]
 
+// ── Plan Limits Card ─────────────────────────────────────────────────────────
+
+function UsageBar({ label, used, limit, note }) {
+  const pct   = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0
+  const near  = pct >= 80
+  const full  = pct >= 100
+  const color = full ? 'bg-red-500' : near ? 'bg-amber-400' : 'bg-brand-500'
+  return (
+    <div className="mb-3 last:mb-0">
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-xs text-gray-600">{label}</span>
+        <span className={`text-xs font-semibold ${full ? 'text-red-600' : near ? 'text-amber-600' : 'text-gray-500'}`}>
+          {used} / {limit >= 999 ? '∞' : limit}
+          {note && <span className="ml-1 font-normal text-gray-400">{note}</span>}
+        </span>
+      </div>
+      <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+        <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  )
+}
+
+function PlanLimitsCard({ planLimits }) {
+  if (!planLimits) return null
+  const { plan, limits, usage } = planLimits
+  return (
+    <div className="card mb-6">
+      <div className="flex items-center gap-2.5 mb-5 pb-4 border-b border-gray-100">
+        <div className="w-8 h-8 rounded-lg bg-brand-50 flex items-center justify-center flex-shrink-0">
+          <Gauge className="w-4 h-4 text-brand-600" />
+        </div>
+        <div className="flex items-center gap-2 flex-1">
+          <h2 className="font-semibold text-gray-900">Plan Usage</h2>
+          <PlanBadge plan={plan} />
+        </div>
+      </div>
+      <UsageBar
+        label="Workspaces"
+        used={usage.workspaces}
+        limit={limits.workspaces}
+      />
+      <UsageBar
+        label="Domains"
+        used={usage.max_domains_in_workspace}
+        limit={limits.domains_per_workspace}
+        note="per workspace"
+      />
+      <UsageBar
+        label="Scheduled reports"
+        used={usage.max_scheduled_reports_in_workspace}
+        limit={limits.scheduled_reports_per_workspace}
+        note="per workspace"
+      />
+      <UsageBar
+        label="API tokens"
+        used={usage.api_tokens}
+        limit={limits.api_tokens}
+      />
+      {plan === 'free' || plan === 'starter' ? (
+        <div className="mt-4 pt-4 border-t border-gray-50">
+          <p className="text-xs text-brand-600 font-medium">Upgrade for higher limits →</p>
+          <p className="text-[10px] text-gray-400 mt-0.5">Billing available in an upcoming release.</p>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 export default function AccountPage() {
   const { user: authUser, login } = useAuth()
 
   // Remote state
   const [profile,       setProfile]       = useState(null)
   const [subscriptions, setSubscriptions] = useState([])
+  const [planLimits,    setPlanLimits]    = useState(null)
   const [apiTokens,     setApiTokens]     = useState([])
   const [loading,       setLoading]       = useState(true)
   const [loadError,     setLoadError]     = useState(null)
@@ -135,10 +205,11 @@ export default function AccountPage() {
       setLoading(true)
       setLoadError(null)
       try {
-        const [profileRes, subRes, tokenRes] = await Promise.allSettled([
+        const [profileRes, subRes, tokenRes, limitsRes] = await Promise.allSettled([
           api.getAccountProfile(),
           api.getSubscription(),
           api.getApiTokens(),
+          api.getSubscriptionLimits(),
         ])
 
         if (profileRes.status === 'fulfilled') {
@@ -161,6 +232,9 @@ export default function AccountPage() {
         }
         if (tokenRes.status === 'fulfilled') {
           setApiTokens(tokenRes.value.tokens || [])
+        }
+        if (limitsRes.status === 'fulfilled') {
+          setPlanLimits(limitsRes.value)
         }
       } finally {
         setLoading(false)
@@ -380,8 +454,9 @@ export default function AccountPage() {
               </Section>
             </div>
 
-            {/* Right column — Subscription */}
+            {/* Right column — Plan Usage + Subscription */}
             <div className="lg:col-span-1">
+              <PlanLimitsCard planLimits={planLimits} />
               <Section icon={CreditCard} title="Subscription">
 
                 {subscriptions.length === 0 ? (
