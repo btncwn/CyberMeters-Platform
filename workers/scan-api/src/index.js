@@ -12866,6 +12866,12 @@ export default {
     const importMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/domains\/import$/);
     if (importMatch && request.method === "POST") {
       const workspaceId = importMatch[1];
+      // RBAC: admin or above required to import domains
+      const importUser = await requireAuth(request, env);
+      if (importUser) {
+        const importAccess = await requireWorkspaceRole(importUser, workspaceId, "domain:import", env);
+        if (!importAccess) return json({ error: "Forbidden — admin role required to import domains" }, 403);
+      }
       try {
         const ws = await env.cybermeters_db
           .prepare("SELECT id FROM workspaces WHERE id = ?")
@@ -12957,6 +12963,19 @@ export default {
           .first();
         if (!domRow) return json({ error: "Domain not found" }, 404);
 
+        // RBAC: resolve workspace for this domain, then check domain:verify permission
+        const dviUser = await requireAuth(request, env);
+        if (dviUser) {
+          const dviWsRow = await env.cybermeters_db
+            .prepare("SELECT workspace_id FROM workspace_domains WHERE domain_id = ? LIMIT 1")
+            .bind(domainId)
+            .first();
+          if (dviWsRow) {
+            const dviAccess = await requireWorkspaceRole(dviUser, dviWsRow.workspace_id, "domain:verify", env);
+            if (!dviAccess) return json({ error: "Forbidden — admin role required to initiate domain verification" }, 403);
+          }
+        }
+
         // Already verified — don't reset
         if (domRow.verification_status === "verified") {
           return json({
@@ -13028,6 +13047,19 @@ export default {
           .bind(domainId)
           .first();
         if (!domRow) return json({ error: "Domain not found" }, 404);
+
+        // RBAC: resolve workspace for this domain, then check domain:verify permission
+        const dvcUser = await requireAuth(request, env);
+        if (dvcUser) {
+          const dvcWsRow = await env.cybermeters_db
+            .prepare("SELECT workspace_id FROM workspace_domains WHERE domain_id = ? LIMIT 1")
+            .bind(domainId)
+            .first();
+          if (dvcWsRow) {
+            const dvcAccess = await requireWorkspaceRole(dvcUser, dvcWsRow.workspace_id, "domain:verify", env);
+            if (!dvcAccess) return json({ error: "Forbidden — admin role required to verify domain ownership" }, 403);
+          }
+        }
 
         if (domRow.verification_status === "verified") {
           return json({
@@ -13334,6 +13366,12 @@ export default {
       // Reuse existing domain row if present; create new one otherwise.
       // Idempotent link via INSERT OR IGNORE.
       if (request.method === "POST" && subResource === "/domains") {
+        // RBAC: admin or above required to add domains
+        const addDomUser = await requireAuth(request, env);
+        if (addDomUser) {
+          const addDomAccess = await requireWorkspaceRole(addDomUser, workspaceId, "domain:add", env);
+          if (!addDomAccess) return json({ error: "Forbidden — admin role required to add domains" }, 403);
+        }
         let body;
         try { body = await request.json(); } catch { body = {}; }
         const raw = (body.domain || "").trim().toLowerCase();

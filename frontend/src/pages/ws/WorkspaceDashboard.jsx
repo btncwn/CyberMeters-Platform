@@ -12,8 +12,10 @@ import {
 } from 'recharts'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { api } from '../../api'
+import { useAuth } from '../../context/AuthContext'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
 import StatCard from '../../components/StatCard'
+import WorkspaceMembersPanel from '../../components/WorkspaceMembersPanel'
 
 function fmt(str) {
   if (!str) return '—'
@@ -435,6 +437,7 @@ function OnboardingWidget({ wsId, onDone }) {
 
 export default function WorkspaceDashboard() {
   const { wsId, wsName } = useWorkspace()
+  const { user } = useAuth()
   const [scorecard, setScorecard] = useState(null)
   const [timeline,  setTimeline]  = useState([])
   const [summary,   setSummary]   = useState(null)
@@ -523,6 +526,9 @@ export default function WorkspaceDashboard() {
 
           {/* Domain ownership verification */}
           <DomainVerificationPanel domains={domains} onVerified={load} />
+
+          {/* Team members */}
+          <WorkspaceMembersPanel workspaceId={wsId} currentUser={user} />
 
           {/* Empty state: no scans yet */}
           {noScans ? (

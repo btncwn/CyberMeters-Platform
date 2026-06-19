@@ -266,6 +266,30 @@ export const api = {
       body: JSON.stringify({ domains }),
     }),
 
+  // ── Workspace Members (RBAC) ─────────────────────────────────────────────
+
+  /** GET /api/workspaces/:id/members  → { members: [...] } */
+  getWorkspaceMembers: (workspaceId) =>
+    request(`/workspaces/${workspaceId}/members`),
+
+  /**
+   * POST /api/workspaces/:id/members
+   * Body: { email, role }   role ∈ 'viewer' | 'analyst' | 'admin' | 'owner'
+   * Requires owner role.
+   */
+  addWorkspaceMember: (workspaceId, email, role) =>
+    request(`/workspaces/${workspaceId}/members`, {
+      method: 'POST',
+      body: JSON.stringify({ email, role }),
+    }),
+
+  /**
+   * DELETE /api/workspaces/:id/members/:memberId
+   * Requires owner role.
+   */
+  removeWorkspaceMember: (workspaceId, memberId) =>
+    request(`/workspaces/${workspaceId}/members/${memberId}`, { method: 'DELETE' }),
+
   // ── Portfolio APIs ────────────────────────────────────────────────────────
 
   /** GET /api/portfolio/overview */
