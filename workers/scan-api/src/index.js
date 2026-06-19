@@ -6437,6 +6437,260 @@ export default {
       return json({ error: "Not found" }, 404);
     }
 
+    // ── /api/workspaces/:id/posture[/timeline] ──────────────────────────────
+    // GET /api/workspaces/:id/posture          — current attack surface posture snapshot
+    // GET /api/workspaces/:id/posture/timeline — daily metric series (last 90 days)
+    //
+    // Both routes use existing data only (workspace_assets, asset_events, scans,
+    // findings, workspace_domains).  No new scanning modules, no scoring changes.
+    const postureMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/posture(\/timeline)?$/);
+    if (postureMatch && request.method === "GET") {
+      const wsId    = postureMatch[1];
+      const isTimeline = !!postureMatch[2];   // true → /posture/timeline
+
+      // Tenant isolation — verify workspace exists
+      let wsExists;
+      try {
+        wsExists = await env.cybermeters_db
+          .prepare(`SELECT id FROM workspaces WHERE id = ?`)
+          .bind(wsId)
+          .first();
+      } catch {
+        return json({ error: "Database error" }, 500);
+      }
+      if (!wsExists) return json({ error: "Workspace not found" }, 404);
+
+      // ── Attack Surface Size classification ────────────────────────────────
+      // 0-10 = Small, 11-50 = Medium, 51-200 = Large, 201+ = Very Large
+      function classifyAttackSurface(assetCount) {
+        if (assetCount <= 10)  return "Small";
+        if (assetCount <= 50)  return "Medium";
+        if (assetCount <= 200) return "Large";
+        return "Very Large";
+      }
+
+      // ── Risk trend helper ─────────────────────────────────────────────────
+      // Higher score = safer. Score drop = risk going up.
+      function scoreTrend(avgLast, avgPrev) {
+        if (avgLast === null || avgPrev === null) return "stable";
+        const delta = avgLast - avgPrev;
+        if (delta >= 3)  return "down";   // score improved → risk down
+        if (delta <= -3) return "up";     // score fell → risk up
+        return "stable";
+      }
+
+      // ── GET /api/workspaces/:id/posture ───────────────────────────────────
+      if (!isTimeline) {
+        try {
+          const [
+            totalRow,
+            activeRow,
+            newAssets30dRow,
+            removedAssets30dRow,
+            criticalNow30dRow,
+            criticalPrev30dRow,
+            avgScoreLast30dRow,
+            avgScorePrev30dRow,
+          ] = await env.cybermeters_db.batch([
+
+            // Total assets ever tracked in this workspace
+            env.cybermeters_db
+              .prepare(`SELECT COUNT(*) AS n FROM workspace_assets WHERE workspace_id = ?`)
+              .bind(wsId),
+
+            // Currently active assets
+            env.cybermeters_db
+              .prepare(`SELECT COUNT(*) AS n FROM workspace_assets WHERE workspace_id = ? AND status = 'active'`)
+              .bind(wsId),
+
+            // Assets first discovered in the last 30 days
+            env.cybermeters_db
+              .prepare(`SELECT COUNT(*) AS n FROM workspace_assets WHERE workspace_id = ? AND first_seen >= datetime('now', '-30 days')`)
+              .bind(wsId),
+
+            // Assets removed (no-longer-seen events) in the last 30 days
+            env.cybermeters_db
+              .prepare(`SELECT COUNT(*) AS n FROM asset_events WHERE workspace_id = ? AND event_type = 'asset_no_longer_seen' AND created_at >= datetime('now', '-30 days')`)
+              .bind(wsId),
+
+            // Critical findings from scans in the last 30 days (via workspace_domains join)
+            env.cybermeters_db
+              .prepare(
+                `SELECT COUNT(f.id) AS n
+                 FROM findings f
+                 JOIN scans s ON f.scan_id = s.id
+                 JOIN workspace_domains wd ON s.domain_id = wd.domain_id
+                 WHERE wd.workspace_id = ?
+                   AND f.severity = 'critical'
+                   AND s.created_at >= datetime('now', '-30 days')`
+              )
+              .bind(wsId),
+
+            // Critical findings from scans in the preceding 30 days (days -60 to -30)
+            env.cybermeters_db
+              .prepare(
+                `SELECT COUNT(f.id) AS n
+                 FROM findings f
+                 JOIN scans s ON f.scan_id = s.id
+                 JOIN workspace_domains wd ON s.domain_id = wd.domain_id
+                 WHERE wd.workspace_id = ?
+                   AND f.severity = 'critical'
+                   AND s.created_at >= datetime('now', '-60 days')
+                   AND s.created_at <  datetime('now', '-30 days')`
+              )
+              .bind(wsId),
+
+            // Average scan score over the last 30 days (for risk trend)
+            env.cybermeters_db
+              .prepare(
+                `SELECT AVG(s.score) AS avg_score
+                 FROM scans s
+                 JOIN workspace_domains wd ON s.domain_id = wd.domain_id
+                 WHERE wd.workspace_id = ?
+                   AND s.status = 'completed'
+                   AND s.score IS NOT NULL
+                   AND s.created_at >= datetime('now', '-30 days')`
+              )
+              .bind(wsId),
+
+            // Average scan score over the preceding 30 days (days -60 to -30)
+            env.cybermeters_db
+              .prepare(
+                `SELECT AVG(s.score) AS avg_score
+                 FROM scans s
+                 JOIN workspace_domains wd ON s.domain_id = wd.domain_id
+                 WHERE wd.workspace_id = ?
+                   AND s.status = 'completed'
+                   AND s.score IS NOT NULL
+                   AND s.created_at >= datetime('now', '-60 days')
+                   AND s.created_at <  datetime('now', '-30 days')`
+              )
+              .bind(wsId),
+          ]);
+
+          const totalAssets    = totalRow.results[0]?.n          ?? 0;
+          const activeAssets   = activeRow.results[0]?.n         ?? 0;
+          const newAssets30d   = newAssets30dRow.results[0]?.n   ?? 0;
+          const removedAssets30d = removedAssets30dRow.results[0]?.n ?? 0;
+          const criticalNow    = criticalNow30dRow.results[0]?.n    ?? 0;
+          const criticalPrev   = criticalPrev30dRow.results[0]?.n   ?? 0;
+          const avgScoreLast30d = avgScoreLast30dRow.results[0]?.avg_score ?? null;
+          const avgScorePrev30d = avgScorePrev30dRow.results[0]?.avg_score ?? null;
+
+          const trend = scoreTrend(avgScoreLast30d, avgScorePrev30d);
+
+          return json({
+            workspace_id:                wsId,
+            attack_surface_size:         classifyAttackSurface(totalAssets),
+            total_assets:                totalAssets,
+            active_assets:               activeAssets,
+            new_assets_30d:              newAssets30d,
+            removed_assets_30d:          removedAssets30d,
+            asset_growth_30d:            newAssets30d - removedAssets30d,
+            critical_findings:           criticalNow,
+            critical_findings_change_30d: criticalNow - criticalPrev,
+            risk_trend:                  trend,
+            score_trend:                 trend,   // same signal; both exposed for consumer flexibility
+            avg_score_last_30d:          avgScoreLast30d !== null ? Math.round(avgScoreLast30d) : null,
+            avg_score_prev_30d:          avgScorePrev30d !== null ? Math.round(avgScorePrev30d) : null,
+          });
+        } catch {
+          return json({ error: "Database error" }, 500);
+        }
+      }
+
+      // ── GET /api/workspaces/:id/posture/timeline ──────────────────────────
+      // Returns one entry per day for the last 90 days.
+      // asset_count is derived by applying daily deltas backward from today's total.
+      if (isTimeline) {
+        try {
+          const [totalActiveRow, eventRows, findingRows] = await env.cybermeters_db.batch([
+
+            // Current active asset count — used as the anchor for backward derivation
+            env.cybermeters_db
+              .prepare(`SELECT COUNT(*) AS n FROM workspace_assets WHERE workspace_id = ? AND status = 'active'`)
+              .bind(wsId),
+
+            // Per-day new / removed event counts for the last 90 days
+            env.cybermeters_db
+              .prepare(
+                `SELECT date(created_at) AS day,
+                        SUM(CASE WHEN event_type = 'new_asset_discovered'   THEN 1 ELSE 0 END) AS new_assets,
+                        SUM(CASE WHEN event_type = 'asset_no_longer_seen'   THEN 1 ELSE 0 END) AS removed_assets
+                 FROM asset_events
+                 WHERE workspace_id = ?
+                   AND created_at >= datetime('now', '-90 days')
+                 GROUP BY day
+                 ORDER BY day ASC`
+              )
+              .bind(wsId),
+
+            // Per-day critical findings count (from scans run that day)
+            env.cybermeters_db
+              .prepare(
+                `SELECT date(s.created_at) AS day, COUNT(f.id) AS critical_findings
+                 FROM findings f
+                 JOIN scans s ON f.scan_id = s.id
+                 JOIN workspace_domains wd ON s.domain_id = wd.domain_id
+                 WHERE wd.workspace_id = ?
+                   AND f.severity = 'critical'
+                   AND s.created_at >= datetime('now', '-90 days')
+                 GROUP BY day
+                 ORDER BY day ASC`
+              )
+              .bind(wsId),
+          ]);
+
+          // Build day-keyed maps from query results
+          const eventMap    = new Map();
+          const findingMap  = new Map();
+
+          for (const row of (eventRows.results || [])) {
+            eventMap.set(row.day, { new_assets: row.new_assets ?? 0, removed_assets: row.removed_assets ?? 0 });
+          }
+          for (const row of (findingRows.results || [])) {
+            findingMap.set(row.day, row.critical_findings ?? 0);
+          }
+
+          // Collect every day that appears in either dataset
+          const daySet = new Set([...eventMap.keys(), ...findingMap.keys()]);
+          const days   = [...daySet].sort();
+
+          // Derive asset_count by walking forward from the earliest day.
+          // anchor = total active assets today; walk backward from end → start to seed the
+          // starting count, then walk forward to fill in each day's snapshot.
+          let runningCount = totalActiveRow.results[0]?.n ?? 0;
+
+          // First pass: walk backward from today to compute the count at the start of `days`
+          for (let i = days.length - 1; i >= 0; i--) {
+            const d = days[i];
+            const ev = eventMap.get(d) ?? { new_assets: 0, removed_assets: 0 };
+            runningCount -= ev.new_assets;
+            runningCount += ev.removed_assets;
+          }
+
+          // Second pass: walk forward, incrementally updating the running count per day
+          const timeline = [];
+          for (const day of days) {
+            const ev = eventMap.get(day) ?? { new_assets: 0, removed_assets: 0 };
+            runningCount += ev.new_assets;
+            runningCount -= ev.removed_assets;
+            timeline.push({
+              day,
+              asset_count:       Math.max(0, runningCount),
+              new_assets:        ev.new_assets,
+              removed_assets:    ev.removed_assets,
+              critical_findings: findingMap.get(day) ?? 0,
+            });
+          }
+
+          return json({ workspace_id: wsId, days: timeline.length, timeline });
+        } catch {
+          return json({ error: "Database error" }, 500);
+        }
+      }
+    }
+
     // Routes that carry a workspace ID
     // Matches:  /api/workspaces/:id
     //           /api/workspaces/:id/domains
