@@ -10610,10 +10610,22 @@ export default {
       const id         = `workspace_${crypto.randomUUID()}`;
       const created_at = new Date().toISOString();
       try {
+        // Resolve creator (authenticated or null for backward compat)
+        const creator = await requireAuth(request, env);
         await env.cybermeters_db
-          .prepare(`INSERT INTO workspaces (id, name, created_at) VALUES (?, ?, ?)`)
-          .bind(id, name, created_at)
+          .prepare(`INSERT INTO workspaces (id, name, owner_user_id, created_at) VALUES (?, ?, ?, ?)`)
+          .bind(id, name, creator?.id ?? null, created_at)
           .run();
+        // Seed owner membership row if creator is authenticated
+        if (creator) {
+          await env.cybermeters_db
+            .prepare(
+              `INSERT OR IGNORE INTO workspace_members (id, workspace_id, user_id, role, created_at)
+               VALUES (?, ?, ?, 'owner', datetime('now'))`
+            )
+            .bind(createId("wm"), id, creator.id)
+            .run();
+        }
         return json({ workspace: { id, name, created_at } }, 201);
       } catch {
         return json({ error: "Database error" }, 500);
@@ -12629,6 +12641,138 @@ export default {
       }
     }
 
+    // ── GET /api/workspaces/:id/members ──────────────────────────────────────
+    const membersListMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/members$/);
+    if (membersListMatch && request.method === "GET") {
+      const workspaceId = membersListMatch[1];
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, workspaceId, "member:read", env);
+      if (!access) return json({ error: "Forbidden" }, 403);
+      try {
+        const result = await env.cybermeters_db
+          .prepare(
+            `SELECT wm.id, wm.workspace_id, wm.user_id, wm.role, wm.created_at,
+                    u.email, u.name
+             FROM workspace_members wm
+             JOIN users u ON u.id = wm.user_id
+             WHERE wm.workspace_id = ?
+             ORDER BY
+               CASE wm.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 WHEN 'analyst' THEN 2 ELSE 3 END,
+               wm.created_at ASC`
+          )
+          .bind(workspaceId)
+          .all();
+        return json({
+          workspace_id: workspaceId,
+          caller_role:  access.role,
+          members:      result.results || [],
+        });
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
+    // ── POST /api/workspaces/:id/members — add member ─────────────────────────
+    if (membersListMatch && request.method === "POST") {
+      const workspaceId = membersListMatch[1];
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, workspaceId, "workspace:manage_members", env);
+      if (!access) return json({ error: "Forbidden — owner role required to manage members" }, 403);
+
+      let body;
+      try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+
+      const email   = (body.email || "").trim().toLowerCase();
+      const rawRole = (body.role  || "viewer").trim().toLowerCase();
+
+      if (!email)                          return json({ error: "email is required" }, 400);
+      if (!ROLE_RANK.hasOwnProperty(rawRole)) return json({ error: `role must be one of: ${Object.keys(ROLE_RANK).join(", ")}` }, 400);
+      if (rawRole === "owner")             return json({ error: "Cannot assign owner role via invite. Transfer ownership instead." }, 400);
+
+      try {
+        // Resolve target user by email
+        const target = await env.cybermeters_db
+          .prepare("SELECT id, email, name FROM users WHERE email = ? LIMIT 1")
+          .bind(email)
+          .first();
+        if (!target) return json({ error: `No account found for ${email}. The user must sign up first.` }, 404);
+
+        // Prevent demoting an owner via this route
+        const existing = await env.cybermeters_db
+          .prepare("SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ? LIMIT 1")
+          .bind(workspaceId, target.id)
+          .first();
+        if (existing?.role === "owner") return json({ error: "Cannot change the owner's role via this endpoint." }, 409);
+
+        const memberId = createId("wm");
+        await env.cybermeters_db
+          .prepare(
+            `INSERT INTO workspace_members (id, workspace_id, user_id, role, invited_by, created_at)
+             VALUES (?, ?, ?, ?, ?, datetime('now'))
+             ON CONFLICT(workspace_id, user_id) DO UPDATE SET role = excluded.role`
+          )
+          .bind(memberId, workspaceId, target.id, rawRole, user.id)
+          .run();
+
+        return json({
+          member: {
+            workspace_id: workspaceId,
+            user_id:      target.id,
+            email:        target.email,
+            name:         target.name,
+            role:         rawRole,
+          },
+        }, 201);
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
+    // ── DELETE /api/workspaces/:id/members/:memberId ──────────────────────────
+    const memberDeleteMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/members\/([^/]+)$/);
+    if (memberDeleteMatch && request.method === "DELETE") {
+      const workspaceId = memberDeleteMatch[1];
+      const memberId    = memberDeleteMatch[2];
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, workspaceId, "workspace:manage_members", env);
+      if (!access) return json({ error: "Forbidden — owner role required to manage members" }, 403);
+
+      try {
+        const row = await env.cybermeters_db
+          .prepare("SELECT id, user_id, role FROM workspace_members WHERE id = ? AND workspace_id = ?")
+          .bind(memberId, workspaceId)
+          .first();
+        if (!row) return json({ error: "Member not found" }, 404);
+
+        // Owner cannot remove themselves
+        if (row.role === "owner" && row.user_id === user.id) {
+          return json({ error: "Owner cannot remove themselves. Transfer ownership first." }, 409);
+        }
+        // Cannot remove the last owner
+        if (row.role === "owner") {
+          const ownerCount = await env.cybermeters_db
+            .prepare("SELECT COUNT(*) AS cnt FROM workspace_members WHERE workspace_id = ? AND role = 'owner'")
+            .bind(workspaceId)
+            .first();
+          if ((ownerCount?.cnt ?? 0) <= 1) {
+            return json({ error: "Cannot remove the only owner of a workspace." }, 409);
+          }
+        }
+
+        await env.cybermeters_db
+          .prepare("DELETE FROM workspace_members WHERE id = ?")
+          .bind(memberId)
+          .run();
+
+        return json({ success: true, removed_id: memberId });
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
     // ── GET /api/workspaces/:id/notifications ────────────────────────────────
     const notifListMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/notifications$/);
     if (notifListMatch && request.method === "GET") {
@@ -13238,6 +13382,12 @@ export default {
     const rptGenMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/reports\/generate$/);
     if (rptGenMatch && request.method === 'POST') {
       const wsId = rptGenMatch[1];
+      // RBAC: admin or above required to generate reports
+      const rptUser = await requireAuth(request, env);
+      if (rptUser) {
+        const rptAccess = await requireWorkspaceRole(rptUser, wsId, "report:generate", env);
+        if (!rptAccess) return json({ error: "Forbidden — admin role required to generate reports" }, 403);
+      }
       try {
         let body = {};
         try { body = await request.json(); } catch { /* body is optional */ }
