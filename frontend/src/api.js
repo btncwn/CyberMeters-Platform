@@ -158,6 +158,33 @@ export const api = {
   /** GET /api/workspaces/:id/alerts */
   getWorkspaceAlerts: (id) => request(`/workspaces/${id}/alerts`),
 
+  // ── Workspace Executive Reports ───────────────────────────────────────────
+
+  /** GET /api/workspaces/:id/reports  optional: ?report_type=&status= */
+  getWorkspaceReports: (workspaceId, params = {}) => {
+    const q = new URLSearchParams(params).toString()
+    return request(`/workspaces/${workspaceId}/reports${q ? `?${q}` : ''}`)
+  },
+
+  /** POST /api/workspaces/:id/reports/generate  body: { report_type } */
+  generateWorkspaceReport: (workspaceId, reportType = 'manual') =>
+    request(`/workspaces/${workspaceId}/reports/generate`, {
+      method: 'POST',
+      body: JSON.stringify({ report_type: reportType }),
+    }),
+
+  /** GET /api/workspaces/:id/reports/:reportId */
+  getWorkspaceReportById: (workspaceId, reportId) =>
+    request(`/workspaces/${workspaceId}/reports/${reportId}`),
+
+  /**
+   * Returns the absolute download URL for a report PDF.
+   * Use in window.open() or as an <a href>.
+   * Not a fetch — the browser handles the download directly.
+   */
+  getWorkspaceReportDownloadUrl: (workspaceId, reportId) =>
+    `${BASE}/workspaces/${workspaceId}/reports/${reportId}/download`,
+
   // ── Portfolio APIs ────────────────────────────────────────────────────────
 
   /** GET /api/portfolio/overview */

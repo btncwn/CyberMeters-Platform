@@ -20,8 +20,9 @@ import SaasExposurePage     from './pages/ws/SaasExposurePage'
 import CloudAssetsPage      from './pages/ws/CloudAssetsPage'
 import AdminSurfacesPage    from './pages/ws/AdminSurfacesPage'
 import CertificatesPage     from './pages/ws/CertificatesPage'
-import BrandMonitoringPage  from './pages/ws/BrandMonitoringPage'
-import PortfolioPage        from './pages/PortfolioPage'
+import BrandMonitoringPage    from './pages/ws/BrandMonitoringPage'
+import WorkspaceReportsPage  from './pages/ws/WorkspaceReportsPage'
+import PortfolioPage         from './pages/PortfolioPage'
 
 export default function App() {
   return (
@@ -52,6 +53,7 @@ export default function App() {
           <Route path="ws/admin-surfaces"  element={<AdminSurfacesPage />}   />
           <Route path="ws/certificates"    element={<CertificatesPage />}    />
           <Route path="ws/brand-monitoring" element={<BrandMonitoringPage />} />
+          <Route path="ws/reports"         element={<WorkspaceReportsPage />} />
           <Route path="*"                       element={<Navigate to="/dashboard" replace />} />
         </Route>
       </Routes>
