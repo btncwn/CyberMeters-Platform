@@ -9343,13 +9343,10 @@ const ROLE_RANK = { viewer: 0, analyst: 1, admin: 2, owner: 3 };
 
 /**
  * Permission → minimum role required.
- *
- * READ permissions are intentionally left open (undefined) in v1 to preserve
- * backward compatibility with existing integrations. Only WRITE operations
- * are gated.
  */
 const PERMISSION_MIN_ROLE = {
   // Workspace management
+  "workspace:read":            "viewer",
   "workspace:manage_members":  "owner",
   "workspace:delete":          "owner",
   "workspace:transfer":        "owner",
@@ -9372,10 +9369,10 @@ const PERMISSION_MIN_ROLE = {
  * requireWorkspaceAccess(user, workspaceId, env)
  *
  * Resolves the caller's membership in a workspace.
- * Returns { role } if the user is a member, or null if not.
+ * Returns { role } if the user is a member or is the workspace owner, null otherwise.
  *
- * Workspaces with NO members are accessible to all authenticated users (v1
- * backward-compat: workspaces created before RBAC have no member rows).
+ * Legacy workspaces (created before RBAC, no member rows) are accessible ONLY
+ * to the user whose id matches owner_user_id — never to all authenticated users.
  */
 async function requireWorkspaceAccess(user, workspaceId, env) {
   if (!user || !workspaceId) return null;
@@ -9390,16 +9387,23 @@ async function requireWorkspaceAccess(user, workspaceId, env) {
 
     if (member) return { role: member.role };
 
-    // v1 compat: if workspace has no members at all, grant analyst access
-    // (unowned workspace — created before RBAC enforcement)
-    const count = await env.cybermeters_db
-      .prepare("SELECT COUNT(*) AS cnt FROM workspace_members WHERE workspace_id = ?")
+    // Legacy fallback: if no members exist, allow only the workspace owner.
+    const ws = await env.cybermeters_db
+      .prepare(
+        `SELECT w.owner_user_id, COUNT(wm.id) AS member_count
+         FROM workspaces w
+         LEFT JOIN workspace_members wm ON wm.workspace_id = w.id
+         WHERE w.id = ?
+         GROUP BY w.id, w.owner_user_id`
+      )
       .bind(workspaceId)
       .first();
 
-    if ((count?.cnt ?? 0) === 0) return { role: "analyst" };
+    if ((ws?.member_count ?? 0) === 0 && ws?.owner_user_id && ws.owner_user_id === user.id) {
+      return { role: "owner" };
+    }
 
-    return null; // workspace has members but this user is not one of them
+    return null; // not a member and not the owner
   } catch {
     return null;
   }
@@ -9426,6 +9430,71 @@ async function requireWorkspaceRole(user, workspaceId, permission, env) {
   const minRank  = ROLE_RANK[minRole]         ?? 99;
 
   return userRank >= minRank ? membership : null;
+}
+
+async function getAccessibleWorkspaceIds(user, env) {
+  if (!user) return [];
+  try {
+    const rows = await env.cybermeters_db
+      .prepare(
+        `SELECT DISTINCT w.id
+         FROM workspaces w
+         LEFT JOIN workspace_members wm
+           ON wm.workspace_id = w.id AND wm.user_id = ?
+         WHERE wm.user_id IS NOT NULL
+            OR (
+              w.owner_user_id = ?
+              AND NOT EXISTS (
+                SELECT 1 FROM workspace_members any_wm
+                WHERE any_wm.workspace_id = w.id
+              )
+            )`
+      )
+      .bind(user.id, user.id)
+      .all();
+    return (rows.results || []).map((row) => row.id).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+async function requireDomainRole(user, domainId, permission, env) {
+  if (!user || !domainId) return null;
+  try {
+    const rows = await env.cybermeters_db
+      .prepare("SELECT workspace_id FROM workspace_domains WHERE domain_id = ?")
+      .bind(domainId)
+      .all();
+    for (const row of (rows.results || [])) {
+      const access = await requireWorkspaceRole(user, row.workspace_id, permission, env);
+      if (access) return { ...access, workspace_id: row.workspace_id };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function requireScanReadAccess(user, scanId, env) {
+  if (!user || !scanId) return null;
+  try {
+    const rows = await env.cybermeters_db
+      .prepare(
+        `SELECT DISTINCT wd.workspace_id
+         FROM scans s
+         JOIN workspace_domains wd ON wd.domain_id = s.domain_id
+         WHERE s.id = ?`
+      )
+      .bind(scanId)
+      .all();
+    for (const row of (rows.results || [])) {
+      const access = await requireWorkspaceRole(user, row.workspace_id, "workspace:read", env);
+      if (access) return { ...access, workspace_id: row.workspace_id };
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 // ── Notification Helpers ─────────────────────────────────────────────────────
@@ -9929,6 +9998,9 @@ export default {
 
     // ── POST /api/scan ──────────────────────────────────────────────────
     if (request.method === "POST" && url.pathname === "/api/scan") {
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+
       let body;
       try {
         body = await request.json();
@@ -9936,38 +10008,41 @@ export default {
         return json({ error: "Invalid JSON body" }, 400);
       }
 
-      const domain      = body.domain?.trim().toLowerCase();
-      const workspaceId = body.workspace_id ? String(body.workspace_id).trim() : null;
+      const domain = body.domain?.trim().toLowerCase();
+      let workspaceId = body.workspace_id ? String(body.workspace_id).trim() : null;
 
       if (!isValidDomain(domain)) {
         return json({ error: "Invalid domain" }, 400);
       }
-
-      // Optional workspace validation — 404 early if supplied ID doesn't exist
-      if (workspaceId) {
-        const ws = await env.cybermeters_db
-          .prepare(`SELECT id FROM workspaces WHERE id = ?`)
-          .bind(workspaceId)
-          .first();
-        if (!ws) {
-          return json({ error: "Workspace not found" }, 404);
+      if (!workspaceId) {
+        const workspaceIds = await getAccessibleWorkspaceIds(user, env);
+        for (const id of workspaceIds) {
+          const access = await requireWorkspaceRole(user, id, "scan:create", env);
+          if (access) {
+            workspaceId = id;
+            break;
+          }
+        }
+        if (!workspaceId) {
+          return json({ error: "No workspace available for scan creation" }, 403);
         }
       }
 
-      const userId   = "user_demo";
+      const scanAccess = await requireWorkspaceRole(user, workspaceId, "scan:create", env);
+      if (!scanAccess) return json({ error: "Forbidden — analyst role required to create scans" }, 403);
+
+      const ws = await env.cybermeters_db
+        .prepare(`SELECT id FROM workspaces WHERE id = ?`)
+        .bind(workspaceId)
+        .first();
+      if (!ws) {
+        return json({ error: "Workspace not found" }, 404);
+      }
+
+      const userId   = user.id;
       const domainId = createId("domain");
       const scanId   = createId("scan");
       const reportKey = `reports/${scanId}.json`;
-
-      // Ensure demo user exists
-      await env.cybermeters_db
-        .prepare(
-          `INSERT INTO users (id, email, name, plan)
-           VALUES (?, ?, ?, ?)
-           ON CONFLICT(id) DO NOTHING`
-        )
-        .bind(userId, "demo@cybermeters.com", "Demo User", "free")
-        .run();
 
       // Register domain — reuse existing row for same domain string
       const existingDomain = await env.cybermeters_db
@@ -9984,16 +10059,13 @@ export default {
           .run();
       }
 
-      // Link domain to workspace if workspace_id was provided
-      if (workspaceId) {
-        await env.cybermeters_db
-          .prepare(
-            `INSERT OR IGNORE INTO workspace_domains (workspace_id, domain_id)
-             VALUES (?, ?)`
-          )
-          .bind(workspaceId, resolvedDomainId)
-          .run();
-      }
+      await env.cybermeters_db
+        .prepare(
+          `INSERT OR IGNORE INTO workspace_domains (workspace_id, domain_id)
+           VALUES (?, ?)`
+        )
+        .bind(workspaceId, resolvedDomainId)
+        .run();
 
       // Create scan row — status 'running' (engine starts immediately)
       await env.cybermeters_db
@@ -10053,7 +10125,15 @@ export default {
     // ── GET /api/scans ──────────────────────────────────────────────────
     // Supports optional ?workspace_id= to scope results to a single workspace.
     if (request.method === "GET" && url.pathname === "/api/scans") {
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
       const wsFilter = url.searchParams.get("workspace_id");
+
+      // If caller scoped the request to a workspace, verify membership first.
+      if (wsFilter) {
+        const wsAccess = await requireWorkspaceRole(user, wsFilter, "workspace:read", env);
+        if (!wsAccess) return json({ error: "Forbidden" }, 403);
+      }
 
       let result;
       if (wsFilter) {
@@ -10071,13 +10151,22 @@ export default {
           .bind(wsFilter)
           .all();
       } else {
+        const workspaceIds = await getAccessibleWorkspaceIds(user, env);
+        if (workspaceIds.length === 0) {
+          return json({ scans: [] });
+        }
+        const placeholders = workspaceIds.map(() => "?").join(",");
         result = await env.cybermeters_db
           .prepare(
-            `SELECT id, domain, status, score, rating, created_at
-             FROM scans
-             ORDER BY created_at DESC
+            `SELECT DISTINCT s.id, s.domain, s.status, s.score, s.rating, s.created_at
+             FROM scans s
+             JOIN domains d ON d.id = s.domain_id
+             JOIN workspace_domains wd ON wd.domain_id = d.id
+             WHERE wd.workspace_id IN (${placeholders})
+             ORDER BY s.created_at DESC
              LIMIT 20`
           )
+          .bind(...workspaceIds)
           .all();
       }
 
@@ -10103,6 +10192,11 @@ export default {
       if (!scan) {
         return json({ error: "Scan not found" }, 404);
       }
+
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireScanReadAccess(user, scanId, env);
+      if (!access) return json({ error: "Forbidden" }, 403);
 
       const obj = await env.cybermeters_reports.get(`reports/${scanId}.json`);
       if (!obj) {
@@ -10183,6 +10277,11 @@ export default {
         return json({ error: "Scan not found" }, 404);
       }
 
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireScanReadAccess(user, scanId, env);
+      if (!access) return json({ error: "Forbidden" }, 403);
+
       return json({
         scan,
         report_key: `reports/${scan.id}.json`,
@@ -10202,14 +10301,21 @@ export default {
         return json({ error: "Invalid domain" }, 400);
       }
 
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const workspaceIds = await getAccessibleWorkspaceIds(user, env);
+      if (workspaceIds.length === 0) return json({ error: "Forbidden" }, 403);
+      const placeholders = workspaceIds.map(() => "?").join(",");
+
       const history = await env.cybermeters_db
         .prepare(
-          `SELECT id, domain_id, domain, status, score, rating, created_at
-           FROM scans
-           WHERE domain = ?
-           ORDER BY created_at DESC`
+          `SELECT DISTINCT s.id, s.domain_id, s.domain, s.status, s.score, s.rating, s.created_at
+           FROM scans s
+           JOIN workspace_domains wd ON wd.domain_id = s.domain_id
+           WHERE s.domain = ? AND wd.workspace_id IN (${placeholders})
+           ORDER BY s.created_at DESC`
         )
-        .bind(domain)
+        .bind(domain, ...workspaceIds)
         .all();
 
       return json({ domain, scans: history.results });
@@ -10217,6 +10323,9 @@ export default {
 
     // ── POST /api/schedules ─────────────────────────────────────────────
     if (request.method === "POST" && url.pathname === "/api/schedules") {
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+
       let body;
       try {
         body = await request.json();
@@ -10226,7 +10335,7 @@ export default {
 
       const domain      = (body.domain || "").trim().toLowerCase();
       const frequency   = (body.frequency || "daily").trim().toLowerCase();
-      const workspaceId = (body.workspace_id || "").trim() || null;
+      let workspaceId = (body.workspace_id || "").trim() || null;
 
       if (!isValidDomain(domain)) {
         return json({ error: "Invalid domain" }, 400);
@@ -10234,6 +10343,21 @@ export default {
       if (!["daily", "weekly"].includes(frequency)) {
         return json({ error: "frequency must be 'daily' or 'weekly'" }, 400);
       }
+      if (!workspaceId) {
+        const workspaceIds = await getAccessibleWorkspaceIds(user, env);
+        for (const id of workspaceIds) {
+          const access = await requireWorkspaceRole(user, id, "scan:create", env);
+          if (access) {
+            workspaceId = id;
+            break;
+          }
+        }
+        if (!workspaceId) {
+          return json({ error: "No workspace available for scheduled scans" }, 403);
+        }
+      }
+      const scheduleAccess = await requireWorkspaceRole(user, workspaceId, "scan:create", env);
+      if (!scheduleAccess) return json({ error: "Forbidden — analyst role required to manage scheduled scans" }, 403);
 
       // Create the table if it doesn't exist yet (idempotent — includes new columns)
       await env.cybermeters_db
@@ -10283,6 +10407,12 @@ export default {
 
     // ── GET /api/schedules ──────────────────────────────────────────────
     if (request.method === "GET" && url.pathname === "/api/schedules") {
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const workspaceIds = await getAccessibleWorkspaceIds(user, env);
+      if (workspaceIds.length === 0) return json({ schedules: [] });
+      const placeholders = workspaceIds.map(() => "?").join(",");
+
       // Return empty list if table doesn't exist yet
       try {
         const result = await env.cybermeters_db
@@ -10291,8 +10421,10 @@ export default {
                     last_asset_count, asset_change_count,
                     last_run_at, next_run_at, created_at
              FROM scheduled_scans
+             WHERE workspace_id IN (${placeholders})
              ORDER BY created_at DESC`
           )
+          .bind(...workspaceIds)
           .all();
         return json({ schedules: result.results });
       } catch {
@@ -10311,6 +10443,17 @@ export default {
       }
 
       try {
+        const user = await requireAuth(request, env);
+        if (!user) return json({ error: "Unauthorized" }, 401);
+        const schedule = await env.cybermeters_db
+          .prepare("SELECT id, workspace_id FROM scheduled_scans WHERE id = ?")
+          .bind(schedId)
+          .first();
+        if (!schedule) return json({ error: "Schedule not found" }, 404);
+        if (!schedule.workspace_id) return json({ error: "Forbidden" }, 403);
+        const scheduleAccess = await requireWorkspaceRole(user, schedule.workspace_id, "scan:create", env);
+        if (!scheduleAccess) return json({ error: "Forbidden — analyst role required to manage scheduled scans" }, 403);
+
         const result = await env.cybermeters_db
           .prepare(`DELETE FROM scheduled_scans WHERE id = ?`)
           .bind(schedId)
@@ -10334,6 +10477,10 @@ export default {
     const reportMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/report$/);
     if (reportMatch && request.method === "GET") {
       const wsId = reportMatch[1];
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, wsId, "workspace:read", env);
+      if (!access) return json({ error: "Forbidden" }, 403);
 
       // 1. Workspace row
       let ws;
@@ -10497,18 +10644,31 @@ export default {
     // ─────────────────────────────────────────────────────────────────────────
 
     if (request.method === "GET" && url.pathname === "/api/portfolio/overview") {
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
       try {
         const db = env.cybermeters_db;
+        const workspaceIds = await getAccessibleWorkspaceIds(user, env);
+        if (workspaceIds.length === 0) {
+          return json({
+            total_workspaces: 0, total_domains: 0, total_assets: 0,
+            total_vendors: 0, total_brand_candidates: 0, total_reports: 0,
+            critical_findings: 0, high_findings: 0, new_assets_7d: 0,
+            new_reports_30d: 0, average_score: null,
+            highest_risk_workspace: null, generated_at: new Date().toISOString(),
+          });
+        }
+        const wsIn = workspaceIds.map(() => "?").join(",");
         const [
           wsRes, domRes, assetRes, vendorRes, brandRes, rptRes,
           findingsRes, newAssetsRes, newRptsRes, avgScoreRes, highRiskRes,
         ] = await Promise.allSettled([
-          db.prepare(`SELECT COUNT(*) AS count FROM workspaces`).first(),
-          db.prepare(`SELECT COUNT(*) AS count FROM workspace_domains`).first(),
-          db.prepare(`SELECT COUNT(*) AS count FROM workspace_assets WHERE status='active'`).first(),
-          db.prepare(`SELECT COUNT(*) AS count FROM workspace_vendors WHERE status='active'`).first(),
-          db.prepare(`SELECT COUNT(*) AS count FROM workspace_brand_assets WHERE status='active'`).first(),
-          db.prepare(`SELECT COUNT(*) AS count FROM workspace_reports WHERE status='completed'`).first(),
+          db.prepare(`SELECT COUNT(*) AS count FROM workspaces WHERE id IN (${wsIn})`).bind(...workspaceIds).first(),
+          db.prepare(`SELECT COUNT(*) AS count FROM workspace_domains WHERE workspace_id IN (${wsIn})`).bind(...workspaceIds).first(),
+          db.prepare(`SELECT COUNT(*) AS count FROM workspace_assets WHERE status='active' AND workspace_id IN (${wsIn})`).bind(...workspaceIds).first(),
+          db.prepare(`SELECT COUNT(*) AS count FROM workspace_vendors WHERE status='active' AND workspace_id IN (${wsIn})`).bind(...workspaceIds).first(),
+          db.prepare(`SELECT COUNT(*) AS count FROM workspace_brand_assets WHERE status='active' AND workspace_id IN (${wsIn})`).bind(...workspaceIds).first(),
+          db.prepare(`SELECT COUNT(*) AS count FROM workspace_reports WHERE status='completed' AND workspace_id IN (${wsIn})`).bind(...workspaceIds).first(),
           // Critical + high findings from the latest completed scan per domain
           db.prepare(`
             WITH lpd AS (
@@ -10519,11 +10679,13 @@ export default {
             FROM findings f
             JOIN scans s ON f.scan_id = s.id
             JOIN lpd   ON s.domain_id = lpd.domain_id AND s.created_at = lpd.mx
+            JOIN workspace_domains wd ON wd.domain_id = s.domain_id
             WHERE f.severity IN ('critical','high')
+              AND wd.workspace_id IN (${wsIn})
             GROUP BY f.severity
-          `).all(),
-          db.prepare(`SELECT COUNT(*) AS count FROM workspace_assets WHERE first_seen >= datetime('now','-7 days')`).first(),
-          db.prepare(`SELECT COUNT(*) AS count FROM workspace_reports WHERE status='completed' AND generated_at >= datetime('now','-30 days')`).first(),
+          `).bind(...workspaceIds).all(),
+          db.prepare(`SELECT COUNT(*) AS count FROM workspace_assets WHERE first_seen >= datetime('now','-7 days') AND workspace_id IN (${wsIn})`).bind(...workspaceIds).first(),
+          db.prepare(`SELECT COUNT(*) AS count FROM workspace_reports WHERE status='completed' AND generated_at >= datetime('now','-30 days') AND workspace_id IN (${wsIn})`).bind(...workspaceIds).first(),
           // Average score across latest scan per domain
           db.prepare(`
             WITH lpd AS (
@@ -10533,8 +10695,10 @@ export default {
             SELECT AVG(s.score) AS avg_score
             FROM scans s
             JOIN lpd ON s.domain_id = lpd.domain_id AND s.created_at = lpd.mx
+            JOIN workspace_domains wd ON wd.domain_id = s.domain_id
             WHERE s.score IS NOT NULL
-          `).first(),
+              AND wd.workspace_id IN (${wsIn})
+          `).bind(...workspaceIds).first(),
           // Workspace with most critical findings from latest scans
           db.prepare(`
             WITH lpd AS (
@@ -10553,6 +10717,7 @@ export default {
               SELECT wd.workspace_id, SUM(c.cnt) AS total_crit
               FROM crit c
               JOIN workspace_domains wd ON c.domain_id = wd.domain_id
+              WHERE wd.workspace_id IN (${wsIn})
               GROUP BY wd.workspace_id
             )
             SELECT w.id, w.name, wc.total_crit
@@ -10560,7 +10725,7 @@ export default {
             JOIN workspaces w ON w.id = wc.workspace_id
             ORDER BY wc.total_crit DESC
             LIMIT 1
-          `).first(),
+          `).bind(...workspaceIds).first(),
         ]);
 
         const findingsBySev = {};
@@ -10592,17 +10757,22 @@ export default {
     }
 
     if (request.method === "GET" && url.pathname === "/api/portfolio/workspaces") {
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
       try {
         const db = env.cybermeters_db;
+        const workspaceIds = await getAccessibleWorkspaceIds(user, env);
+        if (workspaceIds.length === 0) return json({ workspaces: [] });
+        const wsIn = workspaceIds.map(() => "?").join(",");
         const [
           wsRes, domCountRes, assetCountRes, vendorCountRes, brandCountRes,
           findingsRes, scanRes, rptRes,
         ] = await Promise.allSettled([
-          db.prepare(`SELECT id, name, created_at FROM workspaces ORDER BY created_at`).all(),
-          db.prepare(`SELECT workspace_id, COUNT(*) AS count FROM workspace_domains GROUP BY workspace_id`).all(),
-          db.prepare(`SELECT workspace_id, COUNT(*) AS count FROM workspace_assets WHERE status='active' GROUP BY workspace_id`).all(),
-          db.prepare(`SELECT workspace_id, COUNT(*) AS count FROM workspace_vendors WHERE status='active' GROUP BY workspace_id`).all(),
-          db.prepare(`SELECT workspace_id, COUNT(*) AS count FROM workspace_brand_assets WHERE status='active' GROUP BY workspace_id`).all(),
+          db.prepare(`SELECT id, name, created_at FROM workspaces WHERE id IN (${wsIn}) ORDER BY created_at`).bind(...workspaceIds).all(),
+          db.prepare(`SELECT workspace_id, COUNT(*) AS count FROM workspace_domains WHERE workspace_id IN (${wsIn}) GROUP BY workspace_id`).bind(...workspaceIds).all(),
+          db.prepare(`SELECT workspace_id, COUNT(*) AS count FROM workspace_assets WHERE status='active' AND workspace_id IN (${wsIn}) GROUP BY workspace_id`).bind(...workspaceIds).all(),
+          db.prepare(`SELECT workspace_id, COUNT(*) AS count FROM workspace_vendors WHERE status='active' AND workspace_id IN (${wsIn}) GROUP BY workspace_id`).bind(...workspaceIds).all(),
+          db.prepare(`SELECT workspace_id, COUNT(*) AS count FROM workspace_brand_assets WHERE status='active' AND workspace_id IN (${wsIn}) GROUP BY workspace_id`).bind(...workspaceIds).all(),
           // Critical + high per workspace from latest scan per domain
           db.prepare(`
             WITH lpd AS (
@@ -10615,8 +10785,9 @@ export default {
             JOIN lpd   ON s.domain_id = lpd.domain_id AND s.created_at = lpd.mx
             JOIN workspace_domains wd ON s.domain_id = wd.domain_id
             WHERE f.severity IN ('critical','high')
+              AND wd.workspace_id IN (${wsIn})
             GROUP BY wd.workspace_id, f.severity
-          `).all(),
+          `).bind(...workspaceIds).all(),
           // Latest scan avg score + last_scan_at per workspace
           db.prepare(`
             WITH lpd AS (
@@ -10630,13 +10801,14 @@ export default {
             JOIN lpd              ON s.domain_id = lpd.domain_id AND s.created_at = lpd.mx
             JOIN workspace_domains wd ON s.domain_id = wd.domain_id
             WHERE s.score IS NOT NULL
+              AND wd.workspace_id IN (${wsIn})
             GROUP BY wd.workspace_id
-          `).all(),
+          `).bind(...workspaceIds).all(),
           db.prepare(`
             SELECT workspace_id, MAX(generated_at) AS last_report_at
-            FROM workspace_reports WHERE status='completed'
+            FROM workspace_reports WHERE status='completed' AND workspace_id IN (${wsIn})
             GROUP BY workspace_id
-          `).all(),
+          `).bind(...workspaceIds).all(),
         ]);
 
         const workspaces = wsRes.status === 'fulfilled' ? (wsRes.value?.results ?? []) : [];
@@ -10715,9 +10887,14 @@ export default {
     }
 
     if (request.method === "GET" && url.pathname === "/api/portfolio/alerts") {
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
       try {
         const db    = env.cybermeters_db;
         const limit = Math.min(parseInt(url.searchParams.get('limit') ?? '50', 10) || 50, 200);
+        const workspaceIds = await getAccessibleWorkspaceIds(user, env);
+        if (workspaceIds.length === 0) return json({ alerts: [] });
+        const wsIn = workspaceIds.map(() => "?").join(",");
 
         const [eventsRes, brandRes, failedRptsRes] = await Promise.allSettled([
           // Asset events — deduplicated to one row per (workspace, event_type, hostname, day)
@@ -10731,10 +10908,11 @@ export default {
                    MAX(ae.created_at) AS created_at
             FROM asset_events ae
             JOIN workspaces w ON w.id = ae.workspace_id
+            WHERE ae.workspace_id IN (${wsIn})
             GROUP BY ae.workspace_id, ae.event_type, ae.hostname, date(ae.created_at)
             ORDER BY MAX(ae.created_at) DESC
             LIMIT ?
-          `).bind(limit).all(),
+          `).bind(...workspaceIds, limit).all(),
           // Active brand risks that resolve via DNS
           db.prepare(`
             SELECT ba.workspace_id, w.name AS workspace_name,
@@ -10742,9 +10920,10 @@ export default {
             FROM workspace_brand_assets ba
             JOIN workspaces w ON w.id = ba.workspace_id
             WHERE ba.status = 'active' AND ba.dns_resolves = 1
+              AND ba.workspace_id IN (${wsIn})
             ORDER BY ba.updated_at DESC
             LIMIT ?
-          `).bind(Math.ceil(limit / 3)).all(),
+          `).bind(...workspaceIds, Math.ceil(limit / 3)).all(),
           // Failed report generations
           db.prepare(`
             SELECT wr.workspace_id, w.name AS workspace_name,
@@ -10752,9 +10931,10 @@ export default {
             FROM workspace_reports wr
             JOIN workspaces w ON w.id = wr.workspace_id
             WHERE wr.status = 'failed'
+              AND wr.workspace_id IN (${wsIn})
             ORDER BY wr.created_at DESC
             LIMIT ?
-          `).bind(Math.ceil(limit / 5)).all(),
+          `).bind(...workspaceIds, Math.ceil(limit / 5)).all(),
         ]);
 
         const alerts = [];
@@ -10816,43 +10996,53 @@ export default {
     }
 
     if (request.method === "GET" && url.pathname === "/api/portfolio/trends") {
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
       try {
         const db = env.cybermeters_db;
+        const workspaceIds = await getAccessibleWorkspaceIds(user, env);
+        if (workspaceIds.length === 0) return json({ trend: [] });
+        const wsIn = workspaceIds.map(() => "?").join(",");
 
         const [scanTrendRes, findingsTrendRes, assetTrendRes] = await Promise.allSettled([
           // Score aggregates per day from all completed scans in last 30 days
           db.prepare(`
-            SELECT date(created_at)       AS day,
-                   COUNT(*)               AS scans,
-                   ROUND(AVG(score), 1)   AS average_score,
-                   MIN(score)             AS lowest_score,
-                   MAX(score)             AS highest_score
-            FROM scans
-            WHERE status = 'completed'
-              AND created_at >= datetime('now', '-30 days')
-              AND score IS NOT NULL
-            GROUP BY date(created_at)
+            SELECT date(s.created_at)     AS day,
+                   COUNT(DISTINCT s.id)   AS scans,
+                   ROUND(AVG(s.score), 1) AS average_score,
+                   MIN(s.score)           AS lowest_score,
+                   MAX(s.score)           AS highest_score
+            FROM scans s
+            JOIN workspace_domains wd ON wd.domain_id = s.domain_id
+            WHERE s.status = 'completed'
+              AND s.created_at >= datetime('now', '-30 days')
+              AND s.score IS NOT NULL
+              AND wd.workspace_id IN (${wsIn})
+            GROUP BY date(s.created_at)
             ORDER BY day
-          `).all(),
+          `).bind(...workspaceIds).all(),
           // Critical + high finding counts per day from scans in last 30 days
           db.prepare(`
             SELECT date(s.created_at) AS day, f.severity, COUNT(*) AS cnt
             FROM findings f
             JOIN scans s ON f.scan_id = s.id
+            JOIN workspace_domains wd ON wd.domain_id = s.domain_id
             WHERE s.status = 'completed'
               AND s.created_at >= datetime('now', '-30 days')
               AND f.severity IN ('critical', 'high')
+              AND wd.workspace_id IN (${wsIn})
             GROUP BY date(s.created_at), f.severity
             ORDER BY day
-          `).all(),
+          `).bind(...workspaceIds).all(),
           // New assets discovered per day in last 30 days
           db.prepare(`
             SELECT date(first_seen) AS day, COUNT(*) AS new_assets
             FROM workspace_assets
             WHERE first_seen >= datetime('now', '-30 days')
+              AND workspace_id IN (${wsIn})
             GROUP BY date(first_seen)
             ORDER BY day
-          `).all(),
+          `).bind(...workspaceIds).all(),
         ]);
 
         // Merge into a single map keyed by day
@@ -10891,9 +11081,28 @@ export default {
 
     // GET /api/workspaces — list all workspaces
     if (request.method === "GET" && url.pathname === "/api/workspaces") {
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
       try {
+        // Return only workspaces the caller owns or is a member of.
         const result = await env.cybermeters_db
-          .prepare(`SELECT id, name, created_at FROM workspaces ORDER BY created_at DESC`)
+          .prepare(
+            `SELECT DISTINCT w.id, w.name, w.created_at
+             FROM workspaces w
+             WHERE (
+                     w.owner_user_id = ?
+                     AND NOT EXISTS (
+                       SELECT 1 FROM workspace_members any_wm
+                       WHERE any_wm.workspace_id = w.id
+                     )
+                   )
+                OR EXISTS (
+                     SELECT 1 FROM workspace_members wm
+                     WHERE wm.workspace_id = w.id AND wm.user_id = ?
+                   )
+             ORDER BY w.created_at DESC`
+          )
+          .bind(user.id, user.id)
           .all();
         return json({ workspaces: result.results });
       } catch {
@@ -10912,8 +11121,9 @@ export default {
       const id         = `workspace_${crypto.randomUUID()}`;
       const created_at = new Date().toISOString();
       try {
-        // Resolve creator (authenticated or null for backward compat)
+        // Creator must be authenticated — no anonymous workspace creation.
         const creator = await requireAuth(request, env);
+        if (!creator) return json({ error: "Unauthorized" }, 401);
         await env.cybermeters_db
           .prepare(`INSERT INTO workspaces (id, name, owner_user_id, created_at) VALUES (?, ?, ?, ?)`)
           .bind(id, name, creator?.id ?? null, created_at)
@@ -10951,7 +11161,12 @@ export default {
       const wsId  = assetsMatch[1];
       const sub   = assetsMatch[2] ?? "";   // "", "/events", "/summary", "/timeline", "/:assetId"
 
-      // Verify workspace exists and enforce tenant isolation
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, wsId, "workspace:read", env);
+      if (!access) return json({ error: "Forbidden" }, 403);
+
+      // Verify workspace exists
       let ws;
       try {
         ws = await env.cybermeters_db
@@ -11118,7 +11333,12 @@ export default {
       const wsId = alertsMatch[1];
       const sub  = alertsMatch[2] ?? "";   // "" or "/summary"
 
-      // Tenant isolation — verify workspace exists
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, wsId, "workspace:read", env);
+      if (!access) return json({ error: "Forbidden" }, 403);
+
+      // Verify workspace exists
       let wsExists;
       try {
         wsExists = await env.cybermeters_db
@@ -11221,7 +11441,12 @@ export default {
       const wsId    = postureMatch[1];
       const isTimeline = !!postureMatch[2];   // true → /posture/timeline
 
-      // Tenant isolation — verify workspace exists
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, wsId, "workspace:read", env);
+      if (!access) return json({ error: "Forbidden" }, 403);
+
+      // Verify workspace exists
       let wsExists;
       try {
         wsExists = await env.cybermeters_db
@@ -11481,6 +11706,11 @@ export default {
       const wsId        = certMatch[1];
       const isTimeline  = !!certMatch[2];
 
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, wsId, "workspace:read", env);
+      if (!access) return json({ error: "Forbidden" }, 403);
+
       // 1. Get domain IDs for workspace
       let domainIds;
       try {
@@ -11620,6 +11850,11 @@ export default {
     if (saasExpMatch && request.method === "GET") {
       const wsId = saasExpMatch[1];
 
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, wsId, "workspace:read", env);
+      if (!access) return json({ error: "Forbidden" }, 403);
+
       // 1. Get domain IDs for workspace
       let domainIds;
       try {
@@ -11727,6 +11962,11 @@ export default {
     if (cloudAssetsMatch && request.method === "GET") {
       const wsId      = cloudAssetsMatch[1];
       const isSummary = !!cloudAssetsMatch[2];
+
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, wsId, "workspace:read", env);
+      if (!access) return json({ error: "Forbidden" }, 403);
 
       // 1. Get domain IDs for workspace
       let domainIds;
@@ -11861,6 +12101,11 @@ export default {
     if (adminSurfacesMatch && request.method === "GET") {
       const wsId = adminSurfacesMatch[1];
 
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, wsId, "workspace:read", env);
+      if (!access) return json({ error: "Forbidden" }, 403);
+
       // 1. Get all domain IDs for this workspace
       let domainIds;
       try {
@@ -11980,6 +12225,11 @@ export default {
       const wsId      = tpaMatch[1];
       const isSummary = !!tpaMatch[2];
 
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, wsId, "workspace:read", env);
+      if (!access) return json({ error: "Forbidden" }, 403);
+
       // Read all workspace_vendors for this workspace; remap + filter in JS.
       // workspace_vendors uses the vendor-risk category taxonomy; we remap here.
       let rows;
@@ -12075,6 +12325,11 @@ export default {
     if (vendorsMatch && request.method === "GET") {
       const wsId      = vendorsMatch[1];
       const isSummary = !!vendorsMatch[2];
+
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, wsId, "workspace:read", env);
+      if (!access) return json({ error: "Forbidden" }, 403);
 
       if (isSummary) {
         // Aggregate counts directly from D1 — one query
@@ -12191,6 +12446,10 @@ export default {
     const pdfMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/scorecard\/pdf$/);
     if (pdfMatch && request.method === 'GET') {
       const wsId = pdfMatch[1];
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, wsId, "workspace:read", env);
+      if (!access) return json({ error: "Forbidden" }, 403);
       try {
         const pdfData = await collectPdfData(wsId, env);
         if (!pdfData) return json({ error: 'Workspace not found' }, 404);
@@ -12223,6 +12482,10 @@ export default {
     const pdfDataMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/scorecard\/pdf-data$/);
     if (pdfDataMatch && request.method === 'GET') {
       const wsId = pdfDataMatch[1];
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, wsId, "workspace:read", env);
+      if (!access) return json({ error: "Forbidden" }, 403);
       try {
         const pdfData = await collectPdfData(wsId, env);
         if (!pdfData) return json({ error: 'Workspace not found' }, 404);
@@ -12245,6 +12508,11 @@ export default {
     if (scorecardMatch && request.method === 'GET') {
       const wsId     = scorecardMatch[1];
       const isReport = !!scorecardMatch[2];
+
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, wsId, "workspace:read", env);
+      if (!access) return json({ error: "Forbidden" }, 403);
 
       let ws;
       try {
@@ -12405,6 +12673,13 @@ export default {
       const subPath   = brandMatch[2];       // undefined | '/summary' | '/refresh'
       const isSummary = subPath === '/summary';
       const isRefresh = subPath === '/refresh';
+
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      // refresh requires analyst+; plain read requires viewer
+      const minPerm = isRefresh ? "domain:add" : "workspace:read";
+      const access = await requireWorkspaceRole(user, wsId, minPerm, env);
+      if (!access) return json({ error: "Forbidden" }, 403);
 
       // Verify workspace exists
       let ws;
@@ -12781,6 +13056,10 @@ export default {
     const summaryMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/summary$/);
     if (summaryMatch && request.method === "GET") {
       const workspaceId = summaryMatch[1];
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, workspaceId, "workspace:read", env);
+      if (!access) return json({ error: "Forbidden" }, 403);
       try {
         const ws = await env.cybermeters_db
           .prepare("SELECT id, name FROM workspaces WHERE id = ?")
@@ -12878,6 +13157,10 @@ export default {
     const healthMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/health$/);
     if (healthMatch && request.method === "GET") {
       const workspaceId = healthMatch[1];
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, workspaceId, "workspace:read", env);
+      if (!access) return json({ error: "Forbidden" }, 403);
       try {
         const ws = await env.cybermeters_db
           .prepare("SELECT id FROM workspaces WHERE id = ?")
@@ -13172,6 +13455,10 @@ export default {
     const notifListMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/notifications$/);
     if (notifListMatch && request.method === "GET") {
       const workspaceId = notifListMatch[1];
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, workspaceId, "workspace:read", env);
+      if (!access) return json({ error: "Forbidden" }, 403);
       try {
         const limit  = Math.min(parseInt(url.searchParams.get("limit")  || "50",  10), 200);
         const status = url.searchParams.get("status") || null; // 'unread' | 'read' | null (all)
@@ -13225,6 +13512,10 @@ export default {
     if (notifReadMatch && request.method === "POST") {
       const workspaceId  = notifReadMatch[1];
       const notifId      = notifReadMatch[2];
+      const notifUser = await requireAuth(request, env);
+      if (!notifUser) return json({ error: "Unauthorized" }, 401);
+      const notifAccess = await requireWorkspaceRole(notifUser, workspaceId, "notification:mark_read", env);
+      if (!notifAccess) return json({ error: "Forbidden" }, 403);
       try {
         const ws = await env.cybermeters_db
           .prepare("SELECT id FROM workspaces WHERE id = ?")
@@ -13232,7 +13523,6 @@ export default {
           .first();
         if (!ws) return json({ error: "Workspace not found" }, 404);
 
-        const notifUser = await requireAuth(request, env);
         if (notifId === "all") {
           // Mark all unread notifications for this workspace as read
           await env.cybermeters_db
@@ -13282,10 +13572,9 @@ export default {
       const workspaceId = importMatch[1];
       // RBAC: admin or above required to import domains
       const importUser = await requireAuth(request, env);
-      if (importUser) {
-        const importAccess = await requireWorkspaceRole(importUser, workspaceId, "domain:import", env);
-        if (!importAccess) return json({ error: "Forbidden — admin role required to import domains" }, 403);
-      }
+      if (!importUser) return json({ error: "Unauthorized" }, 401);
+      const importAccess = await requireWorkspaceRole(importUser, workspaceId, "domain:import", env);
+      if (!importAccess) return json({ error: "Forbidden — admin role required to import domains" }, 403);
       try {
         const ws = await env.cybermeters_db
           .prepare("SELECT id FROM workspaces WHERE id = ?")
@@ -13387,18 +13676,11 @@ export default {
           .first();
         if (!domRow) return json({ error: "Domain not found" }, 404);
 
-        // RBAC: resolve workspace for this domain, then check domain:verify permission
+        // RBAC: resolve all linked workspaces for this domain, then check domain:verify permission
         const dviUser = await requireAuth(request, env);
-        if (dviUser) {
-          const dviWsRow = await env.cybermeters_db
-            .prepare("SELECT workspace_id FROM workspace_domains WHERE domain_id = ? LIMIT 1")
-            .bind(domainId)
-            .first();
-          if (dviWsRow) {
-            const dviAccess = await requireWorkspaceRole(dviUser, dviWsRow.workspace_id, "domain:verify", env);
-            if (!dviAccess) return json({ error: "Forbidden — admin role required to initiate domain verification" }, 403);
-          }
-        }
+        if (!dviUser) return json({ error: "Unauthorized" }, 401);
+        const dviAccess = await requireDomainRole(dviUser, domainId, "domain:verify", env);
+        if (!dviAccess) return json({ error: "Forbidden — admin role required to initiate domain verification" }, 403);
 
         // Already verified — don't reset
         if (domRow.verification_status === "verified") {
@@ -13472,18 +13754,11 @@ export default {
           .first();
         if (!domRow) return json({ error: "Domain not found" }, 404);
 
-        // RBAC: resolve workspace for this domain, then check domain:verify permission
+        // RBAC: resolve all linked workspaces for this domain, then check domain:verify permission
         const dvcUser = await requireAuth(request, env);
-        if (dvcUser) {
-          const dvcWsRow = await env.cybermeters_db
-            .prepare("SELECT workspace_id FROM workspace_domains WHERE domain_id = ? LIMIT 1")
-            .bind(domainId)
-            .first();
-          if (dvcWsRow) {
-            const dvcAccess = await requireWorkspaceRole(dvcUser, dvcWsRow.workspace_id, "domain:verify", env);
-            if (!dvcAccess) return json({ error: "Forbidden — admin role required to verify domain ownership" }, 403);
-          }
-        }
+        if (!dvcUser) return json({ error: "Unauthorized" }, 401);
+        const dvcAccess = await requireDomainRole(dvcUser, domainId, "domain:verify", env);
+        if (!dvcAccess) return json({ error: "Forbidden — admin role required to verify domain ownership" }, 403);
 
         if (domRow.verification_status === "verified") {
           return json({
@@ -13684,6 +13959,12 @@ export default {
         return json({ error: "Workspace not found" }, 404);
       }
 
+      // RBAC: all workspace sub-routes require membership or owner
+      const wsUser = await requireAuth(request, env);
+      if (!wsUser) return json({ error: "Unauthorized" }, 401);
+      const wsAccess = await requireWorkspaceRole(wsUser, workspaceId, "workspace:read", env);
+      if (!wsAccess) return json({ error: "Forbidden" }, 403);
+
       // ── GET /api/workspaces/:id ── (with inline statistics) ──────────
       if (request.method === "GET" && !subResource) {
         try {
@@ -13752,6 +14033,8 @@ export default {
       // ── DELETE /api/workspaces/:id/domains/:domainId ──────────────────
       // Removes the workspace↔domain link only. Domain row is untouched.
       if (request.method === "DELETE" && subResource && linkedDomainId) {
+        const delAccess = await requireWorkspaceRole(wsUser, workspaceId, "domain:remove", env);
+        if (!delAccess) return json({ error: "Forbidden — admin role required to remove domains" }, 403);
         try {
           const del = await env.cybermeters_db
             .prepare(
@@ -13809,11 +14092,9 @@ export default {
       // Idempotent link via INSERT OR IGNORE.
       if (request.method === "POST" && subResource === "/domains") {
         // RBAC: admin or above required to add domains
-        const addDomUser = await requireAuth(request, env);
-        if (addDomUser) {
-          const addDomAccess = await requireWorkspaceRole(addDomUser, workspaceId, "domain:add", env);
-          if (!addDomAccess) return json({ error: "Forbidden — admin role required to add domains" }, 403);
-        }
+        // wsUser is already authenticated by the wsMatch guard above
+        const addDomAccess = await requireWorkspaceRole(wsUser, workspaceId, "domain:add", env);
+        if (!addDomAccess) return json({ error: "Forbidden — admin role required to add domains" }, 403);
         let body;
         try { body = await request.json(); } catch { body = {}; }
         const raw = (body.domain || "").trim().toLowerCase();
@@ -13833,7 +14114,7 @@ export default {
             const newId = createId("domain");
             await env.cybermeters_db
               .prepare(`INSERT INTO domains (id, user_id, domain) VALUES (?, ?, ?)`)
-              .bind(newId, "user_demo", raw)
+              .bind(newId, wsUser.id, raw)
               .run();
             domainRow = { id: newId, domain: raw };
           }
@@ -13848,7 +14129,7 @@ export default {
           // Audit: domain added
           await createAuditEvent(env, {
             workspace_id: workspaceId,
-            user_id:      addDomUser?.id ?? null,
+            user_id:      wsUser?.id ?? null,
             event_type:   "domain_added",
             entity_type:  "domain",
             entity_id:    domainRow.id,
@@ -13873,12 +14154,11 @@ export default {
     const rptGenMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/reports\/generate$/);
     if (rptGenMatch && request.method === 'POST') {
       const wsId = rptGenMatch[1];
-      // RBAC: admin or above required to generate reports
+      // RBAC: admin or above required to generate reports — auth is mandatory
       const rptUser = await requireAuth(request, env);
-      if (rptUser) {
-        const rptAccess = await requireWorkspaceRole(rptUser, wsId, "report:generate", env);
-        if (!rptAccess) return json({ error: "Forbidden — admin role required to generate reports" }, 403);
-      }
+      if (!rptUser) return json({ error: "Unauthorized" }, 401);
+      const rptAccess = await requireWorkspaceRole(rptUser, wsId, "report:generate", env);
+      if (!rptAccess) return json({ error: "Forbidden — admin role required to generate reports" }, 403);
       try {
         let body = {};
         try { body = await request.json(); } catch { /* body is optional */ }
@@ -13901,6 +14181,10 @@ export default {
     const rptListMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/reports$/);
     if (rptListMatch && request.method === 'GET') {
       const wsId         = rptListMatch[1];
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, wsId, "workspace:read", env);
+      if (!access) return json({ error: "Forbidden" }, 403);
       const typeFilter   = url.searchParams.get('report_type');
       const statusFilter = url.searchParams.get('status');
       try {
@@ -13924,6 +14208,10 @@ export default {
     if (rptDownloadMatch && request.method === 'GET') {
       const wsId     = rptDownloadMatch[1];
       const reportId = rptDownloadMatch[2];
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, wsId, "workspace:read", env);
+      if (!access) return json({ error: "Forbidden" }, 403);
       try {
         const row = await env.cybermeters_db.prepare(
           `SELECT report_key, report_type, report_period, status
@@ -13956,6 +14244,10 @@ export default {
     if (rptGetMatch && request.method === 'GET') {
       const wsId     = rptGetMatch[1];
       const reportId = rptGetMatch[2];
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, wsId, "workspace:read", env);
+      if (!access) return json({ error: "Forbidden" }, 403);
       try {
         const row = await env.cybermeters_db.prepare(
           `SELECT id, workspace_id, report_type, report_period, report_key,

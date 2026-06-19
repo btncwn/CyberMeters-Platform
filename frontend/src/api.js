@@ -24,6 +24,20 @@ async function request(path, options = {}) {
   return res.json()
 }
 
+async function requestBlob(path, options = {}) {
+  const res = await fetch(`${BASE}${path}`, {
+    headers: {
+      ...getAuthHeaders(),
+    },
+    ...options,
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }))
+    throw new Error(err.error || `HTTP ${res.status}`)
+  }
+  return res.blob()
+}
+
 export const api = {
   // ── Authentication ────────────────────────────────────────────────────────
 
@@ -216,6 +230,10 @@ export const api = {
    */
   getWorkspaceReportDownloadUrl: (workspaceId, reportId) =>
     `${BASE}/workspaces/${workspaceId}/reports/${reportId}/download`,
+
+  /** GET /api/workspaces/:id/reports/:reportId/download */
+  downloadWorkspaceReport: (workspaceId, reportId) =>
+    requestBlob(`/workspaces/${workspaceId}/reports/${reportId}/download`),
 
   // ── Notifications ─────────────────────────────────────────────────────────
 
