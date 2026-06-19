@@ -266,6 +266,40 @@ export const api = {
       body: JSON.stringify({ domains }),
     }),
 
+  // ── Account / Customer Portal ────────────────────────────────────────────
+
+  /**
+   * GET /api/account/profile
+   * Returns { user, company, subscription }
+   */
+  getAccountProfile: () => request('/account/profile'),
+
+  /**
+   * PATCH /api/account/profile
+   * Body: { name }
+   */
+  updateAccountProfile: (data) =>
+    request('/account/profile', {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+
+  /** GET /api/account/company */
+  getCompanyProfile: () => request('/account/company'),
+
+  /** PUT /api/account/company */
+  updateCompanyProfile: (data) =>
+    request('/account/company', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  /**
+   * GET /api/account/subscription
+   * Returns manual subscription foundation for the authenticated account.
+   */
+  getSubscription: () => request('/account/subscription'),
+
   // ── Workspace Members (RBAC) ─────────────────────────────────────────────
 
   /** GET /api/workspaces/:id/members  → { members: [...] } */

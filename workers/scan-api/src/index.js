@@ -9638,6 +9638,195 @@ export default {
       return json({ success: true });
     }
 
+    // ── GET /api/account/profile ─────────────────────────────────────────
+    // Returns the authenticated account, company profile, and subscription foundation.
+    if (request.method === "GET" && url.pathname === "/api/account/profile") {
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      try {
+        const [profile, subscription] = await Promise.all([
+          env.cybermeters_db
+            .prepare(
+              `SELECT id, company_name, website, industry, company_size,
+                      contact_email, contact_name, created_at, updated_at
+               FROM customer_profiles
+               WHERE owner_user_id = ?`
+            )
+            .bind(user.id)
+            .first(),
+          env.cybermeters_db
+            .prepare(
+              `SELECT id, plan, status, billing_provider, billing_email,
+                      trial_ends_at, current_period_end, created_at, updated_at
+               FROM subscription_accounts
+               WHERE owner_user_id = ?`
+            )
+            .bind(user.id)
+            .first(),
+        ]);
+        return json({
+          user: {
+            id:    user.id,
+            email: user.email,
+            name:  user.name,
+            plan:  user.plan,
+          },
+          company: profile ?? null,
+          subscription: subscription ?? {
+            plan:             user.plan || "free",
+            status:           "active",
+            billing_provider: "manual",
+            billing_email:    user.email,
+          },
+        });
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
+    // ── PATCH /api/account/profile ───────────────────────────────────────
+    // Updates account profile fields only. Email remains read-only in v1.
+    if (request.method === "PATCH" && url.pathname === "/api/account/profile") {
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      let body;
+      try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+
+      const name = typeof body.name === "string" ? body.name.trim() : "";
+      if (!name) return json({ error: "name is required" }, 400);
+      if (name.length > 120) return json({ error: "name is too long" }, 400);
+
+      try {
+        await env.cybermeters_db
+          .prepare("UPDATE users SET name = ? WHERE id = ?")
+          .bind(name, user.id)
+          .run();
+
+        return json({
+          user: {
+            id:    user.id,
+            email: user.email,
+            name,
+            plan:  user.plan,
+          },
+        });
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
+    // ── GET /api/account/company ─────────────────────────────────────────
+    if (request.method === "GET" && url.pathname === "/api/account/company") {
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      try {
+        const company = await env.cybermeters_db
+          .prepare(
+            `SELECT id, company_name, website, industry, company_size,
+                    contact_email, contact_name, created_at, updated_at
+             FROM customer_profiles
+             WHERE owner_user_id = ?`
+          )
+          .bind(user.id)
+          .first();
+        return json({ company: company ?? null });
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
+    // ── PUT /api/account/company ─────────────────────────────────────────
+    if (request.method === "PUT" && url.pathname === "/api/account/company") {
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      let body;
+      try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+
+      const company_name  = (body.company_name  || "").trim();
+      const website       = (body.website       || "").trim() || null;
+      const industry      = (body.industry      || "").trim() || null;
+      const company_size  = (body.company_size  || "").trim() || null;
+      const contact_name  = (body.contact_name  || "").trim() || null;
+      const contact_email = (body.contact_email || "").trim().toLowerCase() || null;
+
+      if (!company_name) return json({ error: "company_name is required" }, 400);
+      if (company_name.length > 200) return json({ error: "company_name is too long" }, 400);
+      if (website && website.length > 300) return json({ error: "website is too long" }, 400);
+      if (contact_email && !isValidEmail(contact_email)) {
+        return json({ error: "contact_email must be a valid email address" }, 400);
+      }
+
+      const VALID_SIZES = ["1-10", "11-50", "51-200", "201-1000", "1000+"];
+      if (company_size && !VALID_SIZES.includes(company_size)) {
+        return json({ error: `company_size must be one of: ${VALID_SIZES.join(", ")}` }, 400);
+      }
+
+      try {
+        const companyId = createId("cust");
+        await env.cybermeters_db
+          .prepare(
+            `INSERT INTO customer_profiles
+               (id, owner_user_id, company_name, website, industry, company_size,
+                contact_email, contact_name, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+             ON CONFLICT(owner_user_id) DO UPDATE SET
+               company_name  = excluded.company_name,
+               website       = excluded.website,
+               industry      = excluded.industry,
+               company_size  = excluded.company_size,
+               contact_email = excluded.contact_email,
+               contact_name  = excluded.contact_name,
+               updated_at    = datetime('now')`
+          )
+          .bind(companyId, user.id, company_name, website, industry, company_size, contact_email, contact_name)
+          .run();
+
+        const company = await env.cybermeters_db
+          .prepare(
+            `SELECT id, company_name, website, industry, company_size,
+                    contact_email, contact_name, created_at, updated_at
+             FROM customer_profiles
+             WHERE owner_user_id = ?`
+          )
+          .bind(user.id)
+          .first();
+
+        return json({ company });
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
+    // ── GET /api/account/subscription ────────────────────────────────────
+    if (request.method === "GET" && url.pathname === "/api/account/subscription") {
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      try {
+        const subscription = await env.cybermeters_db
+          .prepare(
+            `SELECT id, plan, status, billing_provider, billing_email,
+                    trial_ends_at, current_period_end, created_at, updated_at
+             FROM subscription_accounts
+             WHERE owner_user_id = ?`
+          )
+          .bind(user.id)
+          .first();
+
+        return json({
+          subscription: subscription ?? {
+            plan:             user.plan || "free",
+            status:           "active",
+            billing_provider: "manual",
+            billing_email:    user.email,
+            trial_ends_at:    null,
+            current_period_end: null,
+          },
+        });
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
     // ── POST /api/scan ──────────────────────────────────────────────────
     if (request.method === "POST" && url.pathname === "/api/scan") {
       let body;
