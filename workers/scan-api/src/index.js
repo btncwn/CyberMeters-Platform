@@ -5334,6 +5334,14 @@ async function runScanEngine(scanId, domainId, domain, env) {
     // expiry status, sensitive-host inventory, and suspicious signal list.
     modules.certificate_intelligence = runCertificateIntelligenceModule(modules, domain);
 
+    // Phase 7i: Typosquat & Brand Monitoring — pure computation, zero network I/O.
+    // Generates lookalike candidate domains for the brand name extracted from
+    // `domain` (character substitution, omission, duplication, transposition,
+    // keyword hyphenation).  DNS/HTTPS validation is deferred to the dedicated
+    // POST /api/workspaces/:id/brand-monitoring/refresh endpoint so this module
+    // does not consume any of the already-tight subrequest budget (~47/50 by here).
+    modules.brand_monitoring = runTyposquatModule(domain);
+
     const completedAt = new Date().toISOString();
 
     // Build full structured report
@@ -5417,6 +5425,13 @@ async function runScanEngine(scanId, domainId, domain, env) {
     // expiry warnings, and growth signals.
     try {
       await insertCertificateEvents(scanId, domainId, modules.certificate_intelligence, env);
+    } catch { /* non-fatal */ }
+
+    // Phase 8e: Brand Asset Upsert — persists generated typosquat candidates to
+    // workspace_brand_assets as 'unverified'.  DNS validation happens separately
+    // via POST /brand-monitoring/refresh to stay within subrequest budget.
+    try {
+      await upsertBrandAssets(domainId, modules.brand_monitoring, env);
     } catch { /* non-fatal */ }
 
     // Phase 9: Asset Change Alert — one grouped email per workspace per scan.
@@ -5769,6 +5784,562 @@ async function insertCertificateEvents(scanId, domainId, certMod, env) {
       } catch { /* non-fatal */ }
     }
   }
+}
+
+// ── Brand Monitoring — Typosquat & Brand Asset Tracking ──────────────────────
+//
+// Pure candidate generation (Phase 7i, zero network I/O) + deferred DNS
+// validation via POST /brand-monitoring/refresh (separate request with its own
+// 50-subrequest budget — scan already uses ~47 by the time Phase 7 runs).
+
+/**
+ * extractBrandParts(domain)
+ * Returns { brand, tld } for a registered domain.
+ * Strips www., takes the first label as brand, the rest as TLD.
+ *   "tesla.com"              → { brand:"tesla",             tld:"com" }
+ *   "blackbullbarbers.co.uk" → { brand:"blackbullbarbers",  tld:"co.uk" }
+ */
+function extractBrandParts(domain) {
+  const clean  = domain.replace(/^www\./i, '').toLowerCase();
+  const labels = clean.split('.');
+  return { brand: labels[0], tld: labels.slice(1).join('.') };
+}
+
+// Keywords that lift candidate risk to 'high' (impersonation-focused)
+const HIGH_RISK_BRAND_KEYWORDS = [
+  'login', 'secure', 'account', 'verify', 'auth', 'portal', 'admin', 'support',
+];
+// Keywords that lift candidate risk to 'medium'
+const MED_RISK_BRAND_KEYWORDS = [
+  'help', 'service', 'online', 'my', 'app', 'customer', 'access', 'billing',
+];
+
+// Visual character substitutions commonly used in phishing / lookalike domains
+const TYPOSQUAT_HOMOGLYPHS = {
+  a: ['4'],
+  e: ['3'],
+  i: ['1', 'l'],
+  l: ['1', 'i'],
+  o: ['0'],
+  s: ['5', 'z'],
+  t: ['7'],
+  g: ['9'],
+  b: ['6'],
+  n: ['m'],
+  m: ['n'],
+};
+
+/** Score a candidate SLD and return { risk_level, risk_reasons, _score }. */
+function _typosquatRisk(sld, variantType) {
+  let score = 0;
+  const reasons = [];
+  const s = sld.toLowerCase();
+
+  for (const kw of HIGH_RISK_BRAND_KEYWORDS) {
+    if (s.includes(kw)) { score += 3; reasons.push(`contains '${kw}'`); }
+  }
+  for (const kw of MED_RISK_BRAND_KEYWORDS) {
+    if (s.includes(kw) && !reasons.some(r => r.includes(`'${kw}'`))) {
+      score += 1; reasons.push(`contains '${kw}'`);
+    }
+  }
+
+  if (['omission', 'duplication', 'transposition'].includes(variantType)) {
+    score += 2; reasons.push('single-character typo variant');
+  } else if (variantType === 'substitution') {
+    score += 2; reasons.push('homoglyph character substitution');
+  }
+
+  const risk_level = score >= 5 ? 'high' : score >= 2 ? 'medium' : 'low';
+  return { risk_level, risk_reasons: reasons, _score: score };
+}
+
+/** Maximum candidates returned by generateTyposquatCandidates. */
+const MAX_BRAND_CANDIDATES = 40;
+
+/**
+ * generateTyposquatCandidates(brand, tld)
+ * Pure function. Generates lookalike domain candidates via:
+ *   1. Homoglyph substitution  (l→1, o→0, …)
+ *   2. Omission                (drop one character)
+ *   3. Duplication             (double one character)
+ *   4. Transposition           (swap adjacent characters)
+ *   5. Hyphen keyword append   (brand-login.tld)
+ *   6. Prefix keyword prepend  (login-brand.tld)
+ * Returns up to MAX_BRAND_CANDIDATES items sorted by descending risk score.
+ */
+function generateTyposquatCandidates(brand, tld) {
+  if (!brand || brand.length < 3) return [];
+
+  const seen  = new Set();
+  const items = [];
+
+  function add(sld, variantType) {
+    const candidate_domain = `${sld}.${tld}`;
+    if (seen.has(candidate_domain)) return;
+    if (sld === brand) return;
+    if (sld.length < 2) return;
+    seen.add(candidate_domain);
+    const { risk_level, risk_reasons, _score } = _typosquatRisk(sld, variantType);
+    items.push({ candidate_domain, variant_type: variantType, risk_level, risk_reasons, _score });
+  }
+
+  // 1. Homoglyph substitution
+  for (let i = 0; i < brand.length; i++) {
+    for (const sub of (TYPOSQUAT_HOMOGLYPHS[brand[i]] || [])) {
+      add(brand.slice(0, i) + sub + brand.slice(i + 1), 'substitution');
+    }
+  }
+
+  // 2. Omission
+  for (let i = 0; i < brand.length; i++) {
+    add(brand.slice(0, i) + brand.slice(i + 1), 'omission');
+  }
+
+  // 3. Duplication
+  for (let i = 0; i < brand.length; i++) {
+    add(brand.slice(0, i) + brand[i] + brand[i] + brand.slice(i + 1), 'duplication');
+  }
+
+  // 4. Transposition
+  for (let i = 0; i < brand.length - 1; i++) {
+    const arr = brand.split('');
+    [arr[i], arr[i + 1]] = [arr[i + 1], arr[i]];
+    add(arr.join(''), 'transposition');
+  }
+
+  // 5 & 6. Keyword variants (high-risk first, then medium-risk)
+  for (const kw of [...HIGH_RISK_BRAND_KEYWORDS, ...MED_RISK_BRAND_KEYWORDS]) {
+    add(`${brand}-${kw}`, 'hyphen_keyword');
+    add(`${kw}-${brand}`, 'prefix_keyword');
+  }
+
+  // Sort by risk score desc, then alphabetically for determinism
+  items.sort(
+    (a, b) => b._score - a._score || a.candidate_domain.localeCompare(b.candidate_domain)
+  );
+
+  // Strip internal scoring field before returning
+  return items.slice(0, MAX_BRAND_CANDIDATES).map(({ _score, ...rest }) => rest);
+}
+
+/**
+ * runTyposquatModule(domain)
+ * Phase 7i: pure computation, zero network I/O.
+ *
+ * Generates typosquat candidates for the brand name extracted from `domain`.
+ * DNS/HTTPS validation is intentionally deferred to the dedicated
+ * POST /api/workspaces/:id/brand-monitoring/refresh endpoint, which carries
+ * its own 50-subrequest budget.  Inline DNS checks here would exceed the
+ * budget already consumed by scan Phases 1–6 (~47 subrequests).
+ */
+function runTyposquatModule(domain) {
+  try {
+    const { brand, tld } = extractBrandParts(domain);
+    const candidates = generateTyposquatCandidates(brand, tld);
+
+    return {
+      brand,
+      total_candidates_generated: candidates.length,
+      candidates_validated:       false,
+      domains:                    candidates,
+      risk_summary: {
+        high:   candidates.filter(c => c.risk_level === 'high').length,
+        medium: candidates.filter(c => c.risk_level === 'medium').length,
+        low:    candidates.filter(c => c.risk_level === 'low').length,
+      },
+      source: 'typosquat_analysis',
+      error:  null,
+    };
+  } catch (err) {
+    return {
+      brand:                      null,
+      total_candidates_generated: 0,
+      candidates_validated:       false,
+      domains:                    [],
+      risk_summary:               { high: 0, medium: 0, low: 0 },
+      source:                     'typosquat_analysis',
+      error:                      String(err),
+    };
+  }
+}
+
+/**
+ * upsertBrandAssets(domainId, brandMod, env)
+ * Phase 8e: Persists generated candidates as 'unverified' rows in
+ * workspace_brand_assets.  INSERT OR IGNORE preserves first_seen and any
+ * existing validation state; ON CONFLICT UPDATE refreshes last_seen and
+ * risk fields so each scan re-asserts the candidate is still being watched.
+ */
+async function upsertBrandAssets(domainId, brandMod, env) {
+  if (!brandMod || brandMod.error || !brandMod.domains?.length) return;
+
+  let wsRows;
+  try {
+    const r = await env.cybermeters_db
+      .prepare('SELECT workspace_id FROM workspace_domains WHERE domain_id = ?')
+      .bind(domainId)
+      .all();
+    wsRows = r.results || [];
+  } catch { return; }
+  if (wsRows.length === 0) return;
+
+  // Resolve domain name (needed as FK / display column in workspace_brand_assets)
+  // NOTE: domains table uses column 'domain', not 'name'.
+  let domainName;
+  try {
+    const r = await env.cybermeters_db
+      .prepare('SELECT domain FROM domains WHERE id = ?')
+      .bind(domainId)
+      .first();
+    domainName = r?.domain;
+  } catch { return; }
+  if (!domainName) return;
+
+  const now = new Date().toISOString();
+
+  for (const { workspace_id } of wsRows) {
+    for (const c of brandMod.domains) {
+      try {
+        await env.cybermeters_db
+          .prepare(
+            `INSERT INTO workspace_brand_assets
+               (id, workspace_id, domain, candidate_domain, variant_type,
+                risk_level, risk_reasons, dns_resolves, https_available,
+                ip_address, status, first_seen, last_seen, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, 'unverified',
+                     ?, ?, ?, ?)
+             ON CONFLICT (workspace_id, domain, candidate_domain) DO UPDATE SET
+               risk_level   = excluded.risk_level,
+               risk_reasons = excluded.risk_reasons,
+               last_seen    = excluded.last_seen,
+               updated_at   = excluded.updated_at`
+          )
+          .bind(
+            createId('bra'),
+            workspace_id,
+            domainName,
+            c.candidate_domain,
+            c.variant_type,
+            c.risk_level,
+            JSON.stringify(c.risk_reasons),
+            now,  // first_seen
+            now,  // last_seen
+            now,  // created_at
+            now   // updated_at
+          )
+          .run();
+      } catch { /* non-fatal per candidate */ }
+    }
+  }
+}
+
+// ── Executive Security Scorecard ─────────────────────────────────────────────
+//
+// Aggregates data from D1 (structured tables) + R2 (latest scan report modules)
+// into a business-friendly security scorecard.  Shared by:
+//   GET /api/workspaces/:id/scorecard
+//   GET /api/workspaces/:id/scorecard/report
+
+/**
+ * buildScorecardData(wsId, env)
+ *
+ * Returns the full scorecard object for the workspace, or null on DB error.
+ * Uses:
+ *   - D1 batch 1  — workspace meta, asset / vendor / brand counts
+ *   - D1 batch 2  — findings severity + top remediation (needs scan_id)
+ *   - R2 (1 get)  — module-level data (saas_exposure, admin_surface_detection,
+ *                    certificate_intelligence, third_party_assets, cloud assets)
+ */
+async function buildScorecardData(wsId, env) {
+  const now30dAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+  // ── D1 Batch 1 ─────────────────────────────────────────────────────────────
+  let b1;
+  try {
+    b1 = await env.cybermeters_db.batch([
+      // 0. Latest completed scan
+      env.cybermeters_db.prepare(
+        `SELECT s.id, s.score, s.rating, s.domain, s.created_at
+         FROM workspace_domains wd
+         JOIN domains d ON d.id = wd.domain_id
+         JOIN scans   s ON s.domain_id = d.id
+         WHERE wd.workspace_id = ? AND s.status = 'completed'
+         ORDER BY s.created_at DESC LIMIT 1`
+      ).bind(wsId),
+
+      // 1. Workspace name
+      env.cybermeters_db.prepare(
+        `SELECT name FROM workspaces WHERE id = ?`
+      ).bind(wsId),
+
+      // 2. Active asset count
+      env.cybermeters_db.prepare(
+        `SELECT COUNT(*) AS n FROM workspace_assets WHERE workspace_id = ? AND status = 'active'`
+      ).bind(wsId),
+
+      // 3. Asset type breakdown (admin_panel, cloud_storage, etc.)
+      env.cybermeters_db.prepare(
+        `SELECT asset_type, COUNT(*) AS n FROM workspace_assets
+         WHERE workspace_id = ? AND status = 'active' GROUP BY asset_type`
+      ).bind(wsId),
+
+      // 4. Active vendor count
+      env.cybermeters_db.prepare(
+        `SELECT COUNT(*) AS n FROM workspace_vendors WHERE workspace_id = ? AND status = 'active'`
+      ).bind(wsId),
+
+      // 5. Vendor risk breakdown
+      env.cybermeters_db.prepare(
+        `SELECT risk_level, COUNT(*) AS n FROM workspace_vendors
+         WHERE workspace_id = ? AND status = 'active' GROUP BY risk_level`
+      ).bind(wsId),
+
+      // 6. Active brand risks (DNS-confirmed typosquats, status='active')
+      env.cybermeters_db.prepare(
+        `SELECT risk_level, COUNT(*) AS n FROM workspace_brand_assets
+         WHERE workspace_id = ? AND status = 'active' GROUP BY risk_level`
+      ).bind(wsId),
+
+      // 7. Total brand candidates (any status)
+      env.cybermeters_db.prepare(
+        `SELECT COUNT(*) AS n FROM workspace_brand_assets WHERE workspace_id = ?`
+      ).bind(wsId),
+
+      // 8. Asset events in last 30 days
+      env.cybermeters_db.prepare(
+        `SELECT COUNT(*) AS n FROM asset_events WHERE workspace_id = ? AND created_at >= ?`
+      ).bind(wsId, now30dAgo),
+
+      // 9. New assets discovered in last 30 days (first_seen)
+      env.cybermeters_db.prepare(
+        `SELECT COUNT(*) AS n FROM workspace_assets
+         WHERE workspace_id = ? AND first_seen >= ?`
+      ).bind(wsId, now30dAgo),
+
+      // 10. Total domains in workspace
+      env.cybermeters_db.prepare(
+        `SELECT COUNT(*) AS n FROM workspace_domains WHERE workspace_id = ?`
+      ).bind(wsId),
+    ]);
+  } catch {
+    return null;
+  }
+
+  const latestScan     = b1[0].results?.[0]  ?? null;
+  const wsName         = b1[1].results?.[0]?.name ?? 'Unknown';
+  const activeAssets   = b1[2].results?.[0]?.n    ?? 0;
+  const assetTypeRows  = b1[3].results ?? [];
+  const vendorsActive  = b1[4].results?.[0]?.n ?? 0;
+  const vendorRiskRows = b1[5].results ?? [];
+  const brandRiskRows  = b1[6].results ?? [];
+  const brandTotal     = b1[7].results?.[0]?.n ?? 0;
+  const events30d      = b1[8].results?.[0]?.n ?? 0;
+  const newAssets30d   = b1[9].results?.[0]?.n ?? 0;
+  const totalDomains   = b1[10].results?.[0]?.n ?? 0;
+
+  // ── D1 Batch 2: scan-specific data ────────────────────────────────────────
+  const scanId = latestScan?.id ?? null;
+  let criticalFindings = 0, highFindings = 0, mediumFindings = 0, lowFindings = 0;
+  let topRemediation   = [];
+
+  if (scanId) {
+    try {
+      const b2 = await env.cybermeters_db.batch([
+        env.cybermeters_db.prepare(
+          `SELECT severity, COUNT(*) AS n FROM findings WHERE scan_id = ? GROUP BY severity`
+        ).bind(scanId),
+        env.cybermeters_db.prepare(
+          `SELECT title, priority, action FROM remediation_items
+           WHERE scan_id = ? ORDER BY priority ASC LIMIT 5`
+        ).bind(scanId),
+      ]);
+      const sevMap = Object.fromEntries((b2[0].results ?? []).map(r => [r.severity, r.n]));
+      criticalFindings = sevMap.critical ?? 0;
+      highFindings     = sevMap.high     ?? 0;
+      mediumFindings   = sevMap.medium   ?? 0;
+      lowFindings      = sevMap.low      ?? 0;
+      topRemediation   = (b2[1].results ?? []).map(r => ({
+        title:       r.title,
+        priority:    Number(r.priority),
+        description: r.action,
+      }));
+    } catch { /* non-fatal — findings unavailable */ }
+  }
+
+  // ── R2: latest scan report for module-level data (1 subrequest) ───────────
+  let report = null;
+  if (scanId) {
+    try {
+      const obj = await env.cybermeters_reports.get(`reports/${scanId}.json`);
+      if (obj) report = await obj.json();
+    } catch { /* tolerate missing report */ }
+  }
+
+  // Derived values from R2 modules
+  const saasTotal      = report?.modules?.saas_exposure?.total ?? 0;
+  const adminTotal     = report?.modules?.admin_surface_detection?.total ?? 0;
+  const certRiskLevel  = report?.modules?.certificate_intelligence?.certificate_risk_level ?? null;
+  const certSignals    = report?.modules?.certificate_intelligence?.suspicious_certificate_signals ?? [];
+  const certDaysLeft   = report?.modules?.certificate_intelligence?.days_until_expiry ?? null;
+  const tpaTotal       = report?.modules?.third_party_assets?.total ?? 0;
+  const cloudAssetList = report?.modules?.cloud_storage_discovery?.assets ?? [];
+
+  // Computed helpers
+  const assetTypeMap  = Object.fromEntries(assetTypeRows.map(r => [r.asset_type, r.n]));
+  const vendorRiskMap = Object.fromEntries(vendorRiskRows.map(r => [r.risk_level, r.n]));
+  const brandRiskMap  = Object.fromEntries(brandRiskRows.map(r => [r.risk_level, r.n]));
+  const brandHighRisk = brandRiskMap.high   ?? 0;
+  const brandMedRisk  = brandRiskMap.medium ?? 0;
+  const activeBrands  = brandHighRisk + brandMedRisk + (brandRiskMap.low ?? 0);
+
+  // ── Executive Summary ──────────────────────────────────────────────────────
+  const good              = [];
+  const attentionRequired = [];
+  const urgent            = [];
+
+  // ── Good signals ──────────────────────────────────────────────────────────
+  if (activeAssets > 0) {
+    good.push(
+      `Asset inventory is active — ${activeAssets} asset${activeAssets !== 1 ? 's' : ''} monitored across ${totalDomains} domain${totalDomains !== 1 ? 's' : ''}.`
+    );
+  }
+  if (!cloudAssetList.length && !assetTypeMap['cloud_storage']) {
+    good.push('No cloud storage exposure was detected.');
+  }
+  if (vendorsActive > 0) {
+    good.push(
+      `Vendor dependencies are visible — ${vendorsActive} third-party vendor${vendorsActive !== 1 ? 's' : ''} detected.`
+    );
+  }
+  if (criticalFindings === 0 && highFindings === 0) {
+    good.push('No critical or high-severity findings in the latest scan.');
+  }
+  if (brandHighRisk === 0 && activeBrands === 0) {
+    good.push('No active brand impersonation domains detected.');
+  }
+  if (adminTotal === 0) {
+    good.push('No exposed admin or management surfaces detected.');
+  }
+  if (certRiskLevel === 'low' || (certRiskLevel === null && certSignals.length === 0)) {
+    good.push('Certificate health looks normal — no suspicious signals detected.');
+  }
+
+  // ── Attention Required ────────────────────────────────────────────────────
+  if (events30d > 0) {
+    attentionRequired.push(
+      `Attack surface changed in the last 30 days — ${events30d} asset event${events30d !== 1 ? 's' : ''} recorded.`
+    );
+  }
+  if (newAssets30d > 0) {
+    attentionRequired.push(
+      `${newAssets30d} new asset${newAssets30d !== 1 ? 's' : ''} discovered in the last 30 days.`
+    );
+  }
+  if (tpaTotal > 0) {
+    attentionRequired.push(
+      `${tpaTotal} third-party service${tpaTotal !== 1 ? 's' : ''} in use — email, support, or marketing tools with external data access.`
+    );
+  }
+  if (certSignals.length > 0 && certRiskLevel !== 'critical') {
+    const sigPreview = certSignals.slice(0, 2).join(', ');
+    attentionRequired.push(
+      `Certificate intelligence flagged ${certSignals.length} suspicious signal${certSignals.length !== 1 ? 's' : ''}: ${sigPreview}.`
+    );
+  }
+  if (saasTotal > 0) {
+    attentionRequired.push(
+      `${saasTotal} SaaS portal${saasTotal !== 1 ? 's' : ''} exposed — login or admin access may be reachable externally.`
+    );
+  }
+  if ((vendorRiskMap.medium ?? 0) > 0) {
+    attentionRequired.push(
+      `${vendorRiskMap.medium} medium-risk vendor${(vendorRiskMap.medium ?? 0) !== 1 ? 's' : ''} detected in the supply chain.`
+    );
+  }
+  if (brandMedRisk > 0 && brandHighRisk === 0) {
+    attentionRequired.push(
+      `${brandMedRisk} medium-risk typosquat domain${brandMedRisk !== 1 ? 's' : ''} found actively resolving.`
+    );
+  }
+
+  // ── Urgent ────────────────────────────────────────────────────────────────
+  if (criticalFindings > 0) {
+    urgent.push(
+      `${criticalFindings} critical finding${criticalFindings !== 1 ? 's' : ''} require immediate remediation.`
+    );
+  }
+  if (highFindings > 0) {
+    urgent.push(
+      `${highFindings} high-severity finding${highFindings !== 1 ? 's' : ''} should be addressed soon.`
+    );
+  }
+  if (brandHighRisk > 0) {
+    urgent.push(
+      `${brandHighRisk} high-risk brand impersonation domain${brandHighRisk !== 1 ? 's' : ''} ${brandHighRisk === 1 ? 'is' : 'are'} actively resolving — phishing risk.`
+    );
+  }
+  if (adminTotal > 0) {
+    urgent.push(
+      `${adminTotal} admin surface${adminTotal !== 1 ? 's' : ''} exposed to the internet — management interfaces should not be publicly accessible.`
+    );
+  }
+  if ((vendorRiskMap.high ?? 0) > 0) {
+    urgent.push(
+      `${vendorRiskMap.high} high-risk vendor${(vendorRiskMap.high ?? 0) !== 1 ? 's' : ''} detected — supply chain exposure requires review.`
+    );
+  }
+  if (certRiskLevel === 'critical') {
+    const certDetail = certDaysLeft !== null
+      ? `expires in ${certDaysLeft} day${certDaysLeft !== 1 ? 's' : ''}`
+      : 'suspicious signals detected';
+    urgent.push(`Certificate is at critical risk — ${certDetail}.`);
+  }
+
+  // ── Final scorecard object ─────────────────────────────────────────────────
+  return {
+    workspace_id:        wsId,
+    workspace_name:      wsName,
+    security_score:      latestScan?.score  ?? null,
+    risk_rating:         latestScan?.rating ?? 'unknown',
+    last_scan_at:        latestScan?.created_at ?? null,
+    last_scanned_domain: latestScan?.domain     ?? null,
+    attack_surface_size: activeAssets,
+    active_assets:       activeAssets,
+    new_assets_30d:      newAssets30d,
+    vendors_detected:    vendorsActive,
+    vendor_risk: {
+      high:   vendorRiskMap.high   ?? 0,
+      medium: vendorRiskMap.medium ?? 0,
+      low:    vendorRiskMap.low    ?? 0,
+    },
+    third_party_assets: tpaTotal,
+    saas_exposures:     saasTotal,
+    admin_surfaces:     adminTotal,
+    brand_risks: {
+      total:  brandTotal,
+      active: activeBrands,
+      high:   brandHighRisk,
+      medium: brandMedRisk,
+      low:    brandRiskMap.low ?? 0,
+    },
+    certificate_risks: {
+      risk_level:        certRiskLevel,
+      signals:           certSignals.length,
+      days_until_expiry: certDaysLeft,
+    },
+    critical_findings: criticalFindings,
+    high_findings:     highFindings,
+    medium_findings:   mediumFindings,
+    low_findings:      lowFindings,
+    asset_events_30d:  events30d,
+    executive_summary: {
+      good,
+      attention_required: attentionRequired,
+      urgent,
+    },
+    top_recommendations: topRemediation,
+  };
 }
 
 // ── Vendor Inventory Upsert ───────────────────────────────────────────────────
@@ -8847,6 +9418,403 @@ export default {
       }
 
       return json({ workspace_id: wsId, count: vendors.length, vendors });
+    }
+
+    // ── Executive Security Scorecard Routes ──────────────────────────────────
+    // GET /api/workspaces/:id/scorecard         — business scorecard
+    // GET /api/workspaces/:id/scorecard/report  — PDF-ready structured JSON
+    const scorecardMatch = url.pathname.match(
+      /^\/api\/workspaces\/([^/]+)\/scorecard(\/report)?$/
+    );
+    if (scorecardMatch && request.method === 'GET') {
+      const wsId     = scorecardMatch[1];
+      const isReport = !!scorecardMatch[2];
+
+      let ws;
+      try {
+        ws = await env.cybermeters_db
+          .prepare('SELECT id, name FROM workspaces WHERE id = ?')
+          .bind(wsId)
+          .first();
+      } catch {
+        return json({ error: 'Database error' }, 500);
+      }
+      if (!ws) return json({ error: 'Workspace not found' }, 404);
+
+      const scorecard = await buildScorecardData(wsId, env);
+      if (!scorecard) return json({ error: 'Database error' }, 500);
+
+      // ── GET /scorecard ────────────────────────────────────────────────────
+      if (!isReport) return json(scorecard);
+
+      // ── GET /scorecard/report — structured for PDF rendering ─────────────
+      const generatedAt = new Date().toISOString();
+
+      // Derive per-section status: 'ok' | 'warning' | 'critical' | 'unknown'
+      const sections = [
+        {
+          title:   'Asset Inventory',
+          status:  scorecard.active_assets === 0 ? 'unknown'
+                 : scorecard.new_assets_30d > 0  ? 'warning' : 'ok',
+          summary: scorecard.active_assets > 0
+            ? `${scorecard.active_assets} active assets monitored.` +
+              (scorecard.new_assets_30d > 0
+                ? ` ${scorecard.new_assets_30d} new in the last 30 days.`
+                : ' No new assets in the last 30 days.')
+            : 'No assets have been inventoried yet. Run a scan to begin discovery.',
+          data: {
+            active_assets:    scorecard.active_assets,
+            new_assets_30d:   scorecard.new_assets_30d,
+            asset_events_30d: scorecard.asset_events_30d,
+          },
+        },
+        {
+          title:   'Vendor Risk',
+          status:  scorecard.vendor_risk.high   > 0 ? 'critical'
+                 : scorecard.vendor_risk.medium > 0 ? 'warning' : 'ok',
+          summary: scorecard.vendors_detected > 0
+            ? `${scorecard.vendors_detected} vendor${scorecard.vendors_detected !== 1 ? 's' : ''} detected.` +
+              (scorecard.vendor_risk.high > 0
+                ? ` ${scorecard.vendor_risk.high} high-risk.`
+                : ' No high-risk vendors.')
+            : 'No third-party vendors detected in this scan.',
+          data: {
+            total:  scorecard.vendors_detected,
+            ...scorecard.vendor_risk,
+          },
+        },
+        {
+          title:   'Third-Party Assets',
+          status:  scorecard.third_party_assets > 0 ? 'warning' : 'ok',
+          summary: scorecard.third_party_assets > 0
+            ? `${scorecard.third_party_assets} third-party SaaS service${scorecard.third_party_assets !== 1 ? 's' : ''} in use (email, CRM, support, marketing).`
+            : 'No third-party SaaS dependencies detected.',
+          data: { count: scorecard.third_party_assets },
+        },
+        {
+          title:   'SaaS Exposure',
+          status:  scorecard.saas_exposures > 0 ? 'warning' : 'ok',
+          summary: scorecard.saas_exposures > 0
+            ? `${scorecard.saas_exposures} exposed SaaS portal${scorecard.saas_exposures !== 1 ? 's' : ''} or login surface${scorecard.saas_exposures !== 1 ? 's' : ''} detected.`
+            : 'No externally exposed SaaS portals detected.',
+          data: { count: scorecard.saas_exposures },
+        },
+        {
+          title:   'Admin Surfaces',
+          status:  scorecard.admin_surfaces > 0 ? 'critical' : 'ok',
+          summary: scorecard.admin_surfaces > 0
+            ? `${scorecard.admin_surfaces} admin or management interface${scorecard.admin_surfaces !== 1 ? 's' : ''} publicly exposed.`
+            : 'No exposed admin surfaces detected.',
+          data: { count: scorecard.admin_surfaces },
+        },
+        {
+          title:   'Brand Monitoring',
+          status:  scorecard.brand_risks.high   > 0 ? 'critical'
+                 : scorecard.brand_risks.active > 0 ? 'warning' : 'ok',
+          summary: scorecard.brand_risks.active > 0
+            ? `${scorecard.brand_risks.active} active typosquat domain${scorecard.brand_risks.active !== 1 ? 's' : ''} detected.` +
+              (scorecard.brand_risks.high > 0
+                ? ` ${scorecard.brand_risks.high} high-risk.`
+                : '')
+            : `${scorecard.brand_risks.total} candidate domain${scorecard.brand_risks.total !== 1 ? 's' : ''} generated — none currently resolving.`,
+          data: scorecard.brand_risks,
+        },
+        {
+          title:   'Certificate Intelligence',
+          status:  scorecard.certificate_risks.risk_level === 'critical' ? 'critical'
+                 : scorecard.certificate_risks.risk_level === 'high'     ? 'warning'
+                 : scorecard.certificate_risks.signals > 0               ? 'warning'
+                 : scorecard.certificate_risks.risk_level === null        ? 'unknown' : 'ok',
+          summary: scorecard.certificate_risks.risk_level
+            ? `Certificate risk is ${scorecard.certificate_risks.risk_level}.` +
+              (scorecard.certificate_risks.signals > 0
+                ? ` ${scorecard.certificate_risks.signals} suspicious signal${scorecard.certificate_risks.signals !== 1 ? 's' : ''} detected.`
+                : ' No suspicious signals.')
+            : 'Certificate data not yet available from the latest scan.',
+          data: scorecard.certificate_risks,
+        },
+        {
+          title:   'Security Findings',
+          status:  scorecard.critical_findings > 0 ? 'critical'
+                 : scorecard.high_findings     > 0 ? 'warning' : 'ok',
+          summary: (scorecard.critical_findings + scorecard.high_findings) === 0
+            ? `No critical or high findings.` +
+              (scorecard.medium_findings + scorecard.low_findings > 0
+                ? ` ${scorecard.medium_findings + scorecard.low_findings} lower-severity finding${(scorecard.medium_findings + scorecard.low_findings) !== 1 ? 's' : ''} noted.`
+                : ' Clean scan.')
+            : `${scorecard.critical_findings} critical, ${scorecard.high_findings} high, ${scorecard.medium_findings} medium, ${scorecard.low_findings} low findings.`,
+          data: {
+            critical: scorecard.critical_findings,
+            high:     scorecard.high_findings,
+            medium:   scorecard.medium_findings,
+            low:      scorecard.low_findings,
+          },
+        },
+      ];
+
+      return json({
+        generated_at:      generatedAt,
+        workspace:         { id: wsId, name: scorecard.workspace_name },
+        scorecard,
+        executive_summary: scorecard.executive_summary,
+        recommendations:   scorecard.top_recommendations,
+        sections,
+      });
+    }
+
+    // ── Brand Monitoring Routes ───────────────────────────────────────────────
+    // GET  /api/workspaces/:id/brand-monitoring              — candidate list
+    // GET  /api/workspaces/:id/brand-monitoring/summary      — risk summary
+    // POST /api/workspaces/:id/brand-monitoring/refresh      — DNS validation pass
+    //      (runs DoH A-record checks on top candidates; separate subrequest budget)
+    const brandMatch = url.pathname.match(
+      /^\/api\/workspaces\/([^/]+)\/brand-monitoring(\/summary|\/refresh)?$/
+    );
+    if (brandMatch && (request.method === 'GET' || request.method === 'POST')) {
+      const wsId      = brandMatch[1];
+      const subPath   = brandMatch[2];       // undefined | '/summary' | '/refresh'
+      const isSummary = subPath === '/summary';
+      const isRefresh = subPath === '/refresh';
+
+      // Verify workspace exists
+      let ws;
+      try {
+        ws = await env.cybermeters_db
+          .prepare('SELECT id FROM workspaces WHERE id = ?')
+          .bind(wsId)
+          .first();
+      } catch {
+        return json({ error: 'Database error' }, 500);
+      }
+      if (!ws) return json({ error: 'Workspace not found' }, 404);
+
+      // ── POST /brand-monitoring/refresh ─────────────────────────────────────
+      // Validates candidates via DNS (DoH A-record). Capped at 20 lookups
+      // so this endpoint's own subrequest budget stays well within 50.
+      if (isRefresh && request.method === 'POST') {
+        const MAX_BRAND_DNS_CHECKS = 20;
+
+        // Get primary (oldest-added) domain for this workspace
+        let primaryDomain;
+        try {
+          const r = await env.cybermeters_db
+            .prepare(
+              `SELECT d.domain FROM workspace_domains wd
+               JOIN domains d ON d.id = wd.domain_id
+               WHERE wd.workspace_id = ?
+               ORDER BY d.created_at ASC LIMIT 1`
+            )
+            .bind(wsId)
+            .first();
+          primaryDomain = r?.domain;
+        } catch {
+          return json({ error: 'Database error' }, 500);
+        }
+        if (!primaryDomain) return json({ error: 'No domains in workspace' }, 404);
+
+        const { brand, tld } = extractBrandParts(primaryDomain);
+        const allCandidates   = generateTyposquatCandidates(brand, tld);
+        const toValidate      = allCandidates.slice(0, MAX_BRAND_DNS_CHECKS);
+
+        const now               = new Date().toISOString();
+        const validationResults = [];
+
+        for (const c of toValidate) {
+          let dnsResolves = false;
+          let ipAddress   = null;
+
+          try {
+            const dohResp = await dnsQuery(c.candidate_domain, 'A');
+            if (dohResp.Answer?.length > 0) {
+              dnsResolves = true;
+              ipAddress   = dohResp.Answer[0]?.data || null;
+            }
+          } catch { /* treat as not resolving */ }
+
+          const status = dnsResolves ? 'active' : 'inactive';
+          validationResults.push({ ...c, dns_resolves: dnsResolves, ip_address: ipAddress, status });
+
+          // Upsert validated result into D1
+          try {
+            await env.cybermeters_db
+              .prepare(
+                `INSERT INTO workspace_brand_assets
+                   (id, workspace_id, domain, candidate_domain, variant_type,
+                    risk_level, risk_reasons, dns_resolves, https_available,
+                    ip_address, status, first_seen, last_seen, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)
+                 ON CONFLICT (workspace_id, domain, candidate_domain) DO UPDATE SET
+                   dns_resolves = excluded.dns_resolves,
+                   ip_address   = excluded.ip_address,
+                   status       = excluded.status,
+                   last_seen    = excluded.last_seen,
+                   updated_at   = excluded.updated_at`
+              )
+              .bind(
+                createId('bra'),
+                wsId,
+                primaryDomain,
+                c.candidate_domain,
+                c.variant_type,
+                c.risk_level,
+                JSON.stringify(c.risk_reasons),
+                dnsResolves ? 1 : 0,
+                ipAddress,
+                status,
+                now,  // first_seen
+                now,  // last_seen
+                now,  // created_at
+                now   // updated_at
+              )
+              .run();
+          } catch { /* non-fatal */ }
+
+          // Fire asset events for resolving (active) typosquat domains
+          if (dnsResolves) {
+            try {
+              const domRows = await env.cybermeters_db
+                .prepare('SELECT domain_id FROM workspace_domains WHERE workspace_id = ? LIMIT 1')
+                .bind(wsId)
+                .first();
+              const evDomainId = domRows?.domain_id || null;
+
+              const evType = c.risk_level === 'high'
+                ? 'high_risk_typosquat_detected'
+                : 'brand_domain_detected';
+
+              await env.cybermeters_db
+                .prepare(
+                  `INSERT OR IGNORE INTO asset_events
+                     (id, workspace_id, domain_id, scan_id, event_type,
+                      hostname, severity, description, created_at)
+                   VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?)`
+                )
+                .bind(
+                  createId('asev'),
+                  wsId,
+                  evDomainId,
+                  evType,
+                  c.candidate_domain,
+                  c.risk_level === 'high' ? 'high' : 'medium',
+                  `Typosquat domain ${c.candidate_domain} resolves (${c.variant_type}).` +
+                    (c.risk_reasons.length > 0 ? ' ' + c.risk_reasons.join('; ') + '.' : ''),
+                  now
+                )
+                .run();
+            } catch { /* non-fatal */ }
+          }
+        }
+
+        const activeResults  = validationResults.filter(v => v.dns_resolves);
+        const highRiskActive = activeResults.filter(v => v.risk_level === 'high').length;
+
+        return json({
+          workspace_id:       wsId,
+          brand,
+          primary_domain:     primaryDomain,
+          candidates_checked: toValidate.length,
+          active_domains:     activeResults.length,
+          high_risk_active:   highRiskActive,
+          validated_at:       now,
+          results:            activeResults,
+        });
+      }
+
+      // ── GET /brand-monitoring/summary ───────────────────────────────────────
+      if (isSummary && request.method === 'GET') {
+        try {
+          const [totalRow, byRiskRows, byStatusRows, highActiveRows] = await Promise.all([
+            env.cybermeters_db
+              .prepare('SELECT COUNT(*) AS n FROM workspace_brand_assets WHERE workspace_id = ?')
+              .bind(wsId).first(),
+
+            env.cybermeters_db
+              .prepare(
+                `SELECT risk_level, COUNT(*) AS n
+                 FROM workspace_brand_assets WHERE workspace_id = ?
+                 GROUP BY risk_level`
+              )
+              .bind(wsId).all(),
+
+            env.cybermeters_db
+              .prepare(
+                `SELECT status, COUNT(*) AS n
+                 FROM workspace_brand_assets WHERE workspace_id = ?
+                 GROUP BY status`
+              )
+              .bind(wsId).all(),
+
+            env.cybermeters_db
+              .prepare(
+                `SELECT candidate_domain, variant_type, risk_level, risk_reasons,
+                        ip_address, status, first_seen, last_seen
+                 FROM workspace_brand_assets
+                 WHERE workspace_id = ? AND risk_level = 'high' AND status = 'active'
+                 ORDER BY last_seen DESC LIMIT 10`
+              )
+              .bind(wsId).all(),
+          ]);
+
+          const byRisk   = Object.fromEntries((byRiskRows.results   || []).map(r => [r.risk_level, r.n]));
+          const byStatus = Object.fromEntries((byStatusRows.results || []).map(r => [r.status, r.n]));
+
+          return json({
+            workspace_id:     wsId,
+            total_candidates: totalRow?.n ?? 0,
+            by_risk_level:    { high: byRisk.high ?? 0, medium: byRisk.medium ?? 0, low: byRisk.low ?? 0 },
+            by_status:        { active: byStatus.active ?? 0, inactive: byStatus.inactive ?? 0, unverified: byStatus.unverified ?? 0 },
+            high_risk_active: (highActiveRows.results || []).map(r => ({
+              ...r,
+              risk_reasons: (() => { try { return JSON.parse(r.risk_reasons); } catch { return []; } })(),
+            })),
+          });
+        } catch {
+          return json({ error: 'Database error' }, 500);
+        }
+      }
+
+      // ── GET /brand-monitoring ────────────────────────────────────────────────
+      if (!isSummary && !isRefresh && request.method === 'GET') {
+        const filterStatus = url.searchParams.get('status');       // active|inactive|unverified
+        const filterRisk   = url.searchParams.get('risk_level');   // high|medium|low
+        const filterType   = url.searchParams.get('variant_type'); // substitution|omission|…
+
+        const whereClauses = ['workspace_id = ?'];
+        const binds        = [wsId];
+
+        if (filterStatus) { whereClauses.push('status = ?');       binds.push(filterStatus); }
+        if (filterRisk)   { whereClauses.push('risk_level = ?');   binds.push(filterRisk); }
+        if (filterType)   { whereClauses.push('variant_type = ?'); binds.push(filterType); }
+
+        const whereSQL = whereClauses.join(' AND ');
+
+        try {
+          const r = await env.cybermeters_db
+            .prepare(
+              `SELECT candidate_domain, domain, variant_type, risk_level, risk_reasons,
+                      dns_resolves, https_available, ip_address, status, first_seen, last_seen
+               FROM workspace_brand_assets
+               WHERE ${whereSQL}
+               ORDER BY
+                 CASE risk_level WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
+                 CASE status     WHEN 'active' THEN 0 WHEN 'unverified' THEN 1 ELSE 2 END,
+                 candidate_domain`
+            )
+            .bind(...binds)
+            .all();
+
+          const assets = (r.results || []).map(row => ({
+            ...row,
+            dns_resolves:    row.dns_resolves    !== null ? Boolean(row.dns_resolves)    : null,
+            https_available: row.https_available !== null ? Boolean(row.https_available) : null,
+            risk_reasons:    (() => { try { return JSON.parse(row.risk_reasons); } catch { return []; } })(),
+          }));
+
+          return json({ workspace_id: wsId, count: assets.length, assets });
+        } catch {
+          return json({ error: 'Database error' }, 500);
+        }
+      }
     }
 
     // Routes that carry a workspace ID
