@@ -217,6 +217,24 @@ export const api = {
   getWorkspaceReportDownloadUrl: (workspaceId, reportId) =>
     `${BASE}/workspaces/${workspaceId}/reports/${reportId}/download`,
 
+  // ── Notifications ─────────────────────────────────────────────────────────
+
+  /**
+   * GET /api/workspaces/:id/notifications
+   * Optional ?status=unread|read  ?limit=N
+   */
+  getWorkspaceNotifications: (workspaceId, params = {}) => {
+    const q = new URLSearchParams(params).toString()
+    return request(`/workspaces/${workspaceId}/notifications${q ? `?${q}` : ''}`)
+  },
+
+  /**
+   * POST /api/workspaces/:id/notifications/:notifId/read
+   * Pass notifId = "all" to mark all unread as read.
+   */
+  markNotificationRead: (workspaceId, notifId) =>
+    request(`/workspaces/${workspaceId}/notifications/${notifId}/read`, { method: 'POST' }),
+
   // ── Domain Ownership Verification ────────────────────────────────────────
 
   /**

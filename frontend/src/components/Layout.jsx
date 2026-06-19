@@ -2,11 +2,12 @@ import { useState, useEffect, useRef } from 'react'
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Server, ScanLine, FileBarChart2,
-  Settings, Shield, Plus, Bell, ChevronDown, Calendar,
+  Settings, Shield, Plus, ChevronDown, Calendar,
   Briefcase, ChevronRight, Check, Brain, Layers, LogOut, User,
 } from 'lucide-react'
 import { api } from '../api'
 import { useAuth } from '../context/AuthContext'
+import NotificationBell from './NotificationBell'
 
 const NAV = [
   { to: '/dashboard',    icon: LayoutDashboard, label: 'Dashboard'    },
@@ -256,10 +257,7 @@ export default function Layout() {
           <div className="ml-auto flex items-center gap-2">
             <WorkspaceSelector />
 
-            <button className="relative w-9 h-9 flex items-center justify-center rounded-xl text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors">
-              <Bell className="w-[18px] h-[18px]" />
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500 border-2 border-white" />
-            </button>
+            <NotificationBell />
 
             <button onClick={() => navigate('/scans/new')} className="btn-primary">
               <Plus className="w-4 h-4" />

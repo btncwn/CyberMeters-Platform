@@ -5952,6 +5952,12 @@ async function runScanEngine(scanId, domainId, domain, env) {
       await sendAssetChangeAlert(domainId, domain, scanId, env);
     } catch { /* non-fatal */ }
 
+    // Phase 10: Notification Events — create in-app notifications for scan
+    // completion and any critical/high findings. Non-fatal.
+    try {
+      await createNotificationsForDomain(domainId, domain, scanId, score, risk_level, findings, env);
+    } catch { /* non-fatal */ }
+
   } catch (err) {
     // Best-effort: write failure state to R2 and D1.
     // Each write is individually guarded so one failure cannot prevent the other.
@@ -9204,6 +9210,18 @@ async function generateWorkspaceExecutiveReport(workspaceId, env, options = {}) 
     `UPDATE workspace_reports SET status = 'completed', generated_at = ? WHERE id = ?`
   ).bind(generatedAt, reportId).run();
 
+  // Notification — report generated. Non-fatal: report generation must not fail
+  // if notification persistence is unavailable.
+  try {
+    await createNotificationEvent(env, workspaceId, {
+      type:     "report_generated",
+      severity: "info",
+      title:    `Executive report ready`,
+      message:  `${report_type.replace(/_/g, " ")} report for period ${period} is available for download.`,
+      metadata: { report_id: reportId, report_type, report_period: period },
+    });
+  } catch { /* non-fatal */ }
+
   return {
     id:            reportId,
     workspace_id:  workspaceId,
@@ -9278,6 +9296,95 @@ async function generateScheduledReports(now, env) {
 }
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
+
+// ── Notification Helpers ─────────────────────────────────────────────────────
+
+/**
+ * createNotificationEvent — inserts one row into notification_events.
+ *
+ * @param {object} env          - Worker env bindings
+ * @param {string} workspace_id - Target workspace
+ * @param {object} opts         - { type, severity, title, message, metadata, user_id }
+ *
+ * Always non-fatal — swallows all errors so callers never need try/catch.
+ */
+async function createNotificationEvent(env, workspace_id, { type, severity = "info", title, message = null, metadata = null, user_id = null } = {}) {
+  if (!workspace_id || !type || !title) return;
+  try {
+    const id           = createId("notif");
+    const metaJson     = metadata ? JSON.stringify(metadata) : null;
+    await env.cybermeters_db
+      .prepare(
+        `INSERT INTO notification_events
+           (id, workspace_id, user_id, type, severity, title, message, metadata_json, status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'unread', datetime('now'))`
+      )
+      .bind(id, workspace_id, user_id, type, severity, title, message, metaJson)
+      .run();
+  } catch { /* non-fatal */ }
+}
+
+/**
+ * createNotificationsForDomain — fires workspace-level notifications for a
+ * completed scan. Looks up all workspace_ids associated with the domain,
+ * then creates one notification per workspace.
+ *
+ * @param {string} domainId     - Domain row ID
+ * @param {string} domain       - Domain name (for display)
+ * @param {string} scanId       - Completed scan ID
+ * @param {number} score        - Final security score
+ * @param {string} risk_level   - Risk rating (critical/high/medium/low/info)
+ * @param {Array}  findings     - All findings from the scan
+ * @param {object} env          - Worker env bindings
+ */
+async function createNotificationsForDomain(domainId, domain, scanId, score, risk_level, findings, env) {
+  try {
+    const wsResult = await env.cybermeters_db
+      .prepare("SELECT workspace_id FROM workspace_domains WHERE domain_id = ?")
+      .bind(domainId)
+      .all();
+    const workspaceIds = (wsResult.results || []).map(r => r.workspace_id);
+    if (workspaceIds.length === 0) return;
+
+    const criticalCount = findings.filter(f => f.severity === "critical").length;
+    const highCount     = findings.filter(f => f.severity === "high").length;
+    const meta          = { scan_id: scanId, domain, score, risk_level };
+
+    for (const wsId of workspaceIds) {
+      // Scan completed notification
+      await createNotificationEvent(env, wsId, {
+        type:     "scan_completed",
+        severity: criticalCount > 0 ? "critical" : highCount > 0 ? "high" : "info",
+        title:    `Scan completed for ${domain}`,
+        message:  `Score: ${score} · ${risk_level} risk${criticalCount > 0 ? ` · ${criticalCount} critical finding${criticalCount !== 1 ? "s" : ""}` : ""}${highCount > 0 ? ` · ${highCount} high finding${highCount !== 1 ? "s" : ""}` : ""}`,
+        metadata: meta,
+      });
+
+      // Critical findings notification (separate, higher urgency)
+      if (criticalCount > 0) {
+        await createNotificationEvent(env, wsId, {
+          type:     "critical_finding",
+          severity: "critical",
+          title:    `${criticalCount} critical finding${criticalCount !== 1 ? "s" : ""} on ${domain}`,
+          message:  `A scan of ${domain} detected ${criticalCount} critical severity issue${criticalCount !== 1 ? "s" : ""} requiring immediate attention.`,
+          metadata: meta,
+        });
+      }
+
+      // High findings notification. Aggregated separately from critical findings
+      // so mixed critical/high scans still surface both counts without per-finding spam.
+      if (highCount > 0) {
+        await createNotificationEvent(env, wsId, {
+          type:     "high_finding",
+          severity: "high",
+          title:    `${highCount} high-severity finding${highCount !== 1 ? "s" : ""} on ${domain}`,
+          message:  `A scan of ${domain} detected ${highCount} high-severity issue${highCount !== 1 ? "s" : ""}.`,
+          metadata: meta,
+        });
+      }
+    }
+  } catch { /* non-fatal */ }
+}
 
 const corsHeaders = {
   "Access-Control-Allow-Origin":  "*",
@@ -12427,6 +12534,95 @@ export default {
       }
     }
 
+    // ── GET /api/workspaces/:id/notifications ────────────────────────────────
+    const notifListMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/notifications$/);
+    if (notifListMatch && request.method === "GET") {
+      const workspaceId = notifListMatch[1];
+      try {
+        const limit  = Math.min(parseInt(url.searchParams.get("limit")  || "50",  10), 200);
+        const status = url.searchParams.get("status") || null; // 'unread' | 'read' | null (all)
+        const ws = await env.cybermeters_db
+          .prepare("SELECT id FROM workspaces WHERE id = ?")
+          .bind(workspaceId)
+          .first();
+        if (!ws) return json({ error: "Workspace not found" }, 404);
+
+        let query, binds;
+        if (status) {
+          query  = `SELECT id, type, severity, title, message, metadata_json, status, created_at, read_at
+                    FROM notification_events
+                    WHERE workspace_id = ? AND status = ?
+                    ORDER BY created_at DESC LIMIT ?`;
+          binds  = [workspaceId, status, limit];
+        } else {
+          query  = `SELECT id, type, severity, title, message, metadata_json, status, created_at, read_at
+                    FROM notification_events
+                    WHERE workspace_id = ?
+                    ORDER BY created_at DESC LIMIT ?`;
+          binds  = [workspaceId, limit];
+        }
+
+        const [rows, unreadRow] = await env.cybermeters_db.batch([
+          env.cybermeters_db.prepare(query).bind(...binds),
+          env.cybermeters_db
+            .prepare("SELECT COUNT(*) AS cnt FROM notification_events WHERE workspace_id = ? AND status = 'unread'")
+            .bind(workspaceId),
+        ]);
+
+        const notifications = (rows.results || []).map(n => ({
+          ...n,
+          metadata: n.metadata_json ? (() => { try { return JSON.parse(n.metadata_json); } catch { return null; } })() : null,
+          metadata_json: undefined,
+        }));
+
+        return json({
+          workspace_id:   workspaceId,
+          unread_count:   unreadRow.results?.[0]?.cnt ?? 0,
+          count:          notifications.length,
+          notifications,
+        });
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
+    // ── POST /api/workspaces/:id/notifications/:notifId/read ─────────────────
+    const notifReadMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/notifications\/([^/]+)\/read$/);
+    if (notifReadMatch && request.method === "POST") {
+      const workspaceId  = notifReadMatch[1];
+      const notifId      = notifReadMatch[2];
+      try {
+        const ws = await env.cybermeters_db
+          .prepare("SELECT id FROM workspaces WHERE id = ?")
+          .bind(workspaceId)
+          .first();
+        if (!ws) return json({ error: "Workspace not found" }, 404);
+
+        if (notifId === "all") {
+          // Mark all unread notifications for this workspace as read
+          await env.cybermeters_db
+            .prepare(`UPDATE notification_events SET status = 'read', read_at = datetime('now')
+                      WHERE workspace_id = ? AND status = 'unread'`)
+            .bind(workspaceId)
+            .run();
+          return json({ success: true, marked: "all" });
+        }
+        // Mark a specific notification as read
+        const row = await env.cybermeters_db
+          .prepare("SELECT id FROM notification_events WHERE id = ? AND workspace_id = ?")
+          .bind(notifId, workspaceId)
+          .first();
+        if (!row) return json({ error: "Notification not found" }, 404);
+        await env.cybermeters_db
+          .prepare(`UPDATE notification_events SET status = 'read', read_at = datetime('now') WHERE id = ?`)
+          .bind(notifId)
+          .run();
+        return json({ success: true, id: notifId });
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
     // ── POST /api/workspaces/:id/domains/import ───────────────────────────────
     const importMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/domains\/import$/);
     if (importMatch && request.method === "POST") {
@@ -12640,6 +12836,20 @@ export default {
                       WHERE id = ?`)
             .bind(domainId)
             .run();
+          // Notification — fire-and-forget for all linked workspaces
+          try {
+            const wsR = await env.cybermeters_db
+              .prepare("SELECT workspace_id FROM workspace_domains WHERE domain_id = ?")
+              .bind(domainId).all();
+            for (const { workspace_id } of (wsR.results || [])) {
+              await createNotificationEvent(env, workspace_id, {
+                type: "domain_verified", severity: "info",
+                title: `${domain} ownership verified`,
+                message: `Domain verified via DNS TXT record at _cybermeters.${domain}.`,
+                metadata: { domain, domain_id: domainId, method: "dns_txt" },
+              });
+            }
+          } catch { /* non-fatal */ }
           return json({
             success: true,
             domain,
@@ -12677,6 +12887,20 @@ export default {
                       WHERE id = ?`)
             .bind(domainId)
             .run();
+          // Notification — fire-and-forget for all linked workspaces
+          try {
+            const wsR = await env.cybermeters_db
+              .prepare("SELECT workspace_id FROM workspace_domains WHERE domain_id = ?")
+              .bind(domainId).all();
+            for (const { workspace_id } of (wsR.results || [])) {
+              await createNotificationEvent(env, workspace_id, {
+                type: "domain_verified", severity: "info",
+                title: `${domain} ownership verified`,
+                message: `Domain verified via HTML file at ${htmlUrl}.`,
+                metadata: { domain, domain_id: domainId, method: "html_file" },
+              });
+            }
+          } catch { /* non-fatal */ }
           return json({
             success: true,
             domain,
