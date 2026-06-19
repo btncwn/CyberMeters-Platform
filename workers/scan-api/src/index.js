@@ -1608,6 +1608,356 @@ function runCloudStorageModule(domain, modules) {
   }
 }
 
+// ── Vendor Risk Layer ─────────────────────────────────────────────────────────
+// Pure computation — reads signals already captured in other modules:
+//   SPF record   → email/cloud routing vendors (Microsoft, Google, Mailgun, …)
+//   MX records   → mail platform (Microsoft 365, Google Workspace, Proofpoint, …)
+//   Nameservers  → DNS/CDN provider (Cloudflare, AWS Route 53, Azure DNS, …)
+//   DKIM selector→ ESP hint (Google, Mailchimp, Klaviyo, …)
+//   CSP header   → embedded third-party scripts (Stripe, analytics, …)
+//   Server header→ hosting/CDN (Cloudflare, Fastly, …)
+//   CNAMEs       → platform CNAMEs from takeover scan + exposure probe
+//   Technologies → tech_detection module output (Cloudflare, Next.js, …)
+//
+// Zero network I/O — all data is already in `modules` from Phase 1.
+
+const VENDOR_SIGNATURES = [
+  // ── Email / Collaboration ─────────────────────────────────────────────────
+  { name: "Microsoft 365",    category: "saas",           risk_level: "medium",
+    signals: [
+      { source: "spf",    test: (v) => /spf\.protection\.outlook\.com/.test(v) },
+      { source: "mx",     test: (v) => /\.protection\.outlook\.com/.test(v) },
+      { source: "dkim",   test: (v) => /^selector[12]$/.test(v) },
+      { source: "csp",    test: (v) => /outlook\.com|office365\.com|microsoft\.com/.test(v) },
+    ],
+  },
+  { name: "Google Workspace", category: "saas",           risk_level: "medium",
+    signals: [
+      { source: "spf",    test: (v) => /_spf\.google\.com/.test(v) },
+      { source: "mx",     test: (v) => /aspmx\.l\.google\.com|smtp\.google\.com|googlemail\.com/.test(v) },
+      { source: "dkim",   test: (v) => /^google$/.test(v) },
+      { source: "ns",     test: (v) => /\.google\.com$/.test(v) },
+    ],
+  },
+  { name: "Proton Mail",      category: "email",          risk_level: "low",
+    signals: [
+      { source: "mx",     test: (v) => /protonmail\.ch|proton\.me/.test(v) },
+    ],
+  },
+  { name: "Zoho Mail",        category: "email",          risk_level: "low",
+    signals: [
+      { source: "spf",    test: (v) => /zoho\.com/.test(v) },
+      { source: "mx",     test: (v) => /zoho\.com|zohomail\.com/.test(v) },
+    ],
+  },
+  { name: "Fastmail",         category: "email",          risk_level: "low",
+    signals: [
+      { source: "mx",     test: (v) => /fastmail\.com|messagingengine\.com/.test(v) },
+    ],
+  },
+
+  // ── Email Marketing / Transactional ──────────────────────────────────────
+  { name: "SendGrid",         category: "saas",           risk_level: "low",
+    signals: [
+      { source: "spf",    test: (v) => /sendgrid\.net/.test(v) },
+      { source: "dkim",   test: (v) => /^sendgrid$/.test(v) },
+    ],
+  },
+  { name: "Mailchimp",        category: "saas",           risk_level: "low",
+    signals: [
+      { source: "spf",    test: (v) => /servers\.mcsv\.net|mandrillapp\.com/.test(v) },
+      { source: "dkim",   test: (v) => /^mailchimp$/.test(v) },
+    ],
+  },
+  { name: "Mailgun",          category: "saas",           risk_level: "low",
+    signals: [
+      { source: "spf",    test: (v) => /mailgun\.org/.test(v) },
+      { source: "mx",     test: (v) => /mailgun\.org/.test(v) },
+    ],
+  },
+  { name: "Amazon SES",       category: "cloud",          risk_level: "low",
+    signals: [
+      { source: "spf",    test: (v) => /amazonses\.com/.test(v) },
+      { source: "mx",     test: (v) => /amazonses\.com/.test(v) },
+    ],
+  },
+  { name: "Brevo",            category: "saas",           risk_level: "low",
+    signals: [
+      { source: "spf",    test: (v) => /sendinblue\.com|brevo\.com/.test(v) },
+    ],
+  },
+  { name: "SparkPost",        category: "saas",           risk_level: "low",
+    signals: [
+      { source: "spf",    test: (v) => /sparkpostmail\.com|sp\.mta\.com/.test(v) },
+    ],
+  },
+
+  // ── CRM / CX / Support ────────────────────────────────────────────────────
+  { name: "HubSpot",          category: "crm",            risk_level: "medium",
+    signals: [
+      { source: "spf",    test: (v) => /hubspot\.com/.test(v) },
+      { source: "cname",  test: (v) => /hubspotpagebuilder\.com|hs-sites\.com|hsforms\.net|hubspot\.net/.test(v) },
+      { source: "csp",    test: (v) => /hubspot\.com/.test(v) },
+    ],
+  },
+  { name: "Salesforce",       category: "crm",            risk_level: "medium",
+    signals: [
+      { source: "spf",    test: (v) => /salesforce\.com/.test(v) },
+      { source: "cname",  test: (v) => /salesforce\.com|force\.com/.test(v) },
+      { source: "csp",    test: (v) => /salesforce\.com/.test(v) },
+    ],
+  },
+  { name: "Zendesk",          category: "saas",           risk_level: "medium",
+    signals: [
+      { source: "spf",    test: (v) => /zendesk\.com/.test(v) },
+      { source: "cname",  test: (v) => /zendesk\.com/.test(v) },
+      { source: "mx",     test: (v) => /mail\.zendesk\.com/.test(v) },
+      { source: "server", test: (v) => /zendesk/.test(v) },
+    ],
+  },
+  { name: "Intercom",         category: "saas",           risk_level: "medium",
+    signals: [
+      { source: "spf",    test: (v) => /intercommail\.com/.test(v) },
+      { source: "cname",  test: (v) => /intercom\.io|intercomassets\.com/.test(v) },
+    ],
+  },
+  { name: "Freshdesk",        category: "saas",           risk_level: "low",
+    signals: [
+      { source: "spf",    test: (v) => /freshdesk\.com|freshworks\.com/.test(v) },
+      { source: "cname",  test: (v) => /freshdesk\.com|freshworks\.com/.test(v) },
+    ],
+  },
+
+  // ── Marketing Automation ──────────────────────────────────────────────────
+  { name: "Marketo",          category: "saas",           risk_level: "medium",
+    signals: [
+      { source: "spf",    test: (v) => /mktomail\.com/.test(v) },
+      { source: "cname",  test: (v) => /marketo\.com|mktoweb\.com/.test(v) },
+    ],
+  },
+  { name: "Klaviyo",          category: "saas",           risk_level: "low",
+    signals: [
+      { source: "spf",    test: (v) => /klaviyo\.com/.test(v) },
+      { source: "dkim",   test: (v) => /^k1$/.test(v) },
+    ],
+  },
+
+  // ── Infrastructure / CDN ──────────────────────────────────────────────────
+  { name: "Cloudflare",       category: "cdn",            risk_level: "low",
+    signals: [
+      { source: "ns",     test: (v) => /cloudflare\.com/.test(v) },
+      { source: "server", test: (v) => /cloudflare/.test(v) },
+      { source: "tech",   test: (v) => v === "Cloudflare" },
+    ],
+  },
+  { name: "AWS",              category: "cloud",          risk_level: "medium",
+    signals: [
+      { source: "ns",     test: (v) => /awsdns/.test(v) },
+      { source: "cname",  test: (v) => /amazonaws\.com|cloudfront\.net/.test(v) },
+      { source: "spf",    test: (v) => /amazonses\.com/.test(v) },
+    ],
+  },
+  { name: "Azure",            category: "cloud",          risk_level: "medium",
+    signals: [
+      { source: "ns",     test: (v) => /azure-dns\.(com|net|org|info)/.test(v) },
+      { source: "cname",  test: (v) => /azurewebsites\.net|trafficmanager\.net|azureedge\.net/.test(v) },
+    ],
+  },
+  { name: "Google Cloud",     category: "cloud",          risk_level: "medium",
+    signals: [
+      { source: "ns",     test: (v) => /googledomains\.com|dns\.google/.test(v) },
+      { source: "cname",  test: (v) => /\.googleusercontent\.com|storage\.googleapis\.com|appspot\.com/.test(v) },
+    ],
+  },
+  { name: "GitHub Pages",     category: "infrastructure", risk_level: "low",
+    signals: [
+      { source: "cname",  test: (v) => /github\.io/.test(v) },
+    ],
+  },
+  { name: "Vercel",           category: "infrastructure", risk_level: "low",
+    signals: [
+      { source: "cname",  test: (v) => /vercel\.app|\.vercel\.com|now\.sh/.test(v) },
+    ],
+  },
+  { name: "Netlify",          category: "infrastructure", risk_level: "low",
+    signals: [
+      { source: "cname",  test: (v) => /netlify\.app|netlify\.com/.test(v) },
+    ],
+  },
+  { name: "Fastly",           category: "cdn",            risk_level: "low",
+    signals: [
+      { source: "cname",  test: (v) => /fastly\.net/.test(v) },
+      { source: "server", test: (v) => /fastly/.test(v) },
+    ],
+  },
+  { name: "Akamai",           category: "cdn",            risk_level: "low",
+    signals: [
+      { source: "cname",  test: (v) => /akamai(edge)?\.net|akamaized\.net/.test(v) },
+    ],
+  },
+  { name: "DigitalOcean",     category: "cloud",          risk_level: "medium",
+    signals: [
+      { source: "ns",     test: (v) => /digitalocean\.com/.test(v) },
+      { source: "cname",  test: (v) => /digitalocean\.com|ondigitalocean\.app/.test(v) },
+    ],
+  },
+
+  // ── Dev / DevOps ─────────────────────────────────────────────────────────
+  { name: "Atlassian",        category: "devops",         risk_level: "medium",
+    signals: [
+      { source: "spf",    test: (v) => /atlassian\.com/.test(v) },
+      { source: "cname",  test: (v) => /atlassian\.com|atlassian\.net/.test(v) },
+      { source: "mx",     test: (v) => /atlassian\.com/.test(v) },
+    ],
+  },
+
+  // ── E-commerce / Payments ─────────────────────────────────────────────────
+  { name: "Shopify",          category: "saas",           risk_level: "low",
+    signals: [
+      { source: "cname",  test: (v) => /myshopify\.com|shopify\.com/.test(v) },
+      { source: "server", test: (v) => /shopify/.test(v) },
+    ],
+  },
+  { name: "Stripe",           category: "saas",           risk_level: "medium",
+    signals: [
+      { source: "csp",    test: (v) => /stripe\.com|js\.stripe\.com/.test(v) },
+    ],
+  },
+  { name: "PayPal",           category: "saas",           risk_level: "medium",
+    signals: [
+      { source: "csp",    test: (v) => /paypal\.com|paypalobjects\.com/.test(v) },
+    ],
+  },
+
+  // ── Email Security ────────────────────────────────────────────────────────
+  { name: "Proofpoint",       category: "security",       risk_level: "low",
+    signals: [
+      { source: "mx",     test: (v) => /pphosted\.com/.test(v) },
+    ],
+  },
+  { name: "Mimecast",         category: "security",       risk_level: "low",
+    signals: [
+      { source: "mx",     test: (v) => /mimecast\.com/.test(v) },
+    ],
+  },
+  { name: "Barracuda",        category: "security",       risk_level: "low",
+    signals: [
+      { source: "mx",     test: (v) => /barracudanetworks\.com/.test(v) },
+    ],
+  },
+];
+
+/**
+ * Vendor Risk Module — pure computation, zero network I/O.
+ * Extracts vendor signals from existing scan module data and
+ * maps them to known third-party providers.
+ */
+function runVendorModule(modules) {
+  try {
+    // ── Collect signal strings from existing module data ───────────────────
+    const signals = {
+      spf:    [],   // from SPF record (include: / redirect: / exists: tokens)
+      mx:     [],   // MX host values
+      ns:     [],   // nameserver values
+      dkim:   [],   // DKIM selector name (lowercased)
+      csp:    [],   // Content-Security-Policy header value
+      server: [],   // Server header value
+      cname:  [],   // CNAME targets (takeover risks + exposure probe + bruteforce)
+      tech:   [],   // technology names (verbatim, from technology_detection)
+    };
+
+    // SPF record — covers include:, redirect:, exists: tokens
+    const spfRecord = (modules?.email_security?.spf?.record ||
+                       modules?.email_security_intelligence?.spf?.record || "").toLowerCase();
+    if (spfRecord) signals.spf.push(spfRecord);
+
+    // MX records
+    for (const mx of (modules?.dns?.mx_records || [])) {
+      if (mx?.value) signals.mx.push(mx.value.toLowerCase());
+    }
+
+    // Nameservers
+    for (const ns of (modules?.dns?.nameservers || [])) {
+      if (ns) signals.ns.push(ns.toLowerCase());
+    }
+
+    // DKIM selector
+    const dkimSelector = (modules?.email_security?.dkim?.selector ||
+                          modules?.email_security_intelligence?.dkim?.selector || "").toLowerCase();
+    if (dkimSelector) signals.dkim.push(dkimSelector);
+
+    // CSP header
+    const csp = (modules?.headers?.values?.["content-security-policy"] || "").toLowerCase();
+    if (csp) signals.csp.push(csp);
+
+    // Server header (prefer tech_detection which is more reliable)
+    const serverVal = (modules?.technology_detection?.server ||
+                       modules?.headers?.values?.server || "").toLowerCase();
+    if (serverVal) signals.server.push(serverVal);
+
+    // CNAMEs from takeover risks
+    for (const risk of (modules?.subdomain_takeover?.risks || [])) {
+      if (risk?.cname) signals.cname.push(risk.cname.toLowerCase());
+    }
+    // CNAMEs from asset exposure probe
+    for (const asset of (modules?.asset_exposure?.assets || [])) {
+      if (asset?.cname) signals.cname.push(asset.cname.toLowerCase());
+    }
+    // CNAMEs from brute-force results
+    for (const item of (modules?.dns_bruteforce?.items || [])) {
+      if (item?.cname) signals.cname.push(item.cname.toLowerCase());
+    }
+
+    // Technologies (verbatim strings from technology_detection)
+    for (const tech of (modules?.technology_detection?.technologies || [])) {
+      if (tech) signals.tech.push(tech);
+    }
+
+    // ── Match signatures ──────────────────────────────────────────────────
+    const vendors = [];
+
+    for (const sig of VENDOR_SIGNATURES) {
+      const evidence = [];
+
+      for (const check of sig.signals) {
+        const haystack = signals[check.source] || [];
+        for (const val of haystack) {
+          if (check.test(val)) {
+            // Truncate long CSP / SPF values for readability
+            const detail = val.length > 120 ? val.slice(0, 120) + "…" : val;
+            evidence.push({ source: check.source, detail });
+            break;   // one match per source type per vendor is sufficient
+          }
+        }
+      }
+
+      if (evidence.length > 0) {
+        vendors.push({
+          name:       sig.name,
+          category:   sig.category,
+          risk_level: sig.risk_level,
+          evidence,
+          assets:     [],   // populated at API layer by cross-referencing workspace_assets
+        });
+      }
+    }
+
+    return {
+      vendors,
+      total_vendors: vendors.length,
+      source:        "vendor_signal_analysis",
+      error:         null,
+    };
+  } catch (err) {
+    return {
+      vendors:       [],
+      total_vendors: 0,
+      source:        "vendor_signal_analysis",
+      error:         err?.message ?? "Vendor module failed",
+    };
+  }
+}
+
 // ── Module 7: Asset Exposure Engine ──────────────────────────────────────────
 
 /**
@@ -4112,6 +4462,11 @@ async function runScanEngine(scanId, domainId, domain, env) {
     // Estimates subrequest usage across all modules and warns if close to the
     // Cloudflare Worker free-plan 50-subrequest limit.
     modules.scan_budget = computeScanBudget(bruteforceResult.checked);
+
+    // Phase 7e: Vendor Risk — pure computation, zero I/O.
+    // Detects third-party vendors from signals already captured in modules:
+    // SPF, MX, NS, DKIM, CSP, Server header, CNAME targets, tech detection.
+    modules.vendor_risk = runVendorModule(modules);
 
     const completedAt = new Date().toISOString();
 
@@ -6689,6 +7044,140 @@ export default {
           return json({ error: "Database error" }, 500);
         }
       }
+    }
+
+    // ── Vendor Risk routes ─────────────────────────────────────────────────
+    // GET /api/workspaces/:id/vendors           → vendor list
+    // GET /api/workspaces/:id/vendors/summary   → counts by category
+    const vendorsMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/vendors(\/summary)?$/);
+    if (vendorsMatch && request.method === "GET") {
+      const wsId      = vendorsMatch[1];
+      const isSummary = !!vendorsMatch[2];
+
+      // 1. Fetch all domain IDs in this workspace
+      const domainsResult = await env.cybermeters_db
+        .prepare("SELECT domain_id FROM workspace_domains WHERE workspace_id = ?")
+        .bind(wsId)
+        .all();
+
+      const domainIds = (domainsResult.results || []).map((r) => r.domain_id);
+
+      if (domainIds.length === 0) {
+        if (isSummary) {
+          return json({
+            workspace_id:             wsId,
+            total_vendors:            0,
+            cloud_providers:          0,
+            saas_providers:           0,
+            infrastructure_providers: 0,
+            email_providers:          0,
+            cdn_providers:            0,
+            security_vendors:         0,
+            crm_providers:            0,
+            devops_providers:         0,
+          });
+        }
+        return json({ workspace_id: wsId, vendors: [] });
+      }
+
+      // 2. For each domain, find the latest completed scan and read its R2 report.
+      //    Run all D1 lookups in parallel, then R2 fetches in parallel.
+      const latestScanQueries = domainIds.map((did) =>
+        env.cybermeters_db
+          .prepare(
+            "SELECT id FROM scans WHERE domain_id = ? AND status = 'completed' ORDER BY created_at DESC LIMIT 1"
+          )
+          .bind(did)
+          .first()
+      );
+      const latestScans = await Promise.allSettled(latestScanQueries);
+
+      const scanIds = latestScans
+        .map((r) => (r.status === "fulfilled" && r.value ? r.value.id : null))
+        .filter(Boolean);
+
+      // 3. Fetch R2 reports in parallel
+      const r2Fetches = scanIds.map((sid) =>
+        env.cybermeters_reports.get(`reports/${sid}.json`)
+      );
+      const r2Results = await Promise.allSettled(r2Fetches);
+
+      // 4. Parse vendor_risk from each report and merge, deduping by vendor name.
+      //    If the same vendor appears in multiple domain scans, merge their assets lists.
+      const vendorMap = new Map(); // name → vendor object
+
+      for (let i = 0; i < r2Results.length; i++) {
+        if (r2Results[i].status !== "fulfilled" || !r2Results[i].value) continue;
+        let report;
+        try {
+          report = await r2Results[i].value.json();
+        } catch {
+          continue;
+        }
+        const vendorRisk = report?.modules?.vendor_risk;
+        if (!vendorRisk?.vendors) continue;
+        const domain = report.domain || "";
+
+        for (const v of vendorRisk.vendors) {
+          if (vendorMap.has(v.name)) {
+            const existing = vendorMap.get(v.name);
+            // Merge: escalate risk_level if higher, append domain to assets
+            const riskOrder = { low: 0, medium: 1, high: 2, critical: 3 };
+            if ((riskOrder[v.risk_level] ?? 0) > (riskOrder[existing.risk_level] ?? 0)) {
+              existing.risk_level = v.risk_level;
+            }
+            if (domain && !existing.assets.includes(domain)) {
+              existing.assets.push(domain);
+            }
+          } else {
+            vendorMap.set(v.name, {
+              name:       v.name,
+              category:   v.category,
+              risk_level: v.risk_level,
+              assets:     domain ? [domain] : [],
+            });
+          }
+        }
+      }
+
+      const vendors = Array.from(vendorMap.values()).sort((a, b) => {
+        const riskOrder = { critical: 0, high: 1, medium: 2, low: 3 };
+        return (riskOrder[a.risk_level] ?? 4) - (riskOrder[b.risk_level] ?? 4);
+      });
+
+      if (isSummary) {
+        const counts = {
+          cloud_providers:          0,
+          saas_providers:           0,
+          infrastructure_providers: 0,
+          email_providers:          0,
+          cdn_providers:            0,
+          security_vendors:         0,
+          crm_providers:            0,
+          devops_providers:         0,
+        };
+        const catKey = {
+          cloud:          "cloud_providers",
+          saas:           "saas_providers",
+          infrastructure: "infrastructure_providers",
+          email:          "email_providers",
+          cdn:            "cdn_providers",
+          security:       "security_vendors",
+          crm:            "crm_providers",
+          devops:         "devops_providers",
+        };
+        for (const v of vendors) {
+          const key = catKey[v.category];
+          if (key) counts[key]++;
+        }
+        return json({
+          workspace_id: wsId,
+          total_vendors: vendors.length,
+          ...counts,
+        });
+      }
+
+      return json({ workspace_id: wsId, vendors });
     }
 
     // Routes that carry a workspace ID
