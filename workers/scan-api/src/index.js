@@ -11399,6 +11399,33 @@ const PLAN_LIMITS = {
   },
 };
 
+const PLAN_FEATURES = {
+  free: [],
+  starter: [
+    "business_risk_score",
+  ],
+  professional: [
+    "business_risk_score",
+    "cyber_essentials",
+    "vendor_risk",
+  ],
+  business: [
+    "business_risk_score",
+    "cyber_essentials",
+    "vendor_risk",
+    "portfolio_monitoring",
+    "white_label",
+  ],
+  enterprise: [
+    "business_risk_score",
+    "cyber_essentials",
+    "vendor_risk",
+    "portfolio_monitoring",
+    "white_label",
+    "msp_dashboard",
+  ],
+};
+
 function normalizePlan(plan) {
   const value = String(plan || "free").trim().toLowerCase();
   return Object.prototype.hasOwnProperty.call(PLAN_LIMITS, value) ? value : "free";
@@ -11411,6 +11438,16 @@ function isExpiredDate(value) {
 }
 
 async function getEffectivePlan(userId, env) {
+  // Canonical plan resolver for all application billing decisions.
+  // Stripe should update subscription_accounts in a future sprint; runtime
+  // requests must continue to read through this helper rather than Stripe.
+  //
+  // Current behavior:
+  // - missing user_id, missing subscription row, D1 errors -> free
+  // - cancelled or expired status -> free
+  // - expired current_period_end -> free
+  // - expired trial_ends_at for trial status -> free
+  // - otherwise normalize and return subscription_accounts.plan
   if (!userId) return "free";
   try {
     const sub = await env.cybermeters_db
@@ -11433,6 +11470,16 @@ async function getEffectivePlan(userId, env) {
   } catch {
     return "free";
   }
+}
+
+function getPlanFeatures(plan) {
+  const normalized = normalizePlan(plan);
+  return [...(PLAN_FEATURES[normalized] ?? PLAN_FEATURES.free)];
+}
+
+function hasFeatureEntitlement(plan, featureKey) {
+  if (!featureKey || typeof featureKey !== "string") return false;
+  return getPlanFeatures(plan).includes(featureKey);
 }
 
 function getPlanLimits(plan) {
@@ -12238,6 +12285,23 @@ export default {
             trial_ends_at:    null,
             current_period_end: null,
           },
+        });
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
+    // ── GET /api/account/subscription/features ──────────────────────────
+    // Read-only feature entitlement metadata. This exposes the static
+    // PLAN_FEATURES result for the effective plan; it does not gate features.
+    if (request.method === "GET" && url.pathname === "/api/account/subscription/features") {
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      try {
+        const plan = await getEffectivePlan(user.id, env);
+        return json({
+          plan,
+          features: getPlanFeatures(plan),
         });
       } catch (e) {
         return json({ error: e.message }, 500);
