@@ -129,6 +129,8 @@ function UsageBar({ label, used, limit, note }) {
 function PlanLimitsCard({ planLimits }) {
   if (!planLimits) return null
   const { plan, limits, usage } = planLimits
+  const unlimited = (n) => n >= 999999
+
   return (
     <div className="card mb-6">
       <div className="flex items-center gap-2.5 mb-5 pb-4 border-b border-gray-100">
@@ -140,27 +142,37 @@ function PlanLimitsCard({ planLimits }) {
           <PlanBadge plan={plan} />
         </div>
       </div>
+
+      {/* Workspaces — account-level limit, correctly comparable to usage */}
       <UsageBar
         label="Workspaces"
         used={usage.workspaces}
         limit={limits.workspaces}
       />
-      <UsageBar
-        label="Domains"
-        used={usage.domains}
-        limit={limits.domains}
-      />
-      <UsageBar
-        label="Users"
-        used={usage.users}
-        limit={limits.users}
-      />
-      <div className="flex items-center justify-between text-xs pt-1">
-        <span className="text-gray-600">History</span>
-        <span className="font-semibold text-gray-500">
-          {limits.history_days >= 999999 ? 'Unlimited' : `${limits.history_days} days`}
-        </span>
+
+      {/* Domains & users are enforced per workspace, not account-wide.
+          Show plan allowances as features rather than misleading progress bars. */}
+      <div className="mt-3 space-y-1.5 text-xs text-gray-500 border-t border-gray-50 pt-3">
+        <div className="flex items-center justify-between">
+          <span>Domains per workspace</span>
+          <span className="font-semibold text-gray-700">
+            {unlimited(limits.domains) ? '∞' : `up to ${limits.domains}`}
+          </span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span>Members per workspace</span>
+          <span className="font-semibold text-gray-700">
+            {unlimited(limits.users) ? '∞' : `up to ${limits.users}`}
+          </span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span>History</span>
+          <span className="font-semibold text-gray-700">
+            {unlimited(limits.history_days) ? 'Unlimited' : `${limits.history_days} days`}
+          </span>
+        </div>
       </div>
+
       {plan === 'free' || plan === 'starter' ? (
         <div className="mt-4 pt-4 border-t border-gray-50">
           <p className="text-xs text-brand-600 font-medium">Upgrade for higher limits →</p>
@@ -175,12 +187,12 @@ export default function AccountPage() {
   const { user: authUser, login } = useAuth()
 
   // Remote state
-  const [profile,       setProfile]       = useState(null)
-  const [subscriptions, setSubscriptions] = useState([])
-  const [planLimits,    setPlanLimits]    = useState(null)
-  const [apiTokens,     setApiTokens]     = useState([])
-  const [loading,       setLoading]       = useState(true)
-  const [loadError,     setLoadError]     = useState(null)
+  const [profile,      setProfile]      = useState(null)
+  const [subscription, setSubscription] = useState(null)   // singular — backend returns { subscription: {...} }
+  const [planLimits,   setPlanLimits]   = useState(null)
+  const [apiTokens,    setApiTokens]    = useState([])
+  const [loading,      setLoading]      = useState(true)
+  const [loadError,    setLoadError]    = useState(null)
 
   // Edit form state (synced from profile on load)
   const [form, setForm] = useState({
@@ -228,7 +240,8 @@ export default function AccountPage() {
         }
 
         if (subRes.status === 'fulfilled') {
-          setSubscriptions(subRes.value.subscriptions || [])
+          // Backend returns { subscription: {...} } — singular object, not an array.
+          setSubscription(subRes.value.subscription || null)
         }
         if (tokenRes.status === 'fulfilled') {
           setApiTokens(tokenRes.value.tokens || [])
@@ -459,36 +472,44 @@ export default function AccountPage() {
               <PlanLimitsCard planLimits={planLimits} />
               <Section icon={CreditCard} title="Subscription">
 
-                {subscriptions.length === 0 ? (
+                {!subscription ? (
                   <div className="text-center py-6">
                     <Briefcase className="w-8 h-8 text-gray-200 mx-auto mb-2" />
-                    <p className="text-sm text-gray-400">No workspaces found.</p>
-                    <p className="text-xs text-gray-300 mt-1">Create a workspace to see subscription details.</p>
+                    <p className="text-sm text-gray-400">No subscription found.</p>
+                    <p className="text-xs text-gray-300 mt-1">Your account is on the free plan.</p>
                   </div>
                 ) : (
-                  <ul className="space-y-3">
-                    {subscriptions.map(sub => (
-                      <li key={sub.id} className="p-3.5 rounded-xl border border-gray-100 bg-gray-50/50">
-                        <div className="flex items-start justify-between gap-2 mb-2">
-                          <div className="min-w-0">
-                            <p className="text-sm font-semibold text-gray-900 truncate">{sub.workspace_name}</p>
-                            <p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium mt-0.5">{sub.role}</p>
-                          </div>
-                          <PlanBadge plan={sub.plan} />
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <StatusDot status={sub.status} />
-                          {sub.expires_at ? (
-                            <span className="text-[10px] text-gray-400">
-                              Expires {new Date(sub.expires_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-                            </span>
-                          ) : (
-                            <span className="text-[10px] text-gray-400">No expiry</span>
-                          )}
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
+                  <div className="p-3.5 rounded-xl border border-gray-100 bg-gray-50/50 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-gray-500">Plan</span>
+                      <PlanBadge plan={subscription.plan} />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-gray-500">Status</span>
+                      <StatusDot status={subscription.status} />
+                    </div>
+                    {subscription.billing_provider && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-gray-500">Billing</span>
+                        <span className="text-xs font-medium text-gray-700 capitalize">{subscription.billing_provider}</span>
+                      </div>
+                    )}
+                    {subscription.current_period_end ? (
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-gray-500">Renews</span>
+                        <span className="text-xs text-gray-400">
+                          {new Date(subscription.current_period_end).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </span>
+                      </div>
+                    ) : subscription.trial_ends_at ? (
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-gray-500">Trial ends</span>
+                        <span className="text-xs text-gray-400">
+                          {new Date(subscription.trial_ends_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </span>
+                      </div>
+                    ) : null}
+                  </div>
                 )}
 
                 <div className="mt-5 p-4 rounded-xl bg-brand-50 border border-brand-100">

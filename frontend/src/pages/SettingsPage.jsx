@@ -315,14 +315,34 @@ export default function SettingsPage() {
           </div>
           {usage && (
             <div className="pt-4 border-t border-gray-100 space-y-3">
-              <UsageLine label="Workspaces" used={usage.usage?.workspaces || 0} limit={usage.limits?.workspaces || 0} />
-              <UsageLine label="Domains" used={usage.usage?.domains || 0} limit={usage.limits?.domains || 0} />
-              <UsageLine label="Users" used={usage.usage?.users || 0} limit={usage.limits?.users || 0} />
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-gray-500">History</span>
-                <span className="font-semibold text-gray-700">
-                  {usage.limits?.history_days >= 999999 ? 'Unlimited' : `${usage.limits?.history_days || 30} Days`}
-                </span>
+              {/* Workspaces: account-level count vs account-level limit — correctly comparable */}
+              <UsageLine
+                label="Workspaces"
+                used={usage.usage?.workspaces || 0}
+                limit={usage.limits?.workspaces || 0}
+              />
+              {/* Domains and users are enforced per workspace, not account-wide.
+                  Showing a cross-workspace total against a per-workspace limit is
+                  misleading — display as plan allowances instead. */}
+              <div className="space-y-1 text-xs text-gray-500">
+                <div className="flex items-center justify-between">
+                  <span>Domains per workspace</span>
+                  <span className="font-semibold text-gray-700">
+                    {(usage.limits?.domains ?? 0) >= 999999 ? '∞' : `up to ${usage.limits?.domains ?? 0}`}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Members per workspace</span>
+                  <span className="font-semibold text-gray-700">
+                    {(usage.limits?.users ?? 0) >= 999999 ? '∞' : `up to ${usage.limits?.users ?? 0}`}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>History</span>
+                  <span className="font-semibold text-gray-700">
+                    {(usage.limits?.history_days ?? 0) >= 999999 ? 'Unlimited' : `${usage.limits?.history_days || 30} days`}
+                  </span>
+                </div>
               </div>
               <button type="button" disabled className="btn-primary w-full opacity-60 cursor-not-allowed">
                 Upgrade coming soon
@@ -338,10 +358,16 @@ export default function SettingsPage() {
           </div>
           <Field label="Base URL">
             <input
-              className="input mono text-xs"
-              value={import.meta.env.VITE_API_BASE_URL || 'https://cybermeters-platform.ttrnn47.workers.dev/api'}
+              className={`input mono text-xs ${!import.meta.env.VITE_API_BASE_URL ? 'text-red-500' : ''}`}
+              value={import.meta.env.VITE_API_BASE_URL || ''}
+              placeholder="VITE_API_BASE_URL is not set"
               readOnly
             />
+            {!import.meta.env.VITE_API_BASE_URL && (
+              <p className="text-xs text-red-500 mt-1">
+                VITE_API_BASE_URL is not configured. Set it in your .env file.
+              </p>
+            )}
           </Field>
         </div>
       </div>

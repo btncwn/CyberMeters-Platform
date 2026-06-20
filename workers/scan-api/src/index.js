@@ -5943,6 +5943,19 @@ async function runScanEngine(scanId, domainId, workspaceId, domain, env) {
       .bind(score, risk_level, scanId)
       .run();
 
+    if (workspaceId) {
+      try {
+        await env.cybermeters_db
+          .prepare(
+            `INSERT OR IGNORE INTO historical_scores
+               (id, workspace_id, domain_id, scan_id, domain, score, rating, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+          )
+          .bind(createId("hscore"), workspaceId, domainId, scanId, domain, score, risk_level, completedAt)
+          .run();
+      } catch { /* non-fatal — scan completion remains source of truth */ }
+    }
+
     // Persist findings to D1
     for (const f of findings) {
       await env.cybermeters_db
@@ -7081,7 +7094,10 @@ async function buildScorecardData(wsId, env) {
     );
   }
   if (certSignals.length > 0 && certRiskLevel !== 'critical') {
-    const sigPreview = certSignals.slice(0, 2).join(', ');
+    const sigPreview = certSignals
+      .slice(0, 2)
+      .map((sig) => typeof sig === 'string' ? sig : (sig.description || sig.signal || 'certificate signal'))
+      .join(', ');
     attentionRequired.push(
       `Certificate intelligence flagged ${certSignals.length} suspicious signal${certSignals.length !== 1 ? 's' : ''}: ${sigPreview}.`
     );
@@ -9989,20 +10005,31 @@ async function isPlatformAdmin(user, env) {
   return !!user?.email && allowlist.includes(user.email.toLowerCase());
 }
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin":  "*",
-  "Access-Control-Allow-Methods": "GET, POST, PATCH, PUT, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
-};
+// corsHeaders is request-scoped — see buildCorsHeaders(env) below.
+// The module-level fallback is used only outside the fetch handler (e.g. json() default).
+function buildCorsHeaders(env) {
+  return {
+    "Access-Control-Allow-Origin":  (env && env.ALLOWED_ORIGIN) || "https://app.cybermeters.com",
+    "Access-Control-Allow-Methods": "GET, POST, PATCH, PUT, DELETE, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  };
+}
 
-function json(data, status = 200) {
-  return Response.json(data, { status, headers: corsHeaders });
+// Module-level json() uses the production default — overridden per-request inside fetch().
+function json(data, status = 200, _corsHeaders = buildCorsHeaders(null)) {
+  return Response.json(data, { status, headers: _corsHeaders });
 }
 
 // ── Worker Handler ────────────────────────────────────────────────────────────
 
 export default {
   async fetch(request, env, ctx) {
+    // Build CORS headers once per request, honouring the ALLOWED_ORIGIN binding.
+    const corsHeaders = buildCorsHeaders(env);
+    // Shadow the module-level json() so every route in this handler uses the
+    // correct per-request origin without touching individual call sites.
+    const json = (data, status = 200) => Response.json(data, { status, headers: corsHeaders });
+
     const url = new URL(request.url);
 
     // ── OPTIONS preflight ───────────────────────────────────────────────
@@ -10388,8 +10415,10 @@ export default {
           usage: {
             ...context.usage,
             api_tokens: entitlementUsage.api_tokens,
-            max_domains_in_workspace: context.usage.domains,
-            max_scheduled_reports_in_workspace: 0,
+            // These fields reflect plan limits (maximums), not usage counts.
+            // Formerly misnamed: max_domains_in_workspace was set to usage.domains (wrong).
+            domains_per_workspace_limit: context.limits.domains,
+            scheduled_reports_per_workspace_limit: context.limits.scheduled_reports_per_workspace,
           },
         });
       } catch (e) {
@@ -13667,7 +13696,7 @@ export default {
             .bind(workspaceId)
             .first(),
           env.cybermeters_db
-            .prepare("SELECT COUNT(DISTINCT vendor_name) AS cnt FROM vendor_findings WHERE workspace_id = ?")
+            .prepare("SELECT COUNT(*) AS cnt FROM workspace_vendors WHERE workspace_id = ? AND status = 'active'")
             .bind(workspaceId)
             .first(),
           env.cybermeters_db

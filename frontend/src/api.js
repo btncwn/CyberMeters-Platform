@@ -1,8 +1,12 @@
 import { TOKEN_KEY, USER_KEY } from './context/authKeys'
 
-const BASE =
-  import.meta.env.VITE_API_BASE_URL ||
-  'https://cybermeters-platform.ttrnn47.workers.dev/api'
+const BASE = import.meta.env.VITE_API_BASE_URL
+if (!BASE) {
+  console.error(
+    '[CyberMeters] VITE_API_BASE_URL is not set. ' +
+    'Add it to your .env file, e.g. VITE_API_BASE_URL=https://api.cybermeters.com'
+  )
+}
 
 function getAuthHeaders() {
   const token = localStorage.getItem(TOKEN_KEY)
