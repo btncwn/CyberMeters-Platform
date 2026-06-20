@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { Link } from 'react-router-dom'
 import { FileText, Download, Plus, RefreshCw, AlertTriangle, Clock, Calendar, Trash2, ToggleLeft, ToggleRight } from 'lucide-react'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { api } from '../../api'
@@ -411,17 +412,22 @@ export default function WorkspaceReportsPage() {
         <div className="card p-16 text-center">
           <FileText className="w-12 h-12 text-gray-200 mx-auto mb-4" />
           <p className="text-gray-500 font-medium mb-1">No reports generated yet.</p>
-          <p className="text-sm text-gray-400 mb-6">Generate your first executive report.</p>
-          <button
-            onClick={handleGenerate}
-            disabled={generating}
-            className="btn-primary mx-auto"
-          >
-            {generating
-              ? <><RefreshCw className="w-4 h-4 animate-spin" /> Generating…</>
-              : <><Plus className="w-4 h-4" /> Generate Report</>
-            }
-          </button>
+          <p className="text-sm text-gray-400 mb-6">Complete the guided setup to create your first assessment and report.</p>
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <Link to="/onboarding" className="btn-primary">
+              Get Started
+            </Link>
+            <button
+              onClick={handleGenerate}
+              disabled={generating}
+              className="btn-secondary"
+            >
+              {generating
+                ? <><RefreshCw className="w-4 h-4 animate-spin" /> Generating…</>
+                : <><Plus className="w-4 h-4" /> Generate manually</>
+              }
+            </button>
+          </div>
         </div>
       ) : (
         <div className="card overflow-hidden">

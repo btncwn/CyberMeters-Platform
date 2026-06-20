@@ -66,7 +66,7 @@ export default function ScansPage() {
             icon={ScanLine}
             title="No scans yet"
             description="Run your first domain security scan to start monitoring your attack surface."
-            action={<Link to="/scans/new" className="btn-primary">Start your first scan</Link>}
+            action={<Link to="/onboarding" className="btn-primary">Get Started</Link>}
           />
         ) : (
           <table className="w-full data-table">

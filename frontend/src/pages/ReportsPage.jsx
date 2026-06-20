@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import { FileBarChart2 } from 'lucide-react'
 
 export default function ReportsPage() {
@@ -12,11 +13,14 @@ export default function ReportsPage() {
           <FileBarChart2 className="w-7 h-7 text-brand-600" />
         </div>
         <div>
-          <h2 className="text-lg font-bold text-gray-900">Reports coming soon</h2>
+          <h2 className="text-lg font-bold text-gray-900">No reports yet</h2>
           <p className="text-sm text-gray-400 mt-2 max-w-sm">
-            Generate executive PDF reports summarising your cyber risk posture and remediation roadmap.
+            Complete the guided setup to run your first assessment and generate an executive report.
           </p>
         </div>
+        <Link to="/onboarding" className="btn-primary">
+          Get Started
+        </Link>
       </div>
     </div>
   )

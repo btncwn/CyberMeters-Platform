@@ -14,6 +14,7 @@ import SchedulesPage from './pages/SchedulesPage'
 import SettingsPage from './pages/SettingsPage'
 import AccuracyPage from './pages/AccuracyPage'
 import WorkspacesPage from './pages/WorkspacesPage'
+import OnboardingPage from './pages/OnboardingPage'
 import WorkspaceDetailPage from './pages/WorkspaceDetailPage'
 import IntelligencePage from './pages/IntelligencePage'
 import WorkspaceDashboard   from './pages/ws/WorkspaceDashboard'
@@ -119,6 +120,7 @@ function AppRoutes() {
       >
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard"               element={<Dashboard />}           />
+        <Route path="onboarding"              element={<OnboardingPage />}      />
         <Route path="portfolio"               element={<PortfolioPage />}        />
         <Route path="portfolio/risk"          element={<PortfolioRiskPage />}    />
         <Route path="workspaces"              element={<WorkspacesPage />}      />

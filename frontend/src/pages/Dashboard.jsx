@@ -325,16 +325,16 @@ function NoWorkspaceState() {
         <h3 className="text-lg font-semibold text-gray-900 mb-2">No workspace selected</h3>
         <p className="text-sm text-gray-400 mb-6 max-w-sm">
           The dashboard is scoped to a workspace. Select one from the workspace selector in the top nav,
-          or create a new workspace to get started.
+          or use the guided setup to create your first workspace.
         </p>
         <div className="flex items-center gap-3">
-          <Link to="/workspaces" className="btn-primary">
+          <Link to="/onboarding" className="btn-primary">
+            <ChevronRight className="w-4 h-4" />
+            Get Started
+          </Link>
+          <Link to="/workspaces" className="btn-secondary">
             <Briefcase className="w-4 h-4" />
             Go to Workspaces
-          </Link>
-          <Link to="/scans/new" className="btn-secondary">
-            <ScanLine className="w-4 h-4" />
-            New Scan
           </Link>
         </div>
       </div>
@@ -350,6 +350,7 @@ export default function Dashboard() {
   const [loading,    setLoading]    = useState(true)
   const [error,      setError]      = useState(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [domainCount, setDomainCount] = useState(null)
 
   // Workspace isolation — read from localStorage; re-derive on storage events
   const [activeWorkspaceId,   setActiveWorkspaceId]   = useState(() => localStorage.getItem('cybermeters_workspace_id'))
@@ -399,10 +400,20 @@ export default function Dashboard() {
     // Security gate — never call global /api/scans when a workspace is set.
     // If no workspace is selected, leave scans empty and show the empty state.
     if (!wsId) {
+      try {
+        const data = await api.getWorkspaces()
+        if ((data.workspaces || []).length === 0) {
+          navigate('/onboarding', { replace: true })
+          return
+        }
+      } catch {
+        // Fall through to the neutral workspace empty state.
+      }
       setLoading(false)
       setRefreshing(false)
       setScans([])
       setReport(null)
+      setDomainCount(null)
       return
     }
 
@@ -410,9 +421,13 @@ export default function Dashboard() {
     else setRefreshing(true)
     setError(null)
     try {
-      const data = await api.getWorkspaceScans(wsId)
+      const [data, domainsData] = await Promise.all([
+        api.getWorkspaceScans(wsId),
+        api.getWorkspaceDomains(wsId).catch(() => ({ domains: [] })),
+      ])
       const list = data.scans || []
       setScans(list)
+      setDomainCount((domainsData.domains || []).length)
 
       // Fetch report for the latest completed scan in this workspace
       const latestCompleted = list.find(s => s.status === 'completed')
@@ -425,7 +440,7 @@ export default function Dashboard() {
       setLoading(false)
       setRefreshing(false)
     }
-  }, [loadReport])
+  }, [loadReport, navigate])
 
   useEffect(() => { load() }, [load])
 
@@ -481,6 +496,20 @@ export default function Dashboard() {
         <div className="flex items-center gap-3 px-4 py-3 bg-red-50 border border-red-100 rounded-xl text-sm text-red-700">
           <AlertCircle className="w-4 h-4 flex-shrink-0" />
           {error}
+        </div>
+      )}
+
+      {domainCount === 0 && (
+        <div className="card p-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-brand-100 bg-brand-50/40">
+          <div>
+            <p className="text-sm font-bold text-gray-900">Finish workspace setup</p>
+            <p className="text-sm text-gray-500 mt-1">
+              Add and verify your first domain to generate a cyber risk assessment.
+            </p>
+          </div>
+          <Link to="/onboarding" className="btn-primary flex-shrink-0">
+            Get Started <ChevronRight className="w-4 h-4" />
+          </Link>
         </div>
       )}
 

@@ -180,13 +180,19 @@ export default function WorkspacesPage() {
           </div>
           <h3 className="text-lg font-semibold text-gray-900 mb-1">No workspaces yet</h3>
           <p className="text-sm text-gray-400 mb-6 max-w-sm">
-            Create a workspace to group domains together and monitor their
-            security posture as a single unit.
+            Get started with a guided setup for your first workspace, domain,
+            verification and scan.
           </p>
-          <button onClick={() => setShowCreate(true)} className="btn-primary">
-            <Plus className="w-4 h-4" />
-            Create your first workspace
-          </button>
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <button onClick={() => navigate('/onboarding')} className="btn-primary">
+              <ChevronRight className="w-4 h-4" />
+              Get Started
+            </button>
+            <button onClick={() => setShowCreate(true)} className="btn-secondary">
+              <Plus className="w-4 h-4" />
+              Create manually
+            </button>
+          </div>
         </div>
       )}
 
