@@ -11530,6 +11530,14 @@ function normalizeBillingInterval(interval) {
   return value === "annual" ? "annual" : "monthly";
 }
 
+function parseCheckoutPlan(plan) {
+  const value = String(plan || "").trim().toLowerCase();
+  if (!value || !Object.prototype.hasOwnProperty.call(BILLING_PLAN_METADATA, value)) {
+    return { ok: false, plan: null };
+  }
+  return { ok: true, plan: value };
+}
+
 function getPublicBillingPlans() {
   return ["free", "starter", "professional", "business", "enterprise"].map((plan) => ({
     key: plan,
@@ -12216,9 +12224,8 @@ export default {
     }
 
     // ── POST /api/billing/checkout ──────────────────────────────────────
-    // Stripe Checkout Foundation v1 skeleton. This validates auth, requested
-    // plan, billing interval, and Stripe environment configuration, but does
-    // not create a Checkout Session yet and never activates plans in D1.
+    // Stripe Checkout Flow v1. Creates a Stripe-hosted Checkout Session via
+    // fetch. D1 subscription activation is intentionally deferred to webhooks.
     if (request.method === "POST" && url.pathname === "/api/billing/checkout") {
       const user = await requireAuth(request, env);
       if (!user) return json({ error: "Unauthorized" }, 401);
@@ -12226,7 +12233,15 @@ export default {
       let body;
       try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
 
-      const requestedPlan = normalizePlan(body.plan);
+      const parsedPlan = parseCheckoutPlan(body.plan);
+      if (!parsedPlan.ok) {
+        return json({
+          error: "invalid_plan",
+          message: "plan must be one of: starter, professional, business.",
+        }, 400);
+      }
+
+      const requestedPlan = parsedPlan.plan;
       const interval = normalizeBillingInterval(body.interval);
       const metadata = BILLING_PLAN_METADATA[requestedPlan];
 
@@ -12263,14 +12278,78 @@ export default {
         return json({ error: "Database error", detail: String(e?.message ?? e) }, 500);
       }
 
+      // Validate redirect URLs
+      const successUrl = typeof body.success_url === "string" ? body.success_url.trim() : "";
+      const cancelUrl  = typeof body.cancel_url  === "string" ? body.cancel_url.trim()  : "";
+      if (!successUrl) {
+        return json({ error: "missing_success_url", message: "success_url is required." }, 400);
+      }
+      if (!cancelUrl) {
+        return json({ error: "missing_cancel_url", message: "cancel_url is required." }, 400);
+      }
+
+      // Build Stripe Checkout Session params (Stripe accepts x-www-form-urlencoded only)
+      const params = new URLSearchParams();
+      params.set("mode",                    "subscription");
+      params.set("line_items[0][price]",    priceResolution.price_id);
+      params.set("line_items[0][quantity]", "1");
+      params.set("success_url",             successUrl);
+      params.set("cancel_url",              cancelUrl);
+      params.set("metadata[user_id]",       String(user.id));
+      params.set("metadata[plan]",          requestedPlan);
+      params.set("metadata[interval]",      interval);
+      params.set("subscription_data[metadata][user_id]",  String(user.id));
+      params.set("subscription_data[metadata][plan]",     requestedPlan);
+      params.set("subscription_data[metadata][interval]", interval);
+      params.set("allow_promotion_codes", "true");
+
+      // Prefer an existing Stripe customer record; fall back to customer_email
+      // so Stripe auto-creates a Customer on checkout completion.
+      if (subscription?.stripe_customer_id) {
+        params.set("customer", subscription.stripe_customer_id);
+      } else {
+        params.set("customer_email", user.email);
+      }
+
+      // Call Stripe Checkout Sessions API via fetch (no SDK — Cloudflare Workers compatible)
+      let stripeSession;
+      try {
+        const stripeRes = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+          method:  "POST",
+          headers: {
+            "Authorization": `Bearer ${env.STRIPE_SECRET_KEY}`,
+            "Content-Type":  "application/x-www-form-urlencoded",
+          },
+          body: params.toString(),
+        });
+
+        const stripeData = await stripeRes.json();
+
+        if (!stripeRes.ok) {
+          return json({
+            error:             "stripe_api_error",
+            message:           stripeData?.error?.message ?? "Stripe Checkout Session creation failed.",
+            stripe_error_type: stripeData?.error?.type  ?? null,
+            stripe_error_code: stripeData?.error?.code  ?? null,
+          }, 502);
+        }
+
+        stripeSession = stripeData;
+      } catch (e) {
+        return json({
+          error:   "stripe_request_failed",
+          message: "Could not reach Stripe. Please try again.",
+          detail:  String(e?.message ?? e),
+        }, 502);
+      }
+
+      // D1 is intentionally NOT updated here.
+      // Plan activation and subscriptions sync happen in the webhook sprint
+      // when Stripe fires checkout.session.completed.
       return json({
-        error: "checkout_not_implemented",
-        message: "Stripe Checkout session creation is not enabled in this foundation sprint.",
-        plan: requestedPlan,
-        interval,
-        price_configured: true,
-        has_stripe_customer: !!subscription?.stripe_customer_id,
-      }, 501);
+        checkout_url: stripeSession.url,
+        session_id:   stripeSession.id,
+      }, 200);
     }
 
     // ── GET /api/account/profile ─────────────────────────────────────────
