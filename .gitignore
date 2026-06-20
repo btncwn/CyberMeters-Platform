@@ -35,3 +35,4 @@ workers/scan-api/.wrangler/
 *.pdf
 *.pdf
 *.pdf
+*.docx
