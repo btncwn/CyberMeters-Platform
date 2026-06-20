@@ -172,7 +172,9 @@ export default function WorkspaceBusinessRiskPage() {
               <div className="flex flex-col md:flex-row md:items-start gap-6">
                 <GradeBadge grade={data.grade} label={data.band ?? data.grade_label} score={data.score ?? data.brs} />
                 <div className="flex-1">
-                  <p className="text-sm text-gray-700 leading-relaxed mb-4">{data.summary ?? data.narrative}</p>
+                  <p className="text-sm text-gray-700 leading-relaxed mb-4">
+                    {typeof data.summary === 'string' ? data.summary : data.narrative}
+                  </p>
                   {data.latest_scan && (
                     <div className="text-xs text-gray-400 space-y-0.5">
                       <p>ASM Score: <span className="font-semibold text-gray-600">{data.latest_scan.asm_score} ({data.latest_scan.asm_rating})</span></p>

@@ -8,15 +8,24 @@ import DataTable from '../../components/DataTable'
 import RiskBadge from '../../components/RiskBadge'
 
 const CATEGORY_LABELS = {
-  infrastructure: 'Infrastructure',
-  cloud:          'Cloud',
-  email_identity: 'Email / Identity',
-  hosting:        'Hosting',
-  saas:           'SaaS',
-  support:        'Support',
-  collaboration:  'Collaboration',
-  ecommerce:      'E-commerce',
-  certificate_authority: 'Certificate Authority',
+  infrastructure:       'Infrastructure',
+  cloud:                'Cloud',
+  email_identity:       'Email / Identity',
+  hosting:              'Hosting',
+  saas:                 'SaaS',
+  support:              'Support',
+  collaboration:        'Collaboration',
+  ecommerce:            'E-commerce',
+  certificate_authority:'Certificate Authority',
+  // vendor_relationship categories (Phase 7k)
+  analytics:            'Analytics',
+  payments:             'Payments',
+  crm:                  'CRM',
+  identity:             'Identity',
+  cdn:                  'CDN',
+  security:             'Security',
+  // identity cross-population (Phase 8f)
+  identity_provider:    'Identity Provider',
 }
 
 function FilterBtn({ active, onClick, children }) {

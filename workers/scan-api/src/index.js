@@ -5813,7 +5813,136 @@ function computeScore(modules, domain) {
 //
 // Returns { brs, grade, grade_label, narrative, categories, top_concerns, generated_at }
 
+function getBusinessRiskBand(score) {
+  if (score <= 30) return "critical";
+  if (score <= 50) return "high";
+  if (score <= 75) return "medium";
+  return "low";
+}
+
+function computeWorkspaceBusinessRiskScore(workspace) {
+  const vendor = workspace?.vendor_risk || {};
+  const asm = workspace?.asm_security || {};
+  const assets = workspace?.asset_exposure || {};
+
+  let score = 100;
+  const drivers = {
+    vendor_risk: 0,
+    security_findings: 0,
+    asset_exposure: 0,
+  };
+  const primary_risks = [];
+  const recommendations = [];
+
+  const concentration = vendor.concentration_risk?.level || "low";
+  const concentrationDeduction = concentration === "high" ? -25 : concentration === "medium" ? -15 : -5;
+  drivers.vendor_risk += concentrationDeduction;
+  if (concentration === "high") {
+    primary_risks.push(`High dependency on external ${vendor.concentration_risk?.dominant_category || "vendor"} provider`);
+    recommendations.push("Reduce dependency on a single critical third-party provider.");
+  } else if (concentration === "medium") {
+    primary_risks.push("Moderate concentration across third-party vendors");
+    recommendations.push("Review vendor concentration and maintain fallback options for critical services.");
+  }
+
+  const topVendorScores = Array.isArray(vendor.top_vendors)
+    ? vendor.top_vendors.map((v) => Number(v.score)).filter((n) => Number.isFinite(n))
+    : [];
+  const avgTopVendorScore = topVendorScores.length
+    ? topVendorScores.reduce((sum, n) => sum + n, 0) / topVendorScores.length
+    : null;
+  if (avgTopVendorScore !== null) {
+    // Vendor Risk Engine scores are exposure scores: higher values mean higher vendor risk.
+    const vendorScoreDeduction =
+      avgTopVendorScore > 80 ? -25 :
+      avgTopVendorScore > 60 ? -15 :
+      avgTopVendorScore > 40 ? -5 : 0;
+    drivers.vendor_risk += vendorScoreDeduction;
+    if (vendorScoreDeduction <= -15) {
+      primary_risks.push("High-risk third-party vendor dependencies are present");
+      recommendations.push("Review the highest-risk vendors and document compensating controls.");
+    }
+  }
+
+  const criticalFindings = Number(asm.critical_findings || 0);
+  if (criticalFindings > 5) {
+    drivers.security_findings -= 20;
+    primary_risks.push("Multiple unresolved critical findings");
+    recommendations.push("Prioritize remediation of critical findings before expanding the attack surface.");
+  }
+  if (asm.missing_https) {
+    drivers.security_findings -= 10;
+    primary_risks.push("Public services do not consistently enforce HTTPS");
+    recommendations.push("Fix critical SSL and HTTPS enforcement issues.");
+  }
+  if (asm.weak_email_security) {
+    drivers.security_findings -= 10;
+    primary_risks.push("Weak email security posture");
+    recommendations.push("Enable SPF, DKIM, and DMARC enforcement for business email domains.");
+  }
+  if (asm.header_misconfig) {
+    drivers.security_findings -= 5;
+    primary_risks.push("Security header misconfiguration increases web risk");
+    recommendations.push("Fix missing or weak security headers such as HSTS and CSP.");
+  }
+
+  const assetCount = Number(assets.asset_count || 0);
+  const highOrCriticalFindings = criticalFindings > 0 || Number(asm.high_findings || 0) > 0;
+  if (assetCount > 500 && highOrCriticalFindings) {
+    drivers.asset_exposure -= 20;
+    primary_risks.push("Large exposed asset footprint");
+    recommendations.push("Reduce unmanaged external assets and prioritize ownership validation.");
+  } else if (assetCount > 100 && highOrCriticalFindings) {
+    drivers.asset_exposure -= 10;
+    primary_risks.push("Expanded external asset footprint");
+    recommendations.push("Review internet-facing assets and retire unused services.");
+  } else if (assetCount > 500) {
+    drivers.asset_exposure -= 5;
+    primary_risks.push("Large external asset footprint with limited severe findings");
+    recommendations.push("Continue asset ownership review and monitor for high-risk findings.");
+  }
+
+  score += drivers.vendor_risk + drivers.security_findings + drivers.asset_exposure;
+  score = Math.max(0, Math.min(100, Math.round(score)));
+  const risk_band = getBusinessRiskBand(score);
+
+  const vendor_dependency_risk = concentration;
+  const security_posture =
+    criticalFindings > 5 || asm.missing_https ? "high" :
+    asm.weak_email_security || asm.header_misconfig ? "medium" : "low";
+  const asset_exposure =
+    assetCount > 500 && highOrCriticalFindings ? "high" :
+    (assetCount > 100 && highOrCriticalFindings) || assetCount > 500 ? "medium" : "low";
+
+  const uniqueRisks = [...new Set(primary_risks.filter(Boolean))].slice(0, 6);
+  const uniqueRecommendations = [...new Set(recommendations.filter(Boolean))].slice(0, 6);
+
+  return {
+    workspace_id: workspace.workspace_id,
+    business_risk_score: score,
+    risk_band,
+    summary: {
+      primary_risks: uniqueRisks,
+      vendor_dependency_risk,
+      security_posture,
+      asset_exposure,
+    },
+    drivers,
+    recommendations: uniqueRecommendations,
+    vendor_risk: {
+      workspace_vendor_risk_score: vendor.workspace_vendor_risk_score ?? null,
+      avg_top_vendor_score: avgTopVendorScore === null ? null : Math.round(avgTopVendorScore),
+      concentration_risk: vendor.concentration_risk ?? null,
+      top_vendors: Array.isArray(vendor.top_vendors) ? vendor.top_vendors.slice(0, 10) : [],
+    },
+    calculated_at: new Date().toISOString(),
+  };
+}
+
 function computeBusinessRiskScore(findingIds, workspaceData = {}) {
+  if (findingIds && typeof findingIds === "object" && !(findingIds instanceof Set)) {
+    return computeWorkspaceBusinessRiskScore(findingIds);
+  }
   // findingIds: Set<string> of finding IDs from the scan/report
   // workspaceData: {
   //   brandHighRisk, brandMedRisk, brandLowRisk,
@@ -7272,7 +7401,7 @@ function buildCanonicalUrlProfile(modules) {
             .prepare(`SELECT risk_level, COUNT(*) AS n FROM workspace_brand_assets WHERE workspace_id = ? AND dns_resolves = 1 AND status = 'active' GROUP BY risk_level`)
             .bind(workspaceId).all(),
           env.cybermeters_db
-            .prepare(`SELECT risk_level, COUNT(*) AS n FROM workspace_vendors WHERE workspace_id = ? AND status = 'active' GROUP BY risk_level`)
+            .prepare(`SELECT risk_level, COUNT(*) AS n FROM workspace_vendors WHERE workspace_id = ? AND status = 'active' AND source_module = 'vendor_risk' GROUP BY risk_level`)
             .bind(workspaceId).all(),
         ]);
         const brandMap  = Object.fromEntries((brandRows.results  ?? []).map(r => [r.risk_level, r.n]));
@@ -8000,8 +8129,8 @@ async function upsertCertificateAuthorityVendor(workspaceId, caVendor, evidence,
       `INSERT OR IGNORE INTO workspace_vendors
          (id, workspace_id, vendor_name, category, source, evidence,
           confidence, risk_level, first_seen, last_seen, status,
-          metadata_json, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`
+          source_module, metadata_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 'certificate_authority', ?, ?, ?)`
     )
     .bind(
       createId("vendor"),
@@ -8024,7 +8153,8 @@ async function upsertCertificateAuthorityVendor(workspaceId, caVendor, evidence,
     .prepare(
       `UPDATE workspace_vendors
        SET last_seen = ?, source = ?, evidence = ?, confidence = ?,
-           risk_level = ?, status = 'active', metadata_json = ?, updated_at = ?
+           risk_level = ?, status = 'active', source_module = 'certificate_authority',
+           metadata_json = ?, updated_at = ?
        WHERE workspace_id = ? AND vendor_name = ? AND category = ?`
     )
     .bind(
@@ -8576,8 +8706,10 @@ async function upsertIdentityAssets(domainId, scanId, identityMod, env) {
           .prepare(
             `INSERT OR IGNORE INTO workspace_vendors
                (id, workspace_id, vendor_name, category, source, evidence,
-                confidence, risk_level, first_seen, last_seen, status, created_at, updated_at)
-             VALUES (?, ?, ?, 'identity_provider', ?, ?, ?, 'high', ?, ?, 'active', ?, ?)`
+                confidence, risk_level, first_seen, last_seen, status,
+                source_module, created_at, updated_at)
+             VALUES (?, ?, ?, 'identity_provider', ?, ?, ?, 'high', ?, ?, 'active',
+                     'identity_discovery', ?, ?)`
           )
           .bind(vid, workspace_id, provider.provider, "identity_discovery", evJson,
                 provider.confidence, now, now, now, now)
@@ -8587,7 +8719,8 @@ async function upsertIdentityAssets(domainId, scanId, identityMod, env) {
           .prepare(
             `UPDATE workspace_vendors
              SET last_seen = ?, evidence = ?, confidence = ?,
-                 risk_level = 'high', status = 'active', updated_at = ?
+                 risk_level = 'high', status = 'active',
+                 source_module = 'identity_discovery', updated_at = ?
              WHERE workspace_id = ? AND vendor_name = ? AND category = 'identity_provider'`
           )
           .bind(now, evJson, provider.confidence, now, workspace_id, provider.provider)
@@ -10483,6 +10616,7 @@ async function upsertVendorInventory(domainId, vendorRisk, env) {
             `UPDATE workspace_vendors
              SET status = 'inactive', updated_at = ?
              WHERE workspace_id = ? AND status = 'active'
+               AND source_module = 'vendor_risk'
                AND vendor_name NOT IN (${escaped})`
           )
           .bind(now, workspace_id)
@@ -17637,6 +17771,16 @@ export default {
           support:         0,
           ecommerce:       0,
           certificate_authority: 0,
+          // vendor_relationship categories (Phase 7k)
+          analytics:       0,
+          payments:        0,
+          crm:             0,
+          identity:        0,
+          collaboration:   0,
+          cdn:             0,
+          security:        0,
+          // identity cross-population (Phase 8f)
+          identity_provider: 0,
           high_risk:       0,
           medium_risk:     0,
           low_risk:        0,
@@ -18491,20 +18635,7 @@ export default {
       if (!ws) return json({ error: 'Workspace not found' }, 404);
 
       try {
-        // ── Parallel: brand/vendor data + latest scan findings ────────────────
-        const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-        const [
-          brandRows, vendorRows,
-          latestScanRow,
-          historicalRows,
-        ] = await Promise.all([
-          env.cybermeters_db
-            .prepare(`SELECT risk_level, COUNT(*) AS n FROM workspace_brand_assets WHERE workspace_id = ? AND dns_resolves = 1 AND status = 'active' GROUP BY risk_level`)
-            .bind(wsId).all(),
-          env.cybermeters_db
-            .prepare(`SELECT risk_level, COUNT(*) AS n FROM workspace_vendors WHERE workspace_id = ? AND status = 'active' GROUP BY risk_level`)
-            .bind(wsId).all(),
-          // Latest completed scan for findings
+        const [latestScanRow, historicalRows, assetRow] = await Promise.all([
           env.cybermeters_db
             .prepare(
               `SELECT s.id AS scan_id, s.score, s.rating, s.created_at
@@ -18512,7 +18643,6 @@ export default {
                WHERE s.workspace_id = ? AND s.status = 'completed'
                ORDER BY s.created_at DESC LIMIT 1`
             ).bind(wsId).first(),
-          // BRS trend — last 90 days
           env.cybermeters_db
             .prepare(
               `SELECT brs_score, score, rating, created_at
@@ -18520,64 +18650,143 @@ export default {
                WHERE workspace_id = ? AND brs_score IS NOT NULL
                ORDER BY created_at DESC LIMIT 30`
             ).bind(wsId).all(),
+          env.cybermeters_db
+            .prepare(
+              `SELECT COUNT(*) AS n
+               FROM workspace_assets
+               WHERE workspace_id = ? AND status = 'active'`
+            ).bind(wsId).first(),
         ]);
 
-        const brandMap  = Object.fromEntries((brandRows.results  ?? []).map(r => [r.risk_level, r.n]));
-        const vendorMap = Object.fromEntries((vendorRows.results ?? []).map(r => [r.risk_level, r.n]));
-        const vendorTotal = (vendorRows.results ?? []).reduce((s, r) => s + r.n, 0);
+        let vendorRows = [];
+        try {
+          const r = await env.cybermeters_db
+            .prepare(
+              `SELECT wv.id, wv.workspace_id, wv.vendor_name, wv.category,
+                      wv.source, wv.evidence, wv.confidence, wv.risk_level,
+                      wv.status, wv.first_seen, wv.last_seen,
+                      vrs.score AS persisted_score,
+                      vrs.category_multiplier,
+                      vrs.concentration_penalty
+               FROM workspace_vendors wv
+               LEFT JOIN vendor_risk_scores vrs
+                 ON vrs.vendor_id = wv.id
+                AND vrs.workspace_id = wv.workspace_id
+               WHERE wv.workspace_id = ? AND wv.status = 'active'
+                 AND wv.source_module = 'vendor_risk'`
+            )
+            .bind(wsId)
+            .all();
+          vendorRows = r.results || [];
+        } catch {
+          const r = await env.cybermeters_db
+            .prepare(
+              `SELECT id, workspace_id, vendor_name, category, source, evidence,
+                      confidence, risk_level, status, first_seen, last_seen
+               FROM workspace_vendors
+               WHERE workspace_id = ? AND status = 'active'
+                 AND source_module = 'vendor_risk'`
+            )
+            .bind(wsId)
+            .all();
+          vendorRows = r.results || [];
+        }
 
-        // Fetch findings for latest scan
+        const vendorAggregate = computeWorkspaceVendorRisk(vendorRows);
+        const topVendors = vendorAggregate.top_vendors.map((v) => ({
+          id: v.id,
+          name: v.vendor_name,
+          vendor_name: v.vendor_name,
+          category: v.normalized_category,
+          score: v.persisted_score ?? v.score,
+          risk_level: v.risk_level,
+        }));
+
         let findingIds = new Set();
-        let subdomainTakeoverCount = 0;
-        let assetExposureCount     = 0;
-        let identityHighRiskCount  = 0;
-        let vendorRelHighConf      = 0;
+        let criticalFindings = 0;
+        let highFindings = 0;
         if (latestScanRow?.scan_id) {
-          // Prefer R2 report for finding IDs (authoritative)
           try {
             const obj = await env.cybermeters_reports.get(`reports/${latestScanRow.scan_id}.json`);
             if (obj) {
               const report = await obj.json();
-              if (Array.isArray(report.findings)) {
-                findingIds = new Set(report.findings.map(f => f.id));
-              }
-              // Extract attack-surface signals from scan modules
-              const mods = report.modules ?? {};
-              subdomainTakeoverCount = (mods.subdomain_takeover?.risks ?? []).length;
-              assetExposureCount     = (mods.asset_exposure?.assets ?? []).filter(a => a.reachable).length;
-              identityHighRiskCount  = mods.identity_discovery?.high_risk_count ?? 0;
-              vendorRelHighConf      = mods.vendor_relationships?.high_confidence ?? 0;
+              const findings = Array.isArray(report.findings) ? report.findings : [];
+              findingIds = new Set(findings.map((f) => f.id).filter(Boolean));
+              criticalFindings = findings.filter((f) => f.severity === "critical").length;
+              highFindings = findings.filter((f) => f.severity === "high").length;
             }
           } catch { /* tolerate missing report */ }
+          if (criticalFindings === 0 && highFindings === 0) {
+            try {
+              const severityRows = await env.cybermeters_db
+                .prepare(`SELECT severity, COUNT(*) AS n FROM findings WHERE scan_id = ? GROUP BY severity`)
+                .bind(latestScanRow.scan_id)
+                .all();
+              const severityMap = Object.fromEntries((severityRows.results || []).map((r) => [r.severity, r.n]));
+              criticalFindings = severityMap.critical || 0;
+              highFindings = severityMap.high || 0;
+            } catch { /* non-fatal */ }
+          }
         }
 
-        // Also query D1 identity_assets for workspace-level identity count
-        try {
-          const idRow = await env.cybermeters_db
-            .prepare(
-              `SELECT COUNT(*) AS n FROM identity_assets
-               WHERE workspace_id = ? AND status = 'active' AND risk_score >= 15`
-            )
-            .bind(wsId).first();
-          identityHighRiskCount = Math.max(identityHighRiskCount, idRow?.n ?? 0);
-        } catch { /* non-fatal */ }
-
-        const workspaceData = {
-          brandHighRisk:          brandMap.high   ?? 0,
-          brandMedRisk:           brandMap.medium ?? 0,
-          brandLowRisk:           brandMap.low    ?? 0,
-          vendorHigh:             vendorMap.high   ?? 0,
-          vendorMedium:           vendorMap.medium ?? 0,
-          vendorTotal,
-          subdomainTakeoverCount,
-          assetExposureCount,
-          identityHighRiskCount,
-          vendorRelHighConf,
+        const workspaceModel = {
+          workspace_id: wsId,
+          vendor_risk: {
+            workspace_vendor_risk_score: vendorAggregate.workspace_vendor_risk_score,
+            top_vendors: topVendors,
+            concentration_risk: vendorAggregate.concentration_risk,
+          },
+          asm_security: {
+            critical_findings: criticalFindings,
+            high_findings: highFindings,
+            missing_https: findingIds.has("ssl_no_certificate") || findingIds.has("no_https_redirect"),
+            weak_email_security:
+              findingIds.has("email_missing_spf") ||
+              findingIds.has("email_missing_dmarc") ||
+              findingIds.has("email_dmarc_policy_none") ||
+              findingIds.has("email_dkim_not_detected"),
+            header_misconfig:
+              findingIds.has("header_missing_strict_transport_security") ||
+              findingIds.has("header_weak_hsts") ||
+              findingIds.has("header_missing_content_security_policy") ||
+              findingIds.has("csp_weak_policy"),
+          },
+          asset_exposure: {
+            asset_count: assetRow?.n || 0,
+          },
         };
 
-        const brsResult = computeBusinessRiskScore(findingIds, workspaceData);
+        const brs = computeBusinessRiskScore(workspaceModel);
+        const narrative = brs.summary.primary_risks.length > 0
+          ? `Business risk is ${brs.risk_band}. Primary concerns: ${brs.summary.primary_risks.slice(0, 2).join("; ")}.`
+          : `Business risk is ${brs.risk_band}. No major business-risk drivers were detected from current ASM and vendor data.`;
+        const grade =
+          brs.business_risk_score >= 76 ? "A" :
+          brs.business_risk_score >= 51 ? "B" :
+          brs.business_risk_score >= 31 ? "C" : "F";
 
-        // BRS trend (chronological)
+        try {
+          await env.cybermeters_db
+            .prepare(
+              `INSERT OR REPLACE INTO workspace_brs_scores
+                 (workspace_id, score, risk_band, calculated_at)
+               VALUES (?, ?, ?, ?)`
+            )
+            .bind(wsId, brs.business_risk_score, brs.risk_band, brs.calculated_at)
+            .run();
+        } catch { /* migration may not be applied yet */ }
+
+        try {
+          await env.cybermeters_db
+            .prepare(
+              `INSERT INTO workspace_brs_score_history
+                 (id, workspace_id, score, risk_band, calculated_at)
+               VALUES (?, ?, ?, ?, ?)`
+            )
+            .bind(createId("brshist"), wsId, brs.business_risk_score, brs.risk_band, brs.calculated_at)
+            .run();
+        } catch { /* history migration may not be applied yet */ }
+
         const trend = (historicalRows.results ?? []).reverse().map(r => ({
           date:      r.created_at,
           brs_score: r.brs_score,
@@ -18585,9 +18794,21 @@ export default {
         }));
 
         return json({
-          workspace_id:    wsId,
-          workspace_name:  ws.name,
-          ...brsResult,
+          ...brs,
+          workspace_name: ws.name,
+          // Backward-compatible aliases used by existing UI.
+          score: brs.business_risk_score,
+          brs: brs.business_risk_score,
+          band: brs.risk_band,
+          grade,
+          grade_label: brs.risk_band,
+          narrative,
+          top_concerns: brs.summary.primary_risks.map((risk) => ({
+            title: risk,
+            impact: risk,
+            recommendation: brs.recommendations[0] || "Review this risk with the responsible business owner.",
+            severity: brs.risk_band === "critical" ? "critical" : brs.risk_band === "high" ? "high" : "medium",
+          })),
           latest_scan: latestScanRow ? {
             scan_id:    latestScanRow.scan_id,
             asm_score:  latestScanRow.score,
@@ -18595,11 +18816,10 @@ export default {
             scanned_at: latestScanRow.created_at,
           } : null,
           workspace_context: {
-            brand_high_risk:  workspaceData.brandHighRisk,
-            brand_med_risk:   workspaceData.brandMedRisk,
-            vendor_total:     vendorTotal,
-            vendor_high_risk: workspaceData.vendorHigh,
-            vendor_med_risk:  workspaceData.vendorMedium,
+            vendor_total: vendorAggregate.scored_vendors.length,
+            asset_count: workspaceModel.asset_exposure.asset_count,
+            critical_findings: criticalFindings,
+            high_findings: highFindings,
           },
           trend,
         });
