@@ -12,10 +12,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
+      - name: Show Node version
+        run: node --version && npm --version
 
       - name: Worker syntax check
         run: node --check workers/scan-api/src/index.js
