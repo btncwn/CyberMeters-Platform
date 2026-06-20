@@ -14239,8 +14239,8 @@ async function getEntitlementUsage(user, env, workspaceId = null) {
 
           // Upsert into domains table
           await env.cybermeters_db
-            .prepare("INSERT INTO domains (id, domain, first_seen) VALUES (?, ?, datetime('now')) ON CONFLICT(domain) DO NOTHING")
-            .bind(createId("dom"), domain)
+            .prepare("INSERT INTO domains (id, user_id, domain) VALUES (?, ?, ?) ON CONFLICT(domain) DO NOTHING")
+            .bind(createId("dom"), importUser.id, domain)
             .run();
 
           const domRow = await env.cybermeters_db
