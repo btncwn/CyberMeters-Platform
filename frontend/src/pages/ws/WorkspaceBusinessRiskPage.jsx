@@ -35,7 +35,7 @@ function GradeBadge({ grade, label, score }) {
 // ── Category row ─────────────────────────────────────────────────────────────
 function CategoryRow({ icon: Icon, label, category, weight }) {
   if (!category) return null
-  const { score, issues } = category
+  const { score, label: catLabel, issues = [] } = category
   const pct = Math.max(0, Math.min(100, score))
   const barColor = score >= 80 ? 'bg-emerald-500' : score >= 60 ? 'bg-blue-500' : score >= 40 ? 'bg-amber-500' : 'bg-red-500'
   const textColor = score >= 80 ? 'text-emerald-700' : score >= 60 ? 'text-blue-700' : score >= 40 ? 'text-amber-700' : 'text-red-700'
@@ -50,7 +50,7 @@ function CategoryRow({ icon: Icon, label, category, weight }) {
           <div className="flex items-center justify-between mb-1">
             <span className="text-sm font-semibold text-gray-800">{label}</span>
             <span className="flex items-center gap-2">
-              <span className="text-xs text-gray-400">weight {Math.round(weight * 100)}%</span>
+              <span className="text-xs text-gray-400">{catLabel} · {Math.round(weight * 100)}%</span>
               <span className={`text-sm font-bold ${textColor}`}>{score}</span>
             </span>
           </div>
@@ -96,11 +96,11 @@ function ChartTooltip({ active, payload, label }) {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 const CATEGORIES = [
-  { key: 'email_risk',    label: 'Email Risk',      icon: Mail,       weight: 0.25 },
-  { key: 'service_health', label: 'Service Health',  icon: Globe,      weight: 0.20 },
-  { key: 'customer_trust', label: 'Customer Trust',  icon: ShieldCheck, weight: 0.20 },
-  { key: 'brand_exposure', label: 'Brand Exposure',  icon: Tag,        weight: 0.20 },
-  { key: 'supply_chain',  label: 'Supply Chain',    icon: Package2,   weight: 0.15 },
+  { key: 'email_trust',             label: 'Email Trust',             icon: Mail,       weight: 0.25 },
+  { key: 'website_trust',           label: 'Website Trust',           icon: ShieldCheck, weight: 0.20 },
+  { key: 'operational_continuity',  label: 'Operational Continuity',  icon: Globe,      weight: 0.20 },
+  { key: 'attack_surface_exposure', label: 'Attack Surface Exposure', icon: Package2,   weight: 0.20 },
+  { key: 'brand_reputation_risk',   label: 'Brand / Reputation Risk', icon: Tag,        weight: 0.15 },
 ]
 
 export default function WorkspaceBusinessRiskPage() {
@@ -170,9 +170,9 @@ export default function WorkspaceBusinessRiskPage() {
             {/* Grade + Narrative */}
             <div className="card p-6">
               <div className="flex flex-col md:flex-row md:items-start gap-6">
-                <GradeBadge grade={data.grade} label={data.grade_label} score={data.brs} />
+                <GradeBadge grade={data.grade} label={data.band ?? data.grade_label} score={data.score ?? data.brs} />
                 <div className="flex-1">
-                  <p className="text-sm text-gray-700 leading-relaxed mb-4">{data.narrative}</p>
+                  <p className="text-sm text-gray-700 leading-relaxed mb-4">{data.summary ?? data.narrative}</p>
                   {data.latest_scan && (
                     <div className="text-xs text-gray-400 space-y-0.5">
                       <p>ASM Score: <span className="font-semibold text-gray-600">{data.latest_scan.asm_score} ({data.latest_scan.asm_rating})</span></p>
@@ -183,20 +183,32 @@ export default function WorkspaceBusinessRiskPage() {
               </div>
             </div>
 
-            {/* Top Concerns */}
-            {data.top_concerns?.length > 0 && (
+            {/* Top Business Risks */}
+            {(data.top_business_risks ?? data.top_concerns ?? []).length > 0 && (
               <div className="card p-6">
-                <h2 className="text-sm font-semibold text-gray-900 mb-4">Top Concerns</h2>
-                <div className="space-y-2">
-                  {data.top_concerns.map((c, i) => (
-                    <div key={i} className="flex items-start gap-3 rounded-lg bg-amber-50 border border-amber-100 px-4 py-3">
-                      <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
-                      <div>
-                        <p className="text-xs font-semibold text-amber-700">{c.category}</p>
-                        <p className="text-sm text-amber-800">{c.issue}</p>
+                <h2 className="text-sm font-semibold text-gray-900 mb-4">Top Business Risks</h2>
+                <div className="space-y-3">
+                  {(data.top_business_risks ?? data.top_concerns ?? []).map((r, i) => {
+                    const title  = r.title  ?? r.category ?? ''
+                    const impact = r.impact ?? r.issue    ?? ''
+                    const sev    = r.severity ?? 'medium'
+                    const sevCls = sev === 'critical' ? 'bg-red-50 border-red-100' : sev === 'high' ? 'bg-orange-50 border-orange-100' : 'bg-amber-50 border-amber-100'
+                    const txtCls = sev === 'critical' ? 'text-red-700' : sev === 'high' ? 'text-orange-700' : 'text-amber-700'
+                    return (
+                      <div key={i} className={`rounded-lg border px-4 py-3 ${sevCls}`}>
+                        <div className="flex items-start gap-3">
+                          <AlertTriangle className={`w-4 h-4 flex-shrink-0 mt-0.5 ${txtCls}`} />
+                          <div className="min-w-0">
+                            <p className={`text-xs font-semibold ${txtCls}`}>{title}</p>
+                            <p className="text-sm text-gray-700 mt-0.5">{impact}</p>
+                            {r.recommendation && (
+                              <p className="text-xs text-gray-400 mt-1">Recommendation: {r.recommendation}</p>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
             )}
@@ -205,7 +217,7 @@ export default function WorkspaceBusinessRiskPage() {
             <div className="card p-6">
               <h2 className="text-sm font-semibold text-gray-900 mb-2">Category Breakdown</h2>
               <p className="text-xs text-gray-400 mb-4">
-                BRS = (Email 25%) + (Service Health 20%) + (Customer Trust 20%) + (Brand 20%) + (Supply Chain 15%)
+                BRS = (Email Trust 25%) + (Website Trust 20%) + (Operational Continuity 20%) + (Attack Surface 20%) + (Brand Risk 15%)
               </p>
               <div>
                 {CATEGORIES.map(({ key, label, icon, weight }) => (

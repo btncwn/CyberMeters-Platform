@@ -4,6 +4,7 @@ import {
   ArrowLeft, RefreshCw, Globe, Hash, AlertCircle, ScanLine,
   ChevronRight, Shield, FileText, CheckCircle, XCircle, Mail,
   Lock, Server, Clock, History, ChevronDown, Terminal,
+  TrendingDown, TrendingUp, Minus,
 } from 'lucide-react'
 import { api } from '../api'
 import StatusBadge from '../components/StatusBadge'
@@ -587,6 +588,100 @@ function ChangesPanel({ changes }) {
   )
 }
 
+// ── Business Risk Card ───────────────────────────────────────────────────────
+
+function BusinessRiskCard({ businessRisk }) {
+  if (!businessRisk) return null
+  const { score, band, summary, categories = {}, top_business_risks: topRisks = [] } = businessRisk
+
+  const bandColor =
+    score >= 90 ? 'text-emerald-700 bg-emerald-50 border-emerald-200' :
+    score >= 70 ? 'text-blue-700   bg-blue-50   border-blue-200'   :
+    score >= 40 ? 'text-amber-700  bg-amber-50  border-amber-100'  :
+                  'text-red-700    bg-red-50    border-red-200'
+
+  const scoreColor =
+    score >= 90 ? 'text-emerald-600' :
+    score >= 70 ? 'text-blue-600'   :
+    score >= 40 ? 'text-amber-600'  :
+                  'text-red-600'
+
+  const TrendIcon = score >= 70 ? TrendingUp : score >= 40 ? Minus : TrendingDown
+
+  const CAT_LABELS = {
+    email_trust:             'Email Trust',
+    website_trust:           'Website Trust',
+    operational_continuity:  'Continuity',
+    attack_surface_exposure: 'Attack Surface',
+    brand_reputation_risk:   'Brand Risk',
+  }
+
+  const catEntries = Object.entries(CAT_LABELS).map(([key, label]) => ({
+    key, label, score: categories[key]?.score ?? null,
+  }))
+
+  return (
+    <div className="card overflow-hidden">
+      <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-2">
+        <TrendIcon className={`w-4 h-4 ${scoreColor}`} />
+        <h3 className="text-sm font-bold text-gray-900">Business Risk Score</h3>
+      </div>
+
+      {/* Score badge */}
+      <div className="px-6 pt-4 pb-3">
+        <div className={`inline-flex items-center gap-3 rounded-xl border px-4 py-3 w-full ${bandColor}`}>
+          <span className={`text-3xl font-black leading-none ${scoreColor}`}>{score}</span>
+          <div className="min-w-0">
+            <p className="text-[10px] font-semibold uppercase tracking-widest opacity-60 leading-tight">/ 100</p>
+            <p className="text-xs font-semibold leading-tight mt-0.5">{band}</p>
+          </div>
+        </div>
+        {summary && (
+          <p className="text-xs text-gray-500 mt-2 leading-relaxed line-clamp-3">{summary}</p>
+        )}
+      </div>
+
+      {/* Category mini-scores */}
+      <div className="px-6 pb-3 space-y-1.5">
+        {catEntries.map(({ key, label, score: catScore }) => {
+          if (catScore === null) return null
+          const pct = Math.max(0, Math.min(100, catScore))
+          const bar = catScore >= 80 ? 'bg-emerald-500' : catScore >= 60 ? 'bg-blue-500' : catScore >= 40 ? 'bg-amber-500' : 'bg-red-500'
+          const txt = catScore >= 80 ? 'text-emerald-700' : catScore >= 60 ? 'text-blue-700' : catScore >= 40 ? 'text-amber-700' : 'text-red-600'
+          return (
+            <div key={key}>
+              <div className="flex justify-between items-center mb-0.5">
+                <span className="text-[11px] text-gray-500">{label}</span>
+                <span className={`text-[11px] font-bold ${txt}`}>{catScore}</span>
+              </div>
+              <div className="h-1 rounded-full bg-gray-100 overflow-hidden">
+                <div className={`h-full ${bar} transition-all`} style={{ width: `${pct}%` }} />
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Top 3 risks */}
+      {topRisks.length > 0 && (
+        <div className="border-t border-gray-100 px-6 py-3 space-y-2">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Top Risks</p>
+          {topRisks.slice(0, 3).map((r, i) => {
+            const sev = r.severity ?? 'medium'
+            const dot = sev === 'critical' ? 'bg-red-500' : sev === 'high' ? 'bg-orange-500' : 'bg-amber-400'
+            return (
+              <div key={i} className="flex items-start gap-2">
+                <div className={`w-1.5 h-1.5 rounded-full ${dot} flex-shrink-0 mt-1.5`} />
+                <p className="text-xs text-gray-600 leading-snug">{r.title ?? r.category ?? ''}</p>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Report View ──────────────────────────────────────────────────────────────
 
 function ReportView({ report }) {
@@ -887,6 +982,11 @@ export default function ScanDetail() {
                   ))}
                 </div>
               </div>
+
+              {/* Business Risk Score */}
+              {report?.business_risk && (
+                <BusinessRiskCard businessRisk={report.business_risk} />
+              )}
 
             </div>
           </div>

@@ -5744,148 +5744,240 @@ function computeScore(modules, domain) {
 //
 // Returns { brs, grade, grade_label, narrative, categories, top_concerns, generated_at }
 
-function computeBusinessRiskScore(findingIds, workspaceData) {
-  // findingIds: Set<string> of finding IDs from the latest scan
-  // workspaceData: { brandHighRisk, brandMedRisk, brandLowRisk, vendorHigh, vendorMedium, vendorLow, vendorTotal }
+function computeBusinessRiskScore(findingIds, workspaceData = {}) {
+  // findingIds: Set<string> of finding IDs from the scan/report
+  // workspaceData: {
+  //   brandHighRisk, brandMedRisk, brandLowRisk,
+  //   vendorHigh, vendorMedium, vendorTotal,
+  //   subdomainTakeoverCount, assetExposureCount
+  // }
 
-  const concerns = [];
-  const categories = {};
-
-  // ── Category 1: Email Risk (25%) ───────────────────────────────────────────
-  {
-    let deductions = 0;
-    const issues = [];
-    if (findingIds.has("email_missing_spf")) {
-      deductions += 30; issues.push("No SPF record");
-    }
-    if (findingIds.has("email_missing_dmarc")) {
-      deductions += 30; issues.push("No DMARC record");
-    } else if (findingIds.has("email_dmarc_policy_none")) {
-      deductions += 15; issues.push("DMARC policy=none (not enforced)");
-    }
-    if (findingIds.has("email_dkim_not_detected")) {
-      deductions += 15; issues.push("DKIM not detected");
-    }
-    const score = Math.max(0, 100 - deductions);
-    categories.email_risk = { score, weight: 0.25, issues };
-    if (score < 60) concerns.push(...issues.map(i => ({ category: "Email Risk", issue: i, score })));
+  // ── Category label helper ──────────────────────────────────────────────────
+  function categoryLabel(s) {
+    if (s >= 90) return "Excellent";
+    if (s >= 75) return "Good";
+    if (s >= 60) return "Moderate";
+    if (s >= 40) return "Needs Attention";
+    return "Critical";
   }
 
-  // ── Category 2: Service Health (20%) ───────────────────────────────────────
-  {
-    let deductions = 0;
-    const issues = [];
-    if (findingIds.has("dns_no_resolution")) {
-      deductions += 50; issues.push("Domain does not resolve");
-    }
-    if (findingIds.has("ssl_certificate_expired")) {
-      deductions += 35; issues.push("SSL certificate expired");
-    } else if (findingIds.has("ssl_certificate_expiring_soon")) {
-      deductions += 15; issues.push("SSL certificate expiring soon");
-    }
-    if (findingIds.has("ssl_no_certificate")) {
-      deductions += 25; issues.push("No SSL certificate");
-    }
-    const score = Math.max(0, 100 - deductions);
-    categories.service_health = { score, weight: 0.20, issues };
-    if (score < 60) concerns.push(...issues.map(i => ({ category: "Service Health", issue: i, score })));
-  }
+  // ── Business impact registry ───────────────────────────────────────────────
+  // Maps finding IDs to executive business language.
+  const IMPACT_MAP = [
+    {
+      id: "email_missing_spf",
+      title: "No email sender protection (SPF)",
+      impact: "Attackers can send emails that appear to come from your domain, enabling phishing attacks on your customers and partners.",
+      recommendation: "Publish an SPF record in DNS specifying which mail servers are authorised to send email on your behalf.",
+      severity: "high",
+    },
+    {
+      id: "email_missing_dmarc",
+      title: "No email anti-fraud policy (DMARC)",
+      impact: "Attackers may impersonate your business email domain to phish customers or conduct brand fraud without any enforcement in place.",
+      recommendation: "Publish a DMARC record at p=reject to block unauthorised use of your domain in email.",
+      severity: "high",
+    },
+    {
+      id: "email_dmarc_policy_none",
+      title: "Email fraud protection is not enforced",
+      impact: "Your DMARC record exists but is set to p=none, allowing fraudulent emails to be delivered to recipients.",
+      recommendation: "Upgrade your DMARC policy from p=none to p=quarantine or p=reject.",
+      severity: "medium",
+    },
+    {
+      id: "email_dkim_not_detected",
+      title: "Email signatures not configured (DKIM)",
+      impact: "Emails from your domain cannot be cryptographically verified, reducing inbox deliverability and customer trust.",
+      recommendation: "Configure DKIM signing for all outbound email streams and publish the public key in DNS.",
+      severity: "medium",
+    },
+    {
+      id: "ssl_certificate_expired",
+      title: "SSL certificate has expired",
+      impact: "Customers are blocked from accessing your website by browser security warnings, causing revenue loss and reputational damage.",
+      recommendation: "Renew your SSL certificate immediately and configure automated renewal to prevent future lapses.",
+      severity: "critical",
+    },
+    {
+      id: "ssl_certificate_expiring_soon",
+      title: "SSL certificate expiring soon",
+      impact: "If not renewed promptly, your website will display security warnings and block customer access.",
+      recommendation: "Renew your SSL certificate before the expiry date to prevent service disruption.",
+      severity: "medium",
+    },
+    {
+      id: "ssl_no_certificate",
+      title: "No SSL/TLS certificate",
+      impact: "Your website is unencrypted. Customer data and business transactions are exposed to interception.",
+      recommendation: "Install an SSL certificate and configure HTTPS enforcement on your web server immediately.",
+      severity: "critical",
+    },
+    {
+      id: "no_https_redirect",
+      title: "Website does not enforce HTTPS",
+      impact: "Visitors connecting over HTTP may have their data intercepted. Modern browsers may warn users before loading your site.",
+      recommendation: "Configure a permanent 301 redirect from HTTP to HTTPS on your web server.",
+      severity: "high",
+    },
+    {
+      id: "header_missing_strict_transport_security",
+      title: "HSTS not configured",
+      impact: "Users may be exposed to protocol downgrade attacks that bypass HTTPS encryption.",
+      recommendation: "Set the Strict-Transport-Security response header with a max-age of at least 31536000 seconds.",
+      severity: "medium",
+    },
+    {
+      id: "header_weak_hsts",
+      title: "HSTS configuration is weak",
+      impact: "A short HSTS max-age creates brief windows after the first visit where users could be intercepted.",
+      recommendation: "Increase HSTS max-age to at least 31536000 seconds and add the includeSubDomains directive.",
+      severity: "low",
+    },
+    {
+      id: "header_missing_content_security_policy",
+      title: "No Content Security Policy (CSP)",
+      impact: "Your website has no protection against cross-site scripting (XSS) attacks, which can compromise customer accounts and data.",
+      recommendation: "Implement a Content Security Policy header to restrict which scripts and resources can load on your pages.",
+      severity: "medium",
+    },
+    {
+      id: "csp_weak_policy",
+      title: "Content Security Policy is too permissive",
+      impact: "Your CSP allows unsafe script sources, reducing its effectiveness against XSS and script injection attacks.",
+      recommendation: "Tighten your CSP by removing unsafe-inline, unsafe-eval, and wildcard source directives.",
+      severity: "low",
+    },
+    {
+      id: "dns_no_resolution",
+      title: "Domain is unreachable",
+      impact: "Your website and online services are offline, causing customer loss, revenue disruption, and reputational damage.",
+      recommendation: "Restore DNS configuration for your domain immediately and contact your DNS registrar.",
+      severity: "critical",
+    },
+  ];
 
-  // ── Category 3: Customer Trust (20%) ───────────────────────────────────────
-  {
-    let deductions = 0;
-    const issues = [];
-    if (findingIds.has("no_https_redirect") || findingIds.has("ssl_no_certificate")) {
-      deductions += 35; issues.push("No HTTPS");
+  const topRisks = [];
+  for (const risk of IMPACT_MAP) {
+    if (findingIds.has(risk.id)) {
+      topRisks.push({ title: risk.title, impact: risk.impact, recommendation: risk.recommendation, severity: risk.severity });
     }
-    if (findingIds.has("header_missing_strict_transport_security")) {
-      deductions += 20; issues.push("HSTS not configured");
-    } else if (findingIds.has("header_weak_hsts")) {
-      deductions += 8; issues.push("HSTS configuration is weak");
-    }
-    if (findingIds.has("header_missing_content_security_policy")) {
-      deductions += 15; issues.push("No Content Security Policy");
-    } else if (findingIds.has("csp_weak_policy")) {
-      deductions += 5; issues.push("CSP allows unsafe sources");
-    }
-    if (findingIds.has("header_missing_x_frame_options") && findingIds.has("header_missing_x_content_type_options")) {
-      deductions += 8; issues.push("Missing basic security headers");
-    }
-    const score = Math.max(0, 100 - deductions);
-    categories.customer_trust = { score, weight: 0.20, issues };
-    if (score < 60) concerns.push(...issues.map(i => ({ category: "Customer Trust", issue: i, score })));
   }
+  // Sort: critical > high > medium > low
+  const SEV_ORDER = { critical: 0, high: 1, medium: 2, low: 3 };
+  topRisks.sort((a, b) => (SEV_ORDER[a.severity] ?? 4) - (SEV_ORDER[b.severity] ?? 4));
 
-  // ── Category 4: Brand Exposure (20%) ───────────────────────────────────────
-  {
-    const { brandHighRisk = 0, brandMedRisk = 0, brandLowRisk = 0 } = workspaceData;
-    const deductions = Math.min(70, brandHighRisk * 20 + brandMedRisk * 10 + brandLowRisk * 4);
-    const score = Math.max(0, 100 - deductions);
-    const issues = [];
-    if (brandHighRisk > 0) issues.push(`${brandHighRisk} high-risk typosquat domain${brandHighRisk !== 1 ? "s" : ""} active`);
-    if (brandMedRisk > 0) issues.push(`${brandMedRisk} medium-risk typosquat domain${brandMedRisk !== 1 ? "s" : ""} active`);
-    categories.brand_exposure = { score, weight: 0.20, issues };
-    if (score < 60) concerns.push(...issues.map(i => ({ category: "Brand Exposure", issue: i, score })));
+  // ── Category 1: Email Trust (25%) ──────────────────────────────────────────
+  let emailDed = 0;
+  if (findingIds.has("email_missing_spf"))       emailDed += 30;
+  if (findingIds.has("email_missing_dmarc"))      emailDed += 30;
+  else if (findingIds.has("email_dmarc_policy_none")) emailDed += 15;
+  if (findingIds.has("email_dkim_not_detected")) emailDed += 15;
+  const emailScore = Math.max(0, 100 - emailDed);
+
+  // ── Category 2: Website Trust (20%) ────────────────────────────────────────
+  let webDed = 0;
+  if (findingIds.has("no_https_redirect") || findingIds.has("ssl_no_certificate")) webDed += 35;
+  if (findingIds.has("header_missing_strict_transport_security")) webDed += 20;
+  else if (findingIds.has("header_weak_hsts")) webDed += 8;
+  if (findingIds.has("header_missing_content_security_policy")) webDed += 15;
+  else if (findingIds.has("csp_weak_policy")) webDed += 5;
+  if (findingIds.has("header_missing_x_frame_options") && findingIds.has("header_missing_x_content_type_options")) webDed += 8;
+  const websiteScore = Math.max(0, 100 - webDed);
+
+  // ── Category 3: Operational Continuity (20%) ───────────────────────────────
+  let opsDed = 0;
+  if (findingIds.has("dns_no_resolution"))            opsDed += 50;
+  if (findingIds.has("ssl_certificate_expired"))      opsDed += 35;
+  else if (findingIds.has("ssl_certificate_expiring_soon")) opsDed += 15;
+  if (findingIds.has("ssl_no_certificate"))           opsDed += 25;
+  const opsScore = Math.max(0, 100 - opsDed);
+
+  // ── Category 4: Attack Surface Exposure (20%) ──────────────────────────────
+  const {
+    subdomainTakeoverCount = 0,
+    assetExposureCount     = 0,
+    vendorHigh   = 0,
+    vendorMedium = 0,
+    vendorTotal  = 0,
+  } = workspaceData;
+  let attackDed = 0;
+  attackDed += Math.min(30, subdomainTakeoverCount * 15);
+  attackDed += Math.min(15, assetExposureCount * 5);
+  if (vendorTotal > 0) {
+    attackDed += Math.min(30, vendorHigh * 12 + vendorMedium * 5);
+  } else {
+    attackDed += 10; // No vendor visibility signal
   }
+  const attackScore = Math.max(0, 100 - attackDed);
 
-  // ── Category 5: Supply Chain (15%) ─────────────────────────────────────────
-  {
-    const { vendorHigh = 0, vendorMedium = 0, vendorTotal = 0 } = workspaceData;
-    let score = 100;
-    const issues = [];
-    if (vendorTotal === 0) {
-      // No vendor data — neutral, no deduction but flag for awareness
-      score = 80;
-      issues.push("No vendor inventory — supply chain visibility unknown");
-    } else {
-      const deductions = Math.min(60, vendorHigh * 15 + vendorMedium * 7);
-      score = Math.max(0, 100 - deductions);
-      if (vendorHigh > 0) issues.push(`${vendorHigh} high-risk vendor${vendorHigh !== 1 ? "s" : ""} in use`);
-      if (vendorMedium > 0) issues.push(`${vendorMedium} medium-risk vendor${vendorMedium !== 1 ? "s" : ""} in use`);
-    }
-    categories.supply_chain = { score, weight: 0.15, issues };
-    if (score < 60) concerns.push(...issues.map(i => ({ category: "Supply Chain", issue: i, score })));
-  }
+  // ── Category 5: Brand / Reputation Risk (15%) ──────────────────────────────
+  const { brandHighRisk = 0, brandMedRisk = 0, brandLowRisk = 0 } = workspaceData;
+  const brandDed = Math.min(70, brandHighRisk * 20 + brandMedRisk * 10 + brandLowRisk * 4);
+  const brandScore = Math.max(0, 100 - brandDed);
 
-  // ── Composite BRS ──────────────────────────────────────────────────────────
-  const brs = Math.round(
-    categories.email_risk.score    * 0.25
-    + categories.service_health.score * 0.20
-    + categories.customer_trust.score * 0.20
-    + categories.brand_exposure.score * 0.20
-    + categories.supply_chain.score   * 0.15
+  // ── Composite score ────────────────────────────────────────────────────────
+  const score = Math.round(
+    emailScore   * 0.25
+    + websiteScore * 0.20
+    + opsScore     * 0.20
+    + attackScore  * 0.20
+    + brandScore   * 0.15
   );
 
-  // ── Grade ──────────────────────────────────────────────────────────────────
+  // ── Risk band ──────────────────────────────────────────────────────────────
+  let band;
+  if      (score >= 90) band = "Low Business Risk";
+  else if (score >= 70) band = "Moderate Business Risk";
+  else if (score >= 40) band = "High Business Risk";
+  else                  band = "Critical Business Risk";
+
+  // ── Backward-compat grade (used by historical score persistence) ───────────
   let grade, grade_label;
-  if      (brs >= 80) { grade = "A"; grade_label = "Low Risk";      }
-  else if (brs >= 60) { grade = "B"; grade_label = "Moderate Risk"; }
-  else if (brs >= 40) { grade = "C"; grade_label = "Elevated Risk"; }
-  else if (brs >= 20) { grade = "D"; grade_label = "High Risk";     }
-  else                { grade = "F"; grade_label = "Critical Risk";  }
+  if      (score >= 80) { grade = "A"; grade_label = "Low Risk";      }
+  else if (score >= 60) { grade = "B"; grade_label = "Moderate Risk"; }
+  else if (score >= 40) { grade = "C"; grade_label = "Elevated Risk"; }
+  else if (score >= 20) { grade = "D"; grade_label = "High Risk";     }
+  else                  { grade = "F"; grade_label = "Critical Risk";  }
 
-  // ── Narrative ──────────────────────────────────────────────────────────────
-  const worstCategories = Object.entries(categories)
-    .filter(([, c]) => c.score < 60)
-    .sort((a, b) => a[1].score - b[1].score)
-    .map(([k]) => k.replace(/_/g, " "));
+  // ── Executive summary ──────────────────────────────────────────────────────
+  const weakAreas = [];
+  if (emailScore   < 70) weakAreas.push("email security");
+  if (websiteScore < 70) weakAreas.push("website trust");
+  if (opsScore     < 70) weakAreas.push("operational continuity");
+  if (attackScore  < 70) weakAreas.push("attack surface exposure");
+  if (brandScore   < 70) weakAreas.push("brand protection");
 
-  let narrative;
-  if (worstCategories.length === 0) {
-    narrative = `Business risk posture is ${grade_label.toLowerCase()}. No major gaps detected across email, infrastructure, customer trust, brand, or supply chain.`;
+  let summary;
+  if (weakAreas.length === 0) {
+    summary = `Business risk posture is ${grade_label.toLowerCase()}. No major gaps detected across email security, website trust, operational continuity, attack surface, or brand protection.`;
   } else {
-    const focus = worstCategories.slice(0, 2).join(" and ");
-    narrative = `Business risk posture is ${grade_label.toLowerCase()}. Primary concerns are in ${focus}. Addressing these areas will have the greatest impact on reducing commercial and reputational exposure.`;
+    const focus = weakAreas.slice(0, 2).join(" and ");
+    summary = `Business risk posture is ${grade_label.toLowerCase()}. Primary concerns are in ${focus}. Addressing these areas will have the greatest impact on reducing commercial and reputational exposure.`;
   }
 
+  const categories = {
+    email_trust:              { score: emailScore,   label: categoryLabel(emailScore),   weight: 0.25 },
+    website_trust:            { score: websiteScore, label: categoryLabel(websiteScore), weight: 0.20 },
+    operational_continuity:   { score: opsScore,     label: categoryLabel(opsScore),     weight: 0.20 },
+    attack_surface_exposure:  { score: attackScore,  label: categoryLabel(attackScore),  weight: 0.20 },
+    brand_reputation_risk:    { score: brandScore,   label: categoryLabel(brandScore),   weight: 0.15 },
+  };
+
   return {
-    brs,
+    // ── v2 format (sprint-specified) ──
+    score,
+    band,
+    summary,
+    categories,
+    top_business_risks: topRisks.slice(0, 5),
+    generated_at: new Date().toISOString(),
+    // ── Backward-compat aliases (workspace page + historical_scores persistence) ──
+    brs:          score,
     grade,
     grade_label,
-    narrative,
-    categories,
-    top_concerns: concerns.slice(0, 5),
-    generated_at: new Date().toISOString(),
+    narrative:    summary,
+    top_concerns: topRisks.slice(0, 5).map(r => ({ category: r.title, issue: r.impact, score })),
   };
 }
 
@@ -13643,6 +13735,26 @@ export default {
         Array.isArray(raw.findings) ? raw.findings : []
       );
 
+      // Compute Business Risk Score from scan findings + module signals
+      const reportFindingIds = new Set(
+        Array.isArray(raw.findings) ? raw.findings.map(f => f.id).filter(Boolean) : []
+      );
+      const brsModuleData = {
+        subdomainTakeoverCount: (normalisedModules.subdomain_takeover?.risks ?? []).length,
+        assetExposureCount:     (normalisedModules.asset_exposure?.assets ?? []).filter(a => a.reachable).length,
+        // Brand/vendor signals not available at scan level — workspace BRS endpoint includes them
+        brandHighRisk: 0, brandMedRisk: 0, brandLowRisk: 0,
+        vendorHigh: 0, vendorMedium: 0, vendorTotal: 0,
+      };
+      const brsResult = computeBusinessRiskScore(reportFindingIds, brsModuleData);
+      const businessRisk = {
+        score:               brsResult.score,
+        band:                brsResult.band,
+        summary:             brsResult.summary,
+        categories:          brsResult.categories,
+        top_business_risks:  brsResult.top_business_risks,
+      };
+
       return json({
         scan_id:             scan.id,
         domain:              scan.domain,
@@ -13653,6 +13765,7 @@ export default {
         recommendations:     Array.isArray(raw.recommendations) ? raw.recommendations : [],
         scan_quality:         raw.scan_quality ?? buildScanQuality(normalisedModules),
         modules:             normalisedModules,
+        business_risk:       businessRisk,
         ...(raw.started_at   ? { started_at:   raw.started_at   } : {}),
         ...(raw.completed_at ? { completed_at: raw.completed_at } : {}),
         ...(raw.failed_at    ? { failed_at:    raw.failed_at    } : {}),
@@ -16442,6 +16555,8 @@ export default {
 
         // Fetch findings for latest scan
         let findingIds = new Set();
+        let subdomainTakeoverCount = 0;
+        let assetExposureCount     = 0;
         if (latestScanRow?.scan_id) {
           try {
             const findingsRows = await env.cybermeters_db
@@ -16460,17 +16575,23 @@ export default {
               if (Array.isArray(report.findings)) {
                 findingIds = new Set(report.findings.map(f => f.id));
               }
+              // Extract attack-surface signals from scan modules
+              const mods = report.modules ?? {};
+              subdomainTakeoverCount = (mods.subdomain_takeover?.risks ?? []).length;
+              assetExposureCount     = (mods.asset_exposure?.assets ?? []).filter(a => a.reachable).length;
             }
           } catch { /* tolerate missing report */ }
         }
 
         const workspaceData = {
-          brandHighRisk: brandMap.high   ?? 0,
-          brandMedRisk:  brandMap.medium ?? 0,
-          brandLowRisk:  brandMap.low    ?? 0,
-          vendorHigh:    vendorMap.high   ?? 0,
-          vendorMedium:  vendorMap.medium ?? 0,
+          brandHighRisk:          brandMap.high   ?? 0,
+          brandMedRisk:           brandMap.medium ?? 0,
+          brandLowRisk:           brandMap.low    ?? 0,
+          vendorHigh:             vendorMap.high   ?? 0,
+          vendorMedium:           vendorMap.medium ?? 0,
           vendorTotal,
+          subdomainTakeoverCount,
+          assetExposureCount,
         };
 
         const brsResult = computeBusinessRiskScore(findingIds, workspaceData);
