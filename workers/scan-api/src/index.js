@@ -9299,6 +9299,10 @@ async function generateWorkspaceExecutiveReport(workspaceId, env, options = {}) 
     if (report_type === 'monthly_executive') {
       return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
     }
+    if (report_type === 'quarterly_executive') {
+      const q = Math.floor(now.getUTCMonth() / 3) + 1;
+      return `${now.getUTCFullYear()}-Q${q}`;
+    }
     if (report_type === 'scan_snapshot' && scan_id) {
       return `scan-${scan_id}`;
     }
@@ -15123,7 +15127,7 @@ export default {
       try {
         let body = {};
         try { body = await request.json(); } catch { /* body is optional */ }
-        const VALID_TYPES = ['manual', 'scan_snapshot', 'weekly_executive', 'monthly_executive'];
+        const VALID_TYPES = ['manual', 'scan_snapshot', 'weekly_executive', 'monthly_executive', 'quarterly_executive'];
         const report_type = VALID_TYPES.includes(body.report_type) ? body.report_type : 'manual';
         const row = await generateWorkspaceExecutiveReport(wsId, env, {
           report_type,

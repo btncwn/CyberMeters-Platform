@@ -41,10 +41,11 @@ function StatusBadge({ status }) {
 // ── Report type selector ──────────────────────────────────────────────────────
 
 const REPORT_TYPES = [
-  { value: 'manual',              label: 'Manual Snapshot' },
-  { value: 'scan_snapshot',       label: 'Scan Snapshot'   },
-  { value: 'weekly_executive',    label: 'Weekly Executive' },
-  { value: 'monthly_executive',   label: 'Monthly Executive' },
+  { value: 'manual',               label: 'Manual Snapshot'     },
+  { value: 'scan_snapshot',        label: 'Scan Snapshot'       },
+  { value: 'weekly_executive',     label: 'Weekly Executive'    },
+  { value: 'monthly_executive',    label: 'Monthly Executive'   },
+  { value: 'quarterly_executive',  label: 'Quarterly Executive' },
 ]
 
 const SCHEDULE_TYPES = [
@@ -291,11 +292,22 @@ export default function WorkspaceReportsPage() {
     }
   }
 
-  async function handleDownload(reportId) {
+  async function handleDownload(report) {
     try {
-      const blob = await api.downloadWorkspaceReport(wsId, reportId)
-      const url = URL.createObjectURL(blob)
-      window.open(url, '_blank', 'noopener,noreferrer')
+      const blob = await api.downloadWorkspaceReport(wsId, report.id)
+      const url  = URL.createObjectURL(blob)
+      // Programmatic anchor download — saves file to disk rather than opening
+      // inline in a new tab. Content-Disposition is lost once we have the blob,
+      // so the filename is reconstructed here from the report metadata.
+      const period   = report.report_period || report.id
+      const filename = `cybermeters-${report.report_type || 'report'}-${period}.pdf`
+      const a = document.createElement('a')
+      a.href     = url
+      a.download = filename
+      a.style.display = 'none'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
       setTimeout(() => URL.revokeObjectURL(url), 60_000)
     } catch (e) {
       setGenError(e.message)
@@ -449,7 +461,7 @@ export default function WorkspaceReportsPage() {
                     <td className="text-center">
                       {report.status === 'completed' ? (
                         <button
-                          onClick={() => handleDownload(report.id)}
+                          onClick={() => handleDownload(report)}
                           className="btn-ghost py-1 px-2.5 text-xs inline-flex items-center gap-1.5 text-brand-600 hover:text-brand-700"
                         >
                           <Download className="w-3.5 h-3.5" />
