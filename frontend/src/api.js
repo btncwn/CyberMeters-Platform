@@ -1,4 +1,4 @@
-import { TOKEN_KEY } from './context/AuthContext'
+import { TOKEN_KEY, USER_KEY } from './context/authKeys'
 
 const BASE =
   import.meta.env.VITE_API_BASE_URL ||
@@ -9,6 +9,34 @@ function getAuthHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
+/**
+ * Called by AuthProvider on mount to register the logout callback.
+ * This lets the module-level request() helper trigger a logout without
+ * importing React hooks (which can only be used inside components).
+ */
+let _onUnauthorized = null
+export function registerUnauthorizedHandler(fn) {
+  _onUnauthorized = fn
+}
+
+/**
+ * Handle a 401 response: clear local auth state and redirect to /login.
+ * Fires _onUnauthorized (registered by AuthProvider) to clear React state,
+ * then hard-redirects so the router reinitialises with no token.
+ */
+function handleUnauthorized() {
+  // Clear storage directly — safe to call even if _onUnauthorized isn't set yet
+  localStorage.removeItem(TOKEN_KEY)
+  localStorage.removeItem(USER_KEY)
+  if (_onUnauthorized) {
+    _onUnauthorized()
+  }
+  // Hard redirect — clears all in-memory React state cleanly
+  if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+    window.location.href = '/login'
+  }
+}
+
 async function request(path, options = {}) {
   const res = await fetch(`${BASE}${path}`, {
     headers: {
@@ -17,6 +45,10 @@ async function request(path, options = {}) {
     },
     ...options,
   })
+  if (res.status === 401) {
+    handleUnauthorized()
+    throw new Error('Session expired. Please sign in again.')
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }))
     throw new Error(err.error || `HTTP ${res.status}`)
@@ -31,6 +63,10 @@ async function requestBlob(path, options = {}) {
     },
     ...options,
   })
+  if (res.status === 401) {
+    handleUnauthorized()
+    throw new Error('Session expired. Please sign in again.')
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }))
     throw new Error(err.error || `HTTP ${res.status}`)
@@ -441,8 +477,15 @@ export const api = {
    */
   getWorkspaceReport: async (id) => {
     const res = await fetch(`${BASE}/workspaces/${id}/report`, {
-      headers: { Accept: 'application/pdf' },
+      headers: {
+        Accept: 'application/pdf',
+        ...getAuthHeaders(),
+      },
     })
+    if (res.status === 401) {
+      handleUnauthorized()
+      throw new Error('Session expired. Please sign in again.')
+    }
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: res.statusText }))
       throw new Error(err.error || `HTTP ${res.status}`)

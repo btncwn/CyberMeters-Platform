@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import { api } from '../api'
 import { useAuth } from '../context/AuthContext'
+import { USER_KEY } from '../context/authKeys'
 
 // ── Plan display helpers ─────────────────────────────────────────────────────
 
@@ -260,11 +261,11 @@ export default function AccountPage() {
       setSaveOk(true)
       // Sync updated name into auth context so UserMenu reflects immediately
       if (res.user && form.name !== authUser?.name) {
-        const stored = localStorage.getItem('cybermeters_auth_user')
+        const stored = localStorage.getItem(USER_KEY)
         if (stored) {
           try {
             const parsed = JSON.parse(stored)
-            localStorage.setItem('cybermeters_auth_user', JSON.stringify({ ...parsed, name: res.user.name }))
+            localStorage.setItem(USER_KEY, JSON.stringify({ ...parsed, name: res.user.name }))
           } catch { /* ignore */ }
         }
       }

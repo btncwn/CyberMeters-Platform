@@ -7,10 +7,9 @@
  * api.js reads the token from localStorage and attaches it to every request
  * as Authorization: Bearer <token>.
  */
-import { createContext, useContext, useState, useCallback } from 'react'
-
-const TOKEN_KEY = 'cybermeters_auth_token'
-const USER_KEY  = 'cybermeters_auth_user'
+import { createContext, useContext, useState, useCallback, useEffect } from 'react'
+import { registerUnauthorizedHandler } from '../api'
+import { TOKEN_KEY, USER_KEY } from './authKeys'
 
 const AuthContext = createContext(null)
 
@@ -39,6 +38,13 @@ export function AuthProvider({ children }) {
     setUser(null)
   }, [])
 
+  // Register logout as the handler for 401 responses in api.js.
+  // This keeps the React state in sync when the module-level request() helper
+  // detects an expired/invalid session and clears localStorage directly.
+  useEffect(() => {
+    registerUnauthorizedHandler(logout)
+  }, [logout])
+
   const updateUser = useCallback((patch) => {
     setUser(prev => {
       const next = { ...(prev || {}), ...(patch || {}) }
@@ -62,4 +68,4 @@ export function useAuth() {
   return ctx
 }
 
-export { TOKEN_KEY }
+// TOKEN_KEY and USER_KEY are exported from ./authKeys
