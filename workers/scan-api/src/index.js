@@ -11482,33 +11482,31 @@ function isExpiredDate(value) {
 
 async function getEffectivePlan(userId, env) {
   // Canonical plan resolver for all application billing decisions.
-  // Stripe should update subscription_accounts in a future sprint; runtime
-  // requests must continue to read through this helper rather than Stripe.
+  // Stripe updates the subscriptions table through webhooks; runtime requests
+  // must continue to read through this helper rather than Stripe.
   //
   // Current behavior:
   // - missing user_id, missing subscription row, D1 errors -> free
-  // - cancelled or expired status -> free
+  // - non-active subscription_status values -> free
   // - expired current_period_end -> free
-  // - expired trial_ends_at for trial status -> free
-  // - otherwise normalize and return subscription_accounts.plan
+  // - otherwise normalize and return subscriptions.plan
   if (!userId) return "free";
   try {
     const sub = await env.cybermeters_db
       .prepare(
-        `SELECT plan, status, trial_ends_at, current_period_end
-         FROM subscription_accounts
+        `SELECT plan, subscription_status, current_period_end
+         FROM subscriptions
          WHERE owner_user_id = ?
-         ORDER BY created_at DESC
+         ORDER BY COALESCE(updated_at, created_at) DESC
          LIMIT 1`
       )
       .bind(userId)
       .first();
 
     if (!sub) return "free";
-    const status = String(sub.status || "").trim().toLowerCase();
-    if (status === "cancelled" || status === "expired") return "free";
+    const status = String(sub.subscription_status || "").trim().toLowerCase();
+    if (status && !["active", "trialing"].includes(status)) return "free";
     if (isExpiredDate(sub.current_period_end)) return "free";
-    if (status === "trial" && isExpiredDate(sub.trial_ends_at)) return "free";
     return normalizePlan(sub.plan);
   } catch {
     return "free";
@@ -11581,15 +11579,275 @@ function getStripePriceIdForPlan(env, plan, interval = "monthly") {
   const config = validateStripeBillingConfig(env);
   if (!config.ok) return { ok: false, error: config.error, missing: config.missing, price_id: null };
 
-  // STRIPE_PRICE_MAP is expected to map Stripe price IDs to plan names. Resolve
-  // by plan and, when possible, interval hints in the price ID.
-  const entries = Object.entries(config.priceMap)
-    .filter(([, mappedPlan]) => normalizePlan(mappedPlan) === normalizedPlan);
-  const intervalMatch = entries.find(([priceId]) => priceId.toLowerCase().includes(normalizedInterval));
-  const resolved = intervalMatch ?? entries[0];
-  if (!resolved) return { ok: false, error: "missing_stripe_price", missing: [], price_id: null };
-  return { ok: true, error: null, missing: [], price_id: resolved[0] };
+  // STRIPE_PRICE_MAP uses explicit composite keys: "{plan}_{interval}" → price_id.
+  // Example: { "starter_monthly": "price_xxx", "professional_annual": "price_yyy" }
+  // Direct key lookup — no substring matching on price IDs.
+  const key = `${normalizedPlan}_${normalizedInterval}`;
+  const priceId = config.priceMap[key];
+  if (!priceId || typeof priceId !== "string") {
+    return { ok: false, error: "missing_stripe_price", missing: [key], price_id: null };
+  }
+  return { ok: true, error: null, missing: [], price_id: priceId };
 }
+
+function validateStripeWebhookConfig(env) {
+  if (!env?.STRIPE_WEBHOOK_SECRET) {
+    return { ok: false, error: "missing_stripe_webhook_secret", missing: ["STRIPE_WEBHOOK_SECRET"] };
+  }
+  return { ok: true, error: null, missing: [] };
+}
+
+function parseStripeSignatureHeader(header) {
+  const parts = String(header || "").split(",").map((part) => part.trim()).filter(Boolean);
+  const timestampPart = parts.find((part) => part.startsWith("t="));
+  const timestamp = timestampPart ? Number(timestampPart.slice(2)) : NaN;
+  const signatures = parts
+    .filter((part) => part.startsWith("v1="))
+    .map((part) => part.slice(3))
+    .filter(Boolean);
+  return { timestamp, signatures };
+}
+
+function bufferToHex(buffer) {
+  return Array.from(new Uint8Array(buffer))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function timingSafeEqualHex(a, b) {
+  if (typeof a !== "string" || typeof b !== "string") return false;
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
+async function hmacSha256Hex(secret, payload) {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(payload));
+  return bufferToHex(signature);
+}
+
+async function verifyStripeWebhookSignature(rawBody, signatureHeader, webhookSecret) {
+  const { timestamp, signatures } = parseStripeSignatureHeader(signatureHeader);
+  if (!Number.isFinite(timestamp) || signatures.length === 0) {
+    return { ok: false, error: "invalid_signature_header" };
+  }
+
+  const toleranceSeconds = 300;
+  const ageSeconds = Math.abs(Math.floor(Date.now() / 1000) - timestamp);
+  if (ageSeconds > toleranceSeconds) {
+    return { ok: false, error: "signature_timestamp_outside_tolerance" };
+  }
+
+  const expected = await hmacSha256Hex(webhookSecret, `${timestamp}.${rawBody}`);
+  const matched = signatures.some((signature) => timingSafeEqualHex(expected, signature));
+  return matched ? { ok: true, error: null } : { ok: false, error: "invalid_signature" };
+}
+
+function stripeUnixToIso(value) {
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds) || seconds <= 0) return null;
+  return new Date(seconds * 1000).toISOString();
+}
+
+function getStripeObjectId(value) {
+  if (!value) return null;
+  if (typeof value === "string") return value;
+  if (typeof value === "object" && typeof value.id === "string") return value.id;
+  return null;
+}
+
+function getStripeSubscriptionPrice(subscription) {
+  return subscription?.items?.data?.[0]?.price ?? subscription?.plan ?? null;
+}
+
+function getPlanFromStripePriceId(env, priceId, fallbackPlan = null) {
+  const fallback = fallbackPlan ? normalizePlan(fallbackPlan) : null;
+  if (!priceId) return fallback;
+  const priceMap = parseStripePriceMap(env);
+  if (!priceMap.ok) return fallback;
+  // STRIPE_PRICE_MAP is keyed as "{plan}_{interval}" → price_id.
+  // Reverse lookup: find the key whose value matches priceId, then extract the plan prefix.
+  const entry = Object.entries(priceMap.map).find(([, pid]) => pid === priceId);
+  if (!entry) return fallback;
+  // Key format: "{plan}_{interval}" — plan is everything before the last underscore.
+  const planPart = entry[0].replace(/_[^_]+$/, "");
+  return normalizePlan(planPart) || fallback;
+}
+
+function getBillingIntervalFromStripeSubscription(subscription, fallbackInterval = "monthly") {
+  const price = getStripeSubscriptionPrice(subscription);
+  const interval = price?.recurring?.interval;
+  if (interval === "year") return "annual";
+  if (interval === "month") return "monthly";
+  return normalizeBillingInterval(fallbackInterval);
+}
+
+function normalizeStripeSubscriptionStatus(status) {
+  const value = String(status || "").trim().toLowerCase();
+  return value || "incomplete";
+}
+
+async function findSubscriptionRowId(env, { ownerUserId = null, stripeSubscriptionId = null, stripeCustomerId = null } = {}) {
+  if (ownerUserId) {
+    const row = await env.cybermeters_db
+      .prepare("SELECT id FROM subscriptions WHERE owner_user_id = ? LIMIT 1")
+      .bind(ownerUserId)
+      .first();
+    if (row?.id) return row.id;
+  }
+
+  if (stripeSubscriptionId) {
+    const row = await env.cybermeters_db
+      .prepare("SELECT id FROM subscriptions WHERE stripe_subscription_id = ? LIMIT 1")
+      .bind(stripeSubscriptionId)
+      .first();
+    if (row?.id) return row.id;
+  }
+
+  if (stripeCustomerId) {
+    const row = await env.cybermeters_db
+      .prepare("SELECT id FROM subscriptions WHERE stripe_customer_id = ? LIMIT 1")
+      .bind(stripeCustomerId)
+      .first();
+    if (row?.id) return row.id;
+  }
+
+  return null;
+}
+
+async function upsertStripeSubscriptionState(env, state) {
+  const ownerUserId = state.owner_user_id || null;
+  const stripeCustomerId = state.stripe_customer_id || null;
+  const stripeSubscriptionId = state.stripe_subscription_id || null;
+  const rowId = await findSubscriptionRowId(env, {
+    ownerUserId,
+    stripeSubscriptionId,
+    stripeCustomerId,
+  });
+
+  if (rowId) {
+    await env.cybermeters_db
+      .prepare(
+        `UPDATE subscriptions
+         SET plan = ?,
+             billing_interval = ?,
+             subscription_status = ?,
+             stripe_customer_id = COALESCE(?, stripe_customer_id),
+             stripe_subscription_id = COALESCE(?, stripe_subscription_id),
+             stripe_price_id = COALESCE(?, stripe_price_id),
+             current_period_end = COALESCE(?, current_period_end),
+             updated_at = datetime('now')
+         WHERE id = ?`
+      )
+      .bind(
+        normalizePlan(state.plan),
+        normalizeBillingInterval(state.billing_interval),
+        normalizeStripeSubscriptionStatus(state.subscription_status),
+        stripeCustomerId,
+        stripeSubscriptionId,
+        state.stripe_price_id || null,
+        state.current_period_end || null,
+        rowId
+      )
+      .run();
+    return rowId;
+  }
+
+  if (!ownerUserId) return null;
+  const id = createId("sub");
+  await env.cybermeters_db
+    .prepare(
+      `INSERT INTO subscriptions
+         (id, owner_user_id, plan, billing_interval, subscription_status,
+          stripe_customer_id, stripe_subscription_id, stripe_price_id,
+          current_period_end, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
+    )
+    .bind(
+      id,
+      ownerUserId,
+      normalizePlan(state.plan),
+      normalizeBillingInterval(state.billing_interval),
+      normalizeStripeSubscriptionStatus(state.subscription_status),
+      stripeCustomerId,
+      stripeSubscriptionId,
+      state.stripe_price_id || null,
+      state.current_period_end || null
+    )
+    .run();
+  return id;
+}
+
+async function handleCheckoutSessionCompleted(env, session) {
+  const metadata = session?.metadata || {};
+  const ownerUserId = metadata.user_id || session?.client_reference_id || null;
+  const plan = normalizePlan(metadata.plan);
+  const billingInterval = normalizeBillingInterval(metadata.interval);
+  const stripeCustomerId = getStripeObjectId(session?.customer);
+  const stripeSubscriptionId = getStripeObjectId(session?.subscription);
+
+  return upsertStripeSubscriptionState(env, {
+    owner_user_id: ownerUserId,
+    plan,
+    billing_interval: billingInterval,
+    subscription_status: "active",
+    stripe_customer_id: stripeCustomerId,
+    stripe_subscription_id: stripeSubscriptionId,
+  });
+}
+
+async function handleStripeSubscriptionUpsert(env, subscription) {
+  const metadata = subscription?.metadata || {};
+  const price = getStripeSubscriptionPrice(subscription);
+  const priceId = price?.id || null;
+  const plan = getPlanFromStripePriceId(env, priceId, metadata.plan);
+  const billingInterval = getBillingIntervalFromStripeSubscription(subscription, metadata.interval);
+
+  return upsertStripeSubscriptionState(env, {
+    owner_user_id: metadata.user_id || null,
+    plan,
+    billing_interval: billingInterval,
+    subscription_status: normalizeStripeSubscriptionStatus(subscription?.status),
+    stripe_customer_id: getStripeObjectId(subscription?.customer),
+    stripe_subscription_id: subscription?.id || null,
+    stripe_price_id: priceId,
+    current_period_end: stripeUnixToIso(subscription?.current_period_end),
+  });
+}
+
+async function handleStripeSubscriptionDeleted(env, subscription) {
+  const metadata = subscription?.metadata || {};
+  const rowId = await findSubscriptionRowId(env, {
+    ownerUserId: metadata.user_id || null,
+    stripeSubscriptionId: subscription?.id || null,
+    stripeCustomerId: getStripeObjectId(subscription?.customer),
+  });
+
+  if (!rowId) return null;
+  await env.cybermeters_db
+    .prepare(
+      `UPDATE subscriptions
+       SET subscription_status = 'canceled',
+           current_period_end = COALESCE(?, current_period_end),
+           updated_at = datetime('now')
+       WHERE id = ?`
+    )
+    .bind(stripeUnixToIso(subscription?.current_period_end), rowId)
+    .run();
+  return rowId;
+}
+
 
 function getPlanLimits(plan) {
   const normalized = normalizePlan(plan);
@@ -12070,6 +12328,99 @@ export default {
       });
     }
 
+    // ── POST /api/billing/webhook ─────────────────────────────────────────
+    // Stripe webhook receiver. Verifies the Stripe-Signature header using
+    // HMAC-SHA256, then synchronises subscription lifecycle events into D1.
+    // No session auth — identity is established by the webhook signature.
+    // Returns 5xx after a valid signature if D1 synchronization fails so
+    // Stripe retries transient persistence failures.
+    if (request.method === "POST" && url.pathname === "/api/billing/webhook") {
+      // Read raw body first — required before any other body consumption so
+      // the exact bytes Stripe signed are available for HMAC verification.
+      const rawBody = await request.text();
+
+      const webhookConfig = validateStripeWebhookConfig(env);
+      if (!webhookConfig.ok) {
+        return json({
+          error:   webhookConfig.error,
+          missing: webhookConfig.missing,
+          message: "Stripe webhook secret is not configured.",
+        }, 503);
+      }
+
+      const sigHeader = request.headers.get("Stripe-Signature") || "";
+      const sigResult = await verifyStripeWebhookSignature(rawBody, sigHeader, env.STRIPE_WEBHOOK_SECRET);
+      if (!sigResult.ok) {
+        return json({ error: sigResult.error }, 400);
+      }
+
+      let event;
+      try { event = JSON.parse(rawBody); } catch {
+        return json({ error: "invalid_json" }, 400);
+      }
+
+      const eventType = event?.type ?? "unknown";
+      const obj       = event?.data?.object;
+
+      try {
+        switch (eventType) {
+
+          // ── checkout.session.completed ────────────────────────────────────
+          // Customer completed Stripe-hosted checkout. Writes stripe_customer_id
+          // and stripe_subscription_id into subscriptions. getEffectivePlan()
+          // will return the new plan once subscription_status = 'active'.
+          // current_period_end is absent on the session object — it arrives
+          // seconds later via customer.subscription.created.
+          case "checkout.session.completed": {
+            await handleCheckoutSessionCompleted(env, obj);
+            break;
+          }
+
+          // ── customer.subscription.created ─────────────────────────────────
+          // Fires seconds after checkout.session.completed. Carries the exact
+          // Stripe status and current_period_end. Upserts the subscriptions row
+          // so getEffectivePlan() reads the correct plan and expiry.
+          case "customer.subscription.created": {
+            await handleStripeSubscriptionUpsert(env, obj);
+            break;
+          }
+
+          // ── customer.subscription.updated ─────────────────────────────────
+          // Plan change, renewal, payment status update, or cancel_at_period_end
+          // flag set. Updates plan, billing_interval, subscription_status, and
+          // current_period_end in subscriptions.
+          case "customer.subscription.updated": {
+            await handleStripeSubscriptionUpsert(env, obj);
+            break;
+          }
+
+          // ── customer.subscription.deleted ─────────────────────────────────
+          // Subscription has ended. Sets subscription_status = 'canceled'.
+          // getEffectivePlan() returns 'free' for any non-active status.
+          // Row is never deleted — historical record is preserved.
+          case "customer.subscription.deleted": {
+            await handleStripeSubscriptionDeleted(env, obj);
+            break;
+          }
+
+          // All other Stripe events are acknowledged and silently ignored.
+          default:
+            break;
+        }
+      } catch (e) {
+        // Return 500 so Stripe retries delivery on transient D1 failures.
+        // Stripe uses exponential backoff (max 25 attempts over 72 h).
+        console.error(`[webhook] handler error [${eventType}]: ${e?.message ?? e}`);
+        return json({
+          error:      "webhook_sync_failed",
+          event_type: eventType,
+          message:    "D1 synchronization failed. Stripe will retry.",
+        }, 500);
+      }
+
+      return json({ received: true, event_type: eventType }, 200);
+    }
+
     // ── POST /api/auth/signup ────────────────────────────────────────────
     if (request.method === "POST" && url.pathname === "/api/auth/signup") {
       let body;
@@ -12266,8 +12617,7 @@ export default {
       try {
         subscription = await env.cybermeters_db
           .prepare(
-            `SELECT id, plan, status, billing_provider, billing_email,
-                    stripe_customer_id, stripe_subscription_id, stripe_price_id,
+            `SELECT id, stripe_customer_id, stripe_subscription_id, stripe_price_id,
                     billing_interval, cancel_at_period_end, current_period_end
              FROM subscriptions
              WHERE owner_user_id = ?`
@@ -12344,7 +12694,7 @@ export default {
       }
 
       // D1 is intentionally NOT updated here.
-      // Plan activation and subscriptions sync happen in the webhook sprint
+      // Plan activation and subscriptions sync happen in the webhook handler
       // when Stripe fires checkout.session.completed.
       return json({
         checkout_url: stripeSession.url,
@@ -12358,7 +12708,7 @@ export default {
       const user = await requireAuth(request, env);
       if (!user) return json({ error: "Unauthorized" }, 401);
       try {
-        const [profile, subscription] = await Promise.all([
+        const [profile, sub] = await Promise.all([
           env.cybermeters_db
             .prepare(
               `SELECT id, company_name, website, industry, company_size,
@@ -12370,10 +12720,14 @@ export default {
             .first(),
           env.cybermeters_db
             .prepare(
-              `SELECT id, plan, status, billing_provider, billing_email,
-                      trial_ends_at, current_period_end, created_at, updated_at
-               FROM subscription_accounts
-               WHERE owner_user_id = ?`
+              `SELECT id, plan, subscription_status AS status,
+                      'stripe' AS billing_provider,
+                      NULL AS billing_email, NULL AS trial_ends_at,
+                      current_period_end, created_at, updated_at
+               FROM subscriptions
+               WHERE owner_user_id = ?
+               ORDER BY COALESCE(updated_at, created_at) DESC
+               LIMIT 1`
             )
             .bind(user.id)
             .first(),
@@ -12387,7 +12741,7 @@ export default {
             plan,
           },
           company: profile ?? null,
-          subscription: subscription ? { ...subscription, plan } : {
+          subscription: sub ? { ...sub, plan } : {
             plan,
             status:           "active",
             billing_provider: "manual",
@@ -12518,19 +12872,23 @@ export default {
       const user = await requireAuth(request, env);
       if (!user) return json({ error: "Unauthorized" }, 401);
       try {
-        const subscription = await env.cybermeters_db
+        const sub = await env.cybermeters_db
           .prepare(
-            `SELECT id, plan, status, billing_provider, billing_email,
-                    trial_ends_at, current_period_end, created_at, updated_at
-             FROM subscription_accounts
-             WHERE owner_user_id = ?`
+            `SELECT id, plan, subscription_status AS status,
+                    'stripe' AS billing_provider,
+                    NULL AS billing_email, NULL AS trial_ends_at,
+                    current_period_end, created_at, updated_at
+             FROM subscriptions
+             WHERE owner_user_id = ?
+             ORDER BY COALESCE(updated_at, created_at) DESC
+             LIMIT 1`
           )
           .bind(user.id)
           .first();
 
         const plan = await getEffectivePlan(user.id, env);
         return json({
-          subscription: subscription ? { ...subscription, plan } : {
+          subscription: sub ? { ...sub, plan } : {
             plan,
             status:           "active",
             billing_provider: "manual",
@@ -12613,12 +12971,12 @@ export default {
                cp.company_name,
                cp.contact_email,
                sa.plan,
-               sa.status,
+               sa.subscription_status AS status,
                sa.created_at,
                sa.current_period_end AS expires_at
              FROM users u
              LEFT JOIN customer_profiles cp ON cp.owner_user_id = u.id
-             LEFT JOIN subscription_accounts sa ON sa.owner_user_id = u.id
+             LEFT JOIN subscriptions sa ON sa.owner_user_id = u.id
              ORDER BY COALESCE(sa.created_at, u.created_at) DESC
              LIMIT 500`
           )
