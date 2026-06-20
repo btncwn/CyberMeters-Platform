@@ -2,11 +2,13 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Shield, Package2, Layers, Zap,
   Cloud, Terminal, Lock, Tag, Bell, Briefcase, ChevronLeft, FileText,
-  BarChart2,
+  BarChart2, TrendingUp, ShieldCheck,
 } from 'lucide-react'
 
 const WS_NAV = [
   { to: '/ws/executive-dashboard', icon: BarChart2,       label: 'Executive'        },
+  { to: '/ws/business-risk',       icon: TrendingUp,      label: 'Business Risk'    },
+  { to: '/ws/cyber-essentials',    icon: ShieldCheck,     label: 'Cyber Essentials' },
   { to: '/ws/dashboard',           icon: LayoutDashboard, label: 'Dashboard'        },
   { to: '/ws/scorecard',           icon: Shield,          label: 'Scorecard'        },
   { to: '/ws/vendors',          icon: Package2,        label: 'Vendor Risk'      },

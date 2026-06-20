@@ -242,6 +242,10 @@ export const api = {
   /** GET /api/workspaces/:id/scorecard/report */
   getWorkspaceScorecardReport: (id) => request(`/workspaces/${id}/scorecard/report`),
 
+  /** GET /api/workspaces/:id/cyber-essentials-readiness */
+  getWorkspaceCyberEssentialsReadiness: (id) =>
+    request(`/workspaces/${id}/cyber-essentials-readiness`),
+
   /** GET /api/workspaces/:id/posture */
   getWorkspacePosture: (id) => request(`/workspaces/${id}/posture`),
 
@@ -293,6 +297,9 @@ export const api = {
   /** POST /api/workspaces/:id/brand-monitoring/refresh */
   refreshBrandMonitoring: (id) =>
     request(`/workspaces/${id}/brand-monitoring/refresh`, { method: 'POST' }),
+
+  /** GET /api/workspaces/:id/business-risk */
+  getWorkspaceBusinessRisk: (id) => request(`/workspaces/${id}/business-risk`),
 
   /** GET /api/workspaces/:id/alerts */
   getWorkspaceAlerts: (id) => request(`/workspaces/${id}/alerts`),
