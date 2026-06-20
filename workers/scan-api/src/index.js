@@ -10447,10 +10447,11 @@ async function getEntitlementUsage(user, env, workspaceId = null) {
       const scanId   = createId("scan");
       const reportKey = `reports/${scanId}.json`;
 
-      // Register domain — reuse existing row for same domain string
+      // Register domain — reuse existing row for same (user_id, domain) pair.
+      // Scoped by user_id to prevent cross-user domain aliasing.
       const existingDomain = await env.cybermeters_db
-        .prepare(`SELECT id FROM domains WHERE domain = ? LIMIT 1`)
-        .bind(domain)
+        .prepare(`SELECT id FROM domains WHERE domain = ? AND user_id = ? LIMIT 1`)
+        .bind(domain, userId)
         .first();
 
       const resolvedDomainId = existingDomain ? existingDomain.id : domainId;
@@ -10584,6 +10585,10 @@ async function getEntitlementUsage(user, env, workspaceId = null) {
     ) {
       const scanId = url.pathname.split("/")[3];
 
+      // Auth before DB — prevents scan ID existence probing by unauthenticated callers.
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+
       const scan = await env.cybermeters_db
         .prepare(
           `SELECT id, domain_id, domain, status, score, rating, created_at
@@ -10596,8 +10601,6 @@ async function getEntitlementUsage(user, env, workspaceId = null) {
         return json({ error: "Scan not found" }, 404);
       }
 
-      const user = await requireAuth(request, env);
-      if (!user) return json({ error: "Unauthorized" }, 401);
       const access = await requireScanReadAccess(user, scanId, env);
       if (!access) return json({ error: "Forbidden" }, 403);
 
@@ -10668,6 +10671,10 @@ async function getEntitlementUsage(user, env, workspaceId = null) {
     ) {
       const scanId = url.pathname.split("/").pop();
 
+      // Auth before DB — prevents scan ID existence probing by unauthenticated callers.
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+
       const scan = await env.cybermeters_db
         .prepare(
           `SELECT id, domain_id, domain, status, score, rating, created_at
@@ -10680,8 +10687,6 @@ async function getEntitlementUsage(user, env, workspaceId = null) {
         return json({ error: "Scan not found" }, 404);
       }
 
-      const user = await requireAuth(request, env);
-      if (!user) return json({ error: "Unauthorized" }, 401);
       const access = await requireScanReadAccess(user, scanId, env);
       if (!access) return json({ error: "Forbidden" }, 403);
 
@@ -14741,9 +14746,10 @@ async function getEntitlementUsage(user, env, workspaceId = null) {
             }, 403);
           }
 
+          // Scoped by user_id to prevent cross-user domain aliasing.
           let domainRow = await env.cybermeters_db
-            .prepare(`SELECT id, domain FROM domains WHERE domain = ? LIMIT 1`)
-            .bind(raw)
+            .prepare(`SELECT id, domain FROM domains WHERE domain = ? AND user_id = ? LIMIT 1`)
+            .bind(raw, wsUser.id)
             .first();
 
           if (!domainRow) {
