@@ -50,6 +50,9 @@ There is no D1 entitlement table in v1. A database-backed entitlement model woul
 be premature before Stripe checkout, customer portal, webhook lifecycle, and
 `subscription_accounts` sync are stable.
 
+Current implementation table is `subscriptions`. Earlier architecture docs may
+refer to `subscription_accounts` as the conceptual billing account table.
+
 ## Helper Functions
 
 `getPlanFeatures(plan)`
@@ -69,8 +72,8 @@ be premature before Stripe checkout, customer portal, webhook lifecycle, and
 - Does not call Stripe.
 
 `getEffectivePlan(userId, env)` remains the canonical plan resolver. Application
-logic should resolve the plan from `subscription_accounts`, then pass that plan
-into the feature helpers.
+logic should resolve the effective plan first, then pass that plan into the
+feature helpers.
 
 ## Read-Only Metadata Endpoint
 

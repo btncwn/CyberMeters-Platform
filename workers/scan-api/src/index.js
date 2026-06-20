@@ -12254,7 +12254,7 @@ export default {
             `SELECT id, plan, status, billing_provider, billing_email,
                     stripe_customer_id, stripe_subscription_id, stripe_price_id,
                     billing_interval, cancel_at_period_end, current_period_end
-             FROM subscription_accounts
+             FROM subscriptions
              WHERE owner_user_id = ?`
           )
           .bind(user.id)
