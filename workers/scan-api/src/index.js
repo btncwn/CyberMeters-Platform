@@ -14237,29 +14237,35 @@ async function getEntitlementUsage(user, env, workspaceId = null) {
         for (const domain of validToImport) {
           if (existingSet.has(domain)) { skipped++; continue; }
 
-          // Upsert into domains table
-          await env.cybermeters_db
-            .prepare("INSERT INTO domains (id, user_id, domain) VALUES (?, ?, ?) ON CONFLICT(domain) DO NOTHING")
-            .bind(createId("dom"), importUser.id, domain)
-            .run();
-
-          const domRow = await env.cybermeters_db
-            .prepare("SELECT id FROM domains WHERE domain = ?")
-            .bind(domain)
+          // Find or create domain record.
+          // domains.domain has no UNIQUE constraint in D1, so ON CONFLICT(domain) is invalid.
+          // Use a safe SELECT-then-INSERT pattern instead.
+          let domainId;
+          const existingDom = await env.cybermeters_db
+            .prepare("SELECT id FROM domains WHERE domain = ? AND user_id = ? LIMIT 1")
+            .bind(domain, importUser.id)
             .first();
-          if (!domRow) { skipped++; continue; }
+          if (existingDom) {
+            domainId = existingDom.id;
+          } else {
+            domainId = createId("dom");
+            await env.cybermeters_db
+              .prepare("INSERT INTO domains (id, user_id, domain) VALUES (?, ?, ?)")
+              .bind(domainId, importUser.id, domain)
+              .run();
+          }
 
           // Link to workspace
           const already = await env.cybermeters_db
             .prepare("SELECT workspace_id FROM workspace_domains WHERE workspace_id = ? AND domain_id = ?")
-            .bind(workspaceId, domRow.id)
+            .bind(workspaceId, domainId)
             .first();
 
           if (already) { skipped++; continue; }
 
           await env.cybermeters_db
             .prepare("INSERT OR IGNORE INTO workspace_domains (workspace_id, domain_id) VALUES (?, ?)")
-            .bind(workspaceId, domRow.id)
+            .bind(workspaceId, domainId)
             .run();
 
           imported++;
