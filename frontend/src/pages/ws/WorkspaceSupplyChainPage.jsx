@@ -7,6 +7,7 @@ import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import StatCard from '../../components/StatCard'
 import RiskBadge from '../../components/RiskBadge'
+import { PlanGate } from '../../components/PlanUsageCard'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -215,7 +216,7 @@ export default function WorkspaceSupplyChainPage() {
     try {
       setData(await api.getWorkspaceSupplyChain(wsId))
     } catch (err) {
-      setError(err.message)
+      setError(err)
     } finally {
       setLoading(false)
     }
@@ -228,7 +229,8 @@ export default function WorkspaceSupplyChainPage() {
   const concentrationLevel = data?.concentration_level ?? 'unknown'
 
   return (
-    <WsPage wsId={wsId} wsName={wsName} loading={loading} error={error} onRetry={load}>
+    <WsPage wsId={wsId} wsName={wsName} loading={loading} error={error?.error === 'plan_feature_required' ? null : error?.message} onRetry={load}>
+      <PlanGate error={error}>
 
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap mb-6">
@@ -362,6 +364,7 @@ export default function WorkspaceSupplyChainPage() {
         </div>
       )}
 
+      </PlanGate>
     </WsPage>
   )
 }

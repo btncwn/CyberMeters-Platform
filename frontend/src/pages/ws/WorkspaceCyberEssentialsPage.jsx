@@ -8,6 +8,7 @@ import {
 import { api } from '../../api'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
 import { useWorkspace } from '../../hooks/useWorkspace'
+import { PlanGate } from '../../components/PlanUsageCard'
 
 const CATEGORY_LABELS = {
   boundary_protection: 'Boundary Protection',
@@ -121,7 +122,7 @@ export default function WorkspaceCyberEssentialsPage() {
     try {
       setReadiness(await api.getWorkspaceCyberEssentialsReadiness(wsId))
     } catch (err) {
-      setError(err.message)
+      setError(err)
     } finally {
       setLoading(false)
     }
@@ -132,7 +133,8 @@ export default function WorkspaceCyberEssentialsPage() {
   if (!wsId) return <NoWorkspaceSelected />
 
   return (
-    <WsPage wsId={wsId} wsName={wsName} loading={loading} error={error} onRetry={load}>
+    <WsPage wsId={wsId} wsName={wsName} loading={loading} error={error?.error === 'plan_feature_required' ? null : error?.message} onRetry={load}>
+      <PlanGate error={error}>
       <div className="flex items-start justify-between gap-4 flex-wrap mb-8">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Cyber Essentials Readiness</h1>
@@ -224,6 +226,7 @@ export default function WorkspaceCyberEssentialsPage() {
           </div>
         </>
       )}
+      </PlanGate>
     </WsPage>
   )
 }

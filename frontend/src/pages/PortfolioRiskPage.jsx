@@ -7,6 +7,7 @@ import {
 import { api } from '../api'
 import StatCard from '../components/StatCard'
 import RiskBadge from '../components/RiskBadge'
+import { PlanGate } from '../components/PlanUsageCard'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -270,7 +271,7 @@ export default function PortfolioRiskPage() {
     try {
       setData(await api.getPortfolioRisk())
     } catch (err) {
-      setError(err.message)
+      setError(err)
     } finally {
       setLoading(false)
     }
@@ -292,13 +293,20 @@ export default function PortfolioRiskPage() {
   }
 
   if (error) {
+    if (error.error === 'plan_feature_required') {
+      return (
+        <div className="p-6 max-w-screen-xl mx-auto">
+          <PlanGate error={error}>{null}</PlanGate>
+        </div>
+      )
+    }
     return (
       <div className="p-8">
         <div className="card p-6 border border-red-100 bg-red-50 flex items-center gap-3 text-red-700">
           <AlertTriangle className="w-5 h-5 flex-shrink-0" />
           <div>
             <p className="font-semibold">Failed to load portfolio risk</p>
-            <p className="text-sm mt-0.5">{error}</p>
+            <p className="text-sm mt-0.5">{error.message ?? String(error)}</p>
           </div>
           <button onClick={load} className="ml-auto btn-ghost text-red-600">Retry</button>
         </div>

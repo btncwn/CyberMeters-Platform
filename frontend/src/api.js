@@ -91,6 +91,14 @@ async function request(path, options = {}) {
       limitError.usage = err.usage
       throw limitError
     }
+    if (err.error === 'plan_feature_required') {
+      const gateError = new Error(`Feature requires upgrade: ${err.feature ?? ''}`)
+      gateError.error         = 'plan_feature_required'
+      gateError.feature       = err.feature
+      gateError.required_plan = err.required_plan
+      gateError.upgrade_url   = err.upgrade_url
+      throw gateError
+    }
     throw new Error(err.error || `HTTP ${res.status}`)
   }
   return res.json()
@@ -119,6 +127,14 @@ async function requestBlob(path, options = {}) {
       limitError.limit = err.limit
       limitError.usage = err.usage
       throw limitError
+    }
+    if (err.error === 'plan_feature_required') {
+      const gateError = new Error(`Feature requires upgrade: ${err.feature ?? ''}`)
+      gateError.error         = 'plan_feature_required'
+      gateError.feature       = err.feature
+      gateError.required_plan = err.required_plan
+      gateError.upgrade_url   = err.upgrade_url
+      throw gateError
     }
     throw new Error(err.error || `HTTP ${res.status}`)
   }

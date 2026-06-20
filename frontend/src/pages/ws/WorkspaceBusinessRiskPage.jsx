@@ -9,6 +9,7 @@ import {
 import { api } from '../../api'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import WsPage from '../../components/WsPage'
+import { PlanGate } from '../../components/PlanUsageCard'
 
 // ── Grade badge ──────────────────────────────────────────────────────────────
 function GradeBadge({ grade, label, score }) {
@@ -116,7 +117,7 @@ export default function WorkspaceBusinessRiskPage() {
     try {
       setData(await api.getWorkspaceBusinessRisk(wsId))
     } catch (e) {
-      setError(e.message || 'Failed to load business risk score')
+      setError(e)
     } finally {
       setLoading(false)
     }
@@ -131,7 +132,8 @@ export default function WorkspaceBusinessRiskPage() {
   }))
 
   return (
-    <WsPage wsId={wsId} wsName={wsName}>
+    <WsPage wsId={wsId} wsName={wsName} loading={loading} error={error?.error === 'plan_feature_required' ? null : error?.message} onRetry={load}>
+      <PlanGate error={error}>
       <div className="max-w-screen-lg mx-auto">
 
         {/* Header */}
@@ -300,6 +302,7 @@ export default function WorkspaceBusinessRiskPage() {
           </div>
         ) : null}
       </div>
+      </PlanGate>
     </WsPage>
   )
 }
