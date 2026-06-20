@@ -189,6 +189,118 @@ async function dnsQuery(name, type) {
   return res.json();
 }
 
+async function dnsQueryGoogle(name, type) {
+  const res = await fetch(
+    `https://dns.google/resolve?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}`,
+    { signal: AbortSignal.timeout(6_000) }
+  );
+  if (!res.ok) throw new Error(`Google DoH ${res.status} for ${type} ${name}`);
+  return res.json();
+}
+
+async function dnsQueryQuad9(name, type) {
+  // Quad9 DoH — optional third resolver for A/AAAA agreement checks.
+  // Never throws: failure returns null so budget-safe.
+  try {
+    const res = await fetch(
+      `https://dns.quad9.net/dns-query?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}`,
+      {
+        headers: { Accept: "application/dns-json" },
+        signal: AbortSignal.timeout(5_000),
+      }
+    );
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
+}
+
+function dnsAnswerValues(response) {
+  return (response?.Answer || [])
+    .map((r) => r.data)
+    .filter(Boolean)
+    .sort();
+}
+
+/**
+ * computeResolverAgreementScore(resolvers)
+ *
+ * Given an array of { status, returned_records } resolver objects,
+ * returns a 0–100 score:
+ *   100 = all available resolvers agree
+ *   50  = partial disagreement among available resolvers
+ *   0   = all available resolvers disagree
+ *   null = fewer than 2 resolvers available (insufficient data)
+ */
+function computeResolverAgreementScore(resolvers) {
+  const available = resolvers.filter((r) => r.status === "ok");
+  if (available.length < 2) return null;
+  const reference = available[0].returned_records;
+  const agreements = available.filter(
+    (r) => r.returned_records.length === reference.length
+      && r.returned_records.every((v, i) => v === reference[i])
+  ).length;
+  return Math.round((agreements / available.length) * 100);
+}
+
+function buildDnsCrossCheck(name, type, primaryResult, googleResult, quad9Result) {
+  const primaryRecords = dnsAnswerValues(primaryResult);
+  const googleAvailable = googleResult?.status === "fulfilled";
+  const quad9Available  = quad9Result != null;
+  const googleRecords   = googleAvailable ? dnsAnswerValues(googleResult.value) : [];
+  const quad9Records    = quad9Available  ? dnsAnswerValues(quad9Result)         : [];
+
+  const resolvers = [
+    { resolver: "cloudflare", status: primaryResult ? "ok" : "unavailable", returned_records: primaryRecords },
+    googleAvailable
+      ? { resolver: "google",  status: "ok",          returned_records: googleRecords }
+      : { resolver: "google",  status: "unavailable", returned_records: [] },
+  ];
+  if (quad9Result !== undefined) {
+    resolvers.push(
+      quad9Available
+        ? { resolver: "quad9",  status: "ok",          returned_records: quad9Records }
+        : { resolver: "quad9",  status: "unavailable", returned_records: [] }
+    );
+  }
+
+  const agreementScore = computeResolverAgreementScore(resolvers.filter((r) => r.status === "ok").length >= 2 ? resolvers : resolvers.slice(0, 2));
+  const googleRec = googleAvailable ? dnsAnswerValues(googleResult.value) : [];
+  const sameRecords = googleAvailable
+    && primaryRecords.length === googleRec.length
+    && primaryRecords.every((v, i) => v === googleRec[i]);
+
+  return {
+    query: { name, type },
+    primary_resolver: {
+      resolver: "cloudflare",
+      status: primaryResult ? "ok" : "unavailable",
+      returned_records: primaryRecords,
+    },
+    cloudflare_resolver: {
+      resolver: "cloudflare",
+      status: primaryResult ? "ok" : "unavailable",
+      returned_records: primaryRecords,
+    },
+    google_resolver: googleAvailable
+      ? { resolver: "google", status: "ok", returned_records: googleRecords }
+      : { resolver: "google", status: "unavailable", returned_records: [] },
+    ...(quad9Result !== undefined ? {
+      quad9_resolver: quad9Available
+        ? { resolver: "quad9", status: "ok", returned_records: quad9Records }
+        : { resolver: "quad9", status: "unavailable", returned_records: [] },
+    } : {}),
+    authoritative_nameserver: {
+      status: "unavailable",
+      reason: "Raw authoritative DNS queries are not available from Cloudflare Workers.",
+      returned_records: [],
+    },
+    resolver_agreement_score: agreementScore,
+    resolver_disagreement: googleAvailable ? !sameRecords : false,
+  };
+}
+
 /**
  * HTTP fetch that never throws — returns null on timeout / network error.
  */
@@ -287,18 +399,234 @@ const POSTURE_WEIGHTS = {
   admin_exposure:   { label: 'Admin Exposure',     pct: 20 },
 };
 
+function validateFindingEvidence(finding) {
+  const warnings = [];
+  const evidence = finding?.evidence ?? null;
+
+  if (!evidence) {
+    warnings.push("missing evidence_json");
+    return { evidence_quality: "missing", evidence_warnings: warnings };
+  }
+
+  if (!finding.confidence) warnings.push("missing confidence");
+  if (!evidence.source) warnings.push("missing source");
+  if (!(evidence.probe_target || evidence.target || evidence.queried_hostname || evidence.requested_url)) {
+    warnings.push("missing target or queried hostname");
+  }
+  if (evidence.observed_value === undefined && !evidence.headers_observed && !evidence.returned_records) {
+    warnings.push("missing observed value");
+  }
+  if (finding.score_impact !== 0 && evidence.expected_value === undefined) {
+    warnings.push("missing expected value");
+  }
+  if (!evidence.manual_verification_command) warnings.push("missing manual verification command");
+  if (!evidence.checked_at) warnings.push("missing checked_at timestamp");
+
+  const evidence_quality = warnings.length === 0
+    ? "excellent"
+    : warnings.length <= 2
+      ? "good"
+      : "partial";
+
+  return { evidence_quality, evidence_warnings: warnings };
+}
+
+function applyEvidenceQuality(findings) {
+  return (findings || []).map((finding) => {
+    const quality = validateFindingEvidence(finding);
+    return { ...finding, ...quality };
+  });
+}
+
+const SCANNER_REGRESSION_FIXTURES = [
+  {
+    scenario: "good_security_headers",
+    domain: "good.cybermeters.test",
+    mock_modules: {
+      dns: { resolves: true, has_mx: true },
+      ssl: { https_available: true, http_redirects_to_https: true },
+      headers: {
+        accessible: true,
+        final_https: true,
+        validation_uncertain: false,
+        status_code: 200,
+        values: {
+          "strict-transport-security": "max-age=31536000; includeSubDomains",
+          "content-security-policy": "default-src 'self'",
+          "x-frame-options": "DENY",
+          "x-content-type-options": "nosniff",
+          "referrer-policy": "no-referrer",
+          "permissions-policy": "geolocation=()",
+        },
+      },
+      email_security: {
+        spf: { present: true, record: "v=spf1 include:_spf.google.com -all" },
+        dmarc: { present: true, policy: "reject", record: "v=DMARC1; p=reject" },
+        dkim: { present: true, selector: "google" },
+      },
+    },
+    expected_absent: [
+      "dns_no_resolution",
+      "ssl_not_available",
+      "ssl_no_http_redirect",
+      "header_missing_strict_transport_security",
+      "email_missing_dmarc",
+      "email_missing_spf",
+      "email_dkim_not_detected",
+    ],
+  },
+  {
+    scenario: "missing_hsts_header",
+    domain: "missing-headers.cybermeters.test",
+    mock_modules: {
+      dns: { resolves: true, has_mx: true },
+      ssl: { https_available: true, http_redirects_to_https: true },
+      headers: {
+        accessible: true,
+        final_https: true,
+        validation_uncertain: false,
+        status_code: 200,
+        values: { "strict-transport-security": null },
+      },
+      email_security: {
+        spf: { present: true },
+        dmarc: { present: true, policy: "reject" },
+        dkim: { present: true },
+      },
+    },
+    expected: { id: "header_missing_strict_transport_security", severity: "high", confidence: "high", score_impact: -5 },
+  },
+  {
+    scenario: "dmarc_policy_none",
+    domain: "weak-email.cybermeters.test",
+    mock_modules: {
+      dns: { resolves: true, has_mx: true },
+      email_security: {
+        spf: { present: true, record: "v=spf1 include:_spf.google.com -all" },
+        dmarc: { present: true, policy: "none", record: "v=DMARC1; p=none" },
+        dkim: { present: true },
+      },
+    },
+    expected: { id: "email_dmarc_policy_none", severity: "medium", confidence: "high", score_impact: -5 },
+  },
+  {
+    scenario: "missing_dmarc",
+    domain: "no-dmarc.cybermeters.test",
+    mock_modules: {
+      dns: { resolves: true, has_mx: true },
+      email_security: {
+        spf: { present: true },
+        dmarc: { present: false, policy: null, record: null },
+        dkim: { present: true },
+      },
+    },
+    expected: { id: "email_missing_dmarc", severity: "high", confidence: "high", score_impact: -15 },
+  },
+  {
+    scenario: "missing_spf",
+    domain: "missing-spf.cybermeters.test",
+    mock_modules: {
+      dns: { resolves: true, has_mx: true },
+      email_security: {
+        spf: { present: false, record: null },
+        dmarc: { present: true, policy: "reject" },
+        dkim: { present: true },
+      },
+    },
+    expected: { id: "email_missing_spf", severity: "high", confidence: "high", score_impact: -10 },
+  },
+  {
+    scenario: "dkim_unknown_selector",
+    domain: "dkim-unknown.cybermeters.test",
+    mock_modules: {
+      dns: { resolves: true, has_mx: true },
+      email_security: {
+        spf: { present: true },
+        dmarc: { present: true, policy: "reject" },
+        dkim: { present: false, selector: null },
+      },
+    },
+    expected: { id: "email_dkim_not_detected", severity: "info", confidence: "low", score_impact: 0 },
+  },
+];
+
+function evaluateRegressionFixtures(fixtures = SCANNER_REGRESSION_FIXTURES) {
+  const results = fixtures.map((fixture) => {
+    const { findings } = computeScore(fixture.mock_modules, fixture.domain || "fixture.cybermeters.test");
+    const findingIds = new Set(findings.map((f) => f.id));
+    const failures = [];
+
+    if (fixture.expected) {
+      const actual = findings.find((f) => f.id === fixture.expected.id);
+      if (!actual) {
+        failures.push(`missing expected finding ${fixture.expected.id}`);
+      } else {
+        for (const key of ["severity", "confidence", "score_impact"]) {
+          if (actual[key] !== fixture.expected[key]) {
+            failures.push(`${fixture.expected.id} ${key}: expected ${fixture.expected[key]}, got ${actual[key]}`);
+          }
+        }
+        if (!actual.evidence_quality || actual.evidence_quality === "missing") {
+          failures.push(`${fixture.expected.id} missing usable evidence quality`);
+        }
+      }
+    }
+
+    for (const id of fixture.expected_absent || []) {
+      if (findingIds.has(id)) failures.push(`unexpected finding ${id}`);
+    }
+
+    return {
+      scenario: fixture.scenario,
+      passed: failures.length === 0,
+      failures,
+      findings: findings.map((f) => ({
+        id: f.id,
+        severity: f.severity,
+        confidence: f.confidence,
+        score_impact: f.score_impact,
+        evidence_quality: f.evidence_quality,
+      })),
+    };
+  });
+
+  const passed = results.filter((r) => r.passed).length;
+  return {
+    total: results.length,
+    passed,
+    failed: results.length - passed,
+    pass_rate: results.length > 0 ? Math.round((passed / results.length) * 100) : 0,
+    results,
+  };
+}
+
 // ── Module 1: DNS Analysis ────────────────────────────────────────────────────
 
 async function runDnsModule(domain) {
   // CAA runs here alongside A/AAAA/NS/MX — all parallel, no extra round-trip cost.
   // Placing CAA in the DNS module avoids adding subrequests to later phases
   // where the free-plan 50-subrequest budget may already be exhausted.
-  const [aRes, aaaaRes, nsRes, mxRes, caaRes] = await Promise.allSettled([
+  //
+  // v4: Added cross-checks for MX and TXT (SPF + DMARC) via Google DoH.
+  //     Added Quad9 DoH cross-check for A records.
+  //     Budget: 7 → 11 (+ googleMX, googleTxtBase, googleTxtDmarc, quad9A)
+  const [
+    aRes, aaaaRes, nsRes, mxRes, caaRes,
+    googleARes, googleAaaaRes,
+    googleMxRes, googleTxtBaseRes, googleTxtDmarcRes,
+    quad9ARes,
+  ] = await Promise.allSettled([
     dnsQuery(domain, "A"),
     dnsQuery(domain, "AAAA"),
     dnsQuery(domain, "NS"),
     dnsQuery(domain, "MX"),
     dnsQuery(domain, "CAA"),
+    dnsQueryGoogle(domain, "A"),
+    dnsQueryGoogle(domain, "AAAA"),
+    dnsQueryGoogle(domain, "MX"),
+    dnsQueryGoogle(domain, "TXT"),
+    dnsQueryGoogle(`_dmarc.${domain}`, "TXT"),
+    dnsQueryQuad9(domain, "A").then((r) => ({ status: "fulfilled", value: r })).catch(() => ({ status: "rejected" })),
   ]);
 
   const pick = (r) =>
@@ -345,6 +673,31 @@ async function runDnsModule(domain) {
     aaaa_records: aaaaRecords.map((r) => ({ value: r.data, ttl: r.TTL })),
     mx_records:   mxRecords.map((r) => ({ value: r.data, ttl: r.TTL })),
     caa,
+    cross_checks: (function() {
+      const aCross    = buildDnsCrossCheck(domain, "A",    aRes.status    === "fulfilled" ? aRes.value    : null, googleARes,    quad9ARes.status === "fulfilled" ? quad9ARes.value?.value : null);
+      const aaaaCross = buildDnsCrossCheck(domain, "AAAA", aaaaRes.status === "fulfilled" ? aaaaRes.value : null, googleAaaaRes, undefined);
+      const mxCross   = buildDnsCrossCheck(domain, "MX",   mxRes.status   === "fulfilled" ? mxRes.value   : null, googleMxRes,   undefined);
+      const txtBase   = buildDnsCrossCheck(domain, "TXT",  null,                                                  googleTxtBaseRes,  undefined);
+      const txtDmarc  = buildDnsCrossCheck(`_dmarc.${domain}`, "TXT", null,                                      googleTxtDmarcRes, undefined);
+
+      // Overall resolver_agreement_score: average of per-type scores where available.
+      const typeScores = [aCross, aaaaCross, mxCross, txtBase, txtDmarc]
+        .map((c) => c.resolver_agreement_score)
+        .filter((s) => s !== null);
+      const overallScore = typeScores.length > 0
+        ? Math.round(typeScores.reduce((s, n) => s + n, 0) / typeScores.length)
+        : null;
+
+      return {
+        a:                      aCross,
+        aaaa:                   aaaaCross,
+        mx:                     mxCross,
+        txt_spf:                txtBase,
+        txt_dmarc:              txtDmarc,
+        resolver_agreement_score: overallScore,
+        cross_checked_at:       new Date().toISOString(),
+      };
+    })(),
   };
 }
 
@@ -541,6 +894,71 @@ function detectBotProtection(statusCode, responseUrl, headerMap) {
 
 // ── Module 3: Security Headers Analysis ──────────────────────────────────────
 
+/**
+ * classifyHeaderStrength(name, value)
+ *
+ * Returns { status, details } for a security header value.
+ * status: "valid" | "weak" | "malformed" | "unknown"
+ *
+ * Criteria (v4 — Sprint: Scanner Accuracy Validation v4):
+ *   HSTS:                 valid if max-age >= 15,552,000 (180d); weak if 0 < max-age < 180d; malformed if unparsable
+ *   CSP:                  valid if present and no obvious dangerous directives; weak if contains unsafe-inline / wildcard-only
+ *   X-Frame-Options:      valid if DENY or SAMEORIGIN; malformed otherwise
+ *   X-Content-Type-Options: valid if nosniff; malformed otherwise
+ *   Referrer-Policy:      valid if strict value; weak if unsafe-url or no-referrer-when-downgrade
+ *   Permissions-Policy:   valid if present (content-agnostic); unknown if cannot validate
+ */
+function classifyHeaderStrength(name, value) {
+  const n = (name || "").toLowerCase().trim();
+  const v = (value || "").toLowerCase().trim();
+
+  if (n === "strict-transport-security") {
+    const m = v.match(/max-age\s*=\s*(\d+)/i);
+    if (!m) return { status: "malformed", details: "HSTS header present but max-age is missing or unparsable" };
+    const maxAge = parseInt(m[1], 10);
+    if (maxAge >= 15_552_000) return { status: "valid",   details: `max-age=${maxAge} (≥180 days)` };
+    if (maxAge > 0)           return { status: "weak",    details: `max-age=${maxAge} — below recommended minimum of 15,552,000 (180 days)` };
+    return { status: "malformed", details: "max-age=0 disables HSTS protection" };
+  }
+
+  if (n === "content-security-policy") {
+    if (!v) return { status: "unknown", details: "CSP present but value is empty" };
+    const hasUnsafeInline  = /unsafe-inline/i.test(v);
+    const hasUnsafeEval    = /unsafe-eval/i.test(v);
+    const wildcardDefault  = /default-src\s+['"]?\*['"]?/.test(v);
+    const wildcardScript   = /script-src\s+['"]?\*['"]?/.test(v);
+    if (wildcardDefault || wildcardScript) return { status: "weak", details: "CSP contains wildcard default-src or script-src — effectively disabled" };
+    if (hasUnsafeInline || hasUnsafeEval)  return { status: "weak", details: `CSP contains ${hasUnsafeInline ? "'unsafe-inline'" : ""}${hasUnsafeEval ? " 'unsafe-eval'" : ""} — reduces XSS protection` };
+    return { status: "valid", details: "CSP present with no immediately dangerous directives detected" };
+  }
+
+  if (n === "x-frame-options") {
+    if (v === "deny" || v === "sameorigin") return { status: "valid", details: `X-Frame-Options: ${value}` };
+    if (v.startsWith("allow-from"))         return { status: "weak",  details: "ALLOW-FROM is deprecated and inconsistently supported; use CSP frame-ancestors instead" };
+    return { status: "malformed", details: `Unrecognised X-Frame-Options value: "${value}"` };
+  }
+
+  if (n === "x-content-type-options") {
+    if (v === "nosniff") return { status: "valid", details: "nosniff" };
+    return { status: "malformed", details: `Expected "nosniff", got "${value}"` };
+  }
+
+  if (n === "referrer-policy") {
+    const strict = ["no-referrer", "same-origin", "strict-origin", "strict-origin-when-cross-origin"];
+    const weak   = ["unsafe-url", "no-referrer-when-downgrade"];
+    if (strict.includes(v)) return { status: "valid", details: v };
+    if (weak.includes(v))   return { status: "weak",  details: `${v} — sends referrer to cross-origin requests` };
+    if (!v)                 return { status: "weak",  details: "Empty referrer-policy defaults to browser behaviour (usually unsafe-url)" };
+    return { status: "valid", details: v };
+  }
+
+  if (n === "permissions-policy") {
+    return { status: "valid", details: "Permissions-Policy present (content not validated)" };
+  }
+
+  return { status: "unknown", details: `Header "${name}" strength classification not implemented` };
+}
+
 async function runHeadersModule(domain) {
   let headerValues         = {};
   let accessible           = false;
@@ -551,6 +969,47 @@ async function runHeadersModule(domain) {
   let setCookieRaw         = [];
   let botProtectionSignals = [];
   let rawHeaderSnapshot    = {};   // all response headers for diagnostics / bot detection
+  const checkedPaths       = [];
+
+  const snapshotHeaders = (headers) => {
+    const out = {};
+    headers.forEach((v, k) => { out[k.toLowerCase()] = v; });
+    return out;
+  };
+
+  const securityHeaderValues = (headers) => {
+    const values = {};
+    for (const h of SECURITY_HEADERS) values[h.name] = headers.get(h.name) || null;
+    return values;
+  };
+
+  const recordHeaderCheck = (label, requestedUrl, res, method = "GET") => {
+    if (!res) {
+      checkedPaths.push({
+        label,
+        requested_url: requestedUrl,
+        method,
+        status: "unavailable",
+        final_url: null,
+        status_code: null,
+        redirect_chain: [],
+        headers_observed: {},
+      });
+      return {};
+    }
+    const observed = securityHeaderValues(res.headers);
+    checkedPaths.push({
+      label,
+      requested_url: requestedUrl,
+      method,
+      status: "ok",
+      final_url: res.url,
+      status_code: res.status,
+      redirect_chain: res.url && res.url !== requestedUrl ? [{ from: requestedUrl, to: res.url }] : [],
+      headers_observed: observed,
+    });
+    return observed;
+  };
 
   // Prefer HTTPS; fall back to HTTP.
   // redirect:"follow" → res.url is the final URL after all redirects (Fetch API spec).
@@ -572,12 +1031,21 @@ async function runHeadersModule(domain) {
     redirectCount = (getRes.url && getRes.url !== probeUrl) ? 1 : 0;
 
     // Snapshot every response header (lower-cased) for bot-protection detection
-    rawHeaderSnapshot = {};
-    getRes.headers.forEach((v, k) => { rawHeaderSnapshot[k.toLowerCase()] = v; });
+    rawHeaderSnapshot = snapshotHeaders(getRes.headers);
 
     // Read security headers from GET response
-    for (const h of SECURITY_HEADERS) {
-      headerValues[h.name] = getRes.headers.get(h.name) || null;
+    headerValues = recordHeaderCheck("/", probeUrl, getRes, "GET");
+    if (responseUrl && responseUrl !== probeUrl) {
+      checkedPaths.push({
+        label: "final_canonical_url",
+        requested_url: responseUrl,
+        method: "GET",
+        status: "ok",
+        final_url: responseUrl,
+        status_code: getRes.status,
+        redirect_chain: [],
+        headers_observed: { ...headerValues },
+      });
     }
 
     // Set-Cookie capture — Workers supports getAll() because multiple values
@@ -600,8 +1068,7 @@ async function runHeadersModule(domain) {
         ...HEADER_PROBE_INIT,
       });
       if (headRes) {
-        const headSnapshot = {};
-        headRes.headers.forEach((v, k) => { headSnapshot[k.toLowerCase()] = v; });
+        const headSnapshot = snapshotHeaders(headRes.headers);
         const headBotSignals = detectBotProtection(headRes.status, headRes.url, headSnapshot);
 
         // Count how many security headers each response provides
@@ -619,6 +1086,16 @@ async function runHeadersModule(domain) {
           rawHeaderSnapshot = headSnapshot;
         }
       }
+    }
+
+    if (!domain.startsWith("www.")) {
+      const wwwUrl = `${proto}://www.${domain}`;
+      const wwwRes = await safeFetch(wwwUrl, {
+        method:   "HEAD",
+        redirect: "follow",
+        ...HEADER_PROBE_INIT,
+      });
+      recordHeaderCheck("www_variant", wwwUrl, wwwRes, "HEAD");
     }
 
     break;
@@ -647,10 +1124,17 @@ async function runHeadersModule(domain) {
       redirect_chain: redirectCount > 0 ? [{ from: originalUrl, to: responseUrl }] : [],
       headers_snapshot: rawHeaderSnapshot,
     },
+    checked_paths: checkedPaths,
     present,
     missing,
     values:         headerValues,
     set_cookie_raw: setCookieRaw,
+    // v4: Header strength classification per security header
+    header_strength: Object.fromEntries(
+      SECURITY_HEADERS
+        .filter((h) => headerValues[h.name])
+        .map((h) => [h.name, classifyHeaderStrength(h.name, headerValues[h.name])])
+    ),
   };
 }
 
@@ -4524,6 +5008,14 @@ function computeScore(modules, domain) {
         source:                      "cloudflare_doh",
         checked_at:                  evidenceTime,
         manual_verification_command: `dig A ${domain} @8.8.8.8`,
+        resolver_agreement_score:    modules.dns?.cross_checks?.a?.resolver_agreement_score ?? null,
+        resolver_disagreement:       modules.dns?.cross_checks?.a?.resolver_disagreement ?? false,
+        resolver_results: [
+          modules.dns?.cross_checks?.a?.cloudflare_resolver ?? null,
+          modules.dns?.cross_checks?.a?.google_resolver     ?? null,
+          modules.dns?.cross_checks?.a?.quad9_resolver      ?? null,
+        ].filter(Boolean),
+        cross_checked_at:            modules.dns?.cross_checks?.cross_checked_at ?? null,
       },
     });
     recommendations.push({
@@ -4666,10 +5158,18 @@ function computeScore(modules, domain) {
       if (modules.headers.values?.[h.name]) continue;
 
       const headerProbeUrl = modules.headers.response_url ?? `https://${domain}`;
+      const headerObservedElsewhere = (modules.headers.checked_paths || []).some(
+        (p) => p.headers_observed?.[h.name]
+      );
       const headerBaseEvidence = {
         evidence_type:               "http_header_probe",
         probe_target:                headerProbeUrl,
+        requested_url:               modules.headers.original_url ?? `https://${domain}`,
+        final_url:                   modules.headers.response_url ?? null,
+        redirect_chain:              modules.headers.raw_capture?.redirect_chain ?? [],
         status_code:                 modules.headers.status_code,
+        headers_observed:            modules.headers.raw_capture?.headers_snapshot ?? {},
+        checked_paths:               modules.headers.checked_paths ?? [],
         missing_header:              h.name,
         expected_value:              `${h.name} header present in response`,
         source:                      "cloudflare_workers_fetch",
@@ -4677,7 +5177,21 @@ function computeScore(modules, domain) {
         manual_verification_command: `curl -sI https://${domain} | grep -i "${h.name}"`,
       };
 
-      if (!responseQualityOk) {
+      if (headerObservedElsewhere) {
+        findings.push({
+          id:           `header_missing_${h.name.replace(/-/g, "_")}`,
+          module:       "headers",
+          severity:     "info",
+          confidence:   "medium",
+          title:        `${h.label} — Validation Uncertain`,
+          description:  `The ${h.label} header was missing from the primary response for ${domain}, but was observed on another checked path. Header policy may vary by host, redirect target, or canonical URL. Verify manually before treating this as a defect.`,
+          score_impact: 0,
+          evidence: {
+            ...headerBaseEvidence,
+            observed_value: `Header absent from primary response, present on at least one checked path`,
+          },
+        });
+      } else if (!responseQualityOk) {
         // Response quality too low to make any finding — informational only
         findings.push({
           id:           `header_missing_${h.name.replace(/-/g, "_")}`,
@@ -4776,6 +5290,9 @@ function computeScore(modules, domain) {
           source:                      "cloudflare_doh",
           checked_at:                  evidenceTime,
           manual_verification_command: `dig TXT _dmarc.${domain} @8.8.8.8`,
+          resolver_agreement_score:    modules.dns?.cross_checks?.txt_dmarc?.resolver_agreement_score ?? null,
+          resolver_disagreement:       modules.dns?.cross_checks?.txt_dmarc?.resolver_disagreement ?? false,
+          cross_checked_at:            modules.dns?.cross_checks?.cross_checked_at ?? null,
         },
       });
       recommendations.push({
@@ -4801,6 +5318,9 @@ function computeScore(modules, domain) {
           source:                      "cloudflare_doh",
           checked_at:                  evidenceTime,
           manual_verification_command: `dig TXT _dmarc.${domain} @8.8.8.8`,
+          resolver_agreement_score:    modules.dns?.cross_checks?.txt_dmarc?.resolver_agreement_score ?? null,
+          resolver_disagreement:       modules.dns?.cross_checks?.txt_dmarc?.resolver_disagreement ?? false,
+          cross_checked_at:            modules.dns?.cross_checks?.cross_checked_at ?? null,
         },
       });
       recommendations.push({
@@ -4828,6 +5348,9 @@ function computeScore(modules, domain) {
           source:                      "cloudflare_doh",
           checked_at:                  evidenceTime,
           manual_verification_command: `dig TXT ${domain} @8.8.8.8 | grep spf`,
+          resolver_agreement_score:    modules.dns?.cross_checks?.txt_spf?.resolver_agreement_score ?? null,
+          resolver_disagreement:       modules.dns?.cross_checks?.txt_spf?.resolver_disagreement ?? false,
+          cross_checked_at:            modules.dns?.cross_checks?.cross_checked_at ?? null,
         },
       });
       recommendations.push({
@@ -4859,6 +5382,9 @@ function computeScore(modules, domain) {
           source:                      "cloudflare_doh",
           checked_at:                  evidenceTime,
           manual_verification_command: `dig TXT default._domainkey.${domain} @8.8.8.8`,
+          resolver_agreement_score:    null,
+          resolver_disagreement:       false,
+          cross_checked_at:            modules.dns?.cross_checks?.cross_checked_at ?? null,
         },
       });
       recommendations.push({
@@ -5036,7 +5562,7 @@ function computeScore(modules, domain) {
   });
   uniqueRecs.sort((a, b) => a.priority - b.priority);
 
-  return { score, risk_level, findings, recommendations: uniqueRecs };
+  return { score, risk_level, findings: applyEvidenceQuality(findings), recommendations: uniqueRecs };
 }
 
 // ── Module 8: Historical Change Detection ─────────────────────────────────────
@@ -5610,7 +6136,7 @@ async function upsertAssetInventory(scanId, domainId, domain, modules, env) {
 
 function computeScanBudget(bruteforceChecked) {
   // Approximate subrequest counts based on known module profiles:
-  //   dns             — 5  (A + AAAA + NS + MX + CAA via DoH)
+  //   dns             — 11 (A + AAAA + NS + MX + CAA via DoH + A/AAAA/MX/TXT(base)/TXT(dmarc) Google cross-check + Quad9 A)
   //   ssl             — 4  (HTTPS + www-HTTPS fallback + HTTP + crt.sh)
   //   headers         — 2  (HTTPS + HTTP fallback)
   //   email_security  — 15 (TXT root + _dmarc + 13 DKIM selector probes)
@@ -5621,7 +6147,7 @@ function computeScanBudget(bruteforceChecked) {
   //   cve_kev         — 2  (NVD 0-3 + CISA KEV 1; use 2 as conservative estimate)
   //   domain_security_enrichment — 0 (pure computation, zero I/O)
   const moduleEstimates = {
-    dns:                        5,
+    dns:                        11,
     ssl:                        4,
     headers:                    2,
     email_security:             15,
@@ -5969,9 +6495,87 @@ async function runScanEngine(scanId, domainId, workspaceId, domain, env) {
     // Needs subdomains + dns_bruteforce + asset_exposure to be complete first.
     modules.cloud_storage_discovery = runCloudStorageModule(domain, modules);
 
+/**
+ * buildCanonicalUrlProfile(modules)
+ *
+ * Pure computation — synthesises a canonical URL profile from existing module data.
+ * No additional network calls. Uses data already collected by runSslModule and
+ * runHeadersModule (http_redirect_chain, final_url, status_code, redirect_count).
+ *
+ * Returns:
+ *   { canonical_url, canonical_confidence, variants, profile_complete, built_at }
+ */
+function buildCanonicalUrlProfile(modules) {
+  const ssl     = modules.ssl     || {};
+  const headers = modules.headers || {};
+
+  // Variant data derived from existing module observations
+  const variants = [];
+
+  // http://domain — from SSL module redirect chain
+  const httpChain = ssl.http_redirect_chain || {};
+  variants.push({
+    requested_url:           httpChain.original_url   ?? `http://${modules._domain ?? "unknown"}`,
+    final_url:               httpChain.final_url       ?? null,
+    redirect_count:          httpChain.redirect_count  ?? 0,
+    response_family:         httpChain.http_redirect_validated ? (httpChain.redirect_count > 0 ? "3xx" : "unknown") : "unavailable",
+    is_canonical_candidate:  false,  // HTTP is not a canonical candidate
+    note:                    httpChain.http_redirect_validated ? "HTTP redirect chain observed" : "HTTP probe blocked or unavailable",
+  });
+
+  // https://domain — from SSL module availability + headers final URL
+  const httpsAvailable = ssl.https_available === true;
+  const headersUrl     = headers.response_url ?? headers.original_url ?? null;
+  const headersStatus  = headers.status_code  ?? null;
+  const isWwwRedirect  = headersUrl ? headersUrl.includes("//www.") : false;
+  variants.push({
+    requested_url:           `https://${modules._domain ?? "unknown"}`,
+    final_url:               headersUrl,
+    status_code:             headersStatus,
+    redirect_count:          headers.redirect_count ?? 0,
+    response_family:         headersStatus != null
+      ? (headersStatus < 300 ? "2xx" : headersStatus < 400 ? "3xx" : headersStatus < 500 ? "4xx" : "5xx")
+      : "unavailable",
+    headers_observed:        Object.keys(headers.values || {}).filter((k) => headers.values[k]),
+    is_canonical_candidate:  httpsAvailable && !isWwwRedirect && headersStatus != null && headersStatus < 400,
+    note:                    headers.validation_uncertain
+      ? "Response may be from bot-protection layer — headers not reliable"
+      : httpsAvailable ? "HTTPS available" : "HTTPS unavailable",
+  });
+
+  // Determine canonical_url
+  let canonical_url        = null;
+  let canonical_confidence = "low";
+
+  if (httpsAvailable && headersUrl && headersStatus != null && headersStatus < 400) {
+    canonical_url = headersUrl;
+    canonical_confidence = headers.validation_uncertain ? "medium" : "high";
+  } else if (httpChain.final_url) {
+    canonical_url = httpChain.final_url;
+    canonical_confidence = "low";
+  }
+
+  const profileComplete = httpsAvailable && headersUrl != null && !headers.validation_uncertain;
+
+  return {
+    canonical_url,
+    canonical_confidence,
+    variants,
+    profile_complete: profileComplete,
+    http_redirects_to_https:    ssl.http_redirects_to_https ?? null,
+    http_redirect_validated:    httpChain.http_redirect_validated ?? false,
+    validation_uncertain:       headers.validation_uncertain ?? false,
+    built_at:                   new Date().toISOString(),
+  };
+}
+
     // Phase 7b: Admin surface detection — pure fingerprint pass over HTTP probe
     // results already collected by runExposureModule.  Zero additional I/O.
     modules.admin_surface_detection = runAdminSurfaceModule(modules);
+
+    // Phase 7b-ii: Canonical URL profile — pure computation from existing SSL/headers data.
+    modules._domain = domain;
+    modules.canonical_url_profile = buildCanonicalUrlProfile(modules);
 
     // Phase 7c: Domain security enrichment — pure computation, zero network I/O.
     // Reads CAA from modules.dns.caa, HSTS from modules.headers, cookies from
@@ -10823,6 +11427,124 @@ export default {
       }
     }
 
+    // ── GET /api/platform/accuracy ───────────────────────────────────────
+    if (request.method === "GET" && url.pathname === "/api/platform/accuracy") {
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+
+      try {
+        const workspaceIds = await getAccessibleWorkspaceIds(user, env);
+        const regression = evaluateRegressionFixtures();
+
+        if (workspaceIds.length === 0) {
+          return json({
+            accuracy_score:            0,
+            findings_total:            0,
+            high_confidence_pct:       0,
+            low_confidence_pct:        0,
+            evidence_complete_pct:     0,
+            validation_uncertain_count: 0,
+            validation_uncertain_pct:  0,
+            resolver_agreement_avg:    null,
+            regression_pass_rate:      regression.pass_rate,
+          });
+        }
+
+        const placeholders = workspaceIds.map(() => "?").join(",");
+        const rows = await env.cybermeters_db
+          .prepare(
+            `SELECT DISTINCT f.id, f.title, f.confidence, f.evidence_json
+             FROM findings f
+             JOIN scans s ON s.id = f.scan_id
+             LEFT JOIN workspace_domains wd ON wd.domain_id = s.domain_id
+             WHERE s.workspace_id IN (${placeholders})
+                OR (s.workspace_id IS NULL AND wd.workspace_id IN (${placeholders}))`
+          )
+          .bind(...workspaceIds, ...workspaceIds)
+          .all();
+
+        const findings = rows.results || [];
+        const total = findings.length;
+        let high = 0;
+        let low = 0;
+        let complete = 0;
+        let uncertain = 0;
+
+        for (const row of findings) {
+          const confidence = String(row.confidence || "").toLowerCase();
+          if (confidence === "high") high += 1;
+          if (confidence === "low") low += 1;
+
+          let evidence = null;
+          try { evidence = row.evidence_json ? JSON.parse(row.evidence_json) : null; } catch {}
+          const quality = validateFindingEvidence({
+            title: row.title,
+            confidence: row.confidence,
+            score_impact: 0,
+            evidence,
+          }).evidence_quality;
+          if (quality === "excellent" || quality === "good") complete += 1;
+
+          const evidenceText = JSON.stringify(evidence || {}).toLowerCase();
+          if (
+            /validation uncertain/i.test(row.title || "")
+            || confidence === "low"
+            || evidenceText.includes("validation_uncertain")
+          ) {
+            uncertain += 1;
+          }
+        }
+
+        const pct = (n) => total > 0 ? Math.round((n / total) * 100) : 0;
+
+        // Compute resolver_agreement_avg from findings that have the field in evidence
+        let raTotal = 0, raCount = 0;
+        for (const row of findings) {
+          let evidence = null;
+          try { evidence = row.evidence_json ? JSON.parse(row.evidence_json) : null; } catch {}
+          if (evidence?.resolver_agreement_score != null) {
+            raTotal += evidence.resolver_agreement_score;
+            raCount += 1;
+          }
+        }
+        const resolverAgreementAvg = raCount > 0 ? Math.round(raTotal / raCount) : null;
+
+        // accuracy_score formula:
+        //   40% evidence_complete_pct
+        //   20% high_confidence_pct
+        //   20% regression_pass_rate
+        //   10% (100 - validation_uncertain_pct)   [low uncertain = high accuracy]
+        //   10% resolver_agreement_avg (or 50 if no data)
+        const evidenceCompletePct    = pct(complete);
+        const highConfidencePct      = pct(high);
+        const regressionPassRate     = regression.pass_rate;
+        const validationUncertainPct = pct(uncertain);
+        const resolverAvgForScore    = resolverAgreementAvg ?? 50;
+
+        const accuracyScore = Math.round(
+          evidenceCompletePct    * 0.40
+          + highConfidencePct    * 0.20
+          + regressionPassRate   * 0.20
+          + Math.max(0, 100 - validationUncertainPct) * 0.10
+          + resolverAvgForScore  * 0.10
+        );
+
+        return json({
+          accuracy_score:            accuracyScore,
+          findings_total:            total,
+          high_confidence_pct:       highConfidencePct,
+          low_confidence_pct:        pct(low),
+          evidence_complete_pct:     evidenceCompletePct,
+          validation_uncertain_count: uncertain,
+          validation_uncertain_pct:  validationUncertainPct,
+          resolver_agreement_avg:    resolverAgreementAvg,
+          regression_pass_rate:      regressionPassRate,
+        });
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
     // ── POST /api/scan ──────────────────────────────────────────────────
     if (request.method === "POST" && url.pathname === "/api/scan") {
       const user = await requireAuth(request, env);
@@ -11079,13 +11801,17 @@ export default {
         },
       };
 
+      const reportFindings = applyEvidenceQuality(
+        Array.isArray(raw.findings) ? raw.findings : []
+      );
+
       return json({
         scan_id:             scan.id,
         domain:              scan.domain,
         status:              scan.status,
         cyber_metrics_score: raw.cyber_metrics_score ?? 0,
         risk_level:          raw.risk_level          ?? "unknown",
-        findings:            Array.isArray(raw.findings)        ? raw.findings        : [],
+        findings:            reportFindings,
         recommendations:     Array.isArray(raw.recommendations) ? raw.recommendations : [],
         modules:             normalisedModules,
         ...(raw.started_at   ? { started_at:   raw.started_at   } : {}),

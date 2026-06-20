@@ -1,13 +1,18 @@
 {
-  "_comment": "Sprint 4 — Scanner Accuracy & Evidence Framework v1. Expected finding outputs for key scenarios. Use these to validate scanner behaviour after changes to computeScore or scan modules.",
+  "_comment": "Sprint 4 \u2014 Scanner Accuracy & Evidence Framework v1. Expected finding outputs for key scenarios. Use these to validate scanner behaviour after changes to computeScore or scan modules. | v4 additions: resolver_disagreement, header_weak_hsts, csp_weak_policy, canonical_url_uncertain",
   "fixtures": [
     {
       "scenario": "good_security_headers",
       "description": "Domain with HTTPS, all security headers present, good DMARC/SPF/DKIM",
       "mock_modules": {
-        "dns":            { "resolves": true },
-        "ssl":            { "https_available": true, "http_redirects_to_https": true },
-        "headers":        {
+        "dns": {
+          "resolves": true
+        },
+        "ssl": {
+          "https_available": true,
+          "http_redirects_to_https": true
+        },
+        "headers": {
           "accessible": true,
           "final_https": true,
           "validation_uncertain": false,
@@ -22,9 +27,19 @@
           }
         },
         "email_security": {
-          "spf":  { "present": true, "record": "v=spf1 include:_spf.google.com -all" },
-          "dmarc": { "present": true, "policy": "reject", "record": "v=DMARC1; p=reject; rua=mailto:dmarc@example.com" },
-          "dkim": { "present": true, "selector": "google" }
+          "spf": {
+            "present": true,
+            "record": "v=spf1 include:_spf.google.com -all"
+          },
+          "dmarc": {
+            "present": true,
+            "policy": "reject",
+            "record": "v=DMARC1; p=reject; rua=mailto:dmarc@example.com"
+          },
+          "dkim": {
+            "present": true,
+            "selector": "google"
+          }
         }
       },
       "expected_findings": [],
@@ -40,10 +55,15 @@
     },
     {
       "scenario": "missing_hsts_header",
-      "description": "HTTPS site with verified 200 response but missing HSTS header — should produce a high-confidence scored finding",
+      "description": "HTTPS site with verified 200 response but missing HSTS header \u2014 should produce a high-confidence scored finding",
       "mock_modules": {
-        "dns":     { "resolves": true },
-        "ssl":     { "https_available": true, "http_redirects_to_https": true },
+        "dns": {
+          "resolves": true
+        },
+        "ssl": {
+          "https_available": true,
+          "http_redirects_to_https": true
+        },
         "headers": {
           "accessible": true,
           "final_https": true,
@@ -54,28 +74,44 @@
           }
         },
         "email_security": {
-          "spf":  { "present": true },
-          "dmarc": { "present": true, "policy": "reject" },
-          "dkim": { "present": true }
+          "spf": {
+            "present": true
+          },
+          "dmarc": {
+            "present": true,
+            "policy": "reject"
+          },
+          "dkim": {
+            "present": true
+          }
         }
       },
       "expected_finding": {
         "id": "header_missing_strict_transport_security",
         "severity": "high",
         "confidence": "high",
-        "score_impact": -10,
+        "score_impact": -5,
         "evidence_type": "http_header_probe",
         "has_manual_verification_command": true
       }
     },
     {
       "scenario": "dmarc_policy_none",
-      "description": "Domain has DMARC but p=none — medium finding, score -5",
+      "description": "Domain has DMARC but p=none \u2014 medium finding, score -5",
       "mock_modules": {
         "email_security": {
-          "spf":  { "present": true, "record": "v=spf1 include:_spf.google.com -all" },
-          "dmarc": { "present": true, "policy": "none", "record": "v=DMARC1; p=none; rua=mailto:dmarc@example.com" },
-          "dkim": { "present": true }
+          "spf": {
+            "present": true,
+            "record": "v=spf1 include:_spf.google.com -all"
+          },
+          "dmarc": {
+            "present": true,
+            "policy": "none",
+            "record": "v=DMARC1; p=none; rua=mailto:dmarc@example.com"
+          },
+          "dkim": {
+            "present": true
+          }
         }
       },
       "expected_finding": {
@@ -93,12 +129,20 @@
     },
     {
       "scenario": "missing_dmarc",
-      "description": "No DMARC record at all — high finding, score -15",
+      "description": "No DMARC record at all \u2014 high finding, score -15",
       "mock_modules": {
         "email_security": {
-          "spf":  { "present": true },
-          "dmarc": { "present": false, "policy": null, "record": null },
-          "dkim": { "present": true }
+          "spf": {
+            "present": true
+          },
+          "dmarc": {
+            "present": false,
+            "policy": null,
+            "record": null
+          },
+          "dkim": {
+            "present": true
+          }
         }
       },
       "expected_finding": {
@@ -116,12 +160,20 @@
     },
     {
       "scenario": "missing_spf",
-      "description": "No SPF record — high finding, score -10",
+      "description": "No SPF record \u2014 high finding, score -10",
       "mock_modules": {
         "email_security": {
-          "spf":  { "present": false, "record": null },
-          "dmarc": { "present": true, "policy": "reject" },
-          "dkim": { "present": true }
+          "spf": {
+            "present": false,
+            "record": null
+          },
+          "dmarc": {
+            "present": true,
+            "policy": "reject"
+          },
+          "dkim": {
+            "present": true
+          }
         }
       },
       "expected_finding": {
@@ -139,12 +191,20 @@
     },
     {
       "scenario": "dkim_unknown_selector",
-      "description": "DKIM not found on common selectors — info only, score 0, low confidence",
+      "description": "DKIM not found on common selectors \u2014 info only, score 0, low confidence",
       "mock_modules": {
         "email_security": {
-          "spf":  { "present": true },
-          "dmarc": { "present": true, "policy": "reject" },
-          "dkim": { "present": false, "selector": null }
+          "spf": {
+            "present": true
+          },
+          "dmarc": {
+            "present": true,
+            "policy": "reject"
+          },
+          "dkim": {
+            "present": false,
+            "selector": null
+          }
         }
       },
       "expected_finding": {
@@ -157,7 +217,161 @@
           "observed_value": "No DKIM TXT record found on common selectors: google, selector1, default, mail, k1, s1, s2"
         }
       },
-      "note": "Low confidence — enterprise domains use custom selectors. This must never produce a score deduction."
+      "note": "Low confidence \u2014 enterprise domains use custom selectors. This must never produce a score deduction."
+    },
+    {
+      "scenario": "resolver_disagreement",
+      "description": "DNS cross-check returns different A records from Cloudflare vs Google \u2014 resolver agreement score should be < 100 and resolver_disagreement should be true in evidence metadata, but no finding is generated",
+      "mock_modules": {
+        "dns": {
+          "resolves": true,
+          "cross_checks": {
+            "a": {
+              "cloudflare_resolver": { "resolver": "cloudflare", "status": "ok", "returned_records": ["1.2.3.4"] },
+              "google_resolver": { "resolver": "google", "status": "ok", "returned_records": ["5.6.7.8"] },
+              "resolver_disagreement": true,
+              "resolver_agreement_score": 0
+            }
+          }
+        },
+        "ssl": { "https_available": true, "http_redirects_to_https": true },
+        "headers": {
+          "accessible": true,
+          "final_https": true,
+          "validation_uncertain": false,
+          "status_code": 200,
+          "values": {
+            "strict-transport-security": "max-age=31536000; includeSubDomains",
+            "content-security-policy": "default-src 'self'",
+            "x-frame-options": "DENY",
+            "x-content-type-options": "nosniff",
+            "referrer-policy": "no-referrer",
+            "permissions-policy": "geolocation=()"
+          }
+        },
+        "email_security": {
+          "spf": { "present": true },
+          "dmarc": { "present": true, "policy": "reject" },
+          "dkim": { "present": true }
+        }
+      },
+      "expected_finding_ids_absent": ["dns_no_resolution"],
+      "note": "Resolver disagreement populates evidence metadata only. Domain resolves so dns_no_resolution must not be generated. Resolver disagreement does not create any scored finding."
+    },
+    {
+      "scenario": "header_weak_hsts",
+      "description": "HSTS header present but max-age is below the 180-day (15,552,000s) threshold",
+      "mock_modules": {
+        "dns": {
+          "resolves": true
+        },
+        "ssl": {
+          "https_available": true,
+          "http_redirects_to_https": true
+        },
+        "headers": {
+          "accessible": true,
+          "final_https": true,
+          "validation_uncertain": false,
+          "status_code": 200,
+          "values": {
+            "strict-transport-security": "max-age=3600",
+            "content-security-policy": "default-src 'self'",
+            "x-frame-options": "DENY",
+            "x-content-type-options": "nosniff",
+            "referrer-policy": "no-referrer",
+            "permissions-policy": "geolocation=()"
+          },
+          "header_strength": {
+            "strict-transport-security": {
+              "status": "weak",
+              "details": "max-age=3600 \u2014 below recommended minimum of 15,552,000 (180 days)"
+            }
+          }
+        },
+        "email_security": {
+          "spf": {
+            "present": true
+          },
+          "dmarc": {
+            "present": true,
+            "policy": "reject"
+          },
+          "dkim": {
+            "present": true
+          }
+        }
+      },
+      "expected_header_strength": {
+        "strict-transport-security": "weak"
+      },
+      "expected_finding_ids_absent": ["header_missing_strict_transport_security"],
+      "note": "HSTS is present (max-age=3600) so header_missing_strict_transport_security must NOT be generated. Weak HSTS appears in header_strength as evidence metadata only. No scored finding in v4."
+    },
+    {
+      "scenario": "csp_weak_policy",
+      "description": "CSP header is present but contains unsafe-inline \u2014 classified as weak. No missing-CSP finding should be generated.",
+      "mock_modules": {
+        "dns": { "resolves": true },
+        "ssl": { "https_available": true, "http_redirects_to_https": true },
+        "headers": {
+          "accessible": true,
+          "final_https": true,
+          "validation_uncertain": false,
+          "status_code": 200,
+          "values": {
+            "strict-transport-security": "max-age=31536000; includeSubDomains",
+            "content-security-policy": "default-src 'self' 'unsafe-inline'",
+            "x-frame-options": "DENY",
+            "x-content-type-options": "nosniff",
+            "referrer-policy": "no-referrer",
+            "permissions-policy": "geolocation=()"
+          },
+          "header_strength": {
+            "content-security-policy": {
+              "status": "weak",
+              "details": "unsafe-inline present \u2014 weakens XSS protection"
+            }
+          }
+        },
+        "email_security": {
+          "spf": { "present": true },
+          "dmarc": { "present": true, "policy": "reject" },
+          "dkim": { "present": true }
+        }
+      },
+      "expected_header_strength": {
+        "content-security-policy": "weak"
+      },
+      "expected_finding_ids_absent": ["header_missing_content_security_policy"],
+      "note": "CSP is present (even if weak) so header_missing_content_security_policy must NOT be generated. Weak CSP is evidence-only in v4 \u2014 no score deduction."
+    },
+    {
+      "scenario": "canonical_url_uncertain",
+      "description": "Domain where HTTP probing is blocked (bot protection) \u2014 canonical URL confidence should be medium or low, finding confidence suppressed",
+      "mock_modules": {
+        "ssl": {
+          "https_available": true,
+          "http_redirects_to_https": null,
+          "http_redirect_chain": {
+            "http_redirect_validated": false
+          }
+        },
+        "headers": {
+          "accessible": true,
+          "final_https": true,
+          "validation_uncertain": true,
+          "status_code": 200,
+          "response_url": "https://example.com"
+        }
+      },
+      "expected_canonical_profile": {
+        "canonical_url": "https://example.com",
+        "canonical_confidence": "medium",
+        "validation_uncertain": true,
+        "profile_complete": false
+      },
+      "note": "When validation_uncertain is true, canonical_confidence is capped at 'medium'. Header findings must remain low/medium confidence."
     }
   ]
 }
