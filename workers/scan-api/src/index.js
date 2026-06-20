@@ -5540,7 +5540,7 @@ function computeScanBudget(bruteforceChecked) {
 
 // ── Main Scan Engine (runs via ctx.waitUntil) ─────────────────────────────────
 
-async function runScanEngine(scanId, domainId, domain, env) {
+async function runScanEngine(scanId, domainId, workspaceId, domain, env) {
   const startedAt = new Date().toISOString();
 
   try {
@@ -8311,8 +8311,8 @@ async function triggerScheduledScan(schedule, env) {
 
     // Create scan row
     await env.cybermeters_db
-      .prepare(`INSERT INTO scans (id, domain_id, domain, status) VALUES (?, ?, ?, ?)`)
-      .bind(scanId, domainId, schedule.domain, "running")
+      .prepare(`INSERT INTO scans (id, domain_id, workspace_id, domain, status) VALUES (?, ?, ?, ?, ?)`)
+      .bind(scanId, domainId, schedule.workspace_id ?? null, schedule.domain, "running")
       .run();
 
     // Write placeholder report so GET /report returns 200 immediately
@@ -8349,7 +8349,7 @@ async function triggerScheduledScan(schedule, env) {
     }));
 
     // Run the full scan engine — awaited inside waitUntil context
-    await runScanEngine(scanId, domainId, schedule.domain, env);
+    await runScanEngine(scanId, domainId, schedule.workspace_id ?? null, schedule.domain, env);
 
     // ── Update asset counts after scan completes ───────────────────────────────
     if (schedule.workspace_id) {
@@ -10474,9 +10474,9 @@ async function getEntitlementUsage(user, env, workspaceId = null) {
       // Create scan row — status 'running' (engine starts immediately)
       await env.cybermeters_db
         .prepare(
-          `INSERT INTO scans (id, domain_id, domain, status) VALUES (?, ?, ?, ?)`
+          `INSERT INTO scans (id, domain_id, workspace_id, domain, status) VALUES (?, ?, ?, ?, ?)`
         )
-        .bind(scanId, resolvedDomainId, domain, "running")
+        .bind(scanId, resolvedDomainId, workspaceId, domain, "running")
         .run();
 
       // Write placeholder report to R2 so GET /report returns 200 immediately
@@ -10510,7 +10510,7 @@ async function getEntitlementUsage(user, env, workspaceId = null) {
       } catch { /* non-fatal */ }
 
       // Fire the scan engine after the response is sent
-      ctx.waitUntil(runScanEngine(scanId, resolvedDomainId, domain, env));
+      ctx.waitUntil(runScanEngine(scanId, resolvedDomainId, workspaceId, domain, env));
 
       return json(
         {
@@ -10541,18 +10541,22 @@ async function getEntitlementUsage(user, env, workspaceId = null) {
 
       let result;
       if (wsFilter) {
-        // Return only scans whose domain is linked to the requested workspace
+        // Direct attribution: scans.workspace_id = wsFilter.
+        // Fallback via domain join for historical scans where workspace_id IS NULL.
         result = await env.cybermeters_db
           .prepare(
-            `SELECT s.id, s.domain, s.status, s.score, s.rating, s.created_at
+            `SELECT DISTINCT s.id, s.domain, s.status, s.score, s.rating, s.created_at
              FROM scans s
              JOIN domains d ON d.id = s.domain_id
              JOIN workspace_domains wd ON wd.domain_id = d.id
-             WHERE wd.workspace_id = ?
+             WHERE (
+               s.workspace_id = ?
+               OR (s.workspace_id IS NULL AND wd.workspace_id = ?)
+             )
              ORDER BY s.created_at DESC
              LIMIT 20`
           )
-          .bind(wsFilter)
+          .bind(wsFilter, wsFilter)
           .all();
       } else {
         const workspaceIds = await getAccessibleWorkspaceIds(user, env);
@@ -10560,17 +10564,21 @@ async function getEntitlementUsage(user, env, workspaceId = null) {
           return json({ scans: [] });
         }
         const placeholders = workspaceIds.map(() => "?").join(",");
+        // Direct attribution for attributed scans; join fallback for NULL workspace_id.
         result = await env.cybermeters_db
           .prepare(
             `SELECT DISTINCT s.id, s.domain, s.status, s.score, s.rating, s.created_at
              FROM scans s
              JOIN domains d ON d.id = s.domain_id
              JOIN workspace_domains wd ON wd.domain_id = d.id
-             WHERE wd.workspace_id IN (${placeholders})
+             WHERE (
+               s.workspace_id IN (${placeholders})
+               OR (s.workspace_id IS NULL AND wd.workspace_id IN (${placeholders}))
+             )
              ORDER BY s.created_at DESC
              LIMIT 20`
           )
-          .bind(...workspaceIds)
+          .bind(...workspaceIds, ...workspaceIds)
           .all();
       }
 
@@ -14603,42 +14611,52 @@ async function getEntitlementUsage(user, env, workspaceId = null) {
               .prepare(`SELECT COUNT(*) AS n FROM workspace_domains WHERE workspace_id = ?`)
               .bind(workspaceId).first(),
 
-            // total_scans
+            // total_scans — prefer direct workspace_id attribution; fallback via
+            // domain join for historical scans where workspace_id IS NULL.
             env.cybermeters_db
               .prepare(
                 `SELECT COUNT(DISTINCT s.id) AS n
-                 FROM workspace_domains wd
-                 JOIN domains d ON d.id = wd.domain_id
-                 JOIN scans   s ON s.domain_id = d.id
-                 WHERE wd.workspace_id = ?`
+                 FROM scans s
+                 JOIN domains d ON d.id = s.domain_id
+                 JOIN workspace_domains wd ON wd.domain_id = d.id
+                 WHERE (
+                   s.workspace_id = ?
+                   OR (s.workspace_id IS NULL AND wd.workspace_id = ?)
+                 )`
               )
-              .bind(workspaceId).first(),
+              .bind(workspaceId, workspaceId).first(),
 
-            // cyber_score_average (completed scans only)
+            // cyber_score_average — direct attribution + fallback for NULL workspace_id
             env.cybermeters_db
               .prepare(
                 `SELECT ROUND(AVG(s.score), 1) AS avg
-                 FROM workspace_domains wd
-                 JOIN domains d ON d.id = wd.domain_id
-                 JOIN scans   s ON s.domain_id = d.id
-                 WHERE wd.workspace_id = ?
+                 FROM scans s
+                 JOIN domains d ON d.id = s.domain_id
+                 JOIN workspace_domains wd ON wd.domain_id = d.id
+                 WHERE (
+                   s.workspace_id = ?
+                   OR (s.workspace_id IS NULL AND wd.workspace_id = ?)
+                 )
                    AND s.status = 'completed'
                    AND s.score  IS NOT NULL`
               )
-              .bind(workspaceId).first(),
+              .bind(workspaceId, workspaceId).first(),
 
-            // latest_scan
+            // latest_scan — direct attribution + fallback for NULL workspace_id
             env.cybermeters_db
               .prepare(
                 `SELECT s.id, s.domain, s.status, s.score, s.rating, s.created_at
-                 FROM workspace_domains wd
-                 JOIN domains d ON d.id = wd.domain_id
-                 JOIN scans   s ON s.domain_id = d.id
-                 WHERE wd.workspace_id = ?
+                 FROM scans s
+                 JOIN domains d ON d.id = s.domain_id
+                 JOIN workspace_domains wd ON wd.domain_id = d.id
+                 WHERE (
+                   s.workspace_id = ?
+                   OR (s.workspace_id IS NULL AND wd.workspace_id = ?)
+                 )
                  ORDER BY s.created_at DESC
                  LIMIT 1`
               )
-              .bind(workspaceId).first(),
+              .bind(workspaceId, workspaceId).first(),
           ]);
 
           return json({
