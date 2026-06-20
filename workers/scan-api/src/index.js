@@ -14251,15 +14251,15 @@ async function getEntitlementUsage(user, env, workspaceId = null) {
 
           // Link to workspace
           const already = await env.cybermeters_db
-            .prepare("SELECT id FROM workspace_domains WHERE workspace_id = ? AND domain_id = ?")
+            .prepare("SELECT workspace_id FROM workspace_domains WHERE workspace_id = ? AND domain_id = ?")
             .bind(workspaceId, domRow.id)
             .first();
 
           if (already) { skipped++; continue; }
 
           await env.cybermeters_db
-            .prepare("INSERT INTO workspace_domains (id, workspace_id, domain_id, added_at) VALUES (?, ?, ?, datetime('now'))")
-            .bind(createId("wsd"), workspaceId, domRow.id)
+            .prepare("INSERT OR IGNORE INTO workspace_domains (workspace_id, domain_id) VALUES (?, ?)")
+            .bind(workspaceId, domRow.id)
             .run();
 
           imported++;
