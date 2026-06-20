@@ -372,6 +372,218 @@
         "profile_complete": false
       },
       "note": "When validation_uncertain is true, canonical_confidence is capped at 'medium'. Header findings must remain low/medium confidence."
+    },
+    {
+      "scenario": "dns_resolver_disagreement_finding",
+      "description": "Overall DNS resolver agreement score below 75 \u2014 dns_resolver_disagreement finding must be generated",
+      "mock_modules": {
+        "dns": {
+          "resolves": true,
+          "cross_checks": {
+            "a": {
+              "resolver_agreement_score": 50,
+              "resolver_disagreement": true,
+              "cross_checked_at": "2026-06-20T00:00:00.000Z"
+            },
+            "mx": {
+              "resolver_agreement_score": 50,
+              "resolver_disagreement": false
+            },
+            "resolver_agreement_score": 50,
+            "cross_checked_at": "2026-06-20T00:00:00.000Z"
+          }
+        },
+        "ssl": { "https_available": true, "http_redirects_to_https": true },
+        "headers": {
+          "accessible": true,
+          "final_https": true,
+          "validation_uncertain": false,
+          "status_code": 200,
+          "values": {
+            "strict-transport-security": "max-age=31536000; includeSubDomains",
+            "content-security-policy": "default-src 'self'",
+            "x-frame-options": "DENY",
+            "x-content-type-options": "nosniff",
+            "referrer-policy": "no-referrer"
+          }
+        },
+        "email_security": {
+          "spf": { "present": true },
+          "dmarc": { "present": true, "policy": "reject" },
+          "dkim": { "present": true }
+        }
+      },
+      "expected_finding": {
+        "id": "dns_resolver_disagreement",
+        "severity": "info",
+        "confidence": "medium",
+        "score_impact": 0,
+        "evidence_type": "dns_cross_check"
+      },
+      "note": "When cross_checks.resolver_agreement_score < 75, dns_resolver_disagreement finding must fire with score_impact=0."
+    },
+    {
+      "scenario": "header_weak_hsts_finding",
+      "description": "HSTS present with max-age=3600 on a clean HTTPS 200 response \u2014 header_weak_hsts finding must fire (score_impact=0)",
+      "mock_modules": {
+        "dns": { "resolves": true },
+        "ssl": {
+          "https_available": true,
+          "http_redirects_to_https": true,
+          "http_redirect_chain": { "http_redirect_validated": true }
+        },
+        "headers": {
+          "accessible": true,
+          "final_https": true,
+          "validation_uncertain": false,
+          "status_code": 200,
+          "values": {
+            "strict-transport-security": "max-age=3600",
+            "content-security-policy": "default-src 'self'",
+            "x-frame-options": "DENY",
+            "x-content-type-options": "nosniff",
+            "referrer-policy": "no-referrer"
+          }
+        },
+        "email_security": {
+          "spf": { "present": true },
+          "dmarc": { "present": true, "policy": "reject" },
+          "dkim": { "present": true }
+        }
+      },
+      "expected_finding": {
+        "id": "header_weak_hsts",
+        "severity": "info",
+        "confidence": "high",
+        "score_impact": 0,
+        "evidence_type": "http_header_probe"
+      },
+      "expected_finding_ids_absent": ["header_missing_strict_transport_security"],
+      "note": "HSTS is present (max-age=3600) so missing-HSTS must NOT fire. header_weak_hsts must fire with score_impact=0."
+    },
+    {
+      "scenario": "csp_weak_policy_finding",
+      "description": "CSP present with unsafe-inline on a clean HTTPS 200 response \u2014 csp_weak_policy finding must fire (score_impact=0)",
+      "mock_modules": {
+        "dns": { "resolves": true },
+        "ssl": {
+          "https_available": true,
+          "http_redirects_to_https": true,
+          "http_redirect_chain": { "http_redirect_validated": true }
+        },
+        "headers": {
+          "accessible": true,
+          "final_https": true,
+          "validation_uncertain": false,
+          "status_code": 200,
+          "values": {
+            "strict-transport-security": "max-age=31536000; includeSubDomains",
+            "content-security-policy": "default-src 'self' 'unsafe-inline'",
+            "x-frame-options": "DENY",
+            "x-content-type-options": "nosniff",
+            "referrer-policy": "no-referrer"
+          }
+        },
+        "email_security": {
+          "spf": { "present": true },
+          "dmarc": { "present": true, "policy": "reject" },
+          "dkim": { "present": true }
+        }
+      },
+      "expected_finding": {
+        "id": "csp_weak_policy",
+        "severity": "medium",
+        "confidence": "high",
+        "score_impact": 0,
+        "evidence_type": "http_header_probe"
+      },
+      "expected_finding_ids_absent": ["header_missing_content_security_policy"],
+      "note": "CSP is present with unsafe-inline so csp_weak_policy must fire; header_missing_content_security_policy must NOT fire."
+    },
+    {
+      "scenario": "canonical_url_uncertain_finding",
+      "description": "Bot protection blocks HTTP probe \u2014 canonical_url_profile has low consistency score \u2014 canonical_url_uncertain finding must fire",
+      "mock_modules": {
+        "dns": { "resolves": true },
+        "ssl": {
+          "https_available": true,
+          "http_redirects_to_https": null,
+          "http_redirect_chain": { "http_redirect_validated": false }
+        },
+        "headers": {
+          "accessible": true,
+          "final_https": true,
+          "validation_uncertain": true,
+          "status_code": 200,
+          "response_url": "https://fixture.cybermeters.test"
+        },
+        "canonical_url_profile": {
+          "canonical_url": "https://fixture.cybermeters.test",
+          "canonical_confidence": "medium",
+          "canonical_consistency_score": 60,
+          "profile_complete": false,
+          "http_redirect_validated": false,
+          "validation_uncertain": true,
+          "variants": [
+            { "variant": "http_bare",  "requested_url": "http://fixture.cybermeters.test",  "final_url": null,   "probe_method": "observed" },
+            { "variant": "https_bare", "requested_url": "https://fixture.cybermeters.test", "final_url": "https://fixture.cybermeters.test", "probe_method": "observed" },
+            { "variant": "http_www",   "requested_url": "http://www.fixture.cybermeters.test",  "final_url": null, "probe_method": "inferred" },
+            { "variant": "https_www",  "requested_url": "https://www.fixture.cybermeters.test", "final_url": null, "probe_method": "inferred" }
+          ]
+        },
+        "email_security": {
+          "spf": { "present": true },
+          "dmarc": { "present": true, "policy": "reject" },
+          "dkim": { "present": true }
+        }
+      },
+      "expected_finding": {
+        "id": "canonical_url_uncertain",
+        "severity": "info",
+        "confidence": "medium",
+        "score_impact": 0,
+        "evidence_type": "canonical_url_probe"
+      },
+      "note": "When canonical_consistency_score < 70 or profile_complete=false, canonical_url_uncertain must fire with score_impact=0."
+    },
+    {
+      "scenario": "header_malformed_hsts_finding",
+      "description": "HSTS header present but missing max-age directive (malformed) — header_malformed_strict_transport_security must fire",
+      "mock_modules": {
+        "dns": { "resolves": true },
+        "ssl": {
+          "https_available": true,
+          "http_redirects_to_https": true,
+          "http_redirect_chain": { "http_redirect_validated": true }
+        },
+        "headers": {
+          "accessible": true,
+          "final_https": true,
+          "validation_uncertain": false,
+          "status_code": 200,
+          "values": {
+            "strict-transport-security": "includeSubDomains; preload",
+            "content-security-policy": "default-src 'self'",
+            "x-frame-options": "DENY",
+            "x-content-type-options": "nosniff",
+            "referrer-policy": "no-referrer"
+          }
+        },
+        "email_security": {
+          "spf": { "present": true },
+          "dmarc": { "present": true, "policy": "reject" },
+          "dkim": { "present": true }
+        }
+      },
+      "expected_finding": {
+        "id": "header_malformed_strict_transport_security",
+        "severity": "medium",
+        "confidence": "high",
+        "score_impact": 0,
+        "evidence_type": "http_header_probe"
+      },
+      "expected_finding_ids_absent": ["header_missing_strict_transport_security"],
+      "note": "HSTS present but without max-age directive — classifies as malformed. header_malformed_* must fire; header_missing_* must NOT fire."
     }
   ]
 }

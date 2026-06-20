@@ -615,6 +615,8 @@ async function runDnsModule(domain) {
     googleARes, googleAaaaRes,
     googleMxRes, googleTxtBaseRes, googleTxtDmarcRes,
     quad9ARes,
+    cloudflareTxtBaseRes, cloudflareTxtDmarcRes,
+    googleCaaRes,
   ] = await Promise.allSettled([
     dnsQuery(domain, "A"),
     dnsQuery(domain, "AAAA"),
@@ -627,6 +629,9 @@ async function runDnsModule(domain) {
     dnsQueryGoogle(domain, "TXT"),
     dnsQueryGoogle(`_dmarc.${domain}`, "TXT"),
     dnsQueryQuad9(domain, "A").then((r) => ({ status: "fulfilled", value: r })).catch(() => ({ status: "rejected" })),
+    dnsQuery(domain, "TXT"),
+    dnsQuery(`_dmarc.${domain}`, "TXT"),
+    dnsQueryGoogle(domain, "CAA"),
   ]);
 
   const pick = (r) =>
@@ -677,11 +682,14 @@ async function runDnsModule(domain) {
       const aCross    = buildDnsCrossCheck(domain, "A",    aRes.status    === "fulfilled" ? aRes.value    : null, googleARes,    quad9ARes.status === "fulfilled" ? quad9ARes.value?.value : null);
       const aaaaCross = buildDnsCrossCheck(domain, "AAAA", aaaaRes.status === "fulfilled" ? aaaaRes.value : null, googleAaaaRes, undefined);
       const mxCross   = buildDnsCrossCheck(domain, "MX",   mxRes.status   === "fulfilled" ? mxRes.value   : null, googleMxRes,   undefined);
-      const txtBase   = buildDnsCrossCheck(domain, "TXT",  null,                                                  googleTxtBaseRes,  undefined);
-      const txtDmarc  = buildDnsCrossCheck(`_dmarc.${domain}`, "TXT", null,                                      googleTxtDmarcRes, undefined);
+      // v5 fix: pass Cloudflare TXT result as primary resolver (was null in v4)
+      const txtBase   = buildDnsCrossCheck(domain, "TXT",  cloudflareTxtBaseRes.status  === "fulfilled" ? cloudflareTxtBaseRes.value  : null, googleTxtBaseRes,  undefined);
+      const txtDmarc  = buildDnsCrossCheck(`_dmarc.${domain}`, "TXT", cloudflareTxtDmarcRes.status === "fulfilled" ? cloudflareTxtDmarcRes.value : null, googleTxtDmarcRes, undefined);
+      // v5 new: CAA cross-check
+      const caaCross  = buildDnsCrossCheck(domain, "CAA",  caaRes.status  === "fulfilled" ? caaRes.value  : null, googleCaaRes,  undefined);
 
       // Overall resolver_agreement_score: average of per-type scores where available.
-      const typeScores = [aCross, aaaaCross, mxCross, txtBase, txtDmarc]
+      const typeScores = [aCross, aaaaCross, mxCross, txtBase, txtDmarc, caaCross]
         .map((c) => c.resolver_agreement_score)
         .filter((s) => s !== null);
       const overallScore = typeScores.length > 0
@@ -689,13 +697,14 @@ async function runDnsModule(domain) {
         : null;
 
       return {
-        a:                      aCross,
-        aaaa:                   aaaaCross,
-        mx:                     mxCross,
-        txt_spf:                txtBase,
-        txt_dmarc:              txtDmarc,
+        a:                        aCross,
+        aaaa:                     aaaaCross,
+        mx:                       mxCross,
+        txt_spf:                  txtBase,
+        txt_dmarc:                txtDmarc,
+        caa:                      caaCross,
         resolver_agreement_score: overallScore,
-        cross_checked_at:       new Date().toISOString(),
+        cross_checked_at:         new Date().toISOString(),
       };
     })(),
   };
@@ -5026,6 +5035,45 @@ function computeScore(modules, domain) {
     });
   }
 
+  // ── DNS Resolver Disagreement ─────────────────────────────────────────
+  // v5: Fire when the overall cross-check agreement score is below 75.
+  // This is informational only — DNS record differences across resolvers
+  // may indicate a propagation delay, split-horizon DNS, or CDN anycast.
+  // score_impact: 0 — never affects Business Risk Score.
+  {
+    const overallAgreement = modules.dns?.cross_checks?.resolver_agreement_score;
+    if (overallAgreement != null && overallAgreement < 75) {
+      findings.push({
+        id:           "dns_resolver_disagreement",
+        module:       "dns",
+        severity:     "info",
+        confidence:   "medium",
+        title:        "DNS Resolver Disagreement Detected",
+        description:  `DNS records for ${domain} differ between resolvers (Cloudflare vs Google DoH). Agreement score: ${overallAgreement}/100. This may indicate DNS propagation in progress, split-horizon DNS, or anycast edge differences. Verify records are consistent across resolvers.`,
+        score_impact: 0,
+        evidence: {
+          evidence_type:               "dns_cross_check",
+          probe_target:                domain,
+          observed_value:              `Resolver agreement score: ${overallAgreement}/100 (threshold: 75)`,
+          expected_value:              "All resolvers return identical records (score ≥ 75)",
+          source:                      "cloudflare_doh + google_doh",
+          checked_at:                  evidenceTime,
+          manual_verification_command: `dig A ${domain} @1.1.1.1 && dig A ${domain} @8.8.8.8`,
+          resolver_agreement_score:    overallAgreement,
+          cross_checked_at:            modules.dns?.cross_checks?.cross_checked_at ?? null,
+          per_type_scores: {
+            a:         modules.dns?.cross_checks?.a?.resolver_agreement_score         ?? null,
+            aaaa:      modules.dns?.cross_checks?.aaaa?.resolver_agreement_score      ?? null,
+            mx:        modules.dns?.cross_checks?.mx?.resolver_agreement_score        ?? null,
+            txt_spf:   modules.dns?.cross_checks?.txt_spf?.resolver_agreement_score   ?? null,
+            txt_dmarc: modules.dns?.cross_checks?.txt_dmarc?.resolver_agreement_score ?? null,
+            caa:       modules.dns?.cross_checks?.caa?.resolver_agreement_score       ?? null,
+          },
+        },
+      });
+    }
+  }
+
   // ── SSL ────────────────────────────────────────────────────────────────
   if (!modules.ssl?.https_available) {
     finding({
@@ -5117,6 +5165,39 @@ function computeScore(modules, domain) {
         module:      "ssl",
         title:       "Enforce HTTPS Redirect",
         description: "Configure your web server or CDN to issue a 301 redirect from http:// to https:// for all requests.",
+      });
+    }
+  }
+
+  // ── Canonical URL Consistency (v5) ────────────────────────────────────
+  // Fired when the canonical URL profile is incomplete or uncertain.
+  // score_impact: 0 — informational only.
+  {
+    const prof = modules.canonical_url_profile;
+    if (prof && (prof.canonical_consistency_score < 70 || prof.profile_complete === false)) {
+      findings.push({
+        id:           "canonical_url_uncertain",
+        module:       "ssl",
+        severity:     "info",
+        confidence:   "medium",
+        title:        "Canonical URL Could Not Be Confirmed",
+        description:  `The canonical URL for ${domain} could not be determined with high confidence (consistency score: ${prof.canonical_consistency_score ?? "n/a"}/100). ${prof.validation_uncertain ? "The scanner response may be from a bot-protection layer. " : ""}${!prof.http_redirect_validated ? "HTTP probe was blocked or unavailable. " : ""}Verify the canonical URL manually.`,
+        score_impact: 0,
+        evidence: {
+          evidence_type:               "canonical_url_probe",
+          probe_target:                domain,
+          observed_value:              prof.canonical_url ?? "undetermined",
+          expected_value:              `https://${domain} or https://www.${domain}`,
+          canonical_confidence:        prof.canonical_confidence,
+          canonical_consistency_score: prof.canonical_consistency_score,
+          profile_complete:            prof.profile_complete,
+          validation_uncertain:        prof.validation_uncertain,
+          http_redirect_validated:     prof.http_redirect_validated,
+          source:                      "cloudflare_workers_fetch",
+          checked_at:                  evidenceTime,
+          manual_verification_command: `curl -sIL http://${domain} | grep -E "(HTTP|Location)"`,
+          variants_checked:            (prof.variants || []).map((v) => ({ variant: v.variant, requested_url: v.requested_url, final_url: v.final_url, probe_method: v.probe_method })),
+        },
       });
     }
   }
@@ -5244,6 +5325,89 @@ function computeScore(modules, domain) {
           title:       `Add ${h.label} Header`,
           description: h.recommendation,
         });
+      }
+    }
+
+    // ── Header Strength Findings (v5) ────────────────────────────────────
+    // Second pass over PRESENT headers — check strength classification.
+    // Only fires when the response quality is sufficient to trust the result:
+    //   - final_https and status_code === 200 (same gate as scored findings)
+    //   - validation_uncertain === false
+    // All strength findings are score_impact: 0 (informational).
+    if (responseQualityOk) {
+      for (const h of SECURITY_HEADERS) {
+        const rawValue = modules.headers.values?.[h.name];
+        if (!rawValue) continue;  // header absent — handled by missing-header loop above
+
+        const strength = classifyHeaderStrength(h.name, rawValue);
+
+        if (h.name === "strict-transport-security" && strength.status === "weak") {
+          findings.push({
+            id:           "header_weak_hsts",
+            module:       "headers",
+            severity:     "info",
+            confidence:   "high",
+            title:        "Weak HSTS Configuration",
+            description:  `The HSTS header on ${domain} is present but configured with a short max-age. ${strength.details}. Recommended minimum: max-age=31536000 (1 year) with includeSubDomains.`,
+            score_impact: 0,
+            evidence: {
+              evidence_type:               "http_header_probe",
+              probe_target:                modules.headers.response_url ?? `https://${domain}`,
+              header_name:                 h.name,
+              observed_value:              rawValue,
+              expected_value:              "max-age=31536000; includeSubDomains; preload",
+              strength_classification:     strength.status,
+              strength_details:            strength.details,
+              source:                      "cloudflare_workers_fetch",
+              checked_at:                  evidenceTime,
+              manual_verification_command: `curl -sI https://${domain} | grep -i strict-transport-security`,
+            },
+          });
+        } else if (h.name === "content-security-policy" && strength.status === "weak") {
+          findings.push({
+            id:           "csp_weak_policy",
+            module:       "headers",
+            severity:     "medium",
+            confidence:   "high",
+            title:        "Weak Content Security Policy",
+            description:  `The Content-Security-Policy header on ${domain} is present but contains directives that reduce its effectiveness. ${strength.details}.`,
+            score_impact: 0,
+            evidence: {
+              evidence_type:               "http_header_probe",
+              probe_target:                modules.headers.response_url ?? `https://${domain}`,
+              header_name:                 h.name,
+              observed_value:              rawValue,
+              expected_value:              "default-src 'self'; no unsafe-inline or wildcard source",
+              strength_classification:     strength.status,
+              strength_details:            strength.details,
+              source:                      "cloudflare_workers_fetch",
+              checked_at:                  evidenceTime,
+              manual_verification_command: `curl -sI https://${domain} | grep -i content-security-policy`,
+            },
+          });
+        } else if (strength.status === "malformed") {
+          findings.push({
+            id:           `header_malformed_${h.name.replace(/-/g, "_")}`,
+            module:       "headers",
+            severity:     "medium",
+            confidence:   "high",
+            title:        `Malformed ${h.label} Header`,
+            description:  `The ${h.label} header (${h.name}) on ${domain} is present but cannot be parsed correctly. ${strength.details}.`,
+            score_impact: 0,
+            evidence: {
+              evidence_type:               "http_header_probe",
+              probe_target:                modules.headers.response_url ?? `https://${domain}`,
+              header_name:                 h.name,
+              observed_value:              rawValue,
+              expected_value:              h.recommendation,
+              strength_classification:     "malformed",
+              strength_details:            strength.details,
+              source:                      "cloudflare_workers_fetch",
+              checked_at:                  evidenceTime,
+              manual_verification_command: `curl -sI https://${domain} | grep -i "${h.name}"`,
+            },
+          });
+        }
       }
     }
   }
@@ -6172,6 +6336,47 @@ function computeScanBudget(bruteforceChecked) {
   };
 }
 
+function buildScanQuality(modules = {}) {
+  const budget = modules.scan_budget || computeScanBudget();
+  const estimated = budget.estimated_subrequests_total ?? 0;
+  const limit = 50;
+  const warnings = [...(budget.warnings || [])];
+  const modulesSkipped = [];
+
+  const coreModules = ["dns", "ssl", "headers", "email_security", "subdomains"];
+  const coreIncomplete = coreModules.filter((name) => modules[name]?.error);
+
+  for (const [name, value] of Object.entries(modules)) {
+    const error = String(value?.error || "").toLowerCase();
+    if (error.includes("skipped") || error.includes("timeout")) modulesSkipped.push(name);
+  }
+
+  if (estimated >= 45 && !warnings.includes("Scan is close to Cloudflare Worker subrequest limit.")) {
+    warnings.push("Scan is close to Cloudflare Worker subrequest limit.");
+  }
+  if (estimated > limit) {
+    warnings.push("Estimated scan subrequest usage exceeds Cloudflare Worker free-plan limit.");
+  }
+  for (const name of coreIncomplete) {
+    warnings.push(`Core module incomplete: ${name}`);
+  }
+
+  const status = coreIncomplete.length > 0
+    ? "partial"
+    : (warnings.length > 0 || modulesSkipped.length > 0 ? "degraded" : "complete");
+
+  return {
+    status,
+    warnings,
+    modules_skipped: modulesSkipped,
+    subrequest_budget: {
+      estimated,
+      limit,
+      remaining_estimate: Math.max(0, limit - estimated),
+    },
+  };
+}
+
 // ── Main Scan Engine (runs via ctx.waitUntil) ─────────────────────────────────
 
 async function runScanEngine(scanId, domainId, workspaceId, domain, env) {
@@ -6508,18 +6713,22 @@ async function runScanEngine(scanId, domainId, workspaceId, domain, env) {
 function buildCanonicalUrlProfile(modules) {
   const ssl     = modules.ssl     || {};
   const headers = modules.headers || {};
+  const domain  = modules._domain ?? "unknown";
 
   // Variant data derived from existing module observations
   const variants = [];
 
   // http://domain — from SSL module redirect chain
   const httpChain = ssl.http_redirect_chain || {};
+  const httpFinalUrl = httpChain.final_url ?? null;
   variants.push({
-    requested_url:           httpChain.original_url   ?? `http://${modules._domain ?? "unknown"}`,
-    final_url:               httpChain.final_url       ?? null,
+    variant:                 "http_bare",
+    requested_url:           httpChain.original_url   ?? `http://${domain}`,
+    final_url:               httpFinalUrl,
     redirect_count:          httpChain.redirect_count  ?? 0,
     response_family:         httpChain.http_redirect_validated ? (httpChain.redirect_count > 0 ? "3xx" : "unknown") : "unavailable",
     is_canonical_candidate:  false,  // HTTP is not a canonical candidate
+    probe_method:            "observed",
     note:                    httpChain.http_redirect_validated ? "HTTP redirect chain observed" : "HTTP probe blocked or unavailable",
   });
 
@@ -6529,7 +6738,8 @@ function buildCanonicalUrlProfile(modules) {
   const headersStatus  = headers.status_code  ?? null;
   const isWwwRedirect  = headersUrl ? headersUrl.includes("//www.") : false;
   variants.push({
-    requested_url:           `https://${modules._domain ?? "unknown"}`,
+    variant:                 "https_bare",
+    requested_url:           `https://${domain}`,
     final_url:               headersUrl,
     status_code:             headersStatus,
     redirect_count:          headers.redirect_count ?? 0,
@@ -6538,9 +6748,47 @@ function buildCanonicalUrlProfile(modules) {
       : "unavailable",
     headers_observed:        Object.keys(headers.values || {}).filter((k) => headers.values[k]),
     is_canonical_candidate:  httpsAvailable && !isWwwRedirect && headersStatus != null && headersStatus < 400,
+    probe_method:            "observed",
     note:                    headers.validation_uncertain
       ? "Response may be from bot-protection layer — headers not reliable"
       : httpsAvailable ? "HTTPS available" : "HTTPS unavailable",
+  });
+
+  // http://www.domain — inferred from redirect chain destinations
+  // If http://domain redirected to a www. URL we know www exists.
+  const httpRedirectsToWww = httpFinalUrl ? httpFinalUrl.includes("//www.") : false;
+  const httpsRedirectsToWww = headersUrl ? headersUrl.includes("//www.") : false;
+  const wwwInferred = httpRedirectsToWww || httpsRedirectsToWww;
+  variants.push({
+    variant:                 "http_www",
+    requested_url:           `http://www.${domain}`,
+    final_url:               wwwInferred ? (httpFinalUrl || headersUrl) : null,
+    status_code:             null,
+    redirect_count:          null,
+    response_family:         wwwInferred ? "inferred_redirect" : "not_probed",
+    is_canonical_candidate:  false,
+    probe_method:            "inferred",
+    note:                    wwwInferred
+      ? "www variant inferred from redirect chain observation"
+      : "www variant not directly probed in this scan",
+  });
+
+  // https://www.domain — canonical if isWwwRedirect from https://domain
+  const wwwCanonicalUrl = isWwwRedirect ? headersUrl : null;
+  variants.push({
+    variant:                 "https_www",
+    requested_url:           `https://www.${domain}`,
+    final_url:               wwwCanonicalUrl,
+    status_code:             isWwwRedirect ? headersStatus : null,
+    redirect_count:          isWwwRedirect ? (headers.redirect_count ?? 0) : null,
+    response_family:         isWwwRedirect
+      ? (headersStatus != null ? (headersStatus < 400 ? "2xx_or_3xx" : "4xx_or_5xx") : "unknown")
+      : "not_probed",
+    is_canonical_candidate:  isWwwRedirect && headersStatus != null && headersStatus < 400,
+    probe_method:            isWwwRedirect ? "observed_via_redirect" : "inferred",
+    note:                    isWwwRedirect
+      ? "https://domain redirected to www — www variant is likely canonical"
+      : "www HTTPS not directly probed",
   });
 
   // Determine canonical_url
@@ -6557,9 +6805,21 @@ function buildCanonicalUrlProfile(modules) {
 
   const profileComplete = httpsAvailable && headersUrl != null && !headers.validation_uncertain;
 
+  // canonical_consistency_score (v5): 0-100
+  // Starts at 100, deduct for each uncertainty signal.
+  let consistencyScore = 100;
+  if (!httpsAvailable)                          consistencyScore -= 25;  // no HTTPS at all
+  if (headers.validation_uncertain)             consistencyScore -= 20;  // bot-protection interference
+  if (!httpChain.http_redirect_validated)       consistencyScore -= 15;  // HTTP probe failed
+  if (canonical_confidence === "low")           consistencyScore -= 15;  // low confidence canonical
+  if (isWwwRedirect && !httpsAvailable)         consistencyScore -= 10;  // www redirect but no HTTPS
+  if (!canonical_url)                           consistencyScore -= 15;  // cannot determine canonical
+  consistencyScore = Math.max(0, consistencyScore);
+
   return {
     canonical_url,
     canonical_confidence,
+    canonical_consistency_score: consistencyScore,
     variants,
     profile_complete: profileComplete,
     http_redirects_to_https:    ssl.http_redirects_to_https ?? null,
@@ -6595,6 +6855,7 @@ function buildCanonicalUrlProfile(modules) {
     // Estimates subrequest usage across all modules and warns if close to the
     // Cloudflare Worker free-plan 50-subrequest limit.
     modules.scan_budget = computeScanBudget(bruteforceResult.checked);
+    const scanQuality = buildScanQuality(modules);
 
     // Phase 7e: Vendor Risk — pure computation, zero I/O.
     // Detects third-party vendors from signals already captured in modules:
@@ -6639,6 +6900,7 @@ function buildCanonicalUrlProfile(modules) {
       completed_at:        completedAt,
       findings,
       recommendations,
+      scan_quality:         scanQuality,
       modules,
     };
 
@@ -10626,6 +10888,7 @@ const PLAN_LIMITS = {
     api_tokens: 1,
     scheduled_reports_per_workspace: 1,
     scans_per_month: 5,
+    scan_starts_per_hour: 5,
     reports_per_month: 3,
     scheduled_scans: 1,
   },
@@ -10638,6 +10901,7 @@ const PLAN_LIMITS = {
     api_tokens: 5,
     scheduled_reports_per_workspace: 5,
     scans_per_month: 100,
+    scan_starts_per_hour: 20,
     reports_per_month: 50,
     scheduled_scans: 5,
   },
@@ -10650,6 +10914,7 @@ const PLAN_LIMITS = {
     api_tokens: 25,
     scheduled_reports_per_workspace: 25,
     scans_per_month: 1000,
+    scan_starts_per_hour: 100,
     reports_per_month: 500,
     scheduled_scans: 25,
   },
@@ -10662,6 +10927,7 @@ const PLAN_LIMITS = {
     api_tokens: 25,
     scheduled_reports_per_workspace: 25,
     scans_per_month: 5000,
+    scan_starts_per_hour: 300,
     reports_per_month: 2000,
     scheduled_scans: 25,
   },
@@ -10674,6 +10940,7 @@ const PLAN_LIMITS = {
     api_tokens: 999999,
     scheduled_reports_per_workspace: 999999,
     scans_per_month: 999999,
+    scan_starts_per_hour: 999999,
     reports_per_month: 999999,
     scheduled_scans: 999999,
   },
@@ -10995,6 +11262,86 @@ async function checkScanLimit(user, workspaceId, env) {
     return null;
   } catch {
     return null; // fail-open: counting errors must never block legitimate scans
+  }
+}
+
+function getRateLimitWindow(windowSeconds = 3600) {
+  const now = Date.now();
+  const startMs = Math.floor(now / (windowSeconds * 1000)) * windowSeconds * 1000;
+  return {
+    window_start: new Date(startMs).toISOString(),
+    reset_at: new Date(startMs + windowSeconds * 1000).toISOString(),
+  };
+}
+
+function rateLimitId(scope, scopeId, action, windowStart) {
+  const raw = `${scope}:${scopeId}:${action}:${windowStart}`;
+  return `rl_${raw.replace(/[^a-zA-Z0-9_-]+/g, "_")}`;
+}
+
+function rateLimitExceeded(action, limit, windowSeconds, resetAt) {
+  return {
+    error: "Rate limit exceeded",
+    code: "rate_limit_exceeded",
+    action,
+    limit,
+    window_seconds: windowSeconds,
+    reset_at: resetAt,
+    upgrade_message: "Upgrade your plan for higher scan limits.",
+  };
+}
+
+async function consumeApiRateLimit(env, scopes, action, limit, windowSeconds = 3600) {
+  // D1-backed rate limiting is adequate for early launch and intentionally
+  // fails open if the table or query is unavailable. The read/update sequence
+  // is not fully atomic under high concurrency; a future hardening pass can
+  // move this to Durable Objects or a dedicated queue if scan start volume grows.
+  if (!Number.isFinite(limit) || limit >= 999999) return null;
+  const activeScopes = scopes.filter((s) => s.scope && s.scope_id);
+  if (activeScopes.length === 0) return null;
+
+  const { window_start, reset_at } = getRateLimitWindow(windowSeconds);
+
+  try {
+    for (const scope of activeScopes) {
+      const row = await env.cybermeters_db
+        .prepare(
+          `SELECT request_count
+           FROM api_rate_limits
+           WHERE scope = ? AND scope_id = ? AND action = ? AND window_start = ?
+           LIMIT 1`
+        )
+        .bind(scope.scope, scope.scope_id, action, window_start)
+        .first();
+      if ((row?.request_count ?? 0) >= limit) {
+        return { status: 429, body: rateLimitExceeded(action, limit, windowSeconds, reset_at) };
+      }
+    }
+
+    for (const scope of activeScopes) {
+      const id = rateLimitId(scope.scope, scope.scope_id, action, window_start);
+      await env.cybermeters_db
+        .prepare(
+          `INSERT INTO api_rate_limits
+             (id, scope, scope_id, action, window_start, window_seconds, request_count, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, 0, datetime('now'), datetime('now'))
+           ON CONFLICT(id) DO NOTHING`
+        )
+        .bind(id, scope.scope, scope.scope_id, action, window_start, windowSeconds)
+        .run();
+      await env.cybermeters_db
+        .prepare(
+          `UPDATE api_rate_limits
+           SET request_count = request_count + 1,
+               updated_at = datetime('now')
+           WHERE id = ?`
+        )
+        .bind(id)
+        .run();
+    }
+    return null;
+  } catch {
+    return null; // fail-open: rate-limit table issues must not break scan starts
   }
 }
 
@@ -11640,15 +11987,18 @@ export default {
 
         if (workspaceIds.length === 0) {
           return json({
-            accuracy_score:            0,
-            findings_total:            0,
-            high_confidence_pct:       0,
-            low_confidence_pct:        0,
-            evidence_complete_pct:     0,
-            validation_uncertain_count: 0,
-            validation_uncertain_pct:  0,
-            resolver_agreement_avg:    null,
-            regression_pass_rate:      regression.pass_rate,
+            accuracy_score:              0,
+            findings_total:              0,
+            high_confidence_pct:         0,
+            low_confidence_pct:          0,
+            evidence_complete_pct:       0,
+            validation_uncertain_count:  0,
+            validation_uncertain_pct:    0,
+            resolver_agreement_avg:      null,
+            header_validation_score:     75,
+            golden_domain_coverage:      Math.min(100, Math.round(((regression.total ?? 0) / 15) * 100)),
+            regression_pass_rate:        regression.pass_rate,
+            regression_fixture_count:    regression.total ?? 0,
           });
         }
 
@@ -11711,12 +12061,30 @@ export default {
         }
         const resolverAgreementAvg = raCount > 0 ? Math.round(raTotal / raCount) : null;
 
-        // accuracy_score formula:
-        //   40% evidence_complete_pct
-        //   20% high_confidence_pct
-        //   20% regression_pass_rate
-        //   10% (100 - validation_uncertain_pct)   [low uncertain = high accuracy]
-        //   10% resolver_agreement_avg (or 50 if no data)
+        // header_validation_score: % of findings with header evidence where strength is "valid"
+        // (proxy for how well the scanner can classify header quality)
+        let hvValid = 0, hvTotal = 0;
+        for (const row of findings) {
+          let evidence = null;
+          try { evidence = row.evidence_json ? JSON.parse(row.evidence_json) : null; } catch {}
+          if (evidence?.evidence_type === "http_header_probe") {
+            hvTotal += 1;
+            const sc = String(evidence?.strength_classification || "");
+            if (sc === "valid" || sc === "") hvValid += 1;  // absent = not weak
+          }
+        }
+        const headerValidationScore = hvTotal > 0 ? Math.round((hvValid / hvTotal) * 100) : 75; // default 75 — no header data yet
+
+        // golden_domain_coverage: fixture count / 15 (target fixture count for v5)
+        // golden_domain_coverage: regression.total / 15 (v5 fixture target)
+        const goldenDomainCoverage = Math.min(100, Math.round(((regression.total ?? 0) / 15) * 100));
+
+        // accuracy_score formula (v5):
+        //   35% resolver_agreement_avg      — cross-resolver consistency
+        //   25% header_validation_score     — header strength classification accuracy
+        //   20% evidence_complete_pct       — finding evidence completeness
+        //   10% regression_pass_rate        — regression fixture coverage
+        //   10% golden_domain_coverage      — golden domain fixture breadth (15 fixture target)
         const evidenceCompletePct    = pct(complete);
         const highConfidencePct      = pct(high);
         const regressionPassRate     = regression.pass_rate;
@@ -11724,23 +12092,26 @@ export default {
         const resolverAvgForScore    = resolverAgreementAvg ?? 50;
 
         const accuracyScore = Math.round(
-          evidenceCompletePct    * 0.40
-          + highConfidencePct    * 0.20
-          + regressionPassRate   * 0.20
-          + Math.max(0, 100 - validationUncertainPct) * 0.10
-          + resolverAvgForScore  * 0.10
+          resolverAvgForScore    * 0.35
+          + headerValidationScore  * 0.25
+          + evidenceCompletePct    * 0.20
+          + regressionPassRate     * 0.10
+          + goldenDomainCoverage   * 0.10
         );
 
         return json({
-          accuracy_score:            accuracyScore,
-          findings_total:            total,
-          high_confidence_pct:       highConfidencePct,
-          low_confidence_pct:        pct(low),
-          evidence_complete_pct:     evidenceCompletePct,
-          validation_uncertain_count: uncertain,
-          validation_uncertain_pct:  validationUncertainPct,
-          resolver_agreement_avg:    resolverAgreementAvg,
-          regression_pass_rate:      regressionPassRate,
+          accuracy_score:              accuracyScore,
+          findings_total:              total,
+          high_confidence_pct:         highConfidencePct,
+          low_confidence_pct:          pct(low),
+          evidence_complete_pct:       evidenceCompletePct,
+          validation_uncertain_count:  uncertain,
+          validation_uncertain_pct:    validationUncertainPct,
+          resolver_agreement_avg:      resolverAgreementAvg,
+          header_validation_score:     headerValidationScore,
+          golden_domain_coverage:      goldenDomainCoverage,
+          regression_pass_rate:        regressionPassRate,
+          regression_fixture_count:    regression.total ?? 0,
         });
       } catch (e) {
         return json({ error: e.message }, 500);
@@ -11794,10 +12165,36 @@ export default {
         return json({ error: "Workspace not found" }, 404);
       }
 
+      const burstOwnerId = await getWorkspaceBillingUserId(workspaceId, user.id, env);
+      const burstPlan = await getEffectivePlan(burstOwnerId, env);
+      const burstLimit = getPlanLimits(burstPlan).scan_starts_per_hour;
+      const burstLimitError = await consumeApiRateLimit(
+        env,
+        [
+          { scope: "user", scope_id: user.id },
+          { scope: "workspace", scope_id: workspaceId },
+          { scope: "account", scope_id: burstOwnerId },
+        ],
+        "scan_start",
+        burstLimit,
+        3600
+      );
+      if (burstLimitError) return json(burstLimitError.body, burstLimitError.status);
+
       const userId   = user.id;
       const domainId = createId("domain");
       const scanId   = createId("scan");
       const reportKey = `reports/${scanId}.json`;
+      const initialScanQuality = {
+        status: "complete",
+        warnings: [],
+        modules_skipped: [],
+        subrequest_budget: {
+          estimated: 0,
+          limit: 50,
+          remaining_estimate: 50,
+        },
+      };
 
       // Register domain — reuse existing row for same (user_id, domain) pair.
       // Scoped by user_id to prevent cross-user domain aliasing.
@@ -11843,6 +12240,7 @@ export default {
           risk_level:          "unknown",
           findings:            [],
           recommendations:     [],
+          scan_quality:         initialScanQuality,
           message:             "Scan engine is running. Poll GET /api/scans/:id for completion.",
         }, null, 2),
         { httpMetadata: { contentType: "application/json" } }
@@ -11871,6 +12269,7 @@ export default {
           domain_id:    resolvedDomainId,
           domain,
           report_key:   reportKey,
+          scan_quality: initialScanQuality,
           ...(workspaceId ? { workspace_id: workspaceId } : {}),
           message:      "Scan engine started. Poll GET /api/scans/:id until status is completed, then GET /api/scans/:id/report.",
         },
@@ -12019,6 +12418,7 @@ export default {
         risk_level:          raw.risk_level          ?? "unknown",
         findings:            reportFindings,
         recommendations:     Array.isArray(raw.recommendations) ? raw.recommendations : [],
+        scan_quality:         raw.scan_quality ?? buildScanQuality(normalisedModules),
         modules:             normalisedModules,
         ...(raw.started_at   ? { started_at:   raw.started_at   } : {}),
         ...(raw.completed_at ? { completed_at: raw.completed_at } : {}),

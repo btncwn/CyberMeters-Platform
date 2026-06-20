@@ -157,6 +157,9 @@ export const api = {
   /** GET /api/scans/:id/report */
   getScanReport: (id) => request(`/scans/${id}/report`),
 
+  /** GET /api/platform/accuracy */
+  getPlatformAccuracy: () => request('/platform/accuracy'),
+
   /** GET /api/domain/:domain/history */
   getDomainHistory: (domain) => request(`/domain/${encodeURIComponent(domain)}/history`),
 

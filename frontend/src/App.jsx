@@ -12,6 +12,7 @@ import AssetsPage from './pages/AssetsPage'
 import ReportsPage from './pages/ReportsPage'
 import SchedulesPage from './pages/SchedulesPage'
 import SettingsPage from './pages/SettingsPage'
+import AccuracyPage from './pages/AccuracyPage'
 import WorkspacesPage from './pages/WorkspacesPage'
 import WorkspaceDetailPage from './pages/WorkspaceDetailPage'
 import IntelligencePage from './pages/IntelligencePage'
@@ -107,6 +108,7 @@ function AppRoutes() {
         <Route path="assets"                  element={<AssetsPage />}          />
         <Route path="reports"                 element={<ReportsPage />}         />
         <Route path="schedules"               element={<SchedulesPage />}       />
+        <Route path="accuracy"                element={<AccuracyPage />}        />
         <Route path="settings"                element={<SettingsPage />}        />
         <Route path="account"                 element={<AccountPage />}          />
         <Route path="domains/:id/verify"      element={<DomainVerifyPage />}     />

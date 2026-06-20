@@ -1,0 +1,52 @@
+{
+  "domains": [
+    {
+      "domain": "good.cybermeters.com",
+      "purpose": "Clean baseline with strong DNS, HTTPS, headers, SPF, DMARC reject, and DKIM.",
+      "expected_findings": [],
+      "expected_confidence": "high",
+      "expected_score_impact": 0,
+      "manual_verification_commands": [
+        "dig A good.cybermeters.com @1.1.1.1",
+        "curl -sI https://good.cybermeters.com",
+        "dig TXT _dmarc.good.cybermeters.com @1.1.1.1"
+      ]
+    },
+    {
+      "domain": "no-dmarc.cybermeters.com",
+      "purpose": "Email-enabled domain with no DMARC record.",
+      "expected_findings": ["email_missing_dmarc"],
+      "expected_confidence": "high",
+      "expected_score_impact": -15,
+      "manual_verification_commands": [
+        "dig MX no-dmarc.cybermeters.com @1.1.1.1",
+        "dig TXT _dmarc.no-dmarc.cybermeters.com @1.1.1.1",
+        "dig TXT _dmarc.no-dmarc.cybermeters.com @8.8.8.8"
+      ]
+    },
+    {
+      "domain": "weak-email.cybermeters.com",
+      "purpose": "Email-enabled domain with DMARC p=none.",
+      "expected_findings": ["email_dmarc_policy_none"],
+      "expected_confidence": "high",
+      "expected_score_impact": -5,
+      "manual_verification_commands": [
+        "dig MX weak-email.cybermeters.com @1.1.1.1",
+        "dig TXT weak-email.cybermeters.com @1.1.1.1",
+        "dig TXT _dmarc.weak-email.cybermeters.com @1.1.1.1"
+      ]
+    },
+    {
+      "domain": "wildcard-dns.cybermeters.com",
+      "purpose": "Wildcard DNS control domain for resolver disagreement and false-positive checks.",
+      "expected_findings": [],
+      "expected_confidence": "medium",
+      "expected_score_impact": 0,
+      "manual_verification_commands": [
+        "dig A wildcard-dns.cybermeters.com @1.1.1.1",
+        "dig A random-test-value.wildcard-dns.cybermeters.com @1.1.1.1",
+        "dig A random-test-value.wildcard-dns.cybermeters.com @8.8.8.8"
+      ]
+    }
+  ]
+}

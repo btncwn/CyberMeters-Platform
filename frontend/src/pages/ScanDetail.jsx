@@ -128,6 +128,7 @@ const CONFIDENCE_STYLE = {
 
 function EvidencePanel({ evidence, confidence }) {
   if (!evidence) return null
+  const quality = evidence.evidence_quality
   const rows = [
     evidence.evidence_type    && ['Type',            evidence.evidence_type],
     evidence.probe_target     && ['Probe target',    evidence.probe_target],
@@ -171,6 +172,11 @@ function EvidencePanel({ evidence, confidence }) {
           Needs manual verification — this finding is low-confidence and should be confirmed before acting on it.
         </div>
       )}
+      {(quality === 'partial' || quality === 'missing') && (
+        <div className="border-t border-amber-100 bg-amber-50 px-3 py-2 text-[10px] text-amber-700">
+          Evidence incomplete — verify manually
+        </div>
+      )}
     </div>
   )
 }
@@ -178,6 +184,7 @@ function EvidencePanel({ evidence, confidence }) {
 function FindingRow({ f, index }) {
   const [open, setOpen] = useState(false)
   const hasEvidence = !!f.evidence
+  const evidenceQuality = f.evidence_quality || f.evidence?.evidence_quality
 
   return (
     <li className="px-6 py-4">
@@ -203,9 +210,14 @@ function FindingRow({ f, index }) {
                 {open ? 'Hide evidence' : 'Show evidence'}
               </button>
             )}
+            {(evidenceQuality === 'partial' || evidenceQuality === 'missing') && (
+              <span className="text-[10px] font-semibold text-amber-600">
+                Evidence incomplete — verify manually
+              </span>
+            )}
           </div>
           {open && hasEvidence && (
-            <EvidencePanel evidence={f.evidence} confidence={f.confidence} />
+            <EvidencePanel evidence={{ ...f.evidence, evidence_quality: evidenceQuality }} confidence={f.confidence} />
           )}
         </div>
         <span className={`flex-shrink-0 ${SEV_BADGE[f.severity] || SEV_BADGE.info}`}>
@@ -578,8 +590,11 @@ function ChangesPanel({ changes }) {
 // ── Report View ──────────────────────────────────────────────────────────────
 
 function ReportView({ report }) {
-  const { cyber_metrics_score: score, risk_level, findings, recommendations, modules } = report
+  const { cyber_metrics_score: score, risk_level, findings, recommendations, modules, scan_quality } = report
   const duration = durationSeconds(report.started_at, report.completed_at)
+  const showQualityWarning = scan_quality?.status === 'degraded' || scan_quality?.status === 'partial'
+  const skippedModules = scan_quality?.modules_skipped || []
+  const qualityWarnings = scan_quality?.warnings || []
 
   return (
     <div className="space-y-4">
@@ -608,6 +623,26 @@ function ReportView({ report }) {
           </div>
         </div>
       </div>
+
+      {showQualityWarning && (
+        <div className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 flex items-start gap-3 text-sm text-amber-800">
+          <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+          <div>
+            <p className="font-semibold">Scan coverage {scan_quality.status}</p>
+            {skippedModules.length > 0 && (
+              <p className="text-xs mt-0.5">
+                Skipped modules: {skippedModules.slice(0, 4).join(', ')}
+              </p>
+            )}
+            {qualityWarnings.slice(0, 2).map((warning, i) => (
+              <p key={i} className="text-xs mt-0.5">{warning}</p>
+            ))}
+            {skippedModules.length === 0 && qualityWarnings.length === 0 && (
+              <p className="text-xs mt-0.5">Some scan coverage may be incomplete.</p>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Findings */}
       <div className="card overflow-hidden">
