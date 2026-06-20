@@ -1,8 +1,10 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import Layout from './components/Layout'
-import LoginPage  from './pages/LoginPage'
-import SignupPage from './pages/SignupPage'
+import LoginPage          from './pages/LoginPage'
+import SignupPage         from './pages/SignupPage'
+import ForgotPasswordPage from './pages/ForgotPasswordPage'
+import ResetPasswordPage  from './pages/ResetPasswordPage'
 import Dashboard from './pages/Dashboard'
 import NewScan from './pages/NewScan'
 import ScanDetail from './pages/ScanDetail'
@@ -102,6 +104,8 @@ function AppRoutes() {
         path="/signup"
         element={<PublicOnlyRoute><SignupPage /></PublicOnlyRoute>}
       />
+      <Route path="/forgot-password"  element={<ForgotPasswordPage />} />
+      <Route path="/reset-password"   element={<ResetPasswordPage />} />
       <Route path="/pricing"          element={<PricingPage />} />
       {/* Stripe redirects to these after checkout */}
       <Route path="/checkout/success" element={<CheckoutSuccessPage />} />

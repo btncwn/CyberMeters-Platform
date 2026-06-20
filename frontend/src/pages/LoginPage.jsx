@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, useLocation, Link } from 'react-router-dom'
-import { Shield, Mail, Lock, AlertTriangle, LogIn } from 'lucide-react'
+import { Shield, Mail, Lock, AlertTriangle, LogIn, KeyRound } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { api } from '../api'
 
@@ -91,6 +91,16 @@ export default function LoginPage() {
                 autoComplete="current-password"
               />
             </div>
+          </div>
+
+          <div className="flex justify-end -mt-1 mb-1">
+            <Link
+              to="/forgot-password"
+              className="text-xs text-brand-600 font-medium hover:underline flex items-center gap-1"
+            >
+              <KeyRound className="w-3 h-3" />
+              Forgot password?
+            </Link>
           </div>
 
           <button

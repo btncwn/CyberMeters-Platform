@@ -164,6 +164,20 @@ export const api = {
   /** POST /api/auth/logout */
   authLogout: () => request('/auth/logout', { method: 'POST' }),
 
+  /** POST /api/auth/forgot-password → { success, message } */
+  forgotPassword: (email) =>
+    request('/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    }),
+
+  /** POST /api/auth/reset-password → { success, message } */
+  resetPassword: (token, password) =>
+    request('/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ token, password }),
+    }),
+
   /** GET /api/scans */
   getScans: () => request('/scans'),
 
