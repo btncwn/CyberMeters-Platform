@@ -14514,7 +14514,9 @@ export default {
             )
             .bind(wsId),
 
-          // 2. Latest completed scan in workspace
+          // 2. Latest completed scan in workspace.
+          // Executive Dashboard security_score intentionally uses this latest
+          // completed scan; /summary may use average latest score across domains.
           env.cybermeters_db
             .prepare(
               `SELECT s.id, s.domain, s.score, s.rating, s.created_at
@@ -14530,7 +14532,8 @@ export default {
             .prepare(`SELECT COUNT(*) AS n FROM workspace_assets WHERE workspace_id = ? AND status = 'active'`)
             .bind(wsId),
 
-          // 4. Critical findings (last 30 days)
+          // 4. Critical findings across the workspace in the last 30 days.
+          // This is a 30-day workspace metric, not latest-scan-only.
           env.cybermeters_db
             .prepare(
               `SELECT COUNT(f.id) AS n
@@ -14543,7 +14546,8 @@ export default {
             )
             .bind(wsId),
 
-          // 5. High findings (last 30 days)
+          // 5. High findings across the workspace in the last 30 days.
+          // This is a 30-day workspace metric, not latest-scan-only.
           env.cybermeters_db
             .prepare(
               `SELECT COUNT(f.id) AS n
@@ -14567,7 +14571,7 @@ export default {
             )
             .bind(wsId),
 
-          // 7. Risk distribution — severity counts from last 30 days
+          // 7. Risk distribution — severity counts from last 30 days.
           env.cybermeters_db
             .prepare(
               `SELECT f.severity, COUNT(*) AS n
@@ -14581,7 +14585,8 @@ export default {
             )
             .bind(wsId),
 
-          // 8. Top risks — top 10 by severity from last 30 days
+          // 8. Top risks — top 10 by severity from last 30 days.
+          // This is finding-based over the 30-day window, not latest-scan-only.
           env.cybermeters_db
             .prepare(
               `SELECT f.title, f.severity, f.created_at, s.domain
@@ -14615,7 +14620,8 @@ export default {
           env.cybermeters_db
             .prepare(
               `SELECT COUNT(*) AS n FROM asset_events
-               WHERE workspace_id = ? AND event_type = 'asset_discovered'
+               WHERE workspace_id = ?
+                 AND event_type IN ('asset_discovered', 'new_asset_discovered')
                  AND created_at >= datetime('now', '-7 days')`
             )
             .bind(wsId),
@@ -14639,7 +14645,7 @@ export default {
           env.cybermeters_db
             .prepare(
               `SELECT COUNT(*) AS n FROM workspace_reports
-               WHERE workspace_id = ? AND status = 'completed'`
+               WHERE workspace_id = ? AND status = 'completed' AND deleted_at IS NULL`
             )
             .bind(wsId),
         ]);
