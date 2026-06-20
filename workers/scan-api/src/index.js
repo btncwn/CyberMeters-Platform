@@ -11426,6 +11426,49 @@ const PLAN_FEATURES = {
   ],
 };
 
+const BILLING_PLAN_METADATA = {
+  free: {
+    name: "Free",
+    description: "Platform evaluation with basic scans and on-screen results.",
+    monthly_gbp: 0,
+    annual_gbp: 0,
+    annual_equivalent_monthly_gbp: 0,
+    checkout_enabled: false,
+  },
+  starter: {
+    name: "Starter",
+    description: "Business Risk Score, scheduled scans, and basic executive reports.",
+    monthly_gbp: 29,
+    annual_gbp: 276,
+    annual_equivalent_monthly_gbp: 23,
+    checkout_enabled: true,
+  },
+  professional: {
+    name: "Professional",
+    description: "Cyber Essentials Readiness, Vendor Risk, and advanced reports.",
+    monthly_gbp: 149,
+    annual_gbp: 1428,
+    annual_equivalent_monthly_gbp: 119,
+    checkout_enabled: true,
+  },
+  business: {
+    name: "Business",
+    description: "Portfolio Monitoring, White Label reports, and extended retention.",
+    monthly_gbp: 399,
+    annual_gbp: 3828,
+    annual_equivalent_monthly_gbp: 319,
+    checkout_enabled: true,
+  },
+  enterprise: {
+    name: "Enterprise",
+    description: "MSP Dashboard, custom limits, priority support, and dedicated onboarding.",
+    monthly_gbp: null,
+    annual_gbp: null,
+    annual_equivalent_monthly_gbp: null,
+    checkout_enabled: false,
+  },
+};
+
 function normalizePlan(plan) {
   const value = String(plan || "free").trim().toLowerCase();
   return Object.prototype.hasOwnProperty.call(PLAN_LIMITS, value) ? value : "free";
@@ -11480,6 +11523,64 @@ function getPlanFeatures(plan) {
 function hasFeatureEntitlement(plan, featureKey) {
   if (!featureKey || typeof featureKey !== "string") return false;
   return getPlanFeatures(plan).includes(featureKey);
+}
+
+function normalizeBillingInterval(interval) {
+  const value = String(interval || "monthly").trim().toLowerCase();
+  return value === "annual" ? "annual" : "monthly";
+}
+
+function getPublicBillingPlans() {
+  return ["free", "starter", "professional", "business", "enterprise"].map((plan) => ({
+    key: plan,
+    ...BILLING_PLAN_METADATA[plan],
+    limits: getPlanLimits(plan),
+    features: getPlanFeatures(plan),
+  }));
+}
+
+function parseStripePriceMap(env) {
+  const raw = env?.STRIPE_PRICE_MAP;
+  if (!raw) return { ok: false, error: "missing_stripe_price_map", map: {} };
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { ok: false, error: "invalid_stripe_price_map", map: {} };
+    }
+    return { ok: true, error: null, map: parsed };
+  } catch {
+    return { ok: false, error: "invalid_stripe_price_map", map: {} };
+  }
+}
+
+function validateStripeBillingConfig(env) {
+  const missing = [];
+  if (!env?.STRIPE_SECRET_KEY) missing.push("STRIPE_SECRET_KEY");
+  if (!env?.STRIPE_PRICE_MAP) missing.push("STRIPE_PRICE_MAP");
+  const priceMap = parseStripePriceMap(env);
+  if (missing.length > 0) return { ok: false, error: "missing_stripe_config", missing, priceMap: {} };
+  if (!priceMap.ok) return { ok: false, error: priceMap.error, missing: [], priceMap: {} };
+  return { ok: true, error: null, missing: [], priceMap: priceMap.map };
+}
+
+function getStripePriceIdForPlan(env, plan, interval = "monthly") {
+  const normalizedPlan = normalizePlan(plan);
+  const normalizedInterval = normalizeBillingInterval(interval);
+  if (normalizedPlan === "free" || normalizedPlan === "enterprise") {
+    return { ok: false, error: "plan_not_checkout_eligible", price_id: null };
+  }
+
+  const config = validateStripeBillingConfig(env);
+  if (!config.ok) return { ok: false, error: config.error, missing: config.missing, price_id: null };
+
+  // STRIPE_PRICE_MAP is expected to map Stripe price IDs to plan names. Resolve
+  // by plan and, when possible, interval hints in the price ID.
+  const entries = Object.entries(config.priceMap)
+    .filter(([, mappedPlan]) => normalizePlan(mappedPlan) === normalizedPlan);
+  const intervalMatch = entries.find(([priceId]) => priceId.toLowerCase().includes(normalizedInterval));
+  const resolved = intervalMatch ?? entries[0];
+  if (!resolved) return { ok: false, error: "missing_stripe_price", missing: [], price_id: null };
+  return { ok: true, error: null, missing: [], price_id: resolved[0] };
 }
 
 function getPlanLimits(plan) {
@@ -11946,6 +12047,21 @@ export default {
       });
     }
 
+    // ── GET /api/billing/plans ──────────────────────────────────────────
+    // Public billing metadata for future pricing/billing UI. Stripe price IDs
+    // are intentionally not returned; checkout resolves prices server-side.
+    if (request.method === "GET" && url.pathname === "/api/billing/plans") {
+      const stripeConfig = validateStripeBillingConfig(env);
+      return json({
+        currency: "gbp",
+        checkout_enabled: false,
+        plans: getPublicBillingPlans(),
+        stripe: {
+          configured: stripeConfig.ok,
+        },
+      });
+    }
+
     // ── POST /api/auth/signup ────────────────────────────────────────────
     if (request.method === "POST" && url.pathname === "/api/auth/signup") {
       let body;
@@ -12097,6 +12213,64 @@ export default {
         }
       }
       return json({ success: true });
+    }
+
+    // ── POST /api/billing/checkout ──────────────────────────────────────
+    // Stripe Checkout Foundation v1 skeleton. This validates auth, requested
+    // plan, billing interval, and Stripe environment configuration, but does
+    // not create a Checkout Session yet and never activates plans in D1.
+    if (request.method === "POST" && url.pathname === "/api/billing/checkout") {
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+
+      let body;
+      try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+
+      const requestedPlan = normalizePlan(body.plan);
+      const interval = normalizeBillingInterval(body.interval);
+      const metadata = BILLING_PLAN_METADATA[requestedPlan];
+
+      if (!metadata?.checkout_enabled) {
+        return json({
+          error: "plan_not_checkout_eligible",
+          plan: requestedPlan,
+          message: "This plan is not available through self-service checkout.",
+        }, 400);
+      }
+
+      const priceResolution = getStripePriceIdForPlan(env, requestedPlan, interval);
+      if (!priceResolution.ok) {
+        return json({
+          error: priceResolution.error,
+          ...(priceResolution.missing?.length ? { missing: priceResolution.missing } : {}),
+          message: "Stripe billing configuration is not ready for checkout.",
+        }, 503);
+      }
+
+      let subscription = null;
+      try {
+        subscription = await env.cybermeters_db
+          .prepare(
+            `SELECT id, plan, status, billing_provider, billing_email,
+                    stripe_customer_id, stripe_subscription_id, stripe_price_id,
+                    billing_interval, cancel_at_period_end, current_period_end
+             FROM subscription_accounts
+             WHERE owner_user_id = ?`
+          )
+          .bind(user.id)
+          .first();
+      } catch (e) {
+        return json({ error: "Database error", detail: String(e?.message ?? e) }, 500);
+      }
+
+      return json({
+        error: "checkout_not_implemented",
+        message: "Stripe Checkout session creation is not enabled in this foundation sprint.",
+        plan: requestedPlan,
+        interval,
+        price_configured: true,
+        has_stripe_customer: !!subscription?.stripe_customer_id,
+      }, 501);
     }
 
     // ── GET /api/account/profile ─────────────────────────────────────────
