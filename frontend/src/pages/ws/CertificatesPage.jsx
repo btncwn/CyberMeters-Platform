@@ -31,8 +31,8 @@ const COLUMNS = [
     render: v => <span className="font-medium text-sm text-gray-900 mono">{v}</span>,
   },
   { key: 'issuer',  label: 'Issuer',  render: v => <span className="text-xs text-gray-500">{v || '—'}</span> },
-  { key: 'grade',   label: 'Grade',   render: v => <span className="font-bold text-sm">{v || '—'}</span> },
-  { key: 'risk_level', label: 'Risk', render: v => <RiskBadge level={v} /> },
+  { key: 'san_count', label: 'SANs', render: v => <span className="text-xs text-gray-500">{v ?? 0}</span> },
+  { key: 'certificate_risk_level', label: 'Risk', render: v => <RiskBadge level={v} /> },
   {
     key: 'days_until_expiry',
     label: 'Expiry',
@@ -57,6 +57,9 @@ export default function CertificatesPage() {
   const { wsId, wsName } = useWorkspace()
   const [certs, setCerts]     = useState([])
   const [timeline, setTimeline] = useState([])
+  const [certTimeline, setCertTimeline] = useState([])
+  const [issuerHistory, setIssuerHistory] = useState([])
+  const [churn, setChurn] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState(null)
 
@@ -69,7 +72,17 @@ export default function CertificatesPage() {
         api.getWorkspaceCertificatesTimeline(wsId),
       ])
       setCerts(c.status === 'fulfilled' ? (c.value.certificates || []) : [])
-      setTimeline(t.status === 'fulfilled' ? (t.value.timeline || []) : [])
+      if (t.status === 'fulfilled') {
+        setTimeline(t.value.timeline || [])
+        setCertTimeline(t.value.certificate_timeline || [])
+        setIssuerHistory(t.value.issuer_history || [])
+        setChurn(t.value.churn || null)
+      } else {
+        setTimeline([])
+        setCertTimeline([])
+        setIssuerHistory([])
+        setChurn(null)
+      }
     } catch (e) {
       setError(e.message)
     } finally {
@@ -83,7 +96,11 @@ export default function CertificatesPage() {
 
   const expiringSoon = certs.filter(c => c.days_until_expiry != null && c.days_until_expiry < 30 && c.days_until_expiry >= 0).length
   const expired      = certs.filter(c => c.days_until_expiry != null && c.days_until_expiry < 0).length
-  const highRisk     = certs.filter(c => ['high', 'critical'].includes(c.risk_level)).length
+  const highRisk     = certs.filter(c => ['high', 'critical'].includes(c.certificate_risk_level)).length
+  const chartData    = timeline.slice().reverse().map(day => ({
+    day: day.day,
+    events: day.events?.length || 0,
+  }))
 
   return (
     <WsPage wsId={wsId} wsName={wsName} loading={loading} error={error} onRetry={load}>
@@ -99,13 +116,14 @@ export default function CertificatesPage() {
         <StatCard icon={Lock} label="Expiring (&lt;30d)"   value={expiringSoon} warning={expiringSoon > 0} />
         <StatCard icon={Lock} label="Expired"             value={expired}      danger={expired > 0} />
         <StatCard icon={Lock} label="High Risk"           value={highRisk}     danger={highRisk > 0} />
+        <StatCard icon={Lock} label="Churn"               value={churn?.classification || 'low'} warning={['high', 'unusual'].includes(churn?.classification)} />
       </div>
 
-      {timeline.length > 0 && (
+      {chartData.length > 0 && (
         <div className="card p-6 mb-6">
-          <h2 className="font-semibold text-gray-900 mb-4">Expiry Timeline</h2>
+          <h2 className="font-semibold text-gray-900 mb-4">Certificate Timeline</h2>
           <ResponsiveContainer width="100%" height={160}>
-            <AreaChart data={timeline} margin={{ top: 4, right: 0, left: -28, bottom: 0 }}>
+            <AreaChart data={chartData} margin={{ top: 4, right: 0, left: -28, bottom: 0 }}>
               <defs>
                 <linearGradient id="certGrad" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%"  stopColor="#00876A" stopOpacity={0.2} />
@@ -113,19 +131,58 @@ export default function CertificatesPage() {
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-              <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#94a3b8' }} />
+              <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#94a3b8' }} />
               <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} allowDecimals={false} />
               <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
               <Area
                 type="monotone"
-                dataKey="expiring"
+                dataKey="events"
                 stroke="#00876A"
                 strokeWidth={2}
                 fill="url(#certGrad)"
-                name="Expiring"
+                name="Events"
               />
             </AreaChart>
           </ResponsiveContainer>
+        </div>
+      )}
+
+      {(churn || issuerHistory.length > 0 || certTimeline.length > 0) && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+          <div className="card p-5">
+            <h2 className="font-semibold text-gray-900 mb-3">Certificate Churn</h2>
+            <div className="space-y-2 text-sm text-gray-600">
+              <div className="flex justify-between"><span>Last 30 days</span><span className="font-medium">{churn?.certificates_last_30_days ?? 0}</span></div>
+              <div className="flex justify-between"><span>Last 90 days</span><span className="font-medium">{churn?.certificates_last_90_days ?? 0}</span></div>
+              <div className="flex justify-between"><span>Classification</span><span className="font-medium capitalize">{churn?.classification || 'low'}</span></div>
+            </div>
+          </div>
+
+          <div className="card p-5">
+            <h2 className="font-semibold text-gray-900 mb-3">Issuer History</h2>
+            <div className="space-y-2">
+              {issuerHistory.slice(0, 5).map((issuer, idx) => (
+                <div key={`${issuer.issuer || 'unknown'}-${idx}`} className="text-sm">
+                  <div className="font-medium text-gray-800">{issuer.issuer || 'Unknown issuer'}</div>
+                  <div className="text-xs text-gray-400">{issuer.certificates} certificate{issuer.certificates === 1 ? '' : 's'} observed</div>
+                </div>
+              ))}
+              {issuerHistory.length === 0 && <div className="text-sm text-gray-400">No issuer history yet.</div>}
+            </div>
+          </div>
+
+          <div className="card p-5">
+            <h2 className="font-semibold text-gray-900 mb-3">Recent Alerts</h2>
+            <div className="space-y-2">
+              {timeline.flatMap(day => day.events || []).slice(0, 5).map((event, idx) => (
+                <div key={`${event.event_type}-${idx}`} className="text-sm">
+                  <div className="font-medium text-gray-800">{event.hostname || event.event_type}</div>
+                  <div className="text-xs text-gray-400">{event.description}</div>
+                </div>
+              ))}
+              {timeline.length === 0 && <div className="text-sm text-gray-400">No certificate alerts yet.</div>}
+            </div>
+          </div>
         </div>
       )}
 

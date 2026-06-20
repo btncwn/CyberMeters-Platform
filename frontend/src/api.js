@@ -298,6 +298,15 @@ export const api = {
   refreshBrandMonitoring: (id) =>
     request(`/workspaces/${id}/brand-monitoring/refresh`, { method: 'POST' }),
 
+  /** GET /api/workspaces/:id/identity-assets  optional: ?identity_type=&provider=&min_risk_score= */
+  getWorkspaceIdentityAssets: (id, params = {}) => {
+    const q = new URLSearchParams(params).toString()
+    return request(`/workspaces/${id}/identity-assets${q ? `?${q}` : ''}`)
+  },
+
+  /** GET /api/workspaces/:id/identity-assets/summary */
+  getWorkspaceIdentitySummary: (id) => request(`/workspaces/${id}/identity-assets/summary`),
+
   /** GET /api/workspaces/:id/business-risk */
   getWorkspaceBusinessRisk: (id) => request(`/workspaces/${id}/business-risk`),
 

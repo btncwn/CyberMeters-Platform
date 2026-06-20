@@ -784,6 +784,10 @@ async function runSslModule(domain) {
   // days until expiry.  Best-effort — failure leaves cert_expiry_days as null.
   let cert_expiry_days = null;
   let cert_not_after   = null;
+  let cert_issuer      = null;
+  let cert_subject     = null;
+  let cert_san_count   = 0;
+  let cert_san_names   = [];
   try {
     const crtRes = await fetch(
       `https://crt.sh/?q=${encodeURIComponent(domain)}&output=json`,
@@ -805,10 +809,18 @@ async function runSslModule(domain) {
             .filter(c => c.not_after && new Date(c.not_after).getTime() > now)
             .sort((a, b) => new Date(b.not_after).getTime() - new Date(a.not_after).getTime());
           if (valid.length > 0) {
+            const selected = valid[0];
             cert_not_after   = valid[0].not_after;
             cert_expiry_days = Math.floor(
               (new Date(cert_not_after).getTime() - now) / 86_400_000
             );
+            cert_issuer    = selected.issuer_name || null;
+            cert_subject   = selected.common_name || domain;
+            cert_san_names = [...new Set(String(selected.name_value || selected.common_name || domain)
+              .split(/\s+/)
+              .map((name) => name.trim())
+              .filter(Boolean))];
+            cert_san_count = cert_san_names.length;
           }
         }
       }
@@ -824,6 +836,10 @@ async function runSslModule(domain) {
     www_fallback_used:        !httpsOk && wwwHttpsOk,
     cert_expiry_days,
     cert_not_after,
+    cert_issuer,
+    cert_subject,
+    cert_san_count,
+    cert_san_names,
   };
 }
 
@@ -3041,6 +3057,50 @@ function detectVendorsFromModules(modules) {
   }
 }
 
+const CERTIFICATE_AUTHORITY_VENDOR_PATTERNS = [
+  { vendor_name: "Let's Encrypt",          test: (v) => /\blet'?s encrypt\b/.test(v) },
+  { vendor_name: "DigiCert",               test: (v) => /\bdigicert\b/.test(v) },
+  { vendor_name: "Sectigo",                test: (v) => /\bsectigo\b|\bcomodo\b|\busertrust\b/.test(v) },
+  { vendor_name: "Cloudflare",             test: (v) => /\bcloudflare\b/.test(v) },
+  { vendor_name: "Google Trust Services",  test: (v) => /\bgoogle trust services\b|\bgts\b/.test(v) },
+  { vendor_name: "GlobalSign",             test: (v) => /\bglobalsign\b/.test(v) },
+  { vendor_name: "Amazon Trust Services",  test: (v) => /\bamazon\b|\bamazon trust services\b/.test(v) },
+  { vendor_name: "Microsoft",              test: (v) => /\bmicrosoft\b|\bazure tls\b/.test(v) },
+  { vendor_name: "ZeroSSL",                test: (v) => /\bzerossl\b/.test(v) },
+];
+
+/**
+ * normalizeCertificateAuthorityVendor(issuer)
+ *
+ * Maps certificate issuer strings to stable vendor inventory rows.
+ * Returns null for unknown or empty issuers to avoid polluting vendor risk with
+ * intermediate CA names that cannot be confidently mapped to an organisation.
+ */
+function normalizeCertificateAuthorityVendor(issuer) {
+  const raw = typeof issuer === "string" ? issuer.trim() : "";
+  if (!raw || raw.toLowerCase() === "unknown") return null;
+
+  const normalized = raw
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^\w\s'.-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  for (const pattern of CERTIFICATE_AUTHORITY_VENDOR_PATTERNS) {
+    if (!pattern.test(normalized)) continue;
+    return {
+      vendor_name: pattern.vendor_name,
+      vendor_type: "certificate_authority",
+      confidence: "high",
+      source: "certificate_issuer",
+    };
+  }
+
+  return null;
+}
+
 // ── Third-Party Asset Discovery ───────────────────────────────────────────────
 // Derives a focused, business-facing view of external SaaS dependencies from the
 // already-computed vendor_risk module.  Excludes infrastructure/CDN/cloud/hosting
@@ -3484,7 +3544,7 @@ function isCertSensitiveHost(hostname, domain) {
  * runCertificateIntelligenceModule(modules, domain) — pure computation, zero I/O.
  *
  * Returns:
- *   { total_certificates_seen, certificate_status, issuer, subject,
+ *   { total_certificates_seen, certificate_status, issuer, subject, san_count,
  *     expires_at, days_until_expiry, issued_for_sensitive_hosts,
  *     newly_observed_hosts, suspicious_certificate_signals,
  *     certificate_risk_level, source: "ssl_ct_correlation", error: null }
@@ -3608,11 +3668,10 @@ function runCertificateIntelligenceModule(modules, domain) {
     return {
       total_certificates_seen,
       certificate_status:    https_available ? "valid" : "unavailable",
-      // Issuer/subject not available without a TLS handshake inspection;
-      // Workers cannot inspect outbound TLS.  These fields are reserved for
-      // future integration with a cert-inspection proxy.
-      issuer:                null,
-      subject:               domain,
+      issuer:                ssl.cert_issuer ?? null,
+      subject:               ssl.cert_subject ?? domain,
+      san_count:             ssl.cert_san_count ?? 0,
+      san_hostnames:         ssl.cert_san_names ?? [],
       expires_at,
       days_until_expiry,
       issued_for_sensitive_hosts: allSensitive,
@@ -3631,6 +3690,8 @@ function runCertificateIntelligenceModule(modules, domain) {
       certificate_status:         "unknown",
       issuer:                     null,
       subject:                    domain,
+      san_count:                  0,
+      san_hostnames:              [],
       expires_at:                 null,
       days_until_expiry:          null,
       issued_for_sensitive_hosts: [],
@@ -5895,11 +5956,12 @@ function computeBusinessRiskScore(findingIds, workspaceData = {}) {
 
   // ── Category 4: Attack Surface Exposure (20%) ──────────────────────────────
   const {
-    subdomainTakeoverCount = 0,
-    assetExposureCount     = 0,
-    vendorHigh   = 0,
-    vendorMedium = 0,
-    vendorTotal  = 0,
+    subdomainTakeoverCount  = 0,
+    assetExposureCount      = 0,
+    vendorHigh              = 0,
+    vendorMedium            = 0,
+    vendorTotal             = 0,
+    identityHighRiskCount   = 0,
   } = workspaceData;
   let attackDed = 0;
   attackDed += Math.min(30, subdomainTakeoverCount * 15);
@@ -5909,6 +5971,8 @@ function computeBusinessRiskScore(findingIds, workspaceData = {}) {
   } else {
     attackDed += 10; // No vendor visibility signal
   }
+  // Identity surface deduction: internet-facing SSO/VPN/IdP portals are high-value targets
+  attackDed += Math.min(20, identityHighRiskCount * 7);
   const attackScore = Math.max(0, 100 - attackDed);
 
   // ── Category 5: Brand / Reputation Risk (15%) ──────────────────────────────
@@ -7138,6 +7202,14 @@ function buildCanonicalUrlProfile(modules) {
     // does not consume any of the already-tight subrequest budget (~47/50 by here).
     modules.brand_monitoring = runTyposquatModule(domain);
 
+    // Phase 7j: Identity Asset Discovery — pure computation, zero network I/O.
+    // Identifies authentication surfaces, login portals, SSO/OAuth/SAML endpoints
+    // and identity provider relationships from signals already captured in Phases 1–7i.
+    // Detects Okta, Auth0, Entra ID, Ping Identity, OneLogin, Duo, JumpCloud, Keycloak,
+    // ADFS, and Google Workspace IdP from CNAME/SPF/MX/CSP/server signals.
+    // Also classifies discovered subdomains with identity-related hostname prefixes.
+    modules.identity_discovery = runIdentityDiscoveryModule(modules, domain);
+
     const completedAt = new Date().toISOString();
 
     // Build full structured report
@@ -7186,12 +7258,13 @@ function buildCanonicalUrlProfile(modules) {
         const vendorMap = Object.fromEntries((vendorRows.results ?? []).map(r => [r.risk_level, r.n]));
         const vendorTotal = (vendorRows.results ?? []).reduce((s, r) => s + r.n, 0);
         const brs = computeBusinessRiskScore(findingIds, {
-          brandHighRisk: brandMap.high   ?? 0,
-          brandMedRisk:  brandMap.medium ?? 0,
-          brandLowRisk:  brandMap.low    ?? 0,
-          vendorHigh:    vendorMap.high   ?? 0,
-          vendorMedium:  vendorMap.medium ?? 0,
+          brandHighRisk:        brandMap.high   ?? 0,
+          brandMedRisk:         brandMap.medium ?? 0,
+          brandLowRisk:         brandMap.low    ?? 0,
+          vendorHigh:           vendorMap.high   ?? 0,
+          vendorMedium:         vendorMap.medium ?? 0,
           vendorTotal,
+          identityHighRiskCount: modules.identity_discovery?.high_risk_count ?? 0,
         });
         brsScore = brs.brs;
       } catch { /* non-fatal — BRS unavailable for this scan */ }
@@ -7271,11 +7344,23 @@ function buildCanonicalUrlProfile(modules) {
       await insertCertificateEvents(scanId, domainId, modules.certificate_intelligence, env);
     } catch { /* non-fatal */ }
 
+    // Phase 8d.1: Certificate Timeline — persists cross-scan certificate
+    // observations and emits alerts for new certs, SANs, and issuers.
+    try {
+      await upsertCertificateObservation(scanId, domainId, modules.certificate_intelligence, env);
+    } catch { /* non-fatal */ }
+
     // Phase 8e: Brand Asset Upsert — persists generated typosquat candidates to
     // workspace_brand_assets as 'unverified'.  DNS validation happens separately
     // via POST /brand-monitoring/refresh to stay within subrequest budget.
     try {
       await upsertBrandAssets(domainId, modules.brand_monitoring, env);
+    } catch { /* non-fatal */ }
+
+    // Phase 8f: Identity Asset Upsert — persists identity_discovery results into
+    // identity_assets table. Also upserts detected IdP providers into workspace_vendors.
+    try {
+      await upsertIdentityAssets(domainId, scanId, modules.identity_discovery, env);
     } catch { /* non-fatal */ }
 
     // Phase 9: Asset Change Alert — one grouped email per workspace per scan.
@@ -7428,6 +7513,8 @@ async function insertAdminSurfaceEvents(scanId, domainId, adminModule, env) {
 //   new_asset_discovered    → high
 //   wildcard_dns_detected   → medium
 //   cloud_storage_detected  → medium
+//   certificate_new_detected / certificate_new_san_detected /
+//   certificate_new_issuer_detected → medium
 //   asset_reappeared        → medium
 //   asset_no_longer_seen    → info  (included in summary but does not trigger alone)
 
@@ -7439,6 +7526,9 @@ const ASSET_ALERT_EVENTS = new Set([
   "cloud_storage_detected",
   "wildcard_dns_detected",
   "admin_surface_detected",
+  "certificate_new_detected",
+  "certificate_new_san_detected",
+  "certificate_new_issuer_detected",
 ]);
 
 // Severity thresholds — highest matching rule wins.
@@ -7448,6 +7538,9 @@ function assetAlertSeverity(counts) {
   if ((counts.new_asset_discovered   || 0) > 0) return "high";
   if ((counts.wildcard_dns_detected  || 0) > 0 ||
       (counts.cloud_storage_detected || 0) > 0 ||
+      (counts.certificate_new_detected || 0) > 0 ||
+      (counts.certificate_new_san_detected || 0) > 0 ||
+      (counts.certificate_new_issuer_detected || 0) > 0 ||
       (counts.asset_reappeared       || 0) > 0)  return "medium";
   return "info";
 }
@@ -7461,7 +7554,10 @@ function assetAlertWorthy(counts) {
     (counts.takeover_risk_detected || 0) > 0 ||
     (counts.cloud_storage_detected || 0) > 0 ||
     (counts.wildcard_dns_detected  || 0) > 0 ||
-    (counts.admin_surface_detected || 0) > 0
+    (counts.admin_surface_detected || 0) > 0 ||
+    (counts.certificate_new_detected || 0) > 0 ||
+    (counts.certificate_new_san_detected || 0) > 0 ||
+    (counts.certificate_new_issuer_detected || 0) > 0
   );
 }
 
@@ -7664,6 +7760,253 @@ async function insertCertificateEvents(scanId, domainId, certMod, env) {
   }
 }
 
+/**
+ * upsertCertificateObservation(scanId, domainId, certMod, env)
+ *
+ * Certificate Intelligence v2 persistence. Stores one cross-scan observation
+ * per workspace/domain/certificate fingerprint surrogate and emits alerts for:
+ *   certificate_new_detected
+ *   certificate_new_san_detected
+ *   certificate_new_issuer_detected
+ *
+ * All writes are non-fatal so an unapplied v2 migration cannot break scans.
+ */
+async function upsertCertificateObservation(scanId, domainId, certMod, env) {
+  if (!certMod || certMod.error) return;
+
+  let wsRows;
+  try {
+    const r = await env.cybermeters_db
+      .prepare("SELECT workspace_id FROM workspace_domains WHERE domain_id = ?")
+      .bind(domainId)
+      .all();
+    wsRows = r.results || [];
+  } catch {
+    return;
+  }
+  if (wsRows.length === 0) return;
+
+  const now          = new Date().toISOString();
+  const issuer       = certMod.issuer || "unknown";
+  const subject      = certMod.subject || null;
+  const sanHostnames = Array.isArray(certMod.san_hostnames) ? certMod.san_hostnames : [];
+  const sanCount     = Number.isFinite(certMod.san_count) ? certMod.san_count : sanHostnames.length;
+  const evidenceJson = JSON.stringify({
+    issuer,
+    subject,
+    san_hostnames: sanHostnames,
+    expires_at: certMod.expires_at ?? null,
+    certificate_status: certMod.certificate_status ?? null,
+    source: certMod.source ?? "ssl_ct_correlation",
+  });
+
+  const certificateKey = await hashToken([
+    issuer,
+    subject ?? "",
+    certMod.expires_at ?? "",
+    sanHostnames.slice().sort().join(","),
+  ].join("|"));
+  const caVendor = normalizeCertificateAuthorityVendor(issuer);
+
+  for (const { workspace_id } of wsRows) {
+    try {
+      if (caVendor) {
+        await upsertCertificateAuthorityVendor(
+          workspace_id,
+          caVendor,
+          {
+            issuer,
+            subject,
+            san_count: sanCount,
+            expires_at: certMod.expires_at ?? null,
+            certificate_key: certificateKey,
+          },
+          env,
+          now
+        );
+      }
+
+      const existing = await env.cybermeters_db
+        .prepare(
+          `SELECT id FROM certificate_observations
+           WHERE workspace_id = ? AND domain_id = ? AND certificate_key = ?
+           LIMIT 1`
+        )
+        .bind(workspace_id, domainId, certificateKey)
+        .first();
+
+      const priorRows = await env.cybermeters_db
+        .prepare(
+          `SELECT issuer, evidence_json FROM certificate_observations
+           WHERE workspace_id = ? AND domain_id = ?`
+        )
+        .bind(workspace_id, domainId)
+        .all();
+
+      const priorIssuers = new Set();
+      const priorSans    = new Set();
+      for (const row of (priorRows.results || [])) {
+        if (row.issuer) priorIssuers.add(String(row.issuer));
+        try {
+          const ev = JSON.parse(row.evidence_json || "{}");
+          for (const san of (ev.san_hostnames || [])) priorSans.add(String(san));
+        } catch { /* ignore malformed historical evidence */ }
+      }
+
+      await env.cybermeters_db
+        .prepare(
+          `INSERT OR IGNORE INTO certificate_observations
+             (id, workspace_id, domain_id, scan_id, certificate_key, subject,
+              issuer, san_count, expires_at, first_seen, last_seen,
+              evidence_json, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .bind(
+          createId("certobs"), workspace_id, domainId, scanId, certificateKey,
+          subject, issuer, sanCount, certMod.expires_at ?? null,
+          now, now, evidenceJson, now, now
+        )
+        .run();
+
+      await env.cybermeters_db
+        .prepare(
+          `UPDATE certificate_observations
+           SET scan_id = ?, issuer = ?, san_count = ?, expires_at = ?,
+               last_seen = ?, evidence_json = ?, updated_at = ?
+           WHERE workspace_id = ? AND domain_id = ? AND certificate_key = ?`
+        )
+        .bind(
+          scanId, issuer, sanCount, certMod.expires_at ?? null, now,
+          evidenceJson, now, workspace_id, domainId, certificateKey
+        )
+        .run();
+
+      if (!existing) {
+        await env.cybermeters_db
+          .prepare(
+            `INSERT INTO asset_events
+               (id, workspace_id, domain_id, scan_id, event_type,
+                hostname, severity, description, created_at)
+             VALUES (?, ?, ?, ?, 'certificate_new_detected',
+                     ?, 'medium', ?, ?)`
+          )
+          .bind(
+            createId("asev"), workspace_id, domainId, scanId,
+            sanHostnames[0] || subject,
+            `New certificate detected for ${subject || "domain"} issued by ${issuer}.`,
+            now
+          )
+          .run();
+      }
+
+      if (issuer !== "unknown" && !priorIssuers.has(issuer)) {
+        await env.cybermeters_db
+          .prepare(
+            `INSERT INTO asset_events
+               (id, workspace_id, domain_id, scan_id, event_type,
+                hostname, severity, description, created_at)
+             VALUES (?, ?, ?, ?, 'certificate_new_issuer_detected',
+                     ?, 'medium', ?, ?)`
+          )
+          .bind(
+            createId("asev"), workspace_id, domainId, scanId,
+            subject,
+            `New certificate issuer observed: ${issuer}.`,
+            now
+          )
+          .run();
+      }
+
+      const newSans = sanHostnames.filter((san) => !priorSans.has(String(san)));
+      if (newSans.length > 0) {
+        await env.cybermeters_db
+          .prepare(
+            `INSERT INTO asset_events
+               (id, workspace_id, domain_id, scan_id, event_type,
+                hostname, severity, description, created_at)
+             VALUES (?, ?, ?, ?, 'certificate_new_san_detected',
+                     ?, ?, ?, ?)`
+          )
+          .bind(
+            createId("asev"), workspace_id, domainId, scanId,
+            newSans[0],
+            newSans.some((h) => isCertSensitiveHost(h, subject || "")) ? "high" : "medium",
+            `New certificate SAN hostname${newSans.length > 1 ? "s" : ""} observed: ${newSans.slice(0, 10).join(", ")}${newSans.length > 10 ? ` (+${newSans.length - 10} more)` : ""}.`,
+            now
+          )
+          .run();
+      }
+    } catch { /* non-fatal per-workspace failure */ }
+  }
+}
+
+async function upsertCertificateAuthorityVendor(workspaceId, caVendor, evidence, env, observedAt) {
+  if (!workspaceId || !caVendor?.vendor_name) return;
+
+  const now = observedAt || new Date().toISOString();
+  const category = "certificate_authority";
+  const riskLevel = "medium";
+  const evidenceJson = JSON.stringify([{
+    source: caVendor.source,
+    detail: evidence.issuer,
+    subject: evidence.subject ?? null,
+    san_count: evidence.san_count ?? null,
+    expires_at: evidence.expires_at ?? null,
+    certificate_key: evidence.certificate_key ?? null,
+  }]);
+  const metadataJson = JSON.stringify({
+    dependency_type: "certificate_authority",
+    criticality: "high",
+    business_reason: "This organisation issues or validates TLS certificates used by observed public-facing assets.",
+  });
+
+  await env.cybermeters_db
+    .prepare(
+      `INSERT OR IGNORE INTO workspace_vendors
+         (id, workspace_id, vendor_name, category, source, evidence,
+          confidence, risk_level, first_seen, last_seen, status,
+          metadata_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`
+    )
+    .bind(
+      createId("vendor"),
+      workspaceId,
+      caVendor.vendor_name,
+      category,
+      caVendor.source,
+      evidenceJson,
+      caVendor.confidence,
+      riskLevel,
+      now,
+      now,
+      metadataJson,
+      now,
+      now
+    )
+    .run();
+
+  await env.cybermeters_db
+    .prepare(
+      `UPDATE workspace_vendors
+       SET last_seen = ?, source = ?, evidence = ?, confidence = ?,
+           risk_level = ?, status = 'active', metadata_json = ?, updated_at = ?
+       WHERE workspace_id = ? AND vendor_name = ? AND category = ?`
+    )
+    .bind(
+      now,
+      caVendor.source,
+      evidenceJson,
+      caVendor.confidence,
+      riskLevel,
+      metadataJson,
+      now,
+      workspaceId,
+      caVendor.vendor_name,
+      category
+    )
+    .run();
+}
+
 // ── Brand Monitoring — Typosquat & Brand Asset Tracking ──────────────────────
 //
 // Pure candidate generation (Phase 7i, zero network I/O) + deferred DNS
@@ -7839,6 +8182,383 @@ function runTyposquatModule(domain) {
       source:                     'typosquat_analysis',
       error:                      String(err),
     };
+  }
+}
+
+// ── Identity Asset Discovery ──────────────────────────────────────────────────
+//
+// Phase 7j: pure computation, zero network I/O.
+//
+// Identifies authentication surfaces, login portals, SSO/OAuth/SAML endpoints,
+// and identity provider relationships from signals already captured in other
+// modules.  No new subrequests are made.
+//
+// Two classes of identity assets are discovered:
+//
+//   1. PROVIDER DETECTION — matches CNAME / SPF / MX / CSP / server header
+//      signals against known IdP patterns (Okta, Auth0, Entra ID, etc.).
+//      Returns structured provider records with risk_score elevation.
+//
+//   2. HOSTNAME CLASSIFICATION — scans the discovered subdomain list for
+//      hostnames whose prefix matches known identity/auth naming conventions
+//      (sso.*, vpn.*, login.*, auth.*, idp.*, adfs.*, etc.).
+//
+// identity_type values:
+//   sso | vpn | admin_login | oauth | saml | login_portal | idp | remote_access
+//
+// risk_score additions (additive):
+//   vpn portal               +15
+//   sso portal               +20
+//   admin login              +10
+//   federated identity (saml/oauth) +15
+//   internet-facing IdP      +20
+
+const IDENTITY_PROVIDER_SIGS = [
+  // ── Microsoft ────────────────────────────────────────────────────────────
+  {
+    name:          "Microsoft Entra ID",
+    identity_type: "idp",
+    risk_score:    20,
+    signals: [
+      { source: "cname",  test: (v) => /login\.microsoftonline\.com|sts\.windows\.net/.test(v) },
+      { source: "csp",    test: (v) => /login\.microsoftonline\.com|login\.live\.com/.test(v) },
+      { source: "spf",    test: (v) => /spf\.protection\.outlook\.com/.test(v) },
+      { source: "mx",     test: (v) => /\.protection\.outlook\.com/.test(v) },
+    ],
+  },
+  // ── Okta ─────────────────────────────────────────────────────────────────
+  {
+    name:          "Okta",
+    identity_type: "sso",
+    risk_score:    20,
+    signals: [
+      { source: "cname",  test: (v) => /\.okta\.com|\.oktapreview\.com|\.okta-emea\.com/.test(v) },
+      { source: "csp",    test: (v) => /okta\.com/.test(v) },
+      { source: "server", test: (v) => /okta/i.test(v) },
+    ],
+  },
+  // ── Auth0 ─────────────────────────────────────────────────────────────────
+  {
+    name:          "Auth0",
+    identity_type: "sso",
+    risk_score:    20,
+    signals: [
+      { source: "cname",  test: (v) => /\.auth0\.com|\.us\.auth0\.com|\.eu\.auth0\.com/.test(v) },
+      { source: "csp",    test: (v) => /auth0\.com/.test(v) },
+    ],
+  },
+  // ── Ping Identity ─────────────────────────────────────────────────────────
+  {
+    name:          "Ping Identity",
+    identity_type: "sso",
+    risk_score:    20,
+    signals: [
+      { source: "cname",  test: (v) => /\.pingone\.com|\.pingidentity\.com|\.ping\.cloud/.test(v) },
+      { source: "csp",    test: (v) => /pingone\.com|pingidentity\.com/.test(v) },
+    ],
+  },
+  // ── OneLogin ──────────────────────────────────────────────────────────────
+  {
+    name:          "OneLogin",
+    identity_type: "sso",
+    risk_score:    20,
+    signals: [
+      { source: "cname",  test: (v) => /\.onelogin\.com/.test(v) },
+      { source: "csp",    test: (v) => /onelogin\.com/.test(v) },
+      { source: "spf",    test: (v) => /onelogin\.com/.test(v) },
+    ],
+  },
+  // ── Duo Security ──────────────────────────────────────────────────────────
+  {
+    name:          "Duo",
+    identity_type: "sso",
+    risk_score:    15,
+    signals: [
+      { source: "cname",  test: (v) => /\.duosecurity\.com|\.duofed\.com/.test(v) },
+      { source: "csp",    test: (v) => /duosecurity\.com|api\.duosecurity\.com/.test(v) },
+      { source: "spf",    test: (v) => /duosecurity\.com/.test(v) },
+    ],
+  },
+  // ── JumpCloud ─────────────────────────────────────────────────────────────
+  {
+    name:          "JumpCloud",
+    identity_type: "idp",
+    risk_score:    20,
+    signals: [
+      { source: "cname",  test: (v) => /\.jumpcloud\.com/.test(v) },
+      { source: "csp",    test: (v) => /jumpcloud\.com/.test(v) },
+      { source: "spf",    test: (v) => /jumpcloud\.com/.test(v) },
+      { source: "mx",     test: (v) => /jumpcloud\.com/.test(v) },
+    ],
+  },
+  // ── Google Workspace Identity ─────────────────────────────────────────────
+  {
+    name:          "Google Workspace Identity",
+    identity_type: "idp",
+    risk_score:    15,
+    signals: [
+      { source: "spf",  test: (v) => /_spf\.google\.com/.test(v) },
+      { source: "mx",   test: (v) => /aspmx\.l\.google\.com|smtp\.google\.com/.test(v) },
+      { source: "cname", test: (v) => /accounts\.google\.com/.test(v) },
+    ],
+  },
+  // ── Keycloak ─────────────────────────────────────────────────────────────
+  {
+    name:          "Keycloak",
+    identity_type: "idp",
+    risk_score:    15,
+    signals: [
+      { source: "server", test: (v) => /keycloak/i.test(v) },
+      { source: "cname",  test: (v) => /keycloak/.test(v) },
+      { source: "csp",    test: (v) => /keycloak/.test(v) },
+    ],
+  },
+  // ── ADFS (Microsoft on-prem) ──────────────────────────────────────────────
+  {
+    name:          "Microsoft ADFS",
+    identity_type: "saml",
+    risk_score:    20,
+    signals: [
+      { source: "cname",  test: (v) => /adfs\.|sts\./.test(v) },
+      { source: "csp",    test: (v) => /\/adfs\//.test(v) },
+    ],
+  },
+  // ── CrowdStrike Falcon Identity ───────────────────────────────────────────
+  {
+    name:          "CrowdStrike Falcon Identity",
+    identity_type: "idp",
+    risk_score:    10,
+    signals: [
+      { source: "cname",  test: (v) => /\.crowdstrike\.com/.test(v) },
+      { source: "csp",    test: (v) => /crowdstrike\.com/.test(v) },
+    ],
+  },
+];
+
+// Hostname prefixes that indicate an identity / authentication surface.
+// Matched against the leftmost label of each discovered subdomain.
+const IDENTITY_HOSTNAME_PATTERNS = [
+  { prefix: /^(sso|saml|adfs|federation|fed)\./i,    identity_type: "sso",          risk_score: 20 },
+  { prefix: /^(vpn|remote|ra|ssl-vpn|vpn\d)\./i,     identity_type: "vpn",          risk_score: 15 },
+  { prefix: /^(idp|identity|iam|sts|auth0?)\./i,      identity_type: "idp",          risk_score: 20 },
+  { prefix: /^(login|signin|sign-in|logon)\./i,       identity_type: "login_portal", risk_score: 10 },
+  { prefix: /^(oauth|oauth2|openid|oidc)\./i,         identity_type: "oauth",        risk_score: 15 },
+  { prefix: /^(mfa|2fa|otp|duo)\./i,                  identity_type: "sso",          risk_score: 15 },
+  { prefix: /^(portal|access|myaccess|myid)\./i,      identity_type: "login_portal", risk_score: 10 },
+  { prefix: /^(admin|adminpanel|cpanel|wp-admin)\./i, identity_type: "admin_login",  risk_score: 10 },
+  { prefix: /^(okta|ping|jumpcloud)\./i,              identity_type: "idp",          risk_score: 20 },
+];
+
+/**
+ * Extracts signal values from scan modules for IdP matching.
+ * Mirrors the logic used in detectVendorsFromModules.
+ */
+function collectIdentitySignals(modules) {
+  const signals = { cname: [], spf: [], mx: [], csp: [], server: [], dkim: [] };
+
+  // CNAME targets from subdomain takeover / asset exposure / DNS brute-force
+  for (const risk  of (modules?.subdomain_takeover?.risks   ?? [])) if (risk?.cname)  signals.cname.push(risk.cname);
+  for (const asset of (modules?.asset_exposure?.assets       ?? [])) if (asset?.cname) signals.cname.push(asset.cname);
+  for (const item  of (modules?.dns_bruteforce?.items        ?? [])) if (item?.cname)  signals.cname.push(item.cname);
+
+  // SPF includes
+  for (const inc of (modules?.email_security?.spf?.includes ?? [])) signals.spf.push(inc);
+
+  // MX records
+  for (const mx of (modules?.dns?.mx_records ?? [])) signals.mx.push(mx.hostname ?? mx.exchange ?? String(mx));
+
+  // CSP header
+  const cspVal = modules?.headers?.security_headers?.content_security_policy?.value ?? "";
+  if (cspVal) signals.csp.push(cspVal);
+
+  // Server header
+  const serverVal = modules?.headers?.response_headers?.server ?? "";
+  if (serverVal) signals.server.push(serverVal);
+
+  return signals;
+}
+
+/**
+ * runIdentityDiscoveryModule(modules, domain)
+ * Phase 7j — pure computation, zero network I/O.
+ */
+function runIdentityDiscoveryModule(modules, domain) {
+  try {
+    const signals  = collectIdentitySignals(modules);
+    const providers = [];
+    const portals   = [];
+
+    // ── 1. Provider detection ─────────────────────────────────────────────
+    for (const sig of IDENTITY_PROVIDER_SIGS) {
+      const matched = [];
+      for (const s of sig.signals) {
+        const vals = signals[s.source] ?? [];
+        for (const v of vals) {
+          if (s.test(v)) { matched.push({ source: s.source, value: v }); break; }
+        }
+      }
+      if (matched.length === 0) continue;
+
+      providers.push({
+        asset_type:       "provider",
+        identity_type:    sig.identity_type,
+        provider:         sig.name,
+        internet_exposed: true,
+        risk_score:       sig.risk_score,
+        source:           "identity_discovery",
+        evidence:         matched,
+        confidence:       matched.length >= 2 ? "high" : "medium",
+      });
+    }
+
+    // ── 2. Hostname classification ────────────────────────────────────────
+    // Collect all discovered hostnames from CT + DNS brute-force.
+    const allHostnames = new Set();
+    for (const h of (modules?.subdomains?.items ?? []))             allHostnames.add(h);
+    for (const item of (modules?.dns_bruteforce?.items ?? []))      allHostnames.add(item.hostname ?? "");
+
+    for (const hostname of allHostnames) {
+      if (!hostname) continue;
+      for (const pat of IDENTITY_HOSTNAME_PATTERNS) {
+        if (pat.prefix.test(hostname)) {
+          portals.push({
+            asset_type:       "portal",
+            identity_type:    pat.identity_type,
+            provider:         null,
+            hostname,
+            internet_exposed: true,
+            risk_score:       pat.risk_score,
+            source:           "hostname_pattern",
+            evidence:         [{ source: "subdomain_hostname", value: hostname }],
+            confidence:       "medium",
+          });
+          break; // one classification per hostname
+        }
+      }
+    }
+
+    const all = [...providers, ...portals];
+    const highRisk = all.filter(a => a.risk_score >= 15).length;
+
+    return {
+      detected:         all.length > 0,
+      total:            all.length,
+      provider_count:   providers.length,
+      portal_count:     portals.length,
+      high_risk_count:  highRisk,
+      providers,
+      portals,
+      source:           "identity_discovery",
+      error:            null,
+    };
+  } catch (err) {
+    return {
+      detected:        false,
+      total:           0,
+      provider_count:  0,
+      portal_count:    0,
+      high_risk_count: 0,
+      providers:       [],
+      portals:         [],
+      source:          "identity_discovery",
+      error:           err?.message ?? "Identity discovery failed",
+    };
+  }
+}
+
+/**
+ * upsertIdentityAssets(domainId, scanId, identityMod, env)
+ * Phase 8f: Persists identity_discovery results into identity_assets table.
+ * INSERT OR IGNORE preserves first_seen; UPDATE refreshes last_seen + risk_score.
+ * Also upserts detected IdP providers into workspace_vendors.
+ */
+async function upsertIdentityAssets(domainId, scanId, identityMod, env) {
+  if (!identityMod?.detected) return;
+
+  let wsRows;
+  try {
+    const r = await env.cybermeters_db
+      .prepare("SELECT workspace_id FROM workspace_domains WHERE domain_id = ?")
+      .bind(domainId)
+      .all();
+    wsRows = r.results || [];
+  } catch { return; }
+  if (wsRows.length === 0) return;
+
+  const now = new Date().toISOString();
+  const allAssets = [...(identityMod.providers ?? []), ...(identityMod.portals ?? [])];
+
+  for (const { workspace_id } of wsRows) {
+    for (const asset of allAssets) {
+      try {
+        const id           = createId("idasset");
+        const evidenceJson = JSON.stringify(asset.evidence ?? []);
+        const hostname     = asset.hostname ?? null;
+
+        await env.cybermeters_db
+          .prepare(
+            `INSERT OR IGNORE INTO identity_assets
+               (id, workspace_id, domain_id, scan_id, hostname, asset_type,
+                identity_type, provider, internet_exposed, source, risk_score,
+                evidence, first_seen, last_seen, status, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`
+          )
+          .bind(
+            id, workspace_id, domainId, scanId,
+            hostname, asset.asset_type, asset.identity_type,
+            asset.provider ?? null, asset.internet_exposed ? 1 : 0,
+            asset.source, asset.risk_score, evidenceJson,
+            now, now, now, now
+          )
+          .run();
+
+        await env.cybermeters_db
+          .prepare(
+            `UPDATE identity_assets
+             SET last_seen = ?, risk_score = ?, evidence = ?,
+                 scan_id = ?, status = 'active', updated_at = ?
+             WHERE workspace_id = ? AND identity_type = ?
+               AND (hostname = ? OR (hostname IS NULL AND ? IS NULL))
+               AND (provider = ? OR (provider IS NULL AND ? IS NULL))`
+          )
+          .bind(
+            now, asset.risk_score, evidenceJson, scanId, now,
+            workspace_id, asset.identity_type,
+            hostname, hostname,
+            asset.provider ?? null, asset.provider ?? null
+          )
+          .run();
+      } catch { /* non-fatal per-asset failure */ }
+    }
+
+    // Also upsert identity providers into workspace_vendors so they appear
+    // in the vendor risk layer. Category = 'identity_provider', risk_level = 'high'.
+    for (const provider of (identityMod.providers ?? [])) {
+      try {
+        const vid = createId("vendor");
+        const evJson = JSON.stringify(provider.evidence ?? []);
+        await env.cybermeters_db
+          .prepare(
+            `INSERT OR IGNORE INTO workspace_vendors
+               (id, workspace_id, vendor_name, category, source, evidence,
+                confidence, risk_level, first_seen, last_seen, status, created_at, updated_at)
+             VALUES (?, ?, ?, 'identity_provider', ?, ?, ?, 'high', ?, ?, 'active', ?, ?)`
+          )
+          .bind(vid, workspace_id, provider.provider, "identity_discovery", evJson,
+                provider.confidence, now, now, now, now)
+          .run();
+
+        await env.cybermeters_db
+          .prepare(
+            `UPDATE workspace_vendors
+             SET last_seen = ?, evidence = ?, confidence = ?,
+                 risk_level = 'high', status = 'active', updated_at = ?
+             WHERE workspace_id = ? AND vendor_name = ? AND category = 'identity_provider'`
+          )
+          .bind(now, evJson, provider.confidence, now, workspace_id, provider.provider)
+          .run();
+      } catch { /* non-fatal */ }
+    }
   }
 }
 
@@ -8898,6 +9618,9 @@ async function sendAssetChangeAlert(domainId, domain, scanId, env) {
         const topHostnames = [
           ...(hostnamesByType.takeover_risk_detected || []),
           ...(hostnamesByType.new_asset_discovered   || []),
+          ...(hostnamesByType.certificate_new_san_detected || []),
+          ...(hostnamesByType.certificate_new_detected || []),
+          ...(hostnamesByType.certificate_new_issuer_detected || []),
           ...(hostnamesByType.cloud_storage_detected || []),
           ...(hostnamesByType.wildcard_dns_detected  || []),
           ...(hostnamesByType.asset_reappeared       || []),
@@ -13745,6 +14468,7 @@ export default {
         // Brand/vendor signals not available at scan level — workspace BRS endpoint includes them
         brandHighRisk: 0, brandMedRisk: 0, brandLowRisk: 0,
         vendorHigh: 0, vendorMedium: 0, vendorTotal: 0,
+        identityHighRiskCount: (normalisedModules.identity_discovery?.high_risk_count ?? 0),
       };
       const brsResult = computeBusinessRiskScore(reportFindingIds, brsModuleData);
       const businessRisk = {
@@ -15283,7 +16007,10 @@ export default {
                  AND event_type IN (
                        'certificate_sensitive_host_detected',
                        'certificate_expiring_soon',
-                       'certificate_growth_detected'
+                       'certificate_growth_detected',
+                       'certificate_new_detected',
+                       'certificate_new_san_detected',
+                       'certificate_new_issuer_detected'
                      )
                  AND created_at >= ?
                ORDER BY created_at DESC`
@@ -15311,7 +16038,71 @@ export default {
           .sort(([a], [b]) => b.localeCompare(a))
           .map(([day, evts]) => ({ day, events: evts }));
 
-        return json({ workspace_id: wsId, days: 90, timeline });
+        let issuer_history = [];
+        let certificate_timeline = [];
+        let churn = {
+          certificates_last_30_days: 0,
+          certificates_last_90_days: 0,
+          classification: "low",
+        };
+        try {
+          const thirtyDaysAgo = new Date(Date.now() - 30 * 86_400_000).toISOString();
+          const ninetyDaysAgo = new Date(Date.now() - 90 * 86_400_000).toISOString();
+
+          const [issuerRows, certRows, churn30, churn90] = await Promise.all([
+            env.cybermeters_db
+              .prepare(
+                `SELECT issuer, MIN(first_seen) AS first_seen,
+                        MAX(last_seen) AS last_seen, COUNT(*) AS certificates
+                 FROM certificate_observations
+                 WHERE workspace_id = ?
+                 GROUP BY issuer
+                 ORDER BY first_seen ASC`
+              )
+              .bind(wsId)
+              .all(),
+            env.cybermeters_db
+              .prepare(
+                `SELECT subject, issuer, san_count, expires_at,
+                        first_seen, last_seen
+                 FROM certificate_observations
+                 WHERE workspace_id = ?
+                 ORDER BY first_seen DESC`
+              )
+              .bind(wsId)
+              .all(),
+            env.cybermeters_db
+              .prepare(
+                `SELECT COUNT(*) AS n FROM certificate_observations
+                 WHERE workspace_id = ? AND first_seen >= ?`
+              )
+              .bind(wsId, thirtyDaysAgo)
+              .first(),
+            env.cybermeters_db
+              .prepare(
+                `SELECT COUNT(*) AS n FROM certificate_observations
+                 WHERE workspace_id = ? AND first_seen >= ?`
+              )
+              .bind(wsId, ninetyDaysAgo)
+              .first(),
+          ]);
+
+          issuer_history = issuerRows.results || [];
+          certificate_timeline = certRows.results || [];
+          const count30 = churn30?.n ?? 0;
+          const count90 = churn90?.n ?? 0;
+          const classification =
+            count90 >= 25 ? "unusual" :
+            count90 >= 10 ? "high" :
+            count90 >= 3  ? "medium" : "low";
+          churn = {
+            certificates_last_30_days: count30,
+            certificates_last_90_days: count90,
+            classification,
+          };
+        } catch { /* v2 migration may not be applied yet */ }
+
+        return json({ workspace_id: wsId, days: 90, timeline, certificate_timeline, issuer_history, churn });
       }
 
       // ── /certificates ───────────────────────────────────────────────────
@@ -15353,6 +16144,10 @@ export default {
           domain:                       report.domain || null,
           certificate_risk_level:       ci.certificate_risk_level,
           certificate_status:           ci.certificate_status,
+          issuer:                       ci.issuer || null,
+          subject:                      ci.subject || null,
+          san_count:                    ci.san_count || 0,
+          san_hostnames:                ci.san_hostnames || [],
           days_until_expiry:            ci.days_until_expiry,
           expires_at:                   ci.expires_at,
           total_certificates_seen:      ci.total_certificates_seen,
@@ -15855,13 +16650,14 @@ export default {
     // GET /api/workspaces/:id/vendors
     //   Filters: ?status=active|inactive  ?risk_level=low|medium|high
     //            ?category=infrastructure|cloud|email_identity|hosting|saas|
-    //                      support|collaboration|ecommerce
+    //                      support|collaboration|ecommerce|certificate_authority
     //   Returns: { workspace_id, count, vendors: [...] }
     //
     // GET /api/workspaces/:id/vendors/summary
     //   Returns: { total_vendors, active_vendors, inactive_vendors,
     //              infrastructure, cloud, email_identity, hosting, saas,
-    //              support, ecommerce, high_risk, medium_risk, low_risk }
+    //              support, ecommerce, certificate_authority,
+    //              high_risk, medium_risk, low_risk }
     const vendorsMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/vendors(\/summary)?$/);
     if (vendorsMatch && request.method === "GET") {
       const wsId      = vendorsMatch[1];
@@ -15902,6 +16698,7 @@ export default {
           saas:            0,
           support:         0,
           ecommerce:       0,
+          certificate_authority: 0,
           high_risk:       0,
           medium_risk:     0,
           low_risk:        0,
@@ -15961,7 +16758,7 @@ export default {
         const r = await env.cybermeters_db
           .prepare(
             `SELECT vendor_name AS name, category, source, evidence, confidence,
-                    risk_level, status, first_seen, last_seen
+                    risk_level, status, first_seen, last_seen, metadata_json
              FROM workspace_vendors
              WHERE ${whereSQL}
              ORDER BY
@@ -15971,8 +16768,16 @@ export default {
           .bind(...binds)
           .all();
         vendors = (r.results || []).map((row) => ({
-          ...row,
+          name: row.name,
+          category: row.category,
+          source: row.source,
+          confidence: row.confidence,
+          risk_level: row.risk_level,
+          status: row.status,
+          first_seen: row.first_seen,
+          last_seen: row.last_seen,
           evidence: (() => { try { return JSON.parse(row.evidence); } catch { return []; } })(),
+          metadata: (() => { try { return JSON.parse(row.metadata_json || "{}"); } catch { return {}; } })(),
         }));
       } catch {
         return json({ error: "Database error" }, 500);
@@ -16229,6 +17034,94 @@ export default {
         security_posture:       scorecard.security_posture ?? null,
         security_posture_chart,
       });
+    }
+
+    // ── Identity Asset Discovery Routes ─────────────────────────────────────
+    // GET /api/workspaces/:id/identity-assets         — full inventory
+    // GET /api/workspaces/:id/identity-assets/summary — aggregated counts
+
+    const identityListMatch    = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/identity-assets$/);
+    const identitySummaryMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/identity-assets\/summary$/);
+
+    if ((identityListMatch || identitySummaryMatch) && request.method === "GET") {
+      const wsId = (identityListMatch ?? identitySummaryMatch)[1];
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, wsId, "workspace:read", env);
+      if (!access) return json({ error: "Forbidden" }, 403);
+
+      const ws = await env.cybermeters_db
+        .prepare(`SELECT id, name FROM workspaces WHERE id = ?`).bind(wsId).first();
+      if (!ws) return json({ error: "Workspace not found" }, 404);
+
+      if (identitySummaryMatch) {
+        try {
+          const [totalRow, typeRows, providerRows, highRiskRow] = await env.cybermeters_db.batch([
+            env.cybermeters_db
+              .prepare(`SELECT COUNT(*) AS n FROM identity_assets WHERE workspace_id = ? AND status = 'active'`)
+              .bind(wsId),
+            env.cybermeters_db
+              .prepare(`SELECT identity_type, COUNT(*) AS n FROM identity_assets WHERE workspace_id = ? AND status = 'active' GROUP BY identity_type`)
+              .bind(wsId),
+            env.cybermeters_db
+              .prepare(`SELECT provider, COUNT(*) AS n FROM identity_assets WHERE workspace_id = ? AND status = 'active' AND provider IS NOT NULL GROUP BY provider ORDER BY n DESC`)
+              .bind(wsId),
+            env.cybermeters_db
+              .prepare(`SELECT COUNT(*) AS n FROM identity_assets WHERE workspace_id = ? AND status = 'active' AND risk_score >= 15`)
+              .bind(wsId),
+          ]);
+          return json({
+            workspace_id:       wsId,
+            total:              totalRow.n ?? 0,
+            high_risk_count:    highRiskRow.n ?? 0,
+            by_type:            Object.fromEntries((typeRows.results ?? []).map(r => [r.identity_type, r.n])),
+            providers_detected: (providerRows.results ?? []).map(r => ({ provider: r.provider, count: r.n })),
+            generated_at:       new Date().toISOString(),
+          });
+        } catch (err) {
+          return json({ error: "Failed to load identity summary", detail: err?.message }, 500);
+        }
+      }
+
+      // Full list
+      try {
+        const filterType     = url.searchParams.get("identity_type");
+        const filterProvider = url.searchParams.get("provider");
+        const filterRisk     = url.searchParams.get("min_risk_score");
+
+        let query = `SELECT * FROM identity_assets WHERE workspace_id = ? AND status = 'active'`;
+        const params = [wsId];
+        if (filterType)     { query += ` AND identity_type = ?`;  params.push(filterType); }
+        if (filterProvider) { query += ` AND provider = ?`;       params.push(filterProvider); }
+        if (filterRisk)     { query += ` AND risk_score >= ?`;    params.push(parseInt(filterRisk, 10) || 0); }
+        query += ` ORDER BY risk_score DESC, first_seen DESC LIMIT 200`;
+
+        const rows = await env.cybermeters_db.prepare(query).bind(...params).all();
+        const assets = (rows.results ?? []).map(r => ({
+          id:               r.id,
+          hostname:         r.hostname,
+          asset_type:       r.asset_type,
+          identity_type:    r.identity_type,
+          provider:         r.provider,
+          internet_exposed: r.internet_exposed === 1,
+          source:           r.source,
+          risk_score:       r.risk_score,
+          evidence:         r.evidence ? (() => { try { return JSON.parse(r.evidence); } catch { return []; } })() : [],
+          first_seen:       r.first_seen,
+          last_seen:        r.last_seen,
+        }));
+
+        return json({
+          workspace_id:    wsId,
+          workspace_name:  ws.name,
+          total:           assets.length,
+          high_risk_count: assets.filter(a => a.risk_score >= 15).length,
+          assets,
+          generated_at:    new Date().toISOString(),
+        });
+      } catch (err) {
+        return json({ error: "Failed to load identity assets", detail: err?.message }, 500);
+      }
     }
 
     // ── Brand Monitoring Routes ───────────────────────────────────────────────
@@ -16557,16 +17450,8 @@ export default {
         let findingIds = new Set();
         let subdomainTakeoverCount = 0;
         let assetExposureCount     = 0;
+        let identityHighRiskCount  = 0;
         if (latestScanRow?.scan_id) {
-          try {
-            const findingsRows = await env.cybermeters_db
-              .prepare(`SELECT title FROM findings WHERE scan_id = ? LIMIT 200`)
-              .bind(latestScanRow.scan_id).all();
-            // findings.title may map to ID — also load from report JSON if possible
-            // But we store findings with a title not an id, so use the stored brs_score
-            // from historical_scores when available, or re-derive from report
-          } catch { /* non-fatal */ }
-
           // Prefer R2 report for finding IDs (authoritative)
           try {
             const obj = await env.cybermeters_reports.get(`reports/${latestScanRow.scan_id}.json`);
@@ -16579,9 +17464,21 @@ export default {
               const mods = report.modules ?? {};
               subdomainTakeoverCount = (mods.subdomain_takeover?.risks ?? []).length;
               assetExposureCount     = (mods.asset_exposure?.assets ?? []).filter(a => a.reachable).length;
+              identityHighRiskCount  = mods.identity_discovery?.high_risk_count ?? 0;
             }
           } catch { /* tolerate missing report */ }
         }
+
+        // Also query D1 identity_assets for workspace-level identity count
+        try {
+          const idRow = await env.cybermeters_db
+            .prepare(
+              `SELECT COUNT(*) AS n FROM identity_assets
+               WHERE workspace_id = ? AND status = 'active' AND risk_score >= 15`
+            )
+            .bind(wsId).first();
+          identityHighRiskCount = Math.max(identityHighRiskCount, idRow?.n ?? 0);
+        } catch { /* non-fatal */ }
 
         const workspaceData = {
           brandHighRisk:          brandMap.high   ?? 0,
@@ -16592,6 +17489,7 @@ export default {
           vendorTotal,
           subdomainTakeoverCount,
           assetExposureCount,
+          identityHighRiskCount,
         };
 
         const brsResult = computeBusinessRiskScore(findingIds, workspaceData);

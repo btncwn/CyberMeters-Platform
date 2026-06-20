@@ -16,6 +16,7 @@ const CATEGORY_LABELS = {
   support:        'Support',
   collaboration:  'Collaboration',
   ecommerce:      'E-commerce',
+  certificate_authority: 'Certificate Authority',
 }
 
 function FilterBtn({ active, onClick, children }) {
