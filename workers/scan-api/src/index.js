@@ -10625,6 +10625,9 @@ const PLAN_LIMITS = {
     report_retention: "90_days",
     api_tokens: 1,
     scheduled_reports_per_workspace: 1,
+    scans_per_month: 5,
+    reports_per_month: 3,
+    scheduled_scans: 1,
   },
   starter: {
     workspaces: 5,
@@ -10634,6 +10637,9 @@ const PLAN_LIMITS = {
     report_retention: "90_days",
     api_tokens: 5,
     scheduled_reports_per_workspace: 5,
+    scans_per_month: 100,
+    reports_per_month: 50,
+    scheduled_scans: 5,
   },
   professional: {
     workspaces: 25,
@@ -10643,6 +10649,9 @@ const PLAN_LIMITS = {
     report_retention: "2_years",
     api_tokens: 25,
     scheduled_reports_per_workspace: 25,
+    scans_per_month: 1000,
+    reports_per_month: 500,
+    scheduled_scans: 25,
   },
   business: {
     workspaces: 25,
@@ -10652,6 +10661,9 @@ const PLAN_LIMITS = {
     report_retention: "7_years",
     api_tokens: 25,
     scheduled_reports_per_workspace: 25,
+    scans_per_month: 5000,
+    reports_per_month: 2000,
+    scheduled_scans: 25,
   },
   enterprise: {
     workspaces: 999999,
@@ -10661,6 +10673,9 @@ const PLAN_LIMITS = {
     report_retention: "forever",
     api_tokens: 999999,
     scheduled_reports_per_workspace: 999999,
+    scans_per_month: 999999,
+    reports_per_month: 999999,
+    scheduled_scans: 999999,
   },
 };
 
@@ -10810,10 +10825,13 @@ async function getEntitlementUsage(user, env, workspaceId = null) {
     api_tokens: tokRow?.cnt ?? 0,
     domains_in_workspace: null,
     scheduled_reports_in_workspace: null,
+    scans_this_month: null,
+    reports_this_month: null,
+    scheduled_scans_in_workspace: null,
   };
 
   if (workspaceId) {
-    const [domRow, srRow] = await Promise.all([
+    const [domRow, srRow, schedScanRow, rptRow] = await Promise.all([
       env.cybermeters_db
         .prepare("SELECT COUNT(*) AS cnt FROM workspace_domains WHERE workspace_id = ?")
         .bind(workspaceId)
@@ -10822,10 +10840,29 @@ async function getEntitlementUsage(user, env, workspaceId = null) {
         .prepare("SELECT COUNT(*) AS cnt FROM scheduled_reports WHERE workspace_id = ? AND enabled = 1")
         .bind(workspaceId)
         .first(),
+      env.cybermeters_db
+        .prepare("SELECT COUNT(*) AS cnt FROM scheduled_scans WHERE workspace_id = ? AND enabled = 1")
+        .bind(workspaceId)
+        .first(),
+      env.cybermeters_db
+        .prepare(
+          `SELECT COUNT(*) AS cnt FROM workspace_reports
+           WHERE workspace_id = ? AND status = 'completed' AND deleted_at IS NULL AND created_at >= ?`
+        )
+        .bind(workspaceId, getMonthStart())
+        .first(),
     ]);
-    usage.domains_in_workspace = domRow?.cnt ?? 0;
-    usage.scheduled_reports_in_workspace = srRow?.cnt ?? 0;
+    usage.domains_in_workspace             = domRow?.cnt       ?? 0;
+    usage.scheduled_reports_in_workspace   = srRow?.cnt        ?? 0;
+    usage.scheduled_scans_in_workspace     = schedScanRow?.cnt ?? 0;
+    usage.reports_this_month               = rptRow?.cnt       ?? 0;
   }
+
+  // Scans-this-month is scoped to the billing owner, not a workspace
+  const ownerUserId = workspaceId
+    ? await getWorkspaceBillingUserId(workspaceId, user.id, env)
+    : user.id;
+  usage.scans_this_month = await countScansThisMonth(ownerUserId, env);
 
   return usage;
 }
@@ -10847,6 +10884,171 @@ async function getWorkspaceOwnerId(workspaceId, env) {
 
 async function getWorkspaceBillingUserId(workspaceId, fallbackUserId, env) {
   return (await getWorkspaceOwnerId(workspaceId, env)) || fallbackUserId;
+}
+
+// ── Usage counting helpers (derived from source tables, no extra migration) ──
+
+/** ISO timestamp for the first moment of the current calendar month (UTC). */
+function getMonthStart() {
+  const d = new Date();
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-01T00:00:00.000Z`;
+}
+
+/**
+ * Count scans created this calendar month across all workspaces owned by ownerUserId.
+ * Uses workspace ownership to scope correctly across multi-workspace accounts.
+ */
+async function countScansThisMonth(ownerUserId, env) {
+  try {
+    const row = await env.cybermeters_db
+      .prepare(
+        `SELECT COUNT(s.id) AS cnt
+         FROM scans s
+         JOIN workspaces w ON w.id = s.workspace_id
+         WHERE w.owner_user_id = ?
+           AND s.created_at >= ?`
+      )
+      .bind(ownerUserId, getMonthStart())
+      .first();
+    return row?.cnt ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Count completed workspace_reports created this calendar month for a specific workspace.
+ */
+async function countReportsThisMonth(wsId, env) {
+  try {
+    const row = await env.cybermeters_db
+      .prepare(
+        `SELECT COUNT(id) AS cnt
+         FROM workspace_reports
+         WHERE workspace_id = ?
+           AND status = 'completed'
+           AND deleted_at IS NULL
+           AND created_at >= ?`
+      )
+      .bind(wsId, getMonthStart())
+      .first();
+    return row?.cnt ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Count enabled scheduled_scans for a workspace (cumulative, not per-month).
+ * Scheduled scans are persistent config objects, not consumed resources.
+ */
+async function countEnabledScheduledScans(wsId, env) {
+  try {
+    const row = await env.cybermeters_db
+      .prepare(
+        `SELECT COUNT(id) AS cnt
+         FROM scheduled_scans
+         WHERE workspace_id = ?
+           AND enabled = 1`
+      )
+      .bind(wsId)
+      .first();
+    return row?.cnt ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+// ── Plan enforcement helpers ─────────────────────────────────────────────────
+
+/**
+ * Returns the next month reset ISO timestamp (first moment of next month, UTC).
+ */
+function getMonthResetAt() {
+  const d = new Date();
+  d.setUTCMonth(d.getUTCMonth() + 1, 1);
+  d.setUTCHours(0, 0, 0, 0);
+  return d.toISOString();
+}
+
+/**
+ * Check scan monthly quota for the billing owner of workspaceId.
+ * Returns null when quota is available, or { status, body } when blocked.
+ * Fails open — quota check errors never block scans.
+ */
+async function checkScanLimit(user, workspaceId, env) {
+  try {
+    const ownerUserId = await getWorkspaceBillingUserId(workspaceId, user.id, env);
+    const plan   = await getEffectivePlan(ownerUserId, env);
+    const limits = getPlanLimits(plan);
+    const used   = await countScansThisMonth(ownerUserId, env);
+    if (used >= limits.scans_per_month) {
+      return {
+        status: 403,
+        body: {
+          ...planLimitExceeded("scans_per_month", limits.scans_per_month, used),
+          upgrade_message: `You have used ${used} of ${limits.scans_per_month} scans this month. Upgrade your plan for more scans.`,
+          reset_at: getMonthResetAt(),
+        },
+      };
+    }
+    return null;
+  } catch {
+    return null; // fail-open: counting errors must never block legitimate scans
+  }
+}
+
+/**
+ * Check report generation monthly quota for workspaceId.
+ * Returns null when quota is available, or { status, body } when blocked.
+ * Fails open.
+ */
+async function checkReportLimit(user, workspaceId, env) {
+  try {
+    const ownerUserId = await getWorkspaceBillingUserId(workspaceId, user.id, env);
+    const plan   = await getEffectivePlan(ownerUserId, env);
+    const limits = getPlanLimits(plan);
+    const used   = await countReportsThisMonth(workspaceId, env);
+    if (used >= limits.reports_per_month) {
+      return {
+        status: 403,
+        body: {
+          ...planLimitExceeded("reports_per_month", limits.reports_per_month, used),
+          upgrade_message: `You have generated ${used} of ${limits.reports_per_month} reports this month. Upgrade your plan for more reports.`,
+          reset_at: getMonthResetAt(),
+        },
+      };
+    }
+    return null;
+  } catch {
+    return null; // fail-open
+  }
+}
+
+/**
+ * Check whether workspaceId can add another enabled scheduled scan.
+ * Returns null when quota is available, or { status, body } when blocked.
+ * Fails open.
+ */
+async function checkScheduledScanLimit(user, workspaceId, env) {
+  try {
+    const ownerUserId = await getWorkspaceBillingUserId(workspaceId, user.id, env);
+    const plan   = await getEffectivePlan(ownerUserId, env);
+    const limits = getPlanLimits(plan);
+    const used   = await countEnabledScheduledScans(workspaceId, env);
+    if (used >= limits.scheduled_scans) {
+      return {
+        status: 403,
+        body: {
+          ...planLimitExceeded("scheduled_scans", limits.scheduled_scans, used),
+          upgrade_message: `You have ${used} of ${limits.scheduled_scans} scheduled scans configured. Upgrade your plan to add more.`,
+        },
+      };
+    }
+    return null;
+  } catch {
+    return null; // fail-open
+  }
 }
 
 async function isPlatformAdmin(user, env) {
@@ -11580,6 +11782,10 @@ export default {
       const scanAccess = await requireWorkspaceRole(user, workspaceId, "scan:create", env);
       if (!scanAccess) return json({ error: "Forbidden — analyst role required to create scans" }, 403);
 
+      // ── Enforce monthly scan quota ───────────────────────────────────────
+      const scanLimitError = await checkScanLimit(user, workspaceId, env);
+      if (scanLimitError) return json(scanLimitError.body, scanLimitError.status);
+
       const ws = await env.cybermeters_db
         .prepare(`SELECT id FROM workspaces WHERE id = ?`)
         .bind(workspaceId)
@@ -11924,6 +12130,10 @@ export default {
       }
       const scheduleAccess = await requireWorkspaceRole(user, workspaceId, "scan:create", env);
       if (!scheduleAccess) return json({ error: "Forbidden — analyst role required to manage scheduled scans" }, 403);
+
+      // ── Enforce scheduled scan count quota ───────────────────────────────
+      const schedLimitError = await checkScheduledScanLimit(user, workspaceId, env);
+      if (schedLimitError) return json(schedLimitError.body, schedLimitError.status);
 
       // Create the table if it doesn't exist yet (idempotent — includes new columns)
       await env.cybermeters_db
@@ -16371,6 +16581,10 @@ export default {
       const rptAccess = await requireWorkspaceRole(rptUser, wsId, "report:generate", env);
       if (!rptAccess) return json({ error: "Forbidden — admin role required to generate reports" }, 403);
       try {
+        // ── Enforce monthly report quota ────────────────────────────────────
+        const reportLimitError = await checkReportLimit(rptUser, wsId, env);
+        if (reportLimitError) return json(reportLimitError.body, reportLimitError.status);
+
         let body = {};
         try { body = await request.json(); } catch { /* body is optional */ }
         const VALID_TYPES = ['manual', 'scan_snapshot', 'weekly_executive', 'monthly_executive', 'quarterly_executive'];
