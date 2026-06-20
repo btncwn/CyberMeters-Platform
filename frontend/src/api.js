@@ -20,6 +20,31 @@ export function registerUnauthorizedHandler(fn) {
 }
 
 /**
+ * Validate the current session token against /api/auth/me.
+ * Returns the user object on success, or null if the token is missing/expired.
+ *
+ * Deliberately bypasses the 401 auto-logout handler so AuthContext can
+ * manage the React state transition itself (soft React Router redirect
+ * instead of a hard window.location redirect, preserving the intended URL).
+ */
+export async function validateSession() {
+  const token = localStorage.getItem(TOKEN_KEY)
+  if (!token) return null
+  try {
+    const res = await fetch(`${BASE}/auth/me`, {
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+    })
+    if (!res.ok) return null
+    return res.json()
+  } catch {
+    return null
+  }
+}
+
+/**
  * Handle a 401 response: clear local auth state and redirect to /login.
  * Fires _onUnauthorized (registered by AuthProvider) to clear React state,
  * then hard-redirects so the router reinitialises with no token.

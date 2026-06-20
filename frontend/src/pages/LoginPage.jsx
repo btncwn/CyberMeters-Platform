@@ -1,12 +1,16 @@
 import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { Shield, Mail, Lock, AlertTriangle, LogIn } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { api } from '../api'
 
 export default function LoginPage() {
-  const navigate = useNavigate()
+  const navigate  = useNavigate()
+  const location  = useLocation()
   const { login } = useAuth()
+
+  // If ProtectedRoute redirected here with a destination, go back there after login.
+  const from = location.state?.from?.pathname || '/dashboard'
 
   const [email,    setEmail]    = useState('')
   const [password, setPassword] = useState('')
@@ -21,7 +25,7 @@ export default function LoginPage() {
     try {
       const data = await api.authLogin(email.trim().toLowerCase(), password)
       login(data.token, data.user)
-      navigate('/dashboard', { replace: true })
+      navigate(from, { replace: true })
     } catch (err) {
       setError(err.message || 'Login failed')
     } finally {

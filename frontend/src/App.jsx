@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import Layout from './components/Layout'
 import LoginPage  from './pages/LoginPage'
@@ -30,20 +30,46 @@ import AcceptInvitationPage  from './pages/AcceptInvitationPage'
 import AccountPage           from './pages/AccountPage'
 
 /**
- * ProtectedRoute — redirects unauthenticated users to /login.
- * Preserves the intended destination so the user can be sent back after login.
+ * ProtectedRoute — blocks unauthenticated users from accessing the app.
+ *
+ * Three states:
+ *  1. isLoading  — token exists in localStorage but hasn't been validated yet.
+ *                  Show a full-page spinner so protected content never flashes.
+ *  2. !isAuthenticated — no token or token was rejected by the server.
+ *                  Redirect to /login, preserving the intended path in state.from
+ *                  so LoginPage can send the user back after a successful login.
+ *  3. Authenticated — render children normally.
+ *
+ * Does NOT rely on Cloudflare Access identity. Only cybermeters_auth_token
+ * in localStorage counts as authentication.
  */
 function ProtectedRoute({ children }) {
-  const { isAuthenticated } = useAuth()
-  if (!isAuthenticated) return <Navigate to="/login" replace />
+  const { isAuthenticated, isLoading } = useAuth()
+  const location = useLocation()
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-brand-600 border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
+  }
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" state={{ from: location }} replace />
+  }
+
   return children
 }
 
 /**
- * PublicOnlyRoute — redirects authenticated users away from /login and /signup.
+ * PublicOnlyRoute — redirects already-authenticated users away from /login and /signup.
+ * Waits for session validation to complete before deciding (prevents premature redirect
+ * during the initial validateSession() call).
  */
 function PublicOnlyRoute({ children }) {
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, isLoading } = useAuth()
+  if (isLoading) return null   // wait silently — login page will flash in momentarily
   if (isAuthenticated) return <Navigate to="/dashboard" replace />
   return children
 }

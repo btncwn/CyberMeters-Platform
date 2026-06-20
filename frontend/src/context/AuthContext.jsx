@@ -8,7 +8,7 @@
  * as Authorization: Bearer <token>.
  */
 import { createContext, useContext, useState, useCallback, useEffect } from 'react'
-import { registerUnauthorizedHandler } from '../api'
+import { registerUnauthorizedHandler, validateSession } from '../api'
 import { TOKEN_KEY, USER_KEY } from './authKeys'
 
 const AuthContext = createContext(null)
@@ -23,6 +23,10 @@ export function AuthProvider({ children }) {
       return null
     }
   })
+
+  // isLoading is true only when a token exists at startup and needs server-side
+  // validation. If localStorage is empty we know immediately we're not authenticated.
+  const [isLoading, setIsLoading] = useState(() => Boolean(localStorage.getItem(TOKEN_KEY)))
 
   const login = useCallback((newToken, newUser) => {
     localStorage.setItem(TOKEN_KEY, newToken)
@@ -45,6 +49,29 @@ export function AuthProvider({ children }) {
     registerUnauthorizedHandler(logout)
   }, [logout])
 
+  // On mount, validate any stored token against the server.
+  // Uses validateSession() which bypasses the auto-logout/hard-redirect handler
+  // so ProtectedRoute can do a soft React Router redirect that preserves the
+  // intended destination URL in location state.
+  useEffect(() => {
+    const storedToken = localStorage.getItem(TOKEN_KEY)
+    if (!storedToken) {
+      setIsLoading(false)
+      return
+    }
+    validateSession().then(userData => {
+      if (!userData) {
+        // Token is missing, expired, or invalid — clear all auth state.
+        logout()
+      } else {
+        // Token is valid — refresh user metadata from server.
+        setUser(userData)
+        localStorage.setItem(USER_KEY, JSON.stringify(userData))
+      }
+      setIsLoading(false)
+    })
+  }, [logout])
+
   const updateUser = useCallback((patch) => {
     setUser(prev => {
       const next = { ...(prev || {}), ...(patch || {}) }
@@ -56,7 +83,7 @@ export function AuthProvider({ children }) {
   const isAuthenticated = Boolean(token)
 
   return (
-    <AuthContext.Provider value={{ token, user, isAuthenticated, login, logout, updateUser }}>
+    <AuthContext.Provider value={{ token, user, isAuthenticated, isLoading, login, logout, updateUser }}>
       {children}
     </AuthContext.Provider>
   )
