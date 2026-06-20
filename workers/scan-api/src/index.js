@@ -11569,6 +11569,13 @@ function validateStripeBillingConfig(env) {
   return { ok: true, error: null, missing: [], priceMap: priceMap.map };
 }
 
+function validateStripeSecretConfig(env) {
+  if (!env?.STRIPE_SECRET_KEY) {
+    return { ok: false, error: "missing_stripe_config", missing: ["STRIPE_SECRET_KEY"] };
+  }
+  return { ok: true, error: null, missing: [] };
+}
+
 function getStripePriceIdForPlan(env, plan, interval = "monthly") {
   const normalizedPlan = normalizePlan(plan);
   const normalizedInterval = normalizeBillingInterval(interval);
@@ -12699,6 +12706,104 @@ export default {
       return json({
         checkout_url: stripeSession.url,
         session_id:   stripeSession.id,
+      }, 200);
+    }
+
+    // ── POST /api/billing/portal ────────────────────────────────────────
+    // Creates a Stripe-hosted Billing Portal Session for the authenticated
+    // user's existing Stripe customer. This is read-only for D1; Stripe
+    // lifecycle changes still flow back through webhooks.
+    if (request.method === "POST" && url.pathname === "/api/billing/portal") {
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+
+      let body;
+      try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+
+      const returnUrl = typeof body.return_url === "string" ? body.return_url.trim() : "";
+      let parsedReturnUrl;
+      try {
+        parsedReturnUrl = returnUrl ? new URL(returnUrl) : null;
+      } catch {
+        parsedReturnUrl = null;
+      }
+      if (!parsedReturnUrl || !["https:", "http:"].includes(parsedReturnUrl.protocol)) {
+        return json({
+          error: "invalid_return_url",
+          message: "return_url must be a valid absolute URL.",
+        }, 400);
+      }
+
+      const stripeConfig = validateStripeSecretConfig(env);
+      if (!stripeConfig.ok) {
+        return json({
+          error: stripeConfig.error,
+          missing: stripeConfig.missing,
+          message: "Stripe billing configuration is not ready for Customer Portal.",
+        }, 503);
+      }
+
+      let subscription = null;
+      try {
+        subscription = await env.cybermeters_db
+          .prepare(
+            `SELECT s.id, s.stripe_customer_id
+             FROM subscriptions s
+             JOIN workspaces w ON w.id = s.workspace_id
+             WHERE w.owner_user_id = ?
+             ORDER BY s.created_at DESC
+             LIMIT 1`
+          )
+          .bind(user.id)
+          .first();
+      } catch (e) {
+        return json({ error: "Database error", detail: String(e?.message ?? e) }, 500);
+      }
+
+      if (!subscription) {
+        return json({ error: "subscription_not_found" }, 404);
+      }
+      if (!subscription.stripe_customer_id) {
+        return json({ error: "stripe_customer_missing" }, 409);
+      }
+
+      const params = new URLSearchParams();
+      params.set("customer", subscription.stripe_customer_id);
+      params.set("return_url", parsedReturnUrl.toString());
+
+      let portalSession;
+      try {
+        const stripeRes = await fetch("https://api.stripe.com/v1/billing_portal/sessions", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${env.STRIPE_SECRET_KEY}`,
+            "Content-Type":  "application/x-www-form-urlencoded",
+          },
+          body: params.toString(),
+        });
+
+        const stripeData = await stripeRes.json();
+        if (!stripeRes.ok) {
+          return json({
+            error:             "stripe_api_error",
+            message:           stripeData?.error?.message ?? "Stripe Billing Portal Session creation failed.",
+            stripe_error_type: stripeData?.error?.type ?? null,
+            stripe_error_code: stripeData?.error?.code ?? null,
+          }, 502);
+        }
+
+        portalSession = stripeData;
+      } catch (e) {
+        return json({
+          error:   "stripe_request_failed",
+          message: "Could not reach Stripe. Please try again.",
+          detail:  String(e?.message ?? e),
+        }, 502);
+      }
+
+      return json({
+        portal_url: portalSession.url,
+        session_id:  portalSession.id,
       }, 200);
     }
 

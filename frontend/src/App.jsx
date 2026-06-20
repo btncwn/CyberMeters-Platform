@@ -32,6 +32,7 @@ import WorkspaceCyberEssentialsPage from './pages/ws/WorkspaceCyberEssentialsPag
 import PortfolioPage         from './pages/PortfolioPage'
 import AcceptInvitationPage  from './pages/AcceptInvitationPage'
 import AccountPage           from './pages/AccountPage'
+import BillingPage           from './pages/BillingPage'
 import DomainVerifyPage      from './pages/DomainVerifyPage'
 
 /**
@@ -113,6 +114,7 @@ function AppRoutes() {
         <Route path="accuracy"                element={<AccuracyPage />}        />
         <Route path="settings"                element={<SettingsPage />}        />
         <Route path="account"                 element={<AccountPage />}          />
+        <Route path="billing"                 element={<BillingPage />}          />
         <Route path="domains/:id/verify"      element={<DomainVerifyPage />}     />
         <Route path="invitations/:token"      element={<AcceptInvitationPage />} />
         {/* Workspace intelligence pages */}
