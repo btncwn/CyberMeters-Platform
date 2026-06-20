@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import {
   Globe, Server, Package2, AlertTriangle, Shield, Activity,
   FileText, TrendingUp, TrendingDown, Minus, Clock, ArrowRight,
-  Building2, Layers, RefreshCw,
+  Building2, Layers, RefreshCw, ShieldCheck, XCircle,
 } from 'lucide-react'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
@@ -114,6 +114,9 @@ function OverviewSection({ data, loading, error, onRetry }) {
         warning={(data.high_findings ?? 0) > 0} />
       <StatCard icon={Shield}        label="Avg Score"        value={data.average_score ?? '—'}   sub="across all workspaces" />
       <StatCard icon={Activity}      label="New Assets (7d)"  value={data.new_assets_7d} />
+      <StatCard icon={ShieldCheck}   label="Verified Domains"   value={data.verified_domains ?? '—'} />
+      <StatCard icon={Clock}         label="Unverified Domains" value={data.unverified_domains ?? '—'} warning={(data.unverified_domains ?? 0) > 0} />
+      <StatCard icon={XCircle}       label="Verif. Failures"    value={data.verification_failures ?? '—'} danger={(data.verification_failures ?? 0) > 0} />
     </div>
   )
 }

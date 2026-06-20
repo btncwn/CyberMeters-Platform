@@ -46,6 +46,30 @@ function PlanBadge({ plan }) {
   )
 }
 
+function UsageLine({ label, used, limit }) {
+  const unlimited = limit >= 999999
+  const pct = unlimited || !limit ? 0 : Math.min(100, Math.round((used / limit) * 100))
+  const full = !unlimited && pct >= 100
+  const near = !unlimited && pct >= 80
+  const color = full ? 'bg-red-500' : near ? 'bg-amber-400' : 'bg-brand-500'
+
+  return (
+    <div>
+      <div className="flex items-center justify-between text-xs mb-1">
+        <span className="text-gray-500">{label}</span>
+        <span className={`font-semibold ${full ? 'text-red-600' : near ? 'text-amber-600' : 'text-gray-700'}`}>
+          {used} / {unlimited ? '∞' : limit}
+        </span>
+      </div>
+      {!unlimited && (
+        <div className="h-1.5 rounded-full bg-gray-100 overflow-hidden">
+          <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function SettingsPage() {
   const { user, updateUser } = useAuth()
   const [loading, setLoading] = useState(true)
@@ -60,6 +84,7 @@ export default function SettingsPage() {
     contact_email: '',
   })
   const [subscription, setSubscription] = useState(null)
+  const [usage, setUsage] = useState(null)
   const [accountSaving, setAccountSaving] = useState(false)
   const [companySaving, setCompanySaving] = useState(false)
   const [accountStatus, setAccountStatus] = useState({})
@@ -71,10 +96,11 @@ export default function SettingsPage() {
       setLoading(true)
       setLoadError(null)
       try {
-        const [profileRes, companyRes, subscriptionRes] = await Promise.all([
+        const [profileRes, companyRes, subscriptionRes, usageRes] = await Promise.all([
           api.getAccountProfile(),
           api.getCompanyProfile(),
           api.getSubscription(),
+          api.getAccountUsage(),
         ])
         if (cancelled) return
         setAccount({ name: profileRes.user?.name || '' })
@@ -88,6 +114,7 @@ export default function SettingsPage() {
           contact_email: c.contact_email || '',
         })
         setSubscription(subscriptionRes.subscription || profileRes.subscription || null)
+        setUsage(usageRes || null)
       } catch (e) {
         if (!cancelled) setLoadError(e.message)
       } finally {
@@ -272,7 +299,7 @@ export default function SettingsPage() {
           <div className="space-y-3 text-sm">
             <div className="flex items-center justify-between">
               <span className="text-gray-400">Plan</span>
-              <PlanBadge plan={subscription?.plan} />
+              <PlanBadge plan={usage?.plan || subscription?.plan} />
             </div>
             <div className="flex items-center justify-between">
               <span className="text-gray-400">Status</span>
@@ -286,6 +313,22 @@ export default function SettingsPage() {
               Payment integration is not enabled in v1. Subscription changes are managed manually.
             </p>
           </div>
+          {usage && (
+            <div className="pt-4 border-t border-gray-100 space-y-3">
+              <UsageLine label="Workspaces" used={usage.usage?.workspaces || 0} limit={usage.limits?.workspaces || 0} />
+              <UsageLine label="Domains" used={usage.usage?.domains || 0} limit={usage.limits?.domains || 0} />
+              <UsageLine label="Users" used={usage.usage?.users || 0} limit={usage.limits?.users || 0} />
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-gray-500">History</span>
+                <span className="font-semibold text-gray-700">
+                  {usage.limits?.history_days >= 999999 ? 'Unlimited' : `${usage.limits?.history_days || 30} Days`}
+                </span>
+              </div>
+              <button type="button" disabled className="btn-primary w-full opacity-60 cursor-not-allowed">
+                Upgrade coming soon
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="card p-6 space-y-4 lg:col-span-2">

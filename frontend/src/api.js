@@ -76,6 +76,17 @@ async function request(path, options = {}) {
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }))
+    if (err.error === 'plan_limit_exceeded') {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('cybermeters:plan-limit', { detail: err }))
+      }
+      const limitError = new Error('Plan limit reached')
+      limitError.code = err.error
+      limitError.resource = err.resource
+      limitError.limit = err.limit
+      limitError.usage = err.usage
+      throw limitError
+    }
     throw new Error(err.error || `HTTP ${res.status}`)
   }
   return res.json()
@@ -94,6 +105,17 @@ async function requestBlob(path, options = {}) {
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }))
+    if (err.error === 'plan_limit_exceeded') {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('cybermeters:plan-limit', { detail: err }))
+      }
+      const limitError = new Error('Plan limit reached')
+      limitError.code = err.error
+      limitError.resource = err.resource
+      limitError.limit = err.limit
+      limitError.usage = err.usage
+      throw limitError
+    }
     throw new Error(err.error || `HTTP ${res.status}`)
   }
   return res.blob()
@@ -330,6 +352,14 @@ export const api = {
   verifyDomain: (domainId) =>
     request(`/domains/${domainId}/verify`, { method: 'POST' }),
 
+  /** GET /api/domains/:id — domain details including verification fields */
+  getDomain: (domainId) =>
+    request(`/domains/${domainId}`),
+
+  /** POST /api/domains/:id/check-verification — DNS TXT probe only, no status change */
+  checkDnsVerification: (domainId) =>
+    request(`/domains/${domainId}/check-verification`, { method: 'POST' }),
+
   // ── Customer Onboarding / Workspace Health ───────────────────────────────
 
   /** GET /api/workspaces/:id/summary */
@@ -384,6 +414,12 @@ export const api = {
    * Returns { plan, limits, usage } — current plan limits and usage counts.
    */
   getSubscriptionLimits: () => request('/account/subscription/limits'),
+
+  /**
+   * GET /api/account/usage
+   * Returns { plan, limits, usage: { workspaces, domains, users } }.
+   */
+  getAccountUsage: () => request('/account/usage'),
 
   /** GET /api/account/api-tokens */
   getApiTokens: () => request('/account/api-tokens'),

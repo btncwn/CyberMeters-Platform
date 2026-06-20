@@ -147,21 +147,20 @@ function PlanLimitsCard({ planLimits }) {
       />
       <UsageBar
         label="Domains"
-        used={usage.max_domains_in_workspace}
-        limit={limits.domains_per_workspace}
-        note="per workspace"
+        used={usage.domains}
+        limit={limits.domains}
       />
       <UsageBar
-        label="Scheduled reports"
-        used={usage.max_scheduled_reports_in_workspace}
-        limit={limits.scheduled_reports_per_workspace}
-        note="per workspace"
+        label="Users"
+        used={usage.users}
+        limit={limits.users}
       />
-      <UsageBar
-        label="API tokens"
-        used={usage.api_tokens}
-        limit={limits.api_tokens}
-      />
+      <div className="flex items-center justify-between text-xs pt-1">
+        <span className="text-gray-600">History</span>
+        <span className="font-semibold text-gray-500">
+          {limits.history_days >= 999999 ? 'Unlimited' : `${limits.history_days} days`}
+        </span>
+      </div>
       {plan === 'free' || plan === 'starter' ? (
         <div className="mt-4 pt-4 border-t border-gray-50">
           <p className="text-xs text-brand-600 font-medium">Upgrade for higher limits →</p>
@@ -210,7 +209,7 @@ export default function AccountPage() {
           api.getAccountProfile(),
           api.getSubscription(),
           api.getApiTokens(),
-          api.getSubscriptionLimits(),
+          api.getAccountUsage(),
         ])
 
         if (profileRes.status === 'fulfilled') {

@@ -4,7 +4,7 @@ import {
   BarChart2, Shield, Server, AlertTriangle,
   Package2, Zap, Tag, Terminal, TrendingUp, TrendingDown, Minus,
   Globe, Upload, Plus, FileText, Clock, CheckCircle, Activity,
-  ShieldCheck, Copy, ExternalLink, ChevronDown, ChevronUp,
+  ShieldCheck, Copy, ExternalLink, ChevronDown, ChevronUp, Wifi,
 } from 'lucide-react'
 import {
   AreaChart, Area, LineChart, Line,
@@ -16,6 +16,7 @@ import { useAuth } from '../../context/AuthContext'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
 import StatCard from '../../components/StatCard'
 import WorkspaceMembersPanel from '../../components/WorkspaceMembersPanel'
+import VerificationStatusBadge from '../../components/VerificationStatusBadge'
 import ActivityTimeline from '../../components/ActivityTimeline'
 
 function fmt(str) {
@@ -51,7 +52,10 @@ function HealthBadge({ status }) {
   )
 }
 
-// ── Domain Verification Panel ────────────────────────────────────────────────
+// ── Verification Status Badge ────────────────────────────────────────────────
+// (imported from components/VerificationStatusBadge)
+
+// ── Domain Verification Wizard ───────────────────────────────────────────────
 
 function CopyButton({ text }) {
   const [copied, setCopied] = useState(false)
@@ -73,58 +77,122 @@ function CopyButton({ text }) {
   )
 }
 
-function DomainVerificationPanel({ domains, onVerified }) {
-  // Only show domains that are not fully verified
+const WIZARD_STEPS = [
+  { id: 1, label: 'Add Domain' },
+  { id: 2, label: 'TXT Record'  },
+  { id: 3, label: 'Check DNS'   },
+  { id: 4, label: 'Verify'      },
+]
+
+function WizardStep({ n, label, active, done }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+        done   ? 'bg-brand-500 text-white' :
+        active ? 'bg-brand-600 text-white' :
+                 'bg-gray-100 text-gray-400'
+      }`}>
+        {done ? <CheckCircle className="w-3.5 h-3.5" /> : n}
+      </div>
+      <span className={`text-xs font-medium hidden sm:block ${active ? 'text-gray-900' : done ? 'text-brand-600' : 'text-gray-400'}`}>
+        {label}
+      </span>
+    </div>
+  )
+}
+
+function DomainVerificationPanel({ domains, wsId, onVerified, onAddDomain }) {
+  const navigate = useNavigate()
   const actionable = (domains || []).filter(d => d.verification_status !== 'verified')
-  const [selected,     setSelected]     = useState(null)          // domain_id being worked on
-  const [instructions, setInstructions] = useState(null)          // token + dns + html info
+
+  // Step for the wizard applied to a specific domain
+  const [activeDomain, setActiveDomain] = useState(null)      // domain obj being worked on
+  const [step,         setStep]         = useState(2)          // 2=TXT, 3=CheckDNS, 4=Verify
+  const [instructions, setInstructions] = useState(null)
   const [generating,   setGenerating]   = useState(false)
+  const [genError,     setGenError]     = useState(null)
+  const [tab,          setTab]          = useState('dns')
+
+  // Step 3
+  const [dnsResult, setDnsResult] = useState(null)
+  const [checking,  setChecking]  = useState(false)
+
+  // Step 4
   const [verifying,    setVerifying]    = useState(false)
   const [verifyResult, setVerifyResult] = useState(null)
-  const [genError,     setGenError]     = useState(null)
-  const [tab,          setTab]          = useState('dns')          // 'dns' | 'html'
-  const [expanded,     setExpanded]     = useState(true)
+
+  const [expanded, setExpanded] = useState(true)
 
   if (actionable.length === 0) return null
 
-  // If all domains are verified, show a slim "all verified" badge
-  const allVerified = actionable.length === 0
-  if (allVerified) return null
-
-  async function handleGenerate(domainId) {
-    setSelected(domainId)
+  function selectDomain(d) {
+    setActiveDomain(d)
     setInstructions(null)
+    setDnsResult(null)
     setVerifyResult(null)
     setGenError(null)
-    setGenerating(true)
+    setStep(2)
+    // If domain already has a token, populate instructions
+    if (d.verification_token) {
+      setInstructions({
+        token: d.verification_token,
+        dns: {
+          host:  `_cybermeters.${d.domain}`,
+          value: `cybermeters-verification=${d.verification_token}`,
+        },
+        html: {
+          url:     `https://${d.domain}/cybermeters-verification-${d.verification_token}.html`,
+          content: d.verification_token,
+        },
+      })
+    }
+  }
+
+  async function handleGenerate() {
+    if (!activeDomain) return
+    setGenerating(true); setGenError(null); setDnsResult(null); setVerifyResult(null)
     try {
-      const res = await api.generateDomainVerification(domainId)
-      if (res.already_verified) {
-        if (onVerified) onVerified()
-        return
-      }
+      const res = await api.generateDomainVerification(activeDomain.domain_id)
+      if (res.already_verified) { if (onVerified) onVerified(); return }
       setInstructions(res)
+      setStep(2)
+    } catch (e) { setGenError(e.message) }
+    finally { setGenerating(false) }
+  }
+
+  async function handleCheckDns() {
+    if (!activeDomain) return
+    setChecking(true); setDnsResult(null)
+    try {
+      const res = await api.checkDnsVerification(activeDomain.domain_id)
+      setDnsResult(res)
+      if (res.matches) setStep(4)
     } catch (e) {
-      setGenError(e.message)
+      setDnsResult({ found: false, error: e.message })
     } finally {
-      setGenerating(false)
+      setChecking(false)
     }
   }
 
   async function handleVerify() {
-    if (!selected || verifying) return
-    setVerifying(true)
-    setVerifyResult(null)
+    if (!activeDomain) return
+    setVerifying(true); setVerifyResult(null)
     try {
-      const res = await api.verifyDomain(selected)
+      const res = await api.verifyDomain(activeDomain.domain_id)
       setVerifyResult(res)
-      if (res.success && onVerified) setTimeout(onVerified, 1500)
+      if (res.success && onVerified) setTimeout(onVerified, 1200)
     } catch (e) {
       setVerifyResult({ success: false, message: e.message })
     } finally {
       setVerifying(false)
     }
   }
+
+  function openVerifyPage(d) {
+    navigate(`/domains/${d.domain_id}/verify`, { state: { domain: d } })
+  }
+
+  const currentStep = activeDomain ? (instructions ? step : 2) : 1
 
   return (
     <div className="card border-amber-100 mb-6 overflow-hidden">
@@ -138,9 +206,7 @@ function DomainVerificationPanel({ domains, onVerified }) {
             <ShieldCheck className="w-4 h-4 text-amber-500" />
           </div>
           <div>
-            <p className="font-semibold text-gray-900 text-sm">
-              Domain Ownership Verification
-            </p>
+            <p className="font-semibold text-gray-900 text-sm">Domain Ownership Verification</p>
             <p className="text-xs text-amber-600">
               {actionable.length} domain{actionable.length !== 1 ? 's' : ''} require verification
             </p>
@@ -154,16 +220,23 @@ function DomainVerificationPanel({ domains, onVerified }) {
 
       {expanded && (
         <div className="px-6 py-5">
-          {/* Domain list */}
+
+          {/* Step indicator */}
+          <div className="flex items-center gap-3 mb-5 pb-5 border-b border-gray-50">
+            {WIZARD_STEPS.map((s, i) => (
+              <div key={s.id} className="flex items-center gap-2">
+                <WizardStep n={s.id} label={s.label} active={currentStep === s.id} done={currentStep > s.id} />
+                {i < WIZARD_STEPS.length - 1 && (
+                  <div className={`h-px w-6 sm:w-10 ${currentStep > s.id ? 'bg-brand-400' : 'bg-gray-100'}`} />
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Step 1: Domain list */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-5">
             {actionable.map(d => {
-              const statusCfg = {
-                unverified: { label: 'Unverified', cls: 'bg-gray-100 text-gray-500' },
-                pending:    { label: 'Pending',    cls: 'bg-amber-100 text-amber-700' },
-                failed:     { label: 'Failed',     cls: 'bg-red-100 text-red-600' },
-              }[d.verification_status] ?? { label: d.verification_status, cls: 'bg-gray-100 text-gray-500' }
-
-              const isActive = selected === d.domain_id
+              const isActive = activeDomain?.domain_id === d.domain_id
               return (
                 <div
                   key={d.domain_id}
@@ -172,114 +245,124 @@ function DomainVerificationPanel({ domains, onVerified }) {
                       ? 'border-brand-300 bg-brand-50'
                       : 'border-gray-100 hover:border-gray-200 bg-white'
                   }`}
-                  onClick={() => {
-                    setSelected(d.domain_id)
-                    setInstructions(null)
-                    setVerifyResult(null)
-                    setGenError(null)
-                  }}
+                  onClick={() => selectDomain(d)}
                 >
-                  <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center justify-between gap-2 mb-2">
                     <span className="text-sm font-medium text-gray-800 truncate">{d.domain}</span>
-                    <span className={`shrink-0 text-xs font-semibold px-2 py-0.5 rounded-full ${statusCfg.cls}`}>
-                      {statusCfg.label}
-                    </span>
+                    <VerificationStatusBadge status={d.verification_status} />
                   </div>
-                  <button
-                    onClick={e => { e.stopPropagation(); handleGenerate(d.domain_id) }}
-                    disabled={generating && selected === d.domain_id}
-                    className="mt-2 text-xs text-brand-600 hover:underline disabled:opacity-50"
-                  >
-                    {generating && selected === d.domain_id ? 'Generating…' : 'Get verification instructions →'}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={e => { e.stopPropagation(); selectDomain(d); }}
+                      className="text-xs text-brand-600 hover:underline"
+                    >
+                      {isActive ? 'Selected' : 'Verify here →'}
+                    </button>
+                    <span className="text-gray-200">·</span>
+                    <button
+                      onClick={e => { e.stopPropagation(); openVerifyPage(d); }}
+                      className="text-xs text-gray-400 hover:text-gray-600"
+                    >
+                      Full page ↗
+                    </button>
+                  </div>
                 </div>
               )
             })}
           </div>
 
-          {genError && (
-            <div className="mb-4 px-4 py-3 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600 flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-              {genError}
-            </div>
-          )}
-
-          {/* Instruction panel */}
-          {instructions && (
+          {/* Steps 2–4: shown when a domain is selected */}
+          {activeDomain && (
             <div className="border border-gray-100 rounded-xl overflow-hidden">
-              {/* Tab switcher */}
-              <div className="flex border-b border-gray-100">
-                {['dns', 'html'].map(t => (
-                  <button
-                    key={t}
-                    onClick={() => setTab(t)}
-                    className={`flex-1 py-2.5 text-xs font-semibold uppercase tracking-wider transition-colors ${
-                      tab === t
-                        ? 'bg-gray-50 text-gray-900 border-b-2 border-brand-500'
-                        : 'text-gray-400 hover:text-gray-700'
-                    }`}
-                  >
-                    {t === 'dns' ? 'DNS TXT Record' : 'HTML File'}
-                  </button>
-                ))}
+              {/* Step 2: Instructions */}
+              <div className="border-b border-gray-100">
+                <div className="flex border-b border-gray-50">
+                  {['dns', 'html'].map(t => (
+                    <button
+                      key={t}
+                      onClick={() => setTab(t)}
+                      className={`flex-1 py-2.5 text-xs font-semibold uppercase tracking-wider transition-colors ${
+                        tab === t ? 'bg-gray-50 text-gray-900 border-b-2 border-brand-500' : 'text-gray-400 hover:text-gray-700'
+                      }`}
+                    >
+                      {t === 'dns' ? 'DNS TXT Record' : 'HTML File'}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="p-5">
+                  {!instructions ? (
+                    <div className="text-center py-4">
+                      <p className="text-sm text-gray-500 mb-3">
+                        Generate a verification token for <strong>{activeDomain.domain}</strong>
+                      </p>
+                      <button
+                        onClick={handleGenerate}
+                        disabled={generating}
+                        className="btn-primary"
+                      >
+                        {generating
+                          ? <><Activity className="w-4 h-4 animate-spin" /> Generating…</>
+                          : <><ShieldCheck className="w-4 h-4" /> Get Verification Instructions</>
+                        }
+                      </button>
+                      {genError && <p className="mt-2 text-xs text-red-500">{genError}</p>}
+                    </div>
+                  ) : tab === 'dns' ? (
+                    <div className="space-y-3">
+                      <p className="text-xs text-gray-500">Add this TXT record to your DNS. Changes may take up to 48 hours.</p>
+                      {[
+                        { label: 'Host / Name', value: instructions.dns?.host },
+                        { label: 'Type',        value: 'TXT' },
+                        { label: 'Value',       value: instructions.dns?.value },
+                      ].map(({ label, value }) => (
+                        <div key={label} className="bg-gray-50 rounded-lg p-3">
+                          <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-1">{label}</p>
+                          <div className="flex items-center gap-1">
+                            <code className="text-xs text-gray-800 break-all">{value}</code>
+                            <CopyButton text={value} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <p className="text-xs text-gray-500">Upload a text file to your web server at the exact URL below.</p>
+                      {[
+                        { label: 'URL',               value: instructions.html?.url },
+                        { label: 'File Content (exact)', value: instructions.html?.content },
+                      ].map(({ label, value }) => (
+                        <div key={label} className="bg-gray-50 rounded-lg p-3">
+                          <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-1">{label}</p>
+                          <div className="flex items-center gap-1">
+                            <code className="text-xs text-gray-800 break-all">{value}</code>
+                            <CopyButton text={value} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
 
-              <div className="p-5">
-                {tab === 'dns' ? (
-                  <>
-                    <p className="text-xs text-gray-500 mb-4">
-                      Add the following TXT record to your domain's DNS. Changes may take up to 48 hours to propagate.
-                    </p>
-                    <div className="space-y-3">
-                      <div className="bg-gray-50 rounded-lg p-3">
-                        <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-1">Host / Name</p>
-                        <div className="flex items-center gap-1">
-                          <code className="text-xs text-gray-800 break-all">{instructions.dns.host}</code>
-                          <CopyButton text={instructions.dns.host} />
-                        </div>
-                      </div>
-                      <div className="bg-gray-50 rounded-lg p-3">
-                        <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-1">Type</p>
-                        <code className="text-xs text-gray-800">TXT</code>
-                      </div>
-                      <div className="bg-gray-50 rounded-lg p-3">
-                        <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-1">Value</p>
-                        <div className="flex items-center gap-1">
-                          <code className="text-xs text-gray-800 break-all">{instructions.dns.value}</code>
-                          <CopyButton text={instructions.dns.value} />
-                        </div>
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-xs text-gray-500 mb-4">
-                      Upload a text file to your web server at the exact URL below. The file must contain only the token string.
-                    </p>
-                    <div className="space-y-3">
-                      <div className="bg-gray-50 rounded-lg p-3">
-                        <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-1">URL</p>
-                        <div className="flex items-center gap-1 flex-wrap">
-                          <code className="text-xs text-gray-800 break-all">{instructions.html.url}</code>
-                          <CopyButton text={instructions.html.url} />
-                          <a href={instructions.html.url} target="_blank" rel="noopener noreferrer" className="ml-1 text-gray-400 hover:text-brand-600">
-                            <ExternalLink className="w-3.5 h-3.5" />
-                          </a>
-                        </div>
-                      </div>
-                      <div className="bg-gray-50 rounded-lg p-3">
-                        <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-1">File Content (exact)</p>
-                        <div className="flex items-center gap-1">
-                          <code className="text-xs text-gray-800 break-all">{instructions.html.content}</code>
-                          <CopyButton text={instructions.html.content} />
-                        </div>
-                      </div>
-                    </div>
-                  </>
-                )}
+              {/* Steps 3+4: DNS check + Verify */}
+              {instructions && (
+                <div className="p-5 flex flex-wrap items-center gap-3">
+                  {/* Step 3: DNS check */}
+                  {tab === 'dns' && (
+                    <button
+                      onClick={handleCheckDns}
+                      disabled={checking}
+                      className="btn-secondary text-sm"
+                    >
+                      {checking
+                        ? <><Activity className="w-4 h-4 animate-spin" /> Checking…</>
+                        : <><Wifi className="w-4 h-4" /> Check DNS</>
+                      }
+                    </button>
+                  )}
 
-                {/* Verify button + result */}
-                <div className="mt-5 flex items-center gap-3">
+                  {/* Step 4: Verify */}
                   <button
                     onClick={handleVerify}
                     disabled={verifying}
@@ -287,31 +370,56 @@ function DomainVerificationPanel({ domains, onVerified }) {
                   >
                     {verifying
                       ? <><Activity className="w-4 h-4 animate-spin" /> Verifying…</>
-                      : <><ShieldCheck className="w-4 h-4" /> Verify Now</>
+                      : <><ShieldCheck className="w-4 h-4" /> Verify Ownership</>
                     }
                   </button>
-                  <span className="text-xs text-gray-400">Checks both DNS and HTML methods</span>
-                </div>
+                  <span className="text-xs text-gray-400">Checks both DNS and HTML</span>
 
-                {verifyResult && (
-                  <div className={`mt-4 p-4 rounded-xl text-sm ${
-                    verifyResult.success
-                      ? 'bg-brand-50 border border-brand-100 text-brand-700'
-                      : 'bg-red-50 border border-red-100 text-red-600'
-                  }`}>
-                    {verifyResult.success
-                      ? <><CheckCircle className="w-4 h-4 inline mr-1.5" />{verifyResult.message}</>
-                      : <><AlertTriangle className="w-4 h-4 inline mr-1.5" />{verifyResult.message}</>
-                    }
-                    {!verifyResult.success && verifyResult.checks && (
-                      <ul className="mt-2 text-xs space-y-1 opacity-80">
-                        <li>DNS TXT: {verifyResult.checks.dns_txt.result}{verifyResult.checks.dns_txt.error ? ` (${verifyResult.checks.dns_txt.error})` : ''}</li>
-                        <li>HTML file: {verifyResult.checks.html_file.result}{verifyResult.checks.html_file.error ? ` (${verifyResult.checks.html_file.error})` : ''}</li>
-                      </ul>
-                    )}
-                  </div>
-                )}
-              </div>
+                  {/* DNS check result */}
+                  {dnsResult && (
+                    <div className={`w-full flex items-start gap-2 p-3 rounded-xl text-sm border ${
+                      dnsResult.matches
+                        ? 'bg-brand-50 border-brand-100 text-brand-700'
+                        : dnsResult.found
+                        ? 'bg-amber-50 border-amber-100 text-amber-700'
+                        : 'bg-gray-50 border-gray-100 text-gray-500'
+                    }`}>
+                      {dnsResult.matches
+                        ? <CheckCircle className="w-4 h-4 mt-0.5 flex-shrink-0 text-brand-500" />
+                        : <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                      }
+                      <div>
+                        {dnsResult.matches
+                          ? <p className="font-medium">DNS record found and matches — ready to verify!</p>
+                          : dnsResult.found
+                          ? <p className="font-medium">Record found but value doesn't match. Check token.</p>
+                          : <p className="font-medium">
+                              {dnsResult.error ? `DNS error: ${dnsResult.error}` : 'TXT record not found yet. DNS may still be propagating.'}
+                            </p>
+                        }
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Verify result */}
+                  {verifyResult && (
+                    <div className={`w-full flex items-start gap-2 p-3 rounded-xl text-sm border ${
+                      verifyResult.success
+                        ? 'bg-brand-50 border-brand-100 text-brand-700'
+                        : 'bg-red-50 border-red-100 text-red-600'
+                    }`}>
+                      {verifyResult.success
+                        ? <CheckCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                        : <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                      }
+                      <div>
+                        <p className="font-medium">{verifyResult.success ? 'Verified!' : 'Verification failed'}</p>
+                        <p className="text-xs opacity-80 mt-0.5">{verifyResult.message}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -481,6 +589,12 @@ export default function WorkspaceDashboard() {
 
   const sc = scorecard
   const noDomains = health?.workspace_status === 'no_domains' || (summary && summary.domains === 0)
+
+  // Verification metrics — computed from the domains list already loaded
+  const verifiedCount   = domains.filter(d => d.verification_status === 'verified').length
+  const pendingCount    = domains.filter(d => ['pending', 'pending_verification'].includes(d.verification_status)).length
+  const failedCount     = domains.filter(d => ['failed', 'verification_failed'].includes(d.verification_status)).length
+  const verificationRate = domains.length > 0 ? Math.round((verifiedCount / domains.length) * 100) : 0
   const noScans   = health?.workspace_status === 'no_scans'
   const hasCharts = timeline.length > 0
 
@@ -525,8 +639,32 @@ export default function WorkspaceDashboard() {
             </div>
           )}
 
-          {/* Domain ownership verification */}
-          <DomainVerificationPanel domains={domains} onVerified={load} />
+          {/* Verification metrics */}
+          {domains.length > 0 && (
+            <div className="grid grid-cols-3 gap-3 mb-6">
+              <StatCard
+                icon={ShieldCheck}
+                label="Domains Verified"
+                value={`${verifiedCount} / ${domains.length}`}
+                sub={`${verificationRate}% verification rate`}
+              />
+              <StatCard
+                icon={Clock}
+                label="Pending Verification"
+                value={pendingCount}
+                warning={pendingCount > 0}
+              />
+              <StatCard
+                icon={AlertTriangle}
+                label="Verification Failed"
+                value={failedCount}
+                danger={failedCount > 0}
+              />
+            </div>
+          )}
+
+          {/* Domain ownership verification wizard */}
+          <DomainVerificationPanel domains={domains} wsId={wsId} onVerified={load} />
 
           {/* Team members */}
           <WorkspaceMembersPanel workspaceId={wsId} currentUser={user} />

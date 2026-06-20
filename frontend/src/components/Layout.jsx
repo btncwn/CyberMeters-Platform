@@ -4,6 +4,7 @@ import {
   LayoutDashboard, Server, ScanLine, FileBarChart2,
   Settings, Shield, Plus, ChevronDown, Calendar,
   Briefcase, ChevronRight, Check, Brain, Layers, LogOut, User,
+  AlertTriangle, X,
 } from 'lucide-react'
 import { api } from '../api'
 import { useAuth } from '../context/AuthContext'
@@ -152,6 +153,7 @@ function UserMenu() {
   }, [])
 
   const initial = (user?.name || user?.email || 'U')[0].toUpperCase()
+  const displayPlan = user?.['plan']
 
   async function handleLogout() {
     try { await api.authLogout() } catch { /* best-effort */ }
@@ -184,9 +186,9 @@ function UserMenu() {
                 <p className="text-xs text-gray-400 truncate">{user?.email || '—'}</p>
               </div>
             </div>
-            {user?.plan && (
+            {displayPlan && (
               <span className="mt-2 inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-brand-50 text-brand-700">
-                {user.plan}
+                {displayPlan}
               </span>
             )}
           </div>
@@ -215,11 +217,71 @@ function UserMenu() {
   )
 }
 
+function UpgradePromptModal() {
+  const [limit, setLimit] = useState(null)
+
+  useEffect(() => {
+    function handlePlanLimit(e) {
+      setLimit(e.detail || {})
+    }
+    window.addEventListener('cybermeters:plan-limit', handlePlanLimit)
+    return () => window.removeEventListener('cybermeters:plan-limit', handlePlanLimit)
+  }, [])
+
+  if (!limit) return null
+
+  const resource = String(limit.resource || 'resource').replace(/_/g, ' ')
+  const limitText = limit.limit >= 999999 ? 'unlimited' : limit.limit
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/30 px-4">
+      <div className="w-full max-w-md rounded-xl bg-white border border-gray-100 shadow-xl p-5">
+        <div className="flex items-start gap-3">
+          <div className="w-9 h-9 rounded-lg bg-amber-50 flex items-center justify-center flex-shrink-0">
+            <AlertTriangle className="w-5 h-5 text-amber-600" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-sm font-bold text-gray-900">Plan limit reached</h2>
+            <p className="text-sm text-gray-500 mt-1">
+              Your current plan allows {limitText} {resource}. Upgrade options are not connected yet.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setLimit(null)}
+            className="w-7 h-7 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-50 flex items-center justify-center"
+            aria-label="Close"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => setLimit(null)}
+            className="btn-secondary"
+          >
+            Close
+          </button>
+          <button
+            type="button"
+            disabled
+            className="btn-primary opacity-60 cursor-not-allowed"
+          >
+            Upgrade coming soon
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Layout() {
   const navigate = useNavigate()
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
+      <UpgradePromptModal />
 
       {/* Top nav */}
       <header className="bg-white border-b border-gray-100 sticky top-0 z-50">
