@@ -12418,6 +12418,15 @@ function buildExecutivePdf(pdfData) {
     return lines;
   }
 
+  function drawWrapped(pg, text, x, y, maxW, size = 8, font = 'R', col = C.dkgray, maxLines = 3, lineGap = 11) {
+    const lines = wrap(text, maxW, size).slice(0, maxLines);
+    for (const line of lines) {
+      pg.text(line, x, y, size, font, col);
+      y -= lineGap;
+    }
+    return y;
+  }
+
   // ── PDF object store ─────────────────────────────────────────────────────
   // IDs 1–4 are reserved (catalog, pages, F1, F2) and injected at assembly.
   const _objs = [];
@@ -12490,12 +12499,18 @@ function buildExecutivePdf(pdfData) {
   const vr   = pdfData.vendor_risk          ?? {};
   const bm   = pdfData.brand_monitoring     ?? {};
   const ci   = pdfData.certificate_intelligence ?? {};
+  const brs  = pdfData.business_risk        ?? {};
+  const scn  = pdfData.supply_chain         ?? {};
+  const ce   = pdfData.cyber_essentials     ?? {};
+  const hist = pdfData.historical_analysis  ?? {};
+  const atk  = pdfData.attack_surface       ?? {};
+  const plan = pdfData.priority_action_plan ?? [];
   const topR = pdfData.top_risks            ?? [];
   const topC = pdfData.top_recommendations  ?? [];
   const trnd = pdfData.risk_trend           ?? [];
   const ovr  = pdfData.overall_score;
   const rtng = String(pdfData.risk_rating   ?? 'Unknown');
-  const NP   = 6;  // total pages
+  const NP   = 8;  // total pages
 
   // ── PAGE 1: COVER ─────────────────────────────────────────────────────────
   {
@@ -12549,6 +12564,13 @@ function buildExecutivePdf(pdfData) {
       ry -= 15;
     }
     pg.hline(208, ry, W - 220, C.lgray, 0.5); ry -= 14;
+    pg.text('BUSINESS RISK', 208, ry, 8, 'B', C.green); ry -= 14;
+    pg.text(`BRS: ${brs.business_risk_score ?? '-'} / 100`, 208, ry, 10, 'B', C.dkgray);
+    pg.text(`Band: ${String(brs.risk_band ?? 'unknown').toUpperCase()}`, 315, ry, 9, 'R', C.mgray);
+    ry -= 18;
+    pg.text(`Supply Chain: ${scn.supply_chain_score ?? '-'} / 100`, 208, ry, 9, 'R', C.dkgray);
+    pg.text(`CE Readiness Indicator: ${ce.score ?? '-'} ${ce.grade ? `(${ce.grade})` : ''}`, 315, ry, 9, 'R', C.dkgray);
+    ry -= 18;
     pg.text('FINDINGS SNAPSHOT', 208, ry, 8, 'B', C.green); ry -= 14;
     let fx = 208;
     for (const [lbl, cnt, col] of [['Critical', fs.critical ?? 0, C.red], ['High', fs.high ?? 0, C.amber], ['Medium', fs.medium ?? 0, C.blue], ['Low', fs.low ?? 0, C.mgray]]) {
@@ -12569,6 +12591,20 @@ function buildExecutivePdf(pdfData) {
     let y = H - 45;
 
     y = secBar(pg, 'Executive Summary', y); y -= 6;
+
+    const status = String(pdfData.executive_status ?? rtng ?? 'unknown');
+    const businessNarrative = pdfData.business_impact_narrative
+      ?? 'CyberMeters translates external security signals into business risk guidance for executive decision-making.';
+    pg.text(`Overall risk status: ${status.toUpperCase()}`, ML + 8, y - 10, 10, 'B', C.dkgray); y -= 16;
+    y = drawWrapped(pg, businessNarrative, ML + 8, y - 8, CW - 16, 8.5, 'R', C.mgray, 3, 12);
+    y -= 8;
+
+    const observations = pdfData.top_observations ?? [];
+    pg.text('Top observations', ML + 8, y - 8, 9, 'B', C.green); y -= 18;
+    for (const obs of observations.slice(0, 3)) {
+      y = drawWrapped(pg, `* ${obs}`, ML + 12, y - 4, CW - 24, 8.3, 'R', C.dkgray, 2, 11);
+    }
+    y -= 8;
 
     // Strengths
     pg.fillRect(ML, y - 18, CW, 18, [0.216, 0.580, 0.416]);
@@ -12865,6 +12901,118 @@ function buildExecutivePdf(pdfData) {
     pg.flush();
   }
 
+  // ── PAGE 7: BUSINESS RISK + SUPPLY CHAIN ─────────────────────────────────
+  {
+    const pg = newPage();
+    pgBanner(pg, 'Business Risk');
+    pgFooter(pg, 7, NP);
+    let y = H - 45;
+
+    y = secBar(pg, 'Business Risk Score', y); y -= 8;
+    const brsScore = brs.business_risk_score ?? brs.score ?? null;
+    const brsBand = brs.risk_band ?? brs.band ?? 'unknown';
+    pg.fillRect(ML, y - 58, CW, 58, C.lgray);
+    pg.text('BUSINESS RISK SCORE', ML + 10, y - 16, 8, 'B', C.mgray);
+    pg.text(brsScore != null ? String(brsScore) : '--', ML + 10, y - 43, 25, 'B', brsScore != null && brsScore >= 75 ? C.green : brsScore >= 50 ? C.amber : C.red);
+    pg.text('/ 100', ML + 58, y - 43, 9, 'R', C.mgray);
+    pg.text(`Risk band: ${String(brsBand).toUpperCase()}`, ML + 155, y - 20, 10, 'B', C.dkgray);
+    y = drawWrapped(pg, brs.summary || 'Business Risk Score converts technical exposure and vendor dependency signals into executive risk language.', ML + 155, y - 36, CW - 170, 8.5, 'R', C.mgray, 2, 11);
+    y -= 18;
+
+    pg.text('Main drivers', ML, y, 9, 'B', C.green); y -= 14;
+    const driverEntries = Object.entries(brs.drivers ?? {}).slice(0, 4);
+    if (!driverEntries.length) pg.text('No major business risk drivers available.', ML + 8, y, 8.5, 'R', C.mgray);
+    for (const [key, val] of driverEntries) {
+      pg.text(`${key.replace(/_/g, ' ')}: ${val}`, ML + 8, y, 8.5, 'R', C.dkgray);
+      y -= 12;
+    }
+    y -= 8;
+    pg.text('Recommendations', ML, y, 9, 'B', C.green); y -= 14;
+    for (const rec of (brs.recommendations ?? []).slice(0, 4)) {
+      y = drawWrapped(pg, `* ${rec}`, ML + 8, y, CW - 16, 8.2, 'R', C.dkgray, 2, 11);
+    }
+    y -= 8;
+
+    y = secBar(pg, 'Supply Chain / Operational Resilience', y); y -= 8;
+    const cards = [
+      ['Supply Chain Score', scn.supply_chain_score ?? '-'],
+      ['Resilience Score', scn.resilience_score ?? scn.operational_resilience_score ?? '-'],
+      ['Concentration', scn.concentration_level ?? '-'],
+      ['SPOFs', scn.spof_count ?? '-'],
+    ];
+    let sx = ML;
+    for (const [label, value] of cards) {
+      pg.fillRect(sx, y - 40, 124, 40, C.lgray);
+      pg.text(label, sx + 8, y - 13, 7.5, 'R', C.mgray);
+      pg.text(String(value).toUpperCase(), sx + 8, y - 30, 12, 'B', C.dkgray);
+      sx += 129;
+    }
+    y -= 56;
+    pg.text('Cascading risk scenarios', ML, y, 9, 'B', C.green); y -= 14;
+    const cascades = scn.cascading_risks ?? [];
+    if (!cascades.length) {
+      pg.text('No major cascading supply chain scenarios available from current data.', ML + 8, y, 8.5, 'R', C.mgray);
+      y -= 12;
+    }
+    for (const item of cascades.slice(0, 4)) {
+      const text = item.scenario || item.message || String(item);
+      y = drawWrapped(pg, `* ${text}`, ML + 8, y, CW - 16, 8.2, 'R', C.dkgray, 2, 11);
+    }
+    pg.flush();
+  }
+
+  // ── PAGE 8: READINESS + ACTION PLAN ──────────────────────────────────────
+  {
+    const pg = newPage();
+    pgBanner(pg, 'Action Plan');
+    pgFooter(pg, 8, NP);
+    let y = H - 45;
+
+    y = secBar(pg, 'Attack Surface Summary', y); y -= 8;
+    for (const [label, value] of [
+      ['Exposed assets', atk.exposed_assets ?? ai.assets?.current ?? '-'],
+      ['SSL/TLS posture', atk.ssl_tls_posture ?? sp.ssl_certificates?.status ?? '-'],
+      ['DNS posture', atk.dns_posture ?? '-'],
+      ['Email security posture', atk.email_security_posture ?? sp.email_security?.status ?? '-'],
+      ['Security headers', atk.security_headers ?? '-'],
+    ]) {
+      pg.text(label, ML + 8, y, 8.5, 'B', C.dkgray);
+      pg.text(String(value), ML + 185, y, 8.5, 'R', C.mgray);
+      y -= 14;
+    }
+    y -= 8;
+
+    y = secBar(pg, 'Historical Trend Analysis', y); y -= 8;
+    for (const [label, value] of [
+      ['CyberMeters Score', hist.cyber_score ?? 'no data'],
+      ['Business Risk Score', hist.business_risk_score ?? 'no data'],
+      ['Supply Chain Score', hist.supply_chain_score ?? 'no data'],
+    ]) {
+      const col = value === 'improving' ? C.green : value === 'deteriorating' ? C.red : C.mgray;
+      pg.text(label, ML + 8, y, 8.5, 'B', C.dkgray);
+      pg.text(String(value).toUpperCase(), ML + 185, y, 8.5, 'B', col);
+      y -= 14;
+    }
+    y -= 8;
+
+    y = secBar(pg, 'Cyber Essentials Readiness Indicator', y); y -= 8;
+    pg.text(`Readiness Indicator: ${ce.score ?? '-'} / 100 ${ce.grade ? `(${ce.grade})` : ''}`, ML + 8, y, 10, 'B', C.dkgray); y -= 15;
+    y = drawWrapped(pg, ce.summary || 'CyberMeters provides readiness guidance only. CyberMeters does not certify Cyber Essentials.', ML + 8, y, CW - 16, 8.2, 'R', C.mgray, 3, 11);
+    pg.text('Readiness guidance only. CyberMeters does not certify Cyber Essentials.', ML + 8, y - 4, 8, 'B', C.red); y -= 20;
+
+    y = secBar(pg, 'Top 5 Priority Action Plan', y); y -= 8;
+    const actions = plan.length ? plan : (topC ?? []).map(r => ({ title: r.title, action: r.description }));
+    for (let i = 0; i < Math.min(actions.length, 5) && y > 55; i++) {
+      const action = actions[i];
+      pg.fillRect(ML, y - 30, 24, 24, C.green);
+      pg.text(String(i + 1), ML + 8, y - 17, 10, 'B', C.white);
+      pg.text(String(action.title || 'Priority action').slice(0, 70), ML + 34, y - 8, 9, 'B', C.dkgray);
+      y = drawWrapped(pg, action.action || action.impact || '', ML + 34, y - 21, CW - 42, 8, 'R', C.mgray, 2, 10);
+      y -= 8;
+    }
+    pg.flush();
+  }
+
   // ── Assemble PDF bytes ────────────────────────────────────────────────────
   const kidsStr = _pageIds.map(id => `${id} 0 R`).join(' ');
   const allObjs = [
@@ -12971,6 +13119,60 @@ async function collectPdfData(wsId, env) {
     ).bind(wsId, now30dAgo).first(),
   ]);
 
+  const [
+    brsCurrentR,
+    brsHistoryR,
+    supplyCurrentR,
+    supplyHistoryR,
+    topVendorR,
+    cyberEssentialsR,
+  ] = await Promise.allSettled([
+    env.cybermeters_db.prepare(
+      `SELECT score, risk_band, calculated_at
+       FROM workspace_brs_scores
+       WHERE workspace_id = ?
+       ORDER BY calculated_at DESC LIMIT 1`
+    ).bind(wsId).first(),
+
+    env.cybermeters_db.prepare(
+      `SELECT score, risk_band, calculated_at
+       FROM workspace_brs_score_history
+       WHERE workspace_id = ?
+       ORDER BY calculated_at ASC LIMIT 30`
+    ).bind(wsId).all(),
+
+    env.cybermeters_db.prepare(
+      `SELECT supply_chain_score, resilience_score, concentration_level,
+              critical_vendor_count, spof_count, payload_json, calculated_at
+       FROM workspace_supply_chain_scores
+       WHERE workspace_id = ?
+       ORDER BY calculated_at DESC LIMIT 1`
+    ).bind(wsId).first(),
+
+    env.cybermeters_db.prepare(
+      `SELECT supply_chain_score, resilience_score, concentration_level,
+              critical_vendor_count, spof_count, calculated_at
+       FROM workspace_supply_chain_history
+       WHERE workspace_id = ?
+       ORDER BY calculated_at ASC LIMIT 30`
+    ).bind(wsId).all(),
+
+    env.cybermeters_db.prepare(
+      `SELECT wv.vendor_name, wv.category, wv.risk_level, wv.confidence,
+              vrs.score, vrs.concentration_penalty
+       FROM workspace_vendors wv
+       LEFT JOIN vendor_risk_scores vrs
+         ON vrs.vendor_id = wv.id
+        AND vrs.workspace_id = wv.workspace_id
+       WHERE wv.workspace_id = ?
+         AND wv.status = 'active'
+       ORDER BY COALESCE(vrs.score, 0) DESC, wv.vendor_name
+       LIMIT 10`
+    ).bind(wsId).all(),
+
+    buildCyberEssentialsReadiness(wsId, env),
+  ]);
+
   // Risk trend — deduplicate to latest per (domain, date), then aggregate by date
   const trendRows     = (trendR.status === 'fulfilled' ? trendR.value?.results : null) ?? [];
   const _domainDayMap = new Map();
@@ -12998,6 +13200,17 @@ async function collectPdfData(wsId, env) {
       highest_score: Math.max(...scores),
       asset_count:   domains.size,
     }));
+
+  function trendLabel(rows, key, threshold = 3) {
+    const nums = (rows || [])
+      .map((r) => Number(r?.[key]))
+      .filter((n) => Number.isFinite(n));
+    if (nums.length < 2) return 'stable';
+    const delta = nums[nums.length - 1] - nums[0];
+    if (delta > threshold) return 'improving';
+    if (delta < -threshold) return 'deteriorating';
+    return 'stable';
+  }
 
   // Top risks — deduplicate, sort by severity, cap at 10
   const SEVERITY_ORDER = { critical: 1, high: 2, medium: 3, low: 4, info: 5 };
@@ -13143,6 +13356,126 @@ async function collectPdfData(wsId, env) {
           : certR.risk_level === null        ? 'unknown' : 'ok',
   };
 
+  const brsRow = brsCurrentR.status === 'fulfilled' ? brsCurrentR.value : null;
+  const brsHistoryRows = brsHistoryR.status === 'fulfilled' ? (brsHistoryR.value?.results || []) : [];
+  const supplyRow = supplyCurrentR.status === 'fulfilled' ? supplyCurrentR.value : null;
+  const supplyHistoryRows = supplyHistoryR.status === 'fulfilled' ? (supplyHistoryR.value?.results || []) : [];
+  const topVendorRows = topVendorR.status === 'fulfilled' ? (topVendorR.value?.results || []) : [];
+  const ceReadiness = cyberEssentialsR.status === 'fulfilled' ? cyberEssentialsR.value : null;
+
+  let supplyPayload = {};
+  if (supplyRow?.payload_json) {
+    try { supplyPayload = JSON.parse(supplyRow.payload_json); } catch { supplyPayload = {}; }
+  }
+
+  const topVendorDependencies = topVendorRows.map((v) => ({
+    name: v.vendor_name,
+    category: v.category,
+    risk_level: v.risk_level,
+    confidence: v.confidence,
+    score: v.score,
+  }));
+
+  const business_risk = {
+    business_risk_score: brsRow?.score ?? null,
+    risk_band: brsRow?.risk_band ?? 'unknown',
+    drivers: {
+      vendor_dependency: vendor_risk.high > 0 ? 'high' : vendor_risk.medium > 0 ? 'medium' : 'low',
+      findings: findings_summary.critical > 0 || findings_summary.high > 0 ? 'elevated' : 'controlled',
+      asset_exposure: (asset_inventory.assets.current ?? 0) > 100 ? 'expanded' : 'normal',
+    },
+    recommendations: executive_summary.priority_actions,
+    summary: brsRow?.score != null
+      ? `Business Risk Score is ${brsRow.score}/100 with a ${brsRow.risk_band || 'unknown'} risk band.`
+      : 'Business Risk Score is not available yet. Run a scan and open the Business Risk dashboard to populate it.',
+  };
+
+  const supply_chain = {
+    supply_chain_score: supplyRow?.supply_chain_score ?? supplyPayload.supply_chain_score ?? null,
+    resilience_score: supplyRow?.resilience_score ?? supplyPayload.operational_resilience_score ?? null,
+    operational_resilience_score: supplyPayload.operational_resilience_score ?? supplyRow?.resilience_score ?? null,
+    concentration_level: supplyRow?.concentration_level ?? supplyPayload.concentration_level ?? 'unknown',
+    critical_vendor_count: supplyRow?.critical_vendor_count ?? supplyPayload.critical_vendor_count ?? 0,
+    spof_count: supplyRow?.spof_count ?? supplyPayload.spof_count ?? 0,
+    cascading_risks: Array.isArray(supplyPayload.cascading_risks) ? supplyPayload.cascading_risks : [],
+    top_vendor_dependencies: topVendorDependencies,
+    narrative: supplyRow
+      ? `Supply chain concentration is ${supplyRow.concentration_level || 'unknown'} with ${supplyRow.spof_count ?? 0} single point${(supplyRow.spof_count ?? 0) === 1 ? '' : 's'} of failure.`
+      : 'Supply chain intelligence is not available yet. Run a scan to populate vendor dependency analysis.',
+  };
+
+  const cyber_essentials = ceReadiness ? {
+    score: ceReadiness.score,
+    grade: ceReadiness.grade,
+    status: ceReadiness.status,
+    summary: ceReadiness.summary,
+    top_gaps: ceReadiness.top_gaps || [],
+    recommendations: ceReadiness.recommendations || [],
+  } : {
+    score: null,
+    grade: null,
+    status: 'unknown',
+    summary: 'Cyber Essentials Readiness Indicator is unavailable. CyberMeters does not certify Cyber Essentials.',
+    top_gaps: [],
+    recommendations: [],
+  };
+
+  const historical_analysis = {
+    cyber_score: trendLabel(risk_trend, 'average_score'),
+    business_risk_score: trendLabel(brsHistoryRows, 'score'),
+    supply_chain_score: trendLabel(supplyHistoryRows, 'supply_chain_score'),
+  };
+
+  const attack_surface = {
+    exposed_assets: asset_inventory.assets.current ?? 0,
+    ssl_tls_posture: sp2?.ssl_certificates?.status ?? certificate_intelligence.status ?? 'unknown',
+    dns_posture: sp2?.attack_surface?.status ?? 'unknown',
+    email_security_posture: sp2?.email_security?.status ?? 'unknown',
+    security_headers: sp2?.attack_surface?.score != null
+      ? `${sp2.attack_surface.score}/100 attack surface control score`
+      : 'unknown',
+  };
+
+  const priority_action_plan = [
+    ...executive_summary.priority_actions.map((action) => ({
+      title: action.split(' - ')[0] || 'Priority action',
+      action,
+      impact: 'Reduces business exposure and improves executive risk posture.',
+    })),
+    ...top_recommendations.map((r) => ({
+      title: r.title || 'Improve security control',
+      action: r.description || r.title || '',
+      impact: 'Reduces likelihood or impact of a security incident.',
+    })),
+    ...cyber_essentials.top_gaps.map((gap) => ({
+      title: 'Improve Cyber Essentials readiness',
+      action: gap,
+      impact: 'Improves readiness guidance for Cyber Essentials control areas.',
+    })),
+  ].filter((item) => item.title || item.action)
+    .filter((item, index, arr) => arr.findIndex((x) => x.title === item.title && x.action === item.action) === index)
+    .slice(0, 5);
+
+  const executiveStatus =
+    findings_summary.critical > 0 || business_risk.risk_band === 'critical' ? 'critical' :
+    findings_summary.high > 0 || business_risk.risk_band === 'high' ? 'high' :
+    findings_summary.medium > 0 || business_risk.risk_band === 'medium' ? 'moderate' : 'controlled';
+
+  const businessImpactNarrative =
+    executiveStatus === 'critical'
+      ? 'Immediate business attention is required because critical exposure may affect customer trust, operational continuity, or procurement readiness.'
+      : executiveStatus === 'high'
+        ? 'Business risk is elevated. Leadership should sponsor remediation of the highest-impact findings and vendor dependencies.'
+        : executiveStatus === 'moderate'
+          ? 'Business risk is manageable, but continued remediation will reduce exposure and improve resilience.'
+          : 'Current external risk appears controlled based on available CyberMeters signals.';
+
+  const topObservations = [
+    ...executive_summary.weaknesses,
+    supply_chain.narrative,
+    cyber_essentials.summary,
+  ].filter(Boolean).slice(0, 3);
+
   return {
     workspace:               { id: ws.id, name: ws.name, created_at: ws.created_at },
     generated_at:            generatedAt,
@@ -13158,6 +13491,15 @@ async function collectPdfData(wsId, env) {
     vendor_risk,
     brand_monitoring,
     certificate_intelligence,
+    business_risk,
+    supply_chain,
+    cyber_essentials,
+    historical_analysis,
+    attack_surface,
+    priority_action_plan,
+    executive_status:         executiveStatus,
+    business_impact_narrative: businessImpactNarrative,
+    top_observations:          topObservations,
     last_scan_at:            sc.last_scan_at        ?? null,
     last_scanned_domain:     sc.last_scanned_domain ?? null,
   };
