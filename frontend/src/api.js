@@ -464,6 +464,23 @@ export const api = {
    */
   getAccountUsage: () => request('/account/usage'),
 
+  /** GET /api/billing/plans */
+  getBillingPlans: () => request('/billing/plans'),
+
+  /** POST /api/billing/checkout */
+  createCheckoutSession: ({ plan, interval = 'monthly', success_url, cancel_url }) =>
+    request('/billing/checkout', {
+      method: 'POST',
+      body: JSON.stringify({ plan, interval, success_url, cancel_url }),
+    }),
+
+  /** POST /api/billing/portal */
+  createBillingPortalSession: (return_url) =>
+    request('/billing/portal', {
+      method: 'POST',
+      body: JSON.stringify({ return_url }),
+    }),
+
   /** GET /api/account/api-tokens */
   getApiTokens: () => request('/account/api-tokens'),
 
@@ -560,6 +577,33 @@ export const api = {
   /** POST /api/invitations/:token/accept */
   acceptWorkspaceInvitation: (token) =>
     request(`/invitations/${encodeURIComponent(token)}/accept`, { method: 'POST' }),
+
+  // ── Billing ───────────────────────────────────────────────────────────────
+
+  /** GET /api/billing/plans — public plan metadata, pricing, limits */
+  getBillingPlans: () => request('/billing/plans'),
+
+  /**
+   * POST /api/billing/checkout
+   * Body: { plan, interval, success_url, cancel_url }
+   * Returns: { checkout_url, session_id }
+   */
+  startCheckout: (plan, interval = 'monthly', success_url, cancel_url) =>
+    request('/billing/checkout', {
+      method: 'POST',
+      body: JSON.stringify({ plan, interval, success_url, cancel_url }),
+    }),
+
+  /**
+   * POST /api/billing/portal
+   * Body: { return_url }
+   * Returns: { portal_url }
+   */
+  openBillingPortal: (return_url) =>
+    request('/billing/portal', {
+      method: 'POST',
+      body: JSON.stringify({ return_url }),
+    }),
 
   // ── Portfolio APIs ────────────────────────────────────────────────────────
 

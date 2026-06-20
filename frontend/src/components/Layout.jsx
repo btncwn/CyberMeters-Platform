@@ -22,6 +22,7 @@ const NAV = [
   { to: '/schedules',    icon: Calendar,        label: 'Schedules'    },
   { to: '/reports',      icon: FileBarChart2,   label: 'Reports'      },
   { to: '/accuracy',     icon: Activity,        label: 'Accuracy'     },
+  { to: '/pricing',      icon: CreditCard,      label: 'Pricing'      },
   { to: '/billing',      icon: CreditCard,      label: 'Billing'      },
   { to: '/settings',     icon: Settings,        label: 'Settings'     },
 ]
@@ -268,10 +269,10 @@ function UpgradePromptModal() {
           </button>
           <button
             type="button"
-            disabled
-            className="btn-primary opacity-60 cursor-not-allowed"
+            onClick={() => { window.location.href = '/pricing' }}
+            className="btn-primary"
           >
-            Upgrade coming soon
+            View pricing
           </button>
         </div>
       </div>
@@ -341,9 +342,14 @@ export default function Layout() {
 
       {/* Footer */}
       <footer className="border-t border-gray-100 bg-white">
-        <div className="max-w-screen-xl mx-auto px-6 py-3 flex items-center justify-between">
+        <div className="max-w-screen-xl mx-auto px-6 py-3 flex flex-wrap items-center justify-between gap-3">
           <span className="text-xs text-gray-400">© {new Date().getFullYear()} CyberMeters — Attack Surface Management</span>
-          <span className="text-xs text-gray-300 mono">{new Date().toUTCString().slice(0, 22)} UTC</span>
+          <div className="flex items-center gap-4 text-xs text-gray-400">
+            <NavLink to="/pricing" className="hover:text-gray-700">Pricing</NavLink>
+            <NavLink to="/terms" className="hover:text-gray-700">Terms</NavLink>
+            <NavLink to="/privacy" className="hover:text-gray-700">Privacy</NavLink>
+            <NavLink to="/support" className="hover:text-gray-700">Support</NavLink>
+          </div>
         </div>
       </footer>
     </div>

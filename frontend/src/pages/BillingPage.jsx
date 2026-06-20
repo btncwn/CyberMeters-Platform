@@ -359,6 +359,7 @@ export default function BillingPage() {
   const [limits, setLimits]           = useState(null)
   const [billingInterval, setBillingInterval] = useState('monthly')
   const [apiError, setApiError]       = useState(null)
+  const [portalLoading, setPortalLoading] = useState(false)
 
   // Replace with real API when invoice endpoint is available
   const invoices = []
@@ -397,9 +398,43 @@ export default function BillingPage() {
   const isPaidPlan   = plan !== 'free'
   const canUpgrade   = plan === 'free' || plan === 'starter'
 
-  function handleUpgrade(targetPlan) {
-    // Trigger checkout when Stripe checkout is connected
-    navigate(`/billing?upgrade=${targetPlan}`)
+  async function handleUpgrade(targetPlan = 'professional') {
+    setApiError(null)
+    if (!targetPlan || targetPlan === 'free') { navigate('/pricing'); return }
+    if (targetPlan === 'enterprise') {
+      window.location.href = 'mailto:hello@cybermeters.com?subject=CyberMeters%20Enterprise'
+      return
+    }
+    try {
+      const origin = window.location.origin
+      const res = await api.startCheckout(
+        targetPlan,
+        billingInterval,
+        `${origin}/checkout/success`,
+        `${origin}/checkout/cancel`,
+      )
+      if (res?.checkout_url) { window.location.href = res.checkout_url }
+      else throw new Error('Checkout URL was not returned')
+    } catch (e) {
+      setApiError(e?.message || 'Could not start checkout. Please try again.')
+    }
+  }
+
+  async function handleManageSubscription() {
+    setApiError(null)
+    setPortalLoading(true)
+    try {
+      const res = await api.openBillingPortal(window.location.origin + '/billing')
+      if (res?.portal_url) {
+        window.location.href = res.portal_url
+        return
+      }
+      throw new Error('Billing portal URL was not returned')
+    } catch (e) {
+      setApiError(e?.message || 'Could not open billing portal')
+    } finally {
+      setPortalLoading(false)
+    }
   }
 
   return (
@@ -529,13 +564,17 @@ export default function BillingPage() {
               Upgrade Plan
             </button>
           ) : (
-            <button className="btn-secondary py-2 text-sm">
+            <button onClick={() => navigate('/pricing')} className="btn-secondary py-2 text-sm">
               <ArrowRight className="w-4 h-4" />
               Change Plan
             </button>
           )}
 
-          <button className="btn-secondary py-2 text-sm">
+          <button
+            onClick={handleManageSubscription}
+            disabled={portalLoading}
+            className="btn-secondary py-2 text-sm"
+          >
             <CreditCard className="w-4 h-4" />
             Manage Payment
           </button>
@@ -548,11 +587,21 @@ export default function BillingPage() {
             {billingInterval === 'monthly' ? 'Switch to Annual' : 'Switch to Monthly'}
           </button>
 
-          {isPaidPlan && (
-            <button className="btn-ghost py-2 text-sm text-gray-400 hover:text-red-600 hover:bg-red-50 ml-auto">
-              Cancel subscription
-            </button>
-          )}
+          <button
+            onClick={handleManageSubscription}
+            disabled={portalLoading}
+            className="btn-secondary py-2 text-sm"
+          >
+            <CreditCard className="w-4 h-4" />
+            {portalLoading ? 'Opening Portal…' : 'Manage Subscription'}
+          </button>
+
+          <button
+            onClick={() => navigate('/pricing')}
+            className="btn-ghost py-2 text-sm text-gray-500 hover:text-gray-700 hover:bg-white ml-auto"
+          >
+            View pricing
+          </button>
         </div>
       </div>
 
@@ -660,22 +709,26 @@ export default function BillingPage() {
               icon={CreditCard}
               label="Payment Method"
               desc="Update your saved card"
+              onClick={handleManageSubscription}
             />
             <ActionRow
               icon={Building2}
               label="Billing Details"
               desc="Company name, address, VAT"
+              onClick={handleManageSubscription}
             />
             <ActionRow
               icon={FileText}
               label="View Invoices"
               desc="Download past receipts"
+              onClick={handleManageSubscription}
             />
             <div className="my-1 mx-2 border-t border-gray-100" />
             <ActionRow
               icon={AlertTriangle}
               label="Cancel Subscription"
               danger
+              onClick={handleManageSubscription}
             />
           </div>
 

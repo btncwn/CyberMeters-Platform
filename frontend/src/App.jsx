@@ -37,6 +37,12 @@ import AcceptInvitationPage  from './pages/AcceptInvitationPage'
 import AccountPage           from './pages/AccountPage'
 import BillingPage           from './pages/BillingPage'
 import DomainVerifyPage      from './pages/DomainVerifyPage'
+import PricingPage           from './pages/PricingPage'
+import CheckoutSuccessPage   from './pages/CheckoutSuccessPage'
+import CheckoutCancelPage    from './pages/CheckoutCancelPage'
+import TermsPage             from './pages/TermsPage'
+import PrivacyPage           from './pages/PrivacyPage'
+import SupportPage           from './pages/SupportPage'
 
 /**
  * ProtectedRoute — blocks unauthenticated users from accessing the app.
@@ -95,6 +101,16 @@ function AppRoutes() {
         path="/signup"
         element={<PublicOnlyRoute><SignupPage /></PublicOnlyRoute>}
       />
+      <Route path="/pricing"          element={<PricingPage />} />
+      {/* Stripe redirects to these after checkout */}
+      <Route path="/checkout/success" element={<CheckoutSuccessPage />} />
+      <Route path="/checkout/cancel"  element={<CheckoutCancelPage />} />
+      {/* Legacy aliases kept for backward-compat with any existing bookmarks */}
+      <Route path="/billing/success"  element={<CheckoutSuccessPage />} />
+      <Route path="/billing/cancel"   element={<CheckoutCancelPage />} />
+      <Route path="/terms"            element={<TermsPage />} />
+      <Route path="/privacy"          element={<PrivacyPage />} />
+      <Route path="/support"          element={<SupportPage />} />
 
       {/* ── Protected app (with Layout shell) ───────────────────────────── */}
       <Route
