@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Server, ScanLine, FileBarChart2,
   Settings, Shield, Plus, ChevronDown, Calendar,
   Briefcase, ChevronRight, Check, Brain, Layers, LogOut, User,
-  AlertTriangle, X, Activity, CreditCard,
+  AlertTriangle, X, Activity, CreditCard, ShieldAlert,
 } from 'lucide-react'
 import { api } from '../api'
 import { useAuth } from '../context/AuthContext'
@@ -13,6 +13,7 @@ import NotificationBell from './NotificationBell'
 const NAV = [
   { to: '/dashboard',    icon: LayoutDashboard, label: 'Dashboard'    },
   { to: '/portfolio',    icon: Layers,          label: 'Portfolio'    },
+  { to: '/portfolio/risk', icon: ShieldAlert,   label: 'Portfolio Risk' },
   { to: '/ws/dashboard', icon: Shield,          label: 'Workspace'    },
   { to: '/workspaces',   icon: Briefcase,       label: 'Workspaces'   },
   { to: '/intelligence', icon: Brain,           label: 'Intelligence' },

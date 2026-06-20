@@ -316,6 +316,9 @@ export const api = {
   /** GET /api/workspaces/:id/business-risk */
   getWorkspaceBusinessRisk: (id) => request(`/workspaces/${id}/business-risk`),
 
+  /** GET /api/workspaces/:id/supply-chain */
+  getWorkspaceSupplyChain: (id) => request(`/workspaces/${id}/supply-chain`),
+
   /** GET /api/workspaces/:id/alerts */
   getWorkspaceAlerts: (id) => request(`/workspaces/${id}/alerts`),
 
@@ -571,6 +574,9 @@ export const api = {
 
   /** GET /api/portfolio/trends */
   getPortfolioTrends: () => request('/portfolio/trends'),
+
+  /** GET /api/portfolio/risk — MSP portfolio risk intelligence */
+  getPortfolioRisk: () => request('/portfolio/risk'),
 
   /**
    * GET /api/workspaces/:id/report

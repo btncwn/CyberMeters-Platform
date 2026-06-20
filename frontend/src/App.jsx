@@ -30,7 +30,9 @@ import WorkspaceReportsPage        from './pages/ws/WorkspaceReportsPage'
 import WorkspaceExecutiveDashboard from './pages/ws/WorkspaceExecutiveDashboard'
 import WorkspaceBusinessRiskPage   from './pages/ws/WorkspaceBusinessRiskPage'
 import WorkspaceCyberEssentialsPage from './pages/ws/WorkspaceCyberEssentialsPage'
+import WorkspaceSupplyChainPage    from './pages/ws/WorkspaceSupplyChainPage'
 import PortfolioPage         from './pages/PortfolioPage'
+import PortfolioRiskPage     from './pages/PortfolioRiskPage'
 import AcceptInvitationPage  from './pages/AcceptInvitationPage'
 import AccountPage           from './pages/AccountPage'
 import BillingPage           from './pages/BillingPage'
@@ -102,6 +104,7 @@ function AppRoutes() {
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard"               element={<Dashboard />}           />
         <Route path="portfolio"               element={<PortfolioPage />}        />
+        <Route path="portfolio/risk"          element={<PortfolioRiskPage />}    />
         <Route path="workspaces"              element={<WorkspacesPage />}      />
         <Route path="workspaces/:id"          element={<WorkspaceDetailPage />} />
         <Route path="intelligence"            element={<IntelligencePage />}    />
@@ -133,6 +136,7 @@ function AppRoutes() {
         <Route path="ws/executive-dashboard" element={<WorkspaceExecutiveDashboard />} />
         <Route path="ws/business-risk"       element={<WorkspaceBusinessRiskPage />}   />
         <Route path="ws/cyber-essentials"    element={<WorkspaceCyberEssentialsPage />} />
+        <Route path="ws/supply-chain"         element={<WorkspaceSupplyChainPage />}      />
         <Route path="*"                   element={<Navigate to="/dashboard" replace />} />
       </Route>
 
