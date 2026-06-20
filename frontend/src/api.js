@@ -307,6 +307,12 @@ export const api = {
   /** GET /api/workspaces/:id/identity-assets/summary */
   getWorkspaceIdentitySummary: (id) => request(`/workspaces/${id}/identity-assets/summary`),
 
+  /** GET /api/workspaces/:id/vendor-relationships */
+  getVendorRelationships: (id, params = {}) => {
+    const q = new URLSearchParams(params).toString()
+    return request(`/workspaces/${id}/vendor-relationships${q ? `?${q}` : ''}`)
+  },
+
   /** GET /api/workspaces/:id/business-risk */
   getWorkspaceBusinessRisk: (id) => request(`/workspaces/${id}/business-risk`),
 

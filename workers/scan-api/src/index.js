@@ -1404,6 +1404,13 @@ async function runTechModule(domain) {
   const serverLc    = (server    || "").toLowerCase();
   const poweredByLc = (poweredBy || "").toLowerCase();
   const bodyLc      = bodySnippet.toLowerCase();
+  const externalScripts = [];
+  for (const match of bodySnippet.matchAll(/<script\b[^>]*\bsrc=["']([^"']+)["']/gi)) {
+    try {
+      const scriptUrl = new URL(match[1], finalUrl);
+      externalScripts.push(scriptUrl.hostname.toLowerCase());
+    } catch { /* skip malformed script src */ }
+  }
 
   if (cfRay || serverLc.includes("cloudflare"))          technologies.push("Cloudflare");
   if (serverLc.includes("nginx"))                        technologies.push("nginx");
@@ -1463,6 +1470,7 @@ async function runTechModule(domain) {
     content_security_policy:   csp,
     x_frame_options:           xfo,
     x_content_type_options:    xcto,
+    external_scripts:          [...new Set(externalScripts)],
     technologies:              [...new Set(technologies)],  // deduplicate
     info_findings:             infoFindings,
   };
@@ -5962,6 +5970,7 @@ function computeBusinessRiskScore(findingIds, workspaceData = {}) {
     vendorMedium            = 0,
     vendorTotal             = 0,
     identityHighRiskCount   = 0,
+    vendorRelHighConf       = 0,  // high-confidence CSP-derived vendor relationships (supply chain signal)
   } = workspaceData;
   let attackDed = 0;
   attackDed += Math.min(30, subdomainTakeoverCount * 15);
@@ -5973,6 +5982,10 @@ function computeBusinessRiskScore(findingIds, workspaceData = {}) {
   }
   // Identity surface deduction: internet-facing SSO/VPN/IdP portals are high-value targets
   attackDed += Math.min(20, identityHighRiskCount * 7);
+  // Supply chain signal: confirmed payment/identity vendors detected via CSP increase
+  // exposure risk (each confirmed relationship is a potential breach vector).
+  // Cap at 10 — vendor_risk high count already carries the heavier penalty above.
+  if (vendorRelHighConf >= 3) attackDed += Math.min(10, (vendorRelHighConf - 2) * 2);
   const attackScore = Math.max(0, 100 - attackDed);
 
   // ── Category 5: Brand / Reputation Risk (15%) ──────────────────────────────
@@ -7210,6 +7223,14 @@ function buildCanonicalUrlProfile(modules) {
     // Also classifies discovered subdomains with identity-related hostname prefixes.
     modules.identity_discovery = runIdentityDiscoveryModule(modules, domain);
 
+    // Phase 7k: Vendor Relationship Discovery — pure computation, zero network I/O.
+    // Parses CSP directives (script-src, connect-src, frame-src, img-src) to identify
+    // third-party vendor relationships from JavaScript, API, and iframe dependencies.
+    // Uses CNAME signals for high-confidence DNS-level confirmation.
+    // 10-category taxonomy: analytics | payments | crm | support | identity |
+    //   collaboration | cloud | cdn | security | certificate_authority
+    modules.vendor_relationships = runVendorRelationshipModule(modules);
+
     const completedAt = new Date().toISOString();
 
     // Build full structured report
@@ -7265,6 +7286,7 @@ function buildCanonicalUrlProfile(modules) {
           vendorMedium:         vendorMap.medium ?? 0,
           vendorTotal,
           identityHighRiskCount: modules.identity_discovery?.high_risk_count ?? 0,
+          vendorRelHighConf:     modules.vendor_relationships?.high_confidence ?? 0,
         });
         brsScore = brs.brs;
       } catch { /* non-fatal — BRS unavailable for this scan */ }
@@ -7361,6 +7383,19 @@ function buildCanonicalUrlProfile(modules) {
     // identity_assets table. Also upserts detected IdP providers into workspace_vendors.
     try {
       await upsertIdentityAssets(domainId, scanId, modules.identity_discovery, env);
+    } catch { /* non-fatal */ }
+
+    // Phase 8g: Vendor Relationship Upsert — persists CSP-derived vendor relationships
+    // into workspace_vendors with source_module='vendor_relationship'. Additive to
+    // Phase 8c (DNS-sourced vendor_risk entries) — no inactive sweep here.
+    try {
+      await upsertVendorRelationships(domainId, modules.vendor_relationships, env);
+    } catch { /* non-fatal */ }
+
+    // Phase 8h: Vendor Risk Score Upsert — calculates workspace-level vendor
+    // exposure scores from current workspace_vendors rows.
+    try {
+      await recomputeVendorRiskScoresForDomain(domainId, env);
     } catch { /* non-fatal */ }
 
     // Phase 9: Asset Change Alert — one grouped email per workspace per scan.
@@ -8629,6 +8664,908 @@ async function upsertBrandAssets(domainId, brandMod, env) {
           .run();
       } catch { /* non-fatal per candidate */ }
     }
+  }
+}
+
+// ── Vendor Relationship Discovery ────────────────────────────────────────────
+//
+// Phase 7k: Pure computation — zero network I/O.
+// Identifies third-party vendor relationships from CSP directive analysis,
+// CNAME signals, subdomain patterns, and SaaS hostname matching against the
+// already-captured scan module data.
+//
+// Uses a distinct vendor-risk taxonomy from the existing VENDOR_SIGNATURES:
+//   analytics | payments | crm | support | identity | collaboration |
+//   cloud | cdn | security | certificate_authority
+//
+// Confidence scoring:
+//   high   — CNAME/MX/SPF DNS-level confirmation
+//   medium — CSP directive hostname match (script-src, connect-src, frame-src)
+//   low    — generic or single weak signal
+
+/**
+ * parseCspDirectives(csp)
+ * Splits a CSP string into per-directive hostname arrays.
+ * Returns { 'script-src': ['cdn.example.com', ...], 'connect-src': [...], ... }
+ * Skips keyword values ('nonce-...', 'unsafe-inline', '*', 'data:', etc.).
+ */
+function parseCspDirectives(csp) {
+  const directives = {};
+  if (!csp) return directives;
+  for (const part of csp.split(";")) {
+    const tokens = part.trim().split(/\s+/);
+    if (tokens.length < 2) continue;
+    const directive = tokens[0].toLowerCase();
+    const hostnames = [];
+    for (const v of tokens.slice(1)) {
+      if (v.startsWith("'") || v === "*" || v === "data:" || v === "blob:" || v === "https:" || v === "http:") continue;
+      try {
+        const url = v.includes("://") ? new URL(v) : new URL("https://" + v);
+        const host = url.hostname.replace(/^\*\./, "");
+        if (host && host.includes(".")) hostnames.push(host.toLowerCase());
+      } catch { /* skip malformed */ }
+    }
+    if (hostnames.length) {
+      directives[directive] = (directives[directive] || []).concat(hostnames);
+    }
+  }
+  return directives;
+}
+
+// Vendor Relationship Signatures — keyed to the 10-category taxonomy.
+// `signals` array: { source, test(hostname):bool }
+// source values: 'csp:script-src' | 'csp:connect-src' | 'csp:frame-src' |
+//                'csp:img-src' | 'csp:font-src' | 'csp:any' | 'script' |
+//                'cname'
+const VENDOR_RELATIONSHIP_SIGS = [
+
+  // ── Analytics ──────────────────────────────────────────────────────────────
+  { name: "Google Analytics",       category: "analytics",   risk_level: "low",
+    signals: [
+      { source: "csp:script-src",  test: (h) => /google-analytics\.com|googletagmanager\.com/.test(h) },
+      { source: "csp:connect-src", test: (h) => /google-analytics\.com|analytics\.google\.com/.test(h) },
+      { source: "csp:img-src",     test: (h) => /google-analytics\.com/.test(h) },
+      { source: "script",          test: (h) => /google-analytics\.com|googletagmanager\.com/.test(h) },
+    ],
+  },
+  { name: "Google Tag Manager",     category: "analytics",   risk_level: "low",
+    signals: [
+      { source: "csp:script-src",  test: (h) => /googletagmanager\.com/.test(h) },
+      { source: "csp:any",         test: (h) => /googletagmanager\.com/.test(h) },
+      { source: "script",          test: (h) => /googletagmanager\.com/.test(h) },
+    ],
+  },
+  { name: "Mixpanel",               category: "analytics",   risk_level: "low",
+    signals: [
+      { source: "csp:script-src",  test: (h) => /cdn\.mxpnl\.com|cdn\.mixpanel\.com/.test(h) },
+      { source: "csp:connect-src", test: (h) => /api\.mixpanel\.com/.test(h) },
+      { source: "script",          test: (h) => /cdn\.mxpnl\.com|cdn\.mixpanel\.com/.test(h) },
+    ],
+  },
+  { name: "Segment",                category: "analytics",   risk_level: "low",
+    signals: [
+      { source: "csp:script-src",  test: (h) => /cdn\.segment\.com|cdn\.segment\.io/.test(h) },
+      { source: "csp:connect-src", test: (h) => /api\.segment\.io|api\.segment\.com/.test(h) },
+      { source: "script",          test: (h) => /cdn\.segment\.com|cdn\.segment\.io/.test(h) },
+    ],
+  },
+  { name: "Amplitude",              category: "analytics",   risk_level: "low",
+    signals: [
+      { source: "csp:script-src",  test: (h) => /cdn\.amplitude\.com/.test(h) },
+      { source: "csp:connect-src", test: (h) => /api\.amplitude\.com/.test(h) },
+      { source: "script",          test: (h) => /cdn\.amplitude\.com/.test(h) },
+    ],
+  },
+  { name: "Hotjar",                 category: "analytics",   risk_level: "low",
+    signals: [
+      { source: "csp:script-src",  test: (h) => /static\.hotjar\.com|script\.hotjar\.com/.test(h) },
+      { source: "csp:connect-src", test: (h) => /insights\.hotjar\.com|vc\.hotjar\.io/.test(h) },
+      { source: "script",          test: (h) => /static\.hotjar\.com|script\.hotjar\.com/.test(h) },
+    ],
+  },
+  { name: "Heap",                   category: "analytics",   risk_level: "low",
+    signals: [
+      { source: "csp:script-src",  test: (h) => /cdn\.heapanalytics\.com/.test(h) },
+      { source: "csp:connect-src", test: (h) => /heapanalytics\.com/.test(h) },
+    ],
+  },
+  { name: "PostHog",                category: "analytics",   risk_level: "low",
+    signals: [
+      { source: "csp:script-src",  test: (h) => /app\.posthog\.com|eu\.posthog\.com/.test(h) },
+      { source: "csp:connect-src", test: (h) => /app\.posthog\.com|eu\.posthog\.com/.test(h) },
+    ],
+  },
+  { name: "Plausible",              category: "analytics",   risk_level: "low",
+    signals: [
+      { source: "csp:script-src",  test: (h) => /plausible\.io/.test(h) },
+      { source: "csp:connect-src", test: (h) => /plausible\.io/.test(h) },
+    ],
+  },
+  { name: "Microsoft Clarity",      category: "analytics",   risk_level: "low",
+    signals: [
+      { source: "csp:script-src",  test: (h) => /clarity\.ms/.test(h) },
+      { source: "csp:connect-src", test: (h) => /clarity\.ms/.test(h) },
+    ],
+  },
+  { name: "Datadog RUM",            category: "analytics",   risk_level: "low",
+    signals: [
+      { source: "csp:script-src",  test: (h) => /datadoghq-browser-agent\.com|rum\.browser-intake-datadoghq\.com/.test(h) },
+      { source: "csp:connect-src", test: (h) => /datadoghq\.com/.test(h) },
+    ],
+  },
+
+  // ── Payments ───────────────────────────────────────────────────────────────
+  { name: "Stripe",                 category: "payments",    risk_level: "medium",
+    signals: [
+      { source: "csp:script-src",  test: (h) => /js\.stripe\.com/.test(h) },
+      { source: "csp:frame-src",   test: (h) => /stripe\.com|hooks\.stripe\.com/.test(h) },
+      { source: "csp:connect-src", test: (h) => /api\.stripe\.com/.test(h) },
+      { source: "script",          test: (h) => /js\.stripe\.com|assets\.stripe\.com/.test(h) },
+      { source: "cname",           test: (h) => /stripe\.com/.test(h) },
+    ],
+  },
+  { name: "PayPal",                 category: "payments",    risk_level: "medium",
+    signals: [
+      { source: "csp:script-src",  test: (h) => /paypal\.com|paypalobjects\.com/.test(h) },
+      { source: "csp:frame-src",   test: (h) => /paypal\.com/.test(h) },
+      { source: "csp:connect-src", test: (h) => /paypal\.com/.test(h) },
+      { source: "script",          test: (h) => /paypal\.com|paypalobjects\.com/.test(h) },
+    ],
+  },
+  { name: "Braintree",              category: "payments",    risk_level: "medium",
+    signals: [
+      { source: "csp:script-src",  test: (h) => /braintreegateway\.com|braintree-api\.com/.test(h) },
+      { source: "csp:frame-src",   test: (h) => /braintreegateway\.com/.test(h) },
+    ],
+  },
+  { name: "Square",                 category: "payments",    risk_level: "medium",
+    signals: [
+      { source: "csp:script-src",  test: (h) => /squareup\.com|squareupsandbox\.com/.test(h) },
+      { source: "csp:connect-src", test: (h) => /squareup\.com/.test(h) },
+    ],
+  },
+  { name: "Adyen",                  category: "payments",    risk_level: "medium",
+    signals: [
+      { source: "csp:script-src",  test: (h) => /adyen\.com|checkoutshopper-live\.adyen\.com/.test(h) },
+      { source: "csp:frame-src",   test: (h) => /adyen\.com/.test(h) },
+    ],
+  },
+  { name: "Klarna",                 category: "payments",    risk_level: "medium",
+    signals: [
+      { source: "csp:script-src",  test: (h) => /klarna\.com/.test(h) },
+      { source: "csp:frame-src",   test: (h) => /klarna\.com/.test(h) },
+    ],
+  },
+  { name: "Paddle",                 category: "payments",    risk_level: "medium",
+    signals: [
+      { source: "csp:script-src",  test: (h) => /cdn\.paddle\.com|sandbox-cdn\.paddle\.com/.test(h) },
+      { source: "csp:frame-src",   test: (h) => /paddle\.com/.test(h) },
+    ],
+  },
+
+  // ── CRM ────────────────────────────────────────────────────────────────────
+  { name: "Salesforce",             category: "crm",         risk_level: "medium",
+    signals: [
+      { source: "csp:any",         test: (h) => /salesforce\.com|force\.com/.test(h) },
+      { source: "cname",           test: (h) => /salesforce\.com|force\.com/.test(h) },
+    ],
+  },
+  { name: "HubSpot",                category: "crm",         risk_level: "medium",
+    signals: [
+      { source: "csp:script-src",  test: (h) => /js\.hs-scripts\.com|js\.hsforms\.net|js\.hubspot\.com/.test(h) },
+      { source: "csp:connect-src", test: (h) => /api\.hubapi\.com|forms\.hubspot\.com/.test(h) },
+      { source: "cname",           test: (h) => /hubspotpagebuilder\.com|hs-sites\.com/.test(h) },
+    ],
+  },
+  { name: "Pipedrive",              category: "crm",         risk_level: "low",
+    signals: [
+      { source: "csp:any",         test: (h) => /pipedrive\.com/.test(h) },
+      { source: "cname",           test: (h) => /pipedrive\.com/.test(h) },
+    ],
+  },
+  { name: "Zoho CRM",               category: "crm",         risk_level: "low",
+    signals: [
+      { source: "csp:any",         test: (h) => /zohocrm\.com|crm\.zoho\.com/.test(h) },
+    ],
+  },
+
+  // ── Support ────────────────────────────────────────────────────────────────
+  { name: "Zendesk",                category: "support",     risk_level: "medium",
+    signals: [
+      { source: "csp:script-src",  test: (h) => /static\.zdassets\.com|ekr\.zdassets\.com/.test(h) },
+      { source: "csp:frame-src",   test: (h) => /zendesk\.com/.test(h) },
+      { source: "csp:connect-src", test: (h) => /zendesk\.com/.test(h) },
+      { source: "cname",           test: (h) => /zendesk\.com/.test(h) },
+    ],
+  },
+  { name: "Intercom",               category: "support",     risk_level: "medium",
+    signals: [
+      { source: "csp:script-src",  test: (h) => /widget\.intercom\.io|js\.intercomcdn\.com/.test(h) },
+      { source: "csp:connect-src", test: (h) => /api-iam\.intercom\.io|nexus-websocket-a\.intercom\.io/.test(h) },
+      { source: "script",          test: (h) => /widget\.intercom\.io|js\.intercomcdn\.com/.test(h) },
+      { source: "cname",           test: (h) => /intercom\.io|intercomassets\.com/.test(h) },
+    ],
+  },
+  { name: "Freshdesk",              category: "support",     risk_level: "low",
+    signals: [
+      { source: "csp:script-src",  test: (h) => /widget\.freshworks\.com/.test(h) },
+      { source: "cname",           test: (h) => /freshdesk\.com|freshworks\.com/.test(h) },
+    ],
+  },
+  { name: "Crisp",                  category: "support",     risk_level: "low",
+    signals: [
+      { source: "csp:script-src",  test: (h) => /client\.crisp\.chat/.test(h) },
+      { source: "csp:connect-src", test: (h) => /crisp\.chat/.test(h) },
+    ],
+  },
+  { name: "Drift",                  category: "support",     risk_level: "low",
+    signals: [
+      { source: "csp:script-src",  test: (h) => /js\.driftt\.com/.test(h) },
+      { source: "csp:connect-src", test: (h) => /driftt\.com|drift\.com/.test(h) },
+    ],
+  },
+  { name: "Tawk.to",                category: "support",     risk_level: "low",
+    signals: [
+      { source: "csp:script-src",  test: (h) => /embed\.tawk\.to/.test(h) },
+      { source: "csp:connect-src", test: (h) => /tawk\.to/.test(h) },
+    ],
+  },
+
+  // ── Identity ───────────────────────────────────────────────────────────────
+  { name: "Okta",                   category: "identity",    risk_level: "high",
+    signals: [
+      { source: "csp:any",         test: (h) => /okta\.com|oktapreview\.com|okta-emea\.com/.test(h) },
+      { source: "cname",           test: (h) => /okta\.com|oktapreview\.com/.test(h) },
+    ],
+  },
+  { name: "Auth0",                  category: "identity",    risk_level: "high",
+    signals: [
+      { source: "csp:any",         test: (h) => /auth0\.com|us\.auth0\.com|eu\.auth0\.com/.test(h) },
+      { source: "cname",           test: (h) => /auth0\.com/.test(h) },
+    ],
+  },
+  { name: "Microsoft Entra ID",     category: "identity",    risk_level: "high",
+    signals: [
+      { source: "csp:any",         test: (h) => /login\.microsoftonline\.com|login\.live\.com/.test(h) },
+      { source: "cname",           test: (h) => /microsoftonline\.com|sts\.windows\.net/.test(h) },
+    ],
+  },
+  { name: "Ping Identity",          category: "identity",    risk_level: "high",
+    signals: [
+      { source: "csp:any",         test: (h) => /pingone\.com|pingidentity\.com/.test(h) },
+      { source: "cname",           test: (h) => /pingone\.com|ping\.com/.test(h) },
+    ],
+  },
+  { name: "OneLogin",               category: "identity",    risk_level: "high",
+    signals: [
+      { source: "csp:any",         test: (h) => /onelogin\.com/.test(h) },
+      { source: "cname",           test: (h) => /onelogin\.com/.test(h) },
+    ],
+  },
+
+  // ── Collaboration ──────────────────────────────────────────────────────────
+  { name: "Atlassian",              category: "collaboration", risk_level: "low",
+    signals: [
+      { source: "csp:any",         test: (h) => /atlassian\.com|atlassian\.net/.test(h) },
+      { source: "cname",           test: (h) => /atlassian\.net|atlassian\.com/.test(h) },
+    ],
+  },
+  { name: "Slack",                  category: "collaboration", risk_level: "low",
+    signals: [
+      { source: "csp:script-src",  test: (h) => /slack\.com|slack-edge\.com/.test(h) },
+      { source: "csp:connect-src", test: (h) => /slack\.com/.test(h) },
+    ],
+  },
+  { name: "Notion",                 category: "collaboration", risk_level: "low",
+    signals: [
+      { source: "csp:frame-src",   test: (h) => /notion\.so/.test(h) },
+      { source: "csp:any",         test: (h) => /notion\.so/.test(h) },
+    ],
+  },
+  { name: "Linear",                 category: "collaboration", risk_level: "low",
+    signals: [
+      { source: "csp:any",         test: (h) => /linear\.app/.test(h) },
+    ],
+  },
+
+  // ── CDN ────────────────────────────────────────────────────────────────────
+  { name: "jsDelivr",               category: "cdn",         risk_level: "low",
+    signals: [
+      { source: "csp:script-src",  test: (h) => /cdn\.jsdelivr\.net/.test(h) },
+      { source: "script",          test: (h) => /cdn\.jsdelivr\.net/.test(h) },
+    ],
+  },
+  { name: "unpkg",                  category: "cdn",         risk_level: "low",
+    signals: [
+      { source: "csp:script-src",  test: (h) => /unpkg\.com/.test(h) },
+      { source: "script",          test: (h) => /unpkg\.com/.test(h) },
+    ],
+  },
+  { name: "cdnjs",                  category: "cdn",         risk_level: "low",
+    signals: [
+      { source: "csp:script-src",  test: (h) => /cdnjs\.cloudflare\.com/.test(h) },
+      { source: "script",          test: (h) => /cdnjs\.cloudflare\.com/.test(h) },
+    ],
+  },
+  { name: "Cloudflare CDN",         category: "cdn",         risk_level: "low",
+    signals: [
+      { source: "cname",           test: (h) => /\.cdn\.cloudflare\.net/.test(h) },
+    ],
+  },
+
+  // ── Cloud ──────────────────────────────────────────────────────────────────
+  { name: "AWS S3 / CloudFront",    category: "cloud",       risk_level: "low",
+    signals: [
+      { source: "csp:any",         test: (h) => /amazonaws\.com|cloudfront\.net/.test(h) },
+      { source: "cname",           test: (h) => /amazonaws\.com|cloudfront\.net/.test(h) },
+    ],
+  },
+  { name: "Google Cloud Storage",   category: "cloud",       risk_level: "low",
+    signals: [
+      { source: "csp:any",         test: (h) => /storage\.googleapis\.com|googleusercontent\.com/.test(h) },
+    ],
+  },
+  { name: "Azure Blob / CDN",       category: "cloud",       risk_level: "low",
+    signals: [
+      { source: "csp:any",         test: (h) => /azureedge\.net|blob\.core\.windows\.net/.test(h) },
+      { source: "cname",           test: (h) => /azureedge\.net/.test(h) },
+    ],
+  },
+
+  // ── Security ───────────────────────────────────────────────────────────────
+  { name: "Sentry",                 category: "security",    risk_level: "low",
+    signals: [
+      { source: "csp:script-src",  test: (h) => /browser\.sentry-cdn\.com|js\.sentry\.io/.test(h) },
+      { source: "csp:connect-src", test: (h) => /sentry\.io/.test(h) },
+    ],
+  },
+  { name: "Datadog",                category: "security",    risk_level: "low",
+    signals: [
+      { source: "csp:script-src",  test: (h) => /datadoghq-browser-agent\.com/.test(h) },
+      { source: "csp:connect-src", test: (h) => /datadoghq\.com/.test(h) },
+    ],
+  },
+  { name: "New Relic",              category: "security",    risk_level: "low",
+    signals: [
+      { source: "csp:script-src",  test: (h) => /js-agent\.newrelic\.com/.test(h) },
+      { source: "csp:connect-src", test: (h) => /bam\.nr-data\.net/.test(h) },
+    ],
+  },
+  { name: "Cloudflare Insights",    category: "security",    risk_level: "low",
+    signals: [
+      { source: "csp:script-src",  test: (h) => /static\.cloudflareinsights\.com/.test(h) },
+    ],
+  },
+  { name: "reCAPTCHA",              category: "security",    risk_level: "low",
+    signals: [
+      { source: "csp:script-src",  test: (h) => /www\.google\.com|recaptcha\.net/.test(h) },
+      { source: "csp:frame-src",   test: (h) => /recaptcha\.net|www\.google\.com/.test(h) },
+    ],
+  },
+];
+
+/**
+ * runVendorRelationshipModule(modules)
+ * Phase 7k — pure computation, zero network I/O.
+ *
+ * Parses CSP header per-directive, extracts hostnames from script-src,
+ * connect-src, frame-src, img-src, and font-src; also uses CNAME signals
+ * for high-confidence DNS-level matches.
+ *
+ * Confidence:
+ *   high   — CNAME match or ≥2 independent CSP directives
+ *   medium — single specific CSP directive match
+ *   low    — csp:any (full-string fallback) only
+ */
+function runVendorRelationshipModule(modules) {
+  try {
+    // ── Build signal sets ────────────────────────────────────────────────────
+    const rawCsp = (modules?.headers?.values?.["content-security-policy"] || "").toLowerCase();
+    const directives = parseCspDirectives(rawCsp);
+
+    // Script hosts from the first HTML body chunk read by runTechModule.
+    const scriptHosts = Array.isArray(modules?.technology_detection?.external_scripts)
+      ? modules.technology_detection.external_scripts.map((h) => String(h).toLowerCase())
+      : [];
+
+    // CNAME targets for DNS-level high-confidence signals
+    const cnames = [];
+    for (const risk of (modules?.subdomain_takeover?.risks || [])) {
+      if (risk?.cname) cnames.push(risk.cname.toLowerCase());
+    }
+    for (const asset of (modules?.asset_exposure?.assets || [])) {
+      if (asset?.cname) cnames.push(asset.cname.toLowerCase());
+    }
+    for (const item of (modules?.dns_bruteforce?.items || [])) {
+      if (item?.cname) cnames.push(item.cname.toLowerCase());
+    }
+
+    // ── Signal tester ────────────────────────────────────────────────────────
+    function testSignal(signal) {
+      if (signal.source.startsWith("csp:")) {
+        const directive = signal.source.slice(4);
+        if (directive === "any") {
+          for (const hosts of Object.values(directives)) {
+            if (hosts.some(h => signal.test(h))) return true;
+          }
+          return false;
+        }
+        const hosts = directives[directive] || [];
+        return hosts.some(h => signal.test(h));
+      }
+      if (signal.source === "cname") {
+        return cnames.some(h => signal.test(h));
+      }
+      if (signal.source === "script") {
+        return scriptHosts.some(h => signal.test(h));
+      }
+      return false;
+    }
+
+    // ── Match signatures ─────────────────────────────────────────────────────
+    const vendors = [];
+
+    for (const sig of VENDOR_RELATIONSHIP_SIGS) {
+      const matchedSources = [];
+      for (const check of sig.signals) {
+        if (testSignal(check)) matchedSources.push(check.source);
+      }
+      if (matchedSources.length === 0) continue;
+
+      // Confidence rules
+      const hasCname       = matchedSources.includes("cname");
+      const hasScript      = matchedSources.includes("script");
+      const specificDirs   = matchedSources.filter(s => s.startsWith("csp:") && s !== "csp:any");
+      const hasAnyOnly     = matchedSources.every(s => s === "csp:any");
+
+      let confidence;
+      if (hasCname || specificDirs.length >= 2) confidence = "high";
+      else if (hasScript || specificDirs.length === 1) confidence = "medium";
+      else                                        confidence = "low";
+
+      vendors.push({
+        name:           sig.name,
+        category:       sig.category,
+        risk_level:     sig.risk_level,
+        confidence,
+        source:         matchedSources[0],
+        source_signals: matchedSources,
+      });
+    }
+
+    const byCategory = {};
+    for (const v of vendors) {
+      byCategory[v.category] = (byCategory[v.category] || 0) + 1;
+    }
+
+    const highConfidenceCount = vendors.filter(v => v.confidence === "high").length;
+
+    return {
+      detected:        vendors.length > 0,
+      vendors,
+      total:           vendors.length,
+      high_confidence: highConfidenceCount,
+      by_category:     byCategory,
+      source:          "csp_relationship_analysis",
+      error:           null,
+    };
+  } catch (err) {
+    return {
+      detected:        false,
+      vendors:         [],
+      total:           0,
+      high_confidence: 0,
+      by_category:     {},
+      source:          "csp_relationship_analysis",
+      error:           err?.message ?? "Vendor relationship analysis failed",
+    };
+  }
+}
+
+/**
+ * upsertVendorRelationships(domainId, relModule, env)
+ * Phase 8g: Persists vendor_relationship detections into workspace_vendors
+ * with source_module = 'vendor_relationship'.
+ *
+ * Uses INSERT OR IGNORE + UPDATE to preserve first_seen and refresh last_seen.
+ * Does NOT mark undetected vendors inactive — vendor_risk (Phase 8c) handles
+ * that sweep for DNS-sourced entries.
+ */
+async function upsertVendorRelationships(domainId, relModule, env) {
+  if (!relModule?.detected || !relModule.vendors?.length) return;
+
+  let wsRows;
+  try {
+    const r = await env.cybermeters_db
+      .prepare("SELECT workspace_id FROM workspace_domains WHERE domain_id = ?")
+      .bind(domainId)
+      .all();
+    wsRows = r.results || [];
+  } catch { return; }
+  if (wsRows.length === 0) return;
+
+  const now = new Date().toISOString();
+
+  for (const { workspace_id } of wsRows) {
+    for (const v of relModule.vendors) {
+      try {
+        const id           = createId("vendor");
+        const evidenceJson = JSON.stringify(v.source_signals || []);
+
+        await env.cybermeters_db
+          .prepare(
+            `INSERT OR IGNORE INTO workspace_vendors
+               (id, workspace_id, vendor_name, category, source, evidence,
+                confidence, risk_level, source_module,
+                first_seen, last_seen, status, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'vendor_relationship', ?, ?, 'active', ?, ?)`
+          )
+          .bind(
+            id, workspace_id, v.name, v.category, v.source, evidenceJson,
+            v.confidence, v.risk_level, now, now, now, now
+          )
+          .run();
+
+        await env.cybermeters_db
+          .prepare(
+            `UPDATE workspace_vendors
+             SET last_seen = ?, confidence = ?, risk_level = ?,
+                 evidence = ?, source_module = 'vendor_relationship',
+                 status = 'active', updated_at = ?
+             WHERE workspace_id = ? AND vendor_name = ? AND category = ?`
+          )
+          .bind(now, v.confidence, v.risk_level, evidenceJson, now, workspace_id, v.name, v.category)
+          .run();
+      } catch { /* non-fatal per-vendor */ }
+    }
+  }
+}
+
+// ── Vendor Risk Engine v1 Scoring ────────────────────────────────────────────
+
+const VENDOR_CATEGORY_MULTIPLIERS = {
+  identity_provider: 3.0,
+  payment_processor: 2.5,
+  dns_provider: 2.0,
+  cdn: 2.0,
+  email_provider: 1.5,
+  analytics: 1.2,
+  marketing: 1.2,
+  hosting: 1.0,
+  monitoring: 1.0,
+  security_tooling: 1.0,
+  other: 1.0,
+};
+
+const VENDOR_CONCENTRATION_WEIGHTS = {
+  identity_provider: 5,
+  payment_processor: 5,
+  dns_provider: 4,
+  cdn: 4,
+  email_provider: 3,
+  analytics: 1,
+  marketing: 1,
+  hosting: 1,
+  monitoring: 1,
+  security_tooling: 1,
+  other: 1,
+};
+
+const VENDOR_SIGNAL_WEIGHTS = {
+  "csp:script-src": 1.0,
+  "csp:connect-src": 0.95,
+  script: 0.85,
+  cname: 0.9,
+  headers: 0.6,
+  header: 0.6,
+  server: 0.6,
+  tech: 0.6,
+};
+
+function confidenceToScore(confidence) {
+  if (typeof confidence === "number") return Math.max(0, Math.min(1, confidence));
+  const c = String(confidence || "").toLowerCase();
+  if (c === "high") return 1.0;
+  if (c === "medium") return 0.6;
+  if (c === "low") return 0.25;
+  return 0.1;
+}
+
+function normalizeVendorKey(vendorName) {
+  const raw = String(vendorName || "").toLowerCase().trim();
+  if (!raw) return "unknown";
+  const normalized = raw
+    .replace(/^https?:\/\//, "")
+    .replace(/^www\./, "")
+    .replace(/[^\w.\s-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (/stripe|js\.stripe\.com|assets\.stripe\.com/.test(normalized)) return "stripe";
+  if (/cloudflare|cdnjs/.test(normalized)) return "cloudflare";
+  if (/google|gtm|googletagmanager|google analytics|gts|recaptcha/.test(normalized)) return "google";
+  if (/intercom|intercomcdn/.test(normalized)) return "intercom";
+  if (/hotjar/.test(normalized)) return "hotjar";
+  if (/segment/.test(normalized)) return "segment";
+  if (/amplitude/.test(normalized)) return "amplitude";
+  if (/paypal|paypalobjects/.test(normalized)) return "paypal";
+  if (/microsoft|entra|office|outlook|azure/.test(normalized)) return "microsoft";
+  if (/amazon|aws|cloudfront/.test(normalized)) return "aws";
+  if (/zendesk|zdassets/.test(normalized)) return "zendesk";
+  if (/hubspot|hubapi|hs-scripts|hsforms/.test(normalized)) return "hubspot";
+  if (/salesforce|force\.com/.test(normalized)) return "salesforce";
+  if (/okta/.test(normalized)) return "okta";
+  if (/auth0/.test(normalized)) return "auth0";
+  if (/datadog/.test(normalized)) return "datadog";
+
+  return normalized
+    .replace(/\.(com|net|org|io|co|app|dev|cloud|me)$/g, "")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "") || "unknown";
+}
+
+function getVendorSources(row) {
+  const sources = new Set();
+  if (row?.source) sources.add(String(row.source));
+  for (const s of (Array.isArray(row?._sources) ? row._sources : [])) sources.add(String(s));
+  try {
+    const parsed = typeof row?.evidence === "string" ? JSON.parse(row.evidence || "[]") : row?.evidence;
+    for (const item of (Array.isArray(parsed) ? parsed : [])) {
+      if (typeof item === "string") sources.add(item);
+      else if (item?.source) sources.add(String(item.source));
+    }
+  } catch { /* ignore malformed evidence */ }
+  return [...sources].filter(Boolean);
+}
+
+function signalWeightForSource(source) {
+  const s = String(source || "").toLowerCase();
+  if (VENDOR_SIGNAL_WEIGHTS[s] !== undefined) return VENDOR_SIGNAL_WEIGHTS[s];
+  if (s.startsWith("csp:script-src")) return 1.0;
+  if (s.startsWith("csp:connect-src")) return 0.95;
+  if (s.startsWith("csp:")) return 0.9;
+  if (["ns", "mx", "spf", "dkim"].includes(s)) return 0.9;
+  if (["server", "tech", "x-powered-by", "via", "x-cache"].includes(s)) return 0.6;
+  return 0.75;
+}
+
+function signalWeightForVendor(row) {
+  const sources = getVendorSources(row);
+  if (sources.length === 0) return 0.75;
+  return Math.max(...sources.map(signalWeightForSource));
+}
+
+function normalizeVendorRiskCategory(category, vendorName = "", source = "") {
+  const c = String(category || "").toLowerCase();
+  const name = String(vendorName || "").toLowerCase();
+  const src = String(source || "").toLowerCase();
+
+  if (c === "identity_provider" || c === "identity") return "identity_provider";
+  if (c === "payment_processor" || c === "payments") return "payment_processor";
+  if (c === "dns_provider") return "dns_provider";
+  if (c === "email_provider" || c === "email_identity") return "email_provider";
+  if (c === "analytics") return "analytics";
+  if (c === "marketing") return "marketing";
+  if (c === "monitoring") return "monitoring";
+  if (c === "security_tooling" || c === "security" || c === "certificate_authority") return "security_tooling";
+  if (c === "cdn") return "cdn";
+  if (c === "hosting" || c === "cloud") return "hosting";
+
+  if (c === "infrastructure") {
+    if (/cloudflare|akamai|fastly/.test(name)) return src === "ns" ? "dns_provider" : "cdn";
+    return "cdn";
+  }
+
+  if (c === "saas") {
+    if (/stripe|paypal|braintree|square|adyen|klarna|paddle/.test(name)) return "payment_processor";
+    if (/sendgrid|mailchimp|mailgun|brevo|klaviyo|marketo|hubspot/.test(name)) return "marketing";
+    return "other";
+  }
+
+  if (c === "support" || c === "collaboration" || c === "crm" || c === "ecommerce") return "other";
+  return "other";
+}
+
+function riskLevelBaseScore(riskLevel) {
+  const r = String(riskLevel || "").toLowerCase();
+  if (r === "high" || r === "critical") return 80;
+  if (r === "medium") return 60;
+  if (r === "low") return 40;
+  return 30;
+}
+
+function scoreVendorRisk(row, categoryCounts, totalVendors) {
+  const normalizedCategory = normalizeVendorRiskCategory(row.category, row.vendor_name, row.source);
+  const multiplier = VENDOR_CATEGORY_MULTIPLIERS[normalizedCategory] ?? 1.0;
+  const signalWeight = signalWeightForVendor(row);
+  const confidenceScore = Number((confidenceToScore(row.confidence) * signalWeight).toFixed(3));
+  const base = Math.round(riskLevelBaseScore(row.risk_level) * confidenceScore);
+  const categoryCount = categoryCounts[normalizedCategory] || 0;
+  const concentrationRatio = totalVendors > 0 ? categoryCount / totalVendors : 0;
+  const concentrationPenalty = concentrationRatio >= 0.5 && categoryCount >= 3
+    ? 15
+    : concentrationRatio >= 0.35 && categoryCount >= 2
+      ? 8
+      : 0;
+  const score = Math.max(0, Math.min(100, Math.round(base * multiplier - concentrationPenalty)));
+  return {
+    normalized_category: normalizedCategory,
+    score,
+    category_multiplier: multiplier,
+    concentration_penalty: concentrationPenalty,
+    confidence_score: confidenceScore,
+    signal_weight: signalWeight,
+  };
+}
+
+function classifyWorkspaceVendorConcentration(vendors) {
+  if (vendors.length === 0) {
+    return { level: "low", dominant_category: null, dominant_count: 0, dominant_ratio: 0, weighted_dominance: 0, total_weight: 0 };
+  }
+  const weights = {};
+  let totalWeight = 0;
+  for (const v of vendors) {
+    const cat = v.normalized_category || normalizeVendorRiskCategory(v.category, v.vendor_name, v.source);
+    const weight = VENDOR_CONCENTRATION_WEIGHTS[cat] ?? 1;
+    weights[cat] = (weights[cat] || 0) + weight;
+    totalWeight += weight;
+  }
+  const [dominant_category, weighted_dominance] = Object.entries(weights)
+    .sort((a, b) => b[1] - a[1])[0];
+  const dominant_ratio = totalWeight > 0 ? weighted_dominance / totalWeight : 0;
+  const level =
+    dominant_ratio >= 0.65 ? "high" :
+    dominant_ratio >= 0.45 ? "medium" : "low";
+  return {
+    level,
+    dominant_category,
+    dominant_count: vendors.filter((v) => (v.normalized_category || normalizeVendorRiskCategory(v.category, v.vendor_name, v.source)) === dominant_category).length,
+    dominant_ratio: Number(dominant_ratio.toFixed(2)),
+    weighted_dominance,
+    total_weight: totalWeight,
+  };
+}
+
+function computeWorkspaceVendorRisk(vendors) {
+  const active = vendors.filter((v) => (v.status || "active") === "active");
+  if (active.length === 0) {
+    return {
+      workspace_vendor_risk_score: 0,
+      concentration_risk: classifyWorkspaceVendorConcentration([]),
+      top_vendors: [],
+      scored_vendors: [],
+    };
+  }
+
+  const canonical = new Map();
+  for (const row of active) {
+    const vendor_key = normalizeVendorKey(row.vendor_name || row.name);
+    const normalized_category = normalizeVendorRiskCategory(row.category, row.vendor_name || row.name, row.source);
+    const existing = canonical.get(vendor_key);
+    const candidate = {
+      ...row,
+      vendor_key,
+      normalized_category,
+      _sources: getVendorSources(row),
+    };
+    if (!existing) {
+      canonical.set(vendor_key, candidate);
+      continue;
+    }
+
+    const existingSignal = signalWeightForVendor(existing);
+    const candidateSignal = signalWeightForVendor(candidate);
+    const existingRank = riskLevelBaseScore(existing.risk_level) * confidenceToScore(existing.confidence) * existingSignal;
+    const candidateRank = riskLevelBaseScore(candidate.risk_level) * confidenceToScore(candidate.confidence) * candidateSignal;
+    const kept = candidateRank > existingRank ? candidate : existing;
+    kept._sources = [...new Set([...(existing._sources || []), ...(candidate._sources || [])])];
+    canonical.set(vendor_key, kept);
+  }
+
+  const deduped = [...canonical.values()];
+  const categoryCounts = {};
+  for (const row of deduped) {
+    const cat = row.normalized_category || normalizeVendorRiskCategory(row.category, row.vendor_name, row.source);
+    categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
+  }
+
+  const scored = deduped.map((row) => ({
+    ...row,
+    ...scoreVendorRisk(row, categoryCounts, deduped.length),
+  }));
+  const concentration = classifyWorkspaceVendorConcentration(scored);
+  const topVendors = scored.slice().sort((a, b) => b.score - a.score).slice(0, 10);
+  const topAvg = topVendors.length
+    ? topVendors.reduce((sum, v) => sum + v.score, 0) / topVendors.length
+    : 0;
+  const concentrationBump = concentration.level === "high" ? 10 : concentration.level === "medium" ? 5 : 0;
+
+  return {
+    workspace_vendor_risk_score: Math.max(0, Math.min(100, Math.round(topAvg + concentrationBump))),
+    concentration_risk: concentration,
+    top_vendors: topVendors,
+    scored_vendors: scored,
+  };
+}
+
+async function recomputeWorkspaceVendorRiskScores(workspaceId, env) {
+  if (!workspaceId) return null;
+  const now = new Date().toISOString();
+  const rows = await env.cybermeters_db
+    .prepare(
+      `SELECT id, workspace_id, vendor_name, category, source, evidence,
+              confidence, risk_level, status, first_seen, last_seen,
+              metadata_json
+       FROM workspace_vendors
+       WHERE workspace_id = ? AND status = 'active'`
+    )
+    .bind(workspaceId)
+    .all();
+
+  const vendors = rows.results || [];
+  const aggregate = computeWorkspaceVendorRisk(vendors);
+  const scoredIds = aggregate.scored_vendors.map((v) => v.id).filter(Boolean);
+
+  try {
+    if (scoredIds.length > 0) {
+      const placeholders = scoredIds.map(() => "?").join(", ");
+      await env.cybermeters_db
+        .prepare(
+          `DELETE FROM vendor_risk_scores
+           WHERE workspace_id = ? AND vendor_id NOT IN (${placeholders})`
+        )
+        .bind(workspaceId, ...scoredIds)
+        .run();
+    } else {
+      await env.cybermeters_db
+        .prepare("DELETE FROM vendor_risk_scores WHERE workspace_id = ?")
+        .bind(workspaceId)
+        .run();
+    }
+  } catch { /* score cleanup is non-fatal */ }
+
+  for (const v of aggregate.scored_vendors) {
+    try {
+      await env.cybermeters_db
+        .prepare(
+          `INSERT OR REPLACE INTO vendor_risk_scores
+             (vendor_id, workspace_id, score, category_multiplier,
+              concentration_penalty, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?)`
+        )
+        .bind(
+          v.id, workspaceId, v.score, v.category_multiplier,
+          v.concentration_penalty, now
+        )
+        .run();
+      await env.cybermeters_db
+        .prepare(
+          `INSERT INTO vendor_risk_scores_history
+             (id, vendor_id, workspace_id, score, snapshot_time)
+           VALUES (?, ?, ?, ?, ?)`
+        )
+        .bind(createId("vscorehist"), v.id, workspaceId, v.score, now)
+        .run();
+    } catch { /* score persistence is non-fatal per vendor */ }
+  }
+
+  return aggregate;
+}
+
+async function recomputeVendorRiskScoresForDomain(domainId, env) {
+  let wsRows;
+  try {
+    const r = await env.cybermeters_db
+      .prepare("SELECT workspace_id FROM workspace_domains WHERE domain_id = ?")
+      .bind(domainId)
+      .all();
+    wsRows = r.results || [];
+  } catch { return; }
+
+  for (const { workspace_id } of wsRows) {
+    try {
+      await recomputeWorkspaceVendorRiskScores(workspace_id, env);
+    } catch { /* migration may not be applied yet; scans must not fail */ }
   }
 }
 
@@ -14469,6 +15406,7 @@ export default {
         brandHighRisk: 0, brandMedRisk: 0, brandLowRisk: 0,
         vendorHigh: 0, vendorMedium: 0, vendorTotal: 0,
         identityHighRiskCount: (normalisedModules.identity_discovery?.high_risk_count ?? 0),
+        vendorRelHighConf:     (normalisedModules.vendor_relationships?.high_confidence ?? 0),
       };
       const brsResult = computeBusinessRiskScore(reportFindingIds, brsModuleData);
       const businessRisk = {
@@ -16734,6 +17672,14 @@ export default {
           else if (rl === "low")    summary.low_risk++;
         }
 
+        // Backward-compatible aliases used by the current frontend.
+        summary.active = summary.active_vendors;
+        summary.by_risk = {
+          high: summary.high_risk,
+          medium: summary.medium_risk,
+          low: summary.low_risk,
+        };
+
         return json(summary);
       }
 
@@ -16752,38 +17698,104 @@ export default {
       if (filterCategory) { whereClauses.push("category = ?");   binds.push(filterCategory); }
 
       const whereSQL = whereClauses.join(" AND ");
+      const scoredWhereSQL = whereSQL
+        .replace(/\bworkspace_id\b/g, "wv.workspace_id")
+        .replace(/\bstatus\b/g, "wv.status")
+        .replace(/\brisk_level\b/g, "wv.risk_level")
+        .replace(/\bcategory\b/g, "wv.category");
 
-      let vendors;
+      let vendorRows;
       try {
         const r = await env.cybermeters_db
           .prepare(
-            `SELECT vendor_name AS name, category, source, evidence, confidence,
-                    risk_level, status, first_seen, last_seen, metadata_json
-             FROM workspace_vendors
-             WHERE ${whereSQL}
+            `SELECT wv.id, wv.vendor_name, wv.vendor_name AS name, wv.category,
+                    wv.source, wv.evidence, wv.confidence,
+                    wv.risk_level, wv.status, wv.first_seen, wv.last_seen,
+                    wv.metadata_json,
+                    vrs.score AS persisted_score,
+                    vrs.category_multiplier,
+                    vrs.concentration_penalty
+             FROM workspace_vendors wv
+             LEFT JOIN vendor_risk_scores vrs
+               ON vrs.vendor_id = wv.id
+              AND vrs.workspace_id = wv.workspace_id
+             WHERE ${scoredWhereSQL}
              ORDER BY
-               CASE risk_level WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
-               vendor_name`
+               COALESCE(vrs.score, 0) DESC,
+               CASE wv.risk_level WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
+               wv.vendor_name`
           )
           .bind(...binds)
           .all();
-        vendors = (r.results || []).map((row) => ({
-          name: row.name,
-          category: row.category,
+        vendorRows = r.results || [];
+      } catch {
+        try {
+          const r = await env.cybermeters_db
+            .prepare(
+              `SELECT id, vendor_name, vendor_name AS name, category, source,
+                      evidence, confidence, risk_level, status, first_seen,
+                      last_seen, metadata_json
+               FROM workspace_vendors
+               WHERE ${whereSQL}
+               ORDER BY
+                 CASE risk_level WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
+                 vendor_name`
+            )
+            .bind(...binds)
+            .all();
+          vendorRows = r.results || [];
+        } catch {
+          return json({ error: "Database error" }, 500);
+        }
+      }
+
+      const aggregate = computeWorkspaceVendorRisk(vendorRows);
+      const vendors = aggregate.scored_vendors
+        .slice()
+        .sort((a, b) => b.score - a.score || String(a.vendor_name || a.name).localeCompare(String(b.vendor_name || b.name)))
+        .map((row) => {
+        const evidence = (() => { try { return JSON.parse(row.evidence); } catch { return []; } })();
+        const sources = [...new Set([...(row._sources || []), ...getVendorSources(row)].filter(Boolean))];
+        return {
+          id: row.id,
+          name: row.name || row.vendor_name,
+          vendor_name: row.name || row.vendor_name,
+          vendor_key: row.vendor_key || normalizeVendorKey(row.name || row.vendor_name),
+          category: row.normalized_category || normalizeVendorRiskCategory(row.category, row.name || row.vendor_name, row.source),
+          normalized_category: row.normalized_category || normalizeVendorRiskCategory(row.category, row.name || row.vendor_name, row.source),
+          raw_category: row.category,
           source: row.source,
+          sources,
           confidence: row.confidence,
+          confidence_score: row.confidence_score ?? confidenceToScore(row.confidence),
+          signal_weight: row.signal_weight ?? signalWeightForVendor(row),
+          score: row.score ?? row.persisted_score ?? 0,
+          category_multiplier: row.category_multiplier ?? 1,
+          concentration_penalty: row.concentration_penalty ?? 0,
           risk_level: row.risk_level,
           status: row.status,
           first_seen: row.first_seen,
           last_seen: row.last_seen,
-          evidence: (() => { try { return JSON.parse(row.evidence); } catch { return []; } })(),
+          evidence,
           metadata: (() => { try { return JSON.parse(row.metadata_json || "{}"); } catch { return {}; } })(),
-        }));
-      } catch {
-        return json({ error: "Database error" }, 500);
-      }
+        };
+      });
 
-      return json({ workspace_id: wsId, count: vendors.length, vendors });
+      return json({
+        workspace_id: wsId,
+        count: vendors.length,
+        vendors,
+        top_vendors: aggregate.top_vendors.map((v) => ({
+          id: v.id,
+          name: v.vendor_name,
+          vendor_key: v.vendor_key,
+          category: v.normalized_category,
+          score: v.score,
+          risk_level: v.risk_level,
+        })),
+        concentration_risk: aggregate.concentration_risk,
+        workspace_vendor_risk_score: aggregate.workspace_vendor_risk_score,
+      });
     }
 
     // ── GET /api/workspaces/:id/scorecard/pdf ─────────────────────────────────
@@ -17124,6 +18136,74 @@ export default {
       }
     }
 
+    // ── Vendor Relationship Routes ────────────────────────────────────────────
+    // GET /api/workspaces/:id/vendor-relationships
+    //   Returns vendors detected via CSP/JS analysis (source_module='vendor_relationship').
+    //   Supports ?category=analytics|payments|crm|support|identity|collaboration|cloud|cdn|security
+    //             ?confidence=high|medium|low
+    //   Returns: { workspace_id, total, high_confidence, by_category, vendors: [...] }
+    const vendorRelMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/vendor-relationships$/);
+    if (vendorRelMatch && request.method === "GET") {
+      const wsId = vendorRelMatch[1];
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, wsId, "workspace:read", env);
+      if (!access) return json({ error: "Forbidden" }, 403);
+
+      const filterCat  = url.searchParams.get("category");
+      const filterConf = url.searchParams.get("confidence");
+
+      const whereClauses = ["workspace_id = ?", "source_module = 'vendor_relationship'", "status = 'active'"];
+      const binds        = [wsId];
+      if (filterCat)  { whereClauses.push("category = ?");    binds.push(filterCat); }
+      if (filterConf) { whereClauses.push("confidence = ?");  binds.push(filterConf); }
+      const whereSQL = whereClauses.join(" AND ");
+
+      try {
+        const r = await env.cybermeters_db
+          .prepare(
+            `SELECT vendor_name AS name, category, source, evidence, confidence,
+                    risk_level, first_seen, last_seen
+             FROM workspace_vendors
+             WHERE ${whereSQL}
+             ORDER BY
+               CASE confidence WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
+               CASE risk_level WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
+               category, vendor_name`
+          )
+          .bind(...binds)
+          .all();
+
+        const vendors = (r.results || []).map(row => ({
+          name:       row.name,
+          category:   row.category,
+          source:     row.source,
+          confidence: row.confidence,
+          risk_level: row.risk_level,
+          first_seen: row.first_seen,
+          last_seen:  row.last_seen,
+          source_signals: (() => { try { return JSON.parse(row.evidence); } catch { return []; } })(),
+        }));
+
+        const byCategory = {};
+        for (const v of vendors) {
+          byCategory[v.category] = (byCategory[v.category] || 0) + 1;
+        }
+        const highConfidence = vendors.filter(v => v.confidence === "high").length;
+
+        return json({
+          workspace_id:    wsId,
+          total:           vendors.length,
+          high_confidence: highConfidence,
+          by_category:     byCategory,
+          vendors,
+          generated_at:    new Date().toISOString(),
+        });
+      } catch (err) {
+        return json({ error: "Database error", detail: err?.message }, 500);
+      }
+    }
+
     // ── Brand Monitoring Routes ───────────────────────────────────────────────
     // GET  /api/workspaces/:id/brand-monitoring              — candidate list
     // GET  /api/workspaces/:id/brand-monitoring/summary      — risk summary
@@ -17451,6 +18531,7 @@ export default {
         let subdomainTakeoverCount = 0;
         let assetExposureCount     = 0;
         let identityHighRiskCount  = 0;
+        let vendorRelHighConf      = 0;
         if (latestScanRow?.scan_id) {
           // Prefer R2 report for finding IDs (authoritative)
           try {
@@ -17465,6 +18546,7 @@ export default {
               subdomainTakeoverCount = (mods.subdomain_takeover?.risks ?? []).length;
               assetExposureCount     = (mods.asset_exposure?.assets ?? []).filter(a => a.reachable).length;
               identityHighRiskCount  = mods.identity_discovery?.high_risk_count ?? 0;
+              vendorRelHighConf      = mods.vendor_relationships?.high_confidence ?? 0;
             }
           } catch { /* tolerate missing report */ }
         }
@@ -17490,6 +18572,7 @@ export default {
           subdomainTakeoverCount,
           assetExposureCount,
           identityHighRiskCount,
+          vendorRelHighConf,
         };
 
         const brsResult = computeBusinessRiskScore(findingIds, workspaceData);
