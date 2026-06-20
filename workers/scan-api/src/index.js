@@ -9571,58 +9571,81 @@ async function processScheduledReports(now, env) {
 
 async function cleanupExpiredReports(nowIso, env) {
   const now = new Date(nowIso);
+  const deadlineMs = Date.now() + 25_000;
   const policies = ["30_days", "90_days", "1_year", "2_years", "7_years"];
-  const expired = [];
 
   for (const policy of policies) {
     const cutoff = getRetentionCutoff(policy, now);
     if (!cutoff) continue;
-    try {
-      const rows = await env.cybermeters_db
-        .prepare(
-          `SELECT id, workspace_id, report_type, report_period, report_key, retention_policy,
-                  COALESCE(generated_at, created_at) AS effective_at
-           FROM workspace_reports
-           WHERE retention_policy = ?
-             AND COALESCE(generated_at, created_at) <= ?
-           ORDER BY COALESCE(generated_at, created_at) ASC
-           LIMIT 100`
-        )
-        .bind(policy, cutoff)
-        .all();
-      expired.push(...(rows.results || []));
-    } catch {
-      return;
-    }
-  }
+    const skippedIds = new Set();
 
-  for (const report of expired) {
-    try {
-      await env.cybermeters_reports.delete(report.report_key);
-      const result = await env.cybermeters_db
-        .prepare("DELETE FROM workspace_reports WHERE id = ?")
-        .bind(report.id)
-        .run();
-      if (result.meta?.changes === 0) continue;
+    while (Date.now() < deadlineMs) {
+      let expired;
+      try {
+        const skipped = [...skippedIds];
+        const skipClause = skipped.length > 0
+          ? `AND id NOT IN (${skipped.map(() => "?").join(",")})`
+          : "";
+        const rows = await env.cybermeters_db
+          .prepare(
+            `SELECT id, workspace_id, report_type, report_period, report_key, retention_policy,
+                    COALESCE(generated_at, created_at) AS effective_at
+             FROM workspace_reports
+             WHERE retention_policy = ?
+               AND deleted_at IS NULL
+               AND COALESCE(generated_at, created_at) <= ?
+               ${skipClause}
+             ORDER BY COALESCE(generated_at, created_at) ASC
+             LIMIT 100`
+          )
+          .bind(policy, cutoff, ...skipped)
+          .all();
+        expired = rows.results || [];
+      } catch {
+        break;
+      }
 
-      await createAuditEvent(env, {
-        workspace_id: report.workspace_id,
-        event_type:   "report_deleted",
-        entity_type:  "report",
-        entity_id:    report.id,
-        description:  `Report expired by retention policy (${report.retention_policy})`,
-        metadata:     {
-          report_id: report.id,
-          workspace_id: report.workspace_id,
-          report_type: report.report_type,
-          report_period: report.report_period,
-          report_key: report.report_key,
-          retention_policy: report.retention_policy,
-          deletion_reason: "retention_expired",
-        },
-      });
-    } catch {
-      // Keep the row if either R2 deletion or D1 cleanup failed; retry next run.
+      if (expired.length === 0) break;
+
+      for (const report of expired) {
+        if (Date.now() >= deadlineMs) break;
+        try {
+          await env.cybermeters_reports.delete(report.report_key);
+          const deletedAt = new Date().toISOString();
+          const result = await env.cybermeters_db
+            .prepare(
+              `UPDATE workspace_reports
+               SET deleted_at = ?, deleted_by = NULL
+               WHERE id = ? AND deleted_at IS NULL`
+            )
+            .bind(deletedAt, report.id)
+            .run();
+          if (result.meta?.changes === 0) continue;
+
+          await createAuditEvent(env, {
+            workspace_id: report.workspace_id,
+            event_type:   "report_deleted",
+            entity_type:  "report",
+            entity_id:    report.id,
+            description:  `Report expired by retention policy (${report.retention_policy})`,
+            metadata:     {
+              report_id: report.id,
+              workspace_id: report.workspace_id,
+              user_id: null,
+              report_type: report.report_type,
+              report_period: report.report_period,
+              report_key: report.report_key,
+              retention_policy: report.retention_policy,
+              deletion_reason: "retention_expired",
+            },
+          });
+        } catch {
+          // Keep the active row if R2 deletion fails; retry next run.
+          skippedIds.add(report.id);
+        }
+      }
+
+      if (skippedIds.size > 500) break;
     }
   }
 }
@@ -9658,7 +9681,7 @@ async function generateScheduledReports(now, env) {
 
         const exists = await env.cybermeters_db.prepare(
           `SELECT id FROM workspace_reports
-           WHERE workspace_id = ? AND report_type = ? AND report_period = ? LIMIT 1`
+           WHERE workspace_id = ? AND report_type = ? AND report_period = ? AND deleted_at IS NULL LIMIT 1`
         ).bind(ws.id, 'weekly_executive', period).first();
         if (exists) continue;
 
@@ -9675,7 +9698,7 @@ async function generateScheduledReports(now, env) {
 
         const exists = await env.cybermeters_db.prepare(
           `SELECT id FROM workspace_reports
-           WHERE workspace_id = ? AND report_type = ? AND report_period = ? LIMIT 1`
+           WHERE workspace_id = ? AND report_type = ? AND report_period = ? AND deleted_at IS NULL LIMIT 1`
         ).bind(ws.id, 'monthly_executive', period).first();
         if (exists) continue;
 
@@ -10100,6 +10123,19 @@ function getRetentionCutoff(policy, now = new Date()) {
   else if (policy === "2_years") date.setUTCFullYear(date.getUTCFullYear() - 2);
   else if (policy === "7_years") date.setUTCFullYear(date.getUTCFullYear() - 7);
   else date.setUTCFullYear(date.getUTCFullYear() - 2);
+  return date.toISOString();
+}
+
+function getReportExpiresAt(policy, effectiveAt) {
+  if (!effectiveAt || policy === "forever") return null;
+  const date = new Date(effectiveAt);
+  if (Number.isNaN(date.getTime())) return null;
+  if (policy === "30_days") date.setUTCDate(date.getUTCDate() + 30);
+  else if (policy === "90_days") date.setUTCDate(date.getUTCDate() + 90);
+  else if (policy === "1_year") date.setUTCFullYear(date.getUTCFullYear() + 1);
+  else if (policy === "2_years") date.setUTCFullYear(date.getUTCFullYear() + 2);
+  else if (policy === "7_years") date.setUTCFullYear(date.getUTCFullYear() + 7);
+  else date.setUTCFullYear(date.getUTCFullYear() + 2);
   return date.toISOString();
 }
 
@@ -11474,7 +11510,7 @@ export default {
           db.prepare(`SELECT COUNT(*) AS count FROM workspace_assets WHERE status='active' AND workspace_id IN (${wsIn})`).bind(...workspaceIds).first(),
           db.prepare(`SELECT COUNT(*) AS count FROM workspace_vendors WHERE status='active' AND workspace_id IN (${wsIn})`).bind(...workspaceIds).first(),
           db.prepare(`SELECT COUNT(*) AS count FROM workspace_brand_assets WHERE status='active' AND workspace_id IN (${wsIn})`).bind(...workspaceIds).first(),
-          db.prepare(`SELECT COUNT(*) AS count FROM workspace_reports WHERE status='completed' AND workspace_id IN (${wsIn})`).bind(...workspaceIds).first(),
+          db.prepare(`SELECT COUNT(*) AS count FROM workspace_reports WHERE status='completed' AND deleted_at IS NULL AND workspace_id IN (${wsIn})`).bind(...workspaceIds).first(),
           // Critical + high findings from the latest completed scan per domain
           db.prepare(`
             WITH lpd AS (
@@ -11491,7 +11527,7 @@ export default {
             GROUP BY f.severity
           `).bind(...workspaceIds).all(),
           db.prepare(`SELECT COUNT(*) AS count FROM workspace_assets WHERE first_seen >= datetime('now','-7 days') AND workspace_id IN (${wsIn})`).bind(...workspaceIds).first(),
-          db.prepare(`SELECT COUNT(*) AS count FROM workspace_reports WHERE status='completed' AND generated_at >= datetime('now','-30 days') AND workspace_id IN (${wsIn})`).bind(...workspaceIds).first(),
+          db.prepare(`SELECT COUNT(*) AS count FROM workspace_reports WHERE status='completed' AND deleted_at IS NULL AND generated_at >= datetime('now','-30 days') AND workspace_id IN (${wsIn})`).bind(...workspaceIds).first(),
           // Domain verification counts
           db.prepare(`SELECT COUNT(*) AS count FROM workspace_domains wd JOIN domains d ON d.id = wd.domain_id WHERE wd.workspace_id IN (${wsIn}) AND d.verification_status = 'verified'`).bind(...workspaceIds).first(),
           db.prepare(`SELECT COUNT(*) AS count FROM workspace_domains wd JOIN domains d ON d.id = wd.domain_id WHERE wd.workspace_id IN (${wsIn}) AND d.verification_status NOT IN ('verified')`).bind(...workspaceIds).first(),
@@ -11619,7 +11655,7 @@ export default {
           `).bind(...workspaceIds).all(),
           db.prepare(`
             SELECT workspace_id, MAX(generated_at) AS last_report_at
-            FROM workspace_reports WHERE status='completed' AND workspace_id IN (${wsIn})
+            FROM workspace_reports WHERE status='completed' AND deleted_at IS NULL AND workspace_id IN (${wsIn})
             GROUP BY workspace_id
           `).bind(...workspaceIds).all(),
         ]);
@@ -11744,6 +11780,7 @@ export default {
             FROM workspace_reports wr
             JOIN workspaces w ON w.id = wr.workspace_id
             WHERE wr.status = 'failed'
+              AND wr.deleted_at IS NULL
               AND wr.workspace_id IN (${wsIn})
             ORDER BY wr.created_at DESC
             LIMIT ?
@@ -13946,11 +13983,11 @@ export default {
             .bind(workspaceId)
             .first(),
           env.cybermeters_db
-            .prepare("SELECT MAX(generated_at) AS last_report_at FROM workspace_reports WHERE workspace_id = ? AND status = 'completed'")
+            .prepare("SELECT MAX(generated_at) AS last_report_at FROM workspace_reports WHERE workspace_id = ? AND status = 'completed' AND deleted_at IS NULL")
             .bind(workspaceId)
             .first(),
           env.cybermeters_db
-            .prepare("SELECT COUNT(*) AS cnt FROM workspace_reports WHERE workspace_id = ?")
+            .prepare("SELECT COUNT(*) AS cnt FROM workspace_reports WHERE workspace_id = ? AND deleted_at IS NULL")
             .bind(workspaceId)
             .first(),
         ]);
@@ -14000,7 +14037,7 @@ export default {
             .bind(workspaceId)
             .first(),
           env.cybermeters_db
-            .prepare("SELECT COUNT(*) AS cnt FROM workspace_reports WHERE workspace_id = ?")
+            .prepare("SELECT COUNT(*) AS cnt FROM workspace_reports WHERE workspace_id = ? AND deleted_at IS NULL")
             .bind(workspaceId)
             .first(),
           env.cybermeters_db
@@ -14438,7 +14475,276 @@ export default {
       }
     }
 
-    // ── GET /api/workspaces/:id/activity ─────────────────────────────────────
+    // ── GET /api/workspaces/:id/executive-dashboard ──────────────────────────
+    // Single-call aggregation for the Executive Risk Intelligence Dashboard.
+    // Returns summary, score_trend, risk_distribution, top_risks, changes,
+    // remediation priorities, and KPI bar — all in one response.
+    const execDashMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/executive-dashboard$/);
+    if (execDashMatch && request.method === "GET") {
+      const wsId = execDashMatch[1];
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, wsId, "workspace:read", env);
+      if (!access) return json({ error: "Forbidden" }, 403);
+
+      try {
+        const [
+          domainRow,
+          latestScanRow,
+          activeAssetsRow,
+          criticalRow,
+          highRow,
+          scoreTrendRows,
+          riskDistRows,
+          topRisksRows,
+          scoreHistoryRows,
+          newAssetsRow,
+          remediationRows,
+          reportsRow,
+        ] = await env.cybermeters_db.batch([
+
+          // 1. Domain summary — total + verified count
+          env.cybermeters_db
+            .prepare(
+              `SELECT COUNT(d.id) AS total,
+                      SUM(CASE WHEN d.verification_status = 'verified' THEN 1 ELSE 0 END) AS verified
+               FROM workspace_domains wd
+               JOIN domains d ON d.id = wd.domain_id
+               WHERE wd.workspace_id = ?`
+            )
+            .bind(wsId),
+
+          // 2. Latest completed scan in workspace
+          env.cybermeters_db
+            .prepare(
+              `SELECT s.id, s.domain, s.score, s.rating, s.created_at
+               FROM scans s
+               JOIN workspace_domains wd ON s.domain_id = wd.domain_id
+               WHERE wd.workspace_id = ? AND s.status = 'completed' AND s.score IS NOT NULL
+               ORDER BY s.created_at DESC LIMIT 1`
+            )
+            .bind(wsId),
+
+          // 3. Active assets
+          env.cybermeters_db
+            .prepare(`SELECT COUNT(*) AS n FROM workspace_assets WHERE workspace_id = ? AND status = 'active'`)
+            .bind(wsId),
+
+          // 4. Critical findings (last 30 days)
+          env.cybermeters_db
+            .prepare(
+              `SELECT COUNT(f.id) AS n
+               FROM findings f
+               JOIN scans s ON f.scan_id = s.id
+               JOIN workspace_domains wd ON s.domain_id = wd.domain_id
+               WHERE wd.workspace_id = ? AND f.severity = 'critical'
+                 AND s.status = 'completed'
+                 AND s.created_at >= datetime('now', '-30 days')`
+            )
+            .bind(wsId),
+
+          // 5. High findings (last 30 days)
+          env.cybermeters_db
+            .prepare(
+              `SELECT COUNT(f.id) AS n
+               FROM findings f
+               JOIN scans s ON f.scan_id = s.id
+               JOIN workspace_domains wd ON s.domain_id = wd.domain_id
+               WHERE wd.workspace_id = ? AND f.severity = 'high'
+                 AND s.status = 'completed'
+                 AND s.created_at >= datetime('now', '-30 days')`
+            )
+            .bind(wsId),
+
+          // 6. Score trend — last 30 historical_scores ordered oldest→newest for chart
+          env.cybermeters_db
+            .prepare(
+              `SELECT score, rating, domain, created_at
+               FROM (SELECT score, rating, domain, created_at
+                     FROM historical_scores WHERE workspace_id = ?
+                     ORDER BY created_at DESC LIMIT 30)
+               ORDER BY created_at ASC`
+            )
+            .bind(wsId),
+
+          // 7. Risk distribution — severity counts from last 30 days
+          env.cybermeters_db
+            .prepare(
+              `SELECT f.severity, COUNT(*) AS n
+               FROM findings f
+               JOIN scans s ON f.scan_id = s.id
+               JOIN workspace_domains wd ON s.domain_id = wd.domain_id
+               WHERE wd.workspace_id = ?
+                 AND s.status = 'completed'
+                 AND s.created_at >= datetime('now', '-30 days')
+               GROUP BY f.severity`
+            )
+            .bind(wsId),
+
+          // 8. Top risks — top 10 by severity from last 30 days
+          env.cybermeters_db
+            .prepare(
+              `SELECT f.title, f.severity, f.created_at, s.domain
+               FROM findings f
+               JOIN scans s ON f.scan_id = s.id
+               JOIN workspace_domains wd ON s.domain_id = wd.domain_id
+               WHERE wd.workspace_id = ?
+                 AND s.status = 'completed'
+                 AND f.severity IN ('critical', 'high', 'medium')
+                 AND s.created_at >= datetime('now', '-30 days')
+               ORDER BY CASE f.severity
+                 WHEN 'critical' THEN 1
+                 WHEN 'high'     THEN 2
+                 WHEN 'medium'   THEN 3
+                 ELSE 4 END ASC,
+                 f.created_at DESC
+               LIMIT 10`
+            )
+            .bind(wsId),
+
+          // 9. Last 2 historical scores for score delta
+          env.cybermeters_db
+            .prepare(
+              `SELECT score, created_at, domain
+               FROM historical_scores WHERE workspace_id = ?
+               ORDER BY created_at DESC LIMIT 2`
+            )
+            .bind(wsId),
+
+          // 10. New assets discovered in last 7 days
+          env.cybermeters_db
+            .prepare(
+              `SELECT COUNT(*) AS n FROM asset_events
+               WHERE workspace_id = ? AND event_type = 'asset_discovered'
+                 AND created_at >= datetime('now', '-7 days')`
+            )
+            .bind(wsId),
+
+          // 11. Remediation items from last 30 days scans
+          env.cybermeters_db
+            .prepare(
+              `SELECT ri.priority, ri.title, ri.reason, s.domain, ri.created_at
+               FROM remediation_items ri
+               JOIN scans s ON ri.scan_id = s.id
+               JOIN workspace_domains wd ON s.domain_id = wd.domain_id
+               WHERE wd.workspace_id = ?
+                 AND s.status = 'completed'
+                 AND s.created_at >= datetime('now', '-30 days')
+               ORDER BY CAST(ri.priority AS INTEGER) ASC
+               LIMIT 30`
+            )
+            .bind(wsId),
+
+          // 12. Workspace reports generated
+          env.cybermeters_db
+            .prepare(
+              `SELECT COUNT(*) AS n FROM workspace_reports
+               WHERE workspace_id = ? AND status = 'completed'`
+            )
+            .bind(wsId),
+        ]);
+
+        // ── Assemble response ───────────────────────────────────────────────
+
+        const domainData    = domainRow.results[0]       ?? { total: 0, verified: 0 };
+        const latestScan    = latestScanRow.results[0]   ?? null;
+        const activeAssets  = activeAssetsRow.results[0]?.n ?? 0;
+        const criticalCount = criticalRow.results[0]?.n  ?? 0;
+        const highCount     = highRow.results[0]?.n      ?? 0;
+
+        const trendPoints = (scoreTrendRows.results || []).map(r => ({
+          score:      r.score,
+          rating:     r.rating,
+          domain:     r.domain,
+          scanned_at: r.created_at,
+        }));
+
+        const riskDist = { critical: 0, high: 0, medium: 0, low: 0, info: 0, total: 0 };
+        for (const r of (riskDistRows.results || [])) {
+          const sev = r.severity?.toLowerCase();
+          if (sev in riskDist) riskDist[sev] += r.n;
+          riskDist.total += r.n;
+        }
+
+        const topRisks = (topRisksRows.results || []).map(r => ({
+          title:       r.title,
+          severity:    r.severity,
+          domain:      r.domain,
+          detected_at: r.created_at,
+        }));
+
+        const scoreHistory  = scoreHistoryRows.results || [];
+        const scoreCurrent  = scoreHistory[0]?.score  ?? null;
+        const scorePrevious = scoreHistory[1]?.score  ?? null;
+        const scoreDelta    = (scoreCurrent != null && scorePrevious != null)
+          ? scoreCurrent - scorePrevious : null;
+
+        const newAssets7d = newAssetsRow.results[0]?.n ?? 0;
+
+        const remItems = remediationRows.results || [];
+        const fixNow  = remItems.filter(r => String(r.priority) === "1");
+        const fixNext = remItems.filter(r => String(r.priority) === "2");
+        const monitor = remItems.filter(r => parseInt(r.priority, 10) >= 3);
+
+        const totalDomains     = domainData.total   ?? 0;
+        const verifiedCount    = domainData.verified ?? 0;
+        const verificationRate = totalDomains > 0
+          ? Math.round((verifiedCount / totalDomains) * 100) : 0;
+
+        const avgScore = trendPoints.length > 0
+          ? Math.round(trendPoints.reduce((s, p) => s + (p.score ?? 0), 0) / trendPoints.length)
+          : (latestScan?.score ?? null);
+
+        return json({
+          workspace_id: wsId,
+          generated_at: new Date().toISOString(),
+
+          summary: {
+            security_score:    latestScan?.score   ?? null,
+            risk_level:        latestScan?.rating  ?? null,
+            domains:           totalDomains,
+            verified_domains:  verifiedCount,
+            verification_rate: verificationRate,
+            active_assets:     activeAssets,
+            critical_findings: criticalCount,
+            high_findings:     highCount,
+            last_scan_at:      latestScan?.created_at ?? null,
+            last_scan_domain:  latestScan?.domain     ?? null,
+          },
+
+          score_trend:       trendPoints,
+          risk_distribution: riskDist,
+          top_risks:         topRisks,
+
+          changes: {
+            score_current:  scoreCurrent,
+            score_previous: scorePrevious,
+            score_delta:    scoreDelta,
+            score_direction: scoreDelta == null ? null
+              : scoreDelta > 0 ? "up" : scoreDelta < 0 ? "down" : "flat",
+            new_assets_7d:  newAssets7d,
+          },
+
+          remediation: {
+            fix_now:  fixNow.map(r  => ({ title: r.title, reason: r.reason, domain: r.domain })),
+            fix_next: fixNext.map(r => ({ title: r.title, reason: r.reason, domain: r.domain })),
+            monitor:  monitor.slice(0, 10).map(r => ({ title: r.title, reason: r.reason, domain: r.domain })),
+          },
+
+          kpis: {
+            verification_rate: verificationRate,
+            average_score:     avgScore,
+            critical_risks:    criticalCount,
+            reports_generated: reportsRow.results[0]?.n ?? 0,
+            assets_discovered: activeAssets,
+          },
+        });
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
+        // ── GET /api/workspaces/:id/activity ─────────────────────────────────────
     // Returns paginated audit events for a workspace.
     // Query params: ?limit=N (max 100) &event_type=X &offset=N
     const activityMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/activity$/);
@@ -15348,6 +15654,55 @@ export default {
       }
     }
 
+    // ── GET /api/workspaces/:id/report-retention ────────────────────────────
+    const rptRetentionMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/report-retention$/);
+    if (rptRetentionMatch && request.method === 'GET') {
+      const wsId = rptRetentionMatch[1];
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, wsId, "workspace:read", env);
+      if (!access) return json({ error: "Forbidden" }, 403);
+
+      try {
+        const retentionPolicy = await getReportRetentionPolicyForWorkspace(wsId, env);
+        const rows = await env.cybermeters_db
+          .prepare(
+            `SELECT id, status, retention_policy, generated_at, created_at, report_key
+             FROM workspace_reports
+             WHERE workspace_id = ? AND deleted_at IS NULL`
+          )
+          .bind(wsId)
+          .all();
+
+        const nowMs = Date.now();
+        const in30Ms = nowMs + 30 * 86_400_000;
+        const in90Ms = nowMs + 90 * 86_400_000;
+        let expiring30 = 0;
+        let expiring90 = 0;
+
+        for (const report of (rows.results || [])) {
+          const effectiveAt = report.generated_at || report.created_at;
+          const expiresAt = getReportExpiresAt(report.retention_policy || retentionPolicy, effectiveAt);
+          if (!expiresAt) continue;
+          const expiresMs = new Date(expiresAt).getTime();
+          if (Number.isNaN(expiresMs) || expiresMs <= nowMs) continue;
+          if (expiresMs <= in30Ms) expiring30 += 1;
+          if (expiresMs <= in90Ms) expiring90 += 1;
+        }
+
+        const activeReports = rows.results || [];
+        return json({
+          total_reports: activeReports.length,
+          storage_reports: activeReports.filter((r) => r.report_key && r.status === "completed").length,
+          reports_expiring_30_days: expiring30,
+          reports_expiring_90_days: expiring90,
+          retention_policy: retentionPolicy,
+        });
+      } catch (err) {
+        return json({ error: String(err?.message ?? err) }, 500);
+      }
+    }
+
     // ── GET /api/workspaces/:id/reports ──────────────────────────────────────
     // List archived reports for a workspace.
     // Query params: ?report_type=  ?status=
@@ -15363,7 +15718,7 @@ export default {
       try {
         let sql    = `SELECT id, workspace_id, report_type, report_period, report_key,
                              status, generated_at, created_at, metadata_json, retention_policy
-                      FROM workspace_reports WHERE workspace_id = ?`;
+                      FROM workspace_reports WHERE workspace_id = ? AND deleted_at IS NULL`;
         const params = [wsId];
         if (typeFilter)   { sql += ' AND report_type = ?'; params.push(typeFilter); }
         if (statusFilter) { sql += ' AND status = ?';      params.push(statusFilter); }
@@ -15376,7 +15731,7 @@ export default {
     }
 
     // ── DELETE /api/workspaces/:id/reports/:reportId ─────────────────────────
-    // Permanently deletes the archived PDF from R2 and removes the D1 row.
+    // Permanently deletes the archived PDF from R2 and soft-deletes the D1 row.
     const rptDeleteMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/reports\/([^/]+)$/);
     if (rptDeleteMatch && request.method === 'DELETE') {
       const wsId     = rptDeleteMatch[1];
@@ -15388,16 +15743,21 @@ export default {
 
       try {
         const row = await env.cybermeters_db.prepare(
-          `SELECT id, workspace_id, report_type, report_period, report_key, status
-           FROM workspace_reports WHERE id = ? AND workspace_id = ?`
+          `SELECT id, workspace_id, report_type, report_period, report_key, status,
+                  retention_policy
+           FROM workspace_reports
+           WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL`
         ).bind(reportId, wsId).first();
         if (!row) return json({ error: 'Report not found' }, 404);
 
         await env.cybermeters_reports.delete(row.report_key);
 
+        const deletedAt = new Date().toISOString();
         const del = await env.cybermeters_db.prepare(
-          `DELETE FROM workspace_reports WHERE id = ? AND workspace_id = ?`
-        ).bind(reportId, wsId).run();
+          `UPDATE workspace_reports
+           SET deleted_at = ?, deleted_by = ?
+           WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL`
+        ).bind(deletedAt, user.id, reportId, wsId).run();
         if (del.meta?.changes === 0) return json({ error: 'Report not found' }, 404);
 
         await createAuditEvent(env, {
@@ -15414,6 +15774,8 @@ export default {
             report_type: row.report_type,
             report_period: row.report_period,
             report_key: row.report_key,
+            retention_policy: row.retention_policy,
+            deletion_reason: "user_deleted",
           },
         });
 
@@ -15436,7 +15798,7 @@ export default {
       try {
         const row = await env.cybermeters_db.prepare(
           `SELECT report_key, report_type, report_period, status
-           FROM workspace_reports WHERE id = ? AND workspace_id = ?`
+           FROM workspace_reports WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL`
         ).bind(reportId, wsId).first();
         if (!row)                       return json({ error: 'Report not found' }, 404);
         if (row.status !== 'completed') return json({ error: `Report not ready: ${row.status}` }, 409);
@@ -15473,7 +15835,7 @@ export default {
         const row = await env.cybermeters_db.prepare(
           `SELECT id, workspace_id, report_type, report_period, report_key,
                   status, generated_at, created_at, metadata_json, retention_policy
-           FROM workspace_reports WHERE id = ? AND workspace_id = ?`
+           FROM workspace_reports WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL`
         ).bind(reportId, wsId).first();
         if (!row) return json({ error: 'Report not found' }, 404);
         return json({ report: row });

@@ -230,6 +230,9 @@ export const api = {
 
   // ── Workspace Intelligence APIs ───────────────────────────────────────────
 
+  /** GET /api/workspaces/:id/executive-dashboard */
+  getExecutiveDashboard: (id) => request(`/workspaces/${id}/executive-dashboard`),
+
   /** GET /api/workspaces/:id/scorecard */
   getWorkspaceScorecard: (id) => request(`/workspaces/${id}/scorecard`),
 
@@ -299,6 +302,10 @@ export const api = {
     return request(`/workspaces/${workspaceId}/reports${q ? `?${q}` : ''}`)
   },
 
+  /** GET /api/workspaces/:id/report-retention */
+  getWorkspaceReportRetention: (workspaceId) =>
+    request(`/workspaces/${workspaceId}/report-retention`),
+
   /** POST /api/workspaces/:id/reports/generate  body: { report_type } */
   generateWorkspaceReport: (workspaceId, reportType = 'manual') =>
     request(`/workspaces/${workspaceId}/reports/generate`, {
@@ -321,6 +328,10 @@ export const api = {
   /** GET /api/workspaces/:id/reports/:reportId/download */
   downloadWorkspaceReport: (workspaceId, reportId) =>
     requestBlob(`/workspaces/${workspaceId}/reports/${reportId}/download`),
+
+  /** DELETE /api/workspaces/:id/reports/:reportId */
+  deleteWorkspaceReport: (workspaceId, reportId) =>
+    request(`/workspaces/${workspaceId}/reports/${reportId}`, { method: 'DELETE' }),
 
   // ── Notifications ─────────────────────────────────────────────────────────
 

@@ -245,6 +245,8 @@ export default function WorkspaceReportsPage() {
   const [genError,     setGenError]     = useState(null)
   const [reportType,   setReportType]   = useState('manual')
   const [showTypeMenu, setShowTypeMenu] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [deleting,     setDeleting]     = useState(false)
   const typeMenuRef = useRef(null)
 
   // Close type menu on outside click
@@ -311,6 +313,22 @@ export default function WorkspaceReportsPage() {
       setTimeout(() => URL.revokeObjectURL(url), 60_000)
     } catch (e) {
       setGenError(e.message)
+    }
+  }
+
+  async function handleDeleteReport() {
+    if (!wsId || !deleteTarget || deleting) return
+    setDeleting(true)
+    setGenError(null)
+    try {
+      await api.deleteWorkspaceReport(wsId, deleteTarget.id)
+      setReports(prev => prev.filter(r => r.id !== deleteTarget.id))
+      setDeleteTarget(null)
+      await load(true)
+    } catch (e) {
+      setGenError(e.message)
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -426,7 +444,7 @@ export default function WorkspaceReportsPage() {
                   <th className="text-center">Status</th>
                   <th className="text-left">Generated At</th>
                   <th className="text-left">Created At</th>
-                  <th className="text-center">Download</th>
+                  <th className="text-center">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -459,19 +477,29 @@ export default function WorkspaceReportsPage() {
                       </span>
                     </td>
                     <td className="text-center">
-                      {report.status === 'completed' ? (
+                      <div className="inline-flex items-center justify-center gap-1.5">
+                        {report.status === 'completed' ? (
+                          <button
+                            onClick={() => handleDownload(report)}
+                            className="btn-ghost py-1 px-2.5 text-xs inline-flex items-center gap-1.5 text-brand-600 hover:text-brand-700"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            PDF
+                          </button>
+                        ) : report.status === 'failed' ? (
+                          <span className="text-xs text-red-400">Failed</span>
+                        ) : (
+                          <span className="text-xs text-gray-300">—</span>
+                        )}
                         <button
-                          onClick={() => handleDownload(report)}
-                          className="btn-ghost py-1 px-2.5 text-xs inline-flex items-center gap-1.5 text-brand-600 hover:text-brand-700"
+                          onClick={() => setDeleteTarget(report)}
+                          disabled={deleting}
+                          className="btn-ghost py-1 px-2.5 text-xs inline-flex items-center gap-1.5 text-red-500 hover:text-red-600 disabled:opacity-50"
                         >
-                          <Download className="w-3.5 h-3.5" />
-                          PDF
+                          <Trash2 className="w-3.5 h-3.5" />
+                          Delete
                         </button>
-                      ) : report.status === 'failed' ? (
-                        <span className="text-xs text-red-400">Failed</span>
-                      ) : (
-                        <span className="text-xs text-gray-300">—</span>
-                      )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -483,6 +511,44 @@ export default function WorkspaceReportsPage() {
 
       {/* Scheduled Reports */}
       <ScheduledReportsCard wsId={wsId} />
+
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 bg-gray-900/30 flex items-center justify-center px-4">
+          <div className="w-full max-w-md rounded-xl bg-white border border-gray-100 shadow-xl p-6">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-lg bg-red-50 flex items-center justify-center flex-shrink-0">
+                <Trash2 className="w-5 h-5 text-red-500" />
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-sm font-bold text-gray-900">Delete this report permanently?</h2>
+                <div className="mt-3 space-y-1 text-sm">
+                  <p><span className="text-gray-400">Report:</span> <span className="font-medium text-gray-800">{deleteTarget.report_period || deleteTarget.id}</span></p>
+                  <p><span className="text-gray-400">Created:</span> <span className="font-medium text-gray-800">{fmtDateTime(deleteTarget.created_at)}</span></p>
+                  <p><span className="text-gray-400">Type:</span> <span className="font-medium text-gray-800">{fmtType(deleteTarget.report_type)}</span></p>
+                </div>
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleting}
+                className="btn-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteReport}
+                disabled={deleting}
+                className="btn-primary bg-red-600 hover:bg-red-700 disabled:opacity-50"
+              >
+                {deleting ? 'Deleting…' : 'Delete Report'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </WsPage>
   )
