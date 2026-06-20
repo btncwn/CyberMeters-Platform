@@ -3,7 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, RefreshCw, Globe, Hash, AlertCircle, ScanLine,
   ChevronRight, Shield, FileText, CheckCircle, XCircle, Mail,
-  Lock, Server, Clock, History,
+  Lock, Server, Clock, History, ChevronDown, Terminal,
 } from 'lucide-react'
 import { api } from '../api'
 import StatusBadge from '../components/StatusBadge'
@@ -120,6 +120,102 @@ function ScoreRing({ score, riskLevel }) {
 
 // ── Findings Panel ───────────────────────────────────────────────────────────
 
+const CONFIDENCE_STYLE = {
+  high:   'bg-green-50 text-green-700 border-green-100',
+  medium: 'bg-amber-50 text-amber-700 border-amber-100',
+  low:    'bg-gray-50 text-gray-500 border-gray-200',
+}
+
+function EvidencePanel({ evidence, confidence }) {
+  if (!evidence) return null
+  const rows = [
+    evidence.evidence_type    && ['Type',            evidence.evidence_type],
+    evidence.probe_target     && ['Probe target',    evidence.probe_target],
+    evidence.observed_value !== undefined && ['Observed',   evidence.observed_value ?? 'null (no record found)'],
+    evidence.expected_value   && ['Expected',        evidence.expected_value],
+    evidence.source           && ['Source',          evidence.source],
+    evidence.checked_at       && ['Checked at',      new Date(evidence.checked_at).toLocaleString()],
+    evidence.status_code      && ['HTTP status',     String(evidence.status_code)],
+    evidence.missing_header   && ['Missing header',  evidence.missing_header],
+  ].filter(Boolean)
+
+  return (
+    <div className="mt-3 rounded-xl border border-gray-100 bg-gray-50 overflow-hidden">
+      <div className="px-3 py-2 bg-gray-100 border-b border-gray-200 flex items-center gap-1.5">
+        <Terminal className="w-3 h-3 text-gray-400" />
+        <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Evidence</span>
+        {confidence && (
+          <span className={`ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${CONFIDENCE_STYLE[confidence] || CONFIDENCE_STYLE.low}`}>
+            {confidence} confidence
+          </span>
+        )}
+      </div>
+      <div className="divide-y divide-gray-100">
+        {rows.map(([label, value]) => (
+          <div key={label} className="flex gap-3 px-3 py-1.5 text-xs">
+            <span className="text-gray-400 flex-shrink-0 w-24">{label}</span>
+            <span className="text-gray-700 font-mono break-all">{value}</span>
+          </div>
+        ))}
+      </div>
+      {evidence.manual_verification_command && (
+        <div className="border-t border-gray-200 px-3 py-2">
+          <p className="text-[10px] text-gray-400 mb-1 font-semibold">Verify manually</p>
+          <pre className="text-[10px] font-mono text-gray-700 bg-white border border-gray-200 rounded px-2 py-1.5 overflow-x-auto whitespace-pre-wrap break-all">
+            {evidence.manual_verification_command}
+          </pre>
+        </div>
+      )}
+      {confidence === 'low' && (
+        <div className="border-t border-amber-100 bg-amber-50 px-3 py-2 text-[10px] text-amber-700">
+          Needs manual verification — this finding is low-confidence and should be confirmed before acting on it.
+        </div>
+      )}
+    </div>
+  )
+}
+
+function FindingRow({ f, index }) {
+  const [open, setOpen] = useState(false)
+  const hasEvidence = !!f.evidence
+
+  return (
+    <li className="px-6 py-4">
+      <div className="flex items-start gap-4">
+        <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-bold flex-shrink-0 mt-0.5 ${SEV_STYLE[f.severity] || SEV_STYLE.info}`}>
+          {index + 1}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-gray-900">{f.title}</p>
+          <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">{f.description}</p>
+          <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+            {f.score_impact != null && f.score_impact !== 0 && (
+              <span className="text-[10px] font-semibold text-red-400">
+                Score impact: {f.score_impact}
+              </span>
+            )}
+            {hasEvidence && (
+              <button
+                onClick={() => setOpen(o => !o)}
+                className="flex items-center gap-1 text-[10px] text-brand-600 font-semibold hover:text-brand-800 transition-colors"
+              >
+                <ChevronDown className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''}`} />
+                {open ? 'Hide evidence' : 'Show evidence'}
+              </button>
+            )}
+          </div>
+          {open && hasEvidence && (
+            <EvidencePanel evidence={f.evidence} confidence={f.confidence} />
+          )}
+        </div>
+        <span className={`flex-shrink-0 ${SEV_BADGE[f.severity] || SEV_BADGE.info}`}>
+          {f.severity}
+        </span>
+      </div>
+    </li>
+  )
+}
+
 function FindingsPanel({ findings }) {
   const sorted = [...(findings || [])].sort(
     (a, b) => (SEV_ORDER[a.severity] ?? 9) - (SEV_ORDER[b.severity] ?? 9)
@@ -140,23 +236,7 @@ function FindingsPanel({ findings }) {
   return (
     <ul className="divide-y divide-gray-50">
       {sorted.map((f, i) => (
-        <li key={f.id || i} className="flex items-start gap-4 px-6 py-4">
-          <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-bold flex-shrink-0 mt-0.5 ${SEV_STYLE[f.severity] || SEV_STYLE.info}`}>
-            {i + 1}
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-gray-900">{f.title}</p>
-            <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">{f.description}</p>
-            {f.score_impact != null && (
-              <span className="text-[10px] font-semibold text-red-400 mt-1 inline-block">
-                Score impact: {f.score_impact}
-              </span>
-            )}
-          </div>
-          <span className={`flex-shrink-0 ${SEV_BADGE[f.severity] || SEV_BADGE.info}`}>
-            {f.severity}
-          </span>
-        </li>
+        <FindingRow key={f.id || i} f={f} index={i} />
       ))}
     </ul>
   )

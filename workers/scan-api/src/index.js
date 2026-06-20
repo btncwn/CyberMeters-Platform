@@ -4499,6 +4499,7 @@ function computeScore(modules, domain) {
   let score = 100;
   const findings        = [];
   const recommendations = [];
+  const evidenceTime    = new Date().toISOString();
 
   function finding(f) {
     score += f.score_impact; // negative number
@@ -4515,6 +4516,15 @@ function computeScore(modules, domain) {
       title:        "Domain Does Not Resolve",
       description:  `No A or AAAA DNS records found for ${domain}. The domain cannot be reached.`,
       score_impact: -30,
+      evidence: {
+        evidence_type:               "dns_lookup",
+        probe_target:                domain,
+        observed_value:              "No A or AAAA records returned",
+        expected_value:              "At least one A or AAAA record pointing to a server IP",
+        source:                      "cloudflare_doh",
+        checked_at:                  evidenceTime,
+        manual_verification_command: `dig A ${domain} @8.8.8.8`,
+      },
     });
     recommendations.push({
       priority:    1,
@@ -4534,6 +4544,15 @@ function computeScore(modules, domain) {
       title:        "HTTPS Not Available",
       description:  `${domain} does not serve content over HTTPS. All traffic is transmitted unencrypted.`,
       score_impact: -25,
+      evidence: {
+        evidence_type:               "https_probe",
+        probe_target:                `https://${domain}`,
+        observed_value:              "TLS handshake failed or connection refused on port 443",
+        expected_value:              "TLS 1.2+ handshake success with valid certificate",
+        source:                      "cloudflare_workers_fetch",
+        checked_at:                  evidenceTime,
+        manual_verification_command: `curl -sI https://${domain} | head -3`,
+      },
     });
     recommendations.push({
       priority:    1,
@@ -4570,6 +4589,17 @@ function computeScore(modules, domain) {
           ? `The HTTP probe of ${domain} returned a non-redirecting response, but the HTTPS headers probe succeeded — a contradiction typical of enterprise CDN edge behaviour where scanner IPs receive different treatment than real browsers. The scanner cannot confirm whether plain HTTP is actually accessible. This is an informational observation only.`
           : `Plain HTTP (port 80) connectivity to ${domain} could not be validated. The scanner's request may have been blocked by an edge firewall or bot-protection layer. This is an informational observation only.`,
         score_impact: 0,
+        evidence: {
+          evidence_type:               "http_redirect_probe",
+          probe_target:                `http://${domain}`,
+          observed_value:              enterpriseEdgeUncertain
+            ? "HTTP probe returned non-redirect; HTTPS probe succeeded — contradictory result"
+            : "HTTP probe blocked or no response received",
+          expected_value:              `HTTP 301/302 redirect to https://${domain}`,
+          source:                      "cloudflare_workers_fetch",
+          checked_at:                  evidenceTime,
+          manual_verification_command: `curl -sI http://${domain} | head -5`,
+        },
       });
     } else {
       finding({
@@ -4580,6 +4610,15 @@ function computeScore(modules, domain) {
         title:        "HTTP Does Not Redirect to HTTPS",
         description:  `Plain HTTP (port 80) requests to ${domain} are not redirected to HTTPS, allowing unencrypted access.`,
         score_impact: -5,
+        evidence: {
+          evidence_type:               "http_redirect_probe",
+          probe_target:                `http://${domain}`,
+          observed_value:              "HTTP response did not issue a redirect to HTTPS",
+          expected_value:              `HTTP 301/302 redirect to https://${domain}`,
+          source:                      "cloudflare_workers_fetch",
+          checked_at:                  evidenceTime,
+          manual_verification_command: `curl -sI http://${domain} | head -5`,
+        },
       });
       recommendations.push({
         priority:    2,
@@ -4626,6 +4665,18 @@ function computeScore(modules, domain) {
       // Header is present — nothing to report
       if (modules.headers.values?.[h.name]) continue;
 
+      const headerProbeUrl = modules.headers.response_url ?? `https://${domain}`;
+      const headerBaseEvidence = {
+        evidence_type:               "http_header_probe",
+        probe_target:                headerProbeUrl,
+        status_code:                 modules.headers.status_code,
+        missing_header:              h.name,
+        expected_value:              `${h.name} header present in response`,
+        source:                      "cloudflare_workers_fetch",
+        checked_at:                  evidenceTime,
+        manual_verification_command: `curl -sI https://${domain} | grep -i "${h.name}"`,
+      };
+
       if (!responseQualityOk) {
         // Response quality too low to make any finding — informational only
         findings.push({
@@ -4636,6 +4687,10 @@ function computeScore(modules, domain) {
           title:        `${h.label} — Validation Uncertain`,
           description:  `The ${h.label} header was not observed on ${domain}, but the scanner response may be from a bot-protection layer, edge cache, or non-canonical host. This is an informational observation only.`,
           score_impact: 0,
+          evidence: {
+            ...headerBaseEvidence,
+            observed_value: `Header absent; response may be from bot-protection layer (HTTP ${modules.headers.status_code ?? "unknown"})`,
+          },
         });
       } else if (h.severity !== "high") {
         // Medium/low/info severity headers: confidence is medium — these are routinely
@@ -4649,6 +4704,10 @@ function computeScore(modules, domain) {
           title:        `Missing ${h.label} Header (Unverified)`,
           description:  `The ${h.label} header (${h.name}) was not returned in the scanner's HTTP probe of ${domain}. This may be delivered by the CDN, applied per-path, or injected at the framework layer. Verify manually on the canonical origin.`,
           score_impact: 0,
+          evidence: {
+            ...headerBaseEvidence,
+            observed_value: `Header absent from HTTPS ${modules.headers.status_code} response; may be set by CDN or per-path policy`,
+          },
         });
       } else {
         // High-severity, high-confidence, verified HTTPS 200 response — score it
@@ -4660,6 +4719,10 @@ function computeScore(modules, domain) {
           title:        `Missing ${h.label} Header`,
           description:  `The ${h.label} header (${h.name}) was not returned in HTTP responses from ${domain}. This was confirmed on a direct HTTPS 200 response.`,
           score_impact: h.score_impact,
+          evidence: {
+            ...headerBaseEvidence,
+            observed_value: `Header absent from confirmed HTTPS 200 response at ${headerProbeUrl}`,
+          },
         });
         recommendations.push({
           priority:    2,
@@ -4685,6 +4748,15 @@ function computeScore(modules, domain) {
       title:        "Email Security: Not Applicable",
       description:  `Email security checks were skipped for ${domain}: ${emailApp.reason}. Configure SPF, DMARC, and DKIM on the apex domain if this organisation sends mail.`,
       score_impact: 0,
+      evidence: {
+        evidence_type:               "dns_mx_lookup",
+        probe_target:                domain,
+        observed_value:              emailApp.reason,
+        expected_value:              "MX records present indicating this domain sends mail",
+        source:                      "cloudflare_doh",
+        checked_at:                  evidenceTime,
+        manual_verification_command: `dig MX ${domain} @8.8.8.8`,
+      },
     });
   } else {
     if (!modules.email_security?.dmarc?.present) {
@@ -4696,6 +4768,15 @@ function computeScore(modules, domain) {
         title:        "Missing DMARC Policy",
         description:  `No DMARC TXT record found at _dmarc.${domain}. Email spoofing of this domain is not prevented.`,
         score_impact: -15,
+        evidence: {
+          evidence_type:               "dns_txt_lookup",
+          probe_target:                `_dmarc.${domain}`,
+          observed_value:              null,
+          expected_value:              `v=DMARC1; p=reject; rua=mailto:dmarc-reports@${domain}`,
+          source:                      "cloudflare_doh",
+          checked_at:                  evidenceTime,
+          manual_verification_command: `dig TXT _dmarc.${domain} @8.8.8.8`,
+        },
       });
       recommendations.push({
         priority:    1,
@@ -4712,6 +4793,15 @@ function computeScore(modules, domain) {
         title:        "DMARC Policy is Monitor-Only (p=none)",
         description:  `DMARC is configured at _dmarc.${domain} but the policy is p=none — emails are not quarantined or rejected.`,
         score_impact: -5,
+        evidence: {
+          evidence_type:               "dns_txt_lookup",
+          probe_target:                `_dmarc.${domain}`,
+          observed_value:              modules.email_security.dmarc.record,
+          expected_value:              "v=DMARC1; p=quarantine or p=reject",
+          source:                      "cloudflare_doh",
+          checked_at:                  evidenceTime,
+          manual_verification_command: `dig TXT _dmarc.${domain} @8.8.8.8`,
+        },
       });
       recommendations.push({
         priority:    2,
@@ -4730,6 +4820,15 @@ function computeScore(modules, domain) {
         title:        "Missing SPF Record",
         description:  `No SPF TXT record found for ${domain}. Any mail server can send email claiming to originate from this domain.`,
         score_impact: -10,
+        evidence: {
+          evidence_type:               "dns_txt_lookup",
+          probe_target:                domain,
+          observed_value:              null,
+          expected_value:              "v=spf1 include:<mail-provider> -all",
+          source:                      "cloudflare_doh",
+          checked_at:                  evidenceTime,
+          manual_verification_command: `dig TXT ${domain} @8.8.8.8 | grep spf`,
+        },
       });
       recommendations.push({
         priority:    1,
@@ -4752,6 +4851,15 @@ function computeScore(modules, domain) {
         title:        "DKIM Could Not Be Verified Using Common Selectors",
         description:  `No DKIM public key record was found for ${domain} using common selector names. DKIM may be configured with a custom selector not in our probe list, or may not be enabled.`,
         score_impact: 0,
+        evidence: {
+          evidence_type:               "dns_txt_lookup",
+          probe_target:                `<selector>._domainkey.${domain}`,
+          observed_value:              "No DKIM TXT record found on common selectors: google, selector1, default, mail, k1, s1, s2",
+          expected_value:              "v=DKIM1; k=rsa; p=<public-key>",
+          source:                      "cloudflare_doh",
+          checked_at:                  evidenceTime,
+          manual_verification_command: `dig TXT default._domainkey.${domain} @8.8.8.8`,
+        },
       });
       recommendations.push({
         priority:    3,
@@ -5960,10 +6068,18 @@ async function runScanEngine(scanId, domainId, workspaceId, domain, env) {
     for (const f of findings) {
       await env.cybermeters_db
         .prepare(
-          `INSERT INTO findings (id, scan_id, severity, title, recommendation)
-           VALUES (?, ?, ?, ?, ?)`
+          `INSERT INTO findings (id, scan_id, severity, title, recommendation, evidence_json, confidence)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
         )
-        .bind(createId("finding"), scanId, f.severity, f.title, f.description)
+        .bind(
+          createId("finding"),
+          scanId,
+          f.severity,
+          f.title,
+          f.description,
+          f.evidence ? JSON.stringify(f.evidence) : null,
+          f.confidence ?? null
+        )
         .run();
     }
 
@@ -9314,13 +9430,14 @@ async function generateWorkspaceExecutiveReport(workspaceId, env, options = {}) 
   const reportId  = createId('rpt');
   const createdAt = now.toISOString();
   const r2Key     = `reports/executive/${workspaceId}/${report_type}/${period}/executive-report.pdf`;
+  const retentionPolicy = await getReportRetentionPolicyForWorkspace(workspaceId, env);
 
   // Insert a pending row first so we can always flip it to failed on error
   await env.cybermeters_db.prepare(
     `INSERT INTO workspace_reports
-       (id, workspace_id, report_type, report_period, report_key, status, created_at)
-     VALUES (?, ?, ?, ?, ?, 'pending', ?)`
-  ).bind(reportId, workspaceId, report_type, period, r2Key, createdAt).run();
+       (id, workspace_id, report_type, report_period, report_key, status, created_at, retention_policy)
+     VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`
+  ).bind(reportId, workspaceId, report_type, period, r2Key, createdAt, retentionPolicy).run();
 
   let pdfData, bytes;
   try {
@@ -9381,6 +9498,7 @@ async function generateWorkspaceExecutiveReport(workspaceId, env, options = {}) 
     status:        'completed',
     generated_at:  generatedAt,
     created_at:    createdAt,
+    retention_policy: retentionPolicy,
   };
 }
 
@@ -9447,6 +9565,64 @@ async function processScheduledReports(now, env) {
 
     } catch {
       // One workspace failing must not abort others
+    }
+  }
+}
+
+async function cleanupExpiredReports(nowIso, env) {
+  const now = new Date(nowIso);
+  const policies = ["30_days", "90_days", "1_year", "2_years", "7_years"];
+  const expired = [];
+
+  for (const policy of policies) {
+    const cutoff = getRetentionCutoff(policy, now);
+    if (!cutoff) continue;
+    try {
+      const rows = await env.cybermeters_db
+        .prepare(
+          `SELECT id, workspace_id, report_type, report_period, report_key, retention_policy,
+                  COALESCE(generated_at, created_at) AS effective_at
+           FROM workspace_reports
+           WHERE retention_policy = ?
+             AND COALESCE(generated_at, created_at) <= ?
+           ORDER BY COALESCE(generated_at, created_at) ASC
+           LIMIT 100`
+        )
+        .bind(policy, cutoff)
+        .all();
+      expired.push(...(rows.results || []));
+    } catch {
+      return;
+    }
+  }
+
+  for (const report of expired) {
+    try {
+      await env.cybermeters_reports.delete(report.report_key);
+      const result = await env.cybermeters_db
+        .prepare("DELETE FROM workspace_reports WHERE id = ?")
+        .bind(report.id)
+        .run();
+      if (result.meta?.changes === 0) continue;
+
+      await createAuditEvent(env, {
+        workspace_id: report.workspace_id,
+        event_type:   "report_deleted",
+        entity_type:  "report",
+        entity_id:    report.id,
+        description:  `Report expired by retention policy (${report.retention_policy})`,
+        metadata:     {
+          report_id: report.id,
+          workspace_id: report.workspace_id,
+          report_type: report.report_type,
+          report_period: report.report_period,
+          report_key: report.report_key,
+          retention_policy: report.retention_policy,
+          deletion_reason: "retention_expired",
+        },
+      });
+    } catch {
+      // Keep the row if either R2 deletion or D1 cleanup failed; retry next run.
     }
   }
 }
@@ -9541,6 +9717,7 @@ const PERMISSION_MIN_ROLE = {
   "scan:create":               "analyst",
   // Reports
   "report:generate":           "admin",
+  "report:delete":             "admin",
   "schedule:manage":            "admin",
   // Notifications
   "notification:mark_read":    "viewer",
@@ -9818,6 +9995,7 @@ const PLAN_LIMITS = {
     domains: 3,
     users: 1,
     history_days: 30,
+    report_retention: "90_days",
     api_tokens: 1,
     scheduled_reports_per_workspace: 1,
   },
@@ -9826,6 +10004,7 @@ const PLAN_LIMITS = {
     domains: 25,
     users: 5,
     history_days: 90,
+    report_retention: "90_days",
     api_tokens: 5,
     scheduled_reports_per_workspace: 5,
   },
@@ -9834,6 +10013,16 @@ const PLAN_LIMITS = {
     domains: 250,
     users: 25,
     history_days: 365,
+    report_retention: "2_years",
+    api_tokens: 25,
+    scheduled_reports_per_workspace: 25,
+  },
+  business: {
+    workspaces: 25,
+    domains: 250,
+    users: 25,
+    history_days: 365,
+    report_retention: "7_years",
     api_tokens: 25,
     scheduled_reports_per_workspace: 25,
   },
@@ -9842,6 +10031,7 @@ const PLAN_LIMITS = {
     domains: 999999,
     users: 999999,
     history_days: 999999,
+    report_retention: "forever",
     api_tokens: 999999,
     scheduled_reports_per_workspace: 999999,
   },
@@ -9893,6 +10083,24 @@ function getPlanLimits(plan) {
     members_per_workspace: limits.users,
     users_per_workspace: limits.users,
   };
+}
+
+async function getReportRetentionPolicyForWorkspace(workspaceId, env) {
+  const ownerId = await getWorkspaceOwnerId(workspaceId, env);
+  const plan = await getEffectivePlan(ownerId, env);
+  return getPlanLimits(plan).report_retention || "2_years";
+}
+
+function getRetentionCutoff(policy, now = new Date()) {
+  if (policy === "forever") return null;
+  const date = new Date(now.getTime());
+  if (policy === "30_days") date.setUTCDate(date.getUTCDate() - 30);
+  else if (policy === "90_days") date.setUTCDate(date.getUTCDate() - 90);
+  else if (policy === "1_year") date.setUTCFullYear(date.getUTCFullYear() - 1);
+  else if (policy === "2_years") date.setUTCFullYear(date.getUTCFullYear() - 2);
+  else if (policy === "7_years") date.setUTCFullYear(date.getUTCFullYear() - 7);
+  else date.setUTCFullYear(date.getUTCFullYear() - 2);
+  return date.toISOString();
 }
 
 function planLimitExceeded(resource, limit, usage = null) {
@@ -15154,7 +15362,7 @@ export default {
       const statusFilter = url.searchParams.get('status');
       try {
         let sql    = `SELECT id, workspace_id, report_type, report_period, report_key,
-                             status, generated_at, created_at, metadata_json
+                             status, generated_at, created_at, metadata_json, retention_policy
                       FROM workspace_reports WHERE workspace_id = ?`;
         const params = [wsId];
         if (typeFilter)   { sql += ' AND report_type = ?'; params.push(typeFilter); }
@@ -15162,6 +15370,54 @@ export default {
         sql += ' ORDER BY created_at DESC LIMIT 100';
         const { results } = await env.cybermeters_db.prepare(sql).bind(...params).all();
         return json({ reports: results ?? [] });
+      } catch (err) {
+        return json({ error: String(err?.message ?? err) }, 500);
+      }
+    }
+
+    // ── DELETE /api/workspaces/:id/reports/:reportId ─────────────────────────
+    // Permanently deletes the archived PDF from R2 and removes the D1 row.
+    const rptDeleteMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/reports\/([^/]+)$/);
+    if (rptDeleteMatch && request.method === 'DELETE') {
+      const wsId     = rptDeleteMatch[1];
+      const reportId = rptDeleteMatch[2];
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, wsId, "report:delete", env);
+      if (!access) return json({ error: "Forbidden — admin role required to delete reports" }, 403);
+
+      try {
+        const row = await env.cybermeters_db.prepare(
+          `SELECT id, workspace_id, report_type, report_period, report_key, status
+           FROM workspace_reports WHERE id = ? AND workspace_id = ?`
+        ).bind(reportId, wsId).first();
+        if (!row) return json({ error: 'Report not found' }, 404);
+
+        await env.cybermeters_reports.delete(row.report_key);
+
+        const del = await env.cybermeters_db.prepare(
+          `DELETE FROM workspace_reports WHERE id = ? AND workspace_id = ?`
+        ).bind(reportId, wsId).run();
+        if (del.meta?.changes === 0) return json({ error: 'Report not found' }, 404);
+
+        await createAuditEvent(env, {
+          workspace_id: wsId,
+          user_id:      user.id,
+          event_type:   "report_deleted",
+          entity_type:  "report",
+          entity_id:    reportId,
+          description:  `Executive report deleted (${row.report_type})`,
+          metadata:     {
+            report_id: reportId,
+            workspace_id: wsId,
+            user_id: user.id,
+            report_type: row.report_type,
+            report_period: row.report_period,
+            report_key: row.report_key,
+          },
+        });
+
+        return json({ success: true, deleted_id: reportId });
       } catch (err) {
         return json({ error: String(err?.message ?? err) }, 500);
       }
@@ -15216,7 +15472,7 @@ export default {
       try {
         const row = await env.cybermeters_db.prepare(
           `SELECT id, workspace_id, report_type, report_period, report_key,
-                  status, generated_at, created_at, metadata_json
+                  status, generated_at, created_at, metadata_json, retention_policy
            FROM workspace_reports WHERE id = ? AND workspace_id = ?`
         ).bind(reportId, wsId).first();
         if (!row) return json({ error: 'Report not found' }, 404);
@@ -15419,5 +15675,12 @@ export default {
     // ── User-configured scheduled reports ─────────────────────────────────
     // Runs every tick; processScheduledReports checks next_run_at internally.
     ctx.waitUntil(processScheduledReports(now, env));
+
+    // ── Report retention cleanup ─────────────────────────────────────────
+    // The Worker cron also drives scheduled scans, so keep the hourly trigger
+    // and run retention once daily at 02:00 UTC.
+    if (new Date(now).getUTCHours() === 2) {
+      ctx.waitUntil(cleanupExpiredReports(now, env));
+    }
   },
 };

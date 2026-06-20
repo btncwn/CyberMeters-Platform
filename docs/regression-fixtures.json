@@ -1,0 +1,163 @@
+{
+  "_comment": "Sprint 4 — Scanner Accuracy & Evidence Framework v1. Expected finding outputs for key scenarios. Use these to validate scanner behaviour after changes to computeScore or scan modules.",
+  "fixtures": [
+    {
+      "scenario": "good_security_headers",
+      "description": "Domain with HTTPS, all security headers present, good DMARC/SPF/DKIM",
+      "mock_modules": {
+        "dns":            { "resolves": true },
+        "ssl":            { "https_available": true, "http_redirects_to_https": true },
+        "headers":        {
+          "accessible": true,
+          "final_https": true,
+          "validation_uncertain": false,
+          "status_code": 200,
+          "values": {
+            "strict-transport-security": "max-age=31536000; includeSubDomains",
+            "content-security-policy": "default-src 'self'",
+            "x-frame-options": "DENY",
+            "x-content-type-options": "nosniff",
+            "referrer-policy": "no-referrer",
+            "permissions-policy": "geolocation=()"
+          }
+        },
+        "email_security": {
+          "spf":  { "present": true, "record": "v=spf1 include:_spf.google.com -all" },
+          "dmarc": { "present": true, "policy": "reject", "record": "v=DMARC1; p=reject; rua=mailto:dmarc@example.com" },
+          "dkim": { "present": true, "selector": "google" }
+        }
+      },
+      "expected_findings": [],
+      "expected_finding_ids_absent": [
+        "dns_no_resolution",
+        "ssl_not_available",
+        "ssl_no_http_redirect",
+        "header_missing_strict_transport_security",
+        "email_missing_dmarc",
+        "email_missing_spf",
+        "email_dkim_not_detected"
+      ]
+    },
+    {
+      "scenario": "missing_hsts_header",
+      "description": "HTTPS site with verified 200 response but missing HSTS header — should produce a high-confidence scored finding",
+      "mock_modules": {
+        "dns":     { "resolves": true },
+        "ssl":     { "https_available": true, "http_redirects_to_https": true },
+        "headers": {
+          "accessible": true,
+          "final_https": true,
+          "validation_uncertain": false,
+          "status_code": 200,
+          "values": {
+            "strict-transport-security": null
+          }
+        },
+        "email_security": {
+          "spf":  { "present": true },
+          "dmarc": { "present": true, "policy": "reject" },
+          "dkim": { "present": true }
+        }
+      },
+      "expected_finding": {
+        "id": "header_missing_strict_transport_security",
+        "severity": "high",
+        "confidence": "high",
+        "score_impact": -10,
+        "evidence_type": "http_header_probe",
+        "has_manual_verification_command": true
+      }
+    },
+    {
+      "scenario": "dmarc_policy_none",
+      "description": "Domain has DMARC but p=none — medium finding, score -5",
+      "mock_modules": {
+        "email_security": {
+          "spf":  { "present": true, "record": "v=spf1 include:_spf.google.com -all" },
+          "dmarc": { "present": true, "policy": "none", "record": "v=DMARC1; p=none; rua=mailto:dmarc@example.com" },
+          "dkim": { "present": true }
+        }
+      },
+      "expected_finding": {
+        "id": "email_dmarc_policy_none",
+        "severity": "medium",
+        "confidence": "high",
+        "score_impact": -5,
+        "evidence": {
+          "evidence_type": "dns_txt_lookup",
+          "probe_target": "_dmarc.<domain>",
+          "observed_value": "v=DMARC1; p=none; rua=mailto:dmarc@example.com",
+          "expected_value": "v=DMARC1; p=quarantine or p=reject"
+        }
+      }
+    },
+    {
+      "scenario": "missing_dmarc",
+      "description": "No DMARC record at all — high finding, score -15",
+      "mock_modules": {
+        "email_security": {
+          "spf":  { "present": true },
+          "dmarc": { "present": false, "policy": null, "record": null },
+          "dkim": { "present": true }
+        }
+      },
+      "expected_finding": {
+        "id": "email_missing_dmarc",
+        "severity": "high",
+        "confidence": "high",
+        "score_impact": -15,
+        "evidence": {
+          "evidence_type": "dns_txt_lookup",
+          "probe_target": "_dmarc.<domain>",
+          "observed_value": null,
+          "expected_value": "v=DMARC1; p=reject; rua=mailto:dmarc-reports@<domain>"
+        }
+      }
+    },
+    {
+      "scenario": "missing_spf",
+      "description": "No SPF record — high finding, score -10",
+      "mock_modules": {
+        "email_security": {
+          "spf":  { "present": false, "record": null },
+          "dmarc": { "present": true, "policy": "reject" },
+          "dkim": { "present": true }
+        }
+      },
+      "expected_finding": {
+        "id": "email_missing_spf",
+        "severity": "high",
+        "confidence": "high",
+        "score_impact": -10,
+        "evidence": {
+          "evidence_type": "dns_txt_lookup",
+          "probe_target": "<domain>",
+          "observed_value": null,
+          "expected_value": "v=spf1 include:<mail-provider> -all"
+        }
+      }
+    },
+    {
+      "scenario": "dkim_unknown_selector",
+      "description": "DKIM not found on common selectors — info only, score 0, low confidence",
+      "mock_modules": {
+        "email_security": {
+          "spf":  { "present": true },
+          "dmarc": { "present": true, "policy": "reject" },
+          "dkim": { "present": false, "selector": null }
+        }
+      },
+      "expected_finding": {
+        "id": "email_dkim_not_detected",
+        "severity": "info",
+        "confidence": "low",
+        "score_impact": 0,
+        "evidence": {
+          "evidence_type": "dns_txt_lookup",
+          "observed_value": "No DKIM TXT record found on common selectors: google, selector1, default, mail, k1, s1, s2"
+        }
+      },
+      "note": "Low confidence — enterprise domains use custom selectors. This must never produce a score deduction."
+    }
+  ]
+}
