@@ -7559,6 +7559,24 @@ function buildCanonicalUrlProfile(modules) {
     // completion and any critical/high findings. Non-fatal.
     try {
       await createNotificationsForDomain(domainId, domain, scanId, score, risk_level, findings, env);
+      
+      const wsRows = await env.cybermeters_db
+        .prepare("SELECT workspace_id FROM workspace_domains WHERE domain_id = ?")
+        .bind(domainId)
+        .all();
+      for (const { workspace_id } of (wsRows.results || [])) {
+        await processAlertsForWorkspace(
+          workspace_id,
+          domainId,
+          domain,
+          scanId,
+          score,
+          findings,
+          modules,
+          startedAt,
+          env
+        );
+      }
     } catch { /* non-fatal */ }
 
     // Phase 11: Audit — scan completed. Fire per-workspace. Non-fatal.
@@ -11458,10 +11476,14 @@ function buildAlertEmail(domain, scanId, triggers) {
  * silently skipped rather than crashing the scan pipeline.
  * All errors are swallowed for the same reason.
  */
-async function sendAlertEmail(subject, text, html, env, fromKey = "ALERT_EMAIL_FROM") {
+async function sendAlertEmail(subject, text, html, env, fromKey = "ALERT_EMAIL_FROM", toEmails = null) {
   if (!env.RESEND_API_KEY) return;
 
-  const to   = env.ALERT_EMAIL_TO || "ttrnn47@gmail.com";
+  const to = Array.isArray(toEmails) && toEmails.length > 0
+    ? toEmails
+    : typeof toEmails === "string" && toEmails.trim()
+      ? [toEmails]
+      : [env.ALERT_EMAIL_TO || "ttrnn47@gmail.com"];
   const from = env[fromKey] || env.ALERT_EMAIL_FROM || "alerts@cybermeters.com";
 
   try {
@@ -11471,7 +11493,33 @@ async function sendAlertEmail(subject, text, html, env, fromKey = "ALERT_EMAIL_F
         "Content-Type":  "application/json",
         "Authorization": `Bearer ${env.RESEND_API_KEY}`,
       },
-      body:   JSON.stringify({ from, to: [to], subject, text, html }),
+      body:   JSON.stringify({ from, to, subject, text, html }),
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    // Email delivery errors must never affect scan completion or D1/R2 writes.
+  }
+}
+
+/**
+ * sendCustomerEmail — strict variant for user-facing emails.
+ * Unlike sendAlertEmail, this NEVER falls back to env.ALERT_EMAIL_TO.
+ * If toEmails is empty or null, returns silently without sending.
+ * Use this for: password reset, workspace alert notifications.
+ */
+async function sendCustomerEmail(subject, text, html, env, fromKey = "ALERT_EMAIL_FROM", toEmails = null) {
+  if (!env.RESEND_API_KEY) return;
+  const to = Array.isArray(toEmails) ? toEmails.filter(Boolean) : [];
+  if (to.length === 0) return;           // no explicit recipient — do not fall back
+  const from = env[fromKey] || env.ALERT_EMAIL_FROM || "alerts@cybermeters.com";
+  try {
+    await fetch("https://api.resend.com/emails", {
+      method:  "POST",
+      headers: {
+        "Content-Type":  "application/json",
+        "Authorization": `Bearer ${env.RESEND_API_KEY}`,
+      },
+      body:   JSON.stringify({ from, to, subject, text, html }),
       signal: AbortSignal.timeout(10_000),
     });
   } catch {
@@ -11483,6 +11531,353 @@ async function sendAlertEmail(subject, text, html, env, fromKey = "ALERT_EMAIL_F
 // Dedicated alert functions — each fires via the appropriate sender address
 // and is swallowed on error so the scan pipeline is never interrupted.
 // ─────────────────────────────────────────────────────────────────────────────
+
+async function getWorkspaceAlertRecipients(workspaceId, env) {
+  try {
+    const result = await env.cybermeters_db
+      .prepare(
+        `SELECT u.email
+         FROM workspace_members wm
+         JOIN users u ON u.id = wm.user_id
+         WHERE wm.workspace_id = ? AND wm.role IN ('owner', 'admin')`
+      )
+      .bind(workspaceId)
+      .all();
+    
+    let emails = (result.results || []).map(r => r.email).filter(Boolean);
+    
+    const wsRow = await env.cybermeters_db
+      .prepare("SELECT owner_user_id FROM workspaces WHERE id = ?")
+      .bind(workspaceId)
+      .first();
+    if (wsRow?.owner_user_id) {
+      const ownerUser = await env.cybermeters_db
+        .prepare("SELECT email FROM users WHERE id = ?")
+        .bind(wsRow.owner_user_id)
+        .first();
+      if (ownerUser?.email && !emails.includes(ownerUser.email)) {
+        emails.push(ownerUser.email);
+      }
+    }
+    
+    return emails;
+  } catch (err) {
+    return [];
+  }
+}
+
+async function isAlertDuplicate(env, workspaceId, alertType, relatedEntity, checkThresholdFn = null) {
+  try {
+    const query = await env.cybermeters_db
+      .prepare(
+        `SELECT metadata_json, created_at FROM notification_events
+         WHERE workspace_id = ? AND type = ?
+         ORDER BY created_at DESC`
+      )
+      .bind(workspaceId, alertType)
+      .all();
+    
+    const rows = query.results || [];
+    const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+    
+    for (const row of rows) {
+      let meta = {};
+      try {
+        meta = JSON.parse(row.metadata_json || '{}');
+      } catch (e) {
+        continue;
+      }
+      
+      if (meta.related_entity === relatedEntity) {
+        const rowDateStr = row.created_at.includes('Z') || row.created_at.includes('+')
+          ? row.created_at
+          : row.created_at.replace(' ', 'T') + 'Z';
+        const createdAtTime = new Date(rowDateStr).getTime();
+        
+        if (createdAtTime >= oneDayAgo) {
+          return true;
+        }
+        
+        if (checkThresholdFn) {
+          const thresholdDup = checkThresholdFn(meta);
+          if (thresholdDup) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  } catch (err) {
+    return false;
+  }
+}
+
+function formatAlertEmail({ workspaceName, domain, subject, whatChanged, recommendation, link }) {
+  const text = `CyberMeters Alert
+
+Workspace: ${workspaceName}
+Affected Domain: ${domain || "N/A"}
+
+What Changed:
+${whatChanged}
+
+Recommended Next Action:
+${recommendation}
+
+View Dashboard/Report:
+${link || "https://cybermeters.pages.dev"}
+
+--
+CyberMeters — Attack Surface Management
+This is an automated alert from your CyberMeters Platform.`;
+
+  const html = `<!DOCTYPE html>
+<html>
+<body style="font-family: sans-serif; color: #111; max-width: 600px; margin: 0 auto; padding: 20px; line-height: 1.5;">
+  <h2 style="color: #00876A;">CyberMeters Alert</h2>
+  <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+    <tr>
+      <td style="padding: 6px 0; font-weight: bold; width: 150px;">Workspace:</td>
+      <td>${workspaceName}</td>
+    </tr>
+    \${domain ? \`<tr>
+      <td style="padding: 6px 0; font-weight: bold;">Affected Domain:</td>
+      <td>\${domain}</td>
+    </tr>\` : ''}
+  </table>
+  
+  <div style="background: #F9FAFB; border-left: 4px solid #F59E0B; padding: 15px; margin-bottom: 20px;">
+    <h4 style="margin: 0 0 8px 0; color: #374151;">What Changed:</h4>
+    <p style="margin: 0; color: #4B5563; white-space: pre-wrap;">\${whatChanged}</p>
+  </div>
+
+  <div style="margin-bottom: 25px;">
+    <h4 style="margin: 0 0 8px 0; color: #374151;">Recommended Next Action:</h4>
+    <p style="margin: 0; color: #4B5563;">\${recommendation}</p>
+  </div>
+
+  \${link ? \`<p style="margin-top: 20px;">
+    <a href="\${link}" style="background: #00876A; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: bold; display: inline-block;">
+      View Dashboard / Report
+    </a>
+  </p>\` : ''}
+  
+  <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 30px 0;" />
+  <p style="font-size: 12px; color: #9CA3AF; margin: 0;">
+    CyberMeters &mdash; Attack Surface Management<br>
+    This alert was sent to workspace owners and admins.
+  </p>
+</body>
+</html>`;
+
+  return { text, html };
+}
+
+async function processAlertsForWorkspace(workspaceId, domainId, domain, scanId, currentScore, currentFindings, currentModules, startedAt, env) {
+  try {
+    const recipients = await getWorkspaceAlertRecipients(workspaceId, env);
+    const wsRow = await env.cybermeters_db
+      .prepare("SELECT name FROM workspaces WHERE id = ?")
+      .bind(workspaceId)
+      .first();
+    const workspaceName = wsRow?.name || "Unknown Workspace";
+
+    const triggerAlert = async ({ type, severity, title, message, relatedEntity, whatChanged, recommendation, fromKey = "ALERT_EMAIL_FROM", threshold = null }) => {
+      const notifId = createId("notif");
+      const metadata = { scan_id: scanId, domain, related_entity: relatedEntity };
+      if (threshold !== null) {
+        metadata.threshold = threshold;
+      }
+      
+      let emailSentAt = null;
+      if (recipients.length > 0) {
+        const { text, html } = formatAlertEmail({
+          workspaceName,
+          domain,
+          subject: title,
+          whatChanged,
+          recommendation,
+          link: `https://cybermeters.pages.dev/scans/\${scanId}`
+        });
+        
+        await sendCustomerEmail(title, text, html, env, fromKey, recipients);
+        emailSentAt = new Date().toISOString();
+      }
+
+      await env.cybermeters_db
+        .prepare(
+          `INSERT INTO notification_events
+             (id, workspace_id, type, severity, title, message, metadata_json, status, created_at, sent_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'unread', datetime('now'), ?)`
+        )
+        .bind(notifId, workspaceId, type, severity, title, message, JSON.stringify(metadata), emailSentAt)
+        .run();
+    };
+
+    const hist = currentModules.historical_changes;
+    const ssl = currentModules.ssl;
+
+    // ── 1. Score Drop Alert ──
+    if (hist?.has_previous && hist.score_change != null && hist.score_change <= -10) {
+      const isDuplicate = await isAlertDuplicate(env, workspaceId, "score_drop", domain);
+      if (!isDuplicate) {
+        const scoreDiff = Math.abs(hist.score_change);
+        await triggerAlert({
+          type: "score_drop",
+          severity: "high",
+          title: `⚠ CyberMeters: \${domain} score dropped \${scoreDiff} points`,
+          message: `Security score dropped from \${hist.previous_score} to \${hist.current_score} (-\${scoreDiff} points).`,
+          relatedEntity: domain,
+          whatChanged: `The security score for \${domain} dropped by \${scoreDiff} points (\${hist.previous_score} → \${hist.current_score}).`,
+          recommendation: "A drop of this magnitude indicates new critical or high-severity findings. Review the full report immediately to resolve these issues.",
+          fromKey: "ALERT_EMAIL_FROM"
+        });
+      }
+    }
+
+    // ── 2. New Critical/High Finding Alert ──
+    if (hist?.has_previous && Array.isArray(hist.new_findings)) {
+      const newCritHigh = hist.new_findings.filter(f => f.severity === "critical" || f.severity === "high");
+      const nonDupNew = [];
+      for (const f of newCritHigh) {
+        const isDuplicate = await isAlertDuplicate(env, workspaceId, "new_finding", f.id);
+        if (!isDuplicate) {
+          nonDupNew.push(f);
+        }
+      }
+      
+      if (nonDupNew.length > 0) {
+        const count = nonDupNew.length;
+        const highestSeverity = nonDupNew.some(f => f.severity === "critical") ? "critical" : "high";
+        const findingsListStr = nonDupNew.map(f => `• [\${f.severity.toUpperCase()}] \${f.title}`).join("\n");
+        
+        await triggerAlert({
+          type: "new_finding",
+          severity: highestSeverity,
+          title: `🚨 CyberMeters: \${count} new finding\${count !== 1 ? "s" : ""} on \${domain}`,
+          message: `Detected \${count} new high/critical severity finding\${count !== 1 ? "s" : ""} requiring attention.`,
+          relatedEntity: nonDupNew[0].id,
+          whatChanged: `New high/critical security findings were discovered:\n\${findingsListStr}`,
+          recommendation: "Review the recommended remediation actions in the report and apply patches or configuration fixes.",
+          fromKey: "ALERT_EMAIL_FROM"
+        });
+      }
+    }
+
+    // ── 3. Certificate Expiry Alert ──
+    if (ssl?.cert_expiry_days != null && ssl.cert_expiry_days <= 14) {
+      const currentThreshold = ssl.cert_expiry_days <= 7 ? 7 : 14;
+      const isDuplicate = await isAlertDuplicate(env, workspaceId, "cert_expiry", domain, (meta) => {
+        return (meta.threshold || 14) <= currentThreshold;
+      });
+      
+      if (!isDuplicate) {
+        const urgency = ssl.cert_expiry_days <= 7 ? "CRITICAL" : "URGENT";
+        const barColor = ssl.cert_expiry_days <= 7 ? "critical" : "high";
+        const expiryDateStr = ssl.cert_not_after 
+          ? new Date(ssl.cert_not_after).toUTCString().slice(0, 22) + " UTC"
+          : "unknown";
+        
+        await triggerAlert({
+          type: "cert_expiry",
+          severity: barColor,
+          title: `[\${urgency}] SSL certificate for \${domain} expires in \${ssl.cert_expiry_days} days`,
+          message: `SSL certificate expires on \${expiryDateStr} (\${ssl.cert_expiry_days} days remaining).`,
+          relatedEntity: domain,
+          whatChanged: `The SSL certificate for \${domain} is expiring in \${ssl.cert_expiry_days} days (Expiry: \${expiryDateStr}).`,
+          recommendation: "An expired SSL certificate will cause browsers to block visitors to your site. Renew the certificate immediately.",
+          fromKey: ssl.cert_expiry_days <= 14 ? "ALERT_EMAIL_FROM" : "SAFE_EMAIL_FROM",
+          threshold: currentThreshold
+        });
+      }
+    }
+
+    // ── 4. New Vendor Discovered Alert ──
+    if (currentModules.vendor_risk?.detected && currentModules.vendor_risk.vendors?.length) {
+      const newVendorsQuery = await env.cybermeters_db
+        .prepare(
+          `SELECT id, vendor_name, category, risk_level
+           FROM workspace_vendors
+           WHERE workspace_id = ? AND first_seen >= ? AND status = 'active'`
+        )
+        .bind(workspaceId, startedAt)
+        .all();
+      const newVendors = newVendorsQuery.results || [];
+      
+      const nonDupVendors = [];
+      for (const v of newVendors) {
+        const isDuplicate = await isAlertDuplicate(env, workspaceId, "new_vendor", v.vendor_name);
+        if (!isDuplicate) {
+          nonDupVendors.push(v);
+        }
+      }
+      
+      if (nonDupVendors.length > 0) {
+        const count = nonDupVendors.length;
+        const vendorListStr = nonDupVendors.map(v => `• \${v.vendor_name} (\${v.category || "General"})`).join("\n");
+        await triggerAlert({
+          type: "new_vendor",
+          severity: "info",
+          title: `🔍 CyberMeters: \${count} new vendor\${count !== 1 ? "s" : ""} discovered for \${domain}`,
+          message: `Discovered new active vendor\${count !== 1 ? "s" : ""}: \${nonDupVendors.map(v => v.vendor_name).join(", ")}.`,
+          relatedEntity: nonDupVendors[0].vendor_name,
+          whatChanged: `New active vendor(s) detected on your attack surface:\n\${vendorListStr}`,
+          recommendation: "Review the vendor's security posture and ensure their compliance with security policies.",
+          fromKey: "ALERT_EMAIL_FROM"
+        });
+      }
+    }
+
+    // ── 5. Supply Chain Risk Increase Alert ──
+    const scHistoryQuery = await env.cybermeters_db
+      .prepare(
+        `SELECT resilience_score, concentration_level
+         FROM workspace_supply_chain_history
+         WHERE workspace_id = ?
+         ORDER BY calculated_at DESC
+         LIMIT 2`
+      )
+      .bind(workspaceId)
+      .all();
+    const scHistory = scHistoryQuery.results || [];
+    if (scHistory.length === 2) {
+      const curr = scHistory[0];
+      const prev = scHistory[1];
+      
+      const resDropped = curr.resilience_score <= prev.resilience_score - 10;
+      const levels = { 'low': 1, 'medium': 2, 'high': 3, 'critical': 4 };
+      const conWorsened = (levels[curr.concentration_level] || 0) > (levels[prev.concentration_level] || 0);
+      
+      if (resDropped || conWorsened) {
+        const isDuplicate = await isAlertDuplicate(env, workspaceId, "supply_chain_risk_increase", "supply_chain");
+        if (!isDuplicate) {
+          let changeDesc = "";
+          if (resDropped) {
+            changeDesc += `• Operational resilience score dropped from \${prev.resilience_score} to \${curr.resilience_score} (score drop: \${prev.resilience_score - curr.resilience_score} points)\n`;
+          }
+          if (conWorsened) {
+            changeDesc += `• Third-party concentration risk level worsened from "\${prev.concentration_level}" to "\${curr.concentration_level}"\n`;
+          }
+          
+          await triggerAlert({
+            type: "supply_chain_risk_increase",
+            severity: "high",
+            title: `⚠️ CyberMeters Alert: Supply chain risk increased for workspace`,
+            message: `Supply chain risk increase detected in workspace: ` +
+              (resDropped ? `Resilience score dropped. ` : '') + (conWorsened ? `Concentration level worsened.` : ''),
+            relatedEntity: "supply_chain",
+            whatChanged: `Workspace supply chain security indicators have worsened:\n\${changeDesc}`,
+            recommendation: "Review your third-party vendor concentration and redundancy plans on the Supply Chain dashboard to mitigate systemic dependencies.",
+            fromKey: "ALERT_EMAIL_FROM"
+          });
+        }
+      }
+    }
+
+  } catch (err) {
+    // Graceful error handling for alerts
+  }
+}
 
 /**
  * sendScoreDropAlert — fires when the Cyber Metrics Score drops ≥ 10 points
@@ -12307,64 +12702,7 @@ async function triggerScheduledScan(schedule, env) {
       }
     }
 
-    // ── Alert phase ──────────────────────────────────────────────────────────
-    // Runs after runScanEngine so historical_changes and SSL data are fully
-    // written to R2.  Each alert is fire-and-forget from its own try/catch so
-    // one delivery failure never blocks the others, and no error ever surfaces
-    // to callers or interrupts scan completion.
-    try {
-      const obj = await env.cybermeters_reports.get(`reports/${scanId}.json`);
-      if (obj) {
-        const report = await obj.json();
-        const hist   = report.modules?.historical_changes;
-        const ssl    = report.modules?.ssl;
-
-        // 1. Score drop ≥ 10 points
-        if (hist?.has_previous && hist.score_change != null && hist.score_change <= -10) {
-          try {
-            await sendScoreDropAlert(
-              schedule.domain, scanId,
-              hist.score_change, hist.previous_score, hist.current_score,
-              env
-            );
-          } catch { /* swallow */ }
-        }
-
-        // 2. New subdomain takeover risks
-        if (hist?.new_takeover_risks?.length > 0) {
-          try {
-            await sendTakeoverAlert(schedule.domain, scanId, hist.new_takeover_risks, env);
-          } catch { /* swallow */ }
-        }
-
-        // 3. SSL certificate expires within 30 days
-        if (ssl?.cert_expiry_days != null && ssl.cert_expiry_days <= 30) {
-          try {
-            await sendSslExpiryAlert(
-              schedule.domain, scanId,
-              ssl.cert_expiry_days, ssl.cert_not_after,
-              env
-            );
-          } catch { /* swallow */ }
-        }
-
-        // 4. New critical or high-severity findings (via generic alert path)
-        if (hist?.has_previous) {
-          const criticalNew = (hist.new_findings || []).filter(
-            f => f.severity === "critical" || f.severity === "high"
-          );
-          if (criticalNew.length > 0) {
-            try {
-              const triggers = [{ type: "new_finding", findings: criticalNew.map(f => ({ title: f.title, severity: f.severity })) }];
-              const { subject, text, html } = buildAlertEmail(schedule.domain, scanId, triggers);
-              await sendAlertEmail(subject, text, html, env, "ALERT_EMAIL_FROM");
-            } catch { /* swallow */ }
-          }
-        }
-      }
-    } catch {
-      // Alert errors must not affect scan completion
-    }
+    // Note: Alert phase is now handled uniformly during scan completion in runScanEngine (Phase 10).
   } catch {
     // Graceful failure — one schedule erroring must not affect the others
   }
@@ -15996,7 +16334,7 @@ export default {
             `<p style="margin-top:40px;font-size:12px;color:#bbb">If you didn't request this, ignore this email — your account is safe.</p>` +
             `</body></html>`;
 
-          await sendAlertEmail(subject, text, html, env, "HELLO_EMAIL_FROM");
+          await sendCustomerEmail(subject, text, html, env, "HELLO_EMAIL_FROM", [user.email]);
 
           await createAuditEvent(env, {
             user_id:     user.id,
