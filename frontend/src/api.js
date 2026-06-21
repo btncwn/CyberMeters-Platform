@@ -386,6 +386,46 @@ export const api = {
   /** GET /api/workspaces/:id/supply-chain */
   getWorkspaceSupplyChain: (id) => request(`/workspaces/${id}/supply-chain`),
 
+  // ── Audit Log ─────────────────────────────────────────────────────────────
+
+  /** GET /api/workspaces/:id/audit-events */
+  getWorkspaceAuditEvents: (id, filters = {}) => {
+    const params = new URLSearchParams()
+    if (filters.limit)        params.set('limit',         String(filters.limit))
+    if (filters.offset)       params.set('offset',        String(filters.offset))
+    if (filters.event_type)   params.set('event_type',    filters.event_type)
+    if (filters.actor_user_id) params.set('actor_user_id', filters.actor_user_id)
+    if (filters.entity_type)  params.set('entity_type',   filters.entity_type)
+    if (filters.entity_id)    params.set('entity_id',     filters.entity_id)
+    if (filters.date_from)    params.set('date_from',     filters.date_from)
+    if (filters.date_to)      params.set('date_to',       filters.date_to)
+    if (filters.search)       params.set('search',        filters.search)
+    const qs = params.toString()
+    return request(`/workspaces/${id}/audit-events${qs ? `?${qs}` : ''}`)
+  },
+
+  /** GET /api/workspaces/:id/audit-events/export?format=csv|json */
+  exportWorkspaceAuditEvents: async (id, filters = {}, format = 'csv') => {
+    const params = new URLSearchParams({ format })
+    if (filters.limit)        params.set('limit',         String(filters.limit))
+    if (filters.event_type)   params.set('event_type',    filters.event_type)
+    if (filters.actor_user_id) params.set('actor_user_id', filters.actor_user_id)
+    if (filters.entity_type)  params.set('entity_type',   filters.entity_type)
+    if (filters.entity_id)    params.set('entity_id',     filters.entity_id)
+    if (filters.date_from)    params.set('date_from',     filters.date_from)
+    if (filters.date_to)      params.set('date_to',       filters.date_to)
+    if (filters.search)       params.set('search',        filters.search)
+    const res = await fetch(`${BASE}/workspaces/${id}/audit-events/export?${params}`, {
+      headers: getAuthHeaders(),
+    })
+    if (res.status === 401) { handleUnauthorized(); throw new Error('Session expired.') }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }))
+      throw new Error(err.error || `HTTP ${res.status}`)
+    }
+    return res.blob()
+  },
+
   /** GET /api/workspaces/:id/alerts */
   getWorkspaceAlerts: (id) => request(`/workspaces/${id}/alerts`),
 
