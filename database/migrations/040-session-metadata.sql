@@ -21,8 +21,7 @@ ALTER TABLE user_sessions ADD COLUMN last_seen_at TEXT;
 
 -- Index for efficient active-session listing per user
 CREATE INDEX IF NOT EXISTS idx_user_sessions_user_active
-  ON user_sessions (user_id, expires_at)
-  WHERE expires_at > datetime('now');
+  ON user_sessions (user_id, expires_at);
 
 -- Validation:
 -- SELECT name FROM sqlite_master WHERE type='table' AND name='user_sessions';
