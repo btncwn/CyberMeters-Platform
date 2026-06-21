@@ -145,6 +145,13 @@ export default function SignupPage() {
               : <><UserPlus className="w-4 h-4" /> Create account</>
             }
           </button>
+
+          <p className="text-[11px] text-gray-400 text-center leading-relaxed mt-3">
+            By creating an account you agree to our{' '}
+            <Link to="/terms"   className="text-brand-600 hover:underline">Terms of Service</Link>
+            {' '}and{' '}
+            <Link to="/privacy" className="text-brand-600 hover:underline">Privacy Policy</Link>.
+          </p>
         </form>
       </div>
 

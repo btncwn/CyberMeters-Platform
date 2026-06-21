@@ -3,28 +3,27 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Server, ScanLine, FileBarChart2,
   Settings, Shield, Plus, ChevronDown, Calendar,
-  Briefcase, ChevronRight, Check, Brain, Layers, LogOut, User,
-  AlertTriangle, X, Activity, CreditCard, ShieldAlert,
+  Briefcase, ChevronRight, Check, Layers, LogOut, User,
+  AlertTriangle, X, CreditCard,
 } from 'lucide-react'
 import { api } from '../api'
 import { useAuth } from '../context/AuthContext'
 import NotificationBell from './NotificationBell'
 
+// Accuracy and Pricing are removed from the main nav:
+// - Accuracy is an internal developer tool not intended for beta users.
+// - Pricing is a public marketing page already linked in the footer.
 const NAV = [
-  { to: '/dashboard',    icon: LayoutDashboard, label: 'Dashboard'    },
-  { to: '/portfolio',    icon: Layers,          label: 'Portfolio'    },
-  { to: '/portfolio/risk', icon: ShieldAlert,   label: 'Portfolio Risk' },
-  { to: '/ws/dashboard', icon: Shield,          label: 'Workspace'    },
-  { to: '/workspaces',   icon: Briefcase,       label: 'Workspaces'   },
-  { to: '/intelligence', icon: Brain,           label: 'Intelligence' },
-  { to: '/assets',       icon: Server,          label: 'Assets'       },
-  { to: '/scans',        icon: ScanLine,        label: 'Scans'        },
-  { to: '/schedules',    icon: Calendar,        label: 'Schedules'    },
-  { to: '/reports',      icon: FileBarChart2,   label: 'Reports'      },
-  { to: '/accuracy',     icon: Activity,        label: 'Accuracy'     },
-  { to: '/pricing',      icon: CreditCard,      label: 'Pricing'      },
-  { to: '/billing',      icon: CreditCard,      label: 'Billing'      },
-  { to: '/settings',     icon: Settings,        label: 'Settings'     },
+  { to: '/dashboard',      icon: LayoutDashboard, label: 'Dashboard'  },
+  { to: '/portfolio',      icon: Layers,          label: 'Portfolio'  },
+  { to: '/ws/dashboard',   icon: Shield,          label: 'Workspace'  },
+  { to: '/workspaces',     icon: Briefcase,       label: 'Workspaces' },
+  { to: '/assets',         icon: Server,          label: 'Assets'     },
+  { to: '/scans',          icon: ScanLine,        label: 'Scans'      },
+  { to: '/schedules',      icon: Calendar,        label: 'Schedules'  },
+  { to: '/reports',        icon: FileBarChart2,   label: 'Reports'    },
+  { to: '/billing',        icon: CreditCard,      label: 'Billing'    },
+  { to: '/settings',       icon: Settings,        label: 'Settings'   },
 ]
 
 // ── Workspace Selector Dropdown ───────────────────────────────────────────────
@@ -222,6 +221,7 @@ function UserMenu() {
 }
 
 function UpgradePromptModal() {
+  const navigate = useNavigate()
   const [limit, setLimit] = useState(null)
 
   useEffect(() => {
@@ -269,7 +269,7 @@ function UpgradePromptModal() {
           </button>
           <button
             type="button"
-            onClick={() => { window.location.href = '/pricing' }}
+            onClick={() => { setLimit(null); navigate('/pricing') }}
             className="btn-primary"
           >
             View pricing

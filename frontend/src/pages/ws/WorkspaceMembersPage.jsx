@@ -16,6 +16,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../../context/AuthContext'
 import {
   Users, UserPlus, Mail, Shield, Trash2, RefreshCw,
   ChevronDown, CheckCircle, Clock, AlertTriangle, X,
@@ -202,6 +203,7 @@ export default function WorkspaceMembersPage() {
   const [removingId,   setRemovingId]   = useState(null)
   const [cancellingId, setCancellingId] = useState(null)
   const navigate = useNavigate()
+  const { user: currentUser } = useAuth()
 
   const workspaceId = localStorage.getItem('cybermeters_workspace_id')
 
@@ -326,7 +328,7 @@ export default function WorkspaceMembersPage() {
                 </thead>
                 <tbody className="divide-y divide-gray-50">
                   {members.map(member => {
-                    const isCurrentUser = member.email === window.__cm_user_email
+                    const isCurrentUser = member.email === currentUser?.email
                     const canManage = isOwner(callerRole) && member.role !== 'owner'
                     return (
                       <tr key={member.id} className="hover:bg-gray-50/40 transition-colors">

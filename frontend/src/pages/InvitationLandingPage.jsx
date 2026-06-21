@@ -174,8 +174,6 @@ export default function InvitationLandingPage() {
   const expired        = preview && (preview.status === 'expired' || isExpired(preview.expires_at))
   const alreadyUsed    = preview && preview.status === 'accepted'
   const cancelled      = preview && preview.status === 'cancelled'
-  const wrongEmail     = isAuthenticated && user && preview && !joinError?.includes('email')
-                         ? false : false  // computed below in handleJoin error path
   const [wrongEmailMsg, setWrongEmailMsg] = useState(null)
 
   // ── Handlers ──────────────────────────────────────────────────────────────
