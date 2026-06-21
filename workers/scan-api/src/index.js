@@ -13479,6 +13479,55 @@ function computeScheduledReportNextRunAt(frequency) {
   return new Date(Date.now() + 30 * 24 * 60 * 60 * 1_000).toISOString();
 }
 
+function calculateNextRun(frequency, from = new Date()) {
+  const base = new Date(from);
+  if (frequency === "weekly") {
+    return new Date(base.getTime() + 7 * 24 * 60 * 60 * 1_000).toISOString();
+  }
+  if (frequency === "monthly") {
+    return new Date(Date.UTC(
+      base.getUTCFullYear(),
+      base.getUTCMonth() + 1,
+      base.getUTCDate(),
+      base.getUTCHours(),
+      base.getUTCMinutes(),
+      base.getUTCSeconds()
+    )).toISOString();
+  }
+  return null;
+}
+
+function normalizeReportScheduleFrequency(value) {
+  const frequency = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return ["weekly", "monthly"].includes(frequency) ? frequency : null;
+}
+
+function normalizeReportScheduleRecipients(value) {
+  if (!Array.isArray(value)) return null;
+  const recipients = [...new Set(value.map((v) => String(v || "").trim().toLowerCase()).filter(Boolean))];
+  const emailPattern = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
+  if (recipients.length === 0 || recipients.length > 20) return null;
+  if (!recipients.every((email) => emailPattern.test(email))) return null;
+  return recipients;
+}
+
+async function getDueReportSchedules(env, now = new Date().toISOString()) {
+  const rows = await env.cybermeters_db
+    .prepare(
+      `SELECT id, workspace_id, created_by, frequency, enabled, email_recipients,
+              last_run_at, next_run_at, created_at, updated_at
+       FROM report_schedules
+       WHERE enabled = 1 AND next_run_at <= ?
+       ORDER BY next_run_at ASC`
+    )
+    .bind(now)
+    .all();
+  return (rows.results || []).map((row) => ({
+    ...row,
+    email_recipients: (() => { try { return JSON.parse(row.email_recipients || "[]"); } catch { return []; } })(),
+  }));
+}
+
 /**
  * Create and run a scan for one scheduled_scans row.
  * This function is always called inside ctx.waitUntil() so it is safe to await
@@ -23456,6 +23505,95 @@ export default {
       }
     }
 
+    // ── PATCH /api/workspaces/:id/members/:memberId — change role ────────────
+    const memberRoleMatch = url.pathname.match(/^\/api\/workspaces\/([^\/]+)\/members\/([^\/]+)$/);
+    if (memberRoleMatch && request.method === "PATCH") {
+      const workspaceId = memberRoleMatch[1];
+      const targetMemberId = memberRoleMatch[2];
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, workspaceId, "workspace:manage_members", env);
+      if (!access) return json({ error: "Forbidden — owner role required to change member roles" }, 403);
+
+      let body;
+      try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+
+      const newRole = (body.role || "").trim().toLowerCase();
+      const CHANGEABLE_ROLES = new Set(["viewer", "analyst", "admin"]);
+      if (!CHANGEABLE_ROLES.has(newRole)) {
+        return json({ error: "role must be one of: viewer, analyst, admin" }, 400);
+      }
+
+      try {
+        const row = await env.cybermeters_db
+          .prepare("SELECT id, user_id, role FROM workspace_members WHERE id = ? AND workspace_id = ?")
+          .bind(targetMemberId, workspaceId)
+          .first();
+        if (!row) return json({ error: "Member not found" }, 404);
+        if (row.role === "owner") return json({ error: "Cannot change the owner's role. Transfer ownership instead." }, 409);
+        if (row.user_id === user.id) return json({ error: "Cannot change your own role." }, 409);
+
+        const prevRole = row.role;
+        await env.cybermeters_db
+          .prepare("UPDATE workspace_members SET role = ? WHERE id = ?")
+          .bind(newRole, targetMemberId)
+          .run();
+
+        await createAuditEvent(env, {
+          workspace_id: workspaceId,
+          user_id:      user.id,
+          event_type:   "workspace_role_changed",
+          entity_type:  "member",
+          entity_id:    row.user_id,
+          description:  `${user.email} changed member role from ${prevRole} to ${newRole}`,
+          metadata:     { member_id: targetMemberId, user_id: row.user_id, previous_role: prevRole, new_role: newRole },
+        });
+
+        return json({ success: true, member_id: targetMemberId, role: newRole, previous_role: prevRole });
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
+    // ── DELETE /api/workspaces/:id/invitations/:invId — cancel invitation ──────
+    const invitationCancelMatch = url.pathname.match(/^\/api\/workspaces\/([^\/]+)\/invitations\/([^\/]+)$/);
+    if (invitationCancelMatch && request.method === "DELETE") {
+      const workspaceId    = invitationCancelMatch[1];
+      const invitationId   = invitationCancelMatch[2];
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, workspaceId, "workspace:invite", env);
+      if (!access) return json({ error: "Forbidden — admin role required to cancel invitations" }, 403);
+
+      try {
+        const row = await env.cybermeters_db
+          .prepare("SELECT id, email, role, status FROM workspace_invitations WHERE id = ? AND workspace_id = ?")
+          .bind(invitationId, workspaceId)
+          .first();
+        if (!row) return json({ error: "Invitation not found" }, 404);
+        if (row.status !== "pending") return json({ error: `Invitation is already ${row.status}` }, 409);
+
+        await env.cybermeters_db
+          .prepare("UPDATE workspace_invitations SET status = 'cancelled' WHERE id = ?")
+          .bind(invitationId)
+          .run();
+
+        await createAuditEvent(env, {
+          workspace_id: workspaceId,
+          user_id:      user.id,
+          event_type:   "workspace_invitation_cancelled",
+          entity_type:  "workspace_invitation",
+          entity_id:    invitationId,
+          description:  `${user.email} cancelled invitation for ${row.email}`,
+          metadata:     { invitation_id: invitationId, email: row.email, role: row.role },
+        });
+
+        return json({ success: true, cancelled_id: invitationId });
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
     // ── POST /api/invitations/:token/accept ─────────────────────────────────
     const invitationAcceptMatch = url.pathname.match(/^\/api\/invitations\/([^/]+)\/accept$/);
     if (invitationAcceptMatch && request.method === "POST") {
@@ -25236,11 +25374,158 @@ export default {
       } catch (err) {
         return json({ error: String(err?.message ?? err) }, 500);
       }
-    }
+	    }
+	
+	    // ── Executive Report Scheduling v1 ──────────────────────────────────
+	    const reportScheduleListMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/report-schedules$/);
+	    if (reportScheduleListMatch && request.method === "GET") {
+	      const wsId = reportScheduleListMatch[1];
+	      const user = await requireAuth(request, env);
+	      if (!user) return json({ error: "Unauthorized" }, 401);
+	      const access = await requireWorkspaceRole(user, wsId, "workspace:read", env);
+	      if (!access) return json({ error: "Forbidden" }, 403);
+	      try {
+	        const { results } = await env.cybermeters_db
+	          .prepare(
+	            `SELECT id, workspace_id, created_by, frequency, enabled, email_recipients,
+	                    last_run_at, next_run_at, created_at, updated_at
+	             FROM report_schedules
+	             WHERE workspace_id = ?
+	             ORDER BY created_at DESC`
+	          )
+	          .bind(wsId)
+	          .all();
+	        const schedules = (results || []).map((row) => ({
+	          ...row,
+	          enabled: row.enabled === 1,
+	          email_recipients: (() => { try { return JSON.parse(row.email_recipients || "[]"); } catch { return []; } })(),
+	        }));
+	        return json({ schedules });
+	      } catch (err) {
+	        return json({ error: String(err?.message ?? err) }, 500);
+	      }
+	    }
 
-    // ── GET /api/workspaces/:id/scheduled-reports ────────────────────────────
-    // List all scheduled report configs for a workspace.
-    const srListMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/scheduled-reports$/);
+	    if (reportScheduleListMatch && request.method === "POST") {
+	      const wsId = reportScheduleListMatch[1];
+	      const user = await requireAuth(request, env);
+	      if (!user) return json({ error: "Unauthorized" }, 401);
+	      const access = await requireWorkspaceRole(user, wsId, "schedule:manage", env);
+	      if (!access) return json({ error: "Forbidden — admin role required to manage schedules" }, 403);
+	      try {
+	        let body = {};
+	        try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+	        const frequency = normalizeReportScheduleFrequency(body.frequency);
+	        if (!frequency) return json({ error: "Invalid frequency. Use weekly or monthly." }, 400);
+	        const recipients = normalizeReportScheduleRecipients(body.email_recipients);
+	        if (!recipients) return json({ error: "email_recipients must contain 1-20 valid email addresses." }, 400);
+	        const now = new Date().toISOString();
+	        const scheduleId = createId("rs");
+	        const nextRunAt = calculateNextRun(frequency, now);
+	        await env.cybermeters_db
+	          .prepare(
+	            `INSERT INTO report_schedules
+	               (id, workspace_id, created_by, frequency, enabled, email_recipients,
+	                next_run_at, created_at, updated_at)
+	             VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)`
+	          )
+	          .bind(scheduleId, wsId, user.id, frequency, JSON.stringify(recipients), nextRunAt, now, now)
+	          .run();
+	        await createAuditEvent(env, {
+	          workspace_id: wsId,
+	          user_id: user.id,
+	          event_type: "report_schedule_created",
+	          entity_type: "report_schedule",
+	          entity_id: scheduleId,
+	          description: `Executive report schedule created (${frequency})`,
+	          metadata: { frequency, recipient_count: recipients.length, next_run_at: nextRunAt },
+	        });
+	        return json({
+	          schedule: { id: scheduleId, workspace_id: wsId, created_by: user.id, frequency, enabled: true, email_recipients: recipients, last_run_at: null, next_run_at: nextRunAt, created_at: now, updated_at: now },
+	        }, 201);
+	      } catch (err) {
+	        return json({ error: String(err?.message ?? err) }, 500);
+	      }
+	    }
+
+	    const reportScheduleItemMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/report-schedules\/([^/]+)$/);
+	    if (reportScheduleItemMatch && request.method === "PUT") {
+	      const wsId = reportScheduleItemMatch[1];
+	      const scheduleId = reportScheduleItemMatch[2];
+	      const user = await requireAuth(request, env);
+	      if (!user) return json({ error: "Unauthorized" }, 401);
+	      const access = await requireWorkspaceRole(user, wsId, "schedule:manage", env);
+	      if (!access) return json({ error: "Forbidden — admin role required to manage schedules" }, 403);
+	      try {
+	        const existing = await env.cybermeters_db
+	          .prepare("SELECT id FROM report_schedules WHERE id = ? AND workspace_id = ? LIMIT 1")
+	          .bind(scheduleId, wsId)
+	          .first();
+	        if (!existing) return json({ error: "Schedule not found" }, 404);
+	        let body = {};
+	        try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+	        const frequency = normalizeReportScheduleFrequency(body.frequency);
+	        if (!frequency) return json({ error: "Invalid frequency. Use weekly or monthly." }, 400);
+	        const recipients = normalizeReportScheduleRecipients(body.email_recipients);
+	        if (!recipients) return json({ error: "email_recipients must contain 1-20 valid email addresses." }, 400);
+	        const enabled = body.enabled === false ? 0 : 1;
+	        const now = new Date().toISOString();
+	        const nextRunAt = calculateNextRun(frequency, now);
+	        await env.cybermeters_db
+	          .prepare(
+	            `UPDATE report_schedules
+	             SET frequency = ?, enabled = ?, email_recipients = ?, next_run_at = ?, updated_at = ?
+	             WHERE id = ? AND workspace_id = ?`
+	          )
+	          .bind(frequency, enabled, JSON.stringify(recipients), nextRunAt, now, scheduleId, wsId)
+	          .run();
+	        await createAuditEvent(env, {
+	          workspace_id: wsId,
+	          user_id: user.id,
+	          event_type: "report_schedule_updated",
+	          entity_type: "report_schedule",
+	          entity_id: scheduleId,
+	          description: `Executive report schedule updated (${frequency})`,
+	          metadata: { frequency, enabled: enabled === 1, recipient_count: recipients.length, next_run_at: nextRunAt },
+	        });
+	        return json({ updated: true, schedule: { id: scheduleId, workspace_id: wsId, frequency, enabled: enabled === 1, email_recipients: recipients, next_run_at: nextRunAt, updated_at: now } });
+	      } catch (err) {
+	        return json({ error: String(err?.message ?? err) }, 500);
+	      }
+	    }
+
+	    if (reportScheduleItemMatch && request.method === "DELETE") {
+	      const wsId = reportScheduleItemMatch[1];
+	      const scheduleId = reportScheduleItemMatch[2];
+	      const user = await requireAuth(request, env);
+	      if (!user) return json({ error: "Unauthorized" }, 401);
+	      const access = await requireWorkspaceRole(user, wsId, "schedule:manage", env);
+	      if (!access) return json({ error: "Forbidden — admin role required to manage schedules" }, 403);
+	      try {
+	        const now = new Date().toISOString();
+	        const result = await env.cybermeters_db
+	          .prepare("UPDATE report_schedules SET enabled = 0, updated_at = ? WHERE id = ? AND workspace_id = ?")
+	          .bind(now, scheduleId, wsId)
+	          .run();
+	        if ((result.meta?.changes ?? 0) === 0) return json({ error: "Schedule not found" }, 404);
+	        await createAuditEvent(env, {
+	          workspace_id: wsId,
+	          user_id: user.id,
+	          event_type: "report_schedule_deleted",
+	          entity_type: "report_schedule",
+	          entity_id: scheduleId,
+	          description: "Executive report schedule disabled",
+	          metadata: { schedule_id: scheduleId },
+	        });
+	        return json({ deleted: true, enabled: false });
+	      } catch (err) {
+	        return json({ error: String(err?.message ?? err) }, 500);
+	      }
+	    }
+
+	    // ── GET /api/workspaces/:id/scheduled-reports ────────────────────────────
+	    // List all scheduled report configs for a workspace.
+	    const srListMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/scheduled-reports$/);
     if (srListMatch && request.method === 'GET') {
       const wsId = srListMatch[1];
       const user = await requireAuth(request, env);
