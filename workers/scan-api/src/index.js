@@ -13528,6 +13528,105 @@ async function getDueReportSchedules(env, now = new Date().toISOString()) {
   }));
 }
 
+async function executeDueReportSchedules(env, now = new Date().toISOString()) {
+  let schedules = [];
+  try {
+    schedules = await getDueReportSchedules(env, now);
+  } catch {
+    return { processed: 0, completed: 0, failed: 0 };
+  }
+
+  const summary = { processed: 0, completed: 0, failed: 0 };
+  for (const schedule of schedules) {
+    summary.processed += 1;
+    const runId = createId("rsrun");
+    const startedAt = new Date().toISOString();
+    try {
+      await env.cybermeters_db
+        .prepare(
+          `INSERT INTO report_schedule_runs
+             (id, schedule_id, workspace_id, started_at, status, created_at)
+           VALUES (?, ?, ?, ?, 'running', ?)`
+        )
+        .bind(runId, schedule.id, schedule.workspace_id, startedAt, startedAt)
+        .run();
+      await createAuditEvent(env, {
+        workspace_id: schedule.workspace_id,
+        user_id: schedule.created_by,
+        event_type: "report_schedule_run_started",
+        entity_type: "report_schedule",
+        entity_id: schedule.id,
+        description: `Report schedule run started (${schedule.frequency})`,
+        metadata: { run_id: runId, schedule_id: schedule.id, frequency: schedule.frequency },
+      });
+
+      const reportType = schedule.frequency === "weekly" ? "weekly_executive" : "monthly_executive";
+      const report = await generateWorkspaceExecutiveReport(schedule.workspace_id, env, { report_type: reportType });
+      const completedAt = new Date().toISOString();
+      const nextRunAt = calculateNextRun(schedule.frequency, completedAt);
+      await env.cybermeters_db
+        .prepare(
+          `UPDATE report_schedule_runs
+           SET status = 'completed', completed_at = ?, report_id = ?
+           WHERE id = ?`
+        )
+        .bind(completedAt, report.id, runId)
+        .run();
+      await env.cybermeters_db
+        .prepare(
+          `UPDATE report_schedules
+           SET last_run_at = ?, next_run_at = ?, updated_at = ?
+           WHERE id = ?`
+        )
+        .bind(completedAt, nextRunAt, completedAt, schedule.id)
+        .run();
+      await createAuditEvent(env, {
+        workspace_id: schedule.workspace_id,
+        user_id: schedule.created_by,
+        event_type: "report_schedule_run_completed",
+        entity_type: "report_schedule",
+        entity_id: schedule.id,
+        description: `Report schedule run completed (${schedule.frequency})`,
+        metadata: { run_id: runId, schedule_id: schedule.id, report_id: report.id, next_run_at: nextRunAt },
+      });
+      summary.completed += 1;
+    } catch (err) {
+      const completedAt = new Date().toISOString();
+      const nextRunAt = calculateNextRun(schedule.frequency, completedAt);
+      const errorMessage = String(err?.message ?? err).slice(0, 500);
+      await env.cybermeters_db
+        .prepare(
+          `UPDATE report_schedule_runs
+           SET status = 'failed', completed_at = ?, error_message = ?
+           WHERE id = ?`
+        )
+        .bind(completedAt, errorMessage, runId)
+        .run()
+        .catch(() => {});
+      await env.cybermeters_db
+        .prepare(
+          `UPDATE report_schedules
+           SET last_run_at = ?, next_run_at = ?, updated_at = ?
+           WHERE id = ?`
+        )
+        .bind(completedAt, nextRunAt, completedAt, schedule.id)
+        .run()
+        .catch(() => {});
+      await createAuditEvent(env, {
+        workspace_id: schedule.workspace_id,
+        user_id: schedule.created_by,
+        event_type: "report_schedule_run_failed",
+        entity_type: "report_schedule",
+        entity_id: schedule.id,
+        description: `Report schedule run failed (${schedule.frequency})`,
+        metadata: { run_id: runId, schedule_id: schedule.id, error_message: errorMessage, next_run_at: nextRunAt },
+      }).catch(() => {});
+      summary.failed += 1;
+    }
+  }
+  return summary;
+}
+
 /**
  * Create and run a scan for one scheduled_scans row.
  * This function is always called inside ctx.waitUntil() so it is safe to await
@@ -23594,6 +23693,40 @@ export default {
       }
     }
 
+    // ── GET /api/invitations/:token — public preview (no auth required) ─────
+    const invitationPreviewMatch = url.pathname.match(/^\/api\/invitations\/([^/]+)$/);
+    if (invitationPreviewMatch && request.method === "GET") {
+      const rawToken = invitationPreviewMatch[1];
+      try {
+        const tokenHash = await hashToken(rawToken);
+        const invite = await env.cybermeters_db
+          .prepare(`
+            SELECT wi.role, wi.status, wi.expires_at,
+                   w.name AS workspace_name,
+                   u.name AS invited_by_name, u.email AS invited_by_email
+            FROM workspace_invitations wi
+            JOIN workspaces w ON w.id = wi.workspace_id
+            LEFT JOIN users u ON u.id = wi.invited_by
+            WHERE wi.token_hash = ?
+            LIMIT 1
+          `)
+          .bind(tokenHash)
+          .first();
+
+        if (!invite) return json({ error: "Invitation not found" }, 404);
+
+        return json({
+          workspace_name:   invite.workspace_name,
+          invited_by_name:  invite.invited_by_name || invite.invited_by_email || "A team member",
+          role:             invite.role,
+          expires_at:       invite.expires_at,
+          status:           invite.status,
+        });
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
     // ── POST /api/invitations/:token/accept ─────────────────────────────────
     const invitationAcceptMatch = url.pathname.match(/^\/api\/invitations\/([^/]+)\/accept$/);
     if (invitationAcceptMatch && request.method === "POST") {
@@ -25377,6 +25510,31 @@ export default {
 	    }
 	
 	    // ── Executive Report Scheduling v1 ──────────────────────────────────
+	    const reportScheduleRunsMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/report-schedule-runs$/);
+	    if (reportScheduleRunsMatch && request.method === "GET") {
+	      const wsId = reportScheduleRunsMatch[1];
+	      const user = await requireAuth(request, env);
+	      if (!user) return json({ error: "Unauthorized" }, 401);
+	      const access = await requireWorkspaceRole(user, wsId, "workspace:read", env);
+	      if (!access) return json({ error: "Forbidden" }, 403);
+	      try {
+	        const { results } = await env.cybermeters_db
+	          .prepare(
+	            `SELECT id, schedule_id, workspace_id, started_at, completed_at,
+	                    status, report_id, error_message, created_at
+	             FROM report_schedule_runs
+	             WHERE workspace_id = ?
+	             ORDER BY created_at DESC
+	             LIMIT 100`
+	          )
+	          .bind(wsId)
+	          .all();
+	        return json({ runs: results || [] });
+	      } catch (err) {
+	        return json({ error: String(err?.message ?? err) }, 500);
+	      }
+	    }
+
 	    const reportScheduleListMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/report-schedules$/);
 	    if (reportScheduleListMatch && request.method === "GET") {
 	      const wsId = reportScheduleListMatch[1];
@@ -25724,11 +25882,12 @@ export default {
     // generateScheduledReports is a no-op on all other days.
     ctx.waitUntil(generateScheduledReports(now, env));
 
-    // ── User-configured scheduled reports ─────────────────────────────────
-    // Runs every tick; processScheduledReports checks next_run_at internally.
-    ctx.waitUntil(processScheduledReports(now, env));
-
-    // ── Report retention cleanup ─────────────────────────────────────────
+	    // ── User-configured scheduled reports ─────────────────────────────────
+	    // Runs every tick; processScheduledReports checks next_run_at internally.
+	    ctx.waitUntil(processScheduledReports(now, env));
+	    ctx.waitUntil(executeDueReportSchedules(env, now));
+	
+	    // ── Report retention cleanup ─────────────────────────────────────────
     // The Worker cron also drives scheduled scans, so keep the hourly trigger
     // and run retention once daily at 02:00 UTC.
     if (new Date(now).getUTCHours() === 2) {
