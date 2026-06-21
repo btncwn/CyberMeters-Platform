@@ -15275,6 +15275,8 @@ const PERMISSION_MIN_ROLE = {
   "notification:mark_read":    "viewer",
   // Members (read)
   "member:read":               "viewer",
+  // Audit log
+  "audit:read":                "admin",
 };
 
 /**
@@ -15292,6 +15294,7 @@ const PERMISSION_SCOPE = {
   "workspace:read":           "read",
   "notification:mark_read":   "read",
   "member:read":              "read",
+  "audit:read":               "read",
   // write-scope operations
   "scan:create":              "write",
   "schedule:manage":          "write",
@@ -15562,6 +15565,27 @@ async function createAuditEvent(env, {
  * @param {Array}  findings     - All findings from the scan
  * @param {object} env          - Worker env bindings
  */
+
+/**
+ * sanitizeAuditMetadata — removes sensitive keys from audit event metadata
+ * before returning to clients or writing to exports.
+ * Keys matching any blocked substring are replaced with "[redacted]".
+ */
+function sanitizeAuditMetadata(metadata) {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return metadata;
+  const BLOCKED = [
+    "password", "token", "secret", "authorization", "stripe",
+    "recovery", "totp", "mfa_secret", "api_key", "key_material",
+  ];
+  const sanitized = {};
+  for (const [k, v] of Object.entries(metadata)) {
+    const lower = k.toLowerCase();
+    const blocked = BLOCKED.some(b => lower.includes(b));
+    sanitized[k] = blocked ? "[redacted]" : v;
+  }
+  return sanitized;
+}
+
 async function createNotificationsForDomain(domainId, domain, scanId, score, risk_level, findings, env) {
   try {
     const wsResult = await env.cybermeters_db
@@ -17174,6 +17198,7 @@ export default {
       const name     = (body.name     || "").trim();
 
       if (!isValidEmail(email))        return json({ error: "A valid email address is required" }, 400);
+      if (!password)                   return json({ error: "Password cannot be blank" }, 400);
       if (password.length < 8)         return json({ error: "Password must be at least 8 characters" }, 400);
       if (password.length > 128)       return json({ error: "Password is too long" }, 400);
 
@@ -17374,6 +17399,19 @@ export default {
       const email = (body.email || "").trim().toLowerCase();
       if (!email) return json({ success: true }); // silent — no enumeration
 
+      // Rate limit by source IP — 5 requests per 15-minute window.
+      // Prevents email flooding and abuse of the email delivery system.
+      // Fails open: if D1 is unavailable, the request proceeds normally.
+      const _fpIp = request.headers.get("CF-Connecting-IP") || "unknown";
+      const _fpRl = await consumeApiRateLimit(
+        env,
+        [{ scope: "ip", scope_id: _fpIp }],
+        "forgot_password",
+        5,
+        900 // 15 minutes
+      );
+      if (_fpRl) return json({ error: "Too many password reset requests. Please wait before trying again.", code: "rate_limit_exceeded" }, _fpRl.status);
+
       try {
         const user = await env.cybermeters_db
           .prepare("SELECT id, email, name FROM users WHERE email = ? LIMIT 1")
@@ -17453,6 +17491,7 @@ export default {
       const newPassword = (body.password || "").trim();
 
       if (!rawToken)                    return json({ error: "token is required" }, 400);
+      if (!newPassword)                 return json({ error: "Password cannot be blank" }, 400);
       if (newPassword.length < 8)       return json({ error: "Password must be at least 8 characters" }, 400);
       if (newPassword.length > 128)     return json({ error: "Password is too long" }, 400);
 
@@ -17467,9 +17506,37 @@ export default {
           .bind(tokenHash)
           .first();
 
-        if (!tokenRow)                           return json({ error: "Reset link is invalid or has already been used" }, 400);
-        if (tokenRow.used_at)                    return json({ error: "Reset link has already been used" }, 400);
-        if (new Date(tokenRow.expires_at) <= new Date()) return json({ error: "Reset link has expired. Please request a new one." }, 410);
+        if (!tokenRow) {
+          createAuditEvent(env, {
+            event_type:  "password_reset_failed",
+            entity_type: "user",
+            description: "Password reset attempt with invalid token",
+            metadata:    { reason: "invalid" },
+          }).catch(() => {});
+          return json({ error: "Reset link is invalid, expired, or has already been used." }, 400);
+        }
+        if (tokenRow.used_at) {
+          createAuditEvent(env, {
+            user_id:     tokenRow.user_id,
+            event_type:  "password_reset_failed",
+            entity_type: "user",
+            entity_id:   tokenRow.user_id,
+            description: "Password reset attempt with already-used token",
+            metadata:    { reason: "used", token_id: tokenRow.id },
+          }).catch(() => {});
+          return json({ error: "Reset link is invalid, expired, or has already been used." }, 400);
+        }
+        if (new Date(tokenRow.expires_at) <= new Date()) {
+          createAuditEvent(env, {
+            user_id:     tokenRow.user_id,
+            event_type:  "password_reset_failed",
+            entity_type: "user",
+            entity_id:   tokenRow.user_id,
+            description: "Password reset attempt with expired token",
+            metadata:    { reason: "expired", token_id: tokenRow.id },
+          }).catch(() => {});
+          return json({ error: "Reset link is invalid, expired, or has already been used." }, 400);
+        }
 
         const user = await env.cybermeters_db
           .prepare("SELECT id, email FROM users WHERE id = ? LIMIT 1")
@@ -23499,6 +23566,250 @@ export default {
         }));
 
         return json({ events: enriched, limit, offset, count: enriched.length });
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
+
+    // ── GET /api/workspaces/:id/audit-events ─────────────────────────────────
+    // Customer-facing compliance endpoint. Returns filtered, paginated audit events.
+    // Access: admin or owner only (audit:read permission).
+    // Metadata is sanitized — no secrets, tokens, or credentials returned.
+    const auditEventsMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/audit-events$/);
+    if (auditEventsMatch && request.method === "GET") {
+      const workspaceId = auditEventsMatch[1];
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, workspaceId, "audit:read", env);
+      if (!access) return json({ error: "Forbidden" }, 403);
+
+      try {
+        const limit       = Math.min(Math.max(parseInt(url.searchParams.get("limit")  || "50",  10), 1), 100);
+        const offset      = Math.max(parseInt(url.searchParams.get("offset") || "0",  10), 0);
+        const eventType   = url.searchParams.get("event_type")   || null;
+        const actorUserId = url.searchParams.get("actor_user_id") || null;
+        const entityType  = url.searchParams.get("entity_type")  || null;
+        const entityId    = url.searchParams.get("entity_id")    || null;
+        const dateFrom    = url.searchParams.get("date_from")    || null;
+        const dateTo      = url.searchParams.get("date_to")      || null;
+        const search      = url.searchParams.get("search")       || null;
+
+        // Build dynamic WHERE clauses
+        const conditions = ["workspace_id = ?"];
+        const binds      = [workspaceId];
+
+        if (eventType)   { conditions.push("event_type = ?");   binds.push(eventType);   }
+        if (actorUserId) { conditions.push("user_id = ?");      binds.push(actorUserId); }
+        if (entityType)  { conditions.push("entity_type = ?");  binds.push(entityType);  }
+        if (entityId)    { conditions.push("entity_id = ?");    binds.push(entityId);    }
+        if (dateFrom)    { conditions.push("created_at >= ?");  binds.push(dateFrom);    }
+        if (dateTo)      { conditions.push("created_at <= ?");  binds.push(dateTo + "T23:59:59.999Z"); }
+        if (search) {
+          conditions.push(
+            "(event_type LIKE ? OR entity_type LIKE ? OR entity_id LIKE ? OR description LIKE ?)"
+          );
+          const q = `%${search.replace(/[%_]/g, "\$&")}%`;
+          binds.push(q, q, q, q);
+        }
+
+        const whereClause = conditions.join(" AND ");
+
+        // Count total matching rows
+        const countRow = await env.cybermeters_db
+          .prepare(`SELECT COUNT(*) AS total FROM audit_events WHERE ${whereClause}`)
+          .bind(...binds)
+          .first();
+        const total = countRow?.total ?? 0;
+
+        // Fetch page
+        const rows = await env.cybermeters_db
+          .prepare(
+            `SELECT id, user_id, event_type, entity_type, entity_id, description, metadata_json, created_at
+             FROM audit_events
+             WHERE ${whereClause}
+             ORDER BY created_at DESC
+             LIMIT ? OFFSET ?`
+          )
+          .bind(...binds, limit, offset)
+          .all();
+
+        const events = (rows.results || []).map(r => ({
+          id:            r.id,
+          created_at:    r.created_at,
+          event_type:    r.event_type,
+          actor_user_id: r.user_id,
+          workspace_id:  workspaceId,
+          entity_type:   r.entity_type,
+          entity_id:     r.entity_id,
+          description:   r.description,
+          metadata:      r.metadata_json ? sanitizeAuditMetadata(JSON.parse(r.metadata_json)) : null,
+        }));
+
+        // Enrich actor emails (batch lookup — no N+1)
+        const userIds = [...new Set(events.map(e => e.actor_user_id).filter(Boolean))];
+        let userMap = {};
+        if (userIds.length) {
+          const ph = userIds.map(() => "?").join(",");
+          const usersR = await env.cybermeters_db
+            .prepare(`SELECT id, email, name FROM users WHERE id IN (${ph})`)
+            .bind(...userIds)
+            .all();
+          for (const u of (usersR.results || [])) userMap[u.id] = { email: u.email, name: u.name };
+        }
+
+        const enriched = events.map(e => ({
+          ...e,
+          actor_email: e.actor_user_id ? (userMap[e.actor_user_id]?.email ?? null) : null,
+          actor_name:  e.actor_user_id ? (userMap[e.actor_user_id]?.name  ?? null) : null,
+        }));
+
+        // Non-fatal meta-audit event
+        createAuditEvent(env, {
+          workspace_id: workspaceId,
+          user_id:      user.id,
+          event_type:   "audit_log_viewed",
+          entity_type:  "workspace",
+          entity_id:    workspaceId,
+          description:  `Audit log viewed`,
+          metadata:     { limit, offset, filters: { event_type: eventType, entity_type: entityType, search } },
+        }).catch(() => {});
+
+        return json({
+          events: enriched,
+          pagination: { limit, offset, total },
+        });
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
+    // ── GET /api/workspaces/:id/audit-events/export ──────────────────────────
+    // CSV or JSON export of audit events. Same filters as the list endpoint.
+    // Max 10,000 rows. Default 1,000.
+    const auditExportMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/audit-events\/export$/);
+    if (auditExportMatch && request.method === "GET") {
+      const workspaceId = auditExportMatch[1];
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, workspaceId, "audit:read", env);
+      if (!access) return json({ error: "Forbidden" }, 403);
+
+      try {
+        const format      = (url.searchParams.get("format") || "csv").toLowerCase();
+        if (format !== "csv" && format !== "json") return json({ error: "format must be csv or json" }, 400);
+
+        const exportLimit = Math.min(parseInt(url.searchParams.get("limit") || "1000", 10), 10000);
+        const eventType   = url.searchParams.get("event_type")   || null;
+        const actorUserId = url.searchParams.get("actor_user_id") || null;
+        const entityType  = url.searchParams.get("entity_type")  || null;
+        const entityId    = url.searchParams.get("entity_id")    || null;
+        const dateFrom    = url.searchParams.get("date_from")    || null;
+        const dateTo      = url.searchParams.get("date_to")      || null;
+        const search      = url.searchParams.get("search")       || null;
+
+        const conditions = ["workspace_id = ?"];
+        const binds      = [workspaceId];
+
+        if (eventType)   { conditions.push("event_type = ?");   binds.push(eventType);   }
+        if (actorUserId) { conditions.push("user_id = ?");      binds.push(actorUserId); }
+        if (entityType)  { conditions.push("entity_type = ?");  binds.push(entityType);  }
+        if (entityId)    { conditions.push("entity_id = ?");    binds.push(entityId);    }
+        if (dateFrom)    { conditions.push("created_at >= ?");  binds.push(dateFrom);    }
+        if (dateTo)      { conditions.push("created_at <= ?");  binds.push(dateTo + "T23:59:59.999Z"); }
+        if (search) {
+          conditions.push(
+            "(event_type LIKE ? OR entity_type LIKE ? OR entity_id LIKE ? OR description LIKE ?)"
+          );
+          const q = `%${search.replace(/[%_]/g, "\$&")}%`;
+          binds.push(q, q, q, q);
+        }
+
+        const whereClause = conditions.join(" AND ");
+        const rows = await env.cybermeters_db
+          .prepare(
+            `SELECT id, user_id, event_type, entity_type, entity_id, description, metadata_json, created_at
+             FROM audit_events
+             WHERE ${whereClause}
+             ORDER BY created_at DESC
+             LIMIT ?`
+          )
+          .bind(...binds, exportLimit)
+          .all();
+
+        // Enrich with actor emails
+        const rawEvents = rows.results || [];
+        const userIds   = [...new Set(rawEvents.map(r => r.user_id).filter(Boolean))];
+        let userMap = {};
+        if (userIds.length) {
+          const ph = userIds.map(() => "?").join(",");
+          const usersR = await env.cybermeters_db
+            .prepare(`SELECT id, email, name FROM users WHERE id IN (${ph})`)
+            .bind(...userIds)
+            .all();
+          for (const u of (usersR.results || [])) userMap[u.id] = { email: u.email, name: u.name };
+        }
+
+        const events = rawEvents.map(r => ({
+          id:            r.id,
+          created_at:    r.created_at,
+          event_type:    r.event_type,
+          actor_user_id: r.user_id,
+          actor_email:   r.user_id ? (userMap[r.user_id]?.email ?? null) : null,
+          actor_name:    r.user_id ? (userMap[r.user_id]?.name  ?? null) : null,
+          workspace_id:  workspaceId,
+          entity_type:   r.entity_type,
+          entity_id:     r.entity_id,
+          description:   r.description,
+          metadata:      r.metadata_json ? sanitizeAuditMetadata(JSON.parse(r.metadata_json)) : null,
+        }));
+
+        // Non-fatal meta-audit event
+        createAuditEvent(env, {
+          workspace_id: workspaceId,
+          user_id:      user.id,
+          event_type:   "audit_log_exported",
+          entity_type:  "workspace",
+          entity_id:    workspaceId,
+          description:  `Audit log exported as ${format.toUpperCase()} (${events.length} rows)`,
+          metadata:     { format, rows: events.length },
+        }).catch(() => {});
+
+        if (format === "json") {
+          const filters = { event_type: eventType, actor_user_id: actorUserId, entity_type: entityType,
+                            entity_id: entityId, date_from: dateFrom, date_to: dateTo, search };
+          return new Response(
+            JSON.stringify({ exported_at: new Date().toISOString(), workspace_id: workspaceId, filters, events }, null, 2),
+            { headers: { "Content-Type": "application/json", "Content-Disposition": `attachment; filename="audit-log-${workspaceId}.json"` } }
+          );
+        }
+
+        // CSV output
+        function csvCell(v) {
+          if (v === null || v === undefined) return "";
+          const s = typeof v === "object" ? JSON.stringify(sanitizeAuditMetadata(v)) : String(v);
+          if (s.includes(",") || s.includes('"') || s.includes("\n") || s.includes("\r")) {
+            return `"${s.replace(/"/g, '""')}"`;
+          }
+          return s;
+        }
+        const header = ["id", "created_at", "event_type", "actor_user_id", "actor_email", "actor_name",
+                         "entity_type", "entity_id", "description", "metadata"];
+        const csvRows = [header.join(",")];
+        for (const e of events) {
+          csvRows.push([
+            csvCell(e.id), csvCell(e.created_at), csvCell(e.event_type),
+            csvCell(e.actor_user_id), csvCell(e.actor_email), csvCell(e.actor_name),
+            csvCell(e.entity_type), csvCell(e.entity_id), csvCell(e.description),
+            csvCell(e.metadata),
+          ].join(","));
+        }
+        return new Response(csvRows.join("\r\n"), {
+          headers: {
+            "Content-Type": "text/csv; charset=utf-8",
+            "Content-Disposition": `attachment; filename="audit-log-${workspaceId}.csv"`,
+          },
+        });
       } catch (e) {
         return json({ error: e.message }, 500);
       }
