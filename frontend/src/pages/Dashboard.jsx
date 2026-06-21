@@ -7,8 +7,9 @@ import {
 } from 'lucide-react'
 import { api } from '../api'
 import Spinner from '../components/Spinner'
-import OnboardingProgress from '../components/OnboardingProgress'
-import FirstResultsGuide  from '../components/FirstResultsGuide'
+import OnboardingProgress  from '../components/OnboardingProgress'
+import FirstResultsGuide   from '../components/FirstResultsGuide'
+import TeamOnboardingCard  from '../components/TeamOnboardingCard'
 
 /* ─── Helpers ──────────────────────────────────────────────────────────── */
 
@@ -468,6 +469,15 @@ export default function Dashboard() {
   }, [])
 
   const load = useCallback(async (silent = false) => {
+    // Pending invite redirect — if user signed up then landed on Dashboard,
+    // pick up the stored invite token and send them to the landing page to accept.
+    const pendingInvite = localStorage.getItem('cybermeters_pending_invite')
+    if (pendingInvite) {
+      localStorage.removeItem('cybermeters_pending_invite')
+      navigate(`/invitations/${pendingInvite}`)
+      return
+    }
+
     // Re-read from localStorage on each load — ensures consistency if selector
     // wrote to localStorage but the storage event hasn't fired yet (same tab).
     const wsId = localStorage.getItem('cybermeters_workspace_id')
@@ -539,11 +549,13 @@ export default function Dashboard() {
     return <SelectWorkspaceState />
   }
 
-  const hasDomain       = domainCount !== null && domainCount > 0
+  const hasDomain        = domainCount !== null && domainCount > 0
   const hasCompletedScan = ins.completed.length > 0
   // Show onboarding progress until all 4 steps are done AND dismissed
   const showProgress = true // OnboardingProgress manages its own dismissed state
   const showGuide    = hasCompletedScan // FirstResultsGuide manages its own dismissed state
+  // Show team onboarding card for users who joined via invitation (flag set by InvitationLandingPage)
+  const showTeamOnboarding = localStorage.getItem('cybermeters_joined_via_invite') === 'true'
 
   return (
     <div className="max-w-screen-xl mx-auto px-6 py-8 space-y-8">
@@ -583,6 +595,9 @@ export default function Dashboard() {
           {error}
         </div>
       )}
+
+      {/* ── Team onboarding card — shown once after joining via invitation ── */}
+      {showTeamOnboarding && <TeamOnboardingCard />}
 
       {/* ── Onboarding progress tracker ── */}
       <OnboardingProgress

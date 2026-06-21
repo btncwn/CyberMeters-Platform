@@ -38,7 +38,7 @@ import WorkspaceAuditLogPage       from './pages/ws/WorkspaceAuditLogPage'
 import WorkspaceMembersPage        from './pages/ws/WorkspaceMembersPage'
 import PortfolioPage         from './pages/PortfolioPage'
 import PortfolioRiskPage     from './pages/PortfolioRiskPage'
-import AcceptInvitationPage  from './pages/AcceptInvitationPage'
+import InvitationLandingPage from './pages/InvitationLandingPage'
 import AccountPage           from './pages/AccountPage'
 import SecurityPage          from './pages/SecurityPage'
 import BillingPage           from './pages/BillingPage'
@@ -123,6 +123,8 @@ function AppRoutes() {
       <Route path="/dpa"              element={<DpaPage />} />
       <Route path="/cookies"          element={<CookiePolicyPage />} />
       <Route path="/support"          element={<SupportPage />} />
+      {/* Invitation landing — public, works for logged-out and logged-in users */}
+      <Route path="/invitations/:token" element={<InvitationLandingPage />} />
 
       {/* ── Protected app (with Layout shell) ───────────────────────────── */}
       <Route
@@ -150,7 +152,6 @@ function AppRoutes() {
         <Route path="account/security"        element={<SecurityPage />}         />
         <Route path="billing"                 element={<BillingPage />}          />
         <Route path="domains/:id/verify"      element={<DomainVerifyPage />}     />
-        <Route path="invitations/:token"      element={<AcceptInvitationPage />} />
         {/* Workspace intelligence pages */}
         <Route path="ws/dashboard"        element={<WorkspaceDashboard />}  />
         <Route path="ws/scorecard"        element={<WorkspaceScorecard />}  />

@@ -699,6 +699,13 @@ export const api = {
   cancelWorkspaceInvitation: (workspaceId, invitationId) =>
     request(`/workspaces/${workspaceId}/invitations/${invitationId}`, { method: 'DELETE' }),
 
+  /**
+   * GET /api/invitations/:token — public preview, no auth required.
+   * Returns workspace_name, invited_by_name, role, expires_at, status.
+   */
+  getInvitationPreview: (token) =>
+    request(`/invitations/${encodeURIComponent(token)}`),
+
   /** POST /api/invitations/:token/accept */
   acceptWorkspaceInvitation: (token) =>
     request(`/invitations/${encodeURIComponent(token)}/accept`, { method: 'POST' }),
