@@ -15172,9 +15172,15 @@ async function generateWorkspaceExecutiveReport(workspaceId, env, options = {}) 
     },
   });
 
+  const reportSizeBytes = typeof bytes?.byteLength === "number"
+    ? bytes.byteLength
+    : (typeof bytes?.length === "number" ? bytes.length : null);
+
   await env.cybermeters_db.prepare(
-    `UPDATE workspace_reports SET status = 'completed', generated_at = ? WHERE id = ?`
-  ).bind(generatedAt, reportId).run();
+    `UPDATE workspace_reports
+     SET status = 'completed', generated_at = ?, report_size_bytes = ?
+     WHERE id = ?`
+  ).bind(generatedAt, reportSizeBytes, reportId).run();
 
   // Notification + audit — report generated. Non-fatal: report generation must not fail
   // if notification or audit persistence is unavailable.
@@ -15279,82 +15285,95 @@ async function processScheduledReports(now, env) {
 async function cleanupExpiredReports(nowIso, env) {
   const now = new Date(nowIso);
   const deadlineMs = Date.now() + 25_000;
-  const policies = ["30_days", "90_days", "1_year", "2_years", "7_years"];
+  const metrics = { scanned: 0, expired: 0, r2_deleted: 0, metadata_soft_deleted: 0, failed: 0 };
+  const skippedIds = new Set();
+  const retentionByWorkspace = new Map();
 
-  for (const policy of policies) {
-    const cutoff = getRetentionCutoff(policy, now);
-    if (!cutoff) continue;
-    const skippedIds = new Set();
-
-    while (Date.now() < deadlineMs) {
-      let expired;
-      try {
-        const skipped = [...skippedIds];
-        const skipClause = skipped.length > 0
-          ? `AND id NOT IN (${skipped.map(() => "?").join(",")})`
-          : "";
-        const rows = await env.cybermeters_db
-          .prepare(
-            `SELECT id, workspace_id, report_type, report_period, report_key, retention_policy,
-                    COALESCE(generated_at, created_at) AS effective_at
-             FROM workspace_reports
-             WHERE retention_policy = ?
-               AND deleted_at IS NULL
-               AND COALESCE(generated_at, created_at) <= ?
-               ${skipClause}
-             ORDER BY COALESCE(generated_at, created_at) ASC
-             LIMIT 100`
-          )
-          .bind(policy, cutoff, ...skipped)
-          .all();
-        expired = rows.results || [];
-      } catch {
-        break;
-      }
-
-      if (expired.length === 0) break;
-
-      for (const report of expired) {
-        if (Date.now() >= deadlineMs) break;
-        try {
-          await env.cybermeters_reports.delete(report.report_key);
-          const deletedAt = new Date().toISOString();
-          const result = await env.cybermeters_db
-            .prepare(
-              `UPDATE workspace_reports
-               SET deleted_at = ?, deleted_by = NULL
-               WHERE id = ? AND deleted_at IS NULL`
-            )
-            .bind(deletedAt, report.id)
-            .run();
-          if (result.meta?.changes === 0) continue;
-
-          await createAuditEvent(env, {
-            workspace_id: report.workspace_id,
-            event_type:   "report_deleted",
-            entity_type:  "report",
-            entity_id:    report.id,
-            description:  `Report expired by retention policy (${report.retention_policy})`,
-            metadata:     {
-              report_id: report.id,
-              workspace_id: report.workspace_id,
-              user_id: null,
-              report_type: report.report_type,
-              report_period: report.report_period,
-              report_key: report.report_key,
-              retention_policy: report.retention_policy,
-              deletion_reason: "retention_expired",
-            },
-          });
-        } catch {
-          // Keep the active row if R2 deletion fails; retry next run.
-          skippedIds.add(report.id);
-        }
-      }
-
-      if (skippedIds.size > 500) break;
+  while (Date.now() < deadlineMs) {
+    let candidates;
+    try {
+      const skipped = [...skippedIds];
+      const skipClause = skipped.length > 0
+        ? `AND id NOT IN (${skipped.map(() => "?").join(",")})`
+        : "";
+      const stmt = env.cybermeters_db.prepare(
+        `SELECT id, workspace_id, report_type, report_period, report_key, retention_policy,
+                COALESCE(generated_at, created_at) AS effective_at
+         FROM workspace_reports
+         WHERE deleted_at IS NULL
+           ${skipClause}
+         ORDER BY COALESCE(generated_at, created_at) ASC
+         LIMIT 100`
+      );
+      const rows = skipped.length > 0 ? await stmt.bind(...skipped).all() : await stmt.all();
+      candidates = rows.results || [];
+    } catch {
+      break;
     }
+
+    if (candidates.length === 0) break;
+    let expiredInBatch = 0;
+    metrics.scanned += candidates.length;
+
+    for (const report of candidates) {
+      if (Date.now() >= deadlineMs) break;
+      try {
+        if (!retentionByWorkspace.has(report.workspace_id)) {
+          retentionByWorkspace.set(report.workspace_id, await getWorkspaceRetentionSettings(report.workspace_id, env));
+        }
+        const retention = retentionByWorkspace.get(report.workspace_id);
+        if (!retention.auto_cleanup || retention.retention_days === null) {
+          skippedIds.add(report.id);
+          continue;
+        }
+        const cutoff = getRetentionCutoffForDays(retention.retention_days, now);
+        if (!cutoff || String(report.effective_at || "") > cutoff) {
+          skippedIds.add(report.id);
+          continue;
+        }
+
+        expiredInBatch += 1;
+        metrics.expired += 1;
+        await env.cybermeters_reports.delete(report.report_key);
+        metrics.r2_deleted += 1;
+        const deletedAt = new Date().toISOString();
+        const result = await env.cybermeters_db
+          .prepare(
+            `UPDATE workspace_reports
+             SET deleted_at = ?, deleted_reason = ?
+             WHERE id = ? AND deleted_at IS NULL`
+          )
+          .bind(deletedAt, "retention_expired", report.id)
+          .run();
+        if ((result.meta?.changes ?? 0) > 0) metrics.metadata_soft_deleted += 1;
+
+        await createAuditEvent(env, {
+          workspace_id: report.workspace_id,
+          event_type:   "report_deleted",
+          entity_type:  "report",
+          entity_id:    report.id,
+          description:  `Report expired by retention policy (${retention.retention_policy})`,
+          metadata:     {
+            report_id: report.id,
+            workspace_id: report.workspace_id,
+            user_id: null,
+            report_type: report.report_type,
+            report_period: report.report_period,
+            retention_policy: retention.retention_policy,
+            retention_days: retention.retention_days,
+            deletion_reason: "retention_expired",
+          },
+        });
+      } catch {
+        metrics.failed += 1;
+        skippedIds.add(report.id);
+      }
+    }
+
+    if (expiredInBatch === 0 || skippedIds.size > 500) break;
   }
+
+  return metrics;
 }
 
 // generateScheduledReports — called from scheduled() via ctx.waitUntil().
@@ -16369,10 +16388,107 @@ function getPlanLimits(plan) {
   };
 }
 
-async function getReportRetentionPolicyForWorkspace(workspaceId, env) {
+function getPlanRetentionDays(plan) {
+  const normalized = normalizePlan(plan);
+  if (normalized === "enterprise") return null;
+  if (normalized === "business") return 730;
+  if (normalized === "professional") return 365;
+  if (normalized === "starter") return 90;
+  return 30;
+}
+
+function retentionDaysToPolicy(days) {
+  if (days === null || days === undefined) return "forever";
+  const n = Number(days);
+  if (n <= 30) return "30_days";
+  if (n <= 90) return "90_days";
+  if (n <= 365) return "1_year";
+  return "2_years";
+}
+
+function retentionPolicyToDays(policy) {
+  if (policy === "forever") return null;
+  if (policy === "30_days") return 30;
+  if (policy === "90_days") return 90;
+  if (policy === "1_year") return 365;
+  if (policy === "2_years") return 730;
+  if (policy === "7_years") return 2555;
+  return 730;
+}
+
+function getRetentionCutoffForDays(days, now = new Date()) {
+  if (days === null || days === undefined) return null;
+  const n = Number(days);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const date = new Date(now.getTime());
+  date.setUTCDate(date.getUTCDate() - n);
+  return date.toISOString();
+}
+
+async function getWorkspaceRetentionSettings(workspaceId, env) {
   const ownerId = await getWorkspaceOwnerId(workspaceId, env);
   const plan = await getEffectivePlan(ownerId, env);
-  return getPlanLimits(plan).report_retention || "2_years";
+  const planDefaultDays = getPlanRetentionDays(plan);
+  let row = null;
+  try {
+    row = await env.cybermeters_db
+      .prepare("SELECT retention_days, auto_cleanup, updated_at FROM workspace_retention_settings WHERE workspace_id = ?")
+      .bind(workspaceId)
+      .first();
+  } catch { /* migration may not be applied yet */ }
+  const configuredDays = row ? (row.retention_days === null ? null : Number(row.retention_days)) : undefined;
+  const effectiveDays = configuredDays === undefined ? planDefaultDays : configuredDays;
+  return {
+    plan,
+    retention_days: effectiveDays,
+    plan_default_retention_days: planDefaultDays,
+    retention_policy: retentionDaysToPolicy(effectiveDays),
+    auto_cleanup: row ? row.auto_cleanup !== 0 : true,
+    source: row ? "workspace_setting" : "plan_default",
+    updated_at: row?.updated_at ?? null,
+  };
+}
+
+async function getWorkspaceReportStorageMetrics(workspaceId, env) {
+  const retention = await getWorkspaceRetentionSettings(workspaceId, env);
+  let row;
+  try {
+    row = await env.cybermeters_db
+      .prepare(
+        `SELECT COUNT(*) AS reports_count,
+                COALESCE(SUM(report_size_bytes), 0) AS stored_bytes,
+                SUM(CASE WHEN report_size_bytes IS NULL THEN 1 ELSE 0 END) AS estimated_reports
+         FROM workspace_reports
+         WHERE workspace_id = ? AND deleted_at IS NULL`
+      )
+      .bind(workspaceId)
+      .first();
+  } catch {
+    row = await env.cybermeters_db
+      .prepare(
+        `SELECT COUNT(*) AS reports_count
+         FROM workspace_reports
+         WHERE workspace_id = ? AND deleted_at IS NULL`
+      )
+      .bind(workspaceId)
+      .first();
+  }
+  const reportsCount = Number(row?.reports_count ?? 0);
+  const estimatedReports = Number(row?.estimated_reports ?? reportsCount);
+  const estimatedReportBytes = 250_000;
+  const storageBytes = Number(row?.stored_bytes ?? 0) + (estimatedReports * estimatedReportBytes);
+  return {
+    reports_count: reportsCount,
+    storage_bytes: storageBytes,
+    storage_estimated: estimatedReports > 0,
+    retention_days: retention.retention_days,
+    retention_policy: retention.retention_policy,
+    auto_cleanup: retention.auto_cleanup,
+  };
+}
+
+async function getReportRetentionPolicyForWorkspace(workspaceId, env) {
+  return (await getWorkspaceRetentionSettings(workspaceId, env)).retention_policy;
 }
 
 function getRetentionCutoff(policy, now = new Date()) {
@@ -25685,8 +25801,91 @@ export default {
       }
     }
 
-    // ── GET /api/workspaces/:id/report-retention ────────────────────────────
-    const rptRetentionMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/report-retention$/);
+	    // ── GET /api/workspaces/:id/report-retention ────────────────────────────
+	    const storageMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/storage$/);
+	    if (storageMatch && request.method === "GET") {
+	      const wsId = storageMatch[1];
+	      const user = await requireAuth(request, env);
+	      if (!user) return json({ error: "Unauthorized" }, 401);
+	      const access = await requireWorkspaceRole(user, wsId, "workspace:read", env);
+	      if (!access) return json({ error: "Forbidden" }, 403);
+	      try {
+	        return json(await getWorkspaceReportStorageMetrics(wsId, env));
+	      } catch (err) {
+	        return json({ error: String(err?.message ?? err) }, 500);
+	      }
+	    }
+
+	    const retentionMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/retention$/);
+	    if (retentionMatch && request.method === "GET") {
+	      const wsId = retentionMatch[1];
+	      const user = await requireAuth(request, env);
+	      if (!user) return json({ error: "Unauthorized" }, 401);
+	      const access = await requireWorkspaceRole(user, wsId, "workspace:read", env);
+	      if (!access) return json({ error: "Forbidden" }, 403);
+	      try {
+	        const retention = await getWorkspaceRetentionSettings(wsId, env);
+	        const storage = await getWorkspaceReportStorageMetrics(wsId, env);
+	        return json({ ...retention, storage });
+	      } catch (err) {
+	        return json({ error: String(err?.message ?? err) }, 500);
+	      }
+	    }
+
+	    if (retentionMatch && request.method === "PUT") {
+	      const wsId = retentionMatch[1];
+	      const user = await requireAuth(request, env);
+	      if (!user) return json({ error: "Unauthorized" }, 401);
+	      const access = await requireWorkspaceRole(user, wsId, "schedule:manage", env);
+	      if (!access) return json({ error: "Forbidden — admin role required to manage retention" }, 403);
+	      try {
+	        let body = {};
+	        try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+	        const ownerId = await getWorkspaceBillingUserId(wsId, user.id, env);
+	        const plan = await getEffectivePlan(ownerId, env);
+	        const planDefaultDays = getPlanRetentionDays(plan);
+	        const requestedDays = body.retention_days === null ? null : Number(body.retention_days);
+	        const allowedDays = [30, 90, 365, 730];
+	        if (requestedDays !== null && (!Number.isFinite(requestedDays) || !allowedDays.includes(requestedDays))) {
+	          return json({ error: "retention_days must be one of 30, 90, 365, 730, or null for enterprise." }, 400);
+	        }
+	        if (requestedDays === null && normalizePlan(plan) !== "enterprise") {
+	          return json({ error: "Unlimited retention requires enterprise plan." }, 403);
+	        }
+	        if (planDefaultDays !== null && requestedDays !== null && requestedDays > planDefaultDays) {
+	          return json({ error: "retention_days exceeds current plan entitlement.", max_retention_days: planDefaultDays }, 403);
+	        }
+	        const autoCleanup = body.auto_cleanup === false ? 0 : 1;
+	        const now = new Date().toISOString();
+	        await env.cybermeters_db
+	          .prepare(
+	            `INSERT INTO workspace_retention_settings
+	               (workspace_id, retention_days, auto_cleanup, updated_by, created_at, updated_at)
+	             VALUES (?, ?, ?, ?, ?, ?)
+	             ON CONFLICT(workspace_id) DO UPDATE SET
+	               retention_days = excluded.retention_days,
+	               auto_cleanup = excluded.auto_cleanup,
+	               updated_by = excluded.updated_by,
+	               updated_at = excluded.updated_at`
+	          )
+	          .bind(wsId, requestedDays, autoCleanup, user.id, now, now)
+	          .run();
+	        await createAuditEvent(env, {
+	          workspace_id: wsId,
+	          user_id: user.id,
+	          event_type: "retention_policy_updated",
+	          entity_type: "workspace",
+	          entity_id: wsId,
+	          description: "Workspace retention settings updated",
+	          metadata: { retention_days: requestedDays, auto_cleanup: autoCleanup === 1 },
+	        }).catch(() => {});
+	        return json(await getWorkspaceRetentionSettings(wsId, env));
+	      } catch (err) {
+	        return json({ error: String(err?.message ?? err) }, 500);
+	      }
+	    }
+
+	    const rptRetentionMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/report-retention$/);
     if (rptRetentionMatch && request.method === 'GET') {
       const wsId = rptRetentionMatch[1];
       const user = await requireAuth(request, env);

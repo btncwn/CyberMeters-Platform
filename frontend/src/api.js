@@ -602,6 +602,33 @@ export const api = {
   revokeApiToken: (id) =>
     request(`/account/api-tokens/${id}`, { method: 'DELETE' }),
 
+  // ── Workspace Storage & Retention ────────────────────────────────────────
+
+  /**
+   * GET /api/workspaces/:id/storage
+   * Returns { report_count, storage_bytes, storage_mb, retention_days, auto_cleanup }
+   */
+  getWorkspaceStorage: (workspaceId) =>
+    request(`/workspaces/${workspaceId}/storage`),
+
+  /**
+   * GET /api/workspaces/:id/retention
+   * Returns { retention_days, auto_cleanup, plan, plan_max_days }
+   */
+  getWorkspaceRetention: (workspaceId) =>
+    request(`/workspaces/${workspaceId}/retention`),
+
+  /**
+   * PUT /api/workspaces/:id/retention
+   * Body: { retention_days, auto_cleanup }
+   * Returns updated retention policy.
+   */
+  updateWorkspaceRetention: (workspaceId, body) =>
+    request(`/workspaces/${workspaceId}/retention`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+
   // ── Account Privacy & Data ──────────────────────────────────────────────
 
   /**
