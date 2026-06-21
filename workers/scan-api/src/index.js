@@ -14511,6 +14511,12 @@ async function requireWorkspaceRole(user, workspaceId, permission, env) {
 
 async function getAccessibleWorkspaceIds(user, env) {
   if (!user) return [];
+
+  if (user.token_workspace_id) {
+    const access = await requireWorkspaceAccess(user, user.token_workspace_id, env);
+    return access ? [user.token_workspace_id] : [];
+  }
+
   try {
     const rows = await env.cybermeters_db
       .prepare(
@@ -14555,6 +14561,20 @@ async function requireDomainRole(user, domainId, permission, env) {
 async function requireScanReadAccess(user, scanId, env) {
   if (!user || !scanId) return null;
   try {
+    const scan = await env.cybermeters_db
+      .prepare("SELECT workspace_id FROM scans WHERE id = ? LIMIT 1")
+      .bind(scanId)
+      .first();
+
+    if (!scan) return null;
+
+    if (scan.workspace_id) {
+      const access = await requireWorkspaceRole(user, scan.workspace_id, "workspace:read", env);
+      return access ? { ...access, workspace_id: scan.workspace_id } : null;
+    }
+
+    // Legacy scans created before workspace_id attribution are authorized by
+    // domain link only when the scan has no owning workspace.
     const rows = await env.cybermeters_db
       .prepare(
         `SELECT DISTINCT wd.workspace_id
@@ -16482,6 +16502,8 @@ export default {
     if (request.method === "POST" && url.pathname === "/api/billing/checkout") {
       const user = await requireAuth(request, env);
       if (!user) return json({ error: "Unauthorized" }, 401);
+      // Checkout is an account-control browser flow, not an automation API.
+      if (user.api_token_id) return json({ error: "Session authentication required" }, 403);
 
       let body;
       try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
@@ -16611,6 +16633,8 @@ export default {
     if (request.method === "POST" && url.pathname === "/api/billing/portal") {
       const user = await requireAuth(request, env);
       if (!user) return json({ error: "Unauthorized" }, 401);
+      // Billing portal grants account-level Stripe access; require a user session.
+      if (user.api_token_id) return json({ error: "Session authentication required" }, 403);
 
       let body;
       try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
@@ -16758,6 +16782,8 @@ export default {
     if (request.method === "PATCH" && url.pathname === "/api/account/profile") {
       const user = await requireAuth(request, env);
       if (!user) return json({ error: "Unauthorized" }, 401);
+      // Profile mutation is an account-control action; API tokens are data-plane only.
+      if (user.api_token_id) return json({ error: "Session authentication required" }, 403);
       let body;
       try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
 
@@ -16809,6 +16835,8 @@ export default {
     if (request.method === "PUT" && url.pathname === "/api/account/company") {
       const user = await requireAuth(request, env);
       if (!user) return json({ error: "Unauthorized" }, 401);
+      // Company profile mutation is an account-control action; require a session.
+      if (user.api_token_id) return json({ error: "Session authentication required" }, 403);
       let body;
       try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
 
@@ -18465,25 +18493,20 @@ export default {
       const user = await requireAuth(request, env);
       if (!user) return json({ error: "Unauthorized" }, 401);
       try {
-        // Return only workspaces the caller owns or is a member of.
+        // Return only workspaces the caller owns or is a member of. Workspace-
+        // bound API tokens are collapsed by getAccessibleWorkspaceIds() to the
+        // single token workspace.
+        const workspaceIds = await getAccessibleWorkspaceIds(user, env);
+        if (workspaceIds.length === 0) return json({ workspaces: [] });
+        const placeholders = workspaceIds.map(() => "?").join(",");
         const result = await env.cybermeters_db
           .prepare(
             `SELECT DISTINCT w.id, w.name, w.created_at
              FROM workspaces w
-             WHERE (
-                     w.owner_user_id = ?
-                     AND NOT EXISTS (
-                       SELECT 1 FROM workspace_members any_wm
-                       WHERE any_wm.workspace_id = w.id
-                     )
-                   )
-                OR EXISTS (
-                     SELECT 1 FROM workspace_members wm
-                     WHERE wm.workspace_id = w.id AND wm.user_id = ?
-                   )
+             WHERE w.id IN (${placeholders})
              ORDER BY w.created_at DESC`
           )
-          .bind(user.id, user.id)
+          .bind(...workspaceIds)
           .all();
         return json({ workspaces: result.results });
       } catch {
@@ -18505,6 +18528,9 @@ export default {
         // Creator must be authenticated — no anonymous workspace creation.
         const creator = await requireAuth(request, env);
         if (!creator) return json({ error: "Unauthorized" }, 401);
+        // Workspace creation establishes a new tenant and owner membership;
+        // require an interactive user session rather than an API token.
+        if (creator.api_token_id) return json({ error: "Session authentication required" }, 403);
 
         // Entitlement: workspace limit
         const creatorPlan = await getEffectivePlan(creator.id, env);
