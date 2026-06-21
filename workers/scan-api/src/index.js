@@ -203,6 +203,18 @@ async function dnsQuery(name, type) {
   return res.json();
 }
 
+async function dnsQueryDnssec(name, type) {
+  const res = await fetch(
+    `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}&do=1`,
+    {
+      headers: { Accept: "application/dns-json" },
+      signal: AbortSignal.timeout(6_000),
+    }
+  );
+  if (!res.ok) throw new Error(`DoH DNSSEC ${res.status} for ${type} ${name}`);
+  return res.json();
+}
+
 async function dnsQueryGoogle(name, type) {
   const res = await fetch(
     `https://dns.google/resolve?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}`,
@@ -617,7 +629,7 @@ function evaluateRegressionFixtures(fixtures = SCANNER_REGRESSION_FIXTURES) {
 // ── Module 1: DNS Analysis ────────────────────────────────────────────────────
 
 async function runDnsModule(domain) {
-  // CAA runs here alongside A/AAAA/NS/MX — all parallel, no extra round-trip cost.
+  // CAA and DNSSEC trust evidence run here alongside A/AAAA/NS/MX.
   // Placing CAA in the DNS module avoids adding subrequests to later phases
   // where the free-plan 50-subrequest budget may already be exhausted.
   //
@@ -631,6 +643,7 @@ async function runDnsModule(domain) {
     quad9ARes,
     cloudflareTxtBaseRes, cloudflareTxtDmarcRes,
     googleCaaRes,
+    dsRes, dnskeyRes, rrsigARes,
   ] = await Promise.allSettled([
     dnsQuery(domain, "A"),
     dnsQuery(domain, "AAAA"),
@@ -646,6 +659,9 @@ async function runDnsModule(domain) {
     dnsQuery(domain, "TXT"),
     dnsQuery(`_dmarc.${domain}`, "TXT"),
     dnsQueryGoogle(domain, "CAA"),
+    dnsQueryDnssec(domain, "DS"),
+    dnsQueryDnssec(domain, "DNSKEY"),
+    dnsQueryDnssec(domain, "A"),
   ]);
 
   const pick = (r) =>
@@ -661,27 +677,104 @@ async function runDnsModule(domain) {
   if (caaRes.status === "fulfilled") {
     const answers = caaRes.value.Answer || [];
     const records = answers.map((r) => (r.data || "").trim()).filter(Boolean);
+    const caaEntries = records.map((record) => {
+      const m = record.match(/^(\d+)\s+([A-Za-z0-9_-]+)\s+"?(.+?)"?$/);
+      return m ? { flags: Number(m[1]), tag: m[2].toLowerCase(), value: m[3].replace(/"$/, "").trim() } : null;
+    }).filter(Boolean);
     function extractCaaTag(tag) {
-      return records
-        .filter((r) => new RegExp(`^0\\s+${tag}\\s+`, "i").test(r))
-        .map((r) => r.replace(new RegExp(`^0\\s+${tag}\\s+"?`, "i"), "").replace(/"$/, "").trim())
-        .filter(Boolean);
+      return caaEntries.filter((r) => r.tag === tag).map((r) => r.value).filter(Boolean);
     }
+    const issuers = extractCaaTag("issue");
+    const wildcardIssuers = extractCaaTag("issuewild");
+    const iodef = extractCaaTag("iodef");
+    const uniqueIssuers = new Set([...issuers, ...wildcardIssuers]);
+    const qualityScore =
+      records.length === 0 ? 0 :
+      uniqueIssuers.size === 0 ? 30 :
+      uniqueIssuers.size === 1 && wildcardIssuers.length === 0 && iodef.length > 0 ? 100 :
+      uniqueIssuers.size === 1 ? 85 :
+      wildcardIssuers.length > 0 && iodef.length > 0 ? 75 :
+      wildcardIssuers.length > 0 ? 60 :
+      iodef.length > 0 ? 80 : 70;
     caa = {
       present:          records.length > 0,
       records,
-      issuers:          extractCaaTag("issue"),
-      wildcard_issuers: extractCaaTag("issuewild"),
-      iodef:            extractCaaTag("iodef"),
+      issuers,
+      wildcard_issuers: wildcardIssuers,
+      iodef,
+      quality: {
+        score: qualityScore,
+        status:
+          records.length === 0 ? "no_caa" :
+          uniqueIssuers.size === 0 ? "no_issuers" :
+          uniqueIssuers.size === 1 ? "single_ca" : "multiple_ca",
+        wildcard_issuer_usage: wildcardIssuers.length > 0,
+        iodef_present: iodef.length > 0,
+        issuer_count: uniqueIssuers.size,
+      },
       error:            null,
     };
   } else {
     caa = {
       present: false, records: [], issuers: [],
       wildcard_issuers: [], iodef: [],
+      quality: {
+        score: 0,
+        status: "lookup_failed",
+        wildcard_issuer_usage: false,
+        iodef_present: false,
+        issuer_count: 0,
+      },
       error: caaRes.reason?.message ?? "CAA lookup failed",
     };
   }
+
+  // ── DNSSEC Trust Evidence ────────────────────────────────────────────────
+  const dsAnswers = dsRes.status === "fulfilled" ? (dsRes.value.Answer || []) : [];
+  const dnskeyAnswers = dnskeyRes.status === "fulfilled" ? (dnskeyRes.value.Answer || []) : [];
+  const rrsigAnswers = rrsigARes.status === "fulfilled" ? (rrsigARes.value.Answer || []) : [];
+  const dsRecords = dsAnswers.filter((r) => r.type === 43);
+  const dnskeyRecords = dnskeyAnswers.filter((r) => r.type === 48);
+  const rrsigRecords = rrsigAnswers.filter((r) => r.type === 46);
+  const parseDs = (record) => {
+    const parts = String(record.data || "").trim().split(/\s+/);
+    return {
+      key_tag: Number(parts[0]) || null,
+      algorithm: parts[1] || null,
+      digest_type: parts[2] || null,
+    };
+  };
+  const parseDnskeyFlags = (record) => {
+    const flags = Number(String(record.data || "").trim().split(/\s+/)[0]);
+    return Number.isFinite(flags) ? flags : null;
+  };
+  const kskCount = dnskeyRecords.filter((r) => parseDnskeyFlags(r) === 257).length;
+  const zskCount = dnskeyRecords.filter((r) => parseDnskeyFlags(r) === 256).length;
+  const dnssec = {
+    enabled: dsRecords.length > 0 && dnskeyRecords.length > 0 && rrsigRecords.length > 0,
+    ds: {
+      present: dsRecords.length > 0,
+      key_tags: dsRecords.map((r) => parseDs(r).key_tag).filter((v) => v !== null),
+      digest_algorithms: [...new Set(dsRecords.map((r) => parseDs(r).algorithm).filter(Boolean))],
+      digest_types: [...new Set(dsRecords.map((r) => parseDs(r).digest_type).filter(Boolean))],
+    },
+    dnskey: {
+      present: dnskeyRecords.length > 0,
+      ksk_count: kskCount,
+      zsk_count: zskCount,
+      key_count: dnskeyRecords.length,
+    },
+    rrsig: {
+      present: rrsigRecords.length > 0,
+      covered_types: [...new Set(rrsigRecords.map((r) => String(r.data || "").split(/\s+/)[0]).filter(Boolean))],
+    },
+    evidence_source: "cloudflare_doh_dnssec_ok",
+    errors: {
+      ds: dsRes.status === "rejected" ? (dsRes.reason?.message || "DS lookup failed") : null,
+      dnskey: dnskeyRes.status === "rejected" ? (dnskeyRes.reason?.message || "DNSKEY lookup failed") : null,
+      rrsig: rrsigARes.status === "rejected" ? (rrsigARes.reason?.message || "RRSIG lookup failed") : null,
+    },
+  };
 
   return {
     resolves:     aRecords.length > 0 || aaaaRecords.length > 0,
@@ -692,6 +785,7 @@ async function runDnsModule(domain) {
     aaaa_records: aaaaRecords.map((r) => ({ value: r.data, ttl: r.TTL })),
     mx_records:   mxRecords.map((r) => ({ value: r.data, ttl: r.TTL })),
     caa,
+    dnssec,
     cross_checks: (function() {
       const aCross    = buildDnsCrossCheck(domain, "A",    aRes.status    === "fulfilled" ? aRes.value    : null, googleARes,    quad9ARes.status === "fulfilled" ? quad9ARes.value?.value : null);
       const aaaaCross = buildDnsCrossCheck(domain, "AAAA", aaaaRes.status === "fulfilled" ? aaaaRes.value : null, googleAaaaRes, undefined);
@@ -1304,6 +1398,13 @@ function runDomainSecurityEnrichmentModule(domain, modules) {
   const caa = modules?.dns?.caa ?? {
     present: false, records: [], issuers: [],
     wildcard_issuers: [], iodef: [],
+    quality: {
+      score: 0,
+      status: "lookup_skipped",
+      wildcard_issuer_usage: false,
+      iodef_present: false,
+      issuer_count: 0,
+    },
     error: "skipped_due_to_subrequest_budget",
   };
 
@@ -5157,6 +5258,63 @@ function computeScore(modules, domain) {
     }
   }
 
+  // ── DNSSEC Trust Evidence ──────────────────────────────────────────────
+  // Intelligence-only: DNSSEC posture is reported from observed DS, DNSKEY,
+  // and RRSIG records without changing the CyberMeters score.
+  {
+    const dnssec = modules.dns?.dnssec;
+    const noDnssecLookupErrors = dnssec && !dnssec.errors?.ds && !dnssec.errors?.dnskey && !dnssec.errors?.rrsig;
+    const dsPresent = !!dnssec?.ds?.present;
+    const dnskeyPresent = !!dnssec?.dnskey?.present;
+    const rrsigPresent = !!dnssec?.rrsig?.present;
+
+    if (noDnssecLookupErrors && !dsPresent && !dnskeyPresent && !rrsigPresent) {
+      findings.push({
+        id:           "dnssec_not_enabled",
+        module:       "dns",
+        severity:     "info",
+        confidence:   "high",
+        title:        "DNSSEC Not Enabled",
+        description:  `No DS, DNSKEY, or RRSIG evidence was observed for ${domain}. DNSSEC does not appear to be enabled for this zone.`,
+        score_impact: 0,
+        evidence: {
+          evidence_type:               "dnssec_lookup",
+          probe_target:                domain,
+          observed_value:              "DS absent, DNSKEY absent, RRSIG absent",
+          expected_value:              "DS, DNSKEY, and RRSIG records present",
+          source:                      dnssec.evidence_source,
+          checked_at:                  evidenceTime,
+          manual_verification_command: `dig DS ${domain} @1.1.1.1 +dnssec && dig DNSKEY ${domain} @1.1.1.1 +dnssec && dig A ${domain} @1.1.1.1 +dnssec`,
+          ds:                          dnssec.ds,
+          dnskey:                      dnssec.dnskey,
+          rrsig:                       dnssec.rrsig,
+        },
+      });
+    } else if (noDnssecLookupErrors && ((dsPresent && !dnskeyPresent) || (!dsPresent && dnskeyPresent))) {
+      findings.push({
+        id:           "dnssec_misconfigured",
+        module:       "dns",
+        severity:     "info",
+        confidence:   "medium",
+        title:        "DNSSEC Configuration Incomplete",
+        description:  `DNSSEC evidence for ${domain} is incomplete. DS present: ${dsPresent}; DNSKEY present: ${dnskeyPresent}; RRSIG present: ${rrsigPresent}.`,
+        score_impact: 0,
+        evidence: {
+          evidence_type:               "dnssec_lookup",
+          probe_target:                domain,
+          observed_value:              `DS=${dsPresent}, DNSKEY=${dnskeyPresent}, RRSIG=${rrsigPresent}`,
+          expected_value:              "DS and DNSKEY records consistently present for a signed delegation",
+          source:                      dnssec.evidence_source,
+          checked_at:                  evidenceTime,
+          manual_verification_command: `dig DS ${domain} @1.1.1.1 +dnssec && dig DNSKEY ${domain} @1.1.1.1 +dnssec`,
+          ds:                          dnssec.ds,
+          dnskey:                      dnssec.dnskey,
+          rrsig:                       dnssec.rrsig,
+        },
+      });
+    }
+  }
+
   // ── SSL ────────────────────────────────────────────────────────────────
   if (!modules.ssl?.https_available) {
     finding({
@@ -7316,7 +7474,11 @@ function buildCanonicalUrlProfile(modules) {
       modules.domain_security_enrichment = runDomainSecurityEnrichmentModule(domain, modules);
     } catch {
       modules.domain_security_enrichment = {
-        caa:     { present: false, records: [], issuers: [], wildcard_issuers: [], iodef: [], error: "enrichment failed" },
+        caa:     {
+          present: false, records: [], issuers: [], wildcard_issuers: [], iodef: [],
+          quality: { score: 0, status: "lookup_failed", wildcard_issuer_usage: false, iodef_present: false, issuer_count: 0 },
+          error: "enrichment failed",
+        },
         hsts:    { present: false, value: null, max_age: null, include_subdomains: false, preload_directive: false, preload_eligible: false, error: "enrichment failed" },
         cookies: { found: 0, cookies: [], insecure_count: 0, no_httponly: 0, no_samesite: 0, error: "enrichment failed" },
         source:  "dns_headers_analysis", error: "enrichment failed",
