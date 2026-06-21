@@ -18229,11 +18229,109 @@ export default {
         portal_url: portalSession.url,
         session_id:  portalSession.id,
       }, 200);
-    }
+	    }
+	
+	    // ── GET /api/account/onboarding-state ───────────────────────────────
+	    // Lightweight first-workspace/first-scan state for session users.
+	    // Returns counts and booleans only; no workspace IDs are exposed.
+	    if (request.method === "GET" && url.pathname === "/api/account/onboarding-state") {
+	      const user = await requireAuth(request, env);
+	      if (!user) return json({ error: "Unauthorized" }, 401);
+	      if (user.api_token_id) return json({ error: "Session authentication required" }, 403);
 
-    // ── GET /api/account/profile ─────────────────────────────────────────
-    // Returns the authenticated account, company profile, and subscription foundation.
-    if (request.method === "GET" && url.pathname === "/api/account/profile") {
+	      try {
+	        const workspaceIds = await getAccessibleWorkspaceIds(user, env);
+		        const workspaceCount = workspaceIds.length;
+		        let domainCount = 0;
+		        let completedScanCount = 0;
+		        let reviewedResultsCount = 0;
+
+	        if (workspaceCount > 0) {
+	          const wsPlaceholders = workspaceIds.map(() => "?").join(",");
+	          const domainRow = await env.cybermeters_db
+	            .prepare(
+	              `SELECT COUNT(DISTINCT domain_id) AS count
+	               FROM workspace_domains
+	               WHERE workspace_id IN (${wsPlaceholders})`
+	            )
+	            .bind(...workspaceIds)
+	            .first();
+	          domainCount = Number(domainRow?.count ?? 0);
+
+	          const scanRow = await env.cybermeters_db
+	            .prepare(
+	              `SELECT COUNT(DISTINCT s.id) AS count
+	               FROM scans s
+	               LEFT JOIN workspace_domains wd ON wd.domain_id = s.domain_id
+	               WHERE s.status = 'completed'
+	                 AND (
+	                   s.workspace_id IN (${wsPlaceholders})
+	                   OR (s.workspace_id IS NULL AND wd.workspace_id IN (${wsPlaceholders}))
+	                 )`
+	            )
+	            .bind(...workspaceIds, ...workspaceIds)
+		            .first();
+		          completedScanCount = Number(scanRow?.count ?? 0);
+
+		          const reportRow = await env.cybermeters_db
+		            .prepare(
+		              `SELECT COUNT(*) AS count
+		               FROM workspace_reports
+		               WHERE workspace_id IN (${wsPlaceholders})
+		                 AND status = 'completed'`
+		            )
+		            .bind(...workspaceIds)
+		            .first();
+		          reviewedResultsCount = Number(reportRow?.count ?? 0);
+		        }
+
+	        const hasWorkspaces = workspaceCount > 0;
+	        const hasDomains = domainCount > 0;
+	        const hasCompletedScan = completedScanCount > 0;
+		        const hasReviewedResults = reviewedResultsCount > 0;
+	        const nextStep =
+	          !hasWorkspaces ? "create_workspace" :
+	          !hasDomains ? "add_domain" :
+	          !hasCompletedScan ? "run_first_scan" :
+	          !hasReviewedResults ? "review_results" : "complete";
+
+	        createAuditEvent(env, {
+	          user_id:     user.id,
+	          event_type:  "onboarding_state_viewed",
+	          entity_type: "user",
+	          entity_id:   user.id,
+	          description: "User viewed onboarding state",
+	          metadata:    {
+	            workspace_count: workspaceCount,
+	            domain_count: domainCount,
+	            completed_scan_count: completedScanCount,
+	            next_step: nextStep,
+	          },
+	        }).catch(() => {});
+
+	        return json({
+	          has_workspaces: hasWorkspaces,
+	          workspace_count: workspaceCount,
+	          has_domains: hasDomains,
+	          domain_count: domainCount,
+	          has_completed_scan: hasCompletedScan,
+	          completed_scan_count: completedScanCount,
+	          next_step: nextStep,
+	          progress: {
+	            create_workspace: hasWorkspaces,
+	            add_domain: hasDomains,
+	            run_scan: hasCompletedScan,
+	            review_results: hasReviewedResults,
+	          },
+	        });
+	      } catch (e) {
+	        return json({ error: e.message }, 500);
+	      }
+	    }
+
+	    // ── GET /api/account/profile ─────────────────────────────────────────
+	    // Returns the authenticated account, company profile, and subscription foundation.
+	    if (request.method === "GET" && url.pathname === "/api/account/profile") {
       const user = await requireAuth(request, env);
       if (!user) return json({ error: "Unauthorized" }, 401);
       try {
