@@ -326,7 +326,7 @@ async function requireAuth(request, env) {
     // ── Session path ──────────────────────────────────────────────────────────
     const session = await env.cybermeters_db
       .prepare(
-        `SELECT s.user_id, u.id, u.email, u.name, u.plan, u.status
+        `SELECT s.id AS session_id, s.user_id, u.id, u.email, u.name, u.plan, u.status
          FROM user_sessions s
          JOIN users u ON u.id = s.user_id
          WHERE s.token_hash = ? AND s.expires_at > datetime('now')`
@@ -334,6 +334,12 @@ async function requireAuth(request, env) {
       .bind(tokenHash)
       .first();
     if (!session || session.status === "suspended") return null;
+    // Fire-and-forget: track last activity time for session visibility feature
+    env.cybermeters_db
+      .prepare("UPDATE user_sessions SET last_seen_at = datetime('now') WHERE id = ?")
+      .bind(session.session_id)
+      .run()
+      .catch(() => {});
     return session;
   } catch {
     return null;
@@ -17290,7 +17296,7 @@ export default {
               entity_type: "user",
               entity_id:   user.id,
               description: `Failed login attempt for ${email}`,
-              metadata:    { email },
+              metadata:    { email, ip_address: request.headers.get("CF-Connecting-IP") || null, user_agent: request.headers.get("User-Agent") || null },
             }).catch(() => {});
           }
           return json({ error: "Invalid email or password" }, 401);
@@ -17320,7 +17326,7 @@ export default {
             entity_type: "user",
             entity_id:   user.id,
             description: `MFA challenge issued for ${user.email}`,
-            metadata:    { challenge_id: challengeId },
+            metadata:    { challenge_id: challengeId, ip_address: request.headers.get("CF-Connecting-IP") || null, user_agent: request.headers.get("User-Agent") || null },
           }).catch(() => {});
           return json({ mfa_required: true, challenge_token: challengeRaw });
         }
@@ -17330,12 +17336,14 @@ export default {
         const sessionId  = createId("sess");
         const expiresAt  = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(); // 30 days
 
+        const _loginIp = request.headers.get("CF-Connecting-IP") || null;
+        const _loginUa = request.headers.get("User-Agent") || null;
         await env.cybermeters_db
           .prepare(
-            `INSERT INTO user_sessions (id, user_id, token_hash, expires_at)
-             VALUES (?, ?, ?, ?)`
+            `INSERT INTO user_sessions (id, user_id, token_hash, expires_at, ip_address, user_agent)
+             VALUES (?, ?, ?, ?, ?, ?)`
           )
-          .bind(sessionId, user.id, tokenHash, expiresAt)
+          .bind(sessionId, user.id, tokenHash, expiresAt, _loginIp, _loginUa)
           .run();
 
         // Update last_login_at
@@ -17351,6 +17359,7 @@ export default {
           entity_type: "user",
           entity_id:   user.id,
           description: `${user.email} signed in`,
+          metadata:    { ip_address: _loginIp, user_agent: _loginUa },
         });
 
         const plan = await getEffectivePlan(user.id, env);
@@ -17751,6 +17760,8 @@ export default {
         if (challenge.status === "suspended")             return json({ error: "Account suspended. Contact support." }, 403);
         if (!challenge.mfa_enabled)                       return json({ error: "MFA is not enabled for this account" }, 400);
 
+        const _mfaIp = request.headers.get("CF-Connecting-IP") || null;
+        const _mfaUa = request.headers.get("User-Agent") || null;
         const base32Secret = await decryptTotpSecret(challenge.totp_secret, env);
         const valid = await verifyTotp(base32Secret, code);
 
@@ -17767,7 +17778,7 @@ export default {
             entity_type: "user",
             entity_id:   challenge.user_id,
             description: `Failed MFA challenge for ${challenge.email}`,
-            metadata:    { challenge_id: challenge.id },
+            metadata:    { challenge_id: challenge.id, ip_address: _mfaIp, user_agent: _mfaUa },
           }).catch(() => {});
           return json({ error: "Invalid verification code" }, 401);
         }
@@ -17779,8 +17790,8 @@ export default {
 
         await env.cybermeters_db.batch([
           env.cybermeters_db
-            .prepare(`INSERT INTO user_sessions (id, user_id, token_hash, expires_at) VALUES (?, ?, ?, ?)`)
-            .bind(sessionId, challenge.user_id, tokenHash, expiresAt),
+            .prepare(`INSERT INTO user_sessions (id, user_id, token_hash, expires_at, ip_address, user_agent) VALUES (?, ?, ?, ?, ?, ?)`)
+            .bind(sessionId, challenge.user_id, tokenHash, expiresAt, _mfaIp, _mfaUa),
           env.cybermeters_db
             .prepare("UPDATE users SET last_login_at = datetime('now'), mfa_last_verified_at = datetime('now') WHERE id = ?")
             .bind(challenge.user_id),
@@ -17792,7 +17803,7 @@ export default {
           entity_type: "user",
           entity_id:   challenge.user_id,
           description: `MFA challenge passed — session created for ${challenge.email}`,
-          metadata:    { challenge_id: challenge.id },
+          metadata:    { challenge_id: challenge.id, ip_address: _mfaIp, user_agent: _mfaUa },
         }).catch(() => {});
 
         const plan = await getEffectivePlan(challenge.user_id, env);
@@ -17870,9 +17881,11 @@ export default {
         const { raw: token, hash: tokenHash } = await generateSessionToken();
         const sessionId = createId("sess");
         const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+        const _rcIp = request.headers.get("CF-Connecting-IP") || null;
+        const _rcUa = request.headers.get("User-Agent") || null;
         await env.cybermeters_db
-          .prepare(`INSERT INTO user_sessions (id, user_id, token_hash, expires_at) VALUES (?, ?, ?, ?)`)
-          .bind(sessionId, challenge.user_id, tokenHash, expiresAt)
+          .prepare(`INSERT INTO user_sessions (id, user_id, token_hash, expires_at, ip_address, user_agent) VALUES (?, ?, ?, ?, ?, ?)`)
+          .bind(sessionId, challenge.user_id, tokenHash, expiresAt, _rcIp, _rcUa)
           .run();
 
         await createAuditEvent(env, {
@@ -17881,7 +17894,7 @@ export default {
           entity_type: "user",
           entity_id:   challenge.user_id,
           description: `Recovery code used to sign in — ${remainingHashes.length} codes remaining for ${challenge.email}`,
-          metadata:    { challenge_id: challenge.id, remaining_codes: remainingHashes.length },
+          metadata:    { challenge_id: challenge.id, remaining_codes: remainingHashes.length, ip_address: _rcIp, user_agent: _rcUa },
         }).catch(() => {});
 
         const plan = await getEffectivePlan(challenge.user_id, env);
@@ -18660,6 +18673,162 @@ export default {
         });
 
         return json({ success: true });
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
+    // ── GET /api/account/login-history ──────────────────────────────────
+    // Returns recent auth-related audit events for the authenticated user.
+    // Reuses audit_events — no duplicate storage.
+    // Tenant/user isolation: WHERE user_id = ? enforced.
+    if (request.method === "GET" && url.pathname === "/api/account/login-history") {
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      // API tokens may not access personal security history
+      if (user.api_token_id) return json({ error: "Session authentication required" }, 403);
+
+      const HISTORY_TYPES = [
+        "login", "login_failed",
+        "mfa_challenge_success", "mfa_challenge_failed",
+        "recovery_code_used",
+        "password_reset_completed", "password_reset_failed",
+      ];
+      const SUCCESS_TYPES = new Set(["login", "mfa_challenge_success", "recovery_code_used", "password_reset_completed"]);
+
+      try {
+        const rows = await env.cybermeters_db
+          .prepare(
+            `SELECT id, event_type, description, metadata_json, created_at
+             FROM audit_events
+             WHERE user_id = ?
+               AND event_type IN (${HISTORY_TYPES.map(() => "?").join(",")})
+             ORDER BY created_at DESC
+             LIMIT 100`
+          )
+          .bind(user.id, ...HISTORY_TYPES)
+          .all();
+
+        const events = (rows.results || []).map(row => {
+          let meta = {};
+          try { meta = row.metadata_json ? JSON.parse(row.metadata_json) : {}; } catch { /* ignore */ }
+          return {
+            id:          row.id,
+            timestamp:   row.created_at,
+            event_type:  row.event_type,
+            ip_address:  meta.ip_address || null,
+            user_agent:  meta.user_agent || null,
+            result:      SUCCESS_TYPES.has(row.event_type) ? "success" : "failed",
+            description: row.description || null,
+          };
+        });
+
+        createAuditEvent(env, {
+          user_id:     user.id,
+          event_type:  "login_history_viewed",
+          entity_type: "user",
+          entity_id:   user.id,
+          description: "User viewed their login history",
+        }).catch(() => {});
+
+        return json({ events });
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
+    // ── GET /api/account/sessions ────────────────────────────────────────
+    // Returns active (non-expired) sessions for the authenticated user.
+    // Marks current session; never exposes token_hash.
+    // Tenant/user isolation: WHERE user_id = ? enforced.
+    if (request.method === "GET" && url.pathname === "/api/account/sessions") {
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      if (user.api_token_id) return json({ error: "Session authentication required" }, 403);
+
+      try {
+        // Identify current session by hashing the bearer token from this request
+        const _authRaw = (request.headers.get("Authorization") || "").slice(7).trim();
+        const _currentHash = _authRaw ? await hashToken(_authRaw) : null;
+
+        const rows = await env.cybermeters_db
+          .prepare(
+            `SELECT id, created_at, last_seen_at, ip_address, user_agent, token_hash, expires_at
+             FROM user_sessions
+             WHERE user_id = ? AND expires_at > datetime('now')
+             ORDER BY created_at DESC`
+          )
+          .bind(user.id)
+          .all();
+
+        const sessions = (rows.results || []).map(s => ({
+          session_id:  s.id,
+          created_at:  s.created_at,
+          last_seen_at: s.last_seen_at || null,
+          expires_at:  s.expires_at,
+          ip_address:  s.ip_address  || null,
+          user_agent:  s.user_agent  || null,
+          current:     _currentHash !== null && s.token_hash === _currentHash,
+          // token_hash intentionally excluded from response
+        }));
+
+        createAuditEvent(env, {
+          user_id:     user.id,
+          event_type:  "active_sessions_viewed",
+          entity_type: "user",
+          entity_id:   user.id,
+          description: "User viewed their active sessions",
+        }).catch(() => {});
+
+        return json({ sessions });
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
+    // ── POST /api/account/sessions/:id/revoke ───────────────────────────
+    // Revoke a specific session. Cannot revoke the current session via this
+    // endpoint — use POST /api/auth/logout for self-termination.
+    // Tenant/user isolation: WHERE user_id = ? enforced.
+    const sessionRevokeMatch = url.pathname.match(/^\/api\/account\/sessions\/([^/]+)\/revoke$/);
+    if (sessionRevokeMatch && request.method === "POST") {
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      if (user.api_token_id) return json({ error: "Session authentication required" }, 403);
+      const targetSessionId = sessionRevokeMatch[1];
+
+      try {
+        // Verify the session belongs to this user (isolation enforced by AND user_id = ?)
+        const target = await env.cybermeters_db
+          .prepare("SELECT id, token_hash FROM user_sessions WHERE id = ? AND user_id = ? LIMIT 1")
+          .bind(targetSessionId, user.id)
+          .first();
+        if (!target) return json({ error: "Session not found" }, 404);
+
+        // Prevent accidental current-session revocation — use /api/auth/logout instead
+        const _authRaw = (request.headers.get("Authorization") || "").slice(7).trim();
+        if (_authRaw) {
+          const _currentHash = await hashToken(_authRaw);
+          if (target.token_hash === _currentHash) {
+            return json({ error: "Use Sign Out to end your current session." }, 400);
+          }
+        }
+
+        await env.cybermeters_db
+          .prepare("DELETE FROM user_sessions WHERE id = ? AND user_id = ?")
+          .bind(targetSessionId, user.id)
+          .run();
+
+        await createAuditEvent(env, {
+          user_id:     user.id,
+          event_type:  "session_revoked",
+          entity_type: "user",
+          entity_id:   user.id,
+          description: "User revoked an active session",
+          metadata:    { revoked_session_id: targetSessionId },
+        }).catch(() => {});
+
+        return json({ success: true, message: "Session revoked." });
       } catch (e) {
         return json({ error: e.message }, 500);
       }

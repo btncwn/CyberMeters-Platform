@@ -11,10 +11,12 @@
  */
 
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   User, Building2, CreditCard, Save, AlertTriangle,
   CheckCircle, Globe, Briefcase, ChevronDown, Shield,
   KeyRound, Trash2, Plus, Gauge, Smartphone, Copy, LifeBuoy,
+  ChevronRight,
 } from 'lucide-react'
 import { api } from '../api'
 import { useAuth } from '../context/AuthContext'
@@ -184,6 +186,7 @@ function PlanLimitsCard({ planLimits }) {
 }
 
 export default function AccountPage() {
+  const navigate = useNavigate()
   const { user: authUser, login } = useAuth()
 
   // Remote state
@@ -894,6 +897,24 @@ export default function AccountPage() {
                   )}
                 </div>
               </Section>
+
+              {/* ── Security Quick Link ───────────────────────────────────── */}
+              <div className="card p-4 mt-6">
+                <button
+                  type="button"
+                  onClick={() => navigate('/account/security')}
+                  className="w-full flex items-center gap-3 text-left group"
+                >
+                  <div className="w-9 h-9 rounded-lg bg-brand-50 flex items-center justify-center flex-shrink-0 group-hover:bg-brand-100 transition-colors">
+                    <Shield className="w-4 h-4 text-brand-600" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-900">Security</p>
+                    <p className="text-xs text-gray-400">Login history &amp; active sessions</p>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-gray-500 transition-colors flex-shrink-0" />
+                </button>
+              </div>
             </div>
 
           </div>

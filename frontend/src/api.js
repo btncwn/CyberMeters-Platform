@@ -729,6 +729,17 @@ export const api = {
   /** GET /api/portfolio/risk — MSP portfolio risk intelligence */
   getPortfolioRisk: () => request('/portfolio/risk'),
 
+  // ── Account Security ──────────────────────────────────────────────────────
+
+  /** GET /api/account/login-history */
+  getLoginHistory: () => request('/account/login-history'),
+
+  /** GET /api/account/sessions */
+  getActiveSessions: () => request('/account/sessions'),
+
+  /** POST /api/account/sessions/:id/revoke */
+  revokeSession: (sessionId) => request(`/account/sessions/${sessionId}/revoke`, { method: 'POST' }),
+
   /**
    * GET /api/workspaces/:id/report
    * Returns a Blob (application/pdf) — bypasses the JSON request() helper.

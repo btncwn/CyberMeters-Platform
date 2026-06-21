@@ -39,6 +39,7 @@ import PortfolioPage         from './pages/PortfolioPage'
 import PortfolioRiskPage     from './pages/PortfolioRiskPage'
 import AcceptInvitationPage  from './pages/AcceptInvitationPage'
 import AccountPage           from './pages/AccountPage'
+import SecurityPage          from './pages/SecurityPage'
 import BillingPage           from './pages/BillingPage'
 import DomainVerifyPage      from './pages/DomainVerifyPage'
 import PricingPage           from './pages/PricingPage'
@@ -145,6 +146,7 @@ function AppRoutes() {
         <Route path="accuracy"                element={<AccuracyPage />}        />
         <Route path="settings"                element={<SettingsPage />}        />
         <Route path="account"                 element={<AccountPage />}          />
+        <Route path="account/security"        element={<SecurityPage />}         />
         <Route path="billing"                 element={<BillingPage />}          />
         <Route path="domains/:id/verify"      element={<DomainVerifyPage />}     />
         <Route path="invitations/:token"      element={<AcceptInvitationPage />} />
