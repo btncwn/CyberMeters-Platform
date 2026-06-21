@@ -373,8 +373,12 @@ export default function BillingPage() {
           api.getSubscriptionLimits(),
         ])
         if (cancelled) return
-        setSubscription(subRes?.subscription ?? null)
+        const sub = subRes?.subscription ?? null
+        setSubscription(sub)
         setLimits(limRes ?? null)
+        // Seed the billing interval toggle from the user's actual subscription.
+        // Falls back to 'monthly' for free-plan users who have no subscription row.
+        if (sub?.billing_cycle === 'annual') setBillingInterval('annual')
       } catch (e) {
         if (cancelled) return
         setApiError(e?.message || 'Failed to load billing data')

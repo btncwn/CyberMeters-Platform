@@ -92,6 +92,72 @@ async function generateInviteToken() {
   return { raw, hash };
 }
 
+// ── Microsoft Entra OAuth helpers ────────────────────────────────────────────
+
+/** Decode a base64url string to a UTF-8 string (safe for JWT header/payload). */
+function b64urlDecode(str) {
+  const base64 = str.replace(/-/g, "+").replace(/_/g, "/");
+  const padded  = base64 + "==".slice(0, (4 - (base64.length % 4)) % 4);
+  return atob(padded);
+}
+
+/** Decode a base64url string to an ArrayBuffer (used for JWT signature). */
+function b64urlToBuffer(str) {
+  const binary = b64urlDecode(str);
+  const buf    = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) buf[i] = binary.charCodeAt(i);
+  return buf.buffer;
+}
+
+/**
+ * Validate a Microsoft Entra id_token (RS256 JWT).
+ * Fetches the tenant JWKS, verifies the signature, and validates core claims.
+ * Returns the decoded payload on success; throws on any validation failure.
+ */
+async function validateMicrosoftIdToken(idToken, clientId, tenantId) {
+  const parts = idToken.split(".");
+  if (parts.length !== 3) throw new Error("id_token: invalid format");
+
+  const header  = JSON.parse(b64urlDecode(parts[0]));
+  const payload = JSON.parse(b64urlDecode(parts[1]));
+
+  // Audience must match our client ID
+  if (payload.aud !== clientId) throw new Error("id_token: aud mismatch");
+
+  // Token must not be expired (with 60-second clock skew tolerance)
+  if (Date.now() / 1000 > payload.exp + 60) throw new Error("id_token: expired");
+
+  // oid is the stable Microsoft Object ID — required for our upsert logic
+  if (!payload.oid) throw new Error("id_token: missing oid claim");
+
+  // Fetch signing keys from Microsoft's tenant JWKS endpoint
+  const jwksUrl = `https://login.microsoftonline.com/${tenantId}/discovery/v2.0/keys`;
+  const jwksRes = await fetch(jwksUrl, { headers: { "User-Agent": "CyberMeters/1.0" } });
+  if (!jwksRes.ok) throw new Error(`id_token: JWKS fetch failed (${jwksRes.status})`);
+  const { keys } = await jwksRes.json();
+
+  const key = keys.find(k => k.kid === header.kid);
+  if (!key) throw new Error("id_token: no matching JWKS key for kid=" + header.kid);
+
+  // Import the RSA public key and verify the RS256 signature
+  const cryptoKey = await crypto.subtle.importKey(
+    "jwk", key,
+    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+    false,
+    ["verify"]
+  );
+
+  const signingInput = new TextEncoder().encode(`${parts[0]}.${parts[1]}`);
+  const signature    = b64urlToBuffer(parts[2]);
+
+  const valid = await crypto.subtle.verify("RSASSA-PKCS1-v1_5", cryptoKey, signature, signingInput);
+  if (!valid) throw new Error("id_token: signature invalid");
+
+  return payload; // { oid, email, name, tid, sub, ... }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 async function generatePasswordResetToken() {
   const secret = Array.from(crypto.getRandomValues(new Uint8Array(32))).map(b => b.toString(16).padStart(2, "0")).join("");
   const raw    = `cmreset_${secret}`;
@@ -15846,17 +15912,17 @@ const PLAN_LIMITS = {
     scans_per_month: 5,
     scan_starts_per_hour: 5,
     reports_per_month: 3,
-    scheduled_scans: 1,
+    scheduled_scans: 0,       // free plan: no scheduled scans
     pending_invitations: 10,
   },
   starter: {
-    workspaces: 5,
-    domains: 25,
-    users: 5,
+    workspaces: 3,
+    domains: 10,
+    users: 3,
     history_days: 90,
     report_retention: "90_days",
     api_tokens: 5,
-    scheduled_reports_per_workspace: 5,
+    scheduled_reports_per_workspace: 3,
     scans_per_month: 100,
     scan_starts_per_hour: 20,
     reports_per_month: 50,
@@ -15864,31 +15930,31 @@ const PLAN_LIMITS = {
     pending_invitations: 25,
   },
   professional: {
-    workspaces: 25,
-    domains: 250,
-    users: 25,
+    workspaces: 10,
+    domains: 100,
+    users: 10,
     history_days: 365,
     report_retention: "2_years",
     api_tokens: 25,
-    scheduled_reports_per_workspace: 25,
+    scheduled_reports_per_workspace: 10,
     scans_per_month: 1000,
     scan_starts_per_hour: 100,
     reports_per_month: 500,
-    scheduled_scans: 25,
+    scheduled_scans: 20,
     pending_invitations: 50,
   },
   business: {
-    workspaces: 25,
-    domains: 250,
-    users: 25,
-    history_days: 365,
+    workspaces: 50,
+    domains: 1000,
+    users: 50,
+    history_days: 730,
     report_retention: "7_years",
-    api_tokens: 25,
-    scheduled_reports_per_workspace: 25,
+    api_tokens: 100,
+    scheduled_reports_per_workspace: 50,
     scans_per_month: 5000,
     scan_starts_per_hour: 300,
     reports_per_month: 2000,
-    scheduled_scans: 25,
+    scheduled_scans: 100,
     pending_invitations: 250,
   },
   enterprise: {
@@ -15916,11 +15982,15 @@ const PLAN_FEATURES = {
     "business_risk_score",
     "cyber_essentials",
     "vendor_risk",
+    "executive_dashboard",  // Executive Risk Dashboard: professional+
+    "audit_logs",           // Workspace audit trail: professional+
   ],
   business: [
     "business_risk_score",
     "cyber_essentials",
     "vendor_risk",
+    "executive_dashboard",
+    "audit_logs",
     "portfolio_monitoring",
     "white_label",
   ],
@@ -15928,6 +15998,8 @@ const PLAN_FEATURES = {
     "business_risk_score",
     "cyber_essentials",
     "vendor_risk",
+    "executive_dashboard",
+    "audit_logs",
     "portfolio_monitoring",
     "white_label",
     "msp_dashboard",
@@ -15988,7 +16060,7 @@ function isExpiredDate(value) {
   return Number.isNaN(date.getTime()) ? false : date.getTime() <= Date.now();
 }
 
-async function getEffectivePlan(userId, env) {
+async function getUserPlan(userId, env) {
   // Canonical plan resolver for all application billing decisions.
   // Stripe updates the subscriptions table through webhooks; runtime requests
   // must continue to read through this helper rather than Stripe.
@@ -16019,6 +16091,10 @@ async function getEffectivePlan(userId, env) {
   } catch {
     return "free";
   }
+}
+
+async function getEffectivePlan(userId, env) {
+  return getUserPlan(userId, env);
 }
 
 function getPlanFeatures(plan) {
@@ -16363,6 +16439,29 @@ async function handleStripeSubscriptionDeleted(env, subscription) {
   return rowId;
 }
 
+async function handleStripeInvoicePaymentFailed(env, invoice) {
+  const stripeSubscriptionId = getStripeObjectId(invoice?.subscription);
+  const stripeCustomerId = getStripeObjectId(invoice?.customer);
+  const rowId = await findSubscriptionRowId(env, {
+    stripeSubscriptionId,
+    stripeCustomerId,
+  });
+
+  if (!rowId) return null;
+  await env.cybermeters_db
+    .prepare(
+      `UPDATE subscriptions
+       SET subscription_status = 'past_due',
+           payment_failed_at = datetime('now'),
+           payment_retry_count = COALESCE(payment_retry_count, 0) + 1,
+           updated_at = datetime('now')
+       WHERE id = ?`
+    )
+    .bind(rowId)
+    .run();
+  return rowId;
+}
+
 async function auditApiTokenSessionRouteDenied(env, user, request) {
   if (!user?.api_token_id) return;
   await createAuditEvent(env, {
@@ -16630,6 +16729,66 @@ async function getPlanContext(user, env) {
   const limits = getPlanLimits(plan);
   const usage = await getAccountUsage(user.id, env);
   return { plan, limits, usage };
+}
+
+// ── Upgrade Recommendation Engine ────────────────────────────────────────────
+// Evaluates account-level usage against plan limits and emits upgrade signals
+// at three severity thresholds: warning (≥80%), danger (≥90%), critical (=100%).
+// Returns an array sorted by descending percentage so the most urgent signal
+// is first. Returns [] for unlimited (enterprise) resources.
+
+function getUpgradeRecommendation(limits, usage) {
+  const RESOURCES = [
+    { key: "workspaces", label: "workspace" },
+    { key: "domains",    label: "domain"    },
+    { key: "users",      label: "user"      },
+  ];
+
+  const signals = [];
+
+  for (const { key, label } of RESOURCES) {
+    const limit = limits[key];
+    const used  = usage[key];
+    if (!limit || limit >= 999999 || used === null || used === undefined) continue;
+
+    const pct = Math.round((used / limit) * 100);
+
+    if (pct >= 100) {
+      signals.push({
+        resource:    key,
+        level:       "critical",
+        pct:         100,
+        used,
+        limit,
+        message:     `You have reached your ${label} limit. Upgrade your plan to add more.`,
+        upgrade_url: "/billing",
+      });
+    } else if (pct >= 90) {
+      signals.push({
+        resource:    key,
+        level:       "danger",
+        pct,
+        used,
+        limit,
+        message:     `You are close to your ${label} limit (${pct}% used). Consider upgrading soon.`,
+        upgrade_url: "/billing",
+      });
+    } else if (pct >= 80) {
+      signals.push({
+        resource:    key,
+        level:       "warning",
+        pct,
+        used,
+        limit,
+        message:     `You are approaching your ${label} limit (${pct}% used).`,
+        upgrade_url: "/billing",
+      });
+    }
+  }
+
+  // Sort highest percentage first
+  signals.sort((a, b) => b.pct - a.pct);
+  return signals;
 }
 
 async function getWorkspaceOwnerId(workspaceId, env) {
@@ -17307,6 +17466,44 @@ export default {
       });
     }
 
+    // ── GET /api/billing/subscription ───────────────────────────────────
+    // Account-scoped subscription state used by the Billing page. Stripe is
+    // not queried at request time; webhooks keep D1 as the platform source of
+    // truth for plan, status, billing cycle, and renewal period.
+    if (request.method === "GET" && url.pathname === "/api/billing/subscription") {
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      try {
+        const sub = await env.cybermeters_db
+          .prepare(
+            `SELECT plan,
+                    subscription_status AS status,
+                    billing_interval AS billing_cycle,
+                    current_period_end
+             FROM subscriptions
+             WHERE owner_user_id = ?
+             ORDER BY COALESCE(updated_at, created_at) DESC
+             LIMIT 1`
+          )
+          .bind(user.id)
+          .first();
+        const plan = await getUserPlan(user.id, env);
+        return json(sub ? {
+          plan,
+          status: sub.status || "active",
+          billing_cycle: normalizeBillingInterval(sub.billing_cycle),
+          current_period_end: sub.current_period_end ?? null,
+        } : {
+          plan,
+          status: "active",
+          billing_cycle: "monthly",
+          current_period_end: null,
+        });
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
     // ── POST /api/billing/webhook ─────────────────────────────────────────
     // Stripe webhook receiver. Verifies the Stripe-Signature header using
     // HMAC-SHA256, then synchronises subscription lifecycle events into D1.
@@ -17464,6 +17661,30 @@ export default {
                 stripe_customer_id: getStripeObjectId(obj?.customer),
                 status: "canceled",
                 current_period_end: stripeUnixToIso(obj?.current_period_end),
+              },
+            });
+            break;
+          }
+
+          // ── invoice.payment_failed ───────────────────────────────────────
+          // Payment failure should immediately remove paid entitlements from
+          // runtime plan resolution. The row is retained and marked past_due;
+          // later customer.subscription.updated events can restore active
+          // status after Stripe collects payment.
+          case "invoice.payment_failed": {
+            const rowId = await handleStripeInvoicePaymentFailed(env, obj);
+            await createAuditEvent(env, {
+              user_id:     null,
+              event_type:  "subscription_payment_failed",
+              entity_type: "stripe_invoice",
+              entity_id:   obj?.id || rowId || null,
+              description: "Stripe invoice payment failed",
+              metadata:    {
+                subscription_row_id: rowId,
+                stripe_invoice_id: obj?.id || null,
+                stripe_subscription_id: getStripeObjectId(obj?.subscription),
+                stripe_customer_id: getStripeObjectId(obj?.customer),
+                attempt_count: obj?.attempt_count ?? null,
               },
             });
             break;
@@ -17689,6 +17910,284 @@ export default {
         }
       }
       return json({ success: true });
+    }
+
+    // ── GET /api/auth/microsoft/login ────────────────────────────────────
+    // Initiates the Microsoft Entra OAuth authorization code flow.
+    // Generates a CSRF state token, stores it in oauth_states with a 10-minute
+    // TTL, and redirects the browser to Microsoft's authorization endpoint.
+    //
+    // Env vars required: AZURE_CLIENT_ID, AZURE_TENANT_ID
+    // Optional: MICROSOFT_REDIRECT_URI (defaults to same-origin /callback)
+    if (request.method === "GET" && url.pathname === "/api/auth/microsoft/login") {
+      const clientId  = env.AZURE_CLIENT_ID;
+      const tenantId  = env.AZURE_TENANT_ID;
+
+      if (!clientId || !tenantId) {
+        return json({ error: "Microsoft login is not configured on this instance" }, 503);
+      }
+
+      // Generate a cryptographically random state for CSRF protection
+      const stateRaw = Array.from(crypto.getRandomValues(new Uint8Array(24)))
+        .map(b => b.toString(16).padStart(2, "0")).join("");
+
+      // redirect_uri must match exactly what is registered in Azure App Registration
+      const redirectUri = env.MICROSOFT_REDIRECT_URI
+        || `${url.origin}/api/auth/microsoft/callback`;
+
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 min
+
+      await env.cybermeters_db
+        .prepare(
+          `INSERT INTO oauth_states (state, provider, redirect_uri, expires_at)
+           VALUES (?, 'microsoft', ?, ?)`
+        )
+        .bind(stateRaw, redirectUri, expiresAt)
+        .run();
+
+      // Purge expired states while we're here (best-effort, non-fatal)
+      env.cybermeters_db
+        .prepare("DELETE FROM oauth_states WHERE expires_at < datetime('now')")
+        .run()
+        .catch(() => {});
+
+      const authorizeUrl = new URL(
+        `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize`
+      );
+      authorizeUrl.searchParams.set("client_id",     clientId);
+      authorizeUrl.searchParams.set("response_type", "code");
+      authorizeUrl.searchParams.set("redirect_uri",  redirectUri);
+      authorizeUrl.searchParams.set("response_mode", "query");
+      authorizeUrl.searchParams.set("scope",         "openid profile email");
+      authorizeUrl.searchParams.set("state",         stateRaw);
+
+      return Response.redirect(authorizeUrl.toString(), 302);
+    }
+
+    // ── GET /api/auth/microsoft/callback ─────────────────────────────────
+    // Handles the OAuth callback from Microsoft.
+    //   1. Validates the CSRF state from oauth_states (single-use, TTL-checked)
+    //   2. Exchanges the authorization code for tokens at Microsoft's token endpoint
+    //   3. Validates the id_token JWT (signature + audience + expiry + oid)
+    //   4. Finds an existing user by microsoft_oid, falls back to email match,
+    //      or creates a new account
+    //   5. Creates a 30-day session (same pattern as POST /api/auth/login)
+    //   6. Fires USER_LOGIN_MICROSOFT audit event
+    //   7. Redirects to the frontend callback page with token + user params
+    //
+    // Env vars required: AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID
+    // Optional: FRONTEND_URL (defaults to same origin)
+    if (request.method === "GET" && url.pathname === "/api/auth/microsoft/callback") {
+      const clientId     = env.AZURE_CLIENT_ID;
+      const clientSecret = env.AZURE_CLIENT_SECRET;
+      const tenantId     = env.AZURE_TENANT_ID;
+
+      if (!clientId || !clientSecret || !tenantId) {
+        return json({ error: "Microsoft login is not configured on this instance" }, 503);
+      }
+
+      const code  = url.searchParams.get("code");
+      const state = url.searchParams.get("state");
+      const msErr = url.searchParams.get("error");
+
+      // Microsoft returned an error (e.g. user denied consent)
+      if (msErr) {
+        const frontendUrl = env.FRONTEND_URL || url.origin;
+        const errDesc = url.searchParams.get("error_description") || msErr;
+        const dest = new URL("/login", frontendUrl);
+        dest.searchParams.set("ms_error", errDesc);
+        return Response.redirect(dest.toString(), 302);
+      }
+
+      if (!code || !state) {
+        return json({ error: "Missing code or state parameter" }, 400);
+      }
+
+      // ── 1. Validate CSRF state ─────────────────────────────────────────
+      const stateRow = await env.cybermeters_db
+        .prepare(
+          `SELECT state, redirect_uri FROM oauth_states
+           WHERE state = ? AND provider = 'microsoft'
+             AND expires_at > datetime('now')
+           LIMIT 1`
+        )
+        .bind(state)
+        .first();
+
+      if (!stateRow) {
+        return json({ error: "Invalid or expired OAuth state. Please try signing in again." }, 400);
+      }
+
+      // Delete state immediately — single-use CSRF token
+      await env.cybermeters_db
+        .prepare("DELETE FROM oauth_states WHERE state = ?")
+        .bind(state)
+        .run();
+
+      const redirectUri = stateRow.redirect_uri
+        || (env.MICROSOFT_REDIRECT_URI || `${url.origin}/api/auth/microsoft/callback`);
+
+      // ── 2. Exchange authorization code for tokens ──────────────────────
+      const tokenRes = await fetch(
+        `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            client_id:     clientId,
+            client_secret: clientSecret,
+            code,
+            redirect_uri:  redirectUri,
+            grant_type:    "authorization_code",
+            scope:         "openid profile email",
+          }).toString(),
+        }
+      );
+
+      if (!tokenRes.ok) {
+        const errBody = await tokenRes.text().catch(() => "");
+        console.error("[microsoft/callback] token exchange failed:", errBody);
+        return json({ error: "Failed to exchange authorization code" }, 502);
+      }
+
+      const tokenData = await tokenRes.json();
+      const idToken   = tokenData.id_token;
+
+      if (!idToken) {
+        return json({ error: "Microsoft did not return an id_token" }, 502);
+      }
+
+      // ── 3. Validate id_token JWT ───────────────────────────────────────
+      let claims;
+      try {
+        claims = await validateMicrosoftIdToken(idToken, clientId, tenantId);
+      } catch (e) {
+        console.error("[microsoft/callback] id_token validation failed:", e.message);
+        return json({ error: "Token validation failed: " + e.message }, 401);
+      }
+
+      const msOid   = claims.oid;
+      const msEmail = (claims.email || claims.preferred_username || "").toLowerCase().trim();
+      const msName  = claims.name || msEmail.split("@")[0] || "Microsoft User";
+      const msTid   = claims.tid;
+
+      if (!msEmail) {
+        return json({ error: "Microsoft account did not provide an email address. Ensure the email scope is granted." }, 400);
+      }
+
+      // ── 4. Find or create user ─────────────────────────────────────────
+      // Priority: (a) match by microsoft_oid, (b) match by email, (c) create new
+      let user = await env.cybermeters_db
+        .prepare("SELECT id, email, name, plan, status FROM users WHERE microsoft_oid = ? LIMIT 1")
+        .bind(msOid)
+        .first();
+
+      if (!user) {
+        // Try to link to an existing email/password account
+        user = await env.cybermeters_db
+          .prepare("SELECT id, email, name, plan, status FROM users WHERE email = ? LIMIT 1")
+          .bind(msEmail)
+          .first();
+
+        if (user) {
+          // Link existing account to this Microsoft identity
+          await env.cybermeters_db
+            .prepare(
+              `UPDATE users
+               SET microsoft_oid = ?, tenant_id = ?, auth_provider = 'microsoft',
+                   last_login_at = datetime('now')
+               WHERE id = ?`
+            )
+            .bind(msOid, msTid, user.id)
+            .run();
+        }
+      }
+
+      if (!user) {
+        // No existing account — create one
+        const newUserId    = createId("usr");
+        await env.cybermeters_db
+          .prepare(
+            `INSERT INTO users
+               (id, email, name, plan, password_hash, status, auth_provider, microsoft_oid, tenant_id, created_at)
+             VALUES (?, ?, ?, 'free', NULL, 'active', 'microsoft', ?, ?, datetime('now'))`
+          )
+          .bind(newUserId, msEmail, msName, msOid, msTid)
+          .run();
+
+        user = { id: newUserId, email: msEmail, name: msName, plan: "free", status: "active" };
+
+        await createAuditEvent(env, {
+          user_id:     newUserId,
+          event_type:  "signup",
+          entity_type: "user",
+          entity_id:   newUserId,
+          description: `New account created via Microsoft login for ${msEmail}`,
+          metadata:    { email: msEmail, name: msName, auth_provider: "microsoft" },
+        }).catch(() => {});
+      } else {
+        // Existing account — update last_login_at and auth fields
+        await env.cybermeters_db
+          .prepare(
+            `UPDATE users
+             SET microsoft_oid = ?, tenant_id = ?, auth_provider = 'microsoft',
+                 last_login_at = datetime('now')
+             WHERE id = ?`
+          )
+          .bind(msOid, msTid, user.id)
+          .run();
+      }
+
+      if (user.status === "suspended") {
+        const frontendUrl = env.FRONTEND_URL || url.origin;
+        const dest = new URL("/login", frontendUrl);
+        dest.searchParams.set("ms_error", "Account suspended. Contact support.");
+        return Response.redirect(dest.toString(), 302);
+      }
+
+      // ── 5. Create session ──────────────────────────────────────────────
+      const { raw: token, hash: tokenHash } = await generateSessionToken();
+      const sessionId = createId("sess");
+      const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(); // 30 days
+      const loginIp   = request.headers.get("CF-Connecting-IP") || null;
+      const loginUa   = request.headers.get("User-Agent") || null;
+
+      await env.cybermeters_db
+        .prepare(
+          `INSERT INTO user_sessions (id, user_id, token_hash, expires_at, ip_address, user_agent)
+           VALUES (?, ?, ?, ?, ?, ?)`
+        )
+        .bind(sessionId, user.id, tokenHash, expiresAt, loginIp, loginUa)
+        .run();
+
+      // ── 6. Audit ──────────────────────────────────────────────────────
+      const plan = await getEffectivePlan(user.id, env);
+
+      await createAuditEvent(env, {
+        user_id:     user.id,
+        event_type:  "USER_LOGIN_MICROSOFT",
+        entity_type: "user",
+        entity_id:   user.id,
+        description: `${user.email} signed in via Microsoft`,
+        metadata:    {
+          ip_address:    loginIp,
+          user_agent:    loginUa,
+          microsoft_oid: msOid,
+          tenant_id:     msTid,
+        },
+      }).catch(() => {});
+
+      // ── 7. Redirect to frontend callback page with session ─────────────
+      // The frontend MicrosoftCallbackPage reads these params and calls login().
+      const frontendUrl = env.FRONTEND_URL || url.origin;
+      const dest = new URL("/auth/microsoft/callback", frontendUrl);
+      dest.searchParams.set("token", token);
+      dest.searchParams.set("id",    user.id);
+      dest.searchParams.set("email", user.email);
+      dest.searchParams.set("name",  user.name || "");
+      dest.searchParams.set("plan",  plan);
+
+      return Response.redirect(dest.toString(), 302);
     }
 
     // ── POST /api/auth/forgot-password ──────────────────────────────────
@@ -18432,11 +18931,10 @@ export default {
       try {
         subscription = await env.cybermeters_db
           .prepare(
-            `SELECT s.id, s.stripe_customer_id
-             FROM subscriptions s
-             JOIN workspaces w ON w.id = s.workspace_id
-             WHERE w.owner_user_id = ?
-             ORDER BY s.created_at DESC
+            `SELECT id, stripe_customer_id
+             FROM subscriptions
+             WHERE owner_user_id = ?
+             ORDER BY COALESCE(updated_at, created_at) DESC
              LIMIT 1`
           )
           .bind(user.id)
@@ -18799,6 +19297,7 @@ export default {
         const sub = await env.cybermeters_db
           .prepare(
             `SELECT id, plan, subscription_status AS status,
+                    billing_interval AS billing_cycle,
                     'stripe' AS billing_provider,
                     NULL AS billing_email, NULL AS trial_ends_at,
                     current_period_end, created_at, updated_at
@@ -18812,12 +19311,13 @@ export default {
 
         const plan = await getEffectivePlan(user.id, env);
         return json({
-          subscription: sub ? { ...sub, plan } : {
+          subscription: sub ? { ...sub, plan, billing_cycle: normalizeBillingInterval(sub.billing_cycle) } : {
             plan,
-            status:           "active",
-            billing_provider: "manual",
-            billing_email:    user.email,
-            trial_ends_at:    null,
+            status:             "active",
+            billing_cycle:      "monthly",
+            billing_provider:   "manual",
+            billing_email:      user.email,
+            trial_ends_at:      null,
             current_period_end: null,
           },
         });
@@ -18844,11 +19344,23 @@ export default {
     }
 
     // ── GET /api/account/usage ───────────────────────────────────────────
+    // Returns: { plan, limits, usage, percentages, upgrade_signals }
+    // percentages: per-resource % of plan limit used (omitted for unlimited).
+    // upgrade_signals: ordered list of resources at ≥80% capacity.
     if (request.method === "GET" && url.pathname === "/api/account/usage") {
       const user = await requireAuth(request, env);
       if (!user) return json({ error: "Unauthorized" }, 401);
       try {
-        return json(await getPlanContext(user, env));
+        const context = await getPlanContext(user, env);
+        const percentages = {};
+        for (const [key, used] of Object.entries(context.usage)) {
+          const limit = context.limits[key];
+          if (limit && limit < 999999 && typeof used === "number") {
+            percentages[key] = Math.round((used / limit) * 100);
+          }
+        }
+        const upgrade_signals = getUpgradeRecommendation(context.limits, context.usage);
+        return json({ ...context, percentages, upgrade_signals });
       } catch (e) {
         return json({ error: e.message }, 500);
       }
@@ -24283,6 +24795,20 @@ export default {
       const access = await requireWorkspaceRole(user, wsId, "workspace:read", env);
       if (!access) return json({ error: "Forbidden" }, 403);
 
+      // ── Feature gate: executive_dashboard — professional+ only ─────────────
+      {
+        const ownerId = await getWorkspaceBillingUserId(wsId, user.id, env);
+        const plan    = await getEffectivePlan(ownerId, env);
+        if (!hasFeatureEntitlement(plan, "executive_dashboard")) {
+          return json({
+            error:         "plan_feature_required",
+            feature:       "executive_dashboard",
+            required_plan: "professional",
+            upgrade_url:   "/billing",
+          }, 403);
+        }
+      }
+
       try {
         const [
           domainRow,
@@ -24619,6 +25145,20 @@ export default {
       if (!user) return json({ error: "Unauthorized" }, 401);
       const access = await requireWorkspaceRole(user, workspaceId, "audit:read", env);
       if (!access) return json({ error: "Forbidden" }, 403);
+
+      // ── Feature gate: audit_logs — professional+ only ──────────────────────
+      {
+        const ownerId = await getWorkspaceBillingUserId(workspaceId, user.id, env);
+        const plan    = await getEffectivePlan(ownerId, env);
+        if (!hasFeatureEntitlement(plan, "audit_logs")) {
+          return json({
+            error:         "plan_feature_required",
+            feature:       "audit_logs",
+            required_plan: "professional",
+            upgrade_url:   "/billing",
+          }, 403);
+        }
+      }
 
       try {
         const limit       = Math.min(Math.max(parseInt(url.searchParams.get("limit")  || "50",  10), 1), 100);
