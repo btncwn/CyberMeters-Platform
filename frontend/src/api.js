@@ -178,6 +178,43 @@ export const api = {
       body: JSON.stringify({ token, password }),
     }),
 
+  // ── MFA / TOTP ─────────────────────────────────────────────────────────────
+
+  /** GET /api/auth/mfa/status → { mfa_enabled, mfa_enabled_at } */
+  getMfaStatus: () => request('/auth/mfa/status'),
+
+  /** POST /api/auth/mfa/setup → { otpauth_uri, secret_base32 } */
+  setupMfa: () =>
+    request('/auth/mfa/setup', { method: 'POST' }),
+
+  /** POST /api/auth/mfa/verify-setup → { success, recovery_codes[] } */
+  verifyMfaSetup: (code) =>
+    request('/auth/mfa/verify-setup', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    }),
+
+  /** POST /api/auth/mfa/challenge → { token, user } (login second factor) */
+  mfaChallenge: (challenge_token, code) =>
+    request('/auth/mfa/challenge', {
+      method: 'POST',
+      body: JSON.stringify({ challenge_token, code }),
+    }),
+
+  /** POST /api/auth/mfa/recovery-code → { token, user, warning? } */
+  mfaRecoveryCode: (challenge_token, recovery_code) =>
+    request('/auth/mfa/recovery-code', {
+      method: 'POST',
+      body: JSON.stringify({ challenge_token, recovery_code }),
+    }),
+
+  /** POST /api/auth/mfa/disable → { success } (requires code or password) */
+  disableMfa: ({ code = null, password = null } = {}) =>
+    request('/auth/mfa/disable', {
+      method: 'POST',
+      body: JSON.stringify({ code, password }),
+    }),
+
   /** GET /api/scans */
   getScans: () => request('/scans'),
 

@@ -14,7 +14,7 @@ import { useState, useEffect } from 'react'
 import {
   User, Building2, CreditCard, Save, AlertTriangle,
   CheckCircle, Globe, Briefcase, ChevronDown, Shield,
-  KeyRound, Trash2, Plus, Gauge,
+  KeyRound, Trash2, Plus, Gauge, Smartphone, Copy, LifeBuoy,
 } from 'lucide-react'
 import { api } from '../api'
 import { useAuth } from '../context/AuthContext'
@@ -214,16 +214,30 @@ export default function AccountPage() {
   const [tokenBusy,   setTokenBusy]   = useState(false)
   const [tokenError,  setTokenError]  = useState(null)
 
+  // MFA state
+  const [mfaStatus,        setMfaStatus]        = useState(null)   // { mfa_enabled, mfa_enabled_at }
+  const [mfaStep,          setMfaStep]          = useState('idle') // idle | setup | verify | codes | disable
+  const [mfaOtpUri,        setMfaOtpUri]        = useState(null)
+  const [mfaSecretBase32,  setMfaSecretBase32]  = useState(null)
+  const [mfaCode,          setMfaCode]          = useState('')
+  const [mfaDisableInput,  setMfaDisableInput]  = useState('')
+  const [mfaRecoveryCodes, setMfaRecoveryCodes] = useState(null)
+  const [mfaBusy,          setMfaBusy]          = useState(false)
+  const [mfaError,         setMfaError]         = useState(null)
+  const [mfaSuccess,       setMfaSuccess]       = useState(null)
+  const [copiedSecret,     setCopiedSecret]     = useState(false)
+
   useEffect(() => {
     async function load() {
       setLoading(true)
       setLoadError(null)
       try {
-        const [profileRes, subRes, tokenRes, limitsRes] = await Promise.allSettled([
+        const [profileRes, subRes, tokenRes, limitsRes, mfaRes] = await Promise.allSettled([
           api.getAccountProfile(),
           api.getSubscription(),
           api.getApiTokens(),
           api.getAccountUsage(),
+          api.getMfaStatus(),
         ])
 
         if (profileRes.status === 'fulfilled') {
@@ -250,6 +264,9 @@ export default function AccountPage() {
         }
         if (limitsRes.status === 'fulfilled') {
           setPlanLimits(limitsRes.value)
+        }
+        if (mfaRes.status === 'fulfilled') {
+          setMfaStatus(mfaRes.value)
         }
       } finally {
         setLoading(false)
@@ -333,6 +350,62 @@ export default function AccountPage() {
       setTokenError(e.message)
     } finally {
       setTokenBusy(false)
+    }
+  }
+
+
+  // ── MFA handlers ─────────────────────────────────────────────────────────────
+
+  async function handleMfaSetup() {
+    setMfaBusy(true); setMfaError(null); setMfaSuccess(null)
+    try {
+      const res = await api.setupMfa()
+      setMfaOtpUri(res.otpauth_uri)
+      setMfaSecretBase32(res.secret_base32)
+      setMfaCode('')
+      setMfaStep('setup')
+    } catch (e) { setMfaError(e.message) }
+    finally { setMfaBusy(false) }
+  }
+
+  async function handleMfaVerify() {
+    if (!mfaCode || mfaCode.length !== 6) return
+    setMfaBusy(true); setMfaError(null)
+    try {
+      const res = await api.verifyMfaSetup(mfaCode)
+      setMfaRecoveryCodes(res.recovery_codes)
+      setMfaStatus({ mfa_enabled: true, mfa_enabled_at: new Date().toISOString() })
+      setMfaStep('codes')
+      setMfaCode('')
+    } catch (e) { setMfaError(e.message); setMfaCode('') }
+    finally { setMfaBusy(false) }
+  }
+
+  async function handleMfaDisable() {
+    if (!mfaDisableInput) return
+    setMfaBusy(true); setMfaError(null)
+    const isCode = /^\d{6}$/.test(mfaDisableInput.trim())
+    try {
+      await api.disableMfa(isCode ? { code: mfaDisableInput } : { password: mfaDisableInput })
+      setMfaStatus({ mfa_enabled: false, mfa_enabled_at: null })
+      setMfaStep('idle')
+      setMfaDisableInput('')
+      setMfaSuccess('MFA has been disabled.')
+    } catch (e) { setMfaError(e.message) }
+    finally { setMfaBusy(false) }
+  }
+
+  function mfaReset() {
+    setMfaStep('idle'); setMfaOtpUri(null); setMfaSecretBase32(null)
+    setMfaCode(''); setMfaDisableInput(''); setMfaRecoveryCodes(null)
+    setMfaError(null); setMfaSuccess(null)
+  }
+
+  function copySecret() {
+    if (mfaSecretBase32) {
+      navigator.clipboard.writeText(mfaSecretBase32).then(() => {
+        setCopiedSecret(true); setTimeout(() => setCopiedSecret(false), 2000)
+      }).catch(() => {})
     }
   }
 
@@ -536,6 +609,174 @@ export default function AccountPage() {
                   </p>
                   <p className="text-[10px] text-brand-400 mt-2">Billing available in an upcoming release.</p>
                 </div>
+              </Section>
+
+              {/* ── Two-Factor Authentication ─────────────────────────── */}
+              <Section icon={Smartphone} title="Two-Factor Authentication">
+                {mfaSuccess && (
+                  <div className="flex items-center gap-2 p-3 rounded-xl bg-green-50 border border-green-100 mb-4">
+                    <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
+                    <p className="text-xs text-green-700">{mfaSuccess}</p>
+                  </div>
+                )}
+                {mfaError && (
+                  <div className="flex items-center gap-2 p-3 rounded-xl bg-red-50 border border-red-100 mb-4">
+                    <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0" />
+                    <p className="text-xs text-red-600">{mfaError}</p>
+                  </div>
+                )}
+
+                {/* Status indicator */}
+                {mfaStep === 'idle' && (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between p-3 rounded-xl border border-gray-100 bg-gray-50/50">
+                      <div>
+                        <p className="text-sm font-semibold text-gray-800">Authenticator app (TOTP)</p>
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          {mfaStatus?.mfa_enabled
+                            ? `Enabled ${mfaStatus.mfa_enabled_at ? 'on ' + new Date(mfaStatus.mfa_enabled_at).toLocaleDateString() : ''}`
+                            : 'Not enabled'}
+                        </p>
+                      </div>
+                      <span className={`text-xs font-semibold px-2 py-1 rounded-full ${mfaStatus?.mfa_enabled ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                        {mfaStatus?.mfa_enabled ? 'Active' : 'Off'}
+                      </span>
+                    </div>
+
+                    {!mfaStatus?.mfa_enabled ? (
+                      <button
+                        type="button"
+                        onClick={handleMfaSetup}
+                        disabled={mfaBusy}
+                        className="btn-primary w-full justify-center disabled:opacity-50"
+                      >
+                        <Smartphone className="w-4 h-4" />
+                        {mfaBusy ? 'Setting up…' : 'Enable MFA'}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => { setMfaStep('disable'); setMfaError(null) }}
+                        disabled={mfaBusy}
+                        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-red-200 text-red-600 text-sm font-medium hover:bg-red-50 disabled:opacity-50 transition-colors"
+                      >
+                        Disable MFA
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Setup step: show secret + manual entry instructions */}
+                {mfaStep === 'setup' && (
+                  <div className="space-y-4">
+                    <div className="p-3 rounded-xl bg-brand-50 border border-brand-100">
+                      <p className="text-xs font-semibold text-brand-800 mb-1">1. Open your authenticator app</p>
+                      <p className="text-xs text-brand-700">Add a new account manually and enter the key below. Compatible with Google Authenticator, Authy, 1Password, Bitwarden, and any RFC 6238 TOTP app.</p>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Account key (base32)</label>
+                      <div className="relative">
+                        <code className="block w-full px-3 py-2.5 pr-10 bg-gray-50 border border-gray-200 rounded-xl text-sm font-mono text-gray-800 break-all select-all">
+                          {mfaSecretBase32}
+                        </code>
+                        <button
+                          type="button"
+                          onClick={copySecret}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100"
+                          title="Copy secret"
+                        >
+                          {copiedSecret ? <CheckCircle className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
+                        </button>
+                      </div>
+                      <p className="text-[10px] text-gray-400 mt-1">Issuer: CyberMeters · Algorithm: SHA-1 · Digits: 6 · Period: 30s</p>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">2. Enter the 6-digit code to confirm</label>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        pattern="\d{6}"
+                        maxLength={6}
+                        className="input text-center text-lg font-mono tracking-[0.4em] py-3"
+                        placeholder="000000"
+                        value={mfaCode}
+                        onChange={e => setMfaCode(e.target.value.replace(/\D/g, ''))}
+                        autoComplete="one-time-code"
+                      />
+                    </div>
+
+                    <div className="flex gap-2">
+                      <button type="button" onClick={mfaReset} className="flex-1 btn-secondary justify-center">Cancel</button>
+                      <button
+                        type="button"
+                        onClick={handleMfaVerify}
+                        disabled={mfaBusy || mfaCode.length !== 6}
+                        className="flex-1 btn-primary justify-center disabled:opacity-50"
+                      >
+                        {mfaBusy ? 'Verifying…' : 'Verify & enable'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Recovery codes — shown once after successful enable */}
+                {mfaStep === 'codes' && mfaRecoveryCodes && (
+                  <div className="space-y-4">
+                    <div className="p-3 rounded-xl bg-amber-50 border border-amber-100">
+                      <p className="text-xs font-semibold text-amber-800 mb-1">Save your recovery codes</p>
+                      <p className="text-xs text-amber-700">Each code can be used once if you lose access to your authenticator. Store them securely — they will not be shown again.</p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {mfaRecoveryCodes.map((code, i) => (
+                        <code key={i} className="block px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs font-mono text-gray-800 text-center select-all">
+                          {code}
+                        </code>
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-2 p-3 rounded-xl bg-green-50 border border-green-100">
+                      <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
+                      <p className="text-xs text-green-700 font-medium">MFA is now active on your account.</p>
+                    </div>
+                    <button type="button" onClick={mfaReset} className="w-full btn-primary justify-center">
+                      Done
+                    </button>
+                  </div>
+                )}
+
+                {/* Disable confirmation */}
+                {mfaStep === 'disable' && (
+                  <div className="space-y-4">
+                    <div className="p-3 rounded-xl bg-red-50 border border-red-100">
+                      <p className="text-xs font-semibold text-red-800 mb-1">Disable two-factor authentication</p>
+                      <p className="text-xs text-red-700">Enter your current 6-digit TOTP code or account password to confirm.</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">TOTP code or password</label>
+                      <input
+                        type="text"
+                        className="input font-mono"
+                        placeholder="6-digit code or password"
+                        value={mfaDisableInput}
+                        onChange={e => setMfaDisableInput(e.target.value)}
+                        autoComplete="off"
+                        autoFocus
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <button type="button" onClick={mfaReset} className="flex-1 btn-secondary justify-center">Cancel</button>
+                      <button
+                        type="button"
+                        onClick={handleMfaDisable}
+                        disabled={mfaBusy || !mfaDisableInput}
+                        className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-medium disabled:opacity-50 transition-colors"
+                      >
+                        {mfaBusy ? 'Disabling…' : 'Disable MFA'}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </Section>
 
               <Section icon={KeyRound} title="API Tokens">

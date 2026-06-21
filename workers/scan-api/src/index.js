@@ -99,6 +99,168 @@ async function generatePasswordResetToken() {
   return { raw, hash };
 }
 
+async function generateMfaChallengeToken() {
+  const secret = Array.from(crypto.getRandomValues(new Uint8Array(32))).map(b => b.toString(16).padStart(2, "0")).join("");
+  const raw    = `cmfa_${secret}`;
+  const hash   = await hashToken(raw);
+  return { raw, hash };
+}
+
+// ── TOTP Engine (RFC 6238) ────────────────────────────────────────────────────
+// Pure WebCrypto — no third-party libraries.
+// TOTP = HOTP(key, T) where T = floor(unix_seconds / 30)
+// HOTP uses HMAC-SHA1 per RFC 4226.
+
+const BASE32_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+
+function base32Encode(buf) {
+  const bytes = new Uint8Array(buf);
+  let bits = 0, value = 0, output = "";
+  for (const byte of bytes) {
+    value = (value << 8) | byte;
+    bits += 8;
+    while (bits >= 5) {
+      output += BASE32_CHARS[(value >>> (bits - 5)) & 0x1f];
+      bits -= 5;
+    }
+  }
+  if (bits > 0) output += BASE32_CHARS[(value << (5 - bits)) & 0x1f];
+  return output;
+}
+
+function base32Decode(str) {
+  const clean = str.toUpperCase().replace(/[=\s]/g, "");
+  let bits = 0, value = 0;
+  const output = [];
+  for (const char of clean) {
+    const idx = BASE32_CHARS.indexOf(char);
+    if (idx < 0) throw new Error(`Invalid base32 character: ${char}`);
+    value = (value << 5) | idx;
+    bits += 5;
+    if (bits >= 8) {
+      output.push((value >>> (bits - 8)) & 0xff);
+      bits -= 8;
+    }
+  }
+  return new Uint8Array(output);
+}
+
+function generateTotpSecret() {
+  // 20 bytes = 160-bit secret (RFC 4226 recommended minimum)
+  return base32Encode(crypto.getRandomValues(new Uint8Array(20)));
+}
+
+async function computeTotp(base32Secret, timeStep = null) {
+  const keyBytes = base32Decode(base32Secret);
+  const t = timeStep ?? Math.floor(Date.now() / 1000 / 30);
+
+  // 8-byte big-endian counter
+  const msg = new DataView(new ArrayBuffer(8));
+  const high = Math.floor(t / 0x100000000);
+  const low  = t >>> 0;
+  msg.setUint32(0, high, false);
+  msg.setUint32(4, low,  false);
+
+  const key = await crypto.subtle.importKey(
+    "raw", keyBytes, { name: "HMAC", hash: "SHA-1" }, false, ["sign"]
+  );
+  const sig = new Uint8Array(await crypto.subtle.sign("HMAC", key, msg.buffer));
+
+  // Dynamic truncation (RFC 4226 §5.4)
+  const offset = sig[sig.length - 1] & 0x0f;
+  const code = (
+    ((sig[offset]     & 0x7f) << 24) |
+    ((sig[offset + 1] & 0xff) << 16) |
+    ((sig[offset + 2] & 0xff) <<  8) |
+     (sig[offset + 3] & 0xff)
+  ) % 1_000_000;
+
+  return code.toString().padStart(6, "0");
+}
+
+async function verifyTotp(base32Secret, code) {
+  if (!code || !/^\d{6}$/.test(code.trim())) return false;
+  const t = Math.floor(Date.now() / 1000 / 30);
+  // Allow ±1 window (30 seconds each side) for clock drift
+  for (const delta of [0, -1, 1]) {
+    if (await computeTotp(base32Secret, t + delta) === code.trim()) return true;
+  }
+  return false;
+}
+
+// ── MFA secret encryption (AES-256-GCM) ──────────────────────────────────────
+// TOTP secrets must be reversible — encrypted with env.MFA_ENCRYPTION_KEY.
+// Key derivation: PBKDF2-SHA256, 100k iterations, static purpose-salt.
+
+async function getMfaEncryptionKey(env) {
+  if (!env.MFA_ENCRYPTION_KEY) throw new Error("MFA_ENCRYPTION_KEY is not configured");
+  const raw     = new TextEncoder().encode(env.MFA_ENCRYPTION_KEY);
+  const baseKey = await crypto.subtle.importKey("raw", raw, "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey(
+    { name: "PBKDF2", hash: "SHA-256",
+      salt: new TextEncoder().encode("cybermeters-mfa-v1"), iterations: 100_000 },
+    baseKey,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"]
+  );
+}
+
+async function encryptTotpSecret(base32Secret, env) {
+  const key = await getMfaEncryptionKey(env);
+  const iv  = crypto.getRandomValues(new Uint8Array(12));
+  const ct  = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(base32Secret));
+  const toHex = (buf) => Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+  return JSON.stringify({ iv: toHex(iv.buffer), ct: toHex(ct) });
+}
+
+async function decryptTotpSecret(stored, env) {
+  const key = await getMfaEncryptionKey(env);
+  const { iv: ivHex, ct: ctHex } = JSON.parse(stored);
+  const fromHex = (hex) => new Uint8Array(hex.match(/../g).map(h => parseInt(h, 16)));
+  const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: fromHex(ivHex) }, key, fromHex(ctHex));
+  return new TextDecoder().decode(plain);
+}
+
+// ── Recovery codes ────────────────────────────────────────────────────────────
+// 8 codes, format: XXXX-XXXX-XXXX (uppercase alphanumeric).
+// Raw codes are shown to user once; PBKDF2 hashes stored in JSON array.
+
+function generateRawRecoveryCode() {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  const bytes = crypto.getRandomValues(new Uint8Array(12));
+  const parts = [];
+  for (let i = 0; i < 3; i++) {
+    let seg = "";
+    for (let j = 0; j < 4; j++) seg += chars[bytes[i * 4 + j] % chars.length];
+    parts.push(seg);
+  }
+  return parts.join("-");
+}
+
+function normalizeRecoveryCode(code) {
+  return code.replace(/-/g, "").toUpperCase().trim();
+}
+
+async function generateRecoveryCodes() {
+  const codes  = Array.from({ length: 8 }, generateRawRecoveryCode);
+  const hashes = await Promise.all(codes.map(c => hashPassword(normalizeRecoveryCode(c))));
+  return { codes, hashes };
+}
+
+async function verifyRecoveryCode(submittedCode, hashesJson) {
+  if (!hashesJson) return { valid: false, remainingHashes: null };
+  const hashes     = JSON.parse(hashesJson);
+  const normalized = normalizeRecoveryCode(submittedCode);
+  for (let i = 0; i < hashes.length; i++) {
+    if (await verifyPassword(normalized, hashes[i])) {
+      const remaining = hashes.filter((_, idx) => idx !== i);
+      return { valid: true, remainingHashes: remaining };
+    }
+  }
+  return { valid: false, remainingHashes: null };
+}
+
 /**
  * Hash a bearer token string for D1 lookup (same as above but for incoming tokens).
  */
@@ -711,15 +873,16 @@ function buildCertificateAuthorityConcentrationFromModule(certMod) {
     return {
       dependency: "unknown",
       issuers: [],
+      issuer_count: 0,
+      ca_owner_count: 0,
+      dominant_ca_owner: "unknown",
+      dominant_ca_share: 0,
+      concentration_level: "unknown",
       observations: ["No certificate issuer was available from certificate intelligence."],
+      recommendations: [],
     };
   }
-  return {
-    dependency: "single_ca_dependency",
-    issuers: [issuer],
-    issuer_count: 1,
-    observations: [`Current certificate chain is issued by ${issuer}.`],
-  };
+  return buildCaConcentrationAnalytics([issuer]);
 }
 
 async function runDnsModule(domain) {
@@ -3383,16 +3546,241 @@ function detectVendorsFromModules(modules) {
 }
 
 const CERTIFICATE_AUTHORITY_VENDOR_PATTERNS = [
-  { vendor_name: "Let's Encrypt",          test: (v) => /\blet'?s encrypt\b/.test(v) },
-  { vendor_name: "DigiCert",               test: (v) => /\bdigicert\b/.test(v) },
+  { vendor_name: "Let's Encrypt",          owner: "ISRG",                  test: (v) => /\bisrg\b|\blet'?s encrypt\b/.test(v) },
+  { vendor_name: "DigiCert",               owner: "DigiCert",              test: (v) => /\bdigicert\b|\bsymantec\b|\bgeotrust\b|\bthawte\b|\brapidssl\b/.test(v) },
   { vendor_name: "Sectigo",                test: (v) => /\bsectigo\b|\bcomodo\b|\busertrust\b/.test(v) },
   { vendor_name: "Cloudflare",             test: (v) => /\bcloudflare\b/.test(v) },
   { vendor_name: "Google Trust Services",  test: (v) => /\bgoogle trust services\b|\bgts\b/.test(v) },
   { vendor_name: "GlobalSign",             test: (v) => /\bglobalsign\b/.test(v) },
   { vendor_name: "Amazon Trust Services",  test: (v) => /\bamazon\b|\bamazon trust services\b/.test(v) },
   { vendor_name: "Microsoft",              test: (v) => /\bmicrosoft\b|\bazure tls\b/.test(v) },
+  { vendor_name: "Entrust",                test: (v) => /\bentrust\b/.test(v) },
+  { vendor_name: "GoDaddy",                test: (v) => /\bgodaddy\b|\bstarfield\b/.test(v) },
   { vendor_name: "ZeroSSL",                test: (v) => /\bzerossl\b/.test(v) },
 ];
+
+function normalizeCertificateNamePart(value) {
+  return typeof value === "string"
+    ? value
+        .normalize("NFKD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replace(/[^\w\s'.-]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+    : "";
+}
+
+function parseCertificateDistinguishedName(rawName) {
+  const raw = typeof rawName === "string" ? rawName.trim() : "";
+  const out = { common_name: null, organization: null, country: null };
+  if (!raw) return out;
+
+  const parts = raw.split(/\s*,\s*/);
+  for (const part of parts) {
+    const match = part.match(/^([A-Za-z]+)\s*=\s*(.+)$/);
+    if (!match) continue;
+    const key = match[1].toUpperCase();
+    const value = match[2].trim();
+    if (key === "CN") out.common_name = value;
+    else if (key === "O") out.organization = value;
+    else if (key === "C") out.country = value;
+  }
+  return out;
+}
+
+function normalizeCertificateIssuer(rawIssuer) {
+  const raw = typeof rawIssuer === "string" ? rawIssuer.trim() : "";
+  if (!raw || raw.toLowerCase() === "unknown") {
+    return {
+      raw: raw || null,
+      normalized_name: "unknown",
+      common_name: null,
+      organization: null,
+      country: null,
+    };
+  }
+
+  const dn = parseCertificateDistinguishedName(raw);
+  const display = dn.organization || dn.common_name || raw;
+  return {
+    raw,
+    normalized_name: normalizeCertificateNamePart(display) || "unknown",
+    common_name: dn.common_name,
+    organization: dn.organization,
+    country: dn.country,
+  };
+}
+
+function mapCertificateAuthorityOwner(normalizedIssuer) {
+  const normalizedName = typeof normalizedIssuer === "string"
+    ? normalizeCertificateNamePart(normalizedIssuer)
+    : normalizeCertificateNamePart([
+        normalizedIssuer?.normalized_name,
+        normalizedIssuer?.organization,
+        normalizedIssuer?.common_name,
+        normalizedIssuer?.raw,
+      ].filter(Boolean).join(" "));
+
+  if (!normalizedName || normalizedName === "unknown") {
+    return {
+      owner: "unknown",
+      ca_family: "unknown",
+      confidence: "unknown",
+      source: "certificate_issuer",
+    };
+  }
+
+  for (const pattern of CERTIFICATE_AUTHORITY_VENDOR_PATTERNS) {
+    if (!pattern.test(normalizedName)) continue;
+    return {
+      owner: pattern.owner || pattern.vendor_name,
+      ca_family: pattern.vendor_name,
+      confidence: "high",
+      source: "certificate_issuer",
+    };
+  }
+
+  return {
+    owner: "unknown",
+    ca_family: "unknown",
+    confidence: "unknown",
+    source: "certificate_issuer",
+  };
+}
+
+function unknownIfEmpty(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string") return "unknown";
+  const trimmed = value.trim();
+  return trimmed ? trimmed : "unknown";
+}
+
+function extractCertificateCryptoMetadata(ssl) {
+  const source = ssl || {};
+  return {
+    key_algorithm: unknownIfEmpty(source.cert_key_algorithm ?? source.key_algorithm ?? source.public_key_algorithm),
+    key_size_bits: unknownIfEmpty(source.cert_key_size_bits ?? source.key_size_bits ?? source.public_key_size),
+    signature_algorithm: unknownIfEmpty(source.cert_signature_algorithm ?? source.signature_algorithm),
+  };
+}
+
+function detectSelfSignedCertificate(issuer, subject) {
+  const issuerRaw = typeof issuer === "string" ? issuer.trim() : "";
+  const subjectRaw = typeof subject === "string" ? subject.trim() : "";
+  if (!issuerRaw || !subjectRaw) return "unknown";
+
+  const issuerDn = parseCertificateDistinguishedName(issuerRaw);
+  const subjectComparable = normalizeCertificateNamePart(subjectRaw);
+  const issuerComparable = normalizeCertificateNamePart(issuerRaw);
+  const issuerCnComparable = normalizeCertificateNamePart(issuerDn.common_name || "");
+
+  if (
+    issuerComparable &&
+    subjectComparable &&
+    (issuerComparable === subjectComparable || issuerCnComparable === subjectComparable)
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function buildCertificateLifecycleIntelligence(certMod) {
+  const rawDays = certMod?.days_until_expiry ?? certMod?.cert_expiry_days ?? null;
+  const days = Number.isFinite(rawDays) ? Number(rawDays) : null;
+
+  if (days === null) {
+    return {
+      days_to_expiry: null,
+      expiry_band: "unknown",
+      renewal_urgency: "unknown",
+    };
+  }
+
+  let expiry_band = "healthy";
+  let renewal_urgency = "normal";
+  if (days < 0) {
+    expiry_band = "expired";
+    renewal_urgency = "urgent";
+  } else if (days < 7) {
+    expiry_band = "under_7_days";
+    renewal_urgency = "urgent";
+  } else if (days < 30) {
+    expiry_band = "under_30_days";
+    renewal_urgency = "soon";
+  } else if (days < 90) {
+    expiry_band = "under_90_days";
+    renewal_urgency = "monitor";
+  }
+
+  return {
+    days_to_expiry: days,
+    expiry_band,
+    renewal_urgency,
+  };
+}
+
+function buildCaConcentrationAnalytics(issuers) {
+  const issuerList = Array.isArray(issuers)
+    ? issuers.map((i) => String(i || "").trim()).filter(Boolean)
+    : [];
+  const uniqueIssuers = [...new Set(issuerList)];
+
+  if (uniqueIssuers.length === 0) {
+    return {
+      dependency: "unknown",
+      issuers: [],
+      issuer_count: 0,
+      ca_owner_count: 0,
+      dominant_ca_owner: "unknown",
+      dominant_ca_share: 0,
+      concentration_level: "unknown",
+      observations: ["No certificate issuer was available from certificate intelligence."],
+      recommendations: [],
+    };
+  }
+
+  const ownerCounts = new Map();
+  for (const issuer of issuerList) {
+    const owner = mapCertificateAuthorityOwner(normalizeCertificateIssuer(issuer)).owner;
+    const ownerKey = owner && owner !== "unknown" ? owner : "unknown";
+    ownerCounts.set(ownerKey, (ownerCounts.get(ownerKey) || 0) + 1);
+  }
+
+  const sortedOwners = [...ownerCounts.entries()].sort((a, b) => b[1] - a[1]);
+  const [dominantOwner, dominantCount] = sortedOwners[0] || ["unknown", 0];
+  const dominantShare = issuerList.length > 0 ? Number((dominantCount / issuerList.length).toFixed(2)) : 0;
+  const caOwnerCount = [...ownerCounts.keys()].filter((o) => o !== "unknown").length;
+  const concentrationLevel =
+    issuerList.length === 1 || dominantShare >= 0.8 ? "high" :
+    dominantShare >= 0.5 ? "medium" : "low";
+
+  const observations = [
+    uniqueIssuers.length === 1
+      ? `Current certificate data shows a single observed issuer: ${uniqueIssuers[0]}.`
+      : `Current certificate data shows ${uniqueIssuers.length} observed issuers.`,
+  ];
+  if (dominantOwner !== "unknown") {
+    observations.push(`${dominantOwner} is the dominant certificate authority owner in observed certificate data.`);
+  }
+
+  const recommendations = concentrationLevel === "high"
+    ? ["Track CA dependency as an operational resilience risk and ensure renewal runbooks cover issuer outages or account issues."]
+    : [];
+
+  return {
+    dependency: concentrationLevel === "high" ? "single_ca_dependency" : "multi_ca_dependency",
+    issuers: uniqueIssuers,
+    issuer_count: uniqueIssuers.length,
+    ca_owner_count: caOwnerCount,
+    dominant_ca_owner: dominantOwner,
+    dominant_ca_share: dominantShare,
+    concentration_level: concentrationLevel,
+    observations,
+    recommendations,
+  };
+}
 
 /**
  * normalizeCertificateAuthorityVendor(issuer)
@@ -3405,13 +3793,13 @@ function normalizeCertificateAuthorityVendor(issuer) {
   const raw = typeof issuer === "string" ? issuer.trim() : "";
   if (!raw || raw.toLowerCase() === "unknown") return null;
 
-  const normalized = raw
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^\w\s'.-]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  const normalizedIssuer = normalizeCertificateIssuer(raw);
+  const normalized = normalizeCertificateNamePart([
+    normalizedIssuer.normalized_name,
+    normalizedIssuer.organization,
+    normalizedIssuer.common_name,
+    normalizedIssuer.raw,
+  ].filter(Boolean).join(" "));
 
   for (const pattern of CERTIFICATE_AUTHORITY_VENDOR_PATTERNS) {
     if (!pattern.test(normalized)) continue;
@@ -3985,24 +4373,44 @@ function runCertificateIntelligenceModule(modules, domain) {
     else if (hasHigh)                    certificate_risk_level = "high";
     else if (hasMedium)                  certificate_risk_level = "medium";
 
-    // ── Newly observed hosts (all CT hosts are "newly observed" relative to
-    //    baseline — true delta tracking requires historical DB rows which are
-    //    captured in asset_events via upsertAssetInventory) ─────────────────
-    const newly_observed_hosts = allSensitive;   // surface the sensitive subset
+	    // ── Newly observed hosts (all CT hosts are "newly observed" relative to
+	    //    baseline — true delta tracking requires historical DB rows which are
+	    //    captured in asset_events via upsertAssetInventory) ─────────────────
+	    const newly_observed_hosts = allSensitive;   // surface the sensitive subset
+	    const issuer = ssl.cert_issuer ?? null;
+	    const subject = ssl.cert_subject ?? domain;
+	    const issuer_normalized = normalizeCertificateIssuer(issuer);
+	    const ca_owner = mapCertificateAuthorityOwner(issuer_normalized);
+	    const crypto_metadata = extractCertificateCryptoMetadata(ssl);
+	    const self_signed = detectSelfSignedCertificate(issuer, subject);
+	    const lifecycle = buildCertificateLifecycleIntelligence({
+	      days_until_expiry,
+	      expires_at,
+	    });
+	    const ca_concentration = buildCaConcentrationAnalytics(issuer ? [issuer] : []);
 
-    return {
-      total_certificates_seen,
-      certificate_status:    https_available ? "valid" : "unavailable",
-      issuer:                ssl.cert_issuer ?? null,
-      subject:               ssl.cert_subject ?? domain,
-      san_count:             ssl.cert_san_count ?? 0,
-      san_hostnames:         ssl.cert_san_names ?? [],
-      expires_at,
-      days_until_expiry,
-      issued_for_sensitive_hosts: allSensitive,
-      newly_observed_hosts,
-      ct_sources:            { crt_sh: crtShCount, certspotter: certSpotCount },
-      wildcard_dns:          subMod.wildcard_dns ?? false,
+	    return {
+	      total_certificates_seen,
+	      certificate_status:    https_available ? "valid" : "unavailable",
+	      issuer,
+	      issuer_normalized,
+	      ca_owner,
+	      subject,
+	      san_count:             ssl.cert_san_count ?? 0,
+	      san_hostnames:         ssl.cert_san_names ?? [],
+	      expires_at,
+	      days_until_expiry,
+	      lifecycle,
+	      key_algorithm:         crypto_metadata.key_algorithm,
+	      key_size_bits:         crypto_metadata.key_size_bits,
+	      signature_algorithm:   crypto_metadata.signature_algorithm,
+	      crypto_metadata,
+	      self_signed,
+	      ca_concentration,
+	      issued_for_sensitive_hosts: allSensitive,
+	      newly_observed_hosts,
+	      ct_sources:            { crt_sh: crtShCount, certspotter: certSpotCount },
+	      wildcard_dns:          subMod.wildcard_dns ?? false,
       wildcard_warning:      subMod.wildcard_warning ?? null,
       suspicious_certificate_signals,
       certificate_risk_level,
@@ -4011,15 +4419,28 @@ function runCertificateIntelligenceModule(modules, domain) {
     };
   } catch (err) {
     return {
-      total_certificates_seen:    0,
-      certificate_status:         "unknown",
-      issuer:                     null,
-      subject:                    domain,
-      san_count:                  0,
-      san_hostnames:              [],
-      expires_at:                 null,
-      days_until_expiry:          null,
-      issued_for_sensitive_hosts: [],
+	      total_certificates_seen:    0,
+	      certificate_status:         "unknown",
+	      issuer:                     null,
+	      issuer_normalized:          normalizeCertificateIssuer(null),
+	      ca_owner:                   mapCertificateAuthorityOwner(null),
+	      subject:                    domain,
+	      san_count:                  0,
+	      san_hostnames:              [],
+	      expires_at:                 null,
+	      days_until_expiry:          null,
+	      lifecycle:                  buildCertificateLifecycleIntelligence({}),
+	      key_algorithm:              "unknown",
+	      key_size_bits:              "unknown",
+	      signature_algorithm:        "unknown",
+	      crypto_metadata:            {
+	        key_algorithm: "unknown",
+	        key_size_bits: "unknown",
+	        signature_algorithm: "unknown",
+	      },
+	      self_signed:                "unknown",
+	      ca_concentration:           buildCaConcentrationAnalytics([]),
+	      issued_for_sensitive_hosts: [],
       newly_observed_hosts:       [],
       ct_sources:                 { crt_sh: 0, certspotter: 0 },
       wildcard_dns:               false,
@@ -8410,14 +8831,24 @@ async function upsertCertificateObservation(scanId, domainId, certMod, env) {
   const subject      = certMod.subject || null;
   const sanHostnames = Array.isArray(certMod.san_hostnames) ? certMod.san_hostnames : [];
   const sanCount     = Number.isFinite(certMod.san_count) ? certMod.san_count : sanHostnames.length;
-  const evidenceJson = JSON.stringify({
-    issuer,
-    subject,
-    san_hostnames: sanHostnames,
-    expires_at: certMod.expires_at ?? null,
-    certificate_status: certMod.certificate_status ?? null,
-    source: certMod.source ?? "ssl_ct_correlation",
-  });
+	  const evidenceJson = JSON.stringify({
+	    issuer,
+	    issuer_normalized: certMod.issuer_normalized ?? normalizeCertificateIssuer(issuer),
+	    ca_owner: certMod.ca_owner ?? mapCertificateAuthorityOwner(normalizeCertificateIssuer(issuer)),
+	    subject,
+	    san_hostnames: sanHostnames,
+	    expires_at: certMod.expires_at ?? null,
+	    lifecycle: certMod.lifecycle ?? buildCertificateLifecycleIntelligence(certMod),
+	    crypto_metadata: certMod.crypto_metadata ?? {
+	      key_algorithm: certMod.key_algorithm ?? "unknown",
+	      key_size_bits: certMod.key_size_bits ?? "unknown",
+	      signature_algorithm: certMod.signature_algorithm ?? "unknown",
+	    },
+	    self_signed: certMod.self_signed ?? detectSelfSignedCertificate(issuer, subject),
+	    ca_concentration_signal: certMod.ca_concentration ?? buildCaConcentrationAnalytics(issuer !== "unknown" ? [issuer] : []),
+	    certificate_status: certMod.certificate_status ?? null,
+	    source: certMod.source ?? "ssl_ct_correlation",
+	  });
 
   const certificateKey = await hashToken([
     issuer,
@@ -16793,7 +17224,7 @@ export default {
 
       try {
         const user = await env.cybermeters_db
-          .prepare("SELECT id, email, name, plan, password_hash, status FROM users WHERE email = ? LIMIT 1")
+          .prepare("SELECT id, email, name, plan, password_hash, status, mfa_enabled FROM users WHERE email = ? LIMIT 1")
           .bind(email)
           .first();
 
@@ -16817,6 +17248,32 @@ export default {
         }
         if (user.status === "suspended") {
           return json({ error: "Account suspended. Contact support." }, 403);
+        }
+
+        // ── MFA gate ─────────────────────────────────────────────────────────
+        // If MFA is enabled, do NOT create a session yet.
+        // Issue a short-lived challenge token; client must verify TOTP at
+        // POST /api/auth/mfa/challenge to receive the real session token.
+        if (user.mfa_enabled) {
+          const { raw: challengeRaw, hash: challengeHash } = await generateMfaChallengeToken();
+          const challengeId = createId("mfach");
+          const challengeExpiry = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 min
+          await env.cybermeters_db
+            .prepare(
+              `INSERT INTO mfa_challenges (id, user_id, challenge_hash, expires_at)
+               VALUES (?, ?, ?, ?)`
+            )
+            .bind(challengeId, user.id, challengeHash, challengeExpiry)
+            .run();
+          await createAuditEvent(env, {
+            user_id:     user.id,
+            event_type:  "mfa_challenge_issued",
+            entity_type: "user",
+            entity_id:   user.id,
+            description: `MFA challenge issued for ${user.email}`,
+            metadata:    { challenge_id: challengeId },
+          }).catch(() => {});
+          return json({ mfa_required: true, challenge_token: challengeRaw });
         }
 
         // Generate session token — raw sent to client, hash stored in D1
@@ -17046,6 +17503,373 @@ export default {
         }).catch(() => {});
 
         return json({ success: true, message: "Password updated. Please sign in with your new password." });
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
+    // ── GET /api/auth/mfa/status ─────────────────────────────────────────
+    // Returns current MFA state for the authenticated user.
+    if (request.method === "GET" && url.pathname === "/api/auth/mfa/status") {
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      if (user.api_token_id) return json({ error: "MFA management requires session authentication" }, 403);
+      try {
+        const row = await env.cybermeters_db
+          .prepare("SELECT mfa_enabled, mfa_enabled_at FROM users WHERE id = ? LIMIT 1")
+          .bind(user.id)
+          .first();
+        return json({
+          mfa_enabled:    row?.mfa_enabled === 1 || row?.mfa_enabled === true,
+          mfa_enabled_at: row?.mfa_enabled_at ?? null,
+        });
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
+    // ── POST /api/auth/mfa/setup ─────────────────────────────────────────
+    // Generates a new TOTP secret for the user and returns the otpauth URI.
+    // Does NOT enable MFA yet — caller must verify a valid code first via
+    // POST /api/auth/mfa/verify-setup.
+    if (request.method === "POST" && url.pathname === "/api/auth/mfa/setup") {
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      if (user.api_token_id) return json({ error: "MFA management requires session authentication" }, 403);
+      try {
+        // Generate secret and encrypt before storing
+        const base32Secret  = generateTotpSecret();
+        const encryptedSecret = await encryptTotpSecret(base32Secret, env);
+
+        // Store the secret (not yet enabled — pending verify-setup)
+        await env.cybermeters_db
+          .prepare("UPDATE users SET totp_secret = ? WHERE id = ?")
+          .bind(encryptedSecret, user.id)
+          .run();
+
+        const issuer    = "CyberMeters";
+        const label     = encodeURIComponent(`${issuer}:${user.email}`);
+        const otpauthUri = `otpauth://totp/${label}?secret=${base32Secret}&issuer=${encodeURIComponent(issuer)}&algorithm=SHA1&digits=6&period=30`;
+
+        await createAuditEvent(env, {
+          user_id:     user.id,
+          event_type:  "mfa_setup_started",
+          entity_type: "user",
+          entity_id:   user.id,
+          description: `MFA setup started for ${user.email}`,
+          // Never log the secret
+        }).catch(() => {});
+
+        return json({ otpauth_uri: otpauthUri, secret_base32: base32Secret });
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
+    // ── POST /api/auth/mfa/verify-setup ─────────────────────────────────
+    // Verifies the first TOTP code after setup, then enables MFA and
+    // returns one-time recovery codes.
+    if (request.method === "POST" && url.pathname === "/api/auth/mfa/verify-setup") {
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      if (user.api_token_id) return json({ error: "MFA management requires session authentication" }, 403);
+      let body;
+      try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+      const code = (body.code || "").trim();
+      if (!code) return json({ error: "code is required" }, 400);
+      try {
+        const row = await env.cybermeters_db
+          .prepare("SELECT totp_secret, mfa_enabled FROM users WHERE id = ? LIMIT 1")
+          .bind(user.id)
+          .first();
+
+        if (!row?.totp_secret) return json({ error: "MFA setup not started. Call /api/auth/mfa/setup first." }, 400);
+        if (row.mfa_enabled)   return json({ error: "MFA is already enabled" }, 409);
+
+        const base32Secret = await decryptTotpSecret(row.totp_secret, env);
+        const valid = await verifyTotp(base32Secret, code);
+        if (!valid) {
+          await createAuditEvent(env, {
+            user_id:     user.id,
+            event_type:  "mfa_setup_failed",
+            entity_type: "user",
+            entity_id:   user.id,
+            description: `Invalid TOTP code during MFA setup for ${user.email}`,
+          }).catch(() => {});
+          return json({ error: "Invalid or expired verification code" }, 400);
+        }
+
+        // Generate recovery codes
+        const { codes: rawCodes, hashes } = await generateRecoveryCodes();
+
+        await env.cybermeters_db
+          .prepare(
+            `UPDATE users
+             SET mfa_enabled = 1,
+                 mfa_enabled_at = datetime('now'),
+                 mfa_last_verified_at = datetime('now'),
+                 mfa_recovery_codes_hash_json = ?
+             WHERE id = ?`
+          )
+          .bind(JSON.stringify(hashes), user.id)
+          .run();
+
+        await createAuditEvent(env, {
+          user_id:     user.id,
+          event_type:  "mfa_enabled",
+          entity_type: "user",
+          entity_id:   user.id,
+          description: `MFA enabled for ${user.email}`,
+        }).catch(() => {});
+
+        // Recovery codes are returned once — never stored in plaintext
+        return json({ success: true, recovery_codes: rawCodes });
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
+    // ── POST /api/auth/mfa/challenge ─────────────────────────────────────
+    // Second factor of login. Accepts the challenge_token (from POST /api/auth/login
+    // when mfa_required: true) and a 6-digit TOTP code.
+    // On success: marks challenge used, creates session, returns token + user.
+    if (request.method === "POST" && url.pathname === "/api/auth/mfa/challenge") {
+      let body;
+      try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+      const rawChallenge = (body.challenge_token || "").trim();
+      const code         = (body.code || "").trim();
+      if (!rawChallenge) return json({ error: "challenge_token is required" }, 400);
+      if (!code)         return json({ error: "code is required" }, 400);
+      try {
+        const challengeHash = await hashToken(rawChallenge);
+        const challenge = await env.cybermeters_db
+          .prepare(
+            `SELECT c.id, c.user_id, c.expires_at, c.used_at,
+                    u.id AS uid, u.email, u.name, u.plan, u.status,
+                    u.totp_secret, u.mfa_enabled
+             FROM mfa_challenges c
+             JOIN users u ON u.id = c.user_id
+             WHERE c.challenge_hash = ? LIMIT 1`
+          )
+          .bind(challengeHash)
+          .first();
+
+        if (!challenge)                                   return json({ error: "Invalid or expired challenge token" }, 401);
+        if (challenge.used_at)                            return json({ error: "Challenge token already used" }, 401);
+        if (new Date(challenge.expires_at) <= new Date()) return json({ error: "Challenge token expired. Please sign in again." }, 401);
+        if (challenge.status === "suspended")             return json({ error: "Account suspended. Contact support." }, 403);
+        if (!challenge.mfa_enabled)                       return json({ error: "MFA is not enabled for this account" }, 400);
+
+        const base32Secret = await decryptTotpSecret(challenge.totp_secret, env);
+        const valid = await verifyTotp(base32Secret, code);
+
+        // Mark challenge used regardless of outcome (prevent retry attacks)
+        await env.cybermeters_db
+          .prepare("UPDATE mfa_challenges SET used_at = datetime('now') WHERE id = ?")
+          .bind(challenge.id)
+          .run();
+
+        if (!valid) {
+          await createAuditEvent(env, {
+            user_id:     challenge.user_id,
+            event_type:  "mfa_challenge_failed",
+            entity_type: "user",
+            entity_id:   challenge.user_id,
+            description: `Failed MFA challenge for ${challenge.email}`,
+            metadata:    { challenge_id: challenge.id },
+          }).catch(() => {});
+          return json({ error: "Invalid verification code" }, 401);
+        }
+
+        // TOTP verified — create session
+        const { raw: token, hash: tokenHash } = await generateSessionToken();
+        const sessionId = createId("sess");
+        const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+        await env.cybermeters_db.batch([
+          env.cybermeters_db
+            .prepare(`INSERT INTO user_sessions (id, user_id, token_hash, expires_at) VALUES (?, ?, ?, ?)`)
+            .bind(sessionId, challenge.user_id, tokenHash, expiresAt),
+          env.cybermeters_db
+            .prepare("UPDATE users SET last_login_at = datetime('now'), mfa_last_verified_at = datetime('now') WHERE id = ?")
+            .bind(challenge.user_id),
+        ]);
+
+        await createAuditEvent(env, {
+          user_id:     challenge.user_id,
+          event_type:  "mfa_challenge_success",
+          entity_type: "user",
+          entity_id:   challenge.user_id,
+          description: `MFA challenge passed — session created for ${challenge.email}`,
+          metadata:    { challenge_id: challenge.id },
+        }).catch(() => {});
+
+        const plan = await getEffectivePlan(challenge.user_id, env);
+        return json({
+          token,
+          user: {
+            id:    challenge.uid,
+            email: challenge.email,
+            name:  challenge.name,
+            plan,
+          },
+        });
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
+    // ── POST /api/auth/mfa/recovery-code ────────────────────────────────
+    // Recovery path: use a backup recovery code instead of TOTP.
+    // Each code is single-use — verified hash is removed from the stored array.
+    if (request.method === "POST" && url.pathname === "/api/auth/mfa/recovery-code") {
+      let body;
+      try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+      const rawChallenge   = (body.challenge_token  || "").trim();
+      const submittedCode  = (body.recovery_code    || "").trim();
+      if (!rawChallenge)  return json({ error: "challenge_token is required" }, 400);
+      if (!submittedCode) return json({ error: "recovery_code is required" }, 400);
+      try {
+        const challengeHash = await hashToken(rawChallenge);
+        const challenge = await env.cybermeters_db
+          .prepare(
+            `SELECT c.id, c.user_id, c.expires_at, c.used_at,
+                    u.id AS uid, u.email, u.name, u.plan, u.status,
+                    u.mfa_enabled, u.mfa_recovery_codes_hash_json
+             FROM mfa_challenges c
+             JOIN users u ON u.id = c.user_id
+             WHERE c.challenge_hash = ? LIMIT 1`
+          )
+          .bind(challengeHash)
+          .first();
+
+        if (!challenge)                                   return json({ error: "Invalid or expired challenge token" }, 401);
+        if (challenge.used_at)                            return json({ error: "Challenge token already used" }, 401);
+        if (new Date(challenge.expires_at) <= new Date()) return json({ error: "Challenge token expired. Please sign in again." }, 401);
+        if (challenge.status === "suspended")             return json({ error: "Account suspended. Contact support." }, 403);
+        if (!challenge.mfa_enabled)                       return json({ error: "MFA is not enabled for this account" }, 400);
+
+        const { valid, remainingHashes } = await verifyRecoveryCode(submittedCode, challenge.mfa_recovery_codes_hash_json);
+
+        // Mark challenge used regardless of outcome
+        await env.cybermeters_db
+          .prepare("UPDATE mfa_challenges SET used_at = datetime('now') WHERE id = ?")
+          .bind(challenge.id)
+          .run();
+
+        if (!valid) {
+          await createAuditEvent(env, {
+            user_id:     challenge.user_id,
+            event_type:  "mfa_challenge_failed",
+            entity_type: "user",
+            entity_id:   challenge.user_id,
+            description: `Invalid recovery code used for ${challenge.email}`,
+            metadata:    { challenge_id: challenge.id, method: "recovery_code" },
+          }).catch(() => {});
+          return json({ error: "Invalid recovery code" }, 401);
+        }
+
+        // Consume the used code — update stored hashes
+        await env.cybermeters_db
+          .prepare("UPDATE users SET mfa_recovery_codes_hash_json = ?, last_login_at = datetime('now'), mfa_last_verified_at = datetime('now') WHERE id = ?")
+          .bind(JSON.stringify(remainingHashes), challenge.user_id)
+          .run();
+
+        // Create session
+        const { raw: token, hash: tokenHash } = await generateSessionToken();
+        const sessionId = createId("sess");
+        const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+        await env.cybermeters_db
+          .prepare(`INSERT INTO user_sessions (id, user_id, token_hash, expires_at) VALUES (?, ?, ?, ?)`)
+          .bind(sessionId, challenge.user_id, tokenHash, expiresAt)
+          .run();
+
+        await createAuditEvent(env, {
+          user_id:     challenge.user_id,
+          event_type:  "recovery_code_used",
+          entity_type: "user",
+          entity_id:   challenge.user_id,
+          description: `Recovery code used to sign in — ${remainingHashes.length} codes remaining for ${challenge.email}`,
+          metadata:    { challenge_id: challenge.id, remaining_codes: remainingHashes.length },
+        }).catch(() => {});
+
+        const plan = await getEffectivePlan(challenge.user_id, env);
+        return json({
+          token,
+          user:    { id: challenge.uid, email: challenge.email, name: challenge.name, plan },
+          warning: remainingHashes.length <= 2
+            ? `Only ${remainingHashes.length} recovery code(s) remaining. Disable and re-enable MFA to generate new codes.`
+            : null,
+        });
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
+    // ── POST /api/auth/mfa/disable ───────────────────────────────────────
+    // Disables MFA for the authenticated user.
+    // Requires the current TOTP code OR current password for verification.
+    // Note: does NOT disable on password reset (per sprint spec — MFA survives reset).
+    if (request.method === "POST" && url.pathname === "/api/auth/mfa/disable") {
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      if (user.api_token_id) return json({ error: "MFA management requires session authentication" }, 403);
+      let body;
+      try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+      const code     = (body.code     || "").trim();  // TOTP code
+      const password = (body.password || "").trim();  // alternative: current password
+      if (!code && !password) return json({ error: "Either a TOTP code or current password is required" }, 400);
+      try {
+        const row = await env.cybermeters_db
+          .prepare("SELECT totp_secret, mfa_enabled, password_hash FROM users WHERE id = ? LIMIT 1")
+          .bind(user.id)
+          .first();
+
+        if (!row?.mfa_enabled) return json({ error: "MFA is not currently enabled" }, 400);
+
+        let verified = false;
+        if (code) {
+          const base32Secret = await decryptTotpSecret(row.totp_secret, env);
+          verified = await verifyTotp(base32Secret, code);
+        } else if (password) {
+          verified = await verifyPassword(password, row.password_hash);
+        }
+
+        if (!verified) {
+          await createAuditEvent(env, {
+            user_id:     user.id,
+            event_type:  "mfa_disable_failed",
+            entity_type: "user",
+            entity_id:   user.id,
+            description: `Failed attempt to disable MFA for ${user.email}`,
+          }).catch(() => {});
+          return json({ error: "Verification failed. Provide a valid TOTP code or current password." }, 403);
+        }
+
+        // Clear all MFA fields
+        await env.cybermeters_db
+          .prepare(
+            `UPDATE users
+             SET mfa_enabled = 0,
+                 mfa_enabled_at = NULL,
+                 totp_secret = NULL,
+                 mfa_recovery_codes_hash_json = NULL,
+                 mfa_last_verified_at = NULL
+             WHERE id = ?`
+          )
+          .bind(user.id)
+          .run();
+
+        await createAuditEvent(env, {
+          user_id:     user.id,
+          event_type:  "mfa_disabled",
+          entity_type: "user",
+          entity_id:   user.id,
+          description: `MFA disabled for ${user.email}`,
+          metadata:    { method: code ? "totp_code" : "password" },
+        }).catch(() => {});
+
+        return json({ success: true, message: "MFA has been disabled." });
       } catch (e) {
         return json({ error: e.message }, 500);
       }
@@ -19927,15 +20751,28 @@ export default {
         certificates.push({
           domain:                       report.domain || null,
           certificate_risk_level:       ci.certificate_risk_level,
-          certificate_status:           ci.certificate_status,
-          issuer:                       ci.issuer || null,
-          subject:                      ci.subject || null,
-          san_count:                    ci.san_count || 0,
-          san_hostnames:                ci.san_hostnames || [],
-          days_until_expiry:            ci.days_until_expiry,
-          expires_at:                   ci.expires_at,
-          total_certificates_seen:      ci.total_certificates_seen,
-          issued_for_sensitive_hosts:   ci.issued_for_sensitive_hosts || [],
+	          certificate_status:           ci.certificate_status,
+	          issuer:                       ci.issuer || null,
+	          issuer_normalized:            ci.issuer_normalized || normalizeCertificateIssuer(ci.issuer || null),
+	          ca_owner:                     ci.ca_owner || mapCertificateAuthorityOwner(normalizeCertificateIssuer(ci.issuer || null)),
+	          subject:                      ci.subject || null,
+	          san_count:                    ci.san_count || 0,
+	          san_hostnames:                ci.san_hostnames || [],
+	          days_until_expiry:            ci.days_until_expiry,
+	          expires_at:                   ci.expires_at,
+	          lifecycle:                    ci.lifecycle || buildCertificateLifecycleIntelligence(ci),
+	          key_algorithm:                ci.key_algorithm || "unknown",
+	          key_size_bits:                ci.key_size_bits || "unknown",
+	          signature_algorithm:          ci.signature_algorithm || "unknown",
+	          crypto_metadata:              ci.crypto_metadata || {
+	            key_algorithm: ci.key_algorithm || "unknown",
+	            key_size_bits: ci.key_size_bits || "unknown",
+	            signature_algorithm: ci.signature_algorithm || "unknown",
+	          },
+	          self_signed:                  ci.self_signed ?? detectSelfSignedCertificate(ci.issuer || null, ci.subject || null),
+	          ca_concentration:             ci.ca_concentration || buildCaConcentrationAnalytics(ci.issuer ? [ci.issuer] : []),
+	          total_certificates_seen:      ci.total_certificates_seen,
+	          issued_for_sensitive_hosts:   ci.issued_for_sensitive_hosts || [],
           wildcard_dns:                 ci.wildcard_dns,
           wildcard_warning:             ci.wildcard_warning || null,
           ct_sources:                   ci.ct_sources || {},
