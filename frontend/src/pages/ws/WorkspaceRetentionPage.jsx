@@ -173,20 +173,7 @@ function CleanupWarningModal({ open, onConfirm, onCancel, newDays, wasAutoCleanu
 
 // ── 1. Storage Usage Card ─────────────────────────────────────────────────────
 
-function StorageUsageCard({ wsId }) {
-  const [data,    setData]    = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [error,   setError]   = useState(null)
-
-  useEffect(() => {
-    if (!wsId) return
-    setLoading(true)
-    api.getWorkspaceStorage(wsId)
-      .then(d => setData(d))
-      .catch(e => setError(e.message || 'Unable to load storage data'))
-      .finally(() => setLoading(false))
-  }, [wsId])
-
+function StorageUsageCard({ data, loading, error, onRefresh }) {
   function fmtBytes(mb) {
     if (mb === null || mb === undefined) return '—'
     if (mb < 1) return `${Math.round(mb * 1024)} KB`
@@ -205,7 +192,7 @@ function StorageUsageCard({ wsId }) {
         action={
           !loading && (
             <button
-              onClick={() => { setLoading(true); setError(null); api.getWorkspaceStorage(wsId).then(setData).catch(e => setError(e.message)).finally(() => setLoading(false)) }}
+              onClick={onRefresh}
               className="w-7 h-7 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 flex items-center justify-center transition-colors"
               title="Refresh"
             >
@@ -258,20 +245,7 @@ function StorageUsageCard({ wsId }) {
 
 // ── 2. Retention Policy Card ──────────────────────────────────────────────────
 
-function RetentionPolicyCard({ wsId }) {
-  const [data,    setData]    = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [error,   setError]   = useState(null)
-
-  useEffect(() => {
-    if (!wsId) return
-    setLoading(true)
-    api.getWorkspaceRetention(wsId)
-      .then(d => setData(d))
-      .catch(e => setError(e.message || 'Unable to load retention policy'))
-      .finally(() => setLoading(false))
-  }, [wsId])
-
+function RetentionPolicyCard({ data, loading, error }) {
   const noData = !loading && !error && !data
 
   return (
@@ -378,11 +352,7 @@ function RetentionPolicyCard({ wsId }) {
 
 // ── 3. Retention Settings Card ────────────────────────────────────────────────
 
-function RetentionSettingsCard({ wsId, onSaved }) {
-  const [current,    setCurrent]    = useState(null)   // fetched policy
-  const [loading,    setLoading]    = useState(true)
-  const [loadError,  setLoadError]  = useState(null)
-
+function RetentionSettingsCard({ wsId, current, loading, loadError, onRetry, onSaved }) {
   const [days,       setDays]       = useState(365)
   const [cleanup,    setCleanup]    = useState(false)
 
@@ -393,22 +363,17 @@ function RetentionSettingsCard({ wsId, onSaved }) {
 
   const [warnOpen,   setWarnOpen]   = useState(false)
 
-  const load = useCallback(() => {
-    if (!wsId) return
-    setLoading(true)
-    setLoadError(null)
-    api.getWorkspaceRetention(wsId)
-      .then(d => {
-        setCurrent(d)
-        setDays(d?.retention_days ?? 365)
-        setCleanup(d?.auto_cleanup ?? false)
-        setDirty(false)
-      })
-      .catch(e => setLoadError(e.message || 'Unable to load settings'))
-      .finally(() => setLoading(false))
-  }, [wsId])
+  useEffect(() => {
+    setDays(current?.retention_days ?? 365)
+    setCleanup(current?.auto_cleanup ?? false)
+    setDirty(false)
+    setWarnOpen(false)
+  }, [current, wsId])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    setSaveOk(false)
+    setSaveErr(null)
+  }, [wsId])
 
   function handleChange(newDays, newCleanup) {
     setDays(newDays)
@@ -433,11 +398,11 @@ function RetentionSettingsCard({ wsId, onSaved }) {
     setSaveErr(null)
     setWarnOpen(false)
     try {
-      await api.updateWorkspaceRetention(wsId, { retention_days: days, auto_cleanup: cleanup })
+      const updated = await api.updateWorkspaceRetention(wsId, { retention_days: days, auto_cleanup: cleanup })
+      const nextRetention = updated || { ...current, retention_days: days, auto_cleanup: cleanup }
       setSaveOk(true)
       setDirty(false)
-      setCurrent({ ...current, retention_days: days, auto_cleanup: cleanup })
-      if (onSaved) onSaved()
+      if (onSaved) onSaved(nextRetention)
     } catch (e) {
       setSaveErr(e.message || 'Save failed. Please try again.')
     } finally {
@@ -459,7 +424,7 @@ function RetentionSettingsCard({ wsId, onSaved }) {
         <div className="flex items-center gap-2.5 px-4 py-3 rounded-xl bg-red-50 border border-red-100 text-sm text-red-700 mb-5">
           <AlertTriangle className="w-4 h-4 flex-shrink-0" />
           {loadError}
-          <button onClick={load} className="ml-auto text-xs underline">Retry</button>
+          <button onClick={onRetry} className="ml-auto text-xs underline">Retry</button>
         </div>
       )}
 
@@ -579,22 +544,7 @@ function RetentionSettingsCard({ wsId, onSaved }) {
 
 // ── 5. Storage Insights Section ───────────────────────────────────────────────
 
-function StorageInsightsSection({ wsId }) {
-  const [storage,   setStorage]   = useState(null)
-  const [retention, setRetention] = useState(null)
-  const [loading,   setLoading]   = useState(true)
-
-  useEffect(() => {
-    if (!wsId) return
-    Promise.allSettled([
-      api.getWorkspaceStorage(wsId),
-      api.getWorkspaceRetention(wsId),
-    ]).then(([sRes, rRes]) => {
-      if (sRes.status === 'fulfilled') setStorage(sRes.value)
-      if (rRes.status === 'fulfilled') setRetention(rRes.value)
-    }).finally(() => setLoading(false))
-  }, [wsId])
-
+function StorageInsightsSection({ storage, retention, loading }) {
   if (loading) {
     return (
       <div className="card p-6">
@@ -672,6 +622,62 @@ function StorageInsightsSection({ wsId }) {
 
 export default function WorkspaceRetentionPage() {
   const { wsId, wsName } = useWorkspace()
+  const [storage, setStorage] = useState(null)
+  const [storageLoading, setStorageLoading] = useState(true)
+  const [storageError, setStorageError] = useState(null)
+  const [retention, setRetention] = useState(null)
+  const [retentionLoading, setRetentionLoading] = useState(true)
+  const [retentionError, setRetentionError] = useState(null)
+
+  const loadStorage = useCallback(async () => {
+    if (!wsId) return
+    setStorageLoading(true)
+    setStorageError(null)
+    try {
+      const data = await api.getWorkspaceStorage(wsId)
+      setStorage(data)
+    } catch (e) {
+      setStorageError(e.message || 'Unable to load storage data')
+    } finally {
+      setStorageLoading(false)
+    }
+  }, [wsId])
+
+  const loadRetention = useCallback(async () => {
+    if (!wsId) return
+    setRetentionLoading(true)
+    setRetentionError(null)
+    try {
+      const data = await api.getWorkspaceRetention(wsId)
+      setRetention(data)
+    } catch (e) {
+      setRetentionError(e.message || 'Unable to load retention policy')
+    } finally {
+      setRetentionLoading(false)
+    }
+  }, [wsId])
+
+  useEffect(() => {
+    if (!wsId) {
+      setStorage(null)
+      setRetention(null)
+      return
+    }
+    loadStorage()
+    loadRetention()
+  }, [wsId, loadStorage, loadRetention])
+
+  const handleRetentionSaved = useCallback((nextRetention) => {
+    setRetention(nextRetention)
+    setStorage(prev => prev
+      ? {
+          ...prev,
+          retention_days: nextRetention?.retention_days,
+          auto_cleanup: nextRetention?.auto_cleanup,
+        }
+      : prev
+    )
+  }, [])
 
   if (!wsId) {
     return (
@@ -696,10 +702,30 @@ export default function WorkspaceRetentionPage() {
       </div>
 
       <div className="space-y-6">
-        <StorageUsageCard wsId={wsId} />
-        <RetentionPolicyCard wsId={wsId} />
-        <RetentionSettingsCard wsId={wsId} />
-        <StorageInsightsSection wsId={wsId} />
+        <StorageUsageCard
+          data={storage}
+          loading={storageLoading}
+          error={storageError}
+          onRefresh={loadStorage}
+        />
+        <RetentionPolicyCard
+          data={retention}
+          loading={retentionLoading}
+          error={retentionError}
+        />
+        <RetentionSettingsCard
+          wsId={wsId}
+          current={retention}
+          loading={retentionLoading}
+          loadError={retentionError}
+          onRetry={loadRetention}
+          onSaved={handleRetentionSaved}
+        />
+        <StorageInsightsSection
+          storage={storage}
+          retention={retention}
+          loading={storageLoading || retentionLoading}
+        />
       </div>
     </WsPage>
   )
