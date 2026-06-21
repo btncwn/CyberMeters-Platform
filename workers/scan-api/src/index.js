@@ -7911,6 +7911,38 @@ function buildCanonicalUrlProfile(modules) {
         .bind(scanId)
         .run();
     } catch { /* D1 write failure — scan will remain 'running' but we cannot do more */ }
+
+    try {
+      let wsRows = [];
+      if (workspaceId) {
+        wsRows = [{ workspace_id: workspaceId }];
+      } else {
+        const linked = await env.cybermeters_db
+          .prepare("SELECT workspace_id FROM workspace_domains WHERE domain_id = ?")
+          .bind(domainId)
+          .all();
+        wsRows = linked.results || [];
+      }
+      for (const { workspace_id } of wsRows) {
+        await createAuditEvent(env, {
+          workspace_id: workspace_id ?? null,
+          event_type:  "scan_failed",
+          entity_type: "scan",
+          entity_id:   scanId,
+          description: `Scan failed for ${domain}`,
+          metadata:    { scan_id: scanId, domain, domain_id: domainId, error: err?.message ?? "Unknown scan engine error" },
+        });
+      }
+      if (wsRows.length === 0) {
+        await createAuditEvent(env, {
+          event_type:  "scan_failed",
+          entity_type: "scan",
+          entity_id:   scanId,
+          description: `Scan failed for ${domain}`,
+          metadata:    { scan_id: scanId, domain, domain_id: domainId, error: err?.message ?? "Unknown scan engine error" },
+        });
+      }
+    } catch { /* non-fatal */ }
   }
 }
 
@@ -12968,6 +13000,15 @@ async function triggerScheduledScan(schedule, env) {
       domain_id:    domainId,
     }));
 
+    await createAuditEvent(env, {
+      workspace_id: schedule.workspace_id ?? null,
+      event_type:  "scheduled_scan_triggered",
+      entity_type: "scheduled_scan",
+      entity_id:   schedule.id,
+      description: `Scheduled scan triggered for ${schedule.domain}`,
+      metadata:    { scheduled_scan_id: schedule.id, scan_id: scanId, domain: schedule.domain, domain_id: domainId },
+    });
+
     // Run the full scan engine — awaited inside waitUntil context
     await runScanEngine(scanId, domainId, schedule.workspace_id ?? null, schedule.domain, env);
 
@@ -15554,6 +15595,18 @@ async function handleStripeSubscriptionDeleted(env, subscription) {
   return rowId;
 }
 
+async function auditApiTokenSessionRouteDenied(env, user, request) {
+  if (!user?.api_token_id) return;
+  await createAuditEvent(env, {
+    user_id:     user.id,
+    event_type:  "api_token_denied_session_required",
+    entity_type: "api_token",
+    entity_id:   user.api_token_id,
+    description: "API token denied for session-only route",
+    metadata:    { method: request.method, path: new URL(request.url).pathname },
+  });
+}
+
 
 function getPlanLimits(plan) {
   const normalized = normalizePlan(plan);
@@ -16433,7 +16486,23 @@ export default {
           // current_period_end is absent on the session object — it arrives
           // seconds later via customer.subscription.created.
           case "checkout.session.completed": {
-            await handleCheckoutSessionCompleted(env, obj);
+            const rowId = await handleCheckoutSessionCompleted(env, obj);
+            const metadata = obj?.metadata || {};
+            await createAuditEvent(env, {
+              user_id:     metadata.user_id || obj?.client_reference_id || null,
+              event_type:  "billing_checkout_completed",
+              entity_type: "stripe_checkout_session",
+              entity_id:   obj?.id || null,
+              description: "Stripe checkout completed",
+              metadata:    {
+                subscription_row_id: rowId,
+                stripe_session_id: obj?.id || null,
+                stripe_customer_id: getStripeObjectId(obj?.customer),
+                stripe_subscription_id: getStripeObjectId(obj?.subscription),
+                plan: normalizePlan(metadata.plan),
+                interval: normalizeBillingInterval(metadata.interval),
+              },
+            });
             break;
           }
 
@@ -16442,7 +16511,25 @@ export default {
           // Stripe status and current_period_end. Upserts the subscriptions row
           // so getEffectivePlan() reads the correct plan and expiry.
           case "customer.subscription.created": {
-            await handleStripeSubscriptionUpsert(env, obj);
+            const rowId = await handleStripeSubscriptionUpsert(env, obj);
+            const metadata = obj?.metadata || {};
+            const price = getStripeSubscriptionPrice(obj);
+            await createAuditEvent(env, {
+              user_id:     metadata.user_id || null,
+              event_type:  "subscription_created",
+              entity_type: "subscription",
+              entity_id:   obj?.id || rowId || null,
+              description: "Stripe subscription created",
+              metadata:    {
+                subscription_row_id: rowId,
+                stripe_subscription_id: obj?.id || null,
+                stripe_customer_id: getStripeObjectId(obj?.customer),
+                plan: getPlanFromStripePriceId(env, price?.id || null, metadata.plan),
+                billing_interval: getBillingIntervalFromStripeSubscription(obj, metadata.interval),
+                status: normalizeStripeSubscriptionStatus(obj?.status),
+                current_period_end: stripeUnixToIso(obj?.current_period_end),
+              },
+            });
             break;
           }
 
@@ -16451,7 +16538,45 @@ export default {
           // flag set. Updates plan, billing_interval, subscription_status, and
           // current_period_end in subscriptions.
           case "customer.subscription.updated": {
-            await handleStripeSubscriptionUpsert(env, obj);
+            const metadata = obj?.metadata || {};
+            let previousSubscription = null;
+            try {
+              const previousRowId = await findSubscriptionRowId(env, {
+                ownerUserId: metadata.user_id || null,
+                stripeSubscriptionId: obj?.id || null,
+                stripeCustomerId: getStripeObjectId(obj?.customer),
+              });
+              previousSubscription = previousRowId
+                ? await env.cybermeters_db
+                  .prepare("SELECT plan, billing_interval, subscription_status FROM subscriptions WHERE id = ?")
+                  .bind(previousRowId)
+                  .first()
+                : null;
+            } catch { /* audit metadata lookup only */ }
+            const rowId = await handleStripeSubscriptionUpsert(env, obj);
+            const price = getStripeSubscriptionPrice(obj);
+            const newPlan = getPlanFromStripePriceId(env, price?.id || null, metadata.plan);
+            const previousPlan = previousSubscription?.plan ? normalizePlan(previousSubscription.plan) : null;
+            await createAuditEvent(env, {
+              user_id:     metadata.user_id || null,
+              event_type:  "subscription_updated",
+              entity_type: "subscription",
+              entity_id:   obj?.id || rowId || null,
+              description: "Stripe subscription updated",
+              metadata:    {
+                subscription_row_id: rowId,
+                stripe_subscription_id: obj?.id || null,
+                stripe_customer_id: getStripeObjectId(obj?.customer),
+                previous_plan: previousPlan,
+                plan: newPlan,
+                plan_changed: previousPlan ? previousPlan !== newPlan : false,
+                billing_interval: getBillingIntervalFromStripeSubscription(obj, metadata.interval),
+                previous_billing_interval: previousSubscription?.billing_interval ?? null,
+                status: normalizeStripeSubscriptionStatus(obj?.status),
+                previous_status: previousSubscription?.subscription_status ?? null,
+                current_period_end: stripeUnixToIso(obj?.current_period_end),
+              },
+            });
             break;
           }
 
@@ -16460,7 +16585,22 @@ export default {
           // getEffectivePlan() returns 'free' for any non-active status.
           // Row is never deleted — historical record is preserved.
           case "customer.subscription.deleted": {
-            await handleStripeSubscriptionDeleted(env, obj);
+            const rowId = await handleStripeSubscriptionDeleted(env, obj);
+            const metadata = obj?.metadata || {};
+            await createAuditEvent(env, {
+              user_id:     metadata.user_id || null,
+              event_type:  "subscription_canceled",
+              entity_type: "subscription",
+              entity_id:   obj?.id || rowId || null,
+              description: "Stripe subscription canceled",
+              metadata:    {
+                subscription_row_id: rowId,
+                stripe_subscription_id: obj?.id || null,
+                stripe_customer_id: getStripeObjectId(obj?.customer),
+                status: "canceled",
+                current_period_end: stripeUnixToIso(obj?.current_period_end),
+              },
+            });
             break;
           }
 
@@ -16807,7 +16947,10 @@ export default {
       const user = await requireAuth(request, env);
       if (!user) return json({ error: "Unauthorized" }, 401);
       // Checkout is an account-control browser flow, not an automation API.
-      if (user.api_token_id) return json({ error: "Session authentication required" }, 403);
+      if (user.api_token_id) {
+        await auditApiTokenSessionRouteDenied(env, user, request);
+        return json({ error: "Session authentication required" }, 403);
+      }
 
       let body;
       try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
@@ -16924,6 +17067,14 @@ export default {
       // D1 is intentionally NOT updated here.
       // Plan activation and subscriptions sync happen in the webhook handler
       // when Stripe fires checkout.session.completed.
+      await createAuditEvent(env, {
+        user_id:     user.id,
+        event_type:  "billing_checkout_session_created",
+        entity_type: "stripe_checkout_session",
+        entity_id:   stripeSession.id,
+        description: `Stripe checkout session created for ${requestedPlan} (${interval})`,
+        metadata:    { plan: requestedPlan, interval, stripe_session_id: stripeSession.id },
+      });
       return json({
         checkout_url: stripeSession.url,
         session_id:   stripeSession.id,
@@ -16938,7 +17089,10 @@ export default {
       const user = await requireAuth(request, env);
       if (!user) return json({ error: "Unauthorized" }, 401);
       // Billing portal grants account-level Stripe access; require a user session.
-      if (user.api_token_id) return json({ error: "Session authentication required" }, 403);
+      if (user.api_token_id) {
+        await auditApiTokenSessionRouteDenied(env, user, request);
+        return json({ error: "Session authentication required" }, 403);
+      }
 
       let body;
       try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
@@ -17024,6 +17178,14 @@ export default {
         }, 502);
       }
 
+      await createAuditEvent(env, {
+        user_id:     user.id,
+        event_type:  "billing_portal_opened",
+        entity_type: "stripe_billing_portal_session",
+        entity_id:   portalSession.id,
+        description: "Stripe billing portal session created",
+        metadata:    { subscription_id: subscription.id, stripe_session_id: portalSession.id },
+      });
       return json({
         portal_url: portalSession.url,
         session_id:  portalSession.id,
@@ -17087,7 +17249,10 @@ export default {
       const user = await requireAuth(request, env);
       if (!user) return json({ error: "Unauthorized" }, 401);
       // Profile mutation is an account-control action; API tokens are data-plane only.
-      if (user.api_token_id) return json({ error: "Session authentication required" }, 403);
+      if (user.api_token_id) {
+        await auditApiTokenSessionRouteDenied(env, user, request);
+        return json({ error: "Session authentication required" }, 403);
+      }
       let body;
       try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
 
@@ -17102,6 +17267,14 @@ export default {
           .run();
 
         const plan = await getEffectivePlan(user.id, env);
+        await createAuditEvent(env, {
+          user_id:     user.id,
+          event_type:  "account_profile_updated",
+          entity_type: "user",
+          entity_id:   user.id,
+          description: "Account profile updated",
+          metadata:    { changed_fields: ["name"] },
+        });
         return json({
           user: {
             id:    user.id,
@@ -17140,7 +17313,10 @@ export default {
       const user = await requireAuth(request, env);
       if (!user) return json({ error: "Unauthorized" }, 401);
       // Company profile mutation is an account-control action; require a session.
-      if (user.api_token_id) return json({ error: "Session authentication required" }, 403);
+      if (user.api_token_id) {
+        await auditApiTokenSessionRouteDenied(env, user, request);
+        return json({ error: "Session authentication required" }, 403);
+      }
       let body;
       try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
 
@@ -17193,6 +17369,16 @@ export default {
           .bind(user.id)
           .first();
 
+        await createAuditEvent(env, {
+          user_id:     user.id,
+          event_type:  "company_profile_updated",
+          entity_type: "customer_profile",
+          entity_id:   company?.id ?? companyId,
+          description: "Company profile updated",
+          metadata:    {
+            changed_fields: ["company_name", "website", "industry", "company_size", "contact_email", "contact_name"],
+          },
+        });
         return json({ company });
       } catch (e) {
         return json({ error: e.message }, 500);
@@ -17673,6 +17859,16 @@ export default {
         },
       };
 
+      await createAuditEvent(env, {
+        workspace_id: workspaceId ?? null,
+        user_id:      userId ?? null,
+        event_type:   "scan_requested",
+        entity_type:  "scan",
+        entity_id:    scanId,
+        description:  `Scan requested for ${domain}`,
+        metadata:     { scan_id: scanId, domain, workspace_id: workspaceId ?? null },
+      });
+
       // Register domain — reuse existing row for same (user_id, domain) pair.
       // Scoped by user_id to prevent cross-user domain aliasing.
       const existingDomain = await env.cybermeters_db
@@ -18065,6 +18261,16 @@ export default {
         .bind(schedId, domain, frequency, nextRunAt, workspaceId, createdAt)
         .run();
 
+      await createAuditEvent(env, {
+        workspace_id: workspaceId,
+        user_id:      user.id,
+        event_type:   "scheduled_scan_created",
+        entity_type:  "scheduled_scan",
+        entity_id:    schedId,
+        description:  `Scheduled scan created for ${domain} (${frequency})`,
+        metadata:     { scheduled_scan_id: schedId, domain, frequency, next_run_at: nextRunAt },
+      });
+
       return json({
         schedule: {
           id:                 schedId,
@@ -18138,6 +18344,15 @@ export default {
         if (result.meta?.changes === 0) {
           return json({ error: "Schedule not found" }, 404);
         }
+        await createAuditEvent(env, {
+          workspace_id: schedule.workspace_id,
+          user_id:      user.id,
+          event_type:   "scheduled_scan_deleted",
+          entity_type:  "scheduled_scan",
+          entity_id:    schedId,
+          description:  "Scheduled scan deleted",
+          metadata:     { scheduled_scan_id: schedId },
+        });
       } catch {
         return json({ error: "Schedule not found" }, 404);
       }
@@ -18834,7 +19049,10 @@ export default {
         if (!creator) return json({ error: "Unauthorized" }, 401);
         // Workspace creation establishes a new tenant and owner membership;
         // require an interactive user session rather than an API token.
-        if (creator.api_token_id) return json({ error: "Session authentication required" }, 403);
+        if (creator.api_token_id) {
+          await auditApiTokenSessionRouteDenied(env, creator, request);
+          return json({ error: "Session authentication required" }, 403);
+        }
 
         // Entitlement: workspace limit
         const creatorPlan = await getEffectivePlan(creator.id, env);
@@ -21817,15 +22035,22 @@ export default {
           .bind(memberId, workspaceId, target.id, rawRole, user.id)
           .run();
 
-        // Audit: member added
+        const memberAuditType = existing ? "workspace_member_role_changed" : "workspace_member_added";
         await createAuditEvent(env, {
           workspace_id: workspaceId,
           user_id:      user.id,
-          event_type:   "workspace_member_added",
+          event_type:   memberAuditType,
           entity_type:  "member",
           entity_id:    target.id,
-          description:  `${user.email} added ${target.email} as ${rawRole}`,
-          metadata:     { added_user_id: target.id, added_email: target.email, role: rawRole },
+          description:  existing
+            ? `${user.email} changed ${target.email} role from ${existing.role} to ${rawRole}`
+            : `${user.email} added ${target.email} as ${rawRole}`,
+          metadata:     {
+            user_id: target.id,
+            email: target.email,
+            role: rawRole,
+            previous_role: existing?.role ?? null,
+          },
         });
 
         return json({
@@ -21924,6 +22149,15 @@ export default {
             .prepare("UPDATE workspace_invitations SET status = 'expired' WHERE id = ?")
             .bind(invite.id)
             .run();
+          await createAuditEvent(env, {
+            workspace_id: invite.workspace_id,
+            user_id:      user.id,
+            event_type:   "workspace_invitation_expired",
+            entity_type:  "workspace_invitation",
+            entity_id:    invite.id,
+            description:  `Workspace invitation for ${invite.email} expired`,
+            metadata:     { invitation_id: invite.id, invited_email: invite.email, role: invite.role, expires_at: invite.expires_at },
+          });
           return json({ error: "Invitation expired" }, 410);
         }
 
@@ -22599,6 +22833,15 @@ export default {
           .run();
 
         const domain = domRow.domain;
+        await createAuditEvent(env, {
+          workspace_id: dviAccess.workspace_id ?? null,
+          user_id:      dviUser.id,
+          event_type:   "domain_verification_token_generated",
+          entity_type:  "domain",
+          entity_id:    domainId,
+          description:  `Verification token generated for ${domain}`,
+          metadata:     { domain, domain_id: domainId, method_options: ["dns_txt", "html_file"] },
+        });
         return json({
           domain,
           domain_id:          domainId,
@@ -22794,6 +23037,31 @@ export default {
           .prepare(`UPDATE domains SET verification_status = 'failed' WHERE id = ?`)
           .bind(domainId)
           .run();
+
+        try {
+          const wsR = await env.cybermeters_db
+            .prepare("SELECT workspace_id FROM workspace_domains WHERE domain_id = ?")
+            .bind(domainId)
+            .all();
+          for (const { workspace_id } of (wsR.results || [])) {
+            await createAuditEvent(env, {
+              workspace_id,
+              user_id:     dvcUser?.id ?? null,
+              event_type:  "domain_verification_failed",
+              entity_type: "domain",
+              entity_id:   domainId,
+              description: `${domain} ownership verification failed`,
+              metadata:    {
+                domain,
+                domain_id: domainId,
+                dns_txt_result: dnsVerified ? "found" : "not_found",
+                html_file_result: htmlVerified ? "found" : "not_found",
+                dns_error: dnsError || null,
+                html_error: htmlError || null,
+              },
+            });
+          }
+        } catch { /* non-fatal */ }
 
         return json({
           success: false,
@@ -23022,6 +23290,13 @@ export default {
         const delAccess = await requireWorkspaceRole(wsUser, workspaceId, "domain:remove", env);
         if (!delAccess) return json({ error: "Forbidden — admin role required to remove domains" }, 403);
         try {
+          let domainRow = null;
+          try {
+            domainRow = await env.cybermeters_db
+              .prepare("SELECT d.id, d.domain FROM domains d JOIN workspace_domains wd ON wd.domain_id = d.id WHERE wd.workspace_id = ? AND wd.domain_id = ? LIMIT 1")
+              .bind(workspaceId, linkedDomainId)
+              .first();
+          } catch { /* audit metadata lookup only */ }
           const del = await env.cybermeters_db
             .prepare(
               `DELETE FROM workspace_domains WHERE workspace_id = ? AND domain_id = ?`
@@ -23031,6 +23306,15 @@ export default {
           if (del.meta.changes === 0) {
             return json({ error: "Domain link not found" }, 404);
           }
+          await createAuditEvent(env, {
+            workspace_id: workspaceId,
+            user_id:      wsUser?.id ?? null,
+            event_type:   "domain_removed",
+            entity_type:  "domain",
+            entity_id:    linkedDomainId,
+            description:  `Domain ${domainRow?.domain || linkedDomainId} removed from workspace`,
+            metadata:     { domain: domainRow?.domain || null, domain_id: linkedDomainId },
+          });
           return json({ success: true, workspace_id: workspaceId, domain_id: linkedDomainId });
         } catch {
           return json({ error: "Database error" }, 500);
@@ -23327,6 +23611,16 @@ export default {
         const obj = await env.cybermeters_reports.get(row.report_key);
         if (!obj) return json({ error: 'Report file missing from storage' }, 404);
 
+        await createAuditEvent(env, {
+          workspace_id: wsId,
+          user_id:      user.id,
+          event_type:   "report_downloaded",
+          entity_type:  "report",
+          entity_id:    reportId,
+          description:  `Executive report downloaded (${row.report_type})`,
+          metadata:     { report_id: reportId, report_type: row.report_type, report_period: row.report_period },
+        });
+
         const slug     = `${row.report_type}-${row.report_period ?? reportId}`;
         const filename = `cybermeters-report-${slug}.pdf`;
         return new Response(obj.body, {
@@ -23512,10 +23806,21 @@ export default {
         let body = {};
         try { body = await request.json(); } catch { /* optional */ }
         const enabled = body.enabled === false ? 0 : 1;
-        await env.cybermeters_db
+        const update = await env.cybermeters_db
           .prepare("UPDATE scheduled_reports SET enabled = ? WHERE id = ? AND workspace_id = ?")
           .bind(enabled, srId, wsId)
           .run();
+        if ((update.meta?.changes ?? 0) > 0) {
+          await createAuditEvent(env, {
+            workspace_id: wsId,
+            user_id:      user.id,
+            event_type:   "scheduled_report_updated",
+            entity_type:  "scheduled_report",
+            entity_id:    srId,
+            description:  `Scheduled report ${enabled ? "enabled" : "disabled"}`,
+            metadata:     { scheduled_report_id: srId, enabled: enabled === 1 },
+          });
+        }
         return json({ updated: true, enabled: enabled === 1 });
       } catch (err) {
         return json({ error: String(err?.message ?? err) }, 500);
