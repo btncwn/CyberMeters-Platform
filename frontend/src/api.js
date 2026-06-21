@@ -602,6 +602,32 @@ export const api = {
   revokeApiToken: (id) =>
     request(`/account/api-tokens/${id}`, { method: 'DELETE' }),
 
+  // ── Account Privacy & Data ──────────────────────────────────────────────
+
+  /**
+   * GET /api/account/export
+   * Returns the raw Response so the caller can consume the blob for download.
+   * Does NOT go through the JSON request() helper — we need the raw Response.
+   */
+  exportAccountData: () => {
+    const headers = { ...getAuthHeaders(), Accept: 'application/json' }
+    return fetch(`${BASE}/api/account/export`, { method: 'GET', headers })
+  },
+
+  /**
+   * POST /api/account/delete-request
+   * Submits an account deletion request. Returns { request_id, status, message }.
+   */
+  requestAccountDeletion: () =>
+    request('/account/delete-request', { method: 'POST' }),
+
+  /**
+   * POST /api/workspaces/:id/delete-request
+   * Submits a workspace deletion request. Returns { request_id, status, message }.
+   */
+  requestWorkspaceDeletion: (workspaceId) =>
+    request(`/workspaces/${workspaceId}/delete-request`, { method: 'POST' }),
+
   // ── Workspace Activity (Audit Trail) ─────────────────────────────────────
 
   /**

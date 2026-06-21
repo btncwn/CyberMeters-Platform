@@ -898,12 +898,12 @@ export default function AccountPage() {
                 </div>
               </Section>
 
-              {/* ── Security Quick Link ───────────────────────────────────── */}
-              <div className="card p-4 mt-6">
+              {/* ── Security & Privacy Quick Links ──────────────────────── */}
+              <div className="card p-4 mt-6 divide-y divide-gray-50">
                 <button
                   type="button"
                   onClick={() => navigate('/account/security')}
-                  className="w-full flex items-center gap-3 text-left group"
+                  className="w-full flex items-center gap-3 text-left group pb-3"
                 >
                   <div className="w-9 h-9 rounded-lg bg-brand-50 flex items-center justify-center flex-shrink-0 group-hover:bg-brand-100 transition-colors">
                     <Shield className="w-4 h-4 text-brand-600" />
@@ -911,6 +911,20 @@ export default function AccountPage() {
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-gray-900">Security</p>
                     <p className="text-xs text-gray-400">Login history &amp; active sessions</p>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-gray-500 transition-colors flex-shrink-0" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigate('/account/privacy')}
+                  className="w-full flex items-center gap-3 text-left group pt-3"
+                >
+                  <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0 group-hover:bg-blue-100 transition-colors">
+                    <LifeBuoy className="w-4 h-4 text-blue-600" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-900">Privacy &amp; Data</p>
+                    <p className="text-xs text-gray-400">Export data, deletion requests, retention policy</p>
                   </div>
                   <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-gray-500 transition-colors flex-shrink-0" />
                 </button>

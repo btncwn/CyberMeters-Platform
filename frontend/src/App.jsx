@@ -40,6 +40,7 @@ import PortfolioPage         from './pages/PortfolioPage'
 import PortfolioRiskPage     from './pages/PortfolioRiskPage'
 import InvitationLandingPage from './pages/InvitationLandingPage'
 import AccountPage           from './pages/AccountPage'
+import AccountPrivacyPage   from './pages/AccountPrivacyPage'
 import SecurityPage          from './pages/SecurityPage'
 import BillingPage           from './pages/BillingPage'
 import DomainVerifyPage      from './pages/DomainVerifyPage'
@@ -150,6 +151,7 @@ function AppRoutes() {
         <Route path="settings"                element={<SettingsPage />}        />
         <Route path="account"                 element={<AccountPage />}          />
         <Route path="account/security"        element={<SecurityPage />}         />
+        <Route path="account/privacy"         element={<AccountPrivacyPage />}   />
         <Route path="billing"                 element={<BillingPage />}          />
         <Route path="domains/:id/verify"      element={<DomainVerifyPage />}     />
         {/* Workspace intelligence pages */}
