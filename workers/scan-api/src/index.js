@@ -628,6 +628,100 @@ function evaluateRegressionFixtures(fixtures = SCANNER_REGRESSION_FIXTURES) {
 
 // ── Module 1: DNS Analysis ────────────────────────────────────────────────────
 
+function normalizeDnsProviderFromNs(ns) {
+  const value = String(ns || "").toLowerCase().replace(/\.$/, "");
+  if (!value) return "unknown";
+  if (/cloudflare\.com$/.test(value)) return "Cloudflare";
+  if (/awsdns-/.test(value) || /route53/.test(value)) return "AWS Route53";
+  if (/azure-dns\.(com|net|org|info)$/.test(value)) return "Azure DNS";
+  if (/googledomains\.com$|google\.com$/.test(value)) return "Google Cloud DNS";
+  if (/akam\.net$|akamai/.test(value)) return "Akamai";
+  if (/fastly\.net$/.test(value)) return "Fastly";
+  if (/dnsmadeeasy\.com$/.test(value)) return "DNS Made Easy";
+  if (/domaincontrol\.com$/.test(value)) return "GoDaddy DNS";
+  if (/registrar-servers\.com$/.test(value)) return "Namecheap DNS";
+  if (/digitalocean\.com$/.test(value)) return "DigitalOcean DNS";
+  return value.split(".").slice(-2).join(".");
+}
+
+function classifyResilience(score) {
+  if (score >= 80) return "High resilience";
+  if (score >= 55) return "Medium resilience";
+  return "Low resilience";
+}
+
+function buildDnsOperationalResilience({ nameservers = [], dnssec = null, certificateAuthority = null } = {}) {
+  const providers = nameservers.map((ns) => normalizeDnsProviderFromNs(ns));
+  const uniqueProviders = [...new Set(providers.filter((p) => p && p !== "unknown"))];
+  const providerCounts = {};
+  for (const provider of providers) providerCounts[provider] = (providerCounts[provider] || 0) + 1;
+
+  const nsCount = nameservers.length;
+  const nsScore = nsCount >= 4 ? 25 : nsCount >= 2 ? 15 : nsCount === 1 ? 5 : 0;
+  const providerScore = uniqueProviders.length >= 2 ? 30 : uniqueProviders.length === 1 ? 15 : 0;
+  const dnssecScore = dnssec?.enabled ? 25 : dnssec ? 10 : 0;
+  const caScore =
+    certificateAuthority?.dependency === "multiple_ca_usage" ? 20 :
+    certificateAuthority?.dependency === "single_ca_dependency" ? 10 :
+    10;
+  const score = Math.max(0, Math.min(100, nsScore + providerScore + dnssecScore + caScore));
+
+  return {
+    score,
+    resilience_level: classifyResilience(score),
+    nameserver_diversity: {
+      nameserver_count: nsCount,
+      provider_count: uniqueProviders.length,
+      providers: uniqueProviders,
+      provider_counts: providerCounts,
+      future_signals: ["asn_diversity", "geographic_diversity"],
+    },
+    dns_provider_concentration: {
+      dependency:
+        uniqueProviders.length === 0 ? "unknown" :
+        uniqueProviders.length === 1 ? "single-provider dependency" : "multi-provider dependency",
+      label:
+        uniqueProviders.length === 1 ? `${uniqueProviders[0]}-only` :
+        uniqueProviders.length > 1 ? "Multi-provider" : "Unknown",
+      observations: uniqueProviders.length === 1
+        ? [`All observed nameservers resolve to ${uniqueProviders[0]}.`]
+        : uniqueProviders.length > 1
+          ? [`Observed nameservers span ${uniqueProviders.length} DNS providers.`]
+          : ["No authoritative nameserver provider could be classified."],
+    },
+    certificate_authority_concentration: certificateAuthority || {
+      dependency: "unknown",
+      issuers: [],
+      observations: ["Certificate authority concentration requires certificate intelligence output."],
+    },
+    factors: {
+      dnssec_enabled: !!dnssec?.enabled,
+      dnssec_points: dnssecScore,
+      nameserver_points: nsScore,
+      provider_concentration_points: providerScore,
+      certificate_authority_points: caScore,
+    },
+    source: "dns_operational_resilience",
+  };
+}
+
+function buildCertificateAuthorityConcentrationFromModule(certMod) {
+  const issuer = certMod?.issuer ? String(certMod.issuer).trim() : "";
+  if (!issuer) {
+    return {
+      dependency: "unknown",
+      issuers: [],
+      observations: ["No certificate issuer was available from certificate intelligence."],
+    };
+  }
+  return {
+    dependency: "single_ca_dependency",
+    issuers: [issuer],
+    issuer_count: 1,
+    observations: [`Current certificate chain is issued by ${issuer}.`],
+  };
+}
+
 async function runDnsModule(domain) {
   // CAA and DNSSEC trust evidence run here alongside A/AAAA/NS/MX.
   // Placing CAA in the DNS module avoids adding subrequests to later phases
@@ -775,17 +869,20 @@ async function runDnsModule(domain) {
       rrsig: rrsigARes.status === "rejected" ? (rrsigARes.reason?.message || "RRSIG lookup failed") : null,
     },
   };
+  const nameservers = nsRecords.map((r) => r.data).filter(Boolean);
+  const operationalResilience = buildDnsOperationalResilience({ nameservers, dnssec });
 
   return {
     resolves:     aRecords.length > 0 || aaaaRecords.length > 0,
     has_ipv6:     aaaaRecords.length > 0,
     has_mx:       mxRecords.length > 0,
-    nameservers:  nsRecords.map((r) => r.data).filter(Boolean),
+    nameservers,
     a_records:    aRecords.map((r) => ({ value: r.data, ttl: r.TTL })),
     aaaa_records: aaaaRecords.map((r) => ({ value: r.data, ttl: r.TTL })),
     mx_records:   mxRecords.map((r) => ({ value: r.data, ttl: r.TTL })),
     caa,
     dnssec,
+    operational_resilience: operationalResilience,
     cross_checks: (function() {
       const aCross    = buildDnsCrossCheck(domain, "A",    aRes.status    === "fulfilled" ? aRes.value    : null, googleARes,    quad9ARes.status === "fulfilled" ? quad9ARes.value?.value : null);
       const aaaaCross = buildDnsCrossCheck(domain, "AAAA", aaaaRes.status === "fulfilled" ? aaaaRes.value : null, googleAaaaRes, undefined);
@@ -7511,6 +7608,13 @@ function buildCanonicalUrlProfile(modules) {
     // Correlates modules.ssl + modules.subdomains (CT data) to produce
     // expiry status, sensitive-host inventory, and suspicious signal list.
     modules.certificate_intelligence = runCertificateIntelligenceModule(modules, domain);
+    if (modules.dns) {
+      modules.dns.operational_resilience = buildDnsOperationalResilience({
+        nameservers: modules.dns.nameservers || [],
+        dnssec: modules.dns.dnssec || null,
+        certificateAuthority: buildCertificateAuthorityConcentrationFromModule(modules.certificate_intelligence),
+      });
+    }
 
     // Phase 7i: Typosquat & Brand Monitoring — pure computation, zero network I/O.
     // Generates lookalike candidate domains for the brand name extracted from
@@ -10796,6 +10900,42 @@ function computeAsmMaturity(workspaceData) {
   return { level, score: Math.min(100, score) };
 }
 
+function computeDnsResilienceSignalsFromVendors(activeVendors) {
+  const dnsVendors = activeVendors.filter((v) => {
+    const cat = normalizeVendorRiskCategory(v.category, v.vendor_name, v.source);
+    const name = String(v.vendor_name || "").toLowerCase();
+    return cat === "dns_provider" || /cloudflare|route ?53|awsdns|azure dns|google cloud dns|akamai|fastly/.test(name);
+  });
+  const caVendors = activeVendors.filter((v) => {
+    const cat = String(v.category || "").toLowerCase();
+    return cat === "certificate_authority" || cat === "security_tooling";
+  });
+
+  const dnsProviders = [...new Set(dnsVendors.map((v) => v.vendor_name).filter(Boolean))];
+  const caProviders = [...new Set(caVendors.map((v) => v.vendor_name).filter(Boolean))];
+
+  return {
+    dns_provider_concentration: {
+      provider_count: dnsProviders.length,
+      providers: dnsProviders,
+      dependency:
+        dnsProviders.length === 0 ? "unknown" :
+        dnsProviders.length === 1 ? "single-provider dependency" : "multi-provider dependency",
+      label:
+        dnsProviders.length === 1 ? `${dnsProviders[0]}-only` :
+        dnsProviders.length > 1 ? "Multi-provider" : "Unknown",
+    },
+    certificate_authority_concentration: {
+      provider_count: caProviders.length,
+      providers: caProviders,
+      dependency:
+        caProviders.length === 0 ? "unknown" :
+        caProviders.length === 1 ? "single_ca_dependency" : "multiple_ca_usage",
+    },
+    source: "workspace_vendors",
+  };
+}
+
 /**
  * computeSupplyChainIntelligence(wsId, env)
  *
@@ -10844,6 +10984,7 @@ async function computeSupplyChainIntelligence(wsId, env) {
     const concentration   = computeConcentration(graph, activeVendors);
     const cascadingRisks  = computeCascadingRisks(enriched, graph);
     const resilienceScore = computeOperationalResilience(enriched, cascadingRisks, concentration);
+    const dnsResilienceSignals = computeDnsResilienceSignalsFromVendors(activeVendors);
     const compliance      = computeComplianceReadiness(enriched, brsScore);
     const asmMaturity     = computeAsmMaturity(workspaceData);
 
@@ -10887,6 +11028,7 @@ async function computeSupplyChainIntelligence(wsId, env) {
       dependency_graph:            graph,
       cascading_risks:             cascadingRisks,
       concentration:               concentration,
+      dns_resilience_signals:       dnsResilienceSignals,
       compliance_readiness:        compliance,
       asm_maturity:                asmMaturity,
       vendor_summary: {
