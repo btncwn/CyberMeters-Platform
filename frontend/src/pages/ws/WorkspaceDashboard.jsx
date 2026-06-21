@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  BarChart2, Shield, Server, AlertTriangle,
+  BarChart2, Shield, Server, AlertTriangle, ShieldAlert, ScanLine,
   Package2, Zap, Tag, Terminal, TrendingUp, TrendingDown, Minus,
   Globe, Upload, Plus, FileText, Clock, CheckCircle, Activity,
   ShieldCheck, Copy, ExternalLink, ChevronDown, ChevronUp, Wifi,
@@ -674,13 +674,42 @@ export default function WorkspaceDashboard() {
 
           {/* Empty state: no scans yet */}
           {noScans ? (
-            <div className="card p-16 text-center mb-8">
-              <Activity className="w-12 h-12 text-gray-200 mx-auto mb-4" />
-              <p className="text-gray-500 font-medium mb-1">No scans yet.</p>
-              <p className="text-sm text-gray-400 mb-6">Run your first scan to populate security intelligence.</p>
-              <a href="/scans/new" className="btn-primary mx-auto inline-flex items-center gap-2">
-                <Plus className="w-4 h-4" /> Run First Scan
-              </a>
+            <div className="mb-8 space-y-4">
+              {/* Hero CTA */}
+              <div className="card p-8 flex flex-col sm:flex-row sm:items-center gap-6">
+                <div className="w-14 h-14 rounded-2xl bg-brand-50 flex items-center justify-center flex-shrink-0">
+                  <ScanLine className="w-7 h-7 text-brand-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-base font-bold text-gray-900 mb-1">Run your first security scan</p>
+                  <p className="text-sm text-gray-500 leading-relaxed">
+                    A CyberMeters scan analyses your domain's DNS configuration, SSL certificates, security headers,
+                    email security posture, exposed assets, and subdomains — producing a scored risk report in minutes.
+                  </p>
+                </div>
+                <a href="/scans/new" className="btn-primary flex-shrink-0 inline-flex items-center gap-2">
+                  <Plus className="w-4 h-4" /> Start Scan
+                </a>
+              </div>
+              {/* What a scan checks */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {[
+                  { icon: Shield,        label: 'DNS & SSL',           desc: 'Certificate validity, DNS hygiene, resolver agreement'   },
+                  { icon: ShieldAlert,   label: 'Security Headers',    desc: 'CSP, HSTS, X-Frame-Options and 6 other header controls'  },
+                  { icon: AlertTriangle, label: 'Email Security',      desc: 'SPF, DKIM, DMARC — misconfiguration is phishing risk'    },
+                  { icon: Server,        label: 'Subdomain Discovery', desc: 'Map your full attack surface including forgotten assets'  },
+                  { icon: Activity,      label: 'Asset Exposure',      desc: 'Open admin panels, dev environments and cloud leakage'   },
+                  { icon: BarChart2,     label: 'Risk Score',          desc: 'Single 0–100 Cyber Metrics Score with drill-down detail' },
+                ].map(({ icon: Icon, label, desc }) => (
+                  <div key={label} className="card p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Icon className="w-4 h-4 text-brand-500 flex-shrink-0" />
+                      <span className="text-xs font-semibold text-gray-900">{label}</span>
+                    </div>
+                    <p className="text-xs text-gray-400 leading-relaxed">{desc}</p>
+                  </div>
+                ))}
+              </div>
             </div>
           ) : (
             <>

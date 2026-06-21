@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  RefreshCw, Briefcase, Globe, Plus, ChevronRight, X,
+  RefreshCw, Briefcase, Globe, Plus, ChevronRight, X, Shield, TrendingUp, FileText,
 } from 'lucide-react'
 import { api } from '../api'
 import Spinner from '../components/Spinner'
@@ -174,24 +174,45 @@ export default function WorkspacesPage() {
 
       {/* Empty state */}
       {workspaces.length === 0 && !error && (
-        <div className="card p-12 flex flex-col items-center text-center">
-          <div className="w-14 h-14 rounded-2xl bg-brand-50 flex items-center justify-center mb-4">
-            <Briefcase className="w-7 h-7 text-brand-600" />
+        <div className="space-y-4">
+          {/* Hero */}
+          <div className="card p-10 flex flex-col items-center text-center">
+            <div className="w-16 h-16 rounded-2xl bg-brand-50 flex items-center justify-center mb-5">
+              <Briefcase className="w-8 h-8 text-brand-600" />
+            </div>
+            <h3 className="text-xl font-bold text-gray-900 mb-2">Create your first workspace</h3>
+            <p className="text-sm text-gray-400 mb-1 max-w-md leading-relaxed">
+              A workspace is a container for one organisation or client — holding its domains, scans,
+              findings, asset inventory, and reports. You can have multiple workspaces, one per client or
+              business unit.
+            </p>
+            <p className="text-xs text-gray-300 mb-8">Takes less than a minute</p>
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <button onClick={() => navigate('/onboarding')} className="btn-primary">
+                <ChevronRight className="w-4 h-4" />
+                Get Started Guide
+              </button>
+              <button onClick={() => setShowCreate(true)} className="btn-secondary">
+                <Plus className="w-4 h-4" />
+                Create Workspace
+              </button>
+            </div>
           </div>
-          <h3 className="text-lg font-semibold text-gray-900 mb-1">No workspaces yet</h3>
-          <p className="text-sm text-gray-400 mb-6 max-w-sm">
-            Get started with a guided setup for your first workspace, domain,
-            verification and scan.
-          </p>
-          <div className="flex flex-wrap items-center justify-center gap-3">
-            <button onClick={() => navigate('/onboarding')} className="btn-primary">
-              <ChevronRight className="w-4 h-4" />
-              Get Started
-            </button>
-            <button onClick={() => setShowCreate(true)} className="btn-secondary">
-              <Plus className="w-4 h-4" />
-              Create manually
-            </button>
+          {/* What workspaces give you */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {[
+              { icon: Globe,     color: 'bg-brand-50 text-brand-600',   title: 'Domain Management', desc: 'Add and verify domains. CyberMeters tracks ownership and monitors for unauthorised changes.'         },
+              { icon: Shield,    color: 'bg-red-50 text-red-500',        title: 'Security Scanning',  desc: 'Run on-demand or scheduled scans to continuously assess your external attack surface.'            },
+              { icon: FileText,  color: 'bg-purple-50 text-purple-600', title: 'Executive Reports',  desc: 'Generate PDF risk reports for clients, stakeholders, or compliance purposes in one click.'        },
+            ].map(({ icon: Icon, color, title, desc }) => (
+              <div key={title} className="card p-5">
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-3 ${color}`}>
+                  <Icon className="w-4 h-4" />
+                </div>
+                <p className="text-sm font-semibold text-gray-900 mb-1">{title}</p>
+                <p className="text-xs text-gray-400 leading-relaxed">{desc}</p>
+              </div>
+            ))}
           </div>
         </div>
       )}

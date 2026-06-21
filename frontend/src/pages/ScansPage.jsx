@@ -1,11 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { RefreshCw, ScanLine, Globe, Clock, ChevronRight, CheckCircle, XCircle } from 'lucide-react'
+import { RefreshCw, ScanLine, Globe, Clock, ChevronRight, CheckCircle, XCircle, Shield, AlertTriangle, TrendingUp } from 'lucide-react'
 import { api } from '../api'
 import StatusBadge from '../components/StatusBadge'
 import Spinner from '../components/Spinner'
 import ErrorAlert from '../components/ErrorAlert'
-import EmptyState from '../components/EmptyState'
 
 function formatDate(str) {
   if (!str) return '—'
@@ -62,12 +61,42 @@ export default function ScansPage() {
         {loading ? (
           <div className="flex items-center justify-center py-24"><Spinner size="lg" /></div>
         ) : scans.length === 0 ? (
-          <EmptyState
-            icon={ScanLine}
-            title="No scans yet"
-            description="Run your first domain security scan to start monitoring your attack surface."
-            action={<Link to="/onboarding" className="btn-primary">Get Started</Link>}
-          />
+          <div className="p-8 space-y-6">
+            {/* Hero */}
+            <div className="flex flex-col sm:flex-row sm:items-center gap-5">
+              <div className="w-14 h-14 rounded-2xl bg-brand-50 flex items-center justify-center flex-shrink-0">
+                <ScanLine className="w-7 h-7 text-brand-600" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-base font-bold text-gray-900 mb-1">No scans yet</p>
+                <p className="text-sm text-gray-500 leading-relaxed">
+                  A security scan analyses a domain's DNS, SSL, headers, email posture, subdomains, and exposed assets —
+                  producing a scored risk report in minutes. Run your first scan to start monitoring your attack surface.
+                </p>
+              </div>
+              <Link to="/scans/new" className="btn-primary flex-shrink-0 inline-flex items-center gap-2">
+                <ScanLine className="w-4 h-4" /> New Scan
+              </Link>
+            </div>
+            {/* What you get */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 border-t border-gray-100 pt-6">
+              {[
+                { icon: Shield,        color: 'bg-brand-50 text-brand-600', title: 'Risk Score',      desc: '0–100 Cyber Metrics Score across DNS, SSL, email and headers'           },
+                { icon: AlertTriangle, color: 'bg-red-50 text-red-500',     title: 'Findings',        desc: 'Issues ranked by severity — Critical, High, Medium, Low'                },
+                { icon: TrendingUp,    color: 'bg-purple-50 text-purple-600', title: 'Trend History', desc: 'Compare scores over time and track remediation progress'                 },
+              ].map(({ icon: Icon, color, title, desc }) => (
+                <div key={title} className="flex items-start gap-3 p-4 rounded-xl bg-gray-50/60">
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${color}`}>
+                    <Icon className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">{title}</p>
+                    <p className="text-xs text-gray-400 leading-relaxed mt-0.5">{desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         ) : (
           <table className="w-full data-table">
             <thead>

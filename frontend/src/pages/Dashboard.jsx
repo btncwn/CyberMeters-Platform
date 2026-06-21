@@ -7,6 +7,8 @@ import {
 } from 'lucide-react'
 import { api } from '../api'
 import Spinner from '../components/Spinner'
+import OnboardingProgress from '../components/OnboardingProgress'
+import FirstResultsGuide  from '../components/FirstResultsGuide'
 
 /* ─── Helpers ──────────────────────────────────────────────────────────── */
 
@@ -307,9 +309,83 @@ function RiskBadge({ risk }) {
   return <span className="badge-low">Low</span>
 }
 
-/* ─── No-workspace empty state ─────────────────────────────────────────── */
+/* ─── No-workspace / create-workspace states ───────────────────────────── */
 
-function NoWorkspaceState() {
+/**
+ * Shown when the user has 0 workspaces — the true "brand new user" state.
+ * Replaces the old forced navigate('/onboarding') redirect so the user stays
+ * oriented inside the app.
+ */
+function CreateFirstWorkspaceState() {
+  return (
+    <div className="max-w-screen-xl mx-auto px-6 py-8">
+      <div className="mb-8">
+        <h1 className="text-2xl font-bold text-gray-900">Security Overview</h1>
+        <p className="text-sm text-gray-400 mt-0.5">Your attack surface dashboard</p>
+      </div>
+
+      {/* Hero banner */}
+      <div className="card p-10 flex flex-col items-center text-center mb-6">
+        <div className="w-16 h-16 rounded-2xl bg-brand-50 flex items-center justify-center mb-5">
+          <Briefcase className="w-8 h-8 text-brand-600" />
+        </div>
+        <h2 className="text-xl font-bold text-gray-900 mb-2">Create your first workspace</h2>
+        <p className="text-sm text-gray-400 mb-2 max-w-md leading-relaxed">
+          A workspace holds the domains, scans, and reports for one organisation or client.
+          Create your first workspace to begin monitoring your external attack surface.
+        </p>
+        <p className="text-xs text-gray-300 mb-8">Takes less than a minute · No credit card required</p>
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          <Link to="/onboarding" className="btn-primary">
+            <ChevronRight className="w-4 h-4" />
+            Get Started
+          </Link>
+          <Link to="/workspaces" className="btn-secondary">
+            <Briefcase className="w-4 h-4" />
+            Go to Workspaces
+          </Link>
+        </div>
+      </div>
+
+      {/* What you'll get */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {[
+          {
+            icon:  ShieldAlert,
+            color: 'bg-red-50 text-red-500',
+            title: 'Attack Surface Visibility',
+            desc:  'Discover subdomains, exposed services, and cloud assets across your entire digital footprint.',
+          },
+          {
+            icon:  TrendingUp,
+            color: 'bg-brand-50 text-brand-600',
+            title: 'Continuous Risk Scoring',
+            desc:  'Your Cyber Metrics Score updates with each scan — track improvement over time.',
+          },
+          {
+            icon:  Eye,
+            color: 'bg-purple-50 text-purple-600',
+            title: 'Executive Reporting',
+            desc:  'One-click PDF reports for stakeholders, clients, and compliance requirements.',
+          },
+        ].map(({ icon: Icon, color, title, desc }) => (
+          <div key={title} className="card p-5">
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-3 ${color}`}>
+              <Icon className="w-4 h-4" />
+            </div>
+            <p className="text-sm font-semibold text-gray-900 mb-1">{title}</p>
+            <p className="text-xs text-gray-400 leading-relaxed">{desc}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Shown when user has workspaces but none is selected via the top-nav selector.
+ */
+function SelectWorkspaceState() {
   return (
     <div className="max-w-screen-xl mx-auto px-6 py-8">
       <div className="flex items-center justify-between gap-4 mb-8">
@@ -325,16 +401,16 @@ function NoWorkspaceState() {
         <h3 className="text-lg font-semibold text-gray-900 mb-2">No workspace selected</h3>
         <p className="text-sm text-gray-400 mb-6 max-w-sm">
           The dashboard is scoped to a workspace. Select one from the workspace selector in the top nav,
-          or use the guided setup to create your first workspace.
+          or create a new workspace to get started.
         </p>
-        <div className="flex items-center gap-3">
-          <Link to="/onboarding" className="btn-primary">
-            <ChevronRight className="w-4 h-4" />
-            Get Started
-          </Link>
-          <Link to="/workspaces" className="btn-secondary">
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          <Link to="/workspaces" className="btn-primary">
             <Briefcase className="w-4 h-4" />
             Go to Workspaces
+          </Link>
+          <Link to="/onboarding" className="btn-secondary">
+            <ChevronRight className="w-4 h-4" />
+            Get Started Guide
           </Link>
         </div>
       </div>
@@ -345,12 +421,14 @@ function NoWorkspaceState() {
 /* ─── Main Dashboard ───────────────────────────────────────────────────── */
 
 export default function Dashboard() {
-  const [scans,      setScans]      = useState([])
-  const [report,     setReport]     = useState(null)
-  const [loading,    setLoading]    = useState(true)
-  const [error,      setError]      = useState(null)
-  const [refreshing, setRefreshing] = useState(false)
-  const [domainCount, setDomainCount] = useState(null)
+  const [scans,         setScans]         = useState([])
+  const [report,        setReport]        = useState(null)
+  const [loading,       setLoading]       = useState(true)
+  const [error,         setError]         = useState(null)
+  const [refreshing,    setRefreshing]    = useState(false)
+  const [domainCount,   setDomainCount]   = useState(null)
+  // null = unknown (still loading), true/false once resolved
+  const [hasWorkspaces, setHasWorkspaces] = useState(null)
 
   // Workspace isolation — read from localStorage; re-derive on storage events
   const [activeWorkspaceId,   setActiveWorkspaceId]   = useState(() => localStorage.getItem('cybermeters_workspace_id'))
@@ -398,16 +476,14 @@ export default function Dashboard() {
     setActiveWorkspaceName(wsName)
 
     // Security gate — never call global /api/scans when a workspace is set.
-    // If no workspace is selected, leave scans empty and show the empty state.
+    // If no workspace is selected, resolve hasWorkspaces to show the right empty state.
     if (!wsId) {
       try {
         const data = await api.getWorkspaces()
-        if ((data.workspaces || []).length === 0) {
-          navigate('/onboarding', { replace: true })
-          return
-        }
+        setHasWorkspaces((data.workspaces || []).length > 0)
       } catch {
-        // Fall through to the neutral workspace empty state.
+        // Fall through — show select-workspace state (neutral)
+        setHasWorkspaces(null)
       }
       setLoading(false)
       setRefreshing(false)
@@ -416,6 +492,8 @@ export default function Dashboard() {
       setDomainCount(null)
       return
     }
+    // User has a workspace selected — they definitely have workspaces
+    setHasWorkspaces(true)
 
     if (!silent) setLoading(true)
     else setRefreshing(true)
@@ -455,10 +533,17 @@ export default function Dashboard() {
     )
   }
 
-  // Security gate — no workspace selected → show neutral empty state, no data
+  // Security gate — no workspace selected → show appropriate empty state
   if (!activeWorkspaceId) {
-    return <NoWorkspaceState />
+    if (hasWorkspaces === false) return <CreateFirstWorkspaceState />
+    return <SelectWorkspaceState />
   }
+
+  const hasDomain       = domainCount !== null && domainCount > 0
+  const hasCompletedScan = ins.completed.length > 0
+  // Show onboarding progress until all 4 steps are done AND dismissed
+  const showProgress = true // OnboardingProgress manages its own dismissed state
+  const showGuide    = hasCompletedScan // FirstResultsGuide manages its own dismissed state
 
   return (
     <div className="max-w-screen-xl mx-auto px-6 py-8 space-y-8">
@@ -499,16 +584,31 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* ── Onboarding progress tracker ── */}
+      <OnboardingProgress
+        hasWorkspace={true}
+        hasDomain={hasDomain}
+        hasCompletedScan={hasCompletedScan}
+      />
+
+      {/* ── Domain setup nudge (replaces generic progress bar when 0 domains) ── */}
       {domainCount === 0 && (
         <div className="card p-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-brand-100 bg-brand-50/40">
-          <div>
-            <p className="text-sm font-bold text-gray-900">Finish workspace setup</p>
-            <p className="text-sm text-gray-500 mt-1">
-              Add and verify your first domain to generate a cyber risk assessment.
-            </p>
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-xl bg-brand-100 flex items-center justify-center flex-shrink-0">
+              <Globe className="w-4 h-4 text-brand-600" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-gray-900">Add your first domain</p>
+              <p className="text-sm text-gray-500 mt-0.5">
+                Add and verify a domain to generate your cyber risk assessment. Try{' '}
+                <span className="font-mono text-xs text-gray-700">example.com</span> or{' '}
+                <span className="font-mono text-xs text-gray-700">company.co.uk</span>.
+              </p>
+            </div>
           </div>
-          <Link to="/onboarding" className="btn-primary flex-shrink-0">
-            Get Started <ChevronRight className="w-4 h-4" />
+          <Link to="/ws/dashboard" className="btn-primary flex-shrink-0">
+            Add Domain <ChevronRight className="w-4 h-4" />
           </Link>
         </div>
       )}
@@ -681,6 +781,9 @@ export default function Dashboard() {
           </div>
         </section>
       )}
+
+      {/* ── First Results Guide — shown after first completed scan, dismissible ── */}
+      {showGuide && <FirstResultsGuide />}
 
       {/* Recent Scans (compact) */}
       {scans.length > 0 && (
