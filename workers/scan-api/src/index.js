@@ -15828,6 +15828,7 @@ const PLAN_LIMITS = {
     scan_starts_per_hour: 5,
     reports_per_month: 3,
     scheduled_scans: 1,
+    pending_invitations: 10,
   },
   starter: {
     workspaces: 5,
@@ -15841,6 +15842,7 @@ const PLAN_LIMITS = {
     scan_starts_per_hour: 20,
     reports_per_month: 50,
     scheduled_scans: 5,
+    pending_invitations: 25,
   },
   professional: {
     workspaces: 25,
@@ -15854,6 +15856,7 @@ const PLAN_LIMITS = {
     scan_starts_per_hour: 100,
     reports_per_month: 500,
     scheduled_scans: 25,
+    pending_invitations: 50,
   },
   business: {
     workspaces: 25,
@@ -15867,6 +15870,7 @@ const PLAN_LIMITS = {
     scan_starts_per_hour: 300,
     reports_per_month: 2000,
     scheduled_scans: 25,
+    pending_invitations: 250,
   },
   enterprise: {
     workspaces: 999999,
@@ -15880,6 +15884,7 @@ const PLAN_LIMITS = {
     scan_starts_per_hour: 999999,
     reports_per_month: 999999,
     scheduled_scans: 999999,
+    pending_invitations: 999999,
   },
 };
 
@@ -23123,8 +23128,104 @@ export default {
       }
     }
 
-    // ── GET /api/workspaces/:id/summary ──────────────────────────────────────
-    const summaryMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/summary$/);
+	    // ── GET /api/workspaces/:id/usage ────────────────────────────────────────
+	    const workspaceUsageMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/usage$/);
+	    if (workspaceUsageMatch && request.method === "GET") {
+	      const workspaceId = workspaceUsageMatch[1];
+	      const user = await requireAuth(request, env);
+	      if (!user) return json({ error: "Unauthorized" }, 401);
+	      const access = await requireWorkspaceRole(user, workspaceId, "workspace:read", env);
+	      if (!access) return json({ error: "Forbidden" }, 403);
+	      try {
+	        const periodStart = getMonthStart();
+	        const billingUserId = await getWorkspaceBillingUserId(workspaceId, user.id, env);
+	        const plan = await getEffectivePlan(billingUserId, env);
+	        const limits = getPlanLimits(plan);
+	        const [
+	          scansUsed,
+	          scansCompleted,
+	          reportsGenerated,
+	          scheduledReportsGenerated,
+	          reportRuns,
+	          reportCount,
+	          activeAssets,
+	        ] = await Promise.all([
+	          env.cybermeters_db.prepare(
+	            `SELECT COUNT(DISTINCT s.id) AS n
+	             FROM scans s
+	             LEFT JOIN workspace_domains wd ON wd.domain_id = s.domain_id
+	             WHERE s.created_at >= ?
+	               AND (s.workspace_id = ? OR (s.workspace_id IS NULL AND wd.workspace_id = ?))`
+	          ).bind(periodStart, workspaceId, workspaceId).first(),
+	          env.cybermeters_db.prepare(
+	            `SELECT COUNT(DISTINCT s.id) AS n
+	             FROM scans s
+	             LEFT JOIN workspace_domains wd ON wd.domain_id = s.domain_id
+	             WHERE s.status = 'completed' AND s.created_at >= ?
+	               AND (s.workspace_id = ? OR (s.workspace_id IS NULL AND wd.workspace_id = ?))`
+	          ).bind(periodStart, workspaceId, workspaceId).first(),
+	          env.cybermeters_db.prepare(
+	            `SELECT COUNT(*) AS n FROM workspace_reports
+	             WHERE workspace_id = ? AND status = 'completed'
+	               AND deleted_at IS NULL AND created_at >= ?`
+	          ).bind(workspaceId, periodStart).first(),
+	          env.cybermeters_db.prepare(
+	            `SELECT COUNT(*) AS n FROM workspace_reports
+	             WHERE workspace_id = ? AND status = 'completed'
+	               AND deleted_at IS NULL AND report_type IN ('weekly_executive', 'monthly_executive')
+	               AND created_at >= ?`
+	          ).bind(workspaceId, periodStart).first(),
+	          env.cybermeters_db.prepare(
+	            `SELECT COUNT(*) AS n FROM report_schedule_runs
+	             WHERE workspace_id = ? AND created_at >= ?`
+	          ).bind(workspaceId, periodStart).first(),
+	          env.cybermeters_db.prepare(
+	            `SELECT COUNT(*) AS n FROM workspace_reports
+	             WHERE workspace_id = ? AND status = 'completed' AND deleted_at IS NULL`
+	          ).bind(workspaceId).first(),
+	          env.cybermeters_db.prepare(
+	            `SELECT COUNT(*) AS n FROM workspace_assets
+	             WHERE workspace_id = ? AND status = 'active'`
+	          ).bind(workspaceId).first(),
+	        ]);
+	        const completedReportCount = Number(reportCount?.n ?? 0);
+	        const estimatedReportBytes = 250_000;
+	        const storageBytes = completedReportCount * estimatedReportBytes;
+
+	        createAuditEvent(env, {
+	          workspace_id: workspaceId,
+	          user_id: user.id,
+	          event_type: "usage_viewed",
+	          entity_type: "workspace",
+	          entity_id: workspaceId,
+	          description: "Workspace usage metering viewed",
+	          metadata: { period_start: periodStart },
+	        }).catch(() => {});
+
+	        return json({
+	          workspace_id: workspaceId,
+	          plan,
+	          period_start: periodStart,
+	          current_period: {
+	            scans_used: Number(scansUsed?.n ?? 0),
+	            scans_completed: Number(scansCompleted?.n ?? 0),
+	            reports_generated: Number(reportsGenerated?.n ?? 0),
+	            scheduled_reports_generated: Number(scheduledReportsGenerated?.n ?? 0),
+	            report_schedule_runs: Number(reportRuns?.n ?? 0),
+	            storage_bytes: storageBytes,
+	            storage_estimated: true,
+	            active_assets: Number(activeAssets?.n ?? 0),
+	            workspace_report_count: completedReportCount,
+	          },
+	          limits,
+	        });
+	      } catch (e) {
+	        return json({ error: e.message }, 500);
+	      }
+	    }
+
+	    // ── GET /api/workspaces/:id/summary ──────────────────────────────────────
+	    const summaryMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/summary$/);
     if (summaryMatch && request.method === "GET") {
       const workspaceId = summaryMatch[1];
       const user = await requireAuth(request, env);
@@ -23343,6 +23444,37 @@ export default {
       const access = await requireWorkspaceRole(user, workspaceId, "workspace:invite", env);
       if (!access) return json({ error: "Forbidden — admin role required to invite members" }, 403);
 
+      // ── Task 1: Rate limiting — 10/hour, 25/day per workspace ────────────
+      // Uses the shared D1-backed consumeApiRateLimit helper. Fails open if the
+      // rate_limit table is unavailable so a transient DB hiccup never blocks invites.
+      const inviteScopes = [{ scope: "workspace", scope_id: workspaceId }];
+      const rlHourly = await consumeApiRateLimit(env, inviteScopes, "invite_send", 10, 3600);
+      if (rlHourly) {
+        await createAuditEvent(env, {
+          workspace_id: workspaceId,
+          user_id:      user.id,
+          event_type:   "invitation_rate_limit_hit",
+          entity_type:  "workspace",
+          entity_id:    workspaceId,
+          description:  "Invitation rate limit hit (hourly)",
+          metadata:     { action: "invite_send", window: "hourly", limit: 10 },
+        });
+        return json({ error: "Too many invitations sent. Please try again later.", code: "rate_limit_exceeded" }, 429);
+      }
+      const rlDaily = await consumeApiRateLimit(env, inviteScopes, "invite_send_daily", 25, 86400);
+      if (rlDaily) {
+        await createAuditEvent(env, {
+          workspace_id: workspaceId,
+          user_id:      user.id,
+          event_type:   "invitation_rate_limit_hit",
+          entity_type:  "workspace",
+          entity_id:    workspaceId,
+          description:  "Invitation rate limit hit (daily)",
+          metadata:     { action: "invite_send", window: "daily", limit: 25 },
+        });
+        return json({ error: "Too many invitations sent. Please try again later.", code: "rate_limit_exceeded" }, 429);
+      }
+
       let body;
       try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
 
@@ -23354,6 +23486,11 @@ export default {
       if (!isValidEmail(email)) return json({ error: "email must be valid" }, 400);
       if (!VALID_INVITE_ROLES.has(role)) return json({ error: "role must be one of: viewer, analyst, admin" }, 400);
 
+      // ── Task 4a: Self-invitation guard ───────────────────────────────────
+      if (email === (user.email || "").toLowerCase()) {
+        return json({ error: "You cannot invite yourself to this workspace." }, 400);
+      }
+
       try {
         const workspace = await env.cybermeters_db
           .prepare("SELECT id FROM workspaces WHERE id = ?")
@@ -23362,8 +23499,10 @@ export default {
         if (!workspace) return json({ error: "Workspace not found" }, 404);
 
         const billingUserId = await getWorkspaceBillingUserId(workspaceId, user.id, env);
-        const invitePlan = await getEffectivePlan(billingUserId, env);
-        const inviteLimits = getPlanLimits(invitePlan);
+        const invitePlan    = await getEffectivePlan(billingUserId, env);
+        const inviteLimits  = getPlanLimits(invitePlan);
+
+        // Member seat limit (existing)
         const memberCount = await env.cybermeters_db
           .prepare("SELECT COUNT(*) AS cnt FROM workspace_members WHERE workspace_id = ?")
           .bind(workspaceId)
@@ -23372,6 +23511,31 @@ export default {
           return json(planLimitExceeded("users", inviteLimits.users, memberCount?.cnt ?? 0), 403);
         }
 
+        // ── Task 2: Pending invitation limit (plan-gated) ─────────────────
+        // free=10, starter=25, professional=50, business=250, enterprise=unlimited
+        const pendingRow = await env.cybermeters_db
+          .prepare(
+            `SELECT COUNT(*) AS cnt FROM workspace_invitations
+             WHERE workspace_id = ? AND status = 'pending'
+               AND expires_at > datetime('now')`
+          )
+          .bind(workspaceId)
+          .first();
+        const pendingLimit = inviteLimits.pending_invitations ?? 10;
+        if (pendingLimit < 999999 && (pendingRow?.cnt ?? 0) >= pendingLimit) {
+          await createAuditEvent(env, {
+            workspace_id: workspaceId,
+            user_id:      user.id,
+            event_type:   "invitation_limit_reached",
+            entity_type:  "workspace",
+            entity_id:    workspaceId,
+            description:  "Pending invitation limit reached",
+            metadata:     { plan: invitePlan, pending_count: pendingRow?.cnt ?? 0, limit: pendingLimit },
+          });
+          return json({ error: "Invitation limit reached for your plan.", code: "invitation_limit_reached" }, 403);
+        }
+
+        // ── Task 4b: Existing member check (hardened — no role/status leakage) ─
         const existingUser = await env.cybermeters_db
           .prepare("SELECT id FROM users WHERE email = ? LIMIT 1")
           .bind(email)
@@ -23381,9 +23545,11 @@ export default {
             .prepare("SELECT id FROM workspace_members WHERE workspace_id = ? AND user_id = ? LIMIT 1")
             .bind(workspaceId, existingUser.id)
             .first();
-          if (existingMember) return json({ error: "User is already a workspace member" }, 409);
+          // Generic message — does not reveal whether address is a registered user
+          if (existingMember) return json({ error: "This address cannot be invited to this workspace." }, 409);
         }
 
+        // ── Task 4c: Active (pending) invitation check — hardened message ──
         const existingInvite = await env.cybermeters_db
           .prepare(
             `SELECT id FROM workspace_invitations
@@ -23393,8 +23559,37 @@ export default {
           )
           .bind(workspaceId, email)
           .first();
-        if (existingInvite) return json({ error: "A pending invitation already exists for this email" }, 409);
+        // Generic message — does not reveal whether a token or invite exists
+        if (existingInvite) return json({ error: "This address cannot be invited to this workspace." }, 409);
 
+        // ── Task 3: Cooldown — 24 h between sends to the same address ─────
+        // Exceptions: if the previous invite is already cancelled, expired, or
+        // accepted the cooldown does not apply — re-inviting is permitted.
+        const cooldownRow = await env.cybermeters_db
+          .prepare(
+            `SELECT id FROM workspace_invitations
+             WHERE workspace_id = ? AND email = ?
+               AND created_at > datetime('now', '-24 hours')
+               AND status NOT IN ('cancelled', 'expired', 'accepted')
+             LIMIT 1`
+          )
+          .bind(workspaceId, email)
+          .first();
+        if (cooldownRow) {
+          await createAuditEvent(env, {
+            workspace_id: workspaceId,
+            user_id:      user.id,
+            event_type:   "invitation_cooldown_blocked",
+            entity_type:  "workspace",
+            entity_id:    workspaceId,
+            description:  "Invitation cooldown — duplicate send within 24 h",
+            // No email or token in metadata — safe to store
+            metadata:     { workspace_id: workspaceId },
+          });
+          return json({ error: "This address was recently invited. Please wait before sending another invitation.", code: "invitation_cooldown" }, 429);
+        }
+
+        // ── All checks passed — create invitation ─────────────────────────
         const { raw: token, hash: tokenHash } = await generateInviteToken();
         const inviteId  = createId("wsi");
         const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
