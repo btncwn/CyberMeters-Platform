@@ -3721,10 +3721,25 @@ function buildCertificateLifecycleIntelligence(certMod) {
   };
 }
 
-function buildCaConcentrationAnalytics(issuers) {
-  const issuerList = Array.isArray(issuers)
-    ? issuers.map((i) => String(i || "").trim()).filter(Boolean)
-    : [];
+function buildCaConcentrationAnalytics(observations, options = {}) {
+  const source = options.source || "current_certificate_intelligence";
+  const rows = Array.isArray(observations) ? observations : [];
+  const normalizedRows = rows
+    .map((entry) => {
+      if (typeof entry === "string") {
+        const issuer = entry.trim();
+        return issuer ? { issuer, first_seen: null, last_seen: null } : null;
+      }
+      const issuer = String(entry?.issuer || "").trim();
+      if (!issuer) return null;
+      return {
+        issuer,
+        first_seen: entry?.first_seen || null,
+        last_seen: entry?.last_seen || null,
+      };
+    })
+    .filter(Boolean);
+  const issuerList = normalizedRows.map((row) => row.issuer);
   const uniqueIssuers = [...new Set(issuerList)];
 
   if (uniqueIssuers.length === 0) {
@@ -3736,6 +3751,9 @@ function buildCaConcentrationAnalytics(issuers) {
       dominant_ca_owner: "unknown",
       dominant_ca_share: 0,
       concentration_level: "unknown",
+      first_observed: null,
+      last_observed: null,
+      source,
       observations: ["No certificate issuer was available from certificate intelligence."],
       recommendations: [],
     };
@@ -3756,14 +3774,17 @@ function buildCaConcentrationAnalytics(issuers) {
     issuerList.length === 1 || dominantShare >= 0.8 ? "high" :
     dominantShare >= 0.5 ? "medium" : "low";
 
-  const observations = [
+  const observationMessages = [
     uniqueIssuers.length === 1
       ? `Current certificate data shows a single observed issuer: ${uniqueIssuers[0]}.`
       : `Current certificate data shows ${uniqueIssuers.length} observed issuers.`,
   ];
   if (dominantOwner !== "unknown") {
-    observations.push(`${dominantOwner} is the dominant certificate authority owner in observed certificate data.`);
+    observationMessages.push(`${dominantOwner} is the dominant certificate authority owner in observed certificate data.`);
   }
+
+  const firstObservedValues = normalizedRows.map((row) => row.first_seen).filter(Boolean).sort();
+  const lastObservedValues = normalizedRows.map((row) => row.last_seen).filter(Boolean).sort();
 
   const recommendations = concentrationLevel === "high"
     ? ["Track CA dependency as an operational resilience risk and ensure renewal runbooks cover issuer outages or account issues."]
@@ -3777,7 +3798,10 @@ function buildCaConcentrationAnalytics(issuers) {
     dominant_ca_owner: dominantOwner,
     dominant_ca_share: dominantShare,
     concentration_level: concentrationLevel,
-    observations,
+    first_observed: firstObservedValues[0] || null,
+    last_observed: lastObservedValues[lastObservedValues.length - 1] || null,
+    source,
+    observations: observationMessages,
     recommendations,
   };
 }
@@ -20713,12 +20737,15 @@ export default {
           .sort(([a], [b]) => b.localeCompare(a))
           .map(([day, evts]) => ({ day, events: evts }));
 
-        let issuer_history = [];
-        let certificate_timeline = [];
-        let churn = {
-          certificates_last_30_days: 0,
-          certificates_last_90_days: 0,
-          classification: "low",
+	        let issuer_history = [];
+	        let certificate_timeline = [];
+	        let ca_concentration = buildCaConcentrationAnalytics([], {
+	          source: "historical_certificate_observations",
+	        });
+	        let churn = {
+	          certificates_last_30_days: 0,
+	          certificates_last_90_days: 0,
+	          classification: "low",
         };
         try {
           const thirtyDaysAgo = new Date(Date.now() - 30 * 86_400_000).toISOString();
@@ -20762,10 +20789,13 @@ export default {
               .first(),
           ]);
 
-          issuer_history = issuerRows.results || [];
-          certificate_timeline = certRows.results || [];
-          const count30 = churn30?.n ?? 0;
-          const count90 = churn90?.n ?? 0;
+	          issuer_history = issuerRows.results || [];
+	          certificate_timeline = certRows.results || [];
+	          ca_concentration = buildCaConcentrationAnalytics(certificate_timeline, {
+	            source: "historical_certificate_observations",
+	          });
+	          const count30 = churn30?.n ?? 0;
+	          const count90 = churn90?.n ?? 0;
           const classification =
             count90 >= 25 ? "unusual" :
             count90 >= 10 ? "high" :
@@ -20777,8 +20807,8 @@ export default {
           };
         } catch { /* v2 migration may not be applied yet */ }
 
-        return json({ workspace_id: wsId, days: 90, timeline, certificate_timeline, issuer_history, churn });
-      }
+	        return json({ workspace_id: wsId, days: 90, timeline, certificate_timeline, issuer_history, churn, ca_concentration });
+	      }
 
       // ── /certificates ───────────────────────────────────────────────────
       if (domainIds.length === 0) {
@@ -20802,12 +20832,35 @@ export default {
         .filter(Boolean);
 
       // Fetch R2 reports in parallel
-      const r2Results = await Promise.allSettled(
-        scanRows.map((s) => env.cybermeters_reports.get(`reports/${s.id}.json`))
-      );
+	      const r2Results = await Promise.allSettled(
+	        scanRows.map((s) => env.cybermeters_reports.get(`reports/${s.id}.json`))
+	      );
 
-      const certificates = [];
-      for (let i = 0; i < r2Results.length; i++) {
+	      const caConcentrationByDomain = new Map();
+	      try {
+	        const observed = await env.cybermeters_db
+	          .prepare(
+	            `SELECT domain_id, issuer, first_seen, last_seen
+	             FROM certificate_observations
+	             WHERE workspace_id = ?`
+	          )
+	          .bind(wsId)
+	          .all();
+	        const byDomain = new Map();
+	        for (const row of (observed.results || [])) {
+	          if (!row.domain_id) continue;
+	          if (!byDomain.has(row.domain_id)) byDomain.set(row.domain_id, []);
+	          byDomain.get(row.domain_id).push(row);
+	        }
+	        for (const [domainId, rows] of byDomain.entries()) {
+	          caConcentrationByDomain.set(domainId, buildCaConcentrationAnalytics(rows, {
+	            source: "historical_certificate_observations",
+	          }));
+	        }
+	      } catch { /* certificate_observations may not exist in older environments */ }
+
+	      const certificates = [];
+	      for (let i = 0; i < r2Results.length; i++) {
         if (r2Results[i].status !== "fulfilled" || !r2Results[i].value) continue;
         let report;
         try { report = await r2Results[i].value.json(); } catch { continue; }
@@ -20837,7 +20890,7 @@ export default {
 	            signature_algorithm: ci.signature_algorithm || "unknown",
 	          },
 	          self_signed:                  ci.self_signed ?? detectSelfSignedCertificate(ci.issuer || null, ci.subject || null),
-	          ca_concentration:             ci.ca_concentration || buildCaConcentrationAnalytics(ci.issuer ? [ci.issuer] : []),
+	          ca_concentration:             caConcentrationByDomain.get(scanRows[i]?.domain_id) || ci.ca_concentration || buildCaConcentrationAnalytics(ci.issuer ? [ci.issuer] : []),
 	          total_certificates_seen:      ci.total_certificates_seen,
 	          issued_for_sensitive_hosts:   ci.issued_for_sensitive_hosts || [],
           wildcard_dns:                 ci.wildcard_dns,
