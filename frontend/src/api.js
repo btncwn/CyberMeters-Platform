@@ -681,6 +681,24 @@ export const api = {
       body: JSON.stringify({ email, role }),
     }),
 
+  /**
+   * PATCH /api/workspaces/:id/members/:memberId
+   * Body: { role }   role ∈ 'viewer' | 'analyst' | 'admin'
+   * Requires owner role.
+   */
+  updateMemberRole: (workspaceId, memberId, role) =>
+    request(`/workspaces/${workspaceId}/members/${memberId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ role }),
+    }),
+
+  /**
+   * DELETE /api/workspaces/:id/invitations/:invitationId
+   * Cancel a pending invitation. Requires admin or owner role.
+   */
+  cancelWorkspaceInvitation: (workspaceId, invitationId) =>
+    request(`/workspaces/${workspaceId}/invitations/${invitationId}`, { method: 'DELETE' }),
+
   /** POST /api/invitations/:token/accept */
   acceptWorkspaceInvitation: (token) =>
     request(`/invitations/${encodeURIComponent(token)}/accept`, { method: 'POST' }),

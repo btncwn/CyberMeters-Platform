@@ -2,7 +2,7 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Shield, Package2, Layers, Zap,
   Cloud, Terminal, Lock, Tag, Bell, Briefcase, ChevronLeft, FileText,
-  BarChart2, TrendingUp, ShieldCheck, ShieldAlert, GitBranch, ClipboardList,
+  BarChart2, TrendingUp, ShieldCheck, ShieldAlert, GitBranch, ClipboardList, Users,
 } from 'lucide-react'
 
 const WS_NAV = [
@@ -23,6 +23,7 @@ const WS_NAV = [
   { to: '/ws/alerts',           icon: Bell,            label: 'Alerts'           },
   { to: '/ws/reports',          icon: FileText,        label: 'Reports'          },
   { to: '/ws/audit-log',        icon: ClipboardList,   label: 'Audit Log'        },
+  { to: '/ws/members',          icon: Users,           label: 'Team Members'     },
 ]
 
 export default function WorkspaceNav({ wsName }) {

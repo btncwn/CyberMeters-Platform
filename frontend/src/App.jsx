@@ -35,6 +35,7 @@ import WorkspaceBusinessRiskPage   from './pages/ws/WorkspaceBusinessRiskPage'
 import WorkspaceCyberEssentialsPage from './pages/ws/WorkspaceCyberEssentialsPage'
 import WorkspaceSupplyChainPage    from './pages/ws/WorkspaceSupplyChainPage'
 import WorkspaceAuditLogPage       from './pages/ws/WorkspaceAuditLogPage'
+import WorkspaceMembersPage        from './pages/ws/WorkspaceMembersPage'
 import PortfolioPage         from './pages/PortfolioPage'
 import PortfolioRiskPage     from './pages/PortfolioRiskPage'
 import AcceptInvitationPage  from './pages/AcceptInvitationPage'
@@ -167,6 +168,7 @@ function AppRoutes() {
         <Route path="ws/cyber-essentials"    element={<WorkspaceCyberEssentialsPage />} />
         <Route path="ws/supply-chain"         element={<WorkspaceSupplyChainPage />}      />
         <Route path="ws/audit-log"            element={<WorkspaceAuditLogPage />}          />
+        <Route path="ws/members"              element={<WorkspaceMembersPage />}           />
         <Route path="*"                   element={<Navigate to="/dashboard" replace />} />
       </Route>
 
