@@ -2553,12 +2553,14 @@ async function runTakeoverModule(domain, subdomains) {
 
   // Step 2: collect candidates whose CNAME resolves to a known vulnerable provider
   const candidates = [];
+  const cname_observations = [];
   for (let i = 0; i < targets.length; i++) {
     const r = cnameResults[i];
     if (r.status !== "fulfilled") continue;
     const answers = r.value.Answer || [];
     for (const answer of answers) {
       const cname = (answer.data || "").toLowerCase().replace(/\.$/, "");
+      if (cname) cname_observations.push({ host: targets[i], cname, source: "dns_cname" });
       for (const fp of TAKEOVER_FINGERPRINTS) {
         if (cname === fp.cname_suffix || cname.endsWith("." + fp.cname_suffix)) {
           candidates.push({ host: targets[i], cname, fingerprint: fp });
@@ -2569,7 +2571,7 @@ async function runTakeoverModule(domain, subdomains) {
   }
 
   if (candidates.length === 0) {
-    return { checked: targets.length, potential_risks: 0, risks: [], source, error: null };
+    return { checked: targets.length, potential_risks: 0, risks: [], cname_observations, source, error: null };
   }
 
   // Step 3: fetch each candidate to confirm takeover via body fingerprint
@@ -2605,262 +2607,365 @@ async function runTakeoverModule(domain, subdomains) {
     checked:         targets.length,
     potential_risks: candidates.length,
     risks,
+    cname_observations,
     source,
     error: null,
   };
 }
 
 // ── Cloud Storage Discovery ───────────────────────────────────────────────────
-// Cloud Asset Discovery — pattern-based detection of public cloud services
-// across all discovered hostnames, CNAMEs, URLs and redirect targets.
-// No additional HTTP calls — pure analysis of data already present in other modules.
-//
-// Covers: object storage, CDN, serverless functions, managed PaaS, static hosting.
-//
-// risk_level:
-//   low    — CDN / static hosting (expected public exposure)
-//   medium — managed PaaS / storage (may expose data if misconfigured)
-//   high   — serverless endpoints (direct compute exposure)
+// Cloud Storage Exposure Discovery v1 — evidence-based detection of externally
+// referenced AWS S3, Azure Blob Storage, and Google Cloud Storage endpoints.
+// No bucket guessing, no SDK/API credentials, no object-key collection.
 
-const CLOUD_ASSET_PATTERNS = [
-
-  // ── Object Storage ────────────────────────────────────────────────────────
-  {
-    provider:     "AWS S3",
-    category:     "storage",
-    service_type: "object_storage",
-    patterns:     [".s3.amazonaws.com", "s3.amazonaws.com", "s3-website-", ".s3-website."],
-    risk_level:   "medium",
-  },
-  {
-    provider:     "Azure Blob Storage",
-    category:     "storage",
-    service_type: "object_storage",
-    patterns:     ["blob.core.windows.net", "table.core.windows.net",
-                   "queue.core.windows.net", "file.core.windows.net"],
-    risk_level:   "medium",
-  },
-  {
-    provider:     "Azure Static Website",
-    category:     "storage",
-    service_type: "static_website",
-    patterns:     ["web.core.windows.net"],
-    risk_level:   "low",
-  },
-  {
-    provider:     "Google Cloud Storage",
-    category:     "storage",
-    service_type: "object_storage",
-    patterns:     ["storage.googleapis.com"],
-    risk_level:   "medium",
-  },
-  {
-    provider:     "Firebase Storage",
-    category:     "storage",
-    service_type: "object_storage",
-    patterns:     ["firebasestorage.googleapis.com"],
-    risk_level:   "medium",
-  },
-
-  // ── CDN ───────────────────────────────────────────────────────────────────
-  {
-    provider:     "AWS CloudFront",
-    category:     "cdn",
-    service_type: "content_delivery",
-    patterns:     [".cloudfront.net"],
-    risk_level:   "low",
-  },
-
-  // ── Serverless / API ──────────────────────────────────────────────────────
-  {
-    provider:     "AWS Lambda URL",
-    category:     "serverless",
-    service_type: "function_url",
-    patterns:     ["lambda-url.", ".on.aws"],
-    risk_level:   "high",
-  },
-  {
-    provider:     "AWS API Gateway",
-    category:     "serverless",
-    service_type: "api_gateway",
-    patterns:     ["execute-api.", ".amazonaws.com/prod", ".amazonaws.com/v1",
-                   ".amazonaws.com/v2", ".amazonaws.com/stage"],
-    risk_level:   "high",
-  },
-  {
-    provider:     "Azure Functions",
-    category:     "serverless",
-    service_type: "function_url",
-    // Distinguished from App Service by common naming: func-* / *-function* / *-api*
-    // Both use azurewebsites.net — we match by common function URL patterns
-    patterns:     [".azurewebsites.net/api/"],
-    risk_level:   "high",
-  },
-
-  // ── Managed PaaS / Hosting ────────────────────────────────────────────────
-  {
-    provider:     "Azure App Service",
-    category:     "paas",
-    service_type: "managed_app",
-    patterns:     [".azurewebsites.net"],
-    risk_level:   "medium",
-  },
-  {
-    provider:     "AWS Elastic Beanstalk",
-    category:     "paas",
-    service_type: "managed_app",
-    patterns:     [".elasticbeanstalk.com"],
-    risk_level:   "medium",
-  },
-  {
-    provider:     "AWS App Runner",
-    category:     "paas",
-    service_type: "managed_app",
-    patterns:     [".awsapprunner.com"],
-    risk_level:   "medium",
-  },
-  {
-    provider:     "Firebase / Google App Engine",
-    category:     "paas",
-    service_type: "managed_app",
-    patterns:     ["firebaseapp.com", "appspot.com", ".web.app"],
-    risk_level:   "low",
-  },
-
-  // ── Static Hosting Platforms ──────────────────────────────────────────────
-  {
-    provider:     "Vercel",
-    category:     "hosting",
-    service_type: "static_hosting",
-    patterns:     [".vercel.app", "vercel-dns.com", ".now.sh"],
-    risk_level:   "low",
-  },
-  {
-    provider:     "Netlify",
-    category:     "hosting",
-    service_type: "static_hosting",
-    patterns:     [".netlify.app", ".netlify.com"],
-    risk_level:   "low",
-  },
-];
-
-/**
- * detectCloudAsset(value) → { provider, category, service_type, patterns, risk_level } | null
- * Returns the first matching CLOUD_ASSET_PATTERNS entry.
- */
-function detectCloudAsset(value) {
+function hostnameFromValue(value) {
   if (!value) return null;
-  const v = value.toLowerCase();
-  for (const def of CLOUD_ASSET_PATTERNS) {
-    for (const pat of def.patterns) {
-      if (v.includes(pat)) return { def, matchedPattern: pat };
+  try {
+    const raw = String(value).trim();
+    const url = raw.includes("://") ? new URL(raw) : new URL(`https://${raw}`);
+    return url.hostname.toLowerCase().replace(/\.$/, "");
+  } catch {
+    return String(value).trim().toLowerCase().replace(/^https?:\/\//, "").split(/[/?#:]/)[0].replace(/\.$/, "") || null;
+  }
+}
+
+function firstPathSegment(value) {
+  if (!value) return null;
+  try {
+    const raw = String(value).trim();
+    const url = raw.includes("://") ? new URL(raw) : new URL(`https://${raw}`);
+    return url.pathname.split("/").filter(Boolean)[0] || null;
+  } catch {
+    return null;
+  }
+}
+
+function cloudProviderHeadersPresent(provider, headers) {
+  const h = (name) => headers.get(name) || "";
+  const server = h("server").toLowerCase();
+  if (provider === "AWS S3") {
+    return Boolean(h("x-amz-request-id") || h("x-amz-id-2") || h("x-amz-bucket-region") || server.includes("amazons3"));
+  }
+  if (provider === "Azure Blob Storage") {
+    return Boolean(h("x-ms-request-id") || h("x-ms-version") || server.includes("windows-azure-blob"));
+  }
+  if (provider === "Google Cloud Storage") {
+    return Boolean(h("x-guploader-uploadid") || h("x-goog-storage-class") || server.includes("uploadserver"));
+  }
+  return false;
+}
+
+function detectCloudStorageCandidateFromValue(value, source, sourceHostname, evidenceLabel) {
+  const host = hostnameFromValue(value);
+  if (!host) return null;
+  const pathBucket = firstPathSegment(value);
+  const sourceHost = hostnameFromValue(sourceHostname) || host;
+  let provider = null;
+  let bucket = null;
+  let matchedPattern = null;
+
+  const s3Match = host.match(/^([a-z0-9][a-z0-9.-]{1,61}[a-z0-9])\.s3(?:[.-][a-z0-9-]+)?\.amazonaws\.com$/i)
+    || host.match(/^([a-z0-9][a-z0-9.-]{1,61}[a-z0-9])\.s3-website[.-][a-z0-9-]+\.amazonaws\.com$/i);
+  if (s3Match) {
+    provider = "AWS S3";
+    bucket = s3Match[1];
+    matchedPattern = "bucket.s3.amazonaws.com";
+  } else if (/^s3(?:[.-][a-z0-9-]+)?\.amazonaws\.com$/i.test(host) && pathBucket) {
+    provider = "AWS S3";
+    bucket = pathBucket;
+    matchedPattern = "s3.amazonaws.com/bucket";
+  }
+
+  const azureMatch = host.match(/^([a-z0-9][a-z0-9-]{1,61}[a-z0-9])\.blob\.core\.windows\.net$/i);
+  if (!provider && azureMatch) {
+    provider = "Azure Blob Storage";
+    bucket = azureMatch[1];
+    matchedPattern = "container.blob.core.windows.net";
+  }
+
+  const gcsMatch = host.match(/^([a-z0-9][a-z0-9._-]{1,220}[a-z0-9])\.storage\.googleapis\.com$/i);
+  if (!provider && gcsMatch) {
+    provider = "Google Cloud Storage";
+    bucket = gcsMatch[1];
+    matchedPattern = "bucket.storage.googleapis.com";
+  } else if (!provider && host === "storage.googleapis.com" && pathBucket) {
+    provider = "Google Cloud Storage";
+    bucket = pathBucket;
+    matchedPattern = "storage.googleapis.com/bucket";
+  }
+
+  if (!provider || !bucket) return null;
+  const evidence = host === "storage.googleapis.com" || /^s3(?:[.-][a-z0-9-]+)?\.amazonaws\.com$/i.test(host)
+    ? `https://${host}/${bucket}`
+    : `https://${host}`;
+  const confidence = source === "cname" ? 90 : source === "asset_redirect" ? 80 : source === "http_header" ? 60 : 70;
+  return {
+    provider,
+    bucket_or_container: bucket,
+    source,
+    source_hostname: sourceHost,
+    evidence: { observed_value: evidence, evidence_label: evidenceLabel, matched_pattern: matchedPattern },
+    confidence,
+    business_context: "asm",
+  };
+}
+
+function buildCloudStorageValidationUrl(candidate, listing = false) {
+  const host = candidate.source_hostname || null;
+  if (!host) return null;
+  const base = `https://${host}/`;
+  if (!listing) return base;
+  if (candidate.provider === "AWS S3") return `${base}?list-type=2&max-keys=5`;
+  if (candidate.provider === "Azure Blob Storage") return `${base}?restype=container&comp=list&maxresults=5`;
+  if (candidate.provider === "Google Cloud Storage") return `${base}?max-keys=5`;
+  return base;
+}
+
+function parseCloudStorageListing(provider, text) {
+  const sample = String(text || "").slice(0, 8192);
+  if (!sample) return { listing_enabled: false, object_count_observed: null, listing_indicator: null };
+  if (provider === "AWS S3" && /<ListBucketResult[\s>]/i.test(sample)) {
+    const count = (sample.match(/<Contents>/gi) || []).length;
+    return { listing_enabled: true, object_count_observed: Math.min(count, 5), listing_indicator: "ListBucketResult" };
+  }
+  if (provider === "Azure Blob Storage" && /<EnumerationResults[\s>]/i.test(sample)) {
+    const count = (sample.match(/<Blob>/gi) || []).length;
+    return { listing_enabled: true, object_count_observed: Math.min(count, 5), listing_indicator: "EnumerationResults" };
+  }
+  if (provider === "Google Cloud Storage" && /<ListBucketResult[\s>]/i.test(sample)) {
+    const count = (sample.match(/<Contents>/gi) || []).length;
+    return { listing_enabled: true, object_count_observed: Math.min(count, 5), listing_indicator: "ListBucketResult" };
+  }
+  return { listing_enabled: false, object_count_observed: null, listing_indicator: null };
+}
+
+function cloudStorageNotFound(provider, status, text) {
+  const sample = String(text || "").slice(0, 4096).toLowerCase();
+  if (provider === "AWS S3") return status === 404 && (sample.includes("nosuchbucket") || sample.includes("the specified bucket does not exist"));
+  if (provider === "Azure Blob Storage") return status === 404 && (sample.includes("containernotfound") || sample.includes("the specified container does not exist"));
+  if (provider === "Google Cloud Storage") return status === 404 && (sample.includes("nosuchbucket") || sample.includes("not found"));
+  return false;
+}
+
+async function readResponseTextLimit(response, limit = 8192) {
+  if (!response?.body?.getReader) {
+    const text = await response.text();
+    return text.slice(0, limit);
+  }
+  const reader = response.body.getReader();
+  const chunks = [];
+  let bytes = 0;
+  try {
+    while (bytes < limit) {
+      const { done, value } = await reader.read();
+      if (done || !value) break;
+      const slice = value.slice(0, Math.max(0, limit - bytes));
+      chunks.push(slice);
+      bytes += slice.byteLength;
     }
+  } finally {
+    try { await reader.cancel(); } catch { /* ignore */ }
+  }
+  const out = new Uint8Array(bytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(out);
+}
+
+async function validateCloudStorageCandidate(candidate) {
+  const result = {
+    validation_method: "HEAD",
+    status_code: null,
+    provider_headers_present: false,
+    listing_enabled: "unknown",
+    object_count_observed: null,
+    listing_indicator: null,
+    resource_exists: "unknown",
+  };
+  const headUrl = buildCloudStorageValidationUrl(candidate, false);
+  if (!headUrl) return result;
+  let headRes = null;
+  try {
+    headRes = await fetch(headUrl, { method: "HEAD", redirect: "manual", signal: AbortSignal.timeout(6_000) });
+    result.status_code = headRes.status;
+    result.provider_headers_present = cloudProviderHeadersPresent(candidate.provider, headRes.headers);
+  } catch {
+    return result;
+  }
+
+  const listUrl = buildCloudStorageValidationUrl(candidate, true);
+  if (!listUrl) return result;
+  try {
+    const getRes = await fetch(listUrl, { method: "GET", redirect: "manual", signal: AbortSignal.timeout(6_000) });
+    result.validation_method = "HEAD+GET";
+    result.status_code = getRes.status;
+    result.provider_headers_present = result.provider_headers_present || cloudProviderHeadersPresent(candidate.provider, getRes.headers);
+    const text = await readResponseTextLimit(getRes, 8192);
+    if (cloudStorageNotFound(candidate.provider, getRes.status, text)) {
+      result.resource_exists = false;
+      result.listing_enabled = false;
+      return result;
+    }
+    result.resource_exists = getRes.status < 500 ? true : "unknown";
+    const listing = parseCloudStorageListing(candidate.provider, text);
+    result.listing_enabled = listing.listing_enabled;
+    result.object_count_observed = listing.object_count_observed;
+    result.listing_indicator = listing.listing_indicator;
+  } catch {
+    result.resource_exists = headRes.status && headRes.status < 500 ? true : "unknown";
+  }
+  return result;
+}
+
+function cloudStorageFindingFromCandidate(candidate) {
+  const validation = candidate.validation || {};
+  if (candidate.confidence < 50) return null;
+  if (validation.resource_exists === false) {
+    return {
+      id: "cloud_storage_takeover_risk",
+      severity: candidate.source === "cname" ? "high" : "medium",
+      title: `${candidate.provider} storage takeover risk observed`,
+      description: `${candidate.source_hostname} points to ${candidate.provider} storage resource ${candidate.bucket_or_container}, but provider validation indicates the bucket/container does not exist.`,
+      risk_level: candidate.source === "cname" ? "high" : "medium",
+    };
+  }
+  if (validation.listing_enabled === true) {
+    return {
+      id: "cloud_storage_public_listing",
+      severity: "high",
+      title: `${candidate.provider} public storage listing confirmed`,
+      description: `${candidate.provider} storage resource ${candidate.bucket_or_container} appears to allow public listing through ${candidate.source_hostname}.`,
+      risk_level: "high",
+    };
+  }
+  if (validation.resource_exists === true && validation.provider_headers_present) {
+    return {
+      id: "cloud_storage_exposure_observed",
+      severity: candidate.confidence >= 80 ? "medium" : "info",
+      title: `${candidate.provider} storage endpoint externally reachable`,
+      description: `${candidate.source_hostname} references a reachable ${candidate.provider} storage endpoint. Public listing was not confirmed.`,
+      risk_level: candidate.confidence >= 80 ? "medium" : "low",
+    };
   }
   return null;
 }
 
-// Keep legacy alias so nothing else breaks if it's referenced elsewhere
-const CLOUD_STORAGE_PATTERNS = CLOUD_ASSET_PATTERNS;
-function detectCloudProvider(value) {
-  const r = detectCloudAsset(value);
-  return r ? r.def : null;
-}
-
-/**
- * Scan subdomains and exposure assets for cloud asset indicators.
- * Pure computation — zero additional network calls.
- *
- * Returns:
- *   { checked, findings: [{asset, provider, category, service_type,
- *     type, evidence, risk_level}], source, error }
- */
-function runCloudStorageModule(domain, modules) {
+async function runCloudStorageModule(domain, modules) {
   try {
-    const findings = [];
-    const seen     = new Set();    // deduplicate by asset+provider
+    const candidates = [];
+    const seenCandidates = new Set();
 
-    function record(asset, def, matchedPattern, evidence) {
-      const key = `${asset}::${def.provider}`;
-      if (seen.has(key)) return;
-      seen.add(key);
-      findings.push({
-        asset,
-        provider:     def.provider,
-        category:     def.category,
-        service_type: def.service_type,
-        type:         "cloud_asset_reference",
-        evidence:     `${evidence} matched pattern "${matchedPattern}"`,
-        risk_level:   def.risk_level,
-      });
+    function addCandidate(candidate) {
+      if (!candidate || candidate.confidence < 50) return;
+      const key = `${candidate.provider}::${candidate.bucket_or_container}::${candidate.source_hostname}`;
+      if (seenCandidates.has(key)) return;
+      seenCandidates.add(key);
+      candidates.push(candidate);
     }
 
     // ── 1. Scan subdomain hostnames ───────────────────────────────────────
     const subItems = modules?.subdomains?.items || [];
     for (const hostname of subItems) {
-      const hit = detectCloudAsset(hostname);
-      if (hit) record(hostname, hit.def, hit.matchedPattern, "hostname");
+      addCandidate(detectCloudStorageCandidateFromValue(hostname, "ct_subdomain", hostname, "certificate transparency hostname"));
+    }
+    for (const obs of modules?.subdomain_takeover?.cname_observations || []) {
+      addCandidate(detectCloudStorageCandidateFromValue(obs.cname, "cname", obs.host, `CNAME ${obs.host} -> ${obs.cname}`));
     }
 
-    // ── 2. Scan brute-force finds ─────────────────────────────────────────
-    const bruteItems = modules?.dns_bruteforce?.items || [];
-    for (const item of bruteItems) {
-      const hit = detectCloudAsset(item.hostname);
-      if (hit) record(item.hostname, hit.def, hit.matchedPattern, "brute-force hostname");
-
-      // Also check CNAMEs that brute-force may have resolved
-      if (item.cname) {
-        const cHit = detectCloudAsset(item.cname);
-        if (cHit) record(item.hostname || item.cname, cHit.def, cHit.matchedPattern, "brute-force CNAME");
-      }
-    }
-
-    // ── 3. Scan exposure asset URLs, CNAMEs, redirect_to ─────────────────
+    // ── 2. Scan exposure asset URLs and redirects already observed ───────
     const exposureAssets = modules?.asset_exposure?.assets || [];
     for (const asset of exposureAssets) {
-      const checks = [
-        { value: asset.url,         label: "URL" },
-        { value: asset.cname,       label: "CNAME" },
-        { value: asset.redirect_to, label: "redirect" },
-      ];
-      for (const { value, label } of checks) {
-        const hit = detectCloudAsset(value);
-        if (hit) {
-          record(
-            asset.hostname || asset.url,
-            hit.def,
-            hit.matchedPattern,
-            label
-          );
-        }
+      addCandidate(detectCloudStorageCandidateFromValue(asset.url, "asm_asset", asset.host || asset.hostname || asset.url, "observed asset URL"));
+      addCandidate(detectCloudStorageCandidateFromValue(asset.redirect_to, "asset_redirect", asset.host || asset.hostname || asset.redirect_to, "observed redirect target"));
+      const headerValue = [asset.server, asset.content_type].filter(Boolean).join(" ");
+      if (/amazons3|windows-azure-blob|storage\.googleapis\.com/i.test(headerValue)) {
+        addCandidate(detectCloudStorageCandidateFromValue(asset.url, "http_header", asset.host || asset.hostname || asset.url, "observed HTTP response header"));
       }
     }
 
-    // ── 4. Scan takeover-risk CNAMEs ─────────────────────────────────────
+    // ── 3. Scan takeover-risk CNAMEs ─────────────────────────────────────
     const takeoverRisks = modules?.subdomain_takeover?.risks || [];
     for (const risk of takeoverRisks) {
-      if (risk.cname) {
-        const hit = detectCloudAsset(risk.cname);
-        if (hit) record(risk.hostname || risk.cname, hit.def, hit.matchedPattern, "takeover CNAME");
-      }
+      addCandidate(detectCloudStorageCandidateFromValue(risk.cname, "cname", risk.host || risk.hostname || risk.cname, `takeover CNAME ${risk.cname}`));
     }
 
-    // Sort: high risk first, then medium, then low
+    const findings = [];
+    const validatedCandidates = [];
+    for (const candidate of candidates.slice(0, 5)) {
+      const validation = await validateCloudStorageCandidate(candidate);
+      const enriched = { ...candidate, validation };
+      validatedCandidates.push(enriched);
+      const findingBase = cloudStorageFindingFromCandidate(enriched);
+      if (!findingBase) continue;
+      const checkedAt = new Date().toISOString();
+      findings.push({
+        id: findingBase.id,
+        module: "cloud_storage_discovery",
+        severity: findingBase.severity,
+        confidence: enriched.confidence >= 80 ? "high" : "medium",
+        score_impact: 0,
+        title: findingBase.title,
+        description: findingBase.description,
+        recommendation: findingBase.id === "cloud_storage_public_listing"
+          ? "Disable anonymous listing and restrict storage access to explicitly authorised principals."
+          : findingBase.id === "cloud_storage_takeover_risk"
+            ? "Remove the DNS reference or create and claim the referenced storage resource before re-enabling the hostname."
+            : "Verify the storage endpoint is intentionally public and contains no sensitive data.",
+        asset: enriched.source_hostname,
+        provider: enriched.provider,
+        bucket_or_container: enriched.bucket_or_container,
+        category: "storage",
+        service_type: "object_storage",
+        type: findingBase.id,
+        risk_level: findingBase.risk_level,
+        source: enriched.source,
+        source_hostname: enriched.source_hostname,
+        business_context: enriched.business_context,
+        validation,
+        evidence: {
+          provider: enriched.provider,
+          bucket_or_container: enriched.bucket_or_container,
+          source_hostname: enriched.source_hostname,
+          discovery_source: enriched.source,
+          validation_method: validation.validation_method,
+          status_code: validation.status_code,
+          provider_headers_present: validation.provider_headers_present,
+          confidence: enriched.confidence,
+          observed_value: enriched.evidence.observed_value,
+          expected_value: findingBase.id === "cloud_storage_public_listing" ? "No public listing" : "Storage endpoint intentionally owned and access-controlled",
+          listing_enabled: validation.listing_enabled,
+          object_count_observed: validation.object_count_observed,
+          listing_indicator: validation.listing_indicator,
+          checked_at: checkedAt,
+          manual_verification_command: `curl -I https://${enriched.source_hostname}/`,
+        },
+        evidence_quality: "good",
+      });
+    }
+
     const riskOrder = { high: 0, medium: 1, low: 2 };
     findings.sort((a, b) => (riskOrder[a.risk_level] ?? 3) - (riskOrder[b.risk_level] ?? 3));
 
     return {
-      checked:  subItems.length + bruteItems.length + exposureAssets.length,
+      checked:  subItems.length + exposureAssets.length + (modules?.subdomain_takeover?.cname_observations || []).length,
+      candidates: validatedCandidates,
       total:    findings.length,
       findings,
-      source:   "hostname_pattern_match",
+      assets:   findings,
+      source:   "evidence_based_cloud_storage_discovery",
       error:    null,
     };
   } catch (err) {
     return {
       checked:  0,
       total:    0,
+      candidates: [],
       findings: [],
-      source:   "hostname_pattern_match",
+      assets:   [],
+      source:   "evidence_based_cloud_storage_discovery",
       error:    err?.message ?? "Cloud asset discovery failed",
     };
   }
@@ -6683,13 +6788,15 @@ async function upsertAssetInventory(scanId, domainId, domain, modules, env) {
     if (!h) continue;
     const existing = allAssets.find((a) => a.hostname === h);
     if (existing) {
+      existing.asset_type = "cloud_storage";
+      existing.source     = "cloud_storage_discovery";
       existing.cloud      = finding.provider;
       existing.risk_level = finding.risk_level;
     } else {
       allAssets.push({
         hostname:   h,
         asset_type: "cloud_storage",
-        source:     "hostname_pattern_match",
+        source:     "cloud_storage_discovery",
         wildcard:   0,
         cloud:      finding.provider,
         risk_level: finding.risk_level,
@@ -7423,9 +7530,13 @@ async function runScanEngine(scanId, domainId, workspaceId, domain, env) {
       modules.subdomain_takeover,
     );
 
-    // Phase 7: Cloud storage discovery — pure pattern analysis, zero I/O.
-    // Needs subdomains + dns_bruteforce + asset_exposure to be complete first.
-    modules.cloud_storage_discovery = runCloudStorageModule(domain, modules);
+    // Phase 7: Cloud storage discovery — validates only evidence-backed storage
+    // candidates from observed ASM/CNAME/header signals. No guessing or listing
+    // enumeration; response bodies are only inspected for listing indicators.
+    modules.cloud_storage_discovery = await runCloudStorageModule(domain, modules);
+    for (const f of modules.cloud_storage_discovery.findings || []) {
+      findings.push(f);
+    }
 
 /**
  * buildCanonicalUrlProfile(modules)
