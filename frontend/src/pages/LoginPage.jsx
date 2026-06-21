@@ -312,9 +312,17 @@ export default function LoginPage() {
         </p>
       )}
 
-      <p className="mt-8 text-xs text-gray-300">
-        © {new Date().getFullYear()} CyberMeters — Attack Surface Management
-      </p>
+      <div className="mt-8 text-center">
+        <div className="flex flex-wrap justify-center gap-3 text-xs text-gray-300 mb-2">
+          <Link to="/terms"   className="hover:text-gray-500">Terms</Link>
+          <Link to="/privacy" className="hover:text-gray-500">Privacy</Link>
+          <Link to="/dpa"     className="hover:text-gray-500">DPA</Link>
+          <Link to="/cookies" className="hover:text-gray-500">Cookies</Link>
+        </div>
+        <p className="text-xs text-gray-300">
+          © {new Date().getFullYear()} CyberMeters — Attack Surface Management
+        </p>
+      </div>
     </div>
   )
 }

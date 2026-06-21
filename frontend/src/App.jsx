@@ -46,6 +46,8 @@ import CheckoutSuccessPage   from './pages/CheckoutSuccessPage'
 import CheckoutCancelPage    from './pages/CheckoutCancelPage'
 import TermsPage             from './pages/TermsPage'
 import PrivacyPage           from './pages/PrivacyPage'
+import DpaPage               from './pages/DpaPage'
+import CookiePolicyPage      from './pages/CookiePolicyPage'
 import SupportPage           from './pages/SupportPage'
 
 /**
@@ -116,6 +118,8 @@ function AppRoutes() {
       <Route path="/billing/cancel"   element={<CheckoutCancelPage />} />
       <Route path="/terms"            element={<TermsPage />} />
       <Route path="/privacy"          element={<PrivacyPage />} />
+      <Route path="/dpa"              element={<DpaPage />} />
+      <Route path="/cookies"          element={<CookiePolicyPage />} />
       <Route path="/support"          element={<SupportPage />} />
 
       {/* ── Protected app (with Layout shell) ───────────────────────────── */}

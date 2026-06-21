@@ -345,10 +345,12 @@ export default function Layout() {
         <div className="max-w-screen-xl mx-auto px-6 py-3 flex flex-wrap items-center justify-between gap-3">
           <span className="text-xs text-gray-400">© {new Date().getFullYear()} CyberMeters — Attack Surface Management</span>
           <div className="flex items-center gap-4 text-xs text-gray-400">
-            <NavLink to="/pricing" className="hover:text-gray-700">Pricing</NavLink>
-            <NavLink to="/terms" className="hover:text-gray-700">Terms</NavLink>
-            <NavLink to="/privacy" className="hover:text-gray-700">Privacy</NavLink>
-            <NavLink to="/support" className="hover:text-gray-700">Support</NavLink>
+            <NavLink to="/pricing"  className="hover:text-gray-700">Pricing</NavLink>
+            <NavLink to="/terms"    className="hover:text-gray-700">Terms</NavLink>
+            <NavLink to="/privacy"  className="hover:text-gray-700">Privacy</NavLink>
+            <NavLink to="/dpa"      className="hover:text-gray-700">DPA</NavLink>
+            <NavLink to="/cookies"  className="hover:text-gray-700">Cookies</NavLink>
+            <NavLink to="/support"  className="hover:text-gray-700">Support</NavLink>
           </div>
         </div>
       </footer>
