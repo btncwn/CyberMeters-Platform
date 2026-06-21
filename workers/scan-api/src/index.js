@@ -19042,10 +19042,10 @@ export default {
     // endpoint — use POST /api/auth/logout for self-termination.
     // Tenant/user isolation: WHERE user_id = ? enforced.
     const sessionRevokeMatch = url.pathname.match(/^\/api\/account\/sessions\/([^/]+)\/revoke$/);
-    if (sessionRevokeMatch && request.method === "POST") {
-      const user = await requireAuth(request, env);
-      if (!user) return json({ error: "Unauthorized" }, 401);
-      if (user.api_token_id) return json({ error: "Session authentication required" }, 403);
+	    if (sessionRevokeMatch && request.method === "POST") {
+	      const user = await requireAuth(request, env);
+	      if (!user) return json({ error: "Unauthorized" }, 401);
+	      if (user.api_token_id) return json({ error: "Session authentication required" }, 403);
       const targetSessionId = sessionRevokeMatch[1];
 
       try {
@@ -19081,12 +19081,146 @@ export default {
 
         return json({ success: true, message: "Session revoked." });
       } catch (e) {
-        return json({ error: e.message }, 500);
-      }
-    }
+	        return json({ error: e.message }, 500);
+	      }
+	    }
 
-    // ── GET /api/platform/accuracy ───────────────────────────────────────
-    if (request.method === "GET" && url.pathname === "/api/platform/accuracy") {
+	    // ── GET /api/account/export ─────────────────────────────────────────
+	    // GDPR-ready personal data export. Session auth only; explicit columns
+	    // avoid secrets such as passwords, MFA material, token hashes, and invite tokens.
+	    if (request.method === "GET" && url.pathname === "/api/account/export") {
+	      const user = await requireAuth(request, env);
+	      if (!user) return json({ error: "Unauthorized" }, 401);
+	      if (user.api_token_id) return json({ error: "Session authentication required" }, 403);
+	      try {
+	        const email = String(user.email || "").trim().toLowerCase();
+	        const [profile, workspaces, loginHistory, sessions, auditEvents, invitations] = await Promise.all([
+	          env.cybermeters_db
+	            .prepare("SELECT id, email, name, plan, status, created_at FROM users WHERE id = ?")
+	            .bind(user.id)
+	            .first(),
+	          env.cybermeters_db
+	            .prepare(
+	              `SELECT w.id, w.name, w.created_at, wm.role,
+	                      CASE WHEN w.owner_user_id = ? THEN 1 ELSE 0 END AS owned
+	               FROM workspaces w
+	               LEFT JOIN workspace_members wm ON wm.workspace_id = w.id AND wm.user_id = ?
+	               WHERE wm.user_id IS NOT NULL
+	                  OR (w.owner_user_id = ? AND NOT EXISTS (
+	                    SELECT 1 FROM workspace_members any_wm WHERE any_wm.workspace_id = w.id
+	                  ))
+	               ORDER BY w.created_at DESC`
+	            )
+	            .bind(user.id, user.id, user.id)
+	            .all(),
+	          env.cybermeters_db
+	            .prepare(
+	              `SELECT id, event_type, description, metadata_json, created_at
+	               FROM audit_events
+	               WHERE user_id = ?
+	                 AND event_type IN ('login', 'login_failed', 'mfa_challenge_success',
+	                                    'mfa_challenge_failed', 'recovery_code_used',
+	                                    'password_reset_completed', 'password_reset_failed')
+	               ORDER BY created_at DESC
+	               LIMIT 250`
+	            )
+	            .bind(user.id)
+	            .all(),
+	          env.cybermeters_db
+	            .prepare(
+	              `SELECT id, created_at, last_seen_at, ip_address, user_agent, expires_at
+	               FROM user_sessions
+	               WHERE user_id = ?
+	               ORDER BY created_at DESC
+	               LIMIT 250`
+	            )
+	            .bind(user.id)
+	            .all(),
+	          env.cybermeters_db
+	            .prepare(
+	              `SELECT id, workspace_id, event_type, entity_type, entity_id,
+	                      description, metadata_json, created_at
+	               FROM audit_events
+	               WHERE user_id = ?
+	               ORDER BY created_at DESC
+	               LIMIT 500`
+	            )
+	            .bind(user.id)
+	            .all(),
+	          env.cybermeters_db
+	            .prepare(
+	              `SELECT id, workspace_id, email, role, invited_by, status,
+	                      expires_at, accepted_at, created_at
+	               FROM workspace_invitations
+	               WHERE email = ?
+	               ORDER BY created_at DESC
+	               LIMIT 250`
+	            )
+	            .bind(email)
+	            .all(),
+	        ]);
+
+	        await createAuditEvent(env, {
+	          user_id: user.id,
+	          event_type: "account_export_requested",
+	          entity_type: "user",
+	          entity_id: user.id,
+	          description: "Account data export requested",
+	        }).catch(() => {});
+
+	        return json({
+	          exported_at: new Date().toISOString(),
+	          user_profile: profile || { id: user.id, email: user.email, name: user.name || null },
+	          workspaces: workspaces.results || [],
+	          login_history: loginHistory.results || [],
+	          sessions: sessions.results || [],
+	          audit_events: auditEvents.results || [],
+	          invitations: invitations.results || [],
+	          excluded: ["password_hash", "totp_secret", "mfa_recovery_codes_hash_json", "session_token_hashes", "api_token_hashes", "invitation_token_hashes", "workspace_scan_data", "reports"],
+	        });
+	      } catch {
+	        return json({ error: "Unable to export account data" }, 500);
+	      }
+	    }
+
+	    // ── POST /api/account/delete-request ────────────────────────────────
+	    if (request.method === "POST" && url.pathname === "/api/account/delete-request") {
+	      const user = await requireAuth(request, env);
+	      if (!user) return json({ error: "Unauthorized" }, 401);
+	      if (user.api_token_id) return json({ error: "Session authentication required" }, 403);
+	      try {
+	        const existing = await env.cybermeters_db
+	          .prepare("SELECT id, created_at FROM deletion_requests WHERE request_type = 'account' AND user_id = ? AND status = 'pending' LIMIT 1")
+	          .bind(user.id)
+	          .first();
+	        if (existing) return json({ request_id: existing.id, status: "pending", created_at: existing.created_at, message: "Account deletion request already exists." });
+
+	        const requestId = createId("delreq");
+	        const now = new Date().toISOString();
+	        await env.cybermeters_db
+	          .prepare(
+	            `INSERT INTO deletion_requests
+	               (id, request_type, user_id, requested_by, status, created_at, updated_at)
+	             VALUES (?, 'account', ?, ?, 'pending', ?, ?)`
+	          )
+	          .bind(requestId, user.id, user.id, now, now)
+	          .run();
+	        await createAuditEvent(env, {
+	          user_id: user.id,
+	          event_type: "account_deletion_requested",
+	          entity_type: "user",
+	          entity_id: user.id,
+	          description: "Account deletion requested",
+	          metadata: { request_id: requestId },
+	        }).catch(() => {});
+	        return json({ request_id: requestId, status: "pending", message: "Account deletion request received." }, 202);
+	      } catch {
+	        return json({ error: "Unable to create deletion request" }, 500);
+	      }
+	    }
+	
+	    // ── GET /api/platform/accuracy ───────────────────────────────────────
+	    if (request.method === "GET" && url.pathname === "/api/platform/accuracy") {
       const user = await requireAuth(request, env);
       if (!user) return json({ error: "Unauthorized" }, 401);
 
@@ -25469,11 +25603,58 @@ export default {
         } catch {
           return json({ error: "Database error" }, 500);
         }
-      }
-    }
+	      }
+	    }
+	
+	    // ── POST /api/workspaces/:id/delete-request ─────────────────────────
+	    const workspaceDeleteRequestMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/delete-request$/);
+	    if (workspaceDeleteRequestMatch && request.method === "POST") {
+	      const workspaceId = workspaceDeleteRequestMatch[1];
+	      const user = await requireAuth(request, env);
+	      if (!user) return json({ error: "Unauthorized" }, 401);
+	      if (user.api_token_id) return json({ error: "Session authentication required" }, 403);
+	      const access = await requireWorkspaceRole(user, workspaceId, "workspace:delete", env);
+	      if (!access) return json({ error: "Forbidden — owner role required to request workspace deletion" }, 403);
+	      try {
+	        const workspace = await env.cybermeters_db
+	          .prepare("SELECT id, name FROM workspaces WHERE id = ? LIMIT 1")
+	          .bind(workspaceId)
+	          .first();
+	        if (!workspace) return json({ error: "Workspace not found" }, 404);
 
-    // ── POST /api/workspaces/:id/reports/generate ────────────────────────────
-    // Generates a new executive PDF report and stores it in R2 + workspace_reports.
+	        const existing = await env.cybermeters_db
+	          .prepare("SELECT id, created_at FROM deletion_requests WHERE request_type = 'workspace' AND workspace_id = ? AND status = 'pending' LIMIT 1")
+	          .bind(workspaceId)
+	          .first();
+	        if (existing) return json({ request_id: existing.id, status: "pending", created_at: existing.created_at, message: "Workspace deletion request already exists." });
+
+	        const requestId = createId("delreq");
+	        const now = new Date().toISOString();
+	        await env.cybermeters_db
+	          .prepare(
+	            `INSERT INTO deletion_requests
+	               (id, request_type, user_id, workspace_id, requested_by, status, created_at, updated_at)
+	             VALUES (?, 'workspace', ?, ?, ?, 'pending', ?, ?)`
+	          )
+	          .bind(requestId, user.id, workspaceId, user.id, now, now)
+	          .run();
+	        await createAuditEvent(env, {
+	          workspace_id: workspaceId,
+	          user_id: user.id,
+	          event_type: "workspace_deletion_requested",
+	          entity_type: "workspace",
+	          entity_id: workspaceId,
+	          description: `Workspace deletion requested for ${workspace.name}`,
+	          metadata: { request_id: requestId },
+	        }).catch(() => {});
+	        return json({ request_id: requestId, status: "pending", message: "Workspace deletion request received." }, 202);
+	      } catch {
+	        return json({ error: "Unable to create deletion request" }, 500);
+	      }
+	    }
+
+	    // ── POST /api/workspaces/:id/reports/generate ────────────────────────────
+	    // Generates a new executive PDF report and stores it in R2 + workspace_reports.
     // Body: { "report_type": "manual" | "weekly_executive" | "monthly_executive" | "scan_snapshot" }
     //       Optional: { "report_period": "...", "scan_id": "..." }
     const rptGenMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/reports\/generate$/);
