@@ -108,8 +108,15 @@ async function hashToken(raw) {
 }
 
 /**
- * Extract and validate Bearer token from Authorization header.
- * Returns the user row on success, or null.
+ * requireAuth — unified Bearer-token authentication.
+ *
+ * Accepts both user sessions and API tokens transparently:
+ *   - cm_<secret>  → api_tokens table lookup; returns user + token_scope + token_workspace_id
+ *   - anything else → user_sessions table lookup; token_scope/token_workspace_id are undefined
+ *
+ * All existing call sites receive token auth with zero changes because
+ * requireWorkspaceAccess and requireWorkspaceRole enforce scope + workspace binding
+ * whenever token_scope is present on the resolved identity.
  */
 async function requireAuth(request, env) {
   const authHeader = request.headers.get("Authorization") || "";
@@ -118,7 +125,44 @@ async function requireAuth(request, env) {
   if (!rawToken) return null;
   try {
     const tokenHash = await hashToken(rawToken);
-    const session   = await env.cybermeters_db
+
+    // ── API Token path (cm_ prefix) ──────────────────────────────────────────
+    if (rawToken.startsWith("cm_")) {
+      const token = await env.cybermeters_db
+        .prepare(
+          `SELECT t.id AS api_token_id, t.user_id,
+                  t.workspace_id AS token_workspace_id,
+                  t.scope        AS token_scope,
+                  u.id, u.email, u.name, u.plan, u.status
+           FROM api_tokens t
+           JOIN users u ON u.id = t.user_id
+           WHERE t.token_hash = ?
+             AND t.status = 'active'
+             AND (t.expires_at IS NULL OR t.expires_at > datetime('now'))
+           LIMIT 1`
+        )
+        .bind(tokenHash)
+        .first();
+      if (!token || token.status === "suspended") return null;
+      // Fire-and-forget: last_used_at + audit log (never block the request)
+      env.cybermeters_db
+        .prepare("UPDATE api_tokens SET last_used_at = datetime('now') WHERE id = ?")
+        .bind(token.api_token_id)
+        .run()
+        .catch(() => {});
+      createAuditEvent(env, {
+        user_id:     token.user_id,
+        event_type:  "api_token_used",
+        entity_type: "api_token",
+        entity_id:   token.api_token_id,
+        description: "API token authenticated request",
+        metadata:    { scope: token.token_scope, workspace_id: token.token_workspace_id ?? null },
+      }).catch(() => {});
+      return token;
+    }
+
+    // ── Session path ──────────────────────────────────────────────────────────
+    const session = await env.cybermeters_db
       .prepare(
         `SELECT s.user_id, u.id, u.email, u.name, u.plan, u.status
          FROM user_sessions s
@@ -134,50 +178,13 @@ async function requireAuth(request, env) {
   }
 }
 
+/**
+ * @deprecated requireApiToken is now a thin shim.
+ * requireAuth handles both cm_ API tokens and user sessions transparently.
+ * All call sites should use requireAuth directly.
+ */
 async function requireApiToken(request, env) {
-  const authHeader = request.headers.get("Authorization") || "";
-  if (!authHeader.startsWith("Bearer ")) return null;
-  const rawToken = authHeader.slice(7).trim();
-  if (!rawToken) return null;
-
-  if (!rawToken.startsWith("cm_")) {
-    return requireAuth(request, env);
-  }
-
-  try {
-    const tokenHash = await hashToken(rawToken);
-    const token = await env.cybermeters_db
-      .prepare(
-        `SELECT t.id AS api_token_id, t.user_id,
-                u.id, u.email, u.name, u.plan, u.status
-         FROM api_tokens t
-         JOIN users u ON u.id = t.user_id
-         WHERE t.token_hash = ?
-           AND t.status = 'active'
-           AND (t.expires_at IS NULL OR t.expires_at > datetime('now'))
-         LIMIT 1`
-      )
-      .bind(tokenHash)
-      .first();
-    if (!token || token.status === "suspended") return null;
-
-    await env.cybermeters_db
-      .prepare("UPDATE api_tokens SET last_used_at = datetime('now') WHERE id = ?")
-      .bind(token.api_token_id)
-      .run();
-
-    await createAuditEvent(env, {
-      user_id:     token.user_id,
-      event_type:  "api_token_used",
-      entity_type: "api_token",
-      entity_id:   token.api_token_id,
-      description: "API token used for authentication",
-    });
-
-    return token;
-  } catch {
-    return null;
-  }
+  return requireAuth(request, env);
 }
 
 /**
@@ -14384,6 +14391,37 @@ const PERMISSION_MIN_ROLE = {
 };
 
 /**
+ * API Token scope hierarchy.
+ * Higher rank = more powerful. read ⊂ write ⊂ admin.
+ */
+const SCOPE_RANK = { read: 0, write: 1, admin: 2 };
+
+/**
+ * Maps workspace permission strings to the minimum API token scope required.
+ * Session-authenticated callers (no token_scope) always bypass this check.
+ */
+const PERMISSION_SCOPE = {
+  // read-scope operations
+  "workspace:read":           "read",
+  "notification:mark_read":   "read",
+  "member:read":              "read",
+  // write-scope operations
+  "scan:create":              "write",
+  "schedule:manage":          "write",
+  "domain:add":               "write",
+  "domain:remove":            "write",
+  "domain:import":            "write",
+  "domain:verify":            "write",
+  "report:generate":          "write",
+  "report:delete":            "write",
+  // admin-scope operations
+  "workspace:invite":         "admin",
+  "workspace:manage_members": "admin",
+  "workspace:delete":         "admin",
+  "workspace:transfer":       "admin",
+};
+
+/**
  * requireWorkspaceAccess(user, workspaceId, env)
  *
  * Resolves the caller's membership in a workspace.
@@ -14394,6 +14432,15 @@ const PERMISSION_MIN_ROLE = {
  */
 async function requireWorkspaceAccess(user, workspaceId, env) {
   if (!user || !workspaceId) return null;
+
+  // ── P0: API token workspace boundary ─────────────────────────────────────
+  // If this request was authenticated with a workspace-bound token, it may
+  // only access that specific workspace. A mismatch is a hard rejection —
+  // the token was issued for a different workspace.
+  if (user.token_workspace_id && user.token_workspace_id !== workspaceId) {
+    return null;
+  }
+
   try {
     const member = await env.cybermeters_db
       .prepare(
@@ -14446,8 +14493,20 @@ async function requireWorkspaceRole(user, workspaceId, permission, env) {
 
   const userRank = ROLE_RANK[membership.role] ?? -1;
   const minRank  = ROLE_RANK[minRole]         ?? 99;
+  if (userRank < minRank) return null;
 
-  return userRank >= minRank ? membership : null;
+  // ── API token scope enforcement ───────────────────────────────────────────
+  // Session-authenticated callers (no token_scope) skip this check entirely.
+  // Token callers must have a scope that meets or exceeds the required scope
+  // for this permission (read ⊂ write ⊂ admin).
+  if (user.token_scope !== undefined) {
+    const requiredScope = PERMISSION_SCOPE[permission] ?? "read";
+    const tokenRank     = SCOPE_RANK[user.token_scope]  ?? -1;
+    const neededRank    = SCOPE_RANK[requiredScope]      ?? 0;
+    if (tokenRank < neededRank) return null;
+  }
+
+  return membership;
 }
 
 async function getAccessibleWorkspaceIds(user, env) {
@@ -16947,10 +17006,12 @@ export default {
     if (request.method === "GET" && url.pathname === "/api/account/api-tokens") {
       const user = await requireAuth(request, env);
       if (!user) return json({ error: "Unauthorized" }, 401);
+      // Token management is session-only — an API token cannot enumerate tokens.
+      if (user.api_token_id) return json({ error: "Token management requires session authentication" }, 403);
       try {
         const rows = await env.cybermeters_db
           .prepare(
-            `SELECT id, user_id, name, last_used_at, created_at, expires_at, status
+            `SELECT id, user_id, name, scope, workspace_id, last_used_at, created_at, expires_at, status
              FROM api_tokens
              WHERE user_id = ?
              ORDER BY created_at DESC`
@@ -16967,13 +17028,27 @@ export default {
     if (request.method === "POST" && url.pathname === "/api/account/api-tokens") {
       const user = await requireAuth(request, env);
       if (!user) return json({ error: "Unauthorized" }, 401);
+      if (user.api_token_id) return json({ error: "Token management requires session authentication" }, 403);
 
       let body;
       try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
 
-      const name = (body.name || "").trim();
+      const name        = (body.name || "").trim();
+      const scope       = (body.scope || "read").trim();
+      const workspaceId = body.workspace_id ? String(body.workspace_id).trim() : null;
+      const expiresAt   = body.expires_at   ? String(body.expires_at).trim()   : null;
+
       if (!name) return json({ error: "name is required" }, 400);
       if (name.length > 120) return json({ error: "name is too long" }, 400);
+      if (!["read", "write", "admin"].includes(scope)) {
+        return json({ error: "scope must be one of: read, write, admin" }, 400);
+      }
+
+      // If a workspace_id is provided, verify the user is a member of that workspace.
+      if (workspaceId) {
+        const wsAccess = await requireWorkspaceAccess(user, workspaceId, env);
+        if (!wsAccess) return json({ error: "Workspace not found or access denied" }, 403);
+      }
 
       try {
         // Entitlement: API token limit
@@ -16989,10 +17064,10 @@ export default {
         await env.cybermeters_db
           .prepare(
             `INSERT INTO api_tokens
-               (id, user_id, name, token_hash, status, created_at)
-             VALUES (?, ?, ?, ?, 'active', datetime('now'))`
+               (id, user_id, name, token_hash, scope, workspace_id, expires_at, status, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'active', datetime('now'))`
           )
-          .bind(tokenId, user.id, name, hash)
+          .bind(tokenId, user.id, name, hash, scope, workspaceId, expiresAt)
           .run();
 
         await createAuditEvent(env, {
@@ -17000,8 +17075,8 @@ export default {
           event_type:  "api_token_created",
           entity_type: "api_token",
           entity_id:   tokenId,
-          description: `API token "${name}" created`,
-          metadata:    { name },
+          description: `API token "${name}" created (scope: ${scope})`,
+          metadata:    { name, scope, workspace_id: workspaceId },
         });
 
         return json({ token: raw }, 201);
@@ -17015,6 +17090,7 @@ export default {
     if (apiTokenDeleteMatch && request.method === "DELETE") {
       const user = await requireAuth(request, env);
       if (!user) return json({ error: "Unauthorized" }, 401);
+      if (user.api_token_id) return json({ error: "Token management requires session authentication" }, 403);
       const tokenId = apiTokenDeleteMatch[1];
 
       try {

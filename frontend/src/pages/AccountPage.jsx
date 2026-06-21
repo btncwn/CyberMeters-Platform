@@ -207,10 +207,12 @@ export default function AccountPage() {
   const [saving,     setSaving]     = useState(false)
   const [saveError,  setSaveError]  = useState(null)
   const [saveOk,     setSaveOk]     = useState(false)
-  const [tokenName,  setTokenName]  = useState('')
-  const [newToken,   setNewToken]   = useState(null)
-  const [tokenBusy,  setTokenBusy]  = useState(false)
-  const [tokenError, setTokenError] = useState(null)
+  const [tokenName,   setTokenName]   = useState('')
+  const [tokenScope,  setTokenScope]  = useState('read')
+  const [tokenExpiry, setTokenExpiry] = useState('never')
+  const [newToken,    setNewToken]    = useState(null)
+  const [tokenBusy,   setTokenBusy]   = useState(false)
+  const [tokenError,  setTokenError]  = useState(null)
 
   useEffect(() => {
     async function load() {
@@ -296,9 +298,21 @@ export default function AccountPage() {
     setTokenError(null)
     setNewToken(null)
     try {
-      const res = await api.createApiToken(name)
+      // Compute expires_at from the selected expiry option
+      let expires_at = null
+      if (tokenExpiry !== 'never') {
+        const days = parseInt(tokenExpiry, 10)
+        if (!isNaN(days)) {
+          const d = new Date()
+          d.setDate(d.getDate() + days)
+          expires_at = d.toISOString()
+        }
+      }
+      const res = await api.createApiToken({ name, scope: tokenScope, expires_at })
       setNewToken(res.token)
       setTokenName('')
+      setTokenScope('read')
+      setTokenExpiry('never')
       const list = await api.getApiTokens()
       setApiTokens(list.tokens || [])
     } catch (e) {
@@ -526,31 +540,61 @@ export default function AccountPage() {
 
               <Section icon={KeyRound} title="API Tokens">
                 <div className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">
-                      Token name
-                    </label>
-                    <div className="flex gap-2">
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">
+                        Token name
+                      </label>
                       <input
                         type="text"
                         value={tokenName}
-                        onChange={(e) => {
-                          setTokenName(e.target.value)
-                          setTokenError(null)
-                        }}
+                        onChange={(e) => { setTokenName(e.target.value); setTokenError(null) }}
                         placeholder="GitHub Actions"
                         className="input"
                         maxLength={120}
                       />
-                      <button
-                        type="button"
-                        onClick={handleCreateToken}
-                        disabled={tokenBusy || !tokenName.trim()}
-                        className="btn-primary px-3 disabled:opacity-50"
-                      >
-                        <Plus className="w-4 h-4" />
-                      </button>
                     </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">
+                          Scope
+                        </label>
+                        <select
+                          value={tokenScope}
+                          onChange={(e) => setTokenScope(e.target.value)}
+                          className="input"
+                        >
+                          <option value="read">read — view data only</option>
+                          <option value="write">write — trigger scans &amp; edits</option>
+                          <option value="admin">admin — full workspace access</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">
+                          Expires
+                        </label>
+                        <select
+                          value={tokenExpiry}
+                          onChange={(e) => setTokenExpiry(e.target.value)}
+                          className="input"
+                        >
+                          <option value="never">Never</option>
+                          <option value="7">7 days</option>
+                          <option value="30">30 days</option>
+                          <option value="90">90 days</option>
+                          <option value="365">1 year</option>
+                        </select>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleCreateToken}
+                      disabled={tokenBusy || !tokenName.trim()}
+                      className="btn-primary w-full justify-center disabled:opacity-50"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Generate token
+                    </button>
                   </div>
 
                   {newToken && (

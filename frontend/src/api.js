@@ -514,11 +514,11 @@ export const api = {
   /** GET /api/account/api-tokens */
   getApiTokens: () => request('/account/api-tokens'),
 
-  /** POST /api/account/api-tokens  body: { name } */
-  createApiToken: (name) =>
+  /** POST /api/account/api-tokens  body: { name, scope, workspace_id?, expires_at? } */
+  createApiToken: ({ name, scope = 'read', workspace_id = null, expires_at = null } = {}) =>
     request('/account/api-tokens', {
       method: 'POST',
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, scope, workspace_id, expires_at }),
     }),
 
   /** DELETE /api/account/api-tokens/:id */
