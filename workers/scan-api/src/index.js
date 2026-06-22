@@ -670,9 +670,18 @@ const POSTURE_WEIGHTS = {
   admin_exposure:   { label: 'Admin Exposure',     pct: 20 },
 };
 
+// Sprint 9E.1: updated to support the Sprint 9C evidence array format.
+// Sprint 9C changed finding.evidence from an object to an array of evidence items.
+// Previously this function checked object fields directly on finding.evidence, which
+// always produced "partial" quality after 9C because array fields (source, probe_target,
+// etc.) are on the first array item, not on the array itself.
+// Now normalizes to evidence[0] when evidence is an array; legacy object format still works.
 function validateFindingEvidence(finding) {
   const warnings = [];
-  const evidence = finding?.evidence ?? null;
+  const ev = finding?.evidence ?? null;
+
+  // Normalize: Sprint 9C produces arrays; pre-9C scans may have legacy objects.
+  const evidence = Array.isArray(ev) ? (ev[0] ?? null) : ev;
 
   if (!evidence) {
     warnings.push("missing evidence_json");
@@ -680,16 +689,28 @@ function validateFindingEvidence(finding) {
   }
 
   if (!finding.confidence) warnings.push("missing confidence");
+
+  // source: identical field name in both array-item and legacy object formats
   if (!evidence.source) warnings.push("missing source");
-  if (!(evidence.probe_target || evidence.target || evidence.queried_hostname || evidence.requested_url)) {
+
+  // probe target: array-item format uses "label"; legacy uses probe_target/target/etc.
+  if (!(evidence.label ?? evidence.probe_target ?? evidence.target ?? evidence.queried_hostname ?? evidence.requested_url)) {
     warnings.push("missing target or queried hostname");
   }
-  if (evidence.observed_value === undefined && !evidence.headers_observed && !evidence.returned_records) {
-    warnings.push("missing observed value");
-  }
+
+  // observed value: array-item format uses "value"; legacy uses observed_value/headers_observed/etc.
+  const hasValue = evidence.value !== undefined
+    || evidence.observed_value !== undefined
+    || evidence.headers_observed
+    || evidence.returned_records;
+  if (!hasValue) warnings.push("missing observed value");
+
+  // expected_value: same field name in both formats (preserved by Case B wrapping in Sprint 9C)
   if (finding.score_impact !== 0 && evidence.expected_value === undefined) {
     warnings.push("missing expected value");
   }
+
+  // manual_verification_command and checked_at: same field names in both formats
   if (!evidence.manual_verification_command) warnings.push("missing manual verification command");
   if (!evidence.checked_at) warnings.push("missing checked_at timestamp");
 

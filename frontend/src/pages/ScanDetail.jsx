@@ -121,59 +121,92 @@ function ScoreRing({ score, riskLevel }) {
 
 // ── Findings Panel ───────────────────────────────────────────────────────────
 
-const CONFIDENCE_STYLE = {
-  high:   'bg-green-50 text-green-700 border-green-100',
-  medium: 'bg-amber-50 text-amber-700 border-amber-100',
-  low:    'bg-gray-50 text-gray-500 border-gray-200',
+// Sprint 9E.1: numeric confidence → CSS class.
+// Replaces the legacy string-key CONFIDENCE_STYLE map (broke after Sprint 9B
+// changed confidence to numeric values).
+function confidenceStyle(n) {
+  if (n == null)  return 'bg-gray-50 text-gray-500 border-gray-200'
+  if (n >= 80)    return 'bg-green-50 text-green-700 border-green-100'
+  if (n >= 70)    return 'bg-amber-50 text-amber-700 border-amber-100'
+  return 'bg-gray-50 text-gray-500 border-gray-200'
 }
 
-function EvidencePanel({ evidence, confidence }) {
+// Sprint 9E.1: rewritten to support the Sprint 9C evidence array format.
+// evidence prop is now always an array: [{ type, label, value, source, ...extras }]
+// Backward compat: if evidence is a legacy object (pre-9C scans), wraps it in array.
+// evidenceQuality is passed as a separate prop (was previously read from evidence.evidence_quality,
+// which broke when evidence became an array).
+function EvidencePanel({ evidence, evidenceQuality, confidence }) {
   if (!evidence) return null
-  const quality = evidence.evidence_quality
-  const rows = [
-    evidence.evidence_type    && ['Type',            evidence.evidence_type],
-    evidence.probe_target     && ['Probe target',    evidence.probe_target],
-    evidence.observed_value !== undefined && ['Observed',   evidence.observed_value ?? 'null (no record found)'],
-    evidence.expected_value   && ['Expected',        evidence.expected_value],
-    evidence.source           && ['Source',          evidence.source],
-    evidence.checked_at       && ['Checked at',      new Date(evidence.checked_at).toLocaleString()],
-    evidence.status_code      && ['HTTP status',     String(evidence.status_code)],
-    evidence.missing_header   && ['Missing header',  evidence.missing_header],
-  ].filter(Boolean)
+
+  // Normalize to array — supports both Sprint 9C array format and legacy object format
+  const items = Array.isArray(evidence) ? evidence : [evidence]
 
   return (
     <div className="mt-3 rounded-xl border border-gray-100 bg-gray-50 overflow-hidden">
       <div className="px-3 py-2 bg-gray-100 border-b border-gray-200 flex items-center gap-1.5">
         <Terminal className="w-3 h-3 text-gray-400" />
         <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Evidence</span>
-        {confidence && (
-          <span className={`ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${CONFIDENCE_STYLE[confidence] || CONFIDENCE_STYLE.low}`}>
+        {confidence != null && (
+          <span className={`ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${confidenceStyle(confidence)}`}>
             {confidence} confidence
           </span>
         )}
       </div>
-      <div className="divide-y divide-gray-100">
-        {rows.map(([label, value]) => (
-          <div key={label} className="flex gap-3 px-3 py-1.5 text-xs">
-            <span className="text-gray-400 flex-shrink-0 w-24">{label}</span>
-            <span className="text-gray-700 font-mono break-all">{value}</span>
+      {items.map((item, idx) => {
+        // Support both new array-item format (type/label/value) and legacy object format
+        // (evidence_type/probe_target/observed_value). Fields are identical for source,
+        // expected_value, checked_at, status_code, missing_header, manual_verification_command.
+        const type   = item.type  ?? item.evidence_type  ?? null
+        const lbl    = item.label ?? item.probe_target   ?? null
+        const valRaw = item.value !== undefined ? item.value : item.observed_value
+        const hasVal = valRaw !== undefined
+        const src    = item.source ?? null
+        const exp    = item.expected_value ?? null
+        const chk    = item.checked_at ?? null
+        const stat   = item.status_code  ?? null
+        const mhdr   = item.missing_header ?? null
+        const mvc    = item.manual_verification_command ?? null
+
+        const rows = [
+          type  && ['Type',           String(type)],
+          lbl   && ['Probe target',   String(lbl)],
+          hasVal && ['Observed',      String(valRaw ?? 'null (no record found)')],
+          exp   && ['Expected',       String(exp)],
+          src   && ['Source',         String(src)],
+          chk   && ['Checked at',     new Date(chk).toLocaleString()],
+          stat  && ['HTTP status',    String(stat)],
+          mhdr  && ['Missing header', String(mhdr)],
+        ].filter(Boolean)
+
+        return (
+          <div key={idx}>
+            {items.length > 1 && idx > 0 && <div className="border-t border-gray-300" />}
+            <div className="divide-y divide-gray-100">
+              {rows.map(([label, value]) => (
+                <div key={label} className="flex gap-3 px-3 py-1.5 text-xs">
+                  <span className="text-gray-400 flex-shrink-0 w-24">{label}</span>
+                  <span className="text-gray-700 font-mono break-all">{value}</span>
+                </div>
+              ))}
+            </div>
+            {mvc && (
+              <div className="border-t border-gray-200 px-3 py-2">
+                <p className="text-[10px] text-gray-400 mb-1 font-semibold">Verify manually</p>
+                <pre className="text-[10px] font-mono text-gray-700 bg-white border border-gray-200 rounded px-2 py-1.5 overflow-x-auto whitespace-pre-wrap break-all">
+                  {mvc}
+                </pre>
+              </div>
+            )}
           </div>
-        ))}
-      </div>
-      {evidence.manual_verification_command && (
-        <div className="border-t border-gray-200 px-3 py-2">
-          <p className="text-[10px] text-gray-400 mb-1 font-semibold">Verify manually</p>
-          <pre className="text-[10px] font-mono text-gray-700 bg-white border border-gray-200 rounded px-2 py-1.5 overflow-x-auto whitespace-pre-wrap break-all">
-            {evidence.manual_verification_command}
-          </pre>
-        </div>
-      )}
-      {confidence === 'low' && (
+        )
+      })}
+      {confidence != null && confidence < 70 && (
         <div className="border-t border-amber-100 bg-amber-50 px-3 py-2 text-[10px] text-amber-700">
           Needs manual verification — this finding is low-confidence and should be confirmed before acting on it.
         </div>
       )}
-      {(quality === 'partial' || quality === 'missing') && (
+      {(evidenceQuality === 'partial' || evidenceQuality === 'missing') && (
         <div className="border-t border-amber-100 bg-amber-50 px-3 py-2 text-[10px] text-amber-700">
           Evidence incomplete — verify manually
         </div>
@@ -218,7 +251,7 @@ function FindingRow({ f, index }) {
             )}
           </div>
           {open && hasEvidence && (
-            <EvidencePanel evidence={{ ...f.evidence, evidence_quality: evidenceQuality }} confidence={f.confidence} />
+            <EvidencePanel evidence={f.evidence} evidenceQuality={evidenceQuality} confidence={f.confidence} />
           )}
         </div>
         <span className={`flex-shrink-0 ${SEV_BADGE[f.severity] || SEV_BADGE.info}`}>
