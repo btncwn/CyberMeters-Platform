@@ -6,7 +6,8 @@ import {
   Briefcase, ChevronRight, Check, Layers, LogOut, User,
   AlertTriangle, X, CreditCard, GraduationCap,
 } from 'lucide-react'
-import { api } from '../api'
+import { api, logoutWithToken } from '../api'
+import { TOKEN_KEY } from '../context/authKeys'
 import { useAuth } from '../context/AuthContext'
 import NotificationBell from './NotificationBell'
 
@@ -160,9 +161,17 @@ function UserMenu() {
   const displayPlan = user?.['plan']
 
   async function handleLogout() {
-    try { await api.authLogout() } catch { /* best-effort */ }
+    // Snapshot token before clearing. If we awaited api.authLogout() first,
+    // in-flight background requests (e.g. NotificationBell 60s poll) could see
+    // the old token, receive a 401 after the server session is deleted, and
+    // trigger handleUnauthorized() — causing a spurious page reload while the
+    // user is already in the middle of a deliberate logout.
+    const currentToken = localStorage.getItem(TOKEN_KEY)
+    // Clear local auth state immediately — ProtectedRoute redirects to /login.
     logout()
     navigate('/login', { replace: true })
+    // Revoke server session in the background (fire-and-forget).
+    logoutWithToken(currentToken)
   }
 
   return (

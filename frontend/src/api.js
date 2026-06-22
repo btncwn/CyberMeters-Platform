@@ -49,21 +49,42 @@ export async function validateSession() {
 }
 
 /**
- * Handle a 401 response: clear local auth state and redirect to /login.
- * Fires _onUnauthorized (registered by AuthProvider) to clear React state,
- * then hard-redirects so the router reinitialises with no token.
+ * Handle a 401 response: clear local auth state and let React Router navigate to /login.
+ * Fires _onUnauthorized (registered by AuthProvider) to clear React state.
+ * ProtectedRoute will redirect to /login once isAuthenticated becomes false.
+ * No hard redirect — avoids disruptive page reloads and the logout race condition
+ * where background polls (e.g. NotificationBell) trigger a spurious redirect after
+ * the user has already clicked "Sign out".
  */
 function handleUnauthorized() {
-  // Clear storage directly — safe to call even if _onUnauthorized isn't set yet
   localStorage.removeItem(TOKEN_KEY)
   localStorage.removeItem(USER_KEY)
   if (_onUnauthorized) {
     _onUnauthorized()
+    // ProtectedRoute handles navigation to /login via React Router
+    // once isAuthenticated becomes false. No hard redirect needed.
+    return
   }
-  // Hard redirect — clears all in-memory React state cleanly
+  // Fallback: _onUnauthorized not yet registered (e.g. called before AuthProvider mounts).
   if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
     window.location.href = '/login'
   }
+}
+
+/**
+ * Fire-and-forget server-side session invalidation using a pre-captured token.
+ * Exported for use by Layout.handleLogout(), which snapshots the token and clears
+ * local auth state before calling this — preventing the 401 race condition.
+ */
+export function logoutWithToken(rawToken) {
+  if (!rawToken || !BASE) return
+  fetch(`${BASE}/auth/logout`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${rawToken}`,
+    },
+  }).catch(() => {})
 }
 
 async function request(path, options = {}) {
