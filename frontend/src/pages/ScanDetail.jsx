@@ -121,42 +121,49 @@ function ScoreRing({ score, riskLevel }) {
 
 // ── Findings Panel ───────────────────────────────────────────────────────────
 
-// Sprint 9E.1: numeric confidence → CSS class.
-// Replaces the legacy string-key CONFIDENCE_STYLE map (broke after Sprint 9B
-// changed confidence to numeric values).
+// Sprint 9E.1 + 9E.2: numeric confidence → CSS class for badge rendering.
+// ≥90 verified (green), ≥80 strong (emerald), ≥70 probable (amber), <70 weak (gray)
 function confidenceStyle(n) {
-  if (n == null)  return 'bg-gray-50 text-gray-500 border-gray-200'
-  if (n >= 80)    return 'bg-green-50 text-green-700 border-green-100'
-  if (n >= 70)    return 'bg-amber-50 text-amber-700 border-amber-100'
-  return 'bg-gray-50 text-gray-500 border-gray-200'
+  if (n == null) return 'bg-gray-100 text-gray-500 border-gray-200'
+  if (n >= 90)   return 'bg-green-50 text-green-700 border-green-100'
+  if (n >= 80)   return 'bg-emerald-50 text-emerald-700 border-emerald-100'
+  if (n >= 70)   return 'bg-amber-50 text-amber-700 border-amber-100'
+  return 'bg-gray-100 text-gray-500 border-gray-200'
 }
 
-// Sprint 9E.1: rewritten to support the Sprint 9C evidence array format.
-// evidence prop is now always an array: [{ type, label, value, source, ...extras }]
-// Backward compat: if evidence is a legacy object (pre-9C scans), wraps it in array.
-// evidenceQuality is passed as a separate prop (was previously read from evidence.evidence_quality,
-// which broke when evidence became an array).
-function EvidencePanel({ evidence, evidenceQuality, confidence }) {
+// Sprint 9E.2: CSS class map for validation_quality and evidence_quality fields.
+// excellent → green, good → emerald, partial → amber, weak/missing → gray
+const QUALITY_STYLE = {
+  excellent: 'bg-green-50 text-green-700 border-green-100',
+  good:      'bg-emerald-50 text-emerald-700 border-emerald-100',
+  partial:   'bg-amber-50 text-amber-700 border-amber-100',
+  weak:      'bg-gray-100 text-gray-500 border-gray-200',
+  missing:   'bg-gray-100 text-gray-400 border-gray-200',
+}
+
+function qualityLabel(q) {
+  if (!q) return null
+  return q.charAt(0).toUpperCase() + q.slice(1)
+}
+
+// Sprint 9E.1 (array support) + 9E.2 (Phase 4–5: table rows + verification command).
+// Accepts evidence as Sprint 9C array [{type,label,value,source,...}] or legacy object.
+// Confidence and quality badges moved to FindingRow — not repeated here.
+function EvidencePanel({ evidence }) {
   if (!evidence) return null
 
-  // Normalize to array — supports both Sprint 9C array format and legacy object format
+  // Normalize: Sprint 9C produces arrays; pre-9C scans may have legacy objects
   const items = Array.isArray(evidence) ? evidence : [evidence]
 
   return (
-    <div className="mt-3 rounded-xl border border-gray-100 bg-gray-50 overflow-hidden">
+    <div className="mt-2 rounded-xl border border-gray-100 bg-gray-50 overflow-hidden">
       <div className="px-3 py-2 bg-gray-100 border-b border-gray-200 flex items-center gap-1.5">
         <Terminal className="w-3 h-3 text-gray-400" />
         <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Evidence</span>
-        {confidence != null && (
-          <span className={`ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${confidenceStyle(confidence)}`}>
-            {confidence} confidence
-          </span>
-        )}
       </div>
       {items.map((item, idx) => {
-        // Support both new array-item format (type/label/value) and legacy object format
-        // (evidence_type/probe_target/observed_value). Fields are identical for source,
-        // expected_value, checked_at, status_code, missing_header, manual_verification_command.
+        // Support Sprint 9C array-item format (type/label/value) and legacy object format
+        // (evidence_type/probe_target/observed_value). Other fields share names in both formats.
         const type   = item.type  ?? item.evidence_type  ?? null
         const lbl    = item.label ?? item.probe_target   ?? null
         const valRaw = item.value !== undefined ? item.value : item.observed_value
@@ -170,7 +177,7 @@ function EvidencePanel({ evidence, evidenceQuality, confidence }) {
 
         const rows = [
           type  && ['Type',           String(type)],
-          lbl   && ['Probe target',   String(lbl)],
+          lbl   && ['Target',         String(lbl)],
           hasVal && ['Observed',      String(valRaw ?? 'null (no record found)')],
           exp   && ['Expected',       String(exp)],
           src   && ['Source',         String(src)],
@@ -181,7 +188,7 @@ function EvidencePanel({ evidence, evidenceQuality, confidence }) {
 
         return (
           <div key={idx}>
-            {items.length > 1 && idx > 0 && <div className="border-t border-gray-300" />}
+            {items.length > 1 && idx > 0 && <div className="border-t border-gray-200" />}
             <div className="divide-y divide-gray-100">
               {rows.map(([label, value]) => (
                 <div key={label} className="flex gap-3 px-3 py-1.5 text-xs">
@@ -190,10 +197,13 @@ function EvidencePanel({ evidence, evidenceQuality, confidence }) {
                 </div>
               ))}
             </div>
+            {/* Phase 5 — Verification Command */}
             {mvc && (
               <div className="border-t border-gray-200 px-3 py-2">
-                <p className="text-[10px] text-gray-400 mb-1 font-semibold">Verify manually</p>
-                <pre className="text-[10px] font-mono text-gray-700 bg-white border border-gray-200 rounded px-2 py-1.5 overflow-x-auto whitespace-pre-wrap break-all">
+                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1">
+                  Verification Command
+                </p>
+                <pre className="text-[10px] font-mono text-gray-700 bg-white border border-gray-200 rounded px-2 py-1.5 overflow-x-auto whitespace-pre-wrap break-all select-all">
                   {mvc}
                 </pre>
               </div>
@@ -201,62 +211,108 @@ function EvidencePanel({ evidence, evidenceQuality, confidence }) {
           </div>
         )
       })}
-      {confidence != null && confidence < 70 && (
-        <div className="border-t border-amber-100 bg-amber-50 px-3 py-2 text-[10px] text-amber-700">
-          Needs manual verification — this finding is low-confidence and should be confirmed before acting on it.
-        </div>
-      )}
-      {(evidenceQuality === 'partial' || evidenceQuality === 'missing') && (
-        <div className="border-t border-amber-100 bg-amber-50 px-3 py-2 text-[10px] text-amber-700">
-          Evidence incomplete — verify manually
-        </div>
-      )}
     </div>
   )
 }
 
+// Sprint 9E.2 — FindingRow with full trust layer display.
+// Phases 1–3: confidence badge, validation_quality badge, evidence_quality badge.
+// Phase 6: low-confidence warning always visible (not gated on evidence panel open).
+// Phase 7: evidence panel collapsed by default; badges compact; no excessive height.
 function FindingRow({ f, index }) {
   const [open, setOpen] = useState(false)
-  const hasEvidence = !!f.evidence
-  const evidenceQuality = f.evidence_quality || f.evidence?.evidence_quality
+
+  // Normalize evidence: Sprint 9C always array; legacy scans may have object
+  const hasEvidence = Array.isArray(f.evidence) ? f.evidence.length > 0 : !!f.evidence
+
+  // evidence_quality set by applyEvidenceQuality() in Worker; fallback to legacy location
+  const evidenceQuality = f.evidence_quality
+    ?? (Array.isArray(f.evidence) ? null : f.evidence?.evidence_quality)
+    ?? null
+
+  // Phase 6: low-confidence finding — always visible, not inside collapsible panel
+  const isLowConf = typeof f.confidence === 'number' && f.confidence < 70
 
   return (
     <li className="px-6 py-4">
       <div className="flex items-start gap-4">
+        {/* Severity-colored index number */}
         <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-bold flex-shrink-0 mt-0.5 ${SEV_STYLE[f.severity] || SEV_STYLE.info}`}>
           {index + 1}
         </div>
+
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-gray-900">{f.title}</p>
+          {/* Title + severity badge on same row */}
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-sm font-semibold text-gray-900 leading-snug">{f.title}</p>
+            <span className={`flex-shrink-0 text-xs ${SEV_BADGE[f.severity] || SEV_BADGE.info}`}>
+              {f.severity}
+            </span>
+          </div>
+
+          {/* Description */}
           <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">{f.description}</p>
-          <div className="flex items-center gap-3 mt-1.5 flex-wrap">
-            {f.score_impact != null && f.score_impact !== 0 && (
-              <span className="text-[10px] font-semibold text-red-400">
-                Score impact: {f.score_impact}
+
+          {/* Trust badges row — Phase 1, 2, 3 + score impact + evidence toggle */}
+          <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+            {/* Phase 1 — Confidence badge */}
+            {f.confidence != null && (
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${confidenceStyle(f.confidence)}`}>
+                {f.confidence} Confidence
               </span>
             )}
+
+            {/* Phase 2 — Validation quality badge */}
+            {f.validation_quality && (
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${QUALITY_STYLE[f.validation_quality] || QUALITY_STYLE.weak}`}>
+                Validation: {qualityLabel(f.validation_quality)}
+              </span>
+            )}
+
+            {/* Phase 3 — Evidence quality badge (skip "missing" — conveys nothing useful inline) */}
+            {evidenceQuality && evidenceQuality !== 'missing' && (
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${QUALITY_STYLE[evidenceQuality] || QUALITY_STYLE.weak}`}>
+                Evidence: {qualityLabel(evidenceQuality)}
+              </span>
+            )}
+
+            {/* Score impact */}
+            {f.score_impact != null && f.score_impact !== 0 && (
+              <span className="text-[10px] font-semibold text-red-400">
+                {f.score_impact} pts
+              </span>
+            )}
+
+            {/* Evidence toggle — pushed to the right */}
             {hasEvidence && (
               <button
                 onClick={() => setOpen(o => !o)}
-                className="flex items-center gap-1 text-[10px] text-brand-600 font-semibold hover:text-brand-800 transition-colors"
+                className="flex items-center gap-1 text-[10px] text-brand-600 font-semibold hover:text-brand-800 transition-colors ml-auto"
               >
                 <ChevronDown className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''}`} />
                 {open ? 'Hide evidence' : 'Show evidence'}
               </button>
             )}
-            {(evidenceQuality === 'partial' || evidenceQuality === 'missing') && (
-              <span className="text-[10px] font-semibold text-amber-600">
-                Evidence incomplete — verify manually
-              </span>
-            )}
           </div>
+
+          {/* Phase 6 — Low confidence warning: always visible, not inside panel */}
+          {isLowConf && (
+            <div className="mt-2 flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-100 px-3 py-2">
+              <AlertCircle className="w-3 h-3 text-amber-500 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-[10px] font-bold text-amber-700">Needs Verification</p>
+                <p className="text-[10px] text-amber-600 leading-relaxed mt-0.5">
+                  This finding is based on a weak signal and should be manually verified before remediation decisions are made.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Phase 4 — Evidence panel: collapsed by default */}
           {open && hasEvidence && (
-            <EvidencePanel evidence={f.evidence} evidenceQuality={evidenceQuality} confidence={f.confidence} />
+            <EvidencePanel evidence={f.evidence} />
           )}
         </div>
-        <span className={`flex-shrink-0 ${SEV_BADGE[f.severity] || SEV_BADGE.info}`}>
-          {f.severity}
-        </span>
       </div>
     </li>
   )
