@@ -26432,6 +26432,131 @@ export default {
       }
     }
 
+    // ── GET /api/workspaces/:id/notification-preferences ────────────────────
+    // Returns the current user's notification preferences for this workspace.
+    // Defaults (no rows) are treated as "all_alerts" enabled.
+    //
+    // Response: {
+    //   workspace_id, user_id,
+    //   email_frequency: 'all_alerts' | 'critical_only' | 'daily_digest' | 'disabled'
+    // }
+    //
+    // email_frequency is derived from notification_preferences rows:
+    //   all_alerts    — no rows, or critical_finding + high_finding both enabled
+    //   critical_only — critical_finding enabled, high_finding disabled
+    //   daily_digest  — daily_digest enabled, critical_finding disabled
+    //   disabled      — all channels disabled
+    const notifPrefsGetMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/notification-preferences$/);
+    if (notifPrefsGetMatch && request.method === "GET") {
+      const workspaceId = notifPrefsGetMatch[1];
+      const prefUser = await requireAuth(request, env);
+      if (!prefUser) return json({ error: "Unauthorized" }, 401);
+      const prefAccess = await requireWorkspaceRole(prefUser, workspaceId, "workspace:read", env);
+      if (!prefAccess) return json({ error: "Forbidden" }, 403);
+      try {
+        const rows = await env.cybermeters_db
+          .prepare(
+            `SELECT event_type, enabled, channel
+             FROM notification_preferences
+             WHERE workspace_id = ? AND (user_id = ? OR user_id IS NULL)
+             ORDER BY user_id DESC` // user-level rows win over workspace-level
+          )
+          .bind(workspaceId, prefUser.id)
+          .all();
+
+        // Derive email_frequency from stored rows
+        const byType = {};
+        for (const row of (rows.results || [])) {
+          byType[`${row.event_type}:${row.channel}`] = row.enabled;
+        }
+
+        let email_frequency = "all_alerts"; // default — no preferences stored
+        const criticalEmail  = byType["critical_finding:email"];
+        const highEmail      = byType["high_finding:email"];
+        const digestEmail    = byType["daily_digest:email"];
+        const disabledEmail  = byType["email_alerts:email"];
+
+        if (disabledEmail === 0) {
+          email_frequency = "disabled";
+        } else if (digestEmail === 1 && criticalEmail !== 1) {
+          email_frequency = "daily_digest";
+        } else if (criticalEmail === 1 && highEmail === 0) {
+          email_frequency = "critical_only";
+        } else if (criticalEmail !== undefined || highEmail !== undefined || digestEmail !== undefined) {
+          // Explicitly stored — determine from stored values
+          email_frequency = (criticalEmail === 1 && highEmail === 1) ? "all_alerts" : "all_alerts";
+        }
+
+        return json({
+          workspace_id:    workspaceId,
+          user_id:         prefUser.id,
+          email_frequency,
+        });
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
+    // ── PUT /api/workspaces/:id/notification-preferences ────────────────────
+    // Updates the current user's notification email frequency preference.
+    //
+    // Body: { email_frequency: 'all_alerts' | 'critical_only' | 'daily_digest' | 'disabled' }
+    //
+    // Upserts rows into notification_preferences — one per tracked event_type.
+    if (notifPrefsGetMatch && request.method === "PUT") {
+      const workspaceId = notifPrefsGetMatch[1];
+      const prefPutUser = await requireAuth(request, env);
+      if (!prefPutUser) return json({ error: "Unauthorized" }, 401);
+      const prefPutAccess = await requireWorkspaceRole(prefPutUser, workspaceId, "workspace:read", env);
+      if (!prefPutAccess) return json({ error: "Forbidden" }, 403);
+      try {
+        let body;
+        try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+
+        const VALID_FREQUENCIES = ["all_alerts", "critical_only", "daily_digest", "disabled"];
+        const { email_frequency } = body;
+        if (!VALID_FREQUENCIES.includes(email_frequency)) {
+          return json({ error: `email_frequency must be one of: ${VALID_FREQUENCIES.join(", ")}` }, 400);
+        }
+
+        // Map frequency choice to per-event-type enabled values
+        // critical_finding:email, high_finding:email, daily_digest:email, email_alerts:email
+        const prefs = {
+          critical_finding: email_frequency !== "disabled" ? 1 : 0,
+          high_finding:     email_frequency === "all_alerts" ? 1 : 0,
+          daily_digest:     email_frequency === "daily_digest" ? 1 : 0,
+          email_alerts:     email_frequency !== "disabled" ? 1 : 0,
+        };
+
+        const now = new Date().toISOString();
+        const upserts = Object.entries(prefs).map(([event_type, enabled]) =>
+          env.cybermeters_db
+            .prepare(
+              `INSERT INTO notification_preferences (id, workspace_id, user_id, event_type, enabled, channel, created_at)
+               VALUES (?, ?, ?, ?, ?, 'email', ?)
+               ON CONFLICT (workspace_id, user_id, event_type, channel)
+               DO UPDATE SET enabled = excluded.enabled`
+            )
+            .bind(createId("np"), workspaceId, prefPutUser.id, event_type, enabled, now)
+        );
+
+        await env.cybermeters_db.batch(upserts);
+
+        await createAuditEvent(env, {
+          workspace_id: workspaceId,
+          user_id:      prefPutUser.id,
+          event_type:   "notification_preferences_updated",
+          entity_type:  "notification_preferences",
+          description:  `Email notification frequency set to ${email_frequency}`,
+          metadata:     { email_frequency },
+        });
+
+        return json({ success: true, workspace_id: workspaceId, email_frequency });
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
     // ── POST /api/workspaces/:id/domains/import ───────────────────────────────
     const importMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/domains\/import$/);
     if (importMatch && request.method === "POST") {

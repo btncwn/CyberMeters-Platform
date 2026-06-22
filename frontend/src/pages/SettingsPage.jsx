@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import {
   AlertTriangle, Building2, CheckCircle, CreditCard,
-  Save, Settings, User,
+  Save, Settings, User, Bell,
 } from 'lucide-react'
 import { api } from '../api'
 import { useAuth } from '../context/AuthContext'
@@ -66,6 +66,136 @@ function UsageLine({ label, used, limit }) {
           <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Notification Preferences Card ─────────────────────────────────────────────
+
+const EMAIL_FREQUENCY_OPTIONS = [
+  {
+    value: 'all_alerts',
+    label: 'All alerts',
+    description: 'Email me for every critical and high severity finding.',
+  },
+  {
+    value: 'critical_only',
+    label: 'Critical only',
+    description: 'Email me only for critical severity findings.',
+  },
+  {
+    value: 'daily_digest',
+    label: 'Daily digest',
+    description: 'One summary email per day. No immediate alerts.',
+  },
+  {
+    value: 'disabled',
+    label: 'Disabled',
+    description: 'No notification emails. In-app notifications still appear.',
+  },
+]
+
+function NotificationPreferencesCard() {
+  const wsId = localStorage.getItem('cybermeters_workspace_id')
+  const [freq, setFreq]       = useState('all_alerts')
+  const [loading, setLoading] = useState(false)
+  const [saving,  setSaving]  = useState(false)
+  const [status,  setStatus]  = useState({})
+
+  const load = useCallback(async () => {
+    if (!wsId) return
+    setLoading(true)
+    try {
+      const data = await api.getNotificationPreferences(wsId)
+      setFreq(data.email_frequency || 'all_alerts')
+    } catch { /* silent — use default */ }
+    finally { setLoading(false) }
+  }, [wsId])
+
+  useEffect(() => { load() }, [load])
+
+  async function handleSave() {
+    if (!wsId || saving) return
+    setSaving(true)
+    setStatus({})
+    try {
+      await api.updateNotificationPreferences(wsId, { email_frequency: freq })
+      setStatus({ ok: true })
+      setTimeout(() => setStatus({}), 3000)
+    } catch (e) {
+      setStatus({ error: e.message || 'Failed to save' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!wsId) {
+    return (
+      <div className="card p-6 space-y-4 lg:col-span-2">
+        <div className="flex items-center gap-2">
+          <Bell className="w-4 h-4 text-brand-600" />
+          <h2 className="text-sm font-bold text-gray-900">Notifications</h2>
+        </div>
+        <p className="text-sm text-gray-400">Select a workspace to configure notification preferences.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="card p-6 space-y-4 lg:col-span-2">
+      <div className="flex items-center gap-2">
+        <Bell className="w-4 h-4 text-brand-600" />
+        <h2 className="text-sm font-bold text-gray-900">Notifications</h2>
+      </div>
+
+      <p className="text-xs text-gray-400">
+        Control how often CyberMeters sends you email alerts for this workspace.
+        In-app notifications always appear in the bell regardless of this setting.
+      </p>
+
+      {loading ? (
+        <div className="py-4 text-center">
+          <div className="w-5 h-5 border-2 border-brand-600 border-t-transparent rounded-full animate-spin mx-auto" />
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {EMAIL_FREQUENCY_OPTIONS.map(opt => (
+            <label
+              key={opt.value}
+              className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${
+                freq === opt.value
+                  ? 'border-brand-300 bg-brand-50/40'
+                  : 'border-gray-100 hover:border-gray-200 hover:bg-gray-50/50'
+              }`}
+            >
+              <input
+                type="radio"
+                name="email_frequency"
+                value={opt.value}
+                checked={freq === opt.value}
+                onChange={() => setFreq(opt.value)}
+                className="mt-0.5 accent-brand-600 flex-shrink-0"
+              />
+              <div>
+                <p className="text-sm font-semibold text-gray-800">{opt.label}</p>
+                <p className="text-xs text-gray-400 mt-0.5">{opt.description}</p>
+              </div>
+            </label>
+          ))}
+        </div>
+      )}
+
+      <Status {...status} />
+
+      <button
+        type="button"
+        onClick={handleSave}
+        disabled={saving || loading}
+        className="btn-primary disabled:opacity-50"
+      >
+        <Save className="w-4 h-4" />
+        {saving ? 'Saving…' : 'Save Preferences'}
+      </button>
     </div>
   )
 }
@@ -370,6 +500,8 @@ export default function SettingsPage() {
             )}
           </Field>
         </div>
+
+        <NotificationPreferencesCard />
       </div>
     </div>
   )

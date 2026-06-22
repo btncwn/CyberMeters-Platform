@@ -511,6 +511,23 @@ export const api = {
   markNotificationRead: (workspaceId, notifId) =>
     request(`/workspaces/${workspaceId}/notifications/${notifId}/read`, { method: 'POST' }),
 
+  /**
+   * GET /api/workspaces/:id/notification-preferences
+   * Returns { workspace_id, user_id, email_frequency }
+   */
+  getNotificationPreferences: (workspaceId) =>
+    request(`/workspaces/${workspaceId}/notification-preferences`),
+
+  /**
+   * PUT /api/workspaces/:id/notification-preferences
+   * Body: { email_frequency: 'all_alerts' | 'critical_only' | 'daily_digest' | 'disabled' }
+   */
+  updateNotificationPreferences: (workspaceId, prefs) =>
+    request(`/workspaces/${workspaceId}/notification-preferences`, {
+      method: 'PUT',
+      body: JSON.stringify(prefs),
+    }),
+
   // ── Domain Ownership Verification ────────────────────────────────────────
 
   /**

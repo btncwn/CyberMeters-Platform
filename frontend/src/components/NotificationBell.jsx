@@ -3,12 +3,15 @@
  *
  * Reads the active workspace from localStorage (cybermeters_workspace_id).
  * Polls every 60s for new notifications. Shows unread count badge.
- * Clicking a notification marks it read; "Mark all read" bulk-clears.
+ * Clicking a notification marks it read and navigates to the related scan
+ * (if metadata_json contains a scan_id). "Mark all read" bulk-clears.
+ * Footer includes "View all →" link to /notifications.
  *
  * Only renders the panel when a workspace is selected — falls back to a
  * plain Bell icon (no panel) if no workspace is active.
  */
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import {
   Bell, X, CheckCheck, AlertTriangle, ShieldAlert,
   FileText, Globe, ScanLine, Info,
@@ -57,13 +60,14 @@ function fmtRelative(isoStr) {
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function NotificationBell() {
-  const wsId = localStorage.getItem('cybermeters_workspace_id')
+  const wsId    = localStorage.getItem('cybermeters_workspace_id')
+  const navigate = useNavigate()
 
-  const [open,         setOpen]         = useState(false)
+  const [open,          setOpen]         = useState(false)
   const [notifications, setNotifications] = useState([])
-  const [unreadCount,  setUnreadCount]  = useState(0)
-  const [loading,      setLoading]      = useState(false)
-  const [markingAll,   setMarkingAll]   = useState(false)
+  const [unreadCount,   setUnreadCount]  = useState(0)
+  const [loading,       setLoading]      = useState(false)
+  const [markingAll,    setMarkingAll]   = useState(false)
   const ref = useRef(null)
 
   // Close on outside click
@@ -193,12 +197,29 @@ export default function NotificationBell() {
             ) : (
               <ul className="divide-y divide-gray-50">
                 {notifications.map(n => {
-                  const cfg     = severityCfg(n.severity)
+                  const cfg      = severityCfg(n.severity)
                   const isUnread = n.status === 'unread'
+
+                  // Parse scan_id from metadata for click-through navigation
+                  let scanId = null
+                  try {
+                    const meta = n.metadata_json ? JSON.parse(n.metadata_json) : null
+                    scanId = meta?.scan_id ?? null
+                  } catch { /* ignore */ }
+
+                  function handleNotifClick() {
+                    if (isUnread) handleMarkRead(n.id)
+                    if (scanId) {
+                      setOpen(false)
+                      navigate(`/scans/${scanId}`)
+                    }
+                  }
+
                   return (
                     <li
                       key={n.id}
-                      className={`flex gap-3 px-4 py-3.5 hover:bg-gray-50/70 transition-colors cursor-default ${isUnread ? 'bg-brand-50/30' : ''}`}
+                      onClick={handleNotifClick}
+                      className={`flex gap-3 px-4 py-3.5 transition-colors ${isUnread ? 'bg-brand-50/30' : ''} ${scanId ? 'cursor-pointer hover:bg-gray-50' : 'cursor-default hover:bg-gray-50/50'}`}
                     >
                       {/* Type icon */}
                       <div className="flex-shrink-0 mt-0.5">
@@ -211,15 +232,20 @@ export default function NotificationBell() {
                           <p className={`text-xs font-semibold leading-snug ${isUnread ? 'text-gray-900' : 'text-gray-600'}`}>
                             {n.title}
                           </p>
-                          {isUnread && (
-                            <button
-                              onClick={() => handleMarkRead(n.id)}
-                              title="Mark as read"
-                              className="flex-shrink-0 w-5 h-5 flex items-center justify-center rounded text-gray-300 hover:text-brand-500 hover:bg-brand-50 transition-colors"
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
-                          )}
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            {scanId && (
+                              <span className="text-[10px] text-brand-500 font-medium">→</span>
+                            )}
+                            {isUnread && (
+                              <button
+                                onClick={e => { e.stopPropagation(); handleMarkRead(n.id) }}
+                                title="Mark as read"
+                                className="w-5 h-5 flex items-center justify-center rounded text-gray-300 hover:text-brand-500 hover:bg-brand-50 transition-colors"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            )}
+                          </div>
                         </div>
                         {n.message && (
                           <p className="text-xs text-gray-400 mt-0.5 leading-relaxed line-clamp-2">{n.message}</p>
@@ -241,13 +267,20 @@ export default function NotificationBell() {
           </div>
 
           {/* Footer */}
-          {notifications.length > 0 && (
-            <div className="border-t border-gray-100 px-4 py-2.5">
-              <p className="text-[10px] text-gray-300 text-center">
-                Showing {notifications.length} most recent · auto-refreshes every 60s
-              </p>
-            </div>
-          )}
+          <div className="border-t border-gray-100 px-4 py-2.5 flex items-center justify-between">
+            <p className="text-[10px] text-gray-300">
+              {notifications.length > 0
+                ? `${notifications.length} shown · refreshes every 60s`
+                : 'Auto-refreshes every 60s'}
+            </p>
+            <Link
+              to="/notifications"
+              onClick={() => setOpen(false)}
+              className="text-[11px] font-medium text-brand-600 hover:text-brand-700 transition-colors"
+            >
+              View all →
+            </Link>
+          </div>
         </div>
       )}
     </div>
