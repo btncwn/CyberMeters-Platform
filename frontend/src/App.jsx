@@ -45,7 +45,8 @@ import InvitationLandingPage from './pages/InvitationLandingPage'
 import AccountPage           from './pages/AccountPage'
 import AccountPrivacyPage   from './pages/AccountPrivacyPage'
 import SecurityPage          from './pages/SecurityPage'
-import BillingPage           from './pages/BillingPage'
+// BillingPage.jsx is retained as a future full billing portal but is not
+// currently mounted at any route. /billing renders SubscriptionPage.
 import SubscriptionPage      from './pages/SubscriptionPage'
 import DomainVerifyPage      from './pages/DomainVerifyPage'
 import PricingPage           from './pages/PricingPage'

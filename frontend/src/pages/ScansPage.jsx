@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { RefreshCw, ScanLine, Globe, Clock, ChevronRight, CheckCircle, XCircle, Shield, AlertTriangle, TrendingUp } from 'lucide-react'
 import { api } from '../api'
@@ -12,11 +12,16 @@ function formatDate(str) {
     .toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
+// Statuses that indicate a scan is still in progress and the list needs to refresh.
+const ACTIVE_STATUSES = new Set(['queued', 'running', 'processing'])
+const POLL_MS = 6000
+
 export default function ScansPage() {
   const [scans, setScans]     = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState(null)
   const [refreshing, setRefreshing] = useState(false)
+  const pollRef = useRef(null)
   const navigate = useNavigate()
 
   const load = useCallback(async (silent = false) => {
@@ -35,6 +40,17 @@ export default function ScansPage() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  // Auto-poll while any scan is in an active state so the list stays current
+  // without requiring a manual Refresh click or navigation to the detail page.
+  useEffect(() => {
+    clearInterval(pollRef.current)
+    const hasActive = scans.some(s => ACTIVE_STATUSES.has(s.status))
+    if (hasActive) {
+      pollRef.current = setInterval(() => load(true), POLL_MS)
+    }
+    return () => clearInterval(pollRef.current)
+  }, [scans, load])
 
   return (
     <div className="max-w-screen-xl mx-auto px-6 py-8 space-y-6">

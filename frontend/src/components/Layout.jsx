@@ -17,7 +17,7 @@ import NotificationBell from './NotificationBell'
 const NAV = [
   { to: '/dashboard',      icon: LayoutDashboard, label: 'Dashboard'  },
   { to: '/portfolio',      icon: Layers,          label: 'Portfolio'  },
-  { to: '/ws/dashboard',   icon: Shield,          label: 'Workspace'  },
+  { to: '/ws/dashboard',   icon: Shield,          label: 'Security'   },
   { to: '/workspaces',     icon: Briefcase,       label: 'Workspaces' },
   { to: '/assets',         icon: Server,          label: 'Assets'     },
   { to: '/scans',          icon: ScanLine,        label: 'Scans'      },
