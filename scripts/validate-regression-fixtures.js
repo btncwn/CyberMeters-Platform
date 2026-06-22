@@ -35,6 +35,25 @@ function loadScanner() {
   return context.__scanner;
 }
 
+// Sprint 9E.1: mapping from legacy string confidence to numeric equivalents.
+// Sprint 9B converted confidence from strings to numeric (0-100) at the
+// report boundary. computeScore() still returns strings for most findings,
+// but some findings (e.g. email_dkim_not_detected) were changed to numeric
+// in Sprint 9D. This map normalises both sides of the comparison so fixtures
+// written with numeric expected values work against the current string-returning
+// computeScore(), and will continue to work when computeScore is fully numeric.
+const CONFIDENCE_NUMERIC_MAP = {
+  confirmed: 95,
+  high:      90,
+  medium:    70,
+  low:       60,
+};
+
+function normalizeConfidence(c) {
+  if (typeof c === "number") return c;
+  return CONFIDENCE_NUMERIC_MAP[c] ?? null;
+}
+
 function fail(message) {
   console.error(`Fixture validation failed: ${message}`);
   process.exitCode = 1;
@@ -57,7 +76,10 @@ function validateFixtureSchema(fixture, index) {
   if (expected) {
     assert(typeof expected.id === "string", `${fixture.scenario} expected_finding missing id`);
     assert(["critical", "high", "medium", "low", "info"].includes(expected.severity), `${fixture.scenario} invalid severity`);
-    assert(["high", "medium", "low"].includes(expected.confidence), `${fixture.scenario} invalid confidence`);
+    // Accept numeric (Sprint 9B format) or legacy strings for backward compat
+    const confValid = (typeof expected.confidence === "number" && expected.confidence >= 0 && expected.confidence <= 100)
+      || Object.keys(CONFIDENCE_NUMERIC_MAP).includes(expected.confidence);
+    assert(confValid, `${fixture.scenario} invalid confidence (expected numeric 0-100 or one of: ${Object.keys(CONFIDENCE_NUMERIC_MAP).join(", ")})`);
     assert(typeof expected.score_impact === "number", `${fixture.scenario} score_impact must be numeric`);
   }
 
@@ -82,9 +104,20 @@ function compareExpectedFinding(fixture, findings, domain) {
   const actual = findings.find((f) => f.id === expected.id);
   if (!actual) return [`missing expected finding ${expected.id}`];
 
-  for (const key of ["severity", "confidence", "score_impact"]) {
+  for (const key of ["severity", "score_impact"]) {
     if (actual[key] !== expected[key]) {
       failures.push(`${expected.id} ${key}: expected ${expected[key]}, got ${actual[key]}`);
+    }
+  }
+  // Confidence: normalize both sides to numeric before comparing.
+  // computeScore() returns strings for most findings; some Sprint 9D findings
+  // return numeric. Fixtures should use numeric values (Sprint 9B scale) but
+  // legacy strings are accepted for backward compat.
+  {
+    const actualConf   = normalizeConfidence(actual.confidence);
+    const expectedConf = normalizeConfidence(expected.confidence);
+    if (actualConf !== expectedConf) {
+      failures.push(`${expected.id} confidence: expected ${expected.confidence} (→${expectedConf}), got ${actual.confidence} (→${actualConf})`);
     }
   }
 

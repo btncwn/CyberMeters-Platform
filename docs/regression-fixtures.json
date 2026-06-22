@@ -1,5 +1,5 @@
 {
-  "_comment": "Sprint 4 \u2014 Scanner Accuracy & Evidence Framework v1. Expected finding outputs for key scenarios. Use these to validate scanner behaviour after changes to computeScore or scan modules. | v4 additions: resolver_disagreement, header_weak_hsts, csp_weak_policy, canonical_url_uncertain",
+  "_comment": "Sprint 4 \u2014 Scanner Accuracy & Evidence Framework v1. Expected finding outputs for key scenarios. Use these to validate scanner behaviour after changes to computeScore or scan modules. | v4 additions: resolver_disagreement, header_weak_hsts, csp_weak_policy, canonical_url_uncertain | Sprint 9E.1: all confidence values converted to numeric scale (low\u219260, medium\u219270, high\u219290, confirmed\u219295)",
   "fixtures": [
     {
       "scenario": "good_security_headers",
@@ -89,7 +89,7 @@
       "expected_finding": {
         "id": "header_missing_strict_transport_security",
         "severity": "high",
-        "confidence": "high",
+        "confidence": 90,
         "score_impact": -5,
         "evidence_type": "http_header_probe",
         "has_manual_verification_command": true
@@ -117,7 +117,7 @@
       "expected_finding": {
         "id": "email_dmarc_policy_none",
         "severity": "medium",
-        "confidence": "high",
+        "confidence": 90,
         "score_impact": -5,
         "evidence": {
           "evidence_type": "dns_txt_lookup",
@@ -148,7 +148,7 @@
       "expected_finding": {
         "id": "email_missing_dmarc",
         "severity": "high",
-        "confidence": "high",
+        "confidence": 90,
         "score_impact": -15,
         "evidence": {
           "evidence_type": "dns_txt_lookup",
@@ -179,7 +179,7 @@
       "expected_finding": {
         "id": "email_missing_spf",
         "severity": "high",
-        "confidence": "high",
+        "confidence": 90,
         "score_impact": -10,
         "evidence": {
           "evidence_type": "dns_txt_lookup",
@@ -210,7 +210,7 @@
       "expected_finding": {
         "id": "email_dkim_not_detected",
         "severity": "info",
-        "confidence": "low",
+        "confidence": 60,
         "score_impact": 0,
         "evidence": {
           "evidence_type": "dns_txt_lookup",
@@ -416,7 +416,7 @@
       "expected_finding": {
         "id": "dns_resolver_disagreement",
         "severity": "info",
-        "confidence": "medium",
+        "confidence": 70,
         "score_impact": 0,
         "evidence_type": "dns_cross_check"
       },
@@ -454,7 +454,7 @@
       "expected_finding": {
         "id": "header_weak_hsts",
         "severity": "info",
-        "confidence": "high",
+        "confidence": 90,
         "score_impact": 0,
         "evidence_type": "http_header_probe"
       },
@@ -493,7 +493,7 @@
       "expected_finding": {
         "id": "csp_weak_policy",
         "severity": "medium",
-        "confidence": "high",
+        "confidence": 90,
         "score_impact": 0,
         "evidence_type": "http_header_probe"
       },
@@ -540,7 +540,7 @@
       "expected_finding": {
         "id": "canonical_url_uncertain",
         "severity": "info",
-        "confidence": "medium",
+        "confidence": 70,
         "score_impact": 0,
         "evidence_type": "canonical_url_probe"
       },
@@ -578,7 +578,7 @@
       "expected_finding": {
         "id": "header_malformed_strict_transport_security",
         "severity": "medium",
-        "confidence": "high",
+        "confidence": 90,
         "score_impact": 0,
         "evidence_type": "http_header_probe"
       },
