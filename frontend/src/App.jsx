@@ -58,6 +58,7 @@ import SupportPage           from './pages/SupportPage'
 import AcademyPage          from './pages/AcademyPage'
 import AcademyArticlePage   from './pages/AcademyArticlePage'
 import NotificationsPage    from './pages/NotificationsPage'
+import FreeScanPage         from './pages/FreeScanPage'
 
 /**
  * ProtectedRoute — blocks unauthenticated users from accessing the app.
@@ -134,6 +135,8 @@ function AppRoutes() {
       <Route path="/support"          element={<SupportPage />} />
       {/* Invitation landing — public, works for logged-out and logged-in users */}
       <Route path="/invitations/:token" element={<InvitationLandingPage />} />
+      {/* Free scan — public lead-gen page, no auth required */}
+      <Route path="/free-scan"          element={<FreeScanPage />} />
 
       {/* ── Protected app (with Layout shell) ───────────────────────────── */}
       <Route

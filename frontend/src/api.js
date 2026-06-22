@@ -881,4 +881,24 @@ export const api = {
     }
     return res.blob()
   },
+
+  // ── Public Free Scan (no auth required) ──────────────────────────────────
+
+  /**
+   * POST /api/free-scan
+   * Anonymous — no auth token sent.
+   * Body: { domain: string }
+   * Returns: { domain, score, risk_level, severity_counts, total_findings,
+   *            preview_findings, hidden_count, modules_scanned, scanned_at }
+   */
+  runFreeScan: (domain) =>
+    fetch(`${BASE}/api/free-scan`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ domain }),
+    }).then(async res => {
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+      return data
+    }),
 }

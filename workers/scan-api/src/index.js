@@ -28015,6 +28015,163 @@ export default {
       }
     }
 
+    // ── POST /api/free-scan ──────────────────────────────────────────────────
+    // Public endpoint — no authentication required.
+    // Runs a lightweight 4-module scan (DNS, SSL, headers, email) and returns a
+    // preview payload suitable for the /free-scan landing page.
+    //
+    // Rate limit: 5 free scans per IP per hour (IP stored hashed in api_rate_limits).
+    // No D1 persistence — results are returned inline and discarded.
+    // No R2 writes — no report is stored.
+    //
+    // Response shape:
+    //   { domain, score, risk_level, severity_counts, total_findings,
+    //     preview_findings[5], hidden_count, scanned_at }
+    //
+    // Each preview_finding: { id, title, severity, description, academy_slug }
+    // Evidence, confidence, and remediation are intentionally omitted (gated).
+    if (request.method === "POST" && url.pathname === "/api/free-scan") {
+      let body;
+      try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+
+      const domain = (body.domain ?? "").trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+      if (!isValidDomain(domain)) {
+        return json({ error: "Please enter a valid domain (e.g. example.com)" }, 400);
+      }
+
+      // Block obviously internal / reserved domains
+      const BLOCKED_DOMAINS = ["localhost", "127.0.0.1", "0.0.0.0", "local"];
+      if (BLOCKED_DOMAINS.some(b => domain === b || domain.endsWith("." + b))) {
+        return json({ error: "That domain cannot be scanned" }, 400);
+      }
+
+      // IP-based rate limit: 5 free scans per hour
+      const clientIp = request.headers.get("CF-Connecting-IP") ||
+                       request.headers.get("X-Forwarded-For")?.split(",")[0]?.trim() ||
+                       "unknown";
+      // Hash the IP before storing — we don't need the raw address
+      const ipHash = await (async () => {
+        try {
+          const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(clientIp));
+          return Array.from(new Uint8Array(buf)).slice(0, 8).map(b => b.toString(16).padStart(2,"0")).join("");
+        } catch { return clientIp.replace(/[^a-z0-9]/gi, "_").slice(0, 32); }
+      })();
+
+      const rateLimitResult = await consumeApiRateLimit(
+        env,
+        [{ scope: "ip", scope_id: `freescan_${ipHash}` }],
+        "free_scan",
+        5,
+        3600,
+      );
+      if (rateLimitResult) {
+        return json({
+          error: "Too many free scans. Please wait an hour or create a free account for unlimited scanning.",
+          code: "rate_limit_exceeded",
+        }, 429);
+      }
+
+      // Run 4 core modules in parallel — no subdomains, no brute-force, no tech, no WHOIS
+      const scannedAt = new Date().toISOString();
+      const [dnsR, sslR, headersR, emailR] = await Promise.allSettled([
+        runDnsModule(domain),
+        runSslModule(domain),
+        runHeadersModule(domain),
+        runEmailModule(domain),
+      ]);
+
+      const modules = {
+        dns:              dnsR.status === "fulfilled"     ? dnsR.value     : { error: "DNS check failed" },
+        ssl:              sslR.status === "fulfilled"     ? sslR.value     : { error: "SSL check failed" },
+        headers:          headersR.status === "fulfilled" ? headersR.value : { error: "Headers check failed" },
+        email_security:   emailR.status === "fulfilled"   ? emailR.value   : { error: "Email check failed" },
+        // Stub the remaining modules — computeScore handles missing gracefully
+        subdomains:        { count: 0, items: [] },
+        subdomain_takeover:{ risks: [] },
+        asset_exposure:    { assets: [] },
+        technology_detection: {},
+        whois_intelligence:   {},
+        dns_bruteforce:       { items: [] },
+      };
+
+      const { score, risk_level, findings } = computeScore(modules, domain);
+      const normalised = findings.map(normalizeFindingSchema);
+
+      // Sort by severity weight — critical first
+      const SEV_WEIGHT = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+      normalised.sort((a, b) =>
+        (SEV_WEIGHT[a.severity] ?? 5) - (SEV_WEIGHT[b.severity] ?? 5)
+      );
+
+      // Count by severity
+      const severity_counts = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
+      for (const f of normalised) {
+        if (severity_counts[f.severity] !== undefined) severity_counts[f.severity]++;
+      }
+
+      // Academy slug mapping — same logic as frontend getAcademyArticleForFinding
+      // We resolve it server-side so the API response is self-contained.
+      const FINDING_ACADEMY_MAP = {
+        email_missing_spf:                       "spf-explained",
+        email_intel_spf_missing:                 "spf-explained",
+        email_intel_spf_permissive:              "spf-explained",
+        email_missing_dmarc:                     "dmarc-explained",
+        email_intel_dmarc_missing:               "dmarc-explained",
+        email_intel_dmarc_reporting_only:        "dmarc-explained",
+        email_dmarc_policy_none:                 "dmarc-explained",
+        email_weak_dmarc:                        "dmarc-explained",
+        email_dkim_not_detected:                 "dkim-explained",
+        email_intel_dkim_not_found:              "dkim-explained",
+        dnssec_not_enabled:                      "dnssec-explained",
+        dnssec_misconfigured:                    "dnssec-explained",
+        header_missing_strict_transport_security:"hsts-explained",
+        header_weak_hsts:                        "hsts-explained",
+        dse_hsts_short_maxage:                   "hsts-explained",
+        header_missing_content_security_policy:  "csp-explained",
+        csp_weak_policy:                         "csp-explained",
+        subdomain_takeover:                      "what-is-subdomain-takeover",
+        subdomain_takeover_risk:                 "what-is-subdomain-takeover",
+        cloud_storage_exposure_observed:         "public-cloud-storage-risks",
+        cloud_storage_public_listing:            "public-cloud-storage-risks",
+        admin_surface_critical:                  "what-is-attack-surface-management",
+        admin_surface_high:                      "what-is-attack-surface-management",
+      };
+
+      function resolveAcademySlug(findingId) {
+        if (!findingId) return null;
+        if (FINDING_ACADEMY_MAP[findingId]) return FINDING_ACADEMY_MAP[findingId];
+        // prefix match (strip trailing _segments one at a time)
+        const parts = findingId.split("_");
+        for (let len = parts.length - 1; len >= 1; len--) {
+          const prefix = parts.slice(0, len).join("_");
+          if (FINDING_ACADEMY_MAP[prefix]) return FINDING_ACADEMY_MAP[prefix];
+        }
+        return null;
+      }
+
+      // Build preview_findings — top 5, limited fields, no evidence/remediation
+      const PREVIEW_LIMIT = 5;
+      const preview_findings = normalised.slice(0, PREVIEW_LIMIT).map(f => ({
+        id:          f.id,
+        title:       f.title,
+        severity:    f.severity,
+        description: f.description,
+        academy_slug: resolveAcademySlug(f.id),
+      }));
+
+      return json({
+        domain,
+        score:            Math.max(0, Math.min(100, score)),
+        risk_level,
+        severity_counts,
+        total_findings:   normalised.length,
+        preview_findings,
+        hidden_count:     Math.max(0, normalised.length - PREVIEW_LIMIT),
+        modules_scanned:  ["dns", "ssl", "headers", "email_security"],
+        scanned_at:       scannedAt,
+      });
+    }
+
     return json({ error: "Not found" }, 404);
   },
 
