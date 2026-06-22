@@ -16941,6 +16941,25 @@ function parseStripePriceMap(env) {
   }
 }
 
+// Build a price map from individual env vars (Option A).
+// Key format matches STRIPE_PRICE_MAP: "{plan}_{interval}" → price_id.
+// Individual vars take precedence over STRIPE_PRICE_MAP if both are set.
+function buildStripePriceMapFromIndividualVars(env) {
+  const map = {};
+  const mappings = [
+    ["STRIPE_STARTER_MONTHLY_PRICE_ID",  "starter_monthly"],
+    ["STRIPE_STARTER_ANNUAL_PRICE_ID",   "starter_annual"],
+    ["STRIPE_PRO_MONTHLY_PRICE_ID",      "professional_monthly"],
+    ["STRIPE_PRO_ANNUAL_PRICE_ID",       "professional_annual"],
+    ["STRIPE_BUSINESS_MONTHLY_PRICE_ID", "business_monthly"],
+    ["STRIPE_BUSINESS_ANNUAL_PRICE_ID",  "business_annual"],
+  ];
+  for (const [envVar, key] of mappings) {
+    if (env?.[envVar]) map[key] = env[envVar];
+  }
+  return map;
+}
+
 function validateStripeBillingConfig(env) {
   const missing = [];
   if (!env?.STRIPE_SECRET_KEY) missing.push("STRIPE_SECRET_KEY");
@@ -16964,14 +16983,24 @@ function getStripePriceIdForPlan(env, plan, interval = "monthly") {
   if (normalizedPlan === "free" || normalizedPlan === "enterprise") {
     return { ok: false, error: "plan_not_checkout_eligible", price_id: null };
   }
+  if (!env?.STRIPE_SECRET_KEY) {
+    return { ok: false, error: "missing_stripe_config", missing: ["STRIPE_SECRET_KEY"], price_id: null };
+  }
 
+  const key = `${normalizedPlan}_${normalizedInterval}`;
+
+  // Option A: individual env vars take precedence over STRIPE_PRICE_MAP JSON.
+  const individualMap = buildStripePriceMapFromIndividualVars(env);
+  if (individualMap[key]) {
+    return { ok: true, error: null, missing: [], price_id: individualMap[key] };
+  }
+
+  // Option B: STRIPE_PRICE_MAP JSON fallback.
+  // STRIPE_PRICE_MAP uses explicit composite keys: "{plan}_{interval}" → price_id.
+  // Example: { "starter_monthly": "price_xxx", "professional_annual": "price_yyy" }
   const config = validateStripeBillingConfig(env);
   if (!config.ok) return { ok: false, error: config.error, missing: config.missing, price_id: null };
 
-  // STRIPE_PRICE_MAP uses explicit composite keys: "{plan}_{interval}" → price_id.
-  // Example: { "starter_monthly": "price_xxx", "professional_annual": "price_yyy" }
-  // Direct key lookup — no substring matching on price IDs.
-  const key = `${normalizedPlan}_${normalizedInterval}`;
   const priceId = config.priceMap[key];
   if (!priceId || typeof priceId !== "string") {
     return { ok: false, error: "missing_stripe_price", missing: [key], price_id: null };
@@ -17126,6 +17155,9 @@ async function upsertStripeSubscriptionState(env, state) {
   });
 
   if (rowId) {
+    const cancelAtPeriodEnd = state.cancel_at_period_end != null
+      ? (state.cancel_at_period_end ? 1 : 0)
+      : null;
     await env.cybermeters_db
       .prepare(
         `UPDATE subscriptions
@@ -17135,7 +17167,9 @@ async function upsertStripeSubscriptionState(env, state) {
              stripe_customer_id = COALESCE(?, stripe_customer_id),
              stripe_subscription_id = COALESCE(?, stripe_subscription_id),
              stripe_price_id = COALESCE(?, stripe_price_id),
+             current_period_start = COALESCE(?, current_period_start),
              current_period_end = COALESCE(?, current_period_end),
+             cancel_at_period_end = COALESCE(?, cancel_at_period_end),
              updated_at = datetime('now')
          WHERE id = ?`
       )
@@ -17146,7 +17180,9 @@ async function upsertStripeSubscriptionState(env, state) {
         stripeCustomerId,
         stripeSubscriptionId,
         state.stripe_price_id || null,
+        state.current_period_start || null,
         state.current_period_end || null,
+        cancelAtPeriodEnd,
         rowId
       )
       .run();
@@ -17155,13 +17191,17 @@ async function upsertStripeSubscriptionState(env, state) {
 
   if (!ownerUserId) return null;
   const id = createId("sub");
+  const cancelAtPeriodEndInsert = state.cancel_at_period_end != null
+    ? (state.cancel_at_period_end ? 1 : 0)
+    : 0;
   await env.cybermeters_db
     .prepare(
       `INSERT INTO subscriptions
          (id, owner_user_id, plan, billing_interval, subscription_status,
           stripe_customer_id, stripe_subscription_id, stripe_price_id,
-          current_period_end, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
+          current_period_start, current_period_end, cancel_at_period_end,
+          created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
     )
     .bind(
       id,
@@ -17172,7 +17212,9 @@ async function upsertStripeSubscriptionState(env, state) {
       stripeCustomerId,
       stripeSubscriptionId,
       state.stripe_price_id || null,
-      state.current_period_end || null
+      state.current_period_start || null,
+      state.current_period_end || null,
+      cancelAtPeriodEndInsert
     )
     .run();
   return id;
@@ -17211,7 +17253,9 @@ async function handleStripeSubscriptionUpsert(env, subscription) {
     stripe_customer_id: getStripeObjectId(subscription?.customer),
     stripe_subscription_id: subscription?.id || null,
     stripe_price_id: priceId,
+    current_period_start: stripeUnixToIso(subscription?.current_period_start),
     current_period_end: stripeUnixToIso(subscription?.current_period_end),
+    cancel_at_period_end: subscription?.cancel_at_period_end ?? null,
   });
 }
 
@@ -17258,6 +17302,50 @@ async function handleStripeInvoicePaymentFailed(env, invoice) {
     .bind(rowId)
     .run();
   return rowId;
+}
+
+async function handleStripeInvoicePaymentSucceeded(env, invoice) {
+  const stripeSubscriptionId = getStripeObjectId(invoice?.subscription);
+  const stripeCustomerId = getStripeObjectId(invoice?.customer);
+  const rowId = await findSubscriptionRowId(env, {
+    stripeSubscriptionId,
+    stripeCustomerId,
+  });
+
+  if (!rowId) return null;
+  // Clear past_due state when payment succeeds; only restore active if currently past_due
+  // (subscription.updated events also fire on renewal and update period_end authoritatively).
+  await env.cybermeters_db
+    .prepare(
+      `UPDATE subscriptions
+       SET subscription_status = CASE WHEN subscription_status = 'past_due' THEN 'active' ELSE subscription_status END,
+           payment_failed_at = NULL,
+           payment_retry_count = 0,
+           updated_at = datetime('now')
+       WHERE id = ?`
+    )
+    .bind(rowId)
+    .run();
+  return rowId;
+}
+
+// writeSubscriptionEvent — writes a row to subscription_events for billing audit log.
+// Non-fatal: errors are logged but do not throw. Webhook response must not fail
+// due to event logging issues (Stripe would retry, causing duplicate subscription state).
+async function writeSubscriptionEvent(env, subscriptionRowId, eventType, payload) {
+  if (!subscriptionRowId) return;
+  try {
+    const eventId = createId("sev");
+    await env.cybermeters_db
+      .prepare(
+        `INSERT INTO subscription_events (id, subscription_id, event_type, payload_json, created_at)
+         VALUES (?, ?, ?, ?, datetime('now'))`
+      )
+      .bind(eventId, subscriptionRowId, eventType, payload ? JSON.stringify(payload) : null)
+      .run();
+  } catch (e) {
+    console.error(`[subscription_events] write failed [${eventType}]: ${e?.message ?? e}`);
+  }
 }
 
 async function auditApiTokenSessionRouteDenied(env, user, request) {
@@ -18308,7 +18396,7 @@ export default {
     // No session auth — identity is established by the webhook signature.
     // Returns 5xx after a valid signature if D1 synchronization fails so
     // Stripe retries transient persistence failures.
-    if (request.method === "POST" && url.pathname === "/api/billing/webhook") {
+    if (request.method === "POST" && (url.pathname === "/api/billing/webhook" || url.pathname === "/api/stripe/webhook")) {
       // Read raw body first — required before any other body consumption so
       // the exact bytes Stripe signed are available for HMAC verification.
       const rawBody = await request.text();
@@ -18363,6 +18451,11 @@ export default {
                 interval: normalizeBillingInterval(metadata.interval),
               },
             });
+            await writeSubscriptionEvent(env, rowId, "checkout_completed", {
+              stripe_session_id: obj?.id || null,
+              plan: normalizePlan(metadata.plan),
+              interval: normalizeBillingInterval(metadata.interval),
+            });
             break;
           }
 
@@ -18389,6 +18482,13 @@ export default {
                 status: normalizeStripeSubscriptionStatus(obj?.status),
                 current_period_end: stripeUnixToIso(obj?.current_period_end),
               },
+            });
+            await writeSubscriptionEvent(env, rowId, "subscription_created", {
+              stripe_subscription_id: obj?.id || null,
+              plan: getPlanFromStripePriceId(env, price?.id || null, metadata.plan),
+              status: normalizeStripeSubscriptionStatus(obj?.status),
+              current_period_start: stripeUnixToIso(obj?.current_period_start),
+              current_period_end: stripeUnixToIso(obj?.current_period_end),
             });
             break;
           }
@@ -18437,6 +18537,15 @@ export default {
                 current_period_end: stripeUnixToIso(obj?.current_period_end),
               },
             });
+            await writeSubscriptionEvent(env, rowId, "subscription_updated", {
+              stripe_subscription_id: obj?.id || null,
+              plan: newPlan,
+              plan_changed: previousPlan ? previousPlan !== newPlan : false,
+              status: normalizeStripeSubscriptionStatus(obj?.status),
+              cancel_at_period_end: obj?.cancel_at_period_end ?? null,
+              current_period_start: stripeUnixToIso(obj?.current_period_start),
+              current_period_end: stripeUnixToIso(obj?.current_period_end),
+            });
             break;
           }
 
@@ -18461,6 +18570,11 @@ export default {
                 current_period_end: stripeUnixToIso(obj?.current_period_end),
               },
             });
+            await writeSubscriptionEvent(env, rowId, "subscription_canceled", {
+              stripe_subscription_id: obj?.id || null,
+              status: "canceled",
+              current_period_end: stripeUnixToIso(obj?.current_period_end),
+            });
             break;
           }
 
@@ -18484,6 +18598,42 @@ export default {
                 stripe_customer_id: getStripeObjectId(obj?.customer),
                 attempt_count: obj?.attempt_count ?? null,
               },
+            });
+            await writeSubscriptionEvent(env, rowId, "payment_failed", {
+              stripe_invoice_id: obj?.id || null,
+              stripe_subscription_id: getStripeObjectId(obj?.subscription),
+              attempt_count: obj?.attempt_count ?? null,
+            });
+            break;
+          }
+
+          // ── invoice.payment_succeeded ────────────────────────────────────
+          // Payment succeeded — clears past_due status and resets retry count.
+          // Note: customer.subscription.updated also fires on renewal and is
+          // the authoritative source for current_period_end. This handler only
+          // clears the payment failure state.
+          case "invoice.payment_succeeded": {
+            const rowId = await handleStripeInvoicePaymentSucceeded(env, obj);
+            await createAuditEvent(env, {
+              user_id:     null,
+              event_type:  "subscription_payment_succeeded",
+              entity_type: "stripe_invoice",
+              entity_id:   obj?.id || rowId || null,
+              description: "Stripe invoice payment succeeded",
+              metadata:    {
+                subscription_row_id: rowId,
+                stripe_invoice_id: obj?.id || null,
+                stripe_subscription_id: getStripeObjectId(obj?.subscription),
+                stripe_customer_id: getStripeObjectId(obj?.customer),
+                amount_paid: obj?.amount_paid ?? null,
+                currency: obj?.currency ?? null,
+              },
+            });
+            await writeSubscriptionEvent(env, rowId, "payment_succeeded", {
+              stripe_invoice_id: obj?.id || null,
+              stripe_subscription_id: getStripeObjectId(obj?.subscription),
+              amount_paid: obj?.amount_paid ?? null,
+              currency: obj?.currency ?? null,
             });
             break;
           }
@@ -28438,6 +28588,257 @@ export default {
     // No auth required.
     if (request.method === "GET" && url.pathname === "/api/plans") {
       return json({ plans: getPublicBillingPlans() });
+    }
+
+    // ── POST /api/workspaces/:id/billing/checkout ─────────────────────────────
+    // Workspace-scoped Stripe Checkout Session. Workspace owner only.
+    // Body: { "plan": "starter|professional|business", "interval": "monthly|annual" }
+    // interval defaults to "monthly". success_url and cancel_url are hardcoded.
+    // Returns: { "url": "https://checkout.stripe.com/..." }
+    const wsCheckoutMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/billing\/checkout$/);
+    if (wsCheckoutMatch && request.method === "POST") {
+      const wsId = wsCheckoutMatch[1];
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      if (user.api_token_id) {
+        await auditApiTokenSessionRouteDenied(env, user, request);
+        return json({ error: "Session authentication required" }, 403);
+      }
+
+      // Workspace owner check: only the workspace owner may initiate billing.
+      const access = await requireWorkspaceRole(user, wsId, "workspace:manage", env);
+      if (!access) return json({ error: "Forbidden", message: "Workspace owner required for billing." }, 403);
+
+      let body;
+      try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+
+      // Enterprise plan requires sales contact — never self-serve checkout.
+      const rawPlan = String(body.plan || "").trim().toLowerCase();
+      if (rawPlan === "enterprise") {
+        return json({
+          error: "contact_sales",
+          message: "Enterprise plans require a sales conversation. Contact us at sales@cybermeters.com.",
+          contact_url: "mailto:sales@cybermeters.com",
+        }, 400);
+      }
+
+      const parsedPlan = parseCheckoutPlan(rawPlan);
+      if (!parsedPlan.ok) {
+        return json({
+          error: "invalid_plan",
+          message: "plan must be one of: starter, professional, business.",
+        }, 400);
+      }
+
+      const requestedPlan = parsedPlan.plan;
+      const interval = normalizeBillingInterval(body.interval);
+      const metadata = BILLING_PLAN_METADATA[requestedPlan];
+
+      if (!metadata?.checkout_enabled) {
+        return json({
+          error: "plan_not_checkout_eligible",
+          plan: requestedPlan,
+          message: "This plan is not available through self-service checkout.",
+        }, 400);
+      }
+
+      const priceResolution = getStripePriceIdForPlan(env, requestedPlan, interval);
+      if (!priceResolution.ok) {
+        return json({
+          error: priceResolution.error,
+          ...(priceResolution.missing?.length ? { missing: priceResolution.missing } : {}),
+          message: "Stripe billing configuration is not ready for checkout.",
+        }, 503);
+      }
+
+      // Resolve the billing owner for this workspace (workspace.owner_user_id).
+      const ownerUserId = await getWorkspaceBillingUserId(wsId, user.id, env);
+
+      // Lookup existing subscription for this owner to reuse Stripe customer if present.
+      let existingSub = null;
+      try {
+        existingSub = await env.cybermeters_db
+          .prepare(
+            `SELECT id, stripe_customer_id
+             FROM subscriptions
+             WHERE owner_user_id = ?
+             ORDER BY COALESCE(updated_at, created_at) DESC
+             LIMIT 1`
+          )
+          .bind(ownerUserId)
+          .first();
+      } catch { /* continue without existing customer */ }
+
+      // Hardcoded success/cancel URLs — prevents open redirect via client-supplied URLs.
+      const origin = new URL(request.url).origin;
+      // Use FRONTEND_URL env var if set (Cloudflare Pages URL), else derive from Worker origin.
+      const frontendOrigin = env.FRONTEND_URL || origin.replace("cybermeters-platform.ttrnn47.workers.dev", "cybermeters.com");
+      const successUrl = `${frontendOrigin}/billing?success=true`;
+      const cancelUrl  = `${frontendOrigin}/billing?canceled=true`;
+
+      const params = new URLSearchParams();
+      params.set("mode",                    "subscription");
+      params.set("line_items[0][price]",    priceResolution.price_id);
+      params.set("line_items[0][quantity]", "1");
+      params.set("success_url",             successUrl);
+      params.set("cancel_url",              cancelUrl);
+      params.set("metadata[user_id]",       String(ownerUserId));
+      params.set("metadata[plan]",          requestedPlan);
+      params.set("metadata[interval]",      interval);
+      params.set("metadata[workspace_id]",  wsId);
+      params.set("subscription_data[metadata][user_id]",    String(ownerUserId));
+      params.set("subscription_data[metadata][plan]",       requestedPlan);
+      params.set("subscription_data[metadata][interval]",   interval);
+      params.set("subscription_data[metadata][workspace_id]", wsId);
+      params.set("allow_promotion_codes", "true");
+
+      if (existingSub?.stripe_customer_id) {
+        params.set("customer", existingSub.stripe_customer_id);
+      } else {
+        params.set("customer_email", user.email);
+      }
+
+      let stripeSession;
+      try {
+        const stripeRes = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+          method:  "POST",
+          headers: {
+            "Authorization": `Bearer ${env.STRIPE_SECRET_KEY}`,
+            "Content-Type":  "application/x-www-form-urlencoded",
+          },
+          body: params.toString(),
+        });
+
+        const stripeData = await stripeRes.json();
+        if (!stripeRes.ok) {
+          return json({
+            error:             "stripe_api_error",
+            message:           stripeData?.error?.message ?? "Stripe Checkout Session creation failed.",
+            stripe_error_type: stripeData?.error?.type  ?? null,
+            stripe_error_code: stripeData?.error?.code  ?? null,
+          }, 502);
+        }
+        stripeSession = stripeData;
+      } catch (e) {
+        return json({
+          error:   "stripe_request_failed",
+          message: "Could not reach Stripe. Please try again.",
+          detail:  String(e?.message ?? e),
+        }, 502);
+      }
+
+      await createAuditEvent(env, {
+        user_id:     user.id,
+        workspace_id: wsId,
+        event_type:  "billing_checkout_session_created",
+        entity_type: "stripe_checkout_session",
+        entity_id:   stripeSession.id,
+        description: `Workspace checkout session created for ${requestedPlan} (${interval})`,
+        metadata:    { plan: requestedPlan, interval, stripe_session_id: stripeSession.id, workspace_id: wsId },
+      });
+
+      return json({ url: stripeSession.url, session_id: stripeSession.id }, 200);
+    }
+
+    // ── POST /api/workspaces/:id/billing/portal ───────────────────────────────
+    // Opens a Stripe Billing Portal for workspace subscription management.
+    // Workspace owner only. Requires an existing Stripe customer.
+    // Returns: { "url": "https://billing.stripe.com/..." }
+    const wsPortalMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/billing\/portal$/);
+    if (wsPortalMatch && request.method === "POST") {
+      const wsId = wsPortalMatch[1];
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      if (user.api_token_id) {
+        await auditApiTokenSessionRouteDenied(env, user, request);
+        return json({ error: "Session authentication required" }, 403);
+      }
+
+      const access = await requireWorkspaceRole(user, wsId, "workspace:manage", env);
+      if (!access) return json({ error: "Forbidden", message: "Workspace owner required for billing." }, 403);
+
+      const stripeConfig = validateStripeSecretConfig(env);
+      if (!stripeConfig.ok) {
+        return json({
+          error: stripeConfig.error,
+          missing: stripeConfig.missing,
+          message: "Stripe billing configuration is not ready for Customer Portal.",
+        }, 503);
+      }
+
+      const ownerUserId = await getWorkspaceBillingUserId(wsId, user.id, env);
+
+      let subscription = null;
+      try {
+        subscription = await env.cybermeters_db
+          .prepare(
+            `SELECT id, stripe_customer_id
+             FROM subscriptions
+             WHERE owner_user_id = ?
+             ORDER BY COALESCE(updated_at, created_at) DESC
+             LIMIT 1`
+          )
+          .bind(ownerUserId)
+          .first();
+      } catch (e) {
+        return json({ error: "Database error", detail: String(e?.message ?? e) }, 500);
+      }
+
+      if (!subscription) {
+        return json({ error: "subscription_not_found", message: "No active subscription found for this workspace." }, 404);
+      }
+      if (!subscription.stripe_customer_id) {
+        return json({ error: "stripe_customer_missing", message: "No Stripe customer on file. Complete a checkout first." }, 409);
+      }
+
+      const origin = new URL(request.url).origin;
+      const frontendOrigin = env.FRONTEND_URL || origin.replace("cybermeters-platform.ttrnn47.workers.dev", "cybermeters.com");
+      const returnUrl = `${frontendOrigin}/billing`;
+
+      const params = new URLSearchParams();
+      params.set("customer",   subscription.stripe_customer_id);
+      params.set("return_url", returnUrl);
+
+      let portalSession;
+      try {
+        const stripeRes = await fetch("https://api.stripe.com/v1/billing_portal/sessions", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${env.STRIPE_SECRET_KEY}`,
+            "Content-Type":  "application/x-www-form-urlencoded",
+          },
+          body: params.toString(),
+        });
+
+        const stripeData = await stripeRes.json();
+        if (!stripeRes.ok) {
+          return json({
+            error:             "stripe_api_error",
+            message:           stripeData?.error?.message ?? "Stripe Billing Portal Session creation failed.",
+            stripe_error_type: stripeData?.error?.type ?? null,
+            stripe_error_code: stripeData?.error?.code ?? null,
+          }, 502);
+        }
+        portalSession = stripeData;
+      } catch (e) {
+        return json({
+          error:   "stripe_request_failed",
+          message: "Could not reach Stripe. Please try again.",
+          detail:  String(e?.message ?? e),
+        }, 502);
+      }
+
+      await createAuditEvent(env, {
+        user_id:      user.id,
+        workspace_id: wsId,
+        event_type:   "billing_portal_opened",
+        entity_type:  "stripe_billing_portal_session",
+        entity_id:    portalSession.id,
+        description:  "Workspace Stripe billing portal session created",
+        metadata:     { subscription_id: subscription.id, stripe_session_id: portalSession.id, workspace_id: wsId },
+      });
+
+      return json({ url: portalSession.url, session_id: portalSession.id }, 200);
     }
 
     return json({ error: "Not found" }, 404);

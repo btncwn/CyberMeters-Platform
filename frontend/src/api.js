@@ -846,6 +846,30 @@ export const api = {
       body: JSON.stringify({ return_url }),
     }),
 
+  /**
+   * POST /api/workspaces/:id/billing/checkout
+   * Workspace-scoped checkout. Workspace owner only.
+   * Body: { plan, interval? }  interval defaults to 'monthly'.
+   * Returns: { url, session_id }
+   */
+  startWorkspaceCheckout: (workspaceId, plan, interval = 'monthly') =>
+    request(`/workspaces/${workspaceId}/billing/checkout`, {
+      method: 'POST',
+      body: JSON.stringify({ plan, interval }),
+    }),
+
+  /**
+   * POST /api/workspaces/:id/billing/portal
+   * Opens Stripe Customer Portal for workspace billing management.
+   * Workspace owner only. Requires existing Stripe customer.
+   * Returns: { url, session_id }
+   */
+  openWorkspaceBillingPortal: (workspaceId) =>
+    request(`/workspaces/${workspaceId}/billing/portal`, {
+      method: 'POST',
+      body: '{}',
+    }),
+
   // ── Portfolio APIs ────────────────────────────────────────────────────────
 
   /** GET /api/portfolio/overview */
