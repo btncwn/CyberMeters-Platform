@@ -4,9 +4,10 @@ import {
   ArrowLeft, RefreshCw, Globe, Hash, AlertCircle, ScanLine,
   ChevronRight, Shield, FileText, CheckCircle, XCircle, Mail,
   Lock, Server, Clock, History, ChevronDown, Terminal,
-  TrendingDown, TrendingUp, Minus,
+  TrendingDown, TrendingUp, Minus, GraduationCap,
 } from 'lucide-react'
 import { api } from '../api'
+import { getAcademyArticleForFinding } from '../data/academy'
 import StatusBadge from '../components/StatusBadge'
 import Spinner from '../components/Spinner'
 import ErrorAlert from '../components/ErrorAlert'
@@ -219,8 +220,10 @@ function EvidencePanel({ evidence }) {
 // Phases 1–3: confidence badge, validation_quality badge, evidence_quality badge.
 // Phase 6: low-confidence warning always visible (not gated on evidence panel open).
 // Phase 7: evidence panel collapsed by default; badges compact; no excessive height.
+// Sprint 11A: Academy Learn More link — resolved via getAcademyArticleForFinding().
 function FindingRow({ f, index }) {
   const [open, setOpen] = useState(false)
+  const academySlug = getAcademyArticleForFinding(f)
 
   // Normalize evidence: Sprint 9C always array; legacy scans may have object
   const hasEvidence = Array.isArray(f.evidence) ? f.evidence.length > 0 : !!f.evidence
@@ -281,6 +284,17 @@ function FindingRow({ f, index }) {
               <span className="text-[10px] font-semibold text-red-400">
                 {f.score_impact} pts
               </span>
+            )}
+
+            {/* Sprint 11A — Academy Learn More link */}
+            {academySlug && (
+              <Link
+                to={`/academy/${academySlug}`}
+                className="flex items-center gap-1 text-[10px] font-semibold text-brand-600 hover:text-brand-800 transition-colors"
+              >
+                <GraduationCap className="w-3 h-3" />
+                Learn more
+              </Link>
             )}
 
             {/* Evidence toggle — pushed to the right */}

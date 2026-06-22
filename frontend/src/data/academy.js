@@ -954,3 +954,118 @@ export function getRelatedArticles(slug) {
 export function getCategoryMeta(slug) {
   return CATEGORIES.find(c => c.slug === slug) ?? null
 }
+
+// ── Finding-to-Academy mapping (Sprint 11A) ───────────────────────────────────
+
+/**
+ * Exact finding ID → article slug.
+ * Computed once at module load from each article's findingIds[].
+ * Includes manual overrides for finding IDs that differ from the
+ * Worker's emitted ID vs. the v1 article findingIds naming.
+ */
+export const FINDING_TO_ACADEMY = {
+  // ── Manual overrides — Worker IDs that differ from article findingIds ──────
+  // Email security
+  email_intel_spf_missing:             'spf-explained',
+  email_intel_spf_permissive:          'spf-explained',
+  email_intel_dmarc_missing:           'dmarc-explained',
+  email_intel_dmarc_reporting_only:    'dmarc-explained',
+  email_intel_dkim_not_found:          'dkim-explained',
+  email_weak_dmarc:                    'dmarc-explained',
+  email_dmarc_policy_none:             'dmarc-explained',
+  email_dkim_not_detected:             'dkim-explained',
+  email_no_dkim:                       'dkim-explained',
+  email_no_dmarc:                      'dmarc-explained',
+  email_no_spf:                        'spf-explained',
+  // DNSSEC (Worker uses dnssec_ prefix, articles used dns_dnssec_ prefix)
+  dnssec_not_enabled:                  'dnssec-explained',
+  dnssec_misconfigured:                'dnssec-explained',
+  // Headers
+  header_missing_strict_transport_security: 'hsts-explained',
+  header_weak_hsts:                    'hsts-explained',
+  dse_hsts_short_maxage:               'hsts-explained',
+  dse_hsts_not_preload_eligible:       'hsts-explained',
+  header_missing_content_security_policy: 'csp-explained',
+  csp_weak_policy:                     'csp-explained',
+  // Subdomain takeover
+  subdomain_takeover:                  'what-is-subdomain-takeover',
+  subdomain_takeover_risk:             'what-is-subdomain-takeover',
+  // Cloud storage
+  cloud_storage_exposure_observed:     'public-cloud-storage-risks',
+  cloud_storage_public_listing:        'public-cloud-storage-risks',
+  cloud_storage_takeover_risk:         'public-cloud-storage-risks',
+  cloud_storage_detected:              'public-cloud-storage-risks',
+  // Identity / M365
+  identity_microsoft_365_detected:     'microsoft-365-exposure-risks',
+  identity_legacy_auth_exposed:        'microsoft-365-exposure-risks',
+  identity_autodiscover_exposed:       'microsoft-365-exposure-risks',
+  // ASM / admin surfaces
+  admin_surface_critical:              'what-is-attack-surface-management',
+  admin_surface_high:                  'what-is-attack-surface-management',
+  admin_surface_medium:                'what-is-attack-surface-management',
+  asset_exposure_admin_interface:      'what-is-attack-surface-management',
+  asset_exposure_dev_env:              'what-is-attack-surface-management',
+  asset_exposure_sensitive_tool:       'what-is-attack-surface-management',
+  subdomains_large_attack_surface:     'what-is-attack-surface-management',
+  // Vendor / supply chain
+  vendor_risk_detected:                'vendor-risk-explained',
+  third_party_service_detected:        'vendor-risk-explained',
+  saas_exposure_detected:              'vendor-risk-explained',
+  supply_chain_vendor_detected:        'supply-chain-attacks-explained',
+  third_party_js_detected:             'supply-chain-attacks-explained',
+  known_vulnerable_component:          'supply-chain-attacks-explained',
+  // ── Auto-generated from article findingIds[] ─────────────────────────────
+  ...Object.fromEntries(
+    ARTICLES.flatMap(a => (a.findingIds || []).map(id => [id, a.slug]))
+  ),
+}
+
+/**
+ * Module-level fallback mapping.
+ * Used when no exact or prefix match is found for a finding ID.
+ */
+const MODULE_TO_ACADEMY = {
+  email_security:              'spf-explained',
+  email_security_intelligence: 'dmarc-explained',
+  headers:                     'hsts-explained',
+  dns:                         'dnssec-explained',
+  subdomain_takeover:          'what-is-subdomain-takeover',
+  cloud_storage_discovery:     'public-cloud-storage-risks',
+  admin_surface_detection:     'what-is-attack-surface-management',
+  technology_detection:        'what-is-attack-surface-management',
+}
+
+/**
+ * getAcademyArticleForFinding(finding)
+ *
+ * Returns the Academy article slug for a given scan finding, or null if none.
+ *
+ * Lookup order:
+ *   1. Exact match on finding.id in FINDING_TO_ACADEMY
+ *   2. Prefix match — strips trailing segments of finding.id and retries
+ *      (e.g. email_intel_spf_permissive → email_intel_spf → email_intel → email)
+ *   3. Module fallback — MODULE_TO_ACADEMY[finding.module]
+ *   4. null — render no link
+ */
+export function getAcademyArticleForFinding(finding) {
+  if (!finding) return null
+  const id     = finding.id     ?? ''
+  const module = finding.module ?? ''
+
+  // Tier 1 — exact match
+  if (id && FINDING_TO_ACADEMY[id]) return FINDING_TO_ACADEMY[id]
+
+  // Tier 2 — prefix match (most-specific first)
+  if (id) {
+    const parts = id.split('_')
+    for (let len = parts.length - 1; len >= 1; len--) {
+      const prefix = parts.slice(0, len).join('_')
+      if (FINDING_TO_ACADEMY[prefix]) return FINDING_TO_ACADEMY[prefix]
+    }
+  }
+
+  // Tier 3 — module fallback
+  if (module && MODULE_TO_ACADEMY[module]) return MODULE_TO_ACADEMY[module]
+
+  return null
+}
