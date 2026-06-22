@@ -5,9 +5,11 @@ import {
   ChevronRight, Shield, FileText, CheckCircle, XCircle, Mail,
   Lock, Server, Clock, History, ChevronDown, Terminal,
   TrendingDown, TrendingUp, Minus, GraduationCap,
+  User, Zap, Target, Terminal as TerminalIcon, Copy, Check as CheckIcon,
 } from 'lucide-react'
 import { api } from '../api'
 import { getAcademyArticleForFinding } from '../data/academy'
+import { buildRemediationIntelligence, PRIORITY_LABELS, PRIORITY_SLA } from '../data/remediation'
 import StatusBadge from '../components/StatusBadge'
 import Spinner from '../components/Spinner'
 import ErrorAlert from '../components/ErrorAlert'
@@ -216,14 +218,120 @@ function EvidencePanel({ evidence }) {
   )
 }
 
+// ── Remediation Panel (Sprint 11B) ───────────────────────────────────────────
+
+function CopyButton({ text }) {
+  const [copied, setCopied] = useState(false)
+  function handleCopy() {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1800)
+    }).catch(() => {})
+  }
+  return (
+    <button
+      onClick={handleCopy}
+      className="flex items-center gap-1 text-[10px] text-gray-400 hover:text-gray-700 transition-colors flex-shrink-0"
+      title="Copy command"
+    >
+      {copied
+        ? <CheckIcon className="w-3 h-3 text-brand-500" />
+        : <Copy className="w-3 h-3" />
+      }
+      {copied ? 'Copied' : 'Copy'}
+    </button>
+  )
+}
+
+function RemediationPanel({ rem }) {
+  const plCfg = rem.priority ? (PRIORITY_LABELS[rem.priority] || PRIORITY_LABELS.P4) : null
+  const sla   = rem.priority ? PRIORITY_SLA[rem.priority] : null
+  const hasSteps = rem.steps?.length > 0
+  const hasVerification = !!rem.verification
+
+  return (
+    <div className="mt-3 rounded-xl border border-gray-100 bg-gray-50 overflow-hidden">
+      {/* Compact metadata row */}
+      <div className="flex items-center gap-3 px-3 py-2 flex-wrap border-b border-gray-100">
+        {plCfg && (
+          <span className={`flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${plCfg.bg} ${plCfg.color}`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${plCfg.dot}`} />
+            {plCfg.label}
+          </span>
+        )}
+        {sla && (
+          <span className="flex items-center gap-1 text-[10px] text-gray-500">
+            <Clock className="w-3 h-3 text-gray-400" />
+            Fix within {sla}
+          </span>
+        )}
+        {rem.owner && (
+          <span className="flex items-center gap-1 text-[10px] text-gray-500">
+            <User className="w-3 h-3 text-gray-400" />
+            {rem.owner}
+          </span>
+        )}
+        {rem.effort && rem.effort !== '—' && (
+          <span className="flex items-center gap-1 text-[10px] text-gray-500">
+            <Zap className="w-3 h-3 text-gray-400" />
+            {rem.effort}
+          </span>
+        )}
+      </div>
+
+      {/* Business impact */}
+      {rem.business_impact && (
+        <div className="px-3 py-2 border-b border-gray-100">
+          <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-0.5">Business Impact</p>
+          <p className="text-[12px] text-gray-700 leading-relaxed">{rem.business_impact}</p>
+        </div>
+      )}
+
+      {/* Remediation steps */}
+      {hasSteps && (
+        <div className="px-3 py-2 border-b border-gray-100">
+          <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Remediation Steps</p>
+          <ol className="space-y-1">
+            {rem.steps.map((step, i) => (
+              <li key={i} className="flex items-start gap-2">
+                <span className="flex-shrink-0 w-4 h-4 rounded-full bg-brand-100 text-brand-700 text-[9px] font-bold flex items-center justify-center mt-0.5">
+                  {i + 1}
+                </span>
+                <span className="text-[12px] text-gray-700 leading-relaxed">{step}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+
+      {/* Verification command */}
+      {hasVerification && (
+        <div className="px-3 py-2">
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Verify Fix</p>
+            <CopyButton text={rem.verification} />
+          </div>
+          <pre className="text-[11px] font-mono text-gray-800 bg-gray-100 rounded-lg px-2.5 py-1.5 overflow-x-auto whitespace-pre-wrap break-all leading-relaxed">
+            {rem.verification}
+          </pre>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // Sprint 9E.2 — FindingRow with full trust layer display.
 // Phases 1–3: confidence badge, validation_quality badge, evidence_quality badge.
 // Phase 6: low-confidence warning always visible (not gated on evidence panel open).
 // Phase 7: evidence panel collapsed by default; badges compact; no excessive height.
 // Sprint 11A: Academy Learn More link — resolved via getAcademyArticleForFinding().
+// Sprint 11B: Remediation intelligence panel.
 function FindingRow({ f, index }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen]       = useState(false)
+  const [remOpen, setRemOpen] = useState(false)
   const academySlug = getAcademyArticleForFinding(f)
+  const rem         = buildRemediationIntelligence(f)
+  const hasRem      = !!(rem && (rem.priority || rem.owner || rem.business_impact))
 
   // Normalize evidence: Sprint 9C always array; legacy scans may have object
   const hasEvidence = Array.isArray(f.evidence) ? f.evidence.length > 0 : !!f.evidence
@@ -297,6 +405,17 @@ function FindingRow({ f, index }) {
               </Link>
             )}
 
+            {/* Sprint 11B — Remediation toggle */}
+            {hasRem && (
+              <button
+                onClick={() => setRemOpen(o => !o)}
+                className={`flex items-center gap-1 text-[10px] font-semibold transition-colors ${remOpen ? 'text-brand-700' : 'text-gray-500 hover:text-brand-700'}`}
+              >
+                <Target className="w-3 h-3" />
+                {remOpen ? 'Hide remediation' : 'How to fix'}
+              </button>
+            )}
+
             {/* Evidence toggle — pushed to the right */}
             {hasEvidence && (
               <button
@@ -320,6 +439,11 @@ function FindingRow({ f, index }) {
                 </p>
               </div>
             </div>
+          )}
+
+          {/* Sprint 11B — Remediation panel: collapsed by default */}
+          {remOpen && hasRem && (
+            <RemediationPanel rem={rem} />
           )}
 
           {/* Phase 4 — Evidence panel: collapsed by default */}
