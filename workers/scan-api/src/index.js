@@ -16572,9 +16572,21 @@ const PLAN_LIMITS = {
 const PLAN_FEATURES = {
   free: [],
   starter: [
+    // ── Sprint 14 gates ───────────────────────────────────────────────────
+    "scheduled_scans",    // can create scheduled scans
+    "alerts",             // email + in-app alert notifications
+    "pdf_reports",        // PDF report generation and download
+    "multi_workspace",    // can create more than 1 workspace
+    "team_members",       // can invite workspace members
+    // ── Pre-existing gates ────────────────────────────────────────────────
     "business_risk_score",
   ],
   professional: [
+    "scheduled_scans",
+    "alerts",
+    "pdf_reports",
+    "multi_workspace",
+    "team_members",
     "business_risk_score",
     "cyber_essentials",
     "vendor_risk",
@@ -16582,6 +16594,11 @@ const PLAN_FEATURES = {
     "audit_logs",           // Workspace audit trail: professional+
   ],
   business: [
+    "scheduled_scans",
+    "alerts",
+    "pdf_reports",
+    "multi_workspace",
+    "team_members",
     "business_risk_score",
     "cyber_essentials",
     "vendor_risk",
@@ -16591,6 +16608,11 @@ const PLAN_FEATURES = {
     "white_label",
   ],
   enterprise: [
+    "scheduled_scans",
+    "alerts",
+    "pdf_reports",
+    "multi_workspace",
+    "team_members",
     "business_risk_score",
     "cyber_essentials",
     "vendor_risk",
@@ -16701,6 +16723,186 @@ function getPlanFeatures(plan) {
 function hasFeatureEntitlement(plan, featureKey) {
   if (!featureKey || typeof featureKey !== "string") return false;
   return getPlanFeatures(plan).includes(featureKey);
+}
+
+// ── canUseFeature ─────────────────────────────────────────────────────────────
+// Public alias for hasFeatureEntitlement. Use this in all new route handlers
+// and gate checks. The underlying logic is identical; this name is preferred
+// for clarity in non-billing contexts.
+//
+// Example:
+//   const plan = await getEffectivePlan(user.id, env);
+//   if (!canUseFeature(plan, "scheduled_scans")) return json(featureGated("scheduled_scans"), 403);
+//
+// Supported gate keys (Sprint 14+):
+//   scheduled_scans, alerts, pdf_reports, multi_workspace, team_members
+//
+// Legacy gate keys (pre-Sprint 14):
+//   business_risk_score, cyber_essentials, vendor_risk, executive_dashboard,
+//   audit_logs, portfolio_monitoring, white_label, msp_dashboard
+function canUseFeature(plan, featureKey) {
+  return hasFeatureEntitlement(plan, featureKey);
+}
+
+// ── Trial engine ──────────────────────────────────────────────────────────────
+
+const TRIAL_PLAN          = "professional"; // plan granted during trial
+const TRIAL_DURATION_DAYS = 14;
+
+/**
+ * isTrialActive(sub)
+ *
+ * Returns true if the subscription row represents an active trial.
+ * A trial is active when:
+ *   - subscription_status is 'trialing'
+ *   - trial_end has not passed
+ *
+ * Handles null/missing gracefully (returns false).
+ */
+function isTrialActive(sub) {
+  if (!sub) return false;
+  const status = String(sub.subscription_status || sub.status || "").trim().toLowerCase();
+  if (status !== "trialing") return false;
+  if (!sub.trial_end) return false;
+  const end = new Date(sub.trial_end);
+  if (Number.isNaN(end.getTime())) return false;
+  return end.getTime() > Date.now();
+}
+
+/**
+ * isSubscriptionActive(sub)
+ *
+ * Returns true if the subscription represents a live paid subscription.
+ * Excludes trialing status — use isTrialActive() for that case.
+ * An active paid subscription requires:
+ *   - subscription_status is 'active' (not trialing, past_due, cancelled, etc.)
+ *   - current_period_end (or expires_at) has not passed, OR is null (no expiry set yet)
+ */
+function isSubscriptionActive(sub) {
+  if (!sub) return false;
+  const status = String(sub.subscription_status || sub.status || "").trim().toLowerCase();
+  if (status !== "active") return false;
+  // If no period end set, assume active (manual subscription with no expiry)
+  const periodEnd = sub.current_period_end || sub.expires_at;
+  if (!periodEnd) return true;
+  const end = new Date(periodEnd);
+  if (Number.isNaN(end.getTime())) return true; // unparseable — assume active
+  return end.getTime() > Date.now();
+}
+
+/**
+ * getTrialRemainingDays(sub)
+ *
+ * Returns integer days remaining in the trial (0 if not trialing or expired).
+ * Rounds up: a trial ending in 30 minutes returns 1 day.
+ */
+function getTrialRemainingDays(sub) {
+  if (!isTrialActive(sub)) return 0;
+  const now = Date.now();
+  const end = new Date(sub.trial_end).getTime();
+  const diffMs = end - now;
+  if (diffMs <= 0) return 0;
+  return Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+}
+
+/**
+ * getWorkspaceSubscription(workspaceId, env)
+ *
+ * Fetches the full subscription row for a workspace.
+ * Resolves via workspace.owner_user_id → subscriptions.owner_user_id.
+ * Returns null if no subscription row exists.
+ *
+ * Used by:
+ *   - GET /api/workspaces/:id/subscription
+ *   - SubscriptionPage.jsx (via the above endpoint)
+ */
+async function getWorkspaceSubscription(workspaceId, env) {
+  if (!workspaceId) return null;
+  try {
+    const ws = await env.cybermeters_db
+      .prepare(`SELECT owner_user_id FROM workspaces WHERE id = ?`)
+      .bind(workspaceId)
+      .first();
+    if (!ws?.owner_user_id) return null;
+
+    const sub = await env.cybermeters_db
+      .prepare(
+        `SELECT id, owner_user_id, workspace_id, plan, status,
+                subscription_status, billing_interval,
+                trial_start, trial_end, current_period_start, current_period_end,
+                expires_at, stripe_customer_id, stripe_subscription_id,
+                cancel_at_period_end, cancelled_at,
+                payment_failed_at, payment_retry_count,
+                created_at, updated_at
+         FROM subscriptions
+         WHERE owner_user_id = ?
+         ORDER BY COALESCE(updated_at, created_at) DESC
+         LIMIT 1`
+      )
+      .bind(ws.owner_user_id)
+      .first();
+    return sub ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * createWorkspaceTrialSubscription(workspaceId, ownerUserId, env)
+ *
+ * Inserts a 14-day Professional trial subscription row when a workspace is created.
+ * Also inserts a trial_started event in subscription_events.
+ *
+ * Called from the POST /api/workspaces route after workspace row is inserted.
+ * Fails silently — workspace creation should not be blocked by billing errors.
+ */
+async function createWorkspaceTrialSubscription(workspaceId, ownerUserId, env) {
+  if (!workspaceId || !ownerUserId) return;
+  try {
+    const now     = new Date();
+    const trialEnd = new Date(now.getTime() + TRIAL_DURATION_DAYS * 24 * 60 * 60 * 1000);
+    const subId   = createId("sub");
+
+    await env.cybermeters_db
+      .prepare(
+        `INSERT OR IGNORE INTO subscriptions
+           (id, owner_user_id, workspace_id, plan, status, subscription_status,
+            trial_start, trial_end, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'trialing', 'trialing', ?, ?, datetime('now'), datetime('now'))`
+      )
+      .bind(
+        subId,
+        ownerUserId,
+        workspaceId,
+        TRIAL_PLAN,
+        now.toISOString(),
+        trialEnd.toISOString()
+      )
+      .run();
+
+    // Record trial_started event
+    try {
+      await env.cybermeters_db
+        .prepare(
+          `INSERT INTO subscription_events
+             (id, subscription_id, event_type, payload_json, created_at)
+           VALUES (?, ?, 'trial_started', ?, datetime('now'))`
+        )
+        .bind(
+          createId("sev"),
+          subId,
+          JSON.stringify({
+            workspace_id: workspaceId,
+            owner_user_id: ownerUserId,
+            plan: TRIAL_PLAN,
+            trial_start: now.toISOString(),
+            trial_end: trialEnd.toISOString(),
+            trial_duration_days: TRIAL_DURATION_DAYS,
+          })
+        )
+        .run();
+    } catch { /* event log failure is non-fatal */ }
+  } catch { /* billing failure must not block workspace creation */ }
 }
 
 function normalizeBillingInterval(interval) {
@@ -22171,6 +22373,8 @@ export default {
           description:  `Workspace "${name}" created`,
           metadata:     { workspace_name: name },
         });
+        // Billing: auto-create 14-day Professional trial for the new workspace
+        await createWorkspaceTrialSubscription(id, creator.id, env);
         return json({ workspace: { id, name, created_at } }, 201);
       } catch {
         return json({ error: "Database error" }, 500);
@@ -28170,6 +28374,70 @@ export default {
         modules_scanned:  ["dns", "ssl", "headers", "email_security"],
         scanned_at:       scannedAt,
       });
+    }
+
+    // ── GET /api/workspaces/:id/subscription ─────────────────────────────────
+    // Returns the full subscription state for a workspace, including trial
+    // status, plan, and computed fields useful for the Billing/Subscription UI.
+    //
+    // Response:
+    //   { subscription_active, plan, status, trial_active, trial_remaining_days,
+    //     trial_start, trial_end, current_period_start, current_period_end,
+    //     billing_interval, cancel_at_period_end, stripe_subscription_id }
+    const wsSubMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/subscription$/);
+    if (wsSubMatch && request.method === "GET") {
+      const wsId = wsSubMatch[1];
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, wsId, "workspace:read", env);
+      if (!access) return json({ error: "Forbidden" }, 403);
+
+      try {
+        const sub = await getWorkspaceSubscription(wsId, env);
+        const trialActive       = isTrialActive(sub);
+        const subscriptionActive = isSubscriptionActive(sub);
+        const trialRemainingDays = getTrialRemainingDays(sub);
+
+        // Effective plan: trial plan if trialing, otherwise sub.plan, else free
+        let effectivePlan = "free";
+        if (sub) {
+          if (trialActive) {
+            effectivePlan = normalizePlan(sub.plan ?? TRIAL_PLAN);
+          } else if (subscriptionActive) {
+            effectivePlan = normalizePlan(sub.plan);
+          }
+        }
+
+        const limits   = getPlanLimits(effectivePlan);
+        const features = getPlanFeatures(effectivePlan);
+
+        return json({
+          plan:                 effectivePlan,
+          status:               sub?.subscription_status ?? (sub ? sub.status : "free"),
+          subscription_active:  trialActive || subscriptionActive,
+          trial_active:         trialActive,
+          trial_remaining_days: trialRemainingDays,
+          trial_start:          sub?.trial_start ?? null,
+          trial_end:            sub?.trial_end ?? null,
+          current_period_start: sub?.current_period_start ?? null,
+          current_period_end:   sub?.current_period_end ?? sub?.expires_at ?? null,
+          billing_interval:     sub?.billing_interval ?? "monthly",
+          cancel_at_period_end: sub?.cancel_at_period_end === 1 || sub?.cancel_at_period_end === true,
+          stripe_subscription_id: sub?.stripe_subscription_id ?? null,
+          limits,
+          features,
+        });
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+    }
+
+    // ── GET /api/plans ────────────────────────────────────────────────────────
+    // Public static plan metadata — pricing, limits, feature sets.
+    // Alias for GET /api/billing/plans with a cleaner path.
+    // No auth required.
+    if (request.method === "GET" && url.pathname === "/api/plans") {
+      return json({ plans: getPublicBillingPlans() });
     }
 
     return json({ error: "Not found" }, 404);

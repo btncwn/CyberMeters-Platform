@@ -46,6 +46,7 @@ import AccountPage           from './pages/AccountPage'
 import AccountPrivacyPage   from './pages/AccountPrivacyPage'
 import SecurityPage          from './pages/SecurityPage'
 import BillingPage           from './pages/BillingPage'
+import SubscriptionPage      from './pages/SubscriptionPage'
 import DomainVerifyPage      from './pages/DomainVerifyPage'
 import PricingPage           from './pages/PricingPage'
 import CheckoutSuccessPage   from './pages/CheckoutSuccessPage'
@@ -163,7 +164,7 @@ function AppRoutes() {
         <Route path="account"                 element={<AccountPage />}          />
         <Route path="account/security"        element={<SecurityPage />}         />
         <Route path="account/privacy"         element={<AccountPrivacyPage />}   />
-        <Route path="billing"                 element={<BillingPage />}          />
+        <Route path="billing"                 element={<SubscriptionPage />}     />
         <Route path="domains/:id/verify"      element={<DomainVerifyPage />}     />
         {/* Workspace intelligence pages */}
         <Route path="ws/dashboard"        element={<WorkspaceDashboard />}  />

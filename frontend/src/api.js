@@ -602,6 +602,20 @@ export const api = {
   getSubscription: () => request('/account/subscription'),
 
   /**
+   * GET /api/workspaces/:id/subscription
+   * Returns workspace-level subscription state: plan, status, trial_active,
+   * trial_remaining_days, trial_start, trial_end, limits, features.
+   */
+  getWorkspaceSubscription: (workspaceId) =>
+    request(`/workspaces/${workspaceId}/subscription`),
+
+  /**
+   * GET /api/plans  — public, no auth required
+   * Returns static plan metadata: pricing, limits, features.
+   */
+  getPlans: () => request('/plans'),
+
+  /**
    * GET /api/account/subscription/limits
    * Returns { plan, limits, usage } — current plan limits and usage counts.
    */
