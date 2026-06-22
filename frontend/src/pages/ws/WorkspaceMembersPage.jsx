@@ -60,12 +60,13 @@ function isOwner(role)     { return role === 'owner' }
 
 // ── Invite Form ─────────────────────────────────────────────────────────────
 
-function InviteForm({ workspaceId, onSuccess }) {
+function InviteForm({ workspaceId, callerRole, onSuccess }) {
   const [email,   setEmail]   = useState('')
   const [role,    setRole]    = useState('viewer')
   const [saving,  setSaving]  = useState(false)
   const [error,   setError]   = useState(null)
   const [success, setSuccess] = useState(null)
+  const canInviteAdmin = callerRole === 'owner'
 
   async function submit(e) {
     e.preventDefault()
@@ -121,7 +122,7 @@ function InviteForm({ workspaceId, onSuccess }) {
           >
             <option value="viewer">Viewer</option>
             <option value="analyst">Analyst</option>
-            <option value="admin">Admin</option>
+            {canInviteAdmin && <option value="admin">Admin</option>}
           </select>
           <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
         </div>
@@ -136,8 +137,9 @@ function InviteForm({ workspaceId, onSuccess }) {
         {[
           { role: 'viewer',  desc: 'View workspace, reports, and scans.'                    },
           { role: 'analyst', desc: 'Everything Viewer does, plus run scans.'                },
-          { role: 'admin',   desc: 'Everything Analyst does, plus manage domains, reports, and invite members.' },
-        ].map(({ role: r, desc }) => (
+          { role: 'admin',   desc: 'Everything Analyst does, plus manage domains, reports, and invite viewers/analysts. Owners can assign this role.' },
+        ].filter(({ role: r }) => r !== 'admin' || canInviteAdmin)
+        .map(({ role: r, desc }) => (
           <div key={r} className="flex items-start gap-2">
             <RoleBadge role={r} />
             <p className="text-[11px] text-gray-400 leading-relaxed">{desc}</p>
@@ -150,7 +152,7 @@ function InviteForm({ workspaceId, onSuccess }) {
 
 // ── Role Change Dropdown ─────────────────────────────────────────────────────
 
-function RoleSelector({ currentRole, memberId, workspaceId, onChanged }) {
+function RoleSelector({ currentRole, memberId, workspaceId, callerRole, onChanged }) {
   const [changing, setChanging] = useState(false)
   const [err,      setErr]      = useState(null)
 
@@ -180,7 +182,7 @@ function RoleSelector({ currentRole, memberId, workspaceId, onChanged }) {
         >
           <option value="viewer">Viewer</option>
           <option value="analyst">Analyst</option>
-          <option value="admin">Admin</option>
+          {callerRole === 'owner' && <option value="admin">Admin</option>}
         </select>
         {changing
           ? <RefreshCw className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 animate-spin pointer-events-none" />
@@ -296,7 +298,7 @@ export default function WorkspaceMembersPage() {
         <>
           {/* ── 1. Invite Form (admin+) ── */}
           {isAdminPlus(callerRole) && (
-            <InviteForm workspaceId={workspaceId} onSuccess={() => load(true)} />
+            <InviteForm workspaceId={workspaceId} callerRole={callerRole} onSuccess={() => load(true)} />
           )}
 
           {/* ── 2. Members list ── */}
@@ -321,7 +323,7 @@ export default function WorkspaceMembersPage() {
                     <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Member</th>
                     <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Role</th>
                     <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden sm:table-cell">Joined</th>
-                    {isOwner(callerRole) && (
+                    {isAdminPlus(callerRole) && (
                       <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide text-right">Actions</th>
                     )}
                   </tr>
@@ -329,7 +331,11 @@ export default function WorkspaceMembersPage() {
                 <tbody className="divide-y divide-gray-50">
                   {members.map(member => {
                     const isCurrentUser = member.email === currentUser?.email
-                    const canManage = isOwner(callerRole) && member.role !== 'owner'
+                    // Owner can manage any non-owner member.
+                    // Admin can manage analyst/viewer only (not other admins, not owners).
+                    const canManage = isAdminPlus(callerRole)
+                      && member.role !== 'owner'
+                      && !(callerRole === 'admin' && member.role === 'admin')
                     return (
                       <tr key={member.id} className="hover:bg-gray-50/40 transition-colors">
                         <td className="px-6 py-4">
@@ -356,6 +362,7 @@ export default function WorkspaceMembersPage() {
                               currentRole={member.role}
                               memberId={member.id}
                               workspaceId={workspaceId}
+                              callerRole={callerRole}
                               onChanged={() => load(true)}
                             />
                           ) : (
@@ -365,7 +372,7 @@ export default function WorkspaceMembersPage() {
                         <td className="px-6 py-4 text-xs text-gray-400 hidden sm:table-cell">
                           {formatDate(member.created_at)}
                         </td>
-                        {isOwner(callerRole) && (
+                        {isAdminPlus(callerRole) && (
                           <td className="px-6 py-4 text-right">
                             {canManage && (
                               <button

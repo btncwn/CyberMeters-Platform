@@ -25135,6 +25135,13 @@ export default {
       if (!isValidEmail(email)) return json({ error: "email must be valid" }, 400);
       if (!VALID_INVITE_ROLES.has(role)) return json({ error: "role must be one of: viewer, analyst, admin" }, 400);
 
+      // ── Admin invite ceiling — admins cannot grant their own privilege level ──
+      // owner → may invite viewer | analyst | admin
+      // admin → may invite viewer | analyst only
+      if (access.role === "admin" && role === "admin") {
+        return json({ error: "Admins can only invite viewers and analysts. Only owners can invite admins." }, 403);
+      }
+
       // ── Task 4a: Self-invitation guard ───────────────────────────────────
       if (email === (user.email || "").toLowerCase()) {
         return json({ error: "You cannot invite yourself to this workspace." }, 400);
@@ -25401,8 +25408,10 @@ export default {
       const memberId    = memberDeleteMatch[2];
       const user = await requireAuth(request, env);
       if (!user) return json({ error: "Unauthorized" }, 401);
-      const access = await requireWorkspaceRole(user, workspaceId, "workspace:manage_members", env);
-      if (!access) return json({ error: "Forbidden — owner role required to manage members" }, 403);
+      // Admin+ can remove members, but admins are limited to analyst/viewer targets.
+      // Owner can remove any non-last-owner member.
+      const access = await requireWorkspaceRole(user, workspaceId, "workspace:invite", env);
+      if (!access) return json({ error: "Forbidden — admin role required to remove members" }, 403);
 
       try {
         const row = await env.cybermeters_db
@@ -25411,6 +25420,10 @@ export default {
           .first();
         if (!row) return json({ error: "Member not found" }, 404);
 
+        // Admin ceiling: admins can only remove analyst or viewer members.
+        if (access.role === "admin" && row.role !== "analyst" && row.role !== "viewer") {
+          return json({ error: "Admins can only remove analyst and viewer members. Only owners can remove admins." }, 403);
+        }
         // Owner cannot remove themselves
         if (row.role === "owner" && row.user_id === user.id) {
           return json({ error: "Owner cannot remove themselves. Transfer ownership first." }, 409);
@@ -25455,16 +25468,25 @@ export default {
       const targetMemberId = memberRoleMatch[2];
       const user = await requireAuth(request, env);
       if (!user) return json({ error: "Unauthorized" }, 401);
-      const access = await requireWorkspaceRole(user, workspaceId, "workspace:manage_members", env);
-      if (!access) return json({ error: "Forbidden — owner role required to change member roles" }, 403);
+      // Admin+ can change roles; admins are limited to analyst/viewer targets and
+      // cannot promote anyone to admin. Owners have no ceiling.
+      const access = await requireWorkspaceRole(user, workspaceId, "workspace:invite", env);
+      if (!access) return json({ error: "Forbidden — admin role required to change member roles" }, 403);
 
       let body;
       try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
 
       const newRole = (body.role || "").trim().toLowerCase();
-      const CHANGEABLE_ROLES = new Set(["viewer", "analyst", "admin"]);
+      // Admins can only assign viewer or analyst; owners can assign viewer, analyst, or admin.
+      const CHANGEABLE_ROLES = access.role === "owner"
+        ? new Set(["viewer", "analyst", "admin"])
+        : new Set(["viewer", "analyst"]);
       if (!CHANGEABLE_ROLES.has(newRole)) {
-        return json({ error: "role must be one of: viewer, analyst, admin" }, 400);
+        return json({
+          error: access.role === "owner"
+            ? "role must be one of: viewer, analyst, admin"
+            : "Admins can only assign viewer or analyst roles.",
+        }, 400);
       }
 
       try {
@@ -25475,6 +25497,10 @@ export default {
         if (!row) return json({ error: "Member not found" }, 404);
         if (row.role === "owner") return json({ error: "Cannot change the owner's role. Transfer ownership instead." }, 409);
         if (row.user_id === user.id) return json({ error: "Cannot change your own role." }, 409);
+        // Admin ceiling: cannot change roles of other admins.
+        if (access.role === "admin" && row.role === "admin") {
+          return json({ error: "Admins cannot change the role of other admins. Only owners can do this." }, 403);
+        }
 
         const prevRole = row.role;
         await env.cybermeters_db
