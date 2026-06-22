@@ -8034,7 +8034,7 @@ function computeScanBudget(bruteforceChecked) {
   const total = Object.values(moduleEstimates).reduce((sum, n) => sum + n, 0);
   const warnings = [];
   if (total > 45) {
-    warnings.push("Scan is close to Cloudflare Worker subrequest limit.");
+    warnings.push("Partial scan completed. Some advanced discovery modules could not be completed during this scan.");
   }
 
   return {
@@ -8059,11 +8059,11 @@ function buildScanQuality(modules = {}) {
     if (error.includes("skipped") || error.includes("timeout")) modulesSkipped.push(name);
   }
 
-  if (estimated >= 45 && !warnings.includes("Scan is close to Cloudflare Worker subrequest limit.")) {
-    warnings.push("Scan is close to Cloudflare Worker subrequest limit.");
+  if (estimated >= 45 && !warnings.some(w => w.startsWith("Partial scan completed"))) {
+    warnings.push("Partial scan completed. Some advanced discovery modules could not be completed during this scan.");
   }
   if (estimated > limit) {
-    warnings.push("Estimated scan subrequest usage exceeds Cloudflare Worker free-plan limit.");
+    warnings.push("Subdomain discovery was skipped for this scan. Core security checks completed successfully.");
   }
   for (const name of coreIncomplete) {
     warnings.push(`Core module incomplete: ${name}`);

@@ -27,8 +27,15 @@ function formatDate(str) {
 
 function durationSeconds(start, end) {
   if (!start || !end) return null
-  const s = Math.round((new Date(end) - new Date(start)) / 1000)
-  return `${s}s`
+  const ms = new Date(end) - new Date(start)
+  if (ms < 0) return null
+  const s = ms / 1000
+  if (s >= 60) {
+    const m = Math.floor(s / 60)
+    const rem = Math.round(s % 60)
+    return `${m}m ${rem}s`
+  }
+  return `${s.toFixed(1)}s`
 }
 
 // ── Risk level config ────────────────────────────────────────────────────────
