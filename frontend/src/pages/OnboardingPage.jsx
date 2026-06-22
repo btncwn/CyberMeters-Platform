@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
-  AlertTriangle, ArrowRight, Briefcase, CheckCircle, FileText,
+  AlertTriangle, ArrowRight, Briefcase, Check, CheckCircle, Copy, FileText,
   Globe, RefreshCw, ScanLine, ShieldCheck,
 } from 'lucide-react'
 import { api } from '../api'
@@ -50,6 +50,27 @@ function ProgressItem({ icon: Icon, label, done }) {
       <span className="font-medium">{label}</span>
       {done && <CheckCircle className="w-4 h-4 ml-auto" />}
     </div>
+  )
+}
+
+function CopyButton({ value }) {
+  const [copied, setCopied] = useState(false)
+  if (!value) return null
+  function handleCopy() {
+    navigator.clipboard.writeText(value).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      className="flex items-center gap-1 text-[10px] font-semibold text-gray-400 hover:text-brand-600 transition-colors"
+    >
+      {copied ? <Check className="w-3 h-3 text-brand-600" /> : <Copy className="w-3 h-3" />}
+      {copied ? 'Copied' : 'Copy'}
+    </button>
   )
 }
 
@@ -324,7 +345,10 @@ export default function OnboardingPage() {
                   <code className="text-sm text-gray-800 break-all">{dnsHost}</code>
                 </div>
                 <div className="bg-gray-50 rounded-xl p-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-1">TXT Value</p>
+                  <div className="flex items-center justify-between mb-1">
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">TXT Value</p>
+                    <CopyButton value={dnsValue} />
+                  </div>
                   <code className="text-sm text-gray-800 break-all">{dnsValue}</code>
                 </div>
               </div>

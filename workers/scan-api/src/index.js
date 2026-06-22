@@ -19882,6 +19882,88 @@ export default {
 	      }
 	    }
 
+	    // ── POST /api/account/bootstrap ──────────────────────────────────────
+	    // Idempotent workspace bootstrap for new users.
+	    //
+	    // Called by the frontend after login when the user has no workspaces:
+	    //   - If the user already has at least one workspace → returns it (no-op).
+	    //   - If the user has no workspaces → auto-creates one named from their
+	    //     email domain or display name and seeds the owner membership row.
+	    //
+	    // This gives every beta user a working workspace without requiring a manual
+	    // "Create Workspace" step before they can do anything useful.
+	    //
+	    // Security:
+	    //   - Session auth only (no API tokens).
+	    //   - Still respects plan limits: free users get 1 workspace, which this
+	    //     creates — so bootstrap is always within entitlement for new accounts.
+	    if (request.method === "POST" && url.pathname === "/api/account/bootstrap") {
+	      const user = await requireAuth(request, env);
+	      if (!user) return json({ error: "Unauthorized" }, 401);
+	      if (user.api_token_id) return json({ error: "Session authentication required" }, 403);
+
+	      try {
+	        // Check for existing workspaces the user owns or is a member of.
+	        const existingIds = await getAccessibleWorkspaceIds(user, env);
+	        if (existingIds.length > 0) {
+	          // Already has workspaces — return the first one (no-op).
+	          const placeholders = existingIds.map(() => "?").join(",");
+	          const first = await env.cybermeters_db
+	            .prepare(
+	              `SELECT id, name, created_at FROM workspaces
+	               WHERE id IN (${placeholders})
+	               ORDER BY created_at ASC LIMIT 1`
+	            )
+	            .bind(...existingIds)
+	            .first();
+	          return json({ workspace: first, created: false });
+	        }
+
+	        // No workspaces — derive a friendly default name.
+	        // Use display name if set, otherwise use the email domain capitalised.
+	        let bootstrapName = "My Workspace";
+	        if (user.name && user.name.trim().length > 0) {
+	          bootstrapName = `${user.name.trim()}'s Workspace`;
+	        } else if (user.email) {
+	          const domain = user.email.split("@")[1] ?? "";
+	          const brand  = domain.split(".")[0] ?? "";
+	          if (brand.length > 0) {
+	            bootstrapName = brand.charAt(0).toUpperCase() + brand.slice(1).toLowerCase() + " Workspace";
+	          }
+	        }
+
+	        const bsId        = `workspace_${crypto.randomUUID()}`;
+	        const bsCreatedAt = new Date().toISOString();
+
+	        await env.cybermeters_db
+	          .prepare(`INSERT INTO workspaces (id, name, owner_user_id, created_at) VALUES (?, ?, ?, ?)`)
+	          .bind(bsId, bootstrapName, user.id, bsCreatedAt)
+	          .run();
+
+	        await env.cybermeters_db
+	          .prepare(
+	            `INSERT OR IGNORE INTO workspace_members (id, workspace_id, user_id, role, created_at)
+	             VALUES (?, ?, ?, 'owner', datetime('now'))`
+	          )
+	          .bind(createId("wm"), bsId, user.id)
+	          .run();
+
+	        await createAuditEvent(env, {
+	          workspace_id: bsId,
+	          user_id:      user.id,
+	          event_type:   "workspace_bootstrapped",
+	          entity_type:  "workspace",
+	          entity_id:    bsId,
+	          description:  `Default workspace "${bootstrapName}" auto-created for ${user.email}`,
+	          metadata:     { workspace_name: bootstrapName, bootstrap: true },
+	        }).catch(() => {});
+
+	        return json({ workspace: { id: bsId, name: bootstrapName, created_at: bsCreatedAt }, created: true }, 201);
+	      } catch (e) {
+	        return json({ error: e.message }, 500);
+	      }
+	    }
+
 	    // ── GET /api/account/profile ─────────────────────────────────────────
 	    // Returns the authenticated account, company profile, and subscription foundation.
 	    if (request.method === "GET" && url.pathname === "/api/account/profile") {
@@ -22012,18 +22094,25 @@ export default {
         // bound API tokens are collapsed by getAccessibleWorkspaceIds() to the
         // single token workspace.
         const workspaceIds = await getAccessibleWorkspaceIds(user, env);
-        if (workspaceIds.length === 0) return json({ workspaces: [] });
+        if (workspaceIds.length === 0) return json({ workspaces: [], default_workspace_id: null });
         const placeholders = workspaceIds.map(() => "?").join(",");
         const result = await env.cybermeters_db
           .prepare(
-            `SELECT DISTINCT w.id, w.name, w.created_at
+            `SELECT DISTINCT w.id, w.name, w.created_at,
+                    wm.role
              FROM workspaces w
+             LEFT JOIN workspace_members wm ON wm.workspace_id = w.id AND wm.user_id = ?
              WHERE w.id IN (${placeholders})
-             ORDER BY w.created_at DESC`
+             ORDER BY w.created_at ASC`
           )
-          .bind(...workspaceIds)
+          .bind(user.id, ...workspaceIds)
           .all();
-        return json({ workspaces: result.results });
+        const workspaces = result.results ?? [];
+        // default_workspace_id: prefer the workspace where the user is owner
+        // (earliest-created), falling back to first accessible workspace.
+        const ownerWs  = workspaces.find(w => w.role === "owner");
+        const defaultWs = ownerWs ?? workspaces[0] ?? null;
+        return json({ workspaces, default_workspace_id: defaultWs?.id ?? null });
       } catch {
         return json({ error: "Database error" }, 500);
       }

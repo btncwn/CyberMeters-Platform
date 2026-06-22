@@ -269,8 +269,17 @@ export const api = {
 
   // ── Workspaces ────────────────────────────────────────────────────────
 
-  /** GET /api/workspaces */
+  /** GET /api/workspaces — returns { workspaces, default_workspace_id } */
   getWorkspaces: () => request('/workspaces'),
+
+  /**
+   * POST /api/account/bootstrap
+   * Idempotent: creates a default workspace for new users who have none.
+   * If the user already has workspaces, returns the first one without creating.
+   * Returns { workspace: { id, name, created_at }, created: bool }
+   */
+  bootstrapWorkspace: () =>
+    request('/account/bootstrap', { method: 'POST', body: '{}' }),
 
   /** POST /api/workspaces  body: { name } */
   createWorkspace: (name) =>
