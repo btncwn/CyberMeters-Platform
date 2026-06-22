@@ -842,13 +842,158 @@ function resolveConfidence(finding) {
  * Ensures every finding conforms to v2 schema with a numeric confidence score.
  * Spread-first — existing fields are preserved; only missing fields get defaults.
  */
+// Sprint 9C: Build structured evidence array from any finding.
+// Three cases:
+//   A — evidence is already a non-empty array → return as-is
+//   B — evidence is a non-null, non-array object (rich object) → normalize to array
+//   C — evidence is null/undefined/[] → generate from finding fields (never invented)
+function buildEvidenceArray(finding) {
+  const ev = finding.evidence;
+
+  // Case A: already a populated array — do not modify
+  if (Array.isArray(ev) && ev.length > 0) return ev;
+
+  // Case B: rich evidence object — normalize to array, preserving all fields
+  if (ev != null && typeof ev === "object" && !Array.isArray(ev)) {
+    const {
+      evidence_type,
+      probe_target,
+      observed_value,
+      expected_value,
+      source,
+      checked_at,
+      manual_verification_command,
+      ...rest
+    } = ev;
+    return [{
+      type:                        evidence_type ?? "scan_probe",
+      label:                       probe_target  ?? "Probe target",
+      value:                       observed_value != null ? String(observed_value) : null,
+      source:                      source ?? "CyberMeters",
+      expected_value:              expected_value ?? null,
+      checked_at:                  checked_at ?? null,
+      manual_verification_command: manual_verification_command ?? null,
+      ...rest,
+    }];
+  }
+
+  // Case C: no evidence set — derive from finding fields
+  return buildEvidenceFromFields(finding);
+}
+
+function buildEvidenceFromFields(finding) {
+  const { id = "", module: mod = "", description = "" } = finding;
+
+  // Subdomain sensitive — reconstruct subdomain from ID
+  if (id.startsWith("subdomain_sensitive_")) {
+    const sub = id.replace("subdomain_sensitive_", "").replace(/_/g, ".");
+    return [{
+      type:   "certificate_transparency",
+      label:  "Subdomain discovered in CT logs",
+      value:  sub,
+      source: "certificate_transparency_log",
+    }];
+  }
+
+  if (id === "subdomains_large_attack_surface") {
+    return [{
+      type:   "certificate_transparency",
+      label:  "Subdomain count from CT logs",
+      value:  description,
+      source: "certificate_transparency_log",
+    }];
+  }
+
+  if (id === "subdomain_takeover") {
+    return [{
+      type:   "dns_cname",
+      label:  "Dangling CNAME detected",
+      value:  description,
+      source: "dns_lookup",
+    }];
+  }
+
+  if (id === "asset_exposure_sensitive_tool" ||
+      id === "asset_exposure_admin_interface" ||
+      id === "asset_exposure_dev_env") {
+    return [{
+      type:   "http_probe",
+      label:  "Reachable asset detected",
+      value:  description,
+      source: "cloudflare_workers_fetch",
+    }];
+  }
+
+  if (id.startsWith("whois_")) {
+    return [{
+      type:   "rdap_lookup",
+      label:  "RDAP registry query result",
+      value:  description,
+      source: "rdap",
+    }];
+  }
+
+  if (id.startsWith("admin_surface_")) {
+    return [{
+      type:   "http_probe",
+      label:  "Admin service fingerprint match",
+      value:  description,
+      source: "cloudflare_workers_fetch",
+    }];
+  }
+
+  if (id === "dse_missing_caa" || id === "dse_caa_no_issuers") {
+    return [{
+      type:   "dns_lookup",
+      label:  "DNS CAA record query",
+      value:  description,
+      source: "cloudflare_doh",
+    }];
+  }
+
+  if (id.startsWith("dse_hsts_") || id.startsWith("dse_cookie_")) {
+    return [{
+      type:   "http_header_probe",
+      label:  "HTTP response header observation",
+      value:  description,
+      source: "cloudflare_workers_fetch",
+    }];
+  }
+
+  if (id.startsWith("tech_")) {
+    return [{
+      type:   "http_header_probe",
+      label:  "Version disclosure in HTTP response header",
+      value:  description,
+      source: "cloudflare_workers_fetch",
+    }];
+  }
+
+  if (id.startsWith("email_intel_")) {
+    return [{
+      type:   "dns_txt_lookup",
+      label:  "DNS TXT record query",
+      value:  description,
+      source: "cloudflare_doh",
+    }];
+  }
+
+  // Generic fallback — description always contains the observed condition
+  return [{
+    type:   "scanner_detection",
+    label:  "Detection basis",
+    value:  description,
+    source: `CyberMeters/${mod}`,
+  }];
+}
+
 function normalizeFindingSchema(finding) {
   return {
     ...finding,
     module:             finding.module             ?? null,
     confidence:         resolveConfidence(finding),         // Sprint 9B: always numeric
     validation_quality: finding.validation_quality ?? null,
-    evidence:           finding.evidence           ?? [],
+    evidence:           buildEvidenceArray(finding),        // Sprint 9C: always array
     remediation_owner:  finding.remediation_owner  ?? null,
   };
 }
