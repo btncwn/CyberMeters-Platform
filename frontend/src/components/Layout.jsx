@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Server, ScanLine, FileBarChart2,
   Settings, Shield, Plus, ChevronDown, Calendar,
   Briefcase, ChevronRight, Check, Layers, LogOut, User,
-  AlertTriangle, X, CreditCard,
+  AlertTriangle, X, CreditCard, GraduationCap,
 } from 'lucide-react'
 import { api } from '../api'
 import { useAuth } from '../context/AuthContext'
@@ -23,6 +23,7 @@ const NAV = [
   { to: '/schedules',      icon: Calendar,        label: 'Schedules'  },
   { to: '/reports',        icon: FileBarChart2,   label: 'Reports'    },
   { to: '/billing',        icon: CreditCard,      label: 'Billing'    },
+  { to: '/academy',        icon: GraduationCap,   label: 'Academy'    },
   { to: '/settings',       icon: Settings,        label: 'Settings'   },
 ]
 

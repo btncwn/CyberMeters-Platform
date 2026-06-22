@@ -55,6 +55,8 @@ import PrivacyPage           from './pages/PrivacyPage'
 import DpaPage               from './pages/DpaPage'
 import CookiePolicyPage      from './pages/CookiePolicyPage'
 import SupportPage           from './pages/SupportPage'
+import AcademyPage          from './pages/AcademyPage'
+import AcademyArticlePage   from './pages/AcademyArticlePage'
 
 /**
  * ProtectedRoute — blocks unauthenticated users from accessing the app.
@@ -178,6 +180,8 @@ function AppRoutes() {
         <Route path="ws/audit-log"            element={<WorkspaceAuditLogPage />}          />
         <Route path="ws/members"              element={<WorkspaceMembersPage />}           />
         <Route path="ws/retention"            element={<WorkspaceRetentionPage />}         />
+        <Route path="academy"             element={<AcademyPage />}                    />
+        <Route path="academy/:slug"       element={<AcademyArticlePage />}             />
         <Route path="*"                   element={<Navigate to="/dashboard" replace />} />
       </Route>
 
