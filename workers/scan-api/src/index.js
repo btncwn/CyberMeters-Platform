@@ -18015,7 +18015,16 @@ function buildCorsHeaders(env) {
 
 // Module-level json() uses the production default — overridden per-request inside fetch().
 function json(data, status = 200, _corsHeaders = buildCorsHeaders(null)) {
-  return Response.json(data, { status, headers: _corsHeaders });
+  return Response.json(data, {
+    status,
+    headers: {
+      ..._corsHeaders,
+      // Prevent Cloudflare edge and browser caches from serving stale API responses.
+      // Scan status, notifications, and workspace data change frequently and must
+      // always reflect the current database state.
+      'Cache-Control': 'no-store',
+    },
+  });
 }
 
 // ── MSP Portfolio Risk Engine v1 ──────────────────────────────────────────────
@@ -21494,6 +21503,69 @@ export default {
           .bind(...workspaceIds, ...workspaceIds)
           .all();
       }
+
+      // ── Stuck-scan reconciliation ─────────────────────────────────────
+      // Edge case: if runScanEngine was killed (Worker CPU timeout, subrequest limit)
+      // between the R2 write and the D1 status write, the scan stays 'running' in D1
+      // permanently even though R2 has the completed report.
+      // For any scan that has been 'running' for > 10 minutes, check R2 and correct D1.
+      // Only genuinely old scans are checked — in-flight scans (<10 min) are never touched.
+      const STUCK_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
+      const nowMs = Date.now();
+      const stuckScans = (result.results || []).filter(s => {
+        if (s.status !== 'running') return false;
+        const t = new Date(
+          s.created_at.includes('T') ? s.created_at : s.created_at.replace(' ', 'T') + 'Z'
+        ).getTime();
+        return (nowMs - t) > STUCK_THRESHOLD_MS;
+      });
+
+      if (stuckScans.length > 0) {
+        const reconResults = await Promise.allSettled(
+          stuckScans.map(async (s) => {
+            try {
+              const obj = await env.cybermeters_reports.get(`reports/${s.id}.json`);
+              if (!obj) return null;
+              const raw = await obj.json();
+              const correctedStatus =
+                raw.status === 'completed' ? 'completed' :
+                raw.status === 'failed'    ? 'failed'    : null;
+              if (!correctedStatus) return null;
+              // Correct D1 so future queries also return the right status.
+              try {
+                await env.cybermeters_db
+                  .prepare(`UPDATE scans SET status = ? WHERE id = ?`)
+                  .bind(correctedStatus, s.id)
+                  .run();
+              } catch { /* non-fatal — response still returns corrected status */ }
+              return {
+                id:     s.id,
+                status: correctedStatus,
+                score:  raw.cyber_metrics_score ?? s.score,
+                rating: raw.risk_level          ?? s.rating,
+              };
+            } catch { return null; }
+          })
+        );
+
+        const corrections = Object.fromEntries(
+          reconResults
+            .filter(r => r.status === 'fulfilled' && r.value)
+            .map(r => [r.value.id, r.value])
+        );
+
+        if (Object.keys(corrections).length > 0) {
+          result = {
+            ...result,
+            results: (result.results || []).map(s =>
+              corrections[s.id]
+                ? { ...s, status: corrections[s.id].status, score: corrections[s.id].score, rating: corrections[s.id].rating }
+                : s
+            ),
+          };
+        }
+      }
+      // ── End stuck-scan reconciliation ─────────────────────────────────
 
       return json({ scans: result.results, ...(wsFilter ? { workspace_id: wsFilter } : {}) });
     }

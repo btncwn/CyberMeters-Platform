@@ -89,6 +89,10 @@ export function logoutWithToken(rawToken) {
 
 async function request(path, options = {}) {
   const res = await fetch(`${BASE}${path}`, {
+    // Disable browser cache so scan status, workspace data, and other dynamic
+    // API responses are always fetched fresh. The server also sends Cache-Control:
+    // no-store, but belt-and-suspenders prevents stale-while-revalidate surprises.
+    cache: 'no-store',
     headers: {
       'Content-Type': 'application/json',
       ...getAuthHeaders(),
