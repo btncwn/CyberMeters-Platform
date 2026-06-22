@@ -17146,6 +17146,7 @@ async function findSubscriptionRowId(env, { ownerUserId = null, stripeSubscripti
 
 async function upsertStripeSubscriptionState(env, state) {
   const ownerUserId = state.owner_user_id || null;
+  const workspaceId = state.workspace_id || null;
   const stripeCustomerId = state.stripe_customer_id || null;
   const stripeSubscriptionId = state.stripe_subscription_id || null;
   const rowId = await findSubscriptionRowId(env, {
@@ -17170,6 +17171,7 @@ async function upsertStripeSubscriptionState(env, state) {
              current_period_start = COALESCE(?, current_period_start),
              current_period_end = COALESCE(?, current_period_end),
              cancel_at_period_end = COALESCE(?, cancel_at_period_end),
+             workspace_id = COALESCE(?, workspace_id),
              updated_at = datetime('now')
          WHERE id = ?`
       )
@@ -17183,13 +17185,27 @@ async function upsertStripeSubscriptionState(env, state) {
         state.current_period_start || null,
         state.current_period_end || null,
         cancelAtPeriodEnd,
+        workspaceId,
         rowId
       )
       .run();
     return rowId;
   }
 
+  // Guard: if workspace_id is null and no existing row was found, the INSERT would
+  // violate the NOT NULL constraint on the production subscriptions table.
+  // Return null and let the webhook handler return 200 to Stripe — this event
+  // cannot be safely mapped without a workspace context.
   if (!ownerUserId) return null;
+  if (!workspaceId) {
+    console.warn("[stripe_webhook_workspace_unresolved] Skipping INSERT — workspace_id is null and no existing row found", {
+      owner_user_id: ownerUserId,
+      stripe_subscription_id: stripeSubscriptionId,
+      stripe_customer_id: stripeCustomerId,
+    });
+    return null;
+  }
+
   const id = createId("sub");
   const cancelAtPeriodEndInsert = state.cancel_at_period_end != null
     ? (state.cancel_at_period_end ? 1 : 0)
@@ -17197,15 +17213,16 @@ async function upsertStripeSubscriptionState(env, state) {
   await env.cybermeters_db
     .prepare(
       `INSERT INTO subscriptions
-         (id, owner_user_id, plan, billing_interval, subscription_status,
+         (id, owner_user_id, workspace_id, plan, billing_interval, subscription_status,
           stripe_customer_id, stripe_subscription_id, stripe_price_id,
           current_period_start, current_period_end, cancel_at_period_end,
           created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
     )
     .bind(
       id,
       ownerUserId,
+      workspaceId,
       normalizePlan(state.plan),
       normalizeBillingInterval(state.billing_interval),
       normalizeStripeSubscriptionStatus(state.subscription_status),
@@ -17223,13 +17240,23 @@ async function upsertStripeSubscriptionState(env, state) {
 async function handleCheckoutSessionCompleted(env, session) {
   const metadata = session?.metadata || {};
   const ownerUserId = metadata.user_id || session?.client_reference_id || null;
+  const workspaceId = metadata.workspace_id || null;
   const plan = normalizePlan(metadata.plan);
   const billingInterval = normalizeBillingInterval(metadata.interval);
   const stripeCustomerId = getStripeObjectId(session?.customer);
   const stripeSubscriptionId = getStripeObjectId(session?.subscription);
 
+  if (!workspaceId) {
+    console.warn("[stripe_webhook_workspace_unresolved] checkout.session.completed: workspace_id missing from session metadata", {
+      stripe_session_id: session?.id || null,
+      stripe_customer_id: stripeCustomerId,
+      user_id: ownerUserId,
+    });
+  }
+
   return upsertStripeSubscriptionState(env, {
     owner_user_id: ownerUserId,
+    workspace_id: workspaceId,
     plan,
     billing_interval: billingInterval,
     subscription_status: "active",
@@ -17245,8 +17272,42 @@ async function handleStripeSubscriptionUpsert(env, subscription) {
   const plan = getPlanFromStripePriceId(env, priceId, metadata.plan);
   const billingInterval = getBillingIntervalFromStripeSubscription(subscription, metadata.interval);
 
+  // Resolve workspace_id — order of precedence:
+  //   1. subscription.metadata.workspace_id (set by checkout via subscription_data.metadata)
+  //   2. existing subscriptions row (lookup by stripe_subscription_id → stripe_customer_id)
+  // Never pass null workspace_id into an INSERT — the production table has workspace_id NOT NULL.
+  let workspaceId = metadata.workspace_id || null;
+  if (!workspaceId) {
+    const stripeSubId = subscription?.id || null;
+    const stripeCustomerId = getStripeObjectId(subscription?.customer);
+    try {
+      let existingRow = null;
+      if (stripeSubId) {
+        existingRow = await env.cybermeters_db
+          .prepare("SELECT workspace_id FROM subscriptions WHERE stripe_subscription_id = ? LIMIT 1")
+          .bind(stripeSubId)
+          .first();
+      }
+      if (!existingRow?.workspace_id && stripeCustomerId) {
+        existingRow = await env.cybermeters_db
+          .prepare("SELECT workspace_id FROM subscriptions WHERE stripe_customer_id = ? LIMIT 1")
+          .bind(stripeCustomerId)
+          .first();
+      }
+      workspaceId = existingRow?.workspace_id || null;
+    } catch { /* resolution best-effort; upsert will guard below */ }
+    if (!workspaceId) {
+      console.warn("[stripe_webhook_workspace_unresolved] workspace_id not in subscription metadata and no existing row found", {
+        stripe_subscription_id: subscription?.id || null,
+        stripe_customer_id: getStripeObjectId(subscription?.customer),
+        user_id: metadata.user_id || null,
+      });
+    }
+  }
+
   return upsertStripeSubscriptionState(env, {
     owner_user_id: metadata.user_id || null,
+    workspace_id: workspaceId,
     plan,
     billing_interval: billingInterval,
     subscription_status: normalizeStripeSubscriptionStatus(subscription?.status),
