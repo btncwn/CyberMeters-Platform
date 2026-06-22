@@ -14373,7 +14373,7 @@ function buildExecutivePdf(pdfData) {
   const trnd = pdfData.risk_trend           ?? [];
   const ovr  = pdfData.overall_score;
   const rtng = String(pdfData.risk_rating   ?? 'Unknown');
-  const NP   = 10;  // total pages — v2 executive report
+  const NP   = 11;  // total pages — v2 executive report (Sprint 9F: +1 Top Security Findings page)
 
   // ── PAGE 1: COVER ─────────────────────────────────────────────────────────
   {
@@ -14531,6 +14531,36 @@ function buildExecutivePdf(pdfData) {
       y -= 50;
       pg.text(`Total findings: ${fs.total ?? 0}`, ML, y - 8, 9, 'B', C.dkgray);
     }
+
+    // ── Phase 7 — Trust quality overview (Sprint 9F) ──────────────────────
+    // Compute confidence tiers from topR entries enriched with R2 trust data.
+    // Only rendered when at least one finding has a confidence value.
+    const _trustFindings  = topR.filter(r => r.confidence != null);
+    if (_trustFindings.length > 0 && y > 90) {
+      const _verified9F   = _trustFindings.filter(r => r.confidence >= 90).length;
+      const _strong9F     = _trustFindings.filter(r => r.confidence >= 80 && r.confidence < 90).length;
+      const _review9F     = _trustFindings.filter(r => r.confidence < 70).length;
+      y -= 14;
+      y = secBar(pg, 'Findings Quality Overview', y); y -= 8;
+      const _tqNote = `Based on ${_trustFindings.length} of ${topR.length} top finding${topR.length === 1 ? '' : 's'} with evidence data.`;
+      y = drawWrapped(pg, _tqNote, ML + 8, y, CW - 16, 7.5, 'R', C.mgray, 1, 10);
+      y -= 4;
+      const _tqCols = Math.floor(CW / 3);
+      const _tqItems = [
+        ['Verified (>=90)', _verified9F, C.green],
+        ['Strong evidence (80-89)', _strong9F, [0.024, 0.502, 0.376]],
+        ['Needs review (<70)', _review9F, C.amber],
+      ];
+      let _tqX = ML;
+      for (const [_lbl, _cnt, _col] of _tqItems) {
+        pg.fillRect(_tqX, y - 34, _tqCols - 4, 34, C.lgray);
+        pg.text(String(_cnt), _tqX + 8, y - 10, 16, 'B', _col);
+        pg.text(_lbl, _tqX + 6, y - 32, 6.5, 'R', C.mgray);
+        _tqX += _tqCols;
+      }
+      y -= 42;
+    }
+
     pg.flush();
   }
 
@@ -14633,11 +14663,133 @@ function buildExecutivePdf(pdfData) {
     pg.flush();
   }
 
-  // ── PAGE 5: ATTACK SURFACE SUMMARY ───────────────────────────────────────
+  // ── PAGE 5: TOP SECURITY FINDINGS (Sprint 9F — Trust Layer) ──────────────
+  // Renders topR with trust badges, evidence summary, verification commands,
+  // and low-confidence warnings. Trust fields come from R2 enrichment in
+  // collectPdfData(). Gracefully handles findings with no trust data.
+  {
+    const pg = newPage();
+    pgBanner(pg, 'Top Security Findings');
+    pgFooter(pg, 5, NP);
+    let y = H - 45;
+
+    y = secBar(pg, 'Top Security Findings', y); y -= 6;
+
+    // Sprint 9F helper: confidence tier label and color
+    function _pdfConfLabel(conf) {
+      if (conf == null) return null;
+      if (conf >= 90) return { label: 'Verified', col: C.green };
+      if (conf >= 80) return { label: 'Strong', col: [0.024, 0.502, 0.376] };
+      if (conf >= 70) return { label: 'Probable', col: C.amber };
+      return { label: 'Weak signal', col: C.mgray };
+    }
+    // Sprint 9F helper: quality pill color
+    function _pdfQualityCol(q) {
+      return q === 'excellent' ? C.green
+        : q === 'good'        ? [0.024, 0.502, 0.376]
+        : q === 'partial'     ? C.amber
+        : C.mgray;
+    }
+
+    if (!topR.length) {
+      pg.text('No findings recorded for this workspace yet. Run scans to populate this section.', ML + 8, y - 14, 9, 'R', C.mgray);
+      y -= 28;
+    }
+
+    for (let _fi = 0; _fi < topR.length && y > 90; _fi++) {
+      const _f    = topR[_fi];
+      const _conf = typeof _f.confidence === 'number' ? _f.confidence : null;
+      const _vq   = _f.validation_quality ?? null;
+      const _eq   = _f.evidence_quality   ?? null;
+      const _ev   = Array.isArray(_f.evidence) ? _f.evidence : [];
+      const _isLow = _conf != null && _conf < 70;
+
+      // ── Phase 6: Low-confidence warning banner ─────────────────────────
+      if (_isLow) {
+        pg.fillRect(ML, y - 14, CW, 14, C.amber);
+        pg.text('NEEDS VERIFICATION — low-confidence finding. Manually confirm before acting.', ML + 6, y - 5, 7, 'B', C.white);
+        y -= 16;
+      }
+
+      // ── Finding header row ─────────────────────────────────────────────
+      const _sevC = sevColor(_f.severity);
+      pg.fillRect(ML, y - 18, CW, 18, C.lgray);
+      pg.fillRect(ML, y - 18, 6, 18, _sevC);
+      pg.text(esc((_f.title ?? 'Unknown finding').slice(0, 70)), ML + 12, y - 8, 8.5, 'B', C.dkgray);
+      if (_f.domain) pg.text(esc(_f.domain.slice(0, 40)), ML + CW - 180, y - 8, 7.5, 'R', C.mgray);
+      if (_f.date)   pg.text(_f.date, ML + CW - 55, y - 8, 7, 'R', C.mgray);
+      y -= 20;
+
+      // ── Phase 3: Trust badge row ───────────────────────────────────────
+      let _bx = ML + 4;
+      const _sevLabel = (_f.severity ?? 'medium').toUpperCase();
+      pg.fillRect(_bx, y - 13, _sevLabel.length * 5 + 10, 13, _sevC);
+      pg.text(_sevLabel, _bx + 5, y - 5, 6.5, 'B', C.white);
+      _bx += _sevLabel.length * 5 + 16;
+
+      if (_conf != null) {
+        const _ct = _pdfConfLabel(_conf);
+        pg.fillRect(_bx, y - 13, 76, 13, C.lgray);
+        pg.text(`${_conf}`, _bx + 4, y - 5, 6.5, 'B', _ct.col);
+        pg.text(_ct.label, _bx + 22, y - 5, 6.5, 'R', _ct.col);
+        _bx += 82;
+      }
+      if (_vq) {
+        const _vqC = _pdfQualityCol(_vq);
+        pg.fillRect(_bx, y - 13, 80, 13, C.lgray);
+        pg.text(`VQ: ${_vq}`, _bx + 4, y - 5, 6.5, 'R', _vqC);
+        _bx += 86;
+      }
+      if (_eq) {
+        const _eqC = _pdfQualityCol(_eq);
+        pg.fillRect(_bx, y - 13, 70, 13, C.lgray);
+        pg.text(`EQ: ${_eq}`, _bx + 4, y - 5, 6.5, 'R', _eqC);
+      }
+      y -= 16;
+
+      // ── Recommendation line ────────────────────────────────────────────
+      if (_f.recommendation) {
+        y = drawWrapped(pg, _f.recommendation, ML + 8, y, CW - 16, 7.5, 'R', C.mgray, 2, 10);
+      }
+
+      // ── Phase 4: Evidence summary (max 3 items) ────────────────────────
+      if (_ev.length > 0) {
+        pg.text('Evidence:', ML + 8, y - 4, 7, 'B', C.green); y -= 14;
+        for (let _ei = 0; _ei < Math.min(_ev.length, 3) && y > 90; _ei++) {
+          const _e = _ev[_ei];
+          const _evType  = String(_e.type  ?? _e.evidence_type  ?? 'probe');
+          const _evLabel = String(_e.label ?? _e.probe_target   ?? _e.queried_hostname ?? _e.target ?? '');
+          const _evVal   = _e.value ?? _e.observed_value ?? _e.returned_records ?? _e.observed_headers ?? null;
+          const _evLine  = _evLabel
+            ? `${_evType}: ${_evLabel}${_evVal != null ? ' = ' + String(_evVal).slice(0, 40) : ''}`
+            : `${_evType}${_evVal != null ? ': ' + String(_evVal).slice(0, 50) : ''}`;
+          pg.text('*', ML + 12, y - 4, 7, 'R', C.mgray);
+          y = drawWrapped(pg, _evLine, ML + 20, y, CW - 32, 7, 'R', C.dkgray, 1, 10);
+          y -= 1;
+        }
+        y -= 3;
+      }
+
+      // ── Phase 5: Verification command (first evidence item with command) ─
+      const _cmdEv = _ev.find(e => e.manual_verification_command);
+      if (_cmdEv?.manual_verification_command && y > 90) {
+        const _cmd = String(_cmdEv.manual_verification_command).slice(0, 80);
+        pg.fillRect(ML + 8, y - 16, CW - 16, 16, [0.949, 0.953, 0.965]);
+        pg.text(_cmd, ML + 12, y - 6, 6.5, 'R', C.dkgray);
+        y -= 19;
+      }
+
+      // Row separator
+      if (y > 90) { pg.hline(ML, y, CW, C.lgray, 0.4); y -= 6; }
+    }
+    pg.flush();
+  }
+
+  // ── PAGE 6: ATTACK SURFACE SUMMARY ───────────────────────────────────────
   {
     const pg = newPage();
     pgBanner(pg, 'Attack Surface');
-    pgFooter(pg, 5, NP);
+    pgFooter(pg, 6, NP);
     let y = H - 45;
 
     y = secBar(pg, 'Attack Surface Summary', y); y -= 8;
@@ -14685,11 +14837,11 @@ function buildExecutivePdf(pdfData) {
     pg.flush();
   }
 
-  // ── PAGE 6: VENDOR RISK ──────────────────────────────────────────────────
+  // ── PAGE 7: VENDOR RISK ──────────────────────────────────────────────────
   {
     const pg = newPage();
     pgBanner(pg, 'Vendor Risk');
-    pgFooter(pg, 6, NP);
+    pgFooter(pg, 7, NP);
     let y = H - 45;
 
     y = secBar(pg, 'Vendor Risk Summary', y); y -= 8;
@@ -14747,11 +14899,11 @@ function buildExecutivePdf(pdfData) {
     pg.flush();
   }
 
-  // ── PAGE 7: SUPPLY CHAIN & RESILIENCE ────────────────────────────────────
+  // ── PAGE 8: SUPPLY CHAIN & RESILIENCE ────────────────────────────────────
   {
     const pg = newPage();
     pgBanner(pg, 'Supply Chain');
-    pgFooter(pg, 7, NP);
+    pgFooter(pg, 8, NP);
     let y = H - 45;
 
     y = secBar(pg, 'Supply Chain & Operational Resilience', y); y -= 8;
@@ -14828,11 +14980,11 @@ function buildExecutivePdf(pdfData) {
     pg.flush();
   }
 
-  // ── PAGE 8: HISTORICAL TRENDS ────────────────────────────────────────────
+  // ── PAGE 9: HISTORICAL TRENDS ────────────────────────────────────────────
   {
     const pg = newPage();
     pgBanner(pg, 'Historical Trends');
-    pgFooter(pg, 8, NP);
+    pgFooter(pg, 9, NP);
     let y = H - 45;
 
     y = secBar(pg, 'Historical Trends', y); y -= 8;
@@ -14882,11 +15034,11 @@ function buildExecutivePdf(pdfData) {
     pg.flush();
   }
 
-  // ── PAGE 9: CYBER ESSENTIALS ALIGNMENT SUMMARY ───────────────────────────
+  // ── PAGE 10: CYBER ESSENTIALS ALIGNMENT SUMMARY ──────────────────────────
   {
     const pg = newPage();
     pgBanner(pg, 'Cyber Essentials');
-    pgFooter(pg, 9, NP);
+    pgFooter(pg, 10, NP);
     let y = H - 45;
 
     y = secBar(pg, 'Cyber Essentials Alignment Summary', y); y -= 10;
@@ -14967,11 +15119,11 @@ function buildExecutivePdf(pdfData) {
     pg.flush();
   }
 
-  // ── PAGE 10: METHODOLOGY + APPENDIX SUMMARY ──────────────────────────────
+  // ── PAGE 11: METHODOLOGY + APPENDIX SUMMARY ──────────────────────────────
   {
     const pg = newPage();
     pgBanner(pg, 'Methodology');
-    pgFooter(pg, 10, NP);
+    pgFooter(pg, 11, NP);
     let y = H - 45;
 
     y = secBar(pg, 'Methodology Summary', y); y -= 8;
@@ -15231,6 +15383,79 @@ async function collectPdfData(wsId, env) {
     }, [])
     .sort((a, b) => (SEVERITY_ORDER[a.severity] ?? 5) - (SEVERITY_ORDER[b.severity] ?? 5))
     .slice(0, 10);
+
+  // Sprint 9F: enrich top_risks with trust fields from R2 scan reports.
+  // The findings D1 table has no trust columns; confidence/validation_quality/
+  // evidence_quality/evidence live only in the scan report JSON in R2.
+  // Strategy: for each unique domain in top_risks, fetch latest scan ID from D1,
+  // then fetch that scan's R2 report in parallel, build a title→trust lookup,
+  // and merge trust fields onto the matching top_risks entry.
+  try {
+    const _trustDomains = [...new Set(top_risks.map(r => r.domain).filter(Boolean))];
+    if (_trustDomains.length > 0) {
+      // 1. Resolve latest completed scan ID per domain (parallel D1 lookups)
+      const _scanIdResults = await Promise.allSettled(
+        _trustDomains.map(domain =>
+          env.cybermeters_db
+            .prepare(
+              `SELECT s.id FROM scans s
+               JOIN domains d ON d.id = s.domain_id
+               WHERE d.name = ? AND s.status = 'completed'
+               ORDER BY s.created_at DESC LIMIT 1`
+            )
+            .bind(domain)
+            .first()
+        )
+      );
+      // 2. Build domain → scanId map
+      const _domainScanIds = new Map();
+      for (let _di = 0; _di < _trustDomains.length; _di++) {
+        const _r = _scanIdResults[_di];
+        if (_r.status === 'fulfilled' && _r.value?.id) {
+          _domainScanIds.set(_trustDomains[_di], _r.value.id);
+        }
+      }
+      // 3. Fetch R2 scan report JSONs in parallel
+      const _domainEntries = [..._domainScanIds.entries()];
+      const _r2Results = await Promise.allSettled(
+        _domainEntries.map(async ([_domain, _scanId]) => {
+          const _obj = await env.cybermeters_reports.get(`reports/${_scanId}.json`);
+          const _report = _obj ? await _obj.json() : null;
+          return { domain: _domain, findings: _report?.findings ?? [] };
+        })
+      );
+      // 4. Build trust lookup: domain → Map<title_lc, trust fields>
+      const _trustMap = new Map();
+      for (const _r of _r2Results) {
+        if (_r.status !== 'fulfilled') continue;
+        const { domain: _d, findings: _findings } = _r.value;
+        const _dMap = new Map();
+        for (const _f of _findings) {
+          if (!_f.title) continue;
+          _dMap.set(_f.title.toLowerCase(), {
+            confidence:          _f.confidence          ?? null,
+            validation_quality:  _f.validation_quality  ?? null,
+            evidence_quality:    _f.evidence_quality    ?? null,
+            evidence:            Array.isArray(_f.evidence) ? _f.evidence.slice(0, 3) : null,
+          });
+        }
+        _trustMap.set(_d, _dMap);
+      }
+      // 5. Merge trust fields onto top_risks entries
+      for (const _risk of top_risks) {
+        const _dMap = _trustMap.get(_risk.domain);
+        if (!_dMap) continue;
+        const _trust = _dMap.get((_risk.title ?? '').toLowerCase());
+        if (!_trust) continue;
+        _risk.confidence         = _trust.confidence;
+        _risk.validation_quality = _trust.validation_quality;
+        _risk.evidence_quality   = _trust.evidence_quality;
+        _risk.evidence           = _trust.evidence;
+      }
+    }
+  } catch (_trustErr) {
+    // Non-fatal: trust enrichment failure must never break PDF generation
+  }
 
   // Findings summary
   const infoCount        = (infoCntR.status === 'fulfilled' ? infoCntR.value?.n : null) ?? 0;
