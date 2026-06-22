@@ -709,6 +709,35 @@ function applyEvidenceQuality(findings) {
   });
 }
 
+/**
+ * normalizeFindingSchema(finding)
+ * Sprint 9A — v2 finding schema.
+ *
+ * Ensures every finding object exposes the full v2 schema regardless of which
+ * module created it.  Spread-first so existing fields are never overwritten;
+ * defaults only fill gaps where a field is absent (undefined or null).
+ *
+ * New fields added in v2:
+ *   module             — scanner module that owns the finding
+ *   confidence         — null until Sprint 9B confidence engine
+ *   validation_quality — null until Sprint 9C evidence framework
+ *   evidence           — [] stub until Sprint 9C evidence framework
+ *   remediation_owner  — null until Sprint 9D ownership mapping
+ *
+ * Fields with existing values (e.g. confidence:"high" in computeScore findings,
+ * evidence objects in cloud_storage findings) are preserved unchanged.
+ */
+function normalizeFindingSchema(finding) {
+  return {
+    ...finding,
+    module:             finding.module             ?? null,
+    confidence:         finding.confidence         ?? null,
+    validation_quality: finding.validation_quality ?? null,
+    evidence:           finding.evidence           ?? [],
+    remediation_owner:  finding.remediation_owner  ?? null,
+  };
+}
+
 const SCANNER_REGRESSION_FIXTURES = [
   {
     scenario: "good_security_headers",
@@ -8281,6 +8310,11 @@ function buildCanonicalUrlProfile(modules) {
 
     const completedAt = new Date().toISOString();
 
+    // Sprint 9A: Normalise all findings to v2 schema before report assembly.
+    // Additive only — existing fields are preserved; missing fields default to
+    // null / [] so every finding exposes a consistent shape to consumers.
+    const normalizedFindings = findings.map(normalizeFindingSchema);
+
     // Build full structured report
     const report = {
       scan_id:             scanId,
@@ -8291,7 +8325,7 @@ function buildCanonicalUrlProfile(modules) {
       risk_level,
       started_at:          startedAt,
       completed_at:        completedAt,
-      findings,
+      findings:            normalizedFindings,
       recommendations,
       scan_quality:         scanQuality,
       modules,
@@ -20488,8 +20522,10 @@ export default {
         },
       };
 
+      // Sprint 9A: normalise to v2 schema before returning — ensures old R2 reports
+      // that pre-date the schema upgrade also expose the full v2 field set.
       const reportFindings = applyEvidenceQuality(
-        Array.isArray(raw.findings) ? raw.findings : []
+        (Array.isArray(raw.findings) ? raw.findings : []).map(normalizeFindingSchema)
       );
 
       // Compute Business Risk Score from scan findings + module signals
