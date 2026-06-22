@@ -23,3 +23,6 @@ ALERT_EMAIL_FROM = "alerts@cybermeters.com"
 SAFE_EMAIL_FROM = "safe@cybermeters.com"
 HELLO_EMAIL_FROM = "hello@cybermeters.com"
 ALLOWED_ORIGIN = "https://app.cybermeters.com"
+
+FRONTEND_URL = "https://app.cybermeters.com"
+MICROSOFT_REDIRECT_URI = "https://cybermeters-platform.ttrnn47.workers.dev/api/auth/microsoft/callback"

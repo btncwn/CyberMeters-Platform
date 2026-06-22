@@ -1,19 +1,47 @@
 import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
-import { Shield, Mail, Lock, User, AlertTriangle, UserPlus } from 'lucide-react'
-import { useAuth } from '../context/AuthContext'
+import { Link } from 'react-router-dom'
+import { Shield, Mail, Lock, User, AlertTriangle, UserPlus, CheckCircle } from 'lucide-react'
 import { api } from '../api'
 
-export default function SignupPage() {
-  const navigate = useNavigate()
-  const { login } = useAuth()
+function ResendLink({ email }) {
+  const [sent,    setSent]    = useState(false)
+  const [loading, setLoading] = useState(false)
 
+  async function handleResend() {
+    if (loading || sent) return
+    setLoading(true)
+    try {
+      await api.resendVerification(email)
+      setSent(true)
+    } catch {
+      // Silent — resend always succeeds server-side
+      setSent(true)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (sent) return <span className="text-green-600 font-medium">Email resent!</span>
+  return (
+    <button
+      type="button"
+      onClick={handleResend}
+      disabled={loading}
+      className="text-brand-600 font-medium hover:underline disabled:opacity-50"
+    >
+      {loading ? 'Sending…' : 'Resend verification email'}
+    </button>
+  )
+}
+
+export default function SignupPage() {
   const [name,     setName]     = useState('')
   const [email,    setEmail]    = useState('')
   const [password, setPassword] = useState('')
   const [confirm,  setConfirm]  = useState('')
   const [error,    setError]    = useState(null)
   const [loading,  setLoading]  = useState(false)
+  const [done,     setDone]     = useState(false)
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -31,12 +59,8 @@ export default function SignupPage() {
 
     setLoading(true)
     try {
-      // Create account
       await api.authSignup(email.trim().toLowerCase(), password, name.trim())
-      // Auto-login after signup
-      const data = await api.authLogin(email.trim().toLowerCase(), password)
-      login(data.token, data.user)
-      navigate('/dashboard', { replace: true })
+      setDone(true)
     } catch (err) {
       setError(err.message || 'Signup failed')
     } finally {
@@ -58,7 +82,33 @@ export default function SignupPage() {
         </div>
       </div>
 
-      {/* Card */}
+      {/* ── Success: email sent ── */}
+      {done ? (
+        <div className="card w-full max-w-sm p-8 text-center">
+          <div className="flex justify-center mb-4">
+            <div className="w-12 h-12 rounded-full bg-green-50 flex items-center justify-center">
+              <CheckCircle className="w-6 h-6 text-green-500" />
+            </div>
+          </div>
+          <h1 className="text-xl font-bold text-gray-900 mb-2">Check your email</h1>
+          <p className="text-sm text-gray-500 mb-6">
+            We sent a verification link to{' '}
+            <span className="font-semibold text-gray-700">{email}</span>.
+            Click it to activate your account.
+          </p>
+          <p className="text-xs text-gray-400">
+            Didn't receive it?{' '}
+            <ResendLink email={email} />
+          </p>
+          <div className="mt-6">
+            <Link to="/login" className="text-sm text-brand-600 font-semibold hover:underline">
+              Back to sign in
+            </Link>
+          </div>
+        </div>
+      ) : (
+
+      /* ── Signup form ── */
       <div className="card w-full max-w-sm p-8">
         <h1 className="text-xl font-bold text-gray-900 mb-1">Create account</h1>
         <p className="text-sm text-gray-400 mb-6">Start monitoring your attack surface.</p>
@@ -155,12 +205,16 @@ export default function SignupPage() {
         </form>
       </div>
 
-      <p className="mt-5 text-sm text-gray-400">
-        Already have an account?{' '}
-        <Link to="/login" className="text-brand-600 font-semibold hover:underline">
-          Sign in
-        </Link>
-      </p>
+      )}
+
+      {!done && (
+        <p className="mt-5 text-sm text-gray-400">
+          Already have an account?{' '}
+          <Link to="/login" className="text-brand-600 font-semibold hover:underline">
+            Sign in
+          </Link>
+        </p>
+      )}
 
       <div className="mt-8 text-center">
         <div className="flex flex-wrap justify-center gap-3 text-xs text-gray-300 mb-2">

@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { useNavigate, useLocation, Link } from 'react-router-dom'
-import { Shield, Mail, Lock, AlertTriangle, LogIn, KeyRound, Smartphone, LifeBuoy } from 'lucide-react'
+import { Shield, Mail, Lock, AlertTriangle, LogIn, KeyRound, Smartphone, LifeBuoy, MailCheck } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
-import { api } from '../api'
+import { api, BASE } from '../api'
 
 export default function LoginPage() {
   const navigate  = useNavigate()
@@ -18,6 +18,11 @@ export default function LoginPage() {
   const [error,    setError]    = useState(null)
   const [loading,  setLoading]  = useState(false)
 
+  // ── Email verification flow ──
+  const [verificationRequired, setVerificationRequired] = useState(false)
+  const [resendLoading,        setResendLoading]        = useState(false)
+  const [resendDone,           setResendDone]           = useState(false)
+
   // ── Step 2: MFA challenge ──
   const [mfaRequired,     setMfaRequired]     = useState(false)
   const [challengeToken,  setChallengeToken]  = useState(null)
@@ -25,10 +30,25 @@ export default function LoginPage() {
   const [showRecovery,    setShowRecovery]    = useState(false)
   const [recoveryCode,    setRecoveryCode]    = useState('')
 
+  async function handleResendVerification() {
+    if (resendLoading || resendDone) return
+    setResendLoading(true)
+    try {
+      await api.resendVerification(email.trim().toLowerCase())
+      setResendDone(true)
+    } catch {
+      setResendDone(true) // always show success — server is silent
+    } finally {
+      setResendLoading(false)
+    }
+  }
+
   async function handleSubmit(e) {
     e.preventDefault()
     if (loading) return
     setError(null)
+    setVerificationRequired(false)
+    setResendDone(false)
     setLoading(true)
     try {
       const data = await api.authLogin(email.trim().toLowerCase(), password)
@@ -43,7 +63,11 @@ export default function LoginPage() {
       login(data.token, data.user)
       navigate(from, { replace: true })
     } catch (err) {
-      setError(err.message || 'Login failed')
+      if (err.message === 'email_verification_required') {
+        setVerificationRequired(true)
+      } else {
+        setError(err.message || 'Login failed')
+      }
     } finally {
       setLoading(false)
     }
@@ -121,6 +145,30 @@ export default function LoginPage() {
               </div>
             )}
 
+            {verificationRequired && (
+              <div className="px-4 py-3 mb-5 bg-amber-50 border border-amber-100 rounded-xl text-sm">
+                <div className="flex items-center gap-2.5 text-amber-700 mb-2">
+                  <MailCheck className="w-4 h-4 flex-shrink-0" />
+                  <span className="font-semibold">Email not verified</span>
+                </div>
+                <p className="text-amber-600 text-xs mb-3">
+                  Please check your inbox and click the verification link before signing in.
+                </p>
+                {resendDone ? (
+                  <span className="text-xs text-green-600 font-medium">Verification email resent!</span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleResendVerification}
+                    disabled={resendLoading}
+                    className="text-xs text-brand-600 font-semibold hover:underline disabled:opacity-50"
+                  >
+                    {resendLoading ? 'Sending…' : 'Resend verification email'}
+                  </button>
+                )}
+              </div>
+            )}
+
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-gray-500 mb-1.5">Email</label>
@@ -176,6 +224,28 @@ export default function LoginPage() {
                 }
               </button>
             </form>
+
+            {/* ── SSO divider ── */}
+            <div className="flex items-center gap-3 my-5">
+              <div className="flex-1 h-px bg-gray-100" />
+              <span className="text-xs text-gray-300 font-medium">or</span>
+              <div className="flex-1 h-px bg-gray-100" />
+            </div>
+
+            {/* ── Continue with Microsoft ── */}
+            <a
+              href={`${BASE}/auth/microsoft/login`}
+              className="flex items-center justify-center gap-2.5 w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-colors"
+            >
+              {/* Microsoft logo mark */}
+              <svg width="18" height="18" viewBox="0 0 21 21" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <rect x="1"  y="1"  width="9" height="9" fill="#f25022" />
+                <rect x="11" y="1"  width="9" height="9" fill="#7fba00" />
+                <rect x="1"  y="11" width="9" height="9" fill="#00a4ef" />
+                <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
+              </svg>
+              Continue with Microsoft
+            </a>
           </>
         )}
 

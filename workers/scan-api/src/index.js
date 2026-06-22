@@ -92,6 +92,17 @@ async function generateInviteToken() {
   return { raw, hash };
 }
 
+/**
+ * generateVerificationToken — creates a 64-char hex token for email verification.
+ * Unlike session tokens, this is stored as plain-text in D1 (no hashing needed)
+ * because it is only ever transmitted via a one-time email link over HTTPS.
+ */
+function generateVerificationToken() {
+  return Array.from(crypto.getRandomValues(new Uint8Array(32)))
+    .map(b => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 // ── Microsoft Entra OAuth helpers ────────────────────────────────────────────
 
 /** Decode a base64url string to a UTF-8 string (safe for JWT header/payload). */
@@ -17733,25 +17744,63 @@ export default {
         const userId      = createId("usr");
         const passwordHash = await hashPassword(password);
 
+        // Generate a 24-hour email verification token
+        const verificationToken        = generateVerificationToken();
+        const verificationTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
         await env.cybermeters_db
           .prepare(
-            `INSERT INTO users (id, email, name, plan, password_hash, status, created_at)
-             VALUES (?, ?, ?, 'free', ?, 'active', datetime('now'))`
+            `INSERT INTO users
+               (id, email, name, plan, password_hash, status,
+                email_verified, verification_token, verification_token_expires_at,
+                created_at)
+             VALUES (?, ?, ?, 'free', ?, 'active', 0, ?, ?, datetime('now'))`
           )
-          .bind(userId, email, name || null, passwordHash)
+          .bind(userId, email, name || null, passwordHash, verificationToken, verificationTokenExpires)
           .run();
 
         // Audit: account created
         await createAuditEvent(env, {
           user_id:     userId,
-          event_type:  "signup",
+          event_type:  "USER_REGISTERED",
           entity_type: "user",
           entity_id:   userId,
           description: `New account created for ${email}`,
           metadata:    { email, name: name || null },
         }).catch(() => {});
 
-        return json({ user_id: userId, email }, 201);
+        // Send verification email (fire-and-forget — signup succeeds even if email fails)
+        const frontendUrl    = env.FRONTEND_URL || "https://app.cybermeters.com";
+        const workerBase     = url.origin;
+        const verifyLink     = `${workerBase}/api/auth/verify-email?token=${verificationToken}`;
+        const displayName    = name || email.split("@")[0];
+        await sendCustomerEmail(
+          "Verify your CyberMeters email address",
+          `Hi ${displayName},\n\nPlease verify your email address by clicking the link below:\n\n${verifyLink}\n\nThis link expires in 24 hours.\n\nIf you did not create a CyberMeters account, you can safely ignore this email.\n\nThe CyberMeters Team`,
+          `<!DOCTYPE html><html><body style="font-family:sans-serif;color:#1f2937;max-width:560px;margin:40px auto;padding:0 20px">
+            <h2 style="color:#1d4ed8">Verify your email address</h2>
+            <p>Hi ${displayName},</p>
+            <p>Thanks for signing up for CyberMeters. Please verify your email address to activate your account.</p>
+            <p style="margin:32px 0">
+              <a href="${verifyLink}" style="background:#1d4ed8;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Verify email address</a>
+            </p>
+            <p style="color:#6b7280;font-size:14px">This link expires in 24 hours. If you did not create a CyberMeters account, you can safely ignore this email.</p>
+          </body></html>`,
+          env,
+          "HELLO_EMAIL_FROM",
+          [email]
+        ).catch(() => {});
+
+        await createAuditEvent(env, {
+          user_id:     userId,
+          event_type:  "USER_EMAIL_VERIFICATION_SENT",
+          entity_type: "user",
+          entity_id:   userId,
+          description: `Verification email sent to ${email}`,
+          metadata:    { email },
+        }).catch(() => {});
+
+        return json({ success: true, verification_required: true, email }, 201);
       } catch (e) {
         return json({ error: e.message }, 500);
       }
@@ -17769,7 +17818,7 @@ export default {
 
       try {
         const user = await env.cybermeters_db
-          .prepare("SELECT id, email, name, plan, password_hash, status, mfa_enabled FROM users WHERE email = ? LIMIT 1")
+          .prepare("SELECT id, email, name, plan, password_hash, status, mfa_enabled, email_verified, auth_provider FROM users WHERE email = ? LIMIT 1")
           .bind(email)
           .first();
 
@@ -17793,6 +17842,14 @@ export default {
         }
         if (user.status === "suspended") {
           return json({ error: "Account suspended. Contact support." }, 403);
+        }
+
+        // ── Email verification gate ───────────────────────────────────────────
+        // Local-auth accounts must have a verified email before being granted a session.
+        // Microsoft OAuth accounts are auto-verified and skip this check.
+        const isLocalAccount = !user.auth_provider || user.auth_provider === "local";
+        if (isLocalAccount && !user.email_verified) {
+          return json({ error: "email_verification_required", email: user.email }, 403);
         }
 
         // ── MFA gate ─────────────────────────────────────────────────────────
@@ -17910,6 +17967,149 @@ export default {
         }
       }
       return json({ success: true });
+    }
+
+    // ── GET /api/auth/verify-email ───────────────────────────────────────
+    // Validates the one-time email verification token sent during signup.
+    // On success: marks the account as verified, clears the token, redirects to
+    //   ${FRONTEND_URL}/verify-email?success=1
+    // On failure: redirects to
+    //   ${FRONTEND_URL}/verify-email?error=<reason>
+    if (request.method === "GET" && url.pathname === "/api/auth/verify-email") {
+      const frontendUrl = env.FRONTEND_URL || "https://app.cybermeters.com";
+      const token = url.searchParams.get("token") || "";
+      const dest = new URL("/verify-email", frontendUrl);
+
+      if (!token) {
+        dest.searchParams.set("error", "Missing verification token");
+        return Response.redirect(dest.toString(), 302);
+      }
+
+      try {
+        const userRow = await env.cybermeters_db
+          .prepare(
+            `SELECT id, email, email_verified, verification_token_expires_at
+             FROM users WHERE verification_token = ? LIMIT 1`
+          )
+          .bind(token)
+          .first();
+
+        if (!userRow) {
+          dest.searchParams.set("error", "Invalid or already used verification link");
+          return Response.redirect(dest.toString(), 302);
+        }
+
+        if (userRow.email_verified) {
+          // Already verified — just redirect to success
+          dest.searchParams.set("success", "1");
+          return Response.redirect(dest.toString(), 302);
+        }
+
+        if (userRow.verification_token_expires_at && new Date(userRow.verification_token_expires_at) < new Date()) {
+          dest.searchParams.set("error", "Verification link has expired. Please request a new one.");
+          return Response.redirect(dest.toString(), 302);
+        }
+
+        await env.cybermeters_db
+          .prepare(
+            `UPDATE users
+             SET email_verified = 1,
+                 email_verified_at = datetime('now'),
+                 verification_token = NULL,
+                 verification_token_expires_at = NULL
+             WHERE id = ?`
+          )
+          .bind(userRow.id)
+          .run();
+
+        await createAuditEvent(env, {
+          user_id:     userRow.id,
+          event_type:  "USER_EMAIL_VERIFIED",
+          entity_type: "user",
+          entity_id:   userRow.id,
+          description: `Email verified for ${userRow.email}`,
+          metadata:    { email: userRow.email },
+        }).catch(() => {});
+
+        dest.searchParams.set("success", "1");
+        return Response.redirect(dest.toString(), 302);
+      } catch (e) {
+        dest.searchParams.set("error", "Verification failed. Please try again.");
+        return Response.redirect(dest.toString(), 302);
+      }
+    }
+
+    // ── POST /api/auth/resend-verification ───────────────────────────────
+    // Generates a fresh verification token and re-sends the email.
+    // Always returns success to avoid leaking whether an address is registered.
+    if (request.method === "POST" && url.pathname === "/api/auth/resend-verification") {
+      let body;
+      try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+
+      const email = (body.email || "").trim().toLowerCase();
+      if (!isValidEmail(email)) return json({ success: true }); // silent — don't leak
+
+      try {
+        const userRow = await env.cybermeters_db
+          .prepare(
+            `SELECT id, name, email_verified, auth_provider
+             FROM users WHERE email = ? LIMIT 1`
+          )
+          .bind(email)
+          .first();
+
+        // Silently succeed for unknown emails or already-verified accounts
+        if (!userRow || userRow.email_verified) return json({ success: true });
+        // Microsoft accounts are always verified — should never reach here, but guard anyway
+        if (userRow.auth_provider && userRow.auth_provider !== "local") return json({ success: true });
+
+        const newToken   = generateVerificationToken();
+        const newExpires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+        await env.cybermeters_db
+          .prepare(
+            `UPDATE users
+             SET verification_token = ?,
+                 verification_token_expires_at = ?
+             WHERE id = ?`
+          )
+          .bind(newToken, newExpires, userRow.id)
+          .run();
+
+        const workerBase  = url.origin;
+        const verifyLink  = `${workerBase}/api/auth/verify-email?token=${newToken}`;
+        const displayName = userRow.name || email.split("@")[0];
+        await sendCustomerEmail(
+          "Verify your CyberMeters email address",
+          `Hi ${displayName},\n\nPlease verify your email address by clicking the link below:\n\n${verifyLink}\n\nThis link expires in 24 hours.\n\nIf you did not request this email, you can safely ignore it.\n\nThe CyberMeters Team`,
+          `<!DOCTYPE html><html><body style="font-family:sans-serif;color:#1f2937;max-width:560px;margin:40px auto;padding:0 20px">
+            <h2 style="color:#1d4ed8">Verify your email address</h2>
+            <p>Hi ${displayName},</p>
+            <p>Click below to verify your CyberMeters email address and activate your account.</p>
+            <p style="margin:32px 0">
+              <a href="${verifyLink}" style="background:#1d4ed8;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Verify email address</a>
+            </p>
+            <p style="color:#6b7280;font-size:14px">This link expires in 24 hours. If you did not request this, you can safely ignore this email.</p>
+          </body></html>`,
+          env,
+          "HELLO_EMAIL_FROM",
+          [email]
+        ).catch(() => {});
+
+        await createAuditEvent(env, {
+          user_id:     userRow.id,
+          event_type:  "USER_EMAIL_VERIFICATION_RESENT",
+          entity_type: "user",
+          entity_id:   userRow.id,
+          description: `Verification email resent to ${email}`,
+          metadata:    { email },
+        }).catch(() => {});
+
+        return json({ success: true });
+      } catch (e) {
+        // Swallow errors — never reveal internals
+        return json({ success: true });
+      }
     }
 
     // ── GET /api/auth/microsoft/login ────────────────────────────────────
@@ -18109,8 +18309,9 @@ export default {
         await env.cybermeters_db
           .prepare(
             `INSERT INTO users
-               (id, email, name, plan, password_hash, status, auth_provider, microsoft_oid, tenant_id, created_at)
-             VALUES (?, ?, ?, 'free', NULL, 'active', 'microsoft', ?, ?, datetime('now'))`
+               (id, email, name, plan, password_hash, status, auth_provider, microsoft_oid, tenant_id,
+                email_verified, email_verified_at, created_at)
+             VALUES (?, ?, ?, 'free', NULL, 'active', 'microsoft', ?, ?, 1, datetime('now'), datetime('now'))`
           )
           .bind(newUserId, msEmail, msName, msOid, msTid)
           .run();
@@ -25397,8 +25598,21 @@ export default {
       const workspaceId = notifListMatch[1];
       const user = await requireAuth(request, env);
       if (!user) return json({ error: "Unauthorized" }, 401);
+
+      // If the user is authenticated but not a member of this workspace
+      // (e.g. stale localStorage workspace ID, invited workspace that no longer
+      // exists, or first login before any workspace is created), return an empty
+      // notification list rather than 403. A 403 here is never actionable by the
+      // client and causes noisy console errors with no user-visible explanation.
       const access = await requireWorkspaceRole(user, workspaceId, "workspace:read", env);
-      if (!access) return json({ error: "Forbidden" }, 403);
+      if (!access) {
+        return json({
+          workspace_id:  workspaceId,
+          unread_count:  0,
+          count:         0,
+          notifications: [],
+        });
+      }
       try {
         const limit  = Math.min(parseInt(url.searchParams.get("limit")  || "50",  10), 200);
         const status = url.searchParams.get("status") || null; // 'unread' | 'read' | null (all)

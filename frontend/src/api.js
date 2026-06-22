@@ -1,6 +1,6 @@
 import { TOKEN_KEY, USER_KEY } from './context/authKeys'
 
-const BASE = import.meta.env.VITE_API_BASE_URL
+export const BASE = import.meta.env.VITE_API_BASE_URL
 if (!BASE) {
   console.error(
     '[CyberMeters] VITE_API_BASE_URL is not set. ' +
@@ -75,8 +75,17 @@ async function request(path, options = {}) {
     ...options,
   })
   if (res.status === 401) {
-    handleUnauthorized()
-    throw new Error('Session expired. Please sign in again.')
+    // Only treat this as a session expiry if the client actually had a session.
+    // Without a token the 401 means "wrong credentials" (e.g. from the login
+    // endpoint), so we surface the server's real error message instead of a
+    // misleading "Session expired" string.
+    const hadToken = !!localStorage.getItem(TOKEN_KEY)
+    if (hadToken) {
+      handleUnauthorized()
+      throw new Error('Session expired. Please sign in again.')
+    }
+    const err = await res.json().catch(() => ({ error: 'Authentication failed' }))
+    throw new Error(err.error || 'Authentication failed')
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }))
@@ -163,6 +172,13 @@ export const api = {
 
   /** POST /api/auth/logout */
   authLogout: () => request('/auth/logout', { method: 'POST' }),
+
+  /** POST /api/auth/resend-verification → { success } */
+  resendVerification: (email) =>
+    request('/auth/resend-verification', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    }),
 
   /** POST /api/auth/forgot-password → { success, message } */
   forgotPassword: (email) =>
