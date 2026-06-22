@@ -3436,11 +3436,21 @@ async function runCloudStorageModule(domain, modules) {
       const findingBase = cloudStorageFindingFromCandidate(enriched);
       if (!findingBase) continue;
       const checkedAt = new Date().toISOString();
+      // Sprint 9D: confidence and validation_quality based on HTTP validation outcome
+      const csConf = findingBase.id === "cloud_storage_public_listing"    ? 95
+                   : findingBase.id === "cloud_storage_exposure_observed"  ? 90
+                   : findingBase.id === "cloud_storage_takeover_risk"      ? 80
+                   : 60;
+      const csVQ   = findingBase.id === "cloud_storage_public_listing"    ? "excellent"
+                   : findingBase.id === "cloud_storage_exposure_observed"  ? "good"
+                   : findingBase.id === "cloud_storage_takeover_risk"      ? "good"
+                   : "weak";
       findings.push({
         id: findingBase.id,
         module: "cloud_storage_discovery",
         severity: findingBase.severity,
-        confidence: enriched.confidence >= 80 ? "high" : "medium",
+        confidence:         csConf,
+        validation_quality: csVQ,
         score_impact: 0,
         title: findingBase.title,
         description: findingBase.description,
@@ -6065,13 +6075,16 @@ function buildEmailIntelFindings(spf, dmarc, dkim, mtaSts, tlsRpt) {
 
   if (dkim.status === "NOT_VERIFIED") {
     findings.push({
-      id:             "email_intel_dkim_not_found",
-      module:         "email_security_intelligence",
-      severity:       "medium",
-      title:          "DKIM signing record not found on common selectors",
-      description:    "No DKIM public key record was detected using common selector names. Without DKIM, email content signatures cannot be verified by recipients.",
-      recommendation: "Configure DKIM signing with your email service provider and publish the DKIM public key as a TXT record at <selector>._domainkey.<domain>.",
-      score_impact:   0,
+      id:                "email_intel_dkim_not_found",
+      module:            "email_security_intelligence",
+      severity:          "medium",
+      // Sprint 9D: common-selector heuristic failure — not confirmed absence of DKIM
+      confidence:         60,
+      validation_quality: "partial",
+      title:             "DKIM signing record not found on common selectors",
+      description:       "No DKIM public key record was detected using common selector names. Without DKIM, email content signatures cannot be verified by recipients.",
+      recommendation:    "Configure DKIM signing with your email service provider and publish the DKIM public key as a TXT record at <selector>._domainkey.<domain>.",
+      score_impact:      0,
     });
   }
 
@@ -6791,11 +6804,14 @@ function computeScore(modules, domain) {
       // selectors not in our list. This is an informational observation, not a finding.
       // Never medium or high confidence; never deducts score.
       findings.push({
-        id:           "email_dkim_not_detected",
-        module:       "email_security",
-        severity:     "info",
-        confidence:   "low",
-        title:        "DKIM Could Not Be Verified Using Common Selectors",
+        id:                "email_dkim_not_detected",
+        module:            "email_security",
+        severity:          "info",
+        // Sprint 9D: selector heuristic failure — common selectors probed, none found.
+        // Enterprise domains use custom selectors; absence is not certainty of absence.
+        confidence:         60,
+        validation_quality: "partial",
+        title:             "DKIM Could Not Be Verified Using Common Selectors",
         description:  `No DKIM public key record was found for ${domain} using common selector names. DKIM may be configured with a custom selector not in our probe list, or may not be enabled.`,
         score_impact: 0,
         evidence: {
@@ -6825,17 +6841,37 @@ function computeScore(modules, domain) {
   if (subMod && !subMod.error) {
     const sensitiveList = subMod.sensitive || [];
 
+    // Sprint 9D: three-tier confidence based on available validation evidence.
+    // Tier 1 — HTTP confirmed (asset_exposure reachable):   confidence 80 / good
+    // Tier 2 — DNS confirmed (dns_bruteforce resolved):     confidence 70 / partial
+    // Tier 3 — CT log only (no validation):                 confidence 60 / weak
+    const reachableSubdomains = new Set(
+      (modules.asset_exposure?.assets || [])
+        .filter(a => a.reachable)
+        .map(a => a.host)
+    );
+    const bruteDnsSubdomains = new Set(modules.dns_bruteforce?.items || []);
+
     // One finding + deduction per sensitive subdomain, capped at 4 findings / -20 pts
     const cappedSensitive = sensitiveList.slice(0, 4);
     for (const sub of cappedSensitive) {
+      let subConf, subVQ;
+      if (reachableSubdomains.has(sub)) {
+        subConf = 80; subVQ = "good";        // HTTP probe confirmed reachable
+      } else if (bruteDnsSubdomains.has(sub)) {
+        subConf = 70; subVQ = "partial";     // DNS bruteforce resolved, HTTP not confirmed
+      } else {
+        subConf = 60; subVQ = "weak";        // CT log discovery only — no probe confirmation
+      }
       finding({
-        id:           `subdomain_sensitive_${sub.replace(/\./g, "_")}`,
-        module:       "subdomains",
-        severity:     "medium",
-        confidence:   "medium",
-        title:        "Potentially Sensitive Subdomain Discovered",
-        description:  `The subdomain "${sub}" suggests a development, staging, or administrative asset may be publicly reachable. Verify this asset is intentional and properly secured.`,
-        score_impact: -5,
+        id:                `subdomain_sensitive_${sub.replace(/\./g, "_")}`,
+        module:            "subdomains",
+        severity:          "medium",
+        confidence:        subConf,
+        validation_quality: subVQ,
+        title:             "Potentially Sensitive Subdomain Discovered",
+        description:       `The subdomain "${sub}" suggests a development, staging, or administrative asset may be publicly reachable. Verify this asset is intentional and properly secured.`,
+        score_impact:      -5,
       });
     }
     if (cappedSensitive.length > 0) {
@@ -9592,8 +9628,13 @@ function generateTyposquatCandidates(brand, tld) {
     (a, b) => b._score - a._score || a.candidate_domain.localeCompare(b.candidate_domain)
   );
 
-  // Strip internal scoring field before returning
-  return items.slice(0, MAX_BRAND_CANDIDATES).map(({ _score, ...rest }) => rest);
+  // Strip internal scoring field before returning.
+  // Sprint 9D: all scan-time candidates are unvalidated (DNS probe deferred to /refresh).
+  return items.slice(0, MAX_BRAND_CANDIDATES).map(({ _score, ...rest }) => ({
+    ...rest,
+    confidence:         40,
+    validation_quality: "weak",
+  }));
 }
 
 /**
@@ -9852,14 +9893,16 @@ function runIdentityDiscoveryModule(modules, domain) {
       if (matched.length === 0) continue;
 
       providers.push({
-        asset_type:       "provider",
-        identity_type:    sig.identity_type,
-        provider:         sig.name,
-        internet_exposed: true,
-        risk_score:       sig.risk_score,
-        source:           "identity_discovery",
-        evidence:         matched,
-        confidence:       matched.length >= 2 ? "high" : "medium",
+        asset_type:         "provider",
+        identity_type:      sig.identity_type,
+        provider:           sig.name,
+        internet_exposed:   true,
+        risk_score:         sig.risk_score,
+        source:             "identity_discovery",
+        evidence:           matched,
+        // Sprint 9D: known IdP fingerprint verified via CNAME/SPF/MX/CSP signals
+        confidence:         90,
+        validation_quality: "excellent",
       });
     }
 
@@ -9874,15 +9917,17 @@ function runIdentityDiscoveryModule(modules, domain) {
       for (const pat of IDENTITY_HOSTNAME_PATTERNS) {
         if (pat.prefix.test(hostname)) {
           portals.push({
-            asset_type:       "portal",
-            identity_type:    pat.identity_type,
-            provider:         null,
+            asset_type:         "portal",
+            identity_type:      pat.identity_type,
+            provider:           null,
             hostname,
-            internet_exposed: true,
-            risk_score:       pat.risk_score,
-            source:           "hostname_pattern",
-            evidence:         [{ source: "subdomain_hostname", value: hostname }],
-            confidence:       "medium",
+            internet_exposed:   true,
+            risk_score:         pat.risk_score,
+            source:             "hostname_pattern",
+            evidence:           [{ source: "subdomain_hostname", value: hostname }],
+            // Sprint 9D: hostname prefix pattern only — heuristic, no DNS/HTTP confirmation
+            confidence:         60,
+            validation_quality: "partial",
           });
           break; // one classification per hostname
         }
@@ -23847,7 +23892,17 @@ export default {
           } catch { /* treat as not resolving */ }
 
           const status = dnsResolves ? 'active' : 'inactive';
-          validationResults.push({ ...c, dns_resolves: dnsResolves, ip_address: ipAddress, status });
+          // Sprint 9D: confidence and validation_quality based on DNS probe outcome
+          const brandConf = dnsResolves ? 80 : 40;
+          const brandVQ   = dnsResolves ? "good" : "weak";
+          validationResults.push({
+            ...c,
+            dns_resolves:       dnsResolves,
+            ip_address:         ipAddress,
+            status,
+            confidence:         brandConf,
+            validation_quality: brandVQ,
+          });
 
           // Upsert validated result into D1
           try {
