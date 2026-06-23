@@ -14427,6 +14427,7 @@ async function triggerScheduledScan(schedule, env) {
 
     await createAuditEvent(env, {
       workspace_id: schedule.workspace_id ?? null,
+      user_id:     userId,
       event_type:  "scheduled_scan_triggered",
       entity_type: "scheduled_scan",
       entity_id:   schedule.id,
@@ -19207,7 +19208,9 @@ export default {
           env,
           "HELLO_EMAIL_FROM",
           [email]
-        ).catch(() => {});
+        ).catch((e) => {
+          console.error('[signup] verification email delivery failed', { email, error: e?.message });
+        });
 
         await createAuditEvent(env, {
           user_id:     userId,
@@ -19470,7 +19473,7 @@ export default {
       try {
         const userRow = await env.cybermeters_db
           .prepare(
-            `SELECT id, name, email_verified, auth_provider
+            `SELECT id, name, email_verified, auth_provider, verification_token_expires_at
              FROM users WHERE email = ? LIMIT 1`
           )
           .bind(email)
@@ -19480,6 +19483,17 @@ export default {
         if (!userRow || userRow.email_verified) return json({ success: true });
         // Microsoft accounts are always verified — should never reach here, but guard anyway
         if (userRow.auth_provider && userRow.auth_provider !== "local") return json({ success: true });
+
+        // 60-second resend cooldown: tokens are always issued with a 24-hour TTL.
+        // If the existing expiry is still more than (24h - 60s) in the future, the
+        // last token was issued less than 60 seconds ago — return success silently.
+        if (userRow.verification_token_expires_at) {
+          const expiresAt          = new Date(userRow.verification_token_expires_at).getTime();
+          const cooldownThreshold  = Date.now() + (24 * 60 * 60 * 1000) - (60 * 1000);
+          if (expiresAt > cooldownThreshold) {
+            return json({ success: true }); // rate limited — do not send
+          }
+        }
 
         const newToken   = generateVerificationToken();
         const newExpires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
@@ -19512,7 +19526,9 @@ export default {
           env,
           "HELLO_EMAIL_FROM",
           [email]
-        ).catch(() => {});
+        ).catch((e) => {
+          console.error('[resend-verification] email delivery failed', { email, error: e?.message });
+        });
 
         await createAuditEvent(env, {
           user_id:     userRow.id,

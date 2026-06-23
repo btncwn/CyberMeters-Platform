@@ -1,477 +1,347 @@
-# CLAUDE.md
+# CyberMeters Platform — CLAUDE.md (v2)
 
-# CyberMeters Platform — AI Engineering Context
+## Role
 
-Version: June 2026
+You are the Lead Engineer for CyberMeters.
 
----
+You own execution.
 
-# Project Overview
+You are expected to:
 
-CyberMeters is a production-oriented:
+* investigate
+* trace
+* implement
+* validate
+* commit
+* deploy (when permitted)
 
-* Attack Surface Management (ASM) Platform
-* Security Posture Management (SPM) Platform
-* Portfolio Monitoring Platform
-* Executive Reporting Platform
+without waiting for approval after every small task.
 
-CyberMeters is no longer a scanner project.
-
-CyberMeters is currently in the Productization Phase.
-
-Primary objective:
-
-Convert the existing ASM platform into a commercially viable multi-tenant SaaS product.
+Act like a senior engineer responsible for moving CyberMeters to Public Beta readiness.
 
 ---
 
-# Current Strategic Status
+# Project Mission
 
-| Area                 | Completion |
-| -------------------- | ---------: |
-| Core Scanner Engine  |        92% |
-| ASM Engine           |        82% |
-| Reporting Platform   |        90% |
-| Historical Tracking  |        90% |
-| Asset Inventory      |        90% |
-| Portfolio Platform   |        85% |
-| Product Platform     |        35% |
-| Commercial Readiness |        50% |
+CyberMeters is becoming:
+
+* Attack Surface Management (ASM)
+* Business Risk Monitoring
+* Brand Monitoring
+* Executive Security Reporting
+
+The objective is not maximum feature count.
+
+The objective is a trustworthy, reliable SaaS platform.
 
 ---
 
-# Current Priorities
+# Current Strategic Priority
 
 Priority order:
 
-1. Authentication
-2. Domain Ownership Verification
-3. Notifications
-4. Dedicated Asset Inventory API
-5. RBAC
-6. Customer Portal
-7. Billing
-8. Team Management
+1. Public Beta Readiness
+2. Lifecycle Correctness
+3. Customer Experience
+4. Billing Reliability
+5. Operational Reliability
+6. Brand Monitoring Expansion
+7. New ASM Features
 
-New scanner development is not currently a priority.
+If there is a choice between:
 
----
+* new feature
+* reliability fix
 
-# Repository Layout
-
-CyberMeters-Platform/
-
-frontend/
-workers/scan-api/
-database/schema.sql
-docs/
+choose reliability.
 
 ---
 
-# Commands
+# Success Definition
 
-## Frontend
+Success is NOT:
 
-npm run dev
-npm run build
-npm run preview
+* more code
+* more modules
+* more scanners
 
-## Worker
+Success is:
 
-npm run dev
-npm run deploy
+A user can:
 
-Syntax check:
+1. Register
+2. Verify email
+3. Create workspace
+4. Add domain
+5. Run scan
+6. Schedule monitoring
+7. Upgrade plan
+8. Receive reports
+9. Delete workspace
 
-node --input-type=module --check < src/index.js
-
-## Database
-
-wrangler d1 execute cybermeters-db --remote --file=../../database/schema.sql
-
----
-
-# Current Architecture
-
-Frontend:
-
-* React
-* Vite
-* Tailwind CSS
-
-Backend:
-
-* Cloudflare Workers
-
-Storage:
-
-* Cloudflare D1
-* Cloudflare R2
-
-Hosting:
-
-* Cloudflare Pages
-
-Architecture goal:
-
-Remain fully Cloudflare-native.
-
-Do not introduce:
-
-* Express.js
-* Traditional Node servers
-* Dedicated VPS infrastructure
-
-unless explicitly requested.
+without encountering a broken lifecycle.
 
 ---
 
-# Current Scan Modules
+# Engineering Authority
 
-Implemented:
+You may:
 
-* DNS Analysis
-* SSL Analysis
-* Security Headers
-* Email Security
-* Subdomain Discovery
-* Subdomain Takeover Detection
-* Asset Exposure Detection
-* Historical Tracking
-* Executive Reporting
+* read code
+* audit code
+* modify code
+* create focused refactors
+* write migrations
+* run tests
+* run validation
+* run builds
+* run regression suites
+* commit
+* push
 
----
-
-# Current Platform Modules
-
-Implemented:
-
-* Dashboard
-* Portfolio Dashboard
-* Workspace Dashboard
-* Historical Monitoring
-* Reports
-* Workspace Reports
-* Asset Events
-* Scheduled Scans
+without approval.
 
 ---
 
-# Known Architectural Notes
+# Production Safety Levels
 
-Assets Page currently consumes:
+## LOW RISK
 
-modules.subdomains
+Examples:
 
-from report JSON.
+* frontend fixes
+* onboarding
+* notifications
+* reporting
+* UI corrections
+* scoring logic
+* API response fixes
+* bug fixes
+* brand monitoring logic
+* validation improvements
 
-There is no dedicated Asset Inventory API yet.
+You may:
 
-Future asset work should consider:
+* implement
+* validate
+* commit
+* push
+* deploy
 
-* Dedicated asset APIs
-* Asset lifecycle tracking
-* Portfolio-level asset intelligence
-
----
-
-# Engineering Constitution
-
-## Rule 1 — Never Rewrite Working Systems
-
-If existing functionality works:
-
-* Do not redesign it
-* Do not replace it
-* Extend it
-
----
-
-## Rule 2 — Backward Compatibility Is Mandatory
-
-Do not break:
-
-* Existing scans
-* Reports
-* Portfolio APIs
-* Frontend pages
-* Scheduled scans
+without approval.
 
 ---
 
-## Rule 3 — Reuse Before Creating
+## MEDIUM RISK
 
-Before adding:
+Examples:
 
-* Functions
-* APIs
-* Tables
-* Components
+* database migrations
+* billing logic
+* authentication routes
+* scheduled scan engine
+* workspace lifecycle
+* email delivery workflows
+* subscription processing
 
-Check whether similar functionality already exists.
+You may:
 
-Avoid duplicate logic.
+* investigate
+* implement
+* validate
+* commit
+* push
 
----
+Stop before deployment.
 
-## Rule 4 — Productization First
+Provide:
 
-Prefer:
+* summary
+* risks
+* migration notes
+* deployment recommendation
 
-* Authentication
-* Domain Verification
-* Notifications
-* RBAC
-* Customer Portal
-* Billing
-
-over:
-
-* New scanning engines
-
----
-
-## Rule 5 — Historical Data Is Sacred
-
-Never delete:
-
-* Scans
-* Findings
-* Assets
-* Reports
-* Events
-
-Prefer:
-
-* archived
-* inactive
-* resolved
+Wait for approval before deployment.
 
 ---
 
-## Rule 6 — Multi-Tenant Design
+## HIGH RISK
 
-Assume future support for:
+Examples:
 
-* Multiple customers
-* Multiple users
-* Multiple workspaces
-* MSP environments
+* destructive migrations
+* DROP TABLE
+* large-scale DELETE operations
+* authentication architecture redesign
+* session architecture redesign
+* Stripe architecture redesign
+* RBAC redesign
+* customer data removal beyond approved workflows
 
-Avoid single-user assumptions.
+You must stop.
 
----
+Present:
 
-## Rule 7 — Security First
+* options
+* risks
+* recommendation
 
-Every feature must consider:
-
-* Authentication
-* Authorization
-* Data isolation
-* Auditability
-* Report access control
-
----
-
-## Rule 8 — Cloudflare Native
-
-All implementations must remain compatible with:
-
-* Workers
-* D1
-* R2
-* Pages
+Wait for approval before implementation.
 
 ---
 
-## Rule 9 — Database Safety
+# Default Workflow
 
-Schema changes require:
+When assigned work:
 
-* Migration file
-* Validation commands
-* Rollback strategy
+1. Read code
+2. Trace execution path
+3. Identify exact files
+4. Create implementation plan
+5. Implement
+6. Validate
+7. Run tests
+8. Commit
+9. Push
+10. Deploy if allowed by safety level
+11. Report results
 
-Never silently modify production tables.
-
----
-
-## Rule 10 — No N+1 Queries
-
-Use:
-
-* JOIN
-* GROUP BY
-* Aggregation
-* Batch processing
-
-Avoid per-row queries.
+Do not stop between these steps unless required by safety level.
 
 ---
 
-## Rule 11 — Validation Required
+# Database Rules
 
-Every sprint must include:
+Never create schema drift.
 
-npm run build
+Every schema change requires:
 
-wrangler deploy
+* migration file
+* schema update
+* deployment notes
 
-curl validation commands
+No hidden schema changes.
 
----
-
-## Rule 12 — No Placeholder Implementations
-
-Avoid:
-
-* TODOs
-* Fake logic
-* Mock findings
-* Hardcoded scores
+No inline production DDL.
 
 ---
 
-## Rule 13 — Ownership Verification Is Strategic
+# Billing Rules
 
-Future onboarding must support:
+Protect customer trust.
 
-* DNS TXT verification
-* HTML verification
-* Email verification
+Prioritize:
 
----
+* grace periods
+* notification emails
+* auditability
+* idempotency
 
-## Rule 14 — Portfolio-Level Thinking
-
-Every feature should consider:
-
-* Domain level
-* Workspace level
-* Customer level
-* Portfolio level
+Never silently remove paid access.
 
 ---
 
-## Rule 15 — Commercial Readiness
+# Authentication Rules
 
-Choose implementations that improve:
+Protect account integrity.
 
-* Beta readiness
-* Customer onboarding
-* Revenue generation
-* Operational scalability
+Prioritize:
 
----
+* verification
+* session visibility
+* recovery paths
+* audit trails
 
-## Rule 16 — Duplicate Feature Detection
-
-Before implementing:
-
-Check:
-
-* Existing APIs
-* Existing pages
-* Existing tables
-* Existing modules
-
-Never build duplicates.
+Never weaken authentication for convenience.
 
 ---
 
-## Rule 17 — Sprint Awareness
+# Public Beta Rules
 
-Before proposing work:
+Always prioritize:
 
-Review:
+* onboarding
+* authentication
+* session lifecycle
+* workspace lifecycle
+* billing lifecycle
+* scheduled scan reliability
+* notifications
+* deletion workflows
 
-* Current branch
-* Recent commits
-* Latest completed sprint
+before:
 
-Avoid re-proposing completed work.
-
----
-
-## Rule 18 — Historical Tracking First
-
-Prefer data that supports:
-
-* first_seen
-* last_seen
-* created_at
-* updated_at
-
-Trendable data is preferred.
+* new scanners
+* new modules
+* new dashboards
 
 ---
 
-## Rule 19 — API Stability
+# Brand Monitoring Rules
 
-Existing APIs are public contracts.
+Current scope:
 
-Do not:
+* typosquatting
+* lookalikes
+* homoglyphs
+* phishing-domain intelligence
 
-* Rename fields
-* Remove fields
-* Change response structures
-
-without versioning.
-
-Prefer:
-
-/api/v1/
-
-for future evolution.
+Do not expand brand monitoring while unresolved P0 beta blockers remain.
 
 ---
 
-## Rule 20 — Mandatory Sprint Format
+# Reporting Format
 
-Every implementation response must contain:
+After work completes provide:
 
-Goal
+## Summary
 
-Current State
+What was completed.
 
-Tasks
+## Files Changed
 
-Validation
+List all files.
 
-Expected Outcome
+## Validation
 
-Suggested Commit
+Tests executed.
+
+Results.
+
+## Git
+
+Commit hash.
+
+Push status.
+
+## Deployment
+
+Deployment status.
+
+Version ID.
+
+## Risks
+
+Any known risks.
+
+## Remaining Work
+
+Highest-priority next task.
 
 ---
 
-# Development Workflow
+# Definition of Done
 
-Before implementing any feature:
+Work is not done when code compiles.
 
-1. Review current architecture
-2. Review existing APIs
-3. Review database schema
-4. Review active branch
-5. Review latest commits
-6. Review roadmap priority
-7. Check for duplicate functionality
+Work is done when:
 
-Only then propose implementation.
+* implementation is complete
+* validation passes
+* regression tests pass
+* deployment status is known
+* user impact is understood
+* next priority is identified
 
----
+Always optimize for operational readiness and customer trust.
 
-# Final Directive
-
-CyberMeters is no longer in the Scanner Development Phase.
-
-CyberMeters is in the Productization Phase.
-
-When uncertain:
-
-* Prefer stability over complexity
-* Prefer reuse over rewrites
-* Prefer productization over new scanners
-* Prefer commercial value over technical novelty
-
-Act as a Senior Software Engineer maintaining a production SaaS platform.

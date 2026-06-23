@@ -46,7 +46,7 @@ export default function MicrosoftCallbackPage() {
     // Exchange the one-time code for the session token.
     // The token is returned in the response body — it never appears in any URL.
     api.exchangeOAuthCode(otc)
-      .then(data => {
+      .then(async data => {
         if (!data.token || !data.id || !data.email) {
           setError('Sign-in did not complete. Please try again.')
           return
@@ -57,6 +57,16 @@ export default function MicrosoftCallbackPage() {
           name:  data.name || data.email.split('@')[0],
           plan:  data.plan || 'free',
         })
+        // New users (no workspaces yet) go to onboarding; existing users to dashboard.
+        try {
+          const wsData = await api.getWorkspaces()
+          if ((wsData?.workspaces?.length ?? 0) === 0) {
+            navigate('/onboarding', { replace: true })
+            return
+          }
+        } catch {
+          // Workspace check failed — fall through to dashboard.
+        }
         navigate('/dashboard', { replace: true })
       })
       .catch(() => {
