@@ -7205,7 +7205,12 @@ function computeScore(modules, domain) {
   // Only high/critical candidates surface as scored findings; medium/low are informational only.
   // modules.brand_monitoring is pre-populated before computeScore is called (in runScanEngine),
   // or may be passed directly in mock_modules for regression fixture testing.
-  const brandMod = modules.brand_monitoring ?? runTyposquatModule(domain);
+  // null  = explicit opt-out (lightweight routes: free-scan, domain preview).
+  // undefined = fallback: generate inline via runTyposquatModule.
+  const brandMod = modules.brand_monitoring !== undefined
+    ? modules.brand_monitoring
+    : runTyposquatModule(domain);
+  let brandScoreDeduction = 0;
   for (const c of (brandMod?.domains || [])) {
     if (!['high', 'critical'].includes(c.risk_level)) continue;
     const findingId = c.variant_type === 'substitution'
@@ -7229,8 +7234,10 @@ function computeScore(modules, domain) {
       confidence:         c.confidence ?? 40,
       validation_quality: c.validation_quality ?? 'weak',
     });
-    score += scoreImpact;
+    brandScoreDeduction += Math.abs(scoreImpact);
   }
+  // Cap total brand score deduction at -15 regardless of candidate count.
+  score -= Math.min(15, brandScoreDeduction);
 
   // Clamp and classify
   score = Math.max(0, Math.min(100, Math.round(score)));
@@ -25399,7 +25406,7 @@ export default {
                 `SELECT candidate_domain, variant_type, risk_level, risk_reasons,
                         ip_address, status, first_seen, last_seen
                  FROM workspace_brand_assets
-                 WHERE workspace_id = ? AND risk_level = 'high' AND status = 'active'
+                 WHERE workspace_id = ? AND risk_level IN ('critical', 'high') AND status = 'active'
                  ORDER BY last_seen DESC LIMIT 10`
               )
               .bind(wsId).all(),
@@ -25411,7 +25418,7 @@ export default {
           return json({
             workspace_id:     wsId,
             total_candidates: totalRow?.n ?? 0,
-            by_risk_level:    { high: byRisk.high ?? 0, medium: byRisk.medium ?? 0, low: byRisk.low ?? 0 },
+            by_risk:          { critical: byRisk.critical ?? 0, high: byRisk.high ?? 0, medium: byRisk.medium ?? 0, low: byRisk.low ?? 0 },
             by_status:        { active: byStatus.active ?? 0, inactive: byStatus.inactive ?? 0, unverified: byStatus.unverified ?? 0 },
             high_risk_active: (highActiveRows.results || []).map(r => ({
               ...r,
@@ -25446,8 +25453,8 @@ export default {
                FROM workspace_brand_assets
                WHERE ${whereSQL}
                ORDER BY
-                 CASE risk_level WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
-                 CASE status     WHEN 'active' THEN 0 WHEN 'unverified' THEN 1 ELSE 2 END,
+                 CASE risk_level WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
+                 CASE status     WHEN 'active'   THEN 0 WHEN 'unverified' THEN 1 ELSE 2 END,
                  candidate_domain`
             )
             .bind(...binds)
@@ -25460,7 +25467,7 @@ export default {
             risk_reasons:    (() => { try { return JSON.parse(row.risk_reasons); } catch { return []; } })(),
           }));
 
-          return json({ workspace_id: wsId, count: assets.length, assets });
+          return json({ workspace_id: wsId, count: assets.length, candidates: assets });
         } catch {
           return json({ error: 'Database error' }, 500);
         }
@@ -25733,6 +25740,7 @@ export default {
           ssl:            sslR.status     === "fulfilled" ? sslR.value     : { error: "module failed" },
           headers:        headersR.status === "fulfilled" ? headersR.value : { error: "module failed" },
           email_security: emailR.status   === "fulfilled" ? emailR.value   : { error: "module failed" },
+          brand_monitoring: null, // opt-out: brand findings not applicable to lightweight public scan
         };
 
         const { score, risk_level, findings } = computeScore(mods, targetDomain);
@@ -29142,6 +29150,7 @@ export default {
         technology_detection: {},
         whois_intelligence:   {},
         dns_bruteforce:       { items: [] },
+        brand_monitoring:     null, // opt-out: brand findings not applicable to quick domain preview
       };
 
       const { score, risk_level, findings } = computeScore(modules, domain);
