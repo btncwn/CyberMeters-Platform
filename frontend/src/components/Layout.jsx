@@ -230,6 +230,17 @@ function UserMenu() {
   )
 }
 
+// Human-readable labels for plan limit resource keys returned by the API.
+const RESOURCE_LABELS = {
+  scans_per_month:     'monthly scans',
+  reports_per_month:   'monthly reports',
+  scheduled_scans:     'scheduled scans',
+  scans_per_hour:      'scans this hour',
+  domains:             'domains',
+  workspaces:          'workspaces',
+  users:               'team members',
+}
+
 function UpgradePromptModal() {
   const navigate = useNavigate()
   const [limit, setLimit] = useState(null)
@@ -244,8 +255,25 @@ function UpgradePromptModal() {
 
   if (!limit) return null
 
-  const resource = String(limit.resource || 'resource').replace(/_/g, ' ')
-  const limitText = limit.limit >= 999999 ? 'unlimited' : limit.limit
+  // Prefer the upgrade_message already composed by the API (e.g.
+  // "You have used 5 of 5 scans this month. Upgrade your plan for more scans.")
+  // Fall back to a generic message built from resource/limit fields.
+  const resourceKey   = limit.resource || ''
+  const resourceLabel = RESOURCE_LABELS[resourceKey] ?? resourceKey.replace(/_/g, ' ')
+  const limitVal      = limit.limit >= 999999 ? 'unlimited' : limit.limit
+  const body = limit.upgrade_message
+    ?? (limitVal != null
+      ? `You have used all ${limitVal} ${resourceLabel} included in your current plan.`
+      : `You have reached the ${resourceLabel} limit on your current plan.`)
+
+  // Optional reset notice (monthly quotas include reset_at from the API)
+  let resetNote = null
+  if (limit.reset_at) {
+    try {
+      const d = new Date(limit.reset_at)
+      resetNote = `Your quota resets on ${d.toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}.`
+    } catch { /* ignore */ }
+  }
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/30 px-4">
@@ -255,10 +283,11 @@ function UpgradePromptModal() {
             <AlertTriangle className="w-5 h-5 text-amber-600" />
           </div>
           <div className="min-w-0 flex-1">
-            <h2 className="text-sm font-bold text-gray-900">Plan limit reached</h2>
-            <p className="text-sm text-gray-500 mt-1">
-              Your current plan allows {limitText} {resource}. Upgrade options are not connected yet.
-            </p>
+            <h2 className="text-sm font-bold text-gray-900">You've reached your plan limit</h2>
+            <p className="text-sm text-gray-500 mt-1">{body}</p>
+            {resetNote && (
+              <p className="text-xs text-gray-400 mt-1">{resetNote}</p>
+            )}
           </div>
           <button
             type="button"
@@ -275,14 +304,14 @@ function UpgradePromptModal() {
             onClick={() => setLimit(null)}
             className="btn-secondary"
           >
-            Close
+            Not now
           </button>
           <button
             type="button"
-            onClick={() => { setLimit(null); navigate('/pricing') }}
+            onClick={() => { setLimit(null); navigate('/billing') }}
             className="btn-primary"
           >
-            View pricing
+            Upgrade plan
           </button>
         </div>
       </div>

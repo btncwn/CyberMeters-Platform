@@ -97,6 +97,7 @@ const GATE_DISPLAY = [
   { key: 'executive_dashboard', icon: Star,      label: 'Executive Risk Dashboard'   },
   { key: 'audit_logs',          icon: CheckCircle, label: 'Workspace Audit Logs'     },
   { key: 'portfolio_monitoring',icon: BarChart2, label: 'Portfolio Monitoring'       },
+  { key: 'white_label',         icon: FileText,  label: 'White-label reports'        },
 ]
 
 // Upgrade path from each plan

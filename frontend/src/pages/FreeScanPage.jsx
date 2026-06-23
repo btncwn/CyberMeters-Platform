@@ -36,11 +36,16 @@ const SEVERITY_CFG = {
 function sevCfg(s) { return SEVERITY_CFG[s] ?? SEVERITY_CFG.info }
 
 const RISK_LEVEL_CFG = {
-  critical: { label: 'Critical Risk',  color: 'text-red-600',    ring: 'stroke-red-500',    bg: 'bg-red-50'    },
-  high:     { label: 'High Risk',      color: 'text-orange-600', ring: 'stroke-orange-400', bg: 'bg-orange-50' },
-  medium:   { label: 'Medium Risk',    color: 'text-amber-600',  ring: 'stroke-amber-400',  bg: 'bg-amber-50'  },
-  low:      { label: 'Low Risk',       color: 'text-green-600',  ring: 'stroke-green-500',  bg: 'bg-green-50'  },
-  info:     { label: 'No Issues',      color: 'text-brand-600',  ring: 'stroke-brand-500',  bg: 'bg-brand-50'  },
+  // Scan posture ratings (score-derived, System A)
+  excellent: { label: 'Excellent',     color: 'text-brand-600',  ring: 'stroke-brand-500',  bg: 'bg-brand-50'  },
+  good:      { label: 'Good',          color: 'text-green-600',  ring: 'stroke-green-500',  bg: 'bg-green-50'  },
+  moderate:  { label: 'Moderate',      color: 'text-amber-600',  ring: 'stroke-amber-400',  bg: 'bg-amber-50'  },
+  // Finding / asset severity (System B — kept for backward compat)
+  critical:  { label: 'Critical Risk', color: 'text-red-600',    ring: 'stroke-red-500',    bg: 'bg-red-50'    },
+  high:      { label: 'High Risk',     color: 'text-orange-600', ring: 'stroke-orange-400', bg: 'bg-orange-50' },
+  medium:    { label: 'Medium Risk',   color: 'text-amber-600',  ring: 'stroke-amber-400',  bg: 'bg-amber-50'  },
+  low:       { label: 'Low Risk',      color: 'text-green-600',  ring: 'stroke-green-500',  bg: 'bg-green-50'  },
+  info:      { label: 'No Issues',     color: 'text-brand-600',  ring: 'stroke-brand-500',  bg: 'bg-brand-50'  },
 }
 
 function riskCfg(r) { return RISK_LEVEL_CFG[r] ?? RISK_LEVEL_CFG.medium }

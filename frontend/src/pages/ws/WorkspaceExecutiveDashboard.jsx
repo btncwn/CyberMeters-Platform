@@ -29,12 +29,21 @@ const SCORE_COLOR = (s) =>
   : s >= 40 ? '#F59E0B'
   : '#EF4444'
 
+// Maps score-derived posture rating values to display labels (Security Rating system).
+// Kept separate from finding severity (critical/high/medium/low) which uses RiskBadge.
+const RATING_LABEL = {
+  excellent: 'Excellent',
+  good:      'Good',
+  moderate:  'Moderate',
+  high:      'Poor',
+  critical:  'Critical',
+  // legacy letter grades
+  a: 'Excellent', b: 'Good', c: 'Moderate', d: 'Poor', f: 'Critical',
+  // legacy string grades
+  fair: 'Moderate', warning: 'Poor',
+}
 function riskLabel(rating) {
-  const r = rating?.toLowerCase()
-  if (r === 'a' || r === 'good' || r === 'excellent') return 'Good'
-  if (r === 'b' || r === 'fair')    return 'Fair'
-  if (r === 'c' || r === 'warning') return 'Warning'
-  return rating ?? '—'
+  return RATING_LABEL[rating?.toLowerCase()] ?? rating ?? '—'
 }
 
 // ── Summary cards ─────────────────────────────────────────────────────────────
@@ -336,7 +345,7 @@ export default function WorkspaceExecutiveDashboard() {
         <SummaryCard
           label="Security Score"
           value={s.security_score ?? '—'}
-          sub={s.risk_level ? `Risk: ${riskLabel(s.risk_level)}` : undefined}
+          sub={s.risk_level ? `Rating: ${riskLabel(s.risk_level)}` : undefined}
           Icon={ShieldCheck}
           color={s.security_score != null ? (s.security_score >= 80 ? 'text-brand-700' : s.security_score >= 60 ? 'text-blue-700' : s.security_score >= 40 ? 'text-amber-700' : 'text-red-700') : 'text-gray-400'}
           iconBg={s.security_score != null ? (s.security_score >= 80 ? 'bg-brand-50' : s.security_score >= 60 ? 'bg-blue-50' : s.security_score >= 40 ? 'bg-amber-50' : 'bg-red-50') : 'bg-gray-50'}

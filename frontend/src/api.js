@@ -119,11 +119,29 @@ async function request(path, options = {}) {
         window.dispatchEvent(new CustomEvent('cybermeters:plan-limit', { detail: err }))
       }
       const limitError = new Error('Plan limit reached')
-      limitError.code = err.error
+      limitError.code     = 'plan_limit_exceeded'
       limitError.resource = err.resource
-      limitError.limit = err.limit
-      limitError.usage = err.usage
+      limitError.limit    = err.limit
+      limitError.usage    = err.usage
       throw limitError
+    }
+    // Hourly scan rate limit — route through the same upgrade modal so the
+    // user sees one consistent experience rather than a raw error alert.
+    if (err.code === 'rate_limit_exceeded') {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('cybermeters:plan-limit', {
+          detail: {
+            ...err,
+            // Normalise to the shape the modal expects
+            error:           'plan_limit_exceeded',
+            resource:        err.action ?? 'scans_per_hour',
+            upgrade_message: err.upgrade_message ?? 'You have reached the hourly scan limit on your current plan.',
+          },
+        }))
+      }
+      const rateError = new Error('Scan limit reached')
+      rateError.code = 'rate_limit_exceeded'
+      throw rateError
     }
     if (err.error === 'plan_feature_required') {
       const gateError = new Error(`Feature requires upgrade: ${err.feature ?? ''}`)
@@ -156,11 +174,26 @@ async function requestBlob(path, options = {}) {
         window.dispatchEvent(new CustomEvent('cybermeters:plan-limit', { detail: err }))
       }
       const limitError = new Error('Plan limit reached')
-      limitError.code = err.error
+      limitError.code     = 'plan_limit_exceeded'
       limitError.resource = err.resource
-      limitError.limit = err.limit
-      limitError.usage = err.usage
+      limitError.limit    = err.limit
+      limitError.usage    = err.usage
       throw limitError
+    }
+    if (err.code === 'rate_limit_exceeded') {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('cybermeters:plan-limit', {
+          detail: {
+            ...err,
+            error:           'plan_limit_exceeded',
+            resource:        err.action ?? 'scans_per_hour',
+            upgrade_message: err.upgrade_message ?? 'You have reached the hourly scan limit on your current plan.',
+          },
+        }))
+      }
+      const rateError = new Error('Scan limit reached')
+      rateError.code = 'rate_limit_exceeded'
+      throw rateError
     }
     if (err.error === 'plan_feature_required') {
       const gateError = new Error(`Feature requires upgrade: ${err.feature ?? ''}`)
@@ -197,6 +230,18 @@ export const api = {
 
   /** POST /api/auth/logout */
   authLogout: () => request('/auth/logout', { method: 'POST' }),
+
+  /**
+   * POST /api/auth/exchange
+   * Exchanges the one-time code (OTC) from the Microsoft OAuth redirect for
+   * the session bearer token and user metadata. The OTC is valid for 30 seconds
+   * and is single-use. Returns { token, id, email, name, plan }.
+   */
+  exchangeOAuthCode: (code) =>
+    request('/auth/exchange', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    }),
 
   /** POST /api/auth/resend-verification → { success } */
   resendVerification: (email) =>

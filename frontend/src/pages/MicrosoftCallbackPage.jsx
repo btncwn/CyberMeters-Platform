@@ -2,22 +2,26 @@
  * MicrosoftCallbackPage
  *
  * Landing page for the Microsoft Entra OAuth callback.
- * The backend GET /api/auth/microsoft/callback redirects here with session
- * params in the query string after successfully validating the id_token and
- * creating a session.
  *
- * Query params (set by backend):
- *   token  — raw session bearer token
- *   id     — user ID
- *   email  — user email
- *   name   — display name
- *   plan   — effective plan
- *   ms_error — error message if something went wrong (no token present)
+ * Security model — two-step handoff (no tokens in URLs):
+ *   1. The backend GET /api/auth/microsoft/callback creates a session, then
+ *      redirects here with only a short-lived one-time code (OTC) in the URL:
+ *        /auth/microsoft/callback?otc=<32-hex-char code>
+ *   2. This page reads the OTC, immediately POSTs it to POST /api/auth/exchange,
+ *      which validates the OTC (single-use, 30-second TTL), deletes it, and
+ *      returns the session bearer token + user metadata in the JSON response body.
+ *   3. The bearer token is passed to login() and stored in localStorage.
+ *      It never appears in any URL, browser history entry, or log file.
+ *
+ * Query params received:
+ *   otc      — one-time code (short-lived, server-side validated)
+ *   ms_error — error message from Microsoft or the backend (no otc present)
  */
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Shield, AlertTriangle } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
+import { api } from '../api'
 
 export default function MicrosoftCallbackPage() {
   const [searchParams]  = useSearchParams()
@@ -26,11 +30,7 @@ export default function MicrosoftCallbackPage() {
   const [error, setError] = useState(null)
 
   useEffect(() => {
-    const token   = searchParams.get('token')
-    const id      = searchParams.get('id')
-    const email   = searchParams.get('email')
-    const name    = searchParams.get('name')
-    const plan    = searchParams.get('plan')
+    const otc     = searchParams.get('otc')
     const msError = searchParams.get('ms_error')
 
     if (msError) {
@@ -38,13 +38,30 @@ export default function MicrosoftCallbackPage() {
       return
     }
 
-    if (!token || !id || !email) {
+    if (!otc) {
       setError('Sign-in did not complete. Please try again.')
       return
     }
 
-    login(token, { id, email, name: name || email.split('@')[0], plan: plan || 'free' })
-    navigate('/dashboard', { replace: true })
+    // Exchange the one-time code for the session token.
+    // The token is returned in the response body — it never appears in any URL.
+    api.exchangeOAuthCode(otc)
+      .then(data => {
+        if (!data.token || !data.id || !data.email) {
+          setError('Sign-in did not complete. Please try again.')
+          return
+        }
+        login(data.token, {
+          id:    data.id,
+          email: data.email,
+          name:  data.name || data.email.split('@')[0],
+          plan:  data.plan || 'free',
+        })
+        navigate('/dashboard', { replace: true })
+      })
+      .catch(() => {
+        setError('Sign-in session expired. Please try again.')
+      })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (

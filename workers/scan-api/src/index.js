@@ -772,7 +772,7 @@ const FINDING_CONFIDENCE_SCORES = {
   email_missing_dmarc:             90, // direct DNS TXT lookup
   email_dmarc_policy_none:         90, // DMARC record parsed
   email_missing_spf:               90, // direct DNS TXT lookup
-  email_dkim_not_detected:         60, // 6 common selectors only — heuristic
+  email_dkim_not_detected:         60, // fallback default; finding sets 60/70/80 dynamically based on provider
   // ── Subdomains ───────────────────────────────────────────────────────────
   subdomains_large_attack_surface: 80, // count directly measured from CT log
   // ── Subdomain takeover ───────────────────────────────────────────────────
@@ -1134,7 +1134,7 @@ const SCANNER_REGRESSION_FIXTURES = [
 function evaluateRegressionFixtures(fixtures = SCANNER_REGRESSION_FIXTURES) {
   const results = fixtures.map((fixture) => {
     const { findings } = computeScore(fixture.mock_modules, fixture.domain || "fixture.cybermeters.test");
-    const findingIds = new Set(findings.map((f) => f.id));
+    const findingIds = expandFindingIds(findings);
     const failures = [];
 
     if (fixture.expected) {
@@ -1926,15 +1926,105 @@ async function runHeadersModule(domain) {
 
 // ── Module 4: Email Security (SPF / DMARC / DKIM) ────────────────────────────
 
-// Common DKIM selectors to probe — best-effort discovery
+// ── DKIM selector lists ────────────────────────────────────────────────────────
+
+// Generic selectors — always probed (expanded from original 13-item list).
+// Ordered roughly by prevalence so the first hit terminates the search early.
 const DKIM_SELECTORS = [
   "default", "mail", "google", "k1", "selector1", "selector2",
-  "dkim", "smtp", "email", "mailchimp", "sendgrid", "s1", "s2",
+  "dkim", "smtp", "email", "s1", "s2",
+  // Expanded generic set
+  "godaddy1", "godaddy2", "pm", "postmark", "zoho", "fm1", "mc1", "relay",
 ];
 
+// Maps SPF include substrings → internal provider key.
+// A substring match on the raw SPF record string is sufficient.
+const DKIM_PROVIDER_MAP = [
+  { includes: "secureserver.net",           provider: "godaddy"      },
+  { includes: "spf.protection.outlook.com", provider: "microsoft365" },
+  { includes: "_spf.google.com",            provider: "google"       },
+  { includes: "sendgrid.net",               provider: "sendgrid"     },
+  { includes: "servers.mcsv.net",           provider: "mailchimp"    },
+  { includes: "mailgun.org",                provider: "mailgun"      },
+  { includes: "amazonses.com",              provider: "amazonses"    },
+  { includes: "zoho.com",                   provider: "zoho"         },
+  { includes: "protonmail",                 provider: "protonmail"   },
+  { includes: "fastmail",                   provider: "fastmail"     },
+  { includes: "mimecast",                   provider: "mimecast"     },
+  { includes: "pphosted.com",               provider: "proofpoint"   },
+  { includes: "postmarkapp.com",            provider: "postmark"     },
+];
+
+// Additional selectors probed only when the provider is identified from SPF.
+// Lists here contain selectors NOT already in DKIM_SELECTORS above.
+// Providers where all relevant selectors are already in the generic list have [].
+const DKIM_PROVIDER_SELECTORS = {
+  godaddy:      [],                                      // default, godaddy1, godaddy2, mail all in generic
+  microsoft365: [],                                      // selector1, selector2 in generic
+  google:       [],                                      // google in generic; date-based selectors are impractical
+  sendgrid:     ["smtpapi"],                             // s1, s2 in generic
+  mailchimp:    ["k2", "k3"],                            // k1 in generic
+  mailgun:      ["mg1", "mg"],                           // smtp in generic
+  amazonses:    [],                                      // hash-based selectors — impractical
+  zoho:         ["zmail"],                               // zoho, mail in generic
+  protonmail:   ["protonmail", "protonmail2", "protonmail3"],
+  fastmail:     ["fm2", "fm3"],                          // fm1 in generic
+  mimecast:     ["mc2", "mc3"],                          // mc1, selector1 in generic
+  proofpoint:   ["pp1", "pp2", "proofpoint"],            // selector1 in generic
+  postmark:     [],                                      // pm, postmark in generic
+};
+
+// Display-friendly provider labels for finding titles and descriptions.
+const DKIM_PROVIDER_LABELS = {
+  godaddy:      "GoDaddy",
+  microsoft365: "Microsoft 365",
+  google:       "Google Workspace",
+  sendgrid:     "SendGrid",
+  mailchimp:    "Mailchimp",
+  mailgun:      "Mailgun",
+  amazonses:    "Amazon SES",
+  zoho:         "Zoho Mail",
+  protonmail:   "ProtonMail",
+  fastmail:     "Fastmail",
+  mimecast:     "Mimecast",
+  proofpoint:   "Proofpoint",
+  postmark:     "Postmark",
+};
+
+/**
+ * inferEmailProvider(spfRecord) → string|null
+ * Returns an internal provider key by substring-matching the raw SPF record,
+ * or null if no known provider is recognised.
+ */
+function inferEmailProvider(spfRecord) {
+  if (!spfRecord) return null;
+  for (const { includes, provider } of DKIM_PROVIDER_MAP) {
+    if (spfRecord.includes(includes)) return provider;
+  }
+  return null;
+}
+
+/**
+ * findDkimInResults(selectors, settledResults) → string|null
+ * Returns the first selector whose DNS response contains a valid DKIM public key,
+ * or null if none found.
+ */
+function findDkimInResults(selectors, settledResults) {
+  for (let i = 0; i < selectors.length; i++) {
+    const r = settledResults[i];
+    if (r?.status === "fulfilled" && r.value.Answer?.length > 0) {
+      const valid = r.value.Answer.filter(
+        (a) => a.data?.includes("v=DKIM1") || a.data?.includes("p=")
+      );
+      if (valid.length > 0) return selectors[i];
+    }
+  }
+  return null;
+}
+
 async function runEmailModule(domain) {
-  // Fire all queries in parallel: SPF (TXT on root) + DMARC + DKIM selectors
-  const [spfRes, dmarcRes, ...dkimResults] = await Promise.allSettled([
+  // Phase 1 — fire SPF + DMARC + generic DKIM selectors in parallel.
+  const [spfRes, dmarcRes, ...dkimPhase1] = await Promise.allSettled([
     dnsQuery(domain, "TXT"),
     dnsQuery(`_dmarc.${domain}`, "TXT"),
     ...DKIM_SELECTORS.map((sel) => dnsQuery(`${sel}._domainkey.${domain}`, "TXT")),
@@ -1957,25 +2047,33 @@ async function runEmailModule(domain) {
     dmarcPolicy = m ? m[1].trim().toLowerCase() : null;
   }
 
-  // DKIM — first selector with a valid public key record
-  let dkimSelector = null;
-  for (let i = 0; i < DKIM_SELECTORS.length; i++) {
-    const r = dkimResults[i];
-    if (r.status === "fulfilled" && r.value.Answer?.length > 0) {
-      const valid = r.value.Answer.filter(
-        (a) => a.data?.includes("v=DKIM1") || a.data?.includes("p=")
+  // Infer email provider from SPF record
+  const spfRecord    = hasSPF ? spfRecs[0].data : null;
+  const emailProvider = inferEmailProvider(spfRecord);
+
+  // Check phase 1 DKIM results
+  let dkimSelector = findDkimInResults(DKIM_SELECTORS, dkimPhase1);
+
+  // Phase 2 — provider-specific additional selectors (only if provider known and
+  // no DKIM found yet). Only probe selectors not already covered by phase 1.
+  let phase2Selectors = [];
+  if (!dkimSelector && emailProvider) {
+    const providerExtras = (DKIM_PROVIDER_SELECTORS[emailProvider] || []).filter(
+      (s) => !DKIM_SELECTORS.includes(s)
+    );
+    if (providerExtras.length > 0) {
+      phase2Selectors = providerExtras;
+      const phase2Results = await Promise.allSettled(
+        phase2Selectors.map((sel) => dnsQuery(`${sel}._domainkey.${domain}`, "TXT"))
       );
-      if (valid.length > 0) {
-        dkimSelector = DKIM_SELECTORS[i];
-        break;
-      }
+      dkimSelector = findDkimInResults(phase2Selectors, phase2Results);
     }
   }
 
   return {
     spf: {
       present: hasSPF,
-      record:  hasSPF ? spfRecs[0].data : null,
+      record:  spfRecord,
     },
     dmarc: {
       present: hasDMARC,
@@ -1983,8 +2081,10 @@ async function runEmailModule(domain) {
       record:  hasDMARC ? dmarcRecs[0].data : null,
     },
     dkim: {
-      present:  dkimSelector !== null,
-      selector: dkimSelector,
+      present:          dkimSelector !== null,
+      selector:         dkimSelector,
+      provider:         emailProvider,
+      selectors_probed: [...DKIM_SELECTORS, ...phase2Selectors],
     },
   };
 }
@@ -6327,8 +6427,8 @@ function computeScore(modules, domain) {
         module:       "dns",
         severity:     "info",
         confidence:   "high",
-        title:        "DNSSEC Not Enabled",
-        description:  `No DS, DNSKEY, or RRSIG evidence was observed for ${domain}. DNSSEC does not appear to be enabled for this zone.`,
+        title:        "DNSSEC Not Configured",
+        description:  `No DS, DNSKEY, or RRSIG records were found for ${domain}. DNSSEC is not configured for this domain.`,
         score_impact: 0,
         evidence: {
           evidence_type:               "dnssec_lookup",
@@ -6412,29 +6512,38 @@ function computeScore(modules, domain) {
       && redirectValidated
       && headersFinalHttps;   // redirect failed but HTTPS reachable → contradiction
 
+    // P1 Trust Fix: when HTTPS is confirmed, the port 80 probe result is irrelevant.
+    // A blocked/unreachable HTTP probe is only meaningful if the site has no HTTPS.
+    // Suppressing the uncertain finding reduces informational noise on CDN-hosted domains.
+    const httpsConfirmed = modules.ssl?.https_available === true;
+
     if (!redirectValidated || enterpriseEdgeUncertain) {
-      findings.push({
-        id:           "ssl_no_http_redirect",
-        module:       "ssl",
-        severity:     "info",
-        confidence:   "low",
-        title:        "HTTP Redirect — Validation Uncertain",
-        description:  enterpriseEdgeUncertain
-          ? `The HTTP probe of ${domain} returned a non-redirecting response, but the HTTPS headers probe succeeded — a contradiction typical of enterprise CDN edge behaviour where scanner IPs receive different treatment than real browsers. The scanner cannot confirm whether plain HTTP is actually accessible. This is an informational observation only.`
-          : `Plain HTTP (port 80) connectivity to ${domain} could not be validated. The scanner's request may have been blocked by an edge firewall or bot-protection layer. This is an informational observation only.`,
-        score_impact: 0,
-        evidence: {
-          evidence_type:               "http_redirect_probe",
-          probe_target:                `http://${domain}`,
-          observed_value:              enterpriseEdgeUncertain
-            ? "HTTP probe returned non-redirect; HTTPS probe succeeded — contradictory result"
-            : "HTTP probe blocked or no response received",
-          expected_value:              `HTTP 301/302 redirect to https://${domain}`,
-          source:                      "cloudflare_workers_fetch",
-          checked_at:                  evidenceTime,
-          manual_verification_command: `curl -sI http://${domain} | head -5`,
-        },
-      });
+      if (!httpsConfirmed) {
+        // HTTPS unavailable and port 80 uncertain — surface the observation
+        findings.push({
+          id:           "ssl_no_http_redirect",
+          module:       "ssl",
+          severity:     "info",
+          confidence:   "low",
+          title:        "HTTP Redirect — Validation Uncertain",
+          description:  enterpriseEdgeUncertain
+            ? `The HTTP probe of ${domain} returned a non-redirecting response, but the HTTPS headers probe succeeded — a contradiction typical of enterprise CDN edge behaviour where scanner IPs receive different treatment than real browsers. The scanner cannot confirm whether plain HTTP is actually accessible. This is an informational observation only.`
+            : `Plain HTTP (port 80) connectivity to ${domain} could not be validated. The scanner's request may have been blocked by an edge firewall or bot-protection layer. This is an informational observation only.`,
+          score_impact: 0,
+          evidence: {
+            evidence_type:               "http_redirect_probe",
+            probe_target:                `http://${domain}`,
+            observed_value:              enterpriseEdgeUncertain
+              ? "HTTP probe returned non-redirect; HTTPS probe succeeded — contradictory result"
+              : "HTTP probe blocked or no response received",
+            expected_value:              `HTTP 301/302 redirect to https://${domain}`,
+            source:                      "cloudflare_workers_fetch",
+            checked_at:                  evidenceTime,
+            manual_verification_command: `curl -sI http://${domain} | head -5`,
+          },
+        });
+      }
+      // else: HTTPS confirmed — port 80 status irrelevant, finding suppressed
     } else {
       finding({
         id:           "ssl_no_http_redirect",
@@ -6526,6 +6635,9 @@ function computeScore(modules, domain) {
     // responseQualityOk requires all base conditions AND no enterprise edge contradiction
     const responseQualityOk = finalHttps && !validationUncertain && statusCode === 200 && !headerEnterpriseUncertain;
 
+    // Collect Branch C (medium-severity, unverified) headers for consolidated output
+    const branchCHeaders = [];
+
     for (const h of SECURITY_HEADERS) {
       // HSTS is only meaningful on HTTPS — skip entirely on HTTP fallback
       if (h.name === "strict-transport-security" && !finalHttps) continue;
@@ -6582,22 +6694,10 @@ function computeScore(modules, domain) {
           },
         });
       } else if (h.severity !== "high") {
-        // Medium/low/info severity headers: confidence is medium — these are routinely
-        // delivered by CDN layers, per-path policies, or injected client-side.  Remote
-        // absence is not reliable evidence of a misconfiguration.
-        findings.push({
-          id:           `header_missing_${h.name.replace(/-/g, "_")}`,
-          module:       "headers",
-          severity:     "info",
-          confidence:   "medium",
-          title:        `Missing ${h.label} Header (Unverified)`,
-          description:  `The ${h.label} header (${h.name}) was not returned in the scanner's HTTP probe of ${domain}. This may be delivered by the CDN, applied per-path, or injected at the framework layer. Verify manually on the canonical origin.`,
-          score_impact: 0,
-          evidence: {
-            ...headerBaseEvidence,
-            observed_value: `Header absent from HTTPS ${modules.headers.status_code} response; may be set by CDN or per-path policy`,
-          },
-        });
+        // Medium/low/info severity headers: collected and emitted as a single
+        // consolidated observation after this loop. Individual IDs are preserved
+        // in _consolidated_ids so BRS and other ID-based checks remain accurate.
+        branchCHeaders.push({ h, headerBaseEvidence });
       } else {
         // High-severity, high-confidence, verified HTTPS 200 response — score it
         finding({
@@ -6620,6 +6720,40 @@ function computeScore(modules, domain) {
           description: h.recommendation,
         });
       }
+    }
+
+    // ── Header Consolidation (Observation Consolidation v1) ──────────────
+    // Emit a single "Security Headers Not Observed" card for all Branch C headers.
+    // _consolidated_ids carries the individual IDs so BRS/flag checks remain accurate
+    // without needing to know about the consolidated finding ID.
+    if (branchCHeaders.length > 0) {
+      const headerProbeUrl   = modules.headers.response_url ?? `https://${domain}`;
+      const absentLabels     = branchCHeaders.map(({ h }) => h.label).join(", ");
+      const absentNames      = branchCHeaders.map(({ h }) => h.name).join(", ");
+      const curlGreps        = branchCHeaders.map(({ h }) => `grep -i '${h.name}'`).join(" | ");
+      const consolidatedIds  = branchCHeaders.map(({ h }) => `header_missing_${h.name.replace(/-/g, "_")}`);
+
+      findings.push({
+        id:               "security_headers_not_observed",
+        module:           "headers",
+        severity:         "info",
+        confidence:       "medium",
+        title:            "Security Headers Not Fully Observed",
+        description:      `The following security headers were not detected in the scanner response from ${domain}: ${absentLabels}. These headers are frequently delivered by CDN layers, framework middleware, or per-path policies and may not appear on the root path scanned. Verify on the canonical origin before treating as a defect.`,
+        score_impact:     0,
+        _consolidated_ids: consolidatedIds,
+        evidence: {
+          evidence_type:               "http_header_probe",
+          probe_target:                headerProbeUrl,
+          requested_url:               modules.headers.original_url ?? `https://${domain}`,
+          observed_value:              `Headers absent from HTTPS ${modules.headers.status_code} response: ${absentNames}`,
+          expected_value:              `${absentNames} headers present in HTTP response`,
+          checked_paths:               modules.headers.checked_paths ?? [],
+          source:                      "cloudflare_workers_fetch",
+          checked_at:                  evidenceTime,
+          manual_verification_command: `curl -sI https://${domain} | ${curlGreps}`,
+        },
+      });
     }
 
     // ── Header Strength Findings (v5) ────────────────────────────────────
@@ -6820,29 +6954,60 @@ function computeScore(modules, domain) {
     }
 
     if (!modules.email_security?.dkim?.present) {
-      // Phase 5: DKIM confidence downgrade.
+      // Provider-aware DKIM observation.
       // Common-selector probing is best-effort — enterprise domains often use custom
-      // selectors not in our list. This is an informational observation, not a finding.
-      // Never medium or high confidence; never deducts score.
+      // selectors. This is an informational observation; never deducts score.
+      const dkimProvider     = modules.email_security?.dkim?.provider ?? null;
+      const dkimProbed       = modules.email_security?.dkim?.selectors_probed ?? DKIM_SELECTORS;
+      const providerLabel    = dkimProvider ? (DKIM_PROVIDER_LABELS[dkimProvider] ?? dkimProvider) : null;
+
+      // Title: provider-aware when provider is identified
+      const dkimTitle = providerLabel
+        ? `DKIM Not Found on ${providerLabel} Standard Selectors`
+        : "DKIM Selector Not Found — May Use Custom Configuration";
+
+      // Description: include provider signal when available
+      const dkimDescription = providerLabel
+        ? `No DKIM public key record was found for ${domain} on ${providerLabel} standard selectors. The SPF record indicates ${providerLabel} as the email provider. DKIM may use a custom selector or may not be enabled.`
+        : `No DKIM public key record was found for ${domain} using common selector names. DKIM may be configured with a custom selector not in our probe list, or may not be enabled.`;
+
+      // Confidence model:
+      //   60 — provider unknown, generic selectors miss (high false-negative risk)
+      //   70 — provider known, broad provider selectors miss
+      //   80 — Microsoft 365 identified and both selector1 + selector2 miss
+      //        (M365 mandates exactly these two selectors; absence is high-confidence)
+      let dkimConfidence = 60;
+      if (dkimProvider) {
+        dkimConfidence = 70;
+        if (dkimProvider === "microsoft365") {
+          const probedSet = new Set(dkimProbed);
+          if (probedSet.has("selector1") && probedSet.has("selector2")) {
+            dkimConfidence = 80;
+          }
+        }
+      }
+
+      // Evidence: list all selectors actually probed
+      const probedList = dkimProbed.join(", ");
+      const firstSel   = dkimProbed[0] ?? "default";
+
       findings.push({
         id:                "email_dkim_not_detected",
         module:            "email_security",
         severity:          "info",
-        // Sprint 9D: selector heuristic failure — common selectors probed, none found.
-        // Enterprise domains use custom selectors; absence is not certainty of absence.
-        confidence:         60,
+        confidence:         dkimConfidence,
         validation_quality: "partial",
-        title:             "DKIM Could Not Be Verified Using Common Selectors",
-        description:  `No DKIM public key record was found for ${domain} using common selector names. DKIM may be configured with a custom selector not in our probe list, or may not be enabled.`,
+        title:             dkimTitle,
+        description:       dkimDescription,
         score_impact: 0,
         evidence: {
           evidence_type:               "dns_txt_lookup",
           probe_target:                `<selector>._domainkey.${domain}`,
-          observed_value:              "No DKIM TXT record found on common selectors: google, selector1, default, mail, k1, s1, s2",
+          observed_value:              `No DKIM TXT record found on selectors: ${probedList}`,
           expected_value:              "v=DKIM1; k=rsa; p=<public-key>",
           source:                      "cloudflare_doh",
           checked_at:                  evidenceTime,
-          manual_verification_command: `dig TXT default._domainkey.${domain} @8.8.8.8`,
+          manual_verification_command: `dig TXT ${firstSel}._domainkey.${domain} @8.8.8.8`,
           resolver_agreement_score:    null,
           resolver_disagreement:       false,
           cross_checked_at:            modules.dns?.cross_checks?.cross_checked_at ?? null,
@@ -7185,6 +7350,20 @@ function computeWorkspaceBusinessRiskScore(workspace) {
     },
     calculated_at: new Date().toISOString(),
   };
+}
+
+// expandFindingIds: builds a finding ID Set that includes _consolidated_ids
+// from any consolidated observations (e.g. security_headers_not_observed).
+// This allows BRS and other ID-based checks to remain backward compatible
+// without changes to the functions that receive the Set.
+function expandFindingIds(findings) {
+  const ids = new Set(findings.map((f) => f.id).filter(Boolean));
+  for (const f of findings) {
+    if (Array.isArray(f._consolidated_ids)) {
+      for (const id of f._consolidated_ids) ids.add(id);
+    }
+  }
+  return ids;
 }
 
 function computeBusinessRiskScore(findingIds, workspaceData = {}) {
@@ -8665,7 +8844,7 @@ function buildCanonicalUrlProfile(modules) {
       // Compute BRS using scan findings + workspace intelligence data
       let brsScore = null;
       try {
-        const findingIds = new Set(findings.map(f => f.id));
+        const findingIds = expandFindingIds(findings);
         const [brandRows, vendorRows] = await Promise.all([
           env.cybermeters_db
             .prepare(`SELECT risk_level, COUNT(*) AS n FROM workspace_brand_assets WHERE workspace_id = ? AND dns_resolves = 1 AND status = 'active' GROUP BY risk_level`)
@@ -13611,7 +13790,7 @@ function buildPdfStreams({ workspace, stats, domains, findings, recommendations,
     s >= 90    ? "Excellent" :
     s >= 75    ? "Good"      :
     s >= 50    ? "Moderate"  :
-    s >= 25    ? "High Risk" : "Critical";
+    s >= 25    ? "Poor"      : "Critical";
 
   const scoreToColor = (s) =>
     s == null ? LGRAY :
@@ -19385,17 +19564,121 @@ export default {
         },
       }).catch(() => {});
 
-      // ── 7. Redirect to frontend callback page with session ─────────────
-      // The frontend MicrosoftCallbackPage reads these params and calls login().
+      // ── 7. Issue a short-lived one-time code (OTC) and redirect ──────────
+      // The bearer token and user metadata MUST NOT appear in URL parameters —
+      // they would be captured by CDN access logs, browser history, and
+      // Referrer headers. Instead we generate a 30-second single-use OTC,
+      // store it in oauth_states (reusing the existing table with
+      // provider = 'ms_exchange'), and redirect with only the OTC in the URL.
+      // The frontend immediately POSTs the OTC to /api/auth/exchange, which
+      // validates it, deletes it, and returns the session data in a JSON body.
+      const otcRaw = Array.from(crypto.getRandomValues(new Uint8Array(32)))
+        .map(b => b.toString(16).padStart(2, "0")).join("");
+
+      const otcPayload = JSON.stringify({
+        token,
+        userId: user.id,
+        email:  user.email,
+        name:   user.name  || "",
+        plan,
+      });
+
+      // Store expires_at using SQLite's own datetime() to guarantee format
+      // consistency with the datetime('now') comparison in the lookup query.
+      // ISO format (JavaScript's toISOString()) cannot be compared correctly
+      // against datetime('now') — the 'T' separator makes ISO strings always
+      // sort as greater than SQLite datetime strings on the same day.
+      // TTL is 5 minutes: long enough for slow edge-cached Pages loads, short
+      // enough to limit the replay window if an OTC is somehow observed.
+      await env.cybermeters_db
+        .prepare(
+          `INSERT INTO oauth_states (state, provider, redirect_uri, expires_at)
+           VALUES (?, 'ms_exchange', ?, datetime('now', '+5 minutes'))`
+        )
+        .bind(otcRaw, otcPayload)
+        .run();
+
       const frontendUrl = env.FRONTEND_URL || url.origin;
       const dest = new URL("/auth/microsoft/callback", frontendUrl);
-      dest.searchParams.set("token", token);
-      dest.searchParams.set("id",    user.id);
-      dest.searchParams.set("email", user.email);
-      dest.searchParams.set("name",  user.name || "");
-      dest.searchParams.set("plan",  plan);
+      dest.searchParams.set("otc", otcRaw);
 
       return Response.redirect(dest.toString(), 302);
+    }
+
+    // ── POST /api/auth/exchange ──────────────────────────────────────────
+    // Exchanges a short-lived one-time code (OTC) issued by the Microsoft
+    // OAuth callback for the session bearer token and user metadata.
+    //
+    // The OTC is stored server-side in oauth_states with provider='ms_exchange'
+    // and a 30-second TTL. It is single-use: deleted on first successful exchange.
+    // The bearer token is returned in the JSON body — it never appears in any URL.
+    //
+    // Request:  POST /api/auth/exchange
+    //           Content-Type: application/json
+    //           Body: { "code": "<otc>" }
+    //
+    // Response: { "token": "...", "id": "...", "email": "...", "name": "...", "plan": "..." }
+    // Errors:   400 { "error": "Missing code" }
+    //           401 { "error": "Invalid or expired code. Please sign in again." }
+    //           500 { "error": "Exchange failed" }
+    if (request.method === "POST" && url.pathname === "/api/auth/exchange") {
+      let body;
+      try { body = await request.json(); } catch {
+        console.error("[auth/exchange] invalid JSON body");
+        return json({ error: "Invalid JSON body" }, 400);
+      }
+
+      const otc = (body.code || "").trim();
+      if (!otc) {
+        console.error("[auth/exchange] missing code in request body");
+        return json({ error: "Missing code" }, 400);
+      }
+
+      // Look up and immediately delete the OTC — single-use enforcement.
+      const otcRow = await env.cybermeters_db
+        .prepare(
+          `SELECT redirect_uri AS payload FROM oauth_states
+           WHERE state = ? AND provider = 'ms_exchange'
+             AND expires_at > datetime('now')
+           LIMIT 1`
+        )
+        .bind(otc)
+        .first();
+
+      if (!otcRow) {
+        // Log the OTC prefix (first 8 chars) for correlation — never the full value
+        console.error(`[auth/exchange] OTC not found or expired. prefix=${otc.slice(0,8)}`);
+        return json({ error: "Invalid or expired code. Please sign in again." }, 401);
+      }
+
+      // Delete before responding — prevents replay even under concurrent requests.
+      await env.cybermeters_db
+        .prepare("DELETE FROM oauth_states WHERE state = ? AND provider = 'ms_exchange'")
+        .bind(otc)
+        .run();
+
+      let payload;
+      try {
+        payload = JSON.parse(otcRow.payload);
+      } catch (e) {
+        console.error("[auth/exchange] payload JSON.parse failed:", e.message);
+        return json({ error: "Exchange failed" }, 500);
+      }
+
+      if (!payload.token || !payload.userId || !payload.email) {
+        console.error("[auth/exchange] payload missing required fields:", Object.keys(payload));
+        return json({ error: "Exchange failed" }, 500);
+      }
+
+      console.log(`[auth/exchange] success for user ${payload.userId.slice(0,8)}...`);
+
+      return json({
+        token: payload.token,
+        id:    payload.userId,
+        email: payload.email,
+        name:  payload.name,
+        plan:  payload.plan,
+      });
     }
 
     // ── POST /api/auth/forgot-password ──────────────────────────────────
@@ -21377,6 +21660,15 @@ export default {
       const resolvedDomainId = existingDomain ? existingDomain.id : domainId;
 
       if (!existingDomain) {
+        // Entitlement: domain-per-workspace limit.
+        // burstOwnerId is already resolved above for the hourly rate-limit check.
+        const domScanPlan   = await getEffectivePlan(burstOwnerId, env);
+        const domScanUsage  = await getEntitlementUsage(user, env, workspaceId);
+        const domScanLimits = getPlanLimits(domScanPlan);
+        if (domScanUsage.domains_in_workspace >= domScanLimits.domains_per_workspace) {
+          return json(planLimitExceeded("domains", domScanLimits.domains, domScanUsage.domains_in_workspace), 403);
+        }
+
         await env.cybermeters_db
           .prepare(`INSERT INTO domains (id, user_id, domain) VALUES (?, ?, ?)`)
           .bind(domainId, userId, domain)
@@ -21510,7 +21802,7 @@ export default {
       // permanently even though R2 has the completed report.
       // For any scan that has been 'running' for > 10 minutes, check R2 and correct D1.
       // Only genuinely old scans are checked — in-flight scans (<10 min) are never touched.
-      const STUCK_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
+      const STUCK_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes — scans complete in ~15s; >2min means stuck
       const nowMs = Date.now();
       const stuckScans = (result.results || []).filter(s => {
         if (s.status !== 'running') return false;
@@ -21531,11 +21823,16 @@ export default {
                 raw.status === 'completed' ? 'completed' :
                 raw.status === 'failed'    ? 'failed'    : null;
               if (!correctedStatus) return null;
-              // Correct D1 so future queries also return the right status.
+              // Correct D1 so future queries also return the right status, score, and rating.
               try {
                 await env.cybermeters_db
-                  .prepare(`UPDATE scans SET status = ? WHERE id = ?`)
-                  .bind(correctedStatus, s.id)
+                  .prepare(`UPDATE scans SET status = ?, score = ?, rating = ? WHERE id = ?`)
+                  .bind(
+                    correctedStatus,
+                    raw.cyber_metrics_score ?? null,
+                    raw.risk_level          ?? null,
+                    s.id
+                  )
                   .run();
               } catch { /* non-fatal — response still returns corrected status */ }
               return {
@@ -21698,7 +21995,7 @@ export default {
       const user = await requireAuth(request, env);
       if (!user) return json({ error: "Unauthorized" }, 401);
 
-      const scan = await env.cybermeters_db
+      let scan = await env.cybermeters_db
         .prepare(
           `SELECT id, domain_id, domain, status, score, rating, created_at
            FROM scans WHERE id = ?`
@@ -21712,6 +22009,42 @@ export default {
 
       const access = await requireScanReadAccess(user, scanId, env);
       if (!access) return json({ error: "Forbidden" }, 403);
+
+      // ── Stuck-scan reconciliation ────────────────────────────────────────
+      // If D1 still shows 'running' but the scan is older than 2 minutes,
+      // the Worker was likely CPU-killed between the R2 write and the D1 write.
+      // Check R2 for the real status and correct D1 so polling can terminate.
+      if (scan.status === "running") {
+        const createdMs = new Date(
+          scan.created_at.includes("T") ? scan.created_at : scan.created_at + "Z"
+        ).getTime();
+        if (Date.now() - createdMs > 2 * 60 * 1000) {
+          try {
+            const obj = await env.cybermeters_reports.get(`reports/${scanId}.json`);
+            if (obj) {
+              const raw = await obj.json();
+              if (raw.status === "completed" || raw.status === "failed") {
+                const correctedScore  = raw.cyber_metrics_score ?? null;
+                const correctedRating = raw.risk_level ?? null;
+                await env.cybermeters_db
+                  .prepare(
+                    `UPDATE scans SET status = ?, score = ?, rating = ? WHERE id = ?`
+                  )
+                  .bind(raw.status, correctedScore, correctedRating, scanId)
+                  .run();
+                scan = {
+                  ...scan,
+                  status: raw.status,
+                  score:  correctedScore,
+                  rating: correctedRating,
+                };
+              }
+            }
+          } catch (_) {
+            // R2 read failure is non-fatal — return D1 state as-is
+          }
+        }
+      }
 
       return json({
         scan,
@@ -25017,7 +25350,7 @@ export default {
             if (obj) {
               const report = await obj.json();
               const findings = Array.isArray(report.findings) ? report.findings : [];
-              findingIds = new Set(findings.map((f) => f.id).filter(Boolean));
+              findingIds = expandFindingIds(findings);
               criticalFindings = findings.filter((f) => f.severity === "critical").length;
               highFindings = findings.filter((f) => f.severity === "high").length;
             }
@@ -28616,6 +28949,7 @@ export default {
         dse_hsts_short_maxage:                   "hsts-explained",
         header_missing_content_security_policy:  "csp-explained",
         csp_weak_policy:                         "csp-explained",
+        security_headers_not_observed:           "csp-explained",
         subdomain_takeover:                      "what-is-subdomain-takeover",
         subdomain_takeover_risk:                 "what-is-subdomain-takeover",
         cloud_storage_exposure_observed:         "public-cloud-storage-risks",

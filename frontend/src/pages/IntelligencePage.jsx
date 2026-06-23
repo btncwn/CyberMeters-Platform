@@ -251,11 +251,11 @@ function SummaryBar({ scan, risk, emailIntel, remPlan, kev, cve }) {
       isText: true,
     },
     {
-      label:   'Risk Level',
+      label:   'Security Rating',
       isPill:  true,
       pillCls: rlStyle.pill,
       pillTxt: riskLvl,
-      sub:     'Overall',
+      sub:     'Posture Rating',
     },
     {
       label:   'P1 Actions',

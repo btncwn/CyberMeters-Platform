@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import {
   RefreshCw, Briefcase, Globe, ScanLine, BarChart2,
@@ -171,6 +171,9 @@ export default function WorkspaceDetailPage() {
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState(null)
 
+  // Polling ref for active-scan auto-refresh
+  const pollRef = useRef(null)
+
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
     else setRefreshing(true)
@@ -202,6 +205,31 @@ export default function WorkspaceDetailPage() {
   }, [id])
 
   useEffect(() => { load() }, [load])
+
+  // ── Active-scan auto-polling ─────────────────────────────────────────────────
+  // If any domain has an active scan in progress, poll every 8 seconds so the
+  // workspace page auto-refreshes without the user having to manually reload.
+  // The interval is cleared as soon as all domains reach a terminal status.
+  const ACTIVE_STATUSES = new Set(['queued', 'running', 'processing'])
+
+  useEffect(() => {
+    clearInterval(pollRef.current)
+    const hasActive = domains.some(d => ACTIVE_STATUSES.has(d.latest_status))
+    if (hasActive) {
+      pollRef.current = setInterval(async () => {
+        try {
+          const domainsData = await api.getWorkspaceDomains(id)
+          const updated = domainsData.domains || []
+          setDomains(updated)
+          // If no more active scans, clear the interval
+          if (!updated.some(d => ACTIVE_STATUSES.has(d.latest_status))) {
+            clearInterval(pollRef.current)
+          }
+        } catch { /* non-fatal — next tick will retry */ }
+      }, 8_000)
+    }
+    return () => clearInterval(pollRef.current)
+  }, [domains, id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Scan Now ────────────────────────────────────────────────────────────────
 

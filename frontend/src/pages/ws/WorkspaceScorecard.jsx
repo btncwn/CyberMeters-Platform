@@ -12,6 +12,24 @@ import { api } from '../../api'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
 import RiskBadge from '../../components/RiskBadge'
 
+// ── RatingBadge — posture rating (score-derived, distinct from finding severity) ──
+const RATING_CFG = {
+  excellent: { label: 'Excellent', cls: 'bg-brand-50 text-brand-700 border-brand-100'  },
+  good:      { label: 'Good',      cls: 'bg-green-50 text-green-700 border-green-100'  },
+  moderate:  { label: 'Moderate',  cls: 'bg-amber-50 text-amber-700 border-amber-100'  },
+  high:      { label: 'Poor',      cls: 'bg-orange-50 text-orange-700 border-orange-100' },
+  critical:  { label: 'Critical',  cls: 'bg-red-50 text-red-700 border-red-100'        },
+}
+function RatingBadge({ rating }) {
+  if (!rating) return <span className="text-gray-300 text-xs">—</span>
+  const cfg = RATING_CFG[rating.toLowerCase()] ?? { label: rating, cls: 'bg-gray-50 text-gray-500 border-gray-100' }
+  return (
+    <span className={`text-xs font-bold px-2 py-0.5 rounded-full border capitalize ${cfg.cls}`}>
+      {cfg.label}
+    </span>
+  )
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 const WEIGHTS = {
@@ -261,8 +279,8 @@ export default function WorkspaceScorecard() {
           )}
           {sc?.risk_rating && (
             <div className="card px-5 py-3 text-center">
-              <p className="label mb-1">Rating</p>
-              <RiskBadge level={sc.risk_rating} />
+              <p className="label mb-1">Security Rating</p>
+              <RatingBadge rating={sc.risk_rating} />
             </div>
           )}
         </div>

@@ -13,6 +13,25 @@ import { api } from '../api'
 import StatCard from '../components/StatCard'
 import RiskBadge from '../components/RiskBadge'
 
+// RatingBadge: for score-derived posture ratings (excellent/good/moderate/poor/critical).
+// Distinct from RiskBadge which handles finding/asset severity (System B).
+const PORTFOLIO_RATING_CFG = {
+  excellent: { label: 'Excellent', cls: 'bg-brand-50 text-brand-700 border-brand-100'    },
+  good:      { label: 'Good',      cls: 'bg-green-50 text-green-700 border-green-100'    },
+  moderate:  { label: 'Moderate',  cls: 'bg-amber-50 text-amber-700 border-amber-100'    },
+  high:      { label: 'Poor',      cls: 'bg-orange-50 text-orange-700 border-orange-100' },
+  critical:  { label: 'Critical',  cls: 'bg-red-50 text-red-700 border-red-100'          },
+}
+function RatingBadge({ rating }) {
+  if (!rating) return <span className="text-gray-300 text-xs">—</span>
+  const cfg = PORTFOLIO_RATING_CFG[rating.toLowerCase()] ?? { label: rating, cls: 'bg-gray-50 text-gray-500 border-gray-100' }
+  return (
+    <span className={`text-xs font-bold px-2 py-0.5 rounded-full border capitalize ${cfg.cls}`}>
+      {cfg.label}
+    </span>
+  )
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmtDate(str) {
@@ -173,7 +192,7 @@ function WorkspaceTable({ rows, loading, error, onRetry }) {
               <th className="text-center">Domains</th>
               <th className="text-center">Assets</th>
               <th className="text-center">Score</th>
-              <th className="text-center">Risk Rating</th>
+              <th className="text-center">Security Rating</th>
               <th className="text-center">Critical</th>
               <th className="text-center">High</th>
               <th className="text-left">Last Scan</th>
@@ -194,7 +213,7 @@ function WorkspaceTable({ rows, loading, error, onRetry }) {
                 <td className="text-center text-gray-600">{ws.active_assets}</td>
                 <td className="text-center"><ScorePill score={ws.latest_score} /></td>
                 <td className="text-center">
-                  <RiskBadge level={(ws.risk_rating || '').toLowerCase()} />
+                  <RatingBadge rating={ws.risk_rating} />
                 </td>
                 <td className="text-center">
                   {(ws.critical_findings ?? 0) > 0

@@ -168,9 +168,13 @@ const RISK_TEXT_CLS = {
   excellent: 'text-brand-600', good: 'text-brand-600', moderate: 'text-amber-500',
   high: 'text-orange-500', critical: 'text-red-500',
 }
+// Security Rating labels — posture quality (never used for finding severity)
 const RISK_LABEL = {
-  excellent: 'Excellent', good: 'Good', moderate: 'Moderate Risk',
-  high: 'High Risk', critical: 'Critical Risk',
+  excellent: 'Excellent',
+  good:      'Good',
+  moderate:  'Moderate',
+  high:      'Poor',
+  critical:  'Critical',
 }
 
 function ScoreRing({ score, riskLevel }) {
@@ -180,7 +184,7 @@ function ScoreRing({ score, riskLevel }) {
   const color  = riskLevel ? (RISK_COLOR[riskLevel] || '#E5E7EB') : score === null ? '#E5E7EB' : score >= 75 ? '#00876A' : score >= 50 ? '#F59E0B' : '#EF4444'
   const fill   = score !== null ? circ * (score / 100) : 0
   const valCls = riskLevel ? (RISK_TEXT_CLS[riskLevel] || 'text-gray-300') : score === null ? 'text-gray-300' : score >= 75 ? 'text-brand-600' : score >= 50 ? 'text-amber-500' : 'text-red-500'
-  const label  = riskLevel ? (RISK_LABEL[riskLevel] || 'Unknown') : score === null ? 'No data yet' : score >= 75 ? 'Low Risk' : score >= 50 ? 'Moderate Risk' : 'High Risk'
+  const label  = riskLevel ? (RISK_LABEL[riskLevel] || 'Unknown') : score === null ? 'No data yet' : score >= 75 ? 'Good' : score >= 50 ? 'Moderate' : 'Poor'
 
   return (
     <div className="flex flex-col items-center select-none">

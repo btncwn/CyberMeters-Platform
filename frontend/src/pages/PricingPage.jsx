@@ -21,7 +21,7 @@ const FALLBACK_PLANS = [
     monthly_gbp: 29,
     annual_gbp: 276,
     checkout_enabled: true,
-    features: ['5 workspaces', '25 domains', 'Scheduled scans'],
+    features: ['3 workspaces', '10 domains', 'Scheduled scans'],
   },
   {
     key: 'professional',

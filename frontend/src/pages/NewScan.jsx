@@ -41,7 +41,12 @@ export default function NewScan() {
         navigate(id ? `/scans/${id}` : '/scans')
       }, 1500)
     } catch (e) {
-      setError(e.message)
+      // Plan-limit and rate-limit errors are handled by the global UpgradePromptModal
+      // (fired via the cybermeters:plan-limit event in api.js). Suppress the inline
+      // ErrorAlert so the user sees one clear message, not two conflicting ones.
+      if (e.code !== 'plan_limit_exceeded' && e.code !== 'rate_limit_exceeded') {
+        setError(e.message)
+      }
     } finally {
       setLoading(false)
     }

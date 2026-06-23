@@ -44,7 +44,7 @@ const RISK_CFG = {
   excellent: { color: '#00876A', cls: 'text-brand-600', pill: 'bg-brand-50 text-brand-700 border-brand-100', label: 'Excellent' },
   good:      { color: '#00876A', cls: 'text-brand-600', pill: 'bg-brand-50 text-brand-700 border-brand-100', label: 'Good'      },
   moderate:  { color: '#F59E0B', cls: 'text-amber-500', pill: 'bg-amber-50 text-amber-700 border-amber-100', label: 'Moderate'  },
-  high:      { color: '#F97316', cls: 'text-orange-500',pill: 'bg-orange-50 text-orange-700 border-orange-100',label: 'High Risk'},
+  high:      { color: '#F97316', cls: 'text-orange-500',pill: 'bg-orange-50 text-orange-700 border-orange-100',label: 'Poor'    },
   critical:  { color: '#EF4444', cls: 'text-red-500',   pill: 'bg-red-50 text-red-700 border-red-100',       label: 'Critical'  },
   unknown:   { color: '#D1D5DB', cls: 'text-gray-400',  pill: 'bg-gray-100 text-gray-500 border-gray-200',   label: 'Unknown'   },
 }
@@ -349,7 +349,11 @@ function FindingRow({ f, index }) {
     ?? null
 
   // Phase 6: low-confidence finding — always visible, not inside collapsible panel
-  const isLowConf = typeof f.confidence === 'number' && f.confidence < 70
+  // P2 Trust Fix: threshold raised to < 75 so Branch C findings (confidence 70,
+  // titled "(Unverified)") also show the "Needs Verification" banner.
+  // Previously confidence === 70 fell below the < 70 gate — banner never appeared
+  // even when the finding title explicitly said "(Unverified)".
+  const isLowConf = typeof f.confidence === 'number' && f.confidence < 75
 
   return (
     <li className="px-6 py-4">
@@ -380,19 +384,16 @@ function FindingRow({ f, index }) {
               </span>
             )}
 
-            {/* Phase 2 — Validation quality badge */}
-            {f.validation_quality && (
-              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${QUALITY_STYLE[f.validation_quality] || QUALITY_STYLE.weak}`}>
-                Validation: {qualityLabel(f.validation_quality)}
-              </span>
-            )}
+            {/* Phase 2 — Validation quality badge removed (Observation Consolidation v1).
+                Audit confirmed this badge was misidentified as "Evidence: Excellent" by
+                customers due to identical visual treatment. Confidence badge (Phase 1) is
+                the sole trust signal on the finding card. Full validation detail remains
+                in the collapsible evidence panel. */}
 
-            {/* Phase 3 — Evidence quality badge (skip "missing" — conveys nothing useful inline) */}
-            {evidenceQuality && evidenceQuality !== 'missing' && (
-              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${QUALITY_STYLE[evidenceQuality] || QUALITY_STYLE.weak}`}>
-                Evidence: {qualityLabel(evidenceQuality)}
-              </span>
-            )}
+            {/* Phase 3 — Evidence quality badge removed (P4 Trust Fix).
+                Evidence structural completeness (Excellent/Good/Partial) conflates
+                with confidence and creates contradictory signals for customers.
+                Evidence content remains available in the collapsible evidence panel. */}
 
             {/* Score impact */}
             {f.score_impact != null && f.score_impact !== 0 && (
@@ -1181,10 +1182,10 @@ export default function ScanDetail() {
                       ? <span className="font-bold text-brand-600">{scan.score} / 100</span>
                       : '—'
                   } />
-                  <KV label="Risk Level" value={
+                  <KV label="Security Rating" value={
                     scan.rating
-                      ? <span className={`text-xs font-bold px-2 py-0.5 rounded-full border capitalize ${(RISK_CFG[scan.rating] || RISK_CFG.unknown).pill}`}>
-                          {scan.rating}
+                      ? <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${(RISK_CFG[scan.rating] || RISK_CFG.unknown).pill}`}>
+                          {(RISK_CFG[scan.rating] || RISK_CFG.unknown).label}
                         </span>
                       : '—'
                   } />

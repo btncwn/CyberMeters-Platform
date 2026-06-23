@@ -25,6 +25,18 @@ function fmt(str) {
   return new Date(s).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
+// Maps score-derived posture rating values to display labels (Security Rating system).
+const SECURITY_RATING_LABEL = {
+  excellent: 'Excellent',
+  good:      'Good',
+  moderate:  'Moderate',
+  high:      'Poor',
+  critical:  'Critical',
+}
+function securityRatingLabel(r) {
+  return r ? (SECURITY_RATING_LABEL[r.toLowerCase()] ?? r) : null
+}
+
 function ScoreGauge({ score, rating }) {
   if (score == null) return <span className="text-3xl font-black text-gray-300">—</span>
   const color = score >= 80 ? 'text-brand-600' : score >= 60 ? 'text-amber-500' : 'text-red-500'
@@ -623,7 +635,7 @@ export default function WorkspaceDashboard() {
             <div className="card px-6 py-4 text-center">
               <p className="label mb-1">Security Score</p>
               <ScoreGauge score={sc?.security_score ?? summary?.latest_score} rating={sc?.risk_rating} />
-              <p className="text-xs font-semibold text-gray-400 mt-1 capitalize">{sc?.risk_rating || '—'}</p>
+              <p className="text-xs font-semibold text-gray-400 mt-1">{securityRatingLabel(sc?.risk_rating) || '—'}</p>
             </div>
           </div>
 
