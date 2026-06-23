@@ -191,7 +191,7 @@
     },
     {
       "scenario": "dkim_unknown_selector",
-      "description": "DKIM not found on common selectors \u2014 info only, score 0, low confidence",
+      "description": "DKIM not found, no provider identified from SPF \u2014 info only, score 0, confidence 60",
       "mock_modules": {
         "email_security": {
           "spf": {
@@ -213,11 +213,91 @@
         "confidence": 60,
         "score_impact": 0,
         "evidence": {
-          "evidence_type": "dns_txt_lookup",
-          "observed_value": "No DKIM TXT record found on common selectors: google, selector1, default, mail, k1, s1, s2"
+          "evidence_type": "dns_txt_lookup"
+        },
+        "evidence_contains": [
+          "No DKIM TXT record found on selectors:",
+          "selector1",
+          "selector2",
+          "default",
+          "mail",
+          "google"
+        ]
+      },
+      "note": "No provider in SPF mock so confidence stays at 60. evidence_contains checks key selectors are listed without asserting exact order or count \u2014 future selector additions will not break this fixture."
+    },
+    {
+      "scenario": "dkim_microsoft365_no_dkim",
+      "description": "M365 provider identified from dkim.provider, selector1 + selector2 both in selectors_probed \u2014 confidence must be 80",
+      "mock_modules": {
+        "email_security": {
+          "spf": {
+            "present": true,
+            "record": "v=spf1 include:spf.protection.outlook.com -all"
+          },
+          "dmarc": {
+            "present": true,
+            "policy": "reject"
+          },
+          "dkim": {
+            "present": false,
+            "selector": null,
+            "provider": "microsoft365",
+            "selectors_probed": ["default", "mail", "google", "k1", "selector1", "selector2", "dkim", "smtp", "email", "s1", "s2", "godaddy1", "godaddy2", "pm", "postmark", "zoho", "fm1", "mc1", "relay"]
+          }
         }
       },
-      "note": "Low confidence \u2014 enterprise domains use custom selectors. This must never produce a score deduction."
+      "expected_finding": {
+        "id": "email_dkim_not_detected",
+        "severity": "info",
+        "confidence": 80,
+        "score_impact": 0,
+        "evidence": {
+          "evidence_type": "dns_txt_lookup"
+        },
+        "evidence_contains": [
+          "selector1",
+          "selector2"
+        ]
+      },
+      "note": "Microsoft 365 mandates exactly selector1 and selector2. When both miss, confidence rises to 80 \u2014 absence is high-confidence for this provider."
+    },
+    {
+      "scenario": "dkim_godaddy_no_dkim",
+      "description": "GoDaddy provider identified from dkim.provider \u2014 confidence must be 70, title must name GoDaddy",
+      "mock_modules": {
+        "email_security": {
+          "spf": {
+            "present": true,
+            "record": "v=spf1 include:secureserver.net ~all"
+          },
+          "dmarc": {
+            "present": true,
+            "policy": "reject"
+          },
+          "dkim": {
+            "present": false,
+            "selector": null,
+            "provider": "godaddy",
+            "selectors_probed": ["default", "mail", "google", "k1", "selector1", "selector2", "dkim", "smtp", "email", "s1", "s2", "godaddy1", "godaddy2", "pm", "postmark", "zoho", "fm1", "mc1", "relay"]
+          }
+        }
+      },
+      "expected_finding": {
+        "id": "email_dkim_not_detected",
+        "severity": "info",
+        "confidence": 70,
+        "score_impact": 0,
+        "evidence": {
+          "evidence_type": "dns_txt_lookup"
+        },
+        "evidence_contains": [
+          "godaddy1",
+          "godaddy2",
+          "default"
+        ]
+      },
+      "note": "Known provider raises confidence from 60 to 70. GoDaddy selectors (godaddy1, godaddy2) are in the generic list and must appear in evidence."
     },
     {
       "scenario": "resolver_disagreement",

@@ -138,6 +138,18 @@ function compareExpectedFinding(fixture, findings, domain) {
     }
   }
 
+  // evidence_contains: array of substrings that must ALL appear somewhere in
+  // evidence.observed_value.  Preferred over exact-matching observed_value for
+  // outputs that list dynamic content (e.g. selector lists that grow over time).
+  if (Array.isArray(expected.evidence_contains)) {
+    const observedStr = String(actual.evidence?.observed_value ?? "");
+    for (const substring of expected.evidence_contains) {
+      if (!observedStr.includes(substring)) {
+        failures.push(`${expected.id} evidence.observed_value missing expected text: "${substring}" (got: ${observedStr.slice(0, 120)})`);
+      }
+    }
+  }
+
   if (!actual.evidence_quality || actual.evidence_quality === "missing") {
     failures.push(`${expected.id} missing usable evidence quality`);
   }
