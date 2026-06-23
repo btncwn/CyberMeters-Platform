@@ -664,6 +664,79 @@
       },
       "expected_finding_ids_absent": ["header_missing_strict_transport_security"],
       "note": "HSTS present but without max-age directive — classifies as malformed. header_malformed_* must fire; header_missing_* must NOT fire."
+    },
+    {
+      "scenario": "finding_type_scored_finding",
+      "description": "Sprint 10A: a scored finding (email_missing_dmarc via finding() helper) must have finding_type = 'finding'",
+      "mock_modules": {
+        "dns": { "resolves": true, "has_mx": true },
+        "ssl": { "https_available": true, "http_redirects_to_https": true },
+        "headers": {
+          "accessible": true,
+          "final_https": true,
+          "validation_uncertain": false,
+          "status_code": 200,
+          "values": {
+            "strict-transport-security": "max-age=31536000; includeSubDomains",
+            "content-security-policy": "default-src 'self'",
+            "x-frame-options": "DENY",
+            "x-content-type-options": "nosniff",
+            "referrer-policy": "no-referrer",
+            "permissions-policy": "geolocation=()"
+          }
+        },
+        "email_security": {
+          "spf": { "present": true, "record": "v=spf1 include:_spf.google.com -all" },
+          "dmarc": { "present": false },
+          "dkim": { "present": true, "selector": "google" }
+        }
+      },
+      "expected_finding": {
+        "id": "email_missing_dmarc",
+        "severity": "high",
+        "confidence": 90,
+        "score_impact": -15,
+        "finding_type": "finding"
+      }
+    },
+    {
+      "scenario": "finding_type_observation",
+      "description": "Sprint 10A: an observation (email_dkim_not_detected via findings.push()) must have finding_type = 'observation'",
+      "mock_modules": {
+        "dns": { "resolves": true, "has_mx": true },
+        "ssl": { "https_available": true, "http_redirects_to_https": true },
+        "headers": {
+          "accessible": true,
+          "final_https": true,
+          "validation_uncertain": false,
+          "status_code": 200,
+          "values": {
+            "strict-transport-security": "max-age=31536000; includeSubDomains",
+            "content-security-policy": "default-src 'self'",
+            "x-frame-options": "DENY",
+            "x-content-type-options": "nosniff",
+            "referrer-policy": "no-referrer",
+            "permissions-policy": "geolocation=()"
+          }
+        },
+        "email_security": {
+          "spf": { "present": true, "record": "v=spf1 include:_spf.google.com -all" },
+          "dmarc": { "present": true, "policy": "reject" },
+          "dkim": {
+            "present": false,
+            "selector": null,
+            "provider": null,
+            "selectors_probed": ["default", "mail", "google", "k1", "selector1", "selector2"]
+          }
+        }
+      },
+      "expected_finding": {
+        "id": "email_dkim_not_detected",
+        "severity": "info",
+        "confidence": 60,
+        "score_impact": 0,
+        "finding_type": "observation"
+      }
     }
   ]
 }

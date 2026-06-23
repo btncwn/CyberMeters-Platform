@@ -5,7 +5,7 @@ import {
   ChevronRight, Shield, FileText, CheckCircle, XCircle, Mail,
   Lock, Server, Clock, History, ChevronDown, Terminal,
   TrendingDown, TrendingUp, Minus, GraduationCap,
-  User, Zap, Target, Terminal as TerminalIcon, Copy, Check as CheckIcon,
+  User, Zap, Target, Terminal as TerminalIcon, Copy, Check as CheckIcon, Eye,
 } from 'lucide-react'
 import { api } from '../api'
 import { getAcademyArticleForFinding } from '../data/academy'
@@ -65,6 +65,13 @@ const SEV_BADGE = {
   medium:   'badge-medium',
   low:      'badge-low',
   info:     'text-xs font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 border border-gray-200',
+}
+
+// Sprint 10A: classify a finding as "finding" or "observation".
+// Backward compat: if finding_type absent (old scans), use score_impact < 0.
+function getFindingType(f) {
+  if (f.finding_type) return f.finding_type
+  return (f.score_impact != null && f.score_impact < 0) ? 'finding' : 'observation'
 }
 
 // ── Components ───────────────────────────────────────────────────────────────
@@ -333,7 +340,7 @@ function RemediationPanel({ rem }) {
 // Phase 7: evidence panel collapsed by default; badges compact; no excessive height.
 // Sprint 11A: Academy Learn More link — resolved via getAcademyArticleForFinding().
 // Sprint 11B: Remediation intelligence panel.
-function FindingRow({ f, index }) {
+function FindingRow({ f, index, isObservation = false }) {
   const [open, setOpen]       = useState(false)
   const [remOpen, setRemOpen] = useState(false)
   const academySlug = getAcademyArticleForFinding(f)
@@ -395,8 +402,8 @@ function FindingRow({ f, index }) {
                 with confidence and creates contradictory signals for customers.
                 Evidence content remains available in the collapsible evidence panel. */}
 
-            {/* Score impact */}
-            {f.score_impact != null && f.score_impact !== 0 && (
+            {/* Score impact — suppressed for observations (Sprint 10A) */}
+            {!isObservation && f.score_impact != null && f.score_impact !== 0 && (
               <span className="text-[10px] font-semibold text-red-400">
                 {f.score_impact} pts
               </span>
@@ -464,7 +471,7 @@ function FindingRow({ f, index }) {
   )
 }
 
-function FindingsPanel({ findings }) {
+function FindingsPanel({ findings, isObservation = false }) {
   const sorted = [...(findings || [])].sort(
     (a, b) => (SEV_ORDER[a.severity] ?? 9) - (SEV_ORDER[b.severity] ?? 9)
   )
@@ -484,7 +491,7 @@ function FindingsPanel({ findings }) {
   return (
     <ul className="divide-y divide-gray-50">
       {sorted.map((f, i) => (
-        <FindingRow key={f.id || i} f={f} index={i} />
+        <FindingRow key={f.id || i} f={f} index={i} isObservation={isObservation} />
       ))}
     </ul>
   )
@@ -921,6 +928,11 @@ function BusinessRiskCard({ businessRisk }) {
 
 function ReportView({ report }) {
   const { cyber_metrics_score: score, risk_level, findings, recommendations, modules, scan_quality } = report
+
+  // Sprint 10A: split findings into actionable vs informational.
+  // Backward compat: if finding_type absent, fall back to score_impact sign.
+  const actionableFindings = (findings || []).filter(f => getFindingType(f) !== 'observation')
+  const observations       = (findings || []).filter(f => getFindingType(f) === 'observation')
   const duration = durationSeconds(report.started_at, report.completed_at)
   const showQualityWarning = scan_quality?.status === 'degraded' || scan_quality?.status === 'partial'
   const skippedModules = scan_quality?.modules_skipped || []
@@ -941,7 +953,7 @@ function ReportView({ report }) {
           {/* Quick counts */}
           <div className="flex-1 grid grid-cols-3 divide-x divide-gray-100">
             {[
-              { label: 'Findings',      value: findings?.length ?? 0 },
+              { label: 'Findings',      value: actionableFindings.length },
               { label: 'Actions',       value: recommendations?.length ?? 0 },
               { label: 'Scan Duration', value: duration ?? '—' },
             ].map(({ label, value }) => (
@@ -974,11 +986,19 @@ function ReportView({ report }) {
         </div>
       )}
 
-      {/* Findings */}
+      {/* Findings — actionable, score-impacting (Sprint 10A) */}
       <div className="card overflow-hidden">
-        <SectionHeader icon={AlertCircle} title={`Findings (${findings?.length ?? 0})`} />
-        <FindingsPanel findings={findings} />
+        <SectionHeader icon={AlertCircle} title={`Findings (${actionableFindings.length})`} />
+        <FindingsPanel findings={actionableFindings} />
       </div>
+
+      {/* Observations — informational, no score impact (Sprint 10A) */}
+      {observations.length > 0 && (
+        <div className="card overflow-hidden">
+          <SectionHeader icon={Eye} title={`Observations (${observations.length})`} />
+          <FindingsPanel findings={observations} isObservation={true} />
+        </div>
+      )}
 
       {/* Recommendations */}
       <div className="card overflow-hidden">

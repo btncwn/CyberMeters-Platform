@@ -138,6 +138,14 @@ function compareExpectedFinding(fixture, findings, domain) {
     }
   }
 
+  // finding_type: "finding" | "observation" — Sprint 10A additive field.
+  // Only checked when explicitly listed in the fixture.
+  if (expected.finding_type !== undefined) {
+    if (actual.finding_type !== expected.finding_type) {
+      failures.push(`${expected.id} finding_type: expected ${expected.finding_type}, got ${actual.finding_type}`);
+    }
+  }
+
   // evidence_contains: array of substrings that must ALL appear somewhere in
   // evidence.observed_value.  Preferred over exact-matching observed_value for
   // outputs that list dynamic content (e.g. selector lists that grow over time).

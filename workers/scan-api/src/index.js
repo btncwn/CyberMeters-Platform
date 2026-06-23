@@ -726,7 +726,9 @@ function validateFindingEvidence(finding) {
 function applyEvidenceQuality(findings) {
   return (findings || []).map((finding) => {
     const quality = validateFindingEvidence(finding);
-    return { ...finding, ...quality };
+    // Sprint 10A: propagate finding_type so it appears in computeScore output.
+    // "finding" is set by the finding() helper; everything else defaults to "observation".
+    return { ...finding, ...quality, finding_type: finding.finding_type ?? "observation" };
   });
 }
 
@@ -1016,6 +1018,7 @@ function normalizeFindingSchema(finding) {
     validation_quality: finding.validation_quality ?? null,
     evidence:           buildEvidenceArray(finding),        // Sprint 9C: always array
     remediation_owner:  finding.remediation_owner  ?? null,
+    finding_type:       finding.finding_type       ?? "observation", // Sprint 10A: "finding" (score-impacting) | "observation" (score_impact:0)
   };
 }
 
@@ -6333,7 +6336,7 @@ function computeScore(modules, domain) {
 
   function finding(f) {
     score += f.score_impact; // negative number
-    findings.push(f);
+    findings.push({ ...f, finding_type: "finding" });
   }
 
   // ── DNS ────────────────────────────────────────────────────────────────
