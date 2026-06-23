@@ -17984,7 +17984,7 @@ function planLimitExceeded(resource, limit, usage = null) {
 
 async function getOwnedWorkspaceIds(userId, env) {
   const rows = await env.cybermeters_db
-    .prepare("SELECT id FROM workspaces WHERE owner_user_id = ?")
+    .prepare("SELECT id FROM workspaces WHERE owner_user_id = ? AND deleted_at IS NULL")
     .bind(userId)
     .all();
   return (rows.results || []).map((row) => row.id).filter(Boolean);
