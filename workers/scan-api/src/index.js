@@ -14273,20 +14273,34 @@ async function executeDueReportSchedules(env, now = new Date().toISOString()) {
  * Never throws — a failure on one schedule must not abort others.
  */
 async function triggerScheduledScan(schedule, env) {
-  const userId = "user_demo";
   const scanId = createId("scan");
   const now    = new Date().toISOString();
 
+  // Resolve workspace owner — fall back to user_demo only if workspace has no owner
+  let userId = "user_demo";
+  if (schedule.workspace_id) {
+    const ownerRow = await env.cybermeters_db
+      .prepare("SELECT owner_user_id FROM workspaces WHERE id = ? AND deleted_at IS NULL LIMIT 1")
+      .bind(schedule.workspace_id)
+      .first()
+      .catch(() => null);
+    if (ownerRow?.owner_user_id) {
+      userId = ownerRow.owner_user_id;
+    }
+  }
+
   try {
-    // Ensure demo user exists
-    await env.cybermeters_db
-      .prepare(
-        `INSERT INTO users (id, email, name, plan)
-         VALUES (?, ?, ?, ?)
-         ON CONFLICT(id) DO NOTHING`
-      )
-      .bind(userId, "demo@cybermeters.com", "Demo User", "free")
-      .run();
+    // Ensure fallback demo user exists only when needed
+    if (userId === "user_demo") {
+      await env.cybermeters_db
+        .prepare(
+          `INSERT INTO users (id, email, name, plan)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(id) DO NOTHING`
+        )
+        .bind("user_demo", "demo@cybermeters.com", "Demo User", "free")
+        .run();
+    }
 
     // ── Reuse existing domain row so inventory stays on one domain_id ─────────
     // Creating a new row on every run fragments history and breaks workspace links.
@@ -14369,7 +14383,45 @@ async function triggerScheduledScan(schedule, env) {
     });
 
     // Run the full scan engine — awaited inside waitUntil context
-    await runScanEngine(scanId, domainId, schedule.workspace_id ?? null, schedule.domain, env);
+    // Specific catch so a scan failure updates status and notifies the workspace owner.
+    try {
+      await runScanEngine(scanId, domainId, schedule.workspace_id ?? null, schedule.domain, env);
+    } catch (scanErr) {
+      console.error("[scheduled-scan] FAILED", schedule.id, scanErr?.message);
+      // Mark scan as failed in D1
+      await env.cybermeters_db
+        .prepare("UPDATE scans SET status = 'failed' WHERE id = ?")
+        .bind(scanId)
+        .run()
+        .catch(() => {});
+      // Update R2 placeholder to reflect failure
+      await env.cybermeters_reports.put(
+        `reports/${scanId}.json`,
+        JSON.stringify({
+          scan_id:             scanId,
+          domain_id:           domainId,
+          domain:              schedule.domain,
+          status:              "failed",
+          cyber_metrics_score: 0,
+          risk_level:          "unknown",
+          findings:            [],
+          recommendations:     [],
+          message:             "Scheduled scan failed. Please check your domain configuration or contact support.",
+        }, null, 2),
+        { httpMetadata: { contentType: "application/json" } }
+      ).catch(() => {});
+      // Create in-app notification for workspace owner
+      if (schedule.workspace_id) {
+        await createNotificationEvent(env, schedule.workspace_id, {
+          type:     "scheduled_scan_failed",
+          severity: "high",
+          title:    "Scheduled scan failed",
+          message:  `The scheduled scan for ${schedule.domain} failed to complete. Your next scheduled run will try again automatically.`,
+          metadata: { scheduled_scan_id: schedule.id, scan_id: scanId, domain: schedule.domain },
+          user_id:  userId,
+        }).catch(() => {});
+      }
+    }
 
     // ── Update asset counts after scan completes ───────────────────────────────
     if (schedule.workspace_id) {
@@ -16395,8 +16447,9 @@ async function requireWorkspaceAccess(user, workspaceId, env) {
   try {
     const member = await env.cybermeters_db
       .prepare(
-        `SELECT role FROM workspace_members
-         WHERE workspace_id = ? AND user_id = ? LIMIT 1`
+        `SELECT wm.role FROM workspace_members wm
+         JOIN workspaces w ON w.id = wm.workspace_id AND w.deleted_at IS NULL
+         WHERE wm.workspace_id = ? AND wm.user_id = ? LIMIT 1`
       )
       .bind(workspaceId, user.id)
       .first();
@@ -16409,7 +16462,7 @@ async function requireWorkspaceAccess(user, workspaceId, env) {
         `SELECT w.owner_user_id, COUNT(wm.id) AS member_count
          FROM workspaces w
          LEFT JOIN workspace_members wm ON wm.workspace_id = w.id
-         WHERE w.id = ?
+         WHERE w.id = ? AND w.deleted_at IS NULL
          GROUP BY w.id, w.owner_user_id`
       )
       .bind(workspaceId)
@@ -16475,14 +16528,17 @@ async function getAccessibleWorkspaceIds(user, env) {
          FROM workspaces w
          LEFT JOIN workspace_members wm
            ON wm.workspace_id = w.id AND wm.user_id = ?
-         WHERE wm.user_id IS NOT NULL
-            OR (
-              w.owner_user_id = ?
-              AND NOT EXISTS (
-                SELECT 1 FROM workspace_members any_wm
-                WHERE any_wm.workspace_id = w.id
-              )
-            )`
+         WHERE w.deleted_at IS NULL
+           AND (
+             wm.user_id IS NOT NULL
+             OR (
+               w.owner_user_id = ?
+               AND NOT EXISTS (
+                 SELECT 1 FROM workspace_members any_wm
+                 WHERE any_wm.workspace_id = w.id
+               )
+             )
+           )`
       )
       .bind(user.id, user.id)
       .all();
@@ -16894,7 +16950,7 @@ async function getUserPlan(userId, env) {
   try {
     const sub = await env.cybermeters_db
       .prepare(
-        `SELECT plan, subscription_status, current_period_end
+        `SELECT plan, subscription_status, current_period_end, payment_failed_at
          FROM subscriptions
          WHERE owner_user_id = ?
          ORDER BY COALESCE(updated_at, created_at) DESC
@@ -16905,6 +16961,14 @@ async function getUserPlan(userId, env) {
 
     if (!sub) return "free";
     const status = String(sub.subscription_status || "").trim().toLowerCase();
+    // past_due: allow access for 7 days from first payment failure (Stripe retry window)
+    if (status === "past_due") {
+      const failedAt = sub.payment_failed_at ? new Date(sub.payment_failed_at).getTime() : 0;
+      if (failedAt > 0 && (Date.now() - failedAt) < 7 * 24 * 60 * 60 * 1000) {
+        return normalizePlan(sub.plan);
+      }
+      return "free";
+    }
     if (status && !["active", "trialing"].includes(status)) return "free";
     if (isExpiredDate(sub.current_period_end)) return "free";
     return normalizePlan(sub.plan);
@@ -17408,6 +17472,60 @@ async function upsertStripeSubscriptionState(env, state) {
     return null;
   }
 
+  // P2-D: Before inserting a new row, check whether a local trial row already
+  // exists for this workspace (no stripe_subscription_id yet). If so, UPDATE it
+  // rather than INSERT to avoid a duplicate trialing + active pair.
+  if (workspaceId) {
+    const trialRow = await env.cybermeters_db
+      .prepare(
+        `SELECT id FROM subscriptions
+         WHERE workspace_id = ?
+           AND stripe_subscription_id IS NULL
+           AND subscription_status = 'trialing'
+         LIMIT 1`
+      )
+      .bind(workspaceId)
+      .first()
+      .catch(() => null);
+
+    if (trialRow?.id) {
+      const cancelAtPeriodEndUpd = state.cancel_at_period_end != null
+        ? (state.cancel_at_period_end ? 1 : 0)
+        : null;
+      await env.cybermeters_db
+        .prepare(
+          `UPDATE subscriptions
+           SET plan = ?,
+               billing_interval = ?,
+               subscription_status = ?,
+               owner_user_id = COALESCE(?, owner_user_id),
+               stripe_customer_id = COALESCE(?, stripe_customer_id),
+               stripe_subscription_id = COALESCE(?, stripe_subscription_id),
+               stripe_price_id = COALESCE(?, stripe_price_id),
+               current_period_start = COALESCE(?, current_period_start),
+               current_period_end = COALESCE(?, current_period_end),
+               cancel_at_period_end = COALESCE(?, cancel_at_period_end),
+               updated_at = datetime('now')
+           WHERE id = ?`
+        )
+        .bind(
+          normalizePlan(state.plan),
+          normalizeBillingInterval(state.billing_interval),
+          normalizeStripeSubscriptionStatus(state.subscription_status),
+          ownerUserId,
+          stripeCustomerId,
+          stripeSubscriptionId,
+          state.stripe_price_id || null,
+          state.current_period_start || null,
+          state.current_period_end || null,
+          cancelAtPeriodEndUpd,
+          trialRow.id
+        )
+        .run();
+      return trialRow.id;
+    }
+  }
+
   const id = createId("sub");
   const cancelAtPeriodEndInsert = state.cancel_at_period_end != null
     ? (state.cancel_at_period_end ? 1 : 0)
@@ -17541,6 +17659,45 @@ async function handleStripeSubscriptionDeleted(env, subscription) {
     )
     .bind(stripeUnixToIso(subscription?.current_period_end), rowId)
     .run();
+
+  // Notify workspace owner of cancellation via email + in-app notification.
+  try {
+    const subRow = await env.cybermeters_db
+      .prepare(
+        `SELECT s.owner_user_id, s.workspace_id, u.email, u.name
+         FROM subscriptions s
+         JOIN users u ON u.id = s.owner_user_id
+         WHERE s.id = ?
+         LIMIT 1`
+      )
+      .bind(rowId)
+      .first();
+
+    if (subRow?.email) {
+      await sendCustomerEmail(
+        "Your CyberMeters subscription has been cancelled",
+        `Hi ${subRow.name || "there"},\n\nYour CyberMeters subscription has been cancelled. You will remain on the free plan going forward.\n\nIf you believe this is an error or would like to resubscribe, please visit your billing page at https://app.cybermeters.io/billing.\n\nCyberMeters Team`,
+        `<p>Hi ${subRow.name || "there"},</p><p>Your CyberMeters subscription has been cancelled. You will remain on the free plan going forward.</p><p>If you believe this is an error or would like to resubscribe, please visit your <a href="https://app.cybermeters.io/billing">billing page</a>.</p><p>CyberMeters Team</p>`,
+        env,
+        "ALERT_EMAIL_FROM",
+        [subRow.email]
+      ).catch(() => {});
+    }
+
+    if (subRow?.workspace_id) {
+      await createNotificationEvent(env, subRow.workspace_id, {
+        type:     "subscription_canceled",
+        severity: "high",
+        title:    "Subscription cancelled",
+        message:  "Your subscription has been cancelled and your account has moved to the free plan. Visit Billing to resubscribe.",
+        metadata: { subscription_id: rowId },
+        user_id:  subRow.owner_user_id ?? null,
+      }).catch(() => {});
+    }
+  } catch {
+    // Notification failure must not affect subscription state update
+  }
+
   return rowId;
 }
 
@@ -28167,39 +28324,44 @@ export default {
 	      if (!access) return json({ error: "Forbidden — owner role required to request workspace deletion" }, 403);
 	      try {
 	        const workspace = await env.cybermeters_db
-	          .prepare("SELECT id, name FROM workspaces WHERE id = ? LIMIT 1")
+	          .prepare("SELECT id, name FROM workspaces WHERE id = ? AND deleted_at IS NULL LIMIT 1")
 	          .bind(workspaceId)
 	          .first();
 	        if (!workspace) return json({ error: "Workspace not found" }, 404);
 
-	        const existing = await env.cybermeters_db
-	          .prepare("SELECT id, created_at FROM deletion_requests WHERE request_type = 'workspace' AND workspace_id = ? AND status = 'pending' LIMIT 1")
-	          .bind(workspaceId)
-	          .first();
-	        if (existing) return json({ request_id: existing.id, status: "pending", created_at: existing.created_at, message: "Workspace deletion request already exists." });
-
-	        const requestId = createId("delreq");
 	        const now = new Date().toISOString();
+
+	        // Soft-delete the workspace
 	        await env.cybermeters_db
-	          .prepare(
-	            `INSERT INTO deletion_requests
-	               (id, request_type, user_id, workspace_id, requested_by, status, created_at, updated_at)
-	             VALUES (?, 'workspace', ?, ?, ?, 'pending', ?, ?)`
-	          )
-	          .bind(requestId, user.id, workspaceId, user.id, now, now)
+	          .prepare("UPDATE workspaces SET deleted_at = ? WHERE id = ?")
+	          .bind(now, workspaceId)
 	          .run();
+
+	        // Disable all scheduled scans for this workspace
+	        await env.cybermeters_db
+	          .prepare("UPDATE scheduled_scans SET enabled = 0 WHERE workspace_id = ?")
+	          .bind(workspaceId)
+	          .run();
+
+	        // Archive active assets for this workspace (preserve history per Rule 5)
+	        await env.cybermeters_db
+	          .prepare("UPDATE workspace_assets SET status = 'inactive' WHERE workspace_id = ? AND status = 'active'")
+	          .bind(workspaceId)
+	          .run();
+
 	        await createAuditEvent(env, {
 	          workspace_id: workspaceId,
 	          user_id: user.id,
-	          event_type: "workspace_deletion_requested",
+	          event_type: "workspace_deleted",
 	          entity_type: "workspace",
 	          entity_id: workspaceId,
-	          description: `Workspace deletion requested for ${workspace.name}`,
-	          metadata: { request_id: requestId },
+	          description: `Workspace "${workspace.name}" soft-deleted`,
+	          metadata: { deleted_at: now },
 	        }).catch(() => {});
-	        return json({ request_id: requestId, status: "pending", message: "Workspace deletion request received." }, 202);
+
+	        return json({ deleted: true, workspace_id: workspaceId, deleted_at: now });
 	      } catch {
-	        return json({ error: "Unable to create deletion request" }, 500);
+	        return json({ error: "Unable to delete workspace" }, 500);
 	      }
 	    }
 

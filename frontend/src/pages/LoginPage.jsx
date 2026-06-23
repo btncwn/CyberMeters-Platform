@@ -60,8 +60,7 @@ export default function LoginPage() {
         return
       }
 
-      login(data.token, data.user)
-      navigate(from, { replace: true })
+      await navigateAfterLogin(data.token, data.user)
     } catch (err) {
       if (err.message === 'email_verification_required') {
         setVerificationRequired(true)
@@ -80,8 +79,7 @@ export default function LoginPage() {
     setLoading(true)
     try {
       const data = await api.mfaChallenge(challengeToken, mfaCode.replace(/\s/g, ''))
-      login(data.token, data.user)
-      navigate(from, { replace: true })
+      await navigateAfterLogin(data.token, data.user)
     } catch (err) {
       setError(err.message || 'Verification failed')
       setMfaCode('')
@@ -97,14 +95,28 @@ export default function LoginPage() {
     setLoading(true)
     try {
       const data = await api.mfaRecoveryCode(challengeToken, recoveryCode.trim())
-      login(data.token, data.user)
-      navigate(from, { replace: true })
+      await navigateAfterLogin(data.token, data.user)
     } catch (err) {
       setError(err.message || 'Recovery code invalid')
       setRecoveryCode('')
     } finally {
       setLoading(false)
     }
+  }
+
+  // After a successful login, redirect new users (no workspaces) to onboarding.
+  async function navigateAfterLogin(token, user) {
+    login(token, user)
+    try {
+      const wsData = await api.getWorkspaces()
+      if ((wsData?.workspaces?.length ?? 0) === 0) {
+        navigate('/onboarding', { replace: true })
+        return
+      }
+    } catch {
+      // If workspace check fails, fall through to the normal destination.
+    }
+    navigate(from, { replace: true })
   }
 
   function resetToPassword() {
