@@ -2852,7 +2852,11 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP) {
     sources.certspotter = { count: 0, error: err.message ?? "parse error" };
   }
 
-  // ── Both sources failed ───────────────────────────────────────────────
+  // ── Both CT sources failed ────────────────────────────────────────────
+  // Sprint 10C: CT source failures (rate limits, timeouts, HTTP errors) are external
+  // service issues — not a domain security failure.  Store the detail in ct_error
+  // (available for diagnostics in modules.subdomains.ct_error) but do NOT set the
+  // top-level error field.  scan_quality must stay "complete" for these cases.
   if (seen.size === 0 && sources.crt_sh?.error && sources.certspotter?.error) {
     return {
       count:              0,
@@ -2863,7 +2867,8 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP) {
       wildcard_dns:       wildcardDns,
       wildcard_test_host: wildcardHost,
       wildcard_warning:   wildcardWarning,
-      error: `Both CT sources failed — crt.sh: ${sources.crt_sh.error}; certspotter: ${sources.certspotter.error}`,
+      ct_error: `Both CT sources failed — crt.sh: ${sources.crt_sh.error}; certspotter: ${sources.certspotter.error}`,
+      error:    null,   // never block core scan quality for external CT failures
     };
   }
 
@@ -8242,28 +8247,28 @@ function buildScanQuality(modules = {}) {
   const warnings = [];
   const modulesSkipped = [];
 
-  const coreModules = ["dns", "ssl", "headers", "email_security", "subdomains"];
+  // Sprint 10C: "subdomains" is NOT a core module.
+  // CT log lookup (crt.sh + CertSpotter) is an external enrichment query against
+  // third-party services. When those services are rate-limited (CertSpotter HTTP 429
+  // on shared Worker IPs) or slow, it is an external service failure — not a domain
+  // security failure. DNS, SSL, Headers, Email directly assess the domain's own config.
+  const coreModules = ["dns", "ssl", "headers", "email_security"];
   const coreIncomplete = coreModules.filter((name) => modules[name]?.error);
 
-  // Classify modules that actually timed out or were skipped.
-  // "skipped_due_to_subrequest_budget" is a legacy sentinel from the CAA lookup path;
-  // "timed out" indicates the module hit its own hard-cap and returned empty.
+  // Classify modules that actually timed out or were skipped via the CAA budget sentinel.
+  // Exclude "subdomains" — CT lookup failures are external service issues, not core
+  // scan failures; they do not degrade scan_quality status.
   for (const [name, value] of Object.entries(modules)) {
+    if (name === "subdomains") continue;
     const error = String(value?.error || "").toLowerCase();
     if (error.includes("skipped_due_to_subrequest_budget") || error.includes("timed out")) {
       modulesSkipped.push(name);
     }
   }
 
-  // Only warn on real module failures, not budget projections.
+  // Only warn on real core module failures.
   for (const name of coreIncomplete) {
     warnings.push(`Core module incomplete: ${name}`);
-  }
-  for (const name of modulesSkipped) {
-    // Only surface the subdomain module skip — the one customers see in the UI.
-    if (name === "subdomains") {
-      warnings.push("Subdomain discovery timed out for this scan. Core security checks completed successfully.");
-    }
   }
 
   const status = coreIncomplete.length > 0
