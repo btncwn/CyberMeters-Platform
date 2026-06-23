@@ -700,6 +700,142 @@
       }
     },
     {
+      "scenario": "brand_homoglyph_detected_finding",
+      "description": "Sprint 11A: substitution-type brand candidate with high risk_level must generate brand_homoglyph_detected finding",
+      "mock_modules": {
+        "brand_monitoring": {
+          "domains": [
+            {
+              "candidate_domain": "f1xture.cybermeters.test",
+              "variant_type": "substitution",
+              "risk_level": "high",
+              "risk_reasons": ["homoglyph character substitution"],
+              "confidence": 40,
+              "validation_quality": "weak"
+            }
+          ]
+        }
+      },
+      "expected_finding": {
+        "id": "brand_homoglyph_detected",
+        "severity": "high",
+        "confidence": 40,
+        "score_impact": -3,
+        "finding_type": "finding"
+      },
+      "note": "substitution variant_type must map to brand_homoglyph_detected with severity=high and score_impact=-3."
+    },
+    {
+      "scenario": "brand_typosquat_detected_finding",
+      "description": "Sprint 11A: omission-type brand candidate with high risk_level must generate brand_typosquat_detected finding",
+      "mock_modules": {
+        "brand_monitoring": {
+          "domains": [
+            {
+              "candidate_domain": "fxture.cybermeters.test",
+              "variant_type": "omission",
+              "risk_level": "high",
+              "risk_reasons": ["single-character typo variant"],
+              "confidence": 40,
+              "validation_quality": "weak"
+            }
+          ]
+        }
+      },
+      "expected_finding": {
+        "id": "brand_typosquat_detected",
+        "severity": "high",
+        "confidence": 40,
+        "score_impact": -3,
+        "finding_type": "finding"
+      },
+      "note": "omission/transposition/keyboard_adjacent variant_type must map to brand_typosquat_detected."
+    },
+    {
+      "scenario": "brand_lookalike_detected_finding",
+      "description": "Sprint 11A: hyphen_keyword-type brand candidate with high risk_level must generate brand_lookalike_detected finding",
+      "mock_modules": {
+        "brand_monitoring": {
+          "domains": [
+            {
+              "candidate_domain": "fixture-login.cybermeters.test",
+              "variant_type": "hyphen_keyword",
+              "risk_level": "high",
+              "risk_reasons": ["contains 'login'"],
+              "confidence": 40,
+              "validation_quality": "weak"
+            }
+          ]
+        }
+      },
+      "expected_finding": {
+        "id": "brand_lookalike_detected",
+        "severity": "high",
+        "confidence": 40,
+        "score_impact": -3,
+        "finding_type": "finding"
+      },
+      "note": "hyphen_keyword and prefix_keyword variant types must map to brand_lookalike_detected."
+    },
+    {
+      "scenario": "brand_critical_finding",
+      "description": "Sprint 11A: critical risk_level brand candidate must generate severity=critical finding with score_impact=-5",
+      "mock_modules": {
+        "brand_monitoring": {
+          "domains": [
+            {
+              "candidate_domain": "f1xture-login.cybermeters.test",
+              "variant_type": "substitution",
+              "risk_level": "critical",
+              "risk_reasons": ["homoglyph character substitution", "contains 'login'"],
+              "confidence": 40,
+              "validation_quality": "weak"
+            }
+          ]
+        }
+      },
+      "expected_finding": {
+        "id": "brand_homoglyph_detected",
+        "severity": "critical",
+        "confidence": 40,
+        "score_impact": -5,
+        "finding_type": "finding"
+      },
+      "note": "critical risk_level must produce severity=critical and score_impact=-5 regardless of variant type."
+    },
+    {
+      "scenario": "brand_low_risk_no_finding",
+      "description": "Sprint 11A: low and medium risk_level brand candidates must NOT generate any findings",
+      "mock_modules": {
+        "brand_monitoring": {
+          "domains": [
+            {
+              "candidate_domain": "fxitre.cybermeters.test",
+              "variant_type": "transposition",
+              "risk_level": "low",
+              "risk_reasons": [],
+              "confidence": 40,
+              "validation_quality": "weak"
+            },
+            {
+              "candidate_domain": "fxture.cybermeters.test",
+              "variant_type": "omission",
+              "risk_level": "medium",
+              "risk_reasons": ["single-character typo variant"],
+              "confidence": 40,
+              "validation_quality": "weak"
+            }
+          ]
+        }
+      },
+      "expected_finding_ids_absent": [
+        "brand_homoglyph_detected",
+        "brand_typosquat_detected",
+        "brand_lookalike_detected"
+      ],
+      "note": "low and medium risk candidates must be filtered out — only high/critical produce findings."
+    },
+    {
       "scenario": "finding_type_observation",
       "description": "Sprint 10A: an observation (email_dkim_not_detected via findings.push()) must have finding_type = 'observation'",
       "mock_modules": {

@@ -7201,6 +7201,37 @@ function computeScore(modules, domain) {
     }
   }
 
+  // Brand monitoring findings — generated from modules.brand_monitoring (pure computation).
+  // Only high/critical candidates surface as scored findings; medium/low are informational only.
+  // modules.brand_monitoring is pre-populated before computeScore is called (in runScanEngine),
+  // or may be passed directly in mock_modules for regression fixture testing.
+  const brandMod = modules.brand_monitoring ?? runTyposquatModule(domain);
+  for (const c of (brandMod?.domains || [])) {
+    if (!['high', 'critical'].includes(c.risk_level)) continue;
+    const findingId = c.variant_type === 'substitution'
+      ? 'brand_homoglyph_detected'
+      : (c.variant_type === 'hyphen_keyword' || c.variant_type === 'prefix_keyword')
+        ? 'brand_lookalike_detected'
+        : 'brand_typosquat_detected';
+    const scoreImpact = c.risk_level === 'critical' ? -5 : -3;
+    findings.push({
+      id:          findingId,
+      title:       `Brand lookalike domain detected: ${c.candidate_domain}`,
+      severity:    c.risk_level === 'critical' ? 'critical' : 'high',
+      description: `The domain ${c.candidate_domain} is a ${c.variant_type.replace(/_/g, ' ')} variant of your brand. Risk signals: ${(c.risk_reasons || []).join(', ') || 'none'}.`,
+      evidence: [
+        { label: 'Candidate Domain', value: c.candidate_domain },
+        { label: 'Variant Type',     value: c.variant_type     },
+        { label: 'Risk Level',       value: c.risk_level       },
+      ],
+      score_impact:       scoreImpact,
+      finding_type:       'finding',
+      confidence:         c.confidence ?? 40,
+      validation_quality: c.validation_quality ?? 'weak',
+    });
+    score += scoreImpact;
+  }
+
   // Clamp and classify
   score = Math.max(0, Math.min(100, Math.round(score)));
 
@@ -8390,6 +8421,10 @@ async function runScanEngine(scanId, domainId, workspaceId, domain, env) {
         : { error: whoisSettled.reason?.message ?? "WHOIS module failed" },
 
       dns_bruteforce: bruteforceResult,
+
+      // Phase 7i: pure computation, zero network I/O — must run before computeScore
+      // so brand findings are included in the scored findings array.
+      brand_monitoring: runTyposquatModule(domain),
     };
 
     // Compute Cyber Metrics Score
@@ -8803,13 +8838,8 @@ function buildCanonicalUrlProfile(modules) {
       });
     }
 
-    // Phase 7i: Typosquat & Brand Monitoring — pure computation, zero network I/O.
-    // Generates lookalike candidate domains for the brand name extracted from
-    // `domain` (character substitution, omission, duplication, transposition,
-    // keyword hyphenation).  DNS/HTTPS validation is deferred to the dedicated
-    // POST /api/workspaces/:id/brand-monitoring/refresh endpoint so this module
-    // does not consume any of the already-tight subrequest budget (~47/50 by here).
-    modules.brand_monitoring = runTyposquatModule(domain);
+    // Phase 7i: brand_monitoring already populated in modules before computeScore —
+    // see module initialisation block above. No re-run needed here.
 
     // Phase 7j: Identity Asset Discovery — pure computation, zero network I/O.
     // Identifies authentication surfaces, login portals, SSO/OAuth/SAML endpoints
@@ -9782,7 +9812,7 @@ function _typosquatRisk(sld, variantType) {
     score += 2; reasons.push('homoglyph character substitution');
   }
 
-  const risk_level = score >= 5 ? 'high' : score >= 2 ? 'medium' : 'low';
+  const risk_level = score >= 7 ? 'critical' : score >= 5 ? 'high' : score >= 2 ? 'medium' : 'low';
   return { risk_level, risk_reasons: reasons, _score: score };
 }
 
@@ -9840,7 +9870,21 @@ function generateTyposquatCandidates(brand, tld) {
     add(arr.join(''), 'transposition');
   }
 
-  // 5 & 6. Keyword variants (high-risk first, then medium-risk)
+  // 5. Keyboard-adjacent substitutions (qwerty layout)
+  const KEYBOARD_ADJACENT = {
+    a: 'sqzw', b: 'vghn', c: 'xdfv', d: 'serfcx', e: 'wsdr',
+    f: 'drtgvc', g: 'ftyhbv', h: 'gyujnb', i: 'ujko', j: 'huikmn',
+    k: 'jiolm', l: 'kop', m: 'njk', n: 'bhjm', o: 'iklp',
+    p: 'ol', q: 'wa', r: 'edft', s: 'awedxz', t: 'rfgy',
+    u: 'yhji', v: 'cfgb', w: 'qase', x: 'zsdc', y: 'tghu', z: 'asx',
+  };
+  for (let i = 0; i < brand.length; i++) {
+    for (const adj of (KEYBOARD_ADJACENT[brand[i]] || '')) {
+      add(brand.slice(0, i) + adj + brand.slice(i + 1), 'keyboard_adjacent');
+    }
+  }
+
+  // 6 & 7. Keyword variants (high-risk first, then medium-risk)
   for (const kw of [...HIGH_RISK_BRAND_KEYWORDS, ...MED_RISK_BRAND_KEYWORDS]) {
     add(`${brand}-${kw}`, 'hyphen_keyword');
     add(`${kw}-${brand}`, 'prefix_keyword');
@@ -9881,9 +9925,10 @@ function runTyposquatModule(domain) {
       candidates_validated:       false,
       domains:                    candidates,
       risk_summary: {
-        high:   candidates.filter(c => c.risk_level === 'high').length,
-        medium: candidates.filter(c => c.risk_level === 'medium').length,
-        low:    candidates.filter(c => c.risk_level === 'low').length,
+        critical: candidates.filter(c => c.risk_level === 'critical').length,
+        high:     candidates.filter(c => c.risk_level === 'high').length,
+        medium:   candidates.filter(c => c.risk_level === 'medium').length,
+        low:      candidates.filter(c => c.risk_level === 'low').length,
       },
       source: 'typosquat_analysis',
       error:  null,
