@@ -21941,13 +21941,19 @@ export default {
       const resolvedDomainId = existingDomain ? existingDomain.id : domainId;
 
       if (!existingDomain) {
-        // Entitlement: domain-per-workspace limit.
+        // Entitlement: per-workspace limit + account-level limit for new domains only.
         // burstOwnerId is already resolved above for the hourly rate-limit check.
         const domScanPlan   = await getEffectivePlan(burstOwnerId, env);
         const domScanUsage  = await getEntitlementUsage(user, env, workspaceId);
         const domScanLimits = getPlanLimits(domScanPlan);
+        // (a) Per-workspace limit
         if (domScanUsage.domains_in_workspace >= domScanLimits.domains_per_workspace) {
           return json(planLimitExceeded("domains", domScanLimits.domains, domScanUsage.domains_in_workspace), 403);
+        }
+        // (b) Account-level limit across all owned workspaces
+        const domScanOwnerAcct = await getAccountUsage(burstOwnerId, env);
+        if (domScanOwnerAcct.domains >= domScanLimits.domains) {
+          return json(planLimitExceeded("domains", domScanLimits.domains, domScanOwnerAcct.domains), 403);
         }
 
         await env.cybermeters_db
@@ -27699,15 +27705,24 @@ export default {
           return json({ imported: 0, skipped: 0, invalid: invalid.length, total: rawList.length });
         }
 
-        // Entitlement: domain-per-workspace limit — check before touching DB
+        // Entitlement: per-workspace limit + account-level limit — check before touching DB
         const importBillingUserId = await getWorkspaceBillingUserId(workspaceId, importUser.id, env);
         const impPlan = await getEffectivePlan(importBillingUserId, env);
         const impUsage  = await getEntitlementUsage(importUser, env, workspaceId);
         const impLimits = getPlanLimits(impPlan);
-        const remaining = impLimits.domains_per_workspace - impUsage.domains_in_workspace;
-        if (remaining <= 0) {
+        // (a) Per-workspace headroom
+        const wsRemaining = impLimits.domains_per_workspace - impUsage.domains_in_workspace;
+        if (wsRemaining <= 0) {
           return json(planLimitExceeded("domains", impLimits.domains, impUsage.domains_in_workspace), 403);
         }
+        // (b) Account-level headroom across all owned workspaces
+        const impOwnerAcct = await getAccountUsage(importBillingUserId, env);
+        const acctRemaining = impLimits.domains - impOwnerAcct.domains;
+        if (acctRemaining <= 0) {
+          return json(planLimitExceeded("domains", impLimits.domains, impOwnerAcct.domains), 403);
+        }
+        // Trim to whichever headroom is smaller
+        const remaining = Math.min(wsRemaining, acctRemaining);
         // Trim valid list to what fits
         const validTrimmed = valid.slice(0, remaining);
         const trimmedCount = valid.length - validTrimmed.length;
@@ -28417,13 +28432,20 @@ export default {
           );
         }
         try {
-          // Entitlement: domain-per-workspace limit
+          // Entitlement: per-workspace limit + account-level cross-workspace limit
           const domainBillingUserId = await getWorkspaceBillingUserId(workspaceId, wsUser.id, env);
           const domPlan = await getEffectivePlan(domainBillingUserId, env);
           const domUsage  = await getEntitlementUsage(wsUser, env, workspaceId);
           const domLimits = getPlanLimits(domPlan);
+          // (a) Per-workspace limit
           if (domUsage.domains_in_workspace >= domLimits.domains_per_workspace) {
             return json(planLimitExceeded("domains", domLimits.domains, domUsage.domains_in_workspace), 403);
+          }
+          // (b) Account-level limit: total unique domains across all owned workspaces.
+          //     Uses the billing owner's workspace set so non-owner members are scoped correctly.
+          const domOwnerAcct = await getAccountUsage(domainBillingUserId, env);
+          if (domOwnerAcct.domains >= domLimits.domains) {
+            return json(planLimitExceeded("domains", domLimits.domains, domOwnerAcct.domains), 403);
           }
 
           // Scoped by user_id to prevent cross-user domain aliasing.
