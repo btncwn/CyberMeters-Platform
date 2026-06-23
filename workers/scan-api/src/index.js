@@ -2702,7 +2702,11 @@ async function runSubdomainsModule(domain) {
   const SOURCE    = "certificate_transparency_multi_source";
   const PER_CAP   = 200;   // max unique names from each CT source
   const MERGE_CAP = 300;   // cap on the merged deduplicated set
-  const HARD_CAP_MS = 15_000; // wall-clock hard cap for the whole module
+  // Sprint 10B: increased from 15s → 25s.
+  // crt.sh has a 12s fetch timeout; for large domains (many CT entries) body
+  // parsing + concurrent I/O queuing can push past 15s. 25s gives full headroom
+  // within the Workers waitUntil budget without risking actual Worker timeout.
+  const HARD_CAP_MS = 25_000;
 
   // Graceful fallback — returned on hard-cap timeout or unexpected throw
   const emptyResult = (error, wildcardDns = false, wildcardHost = null) => ({
@@ -2725,7 +2729,7 @@ async function runSubdomainsModule(domain) {
       _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP),
       new Promise((resolve) =>
         setTimeout(() =>
-          resolve(emptyResult("Subdomain discovery timed out (15s hard cap)")),
+          resolve(emptyResult("Subdomain discovery timed out (25s hard cap)")),
           HARD_CAP_MS
         )
       ),
@@ -8185,26 +8189,32 @@ async function upsertAssetInventory(scanId, domainId, domain, modules, env) {
 }
 
 // ── Scan Budget Tracking ──────────────────────────────────────────────────────
-// Pure computation — estimates subrequest usage per module and warns when
-// approaching the Cloudflare Worker free-plan 50-subrequest limit.
+// Pure computation — estimates subrequest usage per module.
+// CyberMeters runs on Workers Paid plan (1,000 subrequest limit per invocation).
+//
+// Sprint 10B audit — corrected counts:
+//   dns             — 17 (5 CF DoH: A/AAAA/NS/MX/CAA; 4 Google DoH: A/AAAA/MX/TXT;
+//                         1 Google DoH: _dmarc TXT; 1 Quad9 DoH: A; 2 CF DoH: TXT+_dmarcTXT
+//                         cross-check; 1 Google DoH: CAA cross-check; 3 CF DNSSEC: DS/DNSKEY/RRSIG)
+//                         Was: 11 — missed DNSSEC (3) + CAA Google cross-check (1) + TXT cross-checks (2)
+//   ssl             — 4  (HTTPS + www-HTTPS fallback + HTTP + crt.sh)
+//   headers         — 2  (HTTPS + HTTP fallback)
+//   email_security  — 22 (TXT root + _dmarc + 19 DKIM selector probes + up to 3 Phase 2 provider extras)
+//                         Was: 15 — DKIM expanded from 13 → 19 selectors in Sprint 9D but estimate never updated
+//   ct_discovery    — 4  (wildcard A + AAAA DoH + crt.sh + CertSpotter)
+//   dns_bruteforce  — actual checked count (capped at BRUTEFORCE_MAX_NAMES = 15)
+//   asset_exposure  — 0  (variable; up to 50×2 HTTP probes; tracked separately from exposure result)
+//   admin_surface   — 0  (pure computation, zero I/O)
+//   cve_kev         — 2  (NVD + CISA KEV)
+//   domain_security_enrichment — 0 (pure computation, zero I/O)
+//   Total core: ~65 / 1,000 limit = 6.5% of budget.
 
 function computeScanBudget(bruteforceChecked) {
-  // Approximate subrequest counts based on known module profiles:
-  //   dns             — 11 (A + AAAA + NS + MX + CAA via DoH + A/AAAA/MX/TXT(base)/TXT(dmarc) Google cross-check + Quad9 A)
-  //   ssl             — 4  (HTTPS + www-HTTPS fallback + HTTP + crt.sh)
-  //   headers         — 2  (HTTPS + HTTP fallback)
-  //   email_security  — 15 (TXT root + _dmarc + 13 DKIM selector probes)
-  //   ct_discovery    — 4  (wildcard A + AAAA DoH + crt.sh + CertSpotter)
-  //   dns_bruteforce  — actual checked count (capped at BRUTEFORCE_MAX_NAMES)
-  //   asset_exposure  — 0  (variable; counted from HTTP probe results, not tracked here)
-  //   admin_surface   — 0  (pure computation, zero I/O)
-  //   cve_kev         — 2  (NVD 0-3 + CISA KEV 1; use 2 as conservative estimate)
-  //   domain_security_enrichment — 0 (pure computation, zero I/O)
   const moduleEstimates = {
-    dns:                        11,
+    dns:                        17,
     ssl:                        4,
     headers:                    2,
-    email_security:             15,
+    email_security:             22,
     ct_discovery:               4,
     dns_bruteforce:             typeof bruteforceChecked === "number" ? bruteforceChecked : BRUTEFORCE_MAX_NAMES,
     asset_exposure:             0,
@@ -8214,41 +8224,46 @@ function computeScanBudget(bruteforceChecked) {
   };
 
   const total = Object.values(moduleEstimates).reduce((sum, n) => sum + n, 0);
-  const warnings = [];
-  if (total > 45) {
-    warnings.push("Partial scan completed. Some advanced discovery modules could not be completed during this scan.");
-  }
 
   return {
     estimated_subrequests_total: total,
     modules: moduleEstimates,
-    warnings,
+    warnings: [],
   };
 }
 
 function buildScanQuality(modules = {}) {
+  // Sprint 10B: Workers Paid plan limit is 1,000 subrequests.
+  // Previous value of 50 (free plan) caused every scan to report false "skipped" warnings.
+  const SUBREQUEST_LIMIT = 1_000;
+
   const budget = modules.scan_budget || computeScanBudget();
   const estimated = budget.estimated_subrequests_total ?? 0;
-  const limit = 50;
-  const warnings = [...(budget.warnings || [])];
+  const warnings = [];
   const modulesSkipped = [];
 
   const coreModules = ["dns", "ssl", "headers", "email_security", "subdomains"];
   const coreIncomplete = coreModules.filter((name) => modules[name]?.error);
 
+  // Classify modules that actually timed out or were skipped.
+  // "skipped_due_to_subrequest_budget" is a legacy sentinel from the CAA lookup path;
+  // "timed out" indicates the module hit its own hard-cap and returned empty.
   for (const [name, value] of Object.entries(modules)) {
     const error = String(value?.error || "").toLowerCase();
-    if (error.includes("skipped") || error.includes("timeout")) modulesSkipped.push(name);
+    if (error.includes("skipped_due_to_subrequest_budget") || error.includes("timed out")) {
+      modulesSkipped.push(name);
+    }
   }
 
-  if (estimated >= 45 && !warnings.some(w => w.startsWith("Partial scan completed"))) {
-    warnings.push("Partial scan completed. Some advanced discovery modules could not be completed during this scan.");
-  }
-  if (estimated > limit) {
-    warnings.push("Subdomain discovery was skipped for this scan. Core security checks completed successfully.");
-  }
+  // Only warn on real module failures, not budget projections.
   for (const name of coreIncomplete) {
     warnings.push(`Core module incomplete: ${name}`);
+  }
+  for (const name of modulesSkipped) {
+    // Only surface the subdomain module skip — the one customers see in the UI.
+    if (name === "subdomains") {
+      warnings.push("Subdomain discovery timed out for this scan. Core security checks completed successfully.");
+    }
   }
 
   const status = coreIncomplete.length > 0
@@ -8261,8 +8276,8 @@ function buildScanQuality(modules = {}) {
     modules_skipped: modulesSkipped,
     subrequest_budget: {
       estimated,
-      limit,
-      remaining_estimate: Math.max(0, limit - estimated),
+      limit:             SUBREQUEST_LIMIT,
+      remaining_estimate: Math.max(0, SUBREQUEST_LIMIT - estimated),
     },
   };
 }
@@ -21638,8 +21653,8 @@ export default {
         modules_skipped: [],
         subrequest_budget: {
           estimated: 0,
-          limit: 50,
-          remaining_estimate: 50,
+          limit: 1_000,       // Sprint 10B: Workers Paid plan limit
+          remaining_estimate: 1_000,
         },
       };
 
