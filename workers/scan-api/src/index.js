@@ -16422,6 +16422,7 @@ const ROLE_RANK = { viewer: 0, analyst: 1, admin: 2, owner: 3 };
 const PERMISSION_MIN_ROLE = {
   // Workspace management
   "workspace:read":            "viewer",
+  "workspace:manage":          "admin",   // rename, general settings — B1
   "workspace:invite":          "admin",
   "workspace:manage_members":  "owner",
   "workspace:delete":          "owner",
@@ -16462,6 +16463,7 @@ const PERMISSION_SCOPE = {
   "member:read":              "read",
   "audit:read":               "read",
   // write-scope operations
+  "workspace:manage":         "write",
   "scan:create":              "write",
   "schedule:manage":          "write",
   "domain:add":               "write",
@@ -17713,6 +17715,9 @@ async function handleStripeSubscriptionDeleted(env, subscription) {
     .bind(stripeUnixToIso(subscription?.current_period_end), rowId)
     .run();
 
+  // Billing audit trail — non-fatal
+  await writeSubscriptionEvent(env, rowId, "subscription.deleted", subscription);
+
   // Notify workspace owner of cancellation via email + in-app notification.
   try {
     const subRow = await env.cybermeters_db
@@ -17734,7 +17739,7 @@ async function handleStripeSubscriptionDeleted(env, subscription) {
         env,
         "ALERT_EMAIL_FROM",
         [subRow.email]
-      ).catch(() => {});
+      ).catch(e => console.error("[subscription_canceled] cancellation email failed:", e?.message ?? e));
     }
 
     if (subRow?.workspace_id) {
@@ -17745,6 +17750,19 @@ async function handleStripeSubscriptionDeleted(env, subscription) {
         message:  "Your subscription has been cancelled and your account has moved to the free plan. Visit Billing to resubscribe.",
         metadata: { subscription_id: rowId },
         user_id:  subRow.owner_user_id ?? null,
+      }).catch(() => {});
+
+      await createAuditEvent(env, {
+        workspace_id: subRow.workspace_id,
+        user_id:      subRow.owner_user_id ?? null,
+        event_type:   "subscription_canceled",
+        entity_type:  "subscription",
+        entity_id:    rowId,
+        description:  "Stripe subscription cancelled — account reverted to free plan",
+        metadata:     {
+          stripe_subscription_id: subscription?.id ?? null,
+          current_period_end:     stripeUnixToIso(subscription?.current_period_end),
+        },
       }).catch(() => {});
     }
   } catch {
@@ -19724,16 +19742,31 @@ export default {
           .first();
 
         if (user) {
-          // Link existing account to this Microsoft identity
+          // Link existing account to this Microsoft identity.
+          // If the local account is unverified / pending, Microsoft OAuth implicitly
+          // verifies the email (same address) and activates the account — the user
+          // has just proven control of that inbox via their Microsoft identity provider.
           await env.cybermeters_db
             .prepare(
               `UPDATE users
-               SET microsoft_oid = ?, tenant_id = ?, auth_provider = 'microsoft',
-                   last_login_at = datetime('now')
+               SET microsoft_oid    = ?,
+                   tenant_id        = ?,
+                   auth_provider    = 'microsoft',
+                   last_login_at    = datetime('now'),
+                   email_verified     = CASE WHEN email_verified = 0 THEN 1 ELSE email_verified END,
+                   email_verified_at  = CASE WHEN email_verified = 0 THEN datetime('now') ELSE email_verified_at END,
+                   status             = CASE WHEN status = 'pending_verification' THEN 'active' ELSE status END
                WHERE id = ?`
             )
             .bind(msOid, msTid, user.id)
             .run();
+          // Refresh user object so status/email_verified reflect post-update state
+          const refreshed = await env.cybermeters_db
+            .prepare("SELECT id, email, name, plan, status FROM users WHERE id = ? LIMIT 1")
+            .bind(user.id)
+            .first()
+            .catch(() => null);
+          if (refreshed) user = refreshed;
         }
       }
 
@@ -28239,6 +28272,37 @@ export default {
         }
       }
 
+      // ── PATCH /api/workspaces/:id ─────────────────────────────────────────
+      // Renames the workspace. Requires admin role or above.
+      if (request.method === "PATCH" && !subResource) {
+        const patchAccess = await requireWorkspaceRole(wsUser, workspaceId, "workspace:manage", env);
+        if (!patchAccess) return json({ error: "Forbidden — admin role required to rename workspace" }, 403);
+        let body;
+        try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+        const newName = (body?.name ?? "").trim();
+        if (!newName) return json({ error: "name is required" }, 400);
+        if (newName.length > 100) return json({ error: "name must be 100 characters or fewer" }, 400);
+        const oldName = workspace.name;
+        try {
+          await env.cybermeters_db
+            .prepare(`UPDATE workspaces SET name = ?, updated_at = datetime('now') WHERE id = ? AND deleted_at IS NULL`)
+            .bind(newName, workspaceId)
+            .run();
+          await createAuditEvent(env, {
+            workspace_id: workspaceId,
+            user_id:      wsUser?.id ?? null,
+            event_type:   "workspace_renamed",
+            entity_type:  "workspace",
+            entity_id:    workspaceId,
+            description:  `Workspace renamed from "${oldName}" to "${newName}"`,
+            metadata:     { name: newName, old_name: oldName },
+          });
+          return json({ workspace: { id: workspaceId, name: newName } });
+        } catch {
+          return json({ error: "Database error" }, 500);
+        }
+      }
+
       // ── DELETE /api/workspaces/:id/domains/:domainId ──────────────────
       // Removes the workspace↔domain link only. Domain row is untouched.
       if (request.method === "DELETE" && subResource && linkedDomainId) {
@@ -28261,6 +28325,29 @@ export default {
           if (del.meta.changes === 0) {
             return json({ error: "Domain link not found" }, 404);
           }
+
+          // ── Cascade cleanup ─────────────────────────────────────────────
+          // Disable scheduled scans and deactivate assets/brand candidates
+          // for this domain within this workspace. Use fire-and-forget so
+          // cascade failures never block the 200 response.
+          if (domainRow?.domain) {
+            env.cybermeters_db
+              .prepare(`UPDATE scheduled_scans SET enabled = 0 WHERE workspace_id = ? AND domain = ?`)
+              .bind(workspaceId, domainRow.domain)
+              .run()
+              .catch(e => console.error("[domain_remove_cascade] scheduled_scans:", e?.message));
+            env.cybermeters_db
+              .prepare(`UPDATE workspace_brand_assets SET status = 'inactive', updated_at = datetime('now') WHERE workspace_id = ? AND domain = ?`)
+              .bind(workspaceId, domainRow.domain)
+              .run()
+              .catch(e => console.error("[domain_remove_cascade] brand_assets:", e?.message));
+          }
+          env.cybermeters_db
+            .prepare(`UPDATE workspace_assets SET status = 'inactive', updated_at = datetime('now') WHERE workspace_id = ? AND domain_id = ?`)
+            .bind(workspaceId, linkedDomainId)
+            .run()
+            .catch(e => console.error("[domain_remove_cascade] workspace_assets:", e?.message));
+
           await createAuditEvent(env, {
             workspace_id: workspaceId,
             user_id:      wsUser?.id ?? null,

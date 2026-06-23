@@ -7,13 +7,14 @@
  *   /verify-email?success=1          — token was valid; account is now active
  *   /verify-email?error=<reason>     — token was invalid or expired
  */
-import { useState } from 'react'
-import { useSearchParams, Link } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { useSearchParams, Link, useNavigate } from 'react-router-dom'
 import { Shield, CheckCircle, AlertTriangle, Mail } from 'lucide-react'
 import { api } from '../api'
 
 export default function EmailVerificationPage() {
   const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
   const success = searchParams.get('success') === '1'
   const error   = searchParams.get('error')
 
@@ -21,6 +22,23 @@ export default function EmailVerificationPage() {
   const [resendEmail,   setResendEmail]   = useState('')
   const [resendLoading, setResendLoading] = useState(false)
   const [resendDone,    setResendDone]    = useState(false)
+  const [countdown,     setCountdown]     = useState(3)
+
+  // Auto-redirect to /login 3 seconds after successful verification.
+  useEffect(() => {
+    if (!success) return
+    const interval = setInterval(() => {
+      setCountdown(prev => {
+        if (prev <= 1) {
+          clearInterval(interval)
+          navigate('/login', { replace: true })
+          return 0
+        }
+        return prev - 1
+      })
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [success, navigate])
 
   async function handleResend(e) {
     e.preventDefault()
@@ -67,6 +85,9 @@ export default function EmailVerificationPage() {
             <Link to="/login" className="btn-primary w-full justify-center">
               Sign in
             </Link>
+            <p className="text-xs text-gray-400 mt-3">
+              Redirecting in {countdown}…
+            </p>
           </>
         )}
 
