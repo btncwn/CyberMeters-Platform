@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useSearchParams, useNavigate } from 'react-router-dom'
-import { Shield, Lock, AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { Lock, AlertTriangle, CheckCircle2 } from 'lucide-react'
+import CyberMetersLogo from '../components/CyberMetersLogo'
 import { api } from '../api'
 
 export default function ResetPasswordPage() {
@@ -63,15 +64,7 @@ export default function ResetPasswordPage() {
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4">
 
       {/* Brand */}
-      <div className="flex items-center gap-2.5 mb-8">
-        <div className="w-10 h-10 rounded-xl bg-brand-600 flex items-center justify-center shadow-sm">
-          <Shield className="w-5 h-5 text-white" strokeWidth={2.5} />
-        </div>
-        <div className="leading-none">
-          <div className="font-bold text-gray-900 text-lg tracking-tight">CyberMeters</div>
-          <div className="text-[10px] font-semibold text-brand-600 tracking-widest uppercase mt-0.5">Platform</div>
-        </div>
-      </div>
+      <CyberMetersLogo size={40} showWordmark className="mb-8" />
 
       <div className="card w-full max-w-sm p-8">
         {done ? (

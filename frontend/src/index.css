@@ -94,3 +94,11 @@
   .data-table td { @apply px-5 py-3.5 text-sm; }
   .data-table tr:not(:last-child) td { @apply border-b border-gray-50; }
 }
+
+/* CyberMeters logo — animated needle keyframes (marketing hero only) */
+@keyframes cmNeedleSwing {
+  0%, 100% { transform: rotate(-9deg); }
+  25%       { transform: rotate(13deg); }
+  50%       { transform: rotate(31deg); }
+  75%       { transform: rotate(13deg); }
+}

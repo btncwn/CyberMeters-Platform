@@ -6,6 +6,7 @@ import {
   Briefcase, ChevronRight, Check, Layers, LogOut, User,
   AlertTriangle, X, CreditCard, GraduationCap, ShieldAlert,
 } from 'lucide-react'
+import CyberMetersLogo from './CyberMetersLogo'
 import { api, logoutWithToken } from '../api'
 import { TOKEN_KEY } from '../context/authKeys'
 import { useAuth } from '../context/AuthContext'
@@ -334,15 +335,9 @@ export default function Layout() {
           {/* Logo */}
           <button
             onClick={() => navigate('/dashboard')}
-            className="flex items-center gap-2.5 flex-shrink-0 group mr-2"
+            className="flex-shrink-0 group mr-2"
           >
-            <div className="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center group-hover:bg-brand-700 transition-colors">
-              <Shield className="w-[18px] h-[18px] text-white" strokeWidth={2.5} />
-            </div>
-            <div className="leading-none">
-              <div className="font-bold text-gray-900 text-[15px] tracking-tight">CyberMeters</div>
-              <div className="text-[10px] font-semibold text-brand-600 tracking-widest uppercase mt-0.5">Platform</div>
-            </div>
+            <CyberMetersLogo size={28} showWordmark />
           </button>
 
           {/* Nav */}
