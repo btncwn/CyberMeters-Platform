@@ -337,7 +337,7 @@ export default function Layout() {
             onClick={() => navigate('/dashboard')}
             className="flex-shrink-0 group mr-2"
           >
-            <CyberMetersLogo size={28} showWordmark animated />
+            <CyberMetersLogo size={36} showWordmark animated />
           </button>
 
           {/* Nav */}
