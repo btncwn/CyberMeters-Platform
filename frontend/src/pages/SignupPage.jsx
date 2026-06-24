@@ -48,8 +48,8 @@ export default function SignupPage() {
     if (loading) return
     setError(null)
 
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters.')
+    if (password.length < 12) {
+      setError('Password must be at least 12 characters.')
       return
     }
     if (password !== confirm) {
@@ -160,7 +160,7 @@ export default function SignupPage() {
               <input
                 type="password"
                 className="input pl-10"
-                placeholder="At least 8 characters"
+                placeholder="At least 12 characters"
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 required

@@ -41,8 +41,8 @@ export default function ResetPasswordPage() {
       setError("Passwords don't match")
       return
     }
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters')
+    if (password.length < 12) {
+      setError('Password must be at least 12 characters')
       return
     }
 
@@ -112,11 +112,11 @@ export default function ResetPasswordPage() {
                   <input
                     type="password"
                     className="input pl-10"
-                    placeholder="At least 8 characters"
+                    placeholder="At least 12 characters"
                     value={password}
                     onChange={e => setPassword(e.target.value)}
                     required
-                    minLength={8}
+                    minLength={12}
                     autoComplete="new-password"
                     autoFocus
                   />

@@ -19167,7 +19167,7 @@ export default {
 
       if (!isValidEmail(email))        return json({ error: "A valid email address is required" }, 400);
       if (!password)                   return json({ error: "Password cannot be blank" }, 400);
-      if (password.length < 8)         return json({ error: "Password must be at least 8 characters" }, 400);
+      if (password.length < 12)        return json({ error: "Password must be at least 12 characters" }, 400);
       if (password.length > 128)       return json({ error: "Password is too long" }, 400);
 
       try {
@@ -19254,6 +19254,31 @@ export default {
       const password = (body.password || "").trim();
 
       if (!email || !password) return json({ error: "Email and password are required" }, 400);
+
+      // ── Login brute-force protection ──────────────────────────────────────
+      // Rate-limit by hashed client IP: 10 attempts per 15-minute window.
+      // Fires before any credential check to prevent timing-assisted enumeration
+      // at high attempt counts. Generic 429 message does not reveal account state.
+      const _loginClientIp = request.headers.get("CF-Connecting-IP") ||
+                             request.headers.get("X-Forwarded-For")?.split(",")[0]?.trim() ||
+                             "unknown";
+      const _loginIpHash = await (async () => {
+        try {
+          const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(_loginClientIp));
+          return Array.from(new Uint8Array(buf)).slice(0, 8).map(b => b.toString(16).padStart(2, "0")).join("");
+        } catch { return _loginClientIp.replace(/[^a-z0-9]/gi, "_").slice(0, 32); }
+      })();
+      const _loginRlResult = await consumeApiRateLimit(
+        env,
+        [{ scope: "ip", scope_id: `login_${_loginIpHash}` }],
+        "login",
+        10,
+        900, // 15 minutes
+      );
+      if (_loginRlResult) {
+        return json({ error: "Too many login attempts. Please wait before trying again.", code: "rate_limit_exceeded" }, 429);
+      }
+      // ─────────────────────────────────────────────────────────────────────
 
       try {
         const user = await env.cybermeters_db
@@ -20065,7 +20090,7 @@ export default {
 
       if (!rawToken)                    return json({ error: "token is required" }, 400);
       if (!newPassword)                 return json({ error: "Password cannot be blank" }, 400);
-      if (newPassword.length < 8)       return json({ error: "Password must be at least 8 characters" }, 400);
+      if (newPassword.length < 12)      return json({ error: "Password must be at least 12 characters" }, 400);
       if (newPassword.length > 128)     return json({ error: "Password is too long" }, 400);
 
       try {
