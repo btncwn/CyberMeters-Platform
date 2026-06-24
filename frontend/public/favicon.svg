@@ -1,6 +1,22 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
   <defs>
-    <!-- Needle gradient: green (bottom) → red (top) -->
+    <style>
+      @keyframes cmNeedleSwing {
+        0%, 100% { transform: rotate(-9deg); }
+        25%       { transform: rotate(13deg); }
+        50%       { transform: rotate(31deg); }
+        75%       { transform: rotate(13deg); }
+      }
+      /* transform-box: fill-box scopes transform-origin to element bbox.        */
+      /* Needle rect bbox center = (16,16) = SVG center — correct pivot point.   */
+      /* SVG transform attr is static fallback for browsers with no CSS anim.    */
+      .cm-needle {
+        transform-box: fill-box;
+        transform-origin: 50% 50%;
+        animation: cmNeedleSwing 13s ease-in-out infinite;
+      }
+    </style>
+    <!-- Needle gradient: green (bottom / low risk) → red (top / critical) -->
     <linearGradient id="fg" x1="0.5" y1="1" x2="0.5" y2="0">
       <stop offset="0%"   stop-color="#00C389"/>
       <stop offset="33%"  stop-color="#59D98E"/>
@@ -10,16 +26,16 @@
     </linearGradient>
   </defs>
 
-  <!-- Left bracket — square ends, metallic graphite -->
+  <!-- Left bracket — square ends, metallic graphite, STATIC -->
   <polyline points="20,4 8,16 20,28"
     stroke="#2B3440" stroke-width="4" stroke-linecap="square" stroke-linejoin="miter"/>
 
-  <!-- Right bracket -->
+  <!-- Right bracket — STATIC -->
   <polyline points="12,4 24,16 12,28"
     stroke="#2B3440" stroke-width="4" stroke-linecap="square" stroke-linejoin="miter"/>
 
-  <!-- Needle at neutral angle (-9°) -->
-  <g transform="rotate(-9, 16, 16)">
+  <!-- Needle — animated via CSS; SVG transform attr is static fallback -->
+  <g transform="rotate(-9, 16, 16)" class="cm-needle">
     <rect x="14.5" y="1" width="3" height="30" rx="0" fill="url(#fg)"/>
   </g>
 </svg>

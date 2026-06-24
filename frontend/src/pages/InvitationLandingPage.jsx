@@ -221,7 +221,7 @@ export default function InvitationLandingPage() {
   if (loading || authLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center gap-4">
-        <CyberMetersLogoMark size={32} showWordmark />
+        <CyberMetersLogoMark size={32} showWordmark animated />
         <RefreshCw className="w-6 h-6 text-brand-500 animate-spin mt-4" />
         <p className="text-sm text-gray-400">Loading invitation…</p>
       </div>
@@ -233,7 +233,7 @@ export default function InvitationLandingPage() {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4">
         <div className="w-full max-w-md space-y-6">
-          <div className="flex justify-center"><CyberMetersLogoMark size={32} showWordmark /></div>
+          <div className="flex justify-center"><CyberMetersLogoMark size={32} showWordmark animated /></div>
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 text-center">
             <div className="w-14 h-14 rounded-2xl bg-red-50 flex items-center justify-center mx-auto mb-4">
               <X className="w-7 h-7 text-red-500" />
@@ -256,7 +256,7 @@ export default function InvitationLandingPage() {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4">
         <div className="w-full max-w-md space-y-6">
-          <div className="flex justify-center"><CyberMetersLogoMark size={32} showWordmark /></div>
+          <div className="flex justify-center"><CyberMetersLogoMark size={32} showWordmark animated /></div>
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 text-center">
             <div className="w-14 h-14 rounded-2xl bg-amber-50 flex items-center justify-center mx-auto mb-4">
               <Clock className="w-7 h-7 text-amber-500" />
@@ -280,7 +280,7 @@ export default function InvitationLandingPage() {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4">
         <div className="w-full max-w-md space-y-6">
-          <div className="flex justify-center"><CyberMetersLogoMark size={32} showWordmark /></div>
+          <div className="flex justify-center"><CyberMetersLogoMark size={32} showWordmark animated /></div>
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 text-center">
             <div className="w-14 h-14 rounded-2xl bg-green-50 flex items-center justify-center mx-auto mb-4">
               <CheckCircle className="w-7 h-7 text-green-500" />
@@ -304,7 +304,7 @@ export default function InvitationLandingPage() {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4">
         <div className="w-full max-w-md space-y-6">
-          <div className="flex justify-center"><CyberMetersLogoMark size={32} showWordmark /></div>
+          <div className="flex justify-center"><CyberMetersLogoMark size={32} showWordmark animated /></div>
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 text-center">
             <div className="w-14 h-14 rounded-2xl bg-gray-50 flex items-center justify-center mx-auto mb-4">
               <X className="w-7 h-7 text-gray-400" />
@@ -328,7 +328,7 @@ export default function InvitationLandingPage() {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4">
         <div className="w-full max-w-md space-y-6">
-          <div className="flex justify-center"><CyberMetersLogoMark size={32} showWordmark /></div>
+          <div className="flex justify-center"><CyberMetersLogoMark size={32} showWordmark animated /></div>
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 text-center">
             <div className="w-14 h-14 rounded-2xl bg-green-50 flex items-center justify-center mx-auto mb-4">
               <CheckCircle className="w-7 h-7 text-green-500" />
@@ -354,7 +354,7 @@ export default function InvitationLandingPage() {
       {/* Top bar */}
       <header className="bg-white border-b border-gray-100 px-6 py-4">
         <div className="max-w-screen-md mx-auto">
-          <CyberMetersLogoMark size={32} showWordmark />
+          <CyberMetersLogoMark size={32} showWordmark animated />
         </div>
       </header>
 

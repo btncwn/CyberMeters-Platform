@@ -73,7 +73,7 @@ export default function SignupPage() {
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4">
 
       {/* Brand */}
-      <CyberMetersLogo size={40} showWordmark className="mb-8" />
+      <CyberMetersLogo size={40} showWordmark animated className="mb-8" />
 
       {/* ── Success: email sent ── */}
       {done ? (
