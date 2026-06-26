@@ -7,21 +7,14 @@
  * Props:
  *   size        {number}  Height of the mark in px (default 32). Width is derived.
  *   showWordmark{bool}    Render "CyberMeters" wordmark beside the mark (default false).
- *   animated    {bool}    Animate the needle. Uses CSS class cm-needle-animated defined
- *                         in index.css (default false). Static on PDF/email/exports.
+ *   animated    {bool}    Animate the needle — MARKETING SURFACES ONLY (default false).
+ *                         Requires the @keyframes cmNeedleSwing rule in index.css.
  *   className   {string}  Extra class on the root element.
  *
- * Animation note:
- *   The animated <g> uses className="cm-needle-animated" — NOT inline transformOrigin.
- *   Inline px-based transformOrigin is broken for non-32 sizes because it operates in
- *   CSS pixel space, not SVG viewBox units. The CSS class uses transform-box:fill-box
- *   so transform-origin:center always resolves to the needle's own bounding-box center
- *   (SVG point 16,16) regardless of the rendered CSS size.
- *
  * Usage:
- *   <CyberMetersLogo size={36} showWordmark animated />  // navbar
- *   <CyberMetersLogo size={48} showWordmark animated />  // auth pages
- *   <CyberMetersLogo size={64} showWordmark animated />  // hero
+ *   <CyberMetersLogo size={32} />                        // icon only, navbar
+ *   <CyberMetersLogo size={40} showWordmark />           // full logo, auth pages
+ *   <CyberMetersLogo size={64} showWordmark animated />  // homepage hero
  */
 import { useId } from 'react'
 
@@ -81,15 +74,16 @@ export default function CyberMetersLogo({
 
       {/*
         Needle — the only colored/animated element.
-        Static:  SVG transform attribute (reliable, no CSS dependency).
-        Animated: className="cm-needle-animated" — see index.css.
-                  Must NOT use inline transformOrigin in CSS px: that value is in
-                  rendered CSS pixels, which differs from SVG viewBox units at every
-                  size except 32. transform-box:fill-box in the CSS class fixes this.
+        Static: SVG transform attribute (reliable, no CSS dependency).
+        Animated: CSS animation (marketing hero only).
+        Slightly taller than brackets (y=1..31 vs brackets y=4..28).
       */}
       <g
         transform={!animated ? 'rotate(-9, 16, 16)' : undefined}
-        className={animated ? 'cm-needle-animated' : undefined}
+        style={animated ? {
+          transformOrigin: '16px 16px',
+          animation: 'cmNeedleSwing 13s ease-in-out infinite',
+        } : undefined}
       >
         <rect
           x="14.5"

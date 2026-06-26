@@ -95,30 +95,10 @@
   .data-table tr:not(:last-child) td { @apply border-b border-gray-50; }
 }
 
-/* ─── CyberMeters logo — animated needle ────────────────────────────────────
- *
- * Applied to the needle <g> via className="cm-needle-animated".
- *
- * KEY: transform-box:fill-box makes transform-origin relative to the element's
- * own bounding box (not the SVG viewport). The needle rect (x=14.5 y=1 w=3 h=30)
- * has its bbox center at SVG point (16,16). With fill-box, "center" always maps
- * to that point regardless of what CSS pixel size the SVG is rendered at.
- * Without this, the legacy inline "transformOrigin: 16px 16px" only worked
- * correctly when size===32 (since 16px CSS == 16 SVG units only at that size).
- *
- * The animation is NOT wrapped in prefers-reduced-motion per product policy.
- * ─────────────────────────────────────────────────────────────────────────── */
-.cm-needle-animated {
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: cmNeedleSwing 13s ease-in-out infinite;
-  /* Subtle warm amber glow — matches mid-gradient and signals "live" state */
-  filter: drop-shadow(0 0 3px rgba(235, 197, 71, 0.8))
-          drop-shadow(0 0 6px rgba(255, 159, 67, 0.4));
-}
-
+/* CyberMeters logo — animated needle keyframes (marketing hero only) */
 @keyframes cmNeedleSwing {
-  /* 50° total arc (-15° → 35°) — visibly premium, not a spinner */
-  0%, 100% { transform: rotate(-15deg); }
-  50%       { transform: rotate(35deg); }
+  0%, 100% { transform: rotate(-9deg); }
+  25%       { transform: rotate(13deg); }
+  50%       { transform: rotate(31deg); }
+  75%       { transform: rotate(13deg); }
 }
