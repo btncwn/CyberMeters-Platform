@@ -157,7 +157,7 @@ export default function PricingPage() {
       <header className="bg-white border-b border-gray-100">
         <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
           <Link to={isAuthenticated ? '/dashboard' : '/login'}>
-            <CyberMetersLogo size={28} showWordmark animated />
+            <CyberMetersLogo size={36} showWordmark animated />
           </Link>
           <nav className="flex items-center gap-4 text-sm font-medium">
             <Link to="/support" className="text-gray-500 hover:text-gray-800">Support</Link>

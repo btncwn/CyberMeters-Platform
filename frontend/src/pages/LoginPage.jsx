@@ -133,7 +133,7 @@ export default function LoginPage() {
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4">
 
       {/* Brand */}
-      <CyberMetersLogo size={40} showWordmark animated className="mb-8" />
+      <CyberMetersLogo size={48} showWordmark animated className="mb-8" />
 
       <div className="card w-full max-w-sm p-8">
 
