@@ -94,13 +94,18 @@ async function generateInviteToken() {
 
 /**
  * generateVerificationToken — creates a 64-char hex token for email verification.
- * Unlike session tokens, this is stored as plain-text in D1 (no hashing needed)
- * because it is only ever transmitted via a one-time email link over HTTPS.
+ * The raw token is only sent by email. D1 stores its SHA-256 hash.
  */
 function generateVerificationToken() {
   return Array.from(crypto.getRandomValues(new Uint8Array(32)))
     .map(b => b.toString(16).padStart(2, "0"))
     .join("");
+}
+
+async function generateEmailVerificationToken() {
+  const raw = generateVerificationToken();
+  const hash = await hashToken(raw);
+  return { raw, hash };
 }
 
 // ── Microsoft Entra OAuth helpers ────────────────────────────────────────────
@@ -18318,7 +18323,16 @@ function rateLimitExceeded(action, limit, windowSeconds, resetAt) {
   };
 }
 
-async function consumeApiRateLimit(env, scopes, action, limit, windowSeconds = 3600) {
+async function rateLimitScopeId(prefix, value) {
+  const raw = String(value || "unknown");
+  try {
+    return `${prefix}_${(await hashToken(raw)).slice(0, 16)}`;
+  } catch {
+    return `${prefix}_${raw.replace(/[^a-z0-9]/gi, "_").slice(0, 32)}`;
+  }
+}
+
+async function consumeApiRateLimit(env, scopes, action, limit, windowSeconds = 3600, options = {}) {
   // D1-backed rate limiting is adequate for early launch and intentionally
   // fails open if the table or query is unavailable. The read/update sequence
   // is not fully atomic under high concurrency; a future hardening pass can
@@ -18367,8 +18381,12 @@ async function consumeApiRateLimit(env, scopes, action, limit, windowSeconds = 3
         .run();
     }
     return null;
-  } catch {
-    return null; // fail-open: rate-limit table issues must not break scan starts
+  } catch (e) {
+    console.error(`[rate-limit] ${action} check failed: ${e?.message ?? e}`);
+    if (options.failClosed) {
+      return { status: 503, body: { error: "Rate limiting is temporarily unavailable. Please try again shortly.", code: "rate_limit_unavailable" } };
+    }
+    return null; // fail-open for authenticated customer flows to avoid lockout
   }
 }
 
@@ -18444,16 +18462,20 @@ function buildCorsHeaders(env) {
 }
 
 // Module-level json() uses the production default — overridden per-request inside fetch().
+function buildJsonHeaders(_corsHeaders = buildCorsHeaders(null)) {
+  return {
+    ..._corsHeaders,
+    // Prevent Cloudflare edge and browser caches from serving stale API responses.
+    // Scan status, notifications, and workspace data change frequently and must
+    // always reflect the current database state.
+    'Cache-Control': 'no-store',
+  };
+}
+
 function json(data, status = 200, _corsHeaders = buildCorsHeaders(null)) {
   return Response.json(data, {
     status,
-    headers: {
-      ..._corsHeaders,
-      // Prevent Cloudflare edge and browser caches from serving stale API responses.
-      // Scan status, notifications, and workspace data change frequently and must
-      // always reflect the current database state.
-      'Cache-Control': 'no-store',
-    },
+    headers: buildJsonHeaders(_corsHeaders),
   });
 }
 
@@ -18820,7 +18842,11 @@ export default {
     const corsHeaders = buildCorsHeaders(env);
     // Shadow the module-level json() so every route in this handler uses the
     // correct per-request origin without touching individual call sites.
-    const json = (data, status = 200) => Response.json(data, { status, headers: corsHeaders });
+    const json = (data, status = 200) => Response.json(data, { status, headers: buildJsonHeaders(corsHeaders) });
+    const serverError = (scope, error, message = "Request failed. Please try again.") => {
+      console.error(`[${scope}] ${error?.message ?? error}`);
+      return json({ error: message }, 500);
+    };
 
     const url = new URL(request.url);
 
@@ -18886,7 +18912,7 @@ export default {
           current_period_end: null,
         });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("billing/subscription", e, "Unable to load subscription.");
       }
     }
 
@@ -19170,6 +19196,20 @@ export default {
       if (password.length < 12)        return json({ error: "Password must be at least 12 characters" }, 400);
       if (password.length > 128)       return json({ error: "Password is too long" }, 400);
 
+      const signupClientIp = request.headers.get("CF-Connecting-IP") ||
+                             request.headers.get("X-Forwarded-For")?.split(",")[0]?.trim() ||
+                             "unknown";
+      const signupRateLimit = await consumeApiRateLimit(
+        env,
+        [{ scope: "ip", scope_id: await rateLimitScopeId("signup", signupClientIp) }],
+        "signup",
+        5,
+        3600,
+      );
+      if (signupRateLimit) {
+        return json({ error: "Too many signup attempts. Please wait before trying again.", code: "rate_limit_exceeded" }, signupRateLimit.status);
+      }
+
       try {
         // Check for duplicate email
         const existing = await env.cybermeters_db
@@ -19182,7 +19222,7 @@ export default {
         const passwordHash = await hashPassword(password);
 
         // Generate a 24-hour email verification token
-        const verificationToken        = generateVerificationToken();
+        const { raw: verificationToken, hash: verificationTokenHash } = await generateEmailVerificationToken();
         const verificationTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 
         await env.cybermeters_db
@@ -19193,7 +19233,7 @@ export default {
                 created_at)
              VALUES (?, ?, ?, 'free', ?, 'active', 0, ?, ?, datetime('now'))`
           )
-          .bind(userId, email, name || null, passwordHash, verificationToken, verificationTokenExpires)
+          .bind(userId, email, name || null, passwordHash, verificationTokenHash, verificationTokenExpires)
           .run();
 
         // Audit: account created
@@ -19241,7 +19281,7 @@ export default {
 
         return json({ success: true, verification_required: true, email }, 201);
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("auth/signup", e, "Signup failed. Please try again.");
       }
     }
 
@@ -19384,7 +19424,7 @@ export default {
           },
         });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("auth/login", e, "Login failed. Please try again.");
       }
     }
 
@@ -19450,12 +19490,15 @@ export default {
       }
 
       try {
+        const tokenHash = await hashToken(token);
         const userRow = await env.cybermeters_db
           .prepare(
             `SELECT id, email, email_verified, verification_token_expires_at
-             FROM users WHERE verification_token = ? LIMIT 1`
+             FROM users
+             WHERE verification_token IN (?, ?)
+             LIMIT 1`
           )
-          .bind(token)
+          .bind(tokenHash, token)
           .first();
 
         if (!userRow) {
@@ -19538,7 +19581,7 @@ export default {
           }
         }
 
-        const newToken   = generateVerificationToken();
+        const { raw: newToken, hash: newTokenHash } = await generateEmailVerificationToken();
         const newExpires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 
         await env.cybermeters_db
@@ -19548,7 +19591,7 @@ export default {
                  verification_token_expires_at = ?
              WHERE id = ?`
           )
-          .bind(newToken, newExpires, userRow.id)
+          .bind(newTokenHash, newExpires, userRow.id)
           .run();
 
         const workerBase  = url.origin;
@@ -20000,10 +20043,12 @@ export default {
       // Rate limit by source IP — 5 requests per 15-minute window.
       // Prevents email flooding and abuse of the email delivery system.
       // Fails open: if D1 is unavailable, the request proceeds normally.
-      const _fpIp = request.headers.get("CF-Connecting-IP") || "unknown";
+      const _fpIp = request.headers.get("CF-Connecting-IP") ||
+                    request.headers.get("X-Forwarded-For")?.split(",")[0]?.trim() ||
+                    "unknown";
       const _fpRl = await consumeApiRateLimit(
         env,
-        [{ scope: "ip", scope_id: _fpIp }],
+        [{ scope: "ip", scope_id: await rateLimitScopeId("forgot_password", _fpIp) }],
         "forgot_password",
         5,
         900 // 15 minutes
@@ -20076,7 +20121,7 @@ export default {
         // Always 200 — caller can't tell if account exists
         return json({ success: true, message: "If an account exists for this email, a reset link has been sent." });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("auth/forgot-password", e, "Password reset request failed. Please try again.");
       }
     }
 
@@ -20169,7 +20214,7 @@ export default {
 
         return json({ success: true, message: "Password updated. Please sign in with your new password." });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("auth/reset-password", e, "Password reset failed. Please try again.");
       }
     }
 
@@ -20189,7 +20234,7 @@ export default {
           mfa_enabled_at: row?.mfa_enabled_at ?? null,
         });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -20227,7 +20272,7 @@ export default {
 
         return json({ otpauth_uri: otpauthUri, secret_base32: base32Secret });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -20290,7 +20335,7 @@ export default {
         // Recovery codes are returned once — never stored in plaintext
         return json({ success: true, recovery_codes: rawCodes });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -20382,7 +20427,7 @@ export default {
           },
         });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -20471,7 +20516,7 @@ export default {
             : null,
         });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -20540,7 +20585,7 @@ export default {
 
         return json({ success: true, message: "MFA has been disabled." });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -20889,7 +20934,7 @@ export default {
 	          },
 	        });
 	      } catch (e) {
-	        return json({ error: e.message }, 500);
+	        return serverError("api", e);
 	      }
 	    }
 
@@ -20971,7 +21016,7 @@ export default {
 
 	        return json({ workspace: { id: bsId, name: bootstrapName, created_at: bsCreatedAt }, created: true }, 201);
 	      } catch (e) {
-	        return json({ error: e.message }, 500);
+	        return serverError("api", e);
 	      }
 	    }
 
@@ -21022,7 +21067,7 @@ export default {
           },
         });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -21067,7 +21112,7 @@ export default {
           },
         });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -21087,7 +21132,7 @@ export default {
           .first();
         return json({ company: company ?? null });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -21164,7 +21209,7 @@ export default {
         });
         return json({ company });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -21201,7 +21246,7 @@ export default {
           },
         });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -21218,7 +21263,7 @@ export default {
           features: getPlanFeatures(plan),
         });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -21241,7 +21286,7 @@ export default {
         const upgrade_signals = getUpgradeRecommendation(context.limits, context.usage);
         return json({ ...context, percentages, upgrade_signals });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -21266,7 +21311,7 @@ export default {
           },
         });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -21313,7 +21358,7 @@ export default {
           })),
         });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -21335,7 +21380,7 @@ export default {
           .all();
         return json({ tokens: rows.results || [] });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -21396,7 +21441,7 @@ export default {
 
         return json({ token: raw }, 201);
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -21432,7 +21477,7 @@ export default {
 
         return json({ success: true });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -21491,7 +21536,7 @@ export default {
 
         return json({ events });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -21540,7 +21585,7 @@ export default {
 
         return json({ sessions });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -21588,7 +21633,7 @@ export default {
 
         return json({ success: true, message: "Session revoked." });
       } catch (e) {
-	        return json({ error: e.message }, 500);
+	        return serverError("api", e);
 	      }
 	    }
 
@@ -21864,7 +21909,7 @@ export default {
           regression_fixture_count:    regression.total ?? 0,
         });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -22863,7 +22908,7 @@ export default {
           generated_at:           new Date().toISOString(),
         });
       } catch (err) {
-        return json({ error: String(err?.message ?? err) }, 500);
+        return serverError("api", err);
       }
     }
 
@@ -22993,7 +23038,7 @@ export default {
 
         return json({ workspaces: rows });
       } catch (err) {
-        return json({ error: String(err?.message ?? err) }, 500);
+        return serverError("api", err);
       }
     }
 
@@ -23103,7 +23148,7 @@ export default {
 
         return json({ alerts: alerts.slice(0, limit) });
       } catch (err) {
-        return json({ error: String(err?.message ?? err) }, 500);
+        return serverError("api", err);
       }
     }
 
@@ -23187,7 +23232,7 @@ export default {
         const trend = Object.values(dayMap).sort((a, b) => a.date.localeCompare(b.date));
         return json({ trend });
       } catch (err) {
-        return json({ error: String(err?.message ?? err) }, 500);
+        return serverError("api", err);
       }
     }
 
@@ -25906,7 +25951,7 @@ export default {
           note: "One domain per call (subrequest budget). Use ?domain=X to target a specific domain.",
         });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -26002,7 +26047,7 @@ export default {
 	          limits,
 	        });
 	      } catch (e) {
-	        return json({ error: e.message }, 500);
+	        return serverError("api", e);
 	      }
 	    }
 
@@ -26103,7 +26148,7 @@ export default {
           reports_count:     v(reportsCountResult)?.cnt           ?? 0,
         });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -26186,7 +26231,7 @@ export default {
           monitoring_health,
         });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -26214,7 +26259,7 @@ export default {
           .all();
         return json({ invitations: result.results || [] });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -26410,7 +26455,7 @@ export default {
           token,
         }, 201);
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -26442,7 +26487,7 @@ export default {
           members:      result.results || [],
         });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -26530,7 +26575,7 @@ export default {
           },
         }, 201);
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -26590,7 +26635,7 @@ export default {
 
         return json({ success: true, removed_id: memberId });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -26653,7 +26698,7 @@ export default {
 
         return json({ success: true, member_id: targetMemberId, role: newRole, previous_role: prevRole });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -26692,7 +26737,7 @@ export default {
 
         return json({ success: true, cancelled_id: invitationId });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -26726,7 +26771,7 @@ export default {
           status:           invite.status,
         });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -26825,7 +26870,7 @@ export default {
           role: invite.role,
         });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -27114,7 +27159,7 @@ export default {
           },
         });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -27175,7 +27220,7 @@ export default {
 
         return json({ events: enriched, limit, offset, count: enriched.length });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -27302,7 +27347,7 @@ export default {
           pagination: { limit, offset, total },
         });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -27433,7 +27478,7 @@ export default {
           },
         });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -27502,7 +27547,7 @@ export default {
           notifications,
         });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -27561,7 +27606,7 @@ export default {
         });
         return json({ success: true, id: notifId });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -27626,7 +27671,7 @@ export default {
           email_frequency,
         });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -27686,7 +27731,7 @@ export default {
 
         return json({ success: true, workspace_id: workspaceId, email_frequency });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -27812,7 +27857,7 @@ export default {
 
         return json({ imported, skipped, invalid: invalid.length, trimmed: trimmedCount, total: rawList.length }, 200);
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -27899,7 +27944,7 @@ export default {
           },
         });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -28114,7 +28159,7 @@ export default {
           message: "Verification failed. Ensure the DNS TXT record or HTML file is in place and try again.",
         }, 200);
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -28152,7 +28197,7 @@ export default {
           },
         });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -28199,7 +28244,7 @@ export default {
         }
         return json({ found, value, matches, expected, error });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -28596,7 +28641,7 @@ export default {
         });
         return json({ report: row }, 201);
       } catch (err) {
-        return json({ error: String(err?.message ?? err) }, 500);
+        return serverError("api", err);
       }
     }
 
@@ -28611,7 +28656,7 @@ export default {
 	      try {
 	        return json(await getWorkspaceReportStorageMetrics(wsId, env));
 	      } catch (err) {
-	        return json({ error: String(err?.message ?? err) }, 500);
+	        return serverError("api", err);
 	      }
 	    }
 
@@ -28627,7 +28672,7 @@ export default {
 	        const storage = await getWorkspaceReportStorageMetrics(wsId, env);
 	        return json({ ...retention, storage });
 	      } catch (err) {
-	        return json({ error: String(err?.message ?? err) }, 500);
+	        return serverError("api", err);
 	      }
 	    }
 
@@ -28680,7 +28725,7 @@ export default {
 	        }).catch(() => {});
 	        return json(await getWorkspaceRetentionSettings(wsId, env));
 	      } catch (err) {
-	        return json({ error: String(err?.message ?? err) }, 500);
+	        return serverError("api", err);
 	      }
 	    }
 
@@ -28728,7 +28773,7 @@ export default {
           retention_policy: retentionPolicy,
         });
       } catch (err) {
-        return json({ error: String(err?.message ?? err) }, 500);
+        return serverError("api", err);
       }
     }
 
@@ -28755,7 +28800,7 @@ export default {
         const { results } = await env.cybermeters_db.prepare(sql).bind(...params).all();
         return json({ reports: results ?? [] });
       } catch (err) {
-        return json({ error: String(err?.message ?? err) }, 500);
+        return serverError("api", err);
       }
     }
 
@@ -28810,7 +28855,7 @@ export default {
 
         return json({ success: true, deleted_id: reportId });
       } catch (err) {
-        return json({ error: String(err?.message ?? err) }, 500);
+        return serverError("api", err);
       }
     }
 
@@ -28856,7 +28901,7 @@ export default {
           },
         });
       } catch (err) {
-        return json({ error: String(err?.message ?? err) }, 500);
+        return serverError("api", err);
       }
     }
 
@@ -28879,7 +28924,7 @@ export default {
         if (!row) return json({ error: 'Report not found' }, 404);
         return json({ report: row });
       } catch (err) {
-        return json({ error: String(err?.message ?? err) }, 500);
+        return serverError("api", err);
       }
 	    }
 	
@@ -28905,7 +28950,7 @@ export default {
 	          .all();
 	        return json({ runs: results || [] });
 	      } catch (err) {
-	        return json({ error: String(err?.message ?? err) }, 500);
+	        return serverError("api", err);
 	      }
 	    }
 
@@ -28934,7 +28979,7 @@ export default {
 	        }));
 	        return json({ schedules });
 	      } catch (err) {
-	        return json({ error: String(err?.message ?? err) }, 500);
+	        return serverError("api", err);
 	      }
 	    }
 
@@ -28976,7 +29021,7 @@ export default {
 	          schedule: { id: scheduleId, workspace_id: wsId, created_by: user.id, frequency, enabled: true, email_recipients: recipients, last_run_at: null, next_run_at: nextRunAt, created_at: now, updated_at: now },
 	        }, 201);
 	      } catch (err) {
-	        return json({ error: String(err?.message ?? err) }, 500);
+	        return serverError("api", err);
 	      }
 	    }
 
@@ -29022,7 +29067,7 @@ export default {
 	        });
 	        return json({ updated: true, schedule: { id: scheduleId, workspace_id: wsId, frequency, enabled: enabled === 1, email_recipients: recipients, next_run_at: nextRunAt, updated_at: now } });
 	      } catch (err) {
-	        return json({ error: String(err?.message ?? err) }, 500);
+	        return serverError("api", err);
 	      }
 	    }
 
@@ -29051,7 +29096,7 @@ export default {
 	        });
 	        return json({ deleted: true, enabled: false });
 	      } catch (err) {
-	        return json({ error: String(err?.message ?? err) }, 500);
+	        return serverError("api", err);
 	      }
 	    }
 
@@ -29076,7 +29121,7 @@ export default {
           .all();
         return json({ scheduled_reports: results ?? [] });
       } catch (err) {
-        return json({ error: String(err?.message ?? err) }, 500);
+        return serverError("api", err);
       }
     }
 
@@ -29146,7 +29191,7 @@ export default {
           scheduled_report: { id: srId, workspace_id: wsId, report_type, frequency, enabled: 1, next_run_at: nextRunAt, created_at: now }
         }, 201);
       } catch (err) {
-        return json({ error: String(err?.message ?? err) }, 500);
+        return serverError("api", err);
       }
     }
 
@@ -29185,7 +29230,7 @@ export default {
 
         return json({ deleted: true });
       } catch (err) {
-        return json({ error: String(err?.message ?? err) }, 500);
+        return serverError("api", err);
       }
     }
 
@@ -29219,7 +29264,7 @@ export default {
         }
         return json({ updated: true, enabled: enabled === 1 });
       } catch (err) {
-        return json({ error: String(err?.message ?? err) }, 500);
+        return serverError("api", err);
       }
     }
 
@@ -29257,20 +29302,14 @@ export default {
       const clientIp = request.headers.get("CF-Connecting-IP") ||
                        request.headers.get("X-Forwarded-For")?.split(",")[0]?.trim() ||
                        "unknown";
-      // Hash the IP before storing — we don't need the raw address
-      const ipHash = await (async () => {
-        try {
-          const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(clientIp));
-          return Array.from(new Uint8Array(buf)).slice(0, 8).map(b => b.toString(16).padStart(2,"0")).join("");
-        } catch { return clientIp.replace(/[^a-z0-9]/gi, "_").slice(0, 32); }
-      })();
 
       const rateLimitResult = await consumeApiRateLimit(
         env,
-        [{ scope: "ip", scope_id: `freescan_${ipHash}` }],
+        [{ scope: "ip", scope_id: await rateLimitScopeId("freescan", clientIp) }],
         "free_scan",
         5,
         3600,
+        { failClosed: true },
       );
       if (rateLimitResult) {
         return json({
@@ -29434,7 +29473,7 @@ export default {
           features,
         });
       } catch (e) {
-        return json({ error: e.message }, 500);
+        return serverError("api", e);
       }
     }
 
@@ -29731,9 +29770,10 @@ export default {
     ctx.waitUntil(generateScheduledReports(now, env));
 
 	    // ── User-configured scheduled reports ─────────────────────────────────
-	    // Runs every tick; processScheduledReports checks next_run_at internally.
+	    // Canonical beta path: scheduled_reports, which is used by the active
+	    // Workspace Reports UI. The newer report_schedules processor is paused
+	    // until existing schedules can be migrated without duplicate generation.
 	    ctx.waitUntil(processScheduledReports(now, env));
-	    ctx.waitUntil(executeDueReportSchedules(env, now));
 	
 	    // ── Report retention cleanup ─────────────────────────────────────────
     // The Worker cron also drives scheduled scans, so keep the hourly trigger

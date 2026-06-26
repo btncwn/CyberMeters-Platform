@@ -3,7 +3,7 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Server, ScanLine, FileBarChart2,
   Settings, Shield, Plus, ChevronDown, Calendar,
-  Briefcase, ChevronRight, Check, Layers, LogOut, User,
+  Briefcase, ChevronRight, Check, LogOut, User,
   AlertTriangle, X, CreditCard, GraduationCap, ShieldAlert,
 } from 'lucide-react'
 import CyberMetersLogo from './CyberMetersLogo'
@@ -17,7 +17,6 @@ import NotificationBell from './NotificationBell'
 // - Pricing is a public marketing page already linked in the footer.
 const NAV = [
   { to: '/dashboard',      icon: LayoutDashboard, label: 'Dashboard'  },
-  { to: '/portfolio',      icon: Layers,          label: 'Portfolio'  },
   { to: '/ws/dashboard',        icon: Shield,      label: 'Security'   },
   { to: '/ws/brand-monitoring', icon: ShieldAlert, label: 'Brand'      },
   { to: '/workspaces',          icon: Briefcase,   label: 'Workspaces' },
@@ -337,7 +336,7 @@ export default function Layout() {
             onClick={() => navigate('/dashboard')}
             className="flex-shrink-0 group mr-2"
           >
-            <CyberMetersLogo size={28} showWordmark animated />
+            <CyberMetersLogo size={36} showWordmark animated />
           </button>
 
           {/* Nav */}

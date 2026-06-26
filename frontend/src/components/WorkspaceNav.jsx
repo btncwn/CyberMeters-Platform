@@ -1,26 +1,20 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
-  LayoutDashboard, Shield, Package2, Layers, Zap,
-  Cloud, Terminal, Lock, Tag, Bell, Briefcase, ChevronLeft, FileText,
-  BarChart2, TrendingUp, ShieldCheck, ShieldAlert, GitBranch, ClipboardList, Users, HardDrive,
+  LayoutDashboard, Shield, Layers, Zap,
+  Cloud, Terminal, Lock, Tag, Briefcase, ChevronLeft, FileText,
+  BarChart2, ClipboardList, Users, HardDrive,
 } from 'lucide-react'
 
 const WS_NAV = [
   { to: '/ws/executive-dashboard', icon: BarChart2,       label: 'Executive'        },
-  { to: '/ws/business-risk',       icon: TrendingUp,      label: 'Business Risk'    },
-  { to: '/ws/cyber-essentials',    icon: ShieldCheck,     label: 'Cyber Essentials' },
   { to: '/ws/dashboard',           icon: LayoutDashboard, label: 'Dashboard'        },
   { to: '/ws/scorecard',           icon: Shield,          label: 'Scorecard'        },
-  { to: '/ws/identity-assets',  icon: ShieldAlert,     label: 'Identity Assets'  },
-  { to: '/ws/vendors',          icon: Package2,        label: 'Vendor Risk'      },
-  { to: '/ws/supply-chain',     icon: GitBranch,       label: 'Supply Chain'     },
   { to: '/ws/third-party',      icon: Layers,          label: 'Third-Party'      },
   { to: '/ws/saas-exposure',    icon: Zap,             label: 'SaaS Exposure'    },
   { to: '/ws/cloud-assets',     icon: Cloud,           label: 'Cloud Assets'     },
   { to: '/ws/admin-surfaces',   icon: Terminal,        label: 'Admin Surfaces'   },
   { to: '/ws/certificates',     icon: Lock,            label: 'Certificates'     },
   { to: '/ws/brand-monitoring', icon: Tag,             label: 'Brand Monitoring' },
-  { to: '/ws/alerts',           icon: Bell,            label: 'Alerts'           },
   { to: '/ws/reports',          icon: FileText,        label: 'Reports'          },
   { to: '/ws/audit-log',        icon: ClipboardList,   label: 'Audit Log'        },
   { to: '/ws/members',          icon: Users,           label: 'Team Members'     },
