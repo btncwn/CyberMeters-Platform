@@ -606,10 +606,7 @@ const HEADER_LABELS = {
 }
 
 function HeadersPanel({ headers, httpsAvailable }) {
-  if (!headers || headers.error) {
-    return <div className="px-6 py-4 text-sm text-gray-400">{headers?.error || 'No header data'}</div>
-  }
-  if (!headers.accessible) {
+  if (!headers || headers.error || !headers.accessible) {
     return (
       <div className="px-6 py-4 text-sm text-gray-500">
         {httpsAvailable

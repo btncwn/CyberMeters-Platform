@@ -128,18 +128,15 @@ const LIBRARY = {
   email_dkim_not_detected: {
     priority:        'P3',
     owner:           'Email Team',
-    effort:          '1 hour',
-    business_impact: 'Without DKIM, SPF-to-DMARC alignment may fail for forwarded email, reducing effective coverage. DKIM also proves message integrity — that email content was not altered in transit.',
+    effort:          '15 minutes to verify',
+    business_impact: 'DKIM could not be verified using common selectors. A custom selector may be in use, so this observation does not confirm that DKIM is absent.',
     steps: [
-      'Log in to your email platform admin console (Google Workspace Admin, Microsoft 365 Exchange Admin).',
-      'Locate the DKIM signing settings and enable DKIM.',
-      'Copy the public key value provided by the platform.',
-      'Add a TXT record in DNS at: <selector>._domainkey.yourdomain.com',
-      'Example (Google Workspace): google._domainkey.yourdomain.com TXT "v=DKIM1; k=rsa; p=<key>"',
-      'Wait 24–48 hours for DNS propagation.',
+      'Check the email platform admin console for the active DKIM selector.',
+      'Query the exact TXT record at <selector>._domainkey.yourdomain.com.',
       'Send a test email to Gmail or Outlook and check the Authentication-Results header to confirm dkim=pass.',
+      'Only configure or change DKIM if provider checks confirm that signing is not enabled.',
     ],
-    verification: 'dig TXT google._domainkey.example.com +short',
+    verification: 'dig TXT <selector>._domainkey.example.com +short',
   },
 
   // email_intel_spf_missing → same steps as email_missing_spf
@@ -187,15 +184,15 @@ const LIBRARY = {
   email_intel_dkim_not_found: {
     priority:        'P3',
     owner:           'Email Team',
-    effort:          '1 hour',
-    business_impact: 'DKIM not detected on standard selectors. Forwarded email may fail DMARC alignment checks, reducing effective email authentication coverage.',
+    effort:          '15 minutes to verify',
+    business_impact: 'DKIM could not be verified using common selectors. A custom selector may be in use, so this observation does not confirm that DKIM is absent.',
     steps: [
-      'Enable DKIM signing in your email platform admin console.',
-      'Publish the DKIM public key TXT record at <selector>._domainkey.yourdomain.com.',
-      'Wait 24–48 hours for DNS propagation.',
+      'Confirm the active DKIM selector in your email platform admin console.',
+      'Query the exact TXT record at <selector>._domainkey.yourdomain.com.',
       'Verify with a test email — check Authentication-Results header for dkim=pass.',
+      'Only configure or change DKIM if provider checks confirm that signing is not enabled.',
     ],
-    verification: 'dig TXT google._domainkey.example.com +short',
+    verification: 'dig TXT <selector>._domainkey.example.com +short',
   },
 
   // ── SECURITY HEADERS ────────────────────────────────────────────────────────

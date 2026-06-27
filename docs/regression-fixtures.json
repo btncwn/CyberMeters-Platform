@@ -191,7 +191,7 @@
     },
     {
       "scenario": "dkim_unknown_selector",
-      "description": "DKIM not found, no provider identified from SPF \u2014 info only, score 0, confidence 60",
+      "description": "DKIM not verified, no provider identified from SPF \u2014 info only, score impact 0, confidence 60",
       "mock_modules": {
         "email_security": {
           "spf": {
@@ -228,7 +228,7 @@
     },
     {
       "scenario": "dkim_microsoft365_no_dkim",
-      "description": "M365 provider identified from dkim.provider, selector1 + selector2 both in selectors_probed \u2014 confidence must be 80",
+      "description": "M365 provider identified from dkim.provider, selector1 + selector2 both checked \u2014 remains informational",
       "mock_modules": {
         "email_security": {
           "spf": {
@@ -260,11 +260,11 @@
           "selector2"
         ]
       },
-      "note": "Microsoft 365 mandates exactly selector1 and selector2. When both miss, confidence rises to 80 \u2014 absence is high-confidence for this provider."
+      "note": "Both standard Microsoft 365 selectors were checked. The observation remains informational because remote selector probing cannot confirm the tenant's active signing configuration."
     },
     {
       "scenario": "dkim_godaddy_no_dkim",
-      "description": "GoDaddy provider identified from dkim.provider \u2014 confidence must be 70, title must name GoDaddy",
+      "description": "GoDaddy provider identified from dkim.provider \u2014 remains informational and lists checked selectors",
       "mock_modules": {
         "email_security": {
           "spf": {
@@ -871,8 +871,174 @@
         "severity": "info",
         "confidence": 60,
         "score_impact": 0,
-        "finding_type": "observation"
-      }
+        "finding_type": "observation",
+        "title": "DKIM Could Not Be Verified Using Common Selectors",
+        "description_contains": [
+          "custom selector",
+          "not confirmation that DKIM is absent"
+        ]
+      },
+      "expected_score": 100,
+      "expected_recommendation_titles_absent": [
+        "Verify DKIM Configuration"
+      ]
+    },
+    {
+      "scenario": "ct_only_sensitive_subdomain_observation",
+      "description": "A sensitive-looking name seen only in CT logs must remain an unscored observation",
+      "domain": "fixture.cybermeters.test",
+      "mock_modules": {
+        "dns": { "resolves": true, "has_mx": true },
+        "ssl": { "https_available": true, "http_redirects_to_https": true },
+        "email_security": {
+          "spf": { "present": true },
+          "dmarc": { "present": true, "policy": "reject" },
+          "dkim": { "present": true }
+        },
+        "subdomains": {
+          "count": 1,
+          "items": ["corp.fixture.cybermeters.test"],
+          "sensitive": ["corp.fixture.cybermeters.test"]
+        },
+        "dns_bruteforce": { "items": [] },
+        "asset_exposure": { "assets": [] },
+        "subdomain_takeover": { "risks": [] },
+        "brand_monitoring": null
+      },
+      "expected_finding": {
+        "id": "subdomain_sensitive_corp_fixture_cybermeters_test",
+        "severity": "info",
+        "confidence": 60,
+        "score_impact": 0,
+        "finding_type": "observation",
+        "title": "Potentially Sensitive Subdomain Name Observed",
+        "description_contains": [
+          "only in Certificate Transparency logs",
+          "not treated as confirmed exposure"
+        ]
+      },
+      "expected_score": 100,
+      "expected_recommendation_titles_absent": [
+        "Review Sensitive Subdomains"
+      ]
+    },
+    {
+      "scenario": "reachable_sensitive_subdomain_actionable",
+      "description": "A sensitive-looking subdomain confirmed by HTTP remains an actionable scored finding",
+      "domain": "fixture.cybermeters.test",
+      "mock_modules": {
+        "dns": { "resolves": true, "has_mx": true },
+        "ssl": { "https_available": true, "http_redirects_to_https": true },
+        "email_security": {
+          "spf": { "present": true },
+          "dmarc": { "present": true, "policy": "reject" },
+          "dkim": { "present": true }
+        },
+        "subdomains": {
+          "count": 1,
+          "items": ["corp.fixture.cybermeters.test"],
+          "sensitive": ["corp.fixture.cybermeters.test"]
+        },
+        "dns_bruteforce": { "items": [] },
+        "asset_exposure": {
+          "assets": [
+            { "host": "corp.fixture.cybermeters.test", "reachable": true, "status": 204, "title": "", "tech": [] }
+          ]
+        },
+        "subdomain_takeover": { "risks": [] },
+        "brand_monitoring": null
+      },
+      "expected_finding": {
+        "id": "subdomain_sensitive_corp_fixture_cybermeters_test",
+        "severity": "medium",
+        "confidence": 80,
+        "score_impact": -5,
+        "finding_type": "finding",
+        "title": "Potentially Sensitive Subdomain Confirmed Reachable"
+      },
+      "expected_score": 95
+    },
+    {
+      "scenario": "large_ct_inventory_observation",
+      "description": "A large CT inventory alone must not reduce the Cyber Metrics Score",
+      "domain": "fixture.cybermeters.test",
+      "mock_modules": {
+        "dns": { "resolves": true, "has_mx": true },
+        "ssl": { "https_available": true, "http_redirects_to_https": true },
+        "email_security": {
+          "spf": { "present": true },
+          "dmarc": { "present": true, "policy": "reject" },
+          "dkim": { "present": true }
+        },
+        "subdomains": { "count": 250, "items": [], "sensitive": [] },
+        "asset_exposure": { "assets": [] },
+        "subdomain_takeover": { "risks": [] },
+        "brand_monitoring": null
+      },
+      "expected_finding": {
+        "id": "subdomains_large_attack_surface",
+        "severity": "info",
+        "confidence": 60,
+        "score_impact": 0,
+        "finding_type": "observation",
+        "title": "Large Certificate Inventory Observed",
+        "description_contains": [
+          "CT volume alone does not indicate that the domain is unsafe"
+        ]
+      },
+      "expected_score": 100
+    },
+    {
+      "scenario": "https_confirmed_header_probe_inconclusive",
+      "description": "A failed header probe must not create missing-header findings when HTTPS is confirmed",
+      "mock_modules": {
+        "dns": { "resolves": true, "has_mx": true },
+        "ssl": { "https_available": true, "http_redirects_to_https": true },
+        "headers": { "accessible": false, "error": "probe timed out" },
+        "email_security": {
+          "spf": { "present": true },
+          "dmarc": { "present": true, "policy": "reject" },
+          "dkim": { "present": true }
+        },
+        "brand_monitoring": null
+      },
+      "expected_finding_ids_absent": [
+        "header_missing_strict_transport_security",
+        "header_missing_content_security_policy",
+        "header_missing_x_frame_options",
+        "header_missing_x_content_type_options",
+        "header_missing_referrer_policy",
+        "header_missing_permissions_policy",
+        "security_headers_not_observed"
+      ],
+      "expected_score": 100
     }
+  ],
+  "score_contracts": [
+    {
+      "scenario": "canonical_score_prefers_d1",
+      "description": "The D1 scan score overrides a stale R2 report score",
+      "d1_score": 77,
+      "report_score": 5,
+      "expected_score": 77,
+      "expected_rating": "good"
+    },
+    {
+      "scenario": "legacy_report_score_fallback",
+      "description": "An older scan with no D1 score falls back to the stored report score",
+      "d1_score": null,
+      "report_score": 77,
+      "expected_score": 77,
+      "expected_rating": "good"
+    }
+  ],
+  "business_risk_contracts": [
+    {
+      "scenario": "dkim_uncertainty_does_not_reduce_business_risk",
+      "description": "An unverified common DKIM selector does not reduce Business Risk",
+      "finding_ids": ["email_dkim_not_detected"],
+      "workspace_data": { "vendorTotal": 1 },
+      "expected_score": 100
+      }
   ]
 }

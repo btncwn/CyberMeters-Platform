@@ -29,7 +29,14 @@ function loadScanner() {
     clearTimeout,
   };
   vm.createContext(context);
-  vm.runInContext(`${source}\nthis.__scanner = { computeScore, validateFindingEvidence, applyEvidenceQuality };`, context, {
+  vm.runInContext(`${source}\nthis.__scanner = {
+    computeScore,
+    validateFindingEvidence,
+    applyEvidenceQuality,
+    resolveCanonicalScanScore,
+    riskLevelForScore,
+    computeBusinessRiskScoreFromIds: (ids, data) => computeBusinessRiskScore(new Set(ids), data),
+  };`, context, {
     filename: workerPath,
   });
   return context.__scanner;
@@ -90,6 +97,10 @@ function validateFixtureSchema(fixture, index) {
   if (fixture.expected_finding_ids_absent) {
     assert(Array.isArray(fixture.expected_finding_ids_absent), `${fixture.scenario} expected_finding_ids_absent must be an array`);
   }
+
+  if (fixture.expected_score !== undefined) {
+    assert(Number.isInteger(fixture.expected_score), `${fixture.scenario} expected_score must be an integer`);
+  }
 }
 
 function resolveExpectedValue(value, domain) {
@@ -146,6 +157,18 @@ function compareExpectedFinding(fixture, findings, domain) {
     }
   }
 
+  if (expected.title !== undefined && actual.title !== expected.title) {
+    failures.push(`${expected.id} title: expected "${expected.title}", got "${actual.title}"`);
+  }
+
+  if (Array.isArray(expected.description_contains)) {
+    for (const substring of expected.description_contains) {
+      if (!String(actual.description ?? "").includes(substring)) {
+        failures.push(`${expected.id} description missing expected text: "${substring}"`);
+      }
+    }
+  }
+
   // evidence_contains: array of substrings that must ALL appear somewhere in
   // evidence.observed_value.  Preferred over exact-matching observed_value for
   // outputs that list dynamic content (e.g. selector lists that grow over time).
@@ -172,6 +195,10 @@ function runFixture(scanner, fixture) {
   const findingIds = new Set(findings.map((f) => f.id));
   const failures = compareExpectedFinding(fixture, findings, domain);
 
+  if (fixture.expected_score !== undefined && result.score !== fixture.expected_score) {
+    failures.push(`score: expected ${fixture.expected_score}, got ${result.score}`);
+  }
+
   for (const id of fixture.expected_finding_ids_absent || []) {
     if (findingIds.has(id)) failures.push(`unexpected finding ${id}`);
   }
@@ -179,6 +206,12 @@ function runFixture(scanner, fixture) {
   for (const expected of fixture.expected_findings || []) {
     if (!findingIds.has(expected.id || expected)) {
       failures.push(`missing expected finding ${expected.id || expected}`);
+    }
+  }
+
+  for (const title of fixture.expected_recommendation_titles_absent || []) {
+    if ((result.recommendations || []).some((recommendation) => recommendation.title === title)) {
+      failures.push(`unexpected recommendation ${title}`);
     }
   }
 
@@ -213,6 +246,32 @@ if (process.exitCode) process.exit(process.exitCode);
 
 const scanner = loadScanner();
 const results = parsed.fixtures.map((fixture) => runFixture(scanner, fixture));
+
+for (const contract of parsed.score_contracts || []) {
+  const actualScore = scanner.resolveCanonicalScanScore(contract.d1_score, contract.report_score);
+  const actualRating = scanner.riskLevelForScore(actualScore);
+  results.push({
+    scenario: contract.scenario,
+    passed: actualScore === contract.expected_score && actualRating === contract.expected_rating,
+    failures: [
+      ...(actualScore === contract.expected_score ? [] : [`score: expected ${contract.expected_score}, got ${actualScore}`]),
+      ...(actualRating === contract.expected_rating ? [] : [`rating: expected ${contract.expected_rating}, got ${actualRating}`]),
+    ],
+    findings: [],
+  });
+}
+
+for (const contract of parsed.business_risk_contracts || []) {
+  const result = scanner.computeBusinessRiskScoreFromIds(contract.finding_ids, contract.workspace_data || {});
+  results.push({
+    scenario: contract.scenario,
+    passed: result.score === contract.expected_score,
+    failures: result.score === contract.expected_score
+      ? []
+      : [`business risk score: expected ${contract.expected_score}, got ${result.score}`],
+    findings: [],
+  });
+}
 const passed = results.filter((r) => r.passed).length;
 const passRate = Math.round((passed / results.length) * 100);
 

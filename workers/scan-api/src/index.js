@@ -781,7 +781,7 @@ const FINDING_CONFIDENCE_SCORES = {
   email_missing_spf:               90, // direct DNS TXT lookup
   email_dkim_not_detected:         60, // fallback default; finding sets 60/70/80 dynamically based on provider
   // ── Subdomains ───────────────────────────────────────────────────────────
-  subdomains_large_attack_surface: 80, // count directly measured from CT log
+  subdomains_large_attack_surface: 60, // CT inventory count is observed, reachability is not confirmed
   // ── Subdomain takeover ───────────────────────────────────────────────────
   subdomain_takeover:              90, // CNAME suffix + body fingerprint — dual signal
   // ── Asset exposure ───────────────────────────────────────────────────────
@@ -5921,7 +5921,7 @@ function enrichDkim(emailMod) {
   if (dkim.present && dkim.selector) {
     return { status: "VERIFIED",     selector: dkim.selector, issue: "" };
   }
-  return   { status: "NOT_VERIFIED", selector: null,          issue: "No DKIM record found on common selectors." };
+  return   { status: "NOT_VERIFIED", selector: null,          issue: "DKIM could not be verified using common selectors; a custom selector may be in use." };
 }
 
 /**
@@ -6109,9 +6109,9 @@ function buildEmailBusinessImpacts(spf, dmarc, dkim, mtaSts, tlsRpt) {
   if (dkim.status === "NOT_VERIFIED") {
     impacts.push({
       technical:        "DKIM Not Verified",
-      risk_level:       "MEDIUM",
-      business_impact:  "Email authentication could not be confirmed from common DKIM selectors. This may affect deliverability and receiver trust.",
-      recommendation:   "Verify DKIM signing with your email provider and publish the correct DKIM DNS records.",
+      risk_level:       "INFO",
+      business_impact:  "DKIM could not be confirmed from common selectors. A custom selector may be in use, so this is not evidence that signing is absent.",
+      recommendation:   "Confirm the active selector with the email provider and verify that DNS record directly.",
     });
   }
 
@@ -7051,10 +7051,6 @@ function computeScore(modules, domain) {
     );
     const bruteDnsSubdomains = new Set(modules.dns_bruteforce?.items || []);
 
-    const takeoverHosts = new Set(
-      (modules.subdomain_takeover?.risks || []).map((risk) => risk.host)
-    );
-
     // Keep the result visible, but only score an HTTP-confirmed sensitive service.
     const cappedSensitive = sensitiveList.slice(0, 4);
     let confirmedSensitiveCount = 0;
@@ -7092,8 +7088,21 @@ function computeScore(modules, domain) {
         title,
         description,
         score_impact:      scoreImpact,
+        evidence: {
+          evidence_type:               scoreImpact < 0 ? "http_probe" : "certificate_transparency_observation",
+          probe_target:                sub,
+          observed_value:              scoreImpact < 0
+            ? `${sub} responded to an HTTP probe`
+            : `${sub} was observed without a confirmed reachable service`,
+          expected_value:              scoreImpact < 0
+            ? "Sensitive-looking service is not publicly reachable or has appropriate access controls"
+            : "Independent DNS or HTTP evidence before classifying as exposure",
+          source:                      scoreImpact < 0 ? "cloudflare_workers_fetch" : "certificate_transparency",
+          checked_at:                  evidenceTime,
+          manual_verification_command: `curl -sSI --max-time 10 https://${sub}`,
+        },
       };
-      if (scoreImpact < 0 || takeoverHosts.has(sub)) {
+      if (scoreImpact < 0) {
         finding(sensitiveFinding);
       } else {
         findings.push({ ...sensitiveFinding, finding_type: "observation" });
@@ -7120,6 +7129,15 @@ function computeScore(modules, domain) {
         description:  `${subMod.count} subdomain names were observed in Certificate Transparency logs for ${domain}. A larger inventory requires asset ownership and lifecycle tracking, but CT volume alone does not indicate that the domain is unsafe or that these services are currently reachable.`,
         score_impact: 0,
         finding_type: "observation",
+        evidence: {
+          evidence_type:               "certificate_transparency_observation",
+          probe_target:                domain,
+          observed_value:              `${subMod.count} names observed in Certificate Transparency logs`,
+          expected_value:              "Reachability or exposure evidence before applying score impact",
+          source:                      "certificate_transparency",
+          checked_at:                  evidenceTime,
+          manual_verification_command: `curl -s "https://crt.sh/?q=%25.${domain}&output=json"`,
+        },
       });
     }
   }
@@ -7284,6 +7302,14 @@ function riskLevelForScore(score) {
     score >= 75 ? "good" :
     score >= 50 ? "moderate" :
     score >= 25 ? "high" : "critical";
+}
+
+function resolveCanonicalScanScore(storedScore, reportScore) {
+  const storedValue = storedScore == null || storedScore === "" ? NaN : Number(storedScore);
+  if (Number.isFinite(storedValue)) return storedValue;
+
+  const reportValue = reportScore == null || reportScore === "" ? NaN : Number(reportScore);
+  return Number.isFinite(reportValue) ? reportValue : 0;
 }
 
 // ── Business Risk Score (BRS) v1 ─────────────────────────────────────────────
@@ -7487,10 +7513,10 @@ function computeBusinessRiskScore(findingIds, workspaceData = {}) {
     },
     {
       id: "email_dkim_not_detected",
-      title: "Email signatures not configured (DKIM)",
-      impact: "Emails from your domain cannot be cryptographically verified, reducing inbox deliverability and customer trust.",
-      recommendation: "Configure DKIM signing for all outbound email streams and publish the public key in DNS.",
-      severity: "medium",
+      title: "DKIM selector could not be verified",
+      impact: "Common-selector checks did not confirm a DKIM key. A custom selector may be in use, so DKIM absence is not confirmed.",
+      recommendation: "Confirm the active selector with the email provider and verify that DNS record directly.",
+      severity: "info",
     },
     {
       id: "ssl_certificate_expired",
@@ -11395,8 +11421,7 @@ function computeSecurityPosture(sc, report) {
       emailReasons.push('DMARC policy is p=none (monitor-only) — spoofed mail is not rejected');
     }
     if (!em.dkim?.present) {
-      emailScore -= 10;
-      emailReasons.push('DKIM not detected using common selectors — message signing unverified');
+      emailReasons.push('DKIM could not be verified using common selectors; a custom selector may be in use');
     }
     emailScore = clamp(emailScore);
   }
@@ -11758,7 +11783,7 @@ async function buildCyberEssentialsReadiness(wsId, env) {
     } else {
       addReason(state, 'DMARC is present.');
     }
-    if (!email.dkim) addGap(state, 10, 'DKIM was not detected using common selectors.', 'Enable DKIM signing for outbound mail.');
+    if (!email.dkim) addReason(state, 'DKIM could not be verified using common selectors; a custom selector may be in use.');
     else addReason(state, 'DKIM is detected.');
     if (adminTotal > 0) addGap(state, 25, 'Public admin surfaces increase access-control exposure.', 'Place admin portals behind VPN, SSO, or IP allowlists.');
     if (saasTotal > 0) addGap(state, 10, `${saasTotal} externally reachable SaaS portal${saasTotal !== 1 ? 's' : ''} detected.`, 'Review SSO and MFA coverage for externally reachable SaaS portals.');
@@ -11773,7 +11798,7 @@ async function buildCyberEssentialsReadiness(wsId, env) {
       addGap(state, 25, 'Email anti-spoofing enforcement is weak.', 'Strengthen DMARC enforcement to reduce spoofing and phishing exposure.');
     }
     if (!email.spf) addGap(state, 15, 'SPF is missing or not confirmed.', 'Limit authorized mail senders with SPF.');
-    if (!email.dkim) addGap(state, 10, 'DKIM is missing or not confirmed.', 'Enable DKIM signing for outbound email.');
+    if (!email.dkim) addReason(state, 'DKIM could not be verified using common selectors; a custom selector may be in use.');
     if (criticalFindings + highFindings > 0) {
       addGap(state, 15, 'High-impact external findings may increase malware delivery risk.', 'Prioritize remediation of critical and high findings.');
     }
@@ -22340,11 +22365,7 @@ export default {
         top_business_risks:  brsResult.top_business_risks,
       };
 
-      const storedScore = Number(scan.score);
-      const reportScore = Number(raw.cyber_metrics_score);
-      const canonicalScore = Number.isFinite(storedScore)
-        ? storedScore
-        : (Number.isFinite(reportScore) ? reportScore : 0);
+      const canonicalScore = resolveCanonicalScanScore(scan.score, raw.cyber_metrics_score);
       const canonicalRiskLevel = riskLevelForScore(canonicalScore);
       const historicalChanges = normalisedModules.historical_changes;
       normalisedModules.historical_changes = {
@@ -25740,7 +25761,7 @@ export default {
             if (obj) {
               const report = await obj.json();
               const findings = Array.isArray(report.findings) ? report.findings : [];
-              findingIds = expandFindingIds(findings);
+              findingIds = expandFindingIds(findings.filter(isActionableFinding));
               criticalFindings = findings.filter((f) => f.severity === "critical").length;
               highFindings = findings.filter((f) => f.severity === "high").length;
             }
@@ -25772,8 +25793,7 @@ export default {
             weak_email_security:
               findingIds.has("email_missing_spf") ||
               findingIds.has("email_missing_dmarc") ||
-              findingIds.has("email_dmarc_policy_none") ||
-              findingIds.has("email_dkim_not_detected"),
+              findingIds.has("email_dmarc_policy_none"),
             header_misconfig:
               findingIds.has("header_missing_strict_transport_security") ||
               findingIds.has("header_weak_hsts") ||

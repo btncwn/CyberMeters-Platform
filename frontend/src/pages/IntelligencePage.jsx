@@ -596,9 +596,9 @@ function EmailIntelSection({ intel }) {
           <div className="px-5 py-3 flex items-center justify-between border-b border-gray-50">
             <span className="text-xs font-semibold text-gray-500">DKIM</span>
             {dkim ? (
-              <StatusPill value={dkim.status === 'VERIFIED'} trueLabel="Verified" falseLabel="Not found" />
+              <StatusPill value={dkim.status === 'VERIFIED'} trueLabel="Verified" falseLabel="Not verified" />
             ) : (
-              <StatusPill value={false} trueLabel="Verified" falseLabel="Not found" />
+              <StatusPill value={false} trueLabel="Verified" falseLabel="Not verified" />
             )}
           </div>
           <div className="px-5 py-3 flex items-center justify-between border-b border-gray-50">
