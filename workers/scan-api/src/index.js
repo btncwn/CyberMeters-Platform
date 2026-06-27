@@ -9,14 +9,45 @@ function createId(prefix) {
 }
 
 function isValidDomain(domain) {
-  return (
-    typeof domain === "string" &&
-    /^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(domain)
+  if (typeof domain !== "string" || domain.length > 253) return false;
+  const labels = domain.split(".");
+  if (labels.length < 2 || !/^[a-zA-Z]{2,63}$/.test(labels.at(-1) || "")) return false;
+  return labels.every((label) =>
+    label.length >= 1 &&
+    label.length <= 63 &&
+    /^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$/.test(label)
   );
 }
 
 function isValidEmail(email) {
-  return typeof email === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+  if (typeof email !== "string") return false;
+  const value = email.trim();
+  return value.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+function parseBoundedInteger(value, fallback, min, max) {
+  const parsed = Number.parseInt(value ?? "", 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, parsed));
+}
+
+function customerSafeFailure(context, error, message) {
+  console.error(`[${context}]`, error);
+  return message;
+}
+
+function validateFrontendRedirectUrl(value, env) {
+  if (typeof value !== "string" || !value.trim()) return null;
+  try {
+    const parsed = new URL(value.trim());
+    const configuredFrontend = new URL(
+      env.FRONTEND_URL || env.ALLOWED_ORIGIN || "https://app.cybermeters.com"
+    );
+    if (parsed.protocol !== "https:" || parsed.origin !== configuredFrontend.origin) return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
 }
 
 // ── Auth Crypto Helpers ────────────────────────────────────────────────────────
@@ -130,21 +161,32 @@ function b64urlToBuffer(str) {
  * Fetches the tenant JWKS, verifies the signature, and validates core claims.
  * Returns the decoded payload on success; throws on any validation failure.
  */
-async function validateMicrosoftIdToken(idToken, clientId, tenantId) {
+function validateMicrosoftIdTokenClaims(header, payload, clientId, tenantId, expectedNonce = null, nowSeconds = Date.now() / 1000) {
+  if (header.alg !== "RS256") throw new Error("id_token: unsupported signing algorithm");
+  if (!header.kid) throw new Error("id_token: missing kid");
+  if (payload.aud !== clientId) throw new Error("id_token: aud mismatch");
+  if (!Number.isFinite(payload.exp) || nowSeconds > payload.exp + 60) throw new Error("id_token: expired");
+  if (Number.isFinite(payload.nbf) && nowSeconds + 60 < payload.nbf) throw new Error("id_token: not active");
+  if (!payload.oid) throw new Error("id_token: missing oid claim");
+  if (!payload.tid) throw new Error("id_token: missing tid claim");
+
+  const multiTenantAliases = new Set(["common", "organizations", "consumers"]);
+  if (!multiTenantAliases.has(tenantId) && payload.tid !== tenantId) {
+    throw new Error("id_token: tenant mismatch");
+  }
+  const expectedIssuer = `https://login.microsoftonline.com/${payload.tid}/v2.0`;
+  if (payload.iss !== expectedIssuer) throw new Error("id_token: issuer mismatch");
+  if (expectedNonce && payload.nonce !== expectedNonce) throw new Error("id_token: nonce mismatch");
+}
+
+async function validateMicrosoftIdToken(idToken, clientId, tenantId, expectedNonce = null) {
   const parts = idToken.split(".");
   if (parts.length !== 3) throw new Error("id_token: invalid format");
 
   const header  = JSON.parse(b64urlDecode(parts[0]));
   const payload = JSON.parse(b64urlDecode(parts[1]));
 
-  // Audience must match our client ID
-  if (payload.aud !== clientId) throw new Error("id_token: aud mismatch");
-
-  // Token must not be expired (with 60-second clock skew tolerance)
-  if (Date.now() / 1000 > payload.exp + 60) throw new Error("id_token: expired");
-
-  // oid is the stable Microsoft Object ID — required for our upsert logic
-  if (!payload.oid) throw new Error("id_token: missing oid claim");
+  validateMicrosoftIdTokenClaims(header, payload, clientId, tenantId, expectedNonce);
 
   // Fetch signing keys from Microsoft's tenant JWKS endpoint
   const jwksUrl = `https://login.microsoftonline.com/${tenantId}/discovery/v2.0/keys`;
@@ -152,7 +194,7 @@ async function validateMicrosoftIdToken(idToken, clientId, tenantId) {
   if (!jwksRes.ok) throw new Error(`id_token: JWKS fetch failed (${jwksRes.status})`);
   const { keys } = await jwksRes.json();
 
-  const key = keys.find(k => k.kid === header.kid);
+  const key = keys.find(k => k.kid === header.kid && (!k.alg || k.alg === "RS256") && (!k.use || k.use === "sig"));
   if (!key) throw new Error("id_token: no matching JWKS key for kid=" + header.kid);
 
   // Import the RSA public key and verify the RS256 signature
@@ -1388,7 +1430,7 @@ async function runDnsModule(domain) {
         iodef_present: false,
         issuer_count: 0,
       },
-      error: caaRes.reason?.message ?? "CAA lookup failed",
+      error: customerSafeFailure("scan/dns/caa", caaRes.reason, "CAA lookup failed"),
     };
   }
 
@@ -1433,9 +1475,9 @@ async function runDnsModule(domain) {
     },
     evidence_source: "cloudflare_doh_dnssec_ok",
     errors: {
-      ds: dsRes.status === "rejected" ? (dsRes.reason?.message || "DS lookup failed") : null,
-      dnskey: dnskeyRes.status === "rejected" ? (dnskeyRes.reason?.message || "DNSKEY lookup failed") : null,
-      rrsig: rrsigARes.status === "rejected" ? (rrsigARes.reason?.message || "RRSIG lookup failed") : null,
+      ds: dsRes.status === "rejected" ? customerSafeFailure("scan/dns/ds", dsRes.reason, "DS lookup failed") : null,
+      dnskey: dnskeyRes.status === "rejected" ? customerSafeFailure("scan/dns/dnskey", dnskeyRes.reason, "DNSKEY lookup failed") : null,
+      rrsig: rrsigARes.status === "rejected" ? customerSafeFailure("scan/dns/rrsig", rrsigARes.reason, "RRSIG lookup failed") : null,
     },
   };
   const nameservers = nsRecords.map((r) => r.data).filter(Boolean);
@@ -2798,7 +2840,7 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP) {
   try {
     const res = crtShSettled.status === "fulfilled" ? crtShSettled.value : null;
     if (!res) {
-      sources.crt_sh = { count: 0, error: crtShSettled.reason?.message ?? "fetch failed" };
+      sources.crt_sh = { count: 0, error: customerSafeFailure("scan/ct/crt-sh", crtShSettled.reason, "fetch failed") };
     } else if (!res.ok) {
       sources.crt_sh = { count: 0, error: `HTTP ${res.status}` };
     } else {
@@ -2829,7 +2871,7 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP) {
       }
     }
   } catch (err) {
-    sources.crt_sh = { count: 0, error: err.message ?? "parse error" };
+    sources.crt_sh = { count: 0, error: customerSafeFailure("scan/ct/crt-sh-parse", err, "parse error") };
   }
 
   // ── Source 2: CertSpotter ─────────────────────────────────────────────
@@ -2837,7 +2879,7 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP) {
   try {
     const res = certSpotterSettled.status === "fulfilled" ? certSpotterSettled.value : null;
     if (!res) {
-      sources.certspotter = { count: 0, error: certSpotterSettled.reason?.message ?? "fetch failed" };
+      sources.certspotter = { count: 0, error: customerSafeFailure("scan/ct/certspotter", certSpotterSettled.reason, "fetch failed") };
     } else if (!res.ok) {
       sources.certspotter = { count: 0, error: `HTTP ${res.status}` };
     } else {
@@ -2859,7 +2901,7 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP) {
       }
     }
   } catch (err) {
-    sources.certspotter = { count: 0, error: err.message ?? "parse error" };
+    sources.certspotter = { count: 0, error: customerSafeFailure("scan/ct/certspotter-parse", err, "parse error") };
   }
 
   // ── Both CT sources failed ────────────────────────────────────────────
@@ -5582,7 +5624,7 @@ async function runKevModule(techModule) {
     return {
       matches: [], checked: 0, matched: 0,
       source:  "cisa_kev",
-      error:   err.message ?? "KEV module failed",
+      error:   customerSafeFailure("scan/kev", err, "KEV module failed"),
     };
   }
 }
@@ -7756,7 +7798,7 @@ async function runHistoricalModule(scanId, domain, currentScore, currentFindings
       .bind(domain, scanId)
       .first();
   } catch (err) {
-    return empty(false, null, null, `D1 query failed: ${err.message}`);
+    return empty(false, null, null, customerSafeFailure("scan/history/d1", err, "Historical comparison unavailable"));
   }
 
   if (!prevScan) {
@@ -7773,7 +7815,7 @@ async function runHistoricalModule(scanId, domain, currentScore, currentFindings
     }
     prevReport = await obj.json();
   } catch (err) {
-    return empty(true, prevScan.id, prevScan.score ?? null, `R2 read failed: ${err.message}`);
+    return empty(true, prevScan.id, prevScan.score ?? null, customerSafeFailure("scan/history/r2", err, "Historical comparison unavailable"));
   }
 
   // Resolve previous score — prefer D1 column (written on completion) then R2 field
@@ -8409,12 +8451,12 @@ async function runScanEngine(scanId, domainId, workspaceId, domain, env) {
       : { count: 0, items: [], sensitive: [], source: "certificate_transparency_multi_source",
           sources: { crt_sh: { count: 0, error: "module rejected" }, certspotter: { count: 0, error: "module rejected" } },
           wildcard_dns: false, wildcard_test_host: null, wildcard_warning: null,
-          error: subdomainsSettled.reason?.message ?? "Subdomain module failed" };
+          error: customerSafeFailure("scan/subdomains", subdomainsSettled.reason, "Subdomain module failed") };
 
     const bruteforceResult = bruteforceSettled.status === "fulfilled"
       ? bruteforceSettled.value
       : { checked: 0, found: 0, items: [], source: "dns_bruteforce",
-          error: bruteforceSettled.reason?.message ?? "Brute-force module failed" };
+          error: customerSafeFailure("scan/dns-bruteforce", bruteforceSettled.reason, "Brute-force module failed") };
 
     // Merge brute-force finds into the subdomain item list (deduplicated).
     // Takeover and exposure modules receive the enriched list.
@@ -8429,7 +8471,7 @@ async function runScanEngine(scanId, domainId, workspaceId, domain, env) {
     try {
       takeoverResult = await runTakeoverModule(domain, mergedSubdomainItems);
     } catch (err) {
-      takeoverResult = { checked: 0, potential_risks: 0, risks: [], source: "subdomain_cname_fingerprint", error: err.message };
+      takeoverResult = { checked: 0, potential_risks: 0, risks: [], source: "subdomain_cname_fingerprint", error: customerSafeFailure("scan/takeover", err, "Takeover module failed") };
     }
 
     // Phase 3: Asset exposure probing — HTTP/HTTPS reachability + metadata.
@@ -8443,26 +8485,26 @@ async function runScanEngine(scanId, domainId, workspaceId, domain, env) {
         reachable: 0,
         assets:    [],
         source:    "http_probe",
-        error:     err.message ?? "Asset exposure module failed",
+        error:     customerSafeFailure("scan/asset-exposure", err, "Asset exposure module failed"),
       };
     }
 
     const modules = {
       dns: dnsSettled.status === "fulfilled"
         ? dnsSettled.value
-        : { error: dnsSettled.reason?.message ?? "DNS module failed" },
+        : { error: customerSafeFailure("scan/dns", dnsSettled.reason, "DNS module failed") },
 
       ssl: sslSettled.status === "fulfilled"
         ? sslSettled.value
-        : { error: sslSettled.reason?.message ?? "SSL module failed" },
+        : { error: customerSafeFailure("scan/ssl", sslSettled.reason, "SSL module failed") },
 
       headers: headersSettled.status === "fulfilled"
         ? headersSettled.value
-        : { error: headersSettled.reason?.message ?? "Headers module failed" },
+        : { error: customerSafeFailure("scan/headers", headersSettled.reason, "Headers module failed") },
 
       email_security: emailSettled.status === "fulfilled"
         ? emailSettled.value
-        : { error: emailSettled.reason?.message ?? "Email module failed" },
+        : { error: customerSafeFailure("scan/email", emailSettled.reason, "Email module failed") },
 
       subdomains: subdomainsResult,
 
@@ -8472,11 +8514,11 @@ async function runScanEngine(scanId, domainId, workspaceId, domain, env) {
 
       technology_detection: techSettled.status === "fulfilled"
         ? techSettled.value
-        : { error: techSettled.reason?.message ?? "Technology module failed" },
+        : { error: customerSafeFailure("scan/technology", techSettled.reason, "Technology module failed") },
 
       whois_intelligence: whoisSettled.status === "fulfilled"
         ? whoisSettled.value
-        : { error: whoisSettled.reason?.message ?? "WHOIS module failed" },
+        : { error: customerSafeFailure("scan/whois", whoisSettled.reason, "WHOIS module failed") },
 
       dns_bruteforce: bruteforceResult,
 
@@ -8661,7 +8703,7 @@ async function runScanEngine(scanId, domainId, workspaceId, domain, env) {
         new_takeover_risks: [],
         new_exposed_assets: [],
         source:             "previous_scan_comparison",
-        error:              err.message ?? "Historical module failed",
+        error:              customerSafeFailure("scan/history", err, "Historical module failed"),
       };
     }
 
@@ -8678,16 +8720,16 @@ async function runScanEngine(scanId, domainId, workspaceId, domain, env) {
     modules.cve_intelligence = cveSettled.status === "fulfilled"
       ? cveSettled.value
       : { technologies_checked: [], results: {}, total_cves: 0, critical_count: 0, high_count: 0,
-          source: "nvd_api", error: cveSettled.reason?.message ?? "CVE module failed" };
+          source: "nvd_api", error: customerSafeFailure("scan/cve", cveSettled.reason, "CVE module failed") };
 
     modules.known_exploited_vulnerabilities = kevSettled.status === "fulfilled"
       ? kevSettled.value
       : { matches: [], checked: 0, matched: 0,
-          source: "cisa_kev", error: kevSettled.reason?.message ?? "KEV module failed" };
+          source: "cisa_kev", error: customerSafeFailure("scan/kev", kevSettled.reason, "KEV module failed") };
 
     modules.email_security_intelligence = emailIntelSettled.status === "fulfilled"
       ? emailIntelSettled.value
-      : { error: emailIntelSettled.reason?.message ?? "Email intelligence module failed" };
+      : { error: customerSafeFailure("scan/email-intelligence", emailIntelSettled.reason, "Email intelligence module failed") };
 
     // Phase 6: Risk intelligence + Remediation plan (pure computation — no I/O)
     // Risk module enriches all findings with business-impact language and risk categories.
@@ -16477,6 +16519,7 @@ const PERMISSION_MIN_ROLE = {
   "workspace:manage_members":  "owner",
   "workspace:delete":          "owner",
   "workspace:transfer":        "owner",
+  "billing:manage":            "owner",
   // Domain management
   "domain:add":                "admin",
   "domain:remove":             "admin",
@@ -16527,7 +16570,27 @@ const PERMISSION_SCOPE = {
   "workspace:manage_members": "admin",
   "workspace:delete":         "admin",
   "workspace:transfer":       "admin",
+  "billing:manage":           "admin",
 };
+
+function hasWorkspacePermission(role, permission, tokenScope = undefined) {
+  const minRole = PERMISSION_MIN_ROLE[permission];
+  if (!minRole) return false;
+
+  const userRank = ROLE_RANK[role] ?? -1;
+  const minRank = ROLE_RANK[minRole] ?? 99;
+  if (userRank < minRank) return false;
+
+  if (tokenScope !== undefined) {
+    const requiredScope = PERMISSION_SCOPE[permission];
+    if (!requiredScope) return false;
+    const tokenRank = SCOPE_RANK[tokenScope] ?? -1;
+    const neededRank = SCOPE_RANK[requiredScope] ?? 99;
+    if (tokenRank < neededRank) return false;
+  }
+
+  return true;
+}
 
 /**
  * requireWorkspaceAccess(user, workspaceId, env)
@@ -16596,26 +16659,9 @@ async function requireWorkspaceAccess(user, workspaceId, env) {
 async function requireWorkspaceRole(user, workspaceId, permission, env) {
   const membership = await requireWorkspaceAccess(user, workspaceId, env);
   if (!membership) return null;
-
-  const minRole  = PERMISSION_MIN_ROLE[permission];
-  if (!minRole) return membership; // permission not restricted — any member passes
-
-  const userRank = ROLE_RANK[membership.role] ?? -1;
-  const minRank  = ROLE_RANK[minRole]         ?? 99;
-  if (userRank < minRank) return null;
-
-  // ── API token scope enforcement ───────────────────────────────────────────
-  // Session-authenticated callers (no token_scope) skip this check entirely.
-  // Token callers must have a scope that meets or exceeds the required scope
-  // for this permission (read ⊂ write ⊂ admin).
-  if (user.token_scope !== undefined) {
-    const requiredScope = PERMISSION_SCOPE[permission] ?? "read";
-    const tokenRank     = SCOPE_RANK[user.token_scope]  ?? -1;
-    const neededRank    = SCOPE_RANK[requiredScope]      ?? 0;
-    if (tokenRank < neededRank) return null;
-  }
-
-  return membership;
+  return hasWorkspacePermission(membership.role, permission, user.token_scope)
+    ? membership
+    : null;
 }
 
 async function getAccessibleWorkspaceIds(user, env) {
@@ -18517,8 +18563,31 @@ function buildJsonHeaders(_corsHeaders = buildCorsHeaders(null)) {
   };
 }
 
+function normalizeApiResponseData(data, status) {
+  if (!Number.isInteger(status) || status < 400 || !data || typeof data !== "object" || Array.isArray(data)) {
+    return data;
+  }
+
+  const normalized = { ...data };
+  delete normalized.detail;
+  delete normalized.stack;
+
+  if (typeof normalized.error !== "string" || !normalized.error.trim()) {
+    normalized.error = status >= 500 ? "Request failed. Please try again." : "Request could not be completed.";
+  }
+
+  if (!normalized.code) {
+    normalized.code = /^[a-z][a-z0-9_]*$/.test(normalized.error)
+      ? normalized.error
+      : ({ 400: "bad_request", 401: "unauthorized", 403: "forbidden", 404: "not_found", 409: "conflict", 413: "payload_too_large", 414: "uri_too_long", 429: "rate_limit_exceeded" }[status]
+        || (status >= 500 ? "server_error" : "request_error"));
+  }
+
+  return normalized;
+}
+
 function json(data, status = 200, _corsHeaders = buildCorsHeaders(null)) {
-  return Response.json(data, {
+  return Response.json(normalizeApiResponseData(data, status), {
     status,
     headers: buildJsonHeaders(_corsHeaders),
   });
@@ -18887,13 +18956,21 @@ export default {
     const corsHeaders = buildCorsHeaders(env);
     // Shadow the module-level json() so every route in this handler uses the
     // correct per-request origin without touching individual call sites.
-    const json = (data, status = 200) => Response.json(data, { status, headers: buildJsonHeaders(corsHeaders) });
+    const json = (data, status = 200) => Response.json(normalizeApiResponseData(data, status), { status, headers: buildJsonHeaders(corsHeaders) });
     const serverError = (scope, error, message = "Request failed. Please try again.") => {
       console.error(`[${scope}] ${error?.message ?? error}`);
       return json({ error: message }, 500);
     };
 
     const url = new URL(request.url);
+
+    if (url.pathname.length > 2048) {
+      return json({ error: "Request URL is too long" }, 414);
+    }
+    const contentLength = Number(request.headers.get("Content-Length") || 0);
+    if (Number.isFinite(contentLength) && contentLength > 1024 * 1024) {
+      return json({ error: "Request body is too large" }, 413);
+    }
 
     // ── OPTIONS preflight ───────────────────────────────────────────────
     if (request.method === "OPTIONS") {
@@ -19695,6 +19772,8 @@ export default {
       // Generate a cryptographically random state for CSRF protection
       const stateRaw = Array.from(crypto.getRandomValues(new Uint8Array(24)))
         .map(b => b.toString(16).padStart(2, "0")).join("");
+      const nonceRaw = Array.from(crypto.getRandomValues(new Uint8Array(24)))
+        .map(b => b.toString(16).padStart(2, "0")).join("");
 
       // redirect_uri must match exactly what is registered in Azure App Registration
       const redirectUri = env.MICROSOFT_REDIRECT_URI
@@ -19707,7 +19786,7 @@ export default {
           `INSERT INTO oauth_states (state, provider, redirect_uri, expires_at)
            VALUES (?, 'microsoft', ?, ?)`
         )
-        .bind(stateRaw, redirectUri, expiresAt)
+        .bind(stateRaw, JSON.stringify({ redirect_uri: redirectUri, nonce: nonceRaw }), expiresAt)
         .run();
 
       // Purge expired states while we're here (best-effort, non-fatal)
@@ -19725,6 +19804,7 @@ export default {
       authorizeUrl.searchParams.set("response_mode", "query");
       authorizeUrl.searchParams.set("scope",         "openid profile email");
       authorizeUrl.searchParams.set("state",         stateRaw);
+      authorizeUrl.searchParams.set("nonce",         nonceRaw);
 
       return Response.redirect(authorizeUrl.toString(), 302);
     }
@@ -19758,9 +19838,9 @@ export default {
       // Microsoft returned an error (e.g. user denied consent)
       if (msErr) {
         const frontendUrl = env.FRONTEND_URL || url.origin;
-        const errDesc = url.searchParams.get("error_description") || msErr;
         const dest = new URL("/login", frontendUrl);
-        dest.searchParams.set("ms_error", errDesc);
+        dest.searchParams.set("ms_error", "Microsoft sign-in was cancelled or failed. Please try again.");
+        console.warn("[microsoft/callback] provider returned error", { code: msErr });
         return Response.redirect(dest.toString(), 302);
       }
 
@@ -19789,8 +19869,12 @@ export default {
         .bind(state)
         .run();
 
-      const redirectUri = stateRow.redirect_uri
+      let statePayload = null;
+      try { statePayload = JSON.parse(stateRow.redirect_uri); } catch { /* legacy state row */ }
+      const redirectUri = statePayload?.redirect_uri
+        || stateRow.redirect_uri
         || (env.MICROSOFT_REDIRECT_URI || `${url.origin}/api/auth/microsoft/callback`);
+      const expectedNonce = statePayload?.nonce || null;
 
       // ── 2. Exchange authorization code for tokens ──────────────────────
       const tokenRes = await fetch(
@@ -19810,8 +19894,7 @@ export default {
       );
 
       if (!tokenRes.ok) {
-        const errBody = await tokenRes.text().catch(() => "");
-        console.error("[microsoft/callback] token exchange failed:", errBody);
+        console.error("[microsoft/callback] token exchange failed", { status: tokenRes.status });
         return json({ error: "Failed to exchange authorization code" }, 502);
       }
 
@@ -19825,10 +19908,10 @@ export default {
       // ── 3. Validate id_token JWT ───────────────────────────────────────
       let claims;
       try {
-        claims = await validateMicrosoftIdToken(idToken, clientId, tenantId);
+        claims = await validateMicrosoftIdToken(idToken, clientId, tenantId, expectedNonce);
       } catch (e) {
         console.error("[microsoft/callback] id_token validation failed:", e.message);
-        return json({ error: "Token validation failed: " + e.message }, 401);
+        return json({ error: "Microsoft sign-in could not be validated. Please try again." }, 401);
       }
 
       const msOid   = claims.oid;
@@ -20690,17 +20773,17 @@ export default {
           .bind(user.id)
           .first();
       } catch (e) {
-        return json({ error: "Database error", detail: String(e?.message ?? e) }, 500);
+        return serverError("billing/checkout-subscription", e, "Unable to load billing information.");
       }
 
       // Validate redirect URLs
-      const successUrl = typeof body.success_url === "string" ? body.success_url.trim() : "";
-      const cancelUrl  = typeof body.cancel_url  === "string" ? body.cancel_url.trim()  : "";
+      const successUrl = validateFrontendRedirectUrl(body.success_url, env);
+      const cancelUrl  = validateFrontendRedirectUrl(body.cancel_url, env);
       if (!successUrl) {
-        return json({ error: "missing_success_url", message: "success_url is required." }, 400);
+        return json({ error: "invalid_success_url", message: "success_url must use the configured CyberMeters frontend origin." }, 400);
       }
       if (!cancelUrl) {
-        return json({ error: "missing_cancel_url", message: "cancel_url is required." }, 400);
+        return json({ error: "invalid_cancel_url", message: "cancel_url must use the configured CyberMeters frontend origin." }, 400);
       }
 
       // Build Stripe Checkout Session params (Stripe accepts x-www-form-urlencoded only)
@@ -20741,20 +20824,23 @@ export default {
         const stripeData = await stripeRes.json();
 
         if (!stripeRes.ok) {
+          console.error("[billing/checkout] Stripe API error", {
+            status: stripeRes.status,
+            type: stripeData?.error?.type ?? null,
+            code: stripeData?.error?.code ?? null,
+          });
           return json({
             error:             "stripe_api_error",
-            message:           stripeData?.error?.message ?? "Stripe Checkout Session creation failed.",
-            stripe_error_type: stripeData?.error?.type  ?? null,
-            stripe_error_code: stripeData?.error?.code  ?? null,
+            message:           "Stripe Checkout Session creation failed. Please try again.",
           }, 502);
         }
 
         stripeSession = stripeData;
       } catch (e) {
+        console.error(`[billing/checkout] ${e?.message ?? e}`);
         return json({
           error:   "stripe_request_failed",
           message: "Could not reach Stripe. Please try again.",
-          detail:  String(e?.message ?? e),
         }, 502);
       }
 
@@ -20791,17 +20877,11 @@ export default {
       let body;
       try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
 
-      const returnUrl = typeof body.return_url === "string" ? body.return_url.trim() : "";
-      let parsedReturnUrl;
-      try {
-        parsedReturnUrl = returnUrl ? new URL(returnUrl) : null;
-      } catch {
-        parsedReturnUrl = null;
-      }
-      if (!parsedReturnUrl || !["https:", "http:"].includes(parsedReturnUrl.protocol)) {
+      const returnUrl = validateFrontendRedirectUrl(body.return_url, env);
+      if (!returnUrl) {
         return json({
           error: "invalid_return_url",
-          message: "return_url must be a valid absolute URL.",
+          message: "return_url must use the configured CyberMeters frontend origin.",
         }, 400);
       }
 
@@ -20827,7 +20907,7 @@ export default {
           .bind(user.id)
           .first();
       } catch (e) {
-        return json({ error: "Database error", detail: String(e?.message ?? e) }, 500);
+        return serverError("billing/portal-subscription", e, "Unable to load billing information.");
       }
 
       if (!subscription) {
@@ -20839,7 +20919,7 @@ export default {
 
       const params = new URLSearchParams();
       params.set("customer", subscription.stripe_customer_id);
-      params.set("return_url", parsedReturnUrl.toString());
+      params.set("return_url", returnUrl);
 
       let portalSession;
       try {
@@ -20854,20 +20934,23 @@ export default {
 
         const stripeData = await stripeRes.json();
         if (!stripeRes.ok) {
+          console.error("[billing/portal] Stripe API error", {
+            status: stripeRes.status,
+            type: stripeData?.error?.type ?? null,
+            code: stripeData?.error?.code ?? null,
+          });
           return json({
             error:             "stripe_api_error",
-            message:           stripeData?.error?.message ?? "Stripe Billing Portal Session creation failed.",
-            stripe_error_type: stripeData?.error?.type ?? null,
-            stripe_error_code: stripeData?.error?.code ?? null,
+            message:           "Stripe Billing Portal Session creation failed. Please try again.",
           }, 502);
         }
 
         portalSession = stripeData;
       } catch (e) {
+        console.error(`[billing/portal] ${e?.message ?? e}`);
         return json({
           error:   "stripe_request_failed",
           message: "Could not reach Stripe. Please try again.",
-          detail:  String(e?.message ?? e),
         }, 502);
       }
 
@@ -21537,12 +21620,12 @@ export default {
       if (user.api_token_id) return json({ error: "Session authentication required" }, 403);
 
       const HISTORY_TYPES = [
-        "login", "login_failed",
+        "login", "USER_LOGIN_MICROSOFT", "login_failed",
         "mfa_challenge_success", "mfa_challenge_failed",
         "recovery_code_used",
         "password_reset_completed", "password_reset_failed",
       ];
-      const SUCCESS_TYPES = new Set(["login", "mfa_challenge_success", "recovery_code_used", "password_reset_completed"]);
+      const SUCCESS_TYPES = new Set(["login", "USER_LOGIN_MICROSOFT", "mfa_challenge_success", "recovery_code_used", "password_reset_completed"]);
 
       try {
         const rows = await env.cybermeters_db
@@ -22830,7 +22913,7 @@ export default {
           },
         });
       } catch (e) {
-        return json({ error: "PDF generation failed", detail: e.message }, 500);
+        return serverError("portfolio/report-pdf", e, "PDF generation failed. Please try again.");
       }
     }
 
@@ -23101,7 +23184,7 @@ export default {
       if (!user) return json({ error: "Unauthorized" }, 401);
       try {
         const db    = env.cybermeters_db;
-        const limit = Math.min(parseInt(url.searchParams.get('limit') ?? '50', 10) || 50, 200);
+        const limit = parseBoundedInteger(url.searchParams.get("limit"), 50, 1, 200);
         const workspaceIds = await getAccessibleWorkspaceIds(user, env);
         if (workspaceIds.length === 0) return json({ alerts: [] });
         const wsIn = workspaceIds.map(() => "?").join(",");
@@ -23355,6 +23438,7 @@ export default {
       if (!name) {
         return json({ error: "name is required" }, 400);
       }
+      if (name.length > 100) return json({ error: "name must be 100 characters or fewer" }, 400);
       const id         = `workspace_${crypto.randomUUID()}`;
       const created_at = new Date().toISOString();
       try {
@@ -23435,7 +23519,7 @@ export default {
       // ── GET /api/workspaces/:id/assets ───────────────────────────────────
       if (sub === "") {
         const statusFilter = url.searchParams.get("status");
-        const limit        = Math.min(parseInt(url.searchParams.get("limit") || "200", 10), 500);
+        const limit        = parseBoundedInteger(url.searchParams.get("limit"), 200, 1, 500);
         try {
           const where = statusFilter ? "AND status = ?" : "";
           const binds = statusFilter ? [wsId, statusFilter, limit] : [wsId, limit];
@@ -23459,7 +23543,7 @@ export default {
 
       // ── GET /api/workspaces/:id/assets/events ────────────────────────────
       if (sub === "/events") {
-        const limit = Math.min(parseInt(url.searchParams.get("limit") || "100", 10), 500);
+        const limit = parseBoundedInteger(url.searchParams.get("limit"), 100, 1, 500);
         try {
           const result = await env.cybermeters_db
             .prepare(
@@ -23645,7 +23729,7 @@ export default {
       // ── GET /api/workspaces/:id/alerts ─────────────────────────────────────
       if (sub === "") {
         const severityFilter = url.searchParams.get("severity");
-        const limit          = Math.min(parseInt(url.searchParams.get("limit") || "50", 10), 200);
+        const limit          = parseBoundedInteger(url.searchParams.get("limit"), 50, 1, 200);
         const VALID_SEVERITIES = new Set(["critical", "high", "medium", "low", "info"]);
 
         if (severityFilter && !VALID_SEVERITIES.has(severityFilter)) {
@@ -24966,11 +25050,7 @@ export default {
         if (!pdfData) return json({ error: 'Workspace not found' }, 404);
         return json(pdfData);
       } catch (err) {
-        return json({
-          error:  'PDF data failed',
-          detail: String(err?.message ?? err),
-          stack:  String(err?.stack   ?? '').slice(0, 1000),
-        }, 500);
+        return serverError("scorecard/pdf-data", err, "PDF data could not be generated.");
       }
     }
 
@@ -25215,7 +25295,7 @@ export default {
             generated_at:       new Date().toISOString(),
           });
         } catch (err) {
-          return json({ error: "Failed to load identity summary", detail: err?.message }, 500);
+          return serverError("identity/summary", err, "Identity summary could not be loaded.");
         }
       }
 
@@ -25256,7 +25336,7 @@ export default {
           generated_at:    new Date().toISOString(),
         });
       } catch (err) {
-        return json({ error: "Failed to load identity assets", detail: err?.message }, 500);
+        return serverError("identity/assets", err, "Identity assets could not be loaded.");
       }
     }
 
@@ -25331,7 +25411,7 @@ export default {
           generated_at:    new Date().toISOString(),
         });
       } catch (err) {
-        return json({ error: "Database error", detail: err?.message }, 500);
+        return serverError("vendor-relationships", err);
       }
     }
 
@@ -25873,7 +25953,7 @@ export default {
           trend,
         });
       } catch (err) {
-        return json({ error: 'Database error', detail: String(err?.message ?? err) }, 500);
+        return serverError("business-risk", err);
       }
     }
 
@@ -27228,8 +27308,8 @@ export default {
       if (!access) return json({ error: "Forbidden" }, 403);
 
       try {
-        const limit     = Math.min(parseInt(url.searchParams.get("limit")  || "50", 10), 100);
-        const offset    = Math.max(parseInt(url.searchParams.get("offset") || "0",  10), 0);
+        const limit     = parseBoundedInteger(url.searchParams.get("limit"), 50, 1, 100);
+        const offset    = parseBoundedInteger(url.searchParams.get("offset"), 0, 0, 100000);
         const eventType = url.searchParams.get("event_type") || null;
 
         let query, binds;
@@ -27305,8 +27385,8 @@ export default {
       }
 
       try {
-        const limit       = Math.min(Math.max(parseInt(url.searchParams.get("limit")  || "50",  10), 1), 100);
-        const offset      = Math.max(parseInt(url.searchParams.get("offset") || "0",  10), 0);
+        const limit       = parseBoundedInteger(url.searchParams.get("limit"), 50, 1, 100);
+        const offset      = parseBoundedInteger(url.searchParams.get("offset"), 0, 0, 100000);
         const eventType   = url.searchParams.get("event_type")   || null;
         const actorUserId = url.searchParams.get("actor_user_id") || null;
         const entityType  = url.searchParams.get("entity_type")  || null;
@@ -27419,7 +27499,7 @@ export default {
         const format      = (url.searchParams.get("format") || "csv").toLowerCase();
         if (format !== "csv" && format !== "json") return json({ error: "format must be csv or json" }, 400);
 
-        const exportLimit = Math.min(parseInt(url.searchParams.get("limit") || "1000", 10), 10000);
+        const exportLimit = parseBoundedInteger(url.searchParams.get("limit"), 1000, 1, 10000);
         const eventType   = url.searchParams.get("event_type")   || null;
         const actorUserId = url.searchParams.get("actor_user_id") || null;
         const entityType  = url.searchParams.get("entity_type")  || null;
@@ -27557,7 +27637,7 @@ export default {
         });
       }
       try {
-        const limit  = Math.min(parseInt(url.searchParams.get("limit")  || "50",  10), 200);
+        const limit  = parseBoundedInteger(url.searchParams.get("limit"), 50, 1, 200);
         const status = url.searchParams.get("status") || null; // 'unread' | 'read' | null (all)
         const ws = await env.cybermeters_db
           .prepare("SELECT id FROM workspaces WHERE id = ?")
@@ -28054,7 +28134,7 @@ export default {
             return val === expectedTxtValue;
           });
         } catch (e) {
-          dnsError = e.message;
+          dnsError = customerSafeFailure("domain-verification/dns", e, "DNS lookup could not be completed");
         }
 
         if (dnsVerified) {
@@ -28114,7 +28194,7 @@ export default {
             htmlError = `HTTP ${htmlRes.status}`;
           }
         } catch (e) {
-          htmlError = e.message;
+          htmlError = customerSafeFailure("domain-verification/html", e, "HTML verification request could not be completed");
         }
 
         if (htmlVerified) {
@@ -28293,7 +28373,7 @@ export default {
             if (v === expected) { matches = true; value = v; break; }
           }
         } catch (e) {
-          error = e.message;
+          error = customerSafeFailure("domain-verification/check", e, "DNS lookup could not be completed");
         }
         return json({ found, value, matches, expected, error });
       } catch (e) {
@@ -28315,6 +28395,13 @@ export default {
       const subResource   = wsMatch[2];          // "/domains", "/domains/:id", "/stats", or undefined
       const linkedDomainId = wsMatch[3];         // domain ID component if present
 
+      // Authenticate and authorize before looking up the workspace so callers
+      // cannot distinguish inaccessible workspace IDs from nonexistent ones.
+      const wsUser = await requireAuth(request, env);
+      if (!wsUser) return json({ error: "Unauthorized" }, 401);
+      const wsAccess = await requireWorkspaceRole(wsUser, workspaceId, "workspace:read", env);
+      if (!wsAccess) return json({ error: "Forbidden" }, 403);
+
       // Verify workspace exists for all sub-routes
       let workspace;
       try {
@@ -28328,12 +28415,6 @@ export default {
       if (!workspace) {
         return json({ error: "Workspace not found" }, 404);
       }
-
-      // RBAC: all workspace sub-routes require membership or owner
-      const wsUser = await requireAuth(request, env);
-      if (!wsUser) return json({ error: "Unauthorized" }, 401);
-      const wsAccess = await requireWorkspaceRole(wsUser, workspaceId, "workspace:read", env);
-      if (!wsAccess) return json({ error: "Forbidden" }, 403);
 
       // ── GET /api/workspaces/:id ── (with inline statistics) ──────────
       if (request.method === "GET" && !subResource) {
@@ -28549,10 +28630,7 @@ export default {
         try { body = await request.json(); } catch { body = {}; }
         const raw = (body.domain || "").trim().toLowerCase();
         if (!isValidDomain(raw)) {
-          return json(
-            { error: "domain is required and must be a valid domain" },
-            { status: 400 }
-          );
+          return json({ error: "domain is required and must be a valid domain" }, 400);
         }
         try {
           // Entitlement: per-workspace limit + account-level cross-workspace limit
@@ -29554,7 +29632,7 @@ export default {
       }
 
       // Workspace owner check: only the workspace owner may initiate billing.
-      const access = await requireWorkspaceRole(user, wsId, "workspace:manage", env);
+      const access = await requireWorkspaceRole(user, wsId, "billing:manage", env);
       if (!access) return json({ error: "Forbidden", message: "Workspace owner required for billing." }, 403);
 
       let body;
@@ -29659,19 +29737,22 @@ export default {
 
         const stripeData = await stripeRes.json();
         if (!stripeRes.ok) {
+          console.error("[workspace-billing/checkout] Stripe API error", {
+            status: stripeRes.status,
+            type: stripeData?.error?.type ?? null,
+            code: stripeData?.error?.code ?? null,
+          });
           return json({
             error:             "stripe_api_error",
-            message:           stripeData?.error?.message ?? "Stripe Checkout Session creation failed.",
-            stripe_error_type: stripeData?.error?.type  ?? null,
-            stripe_error_code: stripeData?.error?.code  ?? null,
+            message:           "Stripe Checkout Session creation failed. Please try again.",
           }, 502);
         }
         stripeSession = stripeData;
       } catch (e) {
+        console.error(`[workspace-billing/checkout] ${e?.message ?? e}`);
         return json({
           error:   "stripe_request_failed",
           message: "Could not reach Stripe. Please try again.",
-          detail:  String(e?.message ?? e),
         }, 502);
       }
 
@@ -29702,7 +29783,7 @@ export default {
         return json({ error: "Session authentication required" }, 403);
       }
 
-      const access = await requireWorkspaceRole(user, wsId, "workspace:manage", env);
+      const access = await requireWorkspaceRole(user, wsId, "billing:manage", env);
       if (!access) return json({ error: "Forbidden", message: "Workspace owner required for billing." }, 403);
 
       const stripeConfig = validateStripeSecretConfig(env);
@@ -29729,7 +29810,7 @@ export default {
           .bind(ownerUserId)
           .first();
       } catch (e) {
-        return json({ error: "Database error", detail: String(e?.message ?? e) }, 500);
+        return serverError("workspace-billing/portal-subscription", e, "Unable to load billing information.");
       }
 
       if (!subscription) {
@@ -29760,19 +29841,22 @@ export default {
 
         const stripeData = await stripeRes.json();
         if (!stripeRes.ok) {
+          console.error("[workspace-billing/portal] Stripe API error", {
+            status: stripeRes.status,
+            type: stripeData?.error?.type ?? null,
+            code: stripeData?.error?.code ?? null,
+          });
           return json({
             error:             "stripe_api_error",
-            message:           stripeData?.error?.message ?? "Stripe Billing Portal Session creation failed.",
-            stripe_error_type: stripeData?.error?.type ?? null,
-            stripe_error_code: stripeData?.error?.code ?? null,
+            message:           "Stripe Billing Portal Session creation failed. Please try again.",
           }, 502);
         }
         portalSession = stripeData;
       } catch (e) {
+        console.error(`[workspace-billing/portal] ${e?.message ?? e}`);
         return json({
           error:   "stripe_request_failed",
           message: "Could not reach Stripe. Please try again.",
-          detail:  String(e?.message ?? e),
         }, 502);
       }
 

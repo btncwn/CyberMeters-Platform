@@ -35,6 +35,13 @@ function loadScanner() {
     applyEvidenceQuality,
     resolveCanonicalScanScore,
     riskLevelForScore,
+    isValidDomain,
+    isValidEmail,
+    parseBoundedInteger,
+    validateFrontendRedirectUrl,
+    normalizeApiResponseData,
+    validateMicrosoftIdTokenClaims,
+    hasWorkspacePermission,
     computeBusinessRiskScoreFromIds: (ids, data) => computeBusinessRiskScore(new Set(ids), data),
   };`, context, {
     filename: workerPath,
@@ -246,6 +253,84 @@ if (process.exitCode) process.exit(process.exitCode);
 
 const scanner = loadScanner();
 const results = parsed.fixtures.map((fixture) => runFixture(scanner, fixture));
+
+function securityContract(scenario, check) {
+  try {
+    const passed = check();
+    return { scenario, passed, failures: passed ? [] : ["security contract returned false"], findings: [] };
+  } catch (error) {
+    return { scenario, passed: false, failures: [error.message], findings: [] };
+  }
+}
+
+function rejects(check) {
+  try { check(); return false; } catch { return true; }
+}
+
+const validMicrosoftClaims = {
+  aud: "client-id",
+  exp: 2000,
+  nbf: 900,
+  oid: "object-id",
+  tid: "tenant-id",
+  iss: "https://login.microsoftonline.com/tenant-id/v2.0",
+  nonce: "expected-nonce",
+};
+
+results.push(
+  securityContract("security_valid_domain_contract", () =>
+    scanner.isValidDomain("example.co.uk") &&
+    !scanner.isValidDomain(".example.com") &&
+    !scanner.isValidDomain("example..com") &&
+    !scanner.isValidDomain("-example.com")
+  ),
+  securityContract("security_email_length_contract", () =>
+    scanner.isValidEmail("user@example.com") &&
+    !scanner.isValidEmail(`${"a".repeat(250)}@example.com`)
+  ),
+  securityContract("security_pagination_bounds_contract", () =>
+    scanner.parseBoundedInteger("invalid", 50, 1, 100) === 50 &&
+    scanner.parseBoundedInteger("999", 50, 1, 100) === 100 &&
+    scanner.parseBoundedInteger("-1", 50, 1, 100) === 1
+  ),
+  securityContract("security_redirect_origin_contract", () =>
+    scanner.validateFrontendRedirectUrl("https://app.cybermeters.com/billing", { FRONTEND_URL: "https://app.cybermeters.com" }) !== null &&
+    scanner.validateFrontendRedirectUrl("https://attacker.example/billing", { FRONTEND_URL: "https://app.cybermeters.com" }) === null &&
+    scanner.validateFrontendRedirectUrl("http://app.cybermeters.com/billing", { FRONTEND_URL: "https://app.cybermeters.com" }) === null
+  ),
+  securityContract("security_error_shape_contract", () => {
+    const shaped = scanner.normalizeApiResponseData({ error: "Database error", detail: "sensitive", stack: "trace" }, 500);
+    return shaped.error === "Database error" && shaped.code === "server_error" && !("detail" in shaped) && !("stack" in shaped);
+  }),
+  securityContract("security_rbac_fail_closed_contract", () =>
+    scanner.hasWorkspacePermission("owner", "unknown:permission") === false &&
+    scanner.hasWorkspacePermission("admin", "billing:manage") === false &&
+    scanner.hasWorkspacePermission("owner", "billing:manage") === true
+  ),
+  securityContract("security_oidc_claims_contract", () => {
+    scanner.validateMicrosoftIdTokenClaims(
+      { alg: "RS256", kid: "key-id" },
+      validMicrosoftClaims,
+      "client-id",
+      "tenant-id",
+      "expected-nonce",
+      1000,
+    );
+    return true;
+  }),
+  securityContract("security_oidc_algorithm_rejection", () =>
+    rejects(() => scanner.validateMicrosoftIdTokenClaims(
+      { alg: "none", kid: "key-id" }, validMicrosoftClaims, "client-id", "tenant-id", "expected-nonce", 1000
+    ))
+  ),
+  securityContract("security_oidc_tenant_nonce_rejection", () =>
+    rejects(() => scanner.validateMicrosoftIdTokenClaims(
+      { alg: "RS256", kid: "key-id" }, validMicrosoftClaims, "client-id", "other-tenant", "expected-nonce", 1000
+    )) && rejects(() => scanner.validateMicrosoftIdTokenClaims(
+      { alg: "RS256", kid: "key-id" }, validMicrosoftClaims, "client-id", "tenant-id", "wrong-nonce", 1000
+    ))
+  ),
+);
 
 for (const contract of parsed.score_contracts || []) {
   const actualScore = scanner.resolveCanonicalScanScore(contract.d1_score, contract.report_score);
