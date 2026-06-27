@@ -605,12 +605,18 @@ const HEADER_LABELS = {
   'permissions-policy':        'Permissions-Policy',
 }
 
-function HeadersPanel({ headers }) {
+function HeadersPanel({ headers, httpsAvailable }) {
   if (!headers || headers.error) {
     return <div className="px-6 py-4 text-sm text-gray-400">{headers?.error || 'No header data'}</div>
   }
   if (!headers.accessible) {
-    return <div className="px-6 py-4 text-sm text-gray-400">Site was not reachable for header analysis.</div>
+    return (
+      <div className="px-6 py-4 text-sm text-gray-500">
+        {httpsAvailable
+          ? 'Header analysis was inconclusive. HTTPS is available, but the header probe may have been blocked or timed out.'
+          : 'No response was available for header analysis. This result is inconclusive and is not scored as a missing-header issue.'}
+      </div>
+    )
   }
 
   const allHeaders = Object.keys(HEADER_LABELS)
@@ -881,6 +887,9 @@ function BusinessRiskCard({ businessRisk }) {
         {summary && (
           <p className="text-xs text-gray-500 mt-2 leading-relaxed line-clamp-3">{summary}</p>
         )}
+        <p className="text-[11px] text-gray-400 mt-2 leading-relaxed">
+          Business Risk estimates likely business impact. The Cyber Metrics Score above measures technical external posture.
+        </p>
       </div>
 
       {/* Category mini-scores */}
@@ -1029,7 +1038,7 @@ function ReportView({ report }) {
       {/* Security Headers */}
       <div className="card overflow-hidden">
         <SectionHeader icon={FileText} title="Security Headers" />
-        <HeadersPanel headers={modules?.headers} />
+        <HeadersPanel headers={modules?.headers} httpsAvailable={modules?.ssl?.https_available === true} />
       </div>
 
       {/* Email Security */}

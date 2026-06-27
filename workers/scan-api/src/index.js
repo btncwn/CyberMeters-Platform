@@ -1023,8 +1023,13 @@ function normalizeFindingSchema(finding) {
     validation_quality: finding.validation_quality ?? null,
     evidence:           buildEvidenceArray(finding),        // Sprint 9C: always array
     remediation_owner:  finding.remediation_owner  ?? null,
-    finding_type:       finding.finding_type       ?? "observation", // Sprint 10A: "finding" (score-impacting) | "observation" (score_impact:0)
+    finding_type:       finding.finding_type       ?? (finding.score_impact < 0 ? "finding" : "observation"),
   };
+}
+
+function isActionableFinding(finding) {
+  return finding?.finding_type === "finding"
+    || (finding?.finding_type == null && Number(finding?.score_impact) < 0);
 }
 
 const SCANNER_REGRESSION_FIXTURES = [
@@ -6215,13 +6220,13 @@ function buildEmailIntelFindings(spf, dmarc, dkim, mtaSts, tlsRpt) {
     findings.push({
       id:                "email_intel_dkim_not_found",
       module:            "email_security_intelligence",
-      severity:          "medium",
+      severity:          "info",
       // Sprint 9D: common-selector heuristic failure — not confirmed absence of DKIM
       confidence:         60,
       validation_quality: "partial",
-      title:             "DKIM signing record not found on common selectors",
-      description:       "No DKIM public key record was detected using common selector names. Without DKIM, email content signatures cannot be verified by recipients.",
-      recommendation:    "Configure DKIM signing with your email service provider and publish the DKIM public key as a TXT record at <selector>._domainkey.<domain>.",
+      title:             "DKIM Could Not Be Verified Using Common Selectors",
+      description:       "DKIM could not be verified using common selector names. The domain may use a custom selector, so this is not confirmation that DKIM is absent.",
+      recommendation:    "Confirm the active DKIM selector with the email provider and verify that selector directly.",
       score_impact:      0,
     });
   }
@@ -6978,15 +6983,12 @@ function computeScore(modules, domain) {
       const dkimProbed       = modules.email_security?.dkim?.selectors_probed ?? DKIM_SELECTORS;
       const providerLabel    = dkimProvider ? (DKIM_PROVIDER_LABELS[dkimProvider] ?? dkimProvider) : null;
 
-      // Title: provider-aware when provider is identified
-      const dkimTitle = providerLabel
-        ? `DKIM Not Found on ${providerLabel} Standard Selectors`
-        : "DKIM Selector Not Found — May Use Custom Configuration";
+      const dkimTitle = "DKIM Could Not Be Verified Using Common Selectors";
 
       // Description: include provider signal when available
       const dkimDescription = providerLabel
-        ? `No DKIM public key record was found for ${domain} on ${providerLabel} standard selectors. The SPF record indicates ${providerLabel} as the email provider. DKIM may use a custom selector or may not be enabled.`
-        : `No DKIM public key record was found for ${domain} using common selector names. DKIM may be configured with a custom selector not in our probe list, or may not be enabled.`;
+        ? `${providerLabel} was inferred as the email provider, but DKIM could not be verified for ${domain} using the selectors checked. The domain may use a custom selector. This is an informational observation, not confirmation that DKIM is absent.`
+        : `DKIM could not be verified for ${domain} using common selectors. The domain may use a custom selector. This is an informational observation, not confirmation that DKIM is absent.`;
 
       // Confidence model:
       //   60 — provider unknown, generic selectors miss (high false-negative risk)
@@ -7030,12 +7032,6 @@ function computeScore(modules, domain) {
           cross_checked_at:            modules.dns?.cross_checks?.cross_checked_at ?? null,
         },
       });
-      recommendations.push({
-        priority:    3,
-        module:      "email_security",
-        title:       "Verify DKIM Configuration",
-        description: "Confirm that DKIM signing is enabled with your email provider and the public key is published as a DNS TXT record at <selector>._domainkey." + domain,
-      });
     }
   }
 
@@ -7055,53 +7051,75 @@ function computeScore(modules, domain) {
     );
     const bruteDnsSubdomains = new Set(modules.dns_bruteforce?.items || []);
 
-    // One finding + deduction per sensitive subdomain, capped at 4 findings / -20 pts
+    const takeoverHosts = new Set(
+      (modules.subdomain_takeover?.risks || []).map((risk) => risk.host)
+    );
+
+    // Keep the result visible, but only score an HTTP-confirmed sensitive service.
     const cappedSensitive = sensitiveList.slice(0, 4);
+    let confirmedSensitiveCount = 0;
     for (const sub of cappedSensitive) {
-      let subConf, subVQ;
+      let subConf, subVQ, severity, scoreImpact, title, description;
       if (reachableSubdomains.has(sub)) {
-        subConf = 80; subVQ = "good";        // HTTP probe confirmed reachable
+        subConf = 80;
+        subVQ = "good";
+        severity = "medium";
+        scoreImpact = -5;
+        title = "Potentially Sensitive Subdomain Confirmed Reachable";
+        description = `The subdomain "${sub}" suggests development, staging, or administrative use and responded to an HTTP probe. Verify that public access is intentional and appropriately protected.`;
+        confirmedSensitiveCount += 1;
       } else if (bruteDnsSubdomains.has(sub)) {
-        subConf = 70; subVQ = "partial";     // DNS bruteforce resolved, HTTP not confirmed
+        subConf = 70;
+        subVQ = "partial";
+        severity = "low";
+        scoreImpact = 0;
+        title = "Potentially Sensitive Subdomain Name Observed";
+        description = `The subdomain name "${sub}" resolved in DNS, but no HTTP probe confirmed a publicly reachable service. Review it as an inventory observation, not as confirmed exposure.`;
       } else {
-        subConf = 60; subVQ = "weak";        // CT log discovery only — no probe confirmation
+        subConf = 60;
+        subVQ = "weak";
+        severity = "info";
+        scoreImpact = 0;
+        title = "Potentially Sensitive Subdomain Name Observed";
+        description = `The name "${sub}" was observed only in Certificate Transparency logs. No HTTP probe, takeover risk, or public service was confirmed. This observation should be reviewed, not treated as confirmed exposure.`;
       }
-      finding({
+      const sensitiveFinding = {
         id:                `subdomain_sensitive_${sub.replace(/\./g, "_")}`,
         module:            "subdomains",
-        severity:          "medium",
+        severity,
         confidence:        subConf,
         validation_quality: subVQ,
-        title:             "Potentially Sensitive Subdomain Discovered",
-        description:       `The subdomain "${sub}" suggests a development, staging, or administrative asset may be publicly reachable. Verify this asset is intentional and properly secured.`,
-        score_impact:      -5,
-      });
+        title,
+        description,
+        score_impact:      scoreImpact,
+      };
+      if (scoreImpact < 0 || takeoverHosts.has(sub)) {
+        finding(sensitiveFinding);
+      } else {
+        findings.push({ ...sensitiveFinding, finding_type: "observation" });
+      }
     }
-    if (cappedSensitive.length > 0) {
+    if (confirmedSensitiveCount > 0) {
       recommendations.push({
         priority:    2,
         module:      "subdomains",
         title:       "Review Sensitive Subdomains",
-        description: `${sensitiveList.length} subdomain${sensitiveList.length !== 1 ? "s" : ""} with names suggesting development or administrative use were found in Certificate Transparency logs. Ensure these are either firewalled, require authentication, or are decommissioned if unused: ${sensitiveList.slice(0, 5).join(", ")}`,
+        description: `${confirmedSensitiveCount} subdomain${confirmedSensitiveCount !== 1 ? "s" : ""} with names suggesting development or administrative use responded to HTTP probes. Confirm that public access is intentional and appropriately protected.`,
       });
     }
 
     // Large attack surface
     if (subMod.count > 20) {
-      finding({
+      findings.push({
         id:           "subdomains_large_attack_surface",
         module:       "subdomains",
-        severity:     "low",
-        confidence:   "medium",
-        title:        "Large Subdomain Attack Surface",
-        description:  `${subMod.count} subdomains were found in Certificate Transparency logs for ${domain}. A larger attack surface increases exposure risk — ensure all subdomains are actively maintained.`,
-        score_impact: -3,
-      });
-      recommendations.push({
-        priority:    3,
-        module:      "subdomains",
-        title:       "Audit and Reduce Subdomain Attack Surface",
-        description: `Review all ${subMod.count} discovered subdomains. Decommission unused ones and ensure each points to an actively maintained service.`,
+        severity:     "info",
+        confidence:   60,
+        validation_quality: "weak",
+        title:        "Large Certificate Inventory Observed",
+        description:  `${subMod.count} subdomain names were observed in Certificate Transparency logs for ${domain}. A larger inventory requires asset ownership and lifecycle tracking, but CT volume alone does not indicate that the domain is unsafe or that these services are currently reachable.`,
+        score_impact: 0,
+        finding_type: "observation",
       });
     }
   }
@@ -7246,12 +7264,7 @@ function computeScore(modules, domain) {
 
   // Clamp and classify
   score = Math.max(0, Math.min(100, Math.round(score)));
-
-  const risk_level =
-    score >= 90 ? "excellent" :
-    score >= 75 ? "good"      :
-    score >= 50 ? "moderate"  :
-    score >= 25 ? "high"      : "critical";
+  const risk_level = riskLevelForScore(score);
 
   // Deduplicate recommendations and sort by priority
   const seen = new Set();
@@ -7264,6 +7277,13 @@ function computeScore(modules, domain) {
   uniqueRecs.sort((a, b) => a.priority - b.priority);
 
   return { score, risk_level, findings: applyEvidenceQuality(findings), recommendations: uniqueRecs };
+}
+
+function riskLevelForScore(score) {
+  return score >= 90 ? "excellent" :
+    score >= 75 ? "good" :
+    score >= 50 ? "moderate" :
+    score >= 25 ? "high" : "critical";
 }
 
 // ── Business Risk Score (BRS) v1 ─────────────────────────────────────────────
@@ -7552,7 +7572,7 @@ function computeBusinessRiskScore(findingIds, workspaceData = {}) {
   if (findingIds.has("email_missing_spf"))       emailDed += 30;
   if (findingIds.has("email_missing_dmarc"))      emailDed += 30;
   else if (findingIds.has("email_dmarc_policy_none")) emailDed += 15;
-  if (findingIds.has("email_dkim_not_detected")) emailDed += 15;
+  // Common-selector probing cannot confirm DKIM absence, so it does not affect BRS.
   const emailScore = Math.max(0, 100 - emailDed);
 
   // ── Category 2: Website Trust (20%) ────────────────────────────────────────
@@ -8909,7 +8929,7 @@ function buildCanonicalUrlProfile(modules) {
       // Compute BRS using scan findings + workspace intelligence data
       let brsScore = null;
       try {
-        const findingIds = expandFindingIds(findings);
+        const findingIds = expandFindingIds(findings.filter(isActionableFinding));
         const [brandRows, vendorRows] = await Promise.all([
           env.cybermeters_db
             .prepare(`SELECT risk_level, COUNT(*) AS n FROM workspace_brand_assets WHERE workspace_id = ? AND dns_resolves = 1 AND status = 'active' GROUP BY risk_level`)
@@ -22301,9 +22321,7 @@ export default {
       );
 
       // Compute Business Risk Score from scan findings + module signals
-      const reportFindingIds = new Set(
-        Array.isArray(raw.findings) ? raw.findings.map(f => f.id).filter(Boolean) : []
-      );
+      const reportFindingIds = expandFindingIds(reportFindings.filter(isActionableFinding));
       const brsModuleData = {
         subdomainTakeoverCount: (normalisedModules.subdomain_takeover?.risks ?? []).length,
         assetExposureCount:     (normalisedModules.asset_exposure?.assets ?? []).filter(a => a.reachable).length,
@@ -22322,12 +22340,27 @@ export default {
         top_business_risks:  brsResult.top_business_risks,
       };
 
+      const storedScore = Number(scan.score);
+      const reportScore = Number(raw.cyber_metrics_score);
+      const canonicalScore = Number.isFinite(storedScore)
+        ? storedScore
+        : (Number.isFinite(reportScore) ? reportScore : 0);
+      const canonicalRiskLevel = riskLevelForScore(canonicalScore);
+      const historicalChanges = normalisedModules.historical_changes;
+      normalisedModules.historical_changes = {
+        ...historicalChanges,
+        current_score: canonicalScore,
+        score_change: historicalChanges?.previous_score != null
+          ? canonicalScore - historicalChanges.previous_score
+          : null,
+      };
+
       return json({
         scan_id:             scan.id,
         domain:              scan.domain,
         status:              scan.status,
-        cyber_metrics_score: raw.cyber_metrics_score ?? 0,
-        risk_level:          raw.risk_level          ?? "unknown",
+        cyber_metrics_score: canonicalScore,
+        risk_level:          canonicalRiskLevel,
         findings:            reportFindings,
         recommendations:     Array.isArray(raw.recommendations) ? raw.recommendations : [],
         scan_quality:         raw.scan_quality ?? buildScanQuality(normalisedModules),
