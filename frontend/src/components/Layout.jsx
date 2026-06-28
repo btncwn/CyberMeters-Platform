@@ -341,7 +341,7 @@ export default function Layout() {
           </button>
 
           {/* Nav */}
-          <nav className="flex items-center gap-0.5">
+          <nav className="flex items-center gap-1.5 lg:gap-2.5">
             {NAV.map(({ to, icon: Icon, label }) => (
               <NavLink
                 key={to}
