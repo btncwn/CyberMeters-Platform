@@ -334,6 +334,9 @@ export default function ExecutiveReportV2({ report }) {
           <div className="flex flex-col items-center justify-center gap-2 px-8 py-6 lg:border-r border-gray-100 lg:min-w-[210px]">
             <span className="label text-[10px]">Cyber Metrics Score</span>
             <ScoreRing score={score.value} rating={score.rating} />
+            <p className="text-[11px] text-gray-400 text-center leading-relaxed max-w-[180px]">
+              Your overall external security health, from 0 to 100. Higher is safer.
+            </p>
           </div>
           {/* Narrative + signals */}
           <div className="flex-1 px-6 py-6 flex flex-col gap-4">

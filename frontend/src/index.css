@@ -16,6 +16,22 @@
   }
   *::-webkit-scrollbar { width: 4px; height: 4px; }
   *::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 999px; }
+
+  /* Accessibility: visible keyboard focus for all interactive elements.
+     :focus-visible only triggers during keyboard navigation, so mouse clicks
+     stay visually clean while keyboard users get a clear focus indicator. */
+  a:focus-visible,
+  button:focus-visible,
+  [role="button"]:focus-visible,
+  [tabindex]:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  summary:focus-visible {
+    outline: 2px solid #00876A;
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
 }
 
 @layer components {

@@ -1217,11 +1217,17 @@ export default function ScanDetail() {
                   </div>
                 ) : null
               ) : scan.status === 'failed' ? (
-                <div className="card flex items-start gap-3 px-6 py-6 text-red-700">
-                  <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-bold text-sm">Scan failed</p>
-                    <p className="text-xs text-red-400 mt-1">The scan engine encountered an error. Try re-scanning this domain.</p>
+                <div className="card flex flex-col sm:flex-row sm:items-start gap-3 px-6 py-6">
+                  <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5 text-red-500" />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-bold text-sm text-gray-900">This scan didn't finish</p>
+                    <p className="text-sm text-gray-500 mt-1">
+                      Something interrupted the assessment before it could complete. This is usually temporary —
+                      running a new scan for <span className="font-medium text-gray-700">{scan.domain}</span> normally resolves it.
+                    </p>
+                    <button onClick={() => navigate('/scans/new')} className="btn-primary mt-4">
+                      <ScanLine className="w-4 h-4" /> Run a new scan
+                    </button>
                   </div>
                 </div>
               ) : (

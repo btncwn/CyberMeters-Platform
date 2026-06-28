@@ -17,7 +17,23 @@ export default function EmailVerificationPage() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const success = searchParams.get('success') === '1'
-  const error   = searchParams.get('error')
+  const errorCode = searchParams.get('error')
+
+  // Map server-provided reason codes to calm, customer-friendly copy. A raw code
+  // (e.g. "token_expired") should never reach the screen; unknown codes fall back
+  // to a generic message and the resend flow below.
+  const ERROR_MESSAGES = {
+    expired:       'This verification link has expired. Request a new one below.',
+    token_expired: 'This verification link has expired. Request a new one below.',
+    invalid:       'This verification link is invalid. Request a new one below.',
+    invalid_token: 'This verification link is invalid. Request a new one below.',
+    used:          'This verification link has already been used. Try signing in, or request a new link below.',
+    not_found:     'We couldn’t find this verification link. Request a new one below.',
+  }
+  const looksFriendly = errorCode && errorCode.includes(' ')
+  const error = errorCode
+    ? (ERROR_MESSAGES[errorCode] || (looksFriendly ? errorCode : 'This verification link is invalid or has expired.'))
+    : null
 
   // For the "resend" flow shown on the error state
   const [resendEmail,   setResendEmail]   = useState('')

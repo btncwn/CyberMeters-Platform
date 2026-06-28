@@ -104,7 +104,7 @@ export default function SignupPage() {
       /* ── Signup form ── */
       <div className="card w-full max-w-sm p-8">
         <h1 className="text-xl font-bold text-gray-900 mb-1">Create account</h1>
-        <p className="text-sm text-gray-400 mb-6">Start monitoring your attack surface.</p>
+        <p className="text-sm text-gray-400 mb-6">See your business's external security risks in minutes.</p>
 
         {error && (
           <div className="flex items-center gap-2.5 px-4 py-3 mb-5 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600">

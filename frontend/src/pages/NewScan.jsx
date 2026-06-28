@@ -2,17 +2,18 @@ import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import {
   ScanLine, Globe, ArrowLeft, CheckCircle,
-  ShieldCheck, Radar, Lock, Zap, Info,
+  Shield, Mail, FileText, Info,
 } from 'lucide-react'
 import { api } from '../api'
 import ErrorAlert from '../components/ErrorAlert'
 import Spinner from '../components/Spinner'
 
+// Framed as Intelligence Engines (business capabilities), not internal detectors.
 const CHECKS = [
-  { icon: ShieldCheck, label: 'SSL/TLS Certificate Audit',      desc: 'Expiry, cipher suites, chain validation' },
-  { icon: Radar,       label: 'Open Port & Service Discovery',  desc: 'Surface mapping across common ports'     },
-  { icon: Lock,        label: 'Security Header Inspection',     desc: 'CSP, HSTS, X-Frame-Options and more'    },
-  { icon: Zap,         label: 'Vulnerability Surface Mapping',  desc: 'Known CVEs and misconfiguration detection' },
+  { icon: Globe,    label: 'Attack Surface Intelligence',  desc: 'Exposed assets, DNS, certificates and website security'   },
+  { icon: Mail,     label: 'Business Email Intelligence',  desc: 'Protection against email spoofing and phishing'           },
+  { icon: Shield,   label: 'Brand Intelligence',           desc: 'Lookalike and typosquatting domains impersonating you'    },
+  { icon: FileText, label: 'Executive Intelligence',       desc: 'A scored Executive Report with prioritized next steps'    },
 ]
 
 function isValidDomain(v) {
@@ -60,9 +61,9 @@ export default function NewScan() {
       </Link>
 
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900">New Security Scan</h1>
+        <h1 className="text-2xl font-bold text-gray-900">New Scan</h1>
         <p className="text-sm text-gray-400 mt-1">
-          Initiate a comprehensive attack surface assessment against any publicly reachable domain.
+          Assess any domain you own. We'll map your external exposure and turn it into a clear Executive Report — usually within a few minutes.
         </p>
       </div>
 
@@ -83,7 +84,7 @@ export default function NewScan() {
             </div>
           ) : (
             <>
-              <h2 className="text-base font-bold text-gray-900 mb-6">Target Configuration</h2>
+              <h2 className="text-base font-bold text-gray-900 mb-6">Choose a domain</h2>
               <form onSubmit={handleSubmit} className="space-y-6">
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">Domain Name</label>
@@ -127,8 +128,8 @@ export default function NewScan() {
                   className="btn-primary w-full justify-center py-3.5 text-base disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {loading
-                    ? <><Spinner size="sm" /><span>Initiating scan…</span></>
-                    : <><ScanLine className="w-5 h-5" /><span>Start Security Scan</span></>}
+                    ? <><Spinner size="sm" /><span>Starting scan…</span></>
+                    : <><ScanLine className="w-5 h-5" /><span>Start Scan</span></>}
                 </button>
 
                 <p className="text-center text-xs text-gray-400">

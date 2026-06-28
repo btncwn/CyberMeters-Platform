@@ -87,8 +87,44 @@ export function logoutWithToken(rawToken) {
   }).catch(() => {})
 }
 
+/**
+ * Wrap fetch so that network-level failures (offline, DNS failure, CORS, the API
+ * being unreachable) surface a friendly, actionable message instead of the raw
+ * browser "Failed to fetch" / "Load failed" TypeError. Every caller goes through
+ * here, so error states across the app stay customer-friendly.
+ */
+async function safeFetch(url, init) {
+  try {
+    return await fetch(url, init)
+  } catch {
+    const netErr = new Error("We couldn't reach CyberMeters. Please check your internet connection and try again.")
+    netErr.code = 'network_error'
+    throw netErr
+  }
+}
+
+/**
+ * Build a friendly Error from a non-OK response, hiding technical detail.
+ * Prefers a human-readable message from the server; otherwise maps the status
+ * class to a calm, actionable message (never a bare "HTTP 500").
+ */
+function friendlyHttpError(res, err) {
+  // Preserve any server-provided error string verbatim. Some are human-readable
+  // ("Invalid email or password"); others are machine codes the UI switches on
+  // ("email_verification_required", "plan_feature_required"). Rewriting either
+  // would break existing flows, so we only synthesise a message when the body is
+  // empty — which is exactly the case that used to surface a bare "HTTP 500".
+  const raw = err && typeof err.error === 'string' ? err.error : ''
+  if (raw) return new Error(raw)
+  if (res.status >= 500) return new Error('Something went wrong on our end. Please try again in a moment.')
+  if (res.status === 404) return new Error('We couldn’t find what you were looking for.')
+  if (res.status === 403) return new Error('You don’t have access to this. Try switching workspace or contact your admin.')
+  if (res.status === 429) return new Error('Too many requests right now. Please wait a moment and try again.')
+  return new Error('Something went wrong. Please try again.')
+}
+
 async function request(path, options = {}) {
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await safeFetch(`${BASE}${path}`, {
     // Disable browser cache so scan status, workspace data, and other dynamic
     // API responses are always fetched fresh. The server also sends Cache-Control:
     // no-store, but belt-and-suspenders prevents stale-while-revalidate surprises.
@@ -151,13 +187,13 @@ async function request(path, options = {}) {
       gateError.upgrade_url   = err.upgrade_url
       throw gateError
     }
-    throw new Error(err.error || `HTTP ${res.status}`)
+    throw friendlyHttpError(res, err)
   }
   return res.json()
 }
 
 async function requestBlob(path, options = {}) {
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await safeFetch(`${BASE}${path}`, {
     headers: {
       ...getAuthHeaders(),
     },
@@ -203,7 +239,7 @@ async function requestBlob(path, options = {}) {
       gateError.upgrade_url   = err.upgrade_url
       throw gateError
     }
-    throw new Error(err.error || `HTTP ${res.status}`)
+    throw friendlyHttpError(res, err)
   }
   return res.blob()
 }
