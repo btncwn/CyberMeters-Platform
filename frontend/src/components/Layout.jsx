@@ -11,6 +11,7 @@ import { api, logoutWithToken } from '../api'
 import { TOKEN_KEY } from '../context/authKeys'
 import { useAuth } from '../context/AuthContext'
 import NotificationBell from './NotificationBell'
+import FeedbackWidget from './FeedbackWidget'
 
 // Accuracy and Pricing are removed from the main nav:
 // - Accuracy is an internal developer tool not intended for beta users.
@@ -373,6 +374,9 @@ export default function Layout() {
       <main className="flex-1">
         <Outlet />
       </main>
+
+      {/* Beta feedback entry point */}
+      <FeedbackWidget />
 
       {/* Footer */}
       <footer className="border-t border-gray-100 bg-white">

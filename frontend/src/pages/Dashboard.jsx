@@ -653,7 +653,7 @@ export default function Dashboard() {
                 to={`/scans/${report.scan_id}`}
                 className="text-xs text-brand-600 hover:text-brand-700 font-semibold flex items-center gap-1"
               >
-                View full report <ChevronRight className="w-3 h-3" />
+                View Executive Report <ChevronRight className="w-3 h-3" />
               </Link>
             )}
           </div>
@@ -720,7 +720,7 @@ export default function Dashboard() {
             <h2 className="text-base font-bold text-gray-900">Top Findings</h2>
             {report && (
               <Link to={`/scans/${report.scan_id}`} className="text-xs text-brand-600 hover:text-brand-700 font-semibold flex items-center gap-1">
-                Full report <ChevronRight className="w-3 h-3" />
+                Executive Report <ChevronRight className="w-3 h-3" />
               </Link>
             )}
           </div>

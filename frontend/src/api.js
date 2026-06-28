@@ -310,6 +310,9 @@ export const api = {
   /** GET /api/scans/:id/report */
   getScanReport: (id) => request(`/scans/${id}/report`),
 
+  /** GET /api/scans/:id/executive-report-v2 — Intelligence Engine report contract */
+  getExecutiveReportV2: (id) => request(`/scans/${id}/executive-report-v2`),
+
   /** GET /api/platform/accuracy */
   getPlatformAccuracy: () => request('/platform/accuracy'),
 

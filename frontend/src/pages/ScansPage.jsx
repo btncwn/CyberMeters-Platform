@@ -86,8 +86,9 @@ export default function ScansPage() {
               <div className="flex-1 min-w-0">
                 <p className="text-base font-bold text-gray-900 mb-1">No scans yet</p>
                 <p className="text-sm text-gray-500 leading-relaxed">
-                  A security scan analyses a domain's DNS, SSL, headers, email posture, subdomains, and exposed assets —
-                  producing a scored risk report in minutes. Run your first scan to start monitoring your attack surface.
+                  A scan runs CyberMeters' Intelligence Engines across your domain — Attack Surface, Business Email and
+                  Brand — and turns the evidence into a scored Executive Report in minutes. Run your first scan to start
+                  monitoring your external exposure.
                 </p>
               </div>
               <Link to="/scans/new" className="btn-primary flex-shrink-0 inline-flex items-center gap-2">
@@ -97,9 +98,9 @@ export default function ScansPage() {
             {/* What you get */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 border-t border-gray-100 pt-6">
               {[
-                { icon: Shield,        color: 'bg-brand-50 text-brand-600', title: 'Risk Score',      desc: '0–100 Cyber Metrics Score across DNS, SSL, email and headers'           },
-                { icon: AlertTriangle, color: 'bg-red-50 text-red-500',     title: 'Findings',        desc: 'Issues ranked by severity — Critical, High, Medium, Low'                },
-                { icon: TrendingUp,    color: 'bg-purple-50 text-purple-600', title: 'Trend History', desc: 'Compare scores over time and track remediation progress'                 },
+                { icon: Shield,        color: 'bg-brand-50 text-brand-600', title: 'Cyber Metrics Score', desc: 'A single 0–100 score summarising your external posture'               },
+                { icon: AlertTriangle, color: 'bg-red-50 text-red-500',     title: 'Verified Findings',   desc: 'Issues ranked by severity — Critical, High, Medium, Low'              },
+                { icon: TrendingUp,    color: 'bg-purple-50 text-purple-600', title: 'Trend History',     desc: 'Compare scores over time and track remediation progress'              },
               ].map(({ icon: Icon, color, title, desc }) => (
                 <div key={title} className="flex items-start gap-3 p-4 rounded-xl bg-gray-50/60">
                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${color}`}>

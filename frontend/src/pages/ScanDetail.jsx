@@ -6,6 +6,7 @@ import {
   Lock, Server, Clock, History, ChevronDown, Terminal,
   TrendingDown, TrendingUp, Minus, GraduationCap,
   User, Zap, Target, Terminal as TerminalIcon, Copy, Check as CheckIcon, Eye,
+  Sparkles, SlidersHorizontal,
 } from 'lucide-react'
 import { api } from '../api'
 import { getAcademyArticleForFinding } from '../data/academy'
@@ -13,6 +14,7 @@ import { buildRemediationIntelligence, PRIORITY_LABELS, PRIORITY_SLA } from '../
 import StatusBadge from '../components/StatusBadge'
 import Spinner from '../components/Spinner'
 import ErrorAlert from '../components/ErrorAlert'
+import ExecutiveReportV2 from '../components/ExecutiveReportV2'
 
 const ACTIVE  = new Set(['queued', 'running', 'processing'])
 const POLL_MS = 4000
@@ -1060,14 +1062,26 @@ export default function ScanDetail() {
   const [report,        setReport]        = useState(null)
   const [reportLoading, setReportLoading] = useState(false)
   const [reportError,   setReportError]   = useState(null)
+  const [reportV2,      setReportV2]      = useState(null)
+  const [reportTab,     setReportTab]     = useState('executive') // 'executive' | 'technical'
   const pollRef = useRef(null)
 
   const loadReport = useCallback(async () => {
     setReportLoading(true)
     setReportError(null)
     try {
-      const r = await api.getScanReport(id)
-      setReport(r)
+      // Executive Report V2 is the primary experience; the technical (V1) report
+      // is loaded alongside it so the "Technical Details" tab is instant. A V2
+      // failure should not block the technical report, and vice-versa.
+      const [v1, v2] = await Promise.allSettled([
+        api.getScanReport(id),
+        api.getExecutiveReportV2(id),
+      ])
+      if (v1.status === 'fulfilled') setReport(v1.value)
+      if (v2.status === 'fulfilled') setReportV2(v2.value)
+      if (v1.status === 'rejected' && v2.status === 'rejected') {
+        setReportError(v2.reason?.message || v1.reason?.message || 'Report unavailable')
+      }
     } catch (e) {
       setReportError(e.message)
     } finally {
@@ -1168,8 +1182,39 @@ export default function ScanDetail() {
                   </div>
                 ) : reportError ? (
                   <ErrorAlert message={reportError} onRetry={loadReport} />
-                ) : report ? (
-                  <ReportView report={report} />
+                ) : (reportV2 || report) ? (
+                  <div className="space-y-4">
+                    {/* Report view switcher — executive narrative vs technical detail */}
+                    <div className="inline-flex items-center gap-1 p-1 bg-gray-100 rounded-xl">
+                      <button
+                        onClick={() => setReportTab('executive')}
+                        className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-semibold transition-all ${
+                          reportTab === 'executive' ? 'bg-white text-brand-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                        }`}
+                        aria-pressed={reportTab === 'executive'}
+                      >
+                        <Sparkles className="w-4 h-4" /> Executive Report
+                      </button>
+                      <button
+                        onClick={() => setReportTab('technical')}
+                        className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-semibold transition-all ${
+                          reportTab === 'technical' ? 'bg-white text-brand-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                        }`}
+                        aria-pressed={reportTab === 'technical'}
+                      >
+                        <SlidersHorizontal className="w-4 h-4" /> Technical Details
+                      </button>
+                    </div>
+
+                    {reportTab === 'executive'
+                      ? (reportV2
+                          ? <ExecutiveReportV2 report={reportV2} />
+                          : <ReportView report={report} />)
+                      : (report
+                          ? <ReportView report={report} />
+                          : <ExecutiveReportV2 report={reportV2} />)
+                    }
+                  </div>
                 ) : null
               ) : scan.status === 'failed' ? (
                 <div className="card flex items-start gap-3 px-6 py-6 text-red-700">

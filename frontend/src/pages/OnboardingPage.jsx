@@ -314,17 +314,22 @@ export default function OnboardingPage() {
             )}
           </div>
         ) : (
-          <form onSubmit={addDomain} className="flex flex-col sm:flex-row gap-3">
-            <input
-              className="input"
-              placeholder="example.com"
-              value={domainName}
-              onChange={e => setDomainName(e.target.value)}
-            />
-            <button className="btn-primary" disabled={actionLoading === 'domain'}>
-              {actionLoading === 'domain' ? 'Adding...' : 'Add Domain'}
-            </button>
-          </form>
+          <div className="space-y-2">
+            <form onSubmit={addDomain} className="flex flex-col sm:flex-row gap-3">
+              <input
+                className="input"
+                placeholder="example.com"
+                value={domainName}
+                onChange={e => setDomainName(e.target.value)}
+              />
+              <button className="btn-primary" disabled={actionLoading === 'domain'}>
+                {actionLoading === 'domain' ? 'Adding...' : 'Add Domain'}
+              </button>
+            </form>
+            <p className="text-xs text-gray-400">
+              Enter the root domain you want to assess — no <span className="mono">https://</span> or <span className="mono">www</span>. You'll confirm ownership in the next step.
+            </p>
+          </div>
         )}
       </StepCard>
 
@@ -388,7 +393,7 @@ export default function OnboardingPage() {
         )}
       </StepCard>
 
-      <StepCard number={5} title="View Results" done={steps.report} active={activeStep === 5}>
+      <StepCard number={5} title="Open Executive Report" done={steps.report} active={activeStep === 5}>
         {steps.scan ? (
           <div className="space-y-4">
             <div className="rounded-xl border border-brand-100 bg-brand-50 p-4">
@@ -396,22 +401,22 @@ export default function OnboardingPage() {
                 {successMessage || 'Your first cyber risk assessment is ready.'}
               </p>
               <p className="text-xs text-brand-700 mt-1">
-                Results may continue to update while scan processing completes.
+                Your Executive Report translates the technical evidence into a clear risk summary. Results may keep updating while the scan finishes.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
               {scanIdOf(completedScan) && (
                 <Link to={`/scans/${scanIdOf(completedScan)}`} className="btn-primary">
-                  View Report <ArrowRight className="w-4 h-4" />
+                  Open Executive Report <ArrowRight className="w-4 h-4" />
                 </Link>
               )}
               <button onClick={() => navigate('/dashboard')} className="btn-secondary">
-                View Dashboard
+                Go to Dashboard
               </button>
             </div>
           </div>
         ) : (
-          <p className="text-sm text-gray-400">Run the first scan to unlock results.</p>
+          <p className="text-sm text-gray-400">Run your first scan to generate the Executive Report.</p>
         )}
       </StepCard>
     </div>
