@@ -16,23 +16,25 @@
         animation: cmNeedleSwing 13s ease-in-out infinite;
       }
     </style>
-    <!-- Needle gradient: green (bottom / low risk) → red (top / critical) -->
+    <!-- Needle gradient: green (bottom / low risk) → red (top / critical).      -->
+    <!-- Distribution: 0–51% green, 51–64% yellow, 64–100% orange/red.           -->
     <linearGradient id="fg" x1="0.5" y1="1" x2="0.5" y2="0">
       <stop offset="0%"   stop-color="#00C389"/>
-      <stop offset="33%"  stop-color="#59D98E"/>
-      <stop offset="55%"  stop-color="#EBC547"/>
-      <stop offset="78%"  stop-color="#FF9F43"/>
+      <stop offset="51%"  stop-color="#59D98E"/>
+      <stop offset="58%"  stop-color="#EBC547"/>
+      <stop offset="64%"  stop-color="#FBA94A"/>
+      <stop offset="82%"  stop-color="#FF9F43"/>
       <stop offset="100%" stop-color="#FF5A5F"/>
     </linearGradient>
   </defs>
 
-  <!-- Left bracket — square ends, metallic graphite, STATIC -->
-  <polyline points="20,4 8,16 20,28"
-    stroke="#2B3440" stroke-width="4" stroke-linecap="square" stroke-linejoin="miter"/>
+  <!-- Left bracket — Variant B (wide) spacing, square ends, graphite, STATIC -->
+  <polyline points="10.5,8 2.5,16 10.5,24"
+    stroke="#2B3440" stroke-width="3.5" stroke-linecap="square" stroke-linejoin="miter"/>
 
-  <!-- Right bracket — STATIC -->
-  <polyline points="12,4 24,16 12,28"
-    stroke="#2B3440" stroke-width="4" stroke-linecap="square" stroke-linejoin="miter"/>
+  <!-- Right bracket — Variant B (wide), STATIC -->
+  <polyline points="21.5,8 29.5,16 21.5,24"
+    stroke="#2B3440" stroke-width="3.5" stroke-linecap="square" stroke-linejoin="miter"/>
 
   <!-- Needle — animated via CSS; SVG transform attr is static fallback -->
   <g transform="rotate(-9, 16, 16)" class="cm-needle">
