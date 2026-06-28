@@ -1613,10 +1613,15 @@ async function runSslModule(domain) {
   // we query crt.sh for the most recently issued valid certificate and compute
   // days until expiry.  Best-effort — failure leaves cert_expiry_days as null.
   let cert_expiry_days = null;
+  let cert_age_days    = null;
+  let cert_not_before  = null;
   let cert_not_after   = null;
   let cert_issuer      = null;
   let cert_subject     = null;
   let cert_san_count   = 0;
+  let cert_raw_san_count = 0;
+  let cert_wildcard_san_count = 0;
+  let cert_shared_san_count = 0;
   let cert_san_names   = [];
   try {
     const crtRes = await fetch(
@@ -1640,17 +1645,28 @@ async function runSslModule(domain) {
             .sort((a, b) => new Date(b.not_after).getTime() - new Date(a.not_after).getTime());
           if (valid.length > 0) {
             const selected = valid[0];
+            const rawSanNames = parseCertificateSanNames(selected.name_value || selected.common_name || domain);
+            cert_not_before  = selected.not_before || null;
             cert_not_after   = valid[0].not_after;
             cert_expiry_days = Math.floor(
               (new Date(cert_not_after).getTime() - now) / 86_400_000
             );
+            const notBeforeMs = cert_not_before ? new Date(cert_not_before).getTime() : NaN;
+            cert_age_days = Number.isFinite(notBeforeMs)
+              ? Math.max(0, Math.floor((now - notBeforeMs) / 86_400_000))
+              : null;
             cert_issuer    = selected.issuer_name || null;
             cert_subject   = selected.common_name || domain;
-            cert_san_names = [...new Set(String(selected.name_value || selected.common_name || domain)
-              .split(/\s+/)
-              .map((name) => name.trim())
-              .filter(Boolean))];
+            cert_san_names = normalizeCertificateSanNames(
+              selected.name_value || selected.common_name || domain,
+              domain
+            );
             cert_san_count = cert_san_names.length;
+            cert_raw_san_count = rawSanNames.length;
+            cert_wildcard_san_count = rawSanNames.filter((name) => name.includes("*")).length;
+            cert_shared_san_count = rawSanNames.filter((name) =>
+              !normalizeDiscoveredHostname(name.replace(/^\*\./, ""), domain)
+            ).length;
           }
         }
       }
@@ -1665,10 +1681,15 @@ async function runSslModule(domain) {
     http_redirect_chain,
     www_fallback_used:        !httpsOk && wwwHttpsOk,
     cert_expiry_days,
+    cert_age_days,
+    cert_not_before,
     cert_not_after,
     cert_issuer,
     cert_subject,
     cert_san_count,
+    cert_raw_san_count,
+    cert_wildcard_san_count,
+    cert_shared_san_count,
     cert_san_names,
   };
 }
@@ -2782,6 +2803,7 @@ async function runSubdomainsModule(domain) {
     source:             SOURCE,
     sources:            { crt_sh: { count: 0, error }, certspotter: { count: 0, error } },
     wildcard_dns:       wildcardDns,
+    wildcard_dns_addresses: [],
     wildcard_test_host: wildcardHost,
     wildcard_warning:   null,
     error,
@@ -2842,7 +2864,19 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP) {
   // ── Wildcard DNS result ─────────────────────────────────────────────────
   const aAnswers    = wASettled.status    === "fulfilled" ? (wASettled.value.Answer    || []) : [];
   const aaaaAnswers = wAAAASettled.status === "fulfilled" ? (wAAAASettled.value.Answer || []) : [];
-  const wildcardDns     = aAnswers.length > 0 || aaaaAnswers.length > 0;
+  const wildcardDnsAnswers = [...new Set(
+    [...aAnswers, ...aaaaAnswers]
+      .filter((answer) => answer.type === 1 || answer.type === 28)
+      .map((answer) => String(answer.data || "").toLowerCase())
+      .filter(Boolean)
+  )].sort();
+  const wildcardDnsAddresses = [...new Set(
+    aAnswers
+      .filter((answer) => answer.type === 1)
+      .map((answer) => String(answer.data || "").toLowerCase())
+      .filter(Boolean)
+  )].sort();
+  const wildcardDns     = wildcardDnsAnswers.length > 0;
   const wildcardWarning = wildcardDns
     ? "Wildcard DNS detected. Subdomain discovery results may include false positives."
     : null;
@@ -2873,9 +2907,8 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP) {
               entry.common_name || "",
             ];
             for (const raw of names) {
-              const name = raw.trim().toLowerCase();
-              if (!name || name.startsWith("*")) continue;
-              if (!name.endsWith("." + domain) && name !== domain) continue;
+              const name = normalizeDiscoveredHostname(raw, domain);
+              if (!name) continue;
               seen.add(name);
               if (seen.size - before >= PER_CAP) break outer;
             }
@@ -2904,9 +2937,8 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP) {
         const before = seen.size;
         outer: for (const entry of rawData) {
           for (const name of entry.dns_names || []) {
-            const n = name.trim().toLowerCase();
-            if (!n || n.startsWith("*")) continue;
-            if (!n.endsWith("." + domain) && n !== domain) continue;
+            const n = normalizeDiscoveredHostname(name, domain);
+            if (!n) continue;
             seen.add(n);
             if (seen.size - before >= PER_CAP) break outer;
           }
@@ -2931,6 +2963,7 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP) {
       source:             SOURCE,
       sources,
       wildcard_dns:       wildcardDns,
+      wildcard_dns_addresses: wildcardDnsAddresses,
       wildcard_test_host: wildcardHost,
       wildcard_warning:   wildcardWarning,
       ct_error: `Both CT sources failed — crt.sh: ${sources.crt_sh.error}; certspotter: ${sources.certspotter.error}`,
@@ -2949,10 +2982,36 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP) {
     source:             SOURCE,
     sources,
     wildcard_dns:       wildcardDns,
+    wildcard_dns_addresses: wildcardDnsAddresses,
     wildcard_test_host: wildcardHost,
     wildcard_warning:   wildcardWarning,
     error:              null,
   };
+}
+
+function normalizeDiscoveredHostname(value, domain) {
+  const hostname = String(value || "").trim().toLowerCase().replace(/\.$/, "");
+  const root = String(domain || "").trim().toLowerCase().replace(/\.$/, "");
+  if (!hostname || !root || hostname.includes("*")) return null;
+  if (!isValidDomain(hostname)) return null;
+  return hostname === root || hostname.endsWith(`.${root}`) ? hostname : null;
+}
+
+function normalizeCertificateSanNames(value, domain) {
+  return [...new Set(
+    parseCertificateSanNames(value)
+      .map((name) => normalizeDiscoveredHostname(name, domain))
+      .filter(Boolean)
+  )];
+}
+
+function parseCertificateSanNames(value) {
+  return [...new Set(
+    String(value || "")
+      .split(/\s+/)
+      .map((name) => name.trim().toLowerCase().replace(/\.$/, ""))
+      .filter(Boolean)
+  )];
 }
 
 // ── DNS Brute-Force Discovery ─────────────────────────────────────────────────
@@ -3026,6 +3085,38 @@ async function runBruteforceModule(domain) {
   } catch (err) {
     return empty(err?.message ?? "Brute-force module failed");
   }
+}
+
+function filterWildcardBruteforceResults(result, wildcardAddresses = []) {
+  const wildcardSet = new Set((wildcardAddresses || []).map((value) => String(value).toLowerCase()));
+  if (wildcardSet.size === 0 || !Array.isArray(result?.items)) return result;
+
+  const items = [];
+  const wildcardObservations = [];
+  for (const item of result.items) {
+    const addresses = [...new Set((item.ip_addresses || []).map((value) => String(value).toLowerCase()))].sort();
+    const exactWildcardMatch = addresses.length === wildcardSet.size &&
+      addresses.every((address) => wildcardSet.has(address));
+    if (!exactWildcardMatch) {
+      items.push(item);
+      continue;
+    }
+    wildcardObservations.push({
+      ...item,
+      wildcard_match: true,
+      classification: "observation",
+      confidence: 40,
+      score_impact: 0,
+    });
+  }
+
+  return {
+    ...result,
+    found: items.length,
+    items,
+    wildcard_observations: wildcardObservations,
+    wildcard_filtered: wildcardObservations.length,
+  };
 }
 
 // ── Module 6: Subdomain Takeover Detection ────────────────────────────────────
@@ -4735,7 +4826,7 @@ function runSaasExposureModule(modules) {
   try {
     const detectedVendors = modules?.vendor_risk?.vendors || [];
     if (detectedVendors.length === 0) {
-      return { detected: false, total: 0, exposures: [], source: "saas_exposure_analysis", error: null };
+      return { detected: false, dependency_detected: false, total: 0, observed_total: 0, exposures: [], dependencies: [], source: "saas_exposure_analysis", error: null };
     }
 
     // Collect CNAME strings for tenant extraction
@@ -4775,21 +4866,21 @@ function runSaasExposureModule(modules) {
         }
       }
 
-      // Escalate risk if we found a tenant URL (confirmed direct access)
-      const effective_risk = (tenant_url && riskOrder[sig.risk_level] > riskOrder["high"])
-        ? "high"
-        : sig.risk_level;
-
       exposures.push({
         name:           sig.name,
         category:       sig.category,
         exposure_type:  sig.exposure_type,
-        risk_level:     effective_risk,
+        risk_level:     sig.risk_level,
+        dependency_criticality: sig.risk_level,
+        classification: "provider_dependency",
+        finding_type:   "observation",
+        score_impact:   0,
+        customer_exposure_confirmed: false,
         portal_url:     tenant_url || sig.portal_url,
         admin_url:      sig.admin_url || null,
         tenant_hint:    tenant_hint,
         tenant_url:     tenant_url,
-        attack_surface: sig.attack_surface,
+        attack_surface: "Third-party service dependency observed; no vulnerable configuration or customer data exposure was confirmed.",
         evidence:       vendor.evidence,
         confidence:     vendor.confidence,
       });
@@ -4807,17 +4898,23 @@ function runSaasExposureModule(modules) {
     });
 
     return {
-      detected: exposures.length > 0,
-      total:    exposures.length,
+      detected: false,
+      dependency_detected: exposures.length > 0,
+      total:    0,
+      observed_total: exposures.length,
       exposures,
+      dependencies: exposures,
       source:   "saas_exposure_analysis",
       error:    null,
     };
   } catch (err) {
     return {
       detected:  false,
+      dependency_detected: false,
       total:     0,
+      observed_total: 0,
       exposures: [],
+      dependencies: [],
       source:    "saas_exposure_analysis",
       error:     err?.message ?? "SaaS exposure module failed",
     };
@@ -4838,7 +4935,7 @@ function runSaasExposureModule(modules) {
 // Suspicious signals emitted:
 //   certificate_expiring_soon    (< 30 days)
 //   certificate_expiring_critical(< 14 days)
-//   wildcard_dns_detected        (wildcard DNS ↔ likely wildcard cert)
+//   wildcard_dns_detected        (informational DNS behavior observation)
 //   sensitive_hosts_in_ct        (admin/vpn/portal/sso/login/mail/dev/staging etc.)
 //   high_subdomain_growth        (CT count > 50 — large attack surface)
 //   ct_source_discrepancy        (one source >> the other — may indicate stale CT log)
@@ -4856,6 +4953,44 @@ function isCertSensitiveHost(hostname, domain) {
     ? hostname.slice(0, -(domain.length + 1))
     : hostname;
   return sub.split(".").some((label) => CERT_SENSITIVE_LABELS.has(label.toLowerCase()));
+}
+
+function buildCertificateOwnershipAssessment(ssl, domain) {
+  const root = normalizeHostname(domain);
+  const subject = String(ssl?.cert_subject || "").toLowerCase().replace(/^\*\./, "").replace(/\.$/, "");
+  const customerSans = Array.isArray(ssl?.cert_san_names) ? ssl.cert_san_names : [];
+  const sharedSanCount = Number(ssl?.cert_shared_san_count || 0);
+  const wildcardSanCount = Number(ssl?.cert_wildcard_san_count || 0);
+  const subjectMatches = Boolean(root && (subject === root || subject.endsWith(`.${root}`)));
+
+  if (sharedSanCount > 0) {
+    return {
+      status: "shared_certificate",
+      confidence: 50,
+      customer_owned: false,
+      shared_san_count: sharedSanCount,
+      wildcard_san_count: wildcardSanCount,
+      evidence_signals: ["customer_san", "unrelated_san"],
+    };
+  }
+  if (subjectMatches || customerSans.length > 0) {
+    return {
+      status: wildcardSanCount > 0 ? "customer_domain_wildcard" : "customer_domain_certificate",
+      confidence: wildcardSanCount > 0 ? 70 : 90,
+      customer_owned: true,
+      shared_san_count: 0,
+      wildcard_san_count: wildcardSanCount,
+      evidence_signals: [subjectMatches ? "subject_match" : "customer_san"],
+    };
+  }
+  return {
+    status: "ownership_uncertain",
+    confidence: 60,
+    customer_owned: false,
+    shared_san_count: sharedSanCount,
+    wildcard_san_count: wildcardSanCount,
+    evidence_signals: [],
+  };
 }
 
 /**
@@ -4877,10 +5012,13 @@ function runCertificateIntelligenceModule(modules, domain) {
     const days_until_expiry = ssl.cert_expiry_days ?? null;
     const expires_at        = ssl.cert_not_after   ?? null;
     const https_available   = ssl.https_available  ?? false;
+    const certificate_ownership = buildCertificateOwnershipAssessment(ssl, domain);
 
     // ── CT hostname inventory ─────────────────────────────────────────────
     const ctHosts    = Array.isArray(subMod.items)    ? subMod.items    : [];
-    const bruteHosts = Array.isArray(brute.items)     ? brute.items.map((i) => i.hostname || i).filter(Boolean) : [];
+    const bruteHosts = Array.isArray(brute.items)
+      ? brute.items.filter((item) => item?.wildcard_match !== true).map((i) => i.hostname || i).filter(Boolean)
+      : [];
     const allHosts   = [...new Set([...ctHosts, ...bruteHosts])];
 
     const total_certificates_seen = allHosts.length;
@@ -4928,16 +5066,24 @@ function runCertificateIntelligenceModule(modules, domain) {
     if (subMod.wildcard_dns) {
       suspicious_certificate_signals.push({
         signal:      "wildcard_dns_detected",
-        severity:    "medium",
-        description: "Wildcard DNS is active on this domain. Any subdomain resolves — likely a wildcard certificate is in use, which expands the attack surface.",
+        severity:    "info",
+        description: "Wildcard DNS behavior was observed. This does not confirm that a wildcard certificate is in use or that generated hostnames are customer assets.",
+      });
+    }
+
+    if (certificate_ownership.status === "shared_certificate") {
+      suspicious_certificate_signals.push({
+        signal:      "shared_certificate_observed",
+        severity:    "info",
+        description: "The observed certificate contains names outside the customer domain. It is treated as shared or provider-managed evidence and does not establish asset ownership by itself.",
       });
     }
 
     if (allSensitive.length > 0) {
       suspicious_certificate_signals.push({
         signal:      "sensitive_hosts_in_ct",
-        severity:    allSensitive.length >= 5 ? "high" : "medium",
-        description: `${allSensitive.length} certificate-issued hostname${allSensitive.length > 1 ? "s" : ""} with sensitive labels detected in Certificate Transparency logs: ${allSensitive.slice(0, 10).join(", ")}${allSensitive.length > 10 ? ` (+${allSensitive.length - 10} more)` : ""}.`,
+        severity:    "info",
+        description: `${allSensitive.length} hostname${allSensitive.length > 1 ? "s" : ""} with sensitive-looking labels were observed in Certificate Transparency data: ${allSensitive.slice(0, 10).join(", ")}${allSensitive.length > 10 ? ` (+${allSensitive.length - 10} more)` : ""}. Reachability and exposure are not confirmed by this evidence alone.`,
         hostnames:   allSensitive,
       });
     }
@@ -4945,8 +5091,8 @@ function runCertificateIntelligenceModule(modules, domain) {
     if (total_certificates_seen > 50) {
       suspicious_certificate_signals.push({
         signal:      "high_subdomain_growth",
-        severity:    "medium",
-        description: `${total_certificates_seen} unique hostnames found in CT logs — large certificate footprint that expands the potential attack surface.`,
+        severity:    "info",
+        description: `${total_certificates_seen} unique hostnames were observed in Certificate Transparency data. This is an inventory observation and does not indicate exposure by itself.`,
       });
     }
 
@@ -5002,7 +5148,16 @@ function runCertificateIntelligenceModule(modules, domain) {
 	      ca_owner,
 	      subject,
 	      san_count:             ssl.cert_san_count ?? 0,
+	      raw_san_count:         ssl.cert_raw_san_count ?? ssl.cert_san_count ?? 0,
+	      wildcard_san_count:    ssl.cert_wildcard_san_count ?? 0,
+	      shared_san_count:      ssl.cert_shared_san_count ?? 0,
 	      san_hostnames:         ssl.cert_san_names ?? [],
+	      ownership:             certificate_ownership,
+	      reuse_status:          "not_assessed",
+	      evidence_source:       "certificate_transparency",
+	      live_certificate_verified: false,
+	      issued_at:             ssl.cert_not_before ?? null,
+	      certificate_age_days:  ssl.cert_age_days ?? null,
 	      expires_at,
 	      days_until_expiry,
 	      lifecycle,
@@ -5031,7 +5186,16 @@ function runCertificateIntelligenceModule(modules, domain) {
 	      ca_owner:                   mapCertificateAuthorityOwner(null),
 	      subject:                    domain,
 	      san_count:                  0,
+	      raw_san_count:              0,
+	      wildcard_san_count:         0,
+	      shared_san_count:           0,
 	      san_hostnames:              [],
+	      ownership:                  buildCertificateOwnershipAssessment({}, domain),
+	      reuse_status:               "not_assessed",
+	      evidence_source:            "certificate_transparency",
+	      live_certificate_verified:  false,
+	      issued_at:                  null,
+	      certificate_age_days:       null,
 	      expires_at:                 null,
 	      days_until_expiry:          null,
 	      lifecycle:                  buildCertificateLifecycleIntelligence({}),
@@ -5178,6 +5342,191 @@ async function probeAsset(host) {
     server:       null,
     content_type: null,
     tech:         [],
+  };
+}
+
+const PROVIDER_INFRASTRUCTURE_PATTERNS = [
+  { provider: "Cloudflare", service: "Cloudflare Edge", suffixes: ["cloudflare.net", "cdn.cloudflare.net", "pages.dev", "workers.dev"] },
+  { provider: "AWS", service: "AWS Hosting", suffixes: ["amazonaws.com", "cloudfront.net", "elasticbeanstalk.com", "amplifyapp.com"] },
+  { provider: "Microsoft Azure", service: "Azure Hosting", suffixes: ["azurewebsites.net", "azureedge.net", "trafficmanager.net", "blob.core.windows.net"] },
+  { provider: "Google", service: "Google/Firebase Hosting", suffixes: ["googlehosted.com", "firebaseapp.com", "web.app"] },
+  { provider: "Fastly", service: "Fastly Edge", suffixes: ["fastly.net", "fastlylb.net"] },
+  { provider: "Akamai", service: "Akamai Edge", suffixes: ["akamaiedge.net", "akamai.net", "edgekey.net", "edgesuite.net"] },
+  { provider: "GitHub Pages", service: "GitHub Pages", suffixes: ["github.io", "github.map.fastly.net"] },
+  { provider: "GitLab Pages", service: "GitLab Pages", suffixes: ["gitlab.io"] },
+  { provider: "Netlify", service: "Netlify Hosting", suffixes: ["netlify.app", "netlify.com"] },
+  { provider: "Vercel", service: "Vercel Hosting", suffixes: ["vercel.app", "vercel-dns.com", "now.sh"] },
+  { provider: "Heroku", service: "Heroku Hosting", suffixes: ["herokuapp.com", "herokudns.com"] },
+  { provider: "Shopify", service: "Shopify", suffixes: ["myshopify.com"] },
+  { provider: "Wix", service: "Wix Hosting", suffixes: ["wixdns.net", "wixsite.com"] },
+  { provider: "Squarespace", service: "Squarespace Hosting", suffixes: ["squarespace.com", "squarespace.net"] },
+  { provider: "Automattic", service: "WordPress.com Hosting", suffixes: ["wordpress.com"] },
+  { provider: "Atlassian", service: "Atlassian Cloud", suffixes: ["atlassian.net"] },
+  { provider: "Zendesk", service: "Zendesk", suffixes: ["zendesk.com"] },
+  { provider: "Okta", service: "Okta Identity Cloud", suffixes: ["okta.com", "oktapreview.com"] },
+  { provider: "Auth0", service: "Auth0", suffixes: ["auth0.com"] },
+  { provider: "Microsoft", service: "Microsoft 365", suffixes: ["microsoftonline.com", "mail.protection.outlook.com", "sharepoint.com"] },
+  { provider: "Google", service: "Google Hosted Service", suffixes: ["google.com"] },
+];
+
+function providerMetadataForHostname(value) {
+  const hostname = hostnameFromValue(value);
+  if (!hostname) return null;
+  for (const entry of PROVIDER_INFRASTRUCTURE_PATTERNS) {
+    if (entry.suffixes.some((suffix) => hostname === suffix || hostname.endsWith(`.${suffix}`))) {
+      return { provider: entry.provider, service: entry.service, hostname };
+    }
+  }
+  return null;
+}
+
+function providerForInfrastructureHostname(value) {
+  return providerMetadataForHostname(value)?.provider ?? null;
+}
+
+function classifyProviderInfrastructure(asset, cname = null) {
+  const cnameMetadata = providerMetadataForHostname(cname);
+  const redirectMetadata = providerMetadataForHostname(asset?.url);
+  const cloudflareEdge = (asset?.tech || []).includes("Cloudflare") || /cloudflare/i.test(asset?.server || "");
+  const metadata = cnameMetadata || redirectMetadata || (cloudflareEdge
+    ? { provider: "Cloudflare", service: "Cloudflare Edge", hostname: null }
+    : null);
+  if (!metadata) return { provider_owned_infrastructure: false };
+  return {
+    provider_owned_infrastructure: true,
+    infrastructure_provider: metadata.provider,
+    infrastructure_service: metadata.service,
+    infrastructure_relationship: "supporting_infrastructure",
+    infrastructure_evidence: cnameMetadata ? "dns_cname" : redirectMetadata ? "http_redirect" : "http_header",
+  };
+}
+
+function annotateExposureInfrastructure(exposureResult, cnameObservations = []) {
+  if (!Array.isArray(exposureResult?.assets)) return exposureResult;
+  const cnameByHost = new Map(
+    (cnameObservations || []).filter((item) => item?.host && item?.cname).map((item) => [item.host, item.cname])
+  );
+  const assets = exposureResult.assets.map((asset) => {
+    const cname = cnameByHost.get(asset.host) || null;
+    return { ...asset, cname, ...classifyProviderInfrastructure(asset, cname) };
+  });
+  return { ...exposureResult, assets };
+}
+
+function isCustomerHostname(hostname, domain) {
+  const host = normalizeHostname(hostname);
+  const root = normalizeHostname(domain);
+  return Boolean(host && root && (host === root || host.endsWith(`.${root}`)));
+}
+
+function deduplicateExposureAssets(exposureResult, domain) {
+  if (!Array.isArray(exposureResult?.assets)) return exposureResult;
+  const groups = new Map();
+
+  for (const asset of exposureResult.assets) {
+    const host = normalizeHostname(asset.host || asset.hostname || asset.url);
+    if (!host) continue;
+    const finalHost = hostnameFromValue(asset.url);
+    const cname = normalizeHostname(asset.cname);
+    const key = finalHost && isCustomerHostname(finalHost, domain)
+      ? `customer:${finalHost}`
+      : asset.provider_owned_infrastructure && cname
+        ? `provider:${cname}`
+        : `host:${host}`;
+    const aliases = new Set([host, ...(asset.aliases || [])].filter(Boolean));
+    const providerTargets = new Set([cname, ...(asset.provider_targets || [])].filter(Boolean));
+    const existing = groups.get(key);
+    if (!existing) {
+      groups.set(key, { ...asset, host, aliases: [...aliases], provider_targets: [...providerTargets] });
+      continue;
+    }
+
+    const root = normalizeHostname(domain);
+    const existingRank = existing.host === root ? 3 : existing.host === `www.${root}` ? 2 : 1;
+    const assetRank = host === root ? 3 : host === `www.${root}` ? 2 : 1;
+    if (assetRank > existingRank) {
+      groups.set(key, {
+        ...existing,
+        ...asset,
+        host,
+        reachable: existing.reachable || asset.reachable,
+        status: asset.status ?? existing.status,
+        title: asset.title || existing.title,
+        tech: [...new Set([...(existing.tech || []), ...(asset.tech || [])])],
+        aliases: [...new Set([...existing.aliases, ...aliases])],
+        provider_targets: [...new Set([...existing.provider_targets, ...providerTargets])],
+      });
+      continue;
+    }
+
+    for (const alias of aliases) existing.aliases.push(alias);
+    for (const target of providerTargets) existing.provider_targets.push(target);
+    existing.aliases = [...new Set(existing.aliases)];
+    existing.provider_targets = [...new Set(existing.provider_targets)];
+    existing.reachable = existing.reachable || asset.reachable;
+    if (existing.status == null && asset.status != null) existing.status = asset.status;
+    if (!existing.title && asset.title) existing.title = asset.title;
+    existing.tech = [...new Set([...(existing.tech || []), ...(asset.tech || [])])];
+  }
+
+  const assets = [...groups.values()];
+  return {
+    ...exposureResult,
+    assets,
+    reachable: assets.filter((asset) => asset.reachable).length,
+    representations_observed: exposureResult.assets.length,
+    duplicates_collapsed: exposureResult.assets.length - assets.length,
+  };
+}
+
+function consolidateInventoryAssetAliases(assets, exposureAssets = []) {
+  const canonicalByAlias = new Map();
+  for (const exposure of exposureAssets) {
+    const canonical = normalizeHostname(exposure.host);
+    if (!canonical) continue;
+    for (const alias of exposure.aliases || []) {
+      const normalized = normalizeHostname(alias);
+      if (normalized) canonicalByAlias.set(normalized, canonical);
+    }
+  }
+
+  return (assets || []).map((asset) => {
+    const original = normalizeHostname(asset.hostname);
+    const canonical = canonicalByAlias.get(original) || original;
+    if (!canonical || canonical === original) return asset;
+    return {
+      ...asset,
+      hostname: canonical,
+      aliases: [...new Set([...(asset.aliases || []), original])],
+    };
+  });
+}
+
+function buildAssetInventoryMetadata(asset) {
+  const metadata = {};
+  if (asset?.aliases?.length) metadata.aliases = [...new Set(asset.aliases)];
+  if (asset?.provider_targets?.length) metadata.provider_targets = [...new Set(asset.provider_targets)];
+  if (asset?.cloud) metadata.infrastructure_provider = asset.cloud;
+  return Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : null;
+}
+
+const SENSITIVE_SERVICE_RE = /jenkins|grafana|kibana|phpmyadmin|portainer|prometheus|sonarqube|vault\s*ui|rancher/i;
+const GENERIC_ADMIN_HOST_RE = /\b(admin|cp|cpanel|panel|portal|login|dashboard|manage|control)\b/i;
+const GENERIC_ADMIN_TITLE_RE = /\b(login|admin|dashboard|control\s*panel|portal|management|sign[\s-]in)\b/i;
+const DEV_ENV_HOST_RE = /\b(dev|develop|development|staging|stage|stg|test|testing|qa|uat|sandbox|alpha|beta|preprod)\b/i;
+const DEV_ENV_TITLE_RE = /\b(dev(?:elopment)?|staging|test(?:ing)?|qa|uat|sandbox|preproduction|pre-prod)\b/i;
+const GENERIC_DEFAULT_PAGE_RE = /welcome to nginx|apache2? (?:ubuntu )?default page|default web site page|domain (?:is )?parked|domain for sale|coming soon|site not configured|website coming soon/i;
+
+function assetFingerprintSignals(asset) {
+  const title = asset?.title || "";
+  const technology = (asset?.tech || []).join(" ");
+  return {
+    sensitive_service: SENSITIVE_SERVICE_RE.test(title) || SENSITIVE_SERVICE_RE.test(technology),
+    admin_hostname: GENERIC_ADMIN_HOST_RE.test(asset?.host || ""),
+    admin_title: GENERIC_ADMIN_TITLE_RE.test(title),
+    dev_hostname: DEV_ENV_HOST_RE.test(asset?.host || ""),
+    dev_title: DEV_ENV_TITLE_RE.test(title),
+    generic_default_page: GENERIC_DEFAULT_PAGE_RE.test(title),
   };
 }
 
@@ -5343,12 +5692,22 @@ function runAdminSurfaceModule(modules) {
       const titleHit  = sig.title_re  ? sig.title_re.test(asset.title  || "") : false;
       const serverHit = sig.server_re ? sig.server_re.test(asset.server || "") : false;
       const hostHit   = sig.host_re   ? sig.host_re.test(asset.host    || "") : false;
+      const defaultPage = assetFingerprintSignals(asset).generic_default_page;
 
       let confidence = null;
-      if      (titleHit && (hostHit || serverHit)) confidence = "confirmed";
-      else if (titleHit)                            confidence = "high";
-      else if (hostHit  && serverHit)               confidence = "high";
-      else if (hostHit)                             confidence = "medium";
+      let findingType = "observation";
+      if (!defaultPage && titleHit && (hostHit || serverHit)) {
+        confidence = "confirmed";
+        findingType = "finding";
+      } else if (!defaultPage && titleHit) {
+        confidence = "high";
+        findingType = "finding";
+      } else if (!defaultPage && hostHit && serverHit && !asset.provider_owned_infrastructure) {
+        confidence = "high";
+        findingType = "finding";
+      } else if (hostHit) {
+        confidence = "low";
+      }
 
       if (!confidence) continue;
 
@@ -5364,10 +5723,17 @@ function runAdminSurfaceModule(modules) {
         category:   sig.category,
         severity:   sig.risk_level,   // human-readable alias used in UI / API
         confidence,
+        finding_type: findingType,
+        evidence_signals: [
+          ...(titleHit ? ["product_title"] : []),
+          ...(serverHit ? ["server_header"] : []),
+          ...(hostHit ? ["hostname"] : []),
+        ],
         risk_level: sig.risk_level,
         ip_address: asset.ip || null,
         server:     asset.server || null,
         title:      asset.title  || null,
+        infrastructure_provider: asset.infrastructure_provider || null,
       });
     }
   }
@@ -5381,17 +5747,21 @@ function runAdminSurfaceModule(modules) {
     return (riskOrder[a.risk_level] ?? 4) - (riskOrder[b.risk_level] ?? 4);
   });
 
-  const critical = services.filter((s) => s.risk_level === "critical").length;
-  const high     = services.filter((s) => s.risk_level === "high").length;
-  const medium   = services.filter((s) => s.risk_level === "medium").length;
+  const actionable = services.filter((service) => service.finding_type === "finding");
+  const observations = services.filter((service) => service.finding_type === "observation");
+  const critical = actionable.filter((s) => s.risk_level === "critical").length;
+  const high     = actionable.filter((s) => s.risk_level === "high").length;
+  const medium   = actionable.filter((s) => s.risk_level === "medium").length;
 
   return {
-    detected: services.length > 0,
-    total:    services.length,
+    detected: actionable.length > 0,
+    total:    actionable.length,
+    observed_total: services.length,
     critical,
     high,
     medium,
     services,
+    observations,
     source:   "asset_exposure_fingerprint",
     error:    null,
   };
@@ -7105,14 +7475,19 @@ function computeScore(modules, domain) {
         .filter(a => a.reachable)
         .map(a => a.host)
     );
-    const bruteDnsSubdomains = new Set(modules.dns_bruteforce?.items || []);
+    const bruteDnsSubdomains = new Set(
+      (modules.dns_bruteforce?.items || [])
+        .filter((item) => item?.wildcard_match !== true)
+        .map((item) => item?.hostname || item)
+        .filter(Boolean)
+    );
 
     // Keep the result visible, but only score an HTTP-confirmed sensitive service.
     const cappedSensitive = sensitiveList.slice(0, 4);
     let confirmedSensitiveCount = 0;
     for (const sub of cappedSensitive) {
       let subConf, subVQ, severity, scoreImpact, title, description;
-      if (reachableSubdomains.has(sub)) {
+      if (reachableSubdomains.has(sub) && !subMod.wildcard_dns) {
         subConf = 80;
         subVQ = "good";
         severity = "medium";
@@ -7120,6 +7495,13 @@ function computeScore(modules, domain) {
         title = "Potentially Sensitive Subdomain Confirmed Reachable";
         description = `The subdomain "${sub}" suggests development, staging, or administrative use and responded to an HTTP probe. Verify that public access is intentional and appropriately protected.`;
         confirmedSensitiveCount += 1;
+      } else if (reachableSubdomains.has(sub) && subMod.wildcard_dns) {
+        subConf = 60;
+        subVQ = "weak";
+        severity = "info";
+        scoreImpact = 0;
+        title = "Potentially Sensitive Subdomain Name Observed";
+        description = `The name "${sub}" was observed in Certificate Transparency data and responded through wildcard DNS behavior. The response may be a shared wildcard endpoint, so customer ownership and a distinct exposed service were not confirmed.`;
       } else if (bruteDnsSubdomains.has(sub)) {
         subConf = 70;
         subVQ = "partial";
@@ -7227,17 +7609,17 @@ function computeScore(modules, domain) {
     // Only 200-status assets are considered risky; 401/403 are informational
     const ok200 = exposureMod.assets.filter((a) => a.status === 200);
 
-    // Sensitive management / monitoring tools
-    const TOOL_RE = /jenkins|grafana|kibana|phpmyadmin|portainer|prometheus|vault\s*ui|rancher/i;
-    const toolAssets = ok200.filter(
-      (a) => TOOL_RE.test(a.title || "") || (a.tech || []).some((t) => TOOL_RE.test(t))
-    );
+    // A direct product fingerprint is strong enough to promote independently.
+    const toolAssets = ok200.filter((asset) => {
+      const signals = assetFingerprintSignals(asset);
+      return signals.sensitive_service && !signals.generic_default_page;
+    });
     if (toolAssets.length > 0) {
       finding({
         id:           "asset_exposure_sensitive_tool",
         module:       "asset_exposure",
         severity:     "high",
-        confidence:   "high",
+        confidence:   90,
         title:        `Sensitive Management Tool${toolAssets.length > 1 ? "s" : ""} Exposed`,
         description:  `${toolAssets.length} management or monitoring tool${toolAssets.length > 1 ? "s are" : " is"} publicly reachable: ${toolAssets.map((a) => a.host).join(", ")}. These provide privileged access and should not be internet-facing.`,
         score_impact: -10,
@@ -7250,20 +7632,25 @@ function computeScore(modules, domain) {
       });
     }
 
-    // Administrative / login interfaces (not already caught as tools)
-    const ADMIN_HOST_RE  = /\b(admin|cp|cpanel|panel|portal|login|dashboard|manage|control)\b/;
-    const ADMIN_TITLE_RE = /\b(login|admin|dashboard|control\s*panel|portal|management|sign[\s-]in)\b/i;
-    const adminAssets = ok200.filter(
-      (a) =>
-        !toolAssets.includes(a) &&
-        (ADMIN_HOST_RE.test(a.host) || ADMIN_TITLE_RE.test(a.title || ""))
-    );
+    // Generic admin/login terms require corroboration from both hostname and title.
+    const adminCandidates = ok200.filter((asset) => {
+      if (toolAssets.includes(asset)) return false;
+      const signals = assetFingerprintSignals(asset);
+      return signals.admin_hostname || signals.admin_title;
+    });
+    const adminAssets = adminCandidates.filter((asset) => {
+      const signals = assetFingerprintSignals(asset);
+      return signals.admin_hostname && signals.admin_title &&
+        !signals.generic_default_page &&
+        !asset.provider_owned_infrastructure &&
+        !subMod?.wildcard_dns;
+    });
     if (adminAssets.length > 0) {
       finding({
         id:           "asset_exposure_admin_interface",
         module:       "asset_exposure",
         severity:     "medium",
-        confidence:   "medium",
+        confidence:   80,
         title:        `Administrative Interface${adminAssets.length > 1 ? "s" : ""} Publicly Reachable`,
         description:  `${adminAssets.length} administrative or login interface${adminAssets.length > 1 ? "s are" : " is"} publicly accessible: ${adminAssets.map((a) => a.host).join(", ")}. Restrict access to authorised IP ranges or enforce MFA.`,
         score_impact: -8,
@@ -7276,15 +7663,25 @@ function computeScore(modules, domain) {
       });
     }
 
-    // Development / staging environments
-    const DEV_HOST_RE = /\b(dev|develop|development|staging|stage|stg|test|testing|qa|uat|sandbox|alpha|beta|preprod)\b/;
-    const devAssets = ok200.filter((a) => DEV_HOST_RE.test(a.host));
+    // Development/staging names also require a corroborating page title.
+    const devCandidates = ok200.filter((asset) => {
+      if (toolAssets.includes(asset)) return false;
+      const signals = assetFingerprintSignals(asset);
+      return signals.dev_hostname || signals.dev_title;
+    });
+    const devAssets = devCandidates.filter((asset) => {
+      const signals = assetFingerprintSignals(asset);
+      return signals.dev_hostname && signals.dev_title &&
+        !signals.generic_default_page &&
+        !asset.provider_owned_infrastructure &&
+        !subMod?.wildcard_dns;
+    });
     if (devAssets.length > 0) {
       finding({
         id:           "asset_exposure_dev_env",
         module:       "asset_exposure",
         severity:     "medium",
-        confidence:   "medium",
+        confidence:   80,
         title:        `Development Environment${devAssets.length > 1 ? "s" : ""} Publicly Reachable`,
         description:  `${devAssets.length} development or staging environment${devAssets.length > 1 ? "s are" : " is"} publicly accessible: ${devAssets.map((a) => a.host).join(", ")}. These often contain debug endpoints, test credentials, or reduced security controls.`,
         score_impact: -5,
@@ -7294,6 +7691,54 @@ function computeScore(modules, domain) {
         module:      "asset_exposure",
         title:       "Restrict Development Environments",
         description: `Development and staging environments should not be publicly accessible. Firewall or add authentication to: ${devAssets.map((a) => a.host).join(", ")}.`,
+      });
+    }
+
+    const weakHeuristicAssets = [...new Set([...adminCandidates, ...devCandidates])]
+      .filter((asset) => !adminAssets.includes(asset) && !devAssets.includes(asset));
+    const providerHeuristicAssets = weakHeuristicAssets.filter((asset) => asset.provider_owned_infrastructure);
+    if (providerHeuristicAssets.length > 0) {
+      findings.push({
+        id:           "asset_provider_infrastructure_observed",
+        module:       "asset_exposure",
+        severity:     "info",
+        confidence:   50,
+        validation_quality: "weak",
+        finding_type: "observation",
+        title:        "Provider-Hosted Asset Name Observed",
+        description:  `${providerHeuristicAssets.length} hostname${providerHeuristicAssets.length > 1 ? "s" : ""} with sensitive-looking labels resolved through external provider infrastructure. Provider ownership alone does not confirm a customer exposure or an unsafe service.`,
+        score_impact: 0,
+        evidence: {
+          evidence_type:  "supporting_infrastructure_observation",
+          probe_target:   providerHeuristicAssets.map((asset) => asset.host).join(", "),
+          observed_value: providerHeuristicAssets.map((asset) => `${asset.host} via ${asset.infrastructure_provider}`).join(", "),
+          expected_value: "Independent service fingerprint before classifying as customer exposure",
+          source:         "dns_cname_or_http_provider_signal",
+          checked_at:     evidenceTime,
+        },
+      });
+    }
+
+    const genericHeuristicAssets = weakHeuristicAssets.filter((asset) => !asset.provider_owned_infrastructure);
+    if (genericHeuristicAssets.length > 0) {
+      findings.push({
+        id:           "asset_exposure_interface_observed",
+        module:       "asset_exposure",
+        severity:     "info",
+        confidence:   60,
+        validation_quality: "weak",
+        finding_type: "observation",
+        title:        "Potential Administrative or Development Surface Observed",
+        description:  `${genericHeuristicAssets.length} reachable hostname${genericHeuristicAssets.length > 1 ? "s" : ""} matched only a generic hostname, title, wildcard response, or default-page heuristic. No specific sensitive service was confirmed.`,
+        score_impact: 0,
+        evidence: {
+          evidence_type:  "http_fingerprint_observation",
+          probe_target:   genericHeuristicAssets.map((asset) => asset.host).join(", "),
+          observed_value: genericHeuristicAssets.map((asset) => `${asset.host}${asset.title ? ` (${asset.title})` : ""}`).join(", "),
+          expected_value: "Multiple independent signals or a known sensitive service fingerprint",
+          source:         "cloudflare_workers_fetch",
+          checked_at:     evidenceTime,
+        },
       });
     }
   }
@@ -8271,7 +8716,7 @@ async function upsertAssetInventory(scanId, domainId, domain, modules, env) {
       hostname:     h,
       asset_type:   "subdomain",
       source:       "dns_bruteforce",
-      wildcard:     0,
+      wildcard:     item.wildcard_match ? 1 : 0,
       risk_level:   null,
       cloud:        null,
       ip_addresses: JSON.stringify(item.ip_addresses || []),
@@ -8311,16 +8756,23 @@ async function upsertAssetInventory(scanId, domainId, domain, modules, env) {
     const existing = allAssets.find((a) => a.hostname === h);
     if (existing) {
       existing.ip_addresses = existing.ip_addresses ?? JSON.stringify(asset.ip ? [asset.ip] : []);
-      existing.redirect_to  = asset.redirect_to ?? null;
+      existing.cname        = existing.cname ?? asset.cname ?? null;
+      existing.redirect_to  = asset.redirect_to ?? asset.url ?? null;
+      existing.cloud        = existing.cloud ?? asset.infrastructure_provider ?? null;
+      existing.aliases      = [...new Set([...(existing.aliases || []), ...(asset.aliases || [])])];
+      existing.provider_targets = [...new Set([...(existing.provider_targets || []), ...(asset.provider_targets || [])])];
     } else {
       allAssets.push({
         hostname:     h,
         asset_type:   "exposed_service",
         source:       "exposure_probe",
         wildcard:     0,
-        redirect_to:  asset.redirect_to ?? null,
+        cname:        asset.cname ?? null,
+        redirect_to:  asset.redirect_to ?? asset.url ?? null,
         risk_level:   null,
-        cloud:        null,
+        cloud:        asset.infrastructure_provider ?? null,
+        aliases:      asset.aliases || [],
+        provider_targets: asset.provider_targets || [],
       });
     }
   }
@@ -8331,8 +8783,12 @@ async function upsertAssetInventory(scanId, domainId, domain, modules, env) {
   // violating the UNIQUE constraint and failing the entire D1 batch silently.
   // Keep first occurrence; merge extra fields (ip_addresses, cloud, risk_level)
   // from any subsequent occurrence of the same hostname.
+  const consolidatedAssets = consolidateInventoryAssetAliases(
+    allAssets,
+    modules?.asset_exposure?.assets || []
+  );
   const assetMap = new Map();
-  for (const asset of allAssets) {
+  for (const asset of consolidatedAssets) {
     const existing = assetMap.get(asset.hostname);
     if (!existing) {
       assetMap.set(asset.hostname, { ...asset });
@@ -8342,6 +8798,8 @@ async function upsertAssetInventory(scanId, domainId, domain, modules, env) {
       if (asset.cloud       != null) existing.cloud         = asset.cloud;
       if (asset.risk_level  != null) existing.risk_level    = asset.risk_level;
       if (asset.redirect_to != null) existing.redirect_to   = asset.redirect_to;
+      existing.aliases = [...new Set([...(existing.aliases || []), ...(asset.aliases || [])])];
+      existing.provider_targets = [...new Set([...(existing.provider_targets || []), ...(asset.provider_targets || [])])];
     }
   }
   const deduplicatedAssets = [...assetMap.values()];
@@ -8452,7 +8910,7 @@ async function upsertAssetInventory(scanId, domainId, domain, modules, env) {
                 asset.redirect_to ?? null,
                 asset.cloud ?? null,
                 asset.risk_level ?? null,
-                null,    // metadata_json
+                buildAssetInventoryMetadata(asset),
                 now, now
               )
           );
@@ -8481,6 +8939,7 @@ async function upsertAssetInventory(scanId, domainId, domain, modules, env) {
                      risk_level = COALESCE(?, risk_level),
                      cloud_provider = COALESCE(?, cloud_provider),
                      redirect_to = COALESCE(?, redirect_to),
+                     metadata_json = COALESCE(?, metadata_json),
                      updated_at = ?
                  WHERE workspace_id = ? AND hostname = ?`
               )
@@ -8489,6 +8948,7 @@ async function upsertAssetInventory(scanId, domainId, domain, modules, env) {
                 asset.risk_level ?? null,
                 asset.cloud ?? null,
                 asset.redirect_to ?? null,
+                buildAssetInventoryMetadata(asset),
                 now,
                 workspace_id, asset.hostname
               )
@@ -8750,18 +9210,23 @@ async function runScanEngine(scanId, domainId, workspaceId, domain, env) {
       ? subdomainsSettled.value
       : { count: 0, items: [], sensitive: [], source: "certificate_transparency_multi_source",
           sources: { crt_sh: { count: 0, error: "module rejected" }, certspotter: { count: 0, error: "module rejected" } },
-          wildcard_dns: false, wildcard_test_host: null, wildcard_warning: null,
+          wildcard_dns: false, wildcard_dns_addresses: [], wildcard_test_host: null, wildcard_warning: null,
           error: customerSafeFailure("scan/subdomains", subdomainsSettled.reason, "Subdomain module failed") };
 
-    const bruteforceResult = bruteforceSettled.status === "fulfilled"
+    const rawBruteforceResult = bruteforceSettled.status === "fulfilled"
       ? bruteforceSettled.value
       : { checked: 0, found: 0, items: [], source: "dns_bruteforce",
           error: customerSafeFailure("scan/dns-bruteforce", bruteforceSettled.reason, "Brute-force module failed") };
+    const bruteforceResult = filterWildcardBruteforceResults(
+      rawBruteforceResult,
+      subdomainsResult.wildcard_dns_addresses
+    );
 
     // Merge brute-force finds into the subdomain item list (deduplicated).
     // Takeover and exposure modules receive the enriched list.
     const ctHostnames = new Set(subdomainsResult.items);
     const bruteNewItems = (bruteforceResult.items || [])
+      .filter((item) => item.wildcard_match !== true)
       .map((i) => i.hostname)
       .filter((h) => h && !ctHostnames.has(h));
     const mergedSubdomainItems = [...subdomainsResult.items, ...bruteNewItems];
@@ -8779,6 +9244,11 @@ async function runScanEngine(scanId, domainId, workspaceId, domain, env) {
     let assetExposureResult;
     try {
       assetExposureResult = await runExposureModule(domain, mergedSubdomainItems);
+      assetExposureResult = annotateExposureInfrastructure(
+        assetExposureResult,
+        takeoverResult.cname_observations
+      );
+      assetExposureResult = deduplicateExposureAssets(assetExposureResult, domain);
     } catch (err) {
       assetExposureResult = {
         checked:   0,
@@ -9575,7 +10045,9 @@ function buildCanonicalUrlProfile(modules) {
 // All errors are non-fatal — the scan is already marked completed by this point.
 
 async function insertAdminSurfaceEvents(scanId, domainId, adminModule, env) {
-  if (!adminModule || !adminModule.detected || adminModule.services.length === 0) return;
+  const actionableServices = (adminModule?.services || [])
+    .filter((service) => service.finding_type !== "observation");
+  if (!adminModule || !adminModule.detected || actionableServices.length === 0) return;
 
   let wsRows;
   try {
@@ -9592,7 +10064,7 @@ async function insertAdminSurfaceEvents(scanId, domainId, adminModule, env) {
   const now = new Date().toISOString();
 
   for (const { workspace_id } of wsRows) {
-    for (const svc of adminModule.services) {
+    for (const svc of actionableServices) {
       try {
         // Resolve asset_id if the asset was already upserted by upsertAssetInventory
         const assetRow = await env.cybermeters_db

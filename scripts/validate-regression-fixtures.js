@@ -53,6 +53,20 @@ function loadScanner(fetchImpl = async () => { throw new Error("network disabled
     buildExecutiveReportV2,
     INTELLIGENCE_ENGINE_REGISTRY,
     resolveIntelligenceEngine,
+    normalizeDiscoveredHostname,
+    normalizeCertificateSanNames,
+    filterWildcardBruteforceResults,
+    providerForInfrastructureHostname,
+    providerMetadataForHostname,
+    classifyProviderInfrastructure,
+    annotateExposureInfrastructure,
+    deduplicateExposureAssets,
+    consolidateInventoryAssetAliases,
+    assetFingerprintSignals,
+    runAdminSurfaceModule,
+    runSaasExposureModule,
+    runCertificateIntelligenceModule,
+    buildCertificateOwnershipAssessment,
     computeBusinessRiskScoreFromIds: (ids, data) => computeBusinessRiskScore(new Set(ids), data),
   };`, context, {
     filename: workerPath,
@@ -298,6 +312,214 @@ const validMicrosoftClaims = {
 };
 
 results.push(
+  securityContract("detection_literal_wildcard_certificate_ignored", () =>
+    scanner.normalizeDiscoveredHostname("*.example.com", "example.com") === null &&
+    scanner.normalizeDiscoveredHostname("api.example.com", "example.com") === "api.example.com" &&
+    scanner.normalizeDiscoveredHostname("api.attacker.test", "example.com") === null &&
+    JSON.stringify(scanner.normalizeCertificateSanNames(
+      "*.example.com example.com api.example.com *.api.example.com",
+      "example.com"
+    )) === JSON.stringify(["example.com", "api.example.com"])
+  ),
+  securityContract("detection_wildcard_dns_bruteforce_classification", () => {
+    const result = scanner.filterWildcardBruteforceResults({
+      checked: 2,
+      found: 2,
+      items: [
+        { hostname: "admin.example.com", ip_addresses: ["192.0.2.10"] },
+        { hostname: "api.example.com", ip_addresses: ["192.0.2.20"] },
+      ],
+    }, ["192.0.2.10"]);
+    return result.wildcard_filtered === 1 &&
+      result.found === 1 &&
+      result.items[0].hostname === "api.example.com" &&
+      result.wildcard_observations[0].wildcard_match === true &&
+      result.wildcard_observations[0].classification === "observation" &&
+      result.wildcard_observations[0].confidence === 40 &&
+      result.wildcard_observations[0].score_impact === 0;
+  }),
+  securityContract("detection_provider_infrastructure_registry", () =>
+    scanner.providerForInfrastructureHostname("site.pages.dev") === "Cloudflare" &&
+    scanner.providerForInfrastructureHostname("d111.cloudfront.net") === "AWS" &&
+    scanner.providerForInfrastructureHostname("site.azurewebsites.net") === "Microsoft Azure" &&
+    scanner.providerForInfrastructureHostname("site.global.fastly.net") === "Fastly" &&
+    scanner.providerForInfrastructureHostname("site.edgekey.net") === "Akamai" &&
+    scanner.providerForInfrastructureHostname("owner.github.io") === "GitHub Pages" &&
+    scanner.providerForInfrastructureHostname("site.netlify.app") === "Netlify" &&
+    scanner.providerForInfrastructureHostname("cname.vercel-dns.com") === "Vercel" &&
+    scanner.providerMetadataForHostname("site.firebaseapp.com").service === "Google/Firebase Hosting" &&
+    scanner.providerMetadataForHostname("site.gitlab.io").service === "GitLab Pages" &&
+    scanner.providerMetadataForHostname("site.herokudns.com").service === "Heroku Hosting" &&
+    scanner.providerMetadataForHostname("shop.myshopify.com").service === "Shopify" &&
+    scanner.providerMetadataForHostname("site.wixdns.net").service === "Wix Hosting" &&
+    scanner.providerMetadataForHostname("site.wordpress.com").service === "WordPress.com Hosting" &&
+    scanner.providerMetadataForHostname("tenant.okta.com").service === "Okta Identity Cloud" &&
+    scanner.providerMetadataForHostname("tenant.auth0.com").service === "Auth0" &&
+    scanner.providerMetadataForHostname("tenant.sharepoint.com").service === "Microsoft 365"
+  ),
+  securityContract("detection_provider_asset_supporting_infrastructure", () => {
+    const result = scanner.annotateExposureInfrastructure({
+      assets: [{ host: "admin.example.com", url: "https://admin.example.com", status: 200, tech: [] }],
+    }, [{ host: "admin.example.com", cname: "customer.github.io" }]);
+    const asset = result.assets[0];
+    return asset.provider_owned_infrastructure === true &&
+      asset.infrastructure_provider === "GitHub Pages" &&
+      asset.infrastructure_relationship === "supporting_infrastructure" &&
+      asset.infrastructure_evidence === "dns_cname";
+  }),
+  securityContract("detection_provider_hostname_heuristic_is_observation", () => {
+    const result = scanner.computeScore({
+      dns: { resolves: true, has_mx: true },
+      ssl: { https_available: true, http_redirects_to_https: true },
+      email_security: {
+        spf: { present: true }, dmarc: { present: true, policy: "reject" }, dkim: { present: true },
+      },
+      subdomains: { count: 1, items: ["admin.example.com"], sensitive: [] },
+      dns_bruteforce: { items: [] },
+      subdomain_takeover: { risks: [] },
+      asset_exposure: { assets: [{
+        host: "admin.example.com", status: 200, reachable: true, title: "Welcome",
+        tech: [], provider_owned_infrastructure: true, infrastructure_provider: "AWS",
+      }] },
+      brand_monitoring: null,
+    }, "example.com");
+    const ids = new Set(result.findings.map((finding) => finding.id));
+    const observation = result.findings.find((finding) => finding.id === "asset_provider_infrastructure_observed");
+    return !ids.has("asset_exposure_admin_interface") &&
+      observation?.finding_type === "observation" &&
+      observation?.confidence === 50 &&
+      observation?.score_impact === 0 &&
+      result.score === 100;
+  }),
+  securityContract("detection_wildcard_http_response_is_observation", () => {
+    const result = scanner.computeScore({
+      dns: { resolves: true, has_mx: true },
+      ssl: { https_available: true, http_redirects_to_https: true },
+      email_security: {
+        spf: { present: true }, dmarc: { present: true, policy: "reject" }, dkim: { present: true },
+      },
+      subdomains: {
+        count: 1, items: ["admin.example.com"], sensitive: ["admin.example.com"], wildcard_dns: true,
+      },
+      dns_bruteforce: { items: [] },
+      subdomain_takeover: { risks: [] },
+      asset_exposure: { assets: [{ host: "admin.example.com", status: 200, reachable: true, title: "Welcome", tech: [] }] },
+      brand_monitoring: null,
+    }, "example.com");
+    const finding = result.findings.find((item) => item.id === "subdomain_sensitive_admin_example_com");
+    return finding?.finding_type === "observation" && finding?.confidence === 60 &&
+      finding?.score_impact === 0 && result.score === 100;
+  }),
+  securityContract("detection_wildcard_certificate_signals_are_observations", () => {
+    const result = scanner.runCertificateIntelligenceModule({
+      ssl: { https_available: true, cert_expiry_days: 90 },
+      subdomains: {
+        wildcard_dns: true,
+        items: ["admin.example.com"],
+        sensitive: ["admin.example.com"],
+        sources: { crt_sh: { count: 60 }, certspotter: { count: 60 } },
+      },
+      dns_bruteforce: { items: [{ hostname: "dev.example.com", wildcard_match: true }] },
+    }, "example.com");
+    return result.certificate_risk_level === "low" &&
+      !result.issued_for_sensitive_hosts.includes("dev.example.com") &&
+      result.suspicious_certificate_signals.every((signal) => signal.severity === "info");
+  }),
+  securityContract("detection_admin_hostname_only_is_observation", () => {
+    const result = scanner.computeScore({
+      dns: { resolves: true, has_mx: true },
+      ssl: { https_available: true, http_redirects_to_https: true },
+      email_security: { spf: { present: true }, dmarc: { present: true, policy: "reject" }, dkim: { present: true } },
+      subdomains: { count: 1, items: ["admin.example.com"], sensitive: [] },
+      subdomain_takeover: { risks: [] },
+      asset_exposure: { assets: [{ host: "admin.example.com", status: 200, reachable: true, title: "Welcome", tech: [] }] },
+      brand_monitoring: null,
+    }, "example.com");
+    const ids = new Set(result.findings.map((finding) => finding.id));
+    const observation = result.findings.find((finding) => finding.id === "asset_exposure_interface_observed");
+    return !ids.has("asset_exposure_admin_interface") && observation?.finding_type === "observation" &&
+      observation?.score_impact === 0 && result.score === 100;
+  }),
+  securityContract("detection_admin_hostname_and_title_is_finding", () => {
+    const result = scanner.computeScore({
+      dns: { resolves: true, has_mx: true },
+      ssl: { https_available: true, http_redirects_to_https: true },
+      email_security: { spf: { present: true }, dmarc: { present: true, policy: "reject" }, dkim: { present: true } },
+      subdomains: { count: 1, items: ["admin.example.com"], sensitive: [] },
+      subdomain_takeover: { risks: [] },
+      asset_exposure: { assets: [{ host: "admin.example.com", status: 200, reachable: true, title: "Administrator Login", tech: [] }] },
+      brand_monitoring: null,
+    }, "example.com");
+    const finding = result.findings.find((item) => item.id === "asset_exposure_admin_interface");
+    return finding?.finding_type === "finding" && finding?.confidence === 80 &&
+      finding?.score_impact === -8 && result.score === 92;
+  }),
+  securityContract("detection_sensitive_products_are_findings", () => {
+    const titles = ["Jenkins", "Grafana", "phpMyAdmin", "Kibana", "Prometheus", "Portainer", "SonarQube"];
+    return titles.every((title) => {
+      const result = scanner.computeScore({
+        dns: { resolves: true, has_mx: true },
+        ssl: { https_available: true, http_redirects_to_https: true },
+        email_security: { spf: { present: true }, dmarc: { present: true, policy: "reject" }, dkim: { present: true } },
+        subdomains: { count: 0, items: [], sensitive: [] },
+        subdomain_takeover: { risks: [] },
+        asset_exposure: { assets: [{ host: "service.example.com", status: 200, reachable: true, title, tech: [] }] },
+        brand_monitoring: null,
+      }, "example.com");
+      const finding = result.findings.find((item) => item.id === "asset_exposure_sensitive_tool");
+      return finding?.finding_type === "finding" && finding?.confidence === 90 && finding?.score_impact === -10;
+    });
+  }),
+  securityContract("detection_admin_module_separates_observations", () => {
+    const result = scanner.runAdminSurfaceModule({ asset_exposure: { assets: [
+      { host: "jenkins.example.com", reachable: true, status: 200, title: "Welcome", server: "nginx" },
+      { host: "grafana.example.com", reachable: true, status: 200, title: "Grafana", server: "nginx" },
+    ] } });
+    return result.total === 1 && result.observed_total === 2 && result.observations.length === 1 &&
+      result.services.find((service) => service.product === "Jenkins")?.finding_type === "observation" &&
+      result.services.find((service) => service.product === "Grafana")?.finding_type === "finding";
+  }),
+  securityContract("detection_duplicate_asset_representations_collapse", () => {
+    const deduped = scanner.deduplicateExposureAssets({ assets: [
+      { host: "www.example.com", url: "https://www.example.com/", reachable: true, status: 200, tech: [] },
+      { host: "example.com", url: "https://www.example.com/", reachable: true, status: 200, tech: [] },
+    ] }, "example.com");
+    const inventory = scanner.consolidateInventoryAssetAliases([
+      { hostname: "example.com" }, { hostname: "www.example.com" },
+    ], deduped.assets);
+    return deduped.assets.length === 1 && deduped.duplicates_collapsed === 1 &&
+      deduped.assets[0].aliases.includes("example.com") && deduped.assets[0].aliases.includes("www.example.com") &&
+      inventory.every((asset) => asset.hostname === "example.com");
+  }),
+  securityContract("detection_saas_cname_is_provider_dependency", () => {
+    const result = scanner.runSaasExposureModule({
+      vendor_risk: { vendors: [{ name: "Zendesk", confidence: "high", evidence: [{ source: "cname" }] }] },
+      asset_exposure: { assets: [{ host: "support.example.com", cname: "customer.zendesk.com" }] },
+    });
+    const dependency = result.dependencies[0];
+    return result.detected === false && result.dependency_detected === true && result.total === 0 && result.observed_total === 1 &&
+      dependency.classification === "provider_dependency" && dependency.finding_type === "observation" &&
+      dependency.customer_exposure_confirmed === false && dependency.score_impact === 0;
+  }),
+  securityContract("detection_shared_certificate_reduces_ownership_confidence", () => {
+    const result = scanner.runCertificateIntelligenceModule({
+      ssl: {
+        https_available: true,
+        cert_subject: "example.com",
+        cert_san_names: ["example.com"],
+        cert_san_count: 1,
+        cert_raw_san_count: 4,
+        cert_wildcard_san_count: 1,
+        cert_shared_san_count: 2,
+        cert_age_days: 30,
+      },
+      subdomains: { items: [], sensitive: [], sources: {} },
+    }, "example.com");
+    return result.ownership.status === "shared_certificate" && result.ownership.confidence === 50 &&
+      result.san_count === 1 && result.raw_san_count === 4 && result.wildcard_san_count === 1 &&
+      result.certificate_age_days === 30 &&
+      result.suspicious_certificate_signals.find((signal) => signal.signal === "shared_certificate_observed")?.severity === "info";
+  }),
   securityContract("security_valid_domain_contract", () =>
     scanner.isValidDomain("example.co.uk") &&
     !scanner.isValidDomain(".example.com") &&
