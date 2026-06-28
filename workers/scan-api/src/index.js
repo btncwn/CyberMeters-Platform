@@ -139,6 +139,20 @@ async function generateEmailVerificationToken() {
   return { raw, hash };
 }
 
+function getEmailVerificationTokenStatus(userRow, nowMs = Date.now()) {
+  if (!userRow) return "invalid";
+  if (userRow.email_verified) return "already_verified";
+  const expiresAt = Date.parse(userRow.verification_token_expires_at || "");
+  if (!Number.isFinite(expiresAt) || expiresAt <= nowMs) return "expired";
+  return "valid";
+}
+
+function isEmailVerificationResendCoolingDown(expiresAt, nowMs = Date.now()) {
+  const expiresAtMs = Date.parse(expiresAt || "");
+  const cooldownThreshold = nowMs + (24 * 60 * 60 * 1000) - (60 * 1000);
+  return Number.isFinite(expiresAtMs) && expiresAtMs > cooldownThreshold;
+}
+
 // ── Microsoft Entra OAuth helpers ────────────────────────────────────────────
 
 /** Decode a base64url string to a UTF-8 string (safe for JWT header/payload). */
@@ -7354,6 +7368,292 @@ function resolveCanonicalScanScore(storedScore, reportScore) {
   return Number.isFinite(reportValue) ? reportValue : 0;
 }
 
+const INTELLIGENCE_ENGINE_REGISTRY = {
+  attack_surface: {
+    label: "Attack Surface Intelligence",
+    modules: new Set([
+      "dns", "ssl", "headers", "subdomains", "subdomain_takeover", "asset_exposure",
+      "technology_detection", "whois_intelligence", "dns_bruteforce", "cve_intelligence",
+      "known_exploited_vulnerabilities", "cloud_storage_discovery", "admin_surface_detection",
+      "canonical_url_profile", "domain_security_enrichment", "certificate_intelligence",
+      "saas_exposure", "third_party_assets", "vendor_relationships",
+    ]),
+    idPrefixes: [],
+    recommendationIdPrefixes: [],
+  },
+  business_email: {
+    label: "Business Email Intelligence",
+    modules: new Set(["email_security", "email_security_intelligence"]),
+    idPrefixes: ["email_"],
+    recommendationIdPrefixes: [],
+  },
+  identity: {
+    label: "Identity Intelligence",
+    modules: new Set(["identity_discovery"]),
+    idPrefixes: ["identity_"],
+    recommendationIdPrefixes: [],
+  },
+  brand: {
+    label: "Brand Intelligence",
+    modules: new Set(["brand_monitoring"]),
+    idPrefixes: ["brand_"],
+    recommendationIdPrefixes: ["brand_"],
+  },
+  executive: {
+    label: "Executive Intelligence",
+    modules: new Set(),
+    idPrefixes: [],
+    recommendationIdPrefixes: [],
+  },
+};
+
+function findRegisteredIntelligenceEngine(item, prefixField = "idPrefixes") {
+  const moduleName = String(item?.module || "");
+  const itemId = String(item?.id || "");
+  for (const [engine, definition] of Object.entries(INTELLIGENCE_ENGINE_REGISTRY)) {
+    const prefixes = definition[prefixField] || [];
+    if (definition.modules.has(moduleName) || prefixes.some((prefix) => itemId.startsWith(prefix))) {
+      return engine;
+    }
+  }
+  return null;
+}
+
+function resolveIntelligenceEngine(item) {
+  return findRegisteredIntelligenceEngine(item) || "attack_surface";
+}
+
+function buildExecutiveReportV2Remediation(findings, recommendations, remediationPlan) {
+  const actionableTitles = new Set(findings.map((finding) => finding.title).filter(Boolean));
+  const actionableModules = new Set(findings.map((finding) => finding.module).filter(Boolean));
+  const output = [];
+  const seen = new Set();
+  const add = (item, priority) => {
+    const title = item?.title;
+    if (!title || seen.has(title)) return;
+    seen.add(title);
+    output.push({
+      priority,
+      title,
+      action: item.action || item.description || null,
+      reason: item.reason || null,
+      source: item.source || item.module || null,
+      due_date: item.due_date || null,
+    });
+  };
+
+  const roadmap = [
+    ["P1", remediationPlan?.p1_immediate || []],
+    ["P2", remediationPlan?.p2_high || []],
+    ["P3", remediationPlan?.p3_medium_low || []],
+  ];
+  for (const [priority, items] of roadmap) {
+    for (const item of items) {
+      if (actionableTitles.has(item?.title) || item?.source === "cisa_kev" || item?.source === "subdomain_takeover") {
+        add(item, priority);
+      }
+    }
+  }
+  for (const recommendation of recommendations) {
+    if (actionableTitles.has(recommendation?.title) || actionableModules.has(recommendation?.module)) {
+      add(recommendation, `P${Math.max(1, Math.min(3, Number(recommendation?.priority) || 3))}`);
+    }
+  }
+  return output;
+}
+
+function buildExecutiveReportV2({ scan, rawReport, workspace = null, generatedAt = new Date().toISOString() }) {
+  const raw = rawReport || {};
+  const evidence = raw.modules || {};
+  const allFindings = applyEvidenceQuality(
+    (Array.isArray(raw.findings) ? raw.findings : []).map(normalizeFindingSchema)
+  );
+  const verifiedFindings = allFindings.filter(isActionableFinding);
+  const observations = allFindings.filter((finding) => !isActionableFinding(finding));
+  const recommendations = Array.isArray(raw.recommendations) ? raw.recommendations : [];
+  const canonicalScore = resolveCanonicalScanScore(scan?.score, raw.cyber_metrics_score);
+  const rating = riskLevelForScore(canonicalScore);
+  const historical = evidence.historical_changes || {};
+  const severityRank = { critical: 5, high: 4, medium: 3, low: 2, info: 1, informational: 1 };
+  const topRisks = [...verifiedFindings]
+    .sort((a, b) => (severityRank[b.severity] || 0) - (severityRank[a.severity] || 0)
+      || Math.abs(Number(b.score_impact) || 0) - Math.abs(Number(a.score_impact) || 0))
+    .slice(0, 5);
+  const prioritizedRemediation = buildExecutiveReportV2Remediation(
+    verifiedFindings,
+    recommendations,
+    evidence.remediation_plan,
+  );
+  const riskNarrative = evidence.risk_intelligence?.narrative || (
+    canonicalScore >= 90
+      ? "External exposure controls are strong. Continue monitoring for material changes."
+      : canonicalScore >= 75
+        ? "External exposure is generally well controlled, with focused improvements recommended."
+        : canonicalScore >= 50
+          ? "Several external exposure issues require planned remediation and continued monitoring."
+          : "Material external exposure issues require prioritized remediation."
+  );
+  const trendSummary = {
+    status: historical.has_previous ? "available" : "not_available",
+    previous_scan_id: historical.previous_scan_id || null,
+    previous_score: historical.previous_score ?? null,
+    current_score: canonicalScore,
+    score_change: historical.previous_score != null ? canonicalScore - historical.previous_score : null,
+    direction: historical.previous_score == null
+      ? "not_available"
+      : canonicalScore > historical.previous_score ? "improved"
+        : canonicalScore < historical.previous_score ? "declined" : "unchanged",
+    new_findings_count: Array.isArray(historical.new_findings) ? historical.new_findings.length : 0,
+    resolved_findings_count: Array.isArray(historical.resolved_findings) ? historical.resolved_findings.length : 0,
+  };
+
+  const engineItems = (engine, items) => items.filter((item) => resolveIntelligenceEngine(item) === engine);
+  const attackFindings = engineItems("attack_surface", verifiedFindings);
+  const attackObservations = engineItems("attack_surface", observations);
+  const emailFindings = engineItems("business_email", verifiedFindings);
+  const emailObservations = engineItems("business_email", observations);
+  const identityFindings = engineItems("identity", verifiedFindings);
+  const identityObservations = engineItems("identity", observations);
+  const brandFindings = engineItems("brand", verifiedFindings);
+  const brandObservations = engineItems("brand", observations);
+  const actionableModules = new Set(verifiedFindings.map((finding) => finding.module).filter(Boolean));
+  const recommendationsFor = (engine) => recommendations.filter((item) =>
+    actionableModules.has(item?.module)
+      && findRegisteredIntelligenceEngine(item, "recommendationIdPrefixes") === engine
+  );
+
+  const identityEvidence = evidence.identity_discovery;
+  const identityAvailable = Boolean(identityEvidence?.detected || identityFindings.length || identityObservations.length);
+  const brandEvidenceAvailable = Boolean(
+    evidence.brand_monitoring || evidence.certificate_intelligence || brandFindings.length || brandObservations.length
+  );
+
+  return {
+    version: "2.0",
+    report_type: "executive",
+    workspace: {
+      id: workspace?.id || null,
+      name: workspace?.name || null,
+    },
+    domain: {
+      id: scan?.domain_id || raw.domain_id || null,
+      name: scan?.domain || raw.domain || null,
+      scan_id: scan?.id || raw.scan_id || null,
+      scan_status: scan?.status || raw.status || null,
+      scanned_at: scan?.created_at || raw.started_at || null,
+      completed_at: raw.completed_at || null,
+    },
+    generated_at: generatedAt,
+    cyber_metrics_score: {
+      value: canonicalScore,
+      rating,
+      minimum: 0,
+      maximum: 100,
+      source: scan?.score == null ? "legacy_report_fallback" : "scan_record",
+    },
+    executive_summary: {
+      risk_narrative: riskNarrative,
+      verified_findings_count: verifiedFindings.length,
+      observations_count: observations.length,
+      top_risks: topRisks,
+      trend: trendSummary,
+      priority_actions: prioritizedRemediation.slice(0, 5),
+    },
+    intelligence_engines: {
+      attack_surface: {
+        status: Object.keys(evidence).length ? "available" : "not_available",
+        summary: `${attackFindings.length} actionable finding(s) and ${attackObservations.length} observation(s) from external attack surface evidence.`,
+        evidence: {
+          dns: evidence.dns || null,
+          ssl_tls: evidence.ssl || null,
+          https: evidence.canonical_url_profile || null,
+          security_headers: evidence.headers || null,
+          certificates: evidence.certificate_intelligence || null,
+          subdomains: evidence.subdomains || null,
+          takeover: evidence.subdomain_takeover || null,
+          assets: evidence.asset_exposure || null,
+          cloud_exposure: evidence.cloud_storage_discovery || null,
+          admin_surfaces: evidence.admin_surface_detection || null,
+          saas_exposure: evidence.saas_exposure || null,
+          third_party_exposed_assets: evidence.third_party_assets || null,
+          third_party_relationships: evidence.vendor_relationships || null,
+        },
+        findings: attackFindings,
+        observations: attackObservations,
+        recommendations: recommendationsFor("attack_surface"),
+      },
+      business_email: {
+        status: evidence.email_security || evidence.email_security_intelligence ? "available" : "not_available",
+        summary: `${emailFindings.length} actionable finding(s) and ${emailObservations.length} observation(s) from business email evidence.`,
+        evidence: {
+          spf: evidence.email_security_intelligence?.spf || evidence.email_security?.spf || null,
+          dkim: evidence.email_security_intelligence?.dkim || evidence.email_security?.dkim || null,
+          dmarc: evidence.email_security_intelligence?.dmarc || evidence.email_security?.dmarc || null,
+          mta_sts: evidence.email_security_intelligence?.mta_sts || null,
+          tls_rpt: evidence.email_security_intelligence?.tls_rpt || null,
+          mx_intelligence: {
+            has_mx: evidence.dns?.has_mx ?? null,
+            records: evidence.dns?.mx || evidence.dns?.mx_records || [],
+          },
+          provider_detection: evidence.email_security?.dkim?.provider || null,
+          email_security_score: evidence.email_security_intelligence?.email_security_score ?? null,
+          rating: evidence.email_security_intelligence?.rating || null,
+        },
+        findings: emailFindings,
+        observations: emailObservations,
+        recommendations: recommendationsFor("business_email"),
+      },
+      identity: identityAvailable ? {
+        status: "partial",
+        summary: "Externally observable identity providers or login surfaces were detected. Connected identity posture assessment is not enabled.",
+        evidence: identityEvidence,
+        findings: identityFindings,
+        observations: identityObservations,
+        recommendations: recommendationsFor("identity"),
+      } : {
+        status: "not_available",
+        summary: "Identity Intelligence is not enabled for this workspace yet.",
+        findings: [],
+        observations: [],
+        recommendations: [],
+      },
+      brand: {
+        status: brandEvidenceAvailable ? "partial" : "not_available",
+        summary: brandEvidenceAvailable
+          ? "Brand intelligence is based on currently available lookalike-domain and certificate evidence."
+          : "Brand Intelligence evidence is not available for this scan.",
+        evidence: {
+          brand_monitoring: evidence.brand_monitoring || null,
+          certificate_signals: evidence.certificate_intelligence?.suspicious_certificate_signals || [],
+        },
+        findings: brandFindings,
+        observations: brandObservations,
+        recommendations: recommendationsFor("brand"),
+      },
+      executive: {
+        status: "available",
+        cyber_metrics_score: canonicalScore,
+        rating,
+        risk_narrative: riskNarrative,
+        top_risks: topRisks,
+        trend_summary: trendSummary,
+        prioritized_recommendations: prioritizedRemediation,
+      },
+    },
+    verified_findings: verifiedFindings,
+    observations,
+    historical_trends: trendSummary,
+    prioritized_remediation: prioritizedRemediation,
+    supporting_evidence: {
+      scan_quality: raw.scan_quality || null,
+      technology_detection: evidence.technology_detection || null,
+      whois_intelligence: evidence.whois_intelligence || null,
+      known_exploited_vulnerabilities: evidence.known_exploited_vulnerabilities || null,
+      legacy_vendor_context: evidence.vendor_risk || null,
+    },
+  };
+}
+
 // ── Business Risk Score (BRS) v1 ─────────────────────────────────────────────
 //
 // An executive-facing risk composite separate from the ASM technical score.
@@ -9391,9 +9691,7 @@ function assetAlertWorthy(counts) {
   );
 }
 
-function buildAssetAlertEmail(domain, workspaceId, scanId, counts, topHostnames, severity) {
-  const assetsUrl = `https://cybermeters.pages.dev/assets`;
-
+function buildAssetAlertEmail(domain, workspaceId, scanId, counts, topHostnames, severity, assetsUrl = null) {
   const SEVERITY_COLOR = {
     critical: "#dc2626",
     high:     "#ea580c",
@@ -9435,16 +9733,16 @@ function buildAssetAlertEmail(domain, workspaceId, scanId, counts, topHostnames,
     ...lines,
     ...(hostLine ? [hostLine] : []),
     "",
-    `View asset inventory: ${assetsUrl}`,
+    assetsUrl ? `View asset inventory: ${assetsUrl}` : "Open CyberMeters to review the asset inventory.",
   ].join("\n");
 
   const listItems = lines
-    .map((l) => `<li style="margin-bottom:6px">${l}</li>`)
+    .map((l) => `<li style="margin-bottom:6px">${escapeEmailHtml(l)}</li>`)
     .join("\n      ");
 
   const hostnameSection = hostList.length > 0
     ? `<p style="font-size:13px;color:#555;margin-top:12px;">
-        <strong>Affected hostnames:</strong> ${hostList.map((h) => `<code style="background:#f3f4f6;padding:1px 5px;border-radius:4px;font-size:12px">${h}</code>`).join(" ")}
+        <strong>Affected hostnames:</strong> ${hostList.map((h) => `<code style="background:#f3f4f6;padding:1px 5px;border-radius:4px;font-size:12px">${escapeEmailHtml(h)}</code>`).join(" ")}
        </p>`
     : "";
 
@@ -9454,7 +9752,7 @@ function buildAssetAlertEmail(domain, workspaceId, scanId, counts, topHostnames,
   <div style="border-left:4px solid ${color};padding-left:16px;margin-bottom:20px;">
     <h2 style="margin:0 0 4px;color:${color};font-size:18px;">Asset Change Alert</h2>
     <p style="margin:0;color:#555;font-size:14px;">
-      Scan completed for <strong>${domain}</strong> &mdash;
+      Scan completed for <strong>${escapeEmailHtml(domain)}</strong> &mdash;
       <span style="font-weight:600;color:${color};text-transform:uppercase;font-size:12px">${severity}</span>
     </p>
   </div>
@@ -9462,17 +9760,17 @@ function buildAssetAlertEmail(domain, workspaceId, scanId, counts, topHostnames,
     ${listItems}
   </ul>
   ${hostnameSection}
-  <p style="margin-top:24px;">
-    <a href="${assetsUrl}"
+  ${assetsUrl ? `<p style="margin-top:24px;">
+    <a href="${escapeEmailHtml(assetsUrl)}"
        style="background:${color};color:white;padding:10px 20px;border-radius:8px;
               text-decoration:none;font-size:14px;font-weight:600;display:inline-block;">
       View Asset Inventory
     </a>
-  </p>
+  </p>` : ""}
   <hr style="border:none;border-top:1px solid #eee;margin:28px 0;" />
   <p style="font-size:12px;color:#999;margin:0;">
     CyberMeters &mdash; Attack Surface Management<br>
-    Scan ID: <code style="font-size:11px">${scanId}</code>
+    Scan ID: <code style="font-size:11px">${escapeEmailHtml(scanId)}</code>
   </p>
 </body>
 </html>`;
@@ -13016,12 +13314,22 @@ async function sendAssetChangeAlert(domainId, domain, scanId, env) {
         if (!insert.meta || insert.meta.changes === 0) continue;
 
         // Build + send email
+        const frontendOrigin = getEmailFrontendOrigin(env);
         const { subject, text, html } = buildAssetAlertEmail(
-          domain, workspace_id, scanId, counts, topHostnames, severity
+          domain,
+          workspace_id,
+          scanId,
+          counts,
+          topHostnames,
+          severity,
+          frontendOrigin ? `${frontendOrigin}/assets` : null,
         );
-        await sendAlertEmail(subject, text, html, env, "ALERT_EMAIL_FROM");
-
-        console.log("[asset-alert] sent", JSON.stringify({ workspace_id, scanId, severity, counts }));
+        const delivery = await sendAlertEmail(subject, text, html, env, "ALERT_EMAIL_FROM");
+        if (delivery.sent) {
+          console.log("[asset-alert] accepted", JSON.stringify({ workspace_id, scanId, severity, counts, provider_id: delivery.provider_id || null }));
+        } else {
+          console.error("[asset-alert] delivery failed", JSON.stringify({ workspace_id, scanId, reason: delivery.reason }));
+        }
       } catch (wsErr) {
         console.error("[asset-alert] workspace error", workspace_id, wsErr?.message);
       }
@@ -13159,70 +13467,109 @@ function buildAlertEmail(domain, scanId, triggers) {
   return { subject, text, html };
 }
 
-/**
- * POST an email via the Resend API.
- *
- * Requires:
- *   env.RESEND_API_KEY   — Wrangler secret  (wrangler secret put RESEND_API_KEY)
- *   env.ALERT_EMAIL_TO   — recipient address (wrangler.toml [vars])
- *   fromKey              — which env var to use for the sender address:
- *                            "ALERT_EMAIL_FROM"  alerts@cybermeters.com  (default)
- *                            "SAFE_EMAIL_FROM"   safe@cybermeters.com
- *                            "HELLO_EMAIL_FROM"  hello@cybermeters.com
- *
- * If RESEND_API_KEY is absent the function returns immediately — alerts are
- * silently skipped rather than crashing the scan pipeline.
- * All errors are swallowed for the same reason.
- */
-async function sendAlertEmail(subject, text, html, env, fromKey = "ALERT_EMAIL_FROM", toEmails = null) {
-  if (!env.RESEND_API_KEY) return;
+const EMAIL_SENDER_KEYS = new Set(["ALERT_EMAIL_FROM", "SAFE_EMAIL_FROM", "HELLO_EMAIL_FROM"]);
 
-  const to = Array.isArray(toEmails) && toEmails.length > 0
-    ? toEmails
-    : typeof toEmails === "string" && toEmails.trim()
-      ? [toEmails]
-      : [env.ALERT_EMAIL_TO || "ttrnn47@gmail.com"];
-  const from = env[fromKey] || env.ALERT_EMAIL_FROM || "alerts@cybermeters.com";
+function normalizeEmailRecipients(toEmails) {
+  const values = Array.isArray(toEmails) ? toEmails : typeof toEmails === "string" ? [toEmails] : [];
+  const unique = new Map();
+  for (const value of values) {
+    const email = String(value || "").trim().toLowerCase();
+    if (isValidEmail(email)) unique.set(email, email);
+  }
+  return [...unique.values()];
+}
+
+function resolveEmailSender(env, fromKey) {
+  if (!EMAIL_SENDER_KEYS.has(fromKey)) return null;
+  const sender = String(env[fromKey] || "").trim().toLowerCase();
+  return isValidEmail(sender) ? sender : null;
+}
+
+function getEmailFrontendOrigin(env) {
+  const configured = env.FRONTEND_URL || env.APP_URL || env.ALLOWED_ORIGIN;
+  try {
+    const parsed = new URL(configured);
+    return parsed.protocol === "https:" ? parsed.origin : null;
+  } catch {
+    return null;
+  }
+}
+
+function emailDeliveryLog(level, details) {
+  const payload = JSON.stringify({ service: "resend", ...details });
+  if (level === "error") console.error("[email-delivery]", payload);
+  else console.log("[email-delivery]", payload);
+}
+
+async function deliverEmail(subject, text, html, env, fromKey, toEmails) {
+  const to = normalizeEmailRecipients(toEmails);
+  const from = resolveEmailSender(env, fromKey);
+  const safeSubject = String(subject || "").replace(/[\r\n]+/g, " ").trim();
+  const context = { from_key: fromKey, recipient_count: to.length };
+
+  if (!env.RESEND_API_KEY) {
+    emailDeliveryLog("error", { ...context, outcome: "skipped", reason: "missing_api_key" });
+    return { sent: false, reason: "missing_api_key" };
+  }
+  if (!from) {
+    emailDeliveryLog("error", { ...context, outcome: "skipped", reason: "invalid_sender" });
+    return { sent: false, reason: "invalid_sender" };
+  }
+  if (to.length === 0) {
+    emailDeliveryLog("error", { ...context, outcome: "skipped", reason: "no_valid_recipients" });
+    return { sent: false, reason: "no_valid_recipients" };
+  }
+  if (!safeSubject || !String(text || "").trim() || !String(html || "").trim()) {
+    emailDeliveryLog("error", { ...context, outcome: "skipped", reason: "invalid_content" });
+    return { sent: false, reason: "invalid_content" };
+  }
 
   try {
-    await fetch("https://api.resend.com/emails", {
+    const response = await fetch("https://api.resend.com/emails", {
       method:  "POST",
       headers: {
         "Content-Type":  "application/json",
         "Authorization": `Bearer ${env.RESEND_API_KEY}`,
       },
-      body:   JSON.stringify({ from, to, subject, text, html }),
+      body: JSON.stringify({ from, to, subject: safeSubject, text, html }),
       signal: AbortSignal.timeout(10_000),
     });
-  } catch {
-    // Email delivery errors must never affect scan completion or D1/R2 writes.
+    if (!response.ok) {
+      emailDeliveryLog("error", { ...context, outcome: "failed", reason: "provider_rejected", status: response.status });
+      return { sent: false, reason: "provider_rejected", status: response.status };
+    }
+    let providerId = null;
+    try { providerId = (await response.json())?.id || null; } catch { /* response ID is optional */ }
+    emailDeliveryLog("info", { ...context, outcome: "accepted", provider_id: providerId });
+    return { sent: true, provider_id: providerId };
+  } catch (error) {
+    emailDeliveryLog("error", {
+      ...context,
+      outcome: "failed",
+      reason: error?.name === "TimeoutError" ? "timeout" : "network_error",
+    });
+    return { sent: false, reason: error?.name === "TimeoutError" ? "timeout" : "network_error" };
   }
+}
+
+async function sendAlertEmail(subject, text, html, env, fromKey = "ALERT_EMAIL_FROM", toEmails = null) {
+  const to = Array.isArray(toEmails) && toEmails.length > 0
+    ? toEmails
+    : typeof toEmails === "string" && toEmails.trim()
+      ? [toEmails]
+      : [env.ALERT_EMAIL_TO];
+  return deliverEmail(subject, text, html, env, fromKey, to);
 }
 
 /**
  * sendCustomerEmail — strict variant for user-facing emails.
  * Unlike sendAlertEmail, this NEVER falls back to env.ALERT_EMAIL_TO.
- * If toEmails is empty or null, returns silently without sending.
+ * If toEmails is empty or invalid, returns a failed delivery result without sending.
  * Use this for: password reset, workspace alert notifications.
  */
 async function sendCustomerEmail(subject, text, html, env, fromKey = "ALERT_EMAIL_FROM", toEmails = null) {
-  if (!env.RESEND_API_KEY) return;
-  const to = Array.isArray(toEmails) ? toEmails.filter(Boolean) : [];
-  if (to.length === 0) return;           // no explicit recipient — do not fall back
-  const from = env[fromKey] || env.ALERT_EMAIL_FROM || "alerts@cybermeters.com";
-  try {
-    await fetch("https://api.resend.com/emails", {
-      method:  "POST",
-      headers: {
-        "Content-Type":  "application/json",
-        "Authorization": `Bearer ${env.RESEND_API_KEY}`,
-      },
-      body:   JSON.stringify({ from, to, subject, text, html }),
-      signal: AbortSignal.timeout(10_000),
-    });
-  } catch {
-    // Email delivery errors must never affect scan completion or D1/R2 writes.
-  }
+  const to = Array.isArray(toEmails) ? toEmails : [];
+  return deliverEmail(subject, text, html, env, fromKey, to);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -13310,7 +13657,16 @@ async function isAlertDuplicate(env, workspaceId, alertType, relatedEntity, chec
   }
 }
 
-function formatAlertEmail({ workspaceName, domain, subject, whatChanged, recommendation, link }) {
+function escapeEmailHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function formatAlertEmail({ workspaceName, domain, whatChanged, recommendation, link }) {
   const text = `CyberMeters Alert
 
 Workspace: ${workspaceName}
@@ -13323,7 +13679,7 @@ Recommended Next Action:
 ${recommendation}
 
 View Dashboard/Report:
-${link || "https://cybermeters.pages.dev"}
+${link || "Open CyberMeters to review this alert."}
 
 --
 CyberMeters — Attack Surface Management
@@ -13336,29 +13692,29 @@ This is an automated alert from your CyberMeters Platform.`;
   <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
     <tr>
       <td style="padding: 6px 0; font-weight: bold; width: 150px;">Workspace:</td>
-      <td>${workspaceName}</td>
+      <td>${escapeEmailHtml(workspaceName)}</td>
     </tr>
-    \${domain ? \`<tr>
+    ${domain ? `<tr>
       <td style="padding: 6px 0; font-weight: bold;">Affected Domain:</td>
-      <td>\${domain}</td>
-    </tr>\` : ''}
+      <td>${escapeEmailHtml(domain)}</td>
+    </tr>` : ''}
   </table>
   
   <div style="background: #F9FAFB; border-left: 4px solid #F59E0B; padding: 15px; margin-bottom: 20px;">
     <h4 style="margin: 0 0 8px 0; color: #374151;">What Changed:</h4>
-    <p style="margin: 0; color: #4B5563; white-space: pre-wrap;">\${whatChanged}</p>
+    <p style="margin: 0; color: #4B5563; white-space: pre-wrap;">${escapeEmailHtml(whatChanged)}</p>
   </div>
 
   <div style="margin-bottom: 25px;">
     <h4 style="margin: 0 0 8px 0; color: #374151;">Recommended Next Action:</h4>
-    <p style="margin: 0; color: #4B5563;">\${recommendation}</p>
+    <p style="margin: 0; color: #4B5563;">${escapeEmailHtml(recommendation)}</p>
   </div>
 
-  \${link ? \`<p style="margin-top: 20px;">
-    <a href="\${link}" style="background: #00876A; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: bold; display: inline-block;">
+  ${link ? `<p style="margin-top: 20px;">
+    <a href="${escapeEmailHtml(link)}" style="background: #00876A; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: bold; display: inline-block;">
       View Dashboard / Report
     </a>
-  </p>\` : ''}
+  </p>` : ''}
   
   <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 30px 0;" />
   <p style="font-size: 12px; color: #9CA3AF; margin: 0;">
@@ -13389,17 +13745,22 @@ async function processAlertsForWorkspace(workspaceId, domainId, domain, scanId, 
       
       let emailSentAt = null;
       if (recipients.length > 0) {
+        const frontendOrigin = getEmailFrontendOrigin(env);
         const { text, html } = formatAlertEmail({
           workspaceName,
           domain,
-          subject: title,
           whatChanged,
           recommendation,
-          link: `https://cybermeters.pages.dev/scans/\${scanId}`
+          link: frontendOrigin ? `${frontendOrigin}/scans/${encodeURIComponent(scanId)}` : null,
         });
-        
-        await sendCustomerEmail(title, text, html, env, fromKey, recipients);
-        emailSentAt = new Date().toISOString();
+
+        const delivery = await sendCustomerEmail(title, text, html, env, fromKey, recipients);
+        metadata.email_delivery = delivery.sent
+          ? { status: "accepted", provider_id: delivery.provider_id || null }
+          : { status: "failed", reason: delivery.reason };
+        if (delivery.sent) emailSentAt = new Date().toISOString();
+      } else {
+        metadata.email_delivery = { status: "skipped", reason: "no_recipients" };
       }
 
       await env.cybermeters_db
@@ -13423,10 +13784,10 @@ async function processAlertsForWorkspace(workspaceId, domainId, domain, scanId, 
         await triggerAlert({
           type: "score_drop",
           severity: "high",
-          title: `⚠ CyberMeters: \${domain} score dropped \${scoreDiff} points`,
-          message: `Security score dropped from \${hist.previous_score} to \${hist.current_score} (-\${scoreDiff} points).`,
+          title: `⚠ CyberMeters: ${domain} score dropped ${scoreDiff} points`,
+          message: `Security score dropped from ${hist.previous_score} to ${hist.current_score} (-${scoreDiff} points).`,
           relatedEntity: domain,
-          whatChanged: `The security score for \${domain} dropped by \${scoreDiff} points (\${hist.previous_score} → \${hist.current_score}).`,
+          whatChanged: `The security score for ${domain} dropped by ${scoreDiff} points (${hist.previous_score} → ${hist.current_score}).`,
           recommendation: "A drop of this magnitude indicates new critical or high-severity findings. Review the full report immediately to resolve these issues.",
           fromKey: "ALERT_EMAIL_FROM"
         });
@@ -13447,15 +13808,15 @@ async function processAlertsForWorkspace(workspaceId, domainId, domain, scanId, 
       if (nonDupNew.length > 0) {
         const count = nonDupNew.length;
         const highestSeverity = nonDupNew.some(f => f.severity === "critical") ? "critical" : "high";
-        const findingsListStr = nonDupNew.map(f => `• [\${f.severity.toUpperCase()}] \${f.title}`).join("\n");
+        const findingsListStr = nonDupNew.map(f => `• [${f.severity.toUpperCase()}] ${f.title}`).join("\n");
         
         await triggerAlert({
           type: "new_finding",
           severity: highestSeverity,
-          title: `🚨 CyberMeters: \${count} new finding\${count !== 1 ? "s" : ""} on \${domain}`,
-          message: `Detected \${count} new high/critical severity finding\${count !== 1 ? "s" : ""} requiring attention.`,
+          title: `🚨 CyberMeters: ${count} new finding${count !== 1 ? "s" : ""} on ${domain}`,
+          message: `Detected ${count} new high/critical severity finding${count !== 1 ? "s" : ""} requiring attention.`,
           relatedEntity: nonDupNew[0].id,
-          whatChanged: `New high/critical security findings were discovered:\n\${findingsListStr}`,
+          whatChanged: `New high/critical security findings were discovered:\n${findingsListStr}`,
           recommendation: "Review the recommended remediation actions in the report and apply patches or configuration fixes.",
           fromKey: "ALERT_EMAIL_FROM"
         });
@@ -13479,10 +13840,10 @@ async function processAlertsForWorkspace(workspaceId, domainId, domain, scanId, 
         await triggerAlert({
           type: "cert_expiry",
           severity: barColor,
-          title: `[\${urgency}] SSL certificate for \${domain} expires in \${ssl.cert_expiry_days} days`,
-          message: `SSL certificate expires on \${expiryDateStr} (\${ssl.cert_expiry_days} days remaining).`,
+          title: `[${urgency}] SSL certificate for ${domain} expires in ${ssl.cert_expiry_days} days`,
+          message: `SSL certificate expires on ${expiryDateStr} (${ssl.cert_expiry_days} days remaining).`,
           relatedEntity: domain,
-          whatChanged: `The SSL certificate for \${domain} is expiring in \${ssl.cert_expiry_days} days (Expiry: \${expiryDateStr}).`,
+          whatChanged: `The SSL certificate for ${domain} is expiring in ${ssl.cert_expiry_days} days (Expiry: ${expiryDateStr}).`,
           recommendation: "An expired SSL certificate will cause browsers to block visitors to your site. Renew the certificate immediately.",
           fromKey: ssl.cert_expiry_days <= 14 ? "ALERT_EMAIL_FROM" : "SAFE_EMAIL_FROM",
           threshold: currentThreshold
@@ -13512,14 +13873,14 @@ async function processAlertsForWorkspace(workspaceId, domainId, domain, scanId, 
       
       if (nonDupVendors.length > 0) {
         const count = nonDupVendors.length;
-        const vendorListStr = nonDupVendors.map(v => `• \${v.vendor_name} (\${v.category || "General"})`).join("\n");
+        const vendorListStr = nonDupVendors.map(v => `• ${v.vendor_name} (${v.category || "General"})`).join("\n");
         await triggerAlert({
           type: "new_vendor",
           severity: "info",
-          title: `🔍 CyberMeters: \${count} new vendor\${count !== 1 ? "s" : ""} discovered for \${domain}`,
-          message: `Discovered new active vendor\${count !== 1 ? "s" : ""}: \${nonDupVendors.map(v => v.vendor_name).join(", ")}.`,
+          title: `🔍 CyberMeters: ${count} new vendor${count !== 1 ? "s" : ""} discovered for ${domain}`,
+          message: `Discovered new active vendor${count !== 1 ? "s" : ""}: ${nonDupVendors.map(v => v.vendor_name).join(", ")}.`,
           relatedEntity: nonDupVendors[0].vendor_name,
-          whatChanged: `New active vendor(s) detected on your attack surface:\n\${vendorListStr}`,
+          whatChanged: `New active vendor(s) detected on your attack surface:\n${vendorListStr}`,
           recommendation: "Review the vendor's security posture and ensure their compliance with security policies.",
           fromKey: "ALERT_EMAIL_FROM"
         });
@@ -13551,10 +13912,10 @@ async function processAlertsForWorkspace(workspaceId, domainId, domain, scanId, 
         if (!isDuplicate) {
           let changeDesc = "";
           if (resDropped) {
-            changeDesc += `• Operational resilience score dropped from \${prev.resilience_score} to \${curr.resilience_score} (score drop: \${prev.resilience_score - curr.resilience_score} points)\n`;
+            changeDesc += `• Operational resilience score dropped from ${prev.resilience_score} to ${curr.resilience_score} (score drop: ${prev.resilience_score - curr.resilience_score} points)\n`;
           }
           if (conWorsened) {
-            changeDesc += `• Third-party concentration risk level worsened from "\${prev.concentration_level}" to "\${curr.concentration_level}"\n`;
+            changeDesc += `• Third-party concentration risk level worsened from "${prev.concentration_level}" to "${curr.concentration_level}"\n`;
           }
           
           await triggerAlert({
@@ -13564,7 +13925,7 @@ async function processAlertsForWorkspace(workspaceId, domainId, domain, scanId, 
             message: `Supply chain risk increase detected in workspace: ` +
               (resDropped ? `Resilience score dropped. ` : '') + (conWorsened ? `Concentration level worsened.` : ''),
             relatedEntity: "supply_chain",
-            whatChanged: `Workspace supply chain security indicators have worsened:\n\${changeDesc}`,
+            whatChanged: `Workspace supply chain security indicators have worsened:\n${changeDesc}`,
             recommendation: "Review your third-party vendor concentration and redundancy plans on the Supply Chain dashboard to mitigate systemic dependencies.",
             fromKey: "ALERT_EMAIL_FROM"
           });
@@ -17828,14 +18189,23 @@ async function handleStripeSubscriptionDeleted(env, subscription) {
       .first();
 
     if (subRow?.email) {
+      const frontendOrigin = getEmailFrontendOrigin(env);
+      const billingUrl = frontendOrigin ? `${frontendOrigin}/billing` : null;
+      const customerName = subRow.name || "there";
+      const nextStepText = billingUrl
+        ? `please visit your billing page at ${billingUrl}.`
+        : "please contact CyberMeters support.";
+      const nextStepHtml = billingUrl
+        ? `please visit your <a href="${escapeEmailHtml(billingUrl)}">billing page</a>.`
+        : "please contact CyberMeters support.";
       await sendCustomerEmail(
         "Your CyberMeters subscription has been cancelled",
-        `Hi ${subRow.name || "there"},\n\nYour CyberMeters subscription has been cancelled. You will remain on the free plan going forward.\n\nIf you believe this is an error or would like to resubscribe, please visit your billing page at https://app.cybermeters.io/billing.\n\nCyberMeters Team`,
-        `<p>Hi ${subRow.name || "there"},</p><p>Your CyberMeters subscription has been cancelled. You will remain on the free plan going forward.</p><p>If you believe this is an error or would like to resubscribe, please visit your <a href="https://app.cybermeters.io/billing">billing page</a>.</p><p>CyberMeters Team</p>`,
+        `Hi ${customerName},\n\nYour CyberMeters subscription has been cancelled. You will remain on the free plan going forward.\n\nIf you believe this is an error or would like to resubscribe, ${nextStepText}\n\nCyberMeters Team`,
+        `<p>Hi ${escapeEmailHtml(customerName)},</p><p>Your CyberMeters subscription has been cancelled. You will remain on the free plan going forward.</p><p>If you believe this is an error or would like to resubscribe, ${nextStepHtml}</p><p>CyberMeters Team</p>`,
         env,
         "ALERT_EMAIL_FROM",
         [subRow.email]
-      ).catch(e => console.error("[subscription_canceled] cancellation email failed:", e?.message ?? e));
+      );
     }
 
     if (subRow?.workspace_id) {
@@ -18549,6 +18919,7 @@ function buildCorsHeaders(env) {
     "Access-Control-Allow-Origin":  (env && env.ALLOWED_ORIGIN) || "https://app.cybermeters.com",
     "Access-Control-Allow-Methods": "GET, POST, PATCH, PUT, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Expose-Headers": "X-Request-ID",
   };
 }
 
@@ -18954,12 +19325,20 @@ export default {
   async fetch(request, env, ctx) {
     // Build CORS headers once per request, honouring the ALLOWED_ORIGIN binding.
     const corsHeaders = buildCorsHeaders(env);
+    const requestId = crypto.randomUUID();
     // Shadow the module-level json() so every route in this handler uses the
     // correct per-request origin without touching individual call sites.
-    const json = (data, status = 200) => Response.json(normalizeApiResponseData(data, status), { status, headers: buildJsonHeaders(corsHeaders) });
+    const json = (data, status = 200) => Response.json(normalizeApiResponseData(data, status), {
+      status,
+      headers: { ...buildJsonHeaders(corsHeaders), "X-Request-ID": requestId },
+    });
     const serverError = (scope, error, message = "Request failed. Please try again.") => {
-      console.error(`[${scope}] ${error?.message ?? error}`);
-      return json({ error: message }, 500);
+      console.error("[request-error]", JSON.stringify({
+        request_id: requestId,
+        scope,
+        error: String(error?.message ?? error),
+      }));
+      return json({ error: message, request_id: requestId }, 500);
     };
 
     const url = new URL(request.url);
@@ -18974,7 +19353,7 @@ export default {
 
     // ── OPTIONS preflight ───────────────────────────────────────────────
     if (request.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: corsHeaders });
+      return new Response(null, { status: 204, headers: { ...corsHeaders, "X-Request-ID": requestId } });
     }
 
     // ── GET /health ─────────────────────────────────────────────────────
@@ -19373,12 +19752,13 @@ export default {
         const workerBase     = url.origin;
         const verifyLink     = `${workerBase}/api/auth/verify-email?token=${verificationToken}`;
         const displayName    = name || email.split("@")[0];
-        await sendCustomerEmail(
+        const displayNameHtml = escapeEmailHtml(displayName);
+        const verificationDelivery = await sendCustomerEmail(
           "Verify your CyberMeters email address",
           `Hi ${displayName},\n\nPlease verify your email address by clicking the link below:\n\n${verifyLink}\n\nThis link expires in 24 hours.\n\nIf you did not create a CyberMeters account, you can safely ignore this email.\n\nThe CyberMeters Team`,
           `<!DOCTYPE html><html><body style="font-family:sans-serif;color:#1f2937;max-width:560px;margin:40px auto;padding:0 20px">
             <h2 style="color:#1d4ed8">Verify your email address</h2>
-            <p>Hi ${displayName},</p>
+            <p>Hi ${displayNameHtml},</p>
             <p>Thanks for signing up for CyberMeters. Please verify your email address to activate your account.</p>
             <p style="margin:32px 0">
               <a href="${verifyLink}" style="background:#1d4ed8;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Verify email address</a>
@@ -19388,17 +19768,22 @@ export default {
           env,
           "HELLO_EMAIL_FROM",
           [email]
-        ).catch((e) => {
-          console.error('[signup] verification email delivery failed', { email, error: e?.message });
-        });
+        );
 
         await createAuditEvent(env, {
           user_id:     userId,
-          event_type:  "USER_EMAIL_VERIFICATION_SENT",
+          event_type:  verificationDelivery.sent ? "USER_EMAIL_VERIFICATION_SENT" : "USER_EMAIL_VERIFICATION_DELIVERY_FAILED",
           entity_type: "user",
           entity_id:   userId,
-          description: `Verification email sent to ${email}`,
-          metadata:    { email },
+          description: verificationDelivery.sent
+            ? `Verification email sent to ${email}`
+            : `Verification email delivery failed for ${email}`,
+          metadata:    {
+            email,
+            delivery_status: verificationDelivery.sent ? "accepted" : "failed",
+            delivery_reason: verificationDelivery.reason || null,
+            provider_id: verificationDelivery.provider_id || null,
+          },
         }).catch(() => {});
 
         return json({ success: true, verification_required: true, email }, 201);
@@ -19623,33 +20008,51 @@ export default {
           .bind(tokenHash, token)
           .first();
 
-        if (!userRow) {
+        const tokenStatus = getEmailVerificationTokenStatus(userRow);
+        if (tokenStatus === "invalid") {
           dest.searchParams.set("error", "Invalid or already used verification link");
           return Response.redirect(dest.toString(), 302);
         }
 
-        if (userRow.email_verified) {
+        if (tokenStatus === "already_verified") {
           // Already verified — just redirect to success
           dest.searchParams.set("success", "1");
           return Response.redirect(dest.toString(), 302);
         }
 
-        if (userRow.verification_token_expires_at && new Date(userRow.verification_token_expires_at) < new Date()) {
+        if (tokenStatus === "expired") {
+          await createAuditEvent(env, {
+            user_id:     userRow.id,
+            event_type:  "USER_EMAIL_VERIFICATION_EXPIRED",
+            entity_type: "user",
+            entity_id:   userRow.id,
+            description: `Expired email verification attempted for ${userRow.email}`,
+            metadata:    { email: userRow.email },
+          }).catch(() => {});
           dest.searchParams.set("error", "Verification link has expired. Please request a new one.");
           return Response.redirect(dest.toString(), 302);
         }
 
-        await env.cybermeters_db
+        const verificationUpdate = await env.cybermeters_db
           .prepare(
             `UPDATE users
              SET email_verified = 1,
                  email_verified_at = datetime('now'),
                  verification_token = NULL,
                  verification_token_expires_at = NULL
-             WHERE id = ?`
+             WHERE id = ?
+               AND email_verified = 0
+               AND verification_token IN (?, ?)
+               AND verification_token_expires_at IS NOT NULL
+               AND unixepoch(verification_token_expires_at) > unixepoch('now')`
           )
-          .bind(userRow.id)
+          .bind(userRow.id, tokenHash, token)
           .run();
+
+        if ((verificationUpdate.meta?.changes ?? 0) !== 1) {
+          dest.searchParams.set("error", "Invalid or already used verification link");
+          return Response.redirect(dest.toString(), 302);
+        }
 
         await createAuditEvent(env, {
           user_id:     userRow.id,
@@ -19678,6 +20081,24 @@ export default {
       const email = (body.email || "").trim().toLowerCase();
       if (!isValidEmail(email)) return json({ success: true }); // silent — don't leak
 
+      const resendClientIp = request.headers.get("CF-Connecting-IP") ||
+                             request.headers.get("X-Forwarded-For")?.split(",")[0]?.trim() ||
+                             "unknown";
+      const resendRateLimit = await consumeApiRateLimit(
+        env,
+        [{ scope: "ip", scope_id: await rateLimitScopeId("resend_verification", resendClientIp) }],
+        "resend_verification",
+        5,
+        900,
+        { failClosed: true },
+      );
+      if (resendRateLimit) {
+        return json({
+          error: "Too many verification email requests. Please wait before trying again.",
+          code: resendRateLimit.body.code,
+        }, resendRateLimit.status);
+      }
+
       try {
         const userRow = await env.cybermeters_db
           .prepare(
@@ -19695,36 +20116,39 @@ export default {
         // 60-second resend cooldown: tokens are always issued with a 24-hour TTL.
         // If the existing expiry is still more than (24h - 60s) in the future, the
         // last token was issued less than 60 seconds ago — return success silently.
-        if (userRow.verification_token_expires_at) {
-          const expiresAt          = new Date(userRow.verification_token_expires_at).getTime();
-          const cooldownThreshold  = Date.now() + (24 * 60 * 60 * 1000) - (60 * 1000);
-          if (expiresAt > cooldownThreshold) {
-            return json({ success: true }); // rate limited — do not send
-          }
+        if (isEmailVerificationResendCoolingDown(userRow.verification_token_expires_at)) {
+          return json({ success: true }); // account cooldown — do not send
         }
 
         const { raw: newToken, hash: newTokenHash } = await generateEmailVerificationToken();
         const newExpires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+        const cooldownCutoff = new Date(Date.now() + (24 * 60 * 60 * 1000) - (60 * 1000)).toISOString();
 
-        await env.cybermeters_db
+        const tokenUpdate = await env.cybermeters_db
           .prepare(
             `UPDATE users
              SET verification_token = ?,
                  verification_token_expires_at = ?
-             WHERE id = ?`
+             WHERE id = ?
+               AND email_verified = 0
+               AND (verification_token_expires_at IS NULL
+                    OR unixepoch(verification_token_expires_at) <= unixepoch(?))`
           )
-          .bind(newTokenHash, newExpires, userRow.id)
+          .bind(newTokenHash, newExpires, userRow.id, cooldownCutoff)
           .run();
+
+        if ((tokenUpdate.meta?.changes ?? 0) !== 1) return json({ success: true });
 
         const workerBase  = url.origin;
         const verifyLink  = `${workerBase}/api/auth/verify-email?token=${newToken}`;
         const displayName = userRow.name || email.split("@")[0];
-        await sendCustomerEmail(
+        const displayNameHtml = escapeEmailHtml(displayName);
+        const verificationDelivery = await sendCustomerEmail(
           "Verify your CyberMeters email address",
           `Hi ${displayName},\n\nPlease verify your email address by clicking the link below:\n\n${verifyLink}\n\nThis link expires in 24 hours.\n\nIf you did not request this email, you can safely ignore it.\n\nThe CyberMeters Team`,
           `<!DOCTYPE html><html><body style="font-family:sans-serif;color:#1f2937;max-width:560px;margin:40px auto;padding:0 20px">
             <h2 style="color:#1d4ed8">Verify your email address</h2>
-            <p>Hi ${displayName},</p>
+            <p>Hi ${displayNameHtml},</p>
             <p>Click below to verify your CyberMeters email address and activate your account.</p>
             <p style="margin:32px 0">
               <a href="${verifyLink}" style="background:#1d4ed8;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Verify email address</a>
@@ -19734,17 +20158,22 @@ export default {
           env,
           "HELLO_EMAIL_FROM",
           [email]
-        ).catch((e) => {
-          console.error('[resend-verification] email delivery failed', { email, error: e?.message });
-        });
+        );
 
         await createAuditEvent(env, {
           user_id:     userRow.id,
-          event_type:  "USER_EMAIL_VERIFICATION_RESENT",
+          event_type:  verificationDelivery.sent ? "USER_EMAIL_VERIFICATION_RESENT" : "USER_EMAIL_VERIFICATION_DELIVERY_FAILED",
           entity_type: "user",
           entity_id:   userRow.id,
-          description: `Verification email resent to ${email}`,
-          metadata:    { email },
+          description: verificationDelivery.sent
+            ? `Verification email resent to ${email}`
+            : `Verification email delivery failed for ${email}`,
+          metadata:    {
+            email,
+            delivery_status: verificationDelivery.sent ? "accepted" : "failed",
+            delivery_reason: verificationDelivery.reason || null,
+            provider_id: verificationDelivery.provider_id || null,
+          },
         }).catch(() => {});
 
         return json({ success: true });
@@ -20213,9 +20642,10 @@ export default {
             .run();
 
           // Send email (non-fatal — token is in DB regardless)
-          const appUrl   = (env.APP_URL || "https://app.cybermeters.com").replace(/\/$/, "");
+          const appUrl   = getEmailFrontendOrigin(env) || "https://app.cybermeters.com";
           const resetUrl = `${appUrl}/reset-password?token=${resetToken}`;
           const name     = user.name || user.email;
+          const nameHtml = escapeEmailHtml(name);
           const subject  = "Reset your CyberMeters password";
           const text =
             `Hi ${name},\n\n` +
@@ -20226,7 +20656,7 @@ export default {
           const html = `<!DOCTYPE html><html lang="en"><body style="font-family:Arial,sans-serif;color:#111;max-width:560px;margin:40px auto;padding:0 20px">` +
             `<div style="margin-bottom:24px"><span style="font-weight:700;font-size:18px;color:#0a7c5c">CyberMeters</span></div>` +
             `<h2 style="font-size:20px;margin-bottom:8px">Reset your password</h2>` +
-            `<p style="color:#555;margin-bottom:24px">Hi ${name},<br><br>` +
+            `<p style="color:#555;margin-bottom:24px">Hi ${nameHtml},<br><br>` +
             `You requested a password reset. Click the button below to set a new password.<br>` +
             `This link expires in <strong>1 hour</strong>.</p>` +
             `<a href="${resetUrl}" style="display:inline-block;background:#0a7c5c;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px">Reset password</a>` +
@@ -20234,7 +20664,7 @@ export default {
             `<p style="margin-top:40px;font-size:12px;color:#bbb">If you didn't request this, ignore this email — your account is safe.</p>` +
             `</body></html>`;
 
-          await sendCustomerEmail(subject, text, html, env, "HELLO_EMAIL_FROM", [user.email]);
+          const resetDelivery = await sendCustomerEmail(subject, text, html, env, "HELLO_EMAIL_FROM", [user.email]);
 
           await createAuditEvent(env, {
             user_id:     user.id,
@@ -20242,7 +20672,13 @@ export default {
             entity_type: "user",
             entity_id:   user.id,
             description: `Password reset requested for ${email}`,
-            metadata:    { email, token_id: tokenId },
+            metadata:    {
+              email,
+              token_id: tokenId,
+              delivery_status: resetDelivery.sent ? "accepted" : "failed",
+              delivery_reason: resetDelivery.reason || null,
+              provider_id: resetDelivery.provider_id || null,
+            },
           }).catch(() => {});
         }
 
@@ -22352,6 +22788,50 @@ export default {
       return json({ scans: result.results, ...(wsFilter ? { workspace_id: wsFilter } : {}) });
     }
 
+    // ── GET /api/scans/:id/executive-report-v2 ─────────────────────────
+    // Additive Executive Intelligence contract built from the stored scan report.
+    // V1 report storage and response behavior remain unchanged.
+    if (
+      request.method === "GET" &&
+      /^\/api\/scans\/[^/]+\/executive-report-v2$/.test(url.pathname)
+    ) {
+      const scanId = url.pathname.split("/")[3];
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+
+      const access = await requireScanReadAccess(user, scanId, env);
+      if (!access) return json({ error: "Forbidden" }, 403);
+
+      try {
+        const scan = await env.cybermeters_db
+          .prepare(
+            `SELECT id, domain_id, domain, status, score, rating, created_at
+             FROM scans WHERE id = ? LIMIT 1`
+          )
+          .bind(scanId)
+          .first();
+        if (!scan) return json({ error: "Scan not found" }, 404);
+        if (scan.status !== "completed") {
+          return json({ error: "Executive report is available only for completed scans" }, 409);
+        }
+
+        const reportObject = await env.cybermeters_reports.get(`reports/${scanId}.json`);
+        if (!reportObject) return json({ error: "Report not found" }, 404);
+        const rawReport = await reportObject.json();
+
+        const workspace = access.workspace_id
+          ? await env.cybermeters_db
+              .prepare("SELECT id, name FROM workspaces WHERE id = ? LIMIT 1")
+              .bind(access.workspace_id)
+              .first()
+          : null;
+
+        return json(buildExecutiveReportV2({ scan, rawReport, workspace }));
+      } catch (error) {
+        return serverError("executive-report-v2", error, "Executive report could not be generated.");
+      }
+    }
+
     // ── GET /api/scans/:id/report ───────────────────────────────────────
     // Must be checked BEFORE the generic /api/scans/:id route below.
     if (
@@ -22564,6 +23044,7 @@ export default {
       const workspaceIds = await getAccessibleWorkspaceIds(user, env);
       if (workspaceIds.length === 0) return json({ error: "Forbidden" }, 403);
       const placeholders = workspaceIds.map(() => "?").join(",");
+      const limit = parseBoundedInteger(url.searchParams.get("limit"), 100, 1, 500);
 
       const history = await env.cybermeters_db
         .prepare(
@@ -22571,9 +23052,10 @@ export default {
            FROM scans s
            JOIN workspace_domains wd ON wd.domain_id = s.domain_id
            WHERE s.domain = ? AND wd.workspace_id IN (${placeholders})
-           ORDER BY s.created_at DESC`
+           ORDER BY s.created_at DESC
+           LIMIT ?`
         )
-        .bind(domain, ...workspaceIds)
+        .bind(domain, ...workspaceIds, limit)
         .all();
 
       return json({ domain, scans: history.results });
@@ -22684,6 +23166,7 @@ export default {
       const workspaceIds = await getAccessibleWorkspaceIds(user, env);
       if (workspaceIds.length === 0) return json({ schedules: [] });
       const placeholders = workspaceIds.map(() => "?").join(",");
+      const limit = parseBoundedInteger(url.searchParams.get("limit"), 100, 1, 500);
 
       // Return empty list if table doesn't exist yet
       try {
@@ -22694,9 +23177,10 @@ export default {
                     last_run_at, next_run_at, created_at
              FROM scheduled_scans
              WHERE workspace_id IN (${placeholders})
-             ORDER BY created_at DESC`
+             ORDER BY created_at DESC
+             LIMIT ?`
           )
-          .bind(...workspaceIds)
+          .bind(...workspaceIds, limit)
           .all();
         return json({ schedules: result.results });
       } catch {
@@ -29097,9 +29581,10 @@ export default {
 	          .prepare(
 	            `SELECT id, workspace_id, created_by, frequency, enabled, email_recipients,
 	                    last_run_at, next_run_at, created_at, updated_at
-	             FROM report_schedules
-	             WHERE workspace_id = ?
-	             ORDER BY created_at DESC`
+		             FROM report_schedules
+		             WHERE workspace_id = ?
+		             ORDER BY created_at DESC
+		             LIMIT 100`
 	          )
 	          .bind(wsId)
 	          .all();
@@ -29888,7 +30373,9 @@ export default {
           `SELECT id, domain, frequency, workspace_id
            FROM scheduled_scans
            WHERE enabled = 1
-             AND (next_run_at IS NULL OR next_run_at <= ?)`
+             AND (next_run_at IS NULL OR next_run_at <= ?)
+           ORDER BY next_run_at ASC
+           LIMIT 20`
         )
         .bind(now)
         .all();

@@ -9,7 +9,7 @@ const repoRoot = path.resolve(__dirname, "..");
 const fixturePath = path.join(repoRoot, "docs", "regression-fixtures.json");
 const workerPath = path.join(repoRoot, "workers", "scan-api", "src", "index.js");
 
-function loadScanner() {
+function loadScanner(fetchImpl = async () => { throw new Error("network disabled in regression runner"); }) {
   const source = fs.readFileSync(workerPath, "utf8")
     .replace(/\bexport\s+default\b/, "const __workerDefault =");
   const context = {
@@ -19,7 +19,7 @@ function loadScanner() {
       getRandomValues: (arr) => arr.fill(0),
       subtle: {},
     },
-    fetch: async () => { throw new Error("network disabled in regression runner"); },
+    fetch: fetchImpl,
     AbortSignal: { timeout: () => undefined },
     TextEncoder,
     TextDecoder,
@@ -42,6 +42,17 @@ function loadScanner() {
     normalizeApiResponseData,
     validateMicrosoftIdTokenClaims,
     hasWorkspacePermission,
+    getEmailVerificationTokenStatus,
+    isEmailVerificationResendCoolingDown,
+    normalizeEmailRecipients,
+    resolveEmailSender,
+    getEmailFrontendOrigin,
+    formatAlertEmail,
+    buildAssetAlertEmail,
+    deliverEmail,
+    buildExecutiveReportV2,
+    INTELLIGENCE_ENGINE_REGISTRY,
+    resolveIntelligenceEngine,
     computeBusinessRiskScoreFromIds: (ids, data) => computeBusinessRiskScore(new Set(ids), data),
   };`, context, {
     filename: workerPath,
@@ -263,6 +274,15 @@ function securityContract(scenario, check) {
   }
 }
 
+async function asyncSecurityContract(scenario, check) {
+  try {
+    const passed = await check();
+    return { scenario, passed, failures: passed ? [] : ["security contract returned false"], findings: [] };
+  } catch (error) {
+    return { scenario, passed: false, failures: [error.message], findings: [] };
+  }
+}
+
 function rejects(check) {
   try { check(); return false; } catch { return true; }
 }
@@ -329,6 +349,251 @@ results.push(
     )) && rejects(() => scanner.validateMicrosoftIdTokenClaims(
       { alg: "RS256", kid: "key-id" }, validMicrosoftClaims, "client-id", "tenant-id", "wrong-nonce", 1000
     ))
+  ),
+  securityContract("email_verification_new_account_token_valid", () =>
+    scanner.getEmailVerificationTokenStatus({
+      email_verified: 0,
+      verification_token_expires_at: "2026-06-28T12:00:00.000Z",
+    }, Date.parse("2026-06-27T12:00:00.000Z")) === "valid"
+  ),
+  securityContract("email_verification_invalid_token", () =>
+    scanner.getEmailVerificationTokenStatus(null, Date.parse("2026-06-27T12:00:00.000Z")) === "invalid"
+  ),
+  securityContract("email_verification_expired_token", () =>
+    scanner.getEmailVerificationTokenStatus({
+      email_verified: 0,
+      verification_token_expires_at: "2026-06-27T11:59:59.000Z",
+    }, Date.parse("2026-06-27T12:00:00.000Z")) === "expired" &&
+    scanner.getEmailVerificationTokenStatus({
+      email_verified: 0,
+      verification_token_expires_at: null,
+    }, Date.parse("2026-06-27T12:00:00.000Z")) === "expired"
+  ),
+  securityContract("email_verification_already_verified_account", () =>
+    scanner.getEmailVerificationTokenStatus({
+      email_verified: 1,
+      verification_token_expires_at: null,
+    }, Date.parse("2026-06-27T12:00:00.000Z")) === "already_verified"
+  ),
+  securityContract("email_verification_resend_cooldown", () => {
+    const now = Date.parse("2026-06-27T12:00:00.000Z");
+    return scanner.isEmailVerificationResendCoolingDown("2026-06-28T11:59:30.000Z", now) &&
+      !scanner.isEmailVerificationResendCoolingDown("2026-06-28T11:58:59.000Z", now) &&
+      !scanner.isEmailVerificationResendCoolingDown(null, now);
+  }),
+  securityContract("email_delivery_sender_identity", () =>
+    scanner.resolveEmailSender({ HELLO_EMAIL_FROM: "hello@cybermeters.com" }, "HELLO_EMAIL_FROM") === "hello@cybermeters.com" &&
+    scanner.resolveEmailSender({ HELLO_EMAIL_FROM: "invalid" }, "HELLO_EMAIL_FROM") === null &&
+    scanner.resolveEmailSender({ UNKNOWN_FROM: "sender@cybermeters.com" }, "UNKNOWN_FROM") === null
+  ),
+  securityContract("email_delivery_recipient_normalization", () => {
+    const recipients = scanner.normalizeEmailRecipients([
+      " Owner@Example.com ", "owner@example.com", "invalid", "admin@example.com",
+    ]);
+    return recipients.length === 2 && recipients[0] === "owner@example.com" && recipients[1] === "admin@example.com";
+  }),
+  securityContract("email_delivery_frontend_origin", () =>
+    scanner.getEmailFrontendOrigin({ FRONTEND_URL: "https://app.cybermeters.com/path" }) === "https://app.cybermeters.com" &&
+    scanner.getEmailFrontendOrigin({ FRONTEND_URL: "http://app.cybermeters.com" }) === null &&
+    scanner.getEmailFrontendOrigin({ FRONTEND_URL: "not-a-url" }) === null
+  ),
+  securityContract("email_alert_template_rendering", () => {
+    const rendered = scanner.formatAlertEmail({
+      workspaceName: "<Workspace>",
+      domain: "example.com",
+      whatChanged: "Finding <script>",
+      recommendation: "Review & fix",
+      link: "https://app.cybermeters.com/scans/scan_1",
+    });
+    return rendered.text.includes("example.com") &&
+      rendered.html.includes("&lt;Workspace&gt;") &&
+      rendered.html.includes("Finding &lt;script&gt;") &&
+      rendered.html.includes("Review &amp; fix") &&
+      rendered.html.includes("https://app.cybermeters.com/scans/scan_1") &&
+      !rendered.html.includes("${domain}");
+  }),
+  securityContract("email_scheduled_asset_alert_rendering", () => {
+    const rendered = scanner.buildAssetAlertEmail(
+      "example.com",
+      "workspace_1",
+      "scan_1",
+      { new_asset_discovered: 1 },
+      ["<admin>.example.com"],
+      "high",
+      "https://app.cybermeters.com/assets",
+    );
+    return rendered.subject.includes("example.com") &&
+      rendered.text.includes("https://app.cybermeters.com/assets") &&
+      rendered.html.includes("&lt;admin&gt;.example.com") &&
+      !rendered.html.includes("cybermeters.pages.dev");
+  }),
+);
+
+const acceptedRequests = [];
+const acceptedEmailScanner = loadScanner(async (requestUrl, options) => {
+  acceptedRequests.push({ requestUrl, options });
+  return { ok: true, status: 200, json: async () => ({ id: "email_test_1" }) };
+});
+results.push(await asyncSecurityContract("email_delivery_provider_acceptance", async () => {
+  const delivery = await acceptedEmailScanner.deliverEmail(
+    "Security alert\r\nInjected",
+    "Plain text body",
+    "<p>HTML body</p>",
+    { RESEND_API_KEY: "test-key", ALERT_EMAIL_FROM: "alerts@cybermeters.com" },
+    "ALERT_EMAIL_FROM",
+    ["owner@example.com"],
+  );
+  const payload = JSON.parse(acceptedRequests[0]?.options?.body || "{}");
+  return delivery.sent === true && delivery.provider_id === "email_test_1" &&
+    acceptedRequests[0]?.requestUrl === "https://api.resend.com/emails" &&
+    payload.subject === "Security alert Injected" &&
+    payload.from === "alerts@cybermeters.com" &&
+    payload.to?.[0] === "owner@example.com";
+}));
+
+const rejectedEmailScanner = loadScanner(async () => ({ ok: false, status: 429, json: async () => ({}) }));
+results.push(await asyncSecurityContract("email_delivery_provider_rejection", async () => {
+  const delivery = await rejectedEmailScanner.deliverEmail(
+    "Security alert",
+    "Plain text body",
+    "<p>HTML body</p>",
+    { RESEND_API_KEY: "test-key", ALERT_EMAIL_FROM: "alerts@cybermeters.com" },
+    "ALERT_EMAIL_FROM",
+    ["owner@example.com"],
+  );
+  return delivery.sent === false && delivery.reason === "provider_rejected" && delivery.status === 429;
+}));
+
+const executiveV2Fixture = scanner.buildExecutiveReportV2({
+  scan: {
+    id: "scan_contract_1",
+    domain_id: "domain_contract_1",
+    domain: "example.com",
+    status: "completed",
+    score: 77,
+    rating: "good",
+    created_at: "2026-06-27T10:00:00.000Z",
+  },
+  workspace: { id: "workspace_contract_1", name: "Contract Workspace" },
+  generatedAt: "2026-06-27T12:00:00.000Z",
+  rawReport: {
+    cyber_metrics_score: 5,
+    completed_at: "2026-06-27T10:01:00.000Z",
+    findings: [
+      {
+        id: "dns_no_resolution",
+        module: "dns",
+        finding_type: "finding",
+        severity: "critical",
+        confidence: 90,
+        score_impact: -30,
+        title: "Domain Does Not Resolve",
+        description: "No DNS response was observed.",
+        recommendation: "Restore DNS resolution.",
+      },
+      {
+        id: "email_dkim_not_detected",
+        module: "email_security",
+        finding_type: "observation",
+        severity: "info",
+        confidence: 60,
+        score_impact: 0,
+        title: "DKIM Could Not Be Verified Using Common Selectors",
+        description: "A custom selector may exist.",
+      },
+    ],
+    recommendations: [
+      { priority: 1, module: "dns", title: "Fix DNS Configuration", description: "Restore DNS records." },
+      { priority: 3, module: "email_security", title: "Verify DKIM Selector", description: "Review custom selectors." },
+    ],
+    modules: {
+      dns: { resolves: false, has_mx: true, mx: [{ exchange: "mx.example.com" }] },
+      ssl: { https_available: false },
+      headers: { accessible: false },
+      email_security: {
+        spf: { present: true },
+        dkim: { present: false, provider: "google" },
+        dmarc: { present: true, policy: "reject" },
+      },
+      email_security_intelligence: {
+        mta_sts: { enabled: false },
+        tls_rpt: { enabled: true },
+        email_security_score: 75,
+        rating: "Good",
+      },
+      historical_changes: { has_previous: false },
+      remediation_plan: {
+        p1_immediate: [{ title: "Domain Does Not Resolve", action: "Restore DNS resolution.", source: "dns" }],
+        p2_high: [],
+        p3_medium_low: [{ title: "DKIM Could Not Be Verified Using Common Selectors", source: "email_security" }],
+      },
+      vendor_risk: { vendors: [{ name: "Example Vendor" }] },
+    },
+  },
+});
+
+results.push(
+  securityContract("intelligence_engine_registry_contains_all_engines", () =>
+    ["attack_surface", "business_email", "identity", "brand", "executive"]
+      .every((engine) => scanner.INTELLIGENCE_ENGINE_REGISTRY[engine]) &&
+    Object.keys(scanner.INTELLIGENCE_ENGINE_REGISTRY).length === 5
+  ),
+  securityContract("intelligence_engine_registry_dns", () =>
+    scanner.resolveIntelligenceEngine({ module: "dns", id: "dns_no_resolution" }) === "attack_surface"
+  ),
+  securityContract("intelligence_engine_registry_email", () =>
+    scanner.resolveIntelligenceEngine({ module: "email_security", id: "email_missing_dmarc" }) === "business_email"
+  ),
+  securityContract("intelligence_engine_registry_identity", () =>
+    scanner.resolveIntelligenceEngine({ module: "identity_discovery", id: "identity_provider_observed" }) === "identity"
+  ),
+  securityContract("intelligence_engine_registry_brand", () =>
+    scanner.resolveIntelligenceEngine({ module: "brand_monitoring", id: "brand_lookalike_detected" }) === "brand"
+  ),
+  securityContract("intelligence_engine_registry_unknown_default", () =>
+    scanner.resolveIntelligenceEngine({ module: "future_detector", id: "future_signal" }) === "attack_surface"
+  ),
+  securityContract("executive_report_v2_contract_shape", () =>
+    executiveV2Fixture.version === "2.0" &&
+    executiveV2Fixture.report_type === "executive" &&
+    executiveV2Fixture.workspace.id === "workspace_contract_1" &&
+    executiveV2Fixture.domain.scan_id === "scan_contract_1" &&
+    executiveV2Fixture.cyber_metrics_score.value === 77 &&
+    executiveV2Fixture.generated_at === "2026-06-27T12:00:00.000Z"
+  ),
+  securityContract("executive_report_v2_intelligence_engines", () =>
+    ["attack_surface", "business_email", "identity", "brand", "executive"]
+      .every((key) => executiveV2Fixture.intelligence_engines[key])
+  ),
+  securityContract("executive_report_v2_attack_surface", () =>
+    executiveV2Fixture.intelligence_engines.attack_surface.evidence.dns.resolves === false &&
+    executiveV2Fixture.intelligence_engines.attack_surface.evidence.ssl_tls.https_available === false &&
+    executiveV2Fixture.intelligence_engines.attack_surface.findings[0].id === "dns_no_resolution"
+  ),
+  securityContract("executive_report_v2_business_email", () =>
+    executiveV2Fixture.intelligence_engines.business_email.evidence.spf.present === true &&
+    executiveV2Fixture.intelligence_engines.business_email.evidence.dmarc.policy === "reject" &&
+    executiveV2Fixture.intelligence_engines.business_email.evidence.provider_detection === "google"
+  ),
+  securityContract("executive_report_v2_identity_fallback", () => {
+    const identity = executiveV2Fixture.intelligence_engines.identity;
+    return identity.status === "not_available" &&
+      identity.summary === "Identity Intelligence is not enabled for this workspace yet." &&
+      identity.findings.length === 0 && identity.observations.length === 0;
+  }),
+  securityContract("executive_report_v2_findings_observations_separated", () =>
+    executiveV2Fixture.verified_findings.length === 1 &&
+    executiveV2Fixture.verified_findings[0].id === "dns_no_resolution" &&
+    executiveV2Fixture.observations.length === 1 &&
+    executiveV2Fixture.observations[0].id === "email_dkim_not_detected" &&
+    executiveV2Fixture.prioritized_remediation.every((item) => !item.title.includes("DKIM")) &&
+    executiveV2Fixture.intelligence_engines.business_email.recommendations.length === 0
+  ),
+  securityContract("executive_report_v2_legacy_sections_not_top_level", () =>
+    !("vendor_risk" in executiveV2Fixture) &&
+    !("supply_chain" in executiveV2Fixture) &&
+    !("cyber_essentials" in executiveV2Fixture) &&
+    executiveV2Fixture.supporting_evidence.legacy_vendor_context.vendors.length === 1
   ),
 );
 
