@@ -329,16 +329,19 @@ export default function Layout() {
       <UpgradePromptModal />
 
       {/* Top nav */}
-      <header className="bg-white border-b border-gray-100 sticky top-0 z-50">
-        <div className="max-w-screen-xl mx-auto px-6 h-16 flex items-center gap-6">
+      <header className="bg-white/95 backdrop-blur-sm border-b border-gray-200 shadow-header sticky top-0 z-50">
+        <div className="max-w-screen-xl mx-auto px-6 h-[68px] flex items-center gap-4">
 
           {/* Logo */}
           <button
             onClick={() => navigate('/dashboard')}
-            className="flex-shrink-0 group mr-2"
+            className="flex-shrink-0 group"
           >
-            <CyberMetersLogo size={36} showWordmark animated />
+            <CyberMetersLogo size={34} showWordmark animated />
           </button>
+
+          {/* Divider separating brand from navigation — a small commercial-app cue */}
+          <div className="hidden md:block h-7 w-px bg-gray-200 mx-1 flex-shrink-0" />
 
           {/* Nav */}
           <nav className="flex items-center gap-1.5 lg:gap-2.5">

@@ -97,22 +97,24 @@ export default function OnboardingProgress({ hasWorkspace, hasDomain, hasComplet
   }
 
   return (
-    <div className="card p-5 border-brand-100 bg-gradient-to-br from-brand-50/60 to-white">
+    <div className="card p-5">
       {/* Header row */}
       <div className="flex items-start justify-between gap-4 mb-4">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex items-center gap-2.5 mb-1">
+            <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${allDone ? 'bg-brand-600' : 'bg-gray-900'}`}>
+              {allDone ? <CheckCircle className="w-4 h-4 text-white" /> : <span className="text-xs font-bold text-white">{doneCount + 1}</span>}
+            </div>
             <p className="text-sm font-bold text-gray-900">
-              {allDone ? 'Setup complete!' : 'Getting started with CyberMeters'}
+              {allDone ? 'Setup complete' : 'Getting started with CyberMeters'}
             </p>
             {allDone && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-brand-100 text-brand-700 uppercase tracking-wide">
-                <CheckCircle className="w-3 h-3" />
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-brand-50 text-brand-700 uppercase tracking-wide border border-brand-100">
                 Done
               </span>
             )}
           </div>
-          <p className="text-xs text-gray-400">
+          <p className="text-xs text-gray-500 pl-[38px]">
             {allDone
               ? 'You\'ve completed the onboarding steps. Your first scan results are ready.'
               : `Step ${doneCount + 1} of ${steps.length} — ${activeStep?.label}`}
@@ -121,16 +123,16 @@ export default function OnboardingProgress({ hasWorkspace, hasDomain, hasComplet
         <button
           onClick={dismiss}
           title="Dismiss"
-          className="w-7 h-7 rounded-lg flex items-center justify-center text-gray-300 hover:text-gray-600 hover:bg-gray-100 transition-colors flex-shrink-0"
+          className="w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors flex-shrink-0"
         >
           <X className="w-4 h-4" />
         </button>
       </div>
 
       {/* Progress bar */}
-      <div className="h-1.5 bg-gray-100 rounded-full mb-4 overflow-hidden">
+      <div className="h-1.5 bg-gray-200 rounded-full mb-4 overflow-hidden">
         <div
-          className="h-full bg-brand-500 rounded-full transition-all duration-500"
+          className="h-full bg-brand-600 rounded-full transition-all duration-500"
           style={{ width: `${progressPct}%` }}
         />
       </div>
@@ -153,12 +155,12 @@ export default function OnboardingProgress({ hasWorkspace, hasDomain, hasComplet
               <div className="flex items-center gap-2">
                 <StepDot done={step.done} active={isActive} number={step.number} />
                 <span className={`text-xs font-semibold leading-tight ${
-                  step.done ? 'text-brand-700' : isActive ? 'text-gray-900' : 'text-gray-400'
+                  step.done ? 'text-brand-700' : isActive ? 'text-gray-900' : 'text-gray-500'
                 }`}>
                   {step.label}
                 </span>
               </div>
-              <p className="text-[11px] text-gray-400 leading-relaxed pl-9">
+              <p className="text-[11px] text-gray-500 leading-relaxed pl-9">
                 {step.done ? '✓ Complete' : step.detail}
               </p>
               {isActive && !step.done && (

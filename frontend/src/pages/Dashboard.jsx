@@ -565,17 +565,18 @@ export default function Dashboard() {
     <div className="max-w-screen-xl mx-auto px-6 py-8 space-y-8">
 
       {/* Header */}
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Security Overview</h1>
-          <p className="text-sm text-gray-400 mt-0.5">
+          <div className="flex items-center gap-2 mb-2">
             {activeWorkspaceName && (
-              <span className="inline-flex items-center gap-1 mr-2">
-                <Briefcase className="w-3 h-3" />
-                <span className="font-medium text-gray-500">{activeWorkspaceName}</span>
-                <span className="text-gray-300">·</span>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white border border-gray-200 shadow-card text-xs font-semibold text-gray-700">
+                <Briefcase className="w-3.5 h-3.5 text-brand-600" />
+                {activeWorkspaceName}
               </span>
             )}
+          </div>
+          <h1 className="page-title">Security Overview</h1>
+          <p className="text-sm text-gray-500 mt-2">
             {latestScan
               ? `Last assessment: ${latestScan.domain} · ${relativeTime(latestScan.created_at)}`
               : 'No scans in this workspace yet'}
@@ -632,54 +633,70 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* ── 1. Cyber Metrics Score ── */}
+      {/* ── 1. Cyber Metrics Score — focused hero ── */}
       <div className="card-md overflow-hidden">
-        <div className="flex flex-col lg:flex-row">
+        <div className="flex flex-col lg:flex-row lg:items-center gap-8 px-8 py-8">
           {/* Score ring */}
-          <div className="flex flex-col items-center justify-center gap-4 px-10 py-10 lg:border-r border-gray-100 lg:min-w-[280px]">
-            <span className="label">Cyber Metrics Score</span>
+          <div className="flex flex-col items-center gap-3 lg:min-w-[240px]">
+            <span className="eyebrow">Cyber Metrics Score</span>
             <ScoreRing score={ins.score} riskLevel={ins.riskLevel} />
-            <p className="text-center text-gray-400 text-xs leading-relaxed max-w-[200px]">
-              {ins.score === null
-                ? 'Run your first scan to generate your score.'
-                : ins.score >= 75
-                  ? 'Your external attack surface is well protected.'
-                  : ins.score >= 50
-                    ? `Moderate exposure. ${ins.findings.length} issue${ins.findings.length !== 1 ? 's' : ''} require attention.`
-                    : 'Critical exposures detected — immediate action required.'}
-            </p>
-            {report && (
-              <Link
-                to={`/scans/${report.scan_id}`}
-                className="text-xs text-brand-600 hover:text-brand-700 font-semibold flex items-center gap-1"
-              >
-                View Executive Report <ChevronRight className="w-3 h-3" />
-              </Link>
-            )}
           </div>
 
-          {/* Stats grid — real counts */}
-          <div className="flex-1 grid grid-cols-2 divide-x divide-y divide-gray-100">
-            {[
-              { label: 'Total Scans',     value: scans.length,         sub: 'all time'          },
-              { label: 'Completed',       value: ins.completed.length, sub: 'successful'         },
-              { label: 'Active Scans',    value: ins.active,           sub: 'currently running'  },
-              { label: 'Domains Tracked', value: ins.domains.length,   sub: 'unique domains'     },
-            ].map(({ label, value, sub }) => (
-              <div key={label} className="flex flex-col justify-center px-8 py-7">
-                <span className="text-4xl font-bold text-gray-900">{value}</span>
-                <span className="text-sm font-semibold text-gray-700 mt-1">{label}</span>
-                <span className="text-xs text-gray-400 mt-0.5">{sub}</span>
-              </div>
-            ))}
+          {/* Posture statement + actions */}
+          <div className="flex-1 lg:border-l border-gray-200 lg:pl-8">
+            <p className="text-[15px] text-gray-700 leading-relaxed max-w-lg">
+              {ins.score === null
+                ? 'Run your first scan to generate your Cyber Metrics Score and reveal your external security posture.'
+                : ins.score >= 75
+                  ? 'Your external attack surface is well protected. Keep monitoring to catch new exposure as it appears.'
+                  : ins.score >= 50
+                    ? `Moderate exposure detected. ${ins.findings.length} issue${ins.findings.length !== 1 ? 's' : ''} require attention to strengthen your posture.`
+                    : 'Critical exposures detected. Prioritise the findings below — immediate action is recommended.'}
+            </p>
+            <div className="mt-6 flex flex-wrap items-center gap-3">
+              {report ? (
+                <Link to={`/scans/${report.scan_id}`} className="btn-primary">
+                  View Executive Report <ChevronRight className="w-4 h-4" />
+                </Link>
+              ) : (
+                <Link to="/scans/new" className="btn-primary">
+                  <ScanLine className="w-4 h-4" /> Run your first scan
+                </Link>
+              )}
+              <Link to="/scans" className="btn-secondary">View all scans</Link>
+            </div>
           </div>
         </div>
       </div>
 
+      {/* ── KPI tiles ── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {[
+          { label: 'Total Scans',     value: scans.length,         sub: 'all time',         icon: ScanLine,    tint: 'bg-brand-50 text-brand-600'   },
+          { label: 'Completed',       value: ins.completed.length, sub: 'successful',       icon: CheckCircle, tint: 'bg-brand-50 text-brand-600'   },
+          { label: 'Active Scans',    value: ins.active,           sub: 'currently running', icon: Wifi,       tint: 'bg-blue-50 text-blue-600'     },
+          { label: 'Domains Tracked', value: ins.domains.length,   sub: 'unique domains',   icon: Globe,       tint: 'bg-gray-100 text-gray-500'    },
+        ].map(({ label, value, sub, icon: Icon, tint }) => (
+          <div key={label} className="stat-tile">
+            <div className="flex items-start justify-between">
+              <span className="metric-value">{value}</span>
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${tint}`}>
+                <Icon className="w-4 h-4" />
+              </div>
+            </div>
+            <span className="metric-label">{label}</span>
+            <span className="metric-sub">{sub}</span>
+          </div>
+        ))}
+      </div>
+
       {/* ── 2. Exposure Overview ── */}
       <section>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold text-gray-900">Exposure Overview</h2>
+        <div className="section-head">
+          <div>
+            <span className="eyebrow">Risk at a glance</span>
+            <h2 className="section-title mt-1.5">Exposure Overview</h2>
+          </div>
           <Link to="/scans" className="btn-ghost text-xs">View all <ChevronRight className="w-3.5 h-3.5" /></Link>
         </div>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -779,7 +796,12 @@ export default function Dashboard() {
       {/* ── 6. Recommended Actions ── */}
       {ins.actions.length > 0 && (
         <section>
-          <h2 className="text-lg font-bold text-gray-900 mb-4">Recommended Actions</h2>
+          <div className="section-head">
+            <div>
+              <span className="eyebrow">Next steps</span>
+              <h2 className="section-title mt-1.5">Recommended Actions</h2>
+            </div>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {ins.actions.slice(0, 3).map((action, i) => (
               <div key={action.id} className="card p-5 flex flex-col gap-4 hover:shadow-card-md transition-shadow">

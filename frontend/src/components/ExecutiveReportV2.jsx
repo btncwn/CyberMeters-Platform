@@ -325,30 +325,35 @@ export default function ExecutiveReportV2({ report }) {
 
       {/* Executive Summary hero */}
       <section className="card-md overflow-hidden">
-        <div className="px-6 pt-5 pb-2 flex items-center gap-2 border-b border-gray-50">
-          <Sparkles className="w-4 h-4 text-brand-600" />
-          <h2 className="text-sm font-bold text-gray-900">Executive Summary</h2>
+        <div className="px-6 py-4 flex items-center gap-3 border-b border-gray-200 bg-gray-50/70">
+          <div className="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center flex-shrink-0">
+            <Sparkles className="w-4 h-4 text-white" />
+          </div>
+          <div>
+            <span className="eyebrow">Executive Intelligence</span>
+            <h2 className="section-title leading-tight">Executive Summary</h2>
+          </div>
         </div>
         <div className="flex flex-col lg:flex-row">
           {/* Score */}
-          <div className="flex flex-col items-center justify-center gap-2 px-8 py-6 lg:border-r border-gray-100 lg:min-w-[210px]">
-            <span className="label text-[10px]">Cyber Metrics Score</span>
+          <div className="flex flex-col items-center justify-center gap-2 px-8 py-7 lg:border-r border-gray-200 lg:min-w-[220px]">
+            <span className="eyebrow">Cyber Metrics Score</span>
             <ScoreRing score={score.value} rating={score.rating} />
-            <p className="text-[11px] text-gray-400 text-center leading-relaxed max-w-[180px]">
-              Your overall external security health, from 0 to 100. Higher is safer.
+            <p className="text-[11px] text-gray-500 text-center leading-relaxed max-w-[180px]">
+              Overall external security health, from 0 to 100. Higher is safer.
             </p>
           </div>
           {/* Narrative + signals */}
-          <div className="flex-1 px-6 py-6 flex flex-col gap-4">
-            <p className="text-[15px] text-gray-700 leading-relaxed">{summary.risk_narrative}</p>
+          <div className="flex-1 px-7 py-7 flex flex-col gap-4">
+            <p className="text-base text-gray-800 leading-relaxed">{summary.risk_narrative}</p>
             <div className="flex flex-wrap items-center gap-2">
               <TrendPill trend={trend} />
-              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-600 bg-gray-50 border border-gray-100 rounded-full px-3 py-1">
-                <AlertCircle className="w-3.5 h-3.5 text-orange-400" />
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-full px-3 py-1">
+                <AlertCircle className="w-3.5 h-3.5 text-orange-500" />
                 {summary.verified_findings_count ?? verified.length} verified findings
               </span>
-              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-600 bg-gray-50 border border-gray-100 rounded-full px-3 py-1">
-                <Eye className="w-3.5 h-3.5 text-gray-400" />
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-full px-3 py-1">
+                <Eye className="w-3.5 h-3.5 text-gray-500" />
                 {summary.observations_count ?? observations.length} observations
               </span>
             </div>
