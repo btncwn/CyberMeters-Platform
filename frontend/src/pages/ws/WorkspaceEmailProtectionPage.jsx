@@ -200,11 +200,23 @@ function KV({ k, v, mono }) {
   )
 }
 
+// Replace raw Cloudflare/Worker/internal platform errors with customer-safe
+// copy. Genuine findings (e.g. "No TXT record found") pass through unchanged.
+function sanitizeWarning(w) {
+  const raw = typeof w === 'string' ? w : (w?.message || w?.text || String(w ?? ''))
+  if (/subrequest|cloudflare|workers?\.dev|developers\.cloudflare|internal error|cpu time|script will never|stack trace|exceeded|too many requests by/i.test(raw)) {
+    return 'Some email authentication checks could not be completed during this scan. Review the available results or run a new scan.'
+  }
+  return raw
+}
 function Warnings({ items }) {
   if (!items || items.length === 0) return null
+  // De-dupe after sanitizing so a repeated internal error collapses to one line.
+  const safe = [...new Set(items.map(sanitizeWarning).filter(Boolean))]
+  if (safe.length === 0) return null
   return (
     <div className="mt-1 space-y-1.5">
-      {items.map((w, i) => (
+      {safe.map((w, i) => (
         <p key={i} className="flex items-start gap-1.5 text-[11px] text-amber-700 leading-relaxed">
           <AlertTriangle className="w-3 h-3 flex-shrink-0 mt-0.5" /> {w}
         </p>
@@ -894,7 +906,7 @@ function ImportDmarcReport({ onImport, importing, result, error }) {
 // key for scripts/MSP automation. The raw token is shown exactly once; only its
 // hash is stored. The inbound address is opaque and reveals no tenancy.
 // (Reuses the shared CopyButton defined near the top of this file.)
-function ConnectDmarcReporting({ wsId, domain }) {
+function ConnectDmarcReporting({ wsId, domain, dmarcDetail }) {
   const [endpoint, setEndpoint] = useState(null)
   const [rawToken, setRawToken] = useState(null) // shown once after create/rotate
   const [loading, setLoading]   = useState(true)
@@ -931,6 +943,15 @@ function ConnectDmarcReporting({ wsId, domain }) {
   const ruaValue = endpoint?.rua_mailto || (inboundAddress ? `rua=mailto:${inboundAddress}` : null)
   const lastInbound = endpoint?.last_inbound_at
   const fmt = (t) => (t ? new Date(t).toLocaleString() : null)
+  // DNS-verified = the live DMARC record (from the latest scan) lists our address.
+  // "Connected" requires BOTH this AND a received report — same rule as the top
+  // overview, so the two panels never contradict each other.
+  const _inboundMailto = inboundAddress ? `mailto:${inboundAddress}`.toLowerCase() : null
+  const _ruaList = (Array.isArray(dmarcDetail?.rua) ? dmarcDetail.rua : [])
+    .map(r => (String(r).startsWith('mailto:') ? String(r) : `mailto:${r}`).toLowerCase())
+  const dnsVerified = _inboundMailto ? _ruaList.includes(_inboundMailto) : false
+  const reportsReceived = Boolean(lastInbound)
+  const fullyConnected = dnsVerified && reportsReceived
   const curl = `curl -X POST ${BASE || 'https://api.cybermeters.com'}/dmarc-ingest \\
   -H "Authorization: Bearer YOUR_UPLOAD_TOKEN" \\
   -H "Content-Type: application/xml" \\
@@ -965,8 +986,14 @@ function ConnectDmarcReporting({ wsId, domain }) {
               <div className="flex items-center gap-2">
                 <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-brand-600 text-white text-xs font-semibold">Recommended</span>
                 <h3 className="text-sm font-semibold text-gray-800">Inbound RUA address</h3>
-                <span className={`ml-auto inline-flex items-center gap-1.5 text-xs font-medium ${lastInbound ? 'text-brand-700' : 'text-gray-500'}`}>
-                  {lastInbound ? <><CheckCircle className="w-3.5 h-3.5" /> Connected</> : <><Info className="w-3.5 h-3.5" /> Not receiving yet</>}
+                <span className={`ml-auto inline-flex items-center gap-1.5 text-xs font-medium ${
+                  fullyConnected ? 'text-brand-700' : reportsReceived ? 'text-amber-700' : 'text-gray-500'
+                }`}>
+                  {fullyConnected
+                    ? <><CheckCircle className="w-3.5 h-3.5" /> Connected</>
+                    : reportsReceived
+                      ? <><AlertTriangle className="w-3.5 h-3.5" /> Receiving reports · DNS update required</>
+                      : <><Info className="w-3.5 h-3.5" /> Not receiving yet</>}
                 </span>
               </div>
               <p className="text-sm text-gray-600 leading-relaxed">Add this value to your DMARC record:</p>
@@ -974,9 +1001,15 @@ function ConnectDmarcReporting({ wsId, domain }) {
                 <code className="mono text-xs flex-1 break-all bg-white border border-gray-200 rounded-lg px-3 py-2">{ruaValue || '—'}</code>
                 {ruaValue && <CopyButton value={ruaValue} label="Copy" />}
               </div>
+              {reportsReceived && !dnsVerified && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-2.5 text-xs text-amber-900 flex items-start gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                  Reports are arriving, but your DMARC record does not yet include the CyberMeters reporting address. Add the value above to finish setup.
+                </div>
+              )}
               <p className="text-xs text-gray-500">
                 CyberMeters receives aggregate DMARC reports for this domain and updates sender intelligence automatically.
-                {lastInbound ? null : ' We have not received a report at this address yet — providers usually send the first report within 24 hours of a DNS change.'}
+                {reportsReceived ? null : ' We have not received a report at this address yet — providers usually send the first report within 24 hours of a DNS change.'}
               </p>
               <dl className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1 text-xs">
                 <div className="rounded-lg bg-white border border-gray-200 px-3 py-2">
@@ -1834,7 +1867,7 @@ export default function WorkspaceEmailProtectionPage() {
           </div>
 
           {/* 2d. Connect DMARC reporting (inbound RUA status + signed upload advanced) */}
-          <ConnectDmarcReporting wsId={wsId} domain={selectedDomain} />
+          <ConnectDmarcReporting wsId={wsId} domain={selectedDomain} dmarcDetail={es?.dmarc_detail} />
 
           {/* 2e. SECONDARY — manual DMARC report import */}
           <ImportDmarcReport onImport={handleImport} importing={importing} result={importResult} error={importError} />
