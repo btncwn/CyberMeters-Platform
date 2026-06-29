@@ -888,17 +888,19 @@ function ImportDmarcReport({ onImport, importing, result, error }) {
   )
 }
 
-// ── Signed upload key (Assisted DMARC Upload v1) ──────────────────────────────
-// Lets a workspace mint a token-authenticated upload key for a domain so an
-// automation/forwarder can POST DMARC XML to /api/dmarc-ingest. The raw token is
-// shown exactly once; only its hash is stored server-side.
-function SignedUploadPanel({ wsId, domain }) {
+// ── Connect DMARC reporting (Assisted RUA Ingestion v1 + signed upload) ───────
+// Mode A (recommended): a unique inbound rua=mailto address — reports arrive by
+// email automatically. Mode B (advanced): a token-authenticated signed upload
+// key for scripts/MSP automation. The raw token is shown exactly once; only its
+// hash is stored. The inbound address is opaque and reveals no tenancy.
+// (Reuses the shared CopyButton defined near the top of this file.)
+function ConnectDmarcReporting({ wsId, domain }) {
   const [endpoint, setEndpoint] = useState(null)
   const [rawToken, setRawToken] = useState(null) // shown once after create/rotate
   const [loading, setLoading]   = useState(true)
   const [busy, setBusy]         = useState(false)
   const [err, setErr]           = useState(null)
-  const [copied, setCopied]     = useState(false)
+  const [showAdvanced, setShowAdvanced] = useState(false)
 
   const load = useCallback(async () => {
     if (!domain) return
@@ -906,11 +908,11 @@ function SignedUploadPanel({ wsId, domain }) {
     try {
       const res = await api.getDmarcIngestEndpoint(wsId, domain)
       setEndpoint(res?.endpoint || null)
-    } catch (e) { setErr(e.message || 'Could not load the upload key.') }
+    } catch (e) { setErr(e.message || 'Could not load DMARC reporting settings.') }
     finally { setLoading(false) }
   }, [wsId, domain])
 
-  useEffect(() => { setRawToken(null); load() }, [load])
+  useEffect(() => { setRawToken(null); setShowAdvanced(false); load() }, [load])
 
   async function run(fn, confirmMsg) {
     if (confirmMsg && !window.confirm(confirmMsg)) return
@@ -924,12 +926,10 @@ function SignedUploadPanel({ wsId, domain }) {
     finally { setBusy(false) }
   }
 
-  function copyToken() {
-    if (!rawToken || !navigator.clipboard) return
-    navigator.clipboard.writeText(rawToken).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500) })
-  }
-
   const hasActive = endpoint && endpoint.status === 'active'
+  const inboundAddress = endpoint?.inbound_address || null
+  const ruaValue = endpoint?.rua_value || (inboundAddress ? `rua=mailto:${inboundAddress}` : null)
+  const lastInbound = endpoint?.last_inbound_at
   const curl = `curl -X POST ${BASE || 'https://api.cybermeters.com'}/dmarc-ingest \\
   -H "Authorization: Bearer YOUR_UPLOAD_TOKEN" \\
   -H "Content-Type: application/xml" \\
@@ -938,62 +938,88 @@ function SignedUploadPanel({ wsId, domain }) {
   return (
     <section className="card overflow-hidden">
       <div className="px-6 py-4 border-b border-gray-200 bg-gray-50/70 flex items-center gap-2.5">
-        <div className="w-8 h-8 rounded-lg bg-brand-100 flex items-center justify-center"><KeyRound className="w-4 h-4 text-brand-700" /></div>
+        <div className="w-8 h-8 rounded-lg bg-brand-100 flex items-center justify-center"><Inbox className="w-4 h-4 text-brand-700" /></div>
         <div>
           <span className="eyebrow">Automate ingestion</span>
-          <h2 className="section-title leading-tight">Signed upload key</h2>
+          <h2 className="section-title leading-tight">Connect DMARC reporting</h2>
         </div>
       </div>
-      <div className="p-6 space-y-3">
-        <p className="text-sm text-gray-500 leading-relaxed">
-          Issue a token so a script or scheduled job can post DMARC report XML straight to CyberMeters —
-          no copy-and-paste. The token is scoped to <b>{domain}</b> only and may append reports nothing else.
-          Inbound email ingestion (point <code className="mono text-xs">rua=</code> straight at CyberMeters) is coming next.
-        </p>
-
+      <div className="p-6 space-y-4">
         {loading ? (
           <div className="flex items-center gap-2 text-sm text-gray-500"><RefreshCw className="w-4 h-4 animate-spin" /> Loading…</div>
+        ) : !hasActive ? (
+          <>
+            <p className="text-sm text-gray-500 leading-relaxed">
+              Activate automatic DMARC reporting for <b>{domain}</b>. You’ll get a unique inbound address to add to
+              your DMARC record — aggregate reports then flow in and update sender intelligence without manual paste.
+            </p>
+            <button onClick={() => run(() => api.createDmarcIngestEndpoint(wsId, domain))} disabled={busy} className="btn-primary disabled:opacity-50">
+              {busy ? <><RefreshCw className="w-4 h-4 animate-spin" /> Working…</> : <><Inbox className="w-4 h-4" /> Activate DMARC reporting</>}
+            </button>
+          </>
         ) : (
           <>
-            {!hasActive ? (
-              <button onClick={() => run(() => api.createDmarcIngestEndpoint(wsId, domain))} disabled={busy} className="btn-primary disabled:opacity-50">
-                {busy ? <><RefreshCw className="w-4 h-4 animate-spin" /> Working…</> : <><KeyRound className="w-4 h-4" /> Generate upload key</>}
-              </button>
-            ) : (
-              <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-3">
-                <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
-                  <span className="inline-flex items-center gap-1.5 text-brand-700 font-semibold"><CheckCircle className="w-4 h-4" /> Active</span>
-                  <span className="text-gray-500">Last used: <b className="text-gray-700">{endpoint.last_used_at ? new Date(endpoint.last_used_at).toLocaleString() : 'never'}</b></span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <button onClick={() => run(() => api.rotateDmarcIngestEndpoint(wsId, domain), 'Rotate the upload key? The current token stops working immediately.')} disabled={busy} className="btn-secondary text-sm disabled:opacity-50">
-                    <RefreshCw className="w-4 h-4" /> Rotate
-                  </button>
-                  <button onClick={() => run(() => api.revokeDmarcIngestEndpoint(wsId, domain), 'Revoke the upload key? Uploads using it will be rejected.')} disabled={busy} className="text-sm text-red-600 hover:text-red-700 font-medium inline-flex items-center gap-1.5 disabled:opacity-50">
-                    <X className="w-4 h-4" /> Revoke
-                  </button>
-                </div>
+            {/* Mode A — Inbound RUA (recommended) */}
+            <div className="rounded-xl border border-brand-100 bg-brand-50/40 p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-brand-600 text-white text-xs font-semibold">Recommended</span>
+                <h3 className="text-sm font-semibold text-gray-800">Inbound RUA address</h3>
+                <span className={`ml-auto inline-flex items-center gap-1.5 text-xs font-medium ${lastInbound ? 'text-brand-700' : 'text-gray-500'}`}>
+                  {lastInbound ? <><CheckCircle className="w-3.5 h-3.5" /> Connected</> : <><Info className="w-3.5 h-3.5" /> Not receiving yet</>}
+                </span>
               </div>
-            )}
-
-            {rawToken && (
-              <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 space-y-2">
-                <p className="text-sm text-amber-900 flex items-center gap-1.5"><Info className="w-4 h-4" /> Copy this token now — it is shown only once and cannot be retrieved later.</p>
-                <div className="flex items-center gap-2">
-                  <code className="mono text-xs flex-1 break-all bg-white border border-amber-200 rounded-lg px-3 py-2">{rawToken}</code>
-                  <button onClick={copyToken} className="btn-secondary text-sm">{copied ? <><Check className="w-4 h-4" /> Copied</> : <><Copy className="w-4 h-4" /> Copy</>}</button>
-                </div>
+              <p className="text-sm text-gray-600 leading-relaxed">Add this value to your DMARC record:</p>
+              <div className="flex items-center gap-2">
+                <code className="mono text-xs flex-1 break-all bg-white border border-gray-200 rounded-lg px-3 py-2">{ruaValue || '—'}</code>
+                {ruaValue && <CopyButton value={ruaValue} label="Copy" />}
               </div>
-            )}
-
-            <div className="space-y-1.5">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Example upload</p>
-              <pre className="mono text-xs bg-gray-900 text-gray-100 rounded-xl p-4 overflow-x-auto whitespace-pre">{curl}</pre>
+              <p className="text-xs text-gray-500">
+                CyberMeters receives aggregate DMARC reports for this domain and updates sender intelligence automatically.
+                {lastInbound ? <> Last received: <b className="text-gray-700">{new Date(lastInbound).toLocaleString()}</b>.</> : ' We have not received a report at this address yet — providers usually send the first report within 24 hours of a DNS change.'}
+              </p>
             </div>
 
-            {err && <span className="text-sm text-red-600 flex items-center gap-1.5"><AlertTriangle className="w-4 h-4" /> {err}</span>}
+            {/* Mode B — Signed upload (advanced) */}
+            <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-3">
+              <button onClick={() => setShowAdvanced(v => !v)} className="w-full flex items-center gap-2 text-left">
+                <KeyRound className="w-4 h-4 text-gray-500" />
+                <h3 className="text-sm font-semibold text-gray-800">Signed upload key</h3>
+                <span className="text-xs text-gray-400">Advanced · scripts &amp; MSP automation</span>
+                <ChevronDown className={`w-4 h-4 text-gray-400 ml-auto transition-transform ${showAdvanced ? 'rotate-180' : ''}`} />
+              </button>
+              {showAdvanced && (
+                <div className="space-y-3 pt-1">
+                  <p className="text-xs text-gray-500 leading-relaxed">
+                    Inbound RUA is the recommended setup. A signed upload key is useful for scripts or MSP automation that
+                    POST report XML directly. Last upload: <b className="text-gray-700">{endpoint.last_signed_upload_at ? new Date(endpoint.last_signed_upload_at).toLocaleString() : 'never'}</b>.
+                  </p>
+                  {rawToken && (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3 space-y-2">
+                      <p className="text-sm text-amber-900 flex items-center gap-1.5"><Info className="w-4 h-4" /> Copy this token now — it is shown only once and cannot be retrieved later.</p>
+                      <div className="flex items-center gap-2">
+                        <code className="mono text-xs flex-1 break-all bg-white border border-amber-200 rounded-lg px-3 py-2">{rawToken}</code>
+                        <CopyButton value={rawToken} label="Copy" />
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-3">
+                    <button onClick={() => run(() => api.rotateDmarcIngestEndpoint(wsId, domain), 'Rotate the upload key? The current token stops working immediately.')} disabled={busy} className="btn-secondary text-sm disabled:opacity-50">
+                      <RefreshCw className="w-4 h-4" /> {rawToken ? 'Rotate again' : 'Generate token'}
+                    </button>
+                    <button onClick={() => run(() => api.revokeDmarcIngestEndpoint(wsId, domain), 'Revoke this endpoint? Inbound email and signed uploads will be rejected.')} disabled={busy} className="text-sm text-red-600 hover:text-red-700 font-medium inline-flex items-center gap-1.5 disabled:opacity-50">
+                      <X className="w-4 h-4" /> Revoke
+                    </button>
+                  </div>
+                  <div className="space-y-1.5">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Example upload</p>
+                    <pre className="mono text-xs bg-gray-900 text-gray-100 rounded-xl p-4 overflow-x-auto whitespace-pre">{curl}</pre>
+                  </div>
+                </div>
+              )}
+            </div>
           </>
         )}
+        {err && <span className="text-sm text-red-600 flex items-center gap-1.5"><AlertTriangle className="w-4 h-4" /> {err}</span>}
       </div>
     </section>
   )
@@ -1270,8 +1296,8 @@ export default function WorkspaceEmailProtectionPage() {
           {/* 2c. Manual DMARC report import */}
           <ImportDmarcReport onImport={handleImport} importing={importing} result={importResult} error={importError} />
 
-          {/* 2d. Signed upload key (automation) */}
-          <SignedUploadPanel wsId={wsId} domain={selectedDomain} />
+          {/* 2d. Connect DMARC reporting (inbound RUA + signed upload) */}
+          <ConnectDmarcReporting wsId={wsId} domain={selectedDomain} />
 
           {/* 3. Authentication cards */}
           <section>

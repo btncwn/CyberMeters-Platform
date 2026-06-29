@@ -24,5 +24,10 @@ SAFE_EMAIL_FROM = "safe@cybermeters.com"
 HELLO_EMAIL_FROM = "hello@cybermeters.com"
 ALLOWED_ORIGIN = "https://app.cybermeters.com"
 
+# Domain that receives inbound DMARC aggregate (RUA) reports by email. Customers
+# add rua=mailto:<address_local>@<RUA_INBOUND_DOMAIN>. Requires Cloudflare Email
+# Routing on this zone with a catch-all route to this Worker's email() handler.
+RUA_INBOUND_DOMAIN = "reports.cybermeters.com"
+
 FRONTEND_URL = "https://app.cybermeters.com"
 MICROSOFT_REDIRECT_URI = "https://cybermeters-platform.ttrnn47.workers.dev/api/auth/microsoft/callback"

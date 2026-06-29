@@ -23,6 +23,13 @@ function loadScanner(fetchImpl = async () => { throw new Error("network disabled
       subtle: webcrypto.subtle,
     },
     btoa: (s) => Buffer.from(String(s), "binary").toString("base64"),
+    atob: (s) => Buffer.from(String(s), "base64").toString("binary"),
+    // Streams/Response for inbound RUA decompression helpers (present in Workers
+    // and in Node 18+); CompressionStream is used by tests to build fixtures.
+    Response,
+    DecompressionStream,
+    CompressionStream,
+    Uint8Array,
     fetch: fetchImpl,
     AbortSignal: { timeout: () => undefined },
     TextEncoder,
@@ -92,6 +99,13 @@ function loadScanner(fetchImpl = async () => { throw new Error("network disabled
     hashIngestToken,
     ingestEndpointIsActive,
     ingestEndpointToApi,
+    generateInboundLocalpart,
+    extractInboundLocalpart,
+    gunzipXmlBytes,
+    unzipSingleEntryXmlBytes,
+    extractDmarcXmlFromAttachment,
+    parseMimeParts,
+    selectDmarcAttachment,
     computeBusinessRiskScoreFromIds: (ids, data) => computeBusinessRiskScore(new Set(ids), data),
   };`, context, {
     filename: workerPath,
@@ -1129,6 +1143,116 @@ results.push(securityContract("dmarc_ingest_active_state_and_serialization", () 
   const noLeak = !("token_hash" in safe) && !("token" in safe) && safe.id === "e1";
   const tokenOnce = withTok.token === "cmdi_raw" && !("token_hash" in withTok);
   return activeOk && revokedFlag && revokedStatus && nullRow && noLeak && tokenOnce;
+}));
+
+// ── Assisted RUA Ingestion v1 (Phase 2) — inbound email helpers ──────────────
+// Test fixture builders (use platform CompressionStream; Workers + Node 18+).
+async function _gzipBytes(str) {
+  const cs = new CompressionStream("gzip");
+  const stream = new Response(new TextEncoder().encode(str)).body.pipeThrough(cs);
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+function _bytesToB64(bytes) {
+  let bin = ""; for (const b of bytes) bin += String.fromCharCode(b);
+  return Buffer.from(bin, "binary").toString("base64");
+}
+// Minimal single-entry STORED zip: [local header][name][data][EOCD]. The reader
+// only needs the local header fields + EOCD total-entry count.
+function _buildStoredZip(name, dataStr, totalEntries = 1) {
+  const enc = new TextEncoder();
+  const nameB = enc.encode(name);
+  const dataB = enc.encode(dataStr);
+  const lh = new Uint8Array(30 + nameB.length + dataB.length);
+  const dv = new DataView(lh.buffer);
+  dv.setUint32(0, 0x04034b50, true);     // local file header signature
+  dv.setUint16(4, 20, true);             // version
+  dv.setUint16(6, 0, true);              // flags
+  dv.setUint16(8, 0, true);              // method 0 = stored
+  dv.setUint32(18, dataB.length, true);  // compressed size
+  dv.setUint32(22, dataB.length, true);  // uncompressed size
+  dv.setUint16(26, nameB.length, true);  // name length
+  dv.setUint16(28, 0, true);             // extra length
+  lh.set(nameB, 30);
+  lh.set(dataB, 30 + nameB.length);
+  const eocd = new Uint8Array(22);
+  const ev = new DataView(eocd.buffer);
+  ev.setUint32(0, 0x06054b50, true);     // EOCD signature
+  ev.setUint16(10, totalEntries, true);  // total entries
+  const out = new Uint8Array(lh.length + eocd.length);
+  out.set(lh, 0); out.set(eocd, lh.length);
+  return out;
+}
+
+const RUA_TEST_CAPS = { attachmentMax: 10 * 1024 * 1024, decompressedMax: 10 * 1024 * 1024, ratioMax: 100 };
+
+results.push(securityContract("rua_localpart_generation_and_extraction", () => {
+  const a = scanner.generateInboundLocalpart();
+  const b = scanner.generateInboundLocalpart();
+  const ok = a.startsWith("cmrua_") && a.length >= 14 && a !== b;
+  const ext = scanner.extractInboundLocalpart(`<${a.toUpperCase()}@reports.cybermeters.com>`) === a;
+  const reject = scanner.extractInboundLocalpart("postmaster@reports.cybermeters.com") === null &&
+    scanner.extractInboundLocalpart("") === null;
+  return ok && ext && reject;
+}));
+results.push(securityContract("rua_endpoint_serialization_exposes_rua_no_leak", () => {
+  const row = { id: "e9", domain: "example.com", status: "active", address_local: "cmrua_abc123def456",
+    token_hash: "SECRET", created_at: "x" };
+  const s = scanner.ingestEndpointToApi(row, { inboundDomain: "reports.cybermeters.com" });
+  return s.inbound_address === "cmrua_abc123def456@reports.cybermeters.com" &&
+    s.rua_value === "rua=mailto:cmrua_abc123def456@reports.cybermeters.com" &&
+    !("token_hash" in s) && !("token" in s);
+}));
+results.push(await asyncSecurityContract("rua_gzip_extract_parses", async () => {
+  const gz = await _gzipBytes(dmarcCleanXml);
+  const r = await scanner.extractDmarcXmlFromAttachment("clean.xml.gz", gz, RUA_TEST_CAPS);
+  if (r.error) return false;
+  const parsed = scanner.parseDmarcAggregateXml(r.xml);
+  return !parsed.error && parsed.metadata.report_id === "RPT-CLEAN-1";
+}));
+results.push(await asyncSecurityContract("rua_gzip_bomb_cap_rejected", async () => {
+  const gz = await _gzipBytes("X".repeat(50000));
+  const r = await scanner.gunzipXmlBytes(gz, { attachmentMax: 10 * 1024 * 1024, decompressedMax: 1024, ratioMax: 100 });
+  return r.error === "decompressed_too_large";
+}));
+results.push(await asyncSecurityContract("rua_zip_single_entry_accepted", async () => {
+  const zip = _buildStoredZip("report.xml", dmarcCleanXml, 1);
+  const r = await scanner.extractDmarcXmlFromAttachment("report.zip", zip, RUA_TEST_CAPS);
+  if (r.error) return false;
+  const parsed = scanner.parseDmarcAggregateXml(r.xml);
+  return !parsed.error && parsed.records.length === 1;
+}));
+results.push(await asyncSecurityContract("rua_zip_multi_entry_rejected", async () => {
+  const zip = _buildStoredZip("report.xml", dmarcCleanXml, 2);
+  const r = await scanner.unzipSingleEntryXmlBytes(zip, RUA_TEST_CAPS);
+  return r.error === "zip_multi_entry";
+}));
+results.push(await asyncSecurityContract("rua_mime_email_to_xml", async () => {
+  const gz = await _gzipBytes(dmarcMixedXml);
+  const b64 = _bytesToB64(gz).replace(/(.{76})/g, "$1\r\n");
+  const email =
+    "From: noreply@google.com\r\nTo: cmrua_abc@reports.cybermeters.com\r\n" +
+    "Subject: Report domain: example.com\r\n" +
+    'Content-Type: multipart/mixed; boundary="BOUND1"\r\n\r\n' +
+    "--BOUND1\r\nContent-Type: text/plain\r\n\r\nDMARC aggregate report attached.\r\n" +
+    "--BOUND1\r\n" +
+    'Content-Type: application/gzip; name="example.com!report.xml.gz"\r\n' +
+    'Content-Disposition: attachment; filename="example.com!report.xml.gz"\r\n' +
+    "Content-Transfer-Encoding: base64\r\n\r\n" + b64 + "\r\n--BOUND1--\r\n";
+  const parts = scanner.parseMimeParts(email);
+  const sel = scanner.selectDmarcAttachment(parts);
+  if (sel.error) return false;
+  const ext = await scanner.extractDmarcXmlFromAttachment(sel.part.filename, sel.part.bytes, RUA_TEST_CAPS);
+  if (ext.error) return false;
+  const parsed = scanner.parseDmarcAggregateXml(ext.xml);
+  return !parsed.error && parsed.records.length === 2;
+}));
+results.push(securityContract("rua_attachment_selection_zero_and_multi", () => {
+  const none = scanner.selectDmarcAttachment([{ contentType: "text/plain", filename: "note.txt" }]);
+  const multi = scanner.selectDmarcAttachment([
+    { contentType: "application/gzip", filename: "a.xml.gz" },
+    { contentType: "application/zip", filename: "b.xml.zip" },
+  ]);
+  return none.error === "no_dmarc_attachment" && multi.error === "multiple_attachments";
 }));
 
 for (const contract of parsed.score_contracts || []) {

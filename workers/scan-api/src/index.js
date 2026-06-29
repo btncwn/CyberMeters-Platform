@@ -7020,18 +7020,25 @@ function extractIngestToken(request) {
   return x ? x.trim() : null;
 }
 // Customer-safe endpoint serialization. NEVER includes token_hash; only includes
-// the raw token when explicitly passed (create/rotate response).
-function ingestEndpointToApi(row, { rawToken = null } = {}) {
+// the raw token when explicitly passed (create/rotate response). When the
+// endpoint has an inbound address_local, exposes the customer-facing RUA address
+// and the exact rua=mailto: value to paste into DNS (display only — no auto-DNS).
+function ingestEndpointToApi(row, { rawToken = null, inboundDomain = null } = {}) {
   if (!row) return null;
+  const host = inboundDomain || "reports.cybermeters.com";
+  const inbound = row.address_local ? `${row.address_local}@${host}` : null;
   const out = {
     id: row.id,
     domain: row.domain,
     status: row.status,
     created_at: row.created_at,
     last_used_at: row.last_used_at || null,
+    last_inbound_at: row.last_inbound_at || null,
+    last_signed_upload_at: row.last_signed_upload_at || null,
     rotated_at: row.rotated_at || null,
     revoked_at: row.revoked_at || null,
-    inbound_address: null, // Phase 2 (inbound RUA email) placeholder
+    inbound_address: inbound,
+    rua_value: inbound ? `rua=mailto:${inbound}` : null,
   };
   if (rawToken) out.token = rawToken;
   return out;
@@ -7153,6 +7160,224 @@ async function ingestDmarcReport(env, opts = {}) {
 
   return { ok: true, imported: true, duplicate: false, reportId,
     records: parsed.records.length, messages: messageCount, sourcesUpdated: rollup.sources_updated };
+}
+
+// ── Assisted RUA Ingestion v1 (Phase 2) — inbound email helpers ───────────────
+//
+// Pure, testable helpers that turn a raw inbound DMARC report email into an XML
+// string for ingestDmarcReport(). They never fetch, never expand entities, never
+// store raw payloads, and enforce hard size/ratio caps to defeat decompression
+// bombs. The Worker email() handler wires these together (see the email entry).
+
+const RUA_RAW_EMAIL_MAX_BYTES   = 25 * 1024 * 1024; // Cloudflare inbound ceiling
+const RUA_ATTACHMENT_MAX_BYTES  = 10 * 1024 * 1024; // compressed attachment cap
+const RUA_DECOMPRESSED_MAX_BYTES = 10 * 1024 * 1024; // decompressed output cap
+const RUA_MAX_COMPRESSION_RATIO = 100;              // out/in ratio cap (bomb guard)
+const RUA_MAX_MIME_PARTS        = 25;               // abuse guard
+const RUA_INBOUND_DOMAIN_DEFAULT = "reports.cybermeters.com";
+const RUA_DEFAULT_CAPS = {
+  attachmentMax: RUA_ATTACHMENT_MAX_BYTES,
+  decompressedMax: RUA_DECOMPRESSED_MAX_BYTES,
+  ratioMax: RUA_MAX_COMPRESSION_RATIO,
+};
+
+// Opaque, non-guessable inbound localpart. Deliberately contains NO workspace id
+// or domain — knowledge of the address must not leak tenancy.
+function generateInboundLocalpart() {
+  const bytes = new Uint8Array(16); // 128-bit
+  crypto.getRandomValues(bytes);
+  const hex = Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `cmrua_${hex}`;
+}
+// Resolve a recipient address to our opaque localpart (or null if not ours).
+function extractInboundLocalpart(recipient) {
+  if (!recipient || typeof recipient !== "string") return null;
+  const addr = recipient.trim().toLowerCase().replace(/[<>]/g, "");
+  const at = addr.lastIndexOf("@");
+  let local = at >= 0 ? addr.slice(0, at) : addr;
+  const plus = local.indexOf("+"); // strip +tags defensively (we don't issue any)
+  if (plus >= 0) local = local.slice(0, plus);
+  return /^cmrua_[a-z0-9]{8,}$/.test(local) ? local : null;
+}
+
+// ── byte/string helpers (latin1-safe; MIME headers + base64 are ASCII) ────────
+function _latin1ToBytes(str) {
+  const out = new Uint8Array(str.length);
+  for (let i = 0; i < str.length; i++) out[i] = str.charCodeAt(i) & 0xff;
+  return out;
+}
+function _bytesToLatin1(bytes) {
+  let s = ""; const CH = 0x8000;
+  for (let i = 0; i < bytes.length; i += CH) s += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
+  return s;
+}
+function _base64ToBytes(b64) {
+  return _latin1ToBytes(atob(String(b64).replace(/[^A-Za-z0-9+/=]/g, "")));
+}
+function _readU16(b, o) { return b[o] | (b[o + 1] << 8); }
+function _readU32(b, o) { return (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0; }
+
+// Read a ReadableStream fully into bytes, aborting past maxBytes. Returns null
+// if the cap is exceeded (caller drops the message).
+async function readStreamCapped(stream, maxBytes) {
+  const reader = stream.getReader();
+  const chunks = []; let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) { try { await reader.cancel(); } catch { /* ignore */ } return null; }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total); let o = 0;
+  for (const c of chunks) { out.set(c, o); o += c.byteLength; }
+  return out;
+}
+
+// Decompress via the platform DecompressionStream with a hard output cap.
+async function _inflateWithCap(bytes, format, maxOut) {
+  const stream = new Response(bytes).body.pipeThrough(new DecompressionStream(format));
+  const reader = stream.getReader();
+  const chunks = []; let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxOut) { try { await reader.cancel(); } catch { /* ignore */ } throw new Error("decompressed_too_large"); }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total); let o = 0;
+  for (const c of chunks) { out.set(c, o); o += c.byteLength; }
+  return out;
+}
+
+async function gunzipXmlBytes(bytes, caps = RUA_DEFAULT_CAPS) {
+  if (!bytes || !bytes.length) return { error: "empty_attachment" };
+  if (bytes.length > caps.attachmentMax) return { error: "attachment_too_large" };
+  let out;
+  try { out = await _inflateWithCap(bytes, "gzip", caps.decompressedMax); }
+  catch (e) { return { error: e.message === "decompressed_too_large" ? "decompressed_too_large" : "gzip_failed" }; }
+  if (bytes.length > 0 && out.length / bytes.length > caps.ratioMax) return { error: "compression_ratio_exceeded" };
+  return { bytes: out };
+}
+
+// Minimal, hardened single-entry ZIP reader. Supports STORED (0) and DEFLATE (8)
+// only. Enforces single entry via the End-Of-Central-Directory total count, and
+// applies the same size/ratio caps. Rejects multi-entry, nested, streamed
+// (data-descriptor) and unknown-method archives. No general unzip library.
+async function unzipSingleEntryXmlBytes(bytes, caps = RUA_DEFAULT_CAPS) {
+  if (!bytes || bytes.length < 22) return { error: "zip_invalid" };
+  if (bytes.length > caps.attachmentMax) return { error: "attachment_too_large" };
+  if (!(bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04)) return { error: "zip_invalid" };
+  let eocd = -1;
+  for (let i = bytes.length - 22; i >= 0; i--) {
+    if (bytes[i] === 0x50 && bytes[i + 1] === 0x4b && bytes[i + 2] === 0x05 && bytes[i + 3] === 0x06) { eocd = i; break; }
+  }
+  if (eocd < 0) return { error: "zip_invalid" };
+  if (_readU16(bytes, eocd + 10) !== 1) return { error: "zip_multi_entry" };
+  const method   = _readU16(bytes, 8);
+  const compSize = _readU32(bytes, 18);
+  const uncomp   = _readU32(bytes, 22);
+  const nameLen  = _readU16(bytes, 26);
+  const extraLen = _readU16(bytes, 28);
+  if (compSize === 0) return { error: "zip_unsupported_streaming" }; // data-descriptor not supported
+  if (compSize > caps.attachmentMax || uncomp > caps.decompressedMax) return { error: "zip_too_large" };
+  const dataStart = 30 + nameLen + extraLen;
+  const comp = bytes.subarray(dataStart, dataStart + compSize);
+  if (method === 0) {
+    if (comp.length > caps.decompressedMax) return { error: "zip_too_large" };
+    return { bytes: comp.slice() };
+  }
+  if (method === 8) {
+    let out;
+    try { out = await _inflateWithCap(comp, "deflate-raw", caps.decompressedMax); }
+    catch (e) { return { error: e.message === "decompressed_too_large" ? "decompressed_too_large" : "zip_inflate_failed" }; }
+    if (comp.length > 0 && out.length / comp.length > caps.ratioMax) return { error: "compression_ratio_exceeded" };
+    return { bytes: out };
+  }
+  return { error: "zip_unsupported_method" };
+}
+
+// Dispatch an attachment to the right safe decoder and return XML text.
+async function extractDmarcXmlFromAttachment(filename, bytes, caps = RUA_DEFAULT_CAPS) {
+  if (!bytes || !bytes.length) return { error: "empty_attachment" };
+  const name = (filename || "").toLowerCase();
+  const looksGz  = name.endsWith(".gz") || name.endsWith(".gzip") || (bytes[0] === 0x1f && bytes[1] === 0x8b);
+  const looksZip = name.endsWith(".zip") || (bytes[0] === 0x50 && bytes[1] === 0x4b);
+  let xmlBytes;
+  if (looksGz) {
+    const r = await gunzipXmlBytes(bytes, caps); if (r.error) return r; xmlBytes = r.bytes;
+  } else if (looksZip) {
+    const r = await unzipSingleEntryXmlBytes(bytes, caps); if (r.error) return r; xmlBytes = r.bytes;
+  } else if (name.endsWith(".xml") || /^\s*<\?xml|^\s*<feedback/i.test(_bytesToLatin1(bytes.subarray(0, 64)))) {
+    if (bytes.length > caps.decompressedMax) return { error: "attachment_too_large" };
+    xmlBytes = bytes;
+  } else {
+    return { error: "unsupported_attachment" };
+  }
+  return { xml: new TextDecoder("utf-8").decode(xmlBytes) };
+}
+
+// ── minimal MIME parsing (no external lib) ────────────────────────────────────
+function _parseMimeHeaders(headerText) {
+  const headers = {};
+  const lines = headerText.replace(/\r\n/g, "\n").split("\n");
+  let cur = null;
+  for (const line of lines) {
+    if (/^[ \t]/.test(line) && cur) { headers[cur] += " " + line.trim(); continue; } // unfold
+    const idx = line.indexOf(":");
+    if (idx < 0) continue;
+    cur = line.slice(0, idx).trim().toLowerCase();
+    headers[cur] = line.slice(idx + 1).trim();
+  }
+  return headers;
+}
+function _mimeParam(value, name) {
+  if (!value) return null;
+  const m = value.match(new RegExp(name + '\\s*=\\s*"([^"]*)"|' + name + '\\s*=\\s*([^;\\s]+)', "i"));
+  return m ? (m[1] ?? m[2] ?? null) : null;
+}
+// Returns flat leaf parts: { contentType, encoding, filename, bytes }.
+function parseMimeParts(rawLatin1, depth = 0) {
+  const parts = [];
+  if (depth > 3 || typeof rawLatin1 !== "string") return parts;
+  const sep = rawLatin1.indexOf("\r\n\r\n") >= 0 ? "\r\n\r\n" : "\n\n";
+  const splitIdx = rawLatin1.indexOf(sep);
+  const headerText = splitIdx >= 0 ? rawLatin1.slice(0, splitIdx) : rawLatin1;
+  const body = splitIdx >= 0 ? rawLatin1.slice(splitIdx + sep.length) : "";
+  const headers = _parseMimeHeaders(headerText);
+  const ctypeRaw = headers["content-type"] || "";
+  const ctype = ctypeRaw.toLowerCase();
+  const boundary = _mimeParam(ctypeRaw, "boundary");
+  if (ctype.startsWith("multipart/") && boundary) {
+    for (const seg of body.split("--" + boundary)) {
+      if (parts.length >= RUA_MAX_MIME_PARTS) break;
+      const s = seg.replace(/^\r?\n/, "");
+      if (!s || s.startsWith("--")) continue; // preamble / closing boundary
+      for (const p of parseMimeParts(s, depth + 1)) parts.push(p);
+    }
+    return parts;
+  }
+  const encoding = (headers["content-transfer-encoding"] || "7bit").toLowerCase();
+  const filename = _mimeParam(headers["content-disposition"], "filename") || _mimeParam(ctypeRaw, "name");
+  const bytes = encoding === "base64" ? _base64ToBytes(body) : _latin1ToBytes(body.replace(/\r?\n$/, ""));
+  parts.push({ contentType: ctype.split(";")[0].trim(), encoding, filename, bytes });
+  return parts;
+}
+// Choose exactly one DMARC report attachment. Zero or more-than-one → error
+// (deterministic, documented MVP behaviour).
+function selectDmarcAttachment(parts) {
+  const candidates = (parts || []).filter((p) => {
+    const n = (p.filename || "").toLowerCase();
+    const ct = (p.contentType || "").toLowerCase();
+    const extOk = n.endsWith(".gz") || n.endsWith(".gzip") || n.endsWith(".zip") || n.endsWith(".xml");
+    const ctOk = ["application/gzip", "application/x-gzip", "application/zip",
+      "application/x-zip-compressed", "text/xml", "application/xml"].includes(ct);
+    return extOk || ctOk || (ct === "application/octet-stream" && extOk);
+  });
+  if (candidates.length === 0) return { error: "no_dmarc_attachment" };
+  if (candidates.length > 1) return { error: "multiple_attachments" };
+  return { part: candidates[0] };
 }
 
 // Additive remediation actions derived from imported DMARC report data.
@@ -20956,7 +21181,7 @@ export default {
 
         // Record the authenticated use regardless of dedupe/parse outcome.
         await env.cybermeters_db
-          .prepare(`UPDATE dmarc_ingest_endpoints SET last_used_at = datetime('now') WHERE id = ?`)
+          .prepare(`UPDATE dmarc_ingest_endpoints SET last_used_at = datetime('now'), last_signed_upload_at = datetime('now') WHERE id = ?`)
           .bind(endpoint.id).run();
 
         if (!result.ok) {
@@ -30155,6 +30380,7 @@ export default {
         if (!access) return json({ error: "Forbidden" }, 403);
         const domainId = await resolveWorkspaceDomain(env, workspaceId, domain);
         if (!domainId) return json({ error: "Domain not found in this workspace" }, 404);
+        const inboundDomain = env.RUA_INBOUND_DOMAIN || "reports.cybermeters.com";
 
         const existing = await env.cybermeters_db
           .prepare(`SELECT * FROM dmarc_ingest_endpoints
@@ -30162,27 +30388,43 @@ export default {
                     ORDER BY created_at DESC LIMIT 1`)
           .bind(workspaceId, domain).first();
         if (existing) {
-          return json({ created: false, endpoint: ingestEndpointToApi(existing),
+          // Idempotent: never re-issue a token. Backfill an inbound RUA address
+          // for endpoints created before Phase 2 so they can also receive email.
+          if (!existing.address_local) {
+            const local = generateInboundLocalpart();
+            await env.cybermeters_db
+              .prepare(`UPDATE dmarc_ingest_endpoints SET address_local = ? WHERE id = ?`)
+              .bind(local, existing.id).run();
+            existing.address_local = local;
+            await createAuditEvent(env, {
+              workspace_id: workspaceId, user_id: user.id, event_type: "dmarc_ingest_endpoint_inbound_activated",
+              entity_type: "domain", entity_id: domainId,
+              description: `Activated inbound DMARC reporting address for ${domain}`,
+              metadata: { domain, ingest_endpoint_id: existing.id },
+            });
+          }
+          return json({ created: false, endpoint: ingestEndpointToApi(existing, { inboundDomain }),
             message: "An active upload key already exists. Rotate it to issue a new token." });
         }
 
         const raw = generateIngestToken();
         const tokenHash = await hashIngestToken(raw);
+        const addressLocal = generateInboundLocalpart();
         const id = createId("dmaringest");
         await env.cybermeters_db
           .prepare(`INSERT INTO dmarc_ingest_endpoints
                     (id, workspace_id, domain_id, domain, token_hash, address_local, status, created_by, created_at)
-                    VALUES (?, ?, ?, ?, ?, NULL, 'active', ?, datetime('now'))`)
-          .bind(id, workspaceId, domainId, domain, tokenHash, user.id).run();
+                    VALUES (?, ?, ?, ?, ?, ?, 'active', ?, datetime('now'))`)
+          .bind(id, workspaceId, domainId, domain, tokenHash, addressLocal, user.id).run();
         const row = await env.cybermeters_db
           .prepare(`SELECT * FROM dmarc_ingest_endpoints WHERE id = ?`).bind(id).first();
         await createAuditEvent(env, {
           workspace_id: workspaceId, user_id: user.id, event_type: "dmarc_ingest_endpoint_created",
           entity_type: "domain", entity_id: domainId,
-          description: `Created DMARC signed-upload key for ${domain}`,
+          description: `Created DMARC ingestion endpoint (signed upload + inbound RUA) for ${domain}`,
           metadata: { domain, ingest_endpoint_id: id },
         });
-        return json({ created: true, endpoint: ingestEndpointToApi(row, { rawToken: raw }) });
+        return json({ created: true, endpoint: ingestEndpointToApi(row, { rawToken: raw, inboundDomain }) });
       } catch (e) {
         return serverError("dmarc-ingest-endpoint-create", e, "Could not create upload key.");
       }
@@ -30199,11 +30441,12 @@ export default {
         if (!access) return json({ error: "Forbidden" }, 403);
         const domainId = await resolveWorkspaceDomain(env, workspaceId, domain);
         if (!domainId) return json({ error: "Domain not found in this workspace" }, 404);
+        const inboundDomain = env.RUA_INBOUND_DOMAIN || "reports.cybermeters.com";
         const row = await env.cybermeters_db
           .prepare(`SELECT * FROM dmarc_ingest_endpoints
                     WHERE workspace_id = ? AND domain = ? ORDER BY created_at DESC LIMIT 1`)
           .bind(workspaceId, domain).first();
-        return json({ endpoint: row ? ingestEndpointToApi(row) : null });
+        return json({ endpoint: row ? ingestEndpointToApi(row, { inboundDomain }) : null });
       } catch (e) {
         return serverError("dmarc-ingest-endpoint-get", e, "Could not load upload key.");
       }
@@ -30241,7 +30484,8 @@ export default {
           description: `Rotated DMARC signed-upload key for ${domain}`,
           metadata: { domain, ingest_endpoint_id: existing.id },
         });
-        return json({ rotated: true, endpoint: ingestEndpointToApi(row, { rawToken: raw }) });
+        const inboundDomain = env.RUA_INBOUND_DOMAIN || "reports.cybermeters.com";
+        return json({ rotated: true, endpoint: ingestEndpointToApi(row, { rawToken: raw, inboundDomain }) });
       } catch (e) {
         return serverError("dmarc-ingest-endpoint-rotate", e, "Could not rotate upload key.");
       }
@@ -30274,7 +30518,8 @@ export default {
           description: `Revoked DMARC signed-upload key for ${domain}`,
           metadata: { domain, ingest_endpoint_id: existing.id },
         });
-        return json({ revoked: true, endpoint: ingestEndpointToApi(row) });
+        const inboundDomain = env.RUA_INBOUND_DOMAIN || "reports.cybermeters.com";
+        return json({ revoked: true, endpoint: ingestEndpointToApi(row, { inboundDomain }) });
       } catch (e) {
         return serverError("dmarc-ingest-endpoint-revoke", e, "Could not revoke upload key.");
       }
@@ -32347,6 +32592,84 @@ export default {
     // and run retention once daily at 02:00 UTC.
     if (new Date(now).getUTCHours() === 2) {
       ctx.waitUntil(cleanupExpiredReports(now, env));
+    }
+  },
+
+  // ── Inbound DMARC aggregate (RUA) email handler ──────────────────────────────
+  // Assisted RUA Ingestion v1. Cloudflare Email Routing (catch-all on
+  // RUA_INBOUND_DOMAIN) invokes this for every message. We resolve the recipient
+  // localpart to an active ingestion endpoint, safely extract the DMARC XML from
+  // a gzip/zip/raw attachment (hard bomb caps), and run it through the SAME
+  // ingestDmarcReport() pipeline with source=inbound_email. The handler never
+  // throws, never stores raw payloads, and drops invalid mail with an audit note.
+  async email(message, env, _ctx) {
+    const caps = {
+      attachmentMax: RUA_ATTACHMENT_MAX_BYTES,
+      decompressedMax: RUA_DECOMPRESSED_MAX_BYTES,
+      ratioMax: RUA_MAX_COMPRESSION_RATIO,
+    };
+    const drop = async (endpoint, reason) => {
+      try {
+        await createAuditEvent(env, {
+          workspace_id: endpoint?.workspace_id || null, user_id: null,
+          event_type: "dmarc_inbound_email_dropped", entity_type: "domain",
+          entity_id: endpoint?.domain_id || null,
+          description: `Dropped inbound DMARC email: ${reason}`,
+          metadata: { source: "inbound_email", reason, ingest_endpoint_id: endpoint?.id || null },
+        });
+      } catch { /* never throw from the email handler */ }
+    };
+    try {
+      const localpart = extractInboundLocalpart(message.to);
+      if (!localpart) { await drop(null, "invalid_recipient"); return; }
+
+      const endpoint = await env.cybermeters_db
+        .prepare(`SELECT * FROM dmarc_ingest_endpoints WHERE address_local = ? LIMIT 1`)
+        .bind(localpart).first();
+      if (!ingestEndpointIsActive(endpoint)) {
+        await drop(endpoint, endpoint ? "endpoint_revoked" : "unknown_address");
+        return;
+      }
+
+      if (typeof message.rawSize === "number" && message.rawSize > RUA_RAW_EMAIL_MAX_BYTES) {
+        await drop(endpoint, "email_too_large"); return;
+      }
+      const raw = await readStreamCapped(message.raw, RUA_RAW_EMAIL_MAX_BYTES);
+      if (!raw) { await drop(endpoint, "email_too_large"); return; }
+
+      try {
+        await createAuditEvent(env, {
+          workspace_id: endpoint.workspace_id, user_id: null, event_type: "dmarc_inbound_email_received",
+          entity_type: "domain", entity_id: endpoint.domain_id,
+          description: `Received inbound DMARC email for ${endpoint.domain}`,
+          metadata: { source: "inbound_email", ingest_endpoint_id: endpoint.id, bytes: raw.length },
+        });
+      } catch { /* non-fatal */ }
+
+      const parts = parseMimeParts(_bytesToLatin1(raw));
+      const sel = selectDmarcAttachment(parts);
+      if (sel.error) { await drop(endpoint, sel.error); return; }
+      const ext = await extractDmarcXmlFromAttachment(sel.part.filename, sel.part.bytes, caps);
+      if (ext.error) { await drop(endpoint, ext.error); return; }
+
+      const result = await ingestDmarcReport(env, {
+        workspaceId: endpoint.workspace_id, domain: endpoint.domain, source: "inbound_email",
+        xmlString: ext.xml, actorUserId: null, ingestEndpointId: endpoint.id,
+        domainId: endpoint.domain_id, enforceDomainMatch: true,
+      });
+
+      await env.cybermeters_db
+        .prepare(`UPDATE dmarc_ingest_endpoints SET last_used_at = datetime('now'), last_inbound_at = datetime('now') WHERE id = ?`)
+        .bind(endpoint.id).run();
+
+      // ingestDmarcReport emits dmarc_report_ingested / dmarc_report_duplicate.
+      // Record a parse/validation rejection (e.g. domain_mismatch) separately.
+      if (!result.ok) {
+        await drop(endpoint, result.error);
+      }
+    } catch (e) {
+      console.error("[email-ingest]", String(e?.message ?? e));
+      // Swallow — an inbound mail handler must never throw.
     }
   },
 };
