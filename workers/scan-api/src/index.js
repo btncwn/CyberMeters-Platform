@@ -2113,32 +2113,26 @@ function findDkimInResults(selectors, settledResults) {
 }
 
 async function runEmailModule(domain) {
-  // Phase 1 — fire SPF + DMARC + generic DKIM selectors in parallel.
-  const [spfRes, dmarcRes, ...dkimPhase1] = await Promise.allSettled([
+  // Phase 1 — fire SPF + DMARC + BIMI + generic DKIM selectors in parallel.
+  const [spfRes, dmarcRes, bimiRes, ...dkimPhase1] = await Promise.allSettled([
     dnsQuery(domain, "TXT"),
     dnsQuery(`_dmarc.${domain}`, "TXT"),
+    dnsQuery(`default._bimi.${domain}`, "TXT"),
     ...DKIM_SELECTORS.map((sel) => dnsQuery(`${sel}._domainkey.${domain}`, "TXT")),
   ]);
 
   // SPF — look for v=spf1 in root TXT records
   const rootTxt  = spfRes.status === "fulfilled" ? (spfRes.value.Answer || []) : [];
-  const spfRecs  = rootTxt.filter((r) => r.data?.includes("v=spf1"));
+  const spfRecs  = rootTxt.filter((r) => normalizeDnsTxtValue(r.data).toLowerCase().startsWith("v=spf1"));
   const hasSPF   = spfRecs.length > 0;
 
   // DMARC — _dmarc.<domain> TXT
   const dmarcTxt  = dmarcRes.status === "fulfilled" ? (dmarcRes.value.Answer || []) : [];
-  const dmarcRecs = dmarcTxt.filter((r) => r.data?.includes("v=DMARC1"));
+  const dmarcRecs = dmarcTxt.filter((r) => normalizeDnsTxtValue(r.data).toLowerCase().startsWith("v=dmarc1"));
   const hasDMARC  = dmarcRecs.length > 0;
 
-  // Parse DMARC policy tag
-  let dmarcPolicy = null;
-  if (hasDMARC && dmarcRecs[0]?.data) {
-    const m = dmarcRecs[0].data.match(/p=([^;"\s]+)/);
-    dmarcPolicy = m ? m[1].trim().toLowerCase() : null;
-  }
-
   // Infer email provider from SPF record
-  const spfRecord    = hasSPF ? spfRecs[0].data : null;
+  const spfRecord    = hasSPF ? normalizeDnsTxtValue(spfRecs[0].data) : null;
   const emailProvider = inferEmailProvider(spfRecord);
 
   // Check phase 1 DKIM results
@@ -2160,23 +2154,44 @@ async function runEmailModule(domain) {
     }
   }
 
-  return {
+  const dmarcRecord = hasDMARC ? normalizeDnsTxtValue(dmarcRecs[0].data) : null;
+  const spfDetail = parseSpfRecord(spfRecord, spfRecs.length);
+  const dmarcDetail = parseDmarcRecord(dmarcRecord, dmarcRecs.length);
+  const dkim = {
+    present:          dkimSelector !== null,
+    selector:         dkimSelector,
+    provider:         emailProvider,
+    selectors_probed: [...DKIM_SELECTORS, ...phase2Selectors],
+  };
+  const bimiAnswers = bimiRes.status === "fulfilled" ? (bimiRes.value.Answer || []) : [];
+  const bimiRecord = bimiAnswers
+    .map((answer) => normalizeDnsTxtValue(answer.data))
+    .find((value) => value.toLowerCase().startsWith("v=bimi1")) || null;
+  const bimiReadiness = parseBimiRecord(bimiRecord, dmarcDetail);
+  const details = {
+    spf_detail: spfDetail,
+    dmarc_detail: dmarcDetail,
+    dkim_detail: buildDkimDetail(dkim),
+    bimi_readiness: bimiReadiness,
+    policy_journey: buildDmarcPolicyJourney(dmarcDetail),
+  };
+  const result = {
     spf: {
       present: hasSPF,
       record:  spfRecord,
+      record_count: spfRecs.length,
     },
     dmarc: {
       present: hasDMARC,
-      policy:  dmarcPolicy,
-      record:  hasDMARC ? dmarcRecs[0].data : null,
+      policy:  dmarcDetail.policy,
+      record:  dmarcRecord,
+      record_count: dmarcRecs.length,
     },
-    dkim: {
-      present:          dkimSelector !== null,
-      selector:         dkimSelector,
-      provider:         emailProvider,
-      selectors_probed: [...DKIM_SELECTORS, ...phase2Selectors],
-    },
+    dkim,
+    ...details,
   };
+  result.remediation_actions = buildEmailRemediationActions(domain, details);
+  return result;
 }
 
 // ── Email Security Applicability ─────────────────────────────────────────────
@@ -6031,9 +6046,9 @@ const RISK_CATEGORY_MAP = {
   "headers_referrer_missing":           { category: "Web Security",    impact: "Sensitive URL parameters and paths may be leaked to third-party services via the Referer header." },
   "headers_permissions_missing":        { category: "Web Security",    impact: "Unrestricted browser API access (camera, microphone, location) increases the blast radius of any XSS vulnerability." },
   "email_no_spf":                       { category: "Brand Risk",      impact: "Attackers can send phishing email impersonating your domain to customers and partners, undermining brand trust and enabling fraud." },
-  "email_no_dmarc":                     { category: "Brand Risk",      impact: "Without DMARC, email spoofing is trivially exploitable. Creates regulatory exposure under GDPR/FCA where email fraud targeting customers is reportable." },
-  "email_weak_dmarc":                   { category: "Brand Risk",      impact: "DMARC in monitoring-only mode provides visibility but no protection. Spoofed emails still reach recipients." },
-  "email_no_dkim":                      { category: "Brand Risk",      impact: "Missing DKIM allows attackers to forge email content in transit without detection." },
+  "email_no_dmarc":                     { category: "Brand Risk",      impact: "Without a valid DMARC policy, receivers have no domain-owner instruction for handling messages that fail alignment." },
+  "email_weak_dmarc":                   { category: "Brand Risk",      impact: "DMARC monitoring provides visibility, but receivers are not instructed to quarantine or reject alignment failures." },
+  "email_no_dkim":                      { category: "Brand Risk",      impact: "DKIM could not be verified using common selectors; a signed email sample or known selector is needed for confirmation." },
   "subdomain_takeover_risk":            { category: "Data Security",   impact: "Attackers can claim unclaimed DNS targets and serve malicious content or phishing pages under your trusted domain, bypassing browser security controls." },
   "tech_xpoweredby_version_disclosure": { category: "Reconnaissance",  impact: "Version disclosure accelerates targeted exploitation by eliminating attacker reconnaissance time for known CVEs." },
   "tech_server_version_disclosure":     { category: "Reconnaissance",  impact: "Exposed server version enables immediate targeting of known CVEs specific to your software revision." },
@@ -6245,26 +6260,374 @@ function runRemediationModule(findings, kevModule, takeoverModule) {
 //       DMARC=50, SPF=20, DKIM=20, MTA-STS=5, TLS-RPT=5
 //   • All failures are swallowed; no scan can fail because of this module
 
-/** Parse a DMARC TXT record string into key→value pairs */
-function parseDmarcRecord(record) {
-  if (!record) return {};
-  const out = {};
-  for (const chunk of record.split(";")) {
+function normalizeDnsTxtValue(record) {
+  return String(record || "").trim().replace(/^"|"$/g, "").replace(/"\s*"/g, "");
+}
+
+function parseDmarcRecord(record, recordCount = record ? 1 : 0) {
+  const raw = normalizeDnsTxtValue(record);
+  const tags = {};
+  const warnings = [];
+  for (const chunk of raw.split(";")) {
     const part = chunk.trim();
-    if (!part.includes("=")) continue;
-    const eq  = part.indexOf("=");
+    const eq = part.indexOf("=");
+    if (eq <= 0) continue;
     const key = part.slice(0, eq).trim().toLowerCase();
-    const val = part.slice(eq + 1).trim().replace(/^"(.*)"$/, "$1");
-    if (["p", "sp", "rua", "ruf", "adkim", "aspf"].includes(key)) {
-      out[key] = val;
-    } else if (key === "pct") {
-      const n = parseInt(val, 10);
-      out.pct = isNaN(n) ? 100 : Math.max(0, Math.min(100, n));
-    } else {
-      out[key] = val;
-    }
+    const value = part.slice(eq + 1).trim();
+    if (key) tags[key] = value;
   }
-  return out;
+
+  const policy = tags.p?.toLowerCase() || null;
+  const subdomainPolicy = tags.sp?.toLowerCase() || null;
+  const pctRaw = tags.pct;
+  const pctParsed = pctRaw == null || pctRaw === "" ? 100 : Number(pctRaw);
+  const pctValid = Number.isInteger(pctParsed) && pctParsed >= 0 && pctParsed <= 100;
+  const percentage = pctValid ? pctParsed : 100;
+  const rua = (tags.rua || "").split(",").map((value) => value.trim()).filter(Boolean);
+  const ruf = (tags.ruf || "").split(",").map((value) => value.trim()).filter(Boolean);
+
+  if (recordCount === 0 || !raw) warnings.push("No DMARC record was found.");
+  if (recordCount > 1) warnings.push("Multiple DMARC records were found; DMARC requires exactly one record.");
+  if (raw && tags.v?.toUpperCase() !== "DMARC1") warnings.push("The DMARC version tag must be v=DMARC1.");
+  if (raw && !["none", "quarantine", "reject"].includes(policy)) warnings.push("The DMARC policy tag must be none, quarantine, or reject.");
+  if (!pctValid) warnings.push("The DMARC pct value must be an integer from 0 to 100.");
+  if (pctValid && percentage < 100) warnings.push(`DMARC enforcement applies to ${percentage}% of messages.`);
+  if (raw && rua.length === 0) warnings.push("No aggregate reporting address (rua) is configured.");
+  if (raw && !subdomainPolicy) warnings.push("No explicit subdomain policy (sp) is configured; subdomains inherit the main policy.");
+
+  const valid = Boolean(raw) && recordCount === 1 && tags.v?.toUpperCase() === "DMARC1" &&
+    ["none", "quarantine", "reject"].includes(policy) && pctValid;
+
+  return {
+    raw: raw || null,
+    valid,
+    record_count: recordCount,
+    policy,
+    subdomain_policy: subdomainPolicy,
+    percentage,
+    pct: percentage,
+    rua,
+    ruf,
+    adkim: ["r", "s"].includes(tags.adkim?.toLowerCase()) ? tags.adkim.toLowerCase() : "r",
+    aspf: ["r", "s"].includes(tags.aspf?.toLowerCase()) ? tags.aspf.toLowerCase() : "r",
+    fo: tags.fo || null,
+    has_reporting: rua.length > 0,
+    has_failure_reporting: ruf.length > 0,
+    tags,
+    warnings,
+  };
+}
+
+function parseSpfRecord(record, recordCount = record ? 1 : 0) {
+  const raw = normalizeDnsTxtValue(record);
+  const tokens = raw.split(/\s+/).filter(Boolean);
+  const mechanisms = [];
+  const includes = [];
+  const redirects = [];
+  const ip4 = [];
+  const ip6 = [];
+  const warnings = [];
+  let allMechanism = null;
+  let lookupCountEstimate = 0;
+
+  for (const token of tokens.slice(1)) {
+    const qualifier = ["+", "-", "~", "?"].includes(token[0]) ? token[0] : "+";
+    const body = qualifier === token[0] ? token.slice(1) : token;
+    if (body.startsWith("redirect=")) {
+      const value = body.slice("redirect=".length);
+      if (value) redirects.push(value);
+      lookupCountEstimate += 1;
+      mechanisms.push({ raw: token, qualifier, mechanism: "redirect", value });
+      continue;
+    }
+    const colon = body.indexOf(":");
+    const mechanism = (colon >= 0 ? body.slice(0, colon) : body).split("/")[0].toLowerCase();
+    const value = colon >= 0 ? body.slice(colon + 1) : null;
+    mechanisms.push({ raw: token, qualifier, mechanism, value });
+    if (mechanism === "include" && value) includes.push(value);
+    if (mechanism === "ip4" && value) ip4.push(value);
+    if (mechanism === "ip6" && value) ip6.push(value);
+    if (["include", "a", "mx", "exists", "ptr"].includes(mechanism)) lookupCountEstimate += 1;
+    if (mechanism === "all") allMechanism = token;
+  }
+
+  const policyStrength = allMechanism === "-all" ? "strong"
+    : allMechanism === "~all" ? "soft"
+      : allMechanism === "?all" ? "neutral"
+        : allMechanism === "+all" || allMechanism === "all" ? "weak"
+          : "unknown";
+  if (recordCount === 0 || !raw) warnings.push("No SPF record was found.");
+  if (recordCount > 1) warnings.push("Multiple SPF records were found; SPF requires exactly one record.");
+  if (raw && tokens[0]?.toLowerCase() !== "v=spf1") warnings.push("The SPF record must begin with v=spf1.");
+  if (allMechanism === "+all" || allMechanism === "all") warnings.push("The +all mechanism authorises any sender.");
+  if (allMechanism === "?all") warnings.push("The ?all mechanism provides no clear policy for unauthorised senders.");
+  if (allMechanism === "~all") warnings.push("The ~all mechanism uses softfail rather than strict failure.");
+  if (lookupCountEstimate > 10) warnings.push(`The SPF record is estimated to require ${lookupCountEstimate} DNS lookups; SPF permits at most 10.`);
+  if (mechanisms.some((item) => item.mechanism === "ptr")) warnings.push("The SPF ptr mechanism is discouraged and can produce unreliable results.");
+  if (includes.length > 5) warnings.push("The SPF record contains many broad include mechanisms; review whether each sender is still required.");
+
+  return {
+    raw: raw || null,
+    valid: Boolean(raw) && recordCount === 1 && tokens[0]?.toLowerCase() === "v=spf1",
+    record_count: recordCount,
+    mechanisms,
+    includes,
+    redirects,
+    ip4,
+    ip6,
+    all_mechanism: allMechanism,
+    policy_strength: policyStrength,
+    lookup_count_estimate: lookupCountEstimate,
+    warnings,
+  };
+}
+
+function buildDmarcPolicyJourney(detail) {
+  if (!detail?.raw || !detail.valid) {
+    return {
+      stage: "missing",
+      label: detail?.raw ? "Invalid DMARC configuration" : "No DMARC",
+      next_step: detail?.raw
+        ? "Publish one valid DMARC record before moving towards enforcement."
+        : "Publish a monitoring policy with aggregate reporting, then validate legitimate senders before enforcement.",
+      business_risk: "Receiving systems do not have a reliable DMARC enforcement instruction for this domain.",
+    };
+  }
+  if (detail.policy === "none") {
+    return {
+      stage: "monitoring",
+      label: "Monitoring only",
+      next_step: "Review legitimate sending sources, then move gradually to p=quarantine.",
+      business_risk: "Reports may be collected, but receivers are not instructed to quarantine or reject messages that fail DMARC alignment.",
+    };
+  }
+  if (detail.policy === "quarantine" || detail.percentage < 100) {
+    return {
+      stage: "partial_enforcement",
+      label: detail.policy === "quarantine" ? "Quarantine" : `Reject at ${detail.percentage}%`,
+      next_step: "Confirm legitimate mail remains aligned, then increase coverage towards p=reject with pct=100.",
+      business_risk: "Some messages that fail DMARC may still be delivered, depending on policy coverage and receiver handling.",
+    };
+  }
+  return {
+    stage: "full_enforcement",
+    label: "Reject",
+    next_step: "Continue monitoring aggregate reports and maintain SPF and DKIM alignment as senders change.",
+    business_risk: "This is the strongest DMARC policy, although receiver behavior and indirect spoofing risks still vary.",
+  };
+}
+
+function buildDkimDetail(dkim = {}) {
+  if (dkim.present && dkim.selector) {
+    return {
+      status: "detected",
+      confidence: "high",
+      selector: dkim.selector,
+      provider: dkim.provider || null,
+      explanation: `A DKIM DNS record was detected for selector ${dkim.selector}.`,
+      limitation: "Full DKIM validation requires a signed email header to confirm that messages are being signed and aligned.",
+    };
+  }
+  const provider = dkim.provider ? (DKIM_PROVIDER_LABELS[dkim.provider] || dkim.provider) : null;
+  return {
+    status: provider ? "uncertain" : "not_detected",
+    confidence: provider ? "medium" : "low",
+    selector: null,
+    provider: dkim.provider || null,
+    explanation: provider
+      ? `${provider} was inferred as the email provider, but DKIM could not be verified using the common selectors checked. A custom selector may be in use.`
+      : "DKIM could not be verified using the common selectors checked. A custom selector may be in use.",
+    limitation: "DKIM can only be fully verified from a signed email header or a known selector.",
+  };
+}
+
+function parseBimiRecord(record, dmarcDetail) {
+  const raw = normalizeDnsTxtValue(record);
+  const tags = {};
+  for (const part of raw.split(";")) {
+    const eq = part.indexOf("=");
+    if (eq <= 0) continue;
+    tags[part.slice(0, eq).trim().toLowerCase()] = part.slice(eq + 1).trim();
+  }
+  const recordFound = Boolean(raw && tags.v?.toUpperCase() === "BIMI1");
+  const logoUrl = tags.l || null;
+  const certificateUrl = tags.a || null;
+  const enforced = dmarcDetail?.valid && ["quarantine", "reject"].includes(dmarcDetail.policy) && dmarcDetail.percentage === 100;
+  const blockers = [];
+  const warnings = [];
+  if (recordFound && !enforced) blockers.push("BIMI normally requires DMARC enforcement with full policy coverage.");
+  if (recordFound && !logoUrl) warnings.push("The BIMI record does not include a logo URL.");
+  if (recordFound && !certificateUrl) warnings.push("Some mailbox providers require a VMC or CMC mark certificate.");
+  return {
+    record_found: recordFound,
+    raw: raw || null,
+    logo_url: logoUrl,
+    certificate_url: certificateUrl,
+    gmail_ready: "unknown",
+    blockers,
+    warnings,
+  };
+}
+
+function buildEmailTransportDetails(emailIntel = {}) {
+  const mta = emailIntel.mta_sts || {};
+  const tls = emailIntel.tls_rpt || {};
+  return {
+    mta_sts_detail: {
+      record_found: null,
+      policy_found: mta.enabled === true,
+      mode: ["enforce", "testing", "none"].includes(mta.policy_mode) ? mta.policy_mode : "unknown",
+      warnings: [
+        ...(mta.errors || []),
+        ...(!mta.enabled ? ["An MTA-STS policy file was not confirmed during this scan."] : []),
+        "The _mta-sts DNS TXT record is not assessed separately in this version.",
+      ],
+    },
+    tls_rpt_detail: {
+      record_found: tls.enabled === true,
+      rua: tls.reporting_uris || [],
+      warnings: tls.errors || [],
+    },
+  };
+}
+
+function remediationAction(id, protocol, severity, title, issue, businessRisk, recommendedAction, extra = {}) {
+  return {
+    id,
+    category: "email_authentication",
+    protocol,
+    severity,
+    confidence: extra.confidence || "high",
+    title,
+    issue,
+    business_risk: businessRisk,
+    recommended_action: recommendedAction,
+    suggested_dns_record: extra.suggested_dns_record || null,
+    copyable_value: extra.copyable_value || extra.suggested_dns_record || null,
+    caution: extra.caution || null,
+    status: "open",
+  };
+}
+
+function buildEmailRemediationActions(domain, details, emailIntel = {}) {
+  const { spf_detail: spf, dmarc_detail: dmarc, dkim_detail: dkim, bimi_readiness: bimi } = details;
+  const actions = [];
+  const reportAddress = `dmarc-reports@${domain}`;
+
+  if (!dmarc.raw) {
+    const value = `v=DMARC1; p=none; rua=mailto:${reportAddress}; fo=1`;
+    actions.push(remediationAction("dmarc_missing", "DMARC", "high", "Publish a DMARC monitoring record",
+      "No DMARC record was found.",
+      "Receiving systems do not have a domain-owner policy for handling messages that fail DMARC alignment.",
+      "Publish a monitoring record, identify legitimate senders from aggregate reports, then move gradually towards enforcement.",
+      { suggested_dns_record: value, caution: "Do not move directly to enforcement until legitimate sending services are confirmed." }));
+  } else if (dmarc.record_count > 1) {
+    actions.push(remediationAction("dmarc_multiple_records", "DMARC", "high", "Consolidate multiple DMARC records",
+      `${dmarc.record_count} DMARC records were detected.`,
+      "Multiple DMARC records can cause receivers to treat DMARC as invalid.",
+      "Merge the required tags into one TXT record at the _dmarc hostname."));
+  } else if (!dmarc.valid) {
+    actions.push(remediationAction("dmarc_invalid_record", "DMARC", "high", "Correct the invalid DMARC record",
+      dmarc.warnings.join(" ") || "The DMARC record could not be validated.",
+      "An invalid record may be ignored by receiving systems.",
+      "Correct the version, policy, and percentage tags while preserving valid reporting destinations."));
+  }
+  if (dmarc.valid && dmarc.policy === "none") {
+    const value = `v=DMARC1; p=quarantine; pct=100; rua=mailto:${reportAddress}`;
+    actions.push(remediationAction("dmarc_policy_monitoring_only", "DMARC", "medium", "DMARC is in monitoring mode only",
+      "The DMARC policy is set to p=none.",
+      "Receivers are not instructed to quarantine or reject messages that fail DMARC alignment.",
+      "Confirm legitimate sending sources, then move gradually towards quarantine and reject.",
+      { suggested_dns_record: value, caution: "Do not move to enforcement until legitimate senders are confirmed." }));
+  }
+  if (dmarc.raw && !dmarc.has_reporting) {
+    actions.push(remediationAction("dmarc_reporting_missing", "DMARC", "medium", "Add aggregate DMARC reporting",
+      "The DMARC record does not include a rua destination.",
+      "Without aggregate reports, legitimate and unauthorised sending sources are harder to validate.",
+      "Add a monitored aggregate reporting mailbox or DMARC reporting service.",
+      { suggested_dns_record: `rua=mailto:${reportAddress}`, caution: "Use a mailbox or service capable of handling DMARC XML reports." }));
+  }
+  if (dmarc.valid && dmarc.percentage < 100) {
+    actions.push(remediationAction("dmarc_partial_percentage", "DMARC", "medium", "Increase DMARC policy coverage",
+      `The DMARC pct tag applies policy to ${dmarc.percentage}% of messages.`,
+      "Messages outside the rollout percentage may not receive the requested enforcement treatment.",
+      "After validating legitimate senders, increase pct gradually towards 100."));
+  }
+
+  if (!spf.raw) {
+    const value = "v=spf1 -all";
+    actions.push(remediationAction("spf_missing", "SPF", "high", "Publish an SPF policy",
+      "No SPF record was found.",
+      "Receiving systems cannot use SPF to identify authorised sending infrastructure for this domain.",
+      "Inventory every legitimate sender and publish one SPF record.",
+      { suggested_dns_record: value, caution: "The example value is suitable only for a domain that sends no mail. Add legitimate senders before using -all." }));
+  } else if (spf.record_count > 1) {
+    actions.push(remediationAction("spf_multiple_records", "SPF", "high", "Consolidate multiple SPF records",
+      `${spf.record_count} SPF records were detected.`,
+      "Multiple SPF records can produce a permanent SPF evaluation error.",
+      "Merge all required mechanisms into one v=spf1 TXT record."));
+  }
+  if (spf.all_mechanism === "+all" || spf.all_mechanism === "all") {
+    actions.push(remediationAction("spf_permissive_all", "SPF", "critical", "Remove the permissive SPF +all mechanism",
+      "The SPF policy authorises any sender.",
+      "The record does not provide a meaningful SPF restriction.",
+      "Inventory authorised senders, remove +all, and finish with the appropriate restrictive policy.",
+      { caution: "Confirm every legitimate sending service before applying -all." }));
+  } else if (spf.all_mechanism === "?all") {
+    actions.push(remediationAction("spf_neutral_all", "SPF", "medium", "Strengthen the neutral SPF policy",
+      "The SPF policy ends with ?all.",
+      "Neutral SPF provides no clear instruction for unauthorised senders.",
+      "Validate sending sources, then move to ~all or -all as appropriate."));
+  } else if (spf.all_mechanism === "~all") {
+    actions.push(remediationAction("spf_softfail_all", "SPF", "low", "Review SPF softfail policy",
+      "The SPF policy ends with ~all.",
+      "Softfail is less restrictive than -all, although it is commonly used during rollout.",
+      "Once all legitimate senders are confirmed, consider moving to -all."));
+  }
+  if (spf.lookup_count_estimate > 10) {
+    actions.push(remediationAction("spf_lookup_limit", "SPF", "high", "Reduce SPF DNS lookups",
+      `The SPF record is estimated to require ${spf.lookup_count_estimate} DNS lookups.`,
+      "SPF evaluation may return a permanent error when the 10-lookup limit is exceeded.",
+      "Remove unused includes and consolidate sending services without flattening records manually unless change management is in place."));
+  }
+  if (spf.mechanisms.some((item) => item.mechanism === "ptr")) {
+    actions.push(remediationAction("spf_ptr_mechanism", "SPF", "medium", "Remove the SPF ptr mechanism",
+      "The SPF record uses the discouraged ptr mechanism.",
+      "PTR evaluation is costly and can be unreliable across receivers.",
+      "Replace ptr with explicit include, ip4, ip6, a, or mx mechanisms where appropriate."));
+  }
+
+  if (dkim.status !== "detected") {
+    actions.push(remediationAction("dkim_verification_uncertain", "DKIM", "info", "Confirm the active DKIM selector",
+      "DKIM could not be verified using common selectors.",
+      "This does not confirm that DKIM signing is absent; a custom selector may be in use.",
+      "Confirm the selector with the email provider or inspect a signed email Authentication-Results header.",
+      { confidence: dkim.confidence }));
+  }
+  if (!bimi.record_found) {
+    actions.push(remediationAction("bimi_not_configured", "BIMI", "info", "Consider BIMI after email authentication is mature",
+      "No BIMI record was found.",
+      "BIMI is optional and does not replace SPF, DKIM, or DMARC.",
+      "Prioritise DMARC enforcement first, then evaluate BIMI if brand indicators are valuable."));
+  } else {
+    if (bimi.blockers.length > 0) actions.push(remediationAction("bimi_dmarc_enforcement_required", "BIMI", "low", "Complete DMARC enforcement for BIMI readiness",
+      bimi.blockers.join(" "), "Mailbox providers may not display the BIMI logo until authentication requirements are met.",
+      "Complete DMARC enforcement before treating the BIMI record as ready."));
+    if (!bimi.certificate_url) actions.push(remediationAction("bimi_certificate_not_listed", "BIMI", "info", "Review BIMI mark certificate requirements",
+      "The BIMI record does not include a certificate URL.", "Some mailbox providers require a valid VMC or CMC certificate.",
+      "Confirm target mailbox-provider requirements before purchasing or publishing a mark certificate."));
+  }
+
+  const transport = buildEmailTransportDetails(emailIntel);
+  if (emailIntel.mta_sts && !transport.mta_sts_detail.policy_found) actions.push(remediationAction("mta_sts_policy_missing", "MTA-STS", "low", "Review MTA-STS transport policy",
+    "An MTA-STS policy file was not confirmed.", "Inbound SMTP TLS enforcement may be less resilient to downgrade or misconfiguration.",
+    "Assess MTA-STS after confirming the domain's MX configuration and operational ownership."));
+  if (emailIntel.tls_rpt && !transport.tls_rpt_detail.record_found) actions.push(remediationAction("tls_rpt_missing", "TLS-RPT", "info", "Add TLS delivery reporting",
+    "No TLS-RPT record was confirmed.", "Email administrators may have less visibility into SMTP TLS delivery failures.",
+    `Publish v=TLSRPTv1; rua=mailto:tls-reports@${domain} at _smtp._tls.${domain}.`,
+    { suggested_dns_record: `v=TLSRPTv1; rua=mailto:tls-reports@${domain}` }));
+
+  return actions;
 }
 
 /**
@@ -6274,19 +6637,23 @@ function parseDmarcRecord(record) {
 function enrichSpf(emailMod) {
   const spf    = emailMod?.spf || {};
   const record = spf.record || null;
+  const detail = emailMod?.spf_detail || parseSpfRecord(record, spf.record_count ?? (record ? 1 : 0));
   if (!spf.present || !record) {
-    return { status: "MISSING", record: null, score: 0, issue: "No SPF record found." };
+    return { status: "MISSING", record: null, score: 0, issue: "No SPF record found.", detail };
   }
-  if (record.includes("+all")) {
-    return { status: "FAIL",     record, score: 5,  issue: "SPF uses +all — any mail server is authorised to send on behalf of this domain." };
+  if (!detail.valid || detail.record_count > 1) {
+    return { status: "FAIL", record, score: 5, issue: detail.warnings.join(" "), detail };
   }
-  if (record.includes("-all")) {
-    return { status: "PASS",     record, score: 20, issue: "" };
+  if (detail.all_mechanism === "+all" || detail.all_mechanism === "all") {
+    return { status: "FAIL", record, score: 5, issue: "SPF uses +all, which authorises any sender.", detail };
   }
-  if (record.includes("~all")) {
-    return { status: "SOFTFAIL", record, score: 15, issue: "SPF uses ~all (softfail) — not fully strict." };
+  if (detail.all_mechanism === "-all") {
+    return { status: "PASS", record, score: 20, issue: detail.lookup_count_estimate > 10 ? detail.warnings.join(" ") : "", detail };
   }
-  return   { status: "PARTIAL", record, score: 10, issue: "SPF record present but does not end with -all." };
+  if (detail.all_mechanism === "~all") {
+    return { status: "SOFTFAIL", record, score: 15, issue: "SPF uses ~all (softfail), which is less restrictive than -all.", detail };
+  }
+  return { status: "PARTIAL", record, score: 10, issue: "SPF is present but does not use a strict -all policy.", detail };
 }
 
 /**
@@ -6299,23 +6666,27 @@ function enrichDmarc(emailMod) {
   const rawRecord = dmarc.record || null;
 
   if (!dmarc.present || !rawRecord) {
+    const detail = emailMod?.dmarc_detail || parseDmarcRecord(null, 0);
     return {
       status: "MISSING", policy: null, subdomain_policy: null, pct: 0,
       rua: null, ruf: null, risk_level: "CRITICAL",
       message: "DMARC record not found. Email spoofing risk is high.",
-      record: null,
+      record: null, detail,
     };
   }
 
-  const parsed = parseDmarcRecord(rawRecord);
-  const policy = parsed.p    || "none";
-  const sp     = parsed.sp   || null;
-  const pct    = typeof parsed.pct === "number" ? parsed.pct : 100;
-  const rua    = parsed.rua  || null;
-  const ruf    = parsed.ruf  || null;
+  const parsed = emailMod?.dmarc_detail || parseDmarcRecord(rawRecord, dmarc.record_count ?? 1);
+  const policy = parsed.policy || "none";
+  const sp     = parsed.subdomain_policy || null;
+  const pct    = parsed.percentage;
+  const rua    = parsed.rua.join(", ") || null;
+  const ruf    = parsed.ruf.join(", ") || null;
 
   let status, riskLevel, message;
-  if (policy === "reject" && pct === 100) {
+  if (!parsed.valid) {
+    status = "ERROR"; riskLevel = "HIGH";
+    message = parsed.warnings.join(" ") || "The DMARC record is invalid.";
+  } else if (policy === "reject" && pct === 100) {
     status = "FULLY_PROTECTED";   riskLevel = "LOW";
     message = "Full DMARC protection active (p=reject, pct=100).";
   } else if (policy === "reject" && pct < 100) {
@@ -6335,7 +6706,7 @@ function enrichDmarc(emailMod) {
     message = `Unknown or unparseable DMARC policy: '${policy}'.`;
   }
 
-  return { status, policy, subdomain_policy: sp, pct, rua, ruf, risk_level: riskLevel, message, record: rawRecord };
+  return { status, policy, subdomain_policy: sp, pct, rua, ruf, risk_level: riskLevel, message, record: rawRecord, detail: parsed };
 }
 
 /**
@@ -6344,10 +6715,11 @@ function enrichDmarc(emailMod) {
  */
 function enrichDkim(emailMod) {
   const dkim = emailMod?.dkim || {};
+  const detail = emailMod?.dkim_detail || buildDkimDetail(dkim);
   if (dkim.present && dkim.selector) {
-    return { status: "VERIFIED",     selector: dkim.selector, issue: "" };
+    return { status: "VERIFIED", selector: dkim.selector, issue: "", detail };
   }
-  return   { status: "NOT_VERIFIED", selector: null,          issue: "DKIM could not be verified using common selectors; a custom selector may be in use." };
+  return { status: "NOT_VERIFIED", selector: null, issue: detail.explanation, detail };
 }
 
 /**
@@ -6604,7 +6976,7 @@ function buildEmailIntelFindings(spf, dmarc, dkim, mtaSts, tlsRpt) {
       module:         "email_security_intelligence",
       severity:       "high",
       title:          "DMARC record is missing",
-      description:    "No DMARC record was found at _dmarc.<domain>. Without DMARC, your domain can be trivially spoofed to send phishing emails to customers and business partners.",
+      description:    "No DMARC record was found at _dmarc.<domain>. Receivers therefore have no domain-owner policy for handling messages that fail DMARC alignment.",
       recommendation: "Publish a DMARC TXT record. Start with p=none to collect aggregate reports (rua=), then graduate to p=quarantine and p=reject.",
       score_impact:   0,
     });
@@ -6614,7 +6986,7 @@ function buildEmailIntelFindings(spf, dmarc, dkim, mtaSts, tlsRpt) {
       module:         "email_security_intelligence",
       severity:       "medium",
       title:          "DMARC is in monitoring mode only (p=none)",
-      description:    "A DMARC record exists but enforcement is disabled (p=none). Spoofed emails purporting to come from this domain will still reach recipients.",
+      description:    "A DMARC record exists with p=none. Receivers are not instructed to quarantine or reject messages that fail DMARC alignment.",
       recommendation: "Review DMARC aggregate reports and migrate to p=quarantine, then p=reject once all email sources are validated.",
       score_impact:   0,
     });
@@ -7320,7 +7692,7 @@ function computeScore(modules, domain) {
         severity:     "high",
         confidence:   "high",
         title:        "Missing DMARC Policy",
-        description:  `No DMARC TXT record found at _dmarc.${domain}. Email spoofing of this domain is not prevented.`,
+        description:  `No DMARC TXT record was found at _dmarc.${domain}. Receivers have no domain-owner policy for handling messages that fail DMARC alignment.`,
         score_impact: -15,
         evidence: {
           evidence_type:               "dns_txt_lookup",
@@ -7348,7 +7720,7 @@ function computeScore(modules, domain) {
         severity:     "medium",
         confidence:   "high",
         title:        "DMARC Policy is Monitor-Only (p=none)",
-        description:  `DMARC is configured at _dmarc.${domain} but the policy is p=none — emails are not quarantined or rejected.`,
+        description:  `DMARC is configured at _dmarc.${domain} with p=none. Receivers are not instructed to quarantine or reject messages that fail DMARC alignment.`,
         score_impact: -5,
         evidence: {
           evidence_type:               "dns_txt_lookup",
@@ -7378,7 +7750,7 @@ function computeScore(modules, domain) {
         severity:     "high",
         confidence:   "high",
         title:        "Missing SPF Record",
-        description:  `No SPF TXT record found for ${domain}. Any mail server can send email claiming to originate from this domain.`,
+        description:  `No SPF TXT record was found for ${domain}. Receivers cannot use SPF to identify authorised sending infrastructure for this domain.`,
         score_impact: -10,
         evidence: {
           evidence_type:               "dns_txt_lookup",
@@ -8043,6 +8415,16 @@ function buildExecutiveReportV2({ scan, rawReport, workspace = null, generatedAt
           provider_detection: evidence.email_security?.dkim?.provider || null,
           email_security_score: evidence.email_security_intelligence?.email_security_score ?? null,
           rating: evidence.email_security_intelligence?.rating || null,
+          remediation: evidence.email_security ? {
+            spf_detail: evidence.email_security.spf_detail || null,
+            dmarc_detail: evidence.email_security.dmarc_detail || null,
+            dkim_detail: evidence.email_security.dkim_detail || null,
+            bimi_readiness: evidence.email_security.bimi_readiness || null,
+            mta_sts_detail: evidence.email_security.mta_sts_detail || null,
+            tls_rpt_detail: evidence.email_security.tls_rpt_detail || null,
+            policy_journey: evidence.email_security.policy_journey || null,
+            actions: evidence.email_security.remediation_actions || [],
+          } : null,
         },
         findings: emailFindings,
         observations: emailObservations,
@@ -9095,7 +9477,7 @@ async function upsertAssetInventory(scanId, domainId, domain, modules, env) {
 //                         Was: 11 — missed DNSSEC (3) + CAA Google cross-check (1) + TXT cross-checks (2)
 //   ssl             — 4  (HTTPS + www-HTTPS fallback + HTTP + crt.sh)
 //   headers         — 2  (HTTPS + HTTP fallback)
-//   email_security  — 22 (TXT root + _dmarc + 19 DKIM selector probes + up to 3 Phase 2 provider extras)
+//   email_security  — 23 (TXT root + _dmarc + BIMI + 19 DKIM selector probes + up to 3 Phase 2 provider extras)
 //                         Was: 15 — DKIM expanded from 13 → 19 selectors in Sprint 9D but estimate never updated
 //   ct_discovery    — 4  (wildcard A + AAAA DoH + crt.sh + CertSpotter)
 //   dns_bruteforce  — actual checked count (capped at BRUTEFORCE_MAX_NAMES = 15)
@@ -9110,7 +9492,7 @@ function computeScanBudget(bruteforceChecked) {
     dns:                        17,
     ssl:                        4,
     headers:                    2,
-    email_security:             22,
+    email_security:             23,
     ct_discovery:               4,
     dns_bruteforce:             typeof bruteforceChecked === "number" ? bruteforceChecked : BRUTEFORCE_MAX_NAMES,
     asset_exposure:             0,
@@ -9296,6 +9678,11 @@ async function runScanEngine(scanId, domainId, workspaceId, domain, env) {
       // so brand findings are included in the scored findings array.
       brand_monitoring: runTyposquatModule(domain),
     };
+    const emailApplicability = isEmailApplicable(domain, modules.dns);
+    if (!modules.email_security.error) {
+      modules.email_security.applicability = emailApplicability;
+      if (!emailApplicability.applicable) modules.email_security.remediation_actions = [];
+    }
 
     // Compute Cyber Metrics Score
     const { score, risk_level, findings, recommendations } = computeScore(modules, domain);
@@ -9500,6 +9887,15 @@ async function runScanEngine(scanId, domainId, workspaceId, domain, env) {
     modules.email_security_intelligence = emailIntelSettled.status === "fulfilled"
       ? emailIntelSettled.value
       : { error: customerSafeFailure("scan/email-intelligence", emailIntelSettled.reason, "Email intelligence module failed") };
+    if (!modules.email_security_intelligence.error && emailApplicability.applicable) {
+      const transportDetails = buildEmailTransportDetails(modules.email_security_intelligence);
+      Object.assign(modules.email_security, transportDetails);
+      modules.email_security.remediation_actions = buildEmailRemediationActions(
+        domain,
+        modules.email_security,
+        modules.email_security_intelligence
+      );
+    }
 
     // Phase 6: Risk intelligence + Remediation plan (pure computation — no I/O)
     // Risk module enriches all findings with business-impact language and risk categories.

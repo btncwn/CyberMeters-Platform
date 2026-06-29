@@ -248,7 +248,7 @@ function CopyButton({ text }) {
     <button
       onClick={handleCopy}
       className="flex items-center gap-1 text-[10px] text-gray-400 hover:text-gray-700 transition-colors flex-shrink-0"
-      title="Copy command"
+      title="Copy value"
     >
       {copied
         ? <CheckIcon className="w-3 h-3 text-brand-500" />
@@ -647,7 +647,9 @@ function EmailPanel({ email }) {
   if (!email || email.error) {
     return <div className="px-6 py-4 text-sm text-gray-400">{email?.error || 'No email security data'}</div>
   }
-  const { spf, dmarc, dkim } = email
+  const { spf, dmarc, dkim, spf_detail: spfDetail, dmarc_detail: dmarcDetail,
+    dkim_detail: dkimDetail, policy_journey: policyJourney } = email
+  const actions = email.remediation_actions || []
 
   const dmarcPolicyColor =
     dmarc?.policy === 'reject'      ? 'text-brand-700 bg-brand-50 border-brand-100' :
@@ -667,6 +669,11 @@ function EmailPanel({ email }) {
           }
         </div>
         {spf?.record && <p className="text-[11px] text-gray-400 mono mt-1 break-all">{spf.record}</p>}
+        {spfDetail?.includes?.length > 0 && (
+          <p className="text-[11px] text-gray-500 mt-1.5 break-all">
+            Includes: <span className="mono">{spfDetail.includes.join(', ')}</span>
+          </p>
+        )}
       </div>
 
       {/* DMARC */}
@@ -679,6 +686,11 @@ function EmailPanel({ email }) {
                 p={dmarc.policy}
               </span>
             )}
+            {policyJourney?.label && (
+              <span className="text-xs font-semibold text-gray-600 bg-gray-50 border border-gray-200 px-2 py-0.5 rounded-full">
+                {policyJourney.label}
+              </span>
+            )}
             {dmarc?.present
               ? <span className="inline-flex items-center gap-1 text-xs font-semibold text-brand-700 bg-brand-50 border border-brand-100 px-2 py-0.5 rounded-full"><CheckCircle className="w-3 h-3" />Present</span>
               : <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-700 bg-red-50 border border-red-100 px-2 py-0.5 rounded-full"><XCircle className="w-3 h-3" />Missing</span>
@@ -686,6 +698,12 @@ function EmailPanel({ email }) {
           </div>
         </div>
         {dmarc?.record && <p className="text-[11px] text-gray-400 mono mt-1 break-all">{dmarc.record}</p>}
+        <p className="text-[11px] text-gray-500 mt-1.5">
+          Aggregate reports: {dmarcDetail?.has_reporting ? dmarcDetail.rua.join(', ') : 'Not configured'}
+        </p>
+        <p className="text-[11px] text-gray-500 mt-0.5">
+          Failure reports: {dmarcDetail?.has_failure_reporting ? dmarcDetail.ruf.join(', ') : 'Not configured'}
+        </p>
       </div>
 
       {/* DKIM */}
@@ -701,9 +719,44 @@ function EmailPanel({ email }) {
           <p className="text-[11px] text-gray-400 mt-1">Selector: <span className="mono">{dkim.selector}</span></p>
         )}
         {!dkim?.present && (
-          <p className="text-[11px] text-gray-400 mt-1">Common selectors probed — custom selector may be in use.</p>
+          <p className="text-[11px] text-gray-400 mt-1">{dkimDetail?.explanation || 'Common selectors probed; a custom selector may be in use.'}</p>
         )}
       </div>
+
+      {actions.length > 0 && (
+        <div>
+          <div className="px-6 py-3 bg-gray-50 border-b border-gray-100">
+            <p className="text-xs font-semibold text-gray-700">Remediation actions</p>
+          </div>
+          {actions.map(action => (
+            <div key={action.id} className="px-6 py-4 border-b border-gray-50 last:border-b-0">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-gray-800">{action.title}</p>
+                  <p className="text-[11px] text-gray-500 mt-1 leading-relaxed">{action.business_risk}</p>
+                  <p className="text-[11px] text-gray-700 mt-1.5 leading-relaxed">{action.recommended_action}</p>
+                </div>
+                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border flex-shrink-0 ${
+                  action.severity === 'critical' || action.severity === 'high'
+                    ? 'bg-red-50 text-red-700 border-red-100'
+                    : action.severity === 'medium'
+                      ? 'bg-amber-50 text-amber-700 border-amber-100'
+                      : 'bg-gray-50 text-gray-600 border-gray-200'
+                }`}>
+                  {action.protocol}
+                </span>
+              </div>
+              {action.copyable_value && (
+                <div className="mt-3 flex items-start gap-3 bg-gray-50 border border-gray-100 rounded p-2.5">
+                  <code className="text-[11px] text-gray-600 break-all flex-1">{action.copyable_value}</code>
+                  <CopyButton text={action.copyable_value} />
+                </div>
+              )}
+              {action.caution && <p className="text-[10px] text-amber-700 mt-2 leading-relaxed">{action.caution}</p>}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

@@ -67,6 +67,13 @@ function loadScanner(fetchImpl = async () => { throw new Error("network disabled
     runSaasExposureModule,
     runCertificateIntelligenceModule,
     buildCertificateOwnershipAssessment,
+    parseDmarcRecord,
+    parseSpfRecord,
+    buildDmarcPolicyJourney,
+    buildDkimDetail,
+    parseBimiRecord,
+    buildEmailTransportDetails,
+    buildEmailRemediationActions,
     computeBusinessRiskScoreFromIds: (ids, data) => computeBusinessRiskScore(new Set(ids), data),
   };`, context, {
     filename: workerPath,
@@ -520,6 +527,107 @@ results.push(
       result.certificate_age_days === 30 &&
       result.suspicious_certificate_signals.find((signal) => signal.signal === "shared_certificate_observed")?.severity === "info";
   }),
+  securityContract("email_remediation_dmarc_parser", () => {
+    const detail = scanner.parseDmarcRecord(
+      "v=DMARC1; p=quarantine; sp=reject; pct=75; rua=mailto:agg@example.com,mailto:backup@example.com; ruf=mailto:forensic@example.com; adkim=s; aspf=r; fo=1",
+      1,
+    );
+    return detail.valid === true && detail.policy === "quarantine" && detail.subdomain_policy === "reject" &&
+      detail.percentage === 75 && detail.rua.length === 2 && detail.ruf.length === 1 &&
+      detail.adkim === "s" && detail.aspf === "r" && detail.fo === "1" &&
+      detail.has_reporting === true && detail.has_failure_reporting === true;
+  }),
+  securityContract("email_remediation_dmarc_policy_journey", () => {
+    const missing = scanner.buildDmarcPolicyJourney(scanner.parseDmarcRecord(null, 0));
+    const monitoring = scanner.buildDmarcPolicyJourney(scanner.parseDmarcRecord("v=DMARC1; p=none", 1));
+    const quarantine = scanner.buildDmarcPolicyJourney(scanner.parseDmarcRecord("v=DMARC1; p=quarantine", 1));
+    const reject = scanner.buildDmarcPolicyJourney(scanner.parseDmarcRecord("v=DMARC1; p=reject", 1));
+    return missing.stage === "missing" && monitoring.stage === "monitoring" &&
+      quarantine.stage === "partial_enforcement" && reject.stage === "full_enforcement";
+  }),
+  securityContract("email_remediation_dmarc_invalid_and_multiple", () => {
+    const invalid = scanner.parseDmarcRecord("v=DMARC1; p=invalid; pct=abc", 1);
+    const multiple = scanner.parseDmarcRecord("v=DMARC1; p=reject", 2);
+    return invalid.valid === false && invalid.warnings.some((warning) => warning.includes("policy")) &&
+      invalid.warnings.some((warning) => warning.includes("pct")) &&
+      multiple.valid === false && multiple.warnings.some((warning) => warning.includes("Multiple DMARC"));
+  }),
+  securityContract("email_remediation_spf_parser", () => {
+    const detail = scanner.parseSpfRecord(
+      "v=spf1 include:_spf.google.com include:sendgrid.net redirect=spf.example.net ip4:192.0.2.0/24 ip6:2001:db8::/32 -all",
+      1,
+    );
+    return detail.valid === true && detail.includes.length === 2 && detail.redirects[0] === "spf.example.net" &&
+      detail.ip4[0] === "192.0.2.0/24" && detail.ip6[0] === "2001:db8::/32" &&
+      detail.all_mechanism === "-all" && detail.policy_strength === "strong" && detail.lookup_count_estimate === 3;
+  }),
+  securityContract("email_remediation_spf_weak_and_multiple", () => {
+    const permissive = scanner.parseSpfRecord("v=spf1 +all", 1);
+    const neutral = scanner.parseSpfRecord("v=spf1 ?all", 1);
+    const soft = scanner.parseSpfRecord("v=spf1 ~all", 1);
+    const multiple = scanner.parseSpfRecord("v=spf1 -all", 2);
+    return permissive.policy_strength === "weak" && neutral.policy_strength === "neutral" &&
+      soft.policy_strength === "soft" && multiple.valid === false &&
+      multiple.warnings.some((warning) => warning.includes("Multiple SPF"));
+  }),
+  securityContract("email_remediation_spf_lookup_limit_and_ptr", () => {
+    const includes = Array.from({ length: 10 }, (_, index) => `include:sender${index}.example.net`).join(" ");
+    const detail = scanner.parseSpfRecord(`v=spf1 ${includes} ptr -all`, 1);
+    return detail.lookup_count_estimate === 11 && detail.warnings.some((warning) => warning.includes("at most 10")) &&
+      detail.warnings.some((warning) => warning.includes("ptr mechanism"));
+  }),
+  securityContract("email_remediation_dkim_and_bimi_detail", () => {
+    const dkim = scanner.buildDkimDetail({ present: false, provider: "google", selectors_probed: ["google"] });
+    const dmarc = scanner.parseDmarcRecord("v=DMARC1; p=none", 1);
+    const bimi = scanner.parseBimiRecord("v=BIMI1; l=https://example.com/logo.svg", dmarc);
+    return dkim.status === "uncertain" && dkim.confidence === "medium" &&
+      dkim.explanation.includes("custom selector") && bimi.record_found === true &&
+      bimi.logo_url === "https://example.com/logo.svg" && bimi.certificate_url === null &&
+      bimi.blockers.length === 1 && bimi.warnings.length === 1 && bimi.gmail_ready === "unknown";
+  }),
+  securityContract("email_remediation_action_generation", () => {
+    const dmarc = scanner.parseDmarcRecord("v=DMARC1; p=none; pct=50", 1);
+    const spf = scanner.parseSpfRecord("v=spf1 ptr ~all", 1);
+    const dkim = scanner.buildDkimDetail({ present: false });
+    const bimi = scanner.parseBimiRecord(null, dmarc);
+    const actions = scanner.buildEmailRemediationActions("example.com", {
+      dmarc_detail: dmarc,
+      spf_detail: spf,
+      dkim_detail: dkim,
+      bimi_readiness: bimi,
+    }, {
+      mta_sts: { enabled: false, errors: [] },
+      tls_rpt: { enabled: false, reporting_uris: [], errors: [] },
+    });
+    const ids = new Set(actions.map((action) => action.id));
+    return [
+      "dmarc_policy_monitoring_only", "dmarc_reporting_missing", "dmarc_partial_percentage",
+      "spf_softfail_all", "spf_ptr_mechanism", "dkim_verification_uncertain",
+      "bimi_not_configured", "mta_sts_policy_missing", "tls_rpt_missing",
+    ].every((id) => ids.has(id)) &&
+      actions.every((action) => action.category === "email_authentication" && action.status === "open");
+  }),
+  securityContract("email_remediation_missing_multiple_and_permissive_actions", () => {
+    const missingDmarc = scanner.parseDmarcRecord(null, 0);
+    const missingSpf = scanner.parseSpfRecord(null, 0);
+    const missingActions = scanner.buildEmailRemediationActions("example.com", {
+      dmarc_detail: missingDmarc,
+      spf_detail: missingSpf,
+      dkim_detail: scanner.buildDkimDetail({ present: true, selector: "selector1" }),
+      bimi_readiness: scanner.parseBimiRecord(null, missingDmarc),
+    });
+    const multipleActions = scanner.buildEmailRemediationActions("example.com", {
+      dmarc_detail: scanner.parseDmarcRecord("v=DMARC1; p=reject", 2),
+      spf_detail: scanner.parseSpfRecord("v=spf1 +all", 2),
+      dkim_detail: scanner.buildDkimDetail({ present: true, selector: "selector1" }),
+      bimi_readiness: scanner.parseBimiRecord("v=BIMI1; l=https://example.com/logo.svg", scanner.parseDmarcRecord("v=DMARC1; p=reject", 2)),
+    });
+    const missingIds = new Set(missingActions.map((action) => action.id));
+    const multipleIds = new Set(multipleActions.map((action) => action.id));
+    return missingIds.has("dmarc_missing") && missingIds.has("spf_missing") &&
+      multipleIds.has("dmarc_multiple_records") && multipleIds.has("spf_multiple_records") &&
+      multipleIds.has("spf_permissive_all") && multipleIds.has("bimi_certificate_not_listed");
+  }),
   securityContract("security_valid_domain_contract", () =>
     scanner.isValidDomain("example.co.uk") &&
     !scanner.isValidDomain(".example.com") &&
@@ -736,6 +844,12 @@ const executiveV2Fixture = scanner.buildExecutiveReportV2({
         spf: { present: true },
         dkim: { present: false, provider: "google" },
         dmarc: { present: true, policy: "reject" },
+        spf_detail: { valid: true, includes: ["_spf.google.com"] },
+        dmarc_detail: { valid: true, policy: "reject", has_reporting: true },
+        dkim_detail: { status: "uncertain", confidence: "medium" },
+        bimi_readiness: { record_found: false },
+        policy_journey: { stage: "full_enforcement", label: "Reject" },
+        remediation_actions: [{ id: "bimi_not_configured", protocol: "BIMI", status: "open" }],
       },
       email_security_intelligence: {
         mta_sts: { enabled: false },
@@ -795,7 +909,9 @@ results.push(
   securityContract("executive_report_v2_business_email", () =>
     executiveV2Fixture.intelligence_engines.business_email.evidence.spf.present === true &&
     executiveV2Fixture.intelligence_engines.business_email.evidence.dmarc.policy === "reject" &&
-    executiveV2Fixture.intelligence_engines.business_email.evidence.provider_detection === "google"
+    executiveV2Fixture.intelligence_engines.business_email.evidence.provider_detection === "google" &&
+    executiveV2Fixture.intelligence_engines.business_email.evidence.remediation.policy_journey.stage === "full_enforcement" &&
+    executiveV2Fixture.intelligence_engines.business_email.evidence.remediation.actions[0].id === "bimi_not_configured"
   ),
   securityContract("executive_report_v2_identity_fallback", () => {
     const identity = executiveV2Fixture.intelligence_engines.identity;
