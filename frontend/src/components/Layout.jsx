@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Server, ScanLine, FileBarChart2,
   Settings, Shield, Plus, ChevronDown, Calendar,
   Briefcase, ChevronRight, Check, LogOut, User,
-  AlertTriangle, X, CreditCard, GraduationCap, ShieldAlert,
+  AlertTriangle, X, CreditCard, GraduationCap, ShieldAlert, LayoutGrid,
 } from 'lucide-react'
 import CyberMetersLogo from './CyberMetersLogo'
 import { api, logoutWithToken } from '../api'
@@ -18,6 +18,7 @@ import FeedbackWidget from './FeedbackWidget'
 // - Pricing is a public marketing page already linked in the footer.
 const NAV = [
   { to: '/dashboard',      icon: LayoutDashboard, label: 'Dashboard'  },
+  { to: '/services',       icon: LayoutGrid,      label: 'Services'   },
   { to: '/ws/dashboard',        icon: Shield,      label: 'Security'   },
   { to: '/ws/brand-monitoring', icon: ShieldAlert, label: 'Brand'      },
   { to: '/workspaces',          icon: Briefcase,   label: 'Workspaces' },

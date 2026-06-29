@@ -58,7 +58,8 @@ export default function MicrosoftCallbackPage() {
           name:  data.name || data.email.split('@')[0],
           plan:  data.plan || 'free',
         })
-        // New users (no workspaces yet) go to onboarding; existing users to dashboard.
+        // New users (no workspaces yet) go to onboarding; existing users land on
+        // the Services launcher (the standard post-login entry experience).
         try {
           const wsData = await api.getWorkspaces()
           if ((wsData?.workspaces?.length ?? 0) === 0) {
@@ -66,9 +67,9 @@ export default function MicrosoftCallbackPage() {
             return
           }
         } catch {
-          // Workspace check failed — fall through to dashboard.
+          // Workspace check failed — fall through to the services launcher.
         }
-        navigate('/dashboard', { replace: true })
+        navigate('/services', { replace: true })
       })
       .catch(() => {
         setError('Sign-in session expired. Please try again.')

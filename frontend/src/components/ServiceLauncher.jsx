@@ -14,22 +14,22 @@ import { Mail, Radar, Globe, Lock, ArrowRight } from 'lucide-react'
 const SERVICES = [
   {
     key: 'email', icon: Mail, title: 'Email Protection',
-    copy: 'Managed DMARC and sender intelligence.',
+    copy: 'Managed DMARC, sender intelligence and enforcement guidance.',
     cta: 'Open Email Protection', to: '/ws/email-protection',
   },
   {
     key: 'brand', icon: Radar, title: 'Brand Protection',
-    copy: 'Monitor lookalike domains and impersonation risk.',
+    copy: 'Monitor lookalike domains, impersonation risk and brand-abuse signals.',
     cta: 'Open Brand Protection', to: '/ws/brand-monitoring',
   },
   {
     key: 'surface', icon: Globe, title: 'Attack Surface',
-    copy: 'Discover exposed assets and external risk.',
+    copy: 'Discover exposed assets, admin surfaces, SaaS/cloud exposure and external risk.',
     cta: 'Open Attack Surface', to: '/assets',
   },
   {
     key: 'certs', icon: Lock, title: 'Certificates & Trust',
-    copy: 'Monitor SSL/TLS, expiry and transport trust.',
+    copy: 'Monitor SSL/TLS certificates, expiry, HTTPS posture and transport trust.',
     cta: 'Open Certificates', to: '/ws/certificates',
   },
 ]
@@ -58,10 +58,10 @@ export default function ServiceLauncher() {
     <div className="min-h-[72vh] flex flex-col justify-center py-10">
       <div className="max-w-4xl mx-auto w-full px-2">
         <header className="text-center mb-10">
-          <span className="eyebrow">CyberMeters</span>
-          <h1 className="text-3xl font-bold text-gray-900 mt-1">Your security services</h1>
-          <p className="text-sm text-gray-500 mt-2 max-w-md mx-auto leading-relaxed">
-            Choose where to focus. Open a service to dive into the detail.
+          <span className="eyebrow">CyberMeters Security Platform</span>
+          <h1 className="text-3xl font-bold text-gray-900 mt-1">Choose where to start</h1>
+          <p className="text-sm text-gray-500 mt-2 max-w-lg mx-auto leading-relaxed">
+            Protect your email, brand, certificates and external attack surface from one workspace.
           </p>
         </header>
 

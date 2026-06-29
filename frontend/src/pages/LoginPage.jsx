@@ -10,8 +10,11 @@ export default function LoginPage() {
   const location  = useLocation()
   const { login } = useAuth()
 
-  // If ProtectedRoute redirected here with a destination, go back there after login.
-  const from = location.state?.from?.pathname || '/dashboard'
+  // If ProtectedRoute redirected here with a real destination, return there after
+  // login; otherwise land on the Services launcher. /login is never a useful
+  // destination, so it falls through to /services (prevents redirect loops).
+  const rawFrom = location.state?.from?.pathname
+  const from = (rawFrom && rawFrom !== '/login') ? rawFrom : '/services'
 
   // ── Step 1: password ──
   const [email,    setEmail]    = useState('')

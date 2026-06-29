@@ -22,6 +22,7 @@ import OnboardingPage from './pages/OnboardingPage'
 import WorkspaceDetailPage from './pages/WorkspaceDetailPage'
 import IntelligencePage from './pages/IntelligencePage'
 import WorkspaceDashboard   from './pages/ws/WorkspaceDashboard'
+import ServiceLauncher      from './components/ServiceLauncher'
 import WorkspaceScorecard   from './pages/ws/WorkspaceScorecard'
 import VendorsPage          from './pages/ws/VendorsPage'
 import ThirdPartyPage       from './pages/ws/ThirdPartyPage'
@@ -148,6 +149,7 @@ function AppRoutes() {
       >
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard"               element={<Dashboard />}           />
+        <Route path="services"                element={<ServiceLauncher />}     />
         <Route path="onboarding"              element={<OnboardingPage />}      />
         <Route path="portfolio"               element={<PortfolioPage />}        />
         <Route path="portfolio/risk"          element={<PortfolioRiskPage />}    />
