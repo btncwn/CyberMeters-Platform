@@ -1068,20 +1068,20 @@ function CopyField({ label, value }) {
   )
 }
 
-function WizardStepper({ active }) {
-  const steps = ['Choose DNS provider', 'Copy DNS record', 'Verify setup', 'Wait for reports', 'Connected']
+// Per-step completion (not strictly linear): a later step can be incomplete
+// even when an earlier one is done (e.g. reports received but DNS not verified).
+function WizardStepper({ steps, completed, current }) {
   return (
     <ol className="flex flex-wrap items-center gap-x-2 gap-y-2">
       {steps.map((label, i) => {
-        const n = i + 1
-        const done = n < active, current = n === active
+        const done = !!completed[i], isCurrent = i === current
         return (
           <li key={label} className="flex items-center gap-2">
-            <span className={`flex items-center justify-center w-6 h-6 rounded-full text-xs font-semibold ${done ? 'bg-brand-600 text-white' : current ? 'bg-brand-100 text-brand-700 ring-2 ring-brand-300' : 'bg-gray-100 text-gray-400'}`}>
-              {done ? <Check className="w-3.5 h-3.5" /> : n}
+            <span className={`flex items-center justify-center w-6 h-6 rounded-full text-xs font-semibold ${done ? 'bg-brand-600 text-white' : isCurrent ? 'bg-brand-100 text-brand-700 ring-2 ring-brand-300' : 'bg-gray-100 text-gray-400'}`}>
+              {done ? <Check className="w-3.5 h-3.5" /> : i + 1}
             </span>
-            <span className={`text-xs ${current ? 'font-semibold text-gray-800' : 'text-gray-500'}`}>{label}</span>
-            {n < steps.length && <ChevronDown className="w-3.5 h-3.5 text-gray-300 -rotate-90 hidden sm:block" />}
+            <span className={`text-xs ${isCurrent ? 'font-semibold text-gray-800' : done ? 'text-gray-600' : 'text-gray-500'}`}>{label}</span>
+            {i < steps.length - 1 && <ChevronDown className="w-3.5 h-3.5 text-gray-300 -rotate-90 hidden sm:block" />}
           </li>
         )
       })}
@@ -1095,7 +1095,7 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
   const [busy, setBusy]         = useState(false)
   const [err, setErr]           = useState(null)
   const [provider, setProvider] = useState('cloudflare')
-  const [verify, setVerify]     = useState(null) // 'configured' | 'missing_rua' | 'no_dmarc' | 'unavailable'
+  const [rechecking, setRechecking] = useState(false)
 
   const load = useCallback(async () => {
     if (!domain) return
@@ -1107,7 +1107,7 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
     finally { setLoading(false) }
   }, [wsId, domain])
 
-  useEffect(() => { setVerify(null); load() }, [load])
+  useEffect(() => { load() }, [load])
 
   async function activate() {
     setBusy(true); setErr(null)
@@ -1117,9 +1117,11 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
     } catch (e) { setErr(e.message || 'Could not start DMARC setup.') }
     finally { setBusy(false) }
   }
+  async function recheck() {
+    setRechecking(true); try { await load() } finally { setRechecking(false) }
+  }
 
   const inboundAddress = endpoint?.inbound_address || null
-  const connected      = Boolean(endpoint?.last_inbound_at)
   const inboundMailto  = inboundAddress ? `mailto:${inboundAddress}` : null
 
   // Existing DMARC awareness from the latest scan (safe if fields are missing).
@@ -1128,6 +1130,17 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
   const present     = Boolean(dmarcDetail?.present) || Boolean(existingRaw)
   const ruaNorm     = existingRua.map(r => (String(r).startsWith('mailto:') ? String(r) : `mailto:${r}`))
   const already     = inboundMailto ? ruaNorm.some(r => r.toLowerCase() === inboundMailto.toLowerCase()) : false
+
+  // ── Two independent states ──────────────────────────────────────────────────
+  // 1) DNS setup: verified only when the live DMARC record already lists our
+  //    reporting address. Unknown when we have no current DMARC data.
+  // 2) Report receiving: connected once an inbound report has arrived.
+  // Fully connected requires BOTH — receiving alone is NOT "Connected".
+  const dnsKnown       = Boolean(hasScanData)
+  const dnsVerified    = dnsKnown && present && already
+  const receiving      = Boolean(endpoint?.last_inbound_at)
+  const fullyConnected = dnsVerified && receiving
+  const needsDnsAction = receiving && !dnsVerified
 
   // Recommended value — never suggests enforcement; preserves any existing policy.
   let recommendedValue = inboundMailto ? `v=DMARC1; p=none; rua=${inboundMailto}` : '—'
@@ -1140,23 +1153,24 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
     recommendedValue = existingRaw
   }
 
-  function runVerify() {
-    if (!hasScanData) { setVerify('unavailable'); return }
-    if (!present)     { setVerify('no_dmarc'); return }
-    setVerify(already ? 'configured' : 'missing_rua')
+  // Verify status is derived from current data (no click required).
+  const verifyState = !dnsKnown ? 'unavailable' : (!present ? 'no_dmarc' : (already ? 'configured' : 'missing_rua'))
+  const VERIFY_MSG = {
+    configured:  { kind: 'good', icon: CheckCircle, text: 'DNS looks correctly configured. Your CyberMeters reporting address is in the DMARC record.' },
+    missing_rua: { kind: 'warn', icon: AlertTriangle, text: 'DMARC exists, but CyberMeters reporting address is not included yet. Add it to the rua= tag (see the value above) — do not delete your existing record.' },
+    no_dmarc:    { kind: 'warn', icon: Info, text: 'No DMARC record detected yet. Add the TXT record above, then check again.' },
+    unavailable: { kind: 'na',   icon: Info, text: 'Verification will run on the next scan. For now, this is confirmed once your DNS record includes the CyberMeters address.' },
   }
+  const vm = VERIFY_MSG[verifyState]
 
-  const activeStep = connected ? 5 : (verify === 'configured' ? 4 : (provider ? 2 : 1))
   const providerCopy = DNS_PROVIDERS.find(p => p.id === provider)?.copy
   const fmt = (t) => (t ? new Date(t).toLocaleString() : null)
 
-  const VERIFY_MSG = {
-    configured:  { kind: 'good', icon: CheckCircle, text: 'DNS looks correctly configured. Your CyberMeters reporting address is in the DMARC record.' },
-    missing_rua: { kind: 'warn', icon: AlertTriangle, text: 'A DMARC record exists, but the CyberMeters reporting address is not included yet. Add it to the rua= tag (see the value above) — do not delete your existing record.' },
-    no_dmarc:    { kind: 'warn', icon: Info, text: 'No DMARC record detected yet. Add the TXT record above, then check again.' },
-    unavailable: { kind: 'na',   icon: Info, text: 'Verification will run on the next scan. For now, CyberMeters marks this Connected once DMARC reports are received.' },
-  }
-  const vm = verify ? VERIFY_MSG[verify] : null
+  // Per-step completion — explicitly non-linear.
+  const steps = ['Choose DNS provider', 'Copy DNS record', 'Verify setup', 'Wait for reports', 'Connected']
+  const stepDone = [Boolean(provider), Boolean(inboundMailto), dnsVerified, receiving, fullyConnected]
+  const firstIncomplete = stepDone.findIndex(d => !d)
+  const currentStep = firstIncomplete === -1 ? steps.length - 1 : firstIncomplete
 
   return (
     <section className="card overflow-hidden">
@@ -1166,11 +1180,15 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
           <span className="eyebrow">Get connected</span>
           <h2 className="section-title leading-tight">DMARC setup wizard</h2>
         </div>
-        {connected && (
+        {fullyConnected ? (
           <span className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-brand-50 border border-brand-100 text-xs font-semibold text-brand-700">
             <CheckCircle className="w-3.5 h-3.5" /> Connected
           </span>
-        )}
+        ) : needsDnsAction ? (
+          <span className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 border border-amber-200 text-xs font-semibold text-amber-800">
+            <AlertTriangle className="w-3.5 h-3.5" /> Receiving reports · DNS not verified
+          </span>
+        ) : null}
       </div>
 
       <div className="p-6 space-y-5">
@@ -1188,7 +1206,19 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
           </>
         ) : (
           <>
-            <WizardStepper active={activeStep} />
+            <WizardStepper steps={steps} completed={stepDone} current={currentStep} />
+
+            {/* Action-required banner — reports arriving but DNS not verified */}
+            {needsDnsAction && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 flex gap-2.5">
+                <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                <p className="text-sm text-amber-900">
+                  {dnsKnown
+                    ? 'Reports have been received, but your current DNS record does not include the CyberMeters reporting address yet. Add the recommended value below to complete setup.'
+                    : 'Reports have been received. We couldn’t read your DNS record on the last scan to confirm the reporting address — add the recommended value below, then re-check after your next scan.'}
+                </p>
+              </div>
+            )}
 
             {/* Step 1 — choose provider */}
             <div className="space-y-2">
@@ -1224,32 +1254,41 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
               {!inboundAddress && <p className="text-xs text-gray-500">Your reporting address is being prepared — reopen this page in a moment if the value is blank.</p>}
             </div>
 
-            {/* Step 3 — verify */}
+            {/* Step 3 — verify (auto-derived; button re-checks current data) */}
             <div className="space-y-2">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">3 · Verify setup</p>
-              <button onClick={runVerify} className="btn-secondary text-sm"><ShieldCheck className="w-4 h-4" /> Verify setup</button>
-              {vm && (
-                <div className={`rounded-lg border p-3 text-sm flex gap-2 ${vm.kind === 'good' ? 'border-brand-100 bg-brand-50/50 text-brand-800' : vm.kind === 'warn' ? 'border-amber-200 bg-amber-50/50 text-amber-900' : 'border-gray-200 bg-gray-50 text-gray-600'}`}>
-                  <vm.icon className="w-4 h-4 flex-shrink-0 mt-0.5" /><span>{vm.text}</span>
-                </div>
-              )}
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">3 · Verify setup{dnsVerified && <span className="ml-1.5 text-brand-600 normal-case font-medium">· verified</span>}</p>
+              <div className={`rounded-lg border p-3 text-sm flex gap-2 ${vm.kind === 'good' ? 'border-brand-100 bg-brand-50/50 text-brand-800' : vm.kind === 'warn' ? 'border-amber-200 bg-amber-50/50 text-amber-900' : 'border-gray-200 bg-gray-50 text-gray-600'}`}>
+                <vm.icon className="w-4 h-4 flex-shrink-0 mt-0.5" /><span>{vm.text}</span>
+              </div>
+              <button onClick={recheck} disabled={rechecking} className="btn-secondary text-sm disabled:opacity-50">
+                {rechecking ? <><RefreshCw className="w-4 h-4 animate-spin" /> Checking…</> : <><ShieldCheck className="w-4 h-4" /> Verify setup</>}
+              </button>
             </div>
 
-            {/* Steps 4 & 5 — wait / connected */}
+            {/* Steps 4 & 5 — wait for reports / connected */}
             <div className="space-y-2">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">4 · {connected ? 'Connected' : 'Wait for reports'}</p>
-              {connected ? (
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                4 · {fullyConnected ? 'Connected' : receiving ? 'Reports arriving · finish DNS' : 'Wait for reports'}
+              </p>
+              {fullyConnected ? (
                 <div className="rounded-lg border border-brand-100 bg-brand-50/50 p-3 space-y-1.5">
-                  <p className="text-sm text-brand-800 flex items-center gap-1.5"><CheckCircle className="w-4 h-4" /> Connected — DMARC reports are arriving for {domain}.</p>
+                  <p className="text-sm text-brand-800 flex items-center gap-1.5"><CheckCircle className="w-4 h-4" /> Connected — DMARC reports are arriving and your DNS record is verified for {domain}.</p>
                   <p className="text-xs text-gray-600">
                     Last report received: <b className="text-gray-700">{fmt(endpoint.last_inbound_at)}</b>.
                     {typeof totalMessages === 'number' && totalMessages > 0 && <> {totalMessages.toLocaleString()} message(s) observed so far.</>} Your sender inventory has started below.
                   </p>
                 </div>
+              ) : receiving ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-3 space-y-1.5">
+                  <p className="text-sm text-amber-900 flex items-center gap-1.5"><AlertTriangle className="w-4 h-4" /> Reports are arriving, but DNS is not verified yet.</p>
+                  <p className="text-xs text-gray-600">
+                    Last report received: <b className="text-gray-700">{fmt(endpoint.last_inbound_at)}</b>. Add the recommended value above to your DMARC record to finish setup — this becomes <b>Connected</b> once your record includes the CyberMeters address.
+                  </p>
+                </div>
               ) : (
                 <p className="text-sm text-gray-600 leading-relaxed">
                   After you update DNS, reports may take <b>24–48 hours</b> to arrive — some providers send them once a day.
-                  This card will switch to <b>Connected</b> automatically once the first report is received.
+                  This card updates automatically once the first report is received.
                 </p>
               )}
             </div>
