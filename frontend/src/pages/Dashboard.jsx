@@ -4,6 +4,7 @@ import {
   RefreshCw, AlertTriangle, ShieldAlert, Eye, Wifi,
   Globe, CheckCircle, XCircle, AlertCircle, ChevronRight,
   ArrowUpRight, ScanLine, Clock, TrendingUp, Briefcase,
+  Mail, Lock, Tag, ArrowRight, Sparkles,
 } from 'lucide-react'
 import { api } from '../api'
 import Spinner from '../components/Spinner'
@@ -424,11 +425,45 @@ function SelectWorkspaceState() {
   )
 }
 
+/* ─── Service KPI card (four-service product model) ────────────────────── */
+
+const titleCase = (s) => (s ? String(s).replace(/[_-]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '—')
+
+function ServiceKpiCard({ icon: Icon, title, to, cta, accentTone, kpis, fallback }) {
+  const accent = accentTone === 'bad' ? 'accent-danger' : accentTone === 'warn' ? 'accent-warning' : ''
+  return (
+    <div className={`card p-5 flex flex-col ${accent}`}>
+      <div className="flex items-center gap-2 mb-3">
+        <div className="w-9 h-9 rounded-lg bg-brand-50 flex items-center justify-center flex-shrink-0">
+          <Icon className="w-4 h-4 text-brand-600" />
+        </div>
+        <h3 className="text-sm font-bold text-gray-900">{title}</h3>
+      </div>
+      {kpis && kpis.length ? (
+        <dl className="space-y-1.5 flex-1">
+          {kpis.map((k, i) => (
+            <div key={i} className="flex items-center justify-between gap-2">
+              <dt className="text-xs text-gray-600">{k.label}</dt>
+              <dd className={`text-xs font-bold tabular-nums ${k.tone === 'bad' ? 'text-red-700' : k.tone === 'warn' ? 'text-amber-700' : 'text-gray-800'}`}>{k.value}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : (
+        <p className="text-xs text-gray-500 leading-relaxed flex-1">{fallback}</p>
+      )}
+      <Link to={to} className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-brand-700 hover:text-brand-800">
+        {cta} <ArrowRight className="w-4 h-4" />
+      </Link>
+    </div>
+  )
+}
+
 /* ─── Main Dashboard ───────────────────────────────────────────────────── */
 
 export default function Dashboard() {
   const [scans,         setScans]         = useState([])
   const [report,        setReport]        = useState(null)
+  const [scorecard,     setScorecard]     = useState(null)
   const [loading,       setLoading]       = useState(true)
   const [error,         setError]         = useState(null)
   const [refreshing,    setRefreshing]    = useState(false)
@@ -514,13 +549,15 @@ export default function Dashboard() {
     else setRefreshing(true)
     setError(null)
     try {
-      const [data, domainsData] = await Promise.all([
+      const [data, domainsData, scorecardData] = await Promise.all([
         api.getWorkspaceScans(wsId),
         api.getWorkspaceDomains(wsId).catch(() => ({ domains: [] })),
+        api.getWorkspaceScorecard(wsId).catch(() => null), // optional; powers service KPIs
       ])
       const list = data.scans || []
       setScans(list)
       setDomainCount((domainsData.domains || []).length)
+      setScorecard(scorecardData)
 
       // Fetch report for the latest completed scan in this workspace
       const latestCompleted = list.find(s => s.status === 'completed')
@@ -576,8 +613,9 @@ export default function Dashboard() {
               </span>
             )}
           </div>
-          <h1 className="page-title">Security Overview</h1>
-          <p className="text-sm text-gray-500 mt-2">
+          <h1 className="page-title">CyberMeters Dashboard</h1>
+          <p className="page-subtitle max-w-2xl">Monitor email impersonation risk, brand abuse, external exposure and certificate trust across your workspaces.</p>
+          <p className="text-xs text-gray-400 mt-1">
             {latestScan
               ? `Last assessment: ${latestScan.domain} · ${relativeTime(latestScan.created_at)}`
               : 'No scans in this workspace yet'}
@@ -601,6 +639,97 @@ export default function Dashboard() {
           {error}
         </div>
       )}
+
+      {/* ── Four-service KPI overview + recommended action + posture ── */}
+      {(() => {
+        const sc = scorecard
+        const brand = sc?.brand_risks
+        const cr = sc?.certificate_risks?.risk_level
+        const critical = ins.criticalCount ?? 0
+        const high = ins.highCount ?? 0
+
+        const brandKpis = brand && (brand.active != null || brand.high != null) ? [
+          { label: 'High-risk lookalikes', value: brand.high ?? 0, tone: (brand.high ?? 0) > 0 ? 'bad' : '' },
+          { label: 'Active candidates',    value: brand.active ?? 0 },
+        ] : null
+        const surfaceKpis = hasCompletedScan ? [
+          { label: 'Critical findings', value: critical, tone: critical > 0 ? 'bad' : '' },
+          { label: 'High findings',     value: high, tone: high > 0 ? 'warn' : '' },
+          ...(sc?.active_assets != null ? [{ label: 'Active assets', value: sc.active_assets }] : []),
+        ] : null
+        const certKpis = cr ? [
+          { label: 'Trust posture', value: titleCase(cr), tone: ['high', 'critical'].includes(cr) ? 'bad' : cr === 'medium' ? 'warn' : '' },
+          ...(sc?.certificate_risks?.expiring_soon != null ? [{ label: 'Expiring soon', value: sc.certificate_risks.expiring_soon, tone: sc.certificate_risks.expiring_soon > 0 ? 'warn' : '' }] : []),
+        ] : null
+
+        // Recommended next action — derived honestly from real signals only.
+        const rec = domainCount === 0
+          ? { text: 'Add your first domain so CyberMeters can start monitoring it.', cta: 'Add a domain', to: '/ws/dashboard' }
+          : !hasCompletedScan
+            ? { text: 'Run your first external scan to discover exposed assets and email posture.', cta: 'Run a scan', to: '/scans/new' }
+            : (cr && ['high', 'critical'].includes(cr))
+              ? { text: 'Certificate trust needs attention — review expiry and HTTPS posture.', cta: 'Review certificates', to: '/ws/certificates' }
+              : (brand && (brand.high ?? 0) > 0)
+                ? { text: 'High-risk lookalike domains detected — review brand candidates.', cta: 'Review brand candidates', to: '/ws/brand-monitoring' }
+                : critical > 0
+                  ? { text: 'Critical findings on your attack surface — review and remediate.', cta: 'Review attack surface', to: '/assets' }
+                  : { text: 'Connect Email Protection to measure impersonation exposure and receive DMARC reports.', cta: 'Open Email Protection', to: '/ws/email-protection' }
+
+        const posture = [
+          { label: 'Email risk',       value: 'Not measured', tone: 'na' },
+          { label: 'Brand risk',       value: brand ? ((brand.high ?? 0) > 0 ? 'High' : (brand.active ?? 0) > 0 ? 'Monitoring' : 'Low') : 'Unknown', tone: brand && (brand.high ?? 0) > 0 ? 'bad' : 'na' },
+          { label: 'Attack surface',   value: hasCompletedScan ? (critical > 0 ? 'High' : high > 0 ? 'Elevated' : 'OK') : 'No scan', tone: critical > 0 ? 'bad' : high > 0 ? 'warn' : hasCompletedScan ? 'ok' : 'na' },
+          { label: 'Certificate trust', value: cr ? titleCase(cr) : 'Unknown', tone: cr && ['high', 'critical'].includes(cr) ? 'bad' : cr === 'medium' ? 'warn' : cr ? 'ok' : 'na' },
+        ]
+        const pTone = (t) => t === 'bad' ? 'text-red-700' : t === 'warn' ? 'text-amber-700' : t === 'ok' ? 'text-brand-700' : 'text-gray-400'
+
+        return (
+          <div className="space-y-6">
+            {/* Four service KPI cards */}
+            <div>
+              <h2 className="section-title mb-3">Your services</h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                <ServiceKpiCard icon={Mail} title="Email Protection" to="/ws/email-protection" cta="Open Email Protection"
+                  fallback="Connect DMARC reporting to measure impersonation exposure." />
+                <ServiceKpiCard icon={Tag} title="Brand Protection" to="/ws/brand-monitoring" cta="Review Brand Protection"
+                  kpis={brandKpis} accentTone={brand && (brand.high ?? 0) > 0 ? 'bad' : ''}
+                  fallback="Add a protected brand profile to monitor lookalike domains." />
+                <ServiceKpiCard icon={Globe} title="Attack Surface" to="/assets" cta="Review Attack Surface"
+                  kpis={surfaceKpis} accentTone={critical > 0 ? 'bad' : high > 0 ? 'warn' : ''}
+                  fallback="Run your first external scan to discover exposed assets." />
+                <ServiceKpiCard icon={Lock} title="Certificates & Trust" to="/ws/certificates" cta="Review Certificates"
+                  kpis={certKpis} accentTone={cr && ['high', 'critical'].includes(cr) ? 'bad' : cr === 'medium' ? 'warn' : ''}
+                  fallback="Review certificate expiry and HTTPS trust posture." />
+              </div>
+            </div>
+
+            {/* Recommended next action */}
+            <div className="card p-5 border-brand-100 bg-brand-50/40 flex flex-col sm:flex-row sm:items-center gap-4">
+              <div className="w-10 h-10 rounded-xl bg-white border border-brand-100 flex items-center justify-center flex-shrink-0">
+                <Sparkles className="w-5 h-5 text-brand-600" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold text-brand-700 uppercase tracking-wide">Recommended next action</p>
+                <p className="text-sm text-gray-800 mt-0.5 leading-relaxed">{rec.text}</p>
+              </div>
+              <Link to={rec.to} className="btn-primary text-sm flex-shrink-0">{rec.cta} <ArrowRight className="w-4 h-4" /></Link>
+            </div>
+
+            {/* Posture overview */}
+            <div className="card p-5">
+              <h3 className="section-title mb-3">Posture overview</h3>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                {posture.map(p => (
+                  <div key={p.label} className="rounded-xl border border-gray-200 bg-white px-4 py-3">
+                    <p className="text-sm font-semibold text-gray-900 leading-snug">{p.label}</p>
+                    <p className={`text-[13px] font-bold mt-1 ${pTone(p.tone)}`}>{p.value}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* ── Team onboarding card — shown once after joining via invitation ── */}
       {showTeamOnboarding && <TeamOnboardingCard />}
