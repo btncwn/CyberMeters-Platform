@@ -1336,6 +1336,209 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
   )
 }
 
+// ── Email Protection overview: connection status + checklist + ingestion ──────
+// Customer-facing answer to "is automated DMARC/RUA ingestion working, and what
+// do I do next?" Fetches the ingestion endpoint and derives DNS-verified from
+// the latest scan's DMARC record (refined by a live check). Never shows
+// "Connected" unless the CyberMeters RUA is in DNS AND a report has arrived.
+function epFmt(t) { return t ? new Date(t).toLocaleString() : null }
+
+function EpStatusChecklist({ items }) {
+  const ICON = {
+    done:    { I: CheckCircle,   cls: 'text-brand-600',  txt: 'Done' },
+    needs:   { I: AlertTriangle, cls: 'text-amber-500',  txt: 'Needs action' },
+    waiting: { I: Info,          cls: 'text-gray-400',   txt: 'Waiting' },
+    unknown: { I: Info,          cls: 'text-gray-300',   txt: 'Unknown' },
+  }
+  return (
+    <div className="card p-5">
+      <h3 className="section-title mb-3">Setup progress</h3>
+      <ul className="space-y-2.5">
+        {items.map(it => {
+          const c = ICON[it.status] || ICON.unknown
+          return (
+            <li key={it.label} className="flex items-center gap-2.5">
+              <c.I className={`w-4 h-4 flex-shrink-0 ${c.cls}`} />
+              <span className="text-sm text-gray-700 flex-1">{it.label}</span>
+              <span className={`text-[11px] font-medium ${c.cls}`}>{c.txt}</span>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
+function EpMetric({ label, explanation, value }) {
+  const known = value !== null && value !== undefined && value !== ''
+  return (
+    <div className="card p-5">
+      <p className="text-sm font-semibold text-gray-900 leading-snug">{label}</p>
+      <p className="text-xs text-gray-500 mt-1 leading-snug">{explanation}</p>
+      <p className={`text-[13px] font-bold mt-2 tabular-nums ${known ? 'text-gray-800' : 'text-gray-400'}`}>
+        {known ? (typeof value === 'number' ? value.toLocaleString() : value) : 'Waiting'}
+      </p>
+    </div>
+  )
+}
+
+const EP_MODE = {
+  automatic:     { label: 'Automatic RUA',  tone: 'ok',   desc: 'Mailbox providers send aggregate DMARC reports directly to CyberMeters.' },
+  assisted:      { label: 'Assisted upload', tone: 'info', desc: 'You can upload provider reports securely while DNS changes propagate.' },
+  manual:        { label: 'Manual upload',  tone: 'info',  desc: 'Manual upload is useful for testing or importing historical reports.' },
+  not_receiving: { label: 'Not receiving yet', tone: 'na', desc: 'No DMARC aggregate reports have been received yet.' },
+}
+
+function EmailProtectionOverview({ wsId, domain, dmarcDetail, dmarc, senderData, onGotoSetup, onGotoSenders }) {
+  const [endpoint, setEndpoint] = useState(null)
+  const [liveStatus, setLiveStatus] = useState(null)
+  const [checking, setChecking] = useState(false)
+
+  const refreshEndpoint = useCallback(async () => {
+    if (!domain) return
+    try { const r = await api.getDmarcIngestEndpoint(wsId, domain); setEndpoint(r?.endpoint || null) }
+    catch { setEndpoint(null) }
+  }, [wsId, domain])
+  useEffect(() => { setLiveStatus(null); refreshEndpoint() }, [refreshEndpoint])
+
+  async function verify() {
+    setChecking(true)
+    try { const r = await api.verifyDmarcDns(wsId, domain); setLiveStatus(r?.status || 'dns_lookup_failed') }
+    catch { setLiveStatus('dns_lookup_failed') }
+    finally { setChecking(false) }
+    refreshEndpoint()
+  }
+
+  // ── derive state from real data ──
+  const inboundAddress = endpoint?.inbound_address || null
+  const inboundMailto  = inboundAddress ? `mailto:${inboundAddress}`.toLowerCase() : null
+  const existingRua    = Array.isArray(dmarcDetail?.rua) ? dmarcDetail.rua : []
+  const ruaNorm        = existingRua.map(r => (String(r).startsWith('mailto:') ? String(r) : `mailto:${r}`).toLowerCase())
+  const dnsHasRua      = inboundMailto ? ruaNorm.includes(inboundMailto) : false
+  const dmarcPresent   = Boolean(dmarcDetail?.present) || Boolean(dmarcDetail?.raw)
+  const dnsVerified    = liveStatus ? liveStatus === 'verified' : dnsHasRua
+  const reportsRcvd    = Boolean(endpoint?.last_inbound_at)
+  const sendersCount   = senderData?.senders?.length ?? senderData?.summary?.total_senders ?? null
+  const messages       = dmarc?.traffic?.total_messages ?? senderData?.summary?.total_messages ?? null
+  const aligned        = senderData?.summary?.aligned_messages ?? null
+  const unaligned      = senderData?.summary?.failed_messages ?? null
+  const hasData        = (messages || 0) > 0 || (sendersCount || 0) > 0
+
+  let state
+  if (reportsRcvd && dnsVerified) state = 'connected'
+  else if (reportsRcvd) state = 'receiving'
+  else if (dnsVerified) state = 'waiting'
+  else if (dmarcPresent && inboundAddress) state = 'dns_not_verified'
+  else state = 'not_configured'
+
+  const STATE = {
+    not_configured:   { tone: 'na',   icon: Info,        title: 'Not configured',         msg: 'Add the CyberMeters RUA address to your DMARC record so reports can be received.' },
+    dns_not_verified: { tone: 'warn', icon: AlertTriangle, title: 'DNS not verified',      msg: 'CyberMeters is not listed in your DMARC rua tag yet.' },
+    waiting:          { tone: 'info', icon: Inbox,       title: 'Waiting for reports',     msg: 'DNS is ready. Reports usually arrive after mailbox providers send aggregate DMARC reports.' },
+    receiving:        { tone: 'warn', icon: ShieldCheck, title: 'Receiving reports · DNS not verified', msg: 'CyberMeters has received DMARC reports for this domain. Finish DNS verification to fully connect.' },
+    connected:        { tone: 'ok',   icon: CheckCircle, title: 'Connected',               msg: 'DMARC reporting is connected and receiving data.' },
+  }[state]
+  const PANEL = {
+    ok:   'border-brand-100 bg-brand-50/50',
+    warn: 'border-amber-200 bg-amber-50/50',
+    info: 'border-blue-100 bg-blue-50/40',
+    na:   'border-gray-200 bg-gray-50',
+  }[STATE.tone]
+  const ICONCLS = { ok: 'text-brand-600', warn: 'text-amber-600', info: 'text-blue-600', na: 'text-gray-400' }[STATE.tone]
+
+  const VERIFY_MSG = {
+    verified:               { ok: true,  text: 'CyberMeters RUA found in your DMARC record.' },
+    missing_cybermeters_rua:{ ok: false, text: 'DMARC exists, but the CyberMeters RUA address is missing.' },
+    no_dmarc:               { ok: false, text: 'No DMARC record found.' },
+    invalid_dmarc:          { ok: false, text: 'A DMARC record was found but could not be read as valid.' },
+    multiple_dmarc_records: { ok: false, text: 'Multiple DMARC records found — DNS allows only one.' },
+    endpoint_missing:       { ok: false, text: 'Create your reporting address first, then re-check.' },
+    dns_lookup_failed:      { ok: false, text: 'DNS lookup failed. This is common while DNS updates — try again shortly.' },
+  }
+  const vr = liveStatus ? (VERIFY_MSG[liveStatus] || VERIFY_MSG.dns_lookup_failed) : null
+
+  const checklist = [
+    { label: 'DMARC record found',           status: dmarcDetail == null ? 'unknown' : dmarcPresent ? 'done' : 'needs' },
+    { label: 'CyberMeters RUA address added', status: dnsHasRua ? 'done' : inboundAddress ? 'needs' : 'waiting' },
+    { label: 'DNS verification completed',    status: dnsVerified ? 'done' : inboundAddress ? 'needs' : 'waiting' },
+    { label: 'First report received',         status: reportsRcvd ? 'done' : 'waiting' },
+    { label: 'Sender inventory populated',    status: (sendersCount || 0) > 0 ? 'done' : 'waiting' },
+  ]
+
+  const mode = reportsRcvd ? 'automatic' : endpoint?.last_signed_upload_at ? 'assisted' : hasData ? 'manual' : 'not_receiving'
+  const modeCfg = EP_MODE[mode]
+  const modeChip = { ok: 'bg-brand-50 text-brand-700 border-brand-100', info: 'bg-blue-50 text-blue-700 border-blue-100', na: 'bg-gray-50 text-gray-500 border-gray-200' }[modeCfg.tone]
+
+  const next = state === 'connected'
+    ? { text: 'Review your sender inventory.', cta: 'View sender inventory', act: onGotoSenders }
+    : state === 'waiting'
+      ? { text: 'Your DNS is ready — reports will appear automatically once providers send them.', cta: null }
+      : { text: 'Add the CyberMeters RUA address to your DMARC record, then verify.', cta: 'Go to DMARC setup', act: onGotoSetup }
+
+  return (
+    <div className="space-y-4">
+      {/* Connection status panel */}
+      <section className={`card p-5 border ${PANEL}`}>
+        <div className="flex items-start gap-3">
+          <STATE.icon className={`w-6 h-6 flex-shrink-0 mt-0.5 ${ICONCLS}`} />
+          <div className="flex-1 min-w-0">
+            <p className="text-base font-bold text-gray-900">{STATE.title}</p>
+            <p className="text-sm text-gray-600 mt-0.5 leading-relaxed">{STATE.msg}</p>
+            {next?.text && <p className="text-xs text-gray-500 mt-2">{next.text}</p>}
+          </div>
+          <div className="flex flex-col items-end gap-2 flex-shrink-0">
+            <button onClick={verify} disabled={checking || !domain} className="btn-secondary text-sm disabled:opacity-50">
+              {checking ? <><RefreshCw className="w-4 h-4 animate-spin" /> Checking DNS…</> : <><ShieldCheck className="w-4 h-4" /> Verify setup</>}
+            </button>
+            {next?.cta && next.act && (
+              <button onClick={next.act} className="text-xs font-medium text-brand-700 hover:text-brand-800">{next.cta} →</button>
+            )}
+          </div>
+        </div>
+        {vr && (
+          <div className={`mt-3 rounded-lg border p-2.5 text-sm flex items-center gap-2 ${vr.ok ? 'border-brand-100 bg-brand-50/60 text-brand-800' : 'border-amber-200 bg-amber-50/50 text-amber-900'}`}>
+            {vr.ok ? <CheckCircle className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}{vr.text}
+          </div>
+        )}
+      </section>
+
+      {/* Metric cards (label-led, numbers below & smaller) */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+        <EpMetric label="Messages observed" explanation="Across received DMARC reports" value={messages} />
+        <EpMetric label="Aligned messages"  explanation="Passed DMARC alignment"        value={aligned} />
+        <EpMetric label="Unaligned messages" explanation="Failed alignment — review"    value={unaligned} />
+        <EpMetric label="Known senders"      explanation="Sources seen in reports"       value={hasData ? (sendersCount || 0) : null} />
+        <EpMetric label="Last report received" explanation="Most recent inbound report"  value={epFmt(endpoint?.last_inbound_at)} />
+      </div>
+
+      {/* Checklist + ingestion status */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <EpStatusChecklist items={checklist} />
+
+        <div className="card p-5">
+          <h3 className="section-title mb-1">DMARC report ingestion</h3>
+          <div className="flex items-center gap-2 mb-3">
+            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border ${modeChip}`}>{modeCfg.label}</span>
+          </div>
+          <p className="text-xs text-gray-500 leading-relaxed mb-3">{modeCfg.desc}</p>
+          <dl className="space-y-2 text-sm">
+            <div className="flex justify-between gap-3"><dt className="text-gray-500">Reporting address</dt>
+              <dd className="mono text-xs text-gray-800 truncate">{inboundAddress || '—'}</dd></div>
+            <div className="flex justify-between gap-3"><dt className="text-gray-500">Route status</dt>
+              <dd className="text-gray-800">{endpoint ? (endpoint.status === 'active' ? 'Active' : (endpoint.status || '—')) : 'Not set up'}</dd></div>
+            <div className="flex justify-between gap-3"><dt className="text-gray-500">Last report received</dt>
+              <dd className="text-gray-800">{epFmt(endpoint?.last_inbound_at) || 'Not yet'}</dd></div>
+            <div className="flex justify-between gap-3"><dt className="text-gray-500">Last secure upload</dt>
+              <dd className="text-gray-800">{epFmt(endpoint?.last_signed_upload_at) || 'Never'}</dd></div>
+            <div className="flex justify-between gap-3"><dt className="text-gray-500">Last activity</dt>
+              <dd className="text-gray-800">{epFmt(endpoint?.last_used_at) || 'Never'}</dd></div>
+          </dl>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Lightweight toast ─────────────────────────────────────────────────────────
 function Toast({ toast, onClose }) {
   if (!toast) return null
@@ -1503,20 +1706,22 @@ export default function WorkspaceEmailProtectionPage() {
 
   const hasReports = dmarc && ((dmarc.traffic?.total_messages || 0) > 0 || (dmarc.senders?.total || 0) > 0)
 
+  const gotoSetup   = () => document.getElementById('dmarc-setup')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  const gotoSenders = () => document.getElementById('sender-inventory')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+
   const header = (
-    <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6">
-      <div>
-        <div className="flex items-center gap-2 mb-2">
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white border border-gray-200 shadow-card text-xs font-semibold text-gray-700">
-            <Mail className="w-3.5 h-3.5 text-brand-600" /> Email Protection
-          </span>
-        </div>
-        <h1 className="page-title">Managed DMARC &amp; Email Protection</h1>
-        <p className="text-sm text-gray-500 mt-2">
-          Guided email-authentication remediation for {wsName || 'this workspace'}.
+    <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4 mb-6">
+      <div className="min-w-0">
+        <span className="eyebrow">Email Protection</span>
+        <h1 className="page-title">Email Protection</h1>
+        <p className="page-subtitle">Monitor DMARC alignment, sender authentication and report ingestion for your domains.</p>
+        <p className="text-xs text-gray-400 mt-1">
+          {wsName || 'Workspace'}{selectedDomain ? <> · <span className="mono text-gray-500">{selectedDomain}</span></> : ''}
         </p>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <button onClick={gotoSetup} className="btn-primary text-sm"><ShieldCheck className="w-4 h-4" /> Review DMARC setup</button>
+        <button onClick={gotoSenders} className="btn-secondary text-sm"><Users className="w-4 h-4" /> View sender inventory</button>
         {domainScans.length > 1 && (
           <div className="relative">
             <select
@@ -1529,8 +1734,8 @@ export default function WorkspaceEmailProtectionPage() {
             <ChevronDown className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
         )}
-        <button onClick={loadScans} className="btn-secondary text-sm" disabled={loading}>
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
+        <button onClick={loadScans} className="btn-ghost text-sm" disabled={loading} title="Refresh">
+          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
         </button>
       </div>
     </div>
@@ -1561,6 +1766,17 @@ export default function WorkspaceEmailProtectionPage() {
       ) : (
         <div className="space-y-6">
           {toast && <Toast toast={toast} onClose={() => setToast(null)} />}
+
+          {/* 0. Connection status, checklist, ingestion + metrics — the customer answer */}
+          <EmailProtectionOverview
+            wsId={wsId}
+            domain={selectedDomain}
+            dmarcDetail={es?.dmarc_detail}
+            dmarc={dmarc}
+            senderData={senderData}
+            onGotoSetup={gotoSetup}
+            onGotoSenders={gotoSenders}
+          />
 
           {/* 1. DMARC journey */}
           <DmarcJourney journey={es.policy_journey} />
