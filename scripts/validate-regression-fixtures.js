@@ -80,6 +80,7 @@ function loadScanner(fetchImpl = async () => { throw new Error("network disabled
     summarizeEmailSenders,
     buildDmarcEnforcementReadiness,
     buildDmarcReportRemediationActions,
+    buildDmarcBusinessRisk,
     dmarcSenderRiskLevel,
     computeBusinessRiskScoreFromIds: (ids, data) => computeBusinessRiskScore(new Set(ids), data),
   };`, context, {
@@ -1051,6 +1052,28 @@ results.push(securityContract("dmarc_readiness_cautious_quarantine", () => {
   const r = scanner.buildDmarcEnforcementReadiness({ days_with_data: 10, total_messages: 5000, pass_rate: 97, unknown_senders: 0, high_volume_failed_senders: 0 });
   return r.ready_for_quarantine === true && r.ready_for_reject === false &&
     /confirm all legitimate senders/i.test(r.next_step);
+}));
+// business_risk copy must reflect CURRENT classifications, not always "unknown senders".
+results.push(securityContract("dmarc_business_risk_suspicious_not_unknown", () => {
+  // Acceptance case: trusted=1, unknown=0, suspicious=1, failed_messages=60
+  const r = scanner.buildDmarcBusinessRisk({ threat_senders: 0, suspicious_senders: 1, unknown_senders: 0, failed_messages: 60, pass_rate: 76.9 });
+  return r.level === "high" && /suspicious sender activity/i.test(r.summary) && !/unknown email senders/i.test(r.summary);
+}));
+results.push(securityContract("dmarc_business_risk_threat_copy", () => {
+  const r = scanner.buildDmarcBusinessRisk({ threat_senders: 1, suspicious_senders: 0, unknown_senders: 0, failed_messages: 0, pass_rate: 50 });
+  return r.level === "high" && /threat-classified senders/i.test(r.summary);
+}));
+results.push(securityContract("dmarc_business_risk_unknown_no_failures", () => {
+  const r = scanner.buildDmarcBusinessRisk({ threat_senders: 0, suspicious_senders: 0, unknown_senders: 2, failed_messages: 0, pass_rate: 100 });
+  return r.level === "medium" && /should be classified before tightening/i.test(r.summary);
+}));
+results.push(securityContract("dmarc_business_risk_failed_after_classification", () => {
+  const r = scanner.buildDmarcBusinessRisk({ threat_senders: 0, suspicious_senders: 0, unknown_senders: 0, failed_messages: 30, pass_rate: 90 });
+  return r.level === "medium" && /failed dmarc alignment remains a risk/i.test(r.summary);
+}));
+results.push(securityContract("dmarc_business_risk_clean_low", () => {
+  const r = scanner.buildDmarcBusinessRisk({ threat_senders: 0, suspicious_senders: 0, unknown_senders: 0, failed_messages: 0, pass_rate: 99 });
+  return r.level === "low" && /alignment looks strong/i.test(r.summary);
 }));
 
 for (const contract of parsed.score_contracts || []) {

@@ -7002,6 +7002,46 @@ function buildDmarcReportRemediationActions(senders, readiness) {
   return actions;
 }
 
+/**
+ * buildDmarcBusinessRisk(stats) — derive the dmarc-summary business_risk { level, summary }
+ * from CURRENT sender classifications and alignment, so the copy always reflects the
+ * real mix (e.g. a suspicious sender is not described as "unknown senders").
+ */
+function buildDmarcBusinessRisk(stats = {}) {
+  const threat     = stats.threat_senders || 0;
+  const suspicious = stats.suspicious_senders || 0;
+  const unknown    = stats.unknown_senders || 0;
+  const failed     = stats.failed_messages || 0;
+  const pass       = typeof stats.pass_rate === "number" ? stats.pass_rate : 0;
+
+  if (threat > 0) {
+    return { level: "high",
+      summary: "Threat-classified senders and failed alignment may increase impersonation and invoice-fraud risk." };
+  }
+  if (suspicious > 0 && failed > 0) {
+    return { level: "high",
+      summary: "Suspicious sender activity and failed DMARC alignment may increase impersonation and invoice-fraud risk." };
+  }
+  if (unknown > 0 && failed > 0) {
+    return { level: pass < 80 ? "high" : "medium",
+      summary: "Unknown email senders and failed alignment may increase impersonation and invoice-fraud risk." };
+  }
+  if (unknown > 0) {
+    return { level: "medium",
+      summary: "Unknown email senders should be classified before tightening DMARC enforcement." };
+  }
+  if (failed > 0) {
+    return { level: "medium",
+      summary: "Failed DMARC alignment remains a risk even after sender classification. Review failing sources before enforcement." };
+  }
+  if (pass >= 98 && unknown === 0 && suspicious === 0 && threat === 0) {
+    return { level: "low",
+      summary: "Sender alignment looks strong. Continue monitoring before tightening enforcement." };
+  }
+  return { level: "low",
+    summary: "Continue monitoring sender alignment and classification before changing DMARC enforcement." };
+}
+
 // Additive Executive-Report evidence: a compact sender-intelligence summary.
 async function buildDmarcSenderIntelligenceEvidence(env, workspaceId, domain) {
   if (!workspaceId || !domain) return null;
@@ -29961,9 +30001,13 @@ export default {
           pass_rate: passRate, unknown_senders: sSummary.unknown_senders, high_volume_failed_senders: highVolFailed,
         });
 
-        let level = "low";
-        if (sSummary.threat_senders > 0 || passRate < 80) level = "high";
-        else if (sSummary.unknown_senders > 0 || passRate < 95) level = "medium";
+        const businessRisk = buildDmarcBusinessRisk({
+          threat_senders: sSummary.threat_senders,
+          suspicious_senders: sSummary.suspicious_senders,
+          unknown_senders: sSummary.unknown_senders,
+          failed_messages: failedMsgs,
+          pass_rate: passRate,
+        });
 
         return json({
           domain, period_days: days,
@@ -29972,12 +30016,7 @@ export default {
                      suspicious: sSummary.suspicious_senders, threat: sSummary.threat_senders, ignored: sSummary.ignored_senders },
           disposition,
           readiness,
-          business_risk: {
-            level,
-            summary: level === "low"
-              ? "Email authentication alignment looks healthy across observed senders."
-              : "Unknown email senders and failed alignment may increase impersonation and invoice-fraud risk.",
-          },
+          business_risk: businessRisk,
           cybermeters_correlation: {
             external_attack_surface_note: "Email impersonation risk should be reviewed alongside exposed assets, SaaS exposure, and third-party dependencies.",
             linked_modules: ["assets", "saas_exposure", "vendors", "business_risk"],
