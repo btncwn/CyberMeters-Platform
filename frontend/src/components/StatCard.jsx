@@ -1,41 +1,48 @@
 /**
  * StatCard — reusable KPI card used across workspace pages.
  *
- * Props:
- *   icon        Lucide icon component
- *   label       Short uppercase label
- *   value       Primary value (string | number | ReactNode)
- *   sub         Optional subtitle
- *   iconColor   Tailwind text colour class (default: text-brand-600)
- *   iconBg      Tailwind bg colour class   (default: bg-brand-50)
- *   danger      Boolean — override colours with red
- *   warning     Boolean — override colours with amber
+ * Design intent: the LABEL leads, the value supports. Numbers are restrained
+ * (text-xl) so product meaning reads first. Risk cards are distinguished with a
+ * quiet left accent + semantic value colour — never a loud filled block.
+ *
+ * Props (backward-compatible):
+ *   icon       Lucide icon component
+ *   label      Short label (leads the card)
+ *   value      Primary value (string | number | ReactNode)
+ *   sub        Optional supporting context line
+ *   danger     Boolean — critical semantic (red)
+ *   warning    Boolean — needs-review semantic (amber)
+ *   tone       Optional 'info' for neutral informational categories (blue)
+ *   iconColor  Optional explicit icon colour override
  */
 export default function StatCard({
   icon: Icon,
   label,
   value,
   sub,
-  iconColor = 'text-brand-600',
-  iconBg    = 'bg-brand-50',
-  danger    = false,
-  warning   = false,
+  danger  = false,
+  warning = false,
+  tone,
+  iconColor,
 }) {
-  if (danger)  { iconColor = 'text-red-600';    iconBg = 'bg-red-50'    }
-  if (warning) { iconColor = 'text-amber-600';  iconBg = 'bg-amber-50'  }
+  const t = danger ? 'danger' : warning ? 'warning' : (tone || 'default')
+  const T = {
+    default: { icon: 'text-brand-600', value: 'text-gray-900',  accent: '' },
+    danger:  { icon: 'text-red-600',   value: 'text-red-700',   accent: 'accent-danger' },
+    warning: { icon: 'text-amber-600', value: 'text-amber-700', accent: 'accent-warning' },
+    info:    { icon: 'text-blue-600',  value: 'text-gray-900',  accent: 'accent-info' },
+  }[t] || { icon: 'text-brand-600', value: 'text-gray-900', accent: '' }
 
   return (
-    <div className="card p-5">
-      <div className="flex items-start gap-3">
-        <div className={`w-9 h-9 rounded-xl ${iconBg} flex items-center justify-center flex-shrink-0`}>
-          <Icon className={`w-[18px] h-[18px] ${iconColor}`} />
-        </div>
-        <div className="min-w-0">
-          <p className="label">{label}</p>
-          <p className="text-2xl font-bold text-gray-900 mt-1 leading-none">{value ?? '—'}</p>
-          {sub && <p className="text-xs text-gray-400 mt-1 truncate">{sub}</p>}
-        </div>
+    <div className={`card p-5 ${T.accent}`}>
+      <div className="flex items-center gap-2 mb-2">
+        {Icon && (
+          <Icon className={`w-4 h-4 flex-shrink-0 ${iconColor || T.icon}`} />
+        )}
+        <p className="metric-label truncate">{label}</p>
       </div>
+      <p className={`text-xl font-bold leading-tight tabular-nums ${T.value}`}>{value ?? '—'}</p>
+      {sub && <p className="metric-sub mt-1 truncate">{sub}</p>}
     </div>
   )
 }

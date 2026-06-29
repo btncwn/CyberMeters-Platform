@@ -16,19 +16,25 @@ import FeedbackWidget from './FeedbackWidget'
 // Accuracy and Pricing are removed from the main nav:
 // - Accuracy is an internal developer tool not intended for beta users.
 // - Pricing is a public marketing page already linked in the footer.
+// Top nav is intentionally lean — high-level destinations only. Service-specific
+// areas (Email/Brand/Attack Surface/Certificates) live behind Services and the
+// service sidebars; secondary tools (Scans, Schedules, Academy) live in the user
+// menu. No routes are removed — everything stays reachable.
 const NAV = [
-  { to: '/dashboard',      icon: LayoutDashboard, label: 'Dashboard'  },
-  { to: '/services',       icon: LayoutGrid,      label: 'Services'   },
-  { to: '/ws/dashboard',        icon: Shield,      label: 'Security'   },
-  { to: '/ws/brand-monitoring', icon: ShieldAlert, label: 'Brand'      },
-  { to: '/workspaces',          icon: Briefcase,   label: 'Workspaces' },
-  { to: '/assets',         icon: Server,          label: 'Assets'     },
-  { to: '/scans',          icon: ScanLine,        label: 'Scans'      },
-  { to: '/schedules',      icon: Calendar,        label: 'Schedules'  },
-  { to: '/reports',        icon: FileBarChart2,   label: 'Reports'    },
-  { to: '/billing',        icon: CreditCard,      label: 'Billing'    },
-  { to: '/academy',        icon: GraduationCap,   label: 'Academy'    },
-  { to: '/settings',       icon: Settings,        label: 'Settings'   },
+  { to: '/dashboard',  icon: LayoutDashboard, label: 'Dashboard'  },
+  { to: '/services',   icon: LayoutGrid,      label: 'Services'   },
+  { to: '/workspaces', icon: Briefcase,       label: 'Workspaces' },
+  { to: '/reports',    icon: FileBarChart2,   label: 'Reports'    },
+  { to: '/billing',    icon: CreditCard,      label: 'Billing'    },
+  { to: '/settings',   icon: Settings,        label: 'Settings'   },
+]
+
+// Secondary destinations surfaced in the user menu so they stay reachable
+// without crowding the primary navigation.
+const MORE_LINKS = [
+  { to: '/scans',     icon: ScanLine,      label: 'Scans'     },
+  { to: '/schedules', icon: Calendar,      label: 'Schedules' },
+  { to: '/academy',   icon: GraduationCap, label: 'Academy'   },
 ]
 
 // ── Workspace Selector Dropdown ───────────────────────────────────────────────
@@ -217,6 +223,21 @@ function UserMenu() {
             <User className="w-4 h-4 text-gray-400" />
             Account settings
           </button>
+
+          {/* Secondary tools — kept reachable out of the lean top nav. */}
+          <div className="border-t border-gray-100 mt-1 pt-1">
+            <p className="px-4 pt-1 pb-0.5 text-[10px] font-semibold text-gray-400 uppercase tracking-widest">Tools</p>
+            {MORE_LINKS.map(({ to, icon: Icon, label }) => (
+              <button
+                key={to}
+                onClick={() => { setOpen(false); navigate(to) }}
+                className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                <Icon className="w-4 h-4 text-gray-400" />
+                {label}
+              </button>
+            ))}
+          </div>
 
           <div className="border-t border-gray-100 mt-1 pt-1">
             <button

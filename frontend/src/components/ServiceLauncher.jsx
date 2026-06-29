@@ -39,14 +39,15 @@ function ServiceCard({ service }) {
   return (
     <Link
       to={service.to}
-      className="group card p-8 flex flex-col items-start hover:shadow-card-md transition-all hover:-translate-y-0.5"
+      className="group card p-7 flex flex-col items-start hover:border-brand-200 hover:shadow-card-md transition-all hover:-translate-y-0.5"
     >
-      <div className="w-14 h-14 rounded-2xl bg-brand-50 flex items-center justify-center mb-5 group-hover:bg-brand-100 transition-colors">
-        <Icon className="w-7 h-7 text-brand-600" />
+      <div className="w-12 h-12 rounded-xl bg-brand-50 ring-1 ring-brand-100 flex items-center justify-center mb-5 group-hover:bg-brand-600 transition-colors">
+        <Icon className="w-6 h-6 text-brand-600 group-hover:text-white transition-colors" />
       </div>
       <h2 className="text-lg font-bold text-gray-900">{service.title}</h2>
-      <p className="text-sm text-gray-500 mt-1.5 leading-relaxed">{service.copy}</p>
-      <span className="mt-6 inline-flex items-center gap-1.5 text-sm font-semibold text-brand-700 group-hover:gap-2.5 transition-all">
+      <p className="text-sm text-gray-500 mt-1.5 leading-relaxed flex-1">{service.copy}</p>
+      {/* CTA styled as a real action (button-like), filling on hover. */}
+      <span className="mt-6 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-brand-200 text-brand-700 text-sm font-semibold bg-white group-hover:bg-brand-600 group-hover:text-white group-hover:border-brand-600 shadow-btn transition-all">
         {service.cta} <ArrowRight className="w-4 h-4" />
       </span>
     </Link>
@@ -57,15 +58,17 @@ export default function ServiceLauncher() {
   return (
     <div className="min-h-[72vh] flex flex-col justify-center py-10">
       <div className="max-w-4xl mx-auto w-full px-2">
-        <header className="text-center mb-10">
-          <span className="eyebrow">CyberMeters Security Platform</span>
-          <h1 className="text-3xl font-bold text-gray-900 mt-1">Choose where to start</h1>
-          <p className="text-sm text-gray-500 mt-2 max-w-lg mx-auto leading-relaxed">
-            Protect your email, brand, certificates and external attack surface from one workspace.
+        <header className="text-center mb-12">
+          <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-brand-50 border border-brand-100 text-[11px] font-bold text-brand-700 uppercase tracking-[0.14em] mb-4">
+            <span className="w-1.5 h-1.5 rounded-full bg-brand-500" /> CyberMeters Security Platform
+          </span>
+          <h1 className="text-[34px] sm:text-[40px] font-bold text-gray-900 tracking-tight leading-tight">Choose where to start</h1>
+          <p className="text-base text-gray-500 mt-3 max-w-xl mx-auto leading-relaxed">
+            Protect your email, brand, certificates and external attack surface — all from one workspace.
           </p>
         </header>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
           {SERVICES.map(s => <ServiceCard key={s.key} service={s} />)}
         </div>
       </div>
