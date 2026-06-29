@@ -115,12 +115,15 @@ function friendlyHttpError(res, err) {
   // would break existing flows, so we only synthesise a message when the body is
   // empty — which is exactly the case that used to surface a bare "HTTP 500".
   const raw = err && typeof err.error === 'string' ? err.error : ''
-  if (raw) return new Error(raw)
-  if (res.status >= 500) return new Error('Something went wrong on our end. Please try again in a moment.')
-  if (res.status === 404) return new Error('We couldn’t find what you were looking for.')
-  if (res.status === 403) return new Error('You don’t have access to this. Try switching workspace or contact your admin.')
-  if (res.status === 429) return new Error('Too many requests right now. Please wait a moment and try again.')
-  return new Error('Something went wrong. Please try again.')
+  // Attach the HTTP status so callers can branch (e.g. 403 permission handling)
+  // without parsing message strings. Additive — messages are unchanged.
+  const withStatus = (e) => { e.status = res.status; return e }
+  if (raw) return withStatus(new Error(raw))
+  if (res.status >= 500) return withStatus(new Error('Something went wrong on our end. Please try again in a moment.'))
+  if (res.status === 404) return withStatus(new Error('We couldn’t find what you were looking for.'))
+  if (res.status === 403) return withStatus(new Error('You don’t have access to this. Try switching workspace or contact your admin.'))
+  if (res.status === 429) return withStatus(new Error('Too many requests right now. Please wait a moment and try again.'))
+  return withStatus(new Error('Something went wrong. Please try again.'))
 }
 
 async function request(path, options = {}) {
@@ -498,6 +501,28 @@ export const api = {
   /** POST /api/workspaces/:id/brand-monitoring/refresh */
   refreshBrandMonitoring: (id) =>
     request(`/workspaces/${id}/brand-monitoring/refresh`, { method: 'POST' }),
+
+  // ── Brand Protection Intelligence v1 ──────────────────────────────────────
+  /** GET /api/workspaces/:id/brand/profile */
+  getBrandProfile: (id) => request(`/workspaces/${id}/brand/profile`),
+  /** POST /api/workspaces/:id/brand/profile  body: { brand_name, primary_domain, keywords[], protected_domains[] } */
+  updateBrandProfile: (id, payload) =>
+    request(`/workspaces/${id}/brand/profile`, { method: 'POST', body: JSON.stringify(payload) }),
+  /** GET /api/workspaces/:id/brand/summary */
+  getBrandSummary: (id) => request(`/workspaces/${id}/brand/summary`),
+  /** GET /api/workspaces/:id/brand/candidates  optional params */
+  getBrandCandidates: (id, params = {}) => {
+    const q = new URLSearchParams(params).toString()
+    return request(`/workspaces/${id}/brand/candidates${q ? `?${q}` : ''}`)
+  },
+  /** GET /api/workspaces/:id/brand/candidates/:candidateId */
+  getBrandCandidate: (id, candidateId) =>
+    request(`/workspaces/${id}/brand/candidates/${candidateId}`),
+  /** POST /api/workspaces/:id/brand/candidates/:candidateId/classify  body: { classification } */
+  classifyBrandCandidate: (id, candidateId, classification) =>
+    request(`/workspaces/${id}/brand/candidates/${candidateId}/classify`, {
+      method: 'POST', body: JSON.stringify({ classification }),
+    }),
 
   /** GET /api/workspaces/:id/identity-assets  optional: ?identity_type=&provider=&min_risk_score= */
   getWorkspaceIdentityAssets: (id, params = {}) => {

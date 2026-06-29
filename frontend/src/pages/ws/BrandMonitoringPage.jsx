@@ -1,214 +1,489 @@
-import { useState, useEffect, useCallback } from 'react'
-import { Globe, RefreshCw, CheckCircle, AlertCircle, Loader } from 'lucide-react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import {
+  Tag, ShieldAlert, AlertTriangle, CheckCircle, Info, RefreshCw, Eye, X,
+  ChevronDown, ChevronRight, Globe, Search, Pencil, ArrowRight, Radar,
+} from 'lucide-react'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { api } from '../../api'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
 import RiskBadge from '../../components/RiskBadge'
 import StatCard from '../../components/StatCard'
-import DataTable from '../../components/DataTable'
 
-const COLUMNS = [
-  {
-    key: 'candidate_domain',
-    label: 'Candidate Domain',
-    render: v => <span className="mono text-sm text-gray-900">{v}</span>,
-  },
-  {
-    key: 'variant_type',
-    label: 'Variant Type',
-    render: v => <span className="text-xs text-gray-500 capitalize">{(v || '').replace(/_/g, ' ')}</span>,
-  },
-  { key: 'risk_level', label: 'Risk', render: v => <RiskBadge level={v} /> },
-  {
-    key: 'dns_resolves',
-    label: 'DNS Active',
-    render: v => v === 1
-      ? <span className="flex items-center gap-1 text-xs font-semibold text-red-500"><AlertCircle className="w-3.5 h-3.5" />Resolves</span>
-      : v === 0
-        ? <span className="flex items-center gap-1 text-xs text-brand-600"><CheckCircle className="w-3.5 h-3.5" />No DNS</span>
-        : <span className="text-xs text-gray-400">Unverified</span>,
-  },
-  {
-    key: 'https_available',
-    label: 'HTTPS',
-    render: v => v === 1
-      ? <span className="text-xs font-semibold text-red-500">Live Site</span>
-      : v === 0
-        ? <span className="text-xs text-gray-400">—</span>
-        : <span className="text-xs text-gray-300">—</span>,
-  },
-  {
-    key: 'status',
-    label: 'Status',
-    render: v => (
-      <span className={`text-xs font-semibold capitalize ${
-        v === 'active'     ? 'text-red-500'    :
-        v === 'inactive'   ? 'text-gray-400'   :
-                             'text-amber-500'
-      }`}>{v}</span>
-    ),
-  },
-  {
-    key: 'risk_reasons',
-    label: 'Risk Signals',
-    render: v => {
-      const reasons = typeof v === 'string' ? (() => { try { return JSON.parse(v) } catch { return [] } })() : (v || [])
-      if (!reasons.length) return <span className="text-gray-300 text-xs">—</span>
-      return (
-        <div className="flex flex-wrap gap-1">
-          {reasons.map((r, i) => (
-            <span key={i} className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{r}</span>
+// ── helpers ───────────────────────────────────────────────────────────────────
+function asList(v) {
+  if (Array.isArray(v)) return v
+  if (typeof v === 'string' && v.trim()) { try { const p = JSON.parse(v); return Array.isArray(p) ? p : [v] } catch { return v.split(',').map(s => s.trim()).filter(Boolean) } }
+  return []
+}
+function fmtDate(v) {
+  if (!v) return null
+  const d = new Date(typeof v === 'number' ? v : (String(v).includes('T') ? v : v.replace(' ', 'T') + 'Z'))
+  return isNaN(d) ? null : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+}
+function isRecent(v, days = 7) {
+  if (!v) return false
+  const d = new Date(typeof v === 'number' ? v : (String(v).includes('T') ? v : v.replace(' ', 'T') + 'Z'))
+  return !isNaN(d) && (Date.now() - d.getTime()) < days * 86400000
+}
+function humanize(s) { return String(s).replace(/[_-]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) }
+const TYPO_VARIANTS = ['typo', 'typosquat', 'homoglyph', 'lookalike', 'misspelling', 'addition', 'omission', 'transposition', 'replacement', 'bitsquat']
+
+// Normalise a candidate across new + legacy field names; never invents data.
+function normCandidate(c) {
+  const dnsActive = c.dns_active ?? (c.dns_resolves === 1 ? true : c.dns_resolves === 0 ? false : null)
+  const httpsActive = c.https_active ?? (c.https_available === 1 ? true : c.https_available === 0 ? false : null)
+  return {
+    ...c,
+    _id: c.id ?? c.candidate_id ?? c.candidate_domain,
+    _dns: dnsActive, _https: httpsActive, _mx: c.mx_present ?? null,
+    _reasons: asList(c.risk_reasons),
+    _evidence: asList(c.evidence),
+    _new: isRecent(c.first_seen_at),
+  }
+}
+
+// Evidence badges — only emitted when the underlying signal genuinely exists.
+function evidenceBadges(c) {
+  const out = []
+  const variant = String(c.variant_type || '').toLowerCase()
+  if (TYPO_VARIANTS.some(v => variant.includes(v))) out.push('Similar spelling')
+  if (c._dns === true) out.push('DNS active')
+  if (c._https === true) out.push('HTTPS active')
+  if (c._mx === true) out.push('MX present')
+  if (c._new) out.push('Newly seen')
+  for (const e of c._evidence) {
+    const label = typeof e === 'object' ? (e.label || e.title || e.type || e.name) : e
+    if (label) out.push(humanize(label))
+  }
+  // de-dupe, preserve order
+  return [...new Map(out.map(l => [l.toLowerCase(), l])).values()]
+}
+
+const CLASSIFY_OPTIONS = [
+  { value: 'owned',           label: 'Mark as owned' },
+  { value: 'suspicious',      label: 'Mark suspicious' },
+  { value: 'monitor',         label: 'Monitor' },
+  { value: 'confirmed_abuse', label: 'Confirm abuse' },
+  { value: 'false_positive',  label: 'False positive' },
+  { value: 'ignored',         label: 'Ignore' },
+]
+function classMeta(c) {
+  const k = (c.classification || c.status || 'unreviewed').toLowerCase()
+  switch (k) {
+    case 'owned':           return { label: 'Owned',         tone: 'closed' }
+    case 'ignored':         return { label: 'Ignored',       tone: 'closed' }
+    case 'false_positive':  return { label: 'False positive', tone: 'closed' }
+    case 'suspicious':      return { label: 'Suspicious',    tone: 'warn' }
+    case 'confirmed_abuse': return { label: 'Confirmed abuse', tone: 'bad' }
+    case 'monitor':         return { label: 'Monitoring',    tone: 'info' }
+    default:                return { label: 'Needs review',  tone: 'review' }
+  }
+}
+function isUnreviewed(c) {
+  const k = (c.classification || c.status || '').toLowerCase()
+  return !k || k === 'unreviewed' || k === 'new' || k === 'pending'
+}
+const CHIP = {
+  closed: 'bg-gray-50 text-gray-500 border-gray-200',
+  warn:   'bg-amber-50 text-amber-700 border-amber-200',
+  bad:    'bg-red-50 text-red-700 border-red-200',
+  info:   'bg-blue-50 text-blue-700 border-blue-100',
+  review: 'bg-amber-50 text-amber-700 border-amber-200',
+}
+
+function Toast({ toast, onClose }) {
+  if (!toast) return null
+  const ok = toast.kind === 'ok'
+  return (
+    <div className={`fixed bottom-5 right-5 z-50 flex items-center gap-2.5 px-4 py-3 rounded-xl border text-sm shadow-card-md ${ok ? 'bg-brand-50 border-brand-100 text-brand-800' : 'bg-red-50 border-red-100 text-red-700'}`}>
+      {ok ? <CheckCircle className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
+      <span>{toast.msg}</span>
+      <button onClick={onClose} className="text-gray-400 hover:text-gray-700"><X className="w-4 h-4" /></button>
+    </div>
+  )
+}
+
+// ── Candidate row (expandable evidence drawer) ────────────────────────────────
+function CandidateRow({ c, busy, onClassify }) {
+  const [open, setOpen] = useState(false)
+  const cm = classMeta(c)
+  const badges = evidenceBadges(c)
+  const closed = cm.tone === 'closed'
+  const lastSeen = fmtDate(c.last_seen_at || c.last_checked_at || c.first_seen_at)
+  return (
+    <div className={`border-b border-gray-100 ${closed ? 'opacity-70' : ''}`}>
+      <div className="px-4 py-3 grid grid-cols-12 gap-3 items-center">
+        <button onClick={() => setOpen(o => !o)} className="col-span-12 sm:col-span-4 flex items-center gap-2 text-left min-w-0">
+          {open ? <ChevronDown className="w-4 h-4 text-gray-400 flex-shrink-0" /> : <ChevronRight className="w-4 h-4 text-gray-300 flex-shrink-0" />}
+          <span className="min-w-0">
+            <span className="block mono text-sm text-gray-900 truncate">{c.candidate_domain || '—'}</span>
+            <span className="block text-xs text-gray-400 capitalize">{(c.variant_type || 'lookalike').replace(/_/g, ' ')}</span>
+          </span>
+        </button>
+        <div className="col-span-4 sm:col-span-2"><RiskBadge level={c.risk_level} /></div>
+        <div className="col-span-4 sm:col-span-2">
+          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border ${CHIP[cm.tone]}`}>{cm.label}</span>
+        </div>
+        <div className="hidden sm:flex sm:col-span-2 flex-wrap gap-1">
+          {badges.slice(0, 2).map(b => <span key={b} className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{b}</span>)}
+          {badges.length > 2 && <span className="text-[10px] text-gray-400">+{badges.length - 2}</span>}
+        </div>
+        <div className="col-span-4 sm:col-span-2 flex justify-end">
+          <ClassifyMenu disabled={busy} onPick={v => onClassify(c, v)} />
+        </div>
+      </div>
+
+      {open && (
+        <div className="px-4 pb-4 pt-1 bg-gray-50/60">
+          <div className="rounded-xl border border-gray-200 bg-white p-4 space-y-3">
+            <div>
+              <p className="text-sm font-semibold text-gray-900">Why this matters</p>
+              <p className="text-xs text-gray-500 leading-relaxed mt-0.5">
+                This domain resembles your protected brand and could be used for phishing, supplier impersonation or invoice fraud.
+              </p>
+            </div>
+            <dl className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+              <div><dt className="text-gray-400">Risk</dt><dd className="mt-0.5"><RiskBadge level={c.risk_level} /></dd></div>
+              <div><dt className="text-gray-400">Similarity</dt><dd className="mt-0.5 font-semibold text-gray-700">{c.similarity_score != null ? `${Math.round(c.similarity_score * (c.similarity_score <= 1 ? 100 : 1))}%` : '—'}</dd></div>
+              <div><dt className="text-gray-400">Variant</dt><dd className="mt-0.5 font-semibold text-gray-700 capitalize">{(c.variant_type || '—').replace(/_/g, ' ')}</dd></div>
+              <div><dt className="text-gray-400">Last seen</dt><dd className="mt-0.5 font-semibold text-gray-700">{lastSeen || '—'}</dd></div>
+            </dl>
+            {badges.length > 0 && (
+              <div>
+                <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Evidence</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {badges.map(b => <span key={b} className="inline-flex items-center gap-1 text-[11px] bg-gray-100 text-gray-700 px-2 py-0.5 rounded-md"><Eye className="w-3 h-3 text-gray-400" />{b}</span>)}
+                </div>
+              </div>
+            )}
+            {c._reasons.length > 0 && (
+              <div>
+                <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Risk reasons</p>
+                <ul className="space-y-1">
+                  {c._reasons.map((r, i) => (
+                    <li key={i} className="text-xs text-gray-600 flex items-start gap-1.5"><AlertTriangle className="w-3.5 h-3.5 text-amber-400 flex-shrink-0 mt-0.5" />{typeof r === 'object' ? (r.label || r.message || JSON.stringify(r)) : r}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <span className="text-[11px] text-gray-400">Suggested next step:</span>
+              <span className="text-xs text-gray-700">{c.action_required || (isUnreviewed(c) ? 'Review and classify this domain.' : classMeta(c).label === 'Confirmed abuse' ? 'Escalate and consider takedown.' : 'No action needed.')}</span>
+            </div>
+            <div className="flex flex-wrap gap-2 pt-1">
+              {CLASSIFY_OPTIONS.map(o => (
+                <button key={o.value} disabled={busy} onClick={() => onClassify(c, o.value)}
+                  className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 hover:text-gray-900 disabled:opacity-50">
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ClassifyMenu({ onPick, disabled }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+  useEffect(() => {
+    function h(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', h); return () => document.removeEventListener('mousedown', h)
+  }, [])
+  return (
+    <div className="relative" ref={ref}>
+      <button disabled={disabled} onClick={() => setOpen(o => !o)} className="btn-secondary text-xs py-1.5 px-2.5 disabled:opacity-50">
+        Classify <ChevronDown className="w-3.5 h-3.5" />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 w-44 bg-white rounded-xl border border-gray-200 shadow-card-md py-1 z-20">
+          {CLASSIFY_OPTIONS.map(o => (
+            <button key={o.value} onClick={() => { setOpen(false); onPick(o.value) }}
+              className="w-full text-left px-3 py-2 text-xs text-gray-700 hover:bg-gray-50">{o.label}</button>
           ))}
         </div>
-      )
-    },
-  },
+      )}
+    </div>
+  )
+}
+
+// ── Protected brand block (+ inline edit) ─────────────────────────────────────
+function ProtectedBrand({ profile, editing, setEditing, onSave, saving }) {
+  const [form, setForm] = useState({ brand_name: '', primary_domain: '', keywords: '', protected_domains: '' })
+  useEffect(() => {
+    if (editing) setForm({
+      brand_name: profile?.brand_name || '',
+      primary_domain: profile?.primary_domain || '',
+      keywords: asList(profile?.keywords).join(', '),
+      protected_domains: asList(profile?.protected_domains).join(', '),
+    })
+  }, [editing, profile])
+
+  if (editing) {
+    return (
+      <section className="card p-6 mb-6">
+        <h2 className="section-title mb-4">Update protected brand</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <label className="block"><span className="label mb-1 block">Brand name</span>
+            <input className="input text-sm" value={form.brand_name} onChange={e => setForm(f => ({ ...f, brand_name: e.target.value }))} placeholder="Acme Inc." /></label>
+          <label className="block"><span className="label mb-1 block">Primary domain</span>
+            <input className="input text-sm" value={form.primary_domain} onChange={e => setForm(f => ({ ...f, primary_domain: e.target.value }))} placeholder="acme.com" /></label>
+          <label className="block sm:col-span-2"><span className="label mb-1 block">Keywords (comma separated)</span>
+            <input className="input text-sm" value={form.keywords} onChange={e => setForm(f => ({ ...f, keywords: e.target.value }))} placeholder="acme, acmepay, acme support" /></label>
+          <label className="block sm:col-span-2"><span className="label mb-1 block">Protected domains (comma separated)</span>
+            <input className="input text-sm" value={form.protected_domains} onChange={e => setForm(f => ({ ...f, protected_domains: e.target.value }))} placeholder="acme.com, acme.co.uk" /></label>
+        </div>
+        <div className="flex items-center gap-3 mt-4">
+          <button disabled={saving} onClick={() => onSave({
+            brand_name: form.brand_name.trim(),
+            primary_domain: form.primary_domain.trim(),
+            keywords: form.keywords.split(',').map(s => s.trim()).filter(Boolean),
+            protected_domains: form.protected_domains.split(',').map(s => s.trim()).filter(Boolean),
+          })} className="btn-primary text-sm disabled:opacity-50">
+            {saving ? <><RefreshCw className="w-4 h-4 animate-spin" /> Saving…</> : 'Save brand profile'}
+          </button>
+          <button onClick={() => setEditing(false)} className="text-sm text-gray-500 hover:text-gray-700">Cancel</button>
+        </div>
+      </section>
+    )
+  }
+
+  return (
+    <section className="card p-6 mb-6">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <span className="eyebrow">Protected brand</span>
+          <h2 className="section-title mt-1">{profile?.brand_name || profile?.primary_domain || 'Your brand'}</h2>
+        </div>
+        <button onClick={() => setEditing(true)} className="btn-secondary text-sm flex-shrink-0"><Pencil className="w-4 h-4" /> Edit</button>
+      </div>
+
+      {!profile ? (
+        <p className="text-sm text-gray-500 mt-3 leading-relaxed">
+          No brand profile yet. Brand monitoring is currently inferred from your workspace domains — add a brand profile to sharpen detection.
+        </p>
+      ) : (
+        <>
+          {profile.inferred && (
+            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50/60 p-3 text-sm text-amber-900 flex gap-2">
+              <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              CyberMeters is currently inferring brand monitoring from your workspace domains.
+            </div>
+          )}
+          <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3 mt-4 text-sm">
+            <div><dt className="text-xs text-gray-400">Primary domain</dt><dd className="mono text-gray-800 mt-0.5">{profile.primary_domain || '—'}</dd></div>
+            <div><dt className="text-xs text-gray-400">Status</dt><dd className="text-gray-800 mt-0.5">{profile.inferred ? 'Inferred from workspace' : 'Configured'}{fmtDate(profile.updated_at || profile.last_updated_at) ? ` · updated ${fmtDate(profile.updated_at || profile.last_updated_at)}` : ''}</dd></div>
+            <div className="sm:col-span-2"><dt className="text-xs text-gray-400">Protected domains</dt>
+              <dd className="mt-1 flex flex-wrap gap-1.5">{asList(profile.protected_domains).length ? asList(profile.protected_domains).map(d => <span key={d} className="mono text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded">{d}</span>) : <span className="text-gray-400 text-xs">None</span>}</dd></div>
+            <div className="sm:col-span-2"><dt className="text-xs text-gray-400">Keywords</dt>
+              <dd className="mt-1 flex flex-wrap gap-1.5">{asList(profile.keywords).length ? asList(profile.keywords).map(k => <span key={k} className="text-xs bg-brand-50 text-brand-700 px-2 py-0.5 rounded">{k}</span>) : <span className="text-gray-400 text-xs">None</span>}</dd></div>
+          </dl>
+        </>
+      )}
+    </section>
+  )
+}
+
+const FILTERS = [
+  { key: '',           label: 'All' },
+  { key: 'high',       label: 'High risk' },
+  { key: 'unreviewed', label: 'Unreviewed' },
+  { key: 'suspicious', label: 'Suspicious' },
+  { key: 'owned',      label: 'Owned' },
+  { key: 'ignored',    label: 'Ignored' },
 ]
 
 export default function BrandMonitoringPage() {
   const { wsId, wsName } = useWorkspace()
-  const [candidates, setCandidates] = useState([])
+  const [profile, setProfile]       = useState(null)
   const [summary, setSummary]       = useState(null)
+  const [candidates, setCandidates] = useState([])
   const [loading, setLoading]       = useState(true)
   const [error, setError]           = useState(null)
-  const [validating, setValidating] = useState(false)
-  const [validateMsg, setValidateMsg] = useState(null)
-  const [filterRisk, setFilterRisk] = useState('')
-  const [filterStatus, setFilterStatus] = useState('')
+  const [editing, setEditing]       = useState(false)
+  const [saving, setSaving]         = useState(false)
+  const [busyId, setBusyId]         = useState(null)
+  const [filter, setFilter]         = useState('')
+  const [toast, setToast]           = useState(null)
+  const queueRef = useRef(null)
+
+  const showToast = (kind, msg) => { setToast({ kind, msg }); setTimeout(() => setToast(null), 3500) }
 
   const load = useCallback(async () => {
     if (!wsId) { setLoading(false); return }
     setLoading(true); setError(null)
     try {
-      const params = {}
-      if (filterRisk)   params.risk_level = filterRisk
-      if (filterStatus) params.status     = filterStatus
-      const [c, s] = await Promise.allSettled([
-        api.getWorkspaceBrandMonitoring(wsId, params),
-        api.getWorkspaceBrandMonitoringSummary(wsId),
+      const [p, s, c] = await Promise.allSettled([
+        api.getBrandProfile(wsId),
+        api.getBrandSummary(wsId),
+        api.getBrandCandidates(wsId, {}),
       ])
-      setCandidates(c.status === 'fulfilled' ? (c.value.candidates || []) : [])
-      setSummary(s.status === 'fulfilled' ? s.value : null)
+      setProfile(p.status === 'fulfilled' ? (p.value?.profile ?? p.value ?? null) : null)
+      setSummary(s.status === 'fulfilled' ? (s.value?.summary ?? s.value ?? null) : null)
+
+      let cands = c.status === 'fulfilled' ? (c.value?.candidates ?? (Array.isArray(c.value) ? c.value : null)) : null
+      if (!Array.isArray(cands)) {
+        // Graceful fallback to legacy brand-monitoring data.
+        try { const legacy = await api.getWorkspaceBrandMonitoring(wsId, {}); cands = legacy.candidates || [] }
+        catch { cands = [] }
+      }
+      setCandidates((cands || []).map(normCandidate))
     } catch (e) {
       setError(e.message)
     } finally {
       setLoading(false)
     }
-  }, [wsId, filterRisk, filterStatus])
+  }, [wsId])
 
   useEffect(() => { load() }, [load])
 
-  const handleValidate = async () => {
-    setValidating(true)
-    setValidateMsg(null)
+  async function handleSave(payload) {
+    setSaving(true)
     try {
-      const r = await api.refreshBrandMonitoring(wsId)
-      setValidateMsg(r.message || `Validated ${r.checked ?? '?'} candidates`)
+      await api.updateBrandProfile(wsId, payload)
+      showToast('ok', 'Brand profile updated.')
+      setEditing(false)
       await load()
     } catch (e) {
-      setValidateMsg(`Error: ${e.message}`)
-    } finally {
-      setValidating(false)
-    }
+      if (e.status === 403) showToast('err', 'You need workspace management permission to update the brand profile.')
+      else showToast('err', e.message || 'Could not save brand profile.')
+    } finally { setSaving(false) }
   }
+
+  async function handleClassify(c, value) {
+    setBusyId(c._id)
+    try {
+      await api.classifyBrandCandidate(wsId, c._id, value)
+      showToast('ok', 'Classification updated.')
+      await load()
+    } catch (e) {
+      if (e.status === 403) showToast('err', 'You need workspace management permission to classify brand risks.')
+      else showToast('err', e.message || 'Could not update classification.')
+    } finally { setBusyId(null) }
+  }
+
+  const metrics = useMemo(() => {
+    const num = v => (typeof v === 'number' ? v : null)
+    return {
+      lookalike:  num(summary?.total_candidates ?? summary?.candidates ?? summary?.lookalike_candidates) ?? candidates.length,
+      activeDns:  num(summary?.active_dns ?? summary?.dns_active) ?? candidates.filter(c => c._dns === true).length,
+      highRisk:   num(summary?.high_risk) ?? candidates.filter(c => ['high', 'critical'].includes(c.risk_level)).length,
+      suspicious: num(summary?.suspicious) ?? candidates.filter(c => (c.classification || c.status) === 'suspicious').length,
+      unreviewed: num(summary?.unreviewed ?? summary?.needs_review) ?? candidates.filter(isUnreviewed).length,
+    }
+  }, [summary, candidates])
+
+  const filtered = useMemo(() => candidates.filter(c => {
+    if (filter === 'high') return ['high', 'critical'].includes(c.risk_level)
+    if (filter === 'unreviewed') return isUnreviewed(c)
+    if (filter === 'suspicious') return (c.classification || c.status) === 'suspicious'
+    if (filter === 'owned') return (c.classification || c.status) === 'owned'
+    if (filter === 'ignored') return ['ignored', 'false_positive'].includes(c.classification || c.status)
+    return true
+  }), [candidates, filter])
+
+  const actions = useMemo(() => {
+    const a = []
+    if (metrics.highRisk > 0)   a.push({ icon: ShieldAlert, tone: 'bad',  text: `Review ${metrics.highRisk} high-risk lookalike domain${metrics.highRisk === 1 ? '' : 's'}.`, to: 'high' })
+    if (metrics.unreviewed > 0) a.push({ icon: Search,      tone: 'warn', text: `Classify ${metrics.unreviewed} unreviewed candidate${metrics.unreviewed === 1 ? '' : 's'}.`, to: 'unreviewed' })
+    if (metrics.suspicious > 0) a.push({ icon: Eye,         tone: 'warn', text: `Keep monitoring ${metrics.suspicious} suspicious domain${metrics.suspicious === 1 ? '' : 's'}.`, to: 'suspicious' })
+    if (metrics.unreviewed > 0) a.push({ icon: CheckCircle, tone: 'info', text: 'Mark owned domains and false positives to reduce noise.', to: '' })
+    return a
+  }, [metrics])
 
   if (!wsId) return <NoWorkspaceSelected />
-
-  const active    = candidates.filter(c => c.status === 'active').length
-  const highRisk  = candidates.filter(c => ['high', 'critical'].includes(c.risk_level)).length
-  const resolving = candidates.filter(c => c.dns_resolves === 1).length
-
-  function FilterBtn({ value, current, onClick, children }) {
-    return (
-      <button
-        onClick={onClick}
-        className={current === value
-          ? 'px-3 py-1.5 rounded-lg text-xs font-semibold bg-brand-600 text-white'
-          : 'px-3 py-1.5 rounded-lg text-xs font-medium text-gray-500 hover:bg-gray-100 border border-gray-200'}
-      >{children}</button>
-    )
-  }
+  const scrollToQueue = () => queueRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 
   return (
     <WsPage wsId={wsId} wsName={wsName} loading={loading} error={error} onRetry={load}>
-      <div className="flex items-start justify-between mb-6 gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Brand Monitoring</h1>
-          <p className="text-sm text-gray-400 mt-0.5">{wsName}</p>
+
+      {/* 1 · Hero */}
+      <div className="card p-6 mb-6 flex flex-col lg:flex-row lg:items-center gap-5">
+        <div className="w-12 h-12 rounded-2xl bg-brand-50 flex items-center justify-center flex-shrink-0">
+          <Radar className="w-6 h-6 text-brand-600" />
         </div>
-        <div className="flex items-center gap-3">
-          {validateMsg && (
-            <span className="text-xs text-gray-500 italic">{validateMsg}</span>
-          )}
-          <button
-            onClick={handleValidate}
-            disabled={validating}
-            className="btn-primary flex items-center gap-2 disabled:opacity-60"
-          >
-            {validating
-              ? <><Loader className="w-4 h-4 animate-spin" /> Validating…</>
-              : <><RefreshCw className="w-4 h-4" /> Validate Now</>}
-          </button>
+        <div className="flex-1 min-w-0">
+          <span className="eyebrow">Brand Protection</span>
+          <h1 className="page-title">Brand Protection</h1>
+          <p className="page-subtitle">Monitor lookalike domains, typosquats, impersonation risk and brand-abuse signals.</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-3 flex-shrink-0">
+          <button onClick={scrollToQueue} className="btn-primary text-sm"><ShieldAlert className="w-4 h-4" /> Review suspicious domains</button>
+          <button onClick={() => setEditing(true)} className="btn-secondary text-sm"><Pencil className="w-4 h-4" /> Update protected brand</button>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <StatCard icon={Globe} label="Candidates"    value={candidates.length} />
-        <StatCard icon={Globe} label="Active (DNS)"  value={resolving} danger={resolving > 0} />
-        <StatCard icon={Globe} label="High Risk"     value={highRisk}  danger={highRisk > 0} />
-        <StatCard icon={Globe} label="Confirmed"     value={active}    danger={active > 0} />
+      {/* 2 · Protected brand */}
+      <ProtectedBrand profile={profile} editing={editing} setEditing={setEditing} onSave={handleSave} saving={saving} />
+
+      {/* 3 · Risk overview (label-led, numbers below & smaller) */}
+      <div id="brand-summary" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 mb-6 scroll-mt-20">
+        <StatCard icon={Globe}       label="Lookalike candidates" explanation="Domains resembling your brand"        value={metrics.lookalike} />
+        <StatCard icon={Globe}       label="Active DNS"           explanation="Candidates currently resolving"       value={metrics.activeDns} tone={metrics.activeDns > 0 ? 'info' : undefined} />
+        <StatCard icon={ShieldAlert} label="High-risk candidates" explanation="May need immediate review"            value={metrics.highRisk}   danger={metrics.highRisk > 0} />
+        <StatCard icon={Eye}         label="Suspicious"           explanation="Flagged for impersonation risk"       value={metrics.suspicious} warning={metrics.suspicious > 0} />
+        <StatCard icon={Search}      label="Unreviewed"           explanation="Awaiting your classification"         value={metrics.unreviewed} warning={metrics.unreviewed > 0} />
       </div>
 
-      {summary && (
-        <div id="brand-summary" className="card p-5 mb-6 scroll-mt-20">
-          <h2 className="font-semibold text-gray-900 mb-3">Summary</h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {summary.by_risk && Object.entries(summary.by_risk).map(([level, count]) => (
-              <div key={level} className="flex items-center gap-2">
-                <RiskBadge level={level} />
-                <span className="text-sm font-semibold text-gray-700">{count}</span>
-              </div>
+      {/* 4 · Recommended actions */}
+      {actions.length > 0 && (
+        <section className="mb-6">
+          <h2 className="section-title mb-3">Recommended actions</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {actions.map((a, i) => (
+              <button key={i} onClick={() => { if (a.to !== undefined) setFilter(a.to); scrollToQueue() }}
+                className="card p-4 flex items-center gap-3 text-left hover:border-brand-200 hover:shadow-card-md transition-all">
+                <span className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${a.tone === 'bad' ? 'bg-red-50 text-red-600' : a.tone === 'warn' ? 'bg-amber-50 text-amber-600' : 'bg-brand-50 text-brand-600'}`}>
+                  <a.icon className="w-4 h-4" />
+                </span>
+                <span className="text-sm text-gray-700 flex-1">{a.text}</span>
+                <ArrowRight className="w-4 h-4 text-gray-300" />
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* 5 · Investigation queue */}
+      <section ref={queueRef} id="typosquats" className="card overflow-hidden scroll-mt-20">
+        <div className="px-5 py-4 border-b border-gray-100 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="section-title">Suspicious domain queue</h2>
+            <p className="text-xs text-gray-400 mt-0.5">{filtered.length} of {candidates.length} shown</p>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {FILTERS.map(f => (
+              <button key={f.key} onClick={() => setFilter(f.key)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${filter === f.key ? 'bg-brand-600 text-white' : 'text-gray-500 hover:bg-gray-100 border border-gray-200'}`}>
+                {f.label}
+              </button>
             ))}
           </div>
         </div>
-      )}
 
-      {/* Filters */}
-      <div className="card p-4 mb-6 flex flex-wrap gap-2 items-center">
-        <span className="text-xs text-gray-500 font-medium mr-1">Risk:</span>
-        <FilterBtn value="" current={filterRisk} onClick={() => setFilterRisk('')}>All</FilterBtn>
-        {['critical', 'high', 'medium', 'low'].map(r => (
-          <FilterBtn key={r} value={r} current={filterRisk} onClick={() => setFilterRisk(r)}>
-            <span className="capitalize">{r}</span>
-          </FilterBtn>
-        ))}
-
-        <span className="text-xs text-gray-500 font-medium ml-4 mr-1">Status:</span>
-        <FilterBtn value="" current={filterStatus} onClick={() => setFilterStatus('')}>All</FilterBtn>
-        {['active', 'inactive', 'unverified'].map(s => (
-          <FilterBtn key={s} value={s} current={filterStatus} onClick={() => setFilterStatus(s)}>
-            <span className="capitalize">{s}</span>
-          </FilterBtn>
-        ))}
-      </div>
-
-      <div id="typosquats" className="card overflow-hidden scroll-mt-20">
-        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-          <h2 className="font-semibold text-gray-900">Typosquat Candidates</h2>
-          <span className="text-sm text-gray-400">{candidates.length} result{candidates.length !== 1 ? 's' : ''}</span>
-        </div>
-        <DataTable
-          columns={COLUMNS}
-          rows={candidates}
-          empty={
-            <div className="py-12 text-center">
-              <Globe className="w-10 h-10 text-gray-200 mx-auto mb-3" />
-              <p className="text-sm text-gray-400">No brand candidates yet.</p>
-              <p className="text-xs text-gray-300 mt-1">Run a scan then click "Validate Now" to check lookalike domains.</p>
+        {filtered.length === 0 ? (
+          <div className="py-14 text-center">
+            <Globe className="w-10 h-10 text-gray-200 mx-auto mb-3" />
+            <p className="text-sm font-medium text-gray-600">{candidates.length === 0 ? 'No lookalike domains found yet.' : 'No candidates match this filter.'}</p>
+            <p className="text-xs text-gray-400 mt-1">{candidates.length === 0 ? 'CyberMeters will continue monitoring brand-abuse signals as new scans run.' : 'Try a different filter above.'}</p>
+          </div>
+        ) : (
+          <>
+            <div className="hidden sm:grid grid-cols-12 gap-3 px-4 py-2 bg-gray-50/70 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
+              <span className="col-span-4">Candidate domain</span>
+              <span className="col-span-2">Risk</span>
+              <span className="col-span-2">Classification</span>
+              <span className="col-span-2">Evidence</span>
+              <span className="col-span-2 text-right">Action</span>
             </div>
-          }
-        />
-      </div>
+            {filtered.map(c => <CandidateRow key={c._id} c={c} busy={busyId === c._id} onClassify={handleClassify} />)}
+          </>
+        )}
+      </section>
+
+      <Toast toast={toast} onClose={() => setToast(null)} />
     </WsPage>
   )
 }
