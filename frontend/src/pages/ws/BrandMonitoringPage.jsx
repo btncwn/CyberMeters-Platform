@@ -83,6 +83,14 @@ function isUnreviewed(c) {
   const k = (c.classification || c.status || '').toLowerCase()
   return !k || k === 'unreviewed' || k === 'new' || k === 'pending'
 }
+// owned / ignored / false_positive are closed — they must not count as high-risk.
+function isClosed(c) {
+  const k = (c.classification || c.status || '').toLowerCase()
+  return k === 'owned' || k === 'ignored' || k === 'false_positive'
+}
+function isHighRisk(c) {
+  return ['high', 'critical'].includes(c.risk_level) && !isClosed(c)
+}
 const CHIP = {
   closed: 'bg-gray-50 text-gray-500 border-gray-200',
   warn:   'bg-amber-50 text-amber-700 border-amber-200',
@@ -364,19 +372,31 @@ export default function BrandMonitoringPage() {
     } finally { setBusyId(null) }
   }
 
+  // Whenever candidates are loaded, the displayed summary is computed FROM the
+  // candidate list so the cards always match the table. /brand/summary is used
+  // only as a fallback before candidate data is available (e.g. transient load).
   const metrics = useMemo(() => {
-    const num = v => (typeof v === 'number' ? v : null)
+    if (candidates.length > 0) {
+      return {
+        lookalike:  candidates.length,
+        activeDns:  candidates.filter(c => c._dns === true || c.dns_resolves === true).length,
+        highRisk:   candidates.filter(isHighRisk).length,
+        suspicious: candidates.filter(c => (c.classification || c.status) === 'suspicious').length,
+        unreviewed: candidates.filter(isUnreviewed).length,
+      }
+    }
+    const num = v => (typeof v === 'number' ? v : 0)
     return {
-      lookalike:  num(summary?.total_candidates ?? summary?.candidates ?? summary?.lookalike_candidates) ?? candidates.length,
-      activeDns:  num(summary?.active_dns ?? summary?.dns_active) ?? candidates.filter(c => c._dns === true).length,
-      highRisk:   num(summary?.high_risk) ?? candidates.filter(c => ['high', 'critical'].includes(c.risk_level)).length,
-      suspicious: num(summary?.suspicious) ?? candidates.filter(c => (c.classification || c.status) === 'suspicious').length,
-      unreviewed: num(summary?.unreviewed ?? summary?.needs_review) ?? candidates.filter(isUnreviewed).length,
+      lookalike:  num(summary?.total_candidates ?? summary?.candidates ?? summary?.lookalike_candidates),
+      activeDns:  num(summary?.active_dns ?? summary?.dns_active),
+      highRisk:   num(summary?.high_risk),
+      suspicious: num(summary?.suspicious),
+      unreviewed: num(summary?.unreviewed ?? summary?.needs_review),
     }
   }, [summary, candidates])
 
   const filtered = useMemo(() => candidates.filter(c => {
-    if (filter === 'high') return ['high', 'critical'].includes(c.risk_level)
+    if (filter === 'high') return isHighRisk(c)
     if (filter === 'unreviewed') return isUnreviewed(c)
     if (filter === 'suspicious') return (c.classification || c.status) === 'suspicious'
     if (filter === 'owned') return (c.classification || c.status) === 'owned'
