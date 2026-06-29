@@ -269,10 +269,11 @@ function LimitsGrid({ limits }) {
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
       {items.map(({ label, value, icon: Icon }) => (
-        <div key={label} className="bg-white border border-gray-100 rounded-xl p-3 text-center">
-          <Icon className="w-4 h-4 text-gray-300 mx-auto mb-1" />
-          <p className="text-base font-black text-gray-900">{fmt(value)}</p>
-          <p className="text-[10px] text-gray-400 font-medium mt-0.5">{label}</p>
+        <div key={label} className="bg-white border border-gray-200/80 rounded-xl p-3 text-center">
+          {/* Label on top (larger); number below and smaller. */}
+          <Icon className="w-4 h-4 text-gray-300 mx-auto mb-1.5" />
+          <p className="text-sm font-semibold text-gray-900 leading-snug">{label}</p>
+          <p className="text-xs font-bold text-gray-600 mt-1 tabular-nums">{fmt(value)}</p>
         </div>
       ))}
     </div>
