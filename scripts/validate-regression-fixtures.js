@@ -857,6 +857,58 @@ results.push(
     return summary.total_candidates === 1 && summary.active_dns === 1 && summary.high_risk === 1 &&
       summary.suspicious === 1 && summary.confirmed_abuse === 0;
   }),
+  securityContract("brand_summary_high_risk_matches_candidate_serialization", () => {
+    const profile = { brand_name: "blackbullbarbers", primary_domain: "blackbullbarbers.co.uk",
+      protected_domains: ["blackbullbarbers.co.uk"] };
+    const candidate = scanner.brandCandidateToApi({
+      id: "bra-summary-1", domain: "blackbullbarbers.co.uk",
+      candidate_domain: "account-blackbullbarbers.co.uk", variant_type: "keyword_abuse",
+      similarity_score: 90, risk_level: "low", dns_resolves: 1, https_available: 1,
+      classification: "unreviewed", status: "active", first_seen: "2020-01-01",
+    }, profile);
+    const summary = scanner.buildBrandProtectionSummary([candidate]);
+    return ["critical", "high"].includes(candidate.risk_level) && summary.high_risk === 1;
+  }),
+  securityContract("brand_summary_ignores_stale_stored_risk_level", () => {
+    const profile = { brand_name: "blackbullbarbers", primary_domain: "blackbullbarbers.co.uk",
+      protected_domains: ["blackbullbarbers.co.uk"] };
+    const rows = [
+      { id: "bra-summary-2", domain: "blackbullbarbers.co.uk",
+        candidate_domain: "blackbullbarbers-login.co.uk", variant_type: "keyword_abuse",
+        similarity_score: 94, risk_level: "info", dns_resolves: 1, https_available: 1,
+        classification: "unreviewed", status: "active", first_seen: "2020-01-01" },
+    ];
+    const candidates = rows.map((row) => scanner.brandCandidateToApi(row, profile));
+    const summary = scanner.buildBrandProtectionSummary(candidates);
+    return rows[0].risk_level === "info" && ["critical", "high"].includes(candidates[0].risk_level) &&
+      summary.high_risk === 1;
+  }),
+  securityContract("brand_summary_normalized_scope_excludes_unrelated_domains", () => {
+    const profile = { brand_name: "blackbullbarbers", primary_domain: "blackbullbarbers.co.uk",
+      protected_domains: ["blackbullbarbers.co.uk"] };
+    const rows = [
+      { id: "bra-summary-3", domain: "blackbullbarbers.co.uk", candidate_domain: "blackbullbarbers-login.co.uk",
+        variant_type: "keyword_abuse", similarity_score: 94, dns_resolves: 1, classification: "unreviewed" },
+      { id: "bra-summary-4", domain: "tesla.com", candidate_domain: "tesla-login.com",
+        variant_type: "keyword_abuse", similarity_score: 95, dns_resolves: 1, classification: "confirmed_abuse" },
+    ];
+    const candidates = scanner.filterBrandCandidatesToProfile(rows, profile)
+      .map((row) => scanner.brandCandidateToApi(row, profile));
+    const summary = scanner.buildBrandProtectionSummary(candidates);
+    return summary.total_candidates === 1 && summary.high_risk === 1 && summary.confirmed_abuse === 0;
+  }),
+  securityContract("brand_summary_closed_classifications_not_high_risk", () => {
+    const profile = { brand_name: "example", primary_domain: "example.com", protected_domains: ["example.com"] };
+    const candidates = ["owned", "ignored", "false_positive"].map((classification, index) =>
+      scanner.brandCandidateToApi({
+        id: `bra-closed-${index}`, domain: "example.com", candidate_domain: `example-login-${index}.top`,
+        variant_type: "keyword_abuse", similarity_score: 100, dns_resolves: 1, https_available: 1,
+        mx_present: 1, risk_level: "critical", classification, status: "active", first_seen: "2020-01-01",
+      }, profile));
+    const summary = scanner.buildBrandProtectionSummary(candidates);
+    return summary.total_candidates === 3 && summary.high_risk === 0 && summary.owned === 1 &&
+      summary.ignored === 1 && candidates.every((candidate) => candidate.risk_level === "info");
+  }),
   securityContract("brand_unrelated_workspace_domains_do_not_pollute_protection", () => {
     const profile = scanner.inferBrandProfileFromDomains("workspace-1", [
       { domain: "blackbullbarbers.co.uk" }, { domain: "cloudflare.com" },

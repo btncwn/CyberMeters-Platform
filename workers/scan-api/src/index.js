@@ -28592,34 +28592,22 @@ export default {
           return json({ profile: brandProfileToApi(row) });
         }
 
-        // GET /brand/summary — one aggregate query, no per-candidate reads.
+        // GET /brand/summary — use the same normalized risk pipeline as the
+        // candidate table so stale stored risk_level values cannot skew counts.
         if (brandSummaryV1Match && request.method === "GET") {
           const profile = await loadWorkspaceBrandProfile(env, wsId);
           const domainScope = buildBrandProfileDomainScope(profile);
-          const row = await env.cybermeters_db
-            .prepare(`SELECT
-                COUNT(*) AS total_candidates,
-                COALESCE(SUM(CASE WHEN dns_resolves = 1 THEN 1 ELSE 0 END), 0) AS active_dns,
-                COALESCE(SUM(CASE WHEN risk_level IN ('critical','high') THEN 1 ELSE 0 END), 0) AS high_risk,
-                COALESCE(SUM(CASE WHEN classification = 'confirmed_abuse' THEN 1 ELSE 0 END), 0) AS confirmed_abuse,
-                COALESCE(SUM(CASE WHEN classification = 'suspicious' THEN 1 ELSE 0 END), 0) AS suspicious,
-                COALESCE(SUM(CASE WHEN classification = 'ignored' THEN 1 ELSE 0 END), 0) AS ignored,
-                COALESCE(SUM(CASE WHEN classification = 'owned' THEN 1 ELSE 0 END), 0) AS owned,
-                COALESCE(SUM(CASE WHEN classification IS NULL OR classification = 'unreviewed' THEN 1 ELSE 0 END), 0) AS unreviewed,
-                MAX(COALESCE(updated_at, last_seen)) AS last_updated_at
-              FROM workspace_brand_assets WHERE workspace_id = ? AND ${domainScope.clause}`)
-            .bind(wsId, ...domainScope.bindings).first();
-          return json({
-            total_candidates: Number(row?.total_candidates || 0),
-            active_dns: Number(row?.active_dns || 0),
-            high_risk: Number(row?.high_risk || 0),
-            confirmed_abuse: Number(row?.confirmed_abuse || 0),
-            suspicious: Number(row?.suspicious || 0),
-            ignored: Number(row?.ignored || 0),
-            owned: Number(row?.owned || 0),
-            unreviewed: Number(row?.unreviewed || 0),
-            last_updated_at: row?.last_updated_at || null,
-          });
+          const rows = await env.cybermeters_db
+            .prepare(`SELECT id, domain, candidate_domain, variant_type, similarity_score,
+                             risk_level, risk_reasons, dns_resolves, https_available,
+                             status, classification, first_seen, last_seen, last_checked_at,
+                             mx_present, registrar_or_whois_summary, evidence_json,
+                             created_at, updated_at
+                      FROM workspace_brand_assets
+                      WHERE workspace_id = ? AND ${domainScope.clause}`)
+            .bind(wsId, ...domainScope.bindings).all();
+          const candidates = (rows.results || []).map((row) => brandCandidateToApi(row, profile));
+          return json(buildBrandProtectionSummary(candidates));
         }
 
         if (brandCandidatesMatch) {
