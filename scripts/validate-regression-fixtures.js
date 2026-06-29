@@ -106,6 +106,9 @@ function loadScanner(fetchImpl = async () => { throw new Error("network disabled
     extractDmarcXmlFromAttachment,
     parseMimeParts,
     selectDmarcAttachment,
+    normalizeInboundDropReason,
+    sanitizeInfraErrorMessage,
+    ingestDmarcReport,
     computeBusinessRiskScoreFromIds: (ids, data) => computeBusinessRiskScore(new Set(ids), data),
   };`, context, {
     filename: workerPath,
@@ -1140,7 +1143,8 @@ results.push(securityContract("dmarc_ingest_active_state_and_serialization", () 
   const row = { id: "e1", domain: "example.com", status: "active", token_hash: "SECRETHASH", created_at: "x" };
   const safe = scanner.ingestEndpointToApi(row);
   const withTok = scanner.ingestEndpointToApi(row, { rawToken: "cmdi_raw" });
-  const noLeak = !("token_hash" in safe) && !("token" in safe) && safe.id === "e1";
+  // Safe serialization: no token_hash, no raw token, and no internal row id.
+  const noLeak = !("token_hash" in safe) && !("token" in safe) && !("id" in safe) && safe.domain === "example.com";
   const tokenOnce = withTok.token === "cmdi_raw" && !("token_hash" in withTok);
   return activeOk && revokedFlag && revokedStatus && nullRow && noLeak && tokenOnce;
 }));
@@ -1196,11 +1200,15 @@ results.push(securityContract("rua_localpart_generation_and_extraction", () => {
 }));
 results.push(securityContract("rua_endpoint_serialization_exposes_rua_no_leak", () => {
   const row = { id: "e9", domain: "example.com", status: "active", address_local: "cmrua_abc123def456",
-    token_hash: "SECRET", created_at: "x" };
+    token_hash: "SECRET", created_at: "x", last_inbound_at: "2026-06-29T10:00:00Z",
+    last_signed_upload_at: "2026-06-28T09:00:00Z" };
   const s = scanner.ingestEndpointToApi(row, { inboundDomain: "reports.cybermeters.com" });
-  return s.inbound_address === "cmrua_abc123def456@reports.cybermeters.com" &&
-    s.rua_value === "rua=mailto:cmrua_abc123def456@reports.cybermeters.com" &&
-    !("token_hash" in s) && !("token" in s);
+  return s.address_local === "cmrua_abc123def456" &&
+    s.inbound_address === "cmrua_abc123def456@reports.cybermeters.com" &&
+    s.rua_mailto === "rua=mailto:cmrua_abc123def456@reports.cybermeters.com" &&
+    s.last_inbound_at === "2026-06-29T10:00:00Z" &&
+    s.last_signed_upload_at === "2026-06-28T09:00:00Z" &&
+    !("token_hash" in s) && !("token" in s) && !("id" in s);
 }));
 results.push(await asyncSecurityContract("rua_gzip_extract_parses", async () => {
   const gz = await _gzipBytes(dmarcCleanXml);
@@ -1253,6 +1261,55 @@ results.push(securityContract("rua_attachment_selection_zero_and_multi", () => {
     { contentType: "application/zip", filename: "b.xml.zip" },
   ]);
   return none.error === "no_dmarc_attachment" && multi.error === "multiple_attachments";
+}));
+
+// ── Sprint 3 — RUA hardening: dedupe, stable reasons, error sanitization ─────
+// A duplicate inbound report must NOT insert rows or change totals, must return
+// duplicate:true, and must emit dmarc_report_duplicate with source=inbound_email.
+results.push(await asyncSecurityContract("rua_duplicate_inbound_no_double_count", async () => {
+  const runs = [];
+  const mockEnv = { cybermeters_db: { prepare(sql) { return {
+    _sql: sql, _b: null,
+    bind(...a) { this._b = a; return this; },
+    async first() { return this._sql.includes("SELECT id FROM dmarc_aggregate_reports") ? { id: "existing" } : null; },
+    async all() { return { results: [] }; },
+    async run() { runs.push({ sql: this._sql, b: this._b }); return {}; },
+  }; } } };
+  const res = await scanner.ingestDmarcReport(mockEnv, {
+    workspaceId: "ws1", domain: "example.com", source: "inbound_email", xmlString: dmarcMixedXml,
+    ingestEndpointId: "e1", enforceDomainMatch: true,
+  });
+  const insertedReport = runs.some((r) => /INSERT INTO dmarc_aggregate_reports/.test(r.sql));
+  const insertedRecords = runs.some((r) => /INSERT INTO dmarc_aggregate_records/.test(r.sql));
+  const auditDup = runs.find((r) => /INSERT INTO audit_events/.test(r.sql) && r.b[3] === "dmarc_report_duplicate");
+  const dupMetaOk = auditDup && typeof auditDup.b[7] === "string" && auditDup.b[7].includes('"source":"inbound_email"');
+  return res.ok && res.duplicate === true && !insertedReport && !insertedRecords && !!dupMetaOk;
+}));
+// Every internal drop cause maps to a STABLE reason in the documented set.
+results.push(securityContract("rua_drop_reason_normalization_stable", () => {
+  const STABLE = new Set(["endpoint_not_found", "endpoint_inactive", "no_dmarc_attachment",
+    "multiple_dmarc_attachments", "attachment_too_large", "decompressed_too_large",
+    "compression_ratio_exceeded", "domain_mismatch", "parse_error", "unsupported_attachment"]);
+  const cases = {
+    invalid_recipient: "endpoint_not_found", unknown_address: "endpoint_not_found",
+    endpoint_revoked: "endpoint_inactive", email_too_large: "attachment_too_large",
+    zip_too_large: "attachment_too_large", multiple_attachments: "multiple_dmarc_attachments",
+    zip_inflate_failed: "parse_error", zip_multi_entry: "parse_error", empty_xml: "parse_error",
+    empty_attachment: "unsupported_attachment", domain_mismatch: "domain_mismatch",
+    decompressed_too_large: "decompressed_too_large", compression_ratio_exceeded: "compression_ratio_exceeded",
+    something_unexpected: "parse_error",
+  };
+  return Object.entries(cases).every(([k, v]) => scanner.normalizeInboundDropReason(k) === v && STABLE.has(v));
+}));
+// Internal platform errors are sanitized; genuine findings pass through intact.
+results.push(securityContract("infra_error_sanitized_for_customer", () => {
+  const raw = "Too many subrequests by single Worker invocation. The limit is 50.";
+  const tls = scanner.sanitizeInfraErrorMessage(raw, "tls_rpt");
+  const mta = scanner.sanitizeInfraErrorMessage(raw, "mta_sts");
+  const finding = "No TXT record found at _smtp._tls.example.com.";
+  return /TLS-RPT could not be verified/.test(tls) && !/subrequest/i.test(tls) &&
+    /MTA-STS could not be verified/.test(mta) &&
+    scanner.sanitizeInfraErrorMessage(finding, "tls_rpt") === finding;
 }));
 
 for (const contract of parsed.score_contracts || []) {

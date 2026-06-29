@@ -928,8 +928,9 @@ function ConnectDmarcReporting({ wsId, domain }) {
 
   const hasActive = endpoint && endpoint.status === 'active'
   const inboundAddress = endpoint?.inbound_address || null
-  const ruaValue = endpoint?.rua_value || (inboundAddress ? `rua=mailto:${inboundAddress}` : null)
+  const ruaValue = endpoint?.rua_mailto || (inboundAddress ? `rua=mailto:${inboundAddress}` : null)
   const lastInbound = endpoint?.last_inbound_at
+  const fmt = (t) => (t ? new Date(t).toLocaleString() : null)
   const curl = `curl -X POST ${BASE || 'https://api.cybermeters.com'}/dmarc-ingest \\
   -H "Authorization: Bearer YOUR_UPLOAD_TOKEN" \\
   -H "Content-Type: application/xml" \\
@@ -975,8 +976,22 @@ function ConnectDmarcReporting({ wsId, domain }) {
               </div>
               <p className="text-xs text-gray-500">
                 CyberMeters receives aggregate DMARC reports for this domain and updates sender intelligence automatically.
-                {lastInbound ? <> Last received: <b className="text-gray-700">{new Date(lastInbound).toLocaleString()}</b>.</> : ' We have not received a report at this address yet — providers usually send the first report within 24 hours of a DNS change.'}
+                {lastInbound ? null : ' We have not received a report at this address yet — providers usually send the first report within 24 hours of a DNS change.'}
               </p>
+              <dl className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1 text-xs">
+                <div className="rounded-lg bg-white border border-gray-200 px-3 py-2">
+                  <dt className="text-gray-400 uppercase tracking-wide font-semibold text-[10px]">Last received</dt>
+                  <dd className="text-gray-700 font-medium mt-0.5">{fmt(lastInbound) || 'Not yet'}</dd>
+                </div>
+                <div className="rounded-lg bg-white border border-gray-200 px-3 py-2">
+                  <dt className="text-gray-400 uppercase tracking-wide font-semibold text-[10px]">Last upload</dt>
+                  <dd className="text-gray-700 font-medium mt-0.5">{fmt(endpoint.last_signed_upload_at) || 'Never'}</dd>
+                </div>
+                <div className="rounded-lg bg-white border border-gray-200 px-3 py-2">
+                  <dt className="text-gray-400 uppercase tracking-wide font-semibold text-[10px]">Last used</dt>
+                  <dd className="text-gray-700 font-medium mt-0.5">{fmt(endpoint.last_used_at) || 'Never'}</dd>
+                </div>
+              </dl>
             </div>
 
             {/* Mode B — Signed upload (advanced) */}

@@ -6478,7 +6478,7 @@ function buildEmailTransportDetails(emailIntel = {}) {
       policy_found: mta.enabled === true,
       mode: ["enforce", "testing", "none"].includes(mta.policy_mode) ? mta.policy_mode : "unknown",
       warnings: [
-        ...(mta.errors || []),
+        ...(mta.errors || []).map((w) => sanitizeInfraErrorMessage(w, "mta_sts")),
         ...(!mta.enabled ? ["An MTA-STS policy file was not confirmed during this scan."] : []),
         "The _mta-sts DNS TXT record is not assessed separately in this version.",
       ],
@@ -6486,7 +6486,7 @@ function buildEmailTransportDetails(emailIntel = {}) {
     tls_rpt_detail: {
       record_found: tls.enabled === true,
       rua: tls.reporting_uris || [],
-      warnings: tls.errors || [],
+      warnings: (tls.errors || []).map((w) => sanitizeInfraErrorMessage(w, "tls_rpt")),
     },
   };
 }
@@ -7027,9 +7027,14 @@ function ingestEndpointToApi(row, { rawToken = null, inboundDomain = null } = {}
   if (!row) return null;
   const host = inboundDomain || "reports.cybermeters.com";
   const inbound = row.address_local ? `${row.address_local}@${host}` : null;
+  // Safe field allow-list only. Never serialize token_hash, the internal row id,
+  // raw email, raw XML, or the MIME body. The raw token appears once, on
+  // create/rotate, when explicitly passed in.
   const out = {
-    id: row.id,
     domain: row.domain,
+    address_local: row.address_local || null,
+    inbound_address: inbound,
+    rua_mailto: inbound ? `rua=mailto:${inbound}` : null,
     status: row.status,
     created_at: row.created_at,
     last_used_at: row.last_used_at || null,
@@ -7037,8 +7042,6 @@ function ingestEndpointToApi(row, { rawToken = null, inboundDomain = null } = {}
     last_signed_upload_at: row.last_signed_upload_at || null,
     rotated_at: row.rotated_at || null,
     revoked_at: row.revoked_at || null,
-    inbound_address: inbound,
-    rua_value: inbound ? `rua=mailto:${inbound}` : null,
   };
   if (rawToken) out.token = rawToken;
   return out;
@@ -7298,24 +7301,68 @@ async function unzipSingleEntryXmlBytes(bytes, caps = RUA_DEFAULT_CAPS) {
   return { error: "zip_unsupported_method" };
 }
 
-// Dispatch an attachment to the right safe decoder and return XML text.
+// Dispatch an attachment to the right safe decoder and return XML text plus
+// safe diagnostic sizes (no raw bytes, no XML content) for audit metadata.
 async function extractDmarcXmlFromAttachment(filename, bytes, caps = RUA_DEFAULT_CAPS) {
   if (!bytes || !bytes.length) return { error: "empty_attachment" };
   const name = (filename || "").toLowerCase();
   const looksGz  = name.endsWith(".gz") || name.endsWith(".gzip") || (bytes[0] === 0x1f && bytes[1] === 0x8b);
   const looksZip = name.endsWith(".zip") || (bytes[0] === 0x50 && bytes[1] === 0x4b);
   let xmlBytes;
+  let attachmentType;
   if (looksGz) {
-    const r = await gunzipXmlBytes(bytes, caps); if (r.error) return r; xmlBytes = r.bytes;
+    const r = await gunzipXmlBytes(bytes, caps); if (r.error) return r; xmlBytes = r.bytes; attachmentType = "gzip";
   } else if (looksZip) {
-    const r = await unzipSingleEntryXmlBytes(bytes, caps); if (r.error) return r; xmlBytes = r.bytes;
+    const r = await unzipSingleEntryXmlBytes(bytes, caps); if (r.error) return r; xmlBytes = r.bytes; attachmentType = "zip";
   } else if (name.endsWith(".xml") || /^\s*<\?xml|^\s*<feedback/i.test(_bytesToLatin1(bytes.subarray(0, 64)))) {
     if (bytes.length > caps.decompressedMax) return { error: "attachment_too_large" };
-    xmlBytes = bytes;
+    xmlBytes = bytes; attachmentType = "xml";
   } else {
     return { error: "unsupported_attachment" };
   }
-  return { xml: new TextDecoder("utf-8").decode(xmlBytes) };
+  return {
+    xml: new TextDecoder("utf-8").decode(xmlBytes),
+    attachment_type: attachmentType,
+    compressed_size: bytes.length,
+    decompressed_size: xmlBytes.length,
+  };
+}
+
+// Map any internal extraction/ingestion error to a STABLE, customer-safe drop
+// reason for audit metadata (no internal detail leaks into events).
+function normalizeInboundDropReason(reason) {
+  switch (String(reason || "")) {
+    case "invalid_recipient":
+    case "unknown_address":
+    case "endpoint_not_found":      return "endpoint_not_found";
+    case "endpoint_revoked":
+    case "endpoint_inactive":       return "endpoint_inactive";
+    case "no_dmarc_attachment":     return "no_dmarc_attachment";
+    case "multiple_attachments":
+    case "multiple_dmarc_attachments": return "multiple_dmarc_attachments";
+    case "email_too_large":
+    case "attachment_too_large":
+    case "zip_too_large":           return "attachment_too_large";
+    case "decompressed_too_large":  return "decompressed_too_large";
+    case "compression_ratio_exceeded": return "compression_ratio_exceeded";
+    case "domain_mismatch":         return "domain_mismatch";
+    case "unsupported_attachment":
+    case "empty_attachment":        return "unsupported_attachment";
+    default:                        return "parse_error";
+  }
+}
+
+// Sanitize internal platform errors (e.g. Cloudflare subrequest-budget messages)
+// before they can surface to customers. Genuine findings pass through unchanged.
+function sanitizeInfraErrorMessage(message, scope) {
+  const raw = String(message || "");
+  const internal = /subrequest|internal error|exceeded cpu|cpu time|script will never|network connection lost|connection reset|failed to fetch|worker exceeded|too many/i.test(raw);
+  if (!internal) return raw;
+  const safe = {
+    tls_rpt: "TLS-RPT could not be verified during this scan. This may be retried automatically on a future scan.",
+    mta_sts: "MTA-STS could not be verified during this scan. This may be retried automatically on a future scan.",
+  };
+  return safe[scope] || "This check could not be completed during this scan. It may be retried automatically on a future scan.";
 }
 
 // ── minimal MIME parsing (no external lib) ────────────────────────────────────
@@ -32608,49 +32655,46 @@ export default {
       decompressedMax: RUA_DECOMPRESSED_MAX_BYTES,
       ratioMax: RUA_MAX_COMPRESSION_RATIO,
     };
-    const drop = async (endpoint, reason) => {
+    // Drop safely with a STABLE, customer-safe reason and no raw payload.
+    const drop = async (endpoint, rawReason, localpart) => {
       try {
         await createAuditEvent(env, {
           workspace_id: endpoint?.workspace_id || null, user_id: null,
           event_type: "dmarc_inbound_email_dropped", entity_type: "domain",
           entity_id: endpoint?.domain_id || null,
-          description: `Dropped inbound DMARC email: ${reason}`,
-          metadata: { source: "inbound_email", reason, ingest_endpoint_id: endpoint?.id || null },
+          description: `Dropped inbound DMARC email (${normalizeInboundDropReason(rawReason)})`,
+          metadata: {
+            source: "inbound_email",
+            reason: normalizeInboundDropReason(rawReason),
+            recipient_localpart: localpart || null,
+            ingest_endpoint_id: endpoint?.id || null,
+          },
         });
       } catch { /* never throw from the email handler */ }
     };
     try {
       const localpart = extractInboundLocalpart(message.to);
-      if (!localpart) { await drop(null, "invalid_recipient"); return; }
+      if (!localpart) { await drop(null, "endpoint_not_found", null); return; }
 
       const endpoint = await env.cybermeters_db
         .prepare(`SELECT * FROM dmarc_ingest_endpoints WHERE address_local = ? LIMIT 1`)
         .bind(localpart).first();
       if (!ingestEndpointIsActive(endpoint)) {
-        await drop(endpoint, endpoint ? "endpoint_revoked" : "unknown_address");
+        await drop(endpoint, endpoint ? "endpoint_inactive" : "endpoint_not_found", localpart);
         return;
       }
 
       if (typeof message.rawSize === "number" && message.rawSize > RUA_RAW_EMAIL_MAX_BYTES) {
-        await drop(endpoint, "email_too_large"); return;
+        await drop(endpoint, "attachment_too_large", localpart); return;
       }
       const raw = await readStreamCapped(message.raw, RUA_RAW_EMAIL_MAX_BYTES);
-      if (!raw) { await drop(endpoint, "email_too_large"); return; }
-
-      try {
-        await createAuditEvent(env, {
-          workspace_id: endpoint.workspace_id, user_id: null, event_type: "dmarc_inbound_email_received",
-          entity_type: "domain", entity_id: endpoint.domain_id,
-          description: `Received inbound DMARC email for ${endpoint.domain}`,
-          metadata: { source: "inbound_email", ingest_endpoint_id: endpoint.id, bytes: raw.length },
-        });
-      } catch { /* non-fatal */ }
+      if (!raw) { await drop(endpoint, "attachment_too_large", localpart); return; }
 
       const parts = parseMimeParts(_bytesToLatin1(raw));
       const sel = selectDmarcAttachment(parts);
-      if (sel.error) { await drop(endpoint, sel.error); return; }
+      if (sel.error) { await drop(endpoint, sel.error, localpart); return; }
       const ext = await extractDmarcXmlFromAttachment(sel.part.filename, sel.part.bytes, caps);
-      if (ext.error) { await drop(endpoint, ext.error); return; }
+      if (ext.error) { await drop(endpoint, ext.error, localpart); return; }
 
       const result = await ingestDmarcReport(env, {
         workspaceId: endpoint.workspace_id, domain: endpoint.domain, source: "inbound_email",
@@ -32658,15 +32702,36 @@ export default {
         domainId: endpoint.domain_id, enforceDomainMatch: true,
       });
 
+      // Parse/validation rejection (e.g. domain_mismatch). Do NOT mark the
+      // address as "receiving" — it did not deliver a valid report.
+      if (!result.ok) { await drop(endpoint, result.error, localpart); return; }
+
+      // A valid report arrived (new import OR an already-seen duplicate). Both
+      // are honest "we received an inbound report" signals.
       await env.cybermeters_db
         .prepare(`UPDATE dmarc_ingest_endpoints SET last_used_at = datetime('now'), last_inbound_at = datetime('now') WHERE id = ?`)
         .bind(endpoint.id).run();
 
-      // ingestDmarcReport emits dmarc_report_ingested / dmarc_report_duplicate.
-      // Record a parse/validation rejection (e.g. domain_mismatch) separately.
-      if (!result.ok) {
-        await drop(endpoint, result.error);
-      }
+      // Duplicate: ingestDmarcReport already emitted dmarc_report_duplicate
+      // (source=inbound_email) and did not change any totals.
+      if (result.duplicate) return;
+
+      // Genuine import — rich, safe transport-level audit (no raw XML/email).
+      await createAuditEvent(env, {
+        workspace_id: endpoint.workspace_id, user_id: null, event_type: "dmarc_inbound_email_received",
+        entity_type: "domain", entity_id: endpoint.domain_id,
+        description: `Received inbound DMARC report for ${endpoint.domain}`,
+        metadata: {
+          domain: endpoint.domain,
+          recipient_localpart: localpart,
+          source: "inbound_email",
+          attachment_type: ext.attachment_type,
+          compressed_size: ext.compressed_size,
+          decompressed_size: ext.decompressed_size,
+          message_count: result.messages,
+          record_count: result.records,
+        },
+      });
     } catch (e) {
       console.error("[email-ingest]", String(e?.message ?? e));
       // Swallow — an inbound mail handler must never throw.
