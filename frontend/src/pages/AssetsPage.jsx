@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { api } from '../api'
 import Spinner from '../components/Spinner'
+import StatCard from '../components/StatCard'
 
 // ── Formatters ─────────────────────────────────────────────────────────────────
 
@@ -405,14 +406,14 @@ export default function AssetsPage() {
         <>
           {/* ── Summary cards ─────────────────────────────────────────────── */}
           {summary && (
-            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
-              <SummaryCard icon={Layers}        label="Total Assets"     value={summary.total_assets}          />
-              <SummaryCard icon={Shield}        label="Active"           value={summary.active_assets}         iconCls="text-green-600"  bgCls="bg-green-50"  />
-              <SummaryCard icon={Activity}      label="Inactive"         value={summary.inactive_assets}       iconCls="text-gray-400"   bgCls="bg-gray-100"  />
-              <SummaryCard icon={Server}        label="Subdomains"       value={summary.subdomains}            iconCls="text-blue-600"   bgCls="bg-blue-50"   />
-              <SummaryCard icon={Globe}         label="Exposed Services" value={summary.exposed_services}      iconCls="text-amber-600"  bgCls="bg-amber-50"  />
-              <SummaryCard icon={Cloud}         label="Cloud Assets"     value={summary.cloud_storage_assets}  iconCls="text-purple-600" bgCls="bg-purple-50" />
-              <SummaryCard icon={AlertTriangle} label="Takeover Risks"   value={summary.takeover_risks}        iconCls="text-red-600"    bgCls="bg-red-50"    />
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              <StatCard icon={Layers}        label="Total assets"     explanation="Active inventory across this workspace" value={summary.total_assets} />
+              <StatCard icon={Shield}        label="Active"           explanation="Assets currently responding"            value={summary.active_assets} />
+              <StatCard icon={Activity}      label="Inactive"         explanation="Discovered but not responding"          value={summary.inactive_assets} tone="neutral" />
+              <StatCard icon={Server}        label="Subdomains"       explanation="Hostnames mapped under your domains"    value={summary.subdomains} tone="info" />
+              <StatCard icon={Globe}         label="Exposed services" explanation="Internet-facing services to review"     value={summary.exposed_services} warning={(summary.exposed_services ?? 0) > 0} />
+              <StatCard icon={Cloud}         label="Cloud assets"     explanation="Cloud storage and buckets found"        value={summary.cloud_storage_assets} tone="info" />
+              <StatCard icon={AlertTriangle} label="Takeover risks"   explanation="Possible subdomain takeovers"           value={summary.takeover_risks} danger={(summary.takeover_risks ?? 0) > 0} />
             </div>
           )}
 

@@ -48,17 +48,19 @@ function riskLabel(rating) {
 
 // ── Summary cards ─────────────────────────────────────────────────────────────
 
+// Label-led metric card (meaning first, number second) — matches the shared
+// StatCard hierarchy used across the app.
 function SummaryCard({ label, value, sub, Icon, color = 'text-gray-800', iconBg = 'bg-gray-100' }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-5 flex items-start gap-4">
-      <div className={`w-10 h-10 rounded-lg ${iconBg} flex items-center justify-center flex-shrink-0`}>
-        <Icon className={`w-5 h-5 ${color}`} />
+    <div className="bg-white rounded-2xl border border-gray-200/80 shadow-card p-5">
+      <div className="flex items-start gap-2">
+        <div className={`w-7 h-7 rounded-lg ${iconBg} flex items-center justify-center flex-shrink-0`}>
+          <Icon className={`w-4 h-4 ${color}`} />
+        </div>
+        <p className="text-sm font-semibold text-gray-900 leading-snug">{label}</p>
       </div>
-      <div className="min-w-0">
-        <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">{label}</p>
-        <p className={`text-2xl font-bold ${color} leading-tight`}>{value}</p>
-        {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
-      </div>
+      {sub && <p className="text-xs text-gray-500 mt-1 leading-snug">{sub}</p>}
+      <p className={`text-lg font-bold mt-2 leading-none tabular-nums ${color}`}>{value}</p>
     </div>
   )
 }

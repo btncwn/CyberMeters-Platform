@@ -235,8 +235,8 @@ export default function CertificatesPage() {
                   const tone = b.tone === 'bad' ? 'text-red-600' : b.tone === 'warn' ? 'text-amber-600' : b.tone === 'ok' ? 'text-brand-600' : 'text-gray-400'
                   return (
                     <div key={b.key} className="rounded-xl border border-gray-200 bg-white p-3 text-center">
-                      <p className={`text-2xl font-black ${n > 0 ? tone : 'text-gray-300'}`}>{n}</p>
-                      <p className="text-xs text-gray-500 mt-0.5">{b.label}</p>
+                      <p className="text-xs font-semibold text-gray-700">{b.label}</p>
+                      <p className={`text-lg font-bold mt-1 tabular-nums ${n > 0 ? tone : 'text-gray-300'}`}>{n}</p>
                     </div>
                   )
                 })}
