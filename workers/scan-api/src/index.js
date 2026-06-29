@@ -12382,12 +12382,34 @@ function inferBrandProfileFromDomains(workspaceId, domainRows = []) {
     brand_name: inferredBrand,
     primary_domain: primaryDomain,
     keywords: [],
-    protected_domains: domains,
+    protected_domains: [primaryDomain],
     inferred: true,
     inference_confidence: "low",
     created_at: null,
     updated_at: null,
   };
+}
+
+function brandProtectedDomains(profile) {
+  const configured = Array.isArray(profile?.protected_domains) ? profile.protected_domains : [];
+  const domains = [...new Set(configured.map((domain) => String(domain).trim().toLowerCase())
+    .filter((domain) => isValidDomain(domain)))].slice(0, 100);
+  const primary = String(profile?.primary_domain || "").trim().toLowerCase();
+  if (domains.length === 0 && isValidDomain(primary)) return [primary];
+  return domains;
+}
+
+// SQL structure is fixed; only validated domain values become bound parameters.
+function buildBrandProfileDomainScope(profile) {
+  const domains = brandProtectedDomains(profile);
+  return domains.length > 0
+    ? { clause: `domain IN (${domains.map(() => "?").join(",")})`, bindings: domains }
+    : { clause: "1 = 0", bindings: [] };
+}
+
+function filterBrandCandidatesToProfile(candidates = [], profile = null) {
+  const allowed = new Set(brandProtectedDomains(profile));
+  return candidates.filter((candidate) => allowed.has(String(candidate?.domain || "").trim().toLowerCase()));
 }
 
 function brandProfileToApi(row) {
@@ -28572,6 +28594,8 @@ export default {
 
         // GET /brand/summary — one aggregate query, no per-candidate reads.
         if (brandSummaryV1Match && request.method === "GET") {
+          const profile = await loadWorkspaceBrandProfile(env, wsId);
+          const domainScope = buildBrandProfileDomainScope(profile);
           const row = await env.cybermeters_db
             .prepare(`SELECT
                 COUNT(*) AS total_candidates,
@@ -28583,8 +28607,8 @@ export default {
                 COALESCE(SUM(CASE WHEN classification = 'owned' THEN 1 ELSE 0 END), 0) AS owned,
                 COALESCE(SUM(CASE WHEN classification IS NULL OR classification = 'unreviewed' THEN 1 ELSE 0 END), 0) AS unreviewed,
                 MAX(COALESCE(updated_at, last_seen)) AS last_updated_at
-              FROM workspace_brand_assets WHERE workspace_id = ?`)
-            .bind(wsId).first();
+              FROM workspace_brand_assets WHERE workspace_id = ? AND ${domainScope.clause}`)
+            .bind(wsId, ...domainScope.bindings).first();
           return json({
             total_candidates: Number(row?.total_candidates || 0),
             active_dns: Number(row?.active_dns || 0),
@@ -28608,14 +28632,18 @@ export default {
           // GET /brand/candidates — bounded, allow-listed filters only.
           if (!candidateId && !action && request.method === "GET") {
             const params = parseBrandCandidateListParams(url.searchParams);
+            const profile = await loadWorkspaceBrandProfile(env, wsId);
+            const domainScope = buildBrandProfileDomainScope(profile);
             const where = ["workspace_id = ?"];
             const binds = [wsId];
+            where.push(domainScope.clause);
+            binds.push(...domainScope.bindings);
             if (params.risk) { where.push("risk_level = ?"); binds.push(params.risk); }
             if (params.status) { where.push("status = ?"); binds.push(params.status); }
             if (params.classification) {
               where.push("COALESCE(classification, 'unreviewed') = ?"); binds.push(params.classification);
             }
-            const [rows, totalRow, profile] = await Promise.all([
+            const [rows, totalRow] = await Promise.all([
               env.cybermeters_db
                 .prepare(`SELECT id, domain, candidate_domain, variant_type, similarity_score,
                                  risk_level, risk_reasons, dns_resolves, https_available,
@@ -28636,23 +28664,24 @@ export default {
               env.cybermeters_db
                 .prepare(`SELECT COUNT(*) AS n FROM workspace_brand_assets WHERE ${where.join(" AND ")}`)
                 .bind(...binds).first(),
-              loadWorkspaceBrandProfile(env, wsId),
             ]);
             const candidates = (rows.results || []).map((row) => brandCandidateToApi(row, profile));
             return json({ workspace_id: wsId, total: Number(totalRow?.n || 0),
               limit: params.limit, offset: params.offset, candidates });
           }
 
+          const profile = await loadWorkspaceBrandProfile(env, wsId);
+          const domainScope = buildBrandProfileDomainScope(profile);
           const row = await env.cybermeters_db
             .prepare(`SELECT id, workspace_id, domain, candidate_domain, variant_type,
                              similarity_score, risk_level, risk_reasons, dns_resolves,
                              https_available, status, classification, first_seen, last_seen,
                              last_checked_at, mx_present, registrar_or_whois_summary,
                              evidence_json, created_at, updated_at
-                      FROM workspace_brand_assets WHERE id = ? AND workspace_id = ? LIMIT 1`)
-            .bind(candidateId, wsId).first();
+                      FROM workspace_brand_assets
+                      WHERE id = ? AND workspace_id = ? AND ${domainScope.clause} LIMIT 1`)
+            .bind(candidateId, wsId, ...domainScope.bindings).first();
           if (!row) return json({ error: "Brand candidate not found" }, 404);
-          const profile = await loadWorkspaceBrandProfile(env, wsId);
 
           // GET /brand/candidates/:id
           if (!action && request.method === "GET") {

@@ -79,6 +79,8 @@ function loadScanner(fetchImpl = async () => { throw new Error("network disabled
     runCertificateIntelligenceModule,
     buildCertificateOwnershipAssessment,
     inferBrandProfileFromDomains,
+    buildBrandProfileDomainScope,
+    filterBrandCandidatesToProfile,
     validateBrandProfileInput,
     scoreBrandCandidateRisk,
     brandCandidateToApi,
@@ -821,7 +823,63 @@ results.push(
     ]);
     return profile?.inferred === true && profile.inference_confidence === "low" &&
       profile.brand_name === "example" && profile.primary_domain === "example.com" &&
-      profile.keywords.length === 0 && profile.protected_domains.length === 2 && profile.id === null;
+      profile.keywords.length === 0 && profile.protected_domains.length === 1 &&
+      profile.protected_domains[0] === "example.com" && profile.id === null;
+  }),
+  securityContract("brand_profile_inference_single_primary_domain", () => {
+    const profile = scanner.inferBrandProfileFromDomains("workspace-1", [
+      { domain: "blackbullbarbers.co.uk" }, { domain: "cloudflare.com" },
+      { domain: "google.com" }, { domain: "tesla.com" },
+    ]);
+    return profile.brand_name === "blackbullbarbers" &&
+      profile.primary_domain === "blackbullbarbers.co.uk" &&
+      JSON.stringify(profile.protected_domains) === JSON.stringify(["blackbullbarbers.co.uk"]);
+  }),
+  securityContract("brand_candidates_scoped_to_protected_domains", () => {
+    const profile = { primary_domain: "blackbullbarbers.co.uk", protected_domains: ["blackbullbarbers.co.uk"] };
+    const candidates = scanner.filterBrandCandidatesToProfile([
+      { domain: "blackbullbarbers.co.uk", candidate_domain: "blackbullbarber5.co.uk" },
+      { domain: "google.com", candidate_domain: "g00gle.com" },
+      { domain: "tesla.com", candidate_domain: "tes1a.com" },
+    ], profile);
+    const scope = scanner.buildBrandProfileDomainScope(profile);
+    return candidates.length === 1 && candidates[0].domain === "blackbullbarbers.co.uk" &&
+      scope.clause === "domain IN (?)" &&
+      JSON.stringify(scope.bindings) === JSON.stringify(["blackbullbarbers.co.uk"]);
+  }),
+  securityContract("brand_summary_scoped_to_protected_domains", () => {
+    const profile = { primary_domain: "blackbullbarbers.co.uk", protected_domains: ["blackbullbarbers.co.uk"] };
+    const scoped = scanner.filterBrandCandidatesToProfile([
+      { domain: "blackbullbarbers.co.uk", dns_active: true, risk_level: "high", classification: "suspicious" },
+      { domain: "google.com", dns_active: true, risk_level: "critical", classification: "confirmed_abuse" },
+    ], profile);
+    const summary = scanner.buildBrandProtectionSummary(scoped);
+    return summary.total_candidates === 1 && summary.active_dns === 1 && summary.high_risk === 1 &&
+      summary.suspicious === 1 && summary.confirmed_abuse === 0;
+  }),
+  securityContract("brand_unrelated_workspace_domains_do_not_pollute_protection", () => {
+    const profile = scanner.inferBrandProfileFromDomains("workspace-1", [
+      { domain: "blackbullbarbers.co.uk" }, { domain: "cloudflare.com" },
+      { domain: "claudflare.com" }, { domain: "google.com" }, { domain: "tesla.com" },
+    ]);
+    const scoped = scanner.filterBrandCandidatesToProfile([
+      { domain: "cloudflare.com" }, { domain: "blackbullbarbers.co.uk" }, { domain: "tesla.com" },
+    ], profile);
+    return scoped.length === 1 && scoped[0].domain === "blackbullbarbers.co.uk" &&
+      !profile.protected_domains.includes("cloudflare.com") && !profile.protected_domains.includes("tesla.com");
+  }),
+  securityContract("brand_persisted_multiple_protected_domains_supported", () => {
+    const profile = {
+      primary_domain: "example.com",
+      protected_domains: ["example.com", "example.co.uk"],
+      inferred: false,
+    };
+    const scoped = scanner.filterBrandCandidatesToProfile([
+      { domain: "example.com" }, { domain: "example.co.uk" }, { domain: "unrelated.test" },
+    ], profile);
+    const sqlScope = scanner.buildBrandProfileDomainScope(profile);
+    return scoped.length === 2 && sqlScope.clause === "domain IN (?,?)" &&
+      JSON.stringify(sqlScope.bindings) === JSON.stringify(["example.com", "example.co.uk"]);
   }),
   securityContract("brand_profile_update_validates_workspace", () => {
     const valid = scanner.validateBrandProfileInput({
