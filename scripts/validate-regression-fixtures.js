@@ -104,6 +104,8 @@ function loadScanner(fetchImpl = async () => { throw new Error("network disabled
     buildDmarcEnforcementReadiness,
     buildDmarcReportRemediationActions,
     buildDmarcBusinessRisk,
+    computeBecExposureScore,
+    cybermetersRuaPresentInDmarcRecord,
     dmarcSenderRiskLevel,
     dmarcReportIdentity,
     dmarcReportDomainMatches,
@@ -1441,6 +1443,182 @@ results.push(securityContract("dmarc_business_risk_failed_after_classification",
 results.push(securityContract("dmarc_business_risk_clean_low", () => {
   const r = scanner.buildDmarcBusinessRisk({ threat_senders: 0, suspicious_senders: 0, unknown_senders: 0, failed_messages: 0, pass_rate: 99 });
   return r.level === "low" && /alignment looks strong/i.test(r.summary);
+}));
+
+// ── BEC Exposure Score v1 contracts ─────────────────────────────────────────
+const BEC_BASE = {
+  domain: "example.com",
+  dmarc_present: true,
+  dmarc_policy: "reject",
+  dmarc_pct: 100,
+  spf_status: "valid",
+  dkim_status: "valid",
+  reports_received: true,
+  cybermeters_rua_verified: true,
+  last_report_received_at: "2026-06-28T12:00:00.000Z",
+  total_messages: 1000,
+  aligned_messages: 990,
+  failed_messages: 10,
+  pass_rate: 99,
+  known_senders: 3,
+  unknown_senders: 0,
+  suspicious_senders: 0,
+  high_volume_failing_senders: 0,
+  dns_status_known: true,
+  brand: { available: false },
+};
+
+results.push(securityContract("bec_score_dmarc_none_failed_alignment_high", () => {
+  const r = scanner.computeBecExposureScore({
+    ...BEC_BASE,
+    dmarc_policy: "none",
+    pass_rate: 77.1,
+    total_messages: 523,
+    aligned_messages: 403,
+    failed_messages: 120,
+    cybermeters_rua_verified: false,
+  }, { now: "2026-06-29T12:00:00.000Z" });
+  return r.exposure_score >= 65 && r.exposure_level === "high" &&
+    r.reasons.some((reason) => reason.code === "dmarc_policy_none") &&
+    r.evidence.pass_rate === 77.1 && r.evidence.failed_messages === 120;
+}));
+
+results.push(securityContract("bec_score_reject_policy_good_alignment_low", () => {
+  const r = scanner.computeBecExposureScore(BEC_BASE, { now: "2026-06-29T12:00:00.000Z" });
+  return r.exposure_score <= 15 && ["minimal", "low"].includes(r.exposure_level) &&
+    r.confidence === "high" && !r.reasons.some((reason) => reason.code === "dmarc_policy_none");
+}));
+
+results.push(securityContract("bec_score_no_reports_lowers_confidence", () => {
+  const r = scanner.computeBecExposureScore({
+    ...BEC_BASE,
+    reports_received: false,
+    total_messages: 0,
+    aligned_messages: 0,
+    failed_messages: 0,
+    pass_rate: null,
+    known_senders: 0,
+  }, { now: "2026-06-29T12:00:00.000Z" });
+  return r.confidence === "medium" && r.reasons.some((reason) => reason.code === "no_dmarc_reports") &&
+    r.evidence.reports_received === false;
+}));
+
+results.push(securityContract("bec_score_unknown_and_suspicious_senders_increase_exposure", () => {
+  const base = scanner.computeBecExposureScore(BEC_BASE, { now: "2026-06-29T12:00:00.000Z" });
+  const elevated = scanner.computeBecExposureScore({
+    ...BEC_BASE,
+    unknown_senders: 1,
+    suspicious_senders: 1,
+  }, { now: "2026-06-29T12:00:00.000Z" });
+  return elevated.exposure_score >= base.exposure_score + 23 &&
+    elevated.reasons.some((reason) => reason.code === "unknown_sender_present") &&
+    elevated.reasons.some((reason) => reason.code === "suspicious_sender_present");
+}));
+
+results.push(securityContract("bec_score_high_volume_failing_sender_increases_exposure", () => {
+  const base = scanner.computeBecExposureScore(BEC_BASE, { now: "2026-06-29T12:00:00.000Z" });
+  const elevated = scanner.computeBecExposureScore({
+    ...BEC_BASE,
+    high_volume_failing_senders: 1,
+  }, { now: "2026-06-29T12:00:00.000Z" });
+  return elevated.exposure_score >= base.exposure_score + 18 &&
+    elevated.reasons.some((reason) => reason.code === "high_volume_failing_sender");
+}));
+
+results.push(securityContract("bec_score_rua_not_verified_adds_reason", () => {
+  const r = scanner.computeBecExposureScore({
+    ...BEC_BASE,
+    cybermeters_rua_verified: false,
+  }, { now: "2026-06-29T12:00:00.000Z" });
+  return r.exposure_score >= BEC_BASE.failed_messages + 5 &&
+    r.reasons.some((reason) => reason.code === "cybermeters_rua_not_verified") &&
+    r.recommended_actions.some((action) => action.code === "add_cybermeters_rua");
+}));
+
+results.push(securityContract("bec_score_reports_received_does_not_verify_rua_dns", () => {
+  const endpoint = {
+    status: "active",
+    address_local: "cmrua_abc123def456",
+    last_inbound_at: "2026-06-29T10:00:00.000Z",
+    inbound_domain: "reports.cybermeters.com",
+  };
+  const missingRua = scanner.cybermetersRuaPresentInDmarcRecord(
+    "v=DMARC1; p=none; rua=mailto:vendor@example.com",
+    endpoint,
+  );
+  const verifiedRua = scanner.cybermetersRuaPresentInDmarcRecord(
+    "v=DMARC1; p=none; rua=mailto:vendor@example.com,mailto:cmrua_abc123def456@reports.cybermeters.com",
+    endpoint,
+  );
+  const r = scanner.computeBecExposureScore({
+    ...BEC_BASE,
+    dmarc_policy: "none",
+    reports_received: true,
+    last_report_received_at: endpoint.last_inbound_at,
+    cybermeters_rua_verified: missingRua,
+  }, { now: "2026-06-29T12:00:00.000Z" });
+  return missingRua === false && verifiedRua === true &&
+    r.evidence.reports_received === true &&
+    r.evidence.cybermeters_rua_verified === false &&
+    r.evidence.last_report_received_at === endpoint.last_inbound_at &&
+    r.reasons.some((reason) => reason.code === "cybermeters_rua_not_verified") &&
+    r.recommended_actions.some((action) => action.code === "add_cybermeters_rua");
+}));
+
+results.push(securityContract("bec_score_brand_candidates_optional", () => {
+  const absent = scanner.computeBecExposureScore({ ...BEC_BASE, brand: undefined }, { now: "2026-06-29T12:00:00.000Z" });
+  const unavailable = scanner.computeBecExposureScore({ ...BEC_BASE, brand: { available: false } }, { now: "2026-06-29T12:00:00.000Z" });
+  return Number.isInteger(absent.exposure_score) && absent.exposure_score === unavailable.exposure_score &&
+    absent.evidence.brand_candidates_available === false;
+}));
+
+results.push(securityContract("bec_score_owned_ignored_brand_candidates_do_not_increase_score", () => {
+  const base = scanner.computeBecExposureScore(BEC_BASE, { now: "2026-06-29T12:00:00.000Z" });
+  const ownedIgnored = scanner.computeBecExposureScore({
+    ...BEC_BASE,
+    brand: { available: true, owned_ignored_or_false_positive: 4, high_risk_active_dns: 0, high_risk_mx: 0, suspicious_or_confirmed: 0 },
+  }, { now: "2026-06-29T12:00:00.000Z" });
+  return ownedIgnored.exposure_score === base.exposure_score &&
+    !ownedIgnored.reasons.some((reason) => reason.code === "brand_impersonation_candidates");
+}));
+
+results.push(securityContract("bec_score_clamps_to_100", () => {
+  const r = scanner.computeBecExposureScore({
+    ...BEC_BASE,
+    dmarc_present: false,
+    dmarc_policy: "missing",
+    spf_status: "missing",
+    dkim_status: "missing",
+    cybermeters_rua_verified: false,
+    reports_received: false,
+    pass_rate: 10,
+    total_messages: 10000,
+    aligned_messages: 1000,
+    failed_messages: 9000,
+    unknown_senders: 10,
+    suspicious_senders: 5,
+    high_volume_failing_senders: 3,
+    brand: { available: true, high_risk_active_dns: 3, high_risk_mx: 2, suspicious_or_confirmed: 1 },
+  }, { now: "2026-06-29T12:00:00.000Z" });
+  return r.exposure_score === 100 && r.exposure_level === "critical";
+}));
+
+results.push(securityContract("bec_endpoint_no_secret_or_raw_error_leak", () => {
+  const r = scanner.computeBecExposureScore({
+    ...BEC_BASE,
+    raw_xml: "<feedback>SECRET</feedback>",
+    token_hash: "SECRET_HASH",
+    api_token: "SECRET_TOKEN",
+  }, { now: "2026-06-29T12:00:00.000Z" });
+  const safeError = scanner.normalizeApiResponseData({
+    error: "BEC exposure score could not be calculated",
+    detail: "SQL SECRET detail",
+    stack: "STACK SECRET",
+  }, 500);
+  const body = JSON.stringify(r);
+  const err = JSON.stringify(safeError);
+  return !body.includes("SECRET") && !body.includes("<feedback") &&
+    !err.includes("SQL SECRET") && !err.includes("STACK SECRET") && !("detail" in safeError) && !("stack" in safeError);
 }));
 
 // ── Assisted DMARC Upload v1 — shared ingestion + signed-upload token model ───
