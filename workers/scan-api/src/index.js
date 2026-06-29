@@ -12271,6 +12271,300 @@ async function upsertCertificateAuthorityVendor(workspaceId, caVendor, evidence,
 // validation via POST /brand-monitoring/refresh (separate request with its own
 // 50-subrequest budget — scan already uses ~47 by the time Phase 7 runs).
 
+const BRAND_VARIANT_TYPES = new Set([
+  "homoglyph", "typosquat", "substitution", "insertion", "omission",
+  "transposition", "hyphenation", "tld_variation", "keyword_abuse", "unknown",
+]);
+const BRAND_CLASSIFICATIONS = new Set([
+  "unreviewed", "monitoring", "suspicious", "owned", "ignored",
+  "confirmed_abuse", "false_positive",
+]);
+const BRAND_RISK_LEVELS = new Set(["critical", "high", "medium", "low", "info"]);
+const BRAND_SUSPICIOUS_TLDS = new Set([
+  "zip", "mov", "top", "click", "link", "work", "support", "help", "live", "shop", "xyz",
+]);
+const BRAND_EVIDENCE_SIGNALS = new Set([
+  "similar_to_brand", "variant_type", "dns_active", "mx_present", "https_active",
+  "newly_seen", "suspicious_tld", "contains_brand_keyword", "looks_like_login",
+  "possible_mail_abuse", "known_owned_domain_match",
+]);
+
+function safeJsonArray(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== "string") return [];
+  try { const parsed = JSON.parse(value); return Array.isArray(parsed) ? parsed : []; }
+  catch { return []; }
+}
+
+function normalizeBrandVariantType(value) {
+  const raw = String(value || "unknown").toLowerCase();
+  const legacy = {
+    duplication: "insertion",
+    keyboard_adjacent: "substitution",
+    hyphen_keyword: "keyword_abuse",
+    prefix_keyword: "keyword_abuse",
+  };
+  const normalized = legacy[raw] || raw;
+  return BRAND_VARIANT_TYPES.has(normalized) ? normalized : "unknown";
+}
+
+function brandSimilarityScore(candidateDomain, brandName) {
+  const candidate = String(candidateDomain || "").toLowerCase().split(".")[0].replace(/[^a-z0-9]/g, "").slice(0, 100);
+  const brand = String(brandName || "").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 100);
+  if (!candidate || !brand) return null;
+  const previous = Array.from({ length: brand.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= candidate.length; i++) {
+    let diagonal = previous[0];
+    previous[0] = i;
+    for (let j = 1; j <= brand.length; j++) {
+      const above = previous[j];
+      previous[j] = Math.min(
+        previous[j] + 1,
+        previous[j - 1] + 1,
+        diagonal + (candidate[i - 1] === brand[j - 1] ? 0 : 1),
+      );
+      diagonal = above;
+    }
+  }
+  return Math.max(0, Math.round((1 - previous[brand.length] / Math.max(candidate.length, brand.length)) * 100));
+}
+
+function scoreBrandCandidateRisk(candidate = {}) {
+  const classification = BRAND_CLASSIFICATIONS.has(candidate.classification)
+    ? candidate.classification : "unreviewed";
+  if (["owned", "ignored", "false_positive"].includes(classification)) {
+    return { score: 0, risk_level: "info", reasons: [`classification_${classification}`] };
+  }
+
+  const reasons = [];
+  let score = 0;
+  const variant = normalizeBrandVariantType(candidate.variant_type);
+  const variantWeight = {
+    homoglyph: 25, substitution: 22, typosquat: 20, omission: 20,
+    insertion: 18, transposition: 18, hyphenation: 15,
+    tld_variation: 18, keyword_abuse: 20, unknown: 5,
+  }[variant];
+  score += variantWeight;
+  reasons.push(`variant_${variant}`);
+
+  const similarity = Number(candidate.similarity_score);
+  if (Number.isFinite(similarity)) {
+    const bounded = Math.max(0, Math.min(100, similarity));
+    score += Math.round(bounded * 0.35);
+    if (bounded >= 80) reasons.push("high_brand_similarity");
+    else if (bounded >= 50) reasons.push("moderate_brand_similarity");
+  }
+  if (candidate.dns_active === true) { score += 10; reasons.push("dns_active"); }
+  if (candidate.https_active === true) { score += 10; reasons.push("https_active"); }
+  if (candidate.mx_present === true) { score += 20; reasons.push("mx_present_possible_mail_abuse"); }
+  if (candidate.contains_brand_keyword === true) { score += 8; reasons.push("contains_brand_keyword"); }
+  if (candidate.suspicious_tld === true) { score += 10; reasons.push("suspicious_tld"); }
+  if (candidate.looks_like_login === true) { score += 12; reasons.push("looks_like_login"); }
+  if (candidate.newly_seen === true) { score += 5; reasons.push("newly_seen"); }
+  if (classification === "suspicious") { score = Math.max(score, 70); reasons.push("marked_suspicious"); }
+  if (classification === "confirmed_abuse") { score = Math.max(score, 90); reasons.push("confirmed_abuse"); }
+
+  score = Math.max(0, Math.min(100, score));
+  const risk_level = score >= 85 ? "critical" : score >= 65 ? "high"
+    : score >= 40 ? "medium" : score >= 20 ? "low" : "info";
+  return { score, risk_level, reasons: [...new Set(reasons)] };
+}
+
+function inferBrandProfileFromDomains(workspaceId, domainRows = []) {
+  const domains = [...new Set(domainRows.map((row) => String(row?.domain || "").trim().toLowerCase())
+    .filter((domain) => isValidDomain(domain)))];
+  if (domains.length === 0) return null;
+  const primaryDomain = domains[0];
+  const inferredBrand = extractBrandParts(primaryDomain).brand;
+  return {
+    id: null,
+    workspace_id: workspaceId,
+    brand_name: inferredBrand,
+    primary_domain: primaryDomain,
+    keywords: [],
+    protected_domains: domains,
+    inferred: true,
+    inference_confidence: "low",
+    created_at: null,
+    updated_at: null,
+  };
+}
+
+function brandProfileToApi(row) {
+  if (!row) return null;
+  return {
+    id: row.id || null,
+    workspace_id: row.workspace_id,
+    brand_name: row.brand_name,
+    primary_domain: row.primary_domain,
+    keywords: safeJsonArray(row.keywords_json).filter((value) => typeof value === "string").slice(0, 20),
+    protected_domains: safeJsonArray(row.protected_domains_json).filter((value) => typeof value === "string").slice(0, 100),
+    inferred: false,
+    inference_confidence: null,
+    created_at: row.created_at || null,
+    updated_at: row.updated_at || null,
+  };
+}
+
+function validateBrandProfileInput(body, workspaceDomains = []) {
+  if (!body || typeof body !== "object") return { ok: false, error: "invalid_body" };
+  const brandName = typeof body.brand_name === "string" ? body.brand_name.trim() : "";
+  if (brandName.length < 2 || brandName.length > 100 || !/^[\p{L}\p{N} .&'_-]+$/u.test(brandName)) {
+    return { ok: false, error: "invalid_brand_name" };
+  }
+  const owned = new Set(workspaceDomains.map((domain) => String(domain).toLowerCase()));
+  const primaryDomain = String(body.primary_domain || "").trim().toLowerCase();
+  if (!isValidDomain(primaryDomain) || !owned.has(primaryDomain)) {
+    return { ok: false, error: "primary_domain_not_in_workspace" };
+  }
+  const protectedInput = Array.isArray(body.protected_domains) ? body.protected_domains : [primaryDomain];
+  const protectedDomains = [...new Set(protectedInput.map((domain) => String(domain).trim().toLowerCase()))];
+  if (protectedDomains.length === 0 || protectedDomains.length > 100 ||
+      protectedDomains.some((domain) => !isValidDomain(domain) || !owned.has(domain))) {
+    return { ok: false, error: "protected_domain_not_in_workspace" };
+  }
+  if (!protectedDomains.includes(primaryDomain)) protectedDomains.unshift(primaryDomain);
+  const keywordInput = Array.isArray(body.keywords) ? body.keywords : [];
+  const keywords = [...new Set(keywordInput.map((value) => String(value).trim().toLowerCase()).filter(Boolean))];
+  if (keywords.length > 20 || keywords.some((value) => value.length > 64 || !/^[\p{L}\p{N} .&'_-]+$/u.test(value))) {
+    return { ok: false, error: "invalid_keywords" };
+  }
+  return { ok: true, value: { brand_name: brandName, primary_domain: primaryDomain,
+    keywords, protected_domains: protectedDomains } };
+}
+
+function parseBrandCandidateListParams(searchParams) {
+  const risk = searchParams.get("risk");
+  const status = searchParams.get("status");
+  const classification = searchParams.get("classification");
+  return {
+    risk: BRAND_RISK_LEVELS.has(risk) ? risk : null,
+    status: ["active", "inactive", "unverified"].includes(status) ? status : null,
+    classification: BRAND_CLASSIFICATIONS.has(classification) ? classification : null,
+    limit: parseBoundedInteger(searchParams.get("limit"), 50, 1, 100),
+    offset: parseBoundedInteger(searchParams.get("offset"), 0, 0, 100000),
+  };
+}
+
+function brandCandidateToApi(row, profile = null) {
+  const candidateDomain = String(row?.candidate_domain || "").toLowerCase();
+  const brandName = profile?.brand_name || extractBrandParts(row?.domain || "").brand;
+  const similarity = row?.similarity_score != null && Number.isFinite(Number(row.similarity_score))
+    ? Math.max(0, Math.min(100, Number(row.similarity_score)))
+    : brandSimilarityScore(candidateDomain, brandName);
+  const classification = BRAND_CLASSIFICATIONS.has(row?.classification) ? row.classification : "unreviewed";
+  const variant = normalizeBrandVariantType(row?.variant_type);
+  const sld = candidateDomain.split(".")[0];
+  const tld = candidateDomain.split(".").slice(1).join(".");
+  const brandToken = String(brandName || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const dnsActive = row?.dns_resolves == null ? null : Boolean(row.dns_resolves);
+  const httpsActive = row?.https_available == null ? null : Boolean(row.https_available);
+  const mxPresent = row?.mx_present == null ? null : Boolean(row.mx_present);
+  const containsBrandKeyword = Boolean(brandToken && sld.replace(/[^a-z0-9]/g, "").includes(brandToken));
+  const looksLikeLogin = HIGH_RISK_BRAND_KEYWORDS.some((keyword) => sld.includes(keyword));
+  const suspiciousTld = BRAND_SUSPICIOUS_TLDS.has(tld.split(".").pop());
+  const firstSeen = row?.first_seen || null;
+  const newlySeen = firstSeen ? Date.now() - new Date(firstSeen).getTime() <= 30 * 86400000 : false;
+  const risk = scoreBrandCandidateRisk({
+    variant_type: variant, similarity_score: similarity, dns_active: dnsActive,
+    https_active: httpsActive, mx_present: mxPresent, contains_brand_keyword: containsBrandKeyword,
+    suspicious_tld: suspiciousTld, looks_like_login: looksLikeLogin,
+    classification,
+  });
+
+  const evidence = [];
+  if (similarity != null) evidence.push({ signal: "similar_to_brand", value: similarity });
+  evidence.push({ signal: "variant_type", value: variant });
+  if (dnsActive != null) evidence.push({ signal: "dns_active", value: dnsActive });
+  if (httpsActive != null) evidence.push({ signal: "https_active", value: httpsActive });
+  if (mxPresent != null) evidence.push({ signal: "mx_present", value: mxPresent });
+  if (newlySeen) evidence.push({ signal: "newly_seen", value: true });
+  if (suspiciousTld) evidence.push({ signal: "suspicious_tld", value: true });
+  if (containsBrandKeyword) evidence.push({ signal: "contains_brand_keyword", value: true });
+  if (looksLikeLogin) evidence.push({ signal: "looks_like_login", value: true });
+  if (mxPresent) evidence.push({ signal: "possible_mail_abuse", value: true });
+  if (classification === "owned") evidence.push({ signal: "known_owned_domain_match", value: true });
+  for (const item of safeJsonArray(row?.evidence_json)) {
+    if (BRAND_EVIDENCE_SIGNALS.has(item?.signal) && ["string", "number", "boolean"].includes(typeof item.value) &&
+        !evidence.some((existing) => existing.signal === item.signal)) evidence.push({ signal: item.signal, value: item.value });
+  }
+  const closed = ["owned", "ignored", "false_positive"].includes(classification);
+  return {
+    id: row.id,
+    candidate_domain: candidateDomain,
+    protected_domain: row.domain || profile?.primary_domain || null,
+    variant_type: variant,
+    similarity_score: similarity,
+    risk_score: risk.score,
+    risk_level: risk.risk_level,
+    risk_reasons: risk.reasons,
+    status: row.status || "unverified",
+    classification,
+    action_required: !closed && (["critical", "high"].includes(risk.risk_level) ||
+      ["suspicious", "confirmed_abuse"].includes(classification)),
+    first_seen_at: firstSeen,
+    last_seen_at: row.last_seen || null,
+    last_checked_at: row.last_checked_at || null,
+    dns_active: dnsActive,
+    https_active: httpsActive,
+    mx_present: mxPresent,
+    registrar_or_whois_summary: typeof row.registrar_or_whois_summary === "string"
+      ? row.registrar_or_whois_summary.slice(0, 500) : null,
+    evidence,
+    created_at: row.created_at || null,
+    updated_at: row.updated_at || null,
+  };
+}
+
+function buildBrandProtectionSummary(candidates = []) {
+  const summary = { total_candidates: candidates.length, active_dns: 0, high_risk: 0,
+    confirmed_abuse: 0, suspicious: 0, ignored: 0, owned: 0, unreviewed: 0,
+    last_updated_at: null };
+  for (const candidate of candidates) {
+    if (candidate.dns_active === true) summary.active_dns++;
+    if (["critical", "high"].includes(candidate.risk_level)) summary.high_risk++;
+    if (["confirmed_abuse", "suspicious", "ignored", "owned", "unreviewed"].includes(candidate.classification)) {
+      summary[candidate.classification]++;
+    }
+    const updated = candidate.updated_at || candidate.last_seen_at;
+    if (updated && (!summary.last_updated_at || updated > summary.last_updated_at)) summary.last_updated_at = updated;
+  }
+  return summary;
+}
+
+function brandClassificationAuditMetadata(candidate, previousClassification, classification, riskLevel) {
+  return {
+    candidate_domain: candidate.candidate_domain,
+    classification,
+    previous_classification: previousClassification,
+    risk_level: BRAND_RISK_LEVELS.has(riskLevel) ? riskLevel : "info",
+  };
+}
+
+function legacyBrandAssetToApi(row) {
+  return {
+    ...row,
+    dns_resolves: row.dns_resolves !== null ? Boolean(row.dns_resolves) : null,
+    https_available: row.https_available !== null ? Boolean(row.https_available) : null,
+    risk_reasons: safeJsonArray(row.risk_reasons),
+  };
+}
+
+async function loadWorkspaceBrandProfile(env, workspaceId) {
+  const persisted = await env.cybermeters_db
+    .prepare(`SELECT id, workspace_id, brand_name, primary_domain, keywords_json,
+                     protected_domains_json, created_at, updated_at
+              FROM workspace_brand_profiles WHERE workspace_id = ? LIMIT 1`)
+    .bind(workspaceId).first();
+  if (persisted) return brandProfileToApi(persisted);
+  const domains = await env.cybermeters_db
+    .prepare(`SELECT d.domain FROM workspace_domains wd
+              JOIN domains d ON d.id = wd.domain_id
+              WHERE wd.workspace_id = ? ORDER BY d.created_at ASC, d.domain ASC`)
+    .bind(workspaceId).all();
+  return inferBrandProfileFromDomains(workspaceId, domains.results || []);
+}
+
 /**
  * extractBrandParts(domain)
  * Returns { brand, tld } for a registered domain.
@@ -12880,21 +13174,42 @@ async function upsertBrandAssets(domainId, brandMod, env) {
   if (!domainName) return;
 
   const now = new Date().toISOString();
+  const inferredBrand = extractBrandParts(domainName).brand;
 
   for (const { workspace_id } of wsRows) {
     for (const c of brandMod.domains) {
       try {
+        const similarity = brandSimilarityScore(c.candidate_domain, inferredBrand);
+        const risk = scoreBrandCandidateRisk({
+          variant_type: c.variant_type,
+          similarity_score: similarity,
+          contains_brand_keyword: c.candidate_domain.split('.')[0].includes(inferredBrand),
+          suspicious_tld: BRAND_SUSPICIOUS_TLDS.has(c.candidate_domain.split('.').pop()),
+          looks_like_login: HIGH_RISK_BRAND_KEYWORDS.some((keyword) => c.candidate_domain.split('.')[0].includes(keyword)),
+          classification: "unreviewed",
+        });
+        const candidateSld = c.candidate_domain.split('.')[0];
+        const evidence = [
+          { signal: "similar_to_brand", value: similarity },
+          { signal: "variant_type", value: normalizeBrandVariantType(c.variant_type) },
+        ];
+        if (candidateSld.includes(inferredBrand)) evidence.push({ signal: "contains_brand_keyword", value: true });
+        if (BRAND_SUSPICIOUS_TLDS.has(c.candidate_domain.split('.').pop())) evidence.push({ signal: "suspicious_tld", value: true });
+        if (HIGH_RISK_BRAND_KEYWORDS.some((keyword) => candidateSld.includes(keyword))) evidence.push({ signal: "looks_like_login", value: true });
         await env.cybermeters_db
           .prepare(
             `INSERT INTO workspace_brand_assets
                (id, workspace_id, domain, candidate_domain, variant_type,
-                risk_level, risk_reasons, dns_resolves, https_available,
+                similarity_score, risk_level, risk_reasons, evidence_json, dns_resolves, https_available,
                 ip_address, status, first_seen, last_seen, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, 'unverified',
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, 'unverified',
                      ?, ?, ?, ?)
              ON CONFLICT (workspace_id, domain, candidate_domain) DO UPDATE SET
-               risk_level   = excluded.risk_level,
+               similarity_score = excluded.similarity_score,
+               risk_level   = CASE WHEN workspace_brand_assets.classification IN ('owned','ignored','false_positive')
+                                   THEN 'info' ELSE excluded.risk_level END,
                risk_reasons = excluded.risk_reasons,
+               evidence_json = excluded.evidence_json,
                last_seen    = excluded.last_seen,
                updated_at   = excluded.updated_at`
           )
@@ -12904,8 +13219,10 @@ async function upsertBrandAssets(domainId, brandMod, env) {
             domainName,
             c.candidate_domain,
             c.variant_type,
-            c.risk_level,
-            JSON.stringify(c.risk_reasons),
+            similarity,
+            risk.risk_level,
+            JSON.stringify(risk.reasons),
+            JSON.stringify(evidence),
             now,  // first_seen
             now,  // last_seen
             now,  // created_at
@@ -12914,6 +13231,13 @@ async function upsertBrandAssets(domainId, brandMod, env) {
           .run();
       } catch { /* non-fatal per candidate */ }
     }
+    try {
+      await env.cybermeters_db
+        .prepare(`UPDATE workspace_brand_assets
+                  SET brand_profile_id = (SELECT id FROM workspace_brand_profiles WHERE workspace_id = ?)
+                  WHERE workspace_id = ? AND brand_profile_id IS NULL`)
+        .bind(workspace_id, workspace_id).run();
+    } catch { /* profile is optional and migration-safe */ }
   }
 }
 
@@ -28170,6 +28494,208 @@ export default {
       }
     }
 
+    // ── Brand Protection Intelligence v1 ──────────────────────────────────────
+    // Persistent workflow APIs. These are additive; the legacy Brand Monitoring
+    // routes below retain their response contracts for the existing frontend.
+    const brandProfileMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/brand\/profile$/);
+    const brandSummaryV1Match = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/brand\/summary$/);
+    const brandCandidatesMatch = url.pathname.match(
+      /^\/api\/workspaces\/([^/]+)\/brand\/candidates(?:\/([^/]+)(?:\/(classify))?)?$/
+    );
+    if (brandProfileMatch || brandSummaryV1Match || brandCandidatesMatch) {
+      const wsId = (brandProfileMatch || brandSummaryV1Match || brandCandidatesMatch)[1];
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const isProfileWrite = Boolean(brandProfileMatch && request.method === "POST");
+      const isClassificationWrite = Boolean(brandCandidatesMatch?.[3] === "classify" && request.method === "POST");
+      const permission = isProfileWrite ? "workspace:manage"
+        : isClassificationWrite ? "workspace:manage" : "workspace:read";
+      const access = await requireWorkspaceRole(user, wsId, permission, env);
+      if (!access) return json({ error: "Forbidden" }, 403);
+
+      try {
+        const workspace = await env.cybermeters_db
+          .prepare("SELECT id FROM workspaces WHERE id = ? LIMIT 1").bind(wsId).first();
+        if (!workspace) return json({ error: "Workspace not found" }, 404);
+
+        // GET /brand/profile — persisted profile or explicitly low-confidence
+        // inference from real workspace domains. Inference is never persisted.
+        if (brandProfileMatch && request.method === "GET") {
+          return json({ profile: await loadWorkspaceBrandProfile(env, wsId) });
+        }
+
+        // POST /brand/profile — admin-managed protected brand scope.
+        if (brandProfileMatch && request.method === "POST") {
+          const body = await request.json().catch(() => null);
+          const domainRows = await env.cybermeters_db
+            .prepare(`SELECT d.domain FROM workspace_domains wd
+                      JOIN domains d ON d.id = wd.domain_id WHERE wd.workspace_id = ?`)
+            .bind(wsId).all();
+          const workspaceDomains = (domainRows.results || []).map((row) => row.domain);
+          const validated = validateBrandProfileInput(body, workspaceDomains);
+          if (!validated.ok) return json({ error: validated.error }, 400);
+          const value = validated.value;
+          const existing = await env.cybermeters_db
+            .prepare("SELECT id FROM workspace_brand_profiles WHERE workspace_id = ? LIMIT 1")
+            .bind(wsId).first();
+          const profileId = existing?.id || createId("brandprof");
+          await env.cybermeters_db
+            .prepare(`INSERT INTO workspace_brand_profiles
+                        (id, workspace_id, brand_name, primary_domain, keywords_json,
+                         protected_domains_json, created_at, updated_at)
+                      VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+                      ON CONFLICT(workspace_id) DO UPDATE SET
+                        brand_name = excluded.brand_name,
+                        primary_domain = excluded.primary_domain,
+                        keywords_json = excluded.keywords_json,
+                        protected_domains_json = excluded.protected_domains_json,
+                        updated_at = datetime('now')`)
+            .bind(profileId, wsId, value.brand_name, value.primary_domain,
+              JSON.stringify(value.keywords), JSON.stringify(value.protected_domains)).run();
+          await env.cybermeters_db
+            .prepare("UPDATE workspace_brand_assets SET brand_profile_id = ? WHERE workspace_id = ?")
+            .bind(profileId, wsId).run();
+          const row = await env.cybermeters_db
+            .prepare(`SELECT id, workspace_id, brand_name, primary_domain, keywords_json,
+                             protected_domains_json, created_at, updated_at
+                      FROM workspace_brand_profiles WHERE workspace_id = ? LIMIT 1`)
+            .bind(wsId).first();
+          await createAuditEvent(env, {
+            workspace_id: wsId, user_id: user.id, event_type: "brand_profile_updated",
+            entity_type: "brand_profile", entity_id: profileId,
+            description: `Updated protected brand profile for ${value.brand_name}`,
+            metadata: { brand_name: value.brand_name, primary_domain: value.primary_domain,
+              keyword_count: value.keywords.length, protected_domain_count: value.protected_domains.length },
+          });
+          return json({ profile: brandProfileToApi(row) });
+        }
+
+        // GET /brand/summary — one aggregate query, no per-candidate reads.
+        if (brandSummaryV1Match && request.method === "GET") {
+          const row = await env.cybermeters_db
+            .prepare(`SELECT
+                COUNT(*) AS total_candidates,
+                COALESCE(SUM(CASE WHEN dns_resolves = 1 THEN 1 ELSE 0 END), 0) AS active_dns,
+                COALESCE(SUM(CASE WHEN risk_level IN ('critical','high') THEN 1 ELSE 0 END), 0) AS high_risk,
+                COALESCE(SUM(CASE WHEN classification = 'confirmed_abuse' THEN 1 ELSE 0 END), 0) AS confirmed_abuse,
+                COALESCE(SUM(CASE WHEN classification = 'suspicious' THEN 1 ELSE 0 END), 0) AS suspicious,
+                COALESCE(SUM(CASE WHEN classification = 'ignored' THEN 1 ELSE 0 END), 0) AS ignored,
+                COALESCE(SUM(CASE WHEN classification = 'owned' THEN 1 ELSE 0 END), 0) AS owned,
+                COALESCE(SUM(CASE WHEN classification IS NULL OR classification = 'unreviewed' THEN 1 ELSE 0 END), 0) AS unreviewed,
+                MAX(COALESCE(updated_at, last_seen)) AS last_updated_at
+              FROM workspace_brand_assets WHERE workspace_id = ?`)
+            .bind(wsId).first();
+          return json({
+            total_candidates: Number(row?.total_candidates || 0),
+            active_dns: Number(row?.active_dns || 0),
+            high_risk: Number(row?.high_risk || 0),
+            confirmed_abuse: Number(row?.confirmed_abuse || 0),
+            suspicious: Number(row?.suspicious || 0),
+            ignored: Number(row?.ignored || 0),
+            owned: Number(row?.owned || 0),
+            unreviewed: Number(row?.unreviewed || 0),
+            last_updated_at: row?.last_updated_at || null,
+          });
+        }
+
+        if (brandCandidatesMatch) {
+          const candidateId = brandCandidatesMatch[2] || null;
+          const action = brandCandidatesMatch[3] || null;
+          if (candidateId && !/^[a-zA-Z0-9_-]{1,100}$/.test(candidateId)) {
+            return json({ error: "Invalid candidate id" }, 400);
+          }
+
+          // GET /brand/candidates — bounded, allow-listed filters only.
+          if (!candidateId && !action && request.method === "GET") {
+            const params = parseBrandCandidateListParams(url.searchParams);
+            const where = ["workspace_id = ?"];
+            const binds = [wsId];
+            if (params.risk) { where.push("risk_level = ?"); binds.push(params.risk); }
+            if (params.status) { where.push("status = ?"); binds.push(params.status); }
+            if (params.classification) {
+              where.push("COALESCE(classification, 'unreviewed') = ?"); binds.push(params.classification);
+            }
+            const [rows, totalRow, profile] = await Promise.all([
+              env.cybermeters_db
+                .prepare(`SELECT id, domain, candidate_domain, variant_type, similarity_score,
+                                 risk_level, risk_reasons, dns_resolves, https_available,
+                                 status, classification, first_seen, last_seen, last_checked_at,
+                                 mx_present, registrar_or_whois_summary, evidence_json,
+                                 created_at, updated_at
+                          FROM workspace_brand_assets
+                          WHERE ${where.join(" AND ")}
+                          ORDER BY
+                            CASE risk_level WHEN 'critical' THEN 0 WHEN 'high' THEN 1
+                              WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END,
+                            CASE COALESCE(classification, 'unreviewed')
+                              WHEN 'confirmed_abuse' THEN 0 WHEN 'suspicious' THEN 1
+                              WHEN 'unreviewed' THEN 2 ELSE 3 END,
+                            candidate_domain
+                          LIMIT ? OFFSET ?`)
+                .bind(...binds, params.limit, params.offset).all(),
+              env.cybermeters_db
+                .prepare(`SELECT COUNT(*) AS n FROM workspace_brand_assets WHERE ${where.join(" AND ")}`)
+                .bind(...binds).first(),
+              loadWorkspaceBrandProfile(env, wsId),
+            ]);
+            const candidates = (rows.results || []).map((row) => brandCandidateToApi(row, profile));
+            return json({ workspace_id: wsId, total: Number(totalRow?.n || 0),
+              limit: params.limit, offset: params.offset, candidates });
+          }
+
+          const row = await env.cybermeters_db
+            .prepare(`SELECT id, workspace_id, domain, candidate_domain, variant_type,
+                             similarity_score, risk_level, risk_reasons, dns_resolves,
+                             https_available, status, classification, first_seen, last_seen,
+                             last_checked_at, mx_present, registrar_or_whois_summary,
+                             evidence_json, created_at, updated_at
+                      FROM workspace_brand_assets WHERE id = ? AND workspace_id = ? LIMIT 1`)
+            .bind(candidateId, wsId).first();
+          if (!row) return json({ error: "Brand candidate not found" }, 404);
+          const profile = await loadWorkspaceBrandProfile(env, wsId);
+
+          // GET /brand/candidates/:id
+          if (!action && request.method === "GET") {
+            return json({ candidate: brandCandidateToApi(row, profile) });
+          }
+
+          // POST /brand/candidates/:id/classify
+          if (action === "classify" && request.method === "POST") {
+            const body = await request.json().catch(() => null);
+            const classification = String(body?.classification || "").toLowerCase();
+            const allowed = new Set(["owned", "ignored", "suspicious", "confirmed_abuse", "false_positive", "monitoring"]);
+            if (!allowed.has(classification)) return json({ error: "Invalid classification" }, 400);
+            const previous = BRAND_CLASSIFICATIONS.has(row.classification) ? row.classification : "unreviewed";
+            const updatedAt = new Date().toISOString();
+            const candidate = brandCandidateToApi({ ...row, classification, updated_at: updatedAt }, profile);
+            await env.cybermeters_db
+              .prepare(`UPDATE workspace_brand_assets
+                        SET classification = ?, similarity_score = ?, risk_level = ?,
+                            risk_reasons = ?, evidence_json = ?, updated_at = ?
+                        WHERE id = ? AND workspace_id = ?`)
+              .bind(classification, candidate.similarity_score, candidate.risk_level,
+                JSON.stringify(candidate.risk_reasons), JSON.stringify(candidate.evidence),
+                updatedAt, candidateId, wsId).run();
+            const eventType = classification === "ignored" ? "brand_candidate_ignored"
+              : classification === "owned" ? "brand_candidate_marked_owned"
+                : classification === "suspicious" ? "brand_candidate_marked_suspicious"
+                  : "brand_candidate_classified";
+            await createAuditEvent(env, {
+              workspace_id: wsId, user_id: user.id, event_type: eventType,
+              entity_type: "brand_candidate", entity_id: candidateId,
+              description: `Classified brand candidate ${row.candidate_domain} as ${classification}`,
+              metadata: brandClassificationAuditMetadata(row, previous, classification, candidate.risk_level),
+            });
+            return json({ candidate });
+          }
+        }
+
+        return json({ error: "Method not allowed" }, 405);
+      } catch {
+        return json({ error: "Brand protection request could not be completed" }, 500);
+      }
+    }
+
     // ── Brand Monitoring Routes ───────────────────────────────────────────────
     // GET  /api/workspaces/:id/brand-monitoring              — candidate list
     // GET  /api/workspaces/:id/brand-monitoring/summary      — risk summary
@@ -28247,11 +28773,33 @@ export default {
           } catch { /* treat as not resolving */ }
 
           const status = dnsResolves ? 'active' : 'inactive';
+          const similarity = brandSimilarityScore(c.candidate_domain, brand);
+          const candidateSld = c.candidate_domain.split('.')[0];
+          const risk = scoreBrandCandidateRisk({
+            variant_type: c.variant_type,
+            similarity_score: similarity,
+            dns_active: dnsResolves,
+            contains_brand_keyword: candidateSld.includes(brand),
+            suspicious_tld: BRAND_SUSPICIOUS_TLDS.has(c.candidate_domain.split('.').pop()),
+            looks_like_login: HIGH_RISK_BRAND_KEYWORDS.some((keyword) => candidateSld.includes(keyword)),
+            classification: "unreviewed",
+          });
+          const evidence = [
+            { signal: "similar_to_brand", value: similarity },
+            { signal: "variant_type", value: normalizeBrandVariantType(c.variant_type) },
+            { signal: "dns_active", value: dnsResolves },
+          ];
+          if (candidateSld.includes(brand)) evidence.push({ signal: "contains_brand_keyword", value: true });
+          if (BRAND_SUSPICIOUS_TLDS.has(c.candidate_domain.split('.').pop())) evidence.push({ signal: "suspicious_tld", value: true });
+          if (HIGH_RISK_BRAND_KEYWORDS.some((keyword) => candidateSld.includes(keyword))) evidence.push({ signal: "looks_like_login", value: true });
           // Sprint 9D: confidence and validation_quality based on DNS probe outcome
           const brandConf = dnsResolves ? 80 : 40;
           const brandVQ   = dnsResolves ? "good" : "weak";
           validationResults.push({
             ...c,
+            similarity_score:   similarity,
+            risk_level:         risk.risk_level,
+            risk_reasons:       risk.reasons,
             dns_resolves:       dnsResolves,
             ip_address:         ipAddress,
             status,
@@ -28265,14 +28813,20 @@ export default {
               .prepare(
                 `INSERT INTO workspace_brand_assets
                    (id, workspace_id, domain, candidate_domain, variant_type,
-                    risk_level, risk_reasons, dns_resolves, https_available,
-                    ip_address, status, first_seen, last_seen, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)
+                    similarity_score, risk_level, risk_reasons, evidence_json, dns_resolves, https_available,
+                    ip_address, status, first_seen, last_seen, last_checked_at, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)
                  ON CONFLICT (workspace_id, domain, candidate_domain) DO UPDATE SET
+                   similarity_score = excluded.similarity_score,
+                   risk_level   = CASE WHEN workspace_brand_assets.classification IN ('owned','ignored','false_positive')
+                                       THEN 'info' ELSE excluded.risk_level END,
+                   risk_reasons = excluded.risk_reasons,
+                   evidence_json = excluded.evidence_json,
                    dns_resolves = excluded.dns_resolves,
                    ip_address   = excluded.ip_address,
                    status       = excluded.status,
                    last_seen    = excluded.last_seen,
+                   last_checked_at = excluded.last_checked_at,
                    updated_at   = excluded.updated_at`
               )
               .bind(
@@ -28281,13 +28835,16 @@ export default {
                 primaryDomain,
                 c.candidate_domain,
                 c.variant_type,
-                c.risk_level,
-                JSON.stringify(c.risk_reasons),
+                similarity,
+                risk.risk_level,
+                JSON.stringify(risk.reasons),
+                JSON.stringify(evidence),
                 dnsResolves ? 1 : 0,
                 ipAddress,
                 status,
                 now,  // first_seen
                 now,  // last_seen
+                now,  // last_checked_at
                 now,  // created_at
                 now   // updated_at
               )
@@ -28303,7 +28860,7 @@ export default {
                 .first();
               const evDomainId = domRows?.domain_id || null;
 
-              const evType = c.risk_level === 'high'
+              const evType = ['high', 'critical'].includes(risk.risk_level)
                 ? 'high_risk_typosquat_detected'
                 : 'brand_domain_detected';
 
@@ -28320,9 +28877,9 @@ export default {
                   evDomainId,
                   evType,
                   c.candidate_domain,
-                  c.risk_level === 'high' ? 'high' : 'medium',
+                  ['high', 'critical'].includes(risk.risk_level) ? risk.risk_level : 'medium',
                   `Typosquat domain ${c.candidate_domain} resolves (${c.variant_type}).` +
-                    (c.risk_reasons.length > 0 ? ' ' + c.risk_reasons.join('; ') + '.' : ''),
+                    (risk.reasons.length > 0 ? ' ' + risk.reasons.join('; ') + '.' : ''),
                   now
                 )
                 .run();
@@ -28330,8 +28887,16 @@ export default {
           }
         }
 
+        try {
+          await env.cybermeters_db
+            .prepare(`UPDATE workspace_brand_assets
+                      SET brand_profile_id = (SELECT id FROM workspace_brand_profiles WHERE workspace_id = ?)
+                      WHERE workspace_id = ? AND brand_profile_id IS NULL`)
+            .bind(wsId, wsId).run();
+        } catch { /* profile is optional */ }
+
         const activeResults  = validationResults.filter(v => v.dns_resolves);
-        const highRiskActive = activeResults.filter(v => v.risk_level === 'high').length;
+        const highRiskActive = activeResults.filter(v => ['high', 'critical'].includes(v.risk_level)).length;
 
         return json({
           workspace_id:       wsId,
@@ -28428,12 +28993,7 @@ export default {
             .bind(...binds)
             .all();
 
-          const assets = (r.results || []).map(row => ({
-            ...row,
-            dns_resolves:    row.dns_resolves    !== null ? Boolean(row.dns_resolves)    : null,
-            https_available: row.https_available !== null ? Boolean(row.https_available) : null,
-            risk_reasons:    (() => { try { return JSON.parse(row.risk_reasons); } catch { return []; } })(),
-          }));
+          const assets = (r.results || []).map(legacyBrandAssetToApi);
 
           return json({ workspace_id: wsId, count: assets.length, candidates: assets });
         } catch {

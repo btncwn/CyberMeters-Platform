@@ -78,6 +78,14 @@ function loadScanner(fetchImpl = async () => { throw new Error("network disabled
     runSaasExposureModule,
     runCertificateIntelligenceModule,
     buildCertificateOwnershipAssessment,
+    inferBrandProfileFromDomains,
+    validateBrandProfileInput,
+    scoreBrandCandidateRisk,
+    brandCandidateToApi,
+    buildBrandProtectionSummary,
+    brandClassificationAuditMetadata,
+    parseBrandCandidateListParams,
+    legacyBrandAssetToApi,
     parseDmarcRecord,
     buildDmarcDnsRecommendedValue,
     verifyDmarcDnsSetup,
@@ -700,7 +708,9 @@ results.push(
   securityContract("security_rbac_fail_closed_contract", () =>
     scanner.hasWorkspacePermission("owner", "unknown:permission") === false &&
     scanner.hasWorkspacePermission("admin", "billing:manage") === false &&
-    scanner.hasWorkspacePermission("owner", "billing:manage") === true
+    scanner.hasWorkspacePermission("owner", "billing:manage") === true &&
+    scanner.hasWorkspacePermission("analyst", "workspace:manage") === false &&
+    scanner.hasWorkspacePermission("admin", "workspace:manage") === true
   ),
   securityContract("security_oidc_claims_contract", () => {
     scanner.validateMicrosoftIdTokenClaims(
@@ -801,6 +811,105 @@ results.push(
       rendered.text.includes("https://app.cybermeters.com/assets") &&
       rendered.html.includes("&lt;admin&gt;.example.com") &&
       !rendered.html.includes("cybermeters.pages.dev");
+  }),
+);
+
+results.push(
+  securityContract("brand_profile_default_inference_safe", () => {
+    const profile = scanner.inferBrandProfileFromDomains("workspace-1", [
+      { domain: "example.com" }, { domain: "shop.example.net" }, { domain: "invalid domain" },
+    ]);
+    return profile?.inferred === true && profile.inference_confidence === "low" &&
+      profile.brand_name === "example" && profile.primary_domain === "example.com" &&
+      profile.keywords.length === 0 && profile.protected_domains.length === 2 && profile.id === null;
+  }),
+  securityContract("brand_profile_update_validates_workspace", () => {
+    const valid = scanner.validateBrandProfileInput({
+      brand_name: "Example", primary_domain: "example.com",
+      keywords: ["example", "example login"], protected_domains: ["example.com"],
+    }, ["example.com"]);
+    const outside = scanner.validateBrandProfileInput({
+      brand_name: "Example", primary_domain: "attacker.test",
+      keywords: [], protected_domains: ["attacker.test"],
+    }, ["example.com"]);
+    return valid.ok === true && outside.ok === false && outside.error === "primary_domain_not_in_workspace";
+  }),
+  securityContract("brand_candidate_risk_mx_high_similarity", () => {
+    const risk = scanner.scoreBrandCandidateRisk({
+      variant_type: "homoglyph", similarity_score: 96, dns_active: true,
+      https_active: true, mx_present: true, classification: "unreviewed",
+    });
+    return risk.score >= 85 && risk.risk_level === "critical" &&
+      risk.reasons.includes("high_brand_similarity") && risk.reasons.includes("mx_present_possible_mail_abuse");
+  }),
+  securityContract("brand_candidate_owned_reduces_risk", () => {
+    const risk = scanner.scoreBrandCandidateRisk({
+      variant_type: "homoglyph", similarity_score: 100, dns_active: true,
+      https_active: true, mx_present: true, classification: "owned",
+    });
+    return risk.score === 0 && risk.risk_level === "info" && risk.reasons[0] === "classification_owned";
+  }),
+  securityContract("brand_candidate_ignore_hides_from_open_actions", () => {
+    const candidate = scanner.brandCandidateToApi({
+      id: "bra-1", domain: "example.com", candidate_domain: "example-login.top",
+      variant_type: "keyword_abuse", similarity_score: 90, dns_resolves: 1,
+      https_available: 1, mx_present: 1, classification: "ignored", status: "active",
+      first_seen: "2020-01-01T00:00:00.000Z",
+    }, { brand_name: "example", primary_domain: "example.com" });
+    return candidate.classification === "ignored" && candidate.risk_level === "info" &&
+      candidate.risk_score === 0 && candidate.action_required === false;
+  }),
+  securityContract("brand_candidate_classification_audit_safe", () => {
+    const metadata = scanner.brandClassificationAuditMetadata(
+      { candidate_domain: "examp1e.com", token_hash: "SECRET", internal_error: "STACK" },
+      "unreviewed", "suspicious", "high",
+    );
+    const keys = Object.keys(metadata).sort();
+    const serialized = JSON.stringify(metadata);
+    return JSON.stringify(keys) === JSON.stringify([
+      "candidate_domain", "classification", "previous_classification", "risk_level",
+    ]) && !serialized.includes("SECRET") && !serialized.includes("STACK");
+  }),
+  securityContract("brand_candidates_pagination_bounds", () => {
+    const values = { risk: "invalid", status: "active", classification: "ignored", limit: "999", offset: "-4" };
+    const params = scanner.parseBrandCandidateListParams({ get: (key) => values[key] ?? null });
+    return params.risk === null && params.status === "active" && params.classification === "ignored" &&
+      params.limit === 100 && params.offset === 0;
+  }),
+  securityContract("brand_summary_counts_consistent", () => {
+    const summary = scanner.buildBrandProtectionSummary([
+      { dns_active: true, risk_level: "critical", classification: "confirmed_abuse", updated_at: "2026-06-01" },
+      { dns_active: true, risk_level: "high", classification: "suspicious", updated_at: "2026-06-03" },
+      { dns_active: false, risk_level: "info", classification: "ignored", updated_at: "2026-06-02" },
+      { dns_active: null, risk_level: "low", classification: "owned", updated_at: "2026-05-01" },
+      { dns_active: null, risk_level: "medium", classification: "unreviewed", updated_at: "2026-04-01" },
+    ]);
+    return summary.total_candidates === 5 && summary.active_dns === 2 && summary.high_risk === 2 &&
+      summary.confirmed_abuse === 1 && summary.suspicious === 1 && summary.ignored === 1 &&
+      summary.owned === 1 && summary.unreviewed === 1 && summary.last_updated_at === "2026-06-03";
+  }),
+  securityContract("brand_candidate_no_secret_or_internal_error_leak", () => {
+    const candidate = scanner.brandCandidateToApi({
+      id: "bra-2", domain: "example.com", candidate_domain: "examp1e.com",
+      variant_type: "substitution", classification: "unreviewed", status: "active",
+      dns_resolves: 1, token_hash: "SECRET_HASH", api_token: "SECRET_TOKEN",
+      internal_error: "STACK_TRACE", evidence_json: JSON.stringify([{ signal: "not_allowed", value: "SECRET" }]),
+    }, { brand_name: "example", primary_domain: "example.com" });
+    const serialized = JSON.stringify(candidate);
+    return !("token_hash" in candidate) && !("internal_error" in candidate) &&
+      !serialized.includes("SECRET_HASH") && !serialized.includes("SECRET_TOKEN") &&
+      !serialized.includes("STACK_TRACE") && !serialized.includes('"not_allowed"');
+  }),
+  securityContract("brand_existing_brand_monitoring_contract_preserved", () => {
+    const legacy = scanner.legacyBrandAssetToApi({
+      candidate_domain: "examp1e.com", domain: "example.com", variant_type: "substitution",
+      risk_level: "high", risk_reasons: '["homoglyph"]', dns_resolves: 1,
+      https_available: 0, ip_address: "192.0.2.1", status: "active",
+      first_seen: "2026-01-01", last_seen: "2026-01-02",
+    });
+    return legacy.candidate_domain === "examp1e.com" && legacy.domain === "example.com" &&
+      legacy.dns_resolves === true && legacy.https_available === false &&
+      Array.isArray(legacy.risk_reasons) && legacy.risk_reasons[0] === "homoglyph" && legacy.status === "active";
   }),
 );
 
