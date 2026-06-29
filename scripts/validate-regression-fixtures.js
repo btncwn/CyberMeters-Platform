@@ -100,6 +100,8 @@ function loadScanner(fetchImpl = async () => { throw new Error("network disabled
     ingestEndpointIsActive,
     ingestEndpointToApi,
     generateInboundLocalpart,
+    normalizeInboundRecipientDomain,
+    parseInboundRecipient,
     extractInboundLocalpart,
     gunzipXmlBytes,
     unzipSingleEntryXmlBytes,
@@ -109,6 +111,7 @@ function loadScanner(fetchImpl = async () => { throw new Error("network disabled
     normalizeInboundDropReason,
     sanitizeInfraErrorMessage,
     ingestDmarcReport,
+    emailHandler: __workerDefault.email,
     computeBusinessRiskScoreFromIds: (ids, data) => computeBusinessRiskScore(new Set(ids), data),
   };`, context, {
     filename: workerPath,
@@ -1189,14 +1192,92 @@ function _buildStoredZip(name, dataStr, totalEntries = 1) {
 
 const RUA_TEST_CAPS = { attachmentMax: 10 * 1024 * 1024, decompressedMax: 10 * 1024 * 1024, ratioMax: 100 };
 
+async function _buildRuaMime(xmlString) {
+  const gz = await _gzipBytes(xmlString);
+  const b64 = _bytesToB64(gz).replace(/(.{76})/g, "$1\r\n");
+  return "From: reports@example.net\r\nSubject: DMARC report\r\n" +
+    'Content-Type: multipart/mixed; boundary="RUA-CATCHALL"\r\n\r\n' +
+    "--RUA-CATCHALL\r\nContent-Type: text/plain\r\n\r\nReport attached.\r\n" +
+    "--RUA-CATCHALL\r\n" +
+    'Content-Type: application/gzip; name="report.xml.gz"\r\n' +
+    'Content-Disposition: attachment; filename="report.xml.gz"\r\n' +
+    "Content-Transfer-Encoding: base64\r\n\r\n" + b64 + "\r\n--RUA-CATCHALL--\r\n";
+}
+
+function _ruaMessage(to, mime) {
+  const bytes = new TextEncoder().encode(mime);
+  return { to, rawSize: bytes.length, raw: new Response(bytes).body };
+}
+
+function _ruaHandlerHarness({ duplicate = false, status = "active", revoked_at = null } = {}) {
+  const endpoint = {
+    id: "endpoint-1", workspace_id: "workspace-1", domain_id: "domain-1",
+    domain: "example.com", address_local: "cmrua_abc123def456", status, revoked_at,
+  };
+  const state = {
+    reportSeen: duplicate, reportInserts: 0, recordInserts: 0,
+    senderInserts: 0, senderMessages: 0, lastInboundUpdates: 0,
+    endpointLookups: 0, audits: [], runs: [],
+  };
+  const env = {
+    RUA_INBOUND_DOMAIN: "reports.cybermeters.com",
+    cybermeters_db: {
+      prepare(sql) {
+        return {
+          _sql: sql, _bindings: [],
+          bind(...bindings) { this._bindings = bindings; return this; },
+          async first() {
+            if (/FROM dmarc_ingest_endpoints WHERE address_local/.test(this._sql)) {
+              state.endpointLookups++;
+              return this._bindings[0] === endpoint.address_local ? endpoint : null;
+            }
+            if (/SELECT id FROM dmarc_aggregate_reports/.test(this._sql)) {
+              return state.reportSeen ? { id: "existing-report" } : null;
+            }
+            if (/FROM email_sender_sources/.test(this._sql)) return null;
+            return null;
+          },
+          async all() { return { results: [] }; },
+          async run() {
+            state.runs.push({ sql: this._sql, bindings: this._bindings });
+            if (/INSERT INTO dmarc_aggregate_reports/.test(this._sql)) {
+              state.reportSeen = true;
+              state.reportInserts++;
+            }
+            if (/INSERT INTO dmarc_aggregate_records/.test(this._sql)) state.recordInserts++;
+            if (/INSERT INTO email_sender_sources/.test(this._sql)) {
+              state.senderInserts++;
+              state.senderMessages += this._bindings[10] || 0;
+            }
+            if (/UPDATE dmarc_ingest_endpoints SET last_used_at/.test(this._sql)) state.lastInboundUpdates++;
+            if (/INSERT INTO audit_events/.test(this._sql)) {
+              state.audits.push({
+                event_type: this._bindings[3],
+                description: this._bindings[6],
+                metadata: this._bindings[7] ? JSON.parse(this._bindings[7]) : null,
+              });
+            }
+            return {};
+          },
+        };
+      },
+    },
+  };
+  return { env, state, endpoint };
+}
+
 results.push(securityContract("rua_localpart_generation_and_extraction", () => {
   const a = scanner.generateInboundLocalpart();
   const b = scanner.generateInboundLocalpart();
   const ok = a.startsWith("cmrua_") && a.length >= 14 && a !== b;
   const ext = scanner.extractInboundLocalpart(`<${a.toUpperCase()}@reports.cybermeters.com>`) === a;
   const reject = scanner.extractInboundLocalpart("postmaster@reports.cybermeters.com") === null &&
-    scanner.extractInboundLocalpart("") === null;
-  return ok && ext && reject;
+    scanner.extractInboundLocalpart("") === null &&
+    scanner.extractInboundLocalpart(`${a}@otherdomain.com`, "reports.cybermeters.com") === null;
+  const parsed = scanner.parseInboundRecipient("Random.Local@REPORTS.CYBERMETERS.COM.");
+  return ok && ext && reject && parsed?.localpart === "random.local" &&
+    parsed?.domain === "reports.cybermeters.com" &&
+    scanner.parseInboundRecipient("invalid recipient") === null;
 }));
 results.push(securityContract("rua_endpoint_serialization_exposes_rua_no_leak", () => {
   const row = { id: "e9", domain: "example.com", status: "active", address_local: "cmrua_abc123def456",
@@ -1263,6 +1344,74 @@ results.push(securityContract("rua_attachment_selection_zero_and_multi", () => {
   return none.error === "no_dmarc_attachment" && multi.error === "multiple_attachments";
 }));
 
+// ── Catch-all routing safety contracts ─────────────────────────────────────
+results.push(await asyncSecurityContract("rua_catchall_unknown_localpart_safe_drop", async () => {
+  const { env, state } = _ruaHandlerHarness();
+  const mime = await _buildRuaMime(dmarcMixedXml);
+  await scanner.emailHandler(_ruaMessage("randomlocalpart@reports.cybermeters.com", mime), env, {});
+  const drop = state.audits.find((audit) => audit.event_type === "dmarc_inbound_email_dropped");
+  return state.endpointLookups === 0 && state.reportInserts === 0 && state.recordInserts === 0 &&
+    state.senderInserts === 0 && state.senderMessages === 0 && state.lastInboundUpdates === 0 &&
+    drop?.metadata?.reason === "endpoint_not_found" &&
+    drop.metadata.recipient_localpart === "randomlocalpart" &&
+    drop.metadata.recipient_domain === "reports.cybermeters.com" &&
+    drop.metadata.source === "inbound_email";
+}));
+
+results.push(await asyncSecurityContract("rua_catchall_valid_localpart_still_ingests", async () => {
+  const { env, state, endpoint } = _ruaHandlerHarness();
+  const mime = await _buildRuaMime(dmarcMixedXml);
+  await scanner.emailHandler(_ruaMessage(`${endpoint.address_local}@reports.cybermeters.com`, mime), env, {});
+  const ingested = state.audits.find((audit) => audit.event_type === "dmarc_report_ingested");
+  const received = state.audits.find((audit) => audit.event_type === "dmarc_inbound_email_received");
+  return state.endpointLookups === 1 && state.reportInserts === 1 && state.recordInserts === 2 &&
+    state.senderInserts === 2 && state.senderMessages === 260 && state.lastInboundUpdates === 1 &&
+    ingested?.metadata?.source === "inbound_email" && received?.metadata?.source === "inbound_email" &&
+    received.metadata.message_count === 260;
+}));
+
+results.push(await asyncSecurityContract("rua_catchall_wrong_domain_safe_drop", async () => {
+  const { env, state, endpoint } = _ruaHandlerHarness();
+  const mime = await _buildRuaMime(dmarcMixedXml);
+  await scanner.emailHandler(_ruaMessage(`${endpoint.address_local}@cybermeters.com`, mime), env, {});
+  const drop = state.audits.find((audit) => audit.event_type === "dmarc_inbound_email_dropped");
+  return state.endpointLookups === 0 && state.reportInserts === 0 && state.recordInserts === 0 &&
+    state.senderInserts === 0 && state.senderMessages === 0 && state.lastInboundUpdates === 0 &&
+    drop?.metadata?.reason === "unsupported_recipient_domain" &&
+    drop.metadata.recipient_domain === "cybermeters.com" && drop.metadata.source === "inbound_email";
+}));
+
+results.push(await asyncSecurityContract("rua_catchall_duplicate_no_double_count", async () => {
+  const { env, state, endpoint } = _ruaHandlerHarness();
+  const mime = await _buildRuaMime(dmarcMixedXml);
+  const recipient = `${endpoint.address_local}@reports.cybermeters.com`;
+  await scanner.emailHandler(_ruaMessage(recipient, mime), env, {});
+  const totalsAfterFirst = {
+    reports: state.reportInserts, records: state.recordInserts, senders: state.senderMessages,
+  };
+  await scanner.emailHandler(_ruaMessage(recipient, mime), env, {});
+  const duplicateAudit = state.audits.find((audit) => audit.event_type === "dmarc_report_duplicate");
+  return totalsAfterFirst.reports === 1 && totalsAfterFirst.records === 2 && totalsAfterFirst.senders === 260 &&
+    state.reportInserts === totalsAfterFirst.reports && state.recordInserts === totalsAfterFirst.records &&
+    state.senderMessages === totalsAfterFirst.senders && state.lastInboundUpdates === 2 &&
+    duplicateAudit?.metadata?.duplicate === true && duplicateAudit.metadata.source === "inbound_email";
+}));
+
+results.push(await asyncSecurityContract("rua_catchall_audit_metadata_safe", async () => {
+  const { env, state } = _ruaHandlerHarness();
+  const rawMarker = "RAW_XML_SHOULD_NOT_APPEAR";
+  await scanner.emailHandler(
+    _ruaMessage("unknown@reports.cybermeters.com", `<feedback>${rawMarker}</feedback>`), env, {}
+  );
+  const drop = state.audits.find((audit) => audit.event_type === "dmarc_inbound_email_dropped");
+  if (!drop?.metadata) return false;
+  const allowedKeys = new Set(["source", "reason", "recipient_localpart", "recipient_domain"]);
+  const serialized = JSON.stringify(drop);
+  return Object.keys(drop.metadata).every((key) => allowedKeys.has(key)) &&
+    !serialized.includes(rawMarker) &&
+    !Object.keys(drop.metadata).some((key) => ["raw_xml", "raw_mime", "token_hash", "token", "attachment_content"].includes(key));
+}));
+
 // ── Sprint 3 — RUA hardening: dedupe, stable reasons, error sanitization ─────
 // A duplicate inbound report must NOT insert rows or change totals, must return
 // duplicate:true, and must emit dmarc_report_duplicate with source=inbound_email.
@@ -1289,9 +1438,11 @@ results.push(await asyncSecurityContract("rua_duplicate_inbound_no_double_count"
 results.push(securityContract("rua_drop_reason_normalization_stable", () => {
   const STABLE = new Set(["endpoint_not_found", "endpoint_inactive", "no_dmarc_attachment",
     "multiple_dmarc_attachments", "attachment_too_large", "decompressed_too_large",
-    "compression_ratio_exceeded", "domain_mismatch", "parse_error", "unsupported_attachment"]);
+    "compression_ratio_exceeded", "domain_mismatch", "parse_error", "unsupported_attachment",
+    "unsupported_recipient_domain"]);
   const cases = {
     invalid_recipient: "endpoint_not_found", unknown_address: "endpoint_not_found",
+    unsupported_recipient_domain: "unsupported_recipient_domain",
     endpoint_revoked: "endpoint_inactive", email_too_large: "attachment_too_large",
     zip_too_large: "attachment_too_large", multiple_attachments: "multiple_dmarc_attachments",
     zip_inflate_failed: "parse_error", zip_multi_entry: "parse_error", empty_xml: "parse_error",

@@ -7192,12 +7192,39 @@ function generateInboundLocalpart() {
   const hex = Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
   return `cmrua_${hex}`;
 }
-// Resolve a recipient address to our opaque localpart (or null if not ours).
-function extractInboundLocalpart(recipient) {
+// Normalize only DNS hostnames that are safe to retain in audit metadata.
+function normalizeInboundRecipientDomain(domain) {
+  if (typeof domain !== "string") return null;
+  const normalized = domain.trim().toLowerCase().replace(/\.$/, "");
+  if (!normalized || normalized.length > 253 || !/^[a-z0-9.-]+$/.test(normalized)) return null;
+  const labels = normalized.split(".");
+  if (labels.some((label) => !label || label.length > 63 || !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label))) return null;
+  return normalized;
+}
+
+// Parse a complete recipient without retaining headers or payload content.
+// Cloudflare normally supplies a bare address; surrounding angle brackets are
+// accepted for regression fixtures and defensive compatibility.
+function parseInboundRecipient(recipient) {
   if (!recipient || typeof recipient !== "string") return null;
-  const addr = recipient.trim().toLowerCase().replace(/[<>]/g, "");
-  const at = addr.lastIndexOf("@");
-  let local = at >= 0 ? addr.slice(0, at) : addr;
+  let addr = recipient.trim();
+  if (addr.startsWith("<") && addr.endsWith(">")) addr = addr.slice(1, -1).trim();
+  if (!addr || /[<>\s]/.test(addr)) return null;
+  const at = addr.indexOf("@");
+  if (at <= 0 || at !== addr.lastIndexOf("@") || at === addr.length - 1) return null;
+  const localpart = addr.slice(0, at).toLowerCase();
+  if (localpart.length > 64 || !/^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+$/.test(localpart) ||
+      localpart.startsWith(".") || localpart.endsWith(".") || localpart.includes("..")) return null;
+  const domain = normalizeInboundRecipientDomain(addr.slice(at + 1));
+  return domain ? { localpart, domain } : null;
+}
+
+// Resolve a recipient address to our opaque localpart (or null if not ours).
+function extractInboundLocalpart(recipient, expectedDomain = null) {
+  const parsed = parseInboundRecipient(recipient);
+  if (!parsed) return null;
+  if (expectedDomain && parsed.domain !== normalizeInboundRecipientDomain(expectedDomain)) return null;
+  let local = parsed.localpart;
   const plus = local.indexOf("+"); // strip +tags defensively (we don't issue any)
   if (plus >= 0) local = local.slice(0, plus);
   return /^cmrua_[a-z0-9]{8,}$/.test(local) ? local : null;
@@ -7332,6 +7359,7 @@ async function extractDmarcXmlFromAttachment(filename, bytes, caps = RUA_DEFAULT
 // reason for audit metadata (no internal detail leaks into events).
 function normalizeInboundDropReason(reason) {
   switch (String(reason || "")) {
+    case "unsupported_recipient_domain": return "unsupported_recipient_domain";
     case "invalid_recipient":
     case "unknown_address":
     case "endpoint_not_found":      return "endpoint_not_found";
@@ -32649,6 +32677,9 @@ export default {
   // a gzip/zip/raw attachment (hard bomb caps), and run it through the SAME
   // ingestDmarcReport() pipeline with source=inbound_email. The handler never
   // throws, never stores raw payloads, and drops invalid mail with an audit note.
+  // Operator routing: private beta may use exact per-address routes; public beta
+  // should send *@reports.cybermeters.com to this Worker. D1 address_local lookup
+  // authorizes known recipients, and unknown localparts are safely dropped.
   async email(message, env, _ctx) {
     const caps = {
       attachmentMax: RUA_ATTACHMENT_MAX_BYTES,
@@ -32656,7 +32687,7 @@ export default {
       ratioMax: RUA_MAX_COMPRESSION_RATIO,
     };
     // Drop safely with a STABLE, customer-safe reason and no raw payload.
-    const drop = async (endpoint, rawReason, localpart) => {
+    const drop = async (endpoint, rawReason, recipient = null) => {
       try {
         await createAuditEvent(env, {
           workspace_id: endpoint?.workspace_id || null, user_id: null,
@@ -32666,35 +32697,41 @@ export default {
           metadata: {
             source: "inbound_email",
             reason: normalizeInboundDropReason(rawReason),
-            recipient_localpart: localpart || null,
-            ingest_endpoint_id: endpoint?.id || null,
+            recipient_localpart: recipient?.localpart || null,
+            recipient_domain: recipient?.domain || null,
           },
         });
       } catch { /* never throw from the email handler */ }
     };
     try {
-      const localpart = extractInboundLocalpart(message.to);
-      if (!localpart) { await drop(null, "endpoint_not_found", null); return; }
+      const recipient = parseInboundRecipient(message.to);
+      if (!recipient) { await drop(null, "parse_error"); return; }
+      const inboundDomain = normalizeInboundRecipientDomain(env.RUA_INBOUND_DOMAIN || RUA_INBOUND_DOMAIN_DEFAULT);
+      if (!inboundDomain || recipient.domain !== inboundDomain) {
+        await drop(null, "unsupported_recipient_domain", recipient); return;
+      }
+      const localpart = extractInboundLocalpart(message.to, inboundDomain);
+      if (!localpart) { await drop(null, "endpoint_not_found", recipient); return; }
 
       const endpoint = await env.cybermeters_db
         .prepare(`SELECT * FROM dmarc_ingest_endpoints WHERE address_local = ? LIMIT 1`)
         .bind(localpart).first();
       if (!ingestEndpointIsActive(endpoint)) {
-        await drop(endpoint, endpoint ? "endpoint_inactive" : "endpoint_not_found", localpart);
+        await drop(endpoint, endpoint ? "endpoint_inactive" : "endpoint_not_found", recipient);
         return;
       }
 
       if (typeof message.rawSize === "number" && message.rawSize > RUA_RAW_EMAIL_MAX_BYTES) {
-        await drop(endpoint, "attachment_too_large", localpart); return;
+        await drop(endpoint, "attachment_too_large", recipient); return;
       }
       const raw = await readStreamCapped(message.raw, RUA_RAW_EMAIL_MAX_BYTES);
-      if (!raw) { await drop(endpoint, "attachment_too_large", localpart); return; }
+      if (!raw) { await drop(endpoint, "attachment_too_large", recipient); return; }
 
       const parts = parseMimeParts(_bytesToLatin1(raw));
       const sel = selectDmarcAttachment(parts);
-      if (sel.error) { await drop(endpoint, sel.error, localpart); return; }
+      if (sel.error) { await drop(endpoint, sel.error, recipient); return; }
       const ext = await extractDmarcXmlFromAttachment(sel.part.filename, sel.part.bytes, caps);
-      if (ext.error) { await drop(endpoint, ext.error, localpart); return; }
+      if (ext.error) { await drop(endpoint, ext.error, recipient); return; }
 
       const result = await ingestDmarcReport(env, {
         workspaceId: endpoint.workspace_id, domain: endpoint.domain, source: "inbound_email",
@@ -32704,7 +32741,7 @@ export default {
 
       // Parse/validation rejection (e.g. domain_mismatch). Do NOT mark the
       // address as "receiving" — it did not deliver a valid report.
-      if (!result.ok) { await drop(endpoint, result.error, localpart); return; }
+      if (!result.ok) { await drop(endpoint, result.error, recipient); return; }
 
       // A valid report arrived (new import OR an already-seen duplicate). Both
       // are honest "we received an inbound report" signals.
