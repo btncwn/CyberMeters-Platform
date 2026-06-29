@@ -7019,6 +7019,21 @@ function extractIngestToken(request) {
   const x = request.headers.get("X-CM-Ingest-Token");
   return x ? x.trim() : null;
 }
+
+const DMARC_ROUTE_STATUSES = new Set(["not_configured", "pending", "active", "failed", "revoked", "manual"]);
+const DMARC_ROUTE_ERRORS = new Set([
+  "missing_config", "api_rejected", "route_exists", "worker_not_found",
+  "unsupported_api", "network_error", "unknown_error", "unsupported_domain",
+  "unsupported_localpart",
+]);
+
+function sanitizeDmarcRouteStatus(status) {
+  return DMARC_ROUTE_STATUSES.has(status) ? status : "failed";
+}
+function sanitizeDmarcRouteError(reason) {
+  return reason && DMARC_ROUTE_ERRORS.has(reason) ? reason : (reason ? "unknown_error" : null);
+}
+
 // Customer-safe endpoint serialization. NEVER includes token_hash; only includes
 // the raw token when explicitly passed (create/rotate response). When the
 // endpoint has an inbound address_local, exposes the customer-facing RUA address
@@ -7042,9 +7057,193 @@ function ingestEndpointToApi(row, { rawToken = null, inboundDomain = null } = {}
     last_signed_upload_at: row.last_signed_upload_at || null,
     rotated_at: row.rotated_at || null,
     revoked_at: row.revoked_at || null,
+    route_status: sanitizeDmarcRouteStatus(row.cloudflare_route_status || "not_configured"),
+    route_error: sanitizeDmarcRouteError(row.cloudflare_route_error),
+    route_updated_at: row.cloudflare_route_updated_at || null,
   };
   if (rawToken) out.token = rawToken;
   return out;
+}
+
+// ── Cloudflare Email Routing exact-address adapter ──────────────────────────
+// Exact per-address routing is the safe public-beta strategy. Do not enable the
+// zone-level catch-all: the UI catch-all appears zone-scoped, not subdomain-
+// scoped. Each cmrua_...@reports.cybermeters.com address must use a literal
+// `to` matcher and a worker action targeting cybermeters-platform.
+const CLOUDFLARE_API_BASE = "https://api.cloudflare.com/client/v4";
+
+function _cloudflareRouteFailure(response, body) {
+  const messages = Array.isArray(body?.errors)
+    ? body.errors.map((error) => String(error?.message || "").toLowerCase()).join(" ") : "";
+  if (response?.status === 404 || response?.status === 405) return "unsupported_api";
+  if (/worker/.test(messages) && /(not found|does not exist|unknown)/.test(messages)) return "worker_not_found";
+  if (/(already exists|duplicate)/.test(messages)) return "route_exists";
+  if (response && !response.ok) return "api_rejected";
+  return "unknown_error";
+}
+
+async function _cloudflareEmailRoutingRequest(env, path, init = {}, fetchImpl = fetch) {
+  let response;
+  try {
+    response = await fetchImpl(`${CLOUDFLARE_API_BASE}${path}`, {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${env.CLOUDFLARE_API_TOKEN}`,
+        "Content-Type": "application/json",
+        ...(init.headers || {}),
+      },
+    });
+  } catch {
+    return { ok: false, reason: "network_error" };
+  }
+  let body;
+  try { body = await response.json(); }
+  catch { return { ok: false, reason: response.status === 404 || response.status === 405 ? "unsupported_api" : "api_rejected" }; }
+  if (!response.ok || body?.success !== true) return { ok: false, reason: _cloudflareRouteFailure(response, body) };
+  return { ok: true, body };
+}
+
+function _cloudflareExactRoutePayload(addressLocal, domain, workerName) {
+  const address = `${addressLocal}@${domain}`;
+  return {
+    actions: [{ type: "worker", value: [workerName] }],
+    matchers: [{ type: "literal", field: "to", value: address }],
+    enabled: true,
+    name: `CyberMeters RUA ${address}`,
+  };
+}
+
+function _cloudflareRuleMatchesExactWorker(rule, address, workerName) {
+  const literal = Array.isArray(rule?.matchers) && rule.matchers.some((matcher) =>
+    matcher?.type === "literal" && matcher?.field === "to" && matcher?.value?.toLowerCase() === address);
+  const worker = Array.isArray(rule?.actions) && rule.actions.some((action) =>
+    action?.type === "worker" && Array.isArray(action.value) && action.value.includes(workerName));
+  return literal && worker && rule.enabled === true;
+}
+
+async function ensureCloudflareEmailRoute(env, addressLocal, domain, { fetchImpl = fetch } = {}) {
+  const inboundDomain = normalizeInboundRecipientDomain(env?.RUA_INBOUND_DOMAIN || RUA_INBOUND_DOMAIN_DEFAULT);
+  const requestedDomain = normalizeInboundRecipientDomain(domain);
+  if (!requestedDomain || requestedDomain !== inboundDomain || requestedDomain === "cybermeters.com") {
+    return { ok: false, status: "failed", reason: "unsupported_domain" };
+  }
+  if (typeof addressLocal !== "string" || !/^cmrua_[a-z0-9]{8,}$/.test(addressLocal) ||
+      addressLocal.includes("*") || addressLocal.includes("@")) {
+    return { ok: false, status: "failed", reason: "unsupported_localpart" };
+  }
+  const token = String(env?.CLOUDFLARE_API_TOKEN || "").trim();
+  const zoneId = String(env?.CLOUDFLARE_ZONE_ID || "").trim();
+  const workerName = String(env?.CLOUDFLARE_EMAIL_ROUTING_WORKER_NAME || "cybermeters-platform").trim();
+  if (!token || !/^[a-f0-9]{32}$/i.test(zoneId) || !/^[a-z0-9][a-z0-9_-]{0,62}$/i.test(workerName)) {
+    return { ok: false, status: "not_configured", reason: "missing_config" };
+  }
+
+  const address = `${addressLocal}@${requestedDomain}`;
+  const basePath = `/zones/${zoneId}/email/routing/rules`;
+  let existing = null;
+  let page = 1;
+  let totalPages = 1;
+  do {
+    const listed = await _cloudflareEmailRoutingRequest(env, `${basePath}?page=${page}&per_page=50`, {}, fetchImpl);
+    if (!listed.ok) return { ok: false, status: "failed", reason: listed.reason };
+    const rules = Array.isArray(listed.body?.result) ? listed.body.result : [];
+    existing = rules.find((rule) => Array.isArray(rule?.matchers) && rule.matchers.some((matcher) =>
+      matcher?.type === "literal" && matcher?.field === "to" && matcher?.value?.toLowerCase() === address));
+    totalPages = Math.min(Math.max(Number(listed.body?.result_info?.total_pages) || 1, 1), 100);
+    page++;
+  } while (!existing && page <= totalPages);
+
+  const payload = _cloudflareExactRoutePayload(addressLocal, requestedDomain, workerName);
+  if (existing && _cloudflareRuleMatchesExactWorker(existing, address, workerName)) {
+    return { ok: true, status: "active", route_id: existing.id || null, message: "route_exists" };
+  }
+  if (existing && (typeof existing.id !== "string" || !/^[a-z0-9]{1,32}$/i.test(existing.id))) {
+    return { ok: false, status: "failed", reason: "unknown_error" };
+  }
+  const method = existing ? "PUT" : "POST";
+  const path = existing ? `${basePath}/${encodeURIComponent(existing.id)}` : basePath;
+  const saved = await _cloudflareEmailRoutingRequest(env, path, {
+    method, body: JSON.stringify(payload),
+  }, fetchImpl);
+  if (!saved.ok) return { ok: false, status: "failed", reason: saved.reason };
+  const routeId = saved.body?.result?.id;
+  if (!routeId || typeof routeId !== "string") return { ok: false, status: "failed", reason: "unknown_error" };
+  return { ok: true, status: "active", route_id: routeId,
+    message: existing ? "route_updated" : "route_created" };
+}
+
+async function safelyEnsureCloudflareEmailRoute(env, addressLocal, domain, options = {}) {
+  try { return await ensureCloudflareEmailRoute(env, addressLocal, domain, options); }
+  catch { return { ok: false, status: "failed", reason: "unknown_error" }; }
+}
+
+async function revokeCloudflareEmailRoute(env, routeId, { fetchImpl = fetch } = {}) {
+  if (!routeId) return { ok: true, status: "revoked", route_id: null, message: "no_managed_route" };
+  if (typeof routeId !== "string" || !/^[a-z0-9]{1,32}$/i.test(routeId)) {
+    return { ok: false, status: "failed", reason: "unknown_error", route_id: routeId || null };
+  }
+  const token = String(env?.CLOUDFLARE_API_TOKEN || "").trim();
+  const zoneId = String(env?.CLOUDFLARE_ZONE_ID || "").trim();
+  if (!token || !/^[a-f0-9]{32}$/i.test(zoneId)) {
+    return { ok: false, status: "failed", reason: "missing_config", route_id: routeId };
+  }
+  const removed = await _cloudflareEmailRoutingRequest(
+    env, `/zones/${zoneId}/email/routing/rules/${encodeURIComponent(routeId)}`,
+    { method: "DELETE" }, fetchImpl
+  );
+  if (!removed.ok) return { ok: false, status: "failed", reason: removed.reason, route_id: routeId };
+  return { ok: true, status: "revoked", route_id: routeId, message: "route_revoked" };
+}
+
+async function safelyRevokeCloudflareEmailRoute(env, routeId, options = {}) {
+  try { return await revokeCloudflareEmailRoute(env, routeId, options); }
+  catch { return { ok: false, status: "failed", reason: "unknown_error", route_id: routeId || null }; }
+}
+
+async function persistDmarcRouteResult(env, endpointId, result) {
+  const status = sanitizeDmarcRouteStatus(result?.status);
+  const error = result?.ok ? null : sanitizeDmarcRouteError(result?.reason);
+  const routeId = typeof result?.route_id === "string" ? result.route_id : null;
+  await env.cybermeters_db
+    .prepare(`UPDATE dmarc_ingest_endpoints
+              SET cloudflare_route_id = COALESCE(?, cloudflare_route_id),
+                  cloudflare_route_status = ?, cloudflare_route_error = ?,
+                  cloudflare_route_created_at = CASE WHEN ? = 'active'
+                    THEN COALESCE(cloudflare_route_created_at, datetime('now')) ELSE cloudflare_route_created_at END,
+                  cloudflare_route_updated_at = datetime('now')
+              WHERE id = ?`)
+    .bind(routeId, status, error, status, endpointId).run();
+  return { status, error, route_id: routeId };
+}
+
+async function auditDmarcRouteResult(env, endpoint, actorUserId, result, operation = "ensure") {
+  const status = sanitizeDmarcRouteStatus(result?.status);
+  const reason = result?.ok ? null : sanitizeDmarcRouteError(result?.reason);
+  let eventType = "dmarc_ingest_route_failed";
+  if (operation === "revoke" && result?.ok) eventType = "dmarc_ingest_route_revoked";
+  else if (result?.ok) eventType = "dmarc_ingest_route_created";
+  else if (status === "not_configured") eventType = "dmarc_ingest_route_skipped";
+  await createAuditEvent(env, {
+    workspace_id: endpoint.workspace_id, user_id: actorUserId, event_type: eventType,
+    entity_type: "domain", entity_id: endpoint.domain_id,
+    description: `${operation === "revoke" ? "Cloudflare DMARC route revoke" : "Cloudflare DMARC route automation"} ${status}`,
+    metadata: {
+      domain: endpoint.domain,
+      recipient_localpart: endpoint.address_local || null,
+      route_status: status,
+      reason,
+      operation,
+      source: "cloudflare_email_routing",
+    },
+  });
+}
+
+async function configureDmarcEndpointRoute(env, endpoint, actorUserId, options = {}) {
+  const inboundDomain = env.RUA_INBOUND_DOMAIN || RUA_INBOUND_DOMAIN_DEFAULT;
+  const result = await safelyEnsureCloudflareEmailRoute(env, endpoint.address_local, inboundDomain, options);
+  await persistDmarcRouteResult(env, endpoint.id, result);
+  await auditDmarcRouteResult(env, endpoint, actorUserId, result, "ensure");
+  return result;
 }
 
 /**
@@ -30478,7 +30677,12 @@ export default {
               metadata: { domain, ingest_endpoint_id: existing.id },
             });
           }
-          return json({ created: false, endpoint: ingestEndpointToApi(existing, { inboundDomain }),
+          // Route automation is deliberately non-blocking for endpoint creation.
+          // Missing config or Cloudflare rejection is persisted as safe status.
+          await configureDmarcEndpointRoute(env, existing, user.id);
+          const current = await env.cybermeters_db
+            .prepare(`SELECT * FROM dmarc_ingest_endpoints WHERE id = ?`).bind(existing.id).first();
+          return json({ created: false, endpoint: ingestEndpointToApi(current || existing, { inboundDomain }),
             message: "An active upload key already exists. Rotate it to issue a new token." });
         }
 
@@ -30499,7 +30703,10 @@ export default {
           description: `Created DMARC ingestion endpoint (signed upload + inbound RUA) for ${domain}`,
           metadata: { domain, ingest_endpoint_id: id },
         });
-        return json({ created: true, endpoint: ingestEndpointToApi(row, { rawToken: raw, inboundDomain }) });
+        await configureDmarcEndpointRoute(env, row, user.id);
+        const routedRow = await env.cybermeters_db
+          .prepare(`SELECT * FROM dmarc_ingest_endpoints WHERE id = ?`).bind(id).first();
+        return json({ created: true, endpoint: ingestEndpointToApi(routedRow || row, { rawToken: raw, inboundDomain }) });
       } catch (e) {
         return serverError("dmarc-ingest-endpoint-create", e, "Could not create upload key.");
       }
@@ -30546,11 +30753,26 @@ export default {
 
         const raw = generateIngestToken();
         const tokenHash = await hashIngestToken(raw);
+        const candidateLocal = generateInboundLocalpart();
+        const inboundDomain = env.RUA_INBOUND_DOMAIN || RUA_INBOUND_DOMAIN_DEFAULT;
+        // Create the replacement exact route before changing address_local. If
+        // automation is unavailable, retain the current localpart so an existing
+        // manual exact route continues to work while the signed token rotates.
+        const routeResult = await safelyEnsureCloudflareEmailRoute(env, candidateLocal, inboundDomain);
+        await persistDmarcRouteResult(env, existing.id, routeResult);
+        await auditDmarcRouteResult(env, { ...existing, address_local: candidateLocal }, user.id, routeResult, "ensure");
+        const nextLocal = routeResult.ok ? candidateLocal : (existing.address_local || candidateLocal);
         await env.cybermeters_db
           .prepare(`UPDATE dmarc_ingest_endpoints
-                    SET token_hash = ?, status = 'active', rotated_at = datetime('now'), revoked_at = NULL
+                    SET token_hash = ?, address_local = ?, status = 'active',
+                        rotated_at = datetime('now'), revoked_at = NULL
                     WHERE id = ?`)
-          .bind(tokenHash, existing.id).run();
+          .bind(tokenHash, nextLocal, existing.id).run();
+        if (routeResult.ok && existing.cloudflare_route_id &&
+            existing.cloudflare_route_id !== routeResult.route_id) {
+          const oldRouteResult = await safelyRevokeCloudflareEmailRoute(env, existing.cloudflare_route_id);
+          await auditDmarcRouteResult(env, existing, user.id, oldRouteResult, "revoke");
+        }
         const row = await env.cybermeters_db
           .prepare(`SELECT * FROM dmarc_ingest_endpoints WHERE id = ?`).bind(existing.id).first();
         await createAuditEvent(env, {
@@ -30559,7 +30781,6 @@ export default {
           description: `Rotated DMARC signed-upload key for ${domain}`,
           metadata: { domain, ingest_endpoint_id: existing.id },
         });
-        const inboundDomain = env.RUA_INBOUND_DOMAIN || "reports.cybermeters.com";
         return json({ rotated: true, endpoint: ingestEndpointToApi(row, { rawToken: raw, inboundDomain }) });
       } catch (e) {
         return serverError("dmarc-ingest-endpoint-rotate", e, "Could not rotate upload key.");
@@ -30585,6 +30806,11 @@ export default {
         await env.cybermeters_db
           .prepare(`UPDATE dmarc_ingest_endpoints SET status = 'revoked', revoked_at = datetime('now') WHERE id = ?`)
           .bind(existing.id).run();
+        // Endpoint revocation remains authoritative even if Cloudflare route
+        // deletion is unavailable or rejected.
+        const routeResult = await safelyRevokeCloudflareEmailRoute(env, existing.cloudflare_route_id);
+        await persistDmarcRouteResult(env, existing.id, routeResult);
+        await auditDmarcRouteResult(env, existing, user.id, routeResult, "revoke");
         const row = await env.cybermeters_db
           .prepare(`SELECT * FROM dmarc_ingest_endpoints WHERE id = ?`).bind(existing.id).first();
         await createAuditEvent(env, {

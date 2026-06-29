@@ -99,6 +99,11 @@ function loadScanner(fetchImpl = async () => { throw new Error("network disabled
     hashIngestToken,
     ingestEndpointIsActive,
     ingestEndpointToApi,
+    ensureCloudflareEmailRoute,
+    revokeCloudflareEmailRoute,
+    persistDmarcRouteResult,
+    auditDmarcRouteResult,
+    configureDmarcEndpointRoute,
     generateInboundLocalpart,
     normalizeInboundRecipientDomain,
     parseInboundRecipient,
@@ -1290,6 +1295,129 @@ results.push(securityContract("rua_endpoint_serialization_exposes_rua_no_leak", 
     s.last_inbound_at === "2026-06-29T10:00:00Z" &&
     s.last_signed_upload_at === "2026-06-28T09:00:00Z" &&
     !("token_hash" in s) && !("token" in s) && !("id" in s);
+}));
+
+// ── Cloudflare Email Routing exact-route automation contracts ──────────────
+function _routeAutomationDb() {
+  const runs = [];
+  return {
+    runs,
+    db: {
+      prepare(sql) {
+        return {
+          _sql: sql, _bindings: [],
+          bind(...bindings) { this._bindings = bindings; return this; },
+          async run() { runs.push({ sql: this._sql, bindings: this._bindings }); return {}; },
+          async first() { return null; },
+          async all() { return { results: [] }; },
+        };
+      },
+    },
+  };
+}
+
+const ROUTE_ENDPOINT = {
+  id: "endpoint-route-1", workspace_id: "workspace-1", domain_id: "domain-1",
+  domain: "example.com", address_local: "cmrua_abc123def456", status: "active",
+};
+
+results.push(await asyncSecurityContract("rua_route_automation_missing_config_does_not_block_endpoint", async () => {
+  const mock = _routeAutomationDb();
+  const env = { cybermeters_db: mock.db, RUA_INBOUND_DOMAIN: "reports.cybermeters.com" };
+  const result = await scanner.configureDmarcEndpointRoute(env, ROUTE_ENDPOINT, "user-1");
+  const persisted = mock.runs.find((run) => /cloudflare_route_status/.test(run.sql));
+  const audit = mock.runs.find((run) => /INSERT INTO audit_events/.test(run.sql));
+  const metadata = audit?.bindings?.[7] ? JSON.parse(audit.bindings[7]) : null;
+  const serialized = JSON.stringify({ result, metadata });
+  return result.ok === false && result.status === "not_configured" && result.reason === "missing_config" &&
+    persisted?.bindings?.[1] === "not_configured" && audit?.bindings?.[3] === "dmarc_ingest_route_skipped" &&
+    metadata?.reason === "missing_config" && !/token|secret/i.test(serialized);
+}));
+
+results.push(await asyncSecurityContract("rua_route_automation_rejects_apex_domain", async () => {
+  let calls = 0;
+  const result = await scanner.ensureCloudflareEmailRoute(
+    { RUA_INBOUND_DOMAIN: "reports.cybermeters.com" }, "cmrua_abc123def456", "cybermeters.com",
+    { fetchImpl: async () => { calls++; throw new Error("must not call"); } }
+  );
+  return !result.ok && result.reason === "unsupported_domain" && calls === 0;
+}));
+
+results.push(await asyncSecurityContract("rua_route_automation_rejects_wildcard", async () => {
+  let calls = 0;
+  const result = await scanner.ensureCloudflareEmailRoute(
+    { RUA_INBOUND_DOMAIN: "reports.cybermeters.com" }, "*", "reports.cybermeters.com",
+    { fetchImpl: async () => { calls++; throw new Error("must not call"); } }
+  );
+  return !result.ok && result.reason === "unsupported_localpart" && calls === 0;
+}));
+
+results.push(await asyncSecurityContract("rua_route_automation_valid_exact_route_payload", async () => {
+  const calls = [];
+  const routeId = "a".repeat(32);
+  const fetchImpl = async (url, init = {}) => {
+    calls.push({ url, init });
+    if ((init.method || "GET") === "POST") {
+      return new Response(JSON.stringify({ success: true, result: { id: routeId } }),
+        { status: 200, headers: { "content-type": "application/json" } });
+    }
+    return new Response(JSON.stringify({ success: true, result: [], result_info: { total_pages: 1 } }),
+      { status: 200, headers: { "content-type": "application/json" } });
+  };
+  const env = {
+    RUA_INBOUND_DOMAIN: "reports.cybermeters.com",
+    CLOUDFLARE_API_TOKEN: "test-api-token",
+    CLOUDFLARE_ZONE_ID: "b".repeat(32),
+    CLOUDFLARE_EMAIL_ROUTING_WORKER_NAME: "cybermeters-platform",
+  };
+  const result = await scanner.ensureCloudflareEmailRoute(
+    env, "cmrua_abc123def456", "reports.cybermeters.com", { fetchImpl }
+  );
+  const create = calls.find((call) => call.init.method === "POST");
+  const payload = create ? JSON.parse(create.init.body) : null;
+  return result.ok && result.status === "active" && result.route_id === routeId &&
+    payload?.matchers?.length === 1 && payload.matchers[0].type === "literal" &&
+    payload.matchers[0].field === "to" &&
+    payload.matchers[0].value === "cmrua_abc123def456@reports.cybermeters.com" &&
+    payload?.actions?.length === 1 && payload.actions[0].type === "worker" &&
+    payload.actions[0].value?.[0] === "cybermeters-platform" &&
+    !JSON.stringify(payload).includes("*") && !JSON.stringify(payload).includes('"type":"all"');
+}));
+
+results.push(securityContract("rua_route_automation_serialization_safe", () => {
+  const row = {
+    ...ROUTE_ENDPOINT, created_at: "2026-06-29T10:00:00Z", token_hash: "SECRET_HASH",
+    cloudflare_route_id: "private-route-id", cloudflare_route_status: "active",
+    cloudflare_route_error: null, cloudflare_route_updated_at: "2026-06-29T11:00:00Z",
+    cloudflare_raw_response: "RAW_SECRET_RESPONSE", CLOUDFLARE_API_TOKEN: "SECRET_TOKEN",
+  };
+  const serialized = scanner.ingestEndpointToApi(row, { inboundDomain: "reports.cybermeters.com" });
+  const text = JSON.stringify(serialized);
+  return serialized.route_status === "active" && serialized.route_error === null &&
+    serialized.route_updated_at === "2026-06-29T11:00:00Z" &&
+    !("cloudflare_route_id" in serialized) && !("token_hash" in serialized) && !("token" in serialized) &&
+    !text.includes("SECRET") && !text.includes("RAW_SECRET_RESPONSE") && !text.includes("private-route-id");
+}));
+
+results.push(await asyncSecurityContract("rua_route_automation_revoke_safe_failure", async () => {
+  const mock = _routeAutomationDb();
+  const env = {
+    cybermeters_db: mock.db, RUA_INBOUND_DOMAIN: "reports.cybermeters.com",
+    CLOUDFLARE_API_TOKEN: "test-api-token", CLOUDFLARE_ZONE_ID: "b".repeat(32),
+  };
+  let endpointRevoked = true; // Lifecycle updates endpoint status before this non-blocking adapter call.
+  const result = await scanner.revokeCloudflareEmailRoute(env, "a".repeat(32), {
+    fetchImpl: async () => new Response(JSON.stringify({
+      success: false, errors: [{ message: "SECRET upstream rejection body" }],
+    }), { status: 500, headers: { "content-type": "application/json" } }),
+  });
+  await scanner.persistDmarcRouteResult(env, ROUTE_ENDPOINT.id, result);
+  await scanner.auditDmarcRouteResult(env, ROUTE_ENDPOINT, "user-1", result, "revoke");
+  const audit = mock.runs.find((run) => /INSERT INTO audit_events/.test(run.sql));
+  const metadata = audit?.bindings?.[7] ? JSON.parse(audit.bindings[7]) : null;
+  return endpointRevoked && !result.ok && result.status === "failed" && result.reason === "api_rejected" &&
+    audit?.bindings?.[3] === "dmarc_ingest_route_failed" && metadata?.reason === "api_rejected" &&
+    !JSON.stringify({ result, metadata }).includes("SECRET upstream");
 }));
 results.push(await asyncSecurityContract("rua_gzip_extract_parses", async () => {
   const gz = await _gzipBytes(dmarcCleanXml);

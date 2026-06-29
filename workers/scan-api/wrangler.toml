@@ -25,9 +25,17 @@ HELLO_EMAIL_FROM = "hello@cybermeters.com"
 ALLOWED_ORIGIN = "https://app.cybermeters.com"
 
 # Domain that receives inbound DMARC aggregate (RUA) reports by email. Customers
-# add rua=mailto:<address_local>@<RUA_INBOUND_DOMAIN>. Requires Cloudflare Email
-# Routing on this zone with a catch-all route to this Worker's email() handler.
+# add rua=mailto:<address_local>@<RUA_INBOUND_DOMAIN>. Use exact per-address Email
+# Routing rules to this Worker's email() handler; never enable zone catch-all.
 RUA_INBOUND_DOMAIN = "reports.cybermeters.com"
+
+# Exact-route automation configuration (optional and non-blocking):
+#   wrangler secret put CLOUDFLARE_API_TOKEN
+#   wrangler secret put CLOUDFLARE_ZONE_ID
+# The token requires Cloudflare Email Routing Rules Write on the zone. The API is
+# zone-scoped, so CLOUDFLARE_ACCOUNT_ID is accepted by the Worker environment but
+# is not required by this adapter. Optional worker override:
+# CLOUDFLARE_EMAIL_ROUTING_WORKER_NAME = "cybermeters-platform"
 
 FRONTEND_URL = "https://app.cybermeters.com"
 MICROSOFT_REDIRECT_URI = "https://cybermeters-platform.ttrnn47.workers.dev/api/auth/microsoft/callback"
