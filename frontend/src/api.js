@@ -606,6 +606,30 @@ export const api = {
   getDmarcSummary: (workspaceId, domain, days = 30) =>
     request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/dmarc-summary?days=${days}`),
 
+  // ── DMARC Signed Upload key (Assisted DMARC Upload v1) ────────────────────
+
+  /** GET /api/workspaces/:id/domains/:domain/dmarc-ingest-endpoint → { endpoint|null } (never the token) */
+  getDmarcIngestEndpoint: (workspaceId, domain) =>
+    request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/dmarc-ingest-endpoint`),
+
+  /** POST .../dmarc-ingest-endpoint → { created, endpoint } (raw token only on first creation) */
+  createDmarcIngestEndpoint: (workspaceId, domain) =>
+    request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/dmarc-ingest-endpoint`, {
+      method: 'POST',
+    }),
+
+  /** POST .../dmarc-ingest-endpoint/rotate → { rotated, endpoint } (new raw token, once) */
+  rotateDmarcIngestEndpoint: (workspaceId, domain) =>
+    request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/dmarc-ingest-endpoint/rotate`, {
+      method: 'POST',
+    }),
+
+  /** POST .../dmarc-ingest-endpoint/revoke → { revoked, endpoint } */
+  revokeDmarcIngestEndpoint: (workspaceId, domain) =>
+    request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/dmarc-ingest-endpoint/revoke`, {
+      method: 'POST',
+    }),
+
   /** GET /api/workspaces/:id/reports/:reportId */
   getWorkspaceReportById: (workspaceId, reportId) =>
     request(`/workspaces/${workspaceId}/reports/${reportId}`),

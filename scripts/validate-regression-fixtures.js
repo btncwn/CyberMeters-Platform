@@ -2,6 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
+import { webcrypto } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -15,10 +16,13 @@ function loadScanner(fetchImpl = async () => { throw new Error("network disabled
   const context = {
     console,
     crypto: {
+      // randomUUID stays deterministic so existing id-dependent fixtures are stable.
       randomUUID: () => "00000000-0000-4000-8000-000000000000",
-      getRandomValues: (arr) => arr.fill(0),
-      subtle: {},
+      // Real entropy + real SHA-256 so token/hash helpers behave as in production.
+      getRandomValues: (arr) => webcrypto.getRandomValues(arr),
+      subtle: webcrypto.subtle,
     },
+    btoa: (s) => Buffer.from(String(s), "binary").toString("base64"),
     fetch: fetchImpl,
     AbortSignal: { timeout: () => undefined },
     TextEncoder,
@@ -82,6 +86,12 @@ function loadScanner(fetchImpl = async () => { throw new Error("network disabled
     buildDmarcReportRemediationActions,
     buildDmarcBusinessRisk,
     dmarcSenderRiskLevel,
+    dmarcReportIdentity,
+    dmarcReportDomainMatches,
+    generateIngestToken,
+    hashIngestToken,
+    ingestEndpointIsActive,
+    ingestEndpointToApi,
     computeBusinessRiskScoreFromIds: (ids, data) => computeBusinessRiskScore(new Set(ids), data),
   };`, context, {
     filename: workerPath,
@@ -1074,6 +1084,51 @@ results.push(securityContract("dmarc_business_risk_failed_after_classification",
 results.push(securityContract("dmarc_business_risk_clean_low", () => {
   const r = scanner.buildDmarcBusinessRisk({ threat_senders: 0, suspicious_senders: 0, unknown_senders: 0, failed_messages: 0, pass_rate: 99 });
   return r.level === "low" && /alignment looks strong/i.test(r.summary);
+}));
+
+// ── Assisted DMARC Upload v1 — shared ingestion + signed-upload token model ───
+// Dedupe identity is source-agnostic: the same report (whatever the source)
+// resolves to the same key, so manual_paste then signed_upload counts once.
+results.push(await asyncSecurityContract("dmarc_ingest_dedupe_source_agnostic", async () => {
+  const a = await scanner.dmarcReportIdentity(dmarcMixedXml, dmarcMixedParsed);
+  const b = await scanner.dmarcReportIdentity(dmarcMixedXml, dmarcMixedParsed);
+  const keyA = JSON.stringify([a.org_name, a.external_report_id, a.date_range_begin, a.date_range_end]);
+  const keyB = JSON.stringify([b.org_name, b.external_report_id, b.date_range_begin, b.date_range_end]);
+  // identical key across two ingestions, and the identity carries NO source field.
+  return keyA === keyB && a.external_report_id === dmarcMixedParsed.metadata.report_id &&
+    !("source" in a) && typeof a.raw_hash === "string" && a.raw_hash.length === 64;
+}));
+// Domain-binding safety: a report is accepted for its own domain and rejected
+// for a different bound domain (prevents cross-domain poisoning via token).
+results.push(securityContract("dmarc_ingest_domain_match_and_mismatch", () =>
+  scanner.dmarcReportDomainMatches(dmarcMixedParsed, "example.com") === true &&
+  scanner.dmarcReportDomainMatches(dmarcMixedParsed, "attacker.test") === false &&
+  // no published policy domain → cannot disprove → allowed (documented)
+  scanner.dmarcReportDomainMatches({ policy_published: {} }, "example.com") === true
+));
+// Token model: high-entropy, unique, deterministic SHA-256 hash, hash != raw.
+results.push(await asyncSecurityContract("dmarc_ingest_token_hash_resolution", async () => {
+  const t1 = scanner.generateIngestToken();
+  const t2 = scanner.generateIngestToken();
+  const h1 = await scanner.hashIngestToken(t1);
+  const h1again = await scanner.hashIngestToken(t1);
+  const h2 = await scanner.hashIngestToken(t2);
+  return t1.startsWith("cmdi_") && t1.length >= 40 && t1 !== t2 &&
+    /^[0-9a-f]{64}$/.test(h1) && h1 === h1again && h1 !== h2 && h1 !== t1;
+}));
+// Revocation + customer-safe serialization: revoked/inactive rejected at ingest;
+// token_hash never serialized; raw token only present when explicitly passed.
+results.push(securityContract("dmarc_ingest_active_state_and_serialization", () => {
+  const activeOk = scanner.ingestEndpointIsActive({ status: "active" }) === true;
+  const revokedFlag = scanner.ingestEndpointIsActive({ status: "active", revoked_at: "2026-01-01" }) === false;
+  const revokedStatus = scanner.ingestEndpointIsActive({ status: "revoked" }) === false;
+  const nullRow = scanner.ingestEndpointIsActive(null) === false;
+  const row = { id: "e1", domain: "example.com", status: "active", token_hash: "SECRETHASH", created_at: "x" };
+  const safe = scanner.ingestEndpointToApi(row);
+  const withTok = scanner.ingestEndpointToApi(row, { rawToken: "cmdi_raw" });
+  const noLeak = !("token_hash" in safe) && !("token" in safe) && safe.id === "e1";
+  const tokenOnce = withTok.token === "cmdi_raw" && !("token_hash" in withTok);
+  return activeOk && revokedFlag && revokedStatus && nullRow && noLeak && tokenOnce;
 }));
 
 for (const contract of parsed.score_contracts || []) {

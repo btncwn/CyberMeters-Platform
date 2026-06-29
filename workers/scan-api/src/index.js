@@ -6960,6 +6960,201 @@ function emailSenderToApi(x) {
   };
 }
 
+// ── Assisted DMARC Upload v1 — shared ingestion + signed-upload token model ───
+//
+// These helpers back the shared ingestion pipeline used by manual paste and the
+// token-authenticated signed upload endpoint (and, in Phase 2, inbound RUA
+// email). They never store or return raw XML, and the upload token is only ever
+// persisted as a SHA-256 hash.
+
+// Pure, testable: the report identity tuple used for dedupe. Deliberately
+// EXCLUDES source/workspace/domain — dedupe is source-agnostic, so the same
+// report imported via paste and via signed upload is counted exactly once.
+async function dmarcReportIdentity(xmlString, parsed) {
+  const m = parsed?.metadata || {};
+  const rawHash = await sha256Hex(xmlString);
+  const externalReportId = m.report_id || rawHash.slice(0, 32);
+  return {
+    org_name: m.org_name || null,
+    external_report_id: externalReportId,
+    date_range_begin: m.date_range_begin || null,
+    date_range_end: m.date_range_end || null,
+    raw_hash: rawHash,
+  };
+}
+
+// Pure, testable: does a parsed report belong to the bound domain? Used to stop
+// one domain's upload key from poisoning another domain's sender intelligence.
+// A report with no published policy domain cannot be disproven, so it is allowed
+// (documented limitation) — the workspace+domain binding still scopes the data.
+function dmarcReportDomainMatches(parsed, boundDomain) {
+  const reportDomain = (parsed?.policy_published?.domain || "").trim().toLowerCase();
+  if (!reportDomain) return true;
+  return reportDomain === String(boundDomain || "").trim().toLowerCase();
+}
+
+// High-entropy (256-bit) opaque upload token. Prefixed for identifiability in
+// logs/UI; the prefix is not secret. The raw value is returned to the user once
+// and never stored — only its SHA-256 hash is persisted.
+function _ingestTokenB64Url(bytes) {
+  let bin = "";
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function generateIngestToken() {
+  const bytes = new Uint8Array(32); // 256-bit
+  crypto.getRandomValues(bytes);
+  return `cmdi_${_ingestTokenB64Url(bytes)}`;
+}
+async function hashIngestToken(raw) {
+  return sha256Hex(String(raw || ""));
+}
+function ingestEndpointIsActive(row) {
+  return !!row && row.status === "active" && !row.revoked_at;
+}
+function extractIngestToken(request) {
+  const auth = request.headers.get("Authorization") || "";
+  const m = auth.match(/^Bearer\s+(.+)$/i);
+  if (m) return m[1].trim();
+  const x = request.headers.get("X-CM-Ingest-Token");
+  return x ? x.trim() : null;
+}
+// Customer-safe endpoint serialization. NEVER includes token_hash; only includes
+// the raw token when explicitly passed (create/rotate response).
+function ingestEndpointToApi(row, { rawToken = null } = {}) {
+  if (!row) return null;
+  const out = {
+    id: row.id,
+    domain: row.domain,
+    status: row.status,
+    created_at: row.created_at,
+    last_used_at: row.last_used_at || null,
+    rotated_at: row.rotated_at || null,
+    revoked_at: row.revoked_at || null,
+    inbound_address: null, // Phase 2 (inbound RUA email) placeholder
+  };
+  if (rawToken) out.token = rawToken;
+  return out;
+}
+
+/**
+ * ingestDmarcReport(env, opts) — shared DMARC aggregate ingestion pipeline.
+ *
+ * Used by manual paste and signed upload (and, later, inbound email) so every
+ * source shares identical parse → domain-validate → dedupe → insert → rollup →
+ * audit behaviour. Never stores or returns raw XML.
+ *
+ * opts:
+ *   workspaceId         (required)
+ *   domain              (required, lowercased hostname the report is bound to)
+ *   source              'manual_paste' | 'signed_upload' | 'inbound_email'
+ *   xmlString           (required) raw report XML
+ *   filename            optional display-only label (sanitised; never used for I/O)
+ *   actorUserId         optional user id for audit (null for token ingest)
+ *   ingestEndpointId    optional ingest endpoint id for audit (null for manual)
+ *   domainId            optional pre-resolved domain row id (audit entity)
+ *   enforceDomainMatch  when true, reject reports whose policy_published.domain
+ *                       does not match the bound domain (token / inbound sources)
+ *
+ * Returns a discriminated result (no raw XML, ever):
+ *   { ok:true,  imported:true,  duplicate:false, reportId, records, messages, sourcesUpdated }
+ *   { ok:true,  imported:false, duplicate:true }
+ *   { ok:false, status, error, message }
+ */
+async function ingestDmarcReport(env, opts = {}) {
+  const {
+    workspaceId, domain, source = "manual_paste", xmlString,
+    filename: rawFilename = null, actorUserId = null,
+    ingestEndpointId = null, domainId = null, enforceDomainMatch = false,
+  } = opts;
+
+  if (!workspaceId || !domain) {
+    return { ok: false, status: 400, error: "missing_binding", message: "Workspace and domain are required." };
+  }
+  if (typeof xmlString !== "string") {
+    return { ok: false, status: 400, error: "missing_xml", message: "No XML content was provided." };
+  }
+  const filename = typeof rawFilename === "string"
+    ? rawFilename.replace(/[^A-Za-z0-9._!@-]/g, "_").slice(0, 200) : null;
+
+  const parsed = parseDmarcAggregateXml(xmlString);
+  if (parsed.error) {
+    return { ok: false, status: 422, error: parsed.error, message: parsed.message };
+  }
+
+  // Domain-binding safety: only enforced for non-interactive sources so existing
+  // manual-paste behaviour is preserved exactly.
+  if (enforceDomainMatch && !dmarcReportDomainMatches(parsed, domain)) {
+    return { ok: false, status: 422, error: "domain_mismatch",
+      message: "This report is for a different domain than the one this upload key is bound to." };
+  }
+
+  const identity = await dmarcReportIdentity(xmlString, parsed);
+  const m = parsed.metadata;
+
+  // Dedupe (null-safe with IS) — source-agnostic; the same report is never
+  // double-counted regardless of which ingestion path delivered it.
+  const dup = await env.cybermeters_db
+    .prepare(`SELECT id FROM dmarc_aggregate_reports
+              WHERE workspace_id = ? AND domain = ? AND org_name IS ?
+                AND external_report_id = ? AND date_range_begin IS ? AND date_range_end IS ? LIMIT 1`)
+    .bind(workspaceId, domain, identity.org_name, identity.external_report_id,
+          identity.date_range_begin, identity.date_range_end)
+    .first();
+  if (dup) {
+    await createAuditEvent(env, {
+      workspace_id: workspaceId, user_id: actorUserId, event_type: "dmarc_report_duplicate",
+      entity_type: "domain", entity_id: domainId,
+      description: `Duplicate DMARC report ignored for ${domain}`,
+      metadata: { domain, source, org_name: m.org_name, report_id: identity.external_report_id,
+                  duplicate: true, ingest_endpoint_id: ingestEndpointId },
+    });
+    return { ok: true, imported: false, duplicate: true };
+  }
+
+  const reportId = createId("dmarcrep");
+  const pol = parsed.policy_published || {};
+  const messageCount = parsed.records.reduce((a, r) => a + (r.count || 0), 0);
+  await env.cybermeters_db
+    .prepare(`INSERT INTO dmarc_aggregate_reports
+              (id, workspace_id, domain, org_name, report_email, external_report_id, date_range_begin, date_range_end,
+               policy_domain, policy_adkim, policy_aspf, policy_p, policy_sp, policy_pct,
+               record_count, message_count, raw_hash, source, created_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`)
+    .bind(reportId, workspaceId, domain, m.org_name || null, m.email || null, identity.external_report_id,
+          m.date_range_begin || null, m.date_range_end || null, pol.domain || null, pol.adkim || null,
+          pol.aspf || null, pol.p || null, pol.sp || null, pol.pct ?? null,
+          parsed.records.length, messageCount, identity.raw_hash, source)
+    .run();
+
+  for (const r of parsed.records) {
+    await env.cybermeters_db
+      .prepare(`INSERT INTO dmarc_aggregate_records
+                (id, report_id, workspace_id, domain, source_ip, message_count, disposition,
+                 dkim_aligned_result, spf_aligned_result, header_from, envelope_from,
+                 dkim_domain, dkim_selector, dkim_result, spf_domain, spf_result, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`)
+      .bind(createId("dmarcrec"), reportId, workspaceId, domain, r.source_ip || null, r.count || 0,
+            r.disposition || null, r.dkim_aligned_result || null, r.spf_aligned_result || null,
+            r.header_from || null, r.envelope_from || null, r.dkim_domain || null, r.dkim_selector || null,
+            r.dkim_result || null, r.spf_domain || null, r.spf_result || null)
+      .run();
+  }
+
+  const rollup = await updateEmailSenderSources(env, workspaceId, domain, parsed);
+  await createAuditEvent(env, {
+    workspace_id: workspaceId, user_id: actorUserId, event_type: "dmarc_report_ingested",
+    entity_type: "domain", entity_id: domainId,
+    description: `Ingested DMARC report for ${domain} from ${m.org_name || "unknown reporter"} via ${source}`,
+    metadata: { domain, source, org_name: m.org_name, report_id: identity.external_report_id,
+                records: parsed.records.length, messages: messageCount, duplicate: false,
+                filename, ingest_endpoint_id: ingestEndpointId },
+  });
+
+  return { ok: true, imported: true, duplicate: false, reportId,
+    records: parsed.records.length, messages: messageCount, sourcesUpdated: rollup.sources_updated };
+}
+
 // Additive remediation actions derived from imported DMARC report data.
 function buildDmarcReportRemediationActions(senders, readiness) {
   const actions = [];
@@ -20690,6 +20885,102 @@ export default {
       });
     }
 
+    // ── POST /api/dmarc-ingest ──────────────────────────────────────────
+    // Assisted DMARC Upload v1 — token-authenticated signed upload. No session
+    // auth: identity is the per-workspace+domain upload token presented in an
+    // Authorization: Bearer header (or X-CM-Ingest-Token fallback). The token
+    // hash resolves to exactly one workspace+domain binding; ingestion may only
+    // append DMARC report data. Body is raw XML (or JSON { xml }). The global
+    // 1 MB request-body guard above caps payload size before this point.
+    if (request.method === "POST" && url.pathname === "/api/dmarc-ingest") {
+      try {
+        const token = extractIngestToken(request);
+        if (!token) {
+          return json({ imported: false, error: "missing_token",
+            message: "Missing upload credentials." }, 401);
+        }
+        const tokenHash = await hashIngestToken(token);
+        const endpoint = await env.cybermeters_db
+          .prepare(`SELECT * FROM dmarc_ingest_endpoints WHERE token_hash = ? LIMIT 1`)
+          .bind(tokenHash).first();
+        if (!ingestEndpointIsActive(endpoint)) {
+          // Customer-safe: do not distinguish unknown vs revoked to the caller.
+          await createAuditEvent(env, {
+            workspace_id: endpoint?.workspace_id || null, user_id: null,
+            event_type: "dmarc_ingest_rejected", entity_type: "domain",
+            entity_id: endpoint?.domain_id || null,
+            description: "Rejected DMARC signed upload with invalid or revoked key",
+            metadata: { source: "signed_upload",
+                        reason: endpoint ? "revoked_or_inactive" : "unknown_token",
+                        ingest_endpoint_id: endpoint?.id || null },
+          });
+          return json({ imported: false, error: "invalid_token",
+            message: "Upload credentials are invalid or have been revoked." }, 401);
+        }
+
+        // Abuse control: per-endpoint and per-workspace hourly caps.
+        const rl = await consumeApiRateLimit(env,
+          [{ scope: "dmarc_ingest_endpoint", scope_id: endpoint.id },
+           { scope: "dmarc_ingest_ws", scope_id: endpoint.workspace_id }],
+          "dmarc_ingest", 120, 3600);
+        if (rl) {
+          return json({ imported: false, error: "rate_limited",
+            message: "Too many uploads. Please retry later." }, rl.status);
+        }
+
+        // Read body: raw XML by default, or JSON { xml } when so labelled.
+        let xmlString = null;
+        const ct = (request.headers.get("Content-Type") || "").toLowerCase();
+        if (ct.includes("application/json")) {
+          const body = await request.json().catch(() => null);
+          xmlString = body && typeof body.xml === "string" ? body.xml : null;
+        } else {
+          xmlString = await request.text().catch(() => null);
+        }
+        if (!xmlString || !xmlString.trim()) {
+          await createAuditEvent(env, {
+            workspace_id: endpoint.workspace_id, user_id: null,
+            event_type: "dmarc_ingest_rejected", entity_type: "domain", entity_id: endpoint.domain_id,
+            description: `Rejected empty DMARC signed upload for ${endpoint.domain}`,
+            metadata: { source: "signed_upload", reason: "empty_body", ingest_endpoint_id: endpoint.id },
+          });
+          return json({ imported: false, error: "missing_xml",
+            message: "No report content was provided.", source: "signed_upload" }, 400);
+        }
+
+        const result = await ingestDmarcReport(env, {
+          workspaceId: endpoint.workspace_id, domain: endpoint.domain, source: "signed_upload",
+          xmlString, actorUserId: null, ingestEndpointId: endpoint.id, domainId: endpoint.domain_id,
+          enforceDomainMatch: true,
+        });
+
+        // Record the authenticated use regardless of dedupe/parse outcome.
+        await env.cybermeters_db
+          .prepare(`UPDATE dmarc_ingest_endpoints SET last_used_at = datetime('now') WHERE id = ?`)
+          .bind(endpoint.id).run();
+
+        if (!result.ok) {
+          await createAuditEvent(env, {
+            workspace_id: endpoint.workspace_id, user_id: null,
+            event_type: "dmarc_ingest_rejected", entity_type: "domain", entity_id: endpoint.domain_id,
+            description: `Rejected DMARC signed upload for ${endpoint.domain}: ${result.error}`,
+            metadata: { source: "signed_upload", reason: result.error, ingest_endpoint_id: endpoint.id },
+          });
+          return json({ imported: false, error: result.error, message: result.message,
+            source: "signed_upload" }, result.status || 422);
+        }
+        if (result.duplicate) {
+          return json({ imported: false, duplicate: true,
+            message: "This report was already imported and was not counted again.",
+            source: "signed_upload" });
+        }
+        return json({ imported: true, duplicate: false,
+          records: result.records, messages: result.messages, source: "signed_upload" });
+      } catch (e) {
+        return serverError("dmarc-ingest", e, "Report ingestion failed.");
+      }
+    }
+
     // ── GET /api/billing/subscription ───────────────────────────────────
     // Account-scoped subscription state used by the Billing page. Stripe is
     // not queried at request time; webhooks keep D1 as the platform source of
@@ -29821,70 +30112,171 @@ export default {
         if (!body || typeof body.xml !== "string") {
           return json({ imported: false, error: "missing_xml", message: "Request must include an 'xml' string." }, 400);
         }
-        // Filename is for display/audit only — never used for any file I/O.
-        const filename = typeof body.filename === "string"
-          ? body.filename.replace(/[^A-Za-z0-9._!@-]/g, "_").slice(0, 200) : null;
 
-        const parsed = parseDmarcAggregateXml(body.xml);
-        if (parsed.error) {
-          return json({ imported: false, error: parsed.error, message: parsed.message }, 422);
-        }
-
-        const rawHash = await sha256Hex(body.xml);
-        const m = parsed.metadata;
-        const externalReportId = m.report_id || rawHash.slice(0, 32);
-
-        // Dedupe (null-safe with IS) — the same report is never double-counted.
-        const dup = await env.cybermeters_db
-          .prepare(`SELECT id FROM dmarc_aggregate_reports
-                    WHERE workspace_id = ? AND domain = ? AND org_name IS ?
-                      AND external_report_id = ? AND date_range_begin IS ? AND date_range_end IS ? LIMIT 1`)
-          .bind(workspaceId, domain, m.org_name || null, externalReportId, m.date_range_begin || null, m.date_range_end || null)
-          .first();
-        if (dup) return json({ imported: false, duplicate: true, message: "Report already imported" });
-
-        const reportId = createId("dmarcrep");
-        const pol = parsed.policy_published || {};
-        const messageCount = parsed.records.reduce((a, r) => a + (r.count || 0), 0);
-        await env.cybermeters_db
-          .prepare(`INSERT INTO dmarc_aggregate_reports
-                    (id, workspace_id, domain, org_name, report_email, external_report_id, date_range_begin, date_range_end,
-                     policy_domain, policy_adkim, policy_aspf, policy_p, policy_sp, policy_pct,
-                     record_count, message_count, raw_hash, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`)
-          .bind(reportId, workspaceId, domain, m.org_name || null, m.email || null, externalReportId,
-                m.date_range_begin || null, m.date_range_end || null, pol.domain || null, pol.adkim || null,
-                pol.aspf || null, pol.p || null, pol.sp || null, pol.pct ?? null,
-                parsed.records.length, messageCount, rawHash)
-          .run();
-
-        for (const r of parsed.records) {
-          await env.cybermeters_db
-            .prepare(`INSERT INTO dmarc_aggregate_records
-                      (id, report_id, workspace_id, domain, source_ip, message_count, disposition,
-                       dkim_aligned_result, spf_aligned_result, header_from, envelope_from,
-                       dkim_domain, dkim_selector, dkim_result, spf_domain, spf_result, created_at)
-                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`)
-            .bind(createId("dmarcrec"), reportId, workspaceId, domain, r.source_ip || null, r.count || 0,
-                  r.disposition || null, r.dkim_aligned_result || null, r.spf_aligned_result || null,
-                  r.header_from || null, r.envelope_from || null, r.dkim_domain || null, r.dkim_selector || null,
-                  r.dkim_result || null, r.spf_domain || null, r.spf_result || null)
-            .run();
-        }
-
-        const rollup = await updateEmailSenderSources(env, workspaceId, domain, parsed);
-        await createAuditEvent(env, {
-          workspace_id: workspaceId, user_id: user.id, event_type: "dmarc_report_imported",
-          entity_type: "domain", entity_id: domainId,
-          description: `Imported DMARC report for ${domain} from ${m.org_name || "unknown reporter"}`,
-          metadata: { domain, org_name: m.org_name, report_id: externalReportId,
-                      records: parsed.records.length, messages: messageCount, filename },
+        // Shared ingestion pipeline (parse → dedupe → insert → rollup → audit).
+        // Manual paste keeps its existing response shape and is NOT subject to
+        // strict policy-domain matching (interactive source, user owns context).
+        const result = await ingestDmarcReport(env, {
+          workspaceId, domain, source: "manual_paste", xmlString: body.xml,
+          filename: body.filename, actorUserId: user.id, domainId,
+          enforceDomainMatch: false,
         });
-        return json({ imported: true, duplicate: false, report_id: reportId,
-          records_imported: parsed.records.length, messages_imported: messageCount,
-          sources_updated: rollup.sources_updated });
+        if (!result.ok) {
+          return json({ imported: false, error: result.error, message: result.message }, result.status || 422);
+        }
+        if (result.duplicate) {
+          return json({ imported: false, duplicate: true, message: "Report already imported" });
+        }
+        return json({ imported: true, duplicate: false, report_id: result.reportId,
+          records_imported: result.records, messages_imported: result.messages,
+          sources_updated: result.sourcesUpdated });
       } catch (e) {
         return serverError("dmarc-import", e, "DMARC report import failed.");
+      }
+    }
+
+    // ── DMARC signed-upload endpoint (token) management ───────────────────────
+    // One active upload key per workspace+domain. Raw token shown once on
+    // create/rotate; only the SHA-256 hash is ever stored. Min permission:
+    // scan:create (same as manual import — no stronger workspace-admin
+    // permission exists in this codebase for domain-scoped data writes).
+    const ingestEpRotateMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/domains\/([^/]+)\/dmarc-ingest-endpoint\/rotate$/);
+    const ingestEpRevokeMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/domains\/([^/]+)\/dmarc-ingest-endpoint\/revoke$/);
+    const ingestEpMatch       = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/domains\/([^/]+)\/dmarc-ingest-endpoint$/);
+
+    // POST .../dmarc-ingest-endpoint — create (idempotent; never duplicates).
+    if (ingestEpMatch && request.method === "POST") {
+      const workspaceId = ingestEpMatch[1];
+      const domain = decodeURIComponent(ingestEpMatch[2]).toLowerCase();
+      try {
+        const user = await requireAuth(request, env);
+        if (!user) return json({ error: "Unauthorized" }, 401);
+        const access = await requireWorkspaceRole(user, workspaceId, "scan:create", env);
+        if (!access) return json({ error: "Forbidden" }, 403);
+        const domainId = await resolveWorkspaceDomain(env, workspaceId, domain);
+        if (!domainId) return json({ error: "Domain not found in this workspace" }, 404);
+
+        const existing = await env.cybermeters_db
+          .prepare(`SELECT * FROM dmarc_ingest_endpoints
+                    WHERE workspace_id = ? AND domain = ? AND status = 'active'
+                    ORDER BY created_at DESC LIMIT 1`)
+          .bind(workspaceId, domain).first();
+        if (existing) {
+          return json({ created: false, endpoint: ingestEndpointToApi(existing),
+            message: "An active upload key already exists. Rotate it to issue a new token." });
+        }
+
+        const raw = generateIngestToken();
+        const tokenHash = await hashIngestToken(raw);
+        const id = createId("dmaringest");
+        await env.cybermeters_db
+          .prepare(`INSERT INTO dmarc_ingest_endpoints
+                    (id, workspace_id, domain_id, domain, token_hash, address_local, status, created_by, created_at)
+                    VALUES (?, ?, ?, ?, ?, NULL, 'active', ?, datetime('now'))`)
+          .bind(id, workspaceId, domainId, domain, tokenHash, user.id).run();
+        const row = await env.cybermeters_db
+          .prepare(`SELECT * FROM dmarc_ingest_endpoints WHERE id = ?`).bind(id).first();
+        await createAuditEvent(env, {
+          workspace_id: workspaceId, user_id: user.id, event_type: "dmarc_ingest_endpoint_created",
+          entity_type: "domain", entity_id: domainId,
+          description: `Created DMARC signed-upload key for ${domain}`,
+          metadata: { domain, ingest_endpoint_id: id },
+        });
+        return json({ created: true, endpoint: ingestEndpointToApi(row, { rawToken: raw }) });
+      } catch (e) {
+        return serverError("dmarc-ingest-endpoint-create", e, "Could not create upload key.");
+      }
+    }
+
+    // GET .../dmarc-ingest-endpoint — metadata only (never the token or hash).
+    if (ingestEpMatch && request.method === "GET") {
+      const workspaceId = ingestEpMatch[1];
+      const domain = decodeURIComponent(ingestEpMatch[2]).toLowerCase();
+      try {
+        const user = await requireAuth(request, env);
+        if (!user) return json({ error: "Unauthorized" }, 401);
+        const access = await requireWorkspaceRole(user, workspaceId, "workspace:read", env);
+        if (!access) return json({ error: "Forbidden" }, 403);
+        const domainId = await resolveWorkspaceDomain(env, workspaceId, domain);
+        if (!domainId) return json({ error: "Domain not found in this workspace" }, 404);
+        const row = await env.cybermeters_db
+          .prepare(`SELECT * FROM dmarc_ingest_endpoints
+                    WHERE workspace_id = ? AND domain = ? ORDER BY created_at DESC LIMIT 1`)
+          .bind(workspaceId, domain).first();
+        return json({ endpoint: row ? ingestEndpointToApi(row) : null });
+      } catch (e) {
+        return serverError("dmarc-ingest-endpoint-get", e, "Could not load upload key.");
+      }
+    }
+
+    // POST .../dmarc-ingest-endpoint/rotate — new token, same endpoint id.
+    if (ingestEpRotateMatch && request.method === "POST") {
+      const workspaceId = ingestEpRotateMatch[1];
+      const domain = decodeURIComponent(ingestEpRotateMatch[2]).toLowerCase();
+      try {
+        const user = await requireAuth(request, env);
+        if (!user) return json({ error: "Unauthorized" }, 401);
+        const access = await requireWorkspaceRole(user, workspaceId, "scan:create", env);
+        if (!access) return json({ error: "Forbidden" }, 403);
+        const domainId = await resolveWorkspaceDomain(env, workspaceId, domain);
+        if (!domainId) return json({ error: "Domain not found in this workspace" }, 404);
+        const existing = await env.cybermeters_db
+          .prepare(`SELECT * FROM dmarc_ingest_endpoints
+                    WHERE workspace_id = ? AND domain = ? ORDER BY created_at DESC LIMIT 1`)
+          .bind(workspaceId, domain).first();
+        if (!existing) return json({ error: "No upload key exists to rotate. Create one first." }, 404);
+
+        const raw = generateIngestToken();
+        const tokenHash = await hashIngestToken(raw);
+        await env.cybermeters_db
+          .prepare(`UPDATE dmarc_ingest_endpoints
+                    SET token_hash = ?, status = 'active', rotated_at = datetime('now'), revoked_at = NULL
+                    WHERE id = ?`)
+          .bind(tokenHash, existing.id).run();
+        const row = await env.cybermeters_db
+          .prepare(`SELECT * FROM dmarc_ingest_endpoints WHERE id = ?`).bind(existing.id).first();
+        await createAuditEvent(env, {
+          workspace_id: workspaceId, user_id: user.id, event_type: "dmarc_ingest_endpoint_rotated",
+          entity_type: "domain", entity_id: domainId,
+          description: `Rotated DMARC signed-upload key for ${domain}`,
+          metadata: { domain, ingest_endpoint_id: existing.id },
+        });
+        return json({ rotated: true, endpoint: ingestEndpointToApi(row, { rawToken: raw }) });
+      } catch (e) {
+        return serverError("dmarc-ingest-endpoint-rotate", e, "Could not rotate upload key.");
+      }
+    }
+
+    // POST .../dmarc-ingest-endpoint/revoke — disables the token immediately.
+    if (ingestEpRevokeMatch && request.method === "POST") {
+      const workspaceId = ingestEpRevokeMatch[1];
+      const domain = decodeURIComponent(ingestEpRevokeMatch[2]).toLowerCase();
+      try {
+        const user = await requireAuth(request, env);
+        if (!user) return json({ error: "Unauthorized" }, 401);
+        const access = await requireWorkspaceRole(user, workspaceId, "scan:create", env);
+        if (!access) return json({ error: "Forbidden" }, 403);
+        const domainId = await resolveWorkspaceDomain(env, workspaceId, domain);
+        if (!domainId) return json({ error: "Domain not found in this workspace" }, 404);
+        const existing = await env.cybermeters_db
+          .prepare(`SELECT * FROM dmarc_ingest_endpoints
+                    WHERE workspace_id = ? AND domain = ? ORDER BY created_at DESC LIMIT 1`)
+          .bind(workspaceId, domain).first();
+        if (!existing) return json({ error: "No upload key exists to revoke." }, 404);
+        await env.cybermeters_db
+          .prepare(`UPDATE dmarc_ingest_endpoints SET status = 'revoked', revoked_at = datetime('now') WHERE id = ?`)
+          .bind(existing.id).run();
+        const row = await env.cybermeters_db
+          .prepare(`SELECT * FROM dmarc_ingest_endpoints WHERE id = ?`).bind(existing.id).first();
+        await createAuditEvent(env, {
+          workspace_id: workspaceId, user_id: user.id, event_type: "dmarc_ingest_endpoint_revoked",
+          entity_type: "domain", entity_id: domainId,
+          description: `Revoked DMARC signed-upload key for ${domain}`,
+          metadata: { domain, ingest_endpoint_id: existing.id },
+        });
+        return json({ revoked: true, endpoint: ingestEndpointToApi(row) });
+      } catch (e) {
+        return serverError("dmarc-ingest-endpoint-revoke", e, "Could not revoke upload key.");
       }
     }
 
