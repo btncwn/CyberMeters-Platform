@@ -18,7 +18,6 @@ import StatCard from '../../components/StatCard'
 import WorkspaceMembersPanel from '../../components/WorkspaceMembersPanel'
 import VerificationStatusBadge from '../../components/VerificationStatusBadge'
 import ActivityTimeline from '../../components/ActivityTimeline'
-import ProductHub from '../../components/ProductHub'
 
 function fmt(str) {
   if (!str) return '—'
@@ -639,9 +638,6 @@ export default function WorkspaceDashboard() {
               <p className="text-xs font-semibold text-gray-400 mt-1">{securityRatingLabel(sc?.risk_rating) || '—'}</p>
             </div>
           </div>
-
-          {/* Product Hub — clean service-family entry layer above the detail views */}
-          <ProductHub scorecard={sc} summary={summary} noScans={noScans} />
 
           {/* Summary stat cards */}
           {summary && (
