@@ -1040,6 +1040,227 @@ function ConnectDmarcReporting({ wsId, domain }) {
   )
 }
 
+// ── DMARC Setup Wizard (public-beta guided DNS setup) ─────────────────────────
+// Helps a non-technical customer connect DMARC reporting: pick DNS provider →
+// copy the DNS record → verify → wait → Connected. Customer-safe copy only; the
+// customer always edits their own DNS (we never touch it). Never suggests
+// enforcement (p=quarantine/p=reject) — default stays p=none.
+const DNS_PROVIDERS = [
+  { id: 'cloudflare',  label: 'Cloudflare',                 copy: 'Open your Cloudflare dashboard, select the domain, go to DNS Records, and add or edit the TXT record named _dmarc.' },
+  { id: 'godaddy',     label: 'GoDaddy',                    copy: 'Open your GoDaddy domain DNS settings and add or edit the TXT record named _dmarc.' },
+  { id: 'namecheap',   label: 'Namecheap',                  copy: 'Open Advanced DNS for your domain and add or edit a TXT record with host _dmarc.' },
+  { id: '123reg',      label: '123-reg',                    copy: 'Open DNS Management and add or edit a TXT record for _dmarc.' },
+  { id: 'wix',         label: 'Wix',                        copy: 'Open domain DNS settings and add or edit the TXT record for _dmarc. DNS changes may take longer to appear.' },
+  { id: 'squarespace', label: 'Squarespace',                copy: 'Open domain DNS settings and add or edit the TXT record for _dmarc. DNS changes may take longer to appear.' },
+  { id: 'microsoft',   label: 'Microsoft 365 / domain host', copy: 'Microsoft 365 may manage your email, but your DNS host controls the DMARC TXT record. Open the domain host shown in your Microsoft 365 domain settings.' },
+  { id: 'other',       label: 'Other',                      copy: 'Open your DNS provider and add or edit a TXT record named _dmarc.' },
+]
+
+function CopyField({ label, value }) {
+  return (
+    <div className="space-y-1">
+      <p className="text-[10px] uppercase tracking-wide font-semibold text-gray-400">{label}</p>
+      <div className="flex items-center gap-2">
+        <code className="mono text-xs flex-1 break-all bg-white border border-gray-200 rounded-lg px-3 py-2">{value || '—'}</code>
+        {value && <CopyButton value={value} label="Copy" />}
+      </div>
+    </div>
+  )
+}
+
+function WizardStepper({ active }) {
+  const steps = ['Choose DNS provider', 'Copy DNS record', 'Verify setup', 'Wait for reports', 'Connected']
+  return (
+    <ol className="flex flex-wrap items-center gap-x-2 gap-y-2">
+      {steps.map((label, i) => {
+        const n = i + 1
+        const done = n < active, current = n === active
+        return (
+          <li key={label} className="flex items-center gap-2">
+            <span className={`flex items-center justify-center w-6 h-6 rounded-full text-xs font-semibold ${done ? 'bg-brand-600 text-white' : current ? 'bg-brand-100 text-brand-700 ring-2 ring-brand-300' : 'bg-gray-100 text-gray-400'}`}>
+              {done ? <Check className="w-3.5 h-3.5" /> : n}
+            </span>
+            <span className={`text-xs ${current ? 'font-semibold text-gray-800' : 'text-gray-500'}`}>{label}</span>
+            {n < steps.length && <ChevronDown className="w-3.5 h-3.5 text-gray-300 -rotate-90 hidden sm:block" />}
+          </li>
+        )
+      })}
+    </ol>
+  )
+}
+
+function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessages }) {
+  const [endpoint, setEndpoint] = useState(null)
+  const [loading, setLoading]   = useState(true)
+  const [busy, setBusy]         = useState(false)
+  const [err, setErr]           = useState(null)
+  const [provider, setProvider] = useState('cloudflare')
+  const [verify, setVerify]     = useState(null) // 'configured' | 'missing_rua' | 'no_dmarc' | 'unavailable'
+
+  const load = useCallback(async () => {
+    if (!domain) return
+    setLoading(true); setErr(null)
+    try {
+      const res = await api.getDmarcIngestEndpoint(wsId, domain)
+      setEndpoint(res?.endpoint || null)
+    } catch (e) { setErr(e.message || 'Could not load DMARC reporting settings.') }
+    finally { setLoading(false) }
+  }, [wsId, domain])
+
+  useEffect(() => { setVerify(null); load() }, [load])
+
+  async function activate() {
+    setBusy(true); setErr(null)
+    try {
+      const res = await api.createDmarcIngestEndpoint(wsId, domain)
+      setEndpoint(res?.endpoint || null)
+    } catch (e) { setErr(e.message || 'Could not start DMARC setup.') }
+    finally { setBusy(false) }
+  }
+
+  const inboundAddress = endpoint?.inbound_address || null
+  const connected      = Boolean(endpoint?.last_inbound_at)
+  const inboundMailto  = inboundAddress ? `mailto:${inboundAddress}` : null
+
+  // Existing DMARC awareness from the latest scan (safe if fields are missing).
+  const existingRaw = dmarcDetail?.raw || null
+  const existingRua = Array.isArray(dmarcDetail?.rua) ? dmarcDetail.rua : []
+  const present     = Boolean(dmarcDetail?.present) || Boolean(existingRaw)
+  const ruaNorm     = existingRua.map(r => (String(r).startsWith('mailto:') ? String(r) : `mailto:${r}`))
+  const already     = inboundMailto ? ruaNorm.some(r => r.toLowerCase() === inboundMailto.toLowerCase()) : false
+
+  // Recommended value — never suggests enforcement; preserves any existing policy.
+  let recommendedValue = inboundMailto ? `v=DMARC1; p=none; rua=${inboundMailto}` : '—'
+  if (present && existingRaw && inboundMailto && !already) {
+    const mergedRua = [...ruaNorm, inboundMailto].join(',')
+    recommendedValue = /rua=/i.test(existingRaw)
+      ? existingRaw.replace(/rua=[^;]*/i, `rua=${mergedRua}`)
+      : existingRaw.replace(/;?\s*$/, '') + `; rua=${mergedRua}`
+  } else if (present && existingRaw && already) {
+    recommendedValue = existingRaw
+  }
+
+  function runVerify() {
+    if (!hasScanData) { setVerify('unavailable'); return }
+    if (!present)     { setVerify('no_dmarc'); return }
+    setVerify(already ? 'configured' : 'missing_rua')
+  }
+
+  const activeStep = connected ? 5 : (verify === 'configured' ? 4 : (provider ? 2 : 1))
+  const providerCopy = DNS_PROVIDERS.find(p => p.id === provider)?.copy
+  const fmt = (t) => (t ? new Date(t).toLocaleString() : null)
+
+  const VERIFY_MSG = {
+    configured:  { kind: 'good', icon: CheckCircle, text: 'DNS looks correctly configured. Your CyberMeters reporting address is in the DMARC record.' },
+    missing_rua: { kind: 'warn', icon: AlertTriangle, text: 'A DMARC record exists, but the CyberMeters reporting address is not included yet. Add it to the rua= tag (see the value above) — do not delete your existing record.' },
+    no_dmarc:    { kind: 'warn', icon: Info, text: 'No DMARC record detected yet. Add the TXT record above, then check again.' },
+    unavailable: { kind: 'na',   icon: Info, text: 'Verification will run on the next scan. For now, CyberMeters marks this Connected once DMARC reports are received.' },
+  }
+  const vm = verify ? VERIFY_MSG[verify] : null
+
+  return (
+    <section className="card overflow-hidden">
+      <div className="px-6 py-4 border-b border-gray-200 bg-gray-50/70 flex items-center gap-2.5">
+        <div className="w-8 h-8 rounded-lg bg-brand-100 flex items-center justify-center"><ShieldCheck className="w-4 h-4 text-brand-700" /></div>
+        <div>
+          <span className="eyebrow">Get connected</span>
+          <h2 className="section-title leading-tight">DMARC setup wizard</h2>
+        </div>
+        {connected && (
+          <span className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-brand-50 border border-brand-100 text-xs font-semibold text-brand-700">
+            <CheckCircle className="w-3.5 h-3.5" /> Connected
+          </span>
+        )}
+      </div>
+
+      <div className="p-6 space-y-5">
+        {loading ? (
+          <div className="flex items-center gap-2 text-sm text-gray-500"><RefreshCw className="w-4 h-4 animate-spin" /> Loading DMARC setup…</div>
+        ) : !endpoint || endpoint.status !== 'active' ? (
+          <>
+            <p className="text-sm text-gray-500 leading-relaxed">
+              Set up automatic DMARC reports for <b>{domain}</b> in a few steps. You’ll get a reporting address to add to
+              your DNS — then reports flow in on their own. You always make the DNS change yourself; CyberMeters never edits your DNS.
+            </p>
+            <button onClick={activate} disabled={busy} className="btn-primary disabled:opacity-50">
+              {busy ? <><RefreshCw className="w-4 h-4 animate-spin" /> Starting…</> : <><ArrowRight className="w-4 h-4" /> Start DMARC setup</>}
+            </button>
+          </>
+        ) : (
+          <>
+            <WizardStepper active={activeStep} />
+
+            {/* Step 1 — choose provider */}
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">1 · Choose your DNS provider</p>
+              <div className="flex flex-wrap gap-2">
+                {DNS_PROVIDERS.map(p => (
+                  <button key={p.id} onClick={() => setProvider(p.id)}
+                    className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${provider === p.id ? 'border-brand-300 bg-brand-50 text-brand-700' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'}`}>
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+              {providerCopy && <p className="text-sm text-gray-600 leading-relaxed bg-gray-50 border border-gray-200 rounded-lg p-3">{providerCopy}</p>}
+            </div>
+
+            {/* Step 2 — copy the DNS record */}
+            <div className="space-y-3">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">2 · Copy the DNS record</p>
+              {present && existingRaw && !already && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3 text-sm text-amber-900 flex gap-2">
+                  <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                  <span>You already have a DMARC record. <b>Do not delete it.</b> Just add the CyberMeters reporting address to the existing <code className="mono">rua=</code> tag — the value below already includes both.</span>
+                </div>
+              )}
+              <div className="grid grid-cols-1 sm:grid-cols-[auto,auto,1fr] gap-3">
+                <CopyField label="Type" value="TXT" />
+                <CopyField label="Name / Host" value="_dmarc" />
+                <CopyField label="Value" value={recommendedValue} />
+              </div>
+              {present && existingRaw && (
+                <p className="text-xs text-gray-500">Your current record: <code className="mono break-all">{existingRaw}</code></p>
+              )}
+              {!inboundAddress && <p className="text-xs text-gray-500">Your reporting address is being prepared — reopen this page in a moment if the value is blank.</p>}
+            </div>
+
+            {/* Step 3 — verify */}
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">3 · Verify setup</p>
+              <button onClick={runVerify} className="btn-secondary text-sm"><ShieldCheck className="w-4 h-4" /> Verify setup</button>
+              {vm && (
+                <div className={`rounded-lg border p-3 text-sm flex gap-2 ${vm.kind === 'good' ? 'border-brand-100 bg-brand-50/50 text-brand-800' : vm.kind === 'warn' ? 'border-amber-200 bg-amber-50/50 text-amber-900' : 'border-gray-200 bg-gray-50 text-gray-600'}`}>
+                  <vm.icon className="w-4 h-4 flex-shrink-0 mt-0.5" /><span>{vm.text}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Steps 4 & 5 — wait / connected */}
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">4 · {connected ? 'Connected' : 'Wait for reports'}</p>
+              {connected ? (
+                <div className="rounded-lg border border-brand-100 bg-brand-50/50 p-3 space-y-1.5">
+                  <p className="text-sm text-brand-800 flex items-center gap-1.5"><CheckCircle className="w-4 h-4" /> Connected — DMARC reports are arriving for {domain}.</p>
+                  <p className="text-xs text-gray-600">
+                    Last report received: <b className="text-gray-700">{fmt(endpoint.last_inbound_at)}</b>.
+                    {typeof totalMessages === 'number' && totalMessages > 0 && <> {totalMessages.toLocaleString()} message(s) observed so far.</>} Your sender inventory has started below.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-sm text-gray-600 leading-relaxed">
+                  After you update DNS, reports may take <b>24–48 hours</b> to arrive — some providers send them once a day.
+                  This card will switch to <b>Connected</b> automatically once the first report is received.
+                </p>
+              )}
+            </div>
+          </>
+        )}
+        {err && <span className="text-sm text-red-600 flex items-center gap-1.5"><AlertTriangle className="w-4 h-4" /> {err}</span>}
+      </div>
+    </section>
+  )
+}
+
 // ── Lightweight toast ─────────────────────────────────────────────────────────
 function Toast({ toast, onClose }) {
   if (!toast) return null
@@ -1308,11 +1529,20 @@ export default function WorkspaceEmailProtectionPage() {
           {/* 2b. Sender inventory + classification */}
           <SenderInventory data={senderData} onClassify={handleClassify} classifyingId={classifyingId} loading={siLoading} />
 
-          {/* 2c. Manual DMARC report import */}
-          <ImportDmarcReport onImport={handleImport} importing={importing} result={importResult} error={importError} />
+          {/* 2c. PRIMARY PATH — guided DMARC setup wizard */}
+          <DmarcSetupWizard
+            wsId={wsId}
+            domain={selectedDomain}
+            dmarcDetail={es?.dmarc_detail}
+            hasScanData={Boolean(es) && !moduleErrored && !notApplicable}
+            totalMessages={dmarc?.traffic?.total_messages ?? null}
+          />
 
-          {/* 2d. Connect DMARC reporting (inbound RUA + signed upload) */}
+          {/* 2d. Connect DMARC reporting (inbound RUA status + signed upload advanced) */}
           <ConnectDmarcReporting wsId={wsId} domain={selectedDomain} />
+
+          {/* 2e. SECONDARY — manual DMARC report import */}
+          <ImportDmarcReport onImport={handleImport} importing={importing} result={importResult} error={importError} />
 
           {/* 3. Authentication cards */}
           <section>
