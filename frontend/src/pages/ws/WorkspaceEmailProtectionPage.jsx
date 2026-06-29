@@ -1602,16 +1602,20 @@ export default function WorkspaceEmailProtectionPage() {
           </section>
 
           {/* 2b. Sender inventory + classification */}
-          <SenderInventory data={senderData} onClassify={handleClassify} classifyingId={classifyingId} loading={siLoading} />
+          <div id="sender-inventory" className="scroll-mt-20">
+            <SenderInventory data={senderData} onClassify={handleClassify} classifyingId={classifyingId} loading={siLoading} />
+          </div>
 
           {/* 2c. PRIMARY PATH — guided DMARC setup wizard */}
-          <DmarcSetupWizard
-            wsId={wsId}
-            domain={selectedDomain}
-            dmarcDetail={es?.dmarc_detail}
-            hasScanData={Boolean(es) && !moduleErrored && !notApplicable}
-            totalMessages={dmarc?.traffic?.total_messages ?? null}
-          />
+          <div id="dmarc-setup" className="scroll-mt-20">
+            <DmarcSetupWizard
+              wsId={wsId}
+              domain={selectedDomain}
+              dmarcDetail={es?.dmarc_detail}
+              hasScanData={Boolean(es) && !moduleErrored && !notApplicable}
+              totalMessages={dmarc?.traffic?.total_messages ?? null}
+            />
+          </div>
 
           {/* 2d. Connect DMARC reporting (inbound RUA status + signed upload advanced) */}
           <ConnectDmarcReporting wsId={wsId} domain={selectedDomain} />
@@ -1620,7 +1624,7 @@ export default function WorkspaceEmailProtectionPage() {
           <ImportDmarcReport onImport={handleImport} importing={importing} result={importResult} error={importError} />
 
           {/* 3. Authentication cards */}
-          <section>
+          <section id="auth-detail" className="scroll-mt-20">
             <div className="section-head">
               <div>
                 <span className="eyebrow">Authentication detail</span>

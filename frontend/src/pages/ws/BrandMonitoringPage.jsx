@@ -160,7 +160,7 @@ export default function BrandMonitoringPage() {
       </div>
 
       {summary && (
-        <div className="card p-5 mb-6">
+        <div id="brand-summary" className="card p-5 mb-6 scroll-mt-20">
           <h2 className="font-semibold text-gray-900 mb-3">Summary</h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {summary.by_risk && Object.entries(summary.by_risk).map(([level, count]) => (
@@ -192,7 +192,7 @@ export default function BrandMonitoringPage() {
         ))}
       </div>
 
-      <div className="card overflow-hidden">
+      <div id="typosquats" className="card overflow-hidden scroll-mt-20">
         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
           <h2 className="font-semibold text-gray-900">Typosquat Candidates</h2>
           <span className="text-sm text-gray-400">{candidates.length} result{candidates.length !== 1 ? 's' : ''}</span>

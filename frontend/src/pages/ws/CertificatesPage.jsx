@@ -226,7 +226,7 @@ export default function CertificatesPage() {
           </div>
 
           {/* 3 · Certificate expiry risk buckets */}
-          <div className="card p-6 mb-6">
+          <div id="cert-expiry" className="card p-6 mb-6 scroll-mt-20">
             <h2 className="font-semibold text-gray-900 mb-4">Certificate expiry risk</h2>
             {hasData ? (
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -247,7 +247,7 @@ export default function CertificatesPage() {
           </div>
 
           {/* 5 · Issues / recommended actions */}
-          <div ref={issuesRef} className="mb-6 scroll-mt-6">
+          <div id="cert-actions" ref={issuesRef} className="mb-6 scroll-mt-20">
             <div className="flex items-center justify-between mb-3">
               <h2 className="font-semibold text-gray-900">Recommended actions{actions.length > 0 && <span className="text-gray-400 font-semibold"> · {actions.length} open</span>}</h2>
             </div>
@@ -263,7 +263,7 @@ export default function CertificatesPage() {
           </div>
 
           {/* 6 · Trust posture */}
-          <div className="card p-6 mb-6">
+          <div id="cert-trust" className="card p-6 mb-6 scroll-mt-20">
             <h2 className="font-semibold text-gray-900 mb-1">Trust posture</h2>
             <p className="text-sm text-gray-500 leading-relaxed mb-4 max-w-3xl">
               Certificate and transport-security signals help determine whether customers, mail receivers and partners can trust this domain’s infrastructure.
@@ -278,7 +278,7 @@ export default function CertificatesPage() {
           </div>
 
           {/* 4 · Certificate inventory */}
-          <div className="card overflow-hidden mb-6">
+          <div id="cert-inventory" className="card overflow-hidden mb-6 scroll-mt-20">
             <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
               <h2 className="font-semibold text-gray-900">Certificate inventory</h2>
               <span className="text-sm text-gray-400">{certs.length} total</span>
