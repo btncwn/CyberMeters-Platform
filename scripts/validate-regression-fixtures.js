@@ -130,6 +130,9 @@ function loadScanner(fetchImpl = async () => { throw new Error("network disabled
     normalizeInboundDropReason,
     sanitizeInfraErrorMessage,
     ingestDmarcReport,
+    lifecycleDedupeKey,
+    buildLifecycleEmail,
+    sendLifecycleEmail,
     emailHandler: __workerDefault.email,
     computeBusinessRiskScoreFromIds: (ids, data) => computeBusinessRiskScore(new Set(ids), data),
   };`, context, {
@@ -2142,6 +2145,64 @@ results.push(securityContract("rua_drop_reason_normalization_stable", () => {
   };
   return Object.entries(cases).every(([k, v]) => scanner.normalizeInboundDropReason(k) === v && STABLE.has(v));
 }));
+// ── Customer Lifecycle Emails v1 ─────────────────────────────────────────────
+const ORIGIN = "https://app.cybermeters.com";
+results.push(securityContract("lifecycle_dedupe_key_stable_and_scoped", () => {
+  const a = scanner.lifecycleDedupeKey({ type: "lifecycle_welcome", user_id: "u1" });
+  const b = scanner.lifecycleDedupeKey({ type: "lifecycle_welcome", user_id: "u1" });
+  const dom1 = scanner.lifecycleDedupeKey({ type: "lifecycle_domain_added", workspace_id: "w1", domain: "Example.com" });
+  const dom2 = scanner.lifecycleDedupeKey({ type: "lifecycle_domain_added", workspace_id: "w1", domain: "example.com" });
+  return a === b && a === "lifecycle_welcome:u1" &&
+    dom1 === dom2 && dom1 === "lifecycle_domain_added:w1:example.com";
+}));
+results.push(securityContract("lifecycle_welcome_copy_no_secrets", () => {
+  const e = scanner.buildLifecycleEmail("lifecycle_welcome", { origin: ORIGIN });
+  const blob = `${e.subject} ${e.html} ${e.text}`;
+  const leak = /token|secret|bearer|api[_-]?key|password|cmdi_|cmrua_|RESEND|worker|d1\b|subrequest/i.test(blob);
+  return e.subject === "Welcome to CyberMeters" && /Welcome to CyberMeters/.test(e.html) && !leak;
+}));
+results.push(securityContract("lifecycle_next_step_never_says_connected", () => {
+  const e = scanner.buildLifecycleEmail("lifecycle_email_protection_next_step", { origin: ORIGIN, domain: "example.com" });
+  const blob = `${e.subject} ${e.html} ${e.text}`;
+  // "connect" (verb) is fine; "connected" (status claim) must never appear.
+  return !/connected/i.test(blob) && /does not mean your DNS is verified/i.test(e.html);
+}));
+results.push(securityContract("lifecycle_links_use_frontend_url", () => {
+  const types = ["lifecycle_welcome", "lifecycle_workspace_created", "lifecycle_domain_added", "lifecycle_first_scan_completed", "lifecycle_email_protection_next_step"];
+  return types.every(t => {
+    const e = scanner.buildLifecycleEmail(t, { origin: ORIGIN, domain: "example.com", wsName: "Acme" });
+    return e.html.includes(`href="${ORIGIN}/`) && !/https?:\/\/(?!app\.cybermeters\.com)/.test(e.html.replace(/#00876A/g, ""));
+  });
+}));
+results.push(await asyncSecurityContract("lifecycle_safe_error_handling", async () => {
+  const env = { FRONTEND_URL: ORIGIN, cybermeters_db: { prepare() { throw new Error("boom internal") } } };
+  const r = await scanner.sendLifecycleEmail(env, { type: "lifecycle_welcome", user_id: "u1" });
+  return r.sent === false && r.reason === "error";
+}));
+results.push(await asyncSecurityContract("lifecycle_dedupe_prevents_duplicate_send", async () => {
+  const runs = [];
+  const env = { FRONTEND_URL: ORIGIN, HELLO_EMAIL_FROM: "hello@cybermeters.com", RESEND_API_KEY: "x",
+    cybermeters_db: { prepare(sql) { return {
+      _sql: sql, _b: null, bind(...a) { this._b = a; return this },
+      async first() { return this._sql.includes("FROM users") ? { id: "u1", email: "a@b.com", email_verified: 1 } : null },
+      async run() { runs.push(this._sql); return this._sql.includes("INSERT INTO lifecycle_email_events") ? { meta: { changes: 0 } } : { meta: { changes: 1 } } },
+    } } } };
+  const r = await scanner.sendLifecycleEmail(env, { type: "lifecycle_welcome", user_id: "u1" });
+  // duplicate → no UPDATE (no delivery attempt persisted)
+  return r.skipped === "duplicate" && !runs.some(s => s.includes("UPDATE lifecycle_email_events"));
+}));
+results.push(await asyncSecurityContract("lifecycle_unverified_or_missing_email_no_send", async () => {
+  const runs = [];
+  const env = { FRONTEND_URL: ORIGIN, cybermeters_db: { prepare(sql) { return {
+    _sql: sql, _b: null, bind(...a) { this._b = a; return this },
+    async first() { return this._sql.includes("FROM users") ? { id: "u1", email: "a@b.com", email_verified: 0 } : null },
+    async run() { runs.push(this._sql); return { meta: { changes: 1 } } },
+  } } } };
+  const r = await scanner.sendLifecycleEmail(env, { type: "lifecycle_welcome", user_id: "u1" });
+  // unverified → never inserts an event or delivers.
+  return r.skipped === "no_verified_email" && !runs.some(s => s.includes("INSERT INTO lifecycle_email_events"));
+}));
+
 // Internal platform errors are sanitized; genuine findings pass through intact.
 results.push(securityContract("infra_error_sanitized_for_customer", () => {
   const raw = "Too many subrequests by single Worker invocation. The limit is 50.";

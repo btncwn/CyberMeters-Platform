@@ -12033,6 +12033,8 @@ function buildCanonicalUrlProfile(modules) {
           description: `Scan completed for ${domain} — score ${score}, risk ${risk_level}`,
           metadata:    { scan_id: scanId, domain, domain_id: domainId, score, risk_level },
         });
+        // Lifecycle: first scan completed (once per workspace+domain via dedupe).
+        await sendLifecycleEmail(env, { type: "lifecycle_first_scan_completed", workspace_id, domain }).catch(() => {});
       }
       // Also fire a workspace-agnostic event if domain has no workspaces
       if ((wsRows.results || []).length === 0) {
@@ -16556,6 +16558,170 @@ function escapeEmailHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+// ── Customer Lifecycle Emails v1 ──────────────────────────────────────────────
+// Concise activation emails sent at most once per scope. Idempotency is enforced
+// by lifecycle_email_events.dedupe_key (UNIQUE). No secrets, tokens, internal
+// IDs or raw errors ever appear in the body; links use FRONTEND_URL only.
+const LIFECYCLE_TYPES = new Set([
+  "lifecycle_welcome",
+  "lifecycle_workspace_created",
+  "lifecycle_domain_added",
+  "lifecycle_first_scan_completed",
+  "lifecycle_email_protection_next_step",
+]);
+
+// Pure, testable: a stable dedupe key per (type + scope).
+function lifecycleDedupeKey({ type, user_id = null, workspace_id = null, domain = null } = {}) {
+  const d = String(domain || "").trim().toLowerCase();
+  switch (type) {
+    case "lifecycle_welcome":                     return `lifecycle_welcome:${user_id || "unknown"}`;
+    case "lifecycle_workspace_created":           return `lifecycle_workspace_created:${workspace_id || "unknown"}`;
+    case "lifecycle_domain_added":                return `lifecycle_domain_added:${workspace_id || "unknown"}:${d}`;
+    case "lifecycle_first_scan_completed":        return `lifecycle_first_scan_completed:${workspace_id || "unknown"}:${d}`;
+    case "lifecycle_email_protection_next_step":  return `lifecycle_email_protection_next_step:${workspace_id || "unknown"}:${d}`;
+    default:                                       return `${type}:${user_id || ""}:${workspace_id || ""}:${d}`;
+  }
+}
+
+function _lifecycleHtml({ heading, paras, ctaLabel, ctaUrl }) {
+  const body = paras.map(p => `<p style="margin:0 0 14px;color:#374151;font-size:14px;line-height:1.6">${p}</p>`).join("");
+  const button = ctaUrl
+    ? `<p style="margin:6px 0 0"><a href="${ctaUrl}" style="display:inline-block;background:#00876A;color:#ffffff;text-decoration:none;font-weight:600;font-size:14px;padding:10px 18px;border-radius:10px">${escapeEmailHtml(ctaLabel)}</a></p>`
+    : "";
+  return `<div style="font-family:Inter,Arial,sans-serif;max-width:560px;margin:0 auto;padding:8px">`
+    + `<h1 style="font-size:18px;color:#111827;margin:0 0 14px">${escapeEmailHtml(heading)}</h1>`
+    + `${body}${button}`
+    + `<p style="margin:22px 0 0;color:#9ca3af;font-size:12px">CyberMeters · You are receiving this because you signed up for CyberMeters.</p></div>`;
+}
+
+// Pure, testable: build subject + html + text for a lifecycle type. `origin`
+// must be an https FRONTEND_URL origin (or null → links omitted). Never embeds
+// secrets; user-supplied values (domain, workspace name) are HTML-escaped.
+function buildLifecycleEmail(type, { origin = null, wsName = null, domain = null } = {}) {
+  const link = (path) => (origin ? `${origin}${path}` : null);
+  const ws = wsName ? escapeEmailHtml(wsName) : "your workspace";
+  const dom = domain ? escapeEmailHtml(domain) : "your domain";
+  const SERVICES_LINE = "Email Protection (DMARC &amp; impersonation), Brand Protection (lookalike domains), Attack Surface (exposed assets) and Certificates &amp; Trust (TLS &amp; expiry).";
+
+  let subject, heading, paras, ctaLabel, ctaPath;
+  switch (type) {
+    case "lifecycle_welcome":
+      subject = "Welcome to CyberMeters";
+      heading = "Welcome to CyberMeters";
+      paras = [
+        "CyberMeters protects your email, brand, external attack surface and certificates from one workspace.",
+        `Four services work together: ${SERVICES_LINE}`,
+        "To get started, add a domain and run your first scan.",
+      ];
+      ctaLabel = "Open CyberMeters"; ctaPath = "/services";
+      break;
+    case "lifecycle_workspace_created":
+      subject = "Your CyberMeters workspace is ready";
+      heading = "Your workspace is ready";
+      paras = [
+        `Your workspace (${ws}) is set up.`,
+        `A workspace connects ${SERVICES_LINE}`,
+        "Next, add or confirm a domain to start monitoring it.",
+      ];
+      ctaLabel = "Add a domain"; ctaPath = "/ws/dashboard";
+      break;
+    case "lifecycle_domain_added":
+      subject = "Your domain is ready for its first scan";
+      heading = "Your domain is ready";
+      paras = [
+        `${dom} has been added to your workspace.`,
+        "Run your first scan to map exposed assets and check your email posture.",
+        "After that, connect DMARC reporting in Email Protection to see who is sending email using your domain.",
+      ];
+      ctaLabel = "Run first scan"; ctaPath = "/scans/new";
+      break;
+    case "lifecycle_first_scan_completed":
+      subject = "Your first CyberMeters scan is complete";
+      heading = "Your first scan is complete";
+      paras = [
+        `Your first scan for ${dom} has finished.`,
+        "Review your results: findings are issues worth acting on, while observations are informational signals about your external footprint.",
+      ];
+      ctaLabel = "Review your dashboard"; ctaPath = "/dashboard";
+      break;
+    case "lifecycle_email_protection_next_step":
+      subject = "Finish connecting DMARC reporting";
+      heading = "Finish connecting DMARC reporting";
+      paras = [
+        `We have started receiving DMARC reports for ${dom}.`,
+        "Receiving reports does not mean your DNS is verified. To finish, make sure your DMARC record includes the CyberMeters reporting address, then verify DNS.",
+        "Once your record includes the CyberMeters address and DNS is verified, your domain is fully set up.",
+      ];
+      ctaLabel = "Finish DMARC setup"; ctaPath = "/ws/email-protection";
+      break;
+    default:
+      return { subject: "CyberMeters", html: _lifecycleHtml({ heading: "CyberMeters", paras: ["Open CyberMeters to continue."], ctaLabel: "Open CyberMeters", ctaUrl: link("/services") }), text: "Open CyberMeters to continue." };
+  }
+
+  const ctaUrl = link(ctaPath);
+  const html = _lifecycleHtml({ heading, paras, ctaLabel, ctaUrl });
+  const text = `${heading}\n\n`
+    + paras.map(p => p.replace(/&amp;/g, "&")).join("\n\n")
+    + (ctaUrl ? `\n\n${ctaLabel}: ${ctaUrl}` : "")
+    + `\n\nCyberMeters`;
+  return { subject, html, text };
+}
+
+/**
+ * sendLifecycleEmail — idempotent activation email. Resolves a VERIFIED
+ * recipient (explicit `to`, the user, or the workspace owner), dedupes via the
+ * UNIQUE dedupe_key, then delivers through the strict customer-email path. Never
+ * throws, never sends to unverified/missing addresses, never leaks internals.
+ */
+async function sendLifecycleEmail(env, { type, user_id = null, workspace_id = null, domain = null, to = null, wsName = null } = {}) {
+  try {
+    if (!LIFECYCLE_TYPES.has(type)) return { skipped: "unknown_type" };
+
+    let email = null, uid = user_id, name = wsName;
+    if (to && isValidEmail(String(to).trim().toLowerCase())) email = String(to).trim().toLowerCase();
+    if (!email && user_id) {
+      const u = await env.cybermeters_db
+        .prepare("SELECT id, email, email_verified FROM users WHERE id = ? LIMIT 1").bind(user_id).first();
+      if (u?.email_verified && isValidEmail(String(u.email || "").toLowerCase())) email = String(u.email).toLowerCase();
+      uid = u?.id ?? user_id;
+    }
+    if (!email && workspace_id) {
+      const row = await env.cybermeters_db
+        .prepare("SELECT u.id AS uid, u.email AS email, u.email_verified AS ev, w.name AS wname FROM workspaces w JOIN users u ON u.id = w.owner_user_id WHERE w.id = ? LIMIT 1")
+        .bind(workspace_id).first();
+      if (row?.ev && isValidEmail(String(row.email || "").toLowerCase())) email = String(row.email).toLowerCase();
+      uid = uid ?? row?.uid ?? null;
+      if (!name) name = row?.wname || null;
+    }
+    if (!email) return { skipped: "no_verified_email" };
+
+    const dedupeKey = lifecycleDedupeKey({ type, user_id: uid, workspace_id, domain });
+    const id = createId("lifemail");
+    const ins = await env.cybermeters_db
+      .prepare(`INSERT INTO lifecycle_email_events (id, user_id, workspace_id, domain, type, dedupe_key, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, 'pending', datetime('now'))
+                ON CONFLICT(dedupe_key) DO NOTHING`)
+      .bind(id, uid ?? null, workspace_id ?? null, domain ?? null, type, dedupeKey)
+      .run();
+    if ((ins.meta?.changes ?? 0) === 0) return { skipped: "duplicate" };
+
+    const origin = getEmailFrontendOrigin(env);
+    const { subject, html, text } = buildLifecycleEmail(type, { origin, wsName: name, domain });
+    const res = await sendCustomerEmail(subject, text, html, env, "HELLO_EMAIL_FROM", [email]);
+
+    await env.cybermeters_db
+      .prepare(`UPDATE lifecycle_email_events
+                SET status = ?, provider_id = ?, error = ?, sent_at = CASE WHEN ? = 'sent' THEN datetime('now') ELSE sent_at END
+                WHERE id = ?`)
+      .bind(res.sent ? "sent" : "failed", res.provider_id || null, res.sent ? null : (res.reason || "send_failed"), res.sent ? "sent" : "failed", id)
+      .run();
+    return res.sent ? { sent: true } : { sent: false, reason: res.reason };
+  } catch (e) {
+    console.error("[lifecycle-email]", String(e?.message ?? e));
+    return { sent: false, reason: "error" };
+  }
 }
 
 function formatAlertEmail({ workspaceName, domain, whatChanged, recommendation, link }) {
@@ -23051,6 +23217,9 @@ export default {
           metadata:    { email: userRow.email },
         }).catch(() => {});
 
+        // Lifecycle: welcome / getting-started (once per user; verified address).
+        await sendLifecycleEmail(env, { type: "lifecycle_welcome", user_id: userRow.id, to: userRow.email }).catch(() => {});
+
         dest.searchParams.set("success", "1");
         return Response.redirect(dest.toString(), 302);
       } catch (e) {
@@ -26966,6 +27135,8 @@ export default {
           description:  `Workspace "${name}" created`,
           metadata:     { workspace_name: name },
         });
+        // Lifecycle: workspace created (once per workspace; owner's verified address).
+        await sendLifecycleEmail(env, { type: "lifecycle_workspace_created", user_id: creator?.id ?? null, workspace_id: id, wsName: name }).catch(() => {});
         // Billing: auto-create 14-day Professional trial for the new workspace
         await createWorkspaceTrialSubscription(id, creator.id, env);
         return json({ workspace: { id, name, created_at } }, 201);
@@ -34161,6 +34332,14 @@ export default {
           record_count: result.records,
         },
       });
+
+      // Lifecycle: nudge the customer to finish DMARC DNS setup. Reports are now
+      // arriving but that does NOT confirm DNS is verified — the email says so
+      // explicitly and never claims "Connected". Deduped once per workspace+domain.
+      await sendLifecycleEmail(env, {
+        type: "lifecycle_email_protection_next_step",
+        workspace_id: endpoint.workspace_id, domain: endpoint.domain,
+      }).catch(() => {});
     } catch (e) {
       console.error("[email-ingest]", String(e?.message ?? e));
       // Swallow — an inbound mail handler must never throw.
