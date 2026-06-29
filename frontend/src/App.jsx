@@ -32,6 +32,7 @@ import CertificatesPage     from './pages/ws/CertificatesPage'
 import BrandMonitoringPage    from './pages/ws/BrandMonitoringPage'
 import WorkspaceIdentityPage  from './pages/ws/WorkspaceIdentityPage'
 import WorkspaceReportsPage        from './pages/ws/WorkspaceReportsPage'
+import WorkspaceEmailProtectionPage from './pages/ws/WorkspaceEmailProtectionPage'
 import WorkspaceExecutiveDashboard from './pages/ws/WorkspaceExecutiveDashboard'
 import WorkspaceBusinessRiskPage   from './pages/ws/WorkspaceBusinessRiskPage'
 import WorkspaceCyberEssentialsPage from './pages/ws/WorkspaceCyberEssentialsPage'
@@ -178,6 +179,7 @@ function AppRoutes() {
         <Route path="ws/certificates"     element={<CertificatesPage />}    />
         <Route path="ws/brand-monitoring" element={<BrandMonitoringPage />} />
         <Route path="ws/identity-assets"  element={<WorkspaceIdentityPage />} />
+        <Route path="ws/email-protection" element={<WorkspaceEmailProtectionPage />} />
         <Route path="ws/reports"              element={<WorkspaceReportsPage />}        />
         <Route path="ws/executive-dashboard" element={<WorkspaceExecutiveDashboard />} />
         <Route path="ws/business-risk"       element={<WorkspaceBusinessRiskPage />}   />

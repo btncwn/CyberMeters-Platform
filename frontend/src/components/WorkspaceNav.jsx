@@ -2,7 +2,7 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Shield, Layers, Zap,
   Cloud, Terminal, Lock, Tag, Briefcase, ChevronLeft, FileText,
-  BarChart2, ClipboardList, Users, HardDrive,
+  BarChart2, ClipboardList, Users, HardDrive, Mail,
 } from 'lucide-react'
 
 const WS_NAV = [
@@ -15,6 +15,7 @@ const WS_NAV = [
   { to: '/ws/admin-surfaces',   icon: Terminal,        label: 'Admin Surfaces'   },
   { to: '/ws/certificates',     icon: Lock,            label: 'Certificates'     },
   { to: '/ws/brand-monitoring', icon: Tag,             label: 'Brand Monitoring' },
+  { to: '/ws/email-protection', icon: Mail,            label: 'Email Protection' },
   { to: '/ws/reports',          icon: FileText,        label: 'Reports'          },
   { to: '/ws/audit-log',        icon: ClipboardList,   label: 'Audit Log'        },
   { to: '/ws/members',          icon: Users,           label: 'Team Members'     },
