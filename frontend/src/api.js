@@ -582,6 +582,30 @@ export const api = {
       body: JSON.stringify({ report_type: reportType }),
     }),
 
+  // ── DMARC Sender Intelligence ─────────────────────────────────────────────
+
+  /** POST /api/workspaces/:id/domains/:domain/dmarc-reports/import  body: { filename?, xml } */
+  importDmarcReport: (workspaceId, domain, payload) =>
+    request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/dmarc-reports/import`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  /** GET /api/workspaces/:id/domains/:domain/email-senders */
+  getEmailSenders: (workspaceId, domain) =>
+    request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/email-senders`),
+
+  /** POST /api/workspaces/:id/domains/:domain/email-senders/:sourceId/classify  body: { classification, notes? } */
+  classifyEmailSender: (workspaceId, domain, sourceId, payload) =>
+    request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/email-senders/${sourceId}/classify`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  /** GET /api/workspaces/:id/domains/:domain/dmarc-summary?days=30 */
+  getDmarcSummary: (workspaceId, domain, days = 30) =>
+    request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/dmarc-summary?days=${days}`),
+
   /** GET /api/workspaces/:id/reports/:reportId */
   getWorkspaceReportById: (workspaceId, reportId) =>
     request(`/workspaces/${workspaceId}/reports/${reportId}`),
