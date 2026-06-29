@@ -1572,6 +1572,157 @@ function EmailProtectionOverview({ wsId, domain, dmarcDetail, dmarc, senderData,
   )
 }
 
+// ── Business Email Compromise exposure (backend source of truth) ──────────────
+// EXPOSURE/RISK score: higher = worse. Never styled like the Cyber Metrics
+// Score (where higher is better). Meaning leads; the number is small + below.
+const BEC_SEV = {
+  critical: { text: 'text-red-700',   chip: 'bg-red-50 text-red-700 border-red-200',     accent: 'accent-danger' },
+  high:     { text: 'text-red-700',   chip: 'bg-red-50 text-red-700 border-red-200',     accent: 'accent-danger' },
+  medium:   { text: 'text-amber-700', chip: 'bg-amber-50 text-amber-700 border-amber-200', accent: 'accent-warning' },
+  low:      { text: 'text-brand-700', chip: 'bg-brand-50 text-brand-700 border-brand-100', accent: '' },
+  minimal:  { text: 'text-brand-700', chip: 'bg-brand-50 text-brand-700 border-brand-100', accent: '' },
+}
+const becSev = (l) => BEC_SEV[String(l || '').toLowerCase()] || BEC_SEV.medium
+const titleCase = (s) => (s ? String(s).replace(/[_-]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '—')
+const becChipCls = (tone) => tone === 'ok' ? 'bg-brand-50 text-brand-700 border-brand-100'
+  : tone === 'warn' ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-gray-50 text-gray-600 border-gray-200'
+
+function becEvidenceChips(ev) {
+  if (!ev || typeof ev !== 'object') return []
+  const out = []
+  const has = (k) => ev[k] !== undefined && ev[k] !== null
+  if (has('dmarc_policy'))   out.push({ label: `DMARC: ${ev.dmarc_policy}`, tone: ev.dmarc_policy === 'none' ? 'warn' : 'neutral' })
+  if (has('pass_rate'))      out.push({ label: `Pass rate ${ev.pass_rate}%`, tone: ev.pass_rate < 90 ? 'warn' : 'neutral' })
+  if (has('failed_messages'))out.push({ label: `${ev.failed_messages} failed`, tone: ev.failed_messages > 0 ? 'warn' : 'neutral' })
+  if (has('unknown_senders'))out.push({ label: `${ev.unknown_senders} unknown sender${ev.unknown_senders === 1 ? '' : 's'}`, tone: ev.unknown_senders > 0 ? 'warn' : 'neutral' })
+  if (has('suspicious_senders')) out.push({ label: `${ev.suspicious_senders} suspicious`, tone: ev.suspicious_senders > 0 ? 'warn' : 'neutral' })
+  if (has('high_volume_failing_senders')) out.push({ label: `${ev.high_volume_failing_senders} high-volume failing`, tone: ev.high_volume_failing_senders > 0 ? 'warn' : 'neutral' })
+  if (has('reports_received')) out.push({ label: ev.reports_received ? 'Reports received' : 'No reports yet', tone: ev.reports_received ? 'ok' : 'neutral' })
+  if (has('cybermeters_rua_verified')) out.push({ label: ev.cybermeters_rua_verified ? 'RUA verified in DNS' : 'RUA not verified in DNS', tone: ev.cybermeters_rua_verified ? 'ok' : 'warn' })
+  return out
+}
+
+function BecExposure({ wsId, domain }) {
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [errState, setErrState] = useState(null) // 'not_available' | 'forbidden' | 'failed'
+
+  useEffect(() => {
+    let cancelled = false
+    if (!wsId || !domain) { setLoading(false); setData(null); return }
+    setLoading(true); setErrState(null); setData(null)
+    api.getBecExposureScore(wsId, domain)
+      .then(res => { if (!cancelled) setData(res || null) })
+      .catch(e => {
+        if (cancelled) return
+        if (e.status === 404) setErrState('not_available')
+        else if (e.status === 403) setErrState('forbidden')
+        else setErrState('failed')
+      })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [wsId, domain])
+
+  const sev = becSev(data?.exposure_level)
+  const chips = becEvidenceChips(data?.evidence)
+  const reasons = Array.isArray(data?.reasons) ? data.reasons.slice(0, 4) : []
+  const actions = Array.isArray(data?.recommended_actions) ? data.recommended_actions.slice(0, 3) : []
+
+  return (
+    <section className={`card overflow-hidden ${data ? sev.accent : ''}`}>
+      <div className="px-6 py-4 border-b border-gray-200 bg-gray-50/70">
+        <span className="eyebrow">Email risk</span>
+        <h2 className="section-title leading-tight">Business Email Compromise exposure</h2>
+        <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">Estimated from DMARC reports, sender alignment, RUA verification and brand impersonation evidence.</p>
+      </div>
+
+      <div className="p-6">
+        {loading ? (
+          <div className="flex items-center gap-2 text-sm text-gray-500"><RefreshCw className="w-4 h-4 animate-spin" /> Calculating BEC exposure from current email evidence…</div>
+        ) : errState ? (
+          <p className="text-sm text-gray-500">
+            {errState === 'not_available' ? 'BEC Exposure is not available for this domain yet.'
+              : errState === 'forbidden' ? 'You do not have permission to view BEC Exposure for this workspace.'
+              : 'BEC Exposure could not be calculated right now. Review the available Email Protection evidence or try again later.'}
+          </p>
+        ) : !data ? (
+          <p className="text-sm text-gray-500">BEC Exposure is not available for this domain yet.</p>
+        ) : (
+          <div className="space-y-5">
+            {/* Core: meaning first, number small & below */}
+            <div className="flex flex-col lg:flex-row lg:items-start gap-5">
+              <div className="lg:w-72 flex-shrink-0">
+                <p className="text-sm font-semibold text-gray-900">Exposure level</p>
+                <p className={`text-lg font-bold ${sev.text}`}>{titleCase(data.exposure_level)}</p>
+                <p className="text-sm text-gray-600 mt-1 leading-relaxed">
+                  BEC Exposure measures how exposed this domain is to spoofing, supplier impersonation and invoice-fraud abuse.
+                </p>
+                <p className="text-[13px] font-bold text-gray-700 mt-2 tabular-nums">
+                  Score {data.exposure_score}/100 <span className="font-medium text-gray-500">· Higher means more exposed</span>
+                </p>
+                {data.confidence && (
+                  <span className="inline-flex items-center mt-2 px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-gray-50 text-gray-600 border-gray-200">
+                    Confidence: {titleCase(data.confidence)}
+                  </span>
+                )}
+              </div>
+              {data.summary && <p className="text-sm text-gray-600 leading-relaxed flex-1">{data.summary}</p>}
+            </div>
+
+            {/* Evidence chips */}
+            {chips.length > 0 && (
+              <div>
+                <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Evidence</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {chips.map((c, i) => (
+                    <span key={i} className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border ${becChipCls(c.tone)}`}>{c.label}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Reasons + recommended actions */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {reasons.length > 0 && (
+                <div>
+                  <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-2">Why this domain is exposed</p>
+                  <ul className="space-y-2.5">
+                    {reasons.map((r, i) => (
+                      <li key={r.code || i} className="text-sm">
+                        <div className="flex items-center gap-2">
+                          <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold uppercase border ${becSev(r.severity).chip}`}>{r.severity || '—'}</span>
+                          <span className="font-semibold text-gray-800">{r.label}</span>
+                        </div>
+                        {r.detail && <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{r.detail}</p>}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {actions.length > 0 && (
+                <div>
+                  <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-2">Reduce exposure</p>
+                  <ul className="space-y-2.5">
+                    {actions.map((a, i) => (
+                      <li key={a.code || i} className="text-sm">
+                        <div className="flex items-center gap-2">
+                          <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold uppercase border ${becSev(a.priority).chip}`}>{a.priority || '—'}</span>
+                          <span className="font-semibold text-gray-800">{a.label}</span>
+                        </div>
+                        {a.detail && <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{a.detail}</p>}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
+  )
+}
+
 // ── Lightweight toast ─────────────────────────────────────────────────────────
 function Toast({ toast, onClose }) {
   if (!toast) return null
@@ -1810,6 +1961,9 @@ export default function WorkspaceEmailProtectionPage() {
             onGotoSetup={gotoSetup}
             onGotoSenders={gotoSenders}
           />
+
+          {/* 0b. BEC Exposure Score (backend source of truth; higher = worse) */}
+          <BecExposure wsId={wsId} domain={selectedDomain} />
 
           {/* 1. DMARC journey */}
           <DmarcJourney journey={es.policy_journey} />
