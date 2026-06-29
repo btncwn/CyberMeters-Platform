@@ -74,6 +74,13 @@ function loadScanner(fetchImpl = async () => { throw new Error("network disabled
     parseBimiRecord,
     buildEmailTransportDetails,
     buildEmailRemediationActions,
+    parseDmarcAggregateXml,
+    guessEmailSenderProvider,
+    updateEmailSenderSources,
+    summarizeEmailSenders,
+    buildDmarcEnforcementReadiness,
+    buildDmarcReportRemediationActions,
+    dmarcSenderRiskLevel,
     computeBusinessRiskScoreFromIds: (ids, data) => computeBusinessRiskScore(new Set(ids), data),
   };`, context, {
     filename: workerPath,
@@ -934,6 +941,117 @@ results.push(
     executiveV2Fixture.supporting_evidence.legacy_vendor_context.vendors.length === 1
   ),
 );
+
+// ── DMARC Sender Intelligence v1 contracts ──────────────────────────────────
+const dmarcCleanXml = `<?xml version="1.0"?>
+<feedback>
+  <report_metadata><org_name>google.com</org_name><email>noreply-dmarc@google.com</email>
+    <report_id>RPT-CLEAN-1</report_id><date_range><begin>1717200000</begin><end>1717286400</end></date_range>
+  </report_metadata>
+  <policy_published><domain>example.com</domain><adkim>r</adkim><aspf>r</aspf><p>none</p><sp>none</sp><pct>100</pct></policy_published>
+  <record><row><source_ip>209.85.220.41</source_ip><count>100</count>
+    <policy_evaluated><disposition>none</disposition><dkim>pass</dkim><spf>pass</spf></policy_evaluated></row>
+    <identifiers><header_from>example.com</header_from></identifiers>
+    <auth_results><dkim><domain>example.com</domain><selector>s1</selector><result>pass</result></dkim>
+      <spf><domain>example.com</domain><result>pass</result></spf></auth_results></record>
+</feedback>`;
+const dmarcFailXml = `<?xml version="1.0"?>
+<feedback>
+  <report_metadata><org_name>Yahoo</org_name><email>dmarc@yahoo.com</email><report_id>RPT-FAIL-1</report_id>
+    <date_range><begin>1717200000</begin><end>1717286400</end></date_range></report_metadata>
+  <policy_published><domain>example.com</domain><p>none</p><pct>100</pct></policy_published>
+  <record><row><source_ip>198.51.100.7</source_ip><count>40</count>
+    <policy_evaluated><disposition>none</disposition><dkim>fail</dkim><spf>fail</spf></policy_evaluated></row>
+    <identifiers><header_from>example.com</header_from></identifiers>
+    <auth_results><dkim><domain>spammer.test</domain><result>fail</result></dkim>
+      <spf><domain>spammer.test</domain><result>fail</result></spf></auth_results></record>
+</feedback>`;
+const dmarcMixedXml = `<?xml version="1.0"?>
+<feedback>
+  <report_metadata><org_name>google.com</org_name><email>noreply-dmarc@google.com</email><report_id>RPT-MIX-1</report_id>
+    <date_range><begin>1717200000</begin><end>1717286400</end></date_range></report_metadata>
+  <policy_published><domain>example.com</domain><p>none</p><pct>100</pct></policy_published>
+  <record><row><source_ip>209.85.220.41</source_ip><count>200</count>
+    <policy_evaluated><disposition>none</disposition><dkim>pass</dkim><spf>pass</spf></policy_evaluated></row>
+    <identifiers><header_from>example.com</header_from></identifiers>
+    <auth_results><dkim><domain>example.com</domain><selector>s1</selector><result>pass</result></dkim>
+      <spf><domain>example.com</domain><result>pass</result></spf></auth_results></record>
+  <record><row><source_ip>198.51.100.7</source_ip><count>60</count>
+    <policy_evaluated><disposition>quarantine</disposition><dkim>fail</dkim><spf>fail</spf></policy_evaluated></row>
+    <identifiers><header_from>example.com</header_from></identifiers>
+    <auth_results><dkim><domain>spammer.test</domain><result>fail</result></dkim>
+      <spf><domain>spammer.test</domain><result>fail</result></spf></auth_results></record>
+</feedback>`;
+
+const dmarcCleanParsed = scanner.parseDmarcAggregateXml(dmarcCleanXml);
+const dmarcFailParsed  = scanner.parseDmarcAggregateXml(dmarcFailXml);
+const dmarcMixedParsed = scanner.parseDmarcAggregateXml(dmarcMixedXml);
+
+results.push(securityContract("dmarc_parse_clean_passing_sender", () =>
+  !dmarcCleanParsed.error && dmarcCleanParsed.records.length === 1 &&
+  dmarcCleanParsed.records[0].source_ip === "209.85.220.41" &&
+  dmarcCleanParsed.records[0].count === 100 &&
+  dmarcCleanParsed.records[0].dkim_aligned_result === "pass" &&
+  dmarcCleanParsed.records[0].spf_aligned_result === "pass" &&
+  dmarcCleanParsed.metadata.report_id === "RPT-CLEAN-1"
+));
+results.push(securityContract("dmarc_parse_unknown_failing_sender", () =>
+  !dmarcFailParsed.error &&
+  dmarcFailParsed.records[0].dkim_aligned_result === "fail" &&
+  dmarcFailParsed.records[0].spf_aligned_result === "fail" &&
+  scanner.guessEmailSenderProvider(dmarcFailParsed.records[0]).provider === "unknown" &&
+  scanner.guessEmailSenderProvider(dmarcFailParsed.records[0]).confidence === "low"
+));
+results.push(securityContract("dmarc_provider_guess_known_and_unknown", () => {
+  const sg = scanner.guessEmailSenderProvider({ dkim_domain: "u1.wl.sendgrid.net" });
+  const ms = scanner.guessEmailSenderProvider({ spf_domain: "spf.protection.outlook.com" });
+  const un = scanner.guessEmailSenderProvider({ dkim_domain: "random.example" });
+  return sg.provider === "sendgrid" && sg.confidence === "medium" &&
+    ms.provider === "microsoft" && un.provider === "unknown" && un.confidence === "low";
+}));
+results.push(securityContract("dmarc_parse_mixed_multi_record", () =>
+  !dmarcMixedParsed.error && dmarcMixedParsed.records.length === 2 &&
+  dmarcMixedParsed.records[1].disposition === "quarantine" &&
+  dmarcMixedParsed.records[0].count === 200
+));
+results.push(securityContract("dmarc_duplicate_dedupe_key_stable", () => {
+  const a = scanner.parseDmarcAggregateXml(dmarcCleanXml).metadata;
+  const b = scanner.parseDmarcAggregateXml(dmarcCleanXml).metadata;
+  return a.report_id === b.report_id && a.date_range_begin === b.date_range_begin &&
+    a.date_range_end === b.date_range_end && a.org_name === b.org_name;
+}));
+results.push(securityContract("dmarc_xml_safety_rejections", () =>
+  scanner.parseDmarcAggregateXml("").error === "empty_xml" &&
+  scanner.parseDmarcAggregateXml("<!DOCTYPE feedback SYSTEM 'x'><feedback></feedback>").error === "unsafe_xml" &&
+  scanner.parseDmarcAggregateXml("<html><body>not dmarc</body></html>").error === "invalid_structure"
+));
+results.push(await asyncSecurityContract("dmarc_sender_rollup_totals", async () => {
+  const inserts = [];
+  const mockEnv = { cybermeters_db: { prepare(sql) { return {
+    _sql: sql, _b: null,
+    bind(...a) { this._b = a; return this; },
+    async first() { return null; },
+    async all() { return { results: [] }; },
+    async run() { if (this._sql.includes("INSERT INTO email_sender_sources")) inserts.push(this._b); return {}; },
+  }; } } };
+  const out = await scanner.updateEmailSenderSources(mockEnv, "ws1", "example.com", dmarcMixedParsed);
+  // INSERT binds: [id,ws,domain,ip,prov,conf,reason,header_from,first,last,total,aligned,failed,quar,rej,pass_rate]
+  const good = inserts.find((b) => b[3] === "209.85.220.41");
+  const bad  = inserts.find((b) => b[3] === "198.51.100.7");
+  return out.sources_updated === 2 && inserts.length === 2 &&
+    good[10] === 200 && good[11] === 200 && good[12] === 0 && good[15] === 100 &&
+    bad[10] === 60 && bad[11] === 0 && bad[12] === 60 && bad[13] === 60 && bad[15] === 0;
+}));
+results.push(securityContract("dmarc_readiness_blocked_by_unknown", () => {
+  const r = scanner.buildDmarcEnforcementReadiness({ days_with_data: 10, total_messages: 1000, pass_rate: 99, unknown_senders: 2, high_volume_failed_senders: 0 });
+  return r.ready_for_quarantine === false && r.ready_for_reject === false &&
+    r.blockers.some((b) => b.toLowerCase().includes("unknown"));
+}));
+results.push(securityContract("dmarc_readiness_cautious_quarantine", () => {
+  const r = scanner.buildDmarcEnforcementReadiness({ days_with_data: 10, total_messages: 5000, pass_rate: 97, unknown_senders: 0, high_volume_failed_senders: 0 });
+  return r.ready_for_quarantine === true && r.ready_for_reject === false &&
+    /confirm all legitimate senders/i.test(r.next_step);
+}));
 
 for (const contract of parsed.score_contracts || []) {
   const actualScore = scanner.resolveCanonicalScanScore(contract.d1_score, contract.report_score);

@@ -6630,6 +6630,409 @@ function buildEmailRemediationActions(domain, details, emailIntel = {}) {
   return actions;
 }
 
+// ── DMARC Aggregate Report Ingestion & Sender Intelligence v1 ────────────────
+//
+// Backend foundation for Managed DMARC. Parses manually imported DMARC RUA
+// aggregate XML, rolls up sending sources, guesses providers from real sender
+// signals, and computes cautious enforcement readiness. Manual import only —
+// no inbound mail receiving, no managed mailbox, no dynamic DNS. All additive.
+
+const DMARC_XML_MAX_BYTES = 2 * 1024 * 1024; // 2 MB hard cap
+const DMARC_MAX_RECORDS   = 5000;            // defensive row cap
+
+async function sha256Hex(input) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(input)));
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function _xmlDecodeEntities(s) {
+  return String(s)
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"').replace(/&#0*39;/g, "'").replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&");
+}
+// Extract the inner text of the FIRST occurrence of <tag>…</tag> (tag is a fixed literal).
+function _xmlFirst(xml, tag) {
+  if (!xml) return null;
+  const m = xml.match(new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`, "i"));
+  return m ? _xmlDecodeEntities(m[1]).trim() : null;
+}
+// Return the inner content of EVERY <tag>…</tag> block.
+function _xmlBlocks(xml, tag) {
+  if (!xml) return [];
+  const re = new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`, "gi");
+  const out = []; let m;
+  while ((m = re.exec(xml)) !== null) { out.push(m[1]); if (out.length >= DMARC_MAX_RECORDS) break; }
+  return out;
+}
+function _dmarcInt(v, dflt = 0) { const n = parseInt(v, 10); return Number.isFinite(n) ? n : dflt; }
+
+/**
+ * parseDmarcAggregateXml(xml) — controlled, defensive DMARC aggregate parser.
+ *
+ * Security: rejects empty input and input > 2 MB; rejects DOCTYPE/ENTITY/
+ * stylesheet declarations (no XXE / entity expansion); performs no network
+ * I/O; never returns or stores raw XML. Returns { error, message } on failure
+ * or the structured { metadata, policy_published, records } shape on success.
+ */
+function parseDmarcAggregateXml(xml) {
+  if (typeof xml !== "string" || xml.trim() === "") {
+    return { error: "empty_xml", message: "No XML content was provided." };
+  }
+  const byteLen = new TextEncoder().encode(xml).length;
+  if (byteLen > DMARC_XML_MAX_BYTES) {
+    return { error: "xml_too_large", message: "The DMARC report exceeds the 2 MB limit." };
+  }
+  if (/<!DOCTYPE/i.test(xml) || /<!ENTITY/i.test(xml) || /<\?xml-stylesheet/i.test(xml)) {
+    return { error: "unsafe_xml", message: "The XML contains a disallowed declaration." };
+  }
+  const metaBlock   = _xmlFirst(xml, "report_metadata");
+  const policyBlock = _xmlFirst(xml, "policy_published");
+  const recordBlocks = _xmlBlocks(xml, "record");
+  if (!metaBlock && !policyBlock && recordBlocks.length === 0) {
+    return { error: "invalid_structure", message: "The file does not look like a DMARC aggregate report." };
+  }
+  const dateRange = _xmlFirst(metaBlock || xml, "date_range");
+  const metadata = {
+    org_name:         _xmlFirst(metaBlock, "org_name"),
+    email:            _xmlFirst(metaBlock, "email"),
+    report_id:        _xmlFirst(metaBlock, "report_id"),
+    date_range_begin: _dmarcInt(_xmlFirst(dateRange, "begin"), 0) || null,
+    date_range_end:   _dmarcInt(_xmlFirst(dateRange, "end"), 0) || null,
+  };
+  const pctText = _xmlFirst(policyBlock, "pct");
+  const policy_published = {
+    domain: _xmlFirst(policyBlock, "domain"),
+    adkim:  _xmlFirst(policyBlock, "adkim"),
+    aspf:   _xmlFirst(policyBlock, "aspf"),
+    p:      _xmlFirst(policyBlock, "p"),
+    sp:     _xmlFirst(policyBlock, "sp"),
+    pct:    pctText != null ? _dmarcInt(pctText, 100) : null,
+  };
+  const norm = (v) => (v ? String(v).trim().toLowerCase() : null);
+  const records = [];
+  for (const rec of recordBlocks) {
+    const row   = _xmlFirst(rec, "row");
+    const pe    = _xmlFirst(row, "policy_evaluated");
+    const ident = _xmlFirst(rec, "identifiers");
+    const auth  = _xmlFirst(rec, "auth_results");
+    const dkimA = _xmlFirst(auth, "dkim");
+    const spfA  = _xmlFirst(auth, "spf");
+    records.push({
+      source_ip:           _xmlFirst(row, "source_ip"),
+      count:               _dmarcInt(_xmlFirst(row, "count"), 0),
+      disposition:         norm(_xmlFirst(pe, "disposition")),
+      dkim_aligned_result: norm(_xmlFirst(pe, "dkim")),
+      spf_aligned_result:  norm(_xmlFirst(pe, "spf")),
+      header_from:         _xmlFirst(ident, "header_from"),
+      envelope_from:       _xmlFirst(ident, "envelope_from"),
+      dkim_domain:         _xmlFirst(dkimA, "domain"),
+      dkim_selector:       _xmlFirst(dkimA, "selector"),
+      dkim_result:         norm(_xmlFirst(dkimA, "result")),
+      spf_domain:          _xmlFirst(spfA, "domain"),
+      spf_result:          norm(_xmlFirst(spfA, "result")),
+    });
+  }
+  if (records.length === 0) {
+    return { error: "no_records", message: "The DMARC report contained no record rows." };
+  }
+  return { metadata, policy_published, records };
+}
+
+// Basic, never-overclaiming provider guessing from real DMARC sender signals.
+const DMARC_PROVIDER_PATTERNS = [
+  { provider: "google",      needles: ["google.com", "gmail.com", "googlemail.com", "_spf.google.com"] },
+  { provider: "microsoft",   needles: ["outlook.com", "protection.outlook.com", "microsoft.com", "office365", "spf.protection.outlook"] },
+  { provider: "amazonses",   needles: ["amazonses.com"] },
+  { provider: "sendgrid",    needles: ["sendgrid.net", "sendgrid.com"] },
+  { provider: "mailchimp",   needles: ["mcsv.net", "mailchimp", "rsgsv.net", "mandrillapp.com"] },
+  { provider: "mailgun",     needles: ["mailgun.org", "mailgun.net", "mailgun.com"] },
+  { provider: "postmark",    needles: ["postmarkapp.com", "pm.mtasv.net"] },
+  { provider: "zoho",        needles: ["zoho.com", "zohomail.com", "zoho.eu"] },
+  { provider: "shopify",     needles: ["shopify.com", "shopifyemail.com"] },
+  { provider: "wix",         needles: ["wixsite.com", "wix.com"] },
+  { provider: "squarespace", needles: ["squarespace.com"] },
+];
+function guessEmailSenderProvider(record = {}) {
+  const hay = [record.dkim_domain, record.spf_domain, record.envelope_from, record.header_from]
+    .filter(Boolean).map((s) => String(s).toLowerCase()).join(" ");
+  if (hay) {
+    for (const { provider, needles } of DMARC_PROVIDER_PATTERNS) {
+      if (needles.some((n) => hay.includes(n))) {
+        return { provider, confidence: "medium",
+          reason: `DKIM/SPF or envelope domain matched a known ${provider} sender pattern` };
+      }
+    }
+  }
+  return { provider: "unknown", confidence: "low", reason: "No known provider pattern matched" };
+}
+
+function dmarcSenderRiskLevel(sender) {
+  const c = sender.classification || "unknown";
+  if (c === "threat") return "critical";
+  if (c === "suspicious") return "high";
+  if (c === "trusted" || c === "ignored") return "low";
+  const pr = typeof sender.pass_rate === "number" ? sender.pass_rate : 100;
+  if (pr < 90 && (sender.total_messages || 0) >= 50) return "medium";
+  return "low";
+}
+function dmarcSenderRecommendedAction(sender) {
+  switch (sender.classification) {
+    case "trusted":    return "No action required. This sender is confirmed legitimate.";
+    case "suspicious": return "Investigate this sender and confirm whether it is legitimate before enforcement.";
+    case "threat":     return "Treat as impersonation. Confirm it is unauthorised and ensure DMARC enforcement blocks it.";
+    case "ignored":    return "No action — this sender has been intentionally ignored.";
+    default:           return "Classify this sender if it is a legitimate business email source.";
+  }
+}
+
+/**
+ * buildDmarcEnforcementReadiness(summary) — cautious enforcement guidance.
+ * Never tells the user it is safe to reject all failing mail.
+ */
+function buildDmarcEnforcementReadiness(summary = {}) {
+  const days    = summary.days_with_data || 0;
+  const total   = summary.total_messages || 0;
+  const pass    = typeof summary.pass_rate === "number" ? summary.pass_rate : 0;
+  const unknown = summary.unknown_senders || 0;
+  const highVolFailed = summary.high_volume_failed_senders || 0;
+
+  const qBlockers = [];
+  if (days < 7) qBlockers.push("Fewer than 7 days of DMARC reports have been imported.");
+  if (total <= 0) qBlockers.push("No message volume has been observed yet.");
+  if (pass < 95) qBlockers.push(`DMARC pass rate is ${pass}% (95% recommended before quarantine).`);
+  if (unknown > 0) qBlockers.push(`${unknown} unknown sender${unknown === 1 ? "" : "s"} remain unclassified.`);
+  if (highVolFailed > 0) qBlockers.push(`${highVolFailed} high-volume sender(s) are failing alignment.`);
+
+  const rBlockers = [];
+  if (days < 14) rBlockers.push("Fewer than 14 days of DMARC reports have been imported.");
+  if (pass < 98) rBlockers.push(`DMARC pass rate is ${pass}% (98% recommended before reject).`);
+  if (unknown > 0) rBlockers.push(`${unknown} unknown sender(s) must be classified first.`);
+  if (highVolFailed > 0) rBlockers.push(`${highVolFailed} high-volume sender(s) are failing alignment.`);
+
+  const readyQuarantine = qBlockers.length === 0;
+  const readyReject     = rBlockers.length === 0;
+  const blockers = readyQuarantine ? rBlockers : qBlockers; // surface the nearer milestone's blockers
+
+  let confidence = "low";
+  if (days >= 14 && total > 0) confidence = "high";
+  else if (days >= 7 && total > 0) confidence = "medium";
+
+  let next_step, explanation;
+  if (readyReject) {
+    next_step = "Your domain appears close to reject readiness, but confirm all legitimate senders before changing policy.";
+    explanation = "Observed traffic is well aligned across an extended window. Validate every sender, then move towards p=reject with full coverage.";
+  } else if (readyQuarantine) {
+    next_step = "Your domain appears close to quarantine readiness, but confirm all legitimate senders before changing policy.";
+    explanation = "Observed traffic is mostly aligned. Confirm legitimate senders, then move from p=none to p=quarantine.";
+  } else {
+    next_step = "Classify legitimate senders and improve alignment before moving to enforcement.";
+    explanation = "The domain is not ready for enforcement yet. Resolve the blockers below, then re-evaluate.";
+  }
+  return { ready_for_quarantine: readyQuarantine, ready_for_reject: readyReject, confidence, blockers, next_step, explanation };
+}
+
+/**
+ * updateEmailSenderSources(env, workspaceId, domain, parsedReport) — roll up the
+ * parsed report's records into the per-source inventory. Only ever called for a
+ * NEW (non-duplicate) report, so increments never double-count. Preserves any
+ * existing classification and notes on a sender row.
+ */
+async function updateEmailSenderSources(env, workspaceId, domain, parsed) {
+  if (!parsed || !Array.isArray(parsed.records)) return { sources_updated: 0 };
+  const beginIso = parsed.metadata?.date_range_begin
+    ? new Date(parsed.metadata.date_range_begin * 1000).toISOString()
+    : new Date().toISOString();
+  const endIso = parsed.metadata?.date_range_end
+    ? new Date(parsed.metadata.date_range_end * 1000).toISOString()
+    : beginIso;
+
+  const bySource = new Map();
+  for (const r of parsed.records) {
+    const ip = (r.source_ip || "").trim();
+    if (!ip) continue;
+    let agg = bySource.get(ip);
+    if (!agg) { agg = { ip, total: 0, aligned: 0, failed: 0, quarantined: 0, rejected: 0, sample: r }; bySource.set(ip, agg); }
+    const cnt = r.count || 0;
+    agg.total += cnt;
+    const aligned = r.spf_aligned_result === "pass" || r.dkim_aligned_result === "pass";
+    if (aligned) agg.aligned += cnt; else agg.failed += cnt;
+    if (r.disposition === "quarantine") agg.quarantined += cnt;
+    if (r.disposition === "reject") agg.rejected += cnt;
+  }
+
+  let updated = 0;
+  for (const agg of bySource.values()) {
+    const guess = guessEmailSenderProvider(agg.sample);
+    const existing = await env.cybermeters_db
+      .prepare(`SELECT id, total_messages, aligned_messages, failed_messages,
+                       quarantined_messages, rejected_messages, first_seen
+                FROM email_sender_sources
+                WHERE workspace_id = ? AND domain = ? AND source_ip = ? LIMIT 1`)
+      .bind(workspaceId, domain, agg.ip).first();
+    if (existing) {
+      const total    = (existing.total_messages || 0) + agg.total;
+      const alignedM = (existing.aligned_messages || 0) + agg.aligned;
+      const failedM  = (existing.failed_messages || 0) + agg.failed;
+      const quarM    = (existing.quarantined_messages || 0) + agg.quarantined;
+      const rejM     = (existing.rejected_messages || 0) + agg.rejected;
+      const passRate = total > 0 ? Math.round((alignedM / total) * 1000) / 10 : 0;
+      const firstSeen = existing.first_seen && existing.first_seen < beginIso ? existing.first_seen : beginIso;
+      await env.cybermeters_db
+        .prepare(`UPDATE email_sender_sources
+                  SET last_seen = ?, total_messages = ?, aligned_messages = ?, failed_messages = ?,
+                      quarantined_messages = ?, rejected_messages = ?, pass_rate = ?,
+                      provider_guess = ?, provider_confidence = ?, provider_reason = ?,
+                      header_from = COALESCE(header_from, ?), first_seen = ?, updated_at = datetime('now')
+                  WHERE id = ?`)
+        .bind(endIso, total, alignedM, failedM, quarM, rejM, passRate,
+              guess.provider, guess.confidence, guess.reason, agg.sample.header_from || null, firstSeen, existing.id)
+        .run();
+      // classification + notes deliberately omitted from UPDATE → preserved.
+    } else {
+      const passRate = agg.total > 0 ? Math.round((agg.aligned / agg.total) * 1000) / 10 : 0;
+      await env.cybermeters_db
+        .prepare(`INSERT INTO email_sender_sources
+                  (id, workspace_id, domain, source_ip, provider_guess, provider_confidence, provider_reason,
+                   header_from, first_seen, last_seen, total_messages, aligned_messages, failed_messages,
+                   quarantined_messages, rejected_messages, pass_rate, classification, notes, created_at, updated_at)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unknown', NULL, datetime('now'), datetime('now'))`)
+        .bind(createId("esender"), workspaceId, domain, agg.ip, guess.provider, guess.confidence, guess.reason,
+              agg.sample.header_from || null, beginIso, endIso, agg.total, agg.aligned, agg.failed,
+              agg.quarantined, agg.rejected, passRate)
+        .run();
+    }
+    updated++;
+  }
+  return { sources_updated: updated };
+}
+
+// Validate that a domain (hostname) belongs to a workspace; returns domain_id or null.
+async function resolveWorkspaceDomain(env, workspaceId, domain) {
+  if (!workspaceId || !domain) return null;
+  try {
+    const row = await env.cybermeters_db
+      .prepare(`SELECT d.id FROM domains d
+                JOIN workspace_domains wd ON wd.domain_id = d.id
+                WHERE wd.workspace_id = ? AND d.domain = ? LIMIT 1`)
+      .bind(workspaceId, domain).first();
+    return row?.id || null;
+  } catch { return null; }
+}
+
+async function loadEmailSenderSources(env, workspaceId, domain) {
+  const rows = await env.cybermeters_db
+    .prepare(`SELECT * FROM email_sender_sources
+              WHERE workspace_id = ? AND domain = ? ORDER BY total_messages DESC`)
+    .bind(workspaceId, domain).all();
+  return rows.results || [];
+}
+function summarizeEmailSenders(senders) {
+  const s = { total_senders: senders.length, unknown_senders: 0, trusted_senders: 0,
+    suspicious_senders: 0, threat_senders: 0, ignored_senders: 0,
+    total_messages: 0, aligned_messages: 0, failed_messages: 0 };
+  for (const x of senders) {
+    s.total_messages   += x.total_messages || 0;
+    s.aligned_messages += x.aligned_messages || 0;
+    s.failed_messages  += x.failed_messages || 0;
+    const c = x.classification || "unknown";
+    if (c === "trusted") s.trusted_senders++;
+    else if (c === "suspicious") s.suspicious_senders++;
+    else if (c === "threat") s.threat_senders++;
+    else if (c === "ignored") s.ignored_senders++;
+    else s.unknown_senders++;
+  }
+  s.overall_pass_rate = s.total_messages > 0 ? Math.round((s.aligned_messages / s.total_messages) * 1000) / 10 : 0;
+  return s;
+}
+function emailSenderToApi(x) {
+  return {
+    id: x.id, source_ip: x.source_ip,
+    provider_guess: x.provider_guess, provider_confidence: x.provider_confidence, provider_reason: x.provider_reason,
+    first_seen: x.first_seen, last_seen: x.last_seen,
+    total_messages: x.total_messages || 0, aligned_messages: x.aligned_messages || 0, failed_messages: x.failed_messages || 0,
+    quarantined_messages: x.quarantined_messages || 0, rejected_messages: x.rejected_messages || 0,
+    pass_rate: typeof x.pass_rate === "number" ? x.pass_rate : 0,
+    classification: x.classification || "unknown",
+    notes: x.notes || null,
+    risk_level: dmarcSenderRiskLevel(x),
+    recommended_action: dmarcSenderRecommendedAction(x),
+  };
+}
+
+// Additive remediation actions derived from imported DMARC report data.
+function buildDmarcReportRemediationActions(senders, readiness) {
+  const actions = [];
+  const unknowns = senders.filter((s) => (s.classification || "unknown") === "unknown");
+  const highVolFailed = senders.filter((s) => (s.total_messages || 0) >= 50 && (typeof s.pass_rate === "number" ? s.pass_rate : 100) < 90);
+  if (unknowns.length > 0) {
+    actions.push(remediationAction("unknown_sender_detected", "DMARC", "medium",
+      "Unknown email sender detected in DMARC reports",
+      `${unknowns.length} source IP(s) sent mail using this domain but have not been classified.`,
+      "Unknown senders may represent legitimate services, forwarding, or attempted impersonation.",
+      "Review each sender, confirm ownership, and classify it as trusted, suspicious, threat, ignored, or unknown."));
+    actions.push(remediationAction("sender_needs_classification", "DMARC", "low",
+      "Classify observed email senders",
+      `${unknowns.length} sender(s) are awaiting classification.`,
+      "Until senders are classified, DMARC enforcement readiness cannot be confirmed.",
+      "Open Email Protection and classify each observed sender."));
+  }
+  if (highVolFailed.length > 0) {
+    actions.push(remediationAction("high_volume_alignment_failure", "DMARC", "high",
+      "High-volume sender failing DMARC alignment",
+      `${highVolFailed.length} sender(s) send significant volume but frequently fail SPF/DKIM alignment.`,
+      "Legitimate mail may be lost at enforcement, or an unauthorised sender may be active.",
+      "Confirm whether the sender is legitimate; if so, correct its SPF/DKIM alignment before enforcement.",
+      { caution: "Do not move to enforcement until high-volume senders are aligned or confirmed unauthorised." }));
+  }
+  if (readiness?.ready_for_quarantine) {
+    actions.push(remediationAction("ready_for_quarantine_review", "DMARC", "low",
+      "Review readiness to move to quarantine",
+      "Observed traffic appears mostly aligned over the reporting window.",
+      "Moving to quarantine increases protection against impersonation once senders are confirmed.",
+      readiness.next_step,
+      { caution: "Confirm all legitimate senders before changing policy." }));
+  } else {
+    actions.push(remediationAction("not_ready_for_reject", "DMARC", "info",
+      "Not yet ready for reject enforcement",
+      readiness?.explanation || "Enforcement readiness has not been met.",
+      "Premature enforcement can cause legitimate mail to be rejected.",
+      readiness?.next_step || "Classify senders and improve alignment before enforcement."));
+  }
+  return actions;
+}
+
+// Additive Executive-Report evidence: a compact sender-intelligence summary.
+async function buildDmarcSenderIntelligenceEvidence(env, workspaceId, domain) {
+  if (!workspaceId || !domain) return null;
+  try {
+    const senders = await loadEmailSenderSources(env, workspaceId, domain);
+    const window = await env.cybermeters_db
+      .prepare(`SELECT COUNT(*) AS c, MIN(date_range_begin) AS minb, MAX(date_range_end) AS maxe
+                FROM dmarc_aggregate_reports WHERE workspace_id = ? AND domain = ?`)
+      .bind(workspaceId, domain).first();
+    const imported = window?.c || 0;
+    if (imported === 0 && senders.length === 0) return null;
+    const summary = summarizeEmailSenders(senders);
+    const daysWithData = (window?.minb && window?.maxe) ? Math.max(1, Math.round((window.maxe - window.minb) / 86400)) : 0;
+    const highVolFailed = senders.filter((s) => (s.total_messages || 0) >= 50 && (typeof s.pass_rate === "number" ? s.pass_rate : 100) < 90).length;
+    const readiness = buildDmarcEnforcementReadiness({
+      days_with_data: daysWithData, total_messages: summary.total_messages,
+      pass_rate: summary.overall_pass_rate, unknown_senders: summary.unknown_senders,
+      high_volume_failed_senders: highVolFailed,
+    });
+    return {
+      imported_reports: imported,
+      observed_senders: summary.total_senders,
+      unknown_senders: summary.unknown_senders,
+      total_messages: summary.total_messages,
+      failed_messages: summary.failed_messages,
+      pass_rate: summary.overall_pass_rate,
+      readiness_stage: readiness.ready_for_reject ? "reject_ready" : readiness.ready_for_quarantine ? "quarantine_ready" : "monitoring",
+    };
+  } catch { return null; }
+}
+
 /**
  * Enrich existing SPF result (from runEmailModule) with status/score/issue.
  * Ported from spf.py analyze_spf() — status enum: PASS / SOFTFAIL / FAIL / PARTIAL / MISSING.
@@ -23694,7 +24097,17 @@ export default {
               .first()
           : null;
 
-        return json(buildExecutiveReportV2({ scan, rawReport, workspace }));
+        const execReport = buildExecutiveReportV2({ scan, rawReport, workspace });
+        // Additive: attach DMARC sender-intelligence evidence to the Business Email
+        // engine when imported report data exists. Never alters existing structure.
+        try {
+          const senderIntel = await buildDmarcSenderIntelligenceEvidence(
+            env, access.workspace_id || null, scan.domain || rawReport.domain || null);
+          if (senderIntel && execReport?.intelligence_engines?.business_email?.evidence) {
+            execReport.intelligence_engines.business_email.evidence.dmarc_sender_intelligence = senderIntel;
+          }
+        } catch { /* non-fatal — exec report remains unchanged */ }
+        return json(execReport);
       } catch (error) {
         return serverError("executive-report-v2", error, "Executive report could not be generated.");
       }
@@ -29343,6 +29756,237 @@ export default {
         return json({ imported, skipped, invalid: invalid.length, trimmed: trimmedCount, total: rawList.length }, 200);
       } catch (e) {
         return serverError("api", e);
+      }
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // DMARC Report Ingestion & Sender Intelligence v1 — manual import + reads.
+    // All routes are workspace-scoped and validate domain ownership. Additive.
+    // ════════════════════════════════════════════════════════════════════════
+
+    // ── POST /api/workspaces/:wsid/domains/:domain/dmarc-reports/import ───────
+    const dmarcImportMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/domains\/([^/]+)\/dmarc-reports\/import$/);
+    if (dmarcImportMatch && request.method === "POST") {
+      const workspaceId = dmarcImportMatch[1];
+      const domain = decodeURIComponent(dmarcImportMatch[2]).toLowerCase();
+      try {
+        const user = await requireAuth(request, env);
+        if (!user) return json({ error: "Unauthorized" }, 401);
+        const access = await requireWorkspaceRole(user, workspaceId, "scan:create", env);
+        if (!access) return json({ error: "Forbidden" }, 403);
+        const domainId = await resolveWorkspaceDomain(env, workspaceId, domain);
+        if (!domainId) return json({ error: "Domain not found in this workspace" }, 404);
+
+        const body = await request.json().catch(() => null);
+        if (!body || typeof body.xml !== "string") {
+          return json({ imported: false, error: "missing_xml", message: "Request must include an 'xml' string." }, 400);
+        }
+        // Filename is for display/audit only — never used for any file I/O.
+        const filename = typeof body.filename === "string"
+          ? body.filename.replace(/[^A-Za-z0-9._!@-]/g, "_").slice(0, 200) : null;
+
+        const parsed = parseDmarcAggregateXml(body.xml);
+        if (parsed.error) {
+          return json({ imported: false, error: parsed.error, message: parsed.message }, 422);
+        }
+
+        const rawHash = await sha256Hex(body.xml);
+        const m = parsed.metadata;
+        const externalReportId = m.report_id || rawHash.slice(0, 32);
+
+        // Dedupe (null-safe with IS) — the same report is never double-counted.
+        const dup = await env.cybermeters_db
+          .prepare(`SELECT id FROM dmarc_aggregate_reports
+                    WHERE workspace_id = ? AND domain = ? AND org_name IS ?
+                      AND external_report_id = ? AND date_range_begin IS ? AND date_range_end IS ? LIMIT 1`)
+          .bind(workspaceId, domain, m.org_name || null, externalReportId, m.date_range_begin || null, m.date_range_end || null)
+          .first();
+        if (dup) return json({ imported: false, duplicate: true, message: "Report already imported" });
+
+        const reportId = createId("dmarcrep");
+        const pol = parsed.policy_published || {};
+        const messageCount = parsed.records.reduce((a, r) => a + (r.count || 0), 0);
+        await env.cybermeters_db
+          .prepare(`INSERT INTO dmarc_aggregate_reports
+                    (id, workspace_id, domain, org_name, report_email, external_report_id, date_range_begin, date_range_end,
+                     policy_domain, policy_adkim, policy_aspf, policy_p, policy_sp, policy_pct,
+                     record_count, message_count, raw_hash, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`)
+          .bind(reportId, workspaceId, domain, m.org_name || null, m.email || null, externalReportId,
+                m.date_range_begin || null, m.date_range_end || null, pol.domain || null, pol.adkim || null,
+                pol.aspf || null, pol.p || null, pol.sp || null, pol.pct ?? null,
+                parsed.records.length, messageCount, rawHash)
+          .run();
+
+        for (const r of parsed.records) {
+          await env.cybermeters_db
+            .prepare(`INSERT INTO dmarc_aggregate_records
+                      (id, report_id, workspace_id, domain, source_ip, message_count, disposition,
+                       dkim_aligned_result, spf_aligned_result, header_from, envelope_from,
+                       dkim_domain, dkim_selector, dkim_result, spf_domain, spf_result, created_at)
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`)
+            .bind(createId("dmarcrec"), reportId, workspaceId, domain, r.source_ip || null, r.count || 0,
+                  r.disposition || null, r.dkim_aligned_result || null, r.spf_aligned_result || null,
+                  r.header_from || null, r.envelope_from || null, r.dkim_domain || null, r.dkim_selector || null,
+                  r.dkim_result || null, r.spf_domain || null, r.spf_result || null)
+            .run();
+        }
+
+        const rollup = await updateEmailSenderSources(env, workspaceId, domain, parsed);
+        await createAuditEvent(env, {
+          workspace_id: workspaceId, user_id: user.id, event_type: "dmarc_report_imported",
+          entity_type: "domain", entity_id: domainId,
+          description: `Imported DMARC report for ${domain} from ${m.org_name || "unknown reporter"}`,
+          metadata: { domain, org_name: m.org_name, report_id: externalReportId,
+                      records: parsed.records.length, messages: messageCount, filename },
+        });
+        return json({ imported: true, duplicate: false, report_id: reportId,
+          records_imported: parsed.records.length, messages_imported: messageCount,
+          sources_updated: rollup.sources_updated });
+      } catch (e) {
+        return serverError("dmarc-import", e, "DMARC report import failed.");
+      }
+    }
+
+    // ── GET /api/workspaces/:wsid/domains/:domain/email-senders ──────────────
+    const emailSendersMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/domains\/([^/]+)\/email-senders$/);
+    if (emailSendersMatch && request.method === "GET") {
+      const workspaceId = emailSendersMatch[1];
+      const domain = decodeURIComponent(emailSendersMatch[2]).toLowerCase();
+      try {
+        const user = await requireAuth(request, env);
+        if (!user) return json({ error: "Unauthorized" }, 401);
+        const access = await requireWorkspaceRole(user, workspaceId, "workspace:read", env);
+        if (!access) return json({ error: "Forbidden" }, 403);
+        const domainId = await resolveWorkspaceDomain(env, workspaceId, domain);
+        if (!domainId) return json({ error: "Domain not found in this workspace" }, 404);
+        const senders = await loadEmailSenderSources(env, workspaceId, domain);
+        return json({ domain, senders: senders.map(emailSenderToApi), summary: summarizeEmailSenders(senders) });
+      } catch (e) {
+        return serverError("email-senders", e, "Could not load email senders.");
+      }
+    }
+
+    // ── POST /api/workspaces/:wsid/domains/:domain/email-senders/:source_id/classify ──
+    const classifyMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/domains\/([^/]+)\/email-senders\/([^/]+)\/classify$/);
+    if (classifyMatch && request.method === "POST") {
+      const workspaceId = classifyMatch[1];
+      const domain = decodeURIComponent(classifyMatch[2]).toLowerCase();
+      const sourceId = classifyMatch[3];
+      try {
+        const user = await requireAuth(request, env);
+        if (!user) return json({ error: "Unauthorized" }, 401);
+        const access = await requireWorkspaceRole(user, workspaceId, "scan:create", env);
+        if (!access) return json({ error: "Forbidden" }, 403);
+        const domainId = await resolveWorkspaceDomain(env, workspaceId, domain);
+        if (!domainId) return json({ error: "Domain not found in this workspace" }, 404);
+
+        const body = await request.json().catch(() => null);
+        const classification = body?.classification;
+        const ALLOWED = ["trusted", "suspicious", "threat", "ignored", "unknown"];
+        if (!ALLOWED.includes(classification)) {
+          return json({ error: `classification must be one of: ${ALLOWED.join(", ")}` }, 400);
+        }
+        const notes = typeof body?.notes === "string" ? body.notes.slice(0, 1000) : null;
+
+        const sender = await env.cybermeters_db
+          .prepare(`SELECT * FROM email_sender_sources WHERE id = ? AND workspace_id = ? AND domain = ? LIMIT 1`)
+          .bind(sourceId, workspaceId, domain).first();
+        if (!sender) return json({ error: "Sender not found for this workspace/domain" }, 404);
+
+        await env.cybermeters_db
+          .prepare(`UPDATE email_sender_sources SET classification = ?, notes = ?, updated_at = datetime('now') WHERE id = ?`)
+          .bind(classification, notes, sourceId).run();
+        await createAuditEvent(env, {
+          workspace_id: workspaceId, user_id: user.id, event_type: "email_sender_classified",
+          entity_type: "email_sender", entity_id: sourceId,
+          description: `Classified sender ${sender.source_ip} as ${classification} for ${domain}`,
+          metadata: { domain, source_ip: sender.source_ip, classification },
+        });
+        return json({ sender: emailSenderToApi({ ...sender, classification, notes }) });
+      } catch (e) {
+        return serverError("email-sender-classify", e, "Could not classify sender.");
+      }
+    }
+
+    // ── GET /api/workspaces/:wsid/domains/:domain/dmarc-summary?days=30 ───────
+    const dmarcSummaryMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/domains\/([^/]+)\/dmarc-summary$/);
+    if (dmarcSummaryMatch && request.method === "GET") {
+      const workspaceId = dmarcSummaryMatch[1];
+      const domain = decodeURIComponent(dmarcSummaryMatch[2]).toLowerCase();
+      try {
+        const user = await requireAuth(request, env);
+        if (!user) return json({ error: "Unauthorized" }, 401);
+        const access = await requireWorkspaceRole(user, workspaceId, "workspace:read", env);
+        if (!access) return json({ error: "Forbidden" }, 403);
+        const domainId = await resolveWorkspaceDomain(env, workspaceId, domain);
+        if (!domainId) return json({ error: "Domain not found in this workspace" }, 404);
+
+        const days = Math.min(365, Math.max(1, parseInt(url.searchParams.get("days") || "30", 10) || 30));
+        const cutoff = Math.floor(Date.now() / 1000) - days * 86400;
+
+        const senders = await loadEmailSenderSources(env, workspaceId, domain);
+        const sSummary = summarizeEmailSenders(senders);
+
+        const dispoRows = await env.cybermeters_db
+          .prepare(`SELECT r.disposition AS disposition, SUM(r.message_count) AS msgs,
+                           SUM(CASE WHEN r.spf_aligned_result='pass' OR r.dkim_aligned_result='pass'
+                                    THEN r.message_count ELSE 0 END) AS aligned
+                    FROM dmarc_aggregate_records r
+                    JOIN dmarc_aggregate_reports rep ON rep.id = r.report_id
+                    WHERE r.workspace_id = ? AND r.domain = ? AND (rep.date_range_end IS NULL OR rep.date_range_end >= ?)
+                    GROUP BY r.disposition`)
+          .bind(workspaceId, domain, cutoff).all();
+        const disposition = { none: 0, quarantine: 0, reject: 0 };
+        let totalMsgs = 0, alignedMsgs = 0;
+        for (const row of (dispoRows.results || [])) {
+          const d = row.disposition || "none";
+          const msgs = row.msgs || 0;
+          totalMsgs += msgs; alignedMsgs += row.aligned || 0;
+          if (d === "quarantine") disposition.quarantine += msgs;
+          else if (d === "reject") disposition.reject += msgs;
+          else disposition.none += msgs;
+        }
+        const failedMsgs = Math.max(0, totalMsgs - alignedMsgs);
+        const passRate = totalMsgs > 0 ? Math.round((alignedMsgs / totalMsgs) * 1000) / 10 : sSummary.overall_pass_rate;
+
+        const window = await env.cybermeters_db
+          .prepare(`SELECT COUNT(*) AS c, MIN(date_range_begin) AS minb, MAX(date_range_end) AS maxe
+                    FROM dmarc_aggregate_reports WHERE workspace_id = ? AND domain = ?`)
+          .bind(workspaceId, domain).first();
+        const daysWithData = (window?.minb && window?.maxe) ? Math.max(1, Math.round((window.maxe - window.minb) / 86400)) : 0;
+        const highVolFailed = senders.filter((s) => (s.total_messages || 0) >= 50 && (typeof s.pass_rate === "number" ? s.pass_rate : 100) < 90).length;
+        const readiness = buildDmarcEnforcementReadiness({
+          days_with_data: daysWithData, total_messages: totalMsgs || sSummary.total_messages,
+          pass_rate: passRate, unknown_senders: sSummary.unknown_senders, high_volume_failed_senders: highVolFailed,
+        });
+
+        let level = "low";
+        if (sSummary.threat_senders > 0 || passRate < 80) level = "high";
+        else if (sSummary.unknown_senders > 0 || passRate < 95) level = "medium";
+
+        return json({
+          domain, period_days: days,
+          traffic: { total_messages: totalMsgs, aligned_messages: alignedMsgs, failed_messages: failedMsgs, pass_rate: passRate },
+          senders: { total: sSummary.total_senders, trusted: sSummary.trusted_senders, unknown: sSummary.unknown_senders,
+                     suspicious: sSummary.suspicious_senders, threat: sSummary.threat_senders, ignored: sSummary.ignored_senders },
+          disposition,
+          readiness,
+          business_risk: {
+            level,
+            summary: level === "low"
+              ? "Email authentication alignment looks healthy across observed senders."
+              : "Unknown email senders and failed alignment may increase impersonation and invoice-fraud risk.",
+          },
+          cybermeters_correlation: {
+            external_attack_surface_note: "Email impersonation risk should be reviewed alongside exposed assets, SaaS exposure, and third-party dependencies.",
+            linked_modules: ["assets", "saas_exposure", "vendors", "business_risk"],
+            correlation_status: "placeholder",
+          },
+          report_remediation_actions: buildDmarcReportRemediationActions(senders, readiness),
+        });
+      } catch (e) {
+        return serverError("dmarc-summary", e, "Could not build DMARC summary.");
       }
     }
 
