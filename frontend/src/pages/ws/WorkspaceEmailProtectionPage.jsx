@@ -1095,7 +1095,8 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
   const [busy, setBusy]         = useState(false)
   const [err, setErr]           = useState(null)
   const [provider, setProvider] = useState('cloudflare')
-  const [rechecking, setRechecking] = useState(false)
+  const [checking, setChecking] = useState(false)
+  const [liveStatus, setLiveStatus] = useState(null) // live DNS-check result status
 
   const load = useCallback(async () => {
     if (!domain) return
@@ -1107,7 +1108,8 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
     finally { setLoading(false) }
   }, [wsId, domain])
 
-  useEffect(() => { load() }, [load])
+  // Reset the live verification result whenever the selected domain changes.
+  useEffect(() => { setLiveStatus(null); load() }, [load])
 
   async function activate() {
     setBusy(true); setErr(null)
@@ -1117,8 +1119,24 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
     } catch (e) { setErr(e.message || 'Could not start DMARC setup.') }
     finally { setBusy(false) }
   }
-  async function recheck() {
-    setRechecking(true); try { await load() } finally { setRechecking(false) }
+  // Live DNS verification — calls the backend DMARC DNS check and maps the
+  // returned status to wizard state. Raw errors are never surfaced.
+  async function verifyDns() {
+    setChecking(true); setErr(null)
+    try {
+      const res = await api.verifyDmarcDns(wsId, domain)
+      setLiveStatus(res?.status || 'dns_lookup_failed')
+    } catch {
+      setLiveStatus('dns_lookup_failed')
+    } finally {
+      setChecking(false)
+    }
+    // Silently refresh the endpoint so report-receiving state stays current
+    // (no loading flicker on the whole wizard).
+    try {
+      const r = await api.getDmarcIngestEndpoint(wsId, domain)
+      setEndpoint(r?.endpoint || null)
+    } catch { /* non-fatal */ }
   }
 
   const inboundAddress = endpoint?.inbound_address || null
@@ -1136,8 +1154,10 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
   //    reporting address. Unknown when we have no current DMARC data.
   // 2) Report receiving: connected once an inbound report has arrived.
   // Fully connected requires BOTH — receiving alone is NOT "Connected".
-  const dnsKnown       = Boolean(hasScanData)
-  const dnsVerified    = dnsKnown && present && already
+  // The live DNS check (when run) is authoritative for DNS-verified state;
+  // before any check, fall back to the latest scan's DMARC record.
+  const dnsKnown       = liveStatus != null || Boolean(hasScanData)
+  const dnsVerified    = liveStatus != null ? liveStatus === 'verified' : (Boolean(hasScanData) && present && already)
   const receiving      = Boolean(endpoint?.last_inbound_at)
   const fullyConnected = dnsVerified && receiving
   const needsDnsAction = receiving && !dnsVerified
@@ -1153,13 +1173,29 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
     recommendedValue = existingRaw
   }
 
-  // Verify status is derived from current data (no click required).
-  const verifyState = !dnsKnown ? 'unavailable' : (!present ? 'no_dmarc' : (already ? 'configured' : 'missing_rua'))
+  // Map the live DNS-check status to a wizard message key. Before any live
+  // check, derive a sensible state from the latest scan's DMARC record.
+  const LIVE_MAP = {
+    verified:               'configured',
+    missing_cybermeters_rua:'missing_rua',
+    no_dmarc:               'no_dmarc',
+    invalid_dmarc:          'invalid',
+    multiple_dmarc_records: 'multiple',
+    endpoint_missing:       'endpoint_missing',
+    dns_lookup_failed:      'lookup_failed',
+  }
+  const verifyState = liveStatus
+    ? (LIVE_MAP[liveStatus] || 'lookup_failed')
+    : (!hasScanData ? 'unavailable' : (!present ? 'no_dmarc' : (already ? 'configured' : 'missing_rua')))
   const VERIFY_MSG = {
-    configured:  { kind: 'good', icon: CheckCircle, text: 'DNS looks correctly configured. Your CyberMeters reporting address is in the DMARC record.' },
-    missing_rua: { kind: 'warn', icon: AlertTriangle, text: 'DMARC exists, but CyberMeters reporting address is not included yet. Add it to the rua= tag (see the value above) — do not delete your existing record.' },
-    no_dmarc:    { kind: 'warn', icon: Info, text: 'No DMARC record detected yet. Add the TXT record above, then check again.' },
-    unavailable: { kind: 'na',   icon: Info, text: 'Verification will run on the next scan. For now, this is confirmed once your DNS record includes the CyberMeters address.' },
+    configured:       { kind: 'good', icon: CheckCircle, text: 'DNS looks correctly configured. Your CyberMeters reporting address is in the DMARC record.' },
+    missing_rua:      { kind: 'warn', icon: AlertTriangle, text: 'DMARC exists, but CyberMeters reporting address is not included yet. Add it to the rua= tag (see the value above) — do not delete your existing record.' },
+    no_dmarc:         { kind: 'warn', icon: Info, text: 'No DMARC record found yet. Add the TXT record above, then check again.' },
+    invalid:          { kind: 'warn', icon: AlertTriangle, text: 'We found a DMARC record, but it could not be read as valid. Check the record value above, then re-check.' },
+    multiple:         { kind: 'warn', icon: AlertTriangle, text: 'More than one DMARC record was found at _dmarc. DNS allows only one — remove the extra record, then re-check.' },
+    endpoint_missing: { kind: 'na',   icon: Info, text: 'Create your reporting address first (use “Activate DMARC reporting” above), then add it to your DMARC record and re-check.' },
+    lookup_failed:    { kind: 'na',   icon: Info, text: 'We couldn’t check your DNS just now. This is common while DNS is updating — please try again in a few minutes.' },
+    unavailable:      { kind: 'na',   icon: Info, text: 'Click “Verify setup” to check your DNS now, or it will be confirmed automatically once your record includes the CyberMeters address.' },
   }
   const vm = VERIFY_MSG[verifyState]
 
@@ -1260,8 +1296,8 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
               <div className={`rounded-lg border p-3 text-sm flex gap-2 ${vm.kind === 'good' ? 'border-brand-100 bg-brand-50/50 text-brand-800' : vm.kind === 'warn' ? 'border-amber-200 bg-amber-50/50 text-amber-900' : 'border-gray-200 bg-gray-50 text-gray-600'}`}>
                 <vm.icon className="w-4 h-4 flex-shrink-0 mt-0.5" /><span>{vm.text}</span>
               </div>
-              <button onClick={recheck} disabled={rechecking} className="btn-secondary text-sm disabled:opacity-50">
-                {rechecking ? <><RefreshCw className="w-4 h-4 animate-spin" /> Checking…</> : <><ShieldCheck className="w-4 h-4" /> Verify setup</>}
+              <button onClick={verifyDns} disabled={checking} className="btn-secondary text-sm disabled:opacity-50">
+                {checking ? <><RefreshCw className="w-4 h-4 animate-spin" /> Checking DNS…</> : <><ShieldCheck className="w-4 h-4" /> Verify setup</>}
               </button>
             </div>
 
