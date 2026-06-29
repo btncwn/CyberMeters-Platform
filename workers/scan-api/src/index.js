@@ -6318,6 +6318,120 @@ function parseDmarcRecord(record, recordCount = record ? 1 : 0) {
   };
 }
 
+function normalizeDmarcRuaForComparison(value) {
+  return String(value || "").trim().toLowerCase().replace(/!\d+[kmgt]?$/i, "");
+}
+
+// Preserve the customer's existing DMARC tags and policy. This helper only
+// adds the CyberMeters aggregate-reporting URI; it never recommends stronger
+// enforcement or mutates DNS.
+function buildDmarcDnsRecommendedValue(record, recommendedRua) {
+  const raw = normalizeDnsTxtValue(record);
+  if (!raw) return `v=DMARC1; p=none; rua=${recommendedRua}`;
+  const parts = raw.split(";").map((part) => part.trim()).filter(Boolean);
+  const ruaIndex = parts.findIndex((part) => /^rua\s*=/i.test(part));
+  if (ruaIndex < 0) parts.push(`rua=${recommendedRua}`);
+  else {
+    const eq = parts[ruaIndex].indexOf("=");
+    const existing = parts[ruaIndex].slice(eq + 1).split(",").map((value) => value.trim()).filter(Boolean);
+    const wanted = normalizeDmarcRuaForComparison(recommendedRua);
+    if (!existing.some((value) => normalizeDmarcRuaForComparison(value) === wanted)) existing.push(recommendedRua);
+    parts[ruaIndex] = `rua=${existing.join(",")}`;
+  }
+  return parts.join("; ").slice(0, 4096);
+}
+
+function _dmarcDnsCheckResponse(domain, endpoint, records, checkedAt) {
+  const inboundDomain = normalizeInboundRecipientDomain(endpoint.inbound_domain || RUA_INBOUND_DOMAIN_DEFAULT)
+    || RUA_INBOUND_DOMAIN_DEFAULT;
+  const recommendedRua = `mailto:${endpoint.address_local}@${inboundDomain}`;
+  const base = {
+    domain,
+    checked_at: checkedAt,
+    dmarc_present: records.length > 0,
+    cybermeters_rua_present: false,
+    policy: null,
+    subdomain_policy: null,
+    pct: null,
+    rua: [],
+    recommended_rua: recommendedRua,
+    recommended_txt_value: records.length === 0
+      ? buildDmarcDnsRecommendedValue(null, recommendedRua) : null,
+  };
+  if (records.length === 0) return {
+    ...base, status: "no_dmarc", message: "No DMARC record was found.",
+  };
+  if (records.length > 1) return {
+    ...base, status: "multiple_dmarc_records",
+    message: "Multiple DMARC records were found. Publish exactly one DMARC record before verifying reporting.",
+  };
+
+  const record = records[0];
+  const detail = parseDmarcRecord(record, 1);
+  const safeRua = detail.rua.slice(0, 20).map((value) => String(value).slice(0, 512));
+  const response = {
+    ...base,
+    policy: detail.policy,
+    subdomain_policy: detail.subdomain_policy,
+    pct: detail.pct,
+    rua: safeRua,
+    recommended_txt_value: buildDmarcDnsRecommendedValue(record, recommendedRua),
+  };
+  if (!detail.valid) return {
+    ...response, status: "invalid_dmarc",
+    message: "A DMARC record was found, but it is not valid.",
+  };
+  const wanted = normalizeDmarcRuaForComparison(recommendedRua);
+  const present = safeRua.some((value) => normalizeDmarcRuaForComparison(value) === wanted);
+  return present
+    ? { ...response, cybermeters_rua_present: true, status: "verified",
+        message: "DMARC record includes the CyberMeters reporting address." }
+    : { ...response, status: "missing_cybermeters_rua",
+        message: "DMARC exists, but the CyberMeters reporting address is not included yet." };
+}
+
+async function verifyDmarcDnsSetup(env, workspaceId, domain, {
+  dnsQueryImpl = dnsQuery,
+  checkedAt = new Date().toISOString(),
+} = {}) {
+  // Select only the one non-secret value required for comparison. token_hash,
+  // Cloudflare route identifiers, and raw upload tokens never enter the result.
+  const endpoint = await env.cybermeters_db
+    .prepare(`SELECT address_local FROM dmarc_ingest_endpoints
+              WHERE workspace_id = ? AND domain = ? AND status = 'active' AND revoked_at IS NULL
+              ORDER BY created_at DESC LIMIT 1`)
+    .bind(workspaceId, domain).first();
+  if (!endpoint?.address_local || !/^cmrua_[a-z0-9]{8,}$/.test(endpoint.address_local)) return {
+    domain,
+    checked_at: checkedAt,
+    status: "endpoint_missing",
+    message: "Create a CyberMeters reporting address before verifying DNS.",
+  };
+
+  const inboundDomain = normalizeInboundRecipientDomain(env.RUA_INBOUND_DOMAIN || RUA_INBOUND_DOMAIN_DEFAULT)
+    || RUA_INBOUND_DOMAIN_DEFAULT;
+  const boundEndpoint = { address_local: endpoint.address_local, inbound_domain: inboundDomain };
+  let response;
+  try { response = await dnsQueryImpl(`_dmarc.${domain}`, "TXT"); }
+  catch {
+    return {
+      domain, checked_at: checkedAt, status: "dns_lookup_failed",
+      message: "The DMARC DNS lookup could not be completed.",
+    };
+  }
+  const dnsStatus = Number(response?.Status ?? 0);
+  if (dnsStatus !== 0 && dnsStatus !== 3) return {
+    domain, checked_at: checkedAt, status: "dns_lookup_failed",
+    message: "The DMARC DNS lookup could not be completed.",
+  };
+  const records = (response?.Answer || [])
+    .map((answer) => normalizeDnsTxtValue(answer?.data)
+      .replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 4096))
+    .filter((value) => /^v=DMARC1(?:\s*;|$)/i.test(value))
+    .slice(0, 3);
+  return _dmarcDnsCheckResponse(domain, boundEndpoint, records, checkedAt);
+}
+
 function parseSpfRecord(record, recordCount = record ? 1 : 0) {
   const raw = normalizeDnsTxtValue(record);
   const tokens = raw.split(/\s+/).filter(Boolean);
@@ -30642,6 +30756,34 @@ export default {
     const ingestEpRotateMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/domains\/([^/]+)\/dmarc-ingest-endpoint\/rotate$/);
     const ingestEpRevokeMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/domains\/([^/]+)\/dmarc-ingest-endpoint\/revoke$/);
     const ingestEpMatch       = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/domains\/([^/]+)\/dmarc-ingest-endpoint$/);
+    const dmarcDnsCheckMatch  = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/domains\/([^/]+)\/dmarc-dns-check$/);
+
+    // GET .../dmarc-dns-check — live, read-only DMARC RUA verification.
+    if (dmarcDnsCheckMatch && request.method === "GET") {
+      const workspaceId = dmarcDnsCheckMatch[1];
+      const domain = decodeURIComponent(dmarcDnsCheckMatch[2]).toLowerCase();
+      try {
+        const user = await requireAuth(request, env);
+        if (!user) return json({
+          domain, status: "unauthorized", message: "Authentication is required.",
+        }, 401);
+        const access = await requireWorkspaceRole(user, workspaceId, "workspace:read", env);
+        if (!access) return json({
+          domain, status: "unauthorized", message: "Workspace access is required.",
+        }, 403);
+        const domainId = await resolveWorkspaceDomain(env, workspaceId, domain);
+        if (!domainId) return json({
+          domain, status: "domain_not_in_workspace",
+          message: "Domain not found in this workspace.",
+        }, 404);
+        return json(await verifyDmarcDnsSetup(env, workspaceId, domain));
+      } catch {
+        return json({
+          domain, status: "dns_lookup_failed",
+          message: "The DMARC DNS lookup could not be completed.",
+        }, 502);
+      }
+    }
 
     // POST .../dmarc-ingest-endpoint — create (idempotent; never duplicates).
     if (ingestEpMatch && request.method === "POST") {

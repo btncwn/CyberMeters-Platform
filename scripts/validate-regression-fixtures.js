@@ -79,6 +79,8 @@ function loadScanner(fetchImpl = async () => { throw new Error("network disabled
     runCertificateIntelligenceModule,
     buildCertificateOwnershipAssessment,
     parseDmarcRecord,
+    buildDmarcDnsRecommendedValue,
+    verifyDmarcDnsSetup,
     parseSpfRecord,
     buildDmarcPolicyJourney,
     buildDkimDetail,
@@ -801,6 +803,117 @@ results.push(
       !rendered.html.includes("cybermeters.pages.dev");
   }),
 );
+
+function _dmarcDnsCheckEnv(endpoint = { address_local: "cmrua_abc123def456" }) {
+  return {
+    RUA_INBOUND_DOMAIN: "reports.cybermeters.com",
+    cybermeters_db: {
+      prepare() {
+        return {
+          bind() { return this; },
+          async first() { return endpoint; },
+        };
+      },
+    },
+  };
+}
+
+function _dmarcDnsAnswer(...records) {
+  return { Status: 0, Answer: records.map((data) => ({ type: 16, data: `"${data}"` })) };
+}
+
+const DMARC_DNS_CHECKED_AT = "2026-06-29T12:00:00.000Z";
+
+results.push(await asyncSecurityContract("dmarc_dns_check_verified_when_rua_present", async () => {
+  const result = await scanner.verifyDmarcDnsSetup(
+    _dmarcDnsCheckEnv(), "workspace-1", "example.com",
+    { checkedAt: DMARC_DNS_CHECKED_AT, dnsQueryImpl: async () =>
+      _dmarcDnsAnswer("v=DMARC1; p=none; rua=mailto:existing@example.com, MAILTO:CMRUA_ABC123DEF456@REPORTS.CYBERMETERS.COM ") }
+  );
+  return result.status === "verified" && result.dmarc_present === true &&
+    result.cybermeters_rua_present === true && result.policy === "none" &&
+    result.recommended_rua === "mailto:cmrua_abc123def456@reports.cybermeters.com";
+}));
+
+results.push(await asyncSecurityContract("dmarc_dns_check_missing_cybermeters_rua", async () => {
+  const result = await scanner.verifyDmarcDnsSetup(
+    _dmarcDnsCheckEnv(), "workspace-1", "example.com",
+    { checkedAt: DMARC_DNS_CHECKED_AT, dnsQueryImpl: async () =>
+      _dmarcDnsAnswer("v=DMARC1; p=none; rua=mailto:existing@example.com") }
+  );
+  return result.status === "missing_cybermeters_rua" && result.dmarc_present === true &&
+    result.cybermeters_rua_present === false && result.rua[0] === "mailto:existing@example.com";
+}));
+
+results.push(await asyncSecurityContract("dmarc_dns_check_no_dmarc", async () => {
+  const result = await scanner.verifyDmarcDnsSetup(
+    _dmarcDnsCheckEnv(), "workspace-1", "example.com",
+    { checkedAt: DMARC_DNS_CHECKED_AT, dnsQueryImpl: async () => ({ Status: 3, Answer: [] }) }
+  );
+  return result.status === "no_dmarc" && result.dmarc_present === false && result.rua.length === 0 &&
+    result.policy === null &&
+    result.recommended_txt_value === "v=DMARC1; p=none; rua=mailto:cmrua_abc123def456@reports.cybermeters.com";
+}));
+
+results.push(await asyncSecurityContract("dmarc_dns_check_multiple_dmarc_records", async () => {
+  const result = await scanner.verifyDmarcDnsSetup(
+    _dmarcDnsCheckEnv(), "workspace-1", "example.com",
+    { checkedAt: DMARC_DNS_CHECKED_AT, dnsQueryImpl: async () =>
+      _dmarcDnsAnswer("v=DMARC1; p=none", "v=DMARC1; p=reject") }
+  );
+  return result.status === "multiple_dmarc_records" && result.dmarc_present === true &&
+    result.cybermeters_rua_present === false && result.recommended_txt_value === null;
+}));
+
+results.push(await asyncSecurityContract("dmarc_dns_check_endpoint_missing_no_secret_leak", async () => {
+  let dnsCalls = 0;
+  const result = await scanner.verifyDmarcDnsSetup(
+    _dmarcDnsCheckEnv(null), "workspace-1", "example.com",
+    { checkedAt: DMARC_DNS_CHECKED_AT, dnsQueryImpl: async () => { dnsCalls++; throw new Error("not called"); } }
+  );
+  const serialized = JSON.stringify(result);
+  return result.status === "endpoint_missing" && dnsCalls === 0 &&
+    !/token_hash|cloudflare_route_id|raw token|secret/i.test(serialized);
+}));
+
+results.push(await asyncSecurityContract("dmarc_dns_check_recommended_value_preserves_existing_rua", async () => {
+  const record = "v=DMARC1; p=none; sp=none; pct=50; rua=mailto:existing@example.com";
+  const result = await scanner.verifyDmarcDnsSetup(
+    _dmarcDnsCheckEnv(), "workspace-1", "example.com",
+    { checkedAt: DMARC_DNS_CHECKED_AT, dnsQueryImpl: async () => _dmarcDnsAnswer(record) }
+  );
+  const recommended = result.recommended_txt_value;
+  return recommended.includes("p=none") && recommended.includes("sp=none") && recommended.includes("pct=50") &&
+    recommended.includes("mailto:existing@example.com") &&
+    recommended.includes("mailto:cmrua_abc123def456@reports.cybermeters.com") &&
+    !recommended.includes("p=quarantine") && !recommended.includes("p=reject");
+}));
+
+results.push(await asyncSecurityContract("dmarc_dns_check_invalid_record_safe_status", async () => {
+  const result = await scanner.verifyDmarcDnsSetup(
+    _dmarcDnsCheckEnv(), "workspace-1", "example.com",
+    { checkedAt: DMARC_DNS_CHECKED_AT, dnsQueryImpl: async () =>
+      _dmarcDnsAnswer("v=DMARC1; p=invalid; pct=abc; rua=mailto:existing@example.com") }
+  );
+  return result.status === "invalid_dmarc" && result.dmarc_present === true &&
+    result.cybermeters_rua_present === false && !JSON.stringify(result).includes("stack");
+}));
+
+results.push(await asyncSecurityContract("dmarc_dns_check_no_token_hash_or_route_id_leak", async () => {
+  const endpoint = {
+    address_local: "cmrua_abc123def456", token_hash: "SECRET_TOKEN_HASH",
+    cloudflare_route_id: "SECRET_ROUTE_ID", cloudflare_route_error: "SECRET_RAW_ERROR",
+  };
+  const result = await scanner.verifyDmarcDnsSetup(
+    _dmarcDnsCheckEnv(endpoint), "workspace-1", "example.com",
+    { checkedAt: DMARC_DNS_CHECKED_AT, dnsQueryImpl: async () =>
+      _dmarcDnsAnswer("v=DMARC1; p=none; rua=mailto:cmrua_abc123def456@reports.cybermeters.com") }
+  );
+  const serialized = JSON.stringify(result);
+  return result.status === "verified" && !serialized.includes("SECRET_TOKEN_HASH") &&
+    !serialized.includes("SECRET_ROUTE_ID") && !serialized.includes("SECRET_RAW_ERROR") &&
+    !("token_hash" in result) && !("cloudflare_route_id" in result);
+}));
 
 const acceptedRequests = [];
 const acceptedEmailScanner = loadScanner(async (requestUrl, options) => {

@@ -612,6 +612,10 @@ export const api = {
   getDmarcIngestEndpoint: (workspaceId, domain) =>
     request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/dmarc-ingest-endpoint`),
 
+  /** Live read-only DNS verification for the current CyberMeters RUA address. */
+  verifyDmarcDns: (workspaceId, domain) =>
+    request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/dmarc-dns-check`),
+
   /** POST .../dmarc-ingest-endpoint → { created, endpoint } (raw token only on first creation) */
   createDmarcIngestEndpoint: (workspaceId, domain) =>
     request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/dmarc-ingest-endpoint`, {
