@@ -134,13 +134,14 @@ export default function ServiceLauncher() {
           <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-brand-50 border border-brand-100 text-[11px] font-bold text-brand-700 uppercase tracking-[0.14em] mb-3">
             <span className="w-1.5 h-1.5 rounded-full bg-brand-500" /> Welcome to CyberMeters
           </span>
-          <h1 className="page-title">Welcome to CyberMeters{wsName ? <span className="text-gray-400 font-semibold">, {wsName}</span> : ''}</h1>
+          <h1 className="page-title">Welcome to CyberMeters</h1>
           <p className="text-base text-gray-600 mt-2 max-w-2xl leading-relaxed">
             Start by adding a domain, running your first scan, and connecting Email Protection.
           </p>
           <p className="text-sm text-gray-500 mt-1.5 max-w-2xl leading-relaxed">
             CyberMeters helps you monitor email impersonation risk, brand abuse, external attack surface, and certificate trust — all from one workspace.
           </p>
+          {wsName && <p className="text-xs text-gray-400 mt-2">Current workspace: <span className="font-medium text-gray-600">{wsName}</span></p>}
         </header>
 
         {/* 2 · Recommended next action — the clearest section */}
