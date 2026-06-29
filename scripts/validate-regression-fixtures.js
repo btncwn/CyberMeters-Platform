@@ -1468,7 +1468,7 @@ const BEC_BASE = {
   brand: { available: false },
 };
 
-results.push(securityContract("bec_score_dmarc_none_failed_alignment_high", () => {
+results.push(securityContract("bec_score_dmarc_none_failed_alignment_medium_without_sender_risk", () => {
   const r = scanner.computeBecExposureScore({
     ...BEC_BASE,
     dmarc_policy: "none",
@@ -1478,9 +1478,39 @@ results.push(securityContract("bec_score_dmarc_none_failed_alignment_high", () =
     failed_messages: 120,
     cybermeters_rua_verified: false,
   }, { now: "2026-06-29T12:00:00.000Z" });
-  return r.exposure_score >= 65 && r.exposure_level === "high" &&
+  return r.exposure_score >= 46 && r.exposure_level === "medium" &&
     r.reasons.some((reason) => reason.code === "dmarc_policy_none") &&
     r.evidence.pass_rate === 77.1 && r.evidence.failed_messages === 120;
+}));
+
+results.push(securityContract("bec_score_blackbullbarbers_style_high_not_critical", () => {
+  const r = scanner.computeBecExposureScore({
+    ...BEC_BASE,
+    domain: "blackbullbarbers.co.uk",
+    dmarc_policy: "none",
+    reports_received: true,
+    cybermeters_rua_verified: false,
+    spf_status: "valid",
+    dkim_status: "unknown",
+    pass_rate: 77.1,
+    total_messages: 523,
+    aligned_messages: 403,
+    failed_messages: 120,
+    known_senders: 3,
+    unknown_senders: 1,
+    suspicious_senders: 1,
+    high_volume_failing_senders: 1,
+  }, { now: "2026-06-29T12:00:00.000Z" });
+  const reasonCodes = new Set(r.reasons.map((reason) => reason.code));
+  return r.exposure_level === "high" &&
+    r.exposure_score >= 80 && r.exposure_score <= 88 &&
+    r.evidence.reports_received === true &&
+    r.evidence.cybermeters_rua_verified === false &&
+    reasonCodes.has("dmarc_policy_none") &&
+    reasonCodes.has("cybermeters_rua_not_verified") &&
+    reasonCodes.has("dmarc_pass_rate_low") &&
+    reasonCodes.has("suspicious_sender_present") &&
+    reasonCodes.has("high_volume_failing_sender");
 }));
 
 results.push(securityContract("bec_score_reject_policy_good_alignment_low", () => {
@@ -1510,7 +1540,7 @@ results.push(securityContract("bec_score_unknown_and_suspicious_senders_increase
     unknown_senders: 1,
     suspicious_senders: 1,
   }, { now: "2026-06-29T12:00:00.000Z" });
-  return elevated.exposure_score >= base.exposure_score + 23 &&
+  return elevated.exposure_score >= base.exposure_score + 20 &&
     elevated.reasons.some((reason) => reason.code === "unknown_sender_present") &&
     elevated.reasons.some((reason) => reason.code === "suspicious_sender_present");
 }));
@@ -1521,7 +1551,7 @@ results.push(securityContract("bec_score_high_volume_failing_sender_increases_ex
     ...BEC_BASE,
     high_volume_failing_senders: 1,
   }, { now: "2026-06-29T12:00:00.000Z" });
-  return elevated.exposure_score >= base.exposure_score + 18 &&
+  return elevated.exposure_score >= base.exposure_score + 14 &&
     elevated.reasons.some((reason) => reason.code === "high_volume_failing_sender");
 }));
 
@@ -1530,7 +1560,8 @@ results.push(securityContract("bec_score_rua_not_verified_adds_reason", () => {
     ...BEC_BASE,
     cybermeters_rua_verified: false,
   }, { now: "2026-06-29T12:00:00.000Z" });
-  return r.exposure_score >= BEC_BASE.failed_messages + 5 &&
+  return r.exposure_score >= 10 &&
+    r.evidence.cybermeters_rua_verified === false &&
     r.reasons.some((reason) => reason.code === "cybermeters_rua_not_verified") &&
     r.recommended_actions.some((action) => action.code === "add_cybermeters_rua");
 }));
@@ -1601,6 +1632,27 @@ results.push(securityContract("bec_score_clamps_to_100", () => {
     brand: { available: true, high_risk_active_dns: 3, high_risk_mx: 2, suspicious_or_confirmed: 1 },
   }, { now: "2026-06-29T12:00:00.000Z" });
   return r.exposure_score === 100 && r.exposure_level === "critical";
+}));
+
+results.push(securityContract("bec_score_extreme_missing_controls_critical", () => {
+  const r = scanner.computeBecExposureScore({
+    ...BEC_BASE,
+    dmarc_present: false,
+    dmarc_policy: "missing",
+    reports_received: false,
+    spf_status: "missing",
+    dkim_status: "missing",
+    cybermeters_rua_verified: false,
+    pass_rate: 20,
+    total_messages: 10000,
+    aligned_messages: 2000,
+    failed_messages: 8000,
+    unknown_senders: 4,
+    suspicious_senders: 2,
+    high_volume_failing_senders: 2,
+    brand: { available: true, high_risk_active_dns: 2, high_risk_mx: 1, suspicious_or_confirmed: 1 },
+  }, { now: "2026-06-29T12:00:00.000Z" });
+  return r.exposure_level === "critical" && r.exposure_score >= 90;
 }));
 
 results.push(securityContract("bec_endpoint_no_secret_or_raw_error_leak", () => {

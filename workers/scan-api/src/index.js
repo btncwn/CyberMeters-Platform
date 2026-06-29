@@ -7851,10 +7851,10 @@ function buildDmarcBusinessRisk(stats = {}) {
 }
 
 function becExposureLevel(score) {
-  if (score >= 85) return "critical";
-  if (score >= 65) return "high";
-  if (score >= 40) return "medium";
-  if (score >= 15) return "low";
+  if (score >= 90) return "critical";
+  if (score >= 71) return "high";
+  if (score >= 46) return "medium";
+  if (score >= 21) return "low";
   return "minimal";
 }
 
@@ -7883,9 +7883,9 @@ function buildBecExposureSummary(level, evidence = {}, reasons = []) {
     const parts = [];
     if (["missing", "none"].includes(evidence.dmarc_policy)) parts.push("DMARC is not enforcing");
     if ((evidence.failed_messages || 0) > 0) parts.push("failed alignment is material");
-    if ((evidence.suspicious_senders || 0) > 0) parts.push("suspicious senders are present");
-    if ((evidence.high_volume_failing_senders || 0) > 0) parts.push("a high-volume sender is failing alignment");
-    return `This domain remains exposed to email impersonation${parts.length ? ` because ${parts.join(", ")}.` : "."}`;
+    if ((evidence.suspicious_senders || 0) > 0 ||
+        (evidence.high_volume_failing_senders || 0) > 0) parts.push("risky sender evidence is present");
+    return `This domain has high BEC exposure${parts.length ? ` because ${parts.join(", ")}.` : "."}`;
   }
   if (level === "medium") {
     return "This domain has measurable impersonation exposure. Continue sender classification, reporting coverage, and DMARC enforcement work before treating the risk as low.";
@@ -7929,13 +7929,13 @@ function computeBecExposureScore(input = {}, options = {}) {
     recommendedActions.push(becAction("publish_dmarc", "critical", "Publish a DMARC record",
       "Start with monitored aggregate reporting, then move toward quarantine and reject after legitimate senders are aligned."));
   } else if (dmarcPolicy === "none") {
-    score += 22;
+    score += 16;
     reasons.push(becReason("dmarc_policy_none", "high", "DMARC is monitoring only",
       "Receivers are not instructed to quarantine or reject messages that fail alignment."));
     recommendedActions.push(becAction("move_dmarc_to_enforcement", "high", "Move DMARC toward enforcement",
       "Classify legitimate senders, resolve alignment failures, then progress from p=none to quarantine and reject."));
   } else if (dmarcPolicy === "quarantine") {
-    score += 8;
+    score += 6;
     reasons.push(becReason("dmarc_policy_quarantine", "medium", "DMARC is partially enforcing",
       "Quarantine reduces impersonation risk but does not provide the strongest reject instruction."));
     recommendedActions.push(becAction("progress_to_reject", "medium", "Progress DMARC to reject",
@@ -7943,7 +7943,7 @@ function computeBecExposureScore(input = {}, options = {}) {
   }
 
   if (dmarcPct != null && dmarcPct < 100 && ["quarantine", "reject"].includes(dmarcPolicy)) {
-    score += 6;
+    score += 5;
     reasons.push(becReason("dmarc_partial_pct", "medium", "DMARC enforcement is partial",
       `The DMARC pct tag applies enforcement to ${dmarcPct}% of messages.`));
     recommendedActions.push(becAction("increase_dmarc_pct", "medium", "Increase DMARC policy coverage",
@@ -7951,7 +7951,7 @@ function computeBecExposureScore(input = {}, options = {}) {
   }
 
   if (!cybermetersRuaVerified) {
-    score += 10;
+    score += 7;
     reasons.push(becReason("cybermeters_rua_not_verified", "high", "CyberMeters RUA is not verified",
       "Automated DMARC report ingestion is not confirmed for this domain."));
     recommendedActions.push(becAction("add_cybermeters_rua", "high", "Add CyberMeters RUA to DMARC",
@@ -7959,7 +7959,7 @@ function computeBecExposureScore(input = {}, options = {}) {
   }
 
   if (!reportsReceived) {
-    score += 12;
+    score += 18;
     reasons.push(becReason("no_dmarc_reports", "medium", "No DMARC reports have been received",
       "Without aggregate report evidence, sender alignment and abuse patterns cannot be measured reliably."));
     recommendedActions.push(becAction("enable_dmarc_reporting", "high", "Enable DMARC aggregate reporting",
@@ -7967,7 +7967,7 @@ function computeBecExposureScore(input = {}, options = {}) {
   } else if (input.last_report_received_at) {
     const lastMs = new Date(input.last_report_received_at).getTime();
     if (Number.isFinite(lastMs) && Number.isFinite(nowMs) && nowMs - lastMs > 14 * 86400000) {
-      score += 8;
+      score += 6;
       reasons.push(becReason("dmarc_reports_stale", "medium", "DMARC reports are stale",
         "The most recent DMARC report is older than 14 days."));
       recommendedActions.push(becAction("restore_rua_flow", "medium", "Restore DMARC report flow",
@@ -7977,13 +7977,13 @@ function computeBecExposureScore(input = {}, options = {}) {
 
   if (passRate != null && totalMessages > 0) {
     if (passRate < 80) {
-      score += 18;
+      score += 16;
       reasons.push(becReason("dmarc_pass_rate_low", "high", "DMARC pass rate is below 80%",
         `${passRate}% of observed mail passed alignment.`));
       recommendedActions.push(becAction("fix_sender_alignment", "high", "Fix sender alignment",
         "Review failing sources and align SPF or DKIM for legitimate senders."));
     } else if (passRate < 95) {
-      score += 10;
+      score += 8;
       reasons.push(becReason("dmarc_pass_rate_moderate", "medium", "DMARC pass rate is below 95%",
         `${passRate}% of observed mail passed alignment.`));
       recommendedActions.push(becAction("improve_sender_alignment", "medium", "Improve sender alignment",
@@ -7993,8 +7993,8 @@ function computeBecExposureScore(input = {}, options = {}) {
 
   if (failedMessages > 0) {
     const failedShare = totalMessages > 0 ? failedMessages / totalMessages : 0;
-    const failedPoints = failedShare >= 0.2 || failedMessages >= 100 ? 15
-      : failedShare >= 0.05 || failedMessages >= 25 ? 10 : 5;
+    const failedPoints = failedShare >= 0.2 || failedMessages >= 100 ? 8
+      : failedShare >= 0.05 || failedMessages >= 25 ? 5 : 3;
     score += failedPoints;
     reasons.push(becReason("failed_alignment_present", failedPoints >= 15 ? "high" : "medium",
       "Failed DMARC alignment is present",
@@ -8002,7 +8002,7 @@ function computeBecExposureScore(input = {}, options = {}) {
   }
 
   if (suspiciousSenders > 0) {
-    score += 15;
+    score += 14;
     reasons.push(becReason("suspicious_sender_present", "high", "Suspicious sender activity is present",
       `${suspiciousSenders} sender${suspiciousSenders === 1 ? "" : "s"} are classified as suspicious or threat.`));
     recommendedActions.push(becAction("investigate_suspicious_senders", "high", "Investigate suspicious senders",
@@ -8010,7 +8010,7 @@ function computeBecExposureScore(input = {}, options = {}) {
   }
 
   if (unknownSenders > 0) {
-    score += 8;
+    score += 6;
     reasons.push(becReason("unknown_sender_present", "medium", "Unknown senders remain unclassified",
       `${unknownSenders} sender${unknownSenders === 1 ? "" : "s"} must be classified before enforcement decisions.`));
     recommendedActions.push(becAction("classify_unknown_senders", "medium", "Classify unknown senders",
@@ -8018,7 +8018,7 @@ function computeBecExposureScore(input = {}, options = {}) {
   }
 
   if (highVolumeFailingSenders > 0) {
-    score += 18;
+    score += 14;
     reasons.push(becReason("high_volume_failing_sender", "high", "High-volume failing sender detected",
       `${highVolumeFailingSenders} high-volume sender${highVolumeFailingSenders === 1 ? "" : "s"} are failing alignment.`));
     recommendedActions.push(becAction("resolve_high_volume_failures", "high", "Resolve high-volume alignment failures",
@@ -8026,7 +8026,7 @@ function computeBecExposureScore(input = {}, options = {}) {
   }
 
   if (["missing", "invalid", "fail"].includes(spfStatus)) {
-    score += 8;
+    score += 10;
     reasons.push(becReason("spf_missing_or_invalid", "medium", "SPF is missing or invalid",
       "Receivers may not be able to validate authorized sending infrastructure."));
     recommendedActions.push(becAction("fix_spf", "medium", "Fix SPF authorization",
@@ -8034,7 +8034,7 @@ function computeBecExposureScore(input = {}, options = {}) {
   }
 
   if (["missing", "invalid", "fail", "unknown"].includes(dkimStatus)) {
-    score += 8;
+    score += 6;
     reasons.push(becReason("dkim_missing_or_uncertain", "medium", "DKIM is missing or uncertain",
       "Receivers may not have a reliable cryptographic signal for message authenticity."));
     recommendedActions.push(becAction("fix_dkim", "medium", "Configure DKIM for legitimate senders",
@@ -8046,8 +8046,8 @@ function computeBecExposureScore(input = {}, options = {}) {
   const brandActiveHighRisk = Math.max(0, Number(brand.high_risk_active_dns || 0));
   const brandSuspicious = Math.max(0, Number(brand.suspicious_or_confirmed || 0));
   let brandPoints = 0;
-  if (brandSuspicious > 0) brandPoints = 15;
-  else if (brandMxHighRisk > 0) brandPoints = 10;
+  if (brandSuspicious > 0) brandPoints = 12;
+  else if (brandMxHighRisk > 0) brandPoints = 8;
   else if (brandActiveHighRisk > 0) brandPoints = 5;
   if (brandPoints > 0) {
     score += brandPoints;
