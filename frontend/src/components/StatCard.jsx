@@ -42,15 +42,17 @@ export default function StatCard({
 
   return (
     <div className={`card p-5 ${T.accent}`}>
-      {/* Label leads — dark, semibold, paired with a subtle icon. Wraps freely. */}
+      {/* TEXT ON TOP — the label leads (larger than the number), dark + semibold,
+         with a subtle icon. Wraps freely. */}
       <div className="flex items-start gap-2">
         {Icon && <Icon className={`w-4 h-4 mt-0.5 flex-shrink-0 ${iconColor || T.icon}`} />}
-        <p className="text-sm font-semibold text-gray-900 leading-snug">{label}</p>
+        <p className="text-[15px] font-semibold text-gray-900 leading-snug">{label}</p>
       </div>
       {explanation && <p className="text-xs text-gray-500 mt-1 leading-snug">{explanation}</p>}
-      {/* Number supports — calm and secondary. */}
-      <p className={`text-lg font-bold mt-2 leading-none tabular-nums ${T.value}`}>{value ?? '—'}</p>
-      {sub && <p className="text-[11px] text-gray-400 mt-1">{sub}</p>}
+      {sub && <p className="text-xs text-gray-500 mt-0.5 leading-snug">{sub}</p>}
+      {/* NUMBER AT THE BOTTOM, and deliberately SMALLER than the label — it
+         supports the meaning, it does not dominate it. */}
+      <p className={`text-[13px] font-bold mt-2 leading-none tabular-nums ${T.value}`}>{value ?? '—'}</p>
     </div>
   )
 }

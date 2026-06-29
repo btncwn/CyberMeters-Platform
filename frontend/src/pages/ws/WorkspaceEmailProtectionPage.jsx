@@ -624,9 +624,9 @@ function DmarcSummaryPanel({ summary }) {
     : 'bg-brand-50 text-brand-700 border-brand-100'
   const tile = (label, value, sub, tone) => (
     <div className="stat-tile">
-      <span className={`metric-value ${tone || ''}`}>{value}</span>
       <span className="metric-label">{label}</span>
       {sub && <span className="metric-sub">{sub}</span>}
+      <span className={`metric-value ${tone || ''}`}>{value}</span>
     </div>
   )
   return (

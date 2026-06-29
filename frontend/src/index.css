@@ -67,10 +67,11 @@
     @apply bg-white rounded-2xl border border-gray-200/80 shadow-card
            px-5 py-4 flex flex-col gap-1;
   }
-  /* Metric values are restrained (22px) so headings and labels lead the page. */
-  .metric-value { @apply text-[22px] font-bold text-gray-900 tracking-tight leading-tight tabular-nums; }
-  .metric-label { @apply text-[12px] font-semibold text-gray-700 uppercase tracking-[0.08em]; }
-  .metric-sub   { @apply text-[11px] text-gray-500; }
+  /* APP PHILOSOPHY: text leads, number supports. The label is the largest
+     element; the value sits BELOW it and is deliberately SMALLER. */
+  .metric-label { @apply text-[15px] font-semibold text-gray-900 leading-snug; }
+  .metric-sub   { @apply text-xs text-gray-500; }
+  .metric-value { @apply text-[13px] font-bold text-gray-800 leading-none tabular-nums; }
 
   /* Section header block: eyebrow + title + optional action, consistent across pages. */
   .section-head { @apply flex items-end justify-between gap-4 mb-4; }

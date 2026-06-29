@@ -223,14 +223,15 @@ const EXPOSURE_STYLES = {
 function ExposureCard({ icon: Icon, label, value, color }) {
   const s = EXPOSURE_STYLES[color]
   return (
-    <div className="card p-6 flex items-center gap-4">
-      <div className={`w-12 h-12 rounded-2xl ${s.bg} flex items-center justify-center flex-shrink-0`}>
-        <Icon className={`w-6 h-6 ${s.icon}`} />
+    <div className="card p-5">
+      {/* Label leads on top; the number sits below and is smaller. */}
+      <div className="flex items-center gap-3">
+        <div className={`w-10 h-10 rounded-xl ${s.bg} flex items-center justify-center flex-shrink-0`}>
+          <Icon className={`w-5 h-5 ${s.icon}`} />
+        </div>
+        <p className="text-[15px] font-semibold text-gray-900 leading-snug">{label}</p>
       </div>
-      <div>
-        <p className={`text-3xl font-bold ${s.val}`}>{value}</p>
-        <p className="text-sm font-medium text-gray-500 mt-0.5">{label}</p>
-      </div>
+      <p className={`text-[13px] font-bold mt-2.5 tabular-nums ${s.val}`}>{value}</p>
     </div>
   )
 }
@@ -678,14 +679,16 @@ export default function Dashboard() {
           { label: 'Domains Tracked', value: ins.domains.length,   sub: 'unique domains',   icon: Globe,       tint: 'bg-gray-100 text-gray-500'    },
         ].map(({ label, value, sub, icon: Icon, tint }) => (
           <div key={label} className="stat-tile">
-            <div className="flex items-start justify-between">
-              <span className="metric-value">{value}</span>
-              <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${tint}`}>
+            {/* Text on top: label leads, with a subtle icon on the right. */}
+            <div className="flex items-start justify-between gap-2">
+              <span className="text-[15px] font-semibold text-gray-900 leading-snug">{label}</span>
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${tint}`}>
                 <Icon className="w-4 h-4" />
               </div>
             </div>
-            <span className="metric-label">{label}</span>
-            <span className="metric-sub">{sub}</span>
+            <span className="text-xs text-gray-500">{sub}</span>
+            {/* Number at the bottom, smaller than the label — it supports. */}
+            <span className="text-[13px] font-bold text-gray-800 tabular-nums">{value}</span>
           </div>
         ))}
       </div>
