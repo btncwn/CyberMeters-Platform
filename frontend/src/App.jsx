@@ -52,6 +52,7 @@ import SecurityPage          from './pages/SecurityPage'
 import SubscriptionPage      from './pages/SubscriptionPage'
 import DomainVerifyPage      from './pages/DomainVerifyPage'
 import PricingPage           from './pages/PricingPage'
+import PublicLandingPage     from './pages/PublicLandingPage'
 import CheckoutSuccessPage   from './pages/CheckoutSuccessPage'
 import CheckoutCancelPage    from './pages/CheckoutCancelPage'
 import TermsPage             from './pages/TermsPage'
@@ -109,7 +110,34 @@ function PublicOnlyRoute({ children }) {
   return children
 }
 
+// The marketing site (cybermeters.com / www) and the app (app.cybermeters.com)
+// are served from the same SPA bundle. Hostname decides which experience renders.
+// Only the apex + www are treated as the public marketing site; app.* and any
+// dev/preview host keep the full application unchanged.
+function isMarketingHost() {
+  if (typeof window === 'undefined') return false
+  const h = window.location.hostname.toLowerCase()
+  return h === 'cybermeters.com' || h === 'www.cybermeters.com'
+}
+
 function AppRoutes() {
+  // Public marketing site — landing page + legal pages only. The app (including
+  // /login, /dashboard, /services, /ws/*) is intentionally NOT mounted here, so
+  // the marketing domain never exposes app routes.
+  if (isMarketingHost()) {
+    return (
+      <Routes>
+        <Route path="/"        element={<PublicLandingPage />} />
+        <Route path="/privacy" element={<PrivacyPage />} />
+        <Route path="/terms"   element={<TermsPage />} />
+        <Route path="/dpa"     element={<DpaPage />} />
+        <Route path="/cookies" element={<CookiePolicyPage />} />
+        <Route path="/support" element={<SupportPage />} />
+        <Route path="*"        element={<Navigate to="/" replace />} />
+      </Routes>
+    )
+  }
+
   return (
     <Routes>
       {/* ── Public auth pages (no Layout shell) ─────────────────────────── */}
