@@ -97,10 +97,10 @@ export default function PublicLandingPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
           <div>
             <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-brand-50 border border-brand-100 text-[11px] font-bold text-brand-700 uppercase tracking-[0.14em] mb-5">
-              <span className="w-1.5 h-1.5 rounded-full bg-brand-500" /> External Exposure Intelligence
+              <span className="w-1.5 h-1.5 rounded-full bg-brand-500" /> Cloud-native security monitoring
             </span>
             <h1 className="text-[34px] sm:text-[44px] font-bold tracking-tight leading-[1.1]">
-              External Exposure Intelligence for modern businesses
+              Monitor your external security posture
             </h1>
             <p className="text-base sm:text-lg text-gray-600 mt-5 leading-relaxed max-w-xl">
               CyberMeters helps organisations monitor email security, brand exposure, attack surface risk, and certificate
@@ -212,7 +212,7 @@ export default function PublicLandingPage() {
         <div className="max-w-6xl mx-auto px-5 py-10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6">
           <div>
             <CyberMetersLogo className="h-6 mb-3" />
-            <p className="text-sm text-gray-500">External Exposure Intelligence for modern businesses.</p>
+            <p className="text-sm text-gray-500">Monitor your external security posture from one cloud-native platform.</p>
             <p className="text-sm text-gray-500 mt-1">
               <a href={CONTACT} className="hover:text-gray-800">hello@cybermeters.com</a>
               {' · '}
