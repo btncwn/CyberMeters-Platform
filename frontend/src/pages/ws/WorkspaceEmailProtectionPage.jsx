@@ -1544,30 +1544,8 @@ function EmailProtectionOverview({ wsId, domain, dmarcDetail, dmarc, senderData,
         <EpMetric label="Last report received" explanation="Most recent inbound report"  value={epFmt(endpoint?.last_inbound_at)} />
       </div>
 
-      {/* Checklist + ingestion status */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <EpStatusChecklist items={checklist} />
-
-        <div className="card p-5">
-          <h3 className="section-title mb-1">DMARC report ingestion</h3>
-          <div className="flex items-center gap-2 mb-3">
-            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border ${modeChip}`}>{modeCfg.label}</span>
-          </div>
-          <p className="text-xs text-gray-500 leading-relaxed mb-3">{modeCfg.desc}</p>
-          <dl className="space-y-2 text-sm">
-            <div className="flex justify-between gap-3"><dt className="text-gray-500">Reporting address</dt>
-              <dd className="mono text-xs text-gray-800 truncate">{inboundAddress || '—'}</dd></div>
-            <div className="flex justify-between gap-3"><dt className="text-gray-500">Route status</dt>
-              <dd className="text-gray-800">{endpoint ? (endpoint.status === 'active' ? 'Active' : (endpoint.status || '—')) : 'Not set up'}</dd></div>
-            <div className="flex justify-between gap-3"><dt className="text-gray-500">Last report received</dt>
-              <dd className="text-gray-800">{epFmt(endpoint?.last_inbound_at) || 'Not yet'}</dd></div>
-            <div className="flex justify-between gap-3"><dt className="text-gray-500">Last secure upload</dt>
-              <dd className="text-gray-800">{epFmt(endpoint?.last_signed_upload_at) || 'Never'}</dd></div>
-            <div className="flex justify-between gap-3"><dt className="text-gray-500">Last activity</dt>
-              <dd className="text-gray-800">{epFmt(endpoint?.last_used_at) || 'Never'}</dd></div>
-          </dl>
-        </div>
-      </div>
+      {/* Setup progress checklist (ingestion status now lives in its own card below) */}
+      <EpStatusChecklist items={checklist} />
     </div>
   )
 }
@@ -1717,6 +1695,160 @@ function BecExposure({ wsId, domain }) {
               )}
             </div>
           </div>
+        )}
+      </div>
+    </section>
+  )
+}
+
+// ── DMARC report ingestion status (BEC-evidence authoritative) ────────────────
+// Preserves the truth distinction: reports_received (backend imported reports)
+// vs cybermeters_rua_verified (live DMARC DNS includes our address). Never says
+// "Connected" unless BOTH hold. Sender summary comes from BEC evidence.
+function DmarcIngestionStatus({ wsId, domain, onGotoSetup, onGotoSenders }) {
+  const [bec, setBec] = useState(null)
+  const [endpoint, setEndpoint] = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    if (!wsId || !domain) { setLoading(false); return }
+    setLoading(true); setBec(null); setEndpoint(null)
+    Promise.allSettled([api.getBecExposureScore(wsId, domain), api.getDmarcIngestEndpoint(wsId, domain)])
+      .then(([b, e]) => {
+        if (cancelled) return
+        setBec(b.status === 'fulfilled' ? (b.value || null) : null)
+        setEndpoint(e.status === 'fulfilled' ? (e.value?.endpoint || null) : null)
+      })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [wsId, domain])
+
+  const ev = bec?.evidence || {}
+  const reportsReceived = ev.reports_received != null ? Boolean(ev.reports_received) : Boolean(endpoint?.last_inbound_at)
+  const dnsVerified = ev.cybermeters_rua_verified != null ? Boolean(ev.cybermeters_rua_verified) : null // null = unknown
+  const lastReport = ev.last_report_received_at || endpoint?.last_inbound_at || null
+  const passRate = ev.pass_rate
+  const failed = ev.failed_messages
+  const known = ev.known_senders
+  const unknown = ev.unknown_senders
+  const suspicious = ev.suspicious_senders
+  const hiVolFail = ev.high_volume_failing_senders
+
+  // States A–D. DNS unknown is treated as "not verified" for labelling so we
+  // never overclaim — but the chip shows "Unknown" rather than asserting a fault.
+  let state
+  if (!reportsReceived && dnsVerified === true) state = 'D'
+  else if (!reportsReceived) state = 'A'
+  else if (dnsVerified === true) state = 'B'
+  else state = 'C'
+
+  const STATE = {
+    A: { tone: 'na',   icon: Inbox,        label: 'No reports received yet',
+         msg: 'CyberMeters has not received DMARC aggregate reports for this domain yet.',
+         next: 'Add the CyberMeters reporting address to your DMARC record.', cta: 'View setup instructions', act: onGotoSetup },
+    B: { tone: 'ok',   icon: CheckCircle,  label: 'Reports received',
+         msg: 'CyberMeters is receiving DMARC aggregate reports and the reporting address is present in DNS.',
+         next: 'Review who is sending email using this domain.', cta: 'Review sender activity', act: onGotoSenders },
+    C: { tone: 'warn', icon: AlertTriangle, label: 'Reports received · DNS not verified',
+         msg: 'CyberMeters is receiving DMARC reports, but the CyberMeters reporting address was not found in the live DMARC DNS record. Reports received do not prove DNS is correctly configured.',
+         next: 'Update your DMARC record to include the CyberMeters reporting address.', cta: 'Finish DNS setup', act: onGotoSetup },
+    D: { tone: 'info', icon: Inbox,        label: 'DNS verified · waiting for reports',
+         msg: 'Your DMARC record includes the CyberMeters reporting address. Reports may take 24–48 hours to arrive depending on mail volume and receivers.',
+         next: 'No action needed — reports will appear automatically.', cta: 'Review setup', act: onGotoSetup },
+  }[state]
+  const PANEL = { ok: 'border-brand-100 bg-brand-50/50', warn: 'border-amber-200 bg-amber-50/50', info: 'border-blue-100 bg-blue-50/40', na: 'border-gray-200 bg-gray-50' }[STATE.tone]
+  const ICONCLS = { ok: 'text-brand-600', warn: 'text-amber-600', info: 'text-blue-600', na: 'text-gray-400' }[STATE.tone]
+  const dnsLabel = dnsVerified === true ? 'Verified' : dnsVerified === false ? 'Not verified' : 'Unknown'
+
+  const tiles = [
+    { label: 'Reports received', value: reportsReceived ? 'Yes' : 'No', tone: reportsReceived ? 'ok' : 'na' },
+    { label: 'Last report',      value: lastReport ? new Date(lastReport).toLocaleDateString() : 'Not yet' },
+    { label: 'DNS verification', value: dnsLabel, tone: dnsVerified === false ? 'warn' : dnsVerified ? 'ok' : 'na' },
+  ]
+  if (passRate != null)  tiles.push({ label: 'DMARC pass rate',      value: `${passRate}%`, tone: passRate < 90 ? 'warn' : 'ok' })
+  if (suspicious != null) tiles.push({ label: 'Suspicious senders',   value: suspicious, tone: suspicious > 0 ? 'warn' : '' })
+  if (hiVolFail != null)  tiles.push({ label: 'High-volume failures', value: hiVolFail, tone: hiVolFail > 0 ? 'warn' : '' })
+
+  const hasSenders = known != null || unknown != null || suspicious != null
+  const senderSummary = hasSenders ? [
+    { label: 'Known', value: known ?? 0 },
+    { label: 'Unknown', value: unknown ?? 0, tone: (unknown ?? 0) > 0 ? 'warn' : '' },
+    { label: 'Suspicious', value: suspicious ?? 0, tone: (suspicious ?? 0) > 0 ? 'warn' : '' },
+    { label: 'High-volume failing', value: hiVolFail ?? 0, tone: (hiVolFail ?? 0) > 0 ? 'warn' : '' },
+  ] : null
+
+  return (
+    <section className="card overflow-hidden">
+      <div className="px-6 py-4 border-b border-gray-200 bg-gray-50/70">
+        <span className="eyebrow">Email reporting</span>
+        <h2 className="section-title leading-tight">DMARC report ingestion</h2>
+      </div>
+      <div className="p-6 space-y-5">
+        {loading ? (
+          <div className="flex items-center gap-2 text-sm text-gray-500"><RefreshCw className="w-4 h-4 animate-spin" /> Checking report ingestion…</div>
+        ) : (
+          <>
+            <div className={`rounded-xl border p-4 ${PANEL}`}>
+              <div className="flex flex-col sm:flex-row sm:items-start gap-3">
+                <STATE.icon className={`w-6 h-6 flex-shrink-0 mt-0.5 ${ICONCLS}`} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-base font-bold text-gray-900">{STATE.label}</p>
+                  <p className="text-sm text-gray-600 mt-0.5 leading-relaxed">{STATE.msg}</p>
+                </div>
+                {STATE.act && <button onClick={STATE.act} className="btn-secondary text-sm flex-shrink-0">{STATE.cta}</button>}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+              {tiles.map(t => (
+                <div key={t.label} className="rounded-xl border border-gray-200 bg-white px-3 py-2.5">
+                  <p className="text-xs font-semibold text-gray-700 leading-snug">{t.label}</p>
+                  <p className={`text-[13px] font-bold mt-1 tabular-nums ${t.tone === 'warn' ? 'text-amber-700' : t.tone === 'ok' ? 'text-brand-700' : t.tone === 'na' ? 'text-gray-400' : 'text-gray-800'}`}>
+                    {typeof t.value === 'number' ? t.value.toLocaleString() : t.value}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+              <div className="flex-1">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Recommended next step</p>
+                <p className="text-sm text-gray-700 mt-0.5">{STATE.next}</p>
+              </div>
+              {STATE.act && <button onClick={STATE.act} className="btn-primary text-sm flex-shrink-0">{STATE.cta} <ArrowRight className="w-4 h-4" /></button>}
+            </div>
+
+            {senderSummary && (
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Sender activity</p>
+                  <button onClick={onGotoSenders} className="text-xs font-medium text-brand-700 hover:text-brand-800">View full inventory →</button>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {senderSummary.map(s => (
+                    <div key={s.label} className="rounded-lg border border-gray-200 bg-white px-3 py-2">
+                      <p className="text-xs font-semibold text-gray-700 leading-snug">{s.label} senders</p>
+                      <p className={`text-[13px] font-bold mt-1 tabular-nums ${s.tone === 'warn' ? 'text-amber-700' : 'text-gray-800'}`}>{s.value}</p>
+                    </div>
+                  ))}
+                </div>
+                {(passRate != null || failed != null) && (
+                  <p className="text-xs text-gray-500 mt-2 leading-relaxed">
+                    {passRate != null && <>DMARC pass rate <b className="text-gray-700">{passRate}%</b>. </>}
+                    {failed != null && <><b className="text-gray-700">{Number(failed).toLocaleString()}</b> message(s) failed alignment. </>}
+                    Reports can arrive from previous or partial DMARC configurations, so review senders before tightening policy.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {state === 'C' && (
+              <p className="text-xs text-gray-500 leading-relaxed">
+                <b>Why this matters:</b> receiving reports confirms mail receivers are sending DMARC data, but until the CyberMeters address is in your live DMARC record, your setup is not complete and reporting coverage may be partial.
+              </p>
+            )}
+          </>
         )}
       </div>
     </section>
@@ -1964,6 +2096,9 @@ export default function WorkspaceEmailProtectionPage() {
 
           {/* 0b. BEC Exposure Score (backend source of truth; higher = worse) */}
           <BecExposure wsId={wsId} domain={selectedDomain} />
+
+          {/* 0c. DMARC report ingestion status (reports_received vs DNS verified) */}
+          <DmarcIngestionStatus wsId={wsId} domain={selectedDomain} onGotoSetup={gotoSetup} onGotoSenders={gotoSenders} />
 
           {/* 1. DMARC journey */}
           <DmarcJourney journey={es.policy_journey} />
