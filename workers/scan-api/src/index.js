@@ -32974,12 +32974,14 @@ export default {
             domainRow = { id: newId, domain: raw };
           }
 
-          await env.cybermeters_db
+          const linkRes = await env.cybermeters_db
             .prepare(
               `INSERT OR IGNORE INTO workspace_domains (workspace_id, domain_id) VALUES (?, ?)`
             )
             .bind(workspaceId, domainRow.id)
             .run();
+          // A genuinely new workspace↔domain link (not a duplicate/no-op add).
+          const newlyLinked = (linkRes.meta?.changes ?? 0) > 0;
 
           // Audit: domain added
           await createAuditEvent(env, {
@@ -32991,6 +32993,17 @@ export default {
             description:  `Domain ${domainRow.domain} added to workspace`,
             metadata:     { domain: domainRow.domain, domain_id: domainRow.id },
           });
+
+          // Lifecycle: domain added — only on a real new link; deduped once per
+          // workspace+domain; delivered to the workspace owner's verified email.
+          // Non-blocking via waitUntil; never throws.
+          if (newlyLinked) {
+            ctx.waitUntil(sendLifecycleEmail(env, {
+              type: "lifecycle_domain_added",
+              workspace_id: workspaceId,
+              domain: domainRow.domain,
+            }).catch(() => {}));
+          }
 
           return json(
             { domain: { domain_id: domainRow.id, domain: domainRow.domain, workspace_id: workspaceId } },

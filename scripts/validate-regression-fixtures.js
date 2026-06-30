@@ -2191,6 +2191,23 @@ results.push(await asyncSecurityContract("lifecycle_dedupe_prevents_duplicate_se
   // duplicate → no UPDATE (no delivery attempt persisted)
   return r.skipped === "duplicate" && !runs.some(s => s.includes("UPDATE lifecycle_email_events"));
 }));
+results.push(await asyncSecurityContract("lifecycle_domain_added_dedupe_no_resend", async () => {
+  // Stable key scoped by workspace+domain (case-insensitive).
+  const k1 = scanner.lifecycleDedupeKey({ type: "lifecycle_domain_added", workspace_id: "w1", domain: "Acme.com" });
+  const k2 = scanner.lifecycleDedupeKey({ type: "lifecycle_domain_added", workspace_id: "w1", domain: "acme.com" });
+  if (k1 !== k2 || k1 !== "lifecycle_domain_added:w1:acme.com") return false;
+  // Duplicate send (dedupe INSERT no-ops) → skipped, never delivered.
+  const runs = [];
+  const env = { FRONTEND_URL: ORIGIN, HELLO_EMAIL_FROM: "hello@cybermeters.com", RESEND_API_KEY: "x",
+    cybermeters_db: { prepare(sql) { return {
+      _sql: sql, _b: null, bind(...a) { this._b = a; return this },
+      async first() { return this._sql.includes("FROM workspaces w JOIN users u")
+        ? { uid: "u1", email: "owner@b.com", ev: 1, wname: "Acme" } : null },
+      async run() { runs.push(this._sql); return this._sql.includes("INSERT INTO lifecycle_email_events") ? { meta: { changes: 0 } } : { meta: { changes: 1 } } },
+    } } } };
+  const r = await scanner.sendLifecycleEmail(env, { type: "lifecycle_domain_added", workspace_id: "w1", domain: "acme.com" });
+  return r.skipped === "duplicate" && !runs.some(s => s.includes("UPDATE lifecycle_email_events"));
+}));
 results.push(await asyncSecurityContract("lifecycle_unverified_or_missing_email_no_send", async () => {
   const runs = [];
   const env = { FRONTEND_URL: ORIGIN, cybermeters_db: { prepare(sql) { return {
