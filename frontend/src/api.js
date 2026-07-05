@@ -631,6 +631,10 @@ export const api = {
   getDmarcSummary: (workspaceId, domain, days = 30) =>
     request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/dmarc-summary?days=${days}`),
 
+  /** GET /api/workspaces/:id/domains/:domain/dmarc-reports?limit=50 → imported report history */
+  getDmarcReportHistory: (workspaceId, domain, limit = 50) =>
+    request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/dmarc-reports?limit=${limit}`),
+
   /** GET /api/workspaces/:id/domains/:domain/bec-exposure → BEC Exposure Score (higher = worse) */
   getBecExposureScore: (workspaceId, domain) =>
     request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/bec-exposure`),

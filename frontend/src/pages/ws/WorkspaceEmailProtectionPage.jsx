@@ -1042,6 +1042,109 @@ function ImportDmarcReport({ onImport, importing, result, error }) {
 // key for scripts/MSP automation. The raw token is shown exactly once; only its
 // hash is stored. The inbound address is opaque and reveals no tenancy.
 // (Reuses the shared CopyButton defined near the top of this file.)
+// ── DMARC report history — every aggregate report received for this domain ────
+function fmtUnixDay(sec) {
+  if (!sec) return '—'
+  try {
+    return new Date(sec * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+  } catch { return '—' }
+}
+
+function DmarcReportHistory({ wsId, domain }) {
+  const [data, setData]       = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [failed, setFailed]   = useState(false)
+  const [showAll, setShowAll] = useState(false)
+
+  useEffect(() => {
+    if (!wsId || !domain) { setData(null); setLoading(false); return }
+    let cancelled = false
+    setLoading(true); setFailed(false); setShowAll(false)
+    api.getDmarcReportHistory(wsId, domain)
+      .then(res => { if (!cancelled) setData(res || null) })
+      .catch(() => { if (!cancelled) { setData(null); setFailed(true) } })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [wsId, domain])
+
+  const reports = data?.reports || []
+  const totals  = data?.totals
+  const visible = showAll ? reports : reports.slice(0, 10)
+  const passCls = (p) => p == null ? 'text-gray-400' : p >= 95 ? 'text-brand-700' : p >= 80 ? 'text-amber-700' : 'text-red-700'
+
+  return (
+    <section className="card overflow-hidden">
+      <div className="px-6 py-4 border-b border-gray-200 bg-gray-50/70">
+        <span className="eyebrow">DMARC reports</span>
+        <h2 className="section-title leading-tight">Report history</h2>
+        <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">
+          Every aggregate report received for this domain — who reported it, the period it covers, and how much mail aligned.
+        </p>
+      </div>
+
+      {loading ? (
+        <div className="p-6 flex items-center gap-2 text-sm text-gray-500">
+          <RefreshCw className="w-4 h-4 animate-spin" /> Loading report history…
+        </div>
+      ) : failed ? (
+        <p className="p-6 text-sm text-gray-500">Report history could not be loaded right now. Try again later.</p>
+      ) : reports.length === 0 ? (
+        <div className="p-6">
+          <p className="text-sm font-semibold text-gray-800">No reports received yet</p>
+          <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+            Once DMARC reporting is connected, each aggregate report that arrives for this domain will appear here.
+          </p>
+        </div>
+      ) : (
+        <div>
+          {totals && (
+            <p className="px-6 pt-4 text-xs text-gray-500">
+              <span className="font-bold text-gray-800 tabular-nums">{totals.reports}</span> report{totals.reports === 1 ? '' : 's'} from{' '}
+              <span className="font-bold text-gray-800 tabular-nums">{totals.reporters}</span> reporter{totals.reporters === 1 ? '' : 's'} covering{' '}
+              <span className="font-bold text-gray-800 tabular-nums">{(totals.total_messages || 0).toLocaleString('en-GB')}</span> messages
+              {totals.first_seen ? <> since <span className="font-semibold text-gray-700">{fmtUnixDay(totals.first_seen)}</span></> : null}
+            </p>
+          )}
+          <div className="overflow-x-auto p-6 pt-3">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wide border-b border-gray-100">
+                  <th className="py-2 pr-4">Reporter</th>
+                  <th className="py-2 pr-4">Period covered</th>
+                  <th className="py-2 pr-4 text-right">Messages</th>
+                  <th className="py-2 pr-4 text-right">Aligned</th>
+                  <th className="py-2">Policy applied</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visible.map((r) => (
+                  <tr key={r.id} className="border-b border-gray-50 last:border-0">
+                    <td className="py-2.5 pr-4 font-semibold text-gray-800">{r.reporter}</td>
+                    <td className="py-2.5 pr-4 text-xs text-gray-600 whitespace-nowrap">
+                      {fmtUnixDay(r.date_range_begin)}{r.date_range_end && r.date_range_end !== r.date_range_begin ? ` – ${fmtUnixDay(r.date_range_end)}` : ''}
+                    </td>
+                    <td className="py-2.5 pr-4 text-right tabular-nums text-gray-800">{(r.message_count || 0).toLocaleString('en-GB')}</td>
+                    <td className={`py-2.5 pr-4 text-right tabular-nums font-bold ${passCls(r.pass_rate)}`}>
+                      {r.pass_rate == null ? '—' : `${r.pass_rate}%`}
+                    </td>
+                    <td className="py-2.5 text-xs text-gray-600">{r.policy_applied ? `p=${r.policy_applied}` : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {reports.length > 10 && (
+              <button onClick={() => setShowAll(v => !v)}
+                className="mt-3 text-xs font-semibold text-brand-700 hover:text-brand-800">
+                {showAll ? 'Show fewer' : `Show all ${reports.length} reports`}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </section>
+  )
+}
+
 function ConnectDmarcReporting({ wsId, domain, dmarcDetail }) {
   const [endpoint, setEndpoint] = useState(null)
   const [rawToken, setRawToken] = useState(null) // shown once after create/rotate
@@ -2288,6 +2391,11 @@ export default function WorkspaceEmailProtectionPage() {
 
           {/* 2e. SECONDARY — manual DMARC report import */}
           <ImportDmarcReport onImport={handleImport} importing={importing} result={importResult} error={importError} />
+
+          {/* 2f. DMARC report history */}
+          <div id="report-history" className="scroll-mt-20">
+            <DmarcReportHistory wsId={wsId} domain={selectedDomain} />
+          </div>
 
           {/* 3. Authentication cards */}
           <section id="auth-detail" className="scroll-mt-20">

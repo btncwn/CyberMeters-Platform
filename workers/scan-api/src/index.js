@@ -32370,6 +32370,77 @@ export default {
       }
     }
 
+    // ── GET /api/workspaces/:wsid/domains/:domain/dmarc-reports?limit=50 ──────
+    // Read-only DMARC report history: one row per imported aggregate report
+    // (reporter org, covered period, message volume, aligned share, policy
+    // applied). Never exposes raw XML, source IPs, hashes, or internal errors.
+    const dmarcReportsMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/domains\/([^/]+)\/dmarc-reports$/);
+    if (dmarcReportsMatch && request.method === "GET") {
+      const workspaceId = dmarcReportsMatch[1];
+      const domain = decodeURIComponent(dmarcReportsMatch[2]).toLowerCase();
+      try {
+        const user = await requireAuth(request, env);
+        if (!user) return json({ error: "Unauthorized" }, 401);
+        const access = await requireWorkspaceRole(user, workspaceId, "workspace:read", env);
+        if (!access) return json({ error: "Forbidden" }, 403);
+        const domainId = await resolveWorkspaceDomain(env, workspaceId, domain);
+        if (!domainId) return json({ error: "Domain not found in this workspace" }, 404);
+
+        const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get("limit") || "50", 10) || 50));
+
+        const totals = await env.cybermeters_db
+          .prepare(`SELECT COUNT(*) AS reports, COUNT(DISTINCT org_name) AS reporters,
+                           MIN(date_range_begin) AS first_seen, MAX(date_range_end) AS last_seen,
+                           SUM(message_count) AS total_messages
+                    FROM dmarc_aggregate_reports WHERE workspace_id = ? AND domain = ?`)
+          .bind(workspaceId, domain).first();
+
+        const rows = await env.cybermeters_db
+          .prepare(`SELECT rep.id, rep.org_name, rep.date_range_begin, rep.date_range_end,
+                           rep.message_count, rep.record_count, rep.policy_p, rep.created_at,
+                           COALESCE(SUM(CASE WHEN r.spf_aligned_result = 'pass' OR r.dkim_aligned_result = 'pass'
+                                             THEN r.message_count ELSE 0 END), 0) AS aligned_messages
+                    FROM dmarc_aggregate_reports rep
+                    LEFT JOIN dmarc_aggregate_records r ON r.report_id = rep.id
+                    WHERE rep.workspace_id = ? AND rep.domain = ?
+                    GROUP BY rep.id
+                    ORDER BY COALESCE(rep.date_range_end, 0) DESC, rep.created_at DESC
+                    LIMIT ?`)
+          .bind(workspaceId, domain, limit).all();
+
+        const reports = (rows.results || []).map((r) => {
+          const msgs = Math.max(0, Number(r.message_count || 0));
+          const aligned = Math.min(msgs, Math.max(0, Number(r.aligned_messages || 0)));
+          return {
+            id: r.id,
+            reporter: r.org_name || "Unknown reporter",
+            date_range_begin: r.date_range_begin || null,
+            date_range_end: r.date_range_end || null,
+            message_count: msgs,
+            record_count: Math.max(0, Number(r.record_count || 0)),
+            aligned_messages: aligned,
+            pass_rate: msgs > 0 ? Math.round((aligned / msgs) * 1000) / 10 : null,
+            policy_applied: r.policy_p || null,
+            received_at: r.created_at || null,
+          };
+        });
+
+        return json({
+          domain,
+          totals: {
+            reports: Number(totals?.reports || 0),
+            reporters: Number(totals?.reporters || 0),
+            first_seen: totals?.first_seen || null,
+            last_seen: totals?.last_seen || null,
+            total_messages: Number(totals?.total_messages || 0),
+          },
+          reports,
+        });
+      } catch (e) {
+        return serverError("dmarc-reports", e, "Could not load DMARC report history.");
+      }
+    }
+
     // ── POST /api/domains/:id/verification ───────────────────────────────────
     // Generate a cryptographically secure token and return DNS + HTML instructions.
     // Idempotent: calling again resets to a new pending token.
