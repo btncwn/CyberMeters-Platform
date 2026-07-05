@@ -16570,10 +16570,11 @@ const LIFECYCLE_TYPES = new Set([
   "lifecycle_domain_added",
   "lifecycle_first_scan_completed",
   "lifecycle_email_protection_next_step",
+  "lifecycle_payment_failed",
 ]);
 
 // Pure, testable: a stable dedupe key per (type + scope).
-function lifecycleDedupeKey({ type, user_id = null, workspace_id = null, domain = null } = {}) {
+function lifecycleDedupeKey({ type, user_id = null, workspace_id = null, domain = null, ref = null } = {}) {
   const d = String(domain || "").trim().toLowerCase();
   switch (type) {
     case "lifecycle_welcome":                     return `lifecycle_welcome:${user_id || "unknown"}`;
@@ -16581,6 +16582,9 @@ function lifecycleDedupeKey({ type, user_id = null, workspace_id = null, domain 
     case "lifecycle_domain_added":                return `lifecycle_domain_added:${workspace_id || "unknown"}:${d}`;
     case "lifecycle_first_scan_completed":        return `lifecycle_first_scan_completed:${workspace_id || "unknown"}:${d}`;
     case "lifecycle_email_protection_next_step":  return `lifecycle_email_protection_next_step:${workspace_id || "unknown"}:${d}`;
+    // One notification per failed invoice (`ref`), not per retry attempt —
+    // Stripe fires invoice.payment_failed on every collection retry.
+    case "lifecycle_payment_failed":              return `lifecycle_payment_failed:${ref || workspace_id || "unknown"}`;
     default:                                       return `${type}:${user_id || ""}:${workspace_id || ""}:${d}`;
   }
 }
@@ -16646,6 +16650,16 @@ function buildLifecycleEmail(type, { origin = null, wsName = null, domain = null
       ];
       ctaLabel = "Review your dashboard"; ctaPath = "/dashboard";
       break;
+    case "lifecycle_payment_failed":
+      subject = "Action needed: your CyberMeters payment could not be processed";
+      heading = "Your payment could not be processed";
+      paras = [
+        "The latest payment for your CyberMeters subscription could not be processed.",
+        "Please update your payment method to keep your paid plan active. The charge will be retried automatically over the next few days.",
+        "If payment continues to fail, your account will move to the free plan. Your data and settings are kept safe either way.",
+      ];
+      ctaLabel = "Update payment method"; ctaPath = "/billing";
+      break;
     case "lifecycle_email_protection_next_step":
       subject = "Finish connecting DMARC reporting";
       heading = "Finish connecting DMARC reporting";
@@ -16675,7 +16689,7 @@ function buildLifecycleEmail(type, { origin = null, wsName = null, domain = null
  * UNIQUE dedupe_key, then delivers through the strict customer-email path. Never
  * throws, never sends to unverified/missing addresses, never leaks internals.
  */
-async function sendLifecycleEmail(env, { type, user_id = null, workspace_id = null, domain = null, to = null, wsName = null } = {}) {
+async function sendLifecycleEmail(env, { type, user_id = null, workspace_id = null, domain = null, to = null, wsName = null, ref = null } = {}) {
   try {
     if (!LIFECYCLE_TYPES.has(type)) return { skipped: "unknown_type" };
 
@@ -16697,7 +16711,7 @@ async function sendLifecycleEmail(env, { type, user_id = null, workspace_id = nu
     }
     if (!email) return { skipped: "no_verified_email" };
 
-    const dedupeKey = lifecycleDedupeKey({ type, user_id: uid, workspace_id, domain });
+    const dedupeKey = lifecycleDedupeKey({ type, user_id: uid, workspace_id, domain, ref });
     const id = createId("lifemail");
     const ins = await env.cybermeters_db
       .prepare(`INSERT INTO lifecycle_email_events (id, user_id, workspace_id, domain, type, dedupe_key, status, created_at)
@@ -22785,6 +22799,39 @@ export default {
               stripe_subscription_id: getStripeObjectId(obj?.subscription),
               attempt_count: obj?.attempt_count ?? null,
             });
+
+            // Customer trust: a payment failure must never be silent. Email the
+            // subscription owner (deduped once per invoice, so Stripe's retry
+            // events don't spam) and mirror it in-app. Failures here must not
+            // fail the webhook — Stripe would retry the whole event.
+            if (rowId) {
+              try {
+                const subOwner = await env.cybermeters_db
+                  .prepare("SELECT owner_user_id, workspace_id FROM subscriptions WHERE id = ? LIMIT 1")
+                  .bind(rowId)
+                  .first();
+                if (subOwner?.owner_user_id) {
+                  await sendLifecycleEmail(env, {
+                    type: "lifecycle_payment_failed",
+                    user_id: subOwner.owner_user_id,
+                    workspace_id: subOwner.workspace_id ?? null,
+                    ref: obj?.id || null,
+                  }).catch(() => {});
+                }
+                if (subOwner?.workspace_id) {
+                  await createNotificationEvent(env, subOwner.workspace_id, {
+                    type:     "subscription_payment_failed",
+                    severity: "high",
+                    title:    "Payment failed",
+                    message:  "Your latest subscription payment could not be processed. Update your payment method in Billing to keep your paid plan active.",
+                    metadata: { subscription_id: rowId },
+                    user_id:  subOwner.owner_user_id ?? null,
+                  }).catch(() => {});
+                }
+              } catch {
+                // Notification failure must not affect webhook processing
+              }
+            }
             break;
           }
 
@@ -23932,6 +23979,25 @@ export default {
           description: `Password reset completed for ${user.email}`,
           metadata:    { email: user.email, token_id: tokenRow.id },
         }).catch(() => {});
+
+        // Security notification — the password just changed and every session
+        // was revoked. Sent on every reset (no dedupe: each change matters).
+        // The reset itself must succeed even if this email cannot be sent.
+        try {
+          const origin = getEmailFrontendOrigin(env);
+          const resetPath = origin ? `${origin}/forgot-password` : null;
+          const text = "Your CyberMeters password was changed\n\n"
+            + "Your account password was just changed and all active sessions were signed out.\n\n"
+            + "If you made this change, no further action is needed.\n\n"
+            + `If you did not make this change, reset your password immediately${resetPath ? ` at ${resetPath}` : ""} and contact CyberMeters support.\n\nCyberMeters`;
+          const html = "<p>Your CyberMeters account password was just changed and all active sessions were signed out.</p>"
+            + "<p>If you made this change, no further action is needed.</p>"
+            + `<p>If you did not make this change, ${resetPath ? `<a href="${resetPath}">reset your password</a>` : "reset your password"} immediately and contact CyberMeters support.</p>`
+            + "<p>CyberMeters</p>";
+          await sendCustomerEmail("Your CyberMeters password was changed", text, html, env, "ALERT_EMAIL_FROM", [user.email]);
+        } catch {
+          // Never block a successful reset on email delivery
+        }
 
         return json({ success: true, message: "Password updated. Please sign in with your new password." });
       } catch (e) {

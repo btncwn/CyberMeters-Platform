@@ -2167,8 +2167,27 @@ results.push(securityContract("lifecycle_next_step_never_says_connected", () => 
   // "connect" (verb) is fine; "connected" (status claim) must never appear.
   return !/connected/i.test(blob) && /does not mean your DNS is verified/i.test(e.html);
 }));
+results.push(securityContract("lifecycle_payment_failed_dedupe_per_invoice", () => {
+  const a = scanner.lifecycleDedupeKey({ type: "lifecycle_payment_failed", workspace_id: "w1", ref: "in_123" });
+  const b = scanner.lifecycleDedupeKey({ type: "lifecycle_payment_failed", workspace_id: "w1", ref: "in_123" });
+  const c = scanner.lifecycleDedupeKey({ type: "lifecycle_payment_failed", workspace_id: "w1", ref: "in_456" });
+  const fallback = scanner.lifecycleDedupeKey({ type: "lifecycle_payment_failed", workspace_id: "w1" });
+  // Same invoice → one email; a different invoice → a fresh notification;
+  // missing invoice id degrades safely to once-per-workspace.
+  return a === b && a === "lifecycle_payment_failed:in_123" && c !== a &&
+    fallback === "lifecycle_payment_failed:w1";
+}));
+results.push(securityContract("lifecycle_payment_failed_copy_safe_and_actionable", () => {
+  const e = scanner.buildLifecycleEmail("lifecycle_payment_failed", { origin: ORIGIN });
+  const blob = `${e.subject} ${e.html} ${e.text}`;
+  // No internals: never leak Stripe ids, invoice ids, or infra terms; must
+  // link to /billing and never threaten silent access removal.
+  const leak = /token|secret|bearer|api[_-]?key|password|stripe|cus_|sub_|in_\d|worker|d1\b/i.test(blob);
+  return /payment/i.test(e.subject) && e.html.includes(`href="${ORIGIN}/billing"`) && !leak &&
+    /free plan/i.test(blob) && /data and settings are kept safe/i.test(blob);
+}));
 results.push(securityContract("lifecycle_links_use_frontend_url", () => {
-  const types = ["lifecycle_welcome", "lifecycle_workspace_created", "lifecycle_domain_added", "lifecycle_first_scan_completed", "lifecycle_email_protection_next_step"];
+  const types = ["lifecycle_welcome", "lifecycle_workspace_created", "lifecycle_domain_added", "lifecycle_first_scan_completed", "lifecycle_email_protection_next_step", "lifecycle_payment_failed"];
   return types.every(t => {
     const e = scanner.buildLifecycleEmail(t, { origin: ORIGIN, domain: "example.com", wsName: "Acme" });
     return e.html.includes(`href="${ORIGIN}/`) && !/https?:\/\/(?!app\.cybermeters\.com)/.test(e.html.replace(/#00876A/g, ""));
