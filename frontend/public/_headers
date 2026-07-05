@@ -1,3 +1,11 @@
+# Cloudflare Pages header rules. All matching blocks apply top-to-bottom;
+# `! Header-Name` detaches a header inherited from an earlier match.
+
+# ── Every response: security headers + entrypoint no-cache ────────────────
+# The Cache-Control here is written for index.html. It must live under /*
+# (not /index.html) because the SPA fallback in _redirects serves index.html
+# for deep links like /dashboard, and header rules match the REQUEST path,
+# not the file served. Asset paths detach and override it below.
 /*
   Strict-Transport-Security: max-age=31536000; includeSubDomains
   X-Frame-Options: DENY
@@ -5,3 +13,38 @@
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=()
+  Cache-Control: no-cache, no-store, must-revalidate
+  Pragma: no-cache
+  Expires: 0
+
+# ── Hashed build output: cache forever ────────────────────────────────────
+# Vite content-hashes every filename in /assets, so a URL's content can
+# never change — safe for browsers and the CDN to keep for a year without
+# revalidation. New deploys produce new URLs referenced by a fresh
+# index.html, which is never cached (rule above).
+/assets/*
+  ! Cache-Control
+  ! Pragma
+  ! Expires
+  Cache-Control: public, max-age=31536000, immutable
+
+# ── Stable-name static files (NOT content-hashed) ─────────────────────────
+# These can change between deploys under the same URL, so cache briefly
+# instead of immutably.
+/favicon.ico
+  ! Cache-Control
+  ! Pragma
+  ! Expires
+  Cache-Control: public, max-age=86400
+
+/favicon.svg
+  ! Cache-Control
+  ! Pragma
+  ! Expires
+  Cache-Control: public, max-age=86400
+
+/og-image.png
+  ! Cache-Control
+  ! Pragma
+  ! Expires
+  Cache-Control: public, max-age=86400
