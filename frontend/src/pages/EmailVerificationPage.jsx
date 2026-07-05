@@ -151,7 +151,7 @@ export default function EmailVerificationPage() {
 
       <div className="mt-8 text-center">
         <p className="text-xs text-gray-300">
-          © {new Date().getFullYear()} CyberMeters — Attack Surface Management
+          © {new Date().getFullYear()} CyberMeters — External Security Monitoring
         </p>
       </div>
     </div>

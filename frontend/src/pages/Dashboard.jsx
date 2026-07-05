@@ -429,7 +429,7 @@ function SelectWorkspaceState() {
 
 const titleCase = (s) => (s ? String(s).replace(/[_-]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '—')
 
-function ServiceKpiCard({ icon: Icon, title, to, cta, accentTone, kpis, fallback }) {
+function ServiceKpiCard({ icon: Icon, title, to, cta, accentTone, kpis, fallback, status }) {
   const accent = accentTone === 'bad' ? 'accent-danger' : accentTone === 'warn' ? 'accent-warning' : ''
   return (
     <div className={`card p-5 flex flex-col ${accent}`}>
@@ -439,6 +439,9 @@ function ServiceKpiCard({ icon: Icon, title, to, cta, accentTone, kpis, fallback
         </div>
         <h3 className="text-sm font-bold text-gray-900">{title}</h3>
       </div>
+      {status && (
+        <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">{status}</p>
+      )}
       {kpis && kpis.length ? (
         <dl className="space-y-1.5 flex-1">
           {kpis.map((k, i) => (
@@ -658,7 +661,7 @@ export default function Dashboard() {
           ...(sc?.active_assets != null ? [{ label: 'Active assets', value: sc.active_assets }] : []),
         ] : null
         const certKpis = cr ? [
-          { label: 'Trust posture', value: titleCase(cr), tone: ['high', 'critical'].includes(cr) ? 'bad' : cr === 'medium' ? 'warn' : '' },
+          { label: 'Certificate risk', value: titleCase(cr), tone: ['high', 'critical'].includes(cr) ? 'bad' : cr === 'medium' ? 'warn' : '' },
           ...(sc?.certificate_risks?.expiring_soon != null ? [{ label: 'Expiring soon', value: sc.certificate_risks.expiring_soon, tone: sc.certificate_risks.expiring_soon > 0 ? 'warn' : '' }] : []),
         ] : null
 
@@ -690,6 +693,7 @@ export default function Dashboard() {
               <h2 className="section-title mb-3">Your services</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
                 <ServiceKpiCard icon={Mail} title="Email Protection" to="/ws/email-protection" cta="Open Email Protection"
+                  status="Not measured"
                   fallback="Connect DMARC reporting to measure impersonation exposure." />
                 <ServiceKpiCard icon={Tag} title="Brand Protection" to="/ws/brand-monitoring" cta="Review Brand Protection"
                   kpis={brandKpis} accentTone={brand && (brand.high ?? 0) > 0 ? 'bad' : ''}

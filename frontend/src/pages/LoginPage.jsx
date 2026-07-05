@@ -398,7 +398,7 @@ export default function LoginPage() {
           <Link to="/cookies" className="hover:text-gray-500">Cookies</Link>
         </div>
         <p className="text-xs text-gray-300">
-          © {new Date().getFullYear()} CyberMeters — Attack Surface Management
+          © {new Date().getFullYear()} CyberMeters — External Security Monitoring
         </p>
       </div>
     </div>

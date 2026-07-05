@@ -155,7 +155,7 @@ export default function ResetPasswordPage() {
       </p>
 
       <p className="mt-8 text-xs text-gray-300">
-        © {new Date().getFullYear()} CyberMeters — Attack Surface Management
+        © {new Date().getFullYear()} CyberMeters — External Security Monitoring
       </p>
     </div>
   )

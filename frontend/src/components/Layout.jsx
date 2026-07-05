@@ -406,7 +406,7 @@ export default function Layout() {
       {/* Footer */}
       <footer className="border-t border-gray-100 bg-white">
         <div className="max-w-screen-xl mx-auto px-6 py-3 flex flex-wrap items-center justify-between gap-3">
-          <span className="text-xs text-gray-400">© {new Date().getFullYear()} CyberMeters — Attack Surface Management</span>
+          <span className="text-xs text-gray-400">© {new Date().getFullYear()} CyberMeters — External Security Monitoring</span>
           <div className="flex items-center gap-4 text-xs text-gray-400">
             <NavLink to="/pricing"  className="hover:text-gray-700">Pricing</NavLink>
             <NavLink to="/terms"    className="hover:text-gray-700">Terms</NavLink>
