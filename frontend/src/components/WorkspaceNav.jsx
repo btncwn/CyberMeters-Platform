@@ -2,9 +2,11 @@ import { useState } from 'react'
 import { NavLink, Link, useNavigate, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Shield, Lock, Tag, Briefcase, ChevronLeft, ChevronDown,
-  ChevronRight, FileText, BarChart2, ClipboardList, Users, HardDrive, Mail,
+  ChevronRight, BarChart2, ClipboardList, Users, HardDrive, Mail,
   Server, Settings,
 } from 'lucide-react'
+import { preloadComponent } from '../utils/preload'
+import { routePreloadMap } from '../utils/preloadMap'
 
 // ── The four CyberMeters services — the only primary sections in the sidebar ──
 // Compact accordion: all four always listed; the active one expands its items.
@@ -83,6 +85,13 @@ export default function WorkspaceNav({ wsName }) {
   const activeKey = detectServiceKey(pathname)
   const [toolsOpen, setToolsOpen] = useState(false)
 
+  // Hover-to-preload: start fetching a lazy route's chunk as soon as the user
+  // shows intent (hover/focus), so navigation feels instant.
+  const handlePreload = (to) => {
+    const loader = routePreloadMap[to]
+    if (loader) preloadComponent(loader)
+  }
+
   return (
     <aside className="w-52 lg:w-[19%] lg:max-w-[256px] lg:min-w-[200px] flex-shrink-0 bg-white border-r border-gray-100 sticky top-16 h-[calc(100vh-64px)] overflow-y-auto flex flex-col">
 
@@ -112,6 +121,8 @@ export default function WorkspaceNav({ wsName }) {
             <div key={svc.key}>
               <Link
                 to={svc.to}
+                onMouseEnter={() => handlePreload(svc.to)}
+                onFocus={() => handlePreload(svc.to)}
                 className={`flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm transition-colors ${
                   active ? 'bg-brand-50 text-brand-700 font-semibold' : 'text-gray-700 hover:bg-gray-50 font-medium'
                 }`}
@@ -133,6 +144,8 @@ export default function WorkspaceNav({ wsName }) {
                     </a>
                   ) : (
                     <NavLink key={i} to={item.to} end={item.end}
+                      onMouseEnter={() => handlePreload(item.to)}
+                      onFocus={() => handlePreload(item.to)}
                       className={({ isActive }) =>
                         `block px-2 py-1 rounded-md text-xs transition-colors ${
                           isActive ? 'text-brand-700 bg-brand-50 font-semibold' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
@@ -164,6 +177,8 @@ export default function WorkspaceNav({ wsName }) {
                 key={to}
                 to={to}
                 end
+                onMouseEnter={() => handlePreload(to)}
+                onFocus={() => handlePreload(to)}
                 className={({ isActive }) =>
                   `flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs transition-colors ${
                     isActive ? 'text-brand-700 bg-brand-50 font-semibold' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50 font-medium'
