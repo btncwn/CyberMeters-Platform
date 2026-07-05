@@ -398,6 +398,142 @@ function ActionCard({ action }) {
   )
 }
 
+// ── Guided remediation — the ordered path from "no DMARC" to full enforcement ──
+// Milestone states are derived from real scan/report signals only. Open
+// remediation actions attach to the milestone where the customer fixes them;
+// anything that doesn't fit the path renders in an "Also recommended" group.
+const ACTION_TO_MILESTONE = {
+  email_missing_dmarc:            'publish',
+  email_missing_spf:              'align',
+  email_dkim_not_detected:        'align',
+  high_volume_alignment_failure:  'align',
+  unknown_sender_detected:        'classify',
+  sender_needs_classification:    'classify',
+  email_dmarc_policy_none:        'quarantine',
+  ready_for_quarantine_review:    'quarantine',
+  ready_for_reject_review:        'reject',
+}
+
+function GuidedRemediation({ stage, hasReports, readiness, senders, actions, onGoto }) {
+  const senderList   = Array.isArray(senders) ? senders : []
+  const unknownCount = senderList.filter(s => (s.classification || 'unknown') === 'unknown').length
+  const highVolFail  = senderList.filter(s => (s.total_messages || 0) >= 50 && (s.pass_rate ?? 100) < 90).length
+  const enforcing    = ['partial_enforcement', 'full_enforcement'].includes(stage)
+
+  const milestones = [
+    {
+      key: 'publish', title: 'Publish a DMARC record',
+      hint: 'Tell receiving mail servers you have a policy for messages that fail authentication.',
+      done: Boolean(stage) && stage !== 'missing', target: 'dmarc-setup', cta: 'Open DMARC setup',
+    },
+    {
+      key: 'reports', title: 'Start receiving DMARC reports',
+      hint: 'Reports reveal who is sending email using your domain — legitimate services and impersonators alike.',
+      done: hasReports, target: 'connect-reporting', cta: 'Connect reporting',
+    },
+    {
+      key: 'classify', title: 'Classify who sends email as you',
+      hint: unknownCount > 0
+        ? `${unknownCount} sender${unknownCount === 1 ? '' : 's'} still need${unknownCount === 1 ? 's' : ''} classification. Confirm which senders are yours so enforcement never blocks legitimate mail.`
+        : 'Confirm which senders are yours so enforcement never blocks legitimate mail.',
+      done: hasReports && senderList.length > 0 && unknownCount === 0, target: 'sender-inventory', cta: 'Review senders',
+    },
+    {
+      key: 'align', title: 'Fix alignment failures',
+      hint: highVolFail > 0
+        ? `${highVolFail} high-volume sender${highVolFail === 1 ? ' is' : 's are'} failing alignment. Legitimate senders must pass SPF or DKIM before you tighten policy.`
+        : 'Make sure legitimate senders pass SPF or DKIM alignment before tightening policy.',
+      done: hasReports && highVolFail === 0 && (readiness?.ready_for_quarantine === true || enforcing),
+      target: 'sender-inventory', cta: 'Review failing senders',
+    },
+    {
+      key: 'quarantine', title: 'Move your policy to quarantine',
+      hint: 'Messages that fail authentication go to spam instead of the inbox — real protection starts here.',
+      done: enforcing, target: 'dmarc-setup', cta: 'Open DMARC setup',
+    },
+    {
+      key: 'reject', title: 'Enforce with reject',
+      hint: 'Messages that fail authentication are refused outright. This is full protection against spoofing.',
+      done: stage === 'full_enforcement', target: 'dmarc-setup', cta: 'Open DMARC setup',
+    },
+  ]
+
+  const currentIdx = milestones.findIndex(m => !m.done)
+  const doneCount  = milestones.filter(m => m.done).length
+  const openActions = Array.isArray(actions) ? actions : []
+  const attached   = (key) => openActions.filter(a => ACTION_TO_MILESTONE[a.id] === key)
+  const additional = openActions.filter(a => !ACTION_TO_MILESTONE[a.id])
+
+  return (
+    <section>
+      <div className="section-head">
+        <div>
+          <span className="eyebrow">Guided remediation</span>
+          <h2 className="section-title mt-1.5">
+            Your path to email protection
+            <span className="text-gray-400 font-semibold"> · {doneCount} of {milestones.length} steps complete</span>
+          </h2>
+        </div>
+      </div>
+
+      <div className="card overflow-hidden divide-y divide-gray-50">
+        {milestones.map((m, i) => {
+          const isCurrent = i === currentIdx
+          const isDone    = m.done
+          const stepActions = attached(m.key)
+          return (
+            <div key={m.key} className={isCurrent ? 'bg-brand-50/30' : ''}>
+              <div className="flex items-start gap-3 px-5 py-3.5">
+                {isDone ? (
+                  <CheckCircle className="w-6 h-6 text-brand-600 flex-shrink-0" />
+                ) : (
+                  <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold flex-shrink-0 ${
+                    isCurrent ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-400 border border-gray-200'
+                  }`}>{i + 1}</span>
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className={`text-sm font-bold ${isDone ? 'text-gray-400 line-through decoration-gray-300' : isCurrent ? 'text-gray-900' : 'text-gray-500'}`}>
+                      {m.title}
+                    </p>
+                    {isCurrent && (
+                      <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border bg-brand-50 text-brand-700 border-brand-100">
+                        Start here
+                      </span>
+                    )}
+                  </div>
+                  {!isDone && (
+                    <p className={`text-xs mt-0.5 leading-relaxed ${isCurrent ? 'text-gray-600' : 'text-gray-400'}`}>{m.hint}</p>
+                  )}
+                  {isCurrent && stepActions.length > 0 && (
+                    <div className="mt-3 space-y-2">
+                      {stepActions.map((a, j) => <ActionCard key={a.id || j} action={a} />)}
+                    </div>
+                  )}
+                  {isCurrent && (
+                    <button onClick={() => onGoto(m.target)} className="btn-primary text-xs mt-3">
+                      {m.cta} <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {additional.length > 0 && (
+        <div className="mt-4">
+          <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-2">Also recommended</p>
+          <div className="space-y-3">
+            {additional.map((a, i) => <ActionCard key={a.id || i} action={a} />)}
+          </div>
+        </div>
+      )}
+    </section>
+  )
+}
+
 function Field({ label, body, accent }) {
   return (
     <div>
@@ -2119,25 +2255,15 @@ export default function WorkspaceEmailProtectionPage() {
             <DmarcSummaryPanel summary={dmarc} />
           )}
 
-          {/* 2. Recommended Actions Center — most important */}
-          <section>
-            <div className="section-head">
-              <div>
-                <span className="eyebrow">Recommended actions</span>
-                <h2 className="section-title mt-1.5">
-                  What to fix first {actions.length > 0 && <span className="text-gray-400 font-semibold">· {actions.length} open</span>}
-                </h2>
-              </div>
-            </div>
-            {actions.length === 0 ? (
-              <EmptyCard icon={CheckCircle} title="No structured remediation actions"
-                body="No structured remediation actions were returned for this scan. Your current email-authentication posture has no outstanding guided fixes." />
-            ) : (
-              <div className="space-y-3">
-                {actions.map((a, i) => <ActionCard key={a.id || i} action={a} />)}
-              </div>
-            )}
-          </section>
+          {/* 2. Guided remediation — the ordered path to enforcement */}
+          <GuidedRemediation
+            stage={es?.policy_journey?.stage || null}
+            hasReports={hasReports}
+            readiness={dmarc?.readiness}
+            senders={senderData?.senders}
+            actions={actions}
+            onGoto={(target) => document.getElementById(target)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+          />
 
           {/* 2b. Sender inventory + classification */}
           <div id="sender-inventory" className="scroll-mt-20">
@@ -2156,7 +2282,9 @@ export default function WorkspaceEmailProtectionPage() {
           </div>
 
           {/* 2d. Connect DMARC reporting (inbound RUA status + signed upload advanced) */}
-          <ConnectDmarcReporting wsId={wsId} domain={selectedDomain} dmarcDetail={es?.dmarc_detail} />
+          <div id="connect-reporting" className="scroll-mt-20">
+            <ConnectDmarcReporting wsId={wsId} domain={selectedDomain} dmarcDetail={es?.dmarc_detail} />
+          </div>
 
           {/* 2e. SECONDARY — manual DMARC report import */}
           <ImportDmarcReport onImport={handleImport} importing={importing} result={importResult} error={importError} />
