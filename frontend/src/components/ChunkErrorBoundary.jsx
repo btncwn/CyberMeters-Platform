@@ -28,6 +28,12 @@ const CHUNK_ERROR_PATTERNS = [
   /importing a module script failed/i,            // Safari
   /unable to preload css/i,                       // Vite CSS preload failure
   /loading (css )?chunk .+ failed/i,
+  // The Pages SPA fallback answers stale /assets/* URLs with index.html
+  // (200, text/html) instead of a 404, so browsers report these as
+  // MIME-type mismatches rather than fetch failures.
+  /expected a javascript(-or-wasm)? module script/i, // Chrome / Edge
+  /is not a valid javascript mime type/i,            // Safari
+  /disallowed mime type/i,                           // Firefox
 ]
 
 export function isChunkLoadError(error) {
