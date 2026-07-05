@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import Layout from './components/Layout'
+import ChunkErrorBoundary from './components/ChunkErrorBoundary'
 
 // ── Fallback Spinner Component ───────────────────────────────────────────
 const RouteLoader = () => (
@@ -211,7 +212,9 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <AppRoutes />
+        <ChunkErrorBoundary>
+          <AppRoutes />
+        </ChunkErrorBoundary>
       </AuthProvider>
     </BrowserRouter>
   )
