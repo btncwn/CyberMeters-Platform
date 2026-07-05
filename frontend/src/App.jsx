@@ -1,84 +1,82 @@
+import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import Layout from './components/Layout'
-import LoginPage               from './pages/LoginPage'
-import SignupPage              from './pages/SignupPage'
-import ForgotPasswordPage      from './pages/ForgotPasswordPage'
-import ResetPasswordPage       from './pages/ResetPasswordPage'
-import MicrosoftCallbackPage   from './pages/MicrosoftCallbackPage'
-import EmailVerificationPage   from './pages/EmailVerificationPage'
-import Dashboard from './pages/Dashboard'
-import NewScan from './pages/NewScan'
-import ScanDetail from './pages/ScanDetail'
-import DomainHistory from './pages/DomainHistory'
-import ScansPage from './pages/ScansPage'
-import AssetsPage from './pages/AssetsPage'
-import ReportsPage from './pages/ReportsPage'
-import SchedulesPage from './pages/SchedulesPage'
-import SettingsPage from './pages/SettingsPage'
-import AccuracyPage from './pages/AccuracyPage'
-import WorkspacesPage from './pages/WorkspacesPage'
-import OnboardingPage from './pages/OnboardingPage'
-import WorkspaceDetailPage from './pages/WorkspaceDetailPage'
-import IntelligencePage from './pages/IntelligencePage'
-import WorkspaceDashboard   from './pages/ws/WorkspaceDashboard'
-import ServiceLauncher      from './components/ServiceLauncher'
-import WorkspaceScorecard   from './pages/ws/WorkspaceScorecard'
-import VendorsPage          from './pages/ws/VendorsPage'
-import ThirdPartyPage       from './pages/ws/ThirdPartyPage'
-import SaasExposurePage     from './pages/ws/SaasExposurePage'
-import CloudAssetsPage      from './pages/ws/CloudAssetsPage'
-import AdminSurfacesPage    from './pages/ws/AdminSurfacesPage'
-import CertificatesPage     from './pages/ws/CertificatesPage'
-import BrandMonitoringPage    from './pages/ws/BrandMonitoringPage'
-import WorkspaceIdentityPage  from './pages/ws/WorkspaceIdentityPage'
-import WorkspaceReportsPage        from './pages/ws/WorkspaceReportsPage'
-import WorkspaceEmailProtectionPage from './pages/ws/WorkspaceEmailProtectionPage'
-import WorkspaceExecutiveDashboard from './pages/ws/WorkspaceExecutiveDashboard'
-import WorkspaceBusinessRiskPage   from './pages/ws/WorkspaceBusinessRiskPage'
-import WorkspaceCyberEssentialsPage from './pages/ws/WorkspaceCyberEssentialsPage'
-import WorkspaceSupplyChainPage    from './pages/ws/WorkspaceSupplyChainPage'
-import WorkspaceAuditLogPage       from './pages/ws/WorkspaceAuditLogPage'
-import WorkspaceMembersPage        from './pages/ws/WorkspaceMembersPage'
-import WorkspaceRetentionPage      from './pages/ws/WorkspaceRetentionPage'
-import PortfolioPage         from './pages/PortfolioPage'
-import PortfolioRiskPage     from './pages/PortfolioRiskPage'
-import InvitationLandingPage from './pages/InvitationLandingPage'
-import AccountPage           from './pages/AccountPage'
-import AccountPrivacyPage   from './pages/AccountPrivacyPage'
-import SecurityPage          from './pages/SecurityPage'
-// BillingPage.jsx is retained as a future full billing portal but is not
-// currently mounted at any route. /billing renders SubscriptionPage.
-import SubscriptionPage      from './pages/SubscriptionPage'
-import DomainVerifyPage      from './pages/DomainVerifyPage'
-import PricingPage           from './pages/PricingPage'
-import PublicLandingPage     from './pages/PublicLandingPage'
-import CheckoutSuccessPage   from './pages/CheckoutSuccessPage'
-import CheckoutCancelPage    from './pages/CheckoutCancelPage'
-import TermsPage             from './pages/TermsPage'
-import PrivacyPage           from './pages/PrivacyPage'
-import DpaPage               from './pages/DpaPage'
-import CookiePolicyPage      from './pages/CookiePolicyPage'
-import SupportPage           from './pages/SupportPage'
-import AcademyPage          from './pages/AcademyPage'
-import AcademyArticlePage   from './pages/AcademyArticlePage'
-import NotificationsPage    from './pages/NotificationsPage'
-import FreeScanPage         from './pages/FreeScanPage'
 
-/**
- * ProtectedRoute — blocks unauthenticated users from accessing the app.
- *
- * Three states:
- *  1. isLoading  — token exists in localStorage but hasn't been validated yet.
- *                  Show a full-page spinner so protected content never flashes.
- *  2. !isAuthenticated — no token or token was rejected by the server.
- *                  Redirect to /login, preserving the intended path in state.from
- *                  so LoginPage can send the user back after a successful login.
- *  3. Authenticated — render children normally.
- *
- * Does NOT rely on Cloudflare Access identity. Only cybermeters_auth_token
- * in localStorage counts as authentication.
- */
+// ── Fallback Spinner Component ───────────────────────────────────────────
+const RouteLoader = () => (
+  <div className="p-8 flex items-center justify-center min-h-[50vh]">
+    <div className="w-6 h-6 border-2 border-brand-600 border-t-transparent rounded-full animate-spin" />
+  </div>
+)
+
+// ── Lazy-Loaded Auth & Public Pages ──────────────────────────────────────
+const LoginPage                 = lazy(() => import('./pages/LoginPage'))
+const SignupPage                = lazy(() => import('./pages/SignupPage'))
+const ForgotPasswordPage        = lazy(() => import('./pages/ForgotPasswordPage'))
+const ResetPasswordPage         = lazy(() => import('./pages/ResetPasswordPage'))
+const MicrosoftCallbackPage     = lazy(() => import('./pages/MicrosoftCallbackPage'))
+const EmailVerificationPage     = lazy(() => import('./pages/EmailVerificationPage'))
+const PricingPage               = lazy(() => import('./pages/PricingPage'))
+const PublicLandingPage         = lazy(() => import('./pages/PublicLandingPage'))
+const CheckoutSuccessPage       = lazy(() => import('./pages/CheckoutSuccessPage'))
+const CheckoutCancelPage        = lazy(() => import('./pages/CheckoutCancelPage'))
+const TermsPage                 = lazy(() => import('./pages/TermsPage'))
+const PrivacyPage               = lazy(() => import('./pages/PrivacyPage'))
+const DpaPage                   = lazy(() => import('./pages/DpaPage'))
+const CookiePolicyPage          = lazy(() => import('./pages/CookiePolicyPage'))
+const SupportPage               = lazy(() => import('./pages/SupportPage'))
+const InvitationLandingPage     = lazy(() => import('./pages/InvitationLandingPage'))
+const FreeScanPage              = lazy(() => import('./pages/FreeScanPage'))
+
+// ── Lazy-Loaded Core Protected App Pages ─────────────────────────────────
+const Dashboard                 = lazy(() => import('./pages/Dashboard'))
+const NewScan                   = lazy(() => import('./pages/NewScan'))
+const ScanDetail                = lazy(() => import('./pages/ScanDetail'))
+const DomainHistory             = lazy(() => import('./pages/DomainHistory'))
+const ScansPage                 = lazy(() => import('./pages/ScansPage'))
+const AssetsPage                = lazy(() => import('./pages/AssetsPage'))
+const ReportsPage               = lazy(() => import('./pages/ReportsPage'))
+const SchedulesPage             = lazy(() => import('./pages/SchedulesPage'))
+const SettingsPage              = lazy(() => import('./pages/SettingsPage'))
+const AccuracyPage              = lazy(() => import('./pages/AccuracyPage'))
+const WorkspacesPage            = lazy(() => import('./pages/WorkspacesPage'))
+const OnboardingPage            = lazy(() => import('./pages/OnboardingPage'))
+const WorkspaceDetailPage       = lazy(() => import('./pages/WorkspaceDetailPage'))
+const IntelligencePage          = lazy(() => import('./pages/IntelligencePage'))
+const ServiceLauncher           = lazy(() => import('./components/ServiceLauncher'))
+const PortfolioPage             = lazy(() => import('./pages/PortfolioPage'))
+const PortfolioRiskPage         = lazy(() => import('./pages/PortfolioRiskPage'))
+const AccountPage               = lazy(() => import('./pages/AccountPage'))
+const AccountPrivacyPage        = lazy(() => import('./pages/AccountPrivacyPage'))
+const SecurityPage              = lazy(() => import('./pages/SecurityPage'))
+const SubscriptionPage          = lazy(() => import('./pages/SubscriptionPage'))
+const DomainVerifyPage          = lazy(() => import('./pages/DomainVerifyPage'))
+const AcademyPage               = lazy(() => import('./pages/AcademyPage'))
+const AcademyArticlePage        = lazy(() => import('./pages/AcademyArticlePage'))
+const NotificationsPage         = lazy(() => import('./pages/NotificationsPage'))
+
+// ── Lazy-Loaded Workspace Intelligent Subsections ───────────────────────
+const WorkspaceDashboard            = lazy(() => import('./pages/ws/WorkspaceDashboard'))
+const WorkspaceScorecard            = lazy(() => import('./pages/ws/WorkspaceScorecard'))
+const VendorsPage                   = lazy(() => import('./pages/ws/VendorsPage'))
+const ThirdPartyPage                = lazy(() => import('./pages/ws/ThirdPartyPage'))
+const SaasExposurePage              = lazy(() => import('./pages/ws/SaasExposurePage'))
+const CloudAssetsPage               = lazy(() => import('./pages/ws/CloudAssetsPage'))
+const AdminSurfacesPage             = lazy(() => import('./pages/ws/AdminSurfacesPage'))
+const CertificatesPage              = lazy(() => import('./pages/ws/CertificatesPage'))
+const BrandMonitoringPage           = lazy(() => import('./pages/ws/BrandMonitoringPage'))
+const WorkspaceIdentityPage         = lazy(() => import('./pages/ws/WorkspaceIdentityPage'))
+const WorkspaceEmailProtectionPage  = lazy(() => import('./pages/ws/WorkspaceEmailProtectionPage'))
+const WorkspaceReportsPage          = lazy(() => import('./pages/ws/WorkspaceReportsPage'))
+const WorkspaceExecutiveDashboard   = lazy(() => import('./pages/ws/WorkspaceExecutiveDashboard'))
+const WorkspaceBusinessRiskPage     = lazy(() => import('./pages/ws/WorkspaceBusinessRiskPage'))
+const WorkspaceCyberEssentialsPage  = lazy(() => import('./pages/ws/WorkspaceCyberEssentialsPage'))
+const WorkspaceSupplyChainPage      = lazy(() => import('./pages/ws/WorkspaceSupplyChainPage'))
+const WorkspaceAuditLogPage         = lazy(() => import('./pages/ws/WorkspaceAuditLogPage'))
+const WorkspaceMembersPage          = lazy(() => import('./pages/ws/WorkspaceMembersPage'))
+const WorkspaceRetentionPage        = lazy(() => import('./pages/ws/WorkspaceRetentionPage'))
+
 function ProtectedRoute({ children }) {
   const { isAuthenticated, isLoading } = useAuth()
   const location = useLocation()
@@ -98,22 +96,13 @@ function ProtectedRoute({ children }) {
   return children
 }
 
-/**
- * PublicOnlyRoute — redirects already-authenticated users away from /login and /signup.
- * Waits for session validation to complete before deciding (prevents premature redirect
- * during the initial validateSession() call).
- */
 function PublicOnlyRoute({ children }) {
   const { isAuthenticated, isLoading } = useAuth()
-  if (isLoading) return null   // wait silently — login page will flash in momentarily
+  if (isLoading) return null
   if (isAuthenticated) return <Navigate to="/dashboard" replace />
   return children
 }
 
-// The marketing site (cybermeters.com / www) and the app (app.cybermeters.com)
-// are served from the same SPA bundle. Hostname decides which experience renders.
-// Only the apex + www are treated as the public marketing site; app.* and any
-// dev/preview host keep the full application unchanged.
 function isMarketingHost() {
   if (typeof window === 'undefined') return false
   const h = window.location.hostname.toLowerCase()
@@ -121,112 +110,100 @@ function isMarketingHost() {
 }
 
 function AppRoutes() {
-  // Public marketing site — landing page + legal pages only. The app (including
-  // /login, /dashboard, /services, /ws/*) is intentionally NOT mounted here, so
-  // the marketing domain never exposes app routes.
   if (isMarketingHost()) {
     return (
-      <Routes>
-        <Route path="/"        element={<PublicLandingPage />} />
-        <Route path="/privacy" element={<PrivacyPage />} />
-        <Route path="/terms"   element={<TermsPage />} />
-        <Route path="/dpa"     element={<DpaPage />} />
-        <Route path="/cookies" element={<CookiePolicyPage />} />
-        <Route path="/support" element={<SupportPage />} />
-        <Route path="*"        element={<Navigate to="/" replace />} />
-      </Routes>
+      <Suspense fallback={<RouteLoader />}>
+        <Routes>
+          <Route path="/"        element={<PublicLandingPage />} />
+          <Route path="/privacy" element={<PrivacyPage />} />
+          <Route path="/terms"   element={<TermsPage />} />
+          <Route path="/dpa"     element={<DpaPage />} />
+          <Route path="/cookies" element={<CookiePolicyPage />} />
+          <Route path="/support" element={<SupportPage />} />
+          <Route path="*"        element={<Navigate to="/" replace />} />
+        </Routes>
+      </Suspense>
     )
   }
 
   return (
-    <Routes>
-      {/* ── Public auth pages (no Layout shell) ─────────────────────────── */}
-      <Route
-        path="/login"
-        element={<PublicOnlyRoute><LoginPage /></PublicOnlyRoute>}
-      />
-      <Route
-        path="/signup"
-        element={<PublicOnlyRoute><SignupPage /></PublicOnlyRoute>}
-      />
-      <Route path="/forgot-password"               element={<ForgotPasswordPage />} />
-      <Route path="/reset-password"                element={<ResetPasswordPage />} />
-      <Route path="/auth/microsoft/callback"       element={<MicrosoftCallbackPage />} />
-      <Route path="/verify-email"                  element={<EmailVerificationPage />} />
-      <Route path="/pricing"          element={<PricingPage />} />
-      {/* Stripe redirects to these after checkout */}
-      <Route path="/checkout/success" element={<CheckoutSuccessPage />} />
-      <Route path="/checkout/cancel"  element={<CheckoutCancelPage />} />
-      {/* Legacy aliases kept for backward-compat with any existing bookmarks */}
-      <Route path="/billing/success"  element={<CheckoutSuccessPage />} />
-      <Route path="/billing/cancel"   element={<CheckoutCancelPage />} />
-      <Route path="/terms"            element={<TermsPage />} />
-      <Route path="/privacy"          element={<PrivacyPage />} />
-      <Route path="/dpa"              element={<DpaPage />} />
-      <Route path="/cookies"          element={<CookiePolicyPage />} />
-      <Route path="/support"          element={<SupportPage />} />
-      {/* Invitation landing — public, works for logged-out and logged-in users */}
-      <Route path="/invitations/:token" element={<InvitationLandingPage />} />
-      {/* Free scan — public lead-gen page, no auth required */}
-      <Route path="/free-scan"          element={<FreeScanPage />} />
+    <Suspense fallback={<RouteLoader />}>
+      <Routes>
+        {/* ── Public auth pages ─────────────────────────────────────────── */}
+        <Route path="/login" element={<PublicOnlyRoute><LoginPage /></PublicOnlyRoute>} />
+        <Route path="/signup" element={<PublicOnlyRoute><SignupPage /></PublicOnlyRoute>} />
+        <Route path="/forgot-password"        element={<ForgotPasswordPage />} />
+        <Route path="/reset-password"         element={<ResetPasswordPage />} />
+        <Route path="/auth/microsoft/callback" element={<MicrosoftCallbackPage />} />
+        <Route path="/verify-email"           element={<EmailVerificationPage />} />
+        <Route path="/pricing"                element={<PricingPage />} />
+        <Route path="/checkout/success"       element={<CheckoutSuccessPage />} />
+        <Route path="/checkout/cancel"        element={<CheckoutCancelPage />} />
+        <Route path="/billing/success"        element={<CheckoutSuccessPage />} />
+        <Route path="/billing/cancel"         element={<CheckoutCancelPage />} />
+        <Route path="/terms"                  element={<TermsPage />} />
+        <Route path="/privacy"                element={<PrivacyPage />} />
+        <Route path="/dpa"                    element={<DpaPage />} />
+        <Route path="/cookies"                element={<CookiePolicyPage />} />
+        <Route path="/support"                element={<SupportPage />} />
+        <Route path="/invitations/:token"     element={<InvitationLandingPage />} />
+        <Route path="/free-scan"              element={<FreeScanPage />} />
 
-      {/* ── Protected app (with Layout shell) ───────────────────────────── */}
-      <Route
-        path="/"
-        element={<ProtectedRoute><Layout /></ProtectedRoute>}
-      >
-        <Route index element={<Navigate to="/dashboard" replace />} />
-        <Route path="dashboard"               element={<Dashboard />}           />
-        <Route path="services"                element={<ServiceLauncher />}     />
-        <Route path="onboarding"              element={<OnboardingPage />}      />
-        <Route path="portfolio"               element={<PortfolioPage />}        />
-        <Route path="portfolio/risk"          element={<PortfolioRiskPage />}    />
-        <Route path="workspaces"              element={<WorkspacesPage />}      />
-        <Route path="workspaces/:id"          element={<WorkspaceDetailPage />} />
-        <Route path="intelligence"            element={<IntelligencePage />}    />
-        <Route path="scans"                   element={<ScansPage />}           />
-        <Route path="scans/new"               element={<NewScan />}             />
-        <Route path="scans/:id"               element={<ScanDetail />}          />
-        <Route path="domain/:domain/history"  element={<DomainHistory />}       />
-        <Route path="assets"                  element={<AssetsPage />}          />
-        <Route path="reports"                 element={<ReportsPage />}         />
-        <Route path="schedules"               element={<SchedulesPage />}       />
-        <Route path="accuracy"                element={<AccuracyPage />}        />
-        <Route path="settings"                element={<SettingsPage />}        />
-        <Route path="account"                 element={<AccountPage />}          />
-        <Route path="account/security"        element={<SecurityPage />}         />
-        <Route path="account/privacy"         element={<AccountPrivacyPage />}   />
-        <Route path="billing"                 element={<SubscriptionPage />}     />
-        <Route path="domains/:id/verify"      element={<DomainVerifyPage />}     />
-        {/* Workspace intelligence pages */}
-        <Route path="ws/dashboard"        element={<WorkspaceDashboard />}  />
-        <Route path="ws/scorecard"        element={<WorkspaceScorecard />}  />
-        <Route path="ws/vendors"          element={<VendorsPage />}         />
-        <Route path="ws/third-party"      element={<ThirdPartyPage />}      />
-        <Route path="ws/saas-exposure"    element={<SaasExposurePage />}    />
-        <Route path="ws/cloud-assets"     element={<CloudAssetsPage />}     />
-        <Route path="ws/admin-surfaces"   element={<AdminSurfacesPage />}   />
-        <Route path="ws/certificates"     element={<CertificatesPage />}    />
-        <Route path="ws/brand-monitoring" element={<BrandMonitoringPage />} />
-        <Route path="ws/identity-assets"  element={<WorkspaceIdentityPage />} />
-        <Route path="ws/email-protection" element={<WorkspaceEmailProtectionPage />} />
-        <Route path="ws/reports"              element={<WorkspaceReportsPage />}        />
-        <Route path="ws/executive-dashboard" element={<WorkspaceExecutiveDashboard />} />
-        <Route path="ws/business-risk"       element={<WorkspaceBusinessRiskPage />}   />
-        <Route path="ws/cyber-essentials"    element={<WorkspaceCyberEssentialsPage />} />
-        <Route path="ws/supply-chain"         element={<WorkspaceSupplyChainPage />}      />
-        <Route path="ws/audit-log"            element={<WorkspaceAuditLogPage />}          />
-        <Route path="ws/members"              element={<WorkspaceMembersPage />}           />
-        <Route path="ws/retention"            element={<WorkspaceRetentionPage />}         />
-        <Route path="academy"             element={<AcademyPage />}                    />
-        <Route path="academy/:slug"       element={<AcademyArticlePage />}             />
-        <Route path="notifications"       element={<NotificationsPage />}              />
-        <Route path="*"                   element={<Navigate to="/dashboard" replace />} />
-      </Route>
+        {/* ── Protected app ───────────────────────────────────────────── */}
+        <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+          <Route index element={<Navigate to="/dashboard" replace />} />
+          <Route path="dashboard"               element={<Dashboard />} />
+          <Route path="services"                element={<ServiceLauncher />} />
+          <Route path="onboarding"              element={<OnboardingPage />} />
+          <Route path="portfolio"               element={<PortfolioPage />} />
+          <Route path="portfolio/risk"          element={<PortfolioRiskPage />} />
+          <Route path="workspaces"              element={<WorkspacesPage />} />
+          <Route path="workspaces/:id"          element={<WorkspaceDetailPage />} />
+          <Route path="intelligence"            element={<IntelligencePage />} />
+          <Route path="scans"                   element={<ScansPage />} />
+          <Route path="scans/new"               element={<NewScan />} />
+          <Route path="scans/:id"               element={<ScanDetail />} />
+          <Route path="domain/:domain/history"  element={<DomainHistory />} />
+          <Route path="assets"                  element={<AssetsPage />} />
+          <Route path="reports"                 element={<ReportsPage />} />
+          <Route path="schedules"               element={<SchedulesPage />} />
+          <Route path="accuracy"                element={<AccuracyPage />} />
+          <Route path="settings"                element={<SettingsPage />} />
+          <Route path="account"                 element={<AccountPage />} />
+          <Route path="account/security"        element={<SecurityPage />} />
+          <Route path="account/privacy"         element={<AccountPrivacyPage />} />
+          <Route path="billing"                 element={<SubscriptionPage />} />
+          <Route path="domains/:id/verify"      element={<DomainVerifyPage />} />
 
-      {/* Catch-all → login */}
-      <Route path="*" element={<Navigate to="/login" replace />} />
-    </Routes>
+          {/* Workspace intelligence subpages */}
+          <Route path="ws/dashboard"        element={<WorkspaceDashboard />} />
+          <Route path="ws/scorecard"        element={<WorkspaceScorecard />} />
+          <Route path="ws/vendors"          element={<VendorsPage />} />
+          <Route path="ws/third-party"      element={<ThirdPartyPage />} />
+          <Route path="ws/saas-exposure"    element={<SaasExposurePage />} />
+          <Route path="ws/cloud-assets"     element={<CloudAssetsPage />} />
+          <Route path="ws/admin-surfaces"   element={<AdminSurfacesPage />} />
+          <Route path="ws/certificates"     element={<CertificatesPage />} />
+          <Route path="ws/brand-monitoring" element={<BrandMonitoringPage />} />
+          <Route path="ws/identity-assets"  element={<WorkspaceIdentityPage />} />
+          <Route path="ws/email-protection" element={<WorkspaceEmailProtectionPage />} />
+          <Route path="ws/reports"              element={<WorkspaceReportsPage />} />
+          <Route path="ws/executive-dashboard" element={<WorkspaceExecutiveDashboard />} />
+          <Route path="ws/business-risk"       element={<WorkspaceBusinessRiskPage />} />
+          <Route path="ws/cyber-essentials"    element={<WorkspaceCyberEssentialsPage />} />
+          <Route path="ws/supply-chain"        element={<WorkspaceSupplyChainPage />} />
+          <Route path="ws/audit-log"            element={<WorkspaceAuditLogPage />} />
+          <Route path="ws/members"              element={<WorkspaceMembersPage />} />
+          <Route path="ws/retention"            element={<WorkspaceRetentionPage />} />
+
+          <Route path="academy"             element={<AcademyPage />} />
+          <Route path="academy/:slug"       element={<AcademyArticlePage />} />
+          <Route path="notifications"       element={<NotificationsPage />} />
+          <Route path="*"                   element={<Navigate to="/dashboard" replace />} />
+        </Route>
+        <Route path="*" element={<Navigate to="/login" replace />} />
+      </Routes>
+    </Suspense>
   )
 }
 
