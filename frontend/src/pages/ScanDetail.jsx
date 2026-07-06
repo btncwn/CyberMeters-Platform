@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import {
-  ArrowLeft, RefreshCw, Globe, Hash, AlertCircle, ScanLine,
+  ArrowLeft, RefreshCw, Globe, Hash, AlertCircle, ScanLine, Download,
   ChevronRight, Shield, FileText, CheckCircle, XCircle, Mail,
   Lock, Server, Clock, History, ChevronDown, Terminal,
   TrendingDown, TrendingUp, Minus, GraduationCap,
@@ -1228,7 +1228,29 @@ export default function ScanDetail() {
   const [reportV2,      setReportV2]      = useState(null)
   const [reportTab,     setReportTab]     = useState('executive') // 'executive' | 'technical'
   const [waivers,       setWaivers]       = useState({}) // finding_id → waiver row
+  const [downloadingPdf, setDownloadingPdf] = useState(false)
+  const [pdfError,      setPdfError]      = useState(null)
   const pollRef = useRef(null)
+
+  const handleDownloadPdf = useCallback(async () => {
+    setPdfError(null)
+    setDownloadingPdf(true)
+    try {
+      const blob = await api.getScanReportPdf(id)
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href     = url
+      a.download = `cybermeters-${String(scan?.domain || 'scan').replace(/[^a-z0-9.-]/gi, '-').toLowerCase()}-scan.pdf`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      setPdfError(e?.message || 'The PDF could not be generated. Please try again.')
+    } finally {
+      setDownloadingPdf(false)
+    }
+  }, [id, scan])
 
   // Risk acceptance context: waivers are workspace+domain scoped. They are an
   // enhancement — the report renders identically if they cannot be loaded.
@@ -1345,6 +1367,12 @@ export default function ScanDetail() {
                 <Globe className="w-4 h-4" />
                 Domain History
               </button>
+              {scan.status === 'completed' && (
+                <button onClick={handleDownloadPdf} disabled={downloadingPdf} className="btn-secondary">
+                  <Download className={`w-4 h-4 ${downloadingPdf ? 'animate-pulse' : ''}`} />
+                  {downloadingPdf ? 'Preparing…' : 'Download PDF'}
+                </button>
+              )}
               <button onClick={() => load(true)} disabled={refreshing} className="btn-secondary">
                 <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
                 Refresh
@@ -1376,35 +1404,44 @@ export default function ScanDetail() {
                   <ErrorAlert message={reportError} onRetry={loadReport} />
                 ) : (reportV2 || report) ? (
                   <div className="space-y-4">
-                    {/* Report view switcher — executive narrative vs technical detail */}
-                    <div className="inline-flex items-center gap-1 p-1 bg-gray-100 rounded-xl">
-                      <button
-                        onClick={() => setReportTab('executive')}
-                        className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-semibold transition-all ${
-                          reportTab === 'executive' ? 'bg-white text-brand-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                        }`}
-                        aria-pressed={reportTab === 'executive'}
-                      >
-                        <Sparkles className="w-4 h-4" /> Executive Report
-                      </button>
-                      <button
-                        onClick={() => setReportTab('technical')}
-                        className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-semibold transition-all ${
-                          reportTab === 'technical' ? 'bg-white text-brand-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                        }`}
-                        aria-pressed={reportTab === 'technical'}
-                      >
-                        <SlidersHorizontal className="w-4 h-4" /> Technical Details
-                      </button>
-                    </div>
+                    {pdfError && (
+                      <div className="flex items-center gap-2 px-4 py-2.5 bg-red-50 border border-red-100 rounded-xl text-sm text-red-700">
+                        <AlertCircle className="w-4 h-4 flex-shrink-0" /> {pdfError}
+                      </div>
+                    )}
+                    {/* Report view switcher — only shown when BOTH views loaded, so the
+                        two tabs are always genuinely distinct. If one failed to load,
+                        the available view renders directly (no misleading switcher). */}
+                    {(reportV2 && report) && (
+                      <div className="inline-flex items-center gap-1 p-1 bg-gray-100 rounded-xl">
+                        <button
+                          onClick={() => setReportTab('executive')}
+                          className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-semibold transition-all ${
+                            reportTab === 'executive' ? 'bg-white text-brand-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                          }`}
+                          aria-pressed={reportTab === 'executive'}
+                        >
+                          <Sparkles className="w-4 h-4" /> Executive Report
+                        </button>
+                        <button
+                          onClick={() => setReportTab('technical')}
+                          className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-semibold transition-all ${
+                            reportTab === 'technical' ? 'bg-white text-brand-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                          }`}
+                          aria-pressed={reportTab === 'technical'}
+                        >
+                          <SlidersHorizontal className="w-4 h-4" /> Technical Details
+                        </button>
+                      </div>
+                    )}
 
-                    {reportTab === 'executive'
-                      ? (reportV2
+                    {(reportV2 && report)
+                      ? (reportTab === 'executive'
                           ? <ExecutiveReportV2 report={reportV2} />
                           : <ReportView report={report} waivers={waivers} onWaive={waiveEnabled ? handleWaive : null} onUnwaive={waiveEnabled ? handleUnwaive : null} />)
-                      : (report
-                          ? <ReportView report={report} waivers={waivers} onWaive={waiveEnabled ? handleWaive : null} onUnwaive={waiveEnabled ? handleUnwaive : null} />
-                          : <ExecutiveReportV2 report={reportV2} />)
+                      : (reportV2
+                          ? <ExecutiveReportV2 report={reportV2} />
+                          : <ReportView report={report} waivers={waivers} onWaive={waiveEnabled ? handleWaive : null} onUnwaive={waiveEnabled ? handleUnwaive : null} />)
                     }
                   </div>
                 ) : null

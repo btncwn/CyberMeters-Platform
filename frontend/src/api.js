@@ -352,6 +352,9 @@ export const api = {
   /** GET /api/scans/:id/executive-report-v2 — Intelligence Engine report contract */
   getExecutiveReportV2: (id) => request(`/scans/${id}/executive-report-v2`),
 
+  /** GET /api/scans/:id/report/pdf → per-scan PDF (Blob, application/pdf) */
+  getScanReportPdf: (id) => requestBlob(`/scans/${id}/report/pdf`),
+
   /** GET /api/platform/accuracy */
   getPlatformAccuracy: () => request('/platform/accuracy'),
 
