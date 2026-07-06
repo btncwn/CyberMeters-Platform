@@ -141,6 +141,11 @@ function loadScanner(fetchImpl = async () => { throw new Error("network disabled
     WORKSPACE_PURGE_TABLES,
     computeConcentration,
     pdfUtcDate,
+    validateAlertChannelInput,
+    buildAlertChannelPayload,
+    signAlertWebhookBody,
+    deliverWorkspaceAlert,
+    alertChannelToApi,
     emailHandler: __workerDefault.email,
     computeBusinessRiskScoreFromIds: (ids, data) => computeBusinessRiskScore(new Set(ids), data),
   };`, context, {
@@ -2286,6 +2291,89 @@ results.push(securityContract("email_source_validation_fails_and_unparseable", (
   const fail = scanner.parseEmailAuthHeaders("Authentication-Results: mx.google.com; spf=fail; dkim=fail; dmarc=fail header.from=cybermeters.com", "cybermeters.com");
   const empty = scanner.parseEmailAuthHeaders("Subject: hello\nTo: a@b.com", "cybermeters.com");
   return fail.verdict === "fails" && empty.verdict === "unparseable";
+}));
+results.push(securityContract("alert_channel_url_validation_guards", () => {
+  const v = scanner.validateAlertChannelInput;
+  // SSRF and scheme guards
+  const bad = [
+    ["webhook", "http://example.com/hook"],           // not https
+    ["webhook", "https://localhost/hook"],            // loopback
+    ["webhook", "https://127.0.0.1/hook"],            // loopback ip
+    ["webhook", "https://10.1.2.3/hook"],             // private ip
+    ["webhook", "https://172.16.9.1/hook"],           // private ip
+    ["webhook", "https://192.168.1.1/hook"],          // private ip
+    ["webhook", "https://169.254.169.254/latest"],    // link-local / metadata
+    ["webhook", "https://intranet/hook"],             // dotless host
+    ["webhook", "https://svc.internal/hook"],         // .internal
+    ["webhook", "https://user:pass@example.com/h"],   // embedded credentials
+    ["slack",   "https://evil.com/hook"],             // wrong slack host
+    ["teams",   "https://hooks.slack.com/services/x"],// wrong teams host
+    ["email",   "https://example.com/hook"],          // unknown type
+  ].every(([t, u]) => v(t, u).ok === false);
+  // Legitimate provider URLs pass
+  const good =
+    v("slack", "https://hooks.slack.com/services/T000/B000/XXXX").ok === true &&
+    v("teams", "https://contoso.webhook.office.com/webhookb2/abc").ok === true &&
+    v("teams", "https://prod-01.uksouth.logic.azure.com/workflows/x").ok === true &&
+    v("webhook", "https://api.example.co.uk/cybermeters").ok === true;
+  return bad && good;
+}));
+results.push(securityContract("alert_channel_payloads_provider_shapes", () => {
+  const ev = { kind: "score_drop", severity: "high", title: "Score dropped",
+    summary: "Score fell 12 points.", domain: "example.com",
+    workspace_name: "Acme", link: "https://app.cybermeters.com/scans/s1" };
+  const slack = scanner.buildAlertChannelPayload("slack", ev);
+  const teams = scanner.buildAlertChannelPayload("teams", ev);
+  const hook  = scanner.buildAlertChannelPayload("webhook", ev);
+  return typeof slack.text === "string" && slack.text.includes("*Score dropped*") &&
+    slack.text.includes("<https://app.cybermeters.com/scans/s1|Open in CyberMeters>") &&
+    teams["@type"] === "MessageCard" && teams.themeColor === "B4232A" &&
+    teams.title === "Score dropped" && Array.isArray(teams.potentialAction) &&
+    hook.source === "cybermeters" && hook.event === "score_drop" &&
+    hook.severity === "high" && hook.domain === "example.com" &&
+    /^\d{4}-\d{2}-\d{2}T/.test(hook.sent_at) &&
+    // Control characters are stripped from all rendered text
+    scanner.buildAlertChannelPayload("slack", { title: "a bc" }).text.includes("*a b c*");
+}));
+results.push(await asyncSecurityContract("alert_webhook_signature_hmac_sha256", async () => {
+  // Cross-check the Workers-crypto implementation against Node's crypto.
+  const { createHmac } = await import("node:crypto");
+  const secret = "whsec_testsecret", body = '{"event":"test"}';
+  const expected = createHmac("sha256", secret).update(body).digest("hex");
+  return (await scanner.signAlertWebhookBody(secret, body)) === expected;
+}));
+results.push(await asyncSecurityContract("alert_delivery_signs_and_records_status", async () => {
+  const calls = []; const updates = [];
+  const rows = [
+    { id: "c1", channel_type: "webhook", webhook_url: "https://api.example.com/h", secret: "whsec_x" },
+    { id: "c2", channel_type: "slack",   webhook_url: "https://hooks.slack.com/services/T/B/X", secret: null },
+  ];
+  const env = { cybermeters_db: { prepare(sql) { return {
+    _sql: sql, bind(...args) { this._args = args; return this; },
+    async all() { return { results: rows }; },
+    async run() { if (this._sql.includes("UPDATE workspace_alert_channels")) updates.push(this._args); return { meta: { changes: 1 } }; },
+    async first() { return null; },
+  }; } } };
+  const fetchImpl = async (url, opts) => { calls.push({ url, opts }); return { ok: url.includes("slack") ? false : true, status: url.includes("slack") ? 500 : 200 }; };
+  const res = await scanner.deliverWorkspaceAlert(env, "ws1", { kind: "test", title: "T", summary: "S" }, { fetchImpl });
+  const hookCall  = calls.find(c => c.url.includes("example.com"));
+  const slackCall = calls.find(c => c.url.includes("slack.com"));
+  return res.attempted === 2 && res.delivered === 1 &&
+    Boolean(hookCall?.opts?.headers?.["X-CyberMeters-Signature"]?.startsWith("sha256=")) &&
+    slackCall?.opts?.headers?.["X-CyberMeters-Signature"] === undefined &&
+    updates.length === 2 &&
+    updates.some(u => u[1] === "ok") && updates.some(u => u[1] === "failed:http_500");
+}));
+results.push(securityContract("alert_channel_api_never_leaks_url_or_secret", () => {
+  const api = scanner.alertChannelToApi({
+    id: "c1", channel_type: "webhook", enabled: 1,
+    webhook_url: "https://api.example.com/very/secret/path/token12345678",
+    secret: "whsec_supersecret", created_at: "2026-07-06T22:00:00Z",
+    last_delivery_at: null, last_delivery_status: null, failure_count: 0,
+  });
+  const s = JSON.stringify(api);
+  return api.has_secret === true && !s.includes("whsec_supersecret") &&
+    !s.includes("token12345678") && api.url_preview.startsWith("api.example.com/");
 }));
 results.push(securityContract("pdf_dates_render_utc_labelled_british", () => {
   // D1 "YYYY-MM-DD HH:MM:SS" carries no zone marker but is UTC. PDFs must

@@ -662,6 +662,29 @@ export const api = {
       method: 'DELETE',
     }),
 
+  /** GET /api/workspaces/:id/alert-channels → { channels } */
+  getAlertChannels: (workspaceId) =>
+    request(`/workspaces/${workspaceId}/alert-channels`),
+
+  /** POST /api/workspaces/:id/alert-channels  body: { channel_type, webhook_url } → { channel, secret? } */
+  createAlertChannel: (workspaceId, channelType, webhookUrl) =>
+    request(`/workspaces/${workspaceId}/alert-channels`, {
+      method: 'POST',
+      body: JSON.stringify({ channel_type: channelType, webhook_url: webhookUrl }),
+    }),
+
+  /** POST /api/workspaces/:id/alert-channels/:cid/test → { delivered } */
+  testAlertChannel: (workspaceId, channelId) =>
+    request(`/workspaces/${workspaceId}/alert-channels/${encodeURIComponent(channelId)}/test`, {
+      method: 'POST',
+    }),
+
+  /** DELETE /api/workspaces/:id/alert-channels/:cid */
+  deleteAlertChannel: (workspaceId, channelId) =>
+    request(`/workspaces/${workspaceId}/alert-channels/${encodeURIComponent(channelId)}`, {
+      method: 'DELETE',
+    }),
+
   /** GET /api/workspaces/:id/domains/:domain/dmarc-reports?limit=50 → imported report history */
   getDmarcReportHistory: (workspaceId, domain, limit = 50) =>
     request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/dmarc-reports?limit=${limit}`),

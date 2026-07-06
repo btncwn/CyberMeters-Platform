@@ -3,7 +3,7 @@ import { NavLink, Link, useNavigate, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Shield, Lock, Tag, Briefcase, ChevronLeft, ChevronDown,
   ChevronRight, BarChart2, ClipboardList, Users, HardDrive, Mail,
-  Server, Settings,
+  Server, Settings, Bell,
 } from 'lucide-react'
 import { preloadComponent } from '../utils/preload'
 import { routePreloadMap } from '../utils/preloadMap'
@@ -70,6 +70,7 @@ const WORKSPACE_TOOLS = [
   { to: '/ws/executive-dashboard', icon: BarChart2,       label: 'Executive'    },
   { to: '/ws/audit-log',           icon: ClipboardList,   label: 'Audit Log'    },
   { to: '/ws/members',             icon: Users,           label: 'Team Members' },
+  { to: '/ws/alerts',              icon: Bell,            label: 'Alert Channels' },
   { to: '/ws/retention',           icon: HardDrive,       label: 'Retention'    },
   { to: '/settings',               icon: Settings,        label: 'Settings'     },
 ]

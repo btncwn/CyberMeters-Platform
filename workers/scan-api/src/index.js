@@ -16453,6 +16453,18 @@ async function sendAssetChangeAlert(domainId, domain, scanId, env) {
         } else {
           console.error("[asset-alert] delivery failed", JSON.stringify({ workspace_id, scanId, reason: delivery.reason }));
         }
+
+        // Slack/Teams/webhook fan-out mirrors the email; never blocks the sweep.
+        try {
+          await deliverWorkspaceAlert(env, workspace_id, {
+            kind: "asset_change",
+            severity,
+            title: `Asset changes detected on ${domain}`,
+            summary: subject,
+            domain,
+            link: frontendOrigin ? `${frontendOrigin}/assets` : null,
+          });
+        } catch { /* channel fan-out is best-effort */ }
       } catch (wsErr) {
         console.error("[asset-alert] workspace error", workspace_id, wsErr?.message);
       }
@@ -17020,6 +17032,186 @@ async function retryFailedLifecycleEmails(env) {
   }
 }
 
+// ─── Workspace alert channels (Slack / Teams / signed generic webhooks) ──────
+// SMB teams live in Slack/Teams, not in another dashboard. Channels mirror the
+// events that already trigger alert emails. Generic webhooks are HMAC-signed so
+// receivers can verify authenticity. URLs are validated at creation: https
+// only, provider host allow-list for slack/teams, private/loopback hosts
+// rejected (SSRF guard).
+
+const ALERT_CHANNEL_TYPES = ["slack", "teams", "webhook"];
+const ALERT_CHANNEL_MAX_PER_WORKSPACE = 5;
+
+function validateAlertChannelInput(channelType, rawUrl) {
+  if (!ALERT_CHANNEL_TYPES.includes(channelType)) {
+    return { ok: false, error: "channel_type must be one of: slack, teams, webhook." };
+  }
+  const urlStr = String(rawUrl || "").trim();
+  if (!urlStr || urlStr.length > 2048) {
+    return { ok: false, error: "A webhook URL is required (max 2048 characters)." };
+  }
+  let parsed;
+  try { parsed = new URL(urlStr); }
+  catch { return { ok: false, error: "The webhook URL is not a valid URL." }; }
+  if (parsed.protocol !== "https:") {
+    return { ok: false, error: "Webhook URLs must use https." };
+  }
+  if (parsed.username || parsed.password) {
+    return { ok: false, error: "Webhook URLs must not embed credentials." };
+  }
+  const host = parsed.hostname.toLowerCase();
+  // SSRF guard: no loopback/private/link-local/internal targets.
+  const privateHost =
+    host === "localhost" || host.endsWith(".localhost") ||
+    host.endsWith(".local") || host.endsWith(".internal") ||
+    !host.includes(".") ||
+    /^127\.|^10\.|^192\.168\.|^169\.254\.|^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
+    host === "::1" || host.startsWith("[::1]") ||
+    /^\[?f[cd]/i.test(host) || /^\[?fe80/i.test(host);
+  if (privateHost) {
+    return { ok: false, error: "Webhook URLs must point to a public https endpoint." };
+  }
+  if (channelType === "slack" && host !== "hooks.slack.com") {
+    return { ok: false, error: "Slack channels must use a hooks.slack.com incoming-webhook URL." };
+  }
+  if (channelType === "teams" && !host.endsWith(".webhook.office.com") && !host.endsWith(".logic.azure.com")) {
+    return { ok: false, error: "Teams channels must use a *.webhook.office.com or *.logic.azure.com workflow URL." };
+  }
+  return { ok: true, url: parsed.href };
+}
+
+function _alertChannelText(value, max) {
+  return String(value ?? "").replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, max);
+}
+
+function buildAlertChannelPayload(channelType, event = {}) {
+  const title   = _alertChannelText(event.title, 200) || "CyberMeters alert";
+  const summary = _alertChannelText(event.summary, 1000);
+  const domain  = _alertChannelText(event.domain, 253) || null;
+  const link    = typeof event.link === "string" && /^https:\/\//.test(event.link)
+    ? event.link.slice(0, 1024) : null;
+  const severity = ["critical", "high", "medium", "low", "info"].includes(event.severity)
+    ? event.severity : "info";
+
+  if (channelType === "slack") {
+    const lines = [`*${title}*`];
+    if (summary) lines.push(summary);
+    if (link) lines.push(`<${link}|Open in CyberMeters>`);
+    return { text: lines.join("\n") };
+  }
+  if (channelType === "teams") {
+    const themeColor = severity === "critical" || severity === "high" ? "B4232A"
+      : severity === "medium" ? "B45309" : "00876A";
+    const card = {
+      "@type": "MessageCard",
+      "@context": "https://schema.org/extensions",
+      summary: title,
+      themeColor,
+      title,
+      text: summary || title,
+    };
+    if (link) {
+      card.potentialAction = [{
+        "@type": "OpenUri", name: "Open in CyberMeters",
+        targets: [{ os: "default", uri: link }],
+      }];
+    }
+    return card;
+  }
+  // Generic signed webhook: stable machine-readable envelope.
+  return {
+    source: "cybermeters",
+    event: _alertChannelText(event.kind, 64) || "alert",
+    severity,
+    title,
+    summary: summary || null,
+    domain,
+    workspace_name: _alertChannelText(event.workspace_name, 120) || null,
+    link,
+    sent_at: new Date().toISOString(),
+  };
+}
+
+async function signAlertWebhookBody(secret, body) {
+  const key = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(String(secret)),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(String(body)));
+  return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function alertChannelToApi(row) {
+  let preview = null;
+  try {
+    const u = new URL(row.webhook_url);
+    preview = `${u.hostname}/…${String(u.pathname).slice(-4)}`;
+  } catch { preview = "configured"; }
+  return {
+    id: row.id,
+    channel_type: row.channel_type,
+    url_preview: preview,
+    enabled: Boolean(row.enabled),
+    has_secret: Boolean(row.secret),
+    created_at: row.created_at,
+    last_delivery_at: row.last_delivery_at || null,
+    last_delivery_status: row.last_delivery_status || null,
+    failure_count: Number(row.failure_count || 0),
+  };
+}
+
+// deliverWorkspaceAlert — fan an event out to every enabled channel. Never
+// throws; delivery state is recorded per channel with customer-safe status
+// strings. fetchImpl is injectable for tests (house pattern: dnsQueryImpl).
+async function deliverWorkspaceAlert(env, workspaceId, event, { fetchImpl = fetch, channelId = null } = {}) {
+  let channels = [];
+  try {
+    const r = channelId
+      ? await env.cybermeters_db
+          .prepare(`SELECT id, channel_type, webhook_url, secret FROM workspace_alert_channels
+                    WHERE workspace_id = ? AND id = ? AND enabled = 1 LIMIT 1`)
+          .bind(workspaceId, channelId)
+          .all()
+      : await env.cybermeters_db
+          .prepare(`SELECT id, channel_type, webhook_url, secret FROM workspace_alert_channels
+                    WHERE workspace_id = ? AND enabled = 1
+                    ORDER BY created_at ASC LIMIT ?`)
+          .bind(workspaceId, ALERT_CHANNEL_MAX_PER_WORKSPACE)
+          .all();
+    channels = r.results || [];
+  } catch { return { attempted: 0, delivered: 0 }; }
+
+  let delivered = 0;
+  for (const ch of channels) {
+    const body = JSON.stringify(buildAlertChannelPayload(ch.channel_type, event));
+    const headers = { "content-type": "application/json" };
+    if (ch.channel_type === "webhook" && ch.secret) {
+      headers["X-CyberMeters-Signature"] = `sha256=${await signAlertWebhookBody(ch.secret, body)}`;
+      headers["X-CyberMeters-Event"] = _alertChannelText(event?.kind, 64) || "alert";
+    }
+    let status;
+    try {
+      const res = await fetchImpl(ch.webhook_url, {
+        method: "POST", headers, body, signal: AbortSignal.timeout(5000),
+      });
+      status = res.ok ? "ok" : `failed:http_${res.status}`;
+      if (res.ok) delivered += 1;
+    } catch {
+      status = "failed:unreachable";
+    }
+    try {
+      await env.cybermeters_db
+        .prepare(`UPDATE workspace_alert_channels
+                  SET last_delivery_at = ?, last_delivery_status = ?,
+                      failure_count = CASE WHEN ? = 'ok' THEN 0 ELSE failure_count + 1 END
+                  WHERE id = ?`)
+        .bind(new Date().toISOString(), status, status, ch.id)
+        .run();
+    } catch { /* delivery bookkeeping must never break the caller */ }
+  }
+  return { attempted: channels.length, delivered };
+}
+
 function formatAlertEmail({ workspaceName, domain, whatChanged, recommendation, link }) {
   const text = `CyberMeters Alert
 
@@ -17125,6 +17317,21 @@ async function processAlertsForWorkspace(workspaceId, domainId, domain, scanId, 
         )
         .bind(notifId, workspaceId, type, severity, title, message, JSON.stringify(metadata), emailSentAt)
         .run();
+
+      // Fan the same event out to Slack/Teams/webhook channels. Channel
+      // delivery must never break scan-alert processing.
+      try {
+        const alertOrigin = getEmailFrontendOrigin(env);
+        await deliverWorkspaceAlert(env, workspaceId, {
+          kind: type,
+          severity,
+          title,
+          summary: whatChanged || message || "",
+          domain,
+          workspace_name: workspaceName,
+          link: alertOrigin ? `${alertOrigin}/scans/${encodeURIComponent(scanId)}` : null,
+        });
+      } catch { /* never block on channel fan-out */ }
     };
 
     const hist = currentModules.historical_changes;
@@ -20235,7 +20442,7 @@ const WORKSPACE_PURGE_TABLES = [
   "report_schedule_runs", "report_schedules", "scheduled_reports",
   "workspace_invitations", "workspace_members", "workspace_retention_settings",
   "lifecycle_email_events", "scheduled_scans", "workspace_domains",
-  "finding_waivers", "api_tokens",
+  "finding_waivers", "api_tokens", "workspace_alert_channels",
 ];
 
 /**
@@ -33299,6 +33506,98 @@ export default {
         });
       } catch (e) {
         return serverError("dmarc-reports", e, "Could not load DMARC report history.");
+      }
+    }
+
+    // ── Workspace alert channels (Slack / Teams / signed webhooks) ────────────
+    //   GET    .../alert-channels           → list (read role)
+    //   POST   .../alert-channels           → create {channel_type, webhook_url} (manage role)
+    //   POST   .../alert-channels/:cid/test → send a test event (manage role)
+    //   DELETE .../alert-channels/:cid      → remove (manage role)
+    const alertChannelsMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/alert-channels(?:\/([^/]+)(\/test)?)?$/);
+    if (alertChannelsMatch) {
+      const workspaceId = alertChannelsMatch[1];
+      const channelId   = alertChannelsMatch[2] ? decodeURIComponent(alertChannelsMatch[2]) : null;
+      const isTest      = Boolean(alertChannelsMatch[3]);
+      try {
+        const user = await requireAuth(request, env);
+        if (!user) return json({ error: "Unauthorized" }, 401);
+        const permission = request.method === "GET" ? "workspace:read" : "workspace:manage";
+        const access = await requireWorkspaceRole(user, workspaceId, permission, env);
+        if (!access) return json({ error: "Forbidden" }, 403);
+
+        if (request.method === "GET" && !channelId) {
+          const rows = await env.cybermeters_db
+            .prepare(`SELECT * FROM workspace_alert_channels WHERE workspace_id = ? ORDER BY created_at ASC`)
+            .bind(workspaceId).all();
+          return json({ channels: (rows.results || []).map(alertChannelToApi) });
+        }
+
+        if (request.method === "POST" && !channelId) {
+          let body;
+          try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+          const channelType = String(body.channel_type || "").trim().toLowerCase();
+          const checked = validateAlertChannelInput(channelType, body.webhook_url);
+          if (!checked.ok) return json({ error: checked.error }, 400);
+
+          const countRow = await env.cybermeters_db
+            .prepare(`SELECT COUNT(*) AS cnt FROM workspace_alert_channels WHERE workspace_id = ?`)
+            .bind(workspaceId).first();
+          if (Number(countRow?.cnt || 0) >= ALERT_CHANNEL_MAX_PER_WORKSPACE) {
+            return json({ error: `A workspace can have at most ${ALERT_CHANNEL_MAX_PER_WORKSPACE} alert channels.` }, 400);
+          }
+
+          const id = createId("alch");
+          const secret = channelType === "webhook"
+            ? `whsec_${crypto.randomUUID().replace(/-/g, "")}` : null;
+          const createdAt = new Date().toISOString();
+          await env.cybermeters_db
+            .prepare(`INSERT INTO workspace_alert_channels
+                        (id, workspace_id, channel_type, webhook_url, secret, enabled, created_by, created_at)
+                      VALUES (?, ?, ?, ?, ?, 1, ?, ?)`)
+            .bind(id, workspaceId, channelType, checked.url, secret, user.id, createdAt)
+            .run();
+          await createAuditEvent(env, {
+            workspace_id: workspaceId, user_id: user.id,
+            event_type: "alert_channel_created", entity_type: "alert_channel", entity_id: id,
+            description: `Alert channel added (${channelType})`,
+          });
+          const row = await env.cybermeters_db
+            .prepare(`SELECT * FROM workspace_alert_channels WHERE id = ?`).bind(id).first();
+          // The signing secret is returned exactly once, at creation.
+          return json({ channel: alertChannelToApi(row), secret }, 201);
+        }
+
+        if (request.method === "POST" && channelId && isTest) {
+          const frontendOrigin = getEmailFrontendOrigin(env);
+          const result = await deliverWorkspaceAlert(env, workspaceId, {
+            kind: "test",
+            severity: "info",
+            title: "CyberMeters test alert",
+            summary: "Your alert channel is connected. Scan, asset and certificate alerts will arrive here.",
+            workspace_name: access.workspace_name || null,
+            link: frontendOrigin ? `${frontendOrigin}/ws/alerts` : null,
+          }, { channelId });
+          if (result.attempted === 0) return json({ error: "Channel not found or disabled." }, 404);
+          return json({ delivered: result.delivered === 1 });
+        }
+
+        if (request.method === "DELETE" && channelId && !isTest) {
+          const del = await env.cybermeters_db
+            .prepare(`DELETE FROM workspace_alert_channels WHERE id = ? AND workspace_id = ?`)
+            .bind(channelId, workspaceId).run();
+          if (!del.meta || del.meta.changes === 0) return json({ error: "Channel not found." }, 404);
+          await createAuditEvent(env, {
+            workspace_id: workspaceId, user_id: user.id,
+            event_type: "alert_channel_deleted", entity_type: "alert_channel", entity_id: channelId,
+            description: "Alert channel removed",
+          });
+          return json({ ok: true });
+        }
+
+        return json({ error: "Method not allowed" }, 405);
+      } catch (e) {
+        return serverError("alert-channels", e, "Could not update alert channels.");
       }
     }
 
