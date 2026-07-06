@@ -635,6 +635,23 @@ export const api = {
   restoreWorkspace: (workspaceId) =>
     request(`/workspaces/${workspaceId}/restore`, { method: 'POST' }),
 
+  /** GET /api/workspaces/:id/domains/:domain/finding-waivers → accepted-risk list for a domain */
+  getFindingWaivers: (workspaceId, domain) =>
+    request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/finding-waivers`),
+
+  /** POST /api/workspaces/:id/domains/:domain/finding-waivers  body: { finding_id, reason? } */
+  waiveFinding: (workspaceId, domain, findingId, reason) =>
+    request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/finding-waivers`, {
+      method: 'POST',
+      body: JSON.stringify({ finding_id: findingId, reason: reason || undefined }),
+    }),
+
+  /** DELETE /api/workspaces/:id/domains/:domain/finding-waivers/:findingId → restore the finding */
+  unwaiveFinding: (workspaceId, domain, findingId) =>
+    request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/finding-waivers/${encodeURIComponent(findingId)}`, {
+      method: 'DELETE',
+    }),
+
   /** GET /api/workspaces/:id/domains/:domain/dmarc-reports?limit=50 → imported report history */
   getDmarcReportHistory: (workspaceId, domain, limit = 50) =>
     request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/dmarc-reports?limit=${limit}`),

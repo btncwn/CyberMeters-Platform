@@ -6,7 +6,7 @@ import {
   Lock, Server, Clock, History, ChevronDown, Terminal,
   TrendingDown, TrendingUp, Minus, GraduationCap,
   User, Zap, Target, Terminal as TerminalIcon, Copy, Check as CheckIcon, Eye,
-  Sparkles, SlidersHorizontal,
+  Sparkles, SlidersHorizontal, ShieldOff, Undo2,
 } from 'lucide-react'
 import { api } from '../api'
 import { getAcademyArticleForFinding } from '../data/academy'
@@ -342,9 +342,23 @@ function RemediationPanel({ rem }) {
 // Phase 7: evidence panel collapsed by default; badges compact; no excessive height.
 // Sprint 11A: Academy Learn More link — resolved via getAcademyArticleForFinding().
 // Sprint 11B: Remediation intelligence panel.
-function FindingRow({ f, index, isObservation = false }) {
+function FindingRow({ f, index, isObservation = false, onWaive = null }) {
   const [open, setOpen]       = useState(false)
   const [remOpen, setRemOpen] = useState(false)
+  const [waiveOpen, setWaiveOpen]     = useState(false)
+  const [waiveReason, setWaiveReason] = useState('')
+  const [waiving, setWaiving]         = useState(false)
+  const canWaive = Boolean(onWaive && !isObservation && f.id)
+
+  async function confirmWaive() {
+    if (waiving) return
+    setWaiving(true)
+    try {
+      await onWaive(f.id, waiveReason.trim())
+    } catch {
+      setWaiving(false) // row stays; user can retry
+    }
+  }
   const academySlug = getAcademyArticleForFinding(f)
   const rem         = buildRemediationIntelligence(f)
   const hasRem      = !!(rem && (rem.priority || rem.owner || rem.business_impact))
@@ -433,6 +447,17 @@ function FindingRow({ f, index, isObservation = false }) {
               </button>
             )}
 
+            {/* Risk acceptance — moves the finding to "Accepted risks" */}
+            {canWaive && (
+              <button
+                onClick={() => setWaiveOpen(o => !o)}
+                className={`flex items-center gap-1 text-[10px] font-semibold transition-colors ${waiveOpen ? 'text-gray-700' : 'text-gray-400 hover:text-gray-700'}`}
+              >
+                <ShieldOff className="w-3 h-3" />
+                Accept risk
+              </button>
+            )}
+
             {/* Evidence toggle — pushed to the right */}
             {hasEvidence && (
               <button
@@ -444,6 +469,35 @@ function FindingRow({ f, index, isObservation = false }) {
               </button>
             )}
           </div>
+
+          {/* Risk acceptance confirm — inline, with an optional reason */}
+          {waiveOpen && canWaive && (
+            <div className="mt-2 rounded-lg bg-gray-50 border border-gray-200 px-3 py-2.5">
+              <p className="text-[11px] font-semibold text-gray-700">
+                Accept this risk for this domain?
+              </p>
+              <p className="text-[10px] text-gray-500 mt-0.5 leading-relaxed">
+                The finding moves to “Accepted risks” and stops counting as open. It stays visible and you can restore it any time.
+              </p>
+              <input
+                value={waiveReason}
+                onChange={e => setWaiveReason(e.target.value)}
+                maxLength={500}
+                placeholder="Reason (optional) — e.g. compensating control in place"
+                className="mt-2 w-full text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-brand-400"
+              />
+              <div className="flex items-center gap-2 mt-2">
+                <button onClick={confirmWaive} disabled={waiving}
+                  className="px-2.5 py-1 text-[11px] font-bold text-white bg-gray-800 hover:bg-gray-900 rounded-lg transition-colors disabled:opacity-50">
+                  {waiving ? 'Accepting…' : 'Accept risk'}
+                </button>
+                <button onClick={() => setWaiveOpen(false)} disabled={waiving}
+                  className="px-2.5 py-1 text-[11px] font-semibold text-gray-500 hover:text-gray-700">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Phase 6 — Low confidence warning: always visible, not inside panel */}
           {isLowConf && (
@@ -473,7 +527,7 @@ function FindingRow({ f, index, isObservation = false }) {
   )
 }
 
-function FindingsPanel({ findings, isObservation = false }) {
+function FindingsPanel({ findings, isObservation = false, onWaive = null }) {
   const sorted = [...(findings || [])].sort(
     (a, b) => (SEV_ORDER[a.severity] ?? 9) - (SEV_ORDER[b.severity] ?? 9)
   )
@@ -493,8 +547,52 @@ function FindingsPanel({ findings, isObservation = false }) {
   return (
     <ul className="divide-y divide-gray-50">
       {sorted.map((f, i) => (
-        <FindingRow key={f.id || i} f={f} index={i} isObservation={isObservation} />
+        <FindingRow key={f.id || i} f={f} index={i} isObservation={isObservation} onWaive={onWaive} />
       ))}
+    </ul>
+  )
+}
+
+// ── Accepted risks (waived findings) ─────────────────────────────────────────
+// Waived findings are never hidden — they live here, compact and restorable.
+function WaivedFindingsPanel({ findings, waivers, onUnwaive }) {
+  const [restoring, setRestoring] = useState(null)
+  return (
+    <ul className="divide-y divide-gray-50">
+      {findings.map((f) => {
+        const w = waivers[f.id] || {}
+        return (
+          <li key={f.id} className="flex items-start gap-3 px-6 py-3.5">
+            <ShieldOff className="w-4 h-4 text-gray-300 flex-shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="text-sm font-semibold text-gray-500 line-through decoration-gray-300">{f.title}</p>
+                <span className={`flex-shrink-0 text-xs ${SEV_BADGE[f.severity] || SEV_BADGE.info} opacity-60`}>
+                  {f.severity}
+                </span>
+              </div>
+              <p className="text-[11px] text-gray-400 mt-0.5 leading-relaxed">
+                Risk accepted{w.created_at ? ` on ${new Date(w.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}
+                {w.waived_by_name ? ` by ${w.waived_by_name}` : ''}
+                {w.reason ? <> — “{w.reason}”</> : ''}
+              </p>
+            </div>
+            {onUnwaive && (
+              <button
+                onClick={async () => {
+                  setRestoring(f.id)
+                  try { await onUnwaive(f.id) } finally { setRestoring(null) }
+                }}
+                disabled={restoring === f.id}
+                className="flex items-center gap-1 text-[11px] font-semibold text-brand-700 hover:text-brand-800 flex-shrink-0 mt-0.5 disabled:opacity-50"
+              >
+                <Undo2 className="w-3 h-3" />
+                {restoring === f.id ? 'Restoring…' : 'Restore'}
+              </button>
+            )}
+          </li>
+        )
+      })}
     </ul>
   )
 }
@@ -987,13 +1085,17 @@ function BusinessRiskCard({ businessRisk }) {
 
 // ── Report View ──────────────────────────────────────────────────────────────
 
-function ReportView({ report }) {
+function ReportView({ report, waivers = {}, onWaive = null, onUnwaive = null }) {
   const { cyber_metrics_score: score, risk_level, findings, recommendations, modules, scan_quality } = report
 
   // Sprint 10A: split findings into actionable vs informational.
   // Backward compat: if finding_type absent, fall back to score_impact sign.
-  const actionableFindings = (findings || []).filter(f => getFindingType(f) !== 'observation')
+  const allActionable      = (findings || []).filter(f => getFindingType(f) !== 'observation')
   const observations       = (findings || []).filter(f => getFindingType(f) === 'observation')
+  // Risk acceptance: waived findings move to their own section and stop
+  // counting as open — but are never hidden.
+  const actionableFindings = allActionable.filter(f => !(f.id && waivers[f.id]))
+  const waivedFindings     = allActionable.filter(f => f.id && waivers[f.id])
   const duration = durationSeconds(report.started_at, report.completed_at)
   const showQualityWarning = scan_quality?.status === 'degraded' || scan_quality?.status === 'partial'
   const skippedModules = scan_quality?.modules_skipped || []
@@ -1050,8 +1152,16 @@ function ReportView({ report }) {
       {/* Findings — actionable, score-impacting (Sprint 10A) */}
       <div className="card overflow-hidden">
         <SectionHeader icon={AlertCircle} title={`Findings (${actionableFindings.length})`} />
-        <FindingsPanel findings={actionableFindings} />
+        <FindingsPanel findings={actionableFindings} onWaive={onWaive} />
       </div>
+
+      {/* Accepted risks — waived findings, visible and restorable */}
+      {waivedFindings.length > 0 && (
+        <div className="card overflow-hidden">
+          <SectionHeader icon={ShieldOff} title={`Accepted risks (${waivedFindings.length})`} />
+          <WaivedFindingsPanel findings={waivedFindings} waivers={waivers} onUnwaive={onUnwaive} />
+        </div>
+      )}
 
       {/* Observations — informational, no score impact (Sprint 10A) */}
       {observations.length > 0 && (
@@ -1117,7 +1227,36 @@ export default function ScanDetail() {
   const [reportError,   setReportError]   = useState(null)
   const [reportV2,      setReportV2]      = useState(null)
   const [reportTab,     setReportTab]     = useState('executive') // 'executive' | 'technical'
+  const [waivers,       setWaivers]       = useState({}) // finding_id → waiver row
   const pollRef = useRef(null)
+
+  // Risk acceptance context: waivers are workspace+domain scoped. They are an
+  // enhancement — the report renders identically if they cannot be loaded.
+  const activeWsId   = typeof window !== 'undefined' ? localStorage.getItem('cybermeters_workspace_id') : null
+  const reportDomain = report?.domain || scan?.domain || null
+
+  useEffect(() => {
+    if (!activeWsId || !reportDomain) { setWaivers({}); return }
+    let cancelled = false
+    api.getFindingWaivers(activeWsId, reportDomain)
+      .then(res => {
+        if (!cancelled) setWaivers(Object.fromEntries((res?.waivers || []).map(w => [w.finding_id, w])))
+      })
+      .catch(() => { /* scan may belong to another workspace — no waive UI */ })
+    return () => { cancelled = true }
+  }, [activeWsId, reportDomain])
+
+  const handleWaive = useCallback(async (findingId, reason) => {
+    await api.waiveFinding(activeWsId, reportDomain, findingId, reason)
+    setWaivers(prev => ({ ...prev, [findingId]: { finding_id: findingId, reason: reason || null, created_at: new Date().toISOString() } }))
+  }, [activeWsId, reportDomain])
+
+  const handleUnwaive = useCallback(async (findingId) => {
+    await api.unwaiveFinding(activeWsId, reportDomain, findingId)
+    setWaivers(prev => { const next = { ...prev }; delete next[findingId]; return next })
+  }, [activeWsId, reportDomain])
+
+  const waiveEnabled = Boolean(activeWsId && reportDomain)
 
   const loadReport = useCallback(async () => {
     setReportLoading(true)
@@ -1262,9 +1401,9 @@ export default function ScanDetail() {
                     {reportTab === 'executive'
                       ? (reportV2
                           ? <ExecutiveReportV2 report={reportV2} />
-                          : <ReportView report={report} />)
+                          : <ReportView report={report} waivers={waivers} onWaive={waiveEnabled ? handleWaive : null} onUnwaive={waiveEnabled ? handleUnwaive : null} />)
                       : (report
-                          ? <ReportView report={report} />
+                          ? <ReportView report={report} waivers={waivers} onWaive={waiveEnabled ? handleWaive : null} onUnwaive={waiveEnabled ? handleUnwaive : null} />
                           : <ExecutiveReportV2 report={reportV2} />)
                     }
                   </div>

@@ -32710,6 +32710,87 @@ export default {
       }
     }
 
+    // ── Finding waivers (risk acceptance) ─────────────────────────────────────
+    // A workspace can explicitly accept the risk of a recurring finding for a
+    // domain. Waivers never hide data silently: the UI moves the finding to an
+    // "Accepted risks" section, and every waive/restore is audited.
+    //   GET    .../finding-waivers                → list waivers for the domain
+    //   POST   .../finding-waivers {finding_id, reason?} → upsert (manage role)
+    //   DELETE .../finding-waivers/:findingId     → restore (manage role)
+    const findingWaiversMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/domains\/([^/]+)\/finding-waivers(?:\/([^/]+))?$/);
+    if (findingWaiversMatch) {
+      const workspaceId = findingWaiversMatch[1];
+      const domain = decodeURIComponent(findingWaiversMatch[2]).toLowerCase();
+      const pathFindingId = findingWaiversMatch[3] ? decodeURIComponent(findingWaiversMatch[3]) : null;
+      const FINDING_ID_RE = /^[a-z0-9][a-z0-9_.-]{0,99}$/;
+      try {
+        const user = await requireAuth(request, env);
+        if (!user) return json({ error: "Unauthorized" }, 401);
+        const permission = request.method === "GET" ? "workspace:read" : "workspace:manage";
+        const access = await requireWorkspaceRole(user, workspaceId, permission, env);
+        if (!access) return json({ error: "Forbidden" }, 403);
+        const domainId = await resolveWorkspaceDomain(env, workspaceId, domain);
+        if (!domainId) return json({ error: "Domain not found in this workspace" }, 404);
+
+        if (request.method === "GET" && !pathFindingId) {
+          const rows = await env.cybermeters_db
+            .prepare(`SELECT fw.finding_id, fw.reason, fw.created_at, fw.updated_at, u.name AS waived_by_name
+                      FROM finding_waivers fw
+                      LEFT JOIN users u ON u.id = fw.waived_by
+                      WHERE fw.workspace_id = ? AND fw.domain = ?
+                      ORDER BY fw.created_at DESC`)
+            .bind(workspaceId, domain).all();
+          return json({ domain, waivers: rows.results || [] });
+        }
+
+        if (request.method === "POST" && !pathFindingId) {
+          let body;
+          try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+          const findingId = String(body.finding_id || "").trim().toLowerCase();
+          if (!FINDING_ID_RE.test(findingId)) return json({ error: "finding_id is required (letters, digits, _ . -)" }, 400);
+          const reason = String(body.reason || "").trim().slice(0, 500) || null;
+
+          await env.cybermeters_db
+            .prepare(`INSERT INTO finding_waivers (id, workspace_id, domain, finding_id, reason, waived_by, created_at, updated_at)
+                      VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+                      ON CONFLICT(workspace_id, domain, finding_id)
+                      DO UPDATE SET reason = excluded.reason, waived_by = excluded.waived_by, updated_at = datetime('now')`)
+            .bind(createId("waiver"), workspaceId, domain, findingId, reason, user.id)
+            .run();
+
+          await createAuditEvent(env, {
+            workspace_id: workspaceId, user_id: user.id,
+            event_type: "finding_risk_accepted", entity_type: "finding", entity_id: findingId,
+            description: `Risk accepted for finding "${findingId}" on ${domain}`,
+            metadata: { domain, finding_id: findingId, reason },
+          }).catch(() => {});
+          return json({ waived: true, domain, finding_id: findingId, reason }, 201);
+        }
+
+        if (request.method === "DELETE" && pathFindingId) {
+          const findingId = pathFindingId.toLowerCase();
+          if (!FINDING_ID_RE.test(findingId)) return json({ error: "Invalid finding id" }, 400);
+          const res = await env.cybermeters_db
+            .prepare("DELETE FROM finding_waivers WHERE workspace_id = ? AND domain = ? AND finding_id = ?")
+            .bind(workspaceId, domain, findingId)
+            .run();
+          if ((res.meta?.changes ?? 0) > 0) {
+            await createAuditEvent(env, {
+              workspace_id: workspaceId, user_id: user.id,
+              event_type: "finding_risk_restored", entity_type: "finding", entity_id: findingId,
+              description: `Risk acceptance removed for finding "${findingId}" on ${domain}`,
+              metadata: { domain, finding_id: findingId },
+            }).catch(() => {});
+          }
+          return json({ restored: true, domain, finding_id: findingId });
+        }
+
+        return json({ error: "Method not allowed" }, 405);
+      } catch (e) {
+        return serverError("finding-waivers", e, "Could not update risk acceptance.");
+      }
+    }
+
     // ── POST /api/domains/:id/verification ───────────────────────────────────
     // Generate a cryptographically secure token and return DNS + HTML instructions.
     // Idempotent: calling again resets to a new pending token.
