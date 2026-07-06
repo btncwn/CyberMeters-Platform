@@ -103,6 +103,7 @@ function loadScanner(fetchImpl = async () => { throw new Error("network disabled
     summarizeEmailSenders,
     buildDmarcEnforcementReadiness,
     buildDmarcReportRemediationActions,
+    parseEmailAuthHeaders,
     buildDmarcBusinessRisk,
     computeBecExposureScore,
     cybermetersRuaPresentInDmarcRecord,
@@ -2259,6 +2260,31 @@ results.push(securityContract("payment_grace_window_seven_days", () => {
   // date); outside it — or without a recorded failure — access is not granted.
   return inGrace.active === true && typeof inGrace.ends_at === "string" &&
     expired.active === false && notPastDue.active === false && missingFailedAt.active === false;
+}));
+results.push(securityContract("email_source_validation_aligned_pass", () => {
+  const hdr = [
+    "Authentication-Results: mx.google.com;",
+    "       dkim=pass header.d=cybermeters.com header.s=selector1;",
+    "       spf=pass smtp.mailfrom=bounce@cybermeters.com;",
+    "       dmarc=pass header.from=cybermeters.com",
+    "Received-SPF: pass (google.com: domain of bounce@cybermeters.com) client-ip=104.21.84.8;",
+    "DKIM-Signature: v=1; a=rsa-sha256; d=cybermeters.com; s=selector1; h=from:to",
+  ].join("\n");
+  const r = scanner.parseEmailAuthHeaders(hdr, "cybermeters.com");
+  return r.verdict === "authenticated_aligned" && r.aligned === true &&
+    r.spf === "pass" && r.dkim === "pass" && r.dkim_domain === "cybermeters.com" &&
+    r.source_ip === "104.21.84.8" && r.dkim_selector === "selector1";
+}));
+results.push(securityContract("email_source_validation_passes_not_aligned", () => {
+  // Passes SPF/DKIM but for a different domain → would fail DMARC alignment.
+  const hdr = "Authentication-Results: mx.google.com; dkim=pass header.d=sendgrid.net; spf=pass smtp.mailfrom=bounce@sendgrid.net; dmarc=fail header.from=cybermeters.com";
+  const r = scanner.parseEmailAuthHeaders(hdr, "cybermeters.com");
+  return r.verdict === "passes_not_aligned" && r.aligned === false && r.dkim === "pass" && r.dkim_domain === "sendgrid.net";
+}));
+results.push(securityContract("email_source_validation_fails_and_unparseable", () => {
+  const fail = scanner.parseEmailAuthHeaders("Authentication-Results: mx.google.com; spf=fail; dkim=fail; dmarc=fail header.from=cybermeters.com", "cybermeters.com");
+  const empty = scanner.parseEmailAuthHeaders("Subject: hello\nTo: a@b.com", "cybermeters.com");
+  return fail.verdict === "fails" && empty.verdict === "unparseable";
 }));
 results.push(securityContract("lifecycle_payment_failed_dedupe_per_invoice", () => {
   const a = scanner.lifecycleDedupeKey({ type: "lifecycle_payment_failed", workspace_id: "w1", ref: "in_123" });

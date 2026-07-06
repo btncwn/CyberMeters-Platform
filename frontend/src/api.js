@@ -638,6 +638,13 @@ export const api = {
   restoreWorkspace: (workspaceId) =>
     request(`/workspaces/${workspaceId}/restore`, { method: 'POST' }),
 
+  /** POST /api/workspaces/:id/domains/:domain/validate-source  body: { headers } → instant sender verdict */
+  validateEmailSource: (workspaceId, domain, headers) =>
+    request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/validate-source`, {
+      method: 'POST',
+      body: JSON.stringify({ headers }),
+    }),
+
   /** GET /api/workspaces/:id/domains/:domain/finding-waivers → accepted-risk list for a domain */
   getFindingWaivers: (workspaceId, domain) =>
     request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/finding-waivers`),

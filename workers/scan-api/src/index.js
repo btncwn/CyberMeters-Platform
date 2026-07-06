@@ -7854,6 +7854,70 @@ function selectDmarcAttachment(parts) {
   return { part: candidates[0] };
 }
 
+/**
+ * parseEmailAuthHeaders(raw, domain) — instant sender validation from pasted
+ * email headers, without waiting for DMARC aggregate reports to arrive. Parses
+ * the RFC 8601 Authentication-Results header (plus DKIM-Signature and the
+ * sending IP) and decides whether the message is authenticated and aligned to
+ * `domain`. Pure and defensive — never throws; returns verdict "unparseable"
+ * when it cannot find authentication results rather than guessing.
+ */
+function parseEmailAuthHeaders(raw, domain) {
+  const dom = String(domain || "").trim().toLowerCase().replace(/\.$/, "");
+  const text = String(raw || "");
+  const out = {
+    spf: null, dkim: null, dmarc: null, source_ip: null,
+    from_domain: null, dkim_domain: null, dkim_selector: null,
+    aligned: null, verdict: "unparseable",
+  };
+  if (!text.trim()) return out;
+
+  // Unfold header continuation lines (leading whitespace) into single lines.
+  const unfolded = text.replace(/\r?\n[ \t]+/g, " ");
+  const lines = unfolded.split(/\r?\n/);
+
+  const arBlob = lines.filter((l) => /^authentication-results\s*:/i.test(l)).join(" ").toLowerCase();
+  const grab = (re) => { const m = arBlob.match(re); return m ? m[1] : null; };
+  const norm = (v) => (v ? String(v).toLowerCase() : null);
+  out.spf   = norm(grab(/\bspf=([a-z]+)/));
+  out.dkim  = norm(grab(/\bdkim=([a-z]+)/));
+  out.dmarc = norm(grab(/\bdmarc=([a-z]+)/));
+  out.from_domain = grab(/header\.from=([a-z0-9.\-]+)/) || null;
+  // SPF alignment (DMARC) is between the SMTP MAIL FROM domain and header.from,
+  // so the SPF-aligned check must use the mailfrom domain, not header.from.
+  const spfDomain = (grab(/smtp\.mailfrom=([a-z0-9.@\-]+)/) || "").split("@").pop() || null;
+  if (!out.from_domain && spfDomain) out.from_domain = spfDomain;
+  out.dkim_domain = grab(/header\.d=([a-z0-9.\-]+)/);
+
+  const dkimSig = lines.find((l) => /^dkim-signature\s*:/i.test(l));
+  if (dkimSig) {
+    const d = dkimSig.match(/\bd=([a-z0-9.\-]+)/i);
+    if (d && !out.dkim_domain) out.dkim_domain = d[1].toLowerCase();
+    const s = dkimSig.match(/\bs=([a-z0-9._\-]+)/i);
+    if (s) out.dkim_selector = s[1];
+  }
+
+  const cip = text.toLowerCase().match(/client-ip=([0-9a-f.:]+)/);
+  if (cip) out.source_ip = cip[1];
+  if (!out.source_ip) {
+    const rip = text.match(/received:[^\n]*?\[([0-9]{1,3}(?:\.[0-9]{1,3}){3})\]/is);
+    if (rip) out.source_ip = rip[1];
+  }
+  if (out.from_domain) out.from_domain = out.from_domain.toLowerCase().replace(/\.$/, "");
+  if (out.dkim_domain) out.dkim_domain = out.dkim_domain.toLowerCase().replace(/\.$/, "");
+
+  const aligns = (h) => Boolean(h && dom && (h === dom || h.endsWith("." + dom) || dom.endsWith("." + h)));
+  const dkimAligned = out.dkim === "pass" && aligns(out.dkim_domain);
+  const spfAligned  = out.spf === "pass" && aligns(spfDomain ? spfDomain.toLowerCase().replace(/\.$/, "") : null);
+  out.aligned = dkimAligned || spfAligned;
+
+  if (!out.spf && !out.dkim && !out.dmarc) out.verdict = "unparseable";
+  else if (out.aligned) out.verdict = "authenticated_aligned";
+  else if (out.spf === "pass" || out.dkim === "pass") out.verdict = "passes_not_aligned";
+  else out.verdict = "fails";
+  return out;
+}
+
 // Additive remediation actions derived from imported DMARC report data.
 function buildDmarcReportRemediationActions(senders, readiness) {
   const actions = [];
@@ -33103,6 +33167,48 @@ export default {
         });
       } catch (e) {
         return serverError("dmarc-summary", e, "Could not build DMARC summary.");
+      }
+    }
+
+    // ── POST /api/workspaces/:wsid/domains/:domain/validate-source ───────────
+    // Instant sender validation from pasted email headers — no waiting for DMARC
+    // aggregate reports. Parses Authentication-Results and decides if the message
+    // is authenticated and aligned to the domain. Stateless: headers are parsed
+    // and discarded, never stored.
+    const validateSourceMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/domains\/([^/]+)\/validate-source$/);
+    if (validateSourceMatch && request.method === "POST") {
+      const workspaceId = validateSourceMatch[1];
+      const domain = decodeURIComponent(validateSourceMatch[2]).toLowerCase();
+      try {
+        const user = await requireAuth(request, env);
+        if (!user) return json({ error: "Unauthorized" }, 401);
+        const access = await requireWorkspaceRole(user, workspaceId, "workspace:read", env);
+        if (!access) return json({ error: "Forbidden" }, 403);
+        const domainId = await resolveWorkspaceDomain(env, workspaceId, domain);
+        if (!domainId) return json({ error: "Domain not found in this workspace" }, 404);
+
+        let body;
+        try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+        const headers = String(body.headers || "").slice(0, 100_000); // bounded
+        if (!headers.trim()) return json({ error: "Paste the email headers to validate." }, 400);
+
+        const p = parseEmailAuthHeaders(headers, domain);
+        const MESSAGES = {
+          authenticated_aligned: "This message is authenticated and aligned to your domain — a legitimate sender for it. If you don't recognise it, confirm the service is yours.",
+          passes_not_aligned:    "This message passes SPF or DKIM, but for a different domain than yours, so it would fail DMARC alignment. If it is a service you use, add its SPF include or DKIM selector; otherwise treat it as impersonation.",
+          fails:                 "This message fails both SPF and DKIM. It would be blocked once you enforce DMARC. If you did not send it, this is a spoofing attempt.",
+          unparseable:           "No authentication results were found in what you pasted. Paste the full raw headers (in Gmail: ⋮ menu → Show original; in Outlook: File → Properties → Internet headers).",
+        };
+        return json({
+          domain,
+          verdict: p.verdict,
+          message: MESSAGES[p.verdict] || MESSAGES.unparseable,
+          spf: p.spf, dkim: p.dkim, dmarc: p.dmarc, aligned: p.aligned,
+          source_ip: p.source_ip, from_domain: p.from_domain,
+          dkim_domain: p.dkim_domain, dkim_selector: p.dkim_selector,
+        });
+      } catch (e) {
+        return serverError("validate-source", e, "Could not validate the pasted headers.");
       }
     }
 

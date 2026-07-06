@@ -972,6 +972,94 @@ function SenderInventory({ data, onClassify, classifyingId, loading }) {
   )
 }
 
+// ── Instant sender validation ─────────────────────────────────────────────────
+// Paste an email's headers and get an immediate SPF/DKIM/DMARC-alignment verdict
+// for this domain — no waiting for DMARC aggregate reports (or forwarding to an
+// inbox, as point-tools require). Headers are parsed server-side and discarded.
+const VS_TONE = {
+  authenticated_aligned: { label: 'Authenticated & aligned', cls: 'bg-brand-50 border-brand-200 text-brand-800', icon: CheckCircle, ic: 'text-brand-600' },
+  passes_not_aligned:    { label: 'Passes, but not aligned', cls: 'bg-amber-50 border-amber-200 text-amber-800', icon: AlertTriangle, ic: 'text-amber-500' },
+  fails:                 { label: 'Fails authentication',     cls: 'bg-red-50 border-red-200 text-red-800',       icon: ShieldAlert, ic: 'text-red-500' },
+  unparseable:           { label: 'Could not read headers',   cls: 'bg-gray-50 border-gray-200 text-gray-600',    icon: Info, ic: 'text-gray-400' },
+}
+function InstantSourceValidator({ wsId, domain }) {
+  const [headers, setHeaders] = useState('')
+  const [result, setResult]   = useState(null)
+  const [busy, setBusy]       = useState(false)
+  const [err, setErr]         = useState(null)
+
+  async function validate() {
+    if (!headers.trim() || busy) return
+    setBusy(true); setErr(null); setResult(null)
+    try {
+      setResult(await api.validateEmailSource(wsId, domain, headers))
+    } catch (e) {
+      setErr(e?.message || 'Could not validate the pasted headers.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const chip = (label, val) => val ? (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-white border border-gray-200 text-gray-700">
+      <span className="text-gray-400">{label}</span> {val}
+    </span>
+  ) : null
+  const tone = result ? (VS_TONE[result.verdict] || VS_TONE.unparseable) : null
+  const Icon = tone?.icon
+
+  return (
+    <section className="card overflow-hidden">
+      <div className="px-6 py-4 border-b border-gray-200 bg-gray-50/70">
+        <span className="eyebrow">Instant check</span>
+        <h2 className="section-title leading-tight">Validate a sender now — no waiting for reports</h2>
+        <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">
+          Paste an email's raw headers and get an immediate SPF/DKIM/DMARC-alignment verdict for {domain}.
+          Handy before you enforce, or to check a suspicious message. Headers are parsed and discarded, never stored.
+        </p>
+      </div>
+      <div className="p-6 space-y-3">
+        <textarea
+          value={headers}
+          onChange={e => setHeaders(e.target.value)}
+          rows={5}
+          placeholder="Paste full email headers here (Gmail: ⋮ → Show original · Outlook: File → Properties → Internet headers)"
+          className="w-full text-xs font-mono border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-brand-400 resize-y"
+        />
+        <div className="flex items-center gap-3">
+          <button onClick={validate} disabled={busy || !headers.trim()} className="btn-primary text-sm disabled:opacity-50">
+            {busy ? <RefreshCw className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+            {busy ? 'Checking…' : 'Validate sender'}
+          </button>
+          {headers && !busy && (
+            <button onClick={() => { setHeaders(''); setResult(null); setErr(null) }} className="text-xs font-semibold text-gray-400 hover:text-gray-600">Clear</button>
+          )}
+        </div>
+        {err && <p className="text-sm text-red-700 flex items-center gap-2"><AlertTriangle className="w-4 h-4" /> {err}</p>}
+        {result && tone && (
+          <div className={`rounded-xl border p-4 ${tone.cls}`}>
+            <div className="flex items-center gap-2">
+              <Icon className={`w-5 h-5 flex-shrink-0 ${tone.ic}`} />
+              <p className="text-sm font-bold">{tone.label}</p>
+            </div>
+            <p className="text-xs mt-1.5 leading-relaxed">{result.message}</p>
+            {(result.spf || result.dkim || result.dmarc || result.source_ip || result.dkim_domain) && (
+              <div className="flex flex-wrap gap-1.5 mt-3">
+                {chip('SPF', result.spf && result.spf.toUpperCase())}
+                {chip('DKIM', result.dkim && result.dkim.toUpperCase())}
+                {chip('DMARC', result.dmarc && result.dmarc.toUpperCase())}
+                {chip('From', result.from_domain)}
+                {chip('DKIM domain', result.dkim_domain)}
+                {chip('Selector', result.dkim_selector)}
+                {chip('Source IP', result.source_ip)}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </section>
+  )
+}
+
 // ── Manual DMARC XML import ───────────────────────────────────────────────────
 function ImportDmarcReport({ onImport, importing, result, error }) {
   const [filename, setFilename] = useState('')
@@ -2490,6 +2578,9 @@ export default function WorkspaceEmailProtectionPage() {
               totalMessages={dmarc?.traffic?.total_messages ?? null}
             />
           </div>
+
+          {/* 2c-2. Instant sender validation — no waiting for reports */}
+          <InstantSourceValidator wsId={wsId} domain={selectedDomain} />
 
           {/* 2d. Connect DMARC reporting (inbound RUA status + signed upload advanced) */}
           <div id="connect-reporting" className="scroll-mt-20">
