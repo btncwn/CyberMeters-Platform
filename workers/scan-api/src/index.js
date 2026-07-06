@@ -10314,6 +10314,37 @@ function expandFindingIds(findings) {
   return ids;
 }
 
+/**
+ * deriveScanBusinessRisk(report) — single source of truth for a scan's Business
+ * Risk Score. Used by BOTH GET /scans/:id/report (UI) and the scan PDF route so
+ * the two can never disagree. Takes a raw stored report; normalises findings and
+ * reads module signals defensively (identical to the report endpoint's inline
+ * derivation). Returns { score, band, summary, categories, top_business_risks }.
+ */
+function deriveScanBusinessRisk(report) {
+  const findings = applyEvidenceQuality(
+    (Array.isArray(report?.findings) ? report.findings : []).map(normalizeFindingSchema)
+  );
+  const findingIds = expandFindingIds(findings.filter(isActionableFinding));
+  const mods = report?.modules || {};
+  const brsModuleData = {
+    subdomainTakeoverCount: (mods.subdomain_takeover?.risks ?? []).length,
+    assetExposureCount:     (mods.asset_exposure?.assets ?? []).filter(a => a.reachable).length,
+    brandHighRisk: 0, brandMedRisk: 0, brandLowRisk: 0,
+    vendorHigh: 0, vendorMedium: 0, vendorTotal: 0,
+    identityHighRiskCount: (mods.identity_discovery?.high_risk_count ?? 0),
+    vendorRelHighConf:     (mods.vendor_relationships?.high_confidence ?? 0),
+  };
+  const r = computeBusinessRiskScore(findingIds, brsModuleData);
+  return {
+    score:              r.score,
+    band:               r.band,
+    summary:            r.summary,
+    categories:         r.categories,
+    top_business_risks: r.top_business_risks,
+  };
+}
+
 function computeBusinessRiskScore(findingIds, workspaceData = {}) {
   if (findingIds && typeof findingIds === "object" && !(findingIds instanceof Set)) {
     return computeWorkspaceBusinessRiskScore(findingIds);
@@ -17416,10 +17447,9 @@ function buildScanReportPdf(scan, report) {
   txt(ML + 16, y + 48, `${score ?? "-"} / 100`, 2, 22, DK);
   txt(ML + 170, y + 24, "Security Rating", 1, 9, GRAY);
   txt(ML + 170, y + 46, rating ? rating.charAt(0).toUpperCase() + rating.slice(1) : "-", 2, 15, BRAND);
-  if (br && br.score != null) {
-    txt(ML + 330, y + 24, "Business Risk", 1, 9, GRAY);
-    txt(ML + 330, y + 46, `${br.score} / 100 (${br.band || "-"})`, 2, 13, DK);
-  }
+  txt(ML + 330, y + 24, "Business Risk", 1, 9, GRAY);
+  txt(ML + 330, y + 46, br && br.score != null ? `${br.score} / 100` : "-", 2, 15, DK);
+  txt(ML + 330, y + 60, br && br.band ? `${br.band.charAt(0).toUpperCase() + br.band.slice(1)} risk` : "", 1, 8, GRAY);
   y += 78;
   txt(ML, y, `${actionable.length} finding${actionable.length === 1 ? "" : "s"} to act on`, 2, 11, DK);
   txt(ML + 200, y, `${observations.length} observation${observations.length === 1 ? "" : "s"}`, 1, 11, GRAY);
@@ -26499,6 +26529,9 @@ export default {
         const reportObject = await env.cybermeters_reports.get(`reports/${scanId}.json`);
         if (!reportObject) return json({ error: "Report not found" }, 404);
         const report = await reportObject.json();
+        // Attach Business Risk from the same shared helper the UI uses, so the
+        // PDF's score matches the on-screen report exactly.
+        report.business_risk = deriveScanBusinessRisk(report);
 
         const bytes = buildScanReportPdf(scan, report);
 
@@ -26657,25 +26690,10 @@ export default {
         (Array.isArray(raw.findings) ? raw.findings : []).map(normalizeFindingSchema)
       );
 
-      // Compute Business Risk Score from scan findings + module signals
-      const reportFindingIds = expandFindingIds(reportFindings.filter(isActionableFinding));
-      const brsModuleData = {
-        subdomainTakeoverCount: (normalisedModules.subdomain_takeover?.risks ?? []).length,
-        assetExposureCount:     (normalisedModules.asset_exposure?.assets ?? []).filter(a => a.reachable).length,
-        // Brand/vendor signals not available at scan level — workspace BRS endpoint includes them
-        brandHighRisk: 0, brandMedRisk: 0, brandLowRisk: 0,
-        vendorHigh: 0, vendorMedium: 0, vendorTotal: 0,
-        identityHighRiskCount: (normalisedModules.identity_discovery?.high_risk_count ?? 0),
-        vendorRelHighConf:     (normalisedModules.vendor_relationships?.high_confidence ?? 0),
-      };
-      const brsResult = computeBusinessRiskScore(reportFindingIds, brsModuleData);
-      const businessRisk = {
-        score:               brsResult.score,
-        band:                brsResult.band,
-        summary:             brsResult.summary,
-        categories:          brsResult.categories,
-        top_business_risks:  brsResult.top_business_risks,
-      };
+      // Compute Business Risk Score from scan findings + module signals.
+      // Shared helper so the scan PDF (which reads the raw report) produces the
+      // exact same score as this response.
+      const businessRisk = deriveScanBusinessRisk(raw);
 
       const canonicalScore = resolveCanonicalScanScore(scan.score, raw.cyber_metrics_score);
       const canonicalRiskLevel = riskLevelForScore(canonicalScore);
