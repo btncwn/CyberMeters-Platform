@@ -48,3 +48,12 @@
   ! Pragma
   ! Expires
   Cache-Control: public, max-age=86400
+
+# ── RFC 9116 vulnerability disclosure ─────────────────────────────────────
+# Explicit text/plain content-type so scanners accept it; short cache.
+/.well-known/security.txt
+  ! Cache-Control
+  ! Pragma
+  ! Expires
+  Content-Type: text/plain; charset=utf-8
+  Cache-Control: public, max-age=86400

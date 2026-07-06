@@ -1,0 +1,8 @@
+# CyberMeters vulnerability disclosure — RFC 9116
+# If you have found a security issue in CyberMeters, please tell us.
+
+Contact: mailto:security@cybermeters.com
+Expires: 2027-07-06T23:59:59.000Z
+Preferred-Languages: en
+Canonical: https://cybermeters.com/.well-known/security.txt
+Canonical: https://app.cybermeters.com/.well-known/security.txt
