@@ -483,6 +483,20 @@ results.push(
     return finding?.finding_type === "observation" && finding?.confidence === 60 &&
       finding?.score_impact === 0 && result.score === 100;
   }),
+  // Absence of certificate detail must read as "unknown", never "low" — a
+  // security product must not imply health it has not verified.
+  securityContract("certificate_no_detail_is_unknown_not_low", () => {
+    const noDetail = scanner.runCertificateIntelligenceModule({
+      ssl: { https_available: true }, // HTTPS up, but issuer/expiry never retrieved
+      subdomains: { items: [], sensitive: [], sources: {} },
+    }, "example.com");
+    const withDetail = scanner.runCertificateIntelligenceModule({
+      ssl: { https_available: true, cert_expiry_days: 84, cert_issuer: "Google Trust Services" },
+      subdomains: { items: [], sensitive: [], sources: {} },
+    }, "example.com");
+    return noDetail.certificate_risk_level === "unknown" &&
+      withDetail.certificate_risk_level === "low";
+  }),
   securityContract("detection_wildcard_certificate_signals_are_observations", () => {
     const result = scanner.runCertificateIntelligenceModule({
       ssl: { https_available: true, cert_expiry_days: 90 },

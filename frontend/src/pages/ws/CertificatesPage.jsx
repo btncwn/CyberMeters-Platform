@@ -173,11 +173,19 @@ export default function CertificatesPage() {
 
   // Trust-posture tile states (cert tiles use real data; transport tiles point
   // to Email Protection, which owns MTA-STS / TLS-RPT / redirect checks).
+  // "Healthy"/"Monitored" require REAL data — an observed cert whose details we
+  // could not retrieve (expiry/validity unknown) must never read as healthy.
+  const hasKnownExpiry = certs.some(c => c.days_until_expiry != null)
+  const hasKnownHttps  = certs.some(c => (c.valid ?? c.chain_valid) != null)
   const expiryTile = expired > 0 ? { status: 'Expired certs present', tone: 'bad' }
     : expiringSoon > 0 ? { status: 'Renewals due soon', tone: 'warn' }
-    : hasData ? { status: 'Healthy', tone: 'ok' } : { status: 'No data yet', tone: 'na' }
+    : hasKnownExpiry ? { status: 'Healthy', tone: 'ok' }
+    : hasData ? { status: 'Not yet retrieved', tone: 'na' }
+    : { status: 'No data yet', tone: 'na' }
   const httpsTile = broken > 0 ? { status: 'Issues found', tone: 'bad' }
-    : hasData ? { status: 'Monitored', tone: 'ok' } : { status: 'No data yet', tone: 'na' }
+    : hasKnownHttps ? { status: 'Monitored', tone: 'ok' }
+    : hasData ? { status: 'Not yet retrieved', tone: 'na' }
+    : { status: 'No data yet', tone: 'na' }
 
   return (
     <WsPage wsId={wsId} wsName={wsName} loading={loading} error={error} onRetry={load}>
@@ -257,7 +265,9 @@ export default function CertificatesPage() {
               </div>
             ) : (
               <div className="card p-6 text-center text-sm text-gray-400">
-                No certificate issues detected in the latest scan. Expiry, HTTPS and trust signals look healthy.
+                {hasKnownExpiry
+                  ? 'No certificate issues detected in the latest scan. Expiry, HTTPS and trust signals look healthy.'
+                  : 'Certificate details have not been retrieved yet for the monitored hosts. Run a scan to populate issuer, expiry and HTTPS status.'}
               </div>
             )}
           </div>

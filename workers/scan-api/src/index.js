@@ -1675,6 +1675,50 @@ async function runSslModule(domain) {
     // crt.sh unavailable — cert expiry data omitted, scan still completes
   }
 
+  // Fallback: crt.sh is frequently slow/flaky, so if it yielded no usable
+  // certificate, try certspotter (a second CT source). This prevents a single
+  // source's timeout from leaving the inventory showing "Unknown" issuer/expiry
+  // for a host that plainly serves a valid certificate.
+  if (cert_not_after == null) {
+    try {
+      const csRes = await fetch(
+        `https://api.certspotter.com/v1/issuances?domain=${encodeURIComponent(domain)}&include_subdomains=false&expand=dns_names&expand=issuer`,
+        {
+          headers: { Accept: "application/json", "User-Agent": "CyberMeters/1.0" },
+          signal:  AbortSignal.timeout(8_000),
+        }
+      );
+      if (csRes.ok && (csRes.headers.get("content-type") || "").includes("json")) {
+        const issuances = await csRes.json();
+        if (Array.isArray(issuances)) {
+          const now = Date.now();
+          const valid = issuances
+            .filter((c) => c.not_after && new Date(c.not_after).getTime() > now)
+            .sort((a, b) => new Date(b.not_after).getTime() - new Date(a.not_after).getTime());
+          if (valid.length > 0) {
+            const selected = valid[0];
+            const dnsNames = Array.isArray(selected.dns_names) ? selected.dns_names : [];
+            cert_not_before  = selected.not_before || null;
+            cert_not_after   = selected.not_after;
+            cert_expiry_days = Math.floor((new Date(cert_not_after).getTime() - now) / 86_400_000);
+            const notBeforeMs = cert_not_before ? new Date(cert_not_before).getTime() : NaN;
+            cert_age_days = Number.isFinite(notBeforeMs)
+              ? Math.max(0, Math.floor((now - notBeforeMs) / 86_400_000))
+              : null;
+            cert_issuer    = (selected.issuer && selected.issuer.name) || null;
+            cert_subject   = domain;
+            cert_san_names = normalizeCertificateSanNames(dnsNames.join(" "), domain);
+            cert_san_count = cert_san_names.length;
+            cert_raw_san_count = dnsNames.length;
+            cert_wildcard_san_count = dnsNames.filter((n) => n.includes("*")).length;
+          }
+        }
+      }
+    } catch {
+      // certspotter unavailable too — cert data stays null; page reads "unknown"
+    }
+  }
+
   return {
     https_available:          httpsOk || wwwHttpsOk,
     http_redirects_to_https:  httpRedirectsToHttps,
@@ -5169,10 +5213,17 @@ function runCertificateIntelligenceModule(modules, domain) {
     const hasCritical = suspicious_certificate_signals.some((s) => s.severity === "critical");
     const hasHigh     = suspicious_certificate_signals.some((s) => s.severity === "high");
     const hasMedium   = suspicious_certificate_signals.some((s) => s.severity === "medium");
+    // Did we actually retrieve certificate details? Absence of data must read as
+    // "unknown", never "low" — a security product must not imply health it has
+    // not verified. (In the real flow issuer/not_after/expiry_days are set
+    // together, so any one being present means we have data.)
+    const hasCertificateDetail = ssl.cert_issuer != null
+      || ssl.cert_not_after != null || ssl.cert_expiry_days != null;
 
     if (hasCritical || !https_available) certificate_risk_level = "critical";
     else if (hasHigh)                    certificate_risk_level = "high";
     else if (hasMedium)                  certificate_risk_level = "medium";
+    else if (!hasCertificateDetail)      certificate_risk_level = "unknown";
 
 	    // ── Newly observed hosts (all CT hosts are "newly observed" relative to
 	    //    baseline — true delta tracking requires historical DB rows which are
