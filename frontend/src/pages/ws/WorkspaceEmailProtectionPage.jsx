@@ -1806,12 +1806,14 @@ function EmailPostureHero({ wsId, domain, dmarc, policyJourney, onGoto }) {
   const scanStage = policyJourney?.stage || null
   // Reconcile against live DNS: when the last scan predates a now-published DMARC
   // record, trust the live record and prompt a re-scan rather than falsely
-  // alarming "No DMARC". Live lookup failures fall back to the scan's own stage.
-  const liveDmarcPresent = liveDns?.dmarc_present === true
+  // alarming "No DMARC". Only a SINGLE valid record counts — multiple_dmarc_records
+  // and invalid_dmarc are "present but broken" and must not read as healthy.
+  // Live-lookup failures fall back to the scan's own stage (fail-safe).
+  const liveDmarcHealthy = liveDns?.status === 'verified' || liveDns?.status === 'missing_cybermeters_rua'
   const livePolicyStage  = liveDns?.policy === 'reject' ? 'full_enforcement'
     : liveDns?.policy === 'quarantine' ? 'partial_enforcement'
-    : liveDmarcPresent ? 'monitoring' : null
-  const staleScan = scanStage === 'missing' && liveDmarcPresent
+    : liveDmarcHealthy ? 'monitoring' : null
+  const staleScan = scanStage === 'missing' && liveDmarcHealthy
   const stage = staleScan ? livePolicyStage : scanStage
   const stageLabel = { missing: 'No DMARC', monitoring: 'Monitoring (p=none)',
     partial_enforcement: 'Quarantine', full_enforcement: 'Reject' }[stage] || 'Unknown'
