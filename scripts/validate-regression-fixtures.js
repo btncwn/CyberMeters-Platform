@@ -134,6 +134,7 @@ function loadScanner(fetchImpl = async () => { throw new Error("network disabled
     buildLifecycleEmail,
     sendLifecycleEmail,
     getPaymentGraceState,
+    isDeletionPurgeDue,
     emailHandler: __workerDefault.email,
     computeBusinessRiskScoreFromIds: (ids, data) => computeBusinessRiskScore(new Set(ids), data),
   };`, context, {
@@ -2167,6 +2168,20 @@ results.push(securityContract("lifecycle_next_step_never_says_connected", () => 
   const blob = `${e.subject} ${e.html} ${e.text}`;
   // "connect" (verb) is fine; "connected" (status claim) must never appear.
   return !/connected/i.test(blob) && /does not mean your DNS is verified/i.test(e.html);
+}));
+results.push(securityContract("deletion_purge_respects_30_day_window", () => {
+  const now = Date.now();
+  const day = 86400000;
+  const iso = (msAgo) => new Date(now - msAgo).toISOString();
+  // Inside the window (day 29) data must never be touched; after (day 31) it is due.
+  const inWindow  = scanner.isDeletionPurgeDue({ status: "pending", created_at: iso(29 * day) }, now);
+  const due       = scanner.isDeletionPurgeDue({ status: "pending", created_at: iso(31 * day) }, now);
+  const purging   = scanner.isDeletionPurgeDue({ status: "purging", created_at: iso(31 * day) }, now);
+  const cancelled = scanner.isDeletionPurgeDue({ status: "cancelled", created_at: iso(31 * day) }, now);
+  const completed = scanner.isDeletionPurgeDue({ status: "completed", created_at: iso(31 * day) }, now);
+  const badDate   = scanner.isDeletionPurgeDue({ status: "pending", created_at: "not-a-date" }, now);
+  return inWindow === false && due === true && purging === true &&
+    cancelled === false && completed === false && badDate === false;
 }));
 results.push(securityContract("payment_grace_window_seven_days", () => {
   const now = Date.now();

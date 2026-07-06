@@ -631,6 +631,10 @@ export const api = {
   getDmarcSummary: (workspaceId, domain, days = 30) =>
     request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/dmarc-summary?days=${days}`),
 
+  /** POST /api/workspaces/:id/restore → undo a workspace soft-delete inside the 30-day window */
+  restoreWorkspace: (workspaceId) =>
+    request(`/workspaces/${workspaceId}/restore`, { method: 'POST' }),
+
   /** GET /api/workspaces/:id/domains/:domain/dmarc-reports?limit=50 → imported report history */
   getDmarcReportHistory: (workspaceId, domain, limit = 50) =>
     request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/dmarc-reports?limit=${limit}`),

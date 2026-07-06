@@ -19709,6 +19709,232 @@ async function generateWorkspaceExecutiveReport(workspaceId, env, options = {}) 
   };
 }
 
+// ── Deletion purge engine ─────────────────────────────────────────────────────
+// Approved lifecycle: soft-delete (deleted_at) hides the data immediately; the
+// deletion_requests row stays 'pending' for DELETION_PURGE_WINDOW_DAYS during
+// which the owner can restore; after the window the hourly cron hard-deletes
+// D1 rows and R2 report objects in bounded chunks. audit_events, subscriptions
+// and the deletion_requests row itself are retained (audit + accounting).
+const DELETION_PURGE_WINDOW_DAYS = 30;
+const PURGE_R2_BATCH = 25; // max R2 deletes per cron run — respects subrequest limits
+
+// Pure, testable: has a pending/purging request passed its purge window?
+function isDeletionPurgeDue(requestRow, nowMs = Date.now()) {
+  if (!requestRow) return false;
+  const status = String(requestRow.status || "").toLowerCase();
+  if (!["pending", "purging"].includes(status)) return false;
+  const created = requestRow.created_at ? new Date(requestRow.created_at).getTime() : NaN;
+  if (Number.isNaN(created)) return false;
+  return nowMs >= created + DELETION_PURGE_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+}
+
+// Tables hard-deleted by workspace_id, children before parents. audit_events,
+// subscriptions and deletion_requests are intentionally NOT here.
+const WORKSPACE_PURGE_TABLES = [
+  "dmarc_aggregate_records", "dmarc_aggregate_reports", "email_sender_sources",
+  "dmarc_ingest_endpoints", "workspace_brand_assets", "workspace_brand_profiles",
+  "asset_events", "asset_alert_records", "workspace_assets",
+  "certificate_observations", "identity_assets", "historical_scores",
+  "vendor_risk_scores", "vendor_risk_scores_history", "workspace_vendors",
+  "workspace_brs_scores", "workspace_brs_score_history",
+  "workspace_supply_chain_scores", "workspace_supply_chain_history",
+  "notification_events", "notification_preferences",
+  "report_schedule_runs", "report_schedules", "scheduled_reports",
+  "workspace_invitations", "workspace_members", "workspace_retention_settings",
+  "lifecycle_email_events", "scheduled_scans", "workspace_domains",
+];
+
+/**
+ * purgeWorkspaceData — one bounded chunk of hard deletion for a workspace.
+ * Returns { done: true } when nothing remains (the workspaces row itself is
+ * left for the caller so it can resolve the owner for notification first).
+ * R2 objects are deleted before their D1 pointer rows so a crash between the
+ * two can only leave orphan-free state (a missing R2 object is tolerated).
+ */
+async function purgeWorkspaceData(env, workspaceId) {
+  // 1. Executive/PDF reports stored in R2 (workspace_reports.report_key)
+  const reports = await env.cybermeters_db
+    .prepare("SELECT id, report_key FROM workspace_reports WHERE workspace_id = ? LIMIT ?")
+    .bind(workspaceId, PURGE_R2_BATCH).all().catch(() => null);
+  if ((reports?.results || []).length > 0) {
+    for (const r of reports.results) {
+      if (r.report_key) await env.cybermeters_reports.delete(r.report_key).catch(() => {});
+      await env.cybermeters_db
+        .prepare("DELETE FROM workspace_reports WHERE id = ?").bind(r.id).run().catch(() => {});
+    }
+    return { done: false }; // more may remain — continue next run
+  }
+
+  // 2. Scan reports stored in R2 (reports/{scan_id}.json), then the scan rows
+  const scans = await env.cybermeters_db
+    .prepare("SELECT id FROM scans WHERE workspace_id = ? LIMIT ?")
+    .bind(workspaceId, PURGE_R2_BATCH).all().catch(() => null);
+  if ((scans?.results || []).length > 0) {
+    for (const s of scans.results) {
+      await env.cybermeters_reports.delete(`reports/${s.id}.json`).catch(() => {});
+      await env.cybermeters_db
+        .prepare("DELETE FROM scans WHERE id = ?").bind(s.id).run().catch(() => {});
+    }
+    return { done: false };
+  }
+
+  // 3. Remaining workspace-scoped D1 rows. Per-table statements (not batch)
+  // so a table missing in an older database cannot abort the purge.
+  for (const table of WORKSPACE_PURGE_TABLES) {
+    await env.cybermeters_db
+      .prepare(`DELETE FROM ${table} WHERE workspace_id = ?`)
+      .bind(workspaceId).run().catch(() => {});
+  }
+  return { done: true };
+}
+
+// User-scoped rows removed on account purge (after all owned workspaces are
+// gone). subscriptions/subscription_events are retained for accounting.
+const ACCOUNT_PURGE_TABLES = [
+  "user_sessions", "password_reset_tokens", "api_tokens",
+  "mfa_challenges", "oauth_states", "customer_profiles",
+];
+
+/**
+ * processDeletionRequests — hourly cron entry point. Processes at most two
+ * due requests per run, each in bounded chunks, so one giant workspace can
+ * never starve the cron or blow subrequest limits. Never throws.
+ */
+async function processDeletionRequests(env) {
+  try {
+    const rows = await env.cybermeters_db
+      .prepare(`SELECT id, request_type, user_id, workspace_id, status, created_at
+                FROM deletion_requests
+                WHERE status IN ('pending', 'purging')
+                ORDER BY created_at ASC
+                LIMIT 10`)
+      .all().catch(() => null);
+    const due = (rows?.results || []).filter((r) => isDeletionPurgeDue(r)).slice(0, 2);
+
+    for (const req of due) {
+      if (req.status !== "purging") {
+        await env.cybermeters_db
+          .prepare("UPDATE deletion_requests SET status = 'purging', updated_at = datetime('now') WHERE id = ?")
+          .bind(req.id).run().catch(() => {});
+      }
+      if (req.request_type === "workspace") {
+        await purgeWorkspaceRequest(env, req);
+      } else if (req.request_type === "account") {
+        await purgeAccountRequest(env, req);
+      }
+    }
+  } catch (e) {
+    console.error("[deletion-purge]", String(e?.message ?? e));
+  }
+}
+
+async function completeDeletionRequest(env, requestId, status = "completed") {
+  await env.cybermeters_db
+    .prepare("UPDATE deletion_requests SET status = ?, updated_at = datetime('now') WHERE id = ?")
+    .bind(status, requestId).run().catch(() => {});
+}
+
+async function purgeWorkspaceRequest(env, req) {
+  const ws = await env.cybermeters_db
+    .prepare("SELECT id, name, deleted_at, owner_user_id FROM workspaces WHERE id = ? LIMIT 1")
+    .bind(req.workspace_id).first().catch(() => null);
+
+  // Already gone → complete. Restored without cancelling → cancel, never purge live data.
+  if (!ws) return completeDeletionRequest(env, req.id, "completed");
+  if (!ws.deleted_at) {
+    await createAuditEvent(env, {
+      workspace_id: req.workspace_id, user_id: req.user_id,
+      event_type: "workspace_purge_cancelled", entity_type: "workspace", entity_id: req.workspace_id,
+      description: "Purge skipped: workspace was restored before the purge window elapsed",
+      metadata: { request_id: req.id },
+    }).catch(() => {});
+    return completeDeletionRequest(env, req.id, "cancelled");
+  }
+
+  const { done } = await purgeWorkspaceData(env, req.workspace_id);
+  if (!done) return; // continue in a later run
+
+  // Resolve owner for notification BEFORE removing the workspace row.
+  const owner = await env.cybermeters_db
+    .prepare("SELECT email, email_verified FROM users WHERE id = ? LIMIT 1")
+    .bind(ws.owner_user_id).first().catch(() => null);
+
+  await env.cybermeters_db
+    .prepare("DELETE FROM workspaces WHERE id = ?").bind(req.workspace_id).run().catch(() => {});
+
+  await createAuditEvent(env, {
+    workspace_id: req.workspace_id, user_id: req.user_id,
+    event_type: "workspace_purged", entity_type: "workspace", entity_id: req.workspace_id,
+    description: `Workspace "${ws.name}" permanently deleted after the ${DELETION_PURGE_WINDOW_DAYS}-day window`,
+    metadata: { request_id: req.id },
+  }).catch(() => {});
+  await completeDeletionRequest(env, req.id, "completed");
+
+  if (owner?.email_verified && isValidEmail(String(owner.email || "").toLowerCase())) {
+    const text = `Your CyberMeters workspace has been permanently deleted\n\nThe workspace "${ws.name}" and all of its data have now been permanently removed, as requested.\n\nIf you did not expect this, contact CyberMeters support.\n\nCyberMeters`;
+    const html = `<p>The workspace <strong>${escapeEmailHtml(ws.name)}</strong> and all of its data have now been permanently removed, as requested.</p><p>If you did not expect this, contact CyberMeters support.</p><p>CyberMeters</p>`;
+    await sendCustomerEmail("Your CyberMeters workspace has been permanently deleted", text, html, env, "HELLO_EMAIL_FROM", [String(owner.email).toLowerCase()]).catch(() => {});
+  }
+}
+
+async function purgeAccountRequest(env, req) {
+  const user = await env.cybermeters_db
+    .prepare("SELECT id, email, email_verified FROM users WHERE id = ? LIMIT 1")
+    .bind(req.user_id).first().catch(() => null);
+  if (!user) return completeDeletionRequest(env, req.id, "completed");
+
+  // Never delete a paying account: an active subscription must be cancelled
+  // first (protects the customer from losing paid access by accident).
+  const activeSub = await env.cybermeters_db
+    .prepare(`SELECT id FROM subscriptions WHERE owner_user_id = ?
+              AND LOWER(COALESCE(subscription_status, '')) IN ('active', 'trialing', 'past_due') LIMIT 1`)
+    .bind(req.user_id).first().catch(() => null);
+  if (activeSub) {
+    await createAuditEvent(env, {
+      user_id: req.user_id, event_type: "account_purge_blocked", entity_type: "user", entity_id: req.user_id,
+      description: "Account purge blocked: subscription is not cancelled",
+      metadata: { request_id: req.id },
+    }).catch(() => {});
+    return completeDeletionRequest(env, req.id, "blocked_active_subscription");
+  }
+
+  // Purge owned workspaces one chunk at a time; stay 'purging' until all gone.
+  const owned = await env.cybermeters_db
+    .prepare("SELECT id FROM workspaces WHERE owner_user_id = ? LIMIT 1")
+    .bind(req.user_id).first().catch(() => null);
+  if (owned) {
+    const { done } = await purgeWorkspaceData(env, owned.id);
+    if (done) {
+      await env.cybermeters_db
+        .prepare("DELETE FROM workspaces WHERE id = ?").bind(owned.id).run().catch(() => {});
+    }
+    return; // more work (this or other workspaces) — continue next run
+  }
+
+  // Farewell email BEFORE the user row disappears.
+  if (user.email_verified && isValidEmail(String(user.email || "").toLowerCase())) {
+    const text = `Your CyberMeters account has been deleted\n\nYour account and all associated data have now been permanently removed, as requested.\n\nThank you for trying CyberMeters.\n\nCyberMeters`;
+    const html = `<p>Your account and all associated data have now been permanently removed, as requested.</p><p>Thank you for trying CyberMeters.</p><p>CyberMeters</p>`;
+    await sendCustomerEmail("Your CyberMeters account has been deleted", text, html, env, "HELLO_EMAIL_FROM", [String(user.email).toLowerCase()]).catch(() => {});
+  }
+
+  for (const table of ACCOUNT_PURGE_TABLES) {
+    await env.cybermeters_db
+      .prepare(`DELETE FROM ${table} WHERE user_id = ?`).bind(req.user_id).run().catch(() => {});
+  }
+  await env.cybermeters_db
+    .prepare("DELETE FROM workspace_members WHERE user_id = ?").bind(req.user_id).run().catch(() => {});
+  await env.cybermeters_db
+    .prepare("DELETE FROM users WHERE id = ?").bind(req.user_id).run().catch(() => {});
+
+  await createAuditEvent(env, {
+    user_id: req.user_id, event_type: "account_purged", entity_type: "user", entity_id: req.user_id,
+    description: `Account permanently deleted after the ${DELETION_PURGE_WINDOW_DAYS}-day window`,
+    metadata: { request_id: req.id },
+  }).catch(() => {});
+  await completeDeletionRequest(env, req.id, "completed");
+}
+
 // processScheduledReports — called from scheduled() via ctx.waitUntil().
 // Checks the scheduled_reports table for due rows, generates reports, updates timestamps.
 async function processScheduledReports(now, env) {
@@ -33199,23 +33425,115 @@ export default {
 	          .bind(workspaceId)
 	          .run();
 
+	        // Schedule the hard purge: one pending request per workspace. The
+	        // purge cron only acts DELETION_PURGE_WINDOW_DAYS after created_at,
+	        // so the owner can restore any time before then.
+	        const existingReq = await env.cybermeters_db
+	          .prepare("SELECT id FROM deletion_requests WHERE request_type = 'workspace' AND workspace_id = ? AND status IN ('pending', 'purging') LIMIT 1")
+	          .bind(workspaceId)
+	          .first()
+	          .catch(() => null);
+	        if (!existingReq) {
+	          await env.cybermeters_db
+	            .prepare(`INSERT INTO deletion_requests
+	                        (id, request_type, user_id, workspace_id, requested_by, status, created_at, updated_at)
+	                      VALUES (?, 'workspace', ?, ?, ?, 'pending', ?, ?)`)
+	            .bind(createId("delreq"), user.id, workspaceId, user.id, now, now)
+	            .run()
+	            .catch(() => {});
+	        }
+	        const purgeAfter = new Date(Date.now() + DELETION_PURGE_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
+
 	        await createAuditEvent(env, {
 	          workspace_id: workspaceId,
 	          user_id: user.id,
 	          event_type: "workspace_deleted",
 	          entity_type: "workspace",
 	          entity_id: workspaceId,
-	          description: `Workspace "${workspace.name}" soft-deleted`,
-	          metadata: { deleted_at: now },
+	          description: `Workspace "${workspace.name}" soft-deleted; permanent deletion scheduled`,
+	          metadata: { deleted_at: now, purge_after: purgeAfter },
 	        }).catch(() => {});
 
-	        return json({ deleted: true, workspace_id: workspaceId, deleted_at: now });
+	        // Confirmation email — states the restore window honestly.
+	        try {
+	          if (user.email && isValidEmail(String(user.email).toLowerCase())) {
+	            const wsName = escapeEmailHtml(workspace.name);
+	            const untilDay = new Date(purgeAfter).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+	            const text = `Your CyberMeters workspace was deleted\n\nThe workspace "${workspace.name}" has been deleted and is no longer visible in CyberMeters.\n\nIts data will be permanently removed after ${untilDay}. Until then you can restore the workspace by contacting support or using the restore option.\n\nCyberMeters`;
+	            const html = `<p>The workspace <strong>${wsName}</strong> has been deleted and is no longer visible in CyberMeters.</p><p>Its data will be permanently removed after <strong>${untilDay}</strong>. Until then you can restore the workspace by contacting support or using the restore option.</p><p>CyberMeters</p>`;
+	            await sendCustomerEmail("Your CyberMeters workspace was deleted", text, html, env, "HELLO_EMAIL_FROM", [String(user.email).toLowerCase()]);
+	          }
+	        } catch { /* deletion must succeed even if the email cannot be sent */ }
+
+	        return json({ deleted: true, workspace_id: workspaceId, deleted_at: now, purge_after: purgeAfter, restorable_until: purgeAfter });
 	      } catch {
 	        return json({ error: "Unable to delete workspace" }, 500);
 	      }
 	    }
 
-	    // ── POST /api/workspaces/:id/reports/generate ────────────────────────────
+	    // ── POST /api/workspaces/:id/restore ─────────────────────────────────────
+    // Undo a soft-delete inside the purge window. Owner-only; authorized
+    // directly against the workspaces row because role resolution may exclude
+    // deleted workspaces. Once purging has started, restore is refused.
+    const workspaceRestoreMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/restore$/);
+    if (workspaceRestoreMatch && request.method === "POST") {
+      const workspaceId = workspaceRestoreMatch[1];
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      if (user.api_token_id) return json({ error: "Session authentication required" }, 403);
+      try {
+        const ws = await env.cybermeters_db
+          .prepare("SELECT id, name, owner_user_id, deleted_at FROM workspaces WHERE id = ? LIMIT 1")
+          .bind(workspaceId)
+          .first();
+        if (!ws) return json({ error: "Workspace not found" }, 404);
+        if (ws.owner_user_id !== user.id) return json({ error: "Forbidden — owner role required to restore a workspace" }, 403);
+        if (!ws.deleted_at) return json({ error: "Workspace is not deleted" }, 400);
+
+        const delReq = await env.cybermeters_db
+          .prepare("SELECT id, status, created_at FROM deletion_requests WHERE request_type = 'workspace' AND workspace_id = ? AND status IN ('pending', 'purging') ORDER BY created_at DESC LIMIT 1")
+          .bind(workspaceId)
+          .first()
+          .catch(() => null);
+        if (delReq?.status === "purging") {
+          return json({ error: "This workspace can no longer be restored — permanent deletion has already started." }, 409);
+        }
+        const deletedAtMs = new Date(ws.deleted_at).getTime();
+        if (!Number.isNaN(deletedAtMs) && Date.now() > deletedAtMs + DELETION_PURGE_WINDOW_DAYS * 24 * 60 * 60 * 1000) {
+          return json({ error: "The restore window for this workspace has passed." }, 409);
+        }
+
+        await env.cybermeters_db
+          .prepare("UPDATE workspaces SET deleted_at = NULL WHERE id = ?")
+          .bind(workspaceId)
+          .run();
+        if (delReq?.id) {
+          await env.cybermeters_db
+            .prepare("UPDATE deletion_requests SET status = 'cancelled', updated_at = datetime('now') WHERE id = ?")
+            .bind(delReq.id)
+            .run()
+            .catch(() => {});
+        }
+
+        await createAuditEvent(env, {
+          workspace_id: workspaceId,
+          user_id: user.id,
+          event_type: "workspace_restored",
+          entity_type: "workspace",
+          entity_id: workspaceId,
+          description: `Workspace "${ws.name}" restored within the deletion window`,
+          metadata: { deletion_request_id: delReq?.id ?? null },
+        }).catch(() => {});
+
+        // Schedules stay disabled and archived assets stay inactive — the
+        // owner re-enables what they still need.
+        return json({ restored: true, workspace_id: workspaceId, note: "Scheduled scans remain paused and archived assets remain inactive; re-enable them as needed." });
+      } catch {
+        return json({ error: "Unable to restore workspace" }, 500);
+      }
+    }
+
+    // ── POST /api/workspaces/:id/reports/generate ────────────────────────────
 	    // Generates a new executive PDF report and stores it in R2 + workspace_reports.
     // Body: { "report_type": "manual" | "weekly_executive" | "monthly_executive" | "scan_snapshot" }
     //       Optional: { "report_period": "...", "scan_id": "..." }
@@ -34398,6 +34716,10 @@ export default {
     if (new Date(now).getUTCHours() === 2) {
       ctx.waitUntil(cleanupExpiredReports(now, env));
     }
+
+    // ── Deletion purge (soft-delete → 30-day window → hard delete) ────────
+    // Bounded per run; requests inside the restore window are never touched.
+    ctx.waitUntil(processDeletionRequests(env));
   },
 
   // ── Inbound DMARC aggregate (RUA) email handler ──────────────────────────────
