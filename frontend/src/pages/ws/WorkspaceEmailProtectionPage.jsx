@@ -1524,6 +1524,130 @@ function WizardStepper({ steps, completed, current }) {
   )
 }
 
+// Managed DMARC (Hosted Records Engine, Phase A): one CNAME, then CyberMeters
+// manages the record value. Reads/creates via the hosted-dmarc endpoints.
+const HOSTED_STATUS_META = {
+  pending_dns:     { label: 'Preparing…',          kind: 'na',   hint: 'We are publishing your managed record. This usually takes under a minute — check again shortly.' },
+  awaiting_cname:  { label: 'Waiting for CNAME',   kind: 'warn', hint: 'Add the CNAME below at your DNS provider, then check the connection.' },
+  connected:       { label: 'Connected',           kind: 'good', hint: 'Your DMARC record is managed by CyberMeters. Reporting keeps flowing to your address.' },
+  disconnected:    { label: 'Disconnected',        kind: 'bad',  hint: 'The CNAME no longer points at CyberMeters, so your policy may not be published. Restore the CNAME or review your DNS.' },
+  pending_removal: { label: 'Removing…',           kind: 'na',   hint: 'Remove the CNAME at your DNS provider; the hosted value stays live until your DNS no longer depends on it.' },
+}
+
+function ManagedDmarcCard({ wsId, domain, endpointReady }) {
+  const [rec, setRec]         = useState(undefined) // undefined=loading, null=none
+  const [busy, setBusy]       = useState(null)      // 'create' | 'verify' | 'remove'
+  const [error, setError]     = useState(null)
+
+  const load = useCallback(async () => {
+    if (!wsId || !domain) return
+    try { const r = await api.getHostedDmarc(wsId, domain); setRec(r?.record ?? null) }
+    catch { setRec(null) }
+  }, [wsId, domain])
+  useEffect(() => { setRec(undefined); setError(null); load() }, [load])
+
+  async function act(kind, fn) {
+    setBusy(kind); setError(null)
+    try { const r = await fn(); setRec(r?.record ?? null) }
+    catch (e) { setError(e?.message || 'The request could not be completed.') }
+    finally { setBusy(null) }
+  }
+
+  if (rec === undefined) return null
+  const meta = rec ? (HOSTED_STATUS_META[rec.status] || HOSTED_STATUS_META.pending_dns) : null
+
+  return (
+    <div className="mx-6 mt-5 rounded-xl border border-brand-200 bg-brand-50/40 p-5">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="min-w-0">
+          <p className="text-sm font-bold text-gray-900">
+            Let CyberMeters manage this record
+            {!rec && <span className="ml-2 text-[10px] font-bold uppercase tracking-wide text-brand-700 bg-brand-100 rounded px-1.5 py-0.5">Recommended</span>}
+          </p>
+          <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+            Add one CNAME and we manage the DMARC value for you — no more DNS edits when your
+            policy evolves. Reporting keeps flowing to your CyberMeters address.
+          </p>
+        </div>
+        {rec && meta && (
+          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border ${
+            meta.kind === 'good' ? 'bg-brand-50 text-brand-700 border-brand-200'
+            : meta.kind === 'warn' ? 'bg-amber-50 text-amber-800 border-amber-200'
+            : meta.kind === 'bad' ? 'bg-red-50 text-red-700 border-red-200'
+            : 'bg-gray-50 text-gray-500 border-gray-200'}`}>
+            {meta.label}
+          </span>
+        )}
+      </div>
+
+      {!rec ? (
+        <div className="mt-3">
+          <button
+            onClick={() => act('create', () => api.createHostedDmarc(wsId, domain))}
+            disabled={!endpointReady || busy === 'create'}
+            className="btn-primary text-sm disabled:opacity-50"
+          >
+            {busy === 'create' ? <RefreshCw className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+            Set up managed DMARC
+          </button>
+          {!endpointReady && (
+            <p className="text-[11px] text-gray-400 mt-2">Activate DMARC reporting below first — the managed record includes your reporting address.</p>
+          )}
+        </div>
+      ) : (
+        <div className="mt-3 space-y-2.5">
+          <p className="text-xs text-gray-600">{meta.hint}</p>
+          {rec.status !== 'connected' && rec.status !== 'pending_removal' && (
+            <div className="space-y-1.5">
+              <div className="grid grid-cols-[70px,1fr] gap-2 items-center">
+                <span className="text-[11px] font-semibold text-gray-500">Type / Name</span>
+                <DnsValue value={`CNAME  ${rec.cname_name}`} />
+              </div>
+              <div className="grid grid-cols-[70px,1fr] gap-2 items-center">
+                <span className="text-[11px] font-semibold text-gray-500">Target</span>
+                <DnsValue value={rec.cname_target} />
+              </div>
+              <p className="text-[11px] text-gray-400">Replace any existing TXT at {rec.cname_name} with this CNAME.</p>
+            </div>
+          )}
+          <div className="flex items-center gap-2 flex-wrap">
+            {rec.status !== 'pending_removal' && (
+              <button
+                onClick={() => act('verify', () => api.verifyHostedDmarc(wsId, domain))}
+                disabled={Boolean(busy)}
+                className="btn-secondary text-xs disabled:opacity-50"
+              >
+                {busy === 'verify' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                Check connection
+              </button>
+            )}
+            {rec.status !== 'pending_removal' && (
+              <button
+                onClick={() => {
+                  if (window.confirm('Stop managing this record? You will need to publish your own DMARC TXT again.')) {
+                    act('remove', () => api.deleteHostedDmarc(wsId, domain))
+                  }
+                }}
+                disabled={Boolean(busy)}
+                className="text-xs text-gray-400 hover:text-red-600 disabled:opacity-50"
+              >
+                Stop managing
+              </button>
+            )}
+          </div>
+          {rec.current_value && rec.status === 'connected' && (
+            <div>
+              <p className="text-[11px] font-semibold text-gray-500 mb-1">Managed value (live)</p>
+              <DnsValue value={rec.current_value} />
+            </div>
+          )}
+        </div>
+      )}
+      {error && <p className="text-xs text-red-600 mt-2">{error}</p>}
+    </div>
+  )
+}
+
 function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessages }) {
   const [endpoint, setEndpoint] = useState(null)
   const [loading, setLoading]   = useState(true)
@@ -1661,6 +1785,8 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
           </span>
         ) : null}
       </div>
+
+      <ManagedDmarcCard wsId={wsId} domain={domain} endpointReady={Boolean(inboundMailto)} />
 
       <div className="p-6 space-y-5">
         {loading ? (

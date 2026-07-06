@@ -693,6 +693,16 @@ export const api = {
   getSpfAnalysis: (workspaceId, domain) =>
     request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/spf-analysis`),
 
+  /** Hosted DMARC (managed record) — Hosted Records Engine */
+  getHostedDmarc: (workspaceId, domain) =>
+    request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/hosted-dmarc`),
+  createHostedDmarc: (workspaceId, domain) =>
+    request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/hosted-dmarc`, { method: 'POST' }),
+  verifyHostedDmarc: (workspaceId, domain) =>
+    request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/hosted-dmarc/verify`),
+  deleteHostedDmarc: (workspaceId, domain) =>
+    request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/hosted-dmarc`, { method: 'DELETE' }),
+
   /** GET /api/workspaces/:id/domains/:domain/bec-exposure → BEC Exposure Score (higher = worse) */
   getBecExposureScore: (workspaceId, domain) =>
     request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/bec-exposure`),

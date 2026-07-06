@@ -147,6 +147,12 @@ function loadScanner(fetchImpl = async () => { throw new Error("network disabled
     deliverWorkspaceAlert,
     alertChannelToApi,
     analyzeSpfChain,
+    hostedDnsRecordToApi,
+    nextHostedDnsStatus,
+    verifyHostedDmarcRecord,
+    runHostedDnsVerificationSweep,
+    newHostedDnsRecordId,
+    hostedDmarcSubdomain,
     emailHandler: __workerDefault.email,
     computeBusinessRiskScoreFromIds: (ids, data) => computeBusinessRiskScore(new Set(ids), data),
   };`, context, {
@@ -2401,6 +2407,112 @@ results.push(await asyncSecurityContract("spf_chain_flags_over_limit_void_and_ca
   return r.lookups_used === 11 && r.over_limit === true && voidsFlagged &&
     capped.truncated === true && capped.queries_used === 3 &&
     noSpf.status === "no_spf" && noSpf.flattened === null;
+}));
+results.push(securityContract("hosted_dmarc_status_machine_transitions", () => {
+  const n = scanner.nextHostedDnsStatus;
+  return (
+    // our TXT not observable → always pending_dns (except during removal)
+    n({ status: "awaiting_cname" }, { hosted_live: false, cname_connected: false }) === "pending_dns" &&
+    n({ status: "connected" },      { hosted_live: false, cname_connected: false }) === "pending_dns" &&
+    // TXT live + customer CNAME resolving → connected
+    n({ status: "awaiting_cname" }, { hosted_live: true, cname_connected: true })  === "connected" &&
+    n({ status: "disconnected" },   { hosted_live: true, cname_connected: true })  === "connected" &&
+    // once connected, a vanished CNAME is a loud disconnected, never a quiet reset
+    n({ status: "connected" },      { hosted_live: true, cname_connected: false }) === "disconnected" &&
+    n({ status: "disconnected" },   { hosted_live: true, cname_connected: false }) === "disconnected" &&
+    // never-connected records simply wait
+    n({ status: "pending_dns" },    { hosted_live: true, cname_connected: false }) === "awaiting_cname" &&
+    // removal state is sticky for the sweep to resolve
+    n({ status: "pending_removal" }, { hosted_live: true, cname_connected: true }) === "pending_removal"
+  );
+}));
+results.push(securityContract("hosted_dns_api_never_leaks_internals", () => {
+  const api = scanner.hostedDnsRecordToApi({
+    id: "hd-abc123def456", workspace_id: "ws1", domain: "example.com", record_type: "dmarc",
+    hosted_name: "hd-abc123def456.dmarc.cybermeters.com",
+    current_value: "v=DMARC1; p=none; rua=mailto:x@reports.cybermeters.com",
+    previous_value: "v=DMARC1; p=none", cf_record_id: "a".repeat(32), created_by: "user_9",
+    status: "connected", last_verified_at: null, created_at: "2026-07-07T00:00:00Z",
+  });
+  const s = JSON.stringify(api);
+  const idOk = /^hd-[a-z0-9]{12}$/.test(scanner.newHostedDnsRecordId()) &&
+    !scanner.newHostedDnsRecordId().includes("_"); // DNS-safe LDH label
+  return !s.includes("a".repeat(32)) && !s.includes("user_9") &&
+    api.cname_name === "_dmarc.example.com" &&
+    api.cname_target === "hd-abc123def456.dmarc.cybermeters.com" && idOk &&
+    scanner.hostedDmarcSubdomain({}) === "dmarc.cybermeters.com";
+}));
+results.push(await asyncSecurityContract("hosted_dmarc_verify_checks_both_sides", async () => {
+  const row = {
+    domain: "example.com",
+    hosted_name: "hd-aaa.dmarc.cybermeters.com",
+    current_value: "v=DMARC1; p=none; rua=mailto:x@reports.cybermeters.com",
+  };
+  const zone = (answers) => async (name) => ({
+    Status: 0, Answer: (answers[name] || []).map((d) => ({ data: `"${d}"` })),
+  });
+  const bothLive = await scanner.verifyHostedDmarcRecord(row, { dnsQueryImpl: zone({
+    "hd-aaa.dmarc.cybermeters.com": [row.current_value],
+    "_dmarc.example.com": [row.current_value],
+  }) });
+  const hostedOnly = await scanner.verifyHostedDmarcRecord(row, { dnsQueryImpl: zone({
+    "hd-aaa.dmarc.cybermeters.com": [row.current_value],
+  }) });
+  const neither = await scanner.verifyHostedDmarcRecord(row, { dnsQueryImpl: zone({}) });
+  const wrongValue = await scanner.verifyHostedDmarcRecord(row, { dnsQueryImpl: zone({
+    "hd-aaa.dmarc.cybermeters.com": ["v=DMARC1; p=reject"],
+  }) });
+  return bothLive.hosted_live && bothLive.cname_connected &&
+    hostedOnly.hosted_live && !hostedOnly.cname_connected &&
+    !neither.hosted_live && !wrongValue.hosted_live;
+}));
+results.push(await asyncSecurityContract("hosted_removal_never_orphans_a_live_cname", async () => {
+  // pending_removal + the customer's CNAME still resolves to us + inside the
+  // grace window → the sweep must NOT delete anything (their policy would
+  // silently vanish). Once the CNAME is gone, removal completes.
+  const value = "v=DMARC1; p=none; rua=mailto:x@reports.cybermeters.com";
+  const mkRow = () => ({
+    id: "hd-bbb", workspace_id: "ws1", domain: "example.com", record_type: "dmarc",
+    hosted_name: "hd-bbb.dmarc.cybermeters.com", current_value: value,
+    cf_record_id: "c".repeat(32), status: "pending_removal",
+    updated_at: new Date().toISOString(),
+  });
+  const mkEnv = (row, log) => ({
+    CLOUDFLARE_API_TOKEN: "test-token", CLOUDFLARE_ZONE_ID: "e".repeat(32),
+    cybermeters_db: { prepare(sql) { return {
+      _sql: sql, bind(...a) { this._a = a; return this; },
+      async all() { return { results: [row] }; },
+      async run() { log.push(this._sql.trim().split(/\s+/)[0] + ":" + (this._sql.includes("hosted_dns_records") ? "hosted" : "other")); return { meta: { changes: 1 } }; },
+      async first() { return null; },
+    }; } },
+  });
+  const cfCalls = [];
+  const fetchImpl = async (url, opts) => { cfCalls.push(`${opts?.method || "GET"} ${url}`); return { ok: true, status: 200, json: async () => ({ success: true, result: { id: "d".repeat(32) } }) }; };
+
+  // Case 1: CNAME still points at us, fresh request → nothing deleted.
+  const log1 = []; const row1 = mkRow();
+  const dnsBoth = async (name) => ({ Status: 0, Answer: [{ data: `"${value}"` }] });
+  const r1 = await scanner.runHostedDnsVerificationSweep(mkEnv(row1, log1), { dnsQueryImpl: dnsBoth, fetchImpl, now: new Date() });
+  const deletedInCase1 = cfCalls.some((c) => c.startsWith("DELETE")) || log1.some((l) => l.startsWith("DELETE:hosted"));
+
+  // Case 2: CNAME gone → removal completes (CF delete + row delete).
+  cfCalls.length = 0; const log2 = []; const row2 = mkRow();
+  const dnsHostedOnly = async (name) => name.startsWith("hd-")
+    ? { Status: 0, Answer: [{ data: `"${value}"` }] }
+    : { Status: 0, Answer: [] };
+  const r2 = await scanner.runHostedDnsVerificationSweep(mkEnv(row2, log2), { dnsQueryImpl: dnsHostedOnly, fetchImpl, now: new Date() });
+  const deletedInCase2 = cfCalls.some((c) => c.startsWith("DELETE")) && log2.some((l) => l.startsWith("DELETE:hosted"));
+
+  // Case 3: CF delete fails → the row must survive for the next sweep
+  // (deleting it would orphan the TXT on our zone with nothing tracking it).
+  const log3 = []; const row3 = mkRow();
+  const failingFetch = async () => ({ ok: false, status: 500, json: async () => ({ success: false }) });
+  const r3 = await scanner.runHostedDnsVerificationSweep(mkEnv(row3, log3), { dnsQueryImpl: dnsHostedOnly, fetchImpl: failingFetch, now: new Date() });
+  const rowSurvivedCase3 = !log3.some((l) => l.startsWith("DELETE:hosted"));
+
+  return r1.checked === 1 && r1.removed === 0 && !deletedInCase1 &&
+    r2.checked === 1 && r2.removed === 1 && deletedInCase2 &&
+    r3.removed === 0 && rowSurvivedCase3;
 }));
 results.push(securityContract("alert_channel_api_never_leaks_url_or_secret", () => {
   const api = scanner.alertChannelToApi({

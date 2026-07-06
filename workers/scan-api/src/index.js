@@ -6518,6 +6518,188 @@ async function verifyDmarcDnsSetup(env, workspaceId, domain, {
   return _dmarcDnsCheckResponse(domain, boundEndpoint, records, checkedAt);
 }
 
+// ─── Hosted DNS Records Engine — Phase A: hosted DMARC ──────────────────────
+// The customer CNAMEs _dmarc.<domain> to <id>.dmarc.cybermeters.com once; we
+// manage the TXT value on our zone via the Cloudflare DNS API (same
+// token/zone secrets and request helper as the email-routing automation).
+// Phase A hosts a value mirroring the customer's existing record merged with
+// our RUA — no policy transitions yet. The hourly sweep verifies both sides
+// and NEVER deletes a hosted TXT while the customer's _dmarc still points at
+// it (their policy would silently vanish otherwise).
+
+const HOSTED_DMARC_SUBDOMAIN_DEFAULT = "dmarc.cybermeters.com";
+const HOSTED_DNS_REMOVAL_GRACE_DAYS = 7;
+const HOSTED_DNS_SWEEP_LIMIT = 25;
+
+function hostedDmarcSubdomain(env) {
+  const raw = String(env?.HOSTED_DMARC_SUBDOMAIN || HOSTED_DMARC_SUBDOMAIN_DEFAULT).trim().toLowerCase();
+  return /^[a-z0-9][a-z0-9.-]{3,251}[a-z0-9]$/.test(raw) ? raw : HOSTED_DMARC_SUBDOMAIN_DEFAULT;
+}
+
+function newHostedDnsRecordId() {
+  // DNS-safe LDH label (no underscores): usable directly as the host label.
+  return `hd-${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
+}
+
+// Safe serialization: cf_record_id and created_by never leave the worker.
+function hostedDnsRecordToApi(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    domain: row.domain,
+    record_type: row.record_type,
+    hosted_name: row.hosted_name,
+    cname_name: `_dmarc.${row.domain}`,
+    cname_target: row.hosted_name,
+    current_value: row.current_value,
+    status: row.status,
+    last_verified_at: row.last_verified_at || null,
+    created_at: row.created_at,
+  };
+}
+
+async function cfCreateHostedTxt(env, name, content, { fetchImpl = fetch } = {}) {
+  const zoneId = String(env?.CLOUDFLARE_ZONE_ID || "").trim();
+  if (!String(env?.CLOUDFLARE_API_TOKEN || "").trim() || !/^[a-f0-9]{32}$/i.test(zoneId)) {
+    return { ok: false, reason: "missing_config" };
+  }
+  const res = await _cloudflareEmailRoutingRequest(env, `/zones/${zoneId}/dns_records`, {
+    method: "POST",
+    body: JSON.stringify({
+      type: "TXT", name, content, ttl: 300,
+      comment: "CyberMeters hosted DMARC — managed record",
+    }),
+  }, fetchImpl);
+  if (!res.ok) return res;
+  const cfRecordId = String(res.body?.result?.id || "").trim();
+  return cfRecordId ? { ok: true, cf_record_id: cfRecordId } : { ok: false, reason: "api_rejected" };
+}
+
+async function cfDeleteHostedTxt(env, cfRecordId, { fetchImpl = fetch } = {}) {
+  const zoneId = String(env?.CLOUDFLARE_ZONE_ID || "").trim();
+  if (!cfRecordId || !/^[a-f0-9]{32}$/i.test(zoneId)) return { ok: false, reason: "missing_config" };
+  return _cloudflareEmailRoutingRequest(
+    env, `/zones/${zoneId}/dns_records/${encodeURIComponent(cfRecordId)}`,
+    { method: "DELETE" }, fetchImpl,
+  );
+}
+
+// Both checks resolve through public DNS, so they observe what receivers see:
+// hosted_live — our TXT serves the expected value; cname_connected — the
+// customer's _dmarc resolves (via their CNAME) to that same value.
+async function verifyHostedDmarcRecord(row, { dnsQueryImpl = dnsQuery } = {}) {
+  const expected = String(row.current_value || "").replace(/\s+/g, " ").trim();
+  const txtMatches = async (name) => {
+    try {
+      const res = await dnsQueryImpl(name, "TXT");
+      if (Number(res?.Status ?? 1) !== 0) return false;
+      return (res?.Answer || []).some((a) =>
+        normalizeDnsTxtValue(a?.data).replace(/\s+/g, " ").trim() === expected);
+    } catch { return false; }
+  };
+  const hosted_live = await txtMatches(row.hosted_name);
+  const cname_connected = hosted_live ? await txtMatches(`_dmarc.${row.domain}`) : false;
+  return { hosted_live, cname_connected };
+}
+
+function nextHostedDnsStatus(row, checks) {
+  if (row.status === "pending_removal") return "pending_removal";
+  if (!checks.hosted_live) return "pending_dns";
+  if (checks.cname_connected) return "connected";
+  // Once connected, a missing CNAME is a loud "disconnected", never a quiet
+  // reset to awaiting_cname.
+  return row.status === "connected" || row.status === "disconnected"
+    ? "disconnected"
+    : "awaiting_cname";
+}
+
+// Hourly sweep: retry pending CF creations, verify both sides, progress the
+// status machine, alert on connected→disconnected, and complete removals only
+// when safe. Per-row isolation — one failure never aborts the sweep.
+async function runHostedDnsVerificationSweep(env, {
+  dnsQueryImpl = dnsQuery, fetchImpl = fetch, now = new Date(),
+} = {}) {
+  let rows = [];
+  try {
+    const r = await env.cybermeters_db
+      .prepare(`SELECT * FROM hosted_dns_records
+                WHERE status IN ('pending_dns','awaiting_cname','connected','disconnected','pending_removal')
+                ORDER BY updated_at ASC LIMIT ?`)
+      .bind(HOSTED_DNS_SWEEP_LIMIT).all();
+    rows = r.results || [];
+  } catch { return { checked: 0, removed: 0 }; }
+
+  const nowIso = now.toISOString();
+  let checked = 0, removed = 0;
+  for (const row of rows) {
+    try {
+      checked += 1;
+      if (!row.cf_record_id && row.status === "pending_dns") {
+        const created = await cfCreateHostedTxt(env, row.hosted_name, row.current_value, { fetchImpl });
+        if (created.ok) {
+          row.cf_record_id = created.cf_record_id;
+          await env.cybermeters_db
+            .prepare(`UPDATE hosted_dns_records SET cf_record_id = ?, updated_at = ? WHERE id = ?`)
+            .bind(created.cf_record_id, nowIso, row.id).run();
+        }
+      }
+
+      const checks = await verifyHostedDmarcRecord(row, { dnsQueryImpl });
+
+      if (row.status === "pending_removal") {
+        const updatedAt = String(row.updated_at || "");
+        const updatedMs = new Date(updatedAt.includes("T") ? updatedAt : updatedAt.replace(" ", "T") + "Z").getTime();
+        const graceOver = Number.isFinite(updatedMs)
+          && (now.getTime() - updatedMs) > HOSTED_DNS_REMOVAL_GRACE_DAYS * 24 * 3600 * 1000;
+        // Never pull the TXT out from under a CNAME that still depends on it.
+        if (!checks.cname_connected || graceOver) {
+          // The row is only removed once the Cloudflare record is confirmed
+          // gone — otherwise the TXT would be orphaned on our zone with
+          // nothing tracking it. Failed CF deletes retry on the next sweep.
+          let cfCleared = !row.cf_record_id;
+          if (row.cf_record_id) {
+            const del = await cfDeleteHostedTxt(env, row.cf_record_id, { fetchImpl });
+            cfCleared = del.ok === true;
+          }
+          if (cfCleared) {
+            await env.cybermeters_db
+              .prepare(`DELETE FROM hosted_dns_records WHERE id = ?`).bind(row.id).run();
+            removed += 1;
+            await createAuditEvent(env, {
+              workspace_id: row.workspace_id,
+              event_type: "hosted_dmarc_removed", entity_type: "hosted_dns_record", entity_id: row.id,
+              description: `Hosted DMARC record for ${row.domain} removed`,
+            });
+          }
+        }
+        continue;
+      }
+
+      const next = nextHostedDnsStatus(row, checks);
+      if (next !== row.status) {
+        await env.cybermeters_db
+          .prepare(`UPDATE hosted_dns_records SET status = ?, last_verified_at = ?, updated_at = ? WHERE id = ?`)
+          .bind(next, nowIso, nowIso, row.id).run();
+        if (next === "disconnected" && row.status === "connected") {
+          try {
+            await deliverWorkspaceAlert(env, row.workspace_id, {
+              kind: "hosted_dmarc_disconnected", severity: "high",
+              title: `Hosted DMARC disconnected for ${row.domain}`,
+              summary: `The CNAME at _dmarc.${row.domain} no longer points at CyberMeters, so your DMARC policy may not be published. Restore the CNAME or review your DNS.`,
+              domain: row.domain,
+            });
+          } catch { /* alerting is best-effort */ }
+        }
+      } else {
+        await env.cybermeters_db
+          .prepare(`UPDATE hosted_dns_records SET last_verified_at = ? WHERE id = ?`)
+          .bind(nowIso, row.id).run();
+      }
+    } catch { /* per-row isolation */ }
+  }
+  return { checked, removed };
+}
+
 function parseSpfRecord(record, recordCount = record ? 1 : 0) {
   const raw = normalizeDnsTxtValue(record);
   const tokens = raw.split(/\s+/).filter(Boolean);
@@ -20557,6 +20739,7 @@ const WORKSPACE_PURGE_TABLES = [
   "workspace_invitations", "workspace_members", "workspace_retention_settings",
   "lifecycle_email_events", "scheduled_scans", "workspace_domains",
   "finding_waivers", "api_tokens", "workspace_alert_channels",
+  "hosted_dns_records",
 ];
 
 /**
@@ -33196,6 +33379,142 @@ export default {
       }
     }
 
+    // ── Hosted DMARC (Hosted Records Engine, Phase A) ─────────────────────────
+    //   POST   .../hosted-dmarc         → create the managed record (manage role)
+    //   GET    .../hosted-dmarc         → current state
+    //   GET    .../hosted-dmarc/verify  → live two-sided verification
+    //   DELETE .../hosted-dmarc         → request removal (grace-protected)
+    const hostedDmarcMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/domains\/([^/]+)\/hosted-dmarc(?:\/(verify))?$/);
+    if (hostedDmarcMatch) {
+      const workspaceId = hostedDmarcMatch[1];
+      const domain = decodeURIComponent(hostedDmarcMatch[2]).toLowerCase();
+      const isVerify = Boolean(hostedDmarcMatch[3]);
+      try {
+        const user = await requireAuth(request, env);
+        if (!user) return json({ error: "Unauthorized" }, 401);
+        const permission = request.method === "GET" ? "workspace:read" : "workspace:manage";
+        const access = await requireWorkspaceRole(user, workspaceId, permission, env);
+        if (!access) return json({ error: "Forbidden" }, 403);
+        const domainId = await resolveWorkspaceDomain(env, workspaceId, domain);
+        if (!domainId) return json({ error: "Domain not found in this workspace" }, 404);
+
+        const existing = await env.cybermeters_db
+          .prepare(`SELECT * FROM hosted_dns_records
+                    WHERE workspace_id = ? AND domain = ? AND record_type = 'dmarc' LIMIT 1`)
+          .bind(workspaceId, domain).first();
+
+        if (request.method === "GET" && !isVerify) {
+          return json({ record: hostedDnsRecordToApi(existing) });
+        }
+
+        if (request.method === "GET" && isVerify) {
+          if (!existing) return json({ error: "No hosted DMARC record for this domain yet." }, 404);
+          const checks = await verifyHostedDmarcRecord(existing);
+          const next = nextHostedDnsStatus(existing, checks);
+          const nowIso = new Date().toISOString();
+          await env.cybermeters_db
+            .prepare(`UPDATE hosted_dns_records SET status = ?, last_verified_at = ?, updated_at = ? WHERE id = ?`)
+            .bind(next, nowIso, nowIso, existing.id).run();
+          return json({
+            record: hostedDnsRecordToApi({ ...existing, status: next, last_verified_at: nowIso }),
+            checks,
+          });
+        }
+
+        if (request.method === "POST" && !isVerify) {
+          if (existing) return json({ record: hostedDnsRecordToApi(existing), already_exists: true });
+
+          // The managed record must keep reporting flowing: a CyberMeters RUA
+          // address is required before we take over the value.
+          const endpoint = await env.cybermeters_db
+            .prepare(`SELECT address_local FROM dmarc_ingest_endpoints
+                      WHERE workspace_id = ? AND domain = ? AND status = 'active' AND revoked_at IS NULL
+                      ORDER BY created_at DESC LIMIT 1`)
+            .bind(workspaceId, domain).first();
+          if (!endpoint?.address_local) {
+            return json({ error: "Create a CyberMeters reporting address for this domain first." }, 400);
+          }
+          const inboundDomain = normalizeInboundRecipientDomain(env.RUA_INBOUND_DOMAIN || RUA_INBOUND_DOMAIN_DEFAULT)
+            || RUA_INBOUND_DOMAIN_DEFAULT;
+          const recommendedRua = `mailto:${endpoint.address_local}@${inboundDomain}`;
+
+          // Mirror the customer's live record (merged with our RUA); default to
+          // monitor-only when none exists. Phase A never changes policy.
+          let liveRecord = null;
+          try {
+            const res = await dnsQuery(`_dmarc.${domain}`, "TXT");
+            if (Number(res?.Status ?? 1) === 0) {
+              liveRecord = (res?.Answer || [])
+                .map((a) => normalizeDnsTxtValue(a?.data))
+                .find((v) => /^v=DMARC1(?:\s*;|$)/i.test(v)) || null;
+            }
+          } catch { /* fall through to the default value */ }
+          const value = buildDmarcDnsRecommendedValue(liveRecord, recommendedRua);
+          const parsed = parseDmarcRecord(value, 1);
+          if (!parsed.valid) return json({ error: "A valid managed record could not be produced for this domain." }, 422);
+
+          const id = newHostedDnsRecordId();
+          const hostedName = `${id}.${hostedDmarcSubdomain(env)}`;
+          const nowIso = new Date().toISOString();
+          await env.cybermeters_db
+            .prepare(`INSERT INTO hosted_dns_records
+                        (id, workspace_id, domain, record_type, hosted_name, current_value,
+                         status, created_by, created_at, updated_at)
+                      VALUES (?, ?, ?, 'dmarc', ?, ?, 'pending_dns', ?, ?, ?)`)
+            .bind(id, workspaceId, domain, hostedName, value, user.id, nowIso, nowIso).run();
+
+          // Try the Cloudflare create immediately; the sweep retries on failure.
+          let row = { id, workspace_id: workspaceId, domain, record_type: "dmarc",
+            hosted_name: hostedName, current_value: value, status: "pending_dns",
+            last_verified_at: null, created_at: nowIso };
+          const created = await cfCreateHostedTxt(env, hostedName, value);
+          if (created.ok) {
+            await env.cybermeters_db
+              .prepare(`UPDATE hosted_dns_records SET cf_record_id = ?, status = 'awaiting_cname', updated_at = ? WHERE id = ?`)
+              .bind(created.cf_record_id, nowIso, id).run();
+            row = { ...row, status: "awaiting_cname" };
+          }
+
+          await createAuditEvent(env, {
+            workspace_id: workspaceId, user_id: user.id,
+            event_type: "hosted_dmarc_created", entity_type: "hosted_dns_record", entity_id: id,
+            description: `Hosted DMARC record created for ${domain}`,
+          });
+
+          return json({
+            record: hostedDnsRecordToApi(row),
+            instructions: {
+              step: `Replace any existing TXT at _dmarc.${domain} with this CNAME`,
+              cname_name: `_dmarc.${domain}`,
+              cname_target: hostedName,
+              note: "After the CNAME resolves, CyberMeters manages the record value for you. Reporting keeps flowing to your CyberMeters address.",
+            },
+          }, 201);
+        }
+
+        if (request.method === "DELETE" && !isVerify) {
+          if (!existing) return json({ error: "No hosted DMARC record for this domain." }, 404);
+          const nowIso = new Date().toISOString();
+          await env.cybermeters_db
+            .prepare(`UPDATE hosted_dns_records SET status = 'pending_removal', updated_at = ? WHERE id = ?`)
+            .bind(nowIso, existing.id).run();
+          await createAuditEvent(env, {
+            workspace_id: workspaceId, user_id: user.id,
+            event_type: "hosted_dmarc_removal_requested", entity_type: "hosted_dns_record", entity_id: existing.id,
+            description: `Hosted DMARC removal requested for ${domain}`,
+          });
+          return json({
+            record: hostedDnsRecordToApi({ ...existing, status: "pending_removal" }),
+            message: `Remove the CNAME at _dmarc.${domain} (or replace it with your own TXT record). The hosted value stays live until your DNS no longer depends on it, for up to ${HOSTED_DNS_REMOVAL_GRACE_DAYS} days.`,
+          });
+        }
+
+        return json({ error: "Method not allowed" }, 405);
+      } catch (e) {
+        return serverError("hosted-dmarc", e, "Could not update the hosted DMARC record.");
+      }
+    }
+
     // POST .../dmarc-ingest-endpoint — create (idempotent; never duplicates).
     if (ingestEpMatch && request.method === "POST") {
       const workspaceId = ingestEpMatch[1];
@@ -35862,7 +36181,12 @@ export default {
 	    // Workspace Reports UI. The newer report_schedules processor is paused
 	    // until existing schedules can be migrated without duplicate generation.
 	    ctx.waitUntil(processScheduledReports(now, env));
-	
+
+	    // ── Hosted DNS records verification (Hosted Records Engine) ──────────
+	    // Retries pending Cloudflare creations, verifies both sides of every
+	    // hosted DMARC record, alerts on disconnection, completes safe removals.
+	    ctx.waitUntil(runHostedDnsVerificationSweep(env));
+
 	    // ── Report retention cleanup ─────────────────────────────────────────
     // The Worker cron also drives scheduled scans, so keep the hourly trigger
     // and run retention once daily at 02:00 UTC.
