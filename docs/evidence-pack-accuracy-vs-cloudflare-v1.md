@@ -25,6 +25,7 @@ and its "Security.txt not configured" finding was wrong too.
 | Duplicate findings for one issue | ❌ 3× (one per MX record) | ✅ 1 finding, de-duplicated per domain |
 | Live security.txt (RFC 9116) | ❌ Reported "not configured" (false negative) | ✅ Detected as present |
 | Signal vs. product upsell | 13 of 16 findings are prompts to enable Cloudflare products | Separates actionable findings from informational observations |
+| Agreement with Cloudflare's own DMARC tool | ❌ Contradicted by it — DMARC Management confirms the record Insights calls missing (Finding 4) | ✅ Consistent with it |
 
 ---
 
@@ -111,11 +112,39 @@ explicitly does not overstate.
 
 ---
 
+## Finding 4 — Cloudflare's own DMARC tool contradicts its Security Insights
+
+On the same day, inside the same Cloudflare account, two Cloudflare products made opposite claims about the same
+record:
+
+| Cloudflare product | Claim (verbatim) | Observed |
+|---|---|---|
+| **Security Insights** | "DMARC Record Error detected … your email authentication records for cybermeters.com are **missing or incorrectly configured**" (×3) | Scanned 2026-07-06 **18:29:37 UTC** (its own CSV export) |
+| **DMARC Management** (dashboard → Email) | "**Existing DMARC record found.** Click Next to start getting DMARC reports." — and lists the record verbatim under *Existing record* | Same dashboard, same day (screenshots retained) |
+
+The record DMARC Management displays is exactly the one Insights calls missing:
+`_dmarc.cybermeters.com → "v=DMARC1; p=none; rua=mailto:cmrua_…@reports.cybermeters.com"`.
+
+**Timeline rules out propagation lag.** The record was published at **14:20 UTC** (TTL 300s); the Insights scan ran at
+**18:29 UTC** — more than four hours later. At scan time, three independent resolver paths (authoritative `dig`,
+Google DoH, Cloudflare's own 1.1.1.1 DoH) each returned exactly **one** valid record.
+
+**Verdict:** the false positive in Finding 1 is confirmed not just by public DNS but by **Cloudflare's own tooling** —
+one Cloudflare product recognises the record as valid while another simultaneously reports it missing. An accuracy
+dispute between us and Cloudflare could be argued; a contradiction between Cloudflare and Cloudflare cannot.
+
+*Fair note:* different products with different scan cadences can disagree transiently. But four hours after
+publication, with a 300-second TTL and Cloudflare itself serving the zone's DNS, cadence does not explain reporting a
+resolvable record as "missing or incorrectly configured".
+
+---
+
 ## Conclusion
 
 On a single shared domain, measured on the same day, Cloudflare's Security Insights was wrong in both directions — it
 invented a DMARC defect that does not exist and missed a security control that does — and it triplicated a single
-issue. CyberMeters produced the accurate, de-duplicated, and honestly-scoped assessment on the same inputs. Accuracy
+issue. Its own DMARC Management product contradicted it on the central claim (Finding 4). CyberMeters produced the
+accurate, de-duplicated, and honestly-scoped assessment on the same inputs. Accuracy
 and honest scoping are the core promise of an attack-surface product; this is one reproducible data point that
 CyberMeters delivers them where a major incumbent did not.
 
@@ -137,6 +166,10 @@ curl -sI https://cybermeters.com/.well-known/security.txt
 
 # Cloudflare's own export is the source for its claims + timestamps:
 # Cloudflare dashboard → Security Center → Insights → Export CSV
+
+# Cloudflare contradicting itself (Finding 4):
+# Cloudflare dashboard → Email → DMARC Management — shows "Existing DMARC
+# record found" for the very record Security Insights reports as missing.
 ```
 
 *Underlying commit context: DMARC published `0aa9525`; security.txt `ec0077b`; DMARC monitor-only detection and
