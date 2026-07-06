@@ -1749,6 +1749,20 @@ const EP_MODE = {
   not_receiving: { label: 'Not receiving yet', tone: 'na', desc: 'No DMARC aggregate reports have been received yet.' },
 }
 
+// ── Zone divider — gives the long page a scannable rhythm ─────────────────────
+function ZoneHeader({ n, title, hint }) {
+  return (
+    <div className="flex items-center gap-3 pt-3">
+      <div className="w-6 h-6 rounded-lg bg-gray-900 text-white text-[11px] font-bold flex items-center justify-center flex-shrink-0">{n}</div>
+      <div className="min-w-0 flex-shrink-0">
+        <h2 className="text-sm font-bold text-gray-900 leading-tight">{title}</h2>
+        {hint && <p className="text-[11px] text-gray-400 leading-tight">{hint}</p>}
+      </div>
+      <div className="flex-1 h-px bg-gray-100" />
+    </div>
+  )
+}
+
 // ── Email posture hero ────────────────────────────────────────────────────────
 // One-glance answer that combines what competitors show separately: the DMARC
 // compliance rate (technical), the policy state, AND the business impersonation
@@ -2508,6 +2522,8 @@ export default function WorkspaceEmailProtectionPage() {
         <div className="space-y-6">
           {toast && <Toast toast={toast} onClose={() => setToast(null)} />}
 
+          <ZoneHeader n="1" title="Your email posture" hint="Can attackers spoof this domain — and what is the business impact?" />
+
           {/* 0·hero — compliance % + policy + business exposure in one glance */}
           <EmailPostureHero
             wsId={wsId}
@@ -2533,6 +2549,8 @@ export default function WorkspaceEmailProtectionPage() {
 
           {/* 0c. DMARC report ingestion status (reports_received vs DNS verified) */}
           <DmarcIngestionStatus wsId={wsId} domain={selectedDomain} onGotoSetup={gotoSetup} onGotoSenders={gotoSenders} />
+
+          <ZoneHeader n="2" title="Path to enforcement" hint="Where you are, and the ordered steps to safely block spoofing." />
 
           {/* 1. DMARC journey */}
           <DmarcJourney journey={es.policy_journey} />
@@ -2562,6 +2580,8 @@ export default function WorkspaceEmailProtectionPage() {
             actions={actions}
             onGoto={(target) => document.getElementById(target)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
           />
+
+          <ZoneHeader n="3" title="Senders, setup & validation" hint="Who sends as you, connect reporting, and check any message instantly." />
 
           {/* 2b. Sender inventory + classification */}
           <div id="sender-inventory" className="scroll-mt-20">
@@ -2594,6 +2614,8 @@ export default function WorkspaceEmailProtectionPage() {
           <div id="report-history" className="scroll-mt-20">
             <DmarcReportHistory wsId={wsId} domain={selectedDomain} />
           </div>
+
+          <ZoneHeader n="4" title="Authentication detail & reference" hint="Records, status and how email risk connects to the rest of your attack surface." />
 
           {/* 3. Authentication cards */}
           <section id="auth-detail" className="scroll-mt-20">
