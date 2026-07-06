@@ -1782,17 +1782,37 @@ function ZoneHeader({ n, title, hint }) {
 // with meaning, ends with the single next action.
 function EmailPostureHero({ wsId, domain, dmarc, policyJourney, onGoto }) {
   const [bec, setBec] = useState(null)
+  const [liveDns, setLiveDns] = useState(null)
+  const [rescan, setRescan] = useState(null) // null | 'starting' | 'started' | 'error'
   useEffect(() => {
-    if (!wsId || !domain) { setBec(null); return }
+    if (!wsId || !domain) { setBec(null); setLiveDns(null); return }
     let cancelled = false
     api.getBecExposureScore(wsId, domain).then(r => { if (!cancelled) setBec(r || null) }).catch(() => { if (!cancelled) setBec(null) })
+    // Live DNS truth — lets us reconcile a stale scan against a now-published record.
+    api.verifyDmarcDns(wsId, domain).then(r => { if (!cancelled) setLiveDns(r || null) }).catch(() => { if (!cancelled) setLiveDns(null) })
+    setRescan(null)
     return () => { cancelled = true }
   }, [wsId, domain])
+
+  async function handleRescan() {
+    setRescan('starting')
+    try { await api.createScan(domain, wsId); setRescan('started') }
+    catch { setRescan('error') }
+  }
 
   const total    = dmarc?.traffic?.total_messages ?? 0
   const passRate = dmarc?.traffic?.pass_rate
   const hasCompliance = total > 0 && passRate != null
-  const stage = policyJourney?.stage || null
+  const scanStage = policyJourney?.stage || null
+  // Reconcile against live DNS: when the last scan predates a now-published DMARC
+  // record, trust the live record and prompt a re-scan rather than falsely
+  // alarming "No DMARC". Live lookup failures fall back to the scan's own stage.
+  const liveDmarcPresent = liveDns?.dmarc_present === true
+  const livePolicyStage  = liveDns?.policy === 'reject' ? 'full_enforcement'
+    : liveDns?.policy === 'quarantine' ? 'partial_enforcement'
+    : liveDmarcPresent ? 'monitoring' : null
+  const staleScan = scanStage === 'missing' && liveDmarcPresent
+  const stage = staleScan ? livePolicyStage : scanStage
   const stageLabel = { missing: 'No DMARC', monitoring: 'Monitoring (p=none)',
     partial_enforcement: 'Quarantine', full_enforcement: 'Reject' }[stage] || 'Unknown'
   const enforcing = ['partial_enforcement', 'full_enforcement'].includes(stage)
@@ -1800,7 +1820,8 @@ function EmailPostureHero({ wsId, domain, dmarc, policyJourney, onGoto }) {
     : passRate >= 80 ? 'text-amber-600' : 'text-red-700'
   const sev = bec ? becSev(bec.exposure_level) : null
 
-  const next = stage === 'missing' ? { label: 'Publish a DMARC record', to: 'dmarc-setup' }
+  const next = staleScan ? { label: `Re-scan ${domain}`, rescan: true }
+    : scanStage === 'missing' ? { label: 'Publish a DMARC record', to: 'dmarc-setup' }
     : !hasCompliance ? { label: 'Connect DMARC reporting', to: 'connect-reporting' }
     : !enforcing ? { label: 'Move toward enforcement', to: 'dmarc-setup' }
     : (passRate != null && passRate < 95) ? { label: 'Fix sender alignment', to: 'sender-inventory' }
@@ -1834,15 +1855,24 @@ function EmailPostureHero({ wsId, domain, dmarc, policyJourney, onGoto }) {
           <p className="text-xs text-gray-500 mt-1 leading-relaxed">
             {hasCompliance
               ? `of ${total.toLocaleString()} messages passed SPF/DKIM alignment over the reporting window.`
+              : staleScan ? 'Re-scan to measure compliance against your newly published DMARC record.'
               : 'Not measured yet — connect DMARC reporting to see who is sending as you.'}
           </p>
         </div>
         {/* Policy state */}
         <div className="md:border-l md:border-gray-100 md:pl-5">
           <p className="text-sm font-semibold text-gray-900">DMARC policy</p>
-          <div className="mt-1.5">{pill(stageLabel, enforcing ? 'ok' : stage === 'missing' ? 'bad' : 'warn')}</div>
+          <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+            {pill(stageLabel, enforcing ? 'ok' : stage === 'missing' ? 'bad' : 'warn')}
+            {staleScan && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-brand-700">
+                <CheckCircle className="w-3 h-3" /> Live in DNS
+              </span>
+            )}
+          </div>
           <p className="text-xs text-gray-500 mt-2 leading-relaxed">
-            {stage === 'missing' ? 'No policy — receivers have no instruction for spoofed mail.'
+            {staleScan ? 'Your DMARC record is published and was just verified in live DNS — your last scan predates it. Re-scan to refresh compliance and exposure.'
+              : stage === 'missing' ? 'No policy — receivers have no instruction for spoofed mail.'
               : enforcing ? 'Enforcing — messages that fail authentication are actively blocked.'
               : 'Monitor-only — reports are collected, but spoofed mail is not yet blocked.'}
           </p>
@@ -1864,10 +1894,25 @@ function EmailPostureHero({ wsId, domain, dmarc, policyJourney, onGoto }) {
       </div>
 
       <div className="px-6 py-3 border-t border-gray-100 bg-brand-50/40 flex items-center justify-between gap-3">
-        <p className="text-xs font-semibold text-brand-700 uppercase tracking-wide">Do this next</p>
-        <button onClick={() => onGoto?.(next.to)} className="btn-primary text-sm">
-          {next.label} <ArrowRight className="w-4 h-4" />
-        </button>
+        <p className="text-xs font-semibold text-brand-700 uppercase tracking-wide">
+          {rescan === 'started' ? 'Re-scan started' : 'Do this next'}
+        </p>
+        {rescan === 'started' ? (
+          <span className="text-sm text-brand-700 font-medium">Results refresh once the scan completes.</span>
+        ) : (
+          <div className="flex items-center gap-2">
+            {rescan === 'error' && <span className="text-xs text-red-600 font-medium">Couldn’t start — retry</span>}
+            <button
+              onClick={() => (next.rescan ? handleRescan() : onGoto?.(next.to))}
+              disabled={rescan === 'starting'}
+              className="btn-primary text-sm disabled:opacity-60"
+            >
+              {rescan === 'starting'
+                ? (<>Starting… <RefreshCw className="w-4 h-4 animate-spin" /></>)
+                : (<>{next.label} {next.rescan ? <RefreshCw className="w-4 h-4" /> : <ArrowRight className="w-4 h-4" />}</>)}
+            </button>
+          </div>
+        )}
       </div>
     </section>
   )
