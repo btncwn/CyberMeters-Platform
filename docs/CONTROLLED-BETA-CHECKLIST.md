@@ -22,10 +22,10 @@ Statuses below are code-verified on 2026-07-06, not assumed.
 | Stale-deploy resilience (chunk recovery + cache policy) | ✅ Ready |
 | Dependency vulnerabilities | ✅ Zero open Dependabot alerts |
 | **Deletion requests actually processed** | ✅ Ready (deployed 2026-07-06, worker `f9d62b50`) |
-| Pre-invite smoke runbook executed once | ⬜ Not yet run (§3) |
-| Operational readiness (§4) | ⬜ Partial |
+| Pre-invite smoke runbook (§3) | ✅ Run 2026-07-06 — all scriptable items passed; surfaced + fixed the lifecycle-email retry bug (worker `df650c34`) |
+| Operational readiness (§4) | ⚠ Backups/rollback/monitoring done — **1 blocker: no DMARC on cybermeters.com (F-OPS-1)** + human steps |
 
-**Verdict: GO once §3 has been executed once and §4 is ticked.** All P0 code gates pass.
+**Verdict: One operational blocker remains — publish DMARC on cybermeters.com (§4 F-OPS-1).** All P0 code gates pass; §3 runbook executed. After DMARC is published and the human §4 steps (Cloudflare alert, support inbox, cost check) are confirmed, this is GO.
 
 ---
 
@@ -95,12 +95,33 @@ Use a fresh email address and Stripe **test mode**.
 
 ## 4. Operational Readiness
 
-- [ ] **Monitoring:** `npx wrangler tail` procedure documented; Cloudflare dashboard alerts for Worker error rate reviewed
-- [ ] **Email deliverability:** SPF/DKIM/DMARC verified for the three Resend sender identities (hello@, alerts@, safe@) — dogfood our own Email Protection on cybermeters.com
-- [ ] **Rollback:** worker rollback = `wrangler rollback` to previous version (last known good: `6ab467b4`); Pages rollback via deployment list; D1 has no destructive migrations pending
-- [ ] **Support channel:** support@ inbox monitored daily during beta; in-app FeedbackWidget is live (verify submissions arrive)
-- [ ] **Backups:** D1 export taken before first invite (`wrangler d1 export`)
-- [ ] **Cost/limits:** Resend and Cloudflare plan limits reviewed for 10 active users
+Verified 2026-07-06.
+
+- [x] **Backups:** D1 export taken before first invite — 54 tables, 2.3 MB, stored at `~/Documents/cybermeters-backups/cybermeters-db-backup-2026-07-06.sql` (kept OUT of the repo; contains customer data). Command: `wrangler d1 export cybermeters-db --remote --output=<path>`.
+- [x] **Rollback:** worker rollback = `wrangler rollback` (or `wrangler versions deploy <id>`); `wrangler deployments list` confirmed prior versions are retained. Last known good before the current hardening/lifecycle series: `e9725882`. Pages rollback via the Cloudflare Pages deployment list. D1 migrations 043–060 are all additive — no destructive migration pending.
+- [x] **Monitoring procedure documented:** live tail = `cd workers/scan-api && npx wrangler tail --format=pretty`; filter errors with `--status error`. Lifecycle/email failures show as `[lifecycle-email]` / `[lifecycle-retry]`; request errors as `[request-error]` with a `request_id`.
+- [x] **Support channel — in-app:** `FeedbackWidget` is live (mounted in `Layout.jsx`).
+- [~] **Email deliverability (dogfood) — DKIM ✓ / SPF ✓ / DMARC ✗:** see finding F-OPS-1 below. **This is the one operational blocker before inviting users.**
+- [ ] **Monitoring — human step:** review/enable a Cloudflare dashboard alert on Worker error rate (needs dashboard access).
+- [ ] **Support channel — human step:** commit to monitoring `support@cybermeters.com` daily during beta.
+- [ ] **Cost/limits — human step:** confirm Resend + Cloudflare (Workers/D1/Pages) plan limits comfortably cover ~10 active users.
+
+### F-OPS-1 (Medium — blocker): cybermeters.com has no DMARC record
+
+Ran our own Email Protection checks against our own domain:
+
+| Record | Status |
+|---|---|
+| DKIM (`resend._domainkey.cybermeters.com`) | ✓ valid key published (Resend) |
+| SPF sending (`send.cybermeters.com`) | ✓ `v=spf1 include:amazonses.com ~all` (Resend/SES) |
+| SPF apex (`cybermeters.com`) | ✓ `include:_spf.mx.cloudflare.net` (Email Routing inbound) |
+| **DMARC (`_dmarc.cybermeters.com`)** | ✗ **no record** |
+
+DKIM aligns, so our lifecycle emails can pass DMARC once a policy exists — but with no DMARC record, receivers have no policy signal (weaker inbox placement, especially at Gmail/Outlook where our test invitees are) and we get zero visibility into who sends as us. For a company whose flagship product *is* DMARC/email protection, shipping a beta without DMARC on our own domain is both a deliverability risk and a credibility gap.
+
+**Fix (DNS, needs Cloudflare zone access — not code):** publish, following our own product's guidance (start at monitor, not enforcement):
+`_dmarc.cybermeters.com  TXT  "v=DMARC1; p=none; rua=mailto:<your-cybermeters-RUA-address>"`
+Then verify in our own Email Protection page. Move to `p=quarantine` only after reports confirm alignment.
 
 ---
 
