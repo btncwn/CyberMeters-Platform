@@ -3046,6 +3046,14 @@ const BRUTE_FORCE_WORDLIST = [
   "test", "vpn", "remote", "login", "dashboard",
 ];
 
+// Mail-infrastructure subdomains often publish MX/TXT but no A record, so the
+// A-only sweep above misses them (e.g. reports. for DMARC RUA ingestion, send.
+// for a mail relay). A small MX pass surfaces this external footprint too.
+// Bounded to keep well within the subrequest budget.
+const MAIL_SUBDOMAIN_LABELS = [
+  "reports", "send", "mx", "smtp", "mta", "mg", "bounce", "dmarc",
+];
+
 /**
  * Probe the wordlist against `domain` via DoH A-record lookups.
  * Returns any names that resolve, with source = "dns_bruteforce".
@@ -3090,8 +3098,35 @@ async function runBruteforceModule(domain) {
       }
     }
 
+    // ── Mail-only subdomains (MX but no A) — bounded second pass ─────────────
+    // Surfaces email infrastructure like reports. / send. that the A sweep
+    // cannot see. Best-effort and time-capped; a failure never fails the module.
+    const foundHosts = new Set(found.map((f) => f.hostname));
+    const mailCandidates = MAIL_SUBDOMAIN_LABELS
+      .map((label) => `${label}.${domain}`)
+      .filter((host) => !foundHosts.has(host));
+    try {
+      const mxSettled = await Promise.race([
+        Promise.allSettled(
+          mailCandidates.map((host) =>
+            dnsQuery(host, "MX").then((r) => ({ host, answers: r.Answer || [] }))
+          )
+        ),
+        new Promise((resolve) => setTimeout(() => resolve([]), HARD_CAP_MS)),
+      ]);
+      if (Array.isArray(mxSettled)) {
+        for (const s of mxSettled) {
+          if (s.status !== "fulfilled") continue;
+          const { host, answers } = s.value;
+          if (answers && answers.length > 0) {
+            found.push({ hostname: host, ip_addresses: [], source: "dns_mx", mail_only: true });
+          }
+        }
+      }
+    } catch { /* mail probe is best-effort */ }
+
     return {
-      checked: candidates.length,
+      checked: candidates.length + mailCandidates.length,
       found:   found.length,
       items:   found,
       source:  "dns_bruteforce",
@@ -10830,7 +10865,7 @@ async function upsertAssetInventory(scanId, domainId, domain, modules, env) {
     allAssets.push({
       hostname:     h,
       asset_type:   "subdomain",
-      source:       "dns_bruteforce",
+      source:       item.mail_only ? "dns_mx" : "dns_bruteforce",
       wildcard:     item.wildcard_match ? 1 : 0,
       risk_level:   null,
       cloud:        null,
