@@ -21,26 +21,31 @@ Statuses below are code-verified on 2026-07-06, not assumed.
 | Billing: grace period, cancellation, payment-failure lifecycle | ✅ Code live — ⚠ needs Stripe test-mode verification (§3.4) |
 | Stale-deploy resilience (chunk recovery + cache policy) | ✅ Ready |
 | Dependency vulnerabilities | ✅ Zero open Dependabot alerts |
-| **Deletion requests actually processed** | ❌ **OPEN — P0 BLOCKER (§2.1)** |
+| **Deletion requests actually processed** | ✅ Ready (deployed 2026-07-06, worker `f9d62b50`) |
 | Pre-invite smoke runbook executed once | ⬜ Not yet run (§3) |
 | Operational readiness (§4) | ⬜ Partial |
 
-**Verdict: NO-GO until §2.1 is fixed and §3 has been executed once.** Everything else is invite-ready.
+**Verdict: GO once §3 has been executed once and §4 is ticked.** All P0 code gates pass.
 
 ---
 
 ## 2. P0 Gates — must pass before the first invite
 
-### 2.1 ❌ Deletion requests are never processed (CRITICAL-1, still open)
+### 2.1 ✅ Deletion lifecycle (CRITICAL-1 — closed 2026-07-06)
 
-`POST /api/workspaces/:id/delete-request` and the account deletion path insert a
-`deletion_requests` row with `status='pending'` and return 202 — but the
-`scheduled()` handler has no processor for them (verified 2026-07-06: the cron
-drives scans, reports and retention only). A beta user who requests deletion
-keeps all data indefinitely. This is a GDPR/data-retention failure and the one
-remaining hard blocker.
-
-**Fix:** add a deletion processor to the hourly cron (medium risk — delete/retention workflow; requires explicit approval per CLAUDE.md before production deploy).
+Soft-delete + 30-day purge window, live in worker `f9d62b50`:
+- Delete request → immediate soft-delete (`deleted_at`), schedules disabled,
+  assets archived, `deletion_requests` row scheduled, confirmation email
+  stating the restore deadline.
+- `POST /api/workspaces/:id/restore` (owner-only) undoes it any time before
+  purging starts; the deletion request is marked `cancelled`.
+- After 30 days the hourly cron hard-deletes D1 rows and R2 report objects in
+  bounded chunks (max 2 requests + 25 R2 objects per run), audits completion,
+  and emails the owner. Account purges are refused while a subscription is
+  active/trialing/past_due (`blocked_active_subscription`).
+- `audit_events`, `subscriptions` and the request row are retained (audit +
+  accounting). Regression contract `deletion_purge_respects_30_day_window`
+  locks the window semantics.
 
 ### 2.2 ✅ Customer-facing trust
 Raw Worker/D1/Stripe errors are sanitized (`sanitizeInfraErrorMessage`, `serverError` wrappers); regression contract `infra_error_sanitized_for_customer` enforces it. "Connected" claims require DNS verification + reports (enforced in copy and in the `lifecycle_email_protection_next_step` email).
@@ -108,7 +113,7 @@ Use a fresh email address and Stripe **test mode**.
 
 ## 6. Known Limitations to Disclose
 
-- Data deletion requests are acknowledged but processed manually until §2.1 ships (state this honestly if asked; fix before invites regardless)
+- Deleted workspaces are recoverable for 30 days, then permanently removed (this is a feature — disclose it as the data-retention promise)
 - DMARC "connected" state requires the customer's DNS change to propagate — can take up to 48h
 - Report history shows reports from the point ingestion was connected (no backfill)
 - Enterprise plan is contact-sales only
@@ -119,7 +124,7 @@ Use a fresh email address and Stripe **test mode**.
 - ≥5 invitees each completed: signup → domain → scan → understood their findings (interview or session evidence)
 - Zero unsanitized-error reports from invitees
 - Billing lifecycle exercised by at least one real upgrade + one cancellation without surprise
-- §2.1 deletion processor live and verified with a real request
+- Deletion lifecycle exercised once end-to-end (delete → restore, and delete → purge on a throwaway workspace with shortened window in test)
 
 ---
 
