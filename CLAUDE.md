@@ -1,4 +1,6 @@
-# CyberMeters Platform — CLAUDE.md (v3)
+# CyberMeters Platform — CLAUDE.md (v4)
+
+> **Phase: Controlled invite-only beta is GO** (all P0 trust/lifecycle/onboarding/billing/security blockers cleared; see `docs/CONTROLLED-BETA-CHECKLIST.md`). The gating "do not expand until beta blockers are resolved" rules from v3 are now relaxed — expansion and coverage/quality improvements are permitted. The trust, risk-tier, validation, database, and Cloudflare guardrails below are permanent and still fully apply.
 
 ## Role
 
@@ -75,54 +77,62 @@ The objective is:
 
 # Current Strategic Priority
 
-Priority order:
+Invite-only beta is live. Priority order for this phase:
 
-1. **Public Beta Readiness**
-2. **Customer Trust**
-3. **Lifecycle Correctness**
-4. **Onboarding and Activation**
-5. **Product Clarity**
-6. **Billing Reliability**
-7. **Operational Reliability**
-8. **Reporting and Executive Value**
+1. **Customer Trust** (permanent #1 — never regress it)
+2. **Lifecycle & Reliability Correctness**
+3. **Invite Feedback & Activation** — learn from real invited users; let their
+   behaviour, not guesses, drive what to build next
+4. **Product Clarity**
+5. **Billing Reliability**
+6. **Operational Reliability**
+7. **Reporting & Executive Value**
+8. **Coverage & Accuracy Completeness** — honest scoping: the product should
+   see what it claims to see (e.g. all real subdomains), and never cry wolf
 9. **Brand Monitoring Expansion**
-10. **New ASM Features**
+10. **New ASM Features / Public-Beta Scale Work**
 
 When choosing between:
 
 * a new feature
 * a reliability fix
 * a trust correction
-* an onboarding improvement
+* an onboarding/clarity improvement
 
 Prefer:
 
 1. trust correction
 2. lifecycle/reliability fix
-3. onboarding improvement
-4. product clarity improvement
+3. onboarding/clarity improvement
+4. coverage/accuracy completeness
 5. new feature
 
-Do not chase feature count while beta blockers remain.
+Expansion is now allowed — but never at the expense of trust or reliability,
+and never feature-count for its own sake. Prefer improvements a real invited
+user would notice over speculative breadth.
 
 ---
 
 # Current Product Truth
 
-CyberMeters is **controlled invite-only beta ready only if P0 trust and onboarding issues are handled**.
+CyberMeters is **controlled invite-only beta ready — GO.** The P0 blockers that
+previously gated this are done and verified:
 
-CyberMeters is **not public beta ready** until:
-
-* onboarding is clear
-* lifecycle emails exist
-* dashboard communicates service value
+* onboarding is clear (/services command center + first-run path)
+* lifecycle emails exist (7 types, self-healing retry)
+* dashboard communicates service value (four-service KPI model)
 * BEC score is calibrated
-* Email Protection setup is understandable
-* billing lifecycle is safe
+* Email Protection setup is understandable (guided remediation)
+* billing lifecycle is safe (grace period, cancellation, payment-failure)
 * customer-facing errors are sanitized
-* workspace/domain lifecycle is reliable
+* workspace/domain lifecycle is reliable (soft-delete + 30-day purge, verified)
+* deletion actually completes; tenant isolation swept; auth-security hardened
+* email deliverability verified (DMARC/SPF/DKIM on our own domain — dogfooded)
 
-Always optimize for public beta readiness, not demo impressiveness.
+**Public** beta (open sign-up at scale) is the next horizon and still needs:
+invite feedback incorporated, load/quota headroom confirmed, and any friction
+real users surface. Optimize for real invited-user success, not demo
+impressiveness.
 
 ---
 
@@ -451,7 +461,14 @@ Brand candidates must be scoped to the brand profile/protected domains.
 
 Risk scoring must be explainable enough for customer trust.
 
-Do not expand Brand Protection while P0 beta blockers remain unless the task directly improves customer trust or readiness.
+Brand risk must reflect registration reality, not string similarity alone: an
+unregistered permutation is a watchlist item, not a high-risk lookalike; a
+registered domain that can send mail as the brand is the real threat.
+
+Brand Protection expansion is now allowed (invite-only beta is GO). Prefer work
+that improves trust, explainability, or coverage accuracy over raw candidate
+volume — never inflate the queue with theoretical permutations that read as
+threats.
 
 ---
 
@@ -459,7 +476,11 @@ Do not expand Brand Protection while P0 beta blockers remain unless the task dir
 
 Attack Surface is mature and valuable.
 
-Do not add random new scanner modules before beta blockers are resolved.
+Expansion is now allowed (invite-only beta is GO). Prefer coverage and accuracy
+completeness over new scanner breadth: the inventory should see what actually
+exists (e.g. mail-only subdomains with MX/TXT but no A record) before adding
+new module types. Still avoid speculative modules that don't serve a real
+invited-user need.
 
 Prioritize:
 
@@ -919,17 +940,19 @@ Always optimize for operational readiness and customer trust.
 
 # Current Highest Priorities
 
-Unless instructed otherwise, prioritize:
+The v3 pre-beta list is **done** (services onboarding, four-service dashboard,
+7 lifecycle emails, guided remediation, DMARC report history, brand risk
+explainability, billing grace/cancellation lifecycle, Dependabot cleared,
+beta checklist → GO). Post-GO, unless instructed otherwise, prioritize:
 
-1. Fix obvious customer-facing trust issues
-2. Improve `/services` onboarding command center
-3. Improve `/dashboard` four-service KPI clarity
-4. Add lifecycle emails
-5. Improve Email Protection guided remediation
-6. Add DMARC report history
-7. Improve Brand risk explainability
-8. Improve billing downgrade/cancellation/grace-period lifecycle
-9. Clean up Dependabot vulnerabilities
-10. Prepare controlled invite-only beta checklist
+1. Fix any customer-facing trust issue immediately (permanent #1)
+2. Execute the pre-invite runbook once end-to-end, then send the first 2 invites
+   (staggered; observe 48h before the rest) — see `docs/CONTROLLED-BETA-CHECKLIST.md`
+3. Watch real invited-user behaviour (`wrangler tail`, FeedbackWidget) and fix
+   the friction they actually hit
+4. Executive report v2 polish follow-ups (e.g. BRS source unification everywhere)
+5. Coverage/accuracy completeness (subdomain, brand, cert signals)
+6. Operational hardening for scale (rate-limit tuning, quota headroom, monitoring)
+7. Then broader expansion (Brand workflow depth, new ASM value) as feedback warrants
 
-Do not start broad new feature expansion until these are under control.
+Do not chase breadth ahead of what real invited users need. Let feedback lead.
