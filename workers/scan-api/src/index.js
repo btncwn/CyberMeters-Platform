@@ -27703,6 +27703,13 @@ export default {
           await auditApiTokenSessionRouteDenied(env, creator, request);
           return json({ error: "Session authentication required" }, 403);
         }
+        // A workspace must always have an owner. Reject rather than silently
+        // writing owner_user_id = NULL, which would create an orphan workspace
+        // that no one can access via the UI (see tenant-isolation invariants).
+        if (!creator.id) {
+          return serverError("workspaces/create", new Error("authenticated session has no user id"),
+            "Could not create workspace. Please sign in again and retry.");
+        }
 
         // Entitlement: workspace limit
         const creatorPlan = await getEffectivePlan(creator.id, env);
@@ -27714,7 +27721,7 @@ export default {
 
         await env.cybermeters_db
           .prepare(`INSERT INTO workspaces (id, name, owner_user_id, created_at) VALUES (?, ?, ?, ?)`)
-          .bind(id, name, creator?.id ?? null, created_at)
+          .bind(id, name, creator.id, created_at)
           .run();
         // Seed owner membership row if creator is authenticated
         if (creator) {
