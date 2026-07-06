@@ -1,3 +1,4 @@
+import { parseServerDate } from '../utils/dates'
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -10,7 +11,7 @@ import { api } from '../api'
 
 function formatDate(iso) {
   if (!iso) return '—'
-  return new Date(iso).toLocaleString(undefined, {
+  return parseServerDate(iso).toLocaleString(undefined, {
     year: 'numeric', month: 'short', day: 'numeric',
     hour: '2-digit', minute: '2-digit',
   })

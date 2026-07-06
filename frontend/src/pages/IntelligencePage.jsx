@@ -1,3 +1,4 @@
+import { parseServerDate } from '../utils/dates'
 import { useState, useEffect, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
@@ -1069,7 +1070,7 @@ export default function IntelligencePage() {
             >
               {scans.map(s => (
                 <option key={s.id} value={s.id}>
-                  {s.domain} — {new Date(s.created_at).toLocaleDateString()}
+                  {s.domain} — {parseServerDate(s.created_at).toLocaleDateString()}
                 </option>
               ))}
             </select>
@@ -1125,7 +1126,7 @@ export default function IntelligencePage() {
               <span className="text-gray-500">Score {scanObj.score ?? '—'}/100</span>
               <span className="text-gray-300">·</span>
               <span className="text-gray-400 text-xs">
-                {new Date(scanObj.created_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
+                {parseServerDate(scanObj.created_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
               </span>
               <Link to={`/scans/${scanObj.id}`} className="btn-ghost ml-auto text-xs gap-1">
                 Full Report <ExternalLink className="w-3 h-3" />

@@ -1,3 +1,4 @@
+import { parseServerDate } from '../utils/dates'
 /**
  * InvitationLandingPage — public, no auth required.
  *
@@ -93,7 +94,7 @@ const BENEFITS = [
 function formatDate(str) {
   if (!str) return '—'
   const s = str.includes('T') ? str : str.replace(' ', 'T') + 'Z'
-  return new Date(s).toLocaleDateString(undefined, {
+  return parseServerDate(s).toLocaleDateString(undefined, {
     day: 'numeric', month: 'long', year: 'numeric',
   })
 }

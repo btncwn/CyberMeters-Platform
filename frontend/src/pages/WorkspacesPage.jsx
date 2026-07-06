@@ -1,3 +1,4 @@
+import { parseServerDate } from '../utils/dates'
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -12,7 +13,7 @@ import ErrorAlert from '../components/ErrorAlert'
 function formatDate(str) {
   if (!str) return '—'
   const s = str.includes('T') ? str : str.replace(' ', 'T') + 'Z'
-  return new Date(s).toLocaleDateString(undefined, {
+  return parseServerDate(s).toLocaleDateString(undefined, {
     month: 'short', day: 'numeric', year: 'numeric',
   })
 }

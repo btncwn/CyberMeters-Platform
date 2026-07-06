@@ -1,3 +1,4 @@
+import { parseServerDate } from '../utils/dates'
 /**
  * SubscriptionPage — workspace-level subscription and trial status.
  *
@@ -127,7 +128,7 @@ function TrialCountdown({ daysLeft, trialEnd, onUpgrade }) {
                 warning ? 'bg-amber-600 hover:bg-amber-700'  :
                           'bg-brand-600 hover:bg-brand-700'
 
-  const endDate = trialEnd ? new Date(trialEnd).toLocaleDateString('en-GB', {
+  const endDate = trialEnd ? parseServerDate(trialEnd).toLocaleDateString('en-GB', {
     day: 'numeric', month: 'long', year: 'numeric',
   }) : null
 
@@ -470,7 +471,7 @@ export default function SubscriptionPage() {
   const cancelScheduled   = (sub?.cancel_at_period_end === true) && subscriptionActive && !trialActive
   const fmtDay = (v) => {
     if (!v) return null
-    const d = new Date(v)
+    const d = parseServerDate(v)
     return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
   }
 

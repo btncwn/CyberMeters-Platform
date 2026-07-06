@@ -1,3 +1,4 @@
+import { parseServerDate } from '../../utils/dates'
 import { useState, useEffect, useCallback } from 'react'
 import {
   TrendingUp, TrendingDown, Minus,
@@ -79,7 +80,7 @@ function ScoreTrendChart({ trend }) {
   const data = trend.map((p, i) => ({
     name:  p.domain ? `${p.domain.slice(0, 16)}…` : `Scan ${i + 1}`,
     score: p.score,
-    date:  p.scanned_at ? new Date(p.scanned_at).toLocaleDateString('en-GB', { month: 'short', day: 'numeric' }) : '',
+    date:  p.scanned_at ? parseServerDate(p.scanned_at).toLocaleDateString('en-GB', { month: 'short', day: 'numeric' }) : '',
   }))
 
   return (
@@ -189,7 +190,7 @@ function TopRisksTable({ risks }) {
               <td className="py-2.5 pr-4"><SevBadge severity={r.severity} /></td>
               <td className="py-2.5 pr-4 text-gray-500 font-mono text-xs truncate max-w-[120px]">{r.domain}</td>
               <td className="py-2.5 text-gray-400 text-xs whitespace-nowrap">
-                {r.detected_at ? new Date(r.detected_at).toLocaleDateString('en-GB', { month: 'short', day: 'numeric' }) : '—'}
+                {r.detected_at ? parseServerDate(r.detected_at).toLocaleDateString('en-GB', { month: 'short', day: 'numeric' }) : '—'}
               </td>
             </tr>
           ))}
@@ -334,7 +335,7 @@ export default function WorkspaceExecutiveDashboard() {
         {gen && (
           <div className="flex items-center gap-1.5 text-xs text-gray-400">
             <Clock className="w-3.5 h-3.5" />
-            Updated {new Date(gen).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+            Updated {parseServerDate(gen).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
           </div>
         )}
       </div>
@@ -416,7 +417,7 @@ export default function WorkspaceExecutiveDashboard() {
           {s.last_scan_at && (
             <p className="text-xs text-gray-400 mt-4 flex items-center gap-1">
               <Clock className="w-3 h-3" />
-              Last scan: {new Date(s.last_scan_at).toLocaleDateString('en-GB', { month: 'short', day: 'numeric', year: 'numeric' })}
+              Last scan: {parseServerDate(s.last_scan_at).toLocaleDateString('en-GB', { month: 'short', day: 'numeric', year: 'numeric' })}
               {s.last_scan_domain && ` · ${s.last_scan_domain}`}
             </p>
           )}

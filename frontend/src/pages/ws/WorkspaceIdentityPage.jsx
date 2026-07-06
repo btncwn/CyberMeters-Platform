@@ -1,3 +1,4 @@
+import { parseServerDate } from '../../utils/dates'
 import { useState, useEffect, useCallback } from 'react'
 import {
   ShieldAlert, ExternalLink, RefreshCw, Globe, Lock, User, Key,
@@ -88,8 +89,8 @@ function IdentityAssetCard({ asset }) {
       </div>
 
       <div className="mt-3 pt-3 border-t border-gray-50 flex justify-between text-[10px] text-gray-400">
-        <span>First seen: {asset.first_seen ? new Date(asset.first_seen).toLocaleDateString() : '—'}</span>
-        <span>Last seen: {asset.last_seen  ? new Date(asset.last_seen).toLocaleDateString()  : '—'}</span>
+        <span>First seen: {asset.first_seen ? parseServerDate(asset.first_seen).toLocaleDateString() : '—'}</span>
+        <span>Last seen: {asset.last_seen  ? parseServerDate(asset.last_seen).toLocaleDateString()  : '—'}</span>
       </div>
     </div>
   )

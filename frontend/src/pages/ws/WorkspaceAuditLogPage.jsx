@@ -1,3 +1,4 @@
+import { parseServerDate } from '../../utils/dates'
 import { useState, useEffect, useCallback } from 'react'
 import { useParams } from 'react-router-dom'
 import {
@@ -44,7 +45,7 @@ const ENTITY_TYPE_OPTIONS = [
 
 function formatTime(ts) {
   if (!ts) return '—'
-  const d = new Date(ts)
+  const d = parseServerDate(ts)
   return d.toLocaleString(undefined, {
     year: 'numeric', month: 'short', day: 'numeric',
     hour: '2-digit', minute: '2-digit', second: '2-digit',

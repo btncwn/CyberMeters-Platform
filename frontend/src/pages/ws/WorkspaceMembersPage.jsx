@@ -1,3 +1,4 @@
+import { parseServerDate } from '../../utils/dates'
 /**
  * WorkspaceMembersPage — Workspace Invitations & Team Collaboration v1
  *
@@ -441,7 +442,7 @@ export default function WorkspaceMembersPage() {
                         </td>
                         <td className="px-6 py-4 text-xs hidden sm:table-cell">
                           <span className={`flex items-center gap-1 ${
-                            new Date(inv.expires_at) < new Date(Date.now() + 24 * 3600000)
+                            parseServerDate(inv.expires_at) < new Date(Date.now() + 24 * 3600000)
                               ? 'text-amber-600' : 'text-gray-400'
                           }`}>
                             <Clock className="w-3 h-3" />

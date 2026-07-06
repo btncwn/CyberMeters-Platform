@@ -1,3 +1,4 @@
+import { parseServerDate } from '../../utils/dates'
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import {
@@ -1281,7 +1282,7 @@ function ConnectDmarcReporting({ wsId, domain, dmarcDetail }) {
   const inboundAddress = endpoint?.inbound_address || null
   const ruaValue = endpoint?.rua_mailto || (inboundAddress ? `rua=mailto:${inboundAddress}` : null)
   const lastInbound = endpoint?.last_inbound_at
-  const fmt = (t) => (t ? new Date(t).toLocaleString() : null)
+  const fmt = (t) => (t ? parseServerDate(t).toLocaleString() : null)
   // DNS-verified = the live DMARC record (from the latest scan) lists our address.
   // "Connected" requires BOTH this AND a received report — same rule as the top
   // overview, so the two panels never contradict each other.
@@ -1378,7 +1379,7 @@ function ConnectDmarcReporting({ wsId, domain, dmarcDetail }) {
                 <div className="space-y-3 pt-1">
                   <p className="text-xs text-gray-500 leading-relaxed">
                     Inbound RUA is the recommended setup. A signed upload key is useful for scripts or MSP automation that
-                    POST report XML directly. Last upload: <b className="text-gray-700">{endpoint.last_signed_upload_at ? new Date(endpoint.last_signed_upload_at).toLocaleString() : 'never'}</b>.
+                    POST report XML directly. Last upload: <b className="text-gray-700">{endpoint.last_signed_upload_at ? parseServerDate(endpoint.last_signed_upload_at).toLocaleString() : 'never'}</b>.
                   </p>
                   {rawToken && (
                     <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3 space-y-2">
@@ -1572,7 +1573,7 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
   const vm = VERIFY_MSG[verifyState]
 
   const providerCopy = DNS_PROVIDERS.find(p => p.id === provider)?.copy
-  const fmt = (t) => (t ? new Date(t).toLocaleString() : null)
+  const fmt = (t) => (t ? parseServerDate(t).toLocaleString() : null)
 
   // Per-step completion — explicitly non-linear.
   const steps = ['Choose DNS provider', 'Copy DNS record', 'Verify setup', 'Wait for reports', 'Connected']
@@ -1713,7 +1714,7 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
 // do I do next?" Fetches the ingestion endpoint and derives DNS-verified from
 // the latest scan's DMARC record (refined by a live check). Never shows
 // "Connected" unless the CyberMeters RUA is in DNS AND a report has arrived.
-function epFmt(t) { return t ? new Date(t).toLocaleString() : null }
+function epFmt(t) { return t ? parseServerDate(t).toLocaleString() : null }
 
 function EpStatusChecklist({ items }) {
   const ICON = {
@@ -2394,9 +2395,9 @@ export default function WorkspaceEmailProtectionPage() {
     for (const s of scans) {
       if (!s.domain || !COMPLETED.has(s.status)) continue
       const prev = map.get(s.domain)
-      if (!prev || new Date(s.created_at) > new Date(prev.created_at)) map.set(s.domain, s)
+      if (!prev || parseServerDate(s.created_at) > parseServerDate(prev.created_at)) map.set(s.domain, s)
     }
-    return [...map.values()].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    return [...map.values()].sort((a, b) => parseServerDate(b.created_at) - parseServerDate(a.created_at))
   }, [scans])
 
   const loadScans = useCallback(async () => {

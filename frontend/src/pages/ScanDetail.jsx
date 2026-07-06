@@ -1,3 +1,4 @@
+import { parseServerDate } from '../utils/dates'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import {
@@ -200,7 +201,7 @@ function EvidencePanel({ evidence }) {
           hasVal && ['Observed',      String(valRaw ?? 'null (no record found)')],
           exp   && ['Expected',       String(exp)],
           src   && ['Source',         String(src)],
-          chk   && ['Checked at',     new Date(chk).toLocaleString()],
+          chk   && ['Checked at',     parseServerDate(chk).toLocaleString()],
           stat  && ['HTTP status',    String(stat)],
           mhdr  && ['Missing header', String(mhdr)],
         ].filter(Boolean)
@@ -572,7 +573,7 @@ function WaivedFindingsPanel({ findings, waivers, onUnwaive }) {
                 </span>
               </div>
               <p className="text-[11px] text-gray-400 mt-0.5 leading-relaxed">
-                Risk accepted{w.created_at ? ` on ${new Date(w.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}
+                Risk accepted{w.created_at ? ` on ${parseServerDate(w.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}
                 {w.waived_by_name ? ` by ${w.waived_by_name}` : ''}
                 {w.reason ? <> — “{w.reason}”</> : ''}
               </p>

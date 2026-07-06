@@ -1,3 +1,4 @@
+import { parseServerDate } from '../utils/dates'
 /**
  * AccountPage — Customer Portal Foundation v1
  *
@@ -588,14 +589,14 @@ export default function AccountPage() {
                       <div className="flex items-center justify-between">
                         <span className="text-xs text-gray-500">Renews</span>
                         <span className="text-xs text-gray-400">
-                          {new Date(subscription.current_period_end).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                          {parseServerDate(subscription.current_period_end).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
                         </span>
                       </div>
                     ) : subscription.trial_ends_at ? (
                       <div className="flex items-center justify-between">
                         <span className="text-xs text-gray-500">Trial ends</span>
                         <span className="text-xs text-gray-400">
-                          {new Date(subscription.trial_ends_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                          {parseServerDate(subscription.trial_ends_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
                         </span>
                       </div>
                     ) : null}
@@ -637,7 +638,7 @@ export default function AccountPage() {
                         <p className="text-sm font-semibold text-gray-800">Authenticator app (TOTP)</p>
                         <p className="text-xs text-gray-400 mt-0.5">
                           {mfaStatus?.mfa_enabled
-                            ? `Enabled ${mfaStatus.mfa_enabled_at ? 'on ' + new Date(mfaStatus.mfa_enabled_at).toLocaleDateString() : ''}`
+                            ? `Enabled ${mfaStatus.mfa_enabled_at ? 'on ' + parseServerDate(mfaStatus.mfa_enabled_at).toLocaleDateString() : ''}`
                             : 'Not enabled'}
                         </p>
                       </div>
@@ -868,10 +869,10 @@ export default function AccountPage() {
                             <div className="min-w-0">
                               <p className="text-sm font-semibold text-gray-900 truncate">{token.name}</p>
                               <p className="text-[10px] text-gray-400 mt-0.5">
-                                Created {token.created_at ? new Date(token.created_at).toLocaleDateString() : 'unknown'}
+                                Created {token.created_at ? parseServerDate(token.created_at).toLocaleDateString() : 'unknown'}
                               </p>
                               <p className="text-[10px] text-gray-400">
-                                Last used {token.last_used_at ? new Date(token.last_used_at).toLocaleDateString() : 'never'}
+                                Last used {token.last_used_at ? parseServerDate(token.last_used_at).toLocaleDateString() : 'never'}
                               </p>
                             </div>
                             <div className="flex items-center gap-2 flex-shrink-0">

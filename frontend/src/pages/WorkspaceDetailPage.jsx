@@ -1,3 +1,4 @@
+import { parseServerDate } from '../utils/dates'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import {
@@ -22,7 +23,7 @@ function isValidDomain(v) {
 function formatDate(str) {
   if (!str) return '—'
   const s = str.includes('T') ? str : str.replace(' ', 'T') + 'Z'
-  return new Date(s).toLocaleString(undefined, {
+  return parseServerDate(s).toLocaleString(undefined, {
     month: 'short', day: 'numeric',
     hour: '2-digit', minute: '2-digit',
   })

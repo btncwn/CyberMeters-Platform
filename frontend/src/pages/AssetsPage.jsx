@@ -1,3 +1,4 @@
+import { parseServerDate } from '../utils/dates'
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import {
@@ -12,12 +13,12 @@ import StatCard from '../components/StatCard'
 
 function fmtDate(iso) {
   if (!iso) return '—'
-  return new Date(iso).toLocaleDateString(undefined, { dateStyle: 'medium' })
+  return parseServerDate(iso).toLocaleDateString(undefined, { dateStyle: 'medium' })
 }
 
 function fmtDateTime(iso) {
   if (!iso) return '—'
-  return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+  return parseServerDate(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 }
 
 // ── Badges ─────────────────────────────────────────────────────────────────────

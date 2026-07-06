@@ -1,3 +1,4 @@
+import { parseServerDate } from '../utils/dates'
 /**
  * BillingPage — Customer Portal v1
  *
@@ -87,7 +88,7 @@ const STATUS_CFG = {
 function fmtDate(iso) {
   if (!iso) return '—'
   try {
-    return new Date(iso).toLocaleDateString('en-GB', {
+    return parseServerDate(iso).toLocaleDateString('en-GB', {
       day: 'numeric', month: 'long', year: 'numeric',
     })
   } catch { return '—' }
@@ -96,7 +97,7 @@ function fmtDate(iso) {
 function fmtMonthYear(iso) {
   if (!iso) return '—'
   try {
-    return new Date(iso).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
+    return parseServerDate(iso).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
   } catch { return '—' }
 }
 

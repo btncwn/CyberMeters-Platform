@@ -1,3 +1,4 @@
+import { parseServerDate } from '../utils/dates'
 import { useState, useEffect, useRef } from 'react'
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import {
@@ -294,7 +295,7 @@ function UpgradePromptModal() {
   let resetNote = null
   if (limit.reset_at) {
     try {
-      const d = new Date(limit.reset_at)
+      const d = parseServerDate(limit.reset_at)
       resetNote = `Your quota resets on ${d.toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}.`
     } catch { /* ignore */ }
   }

@@ -1,3 +1,4 @@
+import { parseServerDate } from '../../utils/dates'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { FileText, Download, Plus, RefreshCw, AlertTriangle, Clock, Calendar, Trash2, ToggleLeft, ToggleRight } from 'lucide-react'
@@ -10,7 +11,7 @@ import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
 function fmtDateTime(str) {
   if (!str) return '—'
   const s = str.includes('T') ? str : str.replace(' ', 'T') + 'Z'
-  return new Date(s).toLocaleString(undefined, {
+  return parseServerDate(s).toLocaleString(undefined, {
     month: 'short', day: 'numeric',
     hour: '2-digit', minute: '2-digit',
   })
@@ -60,7 +61,7 @@ const FREQ_LABELS = { weekly: 'Weekly', monthly: 'Monthly', quarterly: 'Quarterl
 function fmtNextRun(str) {
   if (!str) return '—'
   const s = str.includes('T') ? str : str.replace(' ', 'T') + 'Z'
-  const d = new Date(s)
+  const d = parseServerDate(s)
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
 }
 

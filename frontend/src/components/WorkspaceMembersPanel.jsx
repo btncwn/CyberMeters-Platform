@@ -1,3 +1,4 @@
+import { parseServerDate } from '../utils/dates'
 /**
  * WorkspaceMembersPanel
  *
@@ -218,7 +219,7 @@ export default function WorkspaceMembersPanel({ workspaceId, currentUser }) {
               <li key={inv.id} className="flex items-center justify-between gap-2 p-2 rounded-lg bg-gray-50">
                 <div className="min-w-0">
                   <p className="text-xs font-medium text-gray-700 truncate">{inv.email}</p>
-                  <p className="text-[10px] text-gray-400">Expires {inv.expires_at ? new Date(inv.expires_at).toLocaleDateString() : '—'}</p>
+                  <p className="text-[10px] text-gray-400">Expires {inv.expires_at ? parseServerDate(inv.expires_at).toLocaleDateString() : '—'}</p>
                 </div>
                 <RoleBadge role={inv.role} />
               </li>

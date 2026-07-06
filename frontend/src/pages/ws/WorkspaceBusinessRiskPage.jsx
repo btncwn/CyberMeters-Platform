@@ -1,3 +1,4 @@
+import { parseServerDate } from '../../utils/dates'
 import { useCallback, useEffect, useState } from 'react'
 import {
   AlertTriangle, CheckCircle2, TrendingUp, Mail, Globe,
@@ -85,7 +86,7 @@ function ChartTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null
   return (
     <div className="bg-white border border-gray-200 rounded-lg px-3 py-2 shadow text-xs">
-      <p className="text-gray-500 mb-1">{new Date(label).toLocaleDateString()}</p>
+      <p className="text-gray-500 mb-1">{parseServerDate(label).toLocaleDateString()}</p>
       {payload.map(p => (
         <p key={p.dataKey} style={{ color: p.color }} className="font-semibold">
           {p.name}: {p.value}
@@ -180,7 +181,7 @@ export default function WorkspaceBusinessRiskPage() {
                   {data.latest_scan && (
                     <div className="text-xs text-gray-400 space-y-0.5">
                       <p>ASM Score: <span className="font-semibold text-gray-600">{data.latest_scan.asm_score} ({data.latest_scan.asm_rating})</span></p>
-                      <p>Last scan: <span className="font-semibold text-gray-600">{new Date(data.latest_scan.scanned_at).toLocaleString()}</span></p>
+                      <p>Last scan: <span className="font-semibold text-gray-600">{parseServerDate(data.latest_scan.scanned_at).toLocaleString()}</span></p>
                     </div>
                   )}
                 </div>
@@ -259,7 +260,7 @@ export default function WorkspaceBusinessRiskPage() {
                 <div className="rounded-lg bg-gray-50 px-4 py-3">
                   <p className="text-xs text-gray-500 mb-1">Score Last Updated</p>
                   <p className="text-sm font-semibold text-gray-900">
-                    {data.generated_at ? new Date(data.generated_at).toLocaleString() : '—'}
+                    {data.generated_at ? parseServerDate(data.generated_at).toLocaleString() : '—'}
                   </p>
                 </div>
               </div>
@@ -278,7 +279,7 @@ export default function WorkspaceBusinessRiskPage() {
                     <XAxis
                       dataKey="date"
                       tick={{ fontSize: 11, fill: '#9ca3af' }}
-                      tickFormatter={v => new Date(v).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                      tickFormatter={v => parseServerDate(v).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
                     />
                     <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: '#9ca3af' }} />
                     <Tooltip content={<ChartTooltip />} />

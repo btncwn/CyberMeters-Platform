@@ -1,3 +1,4 @@
+import { parseServerDate } from '../../utils/dates'
 import { useState, useEffect, useCallback } from 'react'
 import { Package2, RefreshCw } from 'lucide-react'
 import { useWorkspace } from '../../hooks/useWorkspace'
@@ -49,7 +50,7 @@ const COLUMNS = [
   { key: 'status',     label: 'Status',   render: v => (
     <span className={`text-xs font-semibold capitalize ${v === 'active' ? 'text-brand-600' : 'text-gray-400'}`}>{v}</span>
   )},
-  { key: 'last_seen',  label: 'Last Seen', render: v => v ? new Date(v).toLocaleDateString() : '—' },
+  { key: 'last_seen',  label: 'Last Seen', render: v => v ? parseServerDate(v).toLocaleDateString() : '—' },
 ]
 
 export default function VendorsPage() {

@@ -1,3 +1,4 @@
+import { parseServerDate } from '../utils/dates'
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -424,7 +425,7 @@ export default function PortfolioRiskPage() {
           {/* Footer note */}
           <div className="mt-6 card p-4 border border-blue-100 bg-blue-50">
             <p className="text-xs text-blue-700 leading-relaxed">
-              Portfolio risk intelligence is derived entirely from existing CyberMeters scan data. BRS scores, supply chain intelligence, and vendor risk data are aggregated across all accessible customer workspaces. Last calculated: {data.calculated_at ? new Date(data.calculated_at).toLocaleString() : '—'}
+              Portfolio risk intelligence is derived entirely from existing CyberMeters scan data. BRS scores, supply chain intelligence, and vendor risk data are aggregated across all accessible customer workspaces. Last calculated: {data.calculated_at ? parseServerDate(data.calculated_at).toLocaleString() : '—'}
             </p>
           </div>
         </>
