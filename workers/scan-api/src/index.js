@@ -10345,6 +10345,30 @@ function deriveScanBusinessRisk(report) {
   };
 }
 
+/**
+ * latestScanBusinessRisk(env, wsId) — Business Risk from the workspace's most
+ * recent completed scan, using the same deriveScanBusinessRisk() the scan UI
+ * and scan PDF use. Fallback for the executive report when the workspace-level
+ * workspace_brs_scores table has not been populated, so the report never shows
+ * "unknown" while the scan view shows a real score. Returns null on any miss.
+ */
+async function latestScanBusinessRisk(env, wsId) {
+  try {
+    const scan = await env.cybermeters_db
+      .prepare(`SELECT id FROM scans WHERE workspace_id = ? AND status = 'completed'
+                ORDER BY created_at DESC LIMIT 1`)
+      .bind(wsId).first();
+    if (!scan?.id) return null;
+    const obj = await env.cybermeters_reports.get(`reports/${scan.id}.json`);
+    if (!obj) return null;
+    const report = await obj.json();
+    const brs = deriveScanBusinessRisk(report);
+    return brs && brs.score != null ? brs : null;
+  } catch {
+    return null;
+  }
+}
+
 function computeBusinessRiskScore(findingIds, workspaceData = {}) {
   if (findingIds && typeof findingIds === "object" && !(findingIds instanceof Set)) {
     return computeWorkspaceBusinessRiskScore(findingIds);
@@ -19710,17 +19734,27 @@ async function collectPdfData(wsId, env) {
     score: v.score,
   }));
 
+  // Prefer the workspace-level BRS; if it has not been populated, fall back to
+  // the latest scan's Business Risk so the report matches the scan view instead
+  // of showing "unknown".
+  let brsScore = brsRow?.score ?? null;
+  let brsBand  = brsRow?.risk_band ?? null;
+  if (brsScore == null) {
+    const fb = await latestScanBusinessRisk(env, wsId);
+    if (fb) { brsScore = fb.score; brsBand = fb.band || brsBand; }
+  }
+
   const business_risk = {
-    business_risk_score: brsRow?.score ?? null,
-    risk_band: brsRow?.risk_band ?? 'unknown',
+    business_risk_score: brsScore,
+    risk_band: brsBand ?? 'unknown',
     drivers: {
       vendor_dependency: vendor_risk.high > 0 ? 'high' : vendor_risk.medium > 0 ? 'medium' : 'low',
       findings: findings_summary.critical > 0 || findings_summary.high > 0 ? 'elevated' : 'controlled',
       asset_exposure: (asset_inventory.assets.current ?? 0) > 100 ? 'expanded' : 'normal',
     },
     recommendations: executive_summary.priority_actions,
-    summary: brsRow?.score != null
-      ? `Business Risk Score is ${brsRow.score}/100 with a ${brsRow.risk_band || 'unknown'} risk band.`
+    summary: brsScore != null
+      ? `Business Risk Score is ${brsScore}/100 (${brsBand || 'unknown'}).`
       : 'Business Risk Score is not available yet. Run a scan and open the Business Risk dashboard to populate it.',
   };
 
