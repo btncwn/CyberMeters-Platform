@@ -16752,6 +16752,44 @@ async function sendLifecycleEmail(env, { type, user_id = null, workspace_id = nu
   }
 }
 
+/**
+ * retryFailedLifecycleEmails — hourly cron sweep that re-sends lifecycle emails
+ * whose first attempt FAILED. This decouples delivery from the context that
+ * originally failed: e.g. lifecycle_first_scan_completed is sent at the end of
+ * the subrequest-heavy scan engine (ctx.waitUntil), where the outbound Resend
+ * fetch can fail; the cron runs in a clean, light invocation with full
+ * subrequest budget. Re-firing sendLifecycleEmail reuses the retry-claim path,
+ * so the same failed row is reclaimed and re-sent (never double-sent).
+ *
+ * Excludes lifecycle_payment_failed: its dedupe key includes the Stripe invoice
+ * id (`ref`), which is not stored on the row, so it cannot be safely rebuilt
+ * here — and it is sent from the light webhook context anyway. Bounded to a
+ * 3-day window and 10 rows per run. Never throws.
+ */
+async function retryFailedLifecycleEmails(env) {
+  try {
+    const rows = await env.cybermeters_db
+      .prepare(`SELECT id, type, user_id, workspace_id, domain
+                FROM lifecycle_email_events
+                WHERE status = 'failed'
+                  AND type != 'lifecycle_payment_failed'
+                  AND created_at > datetime('now', '-3 days')
+                ORDER BY created_at ASC
+                LIMIT 10`)
+      .all().catch(() => null);
+    for (const row of (rows?.results || [])) {
+      await sendLifecycleEmail(env, {
+        type:         row.type,
+        user_id:      row.user_id ?? null,
+        workspace_id: row.workspace_id ?? null,
+        domain:       row.domain ?? null,
+      }).catch(() => {});
+    }
+  } catch (e) {
+    console.error("[lifecycle-retry]", String(e?.message ?? e));
+  }
+}
+
 function formatAlertEmail({ workspaceName, domain, whatChanged, recommendation, link }) {
   const text = `CyberMeters Alert
 
@@ -34853,6 +34891,11 @@ export default {
     // ── Deletion purge (soft-delete → 30-day window → hard delete) ────────
     // Bounded per run; requests inside the restore window are never touched.
     ctx.waitUntil(processDeletionRequests(env));
+
+    // ── Retry failed lifecycle emails from this clean context ─────────────
+    // Recovers emails whose first send failed inside a heavy invocation
+    // (e.g. first-scan-completed sent at the end of the scan engine).
+    ctx.waitUntil(retryFailedLifecycleEmails(env));
   },
 
   // ── Inbound DMARC aggregate (RUA) email handler ──────────────────────────────

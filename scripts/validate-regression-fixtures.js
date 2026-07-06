@@ -135,6 +135,7 @@ function loadScanner(fetchImpl = async () => { throw new Error("network disabled
     sendLifecycleEmail,
     getPaymentGraceState,
     isDeletionPurgeDue,
+    retryFailedLifecycleEmails,
     emailHandler: __workerDefault.email,
     computeBusinessRiskScoreFromIds: (ids, data) => computeBusinessRiskScore(new Set(ids), data),
   };`, context, {
@@ -2293,6 +2294,23 @@ results.push(await asyncSecurityContract("lifecycle_sent_email_not_resent", asyn
     } } } };
   const r = await scanner.sendLifecycleEmail(env, { type: "lifecycle_welcome", user_id: "u1" });
   return r.skipped === "duplicate";
+}));
+results.push(await asyncSecurityContract("lifecycle_cron_retry_excludes_payment_failed", async () => {
+  // The cron sweep re-fires failed lifecycle emails but must skip
+  // lifecycle_payment_failed (its dedupe key needs the Stripe invoice ref,
+  // not stored on the row) — re-firing it would risk a duplicate send.
+  let selectSql = null;
+  const env = { FRONTEND_URL: ORIGIN, cybermeters_db: { prepare(sql) { return {
+    _sql: sql, bind() { return this },
+    async all() { if (sql.includes("FROM lifecycle_email_events")) selectSql = sql; return { results: [] }; },
+    async first() { return null }, async run() { return { meta: { changes: 0 } } },
+  } } } };
+  await scanner.retryFailedLifecycleEmails(env);
+  // The sweep query filters to failed rows within a bounded window and excludes payment_failed.
+  return selectSql != null &&
+    /status = 'failed'/.test(selectSql) &&
+    /type != 'lifecycle_payment_failed'/.test(selectSql) &&
+    /-3 days/.test(selectSql);
 }));
 results.push(await asyncSecurityContract("lifecycle_unverified_or_missing_email_no_send", async () => {
   const runs = [];
