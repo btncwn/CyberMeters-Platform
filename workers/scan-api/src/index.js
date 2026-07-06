@@ -6582,6 +6582,120 @@ function parseSpfRecord(record, recordCount = record ? 1 : 0) {
   };
 }
 
+// ─── SPF chain analysis ("SPF surgeon") ──────────────────────────────────────
+// Live, read-only recursive walk of an SPF record's include:/redirect= tree.
+// Counts RFC 7208 DNS-lookup mechanisms (include, a, mx, ptr, exists, redirect)
+// against the 10-lookup limit, surfaces void includes and loops, and produces a
+// flattened-record suggestion. dnsQueryImpl is injectable for tests (house
+// pattern: verifyDmarcDnsSetup); total DNS queries are hard-capped so a deep or
+// malicious chain cannot exhaust Worker subrequests.
+const SPF_LOOKUP_MECHANISMS = ["include", "a", "mx", "ptr", "exists", "redirect"];
+
+async function analyzeSpfChain(domain, {
+  dnsQueryImpl = dnsQuery,
+  maxQueries = 15,
+  maxDepth = 5,
+  checkedAt = new Date().toISOString(),
+} = {}) {
+  const state = { queries: 0, truncated: false };
+  const warnings = [];
+  const tree = [];
+  const ip4 = new Set();
+  const ip6 = new Set();
+  const visited = new Set();
+  let lookups = 0;
+
+  const fetchSpf = async (host) => {
+    if (state.queries >= maxQueries) { state.truncated = true; return { records: [], status: "capped" }; }
+    state.queries += 1;
+    let res;
+    try { res = await dnsQueryImpl(host, "TXT"); }
+    catch { return { records: [], status: "lookup_failed" }; }
+    const dnsStatus = Number(res?.Status ?? 0);
+    if (dnsStatus !== 0 && dnsStatus !== 3) return { records: [], status: "lookup_failed" };
+    const records = (res?.Answer || [])
+      .map((a) => normalizeDnsTxtValue(a?.data).replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 4096))
+      .filter((v) => /^v=spf1(\s|$)/i.test(v));
+    return { records, status: "ok" };
+  };
+
+  const walk = async (host, depth, via) => {
+    const key = String(host || "").toLowerCase().replace(/\.$/, "");
+    if (!key) return;
+    if (visited.has(key)) {
+      warnings.push(`The SPF chain references ${key} more than once (possible loop).`);
+      return;
+    }
+    visited.add(key);
+    const { records, status } = await fetchSpf(key);
+    const record = records[0] || null;
+    const node = { domain: key, depth, via, status, record, lookups_here: 0 };
+    tree.push(node);
+    if (!record) {
+      if (status === "ok" && depth > 0) {
+        warnings.push(`${via} points at ${key}, which publishes no SPF record (void lookup — permerror risk).`);
+      }
+      return;
+    }
+    if (records.length > 1) {
+      warnings.push(`${key} publishes multiple SPF records; SPF requires exactly one.`);
+    }
+    const detail = parseSpfRecord(record, records.length);
+    for (const m of detail.mechanisms) {
+      if (SPF_LOOKUP_MECHANISMS.includes(m.mechanism)) {
+        lookups += 1;
+        node.lookups_here += 1;
+      }
+      if (m.mechanism === "ip4" && m.value) ip4.add(m.value);
+      if (m.mechanism === "ip6" && m.value) ip6.add(m.value);
+      if ((m.mechanism === "include" || m.mechanism === "redirect") && m.value) {
+        if (depth >= maxDepth) {
+          state.truncated = true;
+          warnings.push(`The SPF chain nests deeper than ${maxDepth} levels below ${key}; analysis stopped there.`);
+        } else {
+          await walk(m.value, depth + 1, `${m.mechanism}:${key}`);
+        }
+      }
+    }
+  };
+
+  await walk(domain, 0, null);
+
+  const root = tree[0] || null;
+  const rootDetail = root?.record ? parseSpfRecord(root.record, 1) : null;
+  const allToken = rootDetail?.mechanisms?.find((m) => m.mechanism === "all")?.raw || "~all";
+  const flatIp4 = [...ip4];
+  const flatIp6 = [...ip6];
+  const suggested = root?.record
+    ? `v=spf1${flatIp4.map((v) => ` ip4:${v}`).join("")}${flatIp6.map((v) => ` ip6:${v}`).join("")} ${allToken}`
+    : null;
+  if (suggested && suggested.length > 450) {
+    warnings.push("The flattened record is very long; DNS TXT values above 255 characters must be split into multiple strings, and long allow-lists drift quickly — re-verify after provider changes.");
+  }
+  if (state.truncated) {
+    warnings.push("Not every branch could be resolved within the analysis budget; counts are a lower bound.");
+  }
+
+  return {
+    domain: String(domain || "").toLowerCase(),
+    checked_at: checkedAt,
+    status: !root || root.status !== "ok"
+      ? "dns_lookup_failed"
+      : (root.record ? "ok" : "no_spf"),
+    record: root?.record || null,
+    lookups_used: lookups,
+    lookup_limit: 10,
+    over_limit: lookups > 10,
+    truncated: state.truncated,
+    queries_used: state.queries,
+    warnings: warnings.slice(0, 20),
+    tree: tree.slice(0, 30),
+    flattened: root?.record
+      ? { ip4: flatIp4.slice(0, 100), ip6: flatIp6.slice(0, 100), suggested_record: suggested }
+      : null,
+  };
+}
+
 function buildDmarcPolicyJourney(detail) {
   if (!detail?.raw || !detail.valid) {
     return {
@@ -33048,6 +33162,36 @@ export default {
         return json({
           domain, status: "dns_lookup_failed",
           message: "The DMARC DNS lookup could not be completed.",
+        }, 502);
+      }
+    }
+
+    // GET .../spf-analysis — live, read-only SPF chain health ("SPF surgeon").
+    // Walks include:/redirect= targets, counts the RFC 7208 10-lookup budget,
+    // flags void includes, and suggests a flattened record.
+    const spfAnalysisMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/domains\/([^/]+)\/spf-analysis$/);
+    if (spfAnalysisMatch && request.method === "GET") {
+      const workspaceId = spfAnalysisMatch[1];
+      const domain = decodeURIComponent(spfAnalysisMatch[2]).toLowerCase();
+      try {
+        const user = await requireAuth(request, env);
+        if (!user) return json({
+          domain, status: "unauthorized", message: "Authentication is required.",
+        }, 401);
+        const access = await requireWorkspaceRole(user, workspaceId, "workspace:read", env);
+        if (!access) return json({
+          domain, status: "unauthorized", message: "Workspace access is required.",
+        }, 403);
+        const domainId = await resolveWorkspaceDomain(env, workspaceId, domain);
+        if (!domainId) return json({
+          domain, status: "domain_not_in_workspace",
+          message: "Domain not found in this workspace.",
+        }, 404);
+        return json(await analyzeSpfChain(domain));
+      } catch {
+        return json({
+          domain, status: "dns_lookup_failed",
+          message: "The SPF analysis could not be completed.",
         }, 502);
       }
     }

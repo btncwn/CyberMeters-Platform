@@ -146,6 +146,7 @@ function loadScanner(fetchImpl = async () => { throw new Error("network disabled
     signAlertWebhookBody,
     deliverWorkspaceAlert,
     alertChannelToApi,
+    analyzeSpfChain,
     emailHandler: __workerDefault.email,
     computeBusinessRiskScoreFromIds: (ids, data) => computeBusinessRiskScore(new Set(ids), data),
   };`, context, {
@@ -2363,6 +2364,43 @@ results.push(await asyncSecurityContract("alert_delivery_signs_and_records_statu
     slackCall?.opts?.headers?.["X-CyberMeters-Signature"] === undefined &&
     updates.length === 2 &&
     updates.some(u => u[1] === "ok") && updates.some(u => u[1] === "failed:http_500");
+}));
+results.push(await asyncSecurityContract("spf_chain_counts_lookups_and_flattens", async () => {
+  // root: include + mx = 2 lookups; a.example: include = 1; b.example: a = 1 → 4 total.
+  const zone = {
+    "example.com": ['v=spf1 include:a.example mx ip4:1.2.3.4 ~all'],
+    "a.example":   ['v=spf1 include:b.example ip4:5.6.7.0/24 -all'],
+    "b.example":   ['v=spf1 a ip6:2001:db8::/32 ?all'],
+  };
+  const dnsQueryImpl = async (name) => ({
+    Status: 0,
+    Answer: (zone[name] || []).map((d) => ({ data: `"${d}"` })),
+  });
+  const r = await scanner.analyzeSpfChain("example.com", { dnsQueryImpl });
+  return r.status === "ok" && r.lookups_used === 4 && r.over_limit === false &&
+    r.tree.length === 3 && r.truncated === false &&
+    r.flattened.ip4.includes("1.2.3.4") && r.flattened.ip4.includes("5.6.7.0/24") &&
+    r.flattened.ip6.includes("2001:db8::/32") &&
+    // DFS order: the include branch is resolved before the root's own ip4.
+    r.flattened.suggested_record === "v=spf1 ip4:5.6.7.0/24 ip4:1.2.3.4 ip6:2001:db8::/32 ~all";
+}));
+results.push(await asyncSecurityContract("spf_chain_flags_over_limit_void_and_caps", async () => {
+  // 11 includes at the root → over the 10-lookup limit; each target publishes
+  // no SPF (void). A tight query budget must truncate, never exhaust.
+  const includes = Array.from({ length: 11 }, (_, i) => `include:v${i}.example`).join(" ");
+  const dnsQueryImpl = async (name) => ({
+    Status: 0,
+    Answer: name === "example.com" ? [{ data: `"v=spf1 ${includes} -all"` }] : [],
+  });
+  const r = await scanner.analyzeSpfChain("example.com", { dnsQueryImpl });
+  const voidsFlagged = r.warnings.some((w) => w.includes("void lookup"));
+  const capped = await scanner.analyzeSpfChain("example.com", { dnsQueryImpl, maxQueries: 3 });
+  const noSpf = await scanner.analyzeSpfChain("nospf.example", {
+    dnsQueryImpl: async () => ({ Status: 0, Answer: [] }),
+  });
+  return r.lookups_used === 11 && r.over_limit === true && voidsFlagged &&
+    capped.truncated === true && capped.queries_used === 3 &&
+    noSpf.status === "no_spf" && noSpf.flattened === null;
 }));
 results.push(securityContract("alert_channel_api_never_leaks_url_or_secret", () => {
   const api = scanner.alertChannelToApi({

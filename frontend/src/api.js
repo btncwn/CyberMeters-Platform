@@ -689,6 +689,10 @@ export const api = {
   getDmarcReportHistory: (workspaceId, domain, limit = 50) =>
     request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/dmarc-reports?limit=${limit}`),
 
+  /** GET /api/workspaces/:id/domains/:domain/spf-analysis → live SPF chain health (lookup budget, flattening) */
+  getSpfAnalysis: (workspaceId, domain) =>
+    request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/spf-analysis`),
+
   /** GET /api/workspaces/:id/domains/:domain/bec-exposure → BEC Exposure Score (higher = worse) */
   getBecExposureScore: (workspaceId, domain) =>
     request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/bec-exposure`),

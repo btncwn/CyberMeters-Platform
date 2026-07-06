@@ -227,18 +227,32 @@ function Warnings({ items }) {
 }
 
 // ── Individual auth cards ─────────────────────────────────────────────────────
-function SpfCard({ spf, detail }) {
+function SpfCard({ spf, detail, wsId, domain }) {
+  const [chain, setChain]   = useState(null)   // null | 'loading' | analysis result
   if (!detail && !spf) return <AuthCard icon={ShieldCheck} title="SPF" status="No data" statusKind="na"><NaNote /></AuthCard>
   const present = spf?.present ?? Boolean(detail?.raw)
   const valid = detail?.valid
   const status = !present ? 'Not found' : valid ? 'Published' : 'Issues found'
   const kind = !present ? 'bad' : valid ? 'good' : 'warn'
+
+  async function analyseChain() {
+    setChain('loading')
+    try { setChain(await api.getSpfAnalysis(wsId, domain)) }
+    catch { setChain({ status: 'dns_lookup_failed' }) }
+  }
+  const live = chain && chain !== 'loading' ? chain : null
+
   return (
     <AuthCard icon={ShieldCheck} title="SPF" status={status} statusKind={kind}>
       <KV k="Record status" v={!present ? 'Not published' : valid ? 'Valid' : 'Published, needs review'} />
       {detail?.all_mechanism != null && <KV k="‘all’ mechanism" v={detail.all_mechanism} mono />}
       {detail?.policy_strength && <KV k="Policy strength" v={<span className="capitalize">{detail.policy_strength}</span>} />}
-      {typeof detail?.lookup_count_estimate === 'number' && (
+      {live?.status === 'ok' ? (
+        <KV k="DNS lookups (live)" v={
+          <span className={live.over_limit ? 'text-red-600 font-bold' : 'text-brand-700 font-semibold'}>
+            {live.lookups_used} / {live.lookup_limit}{live.over_limit ? ' — limit exceeded' : ''}{live.truncated ? ' (partial)' : ''}
+          </span>} />
+      ) : typeof detail?.lookup_count_estimate === 'number' && (
         <KV k="DNS lookups (est.)" v={
           <span className={detail.lookup_count_estimate > 10 ? 'text-red-600 font-bold' : ''}>
             {detail.lookup_count_estimate}{detail.lookup_count_estimate > 10 ? ' / 10 limit exceeded' : ' / 10'}
@@ -256,6 +270,54 @@ function SpfCard({ spf, detail }) {
       )}
       {detail?.raw && <DnsValue value={detail.raw} />}
       <Warnings items={detail?.warnings} />
+
+      {/* SPF chain analysis — resolves the full include tree live */}
+      {present && wsId && domain && (
+        <div className="pt-2 border-t border-gray-100">
+          {!chain && (
+            <button onClick={analyseChain} className="btn-secondary text-xs w-full">
+              <RefreshCw className="w-3.5 h-3.5" /> Analyse full include chain
+            </button>
+          )}
+          {chain === 'loading' && (
+            <p className="text-xs text-gray-400 flex items-center gap-1.5">
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Resolving the include tree…
+            </p>
+          )}
+          {live && live.status !== 'ok' && (
+            <p className="text-xs text-gray-500">The live SPF analysis could not be completed. Try again shortly.</p>
+          )}
+          {live?.status === 'ok' && (
+            <div className="space-y-2">
+              {live.tree?.length > 1 && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 mb-1">Resolved chain ({live.tree.length} records)</p>
+                  <div className="space-y-0.5 max-h-32 overflow-y-auto">
+                    {live.tree.map((n, i) => (
+                      <p key={i} className="mono text-[10px] text-gray-600 truncate" style={{ paddingLeft: `${n.depth * 10}px` }}>
+                        {n.domain} <span className="text-gray-400">· {n.lookups_here} lookup{n.lookups_here === 1 ? '' : 's'}{!n.record ? ' · no SPF' : ''}</span>
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <Warnings items={live.warnings} />
+              {live.over_limit && live.flattened?.suggested_record && (
+                <div>
+                  <p className="text-xs font-semibold text-red-600 mb-1">
+                    Over the 10-lookup limit — receivers may permerror. Flattened alternative:
+                  </p>
+                  <DnsValue value={live.flattened.suggested_record} />
+                  <p className="text-[11px] text-gray-400 mt-1 leading-relaxed">
+                    Flattened records list IPs directly, so they drift when providers change —
+                    re-run this analysis after any sending-provider change.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </AuthCard>
   )
 }
@@ -2704,7 +2766,7 @@ export default function WorkspaceEmailProtectionPage() {
               </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-              <SpfCard spf={es.spf} detail={es.spf_detail} />
+              <SpfCard spf={es.spf} detail={es.spf_detail} wsId={wsId} domain={selectedDomain} />
               <DmarcCard dmarc={es.dmarc} detail={es.dmarc_detail} />
               <DkimCard detail={es.dkim_detail} />
               <BimiCard readiness={es.bimi_readiness} />
