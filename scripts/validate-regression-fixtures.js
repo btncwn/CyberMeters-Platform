@@ -133,6 +133,7 @@ function loadScanner(fetchImpl = async () => { throw new Error("network disabled
     lifecycleDedupeKey,
     buildLifecycleEmail,
     sendLifecycleEmail,
+    getPaymentGraceState,
     emailHandler: __workerDefault.email,
     computeBusinessRiskScoreFromIds: (ids, data) => computeBusinessRiskScore(new Set(ids), data),
   };`, context, {
@@ -2166,6 +2167,17 @@ results.push(securityContract("lifecycle_next_step_never_says_connected", () => 
   const blob = `${e.subject} ${e.html} ${e.text}`;
   // "connect" (verb) is fine; "connected" (status claim) must never appear.
   return !/connected/i.test(blob) && /does not mean your DNS is verified/i.test(e.html);
+}));
+results.push(securityContract("payment_grace_window_seven_days", () => {
+  const now = Date.now();
+  const inGrace = scanner.getPaymentGraceState({ subscription_status: "past_due", payment_failed_at: new Date(now - 3 * 86400000).toISOString() });
+  const expired = scanner.getPaymentGraceState({ subscription_status: "past_due", payment_failed_at: new Date(now - 8 * 86400000).toISOString() });
+  const notPastDue = scanner.getPaymentGraceState({ subscription_status: "active", payment_failed_at: new Date(now).toISOString() });
+  const missingFailedAt = scanner.getPaymentGraceState({ subscription_status: "past_due" });
+  // Inside the 7-day retry window paid access continues (with a visible end
+  // date); outside it — or without a recorded failure — access is not granted.
+  return inGrace.active === true && typeof inGrace.ends_at === "string" &&
+    expired.active === false && notPastDue.active === false && missingFailedAt.active === false;
 }));
 results.push(securityContract("lifecycle_payment_failed_dedupe_per_invoice", () => {
   const a = scanner.lifecycleDedupeKey({ type: "lifecycle_payment_failed", workspace_id: "w1", ref: "in_123" });

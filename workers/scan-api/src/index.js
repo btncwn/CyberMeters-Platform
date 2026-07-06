@@ -20520,6 +20520,21 @@ function isExpiredDate(value) {
   return Number.isNaN(date.getTime()) ? false : date.getTime() <= Date.now();
 }
 
+// Payment-failure grace window: paid access continues while Stripe retries
+// collection. Shared by runtime plan resolution (getUserPlan) AND the billing
+// UI endpoint so entitlements and the customer-facing plan state can never
+// disagree during the grace period.
+const PAYMENT_GRACE_PERIOD_DAYS = 7;
+
+function getPaymentGraceState(sub) {
+  const status = String(sub?.subscription_status || "").trim().toLowerCase();
+  if (status !== "past_due") return { active: false, ends_at: null };
+  const failedAt = sub?.payment_failed_at ? new Date(sub.payment_failed_at).getTime() : 0;
+  if (!failedAt || Number.isNaN(failedAt)) return { active: false, ends_at: null };
+  const endsAtMs = failedAt + PAYMENT_GRACE_PERIOD_DAYS * 24 * 60 * 60 * 1000;
+  return { active: Date.now() < endsAtMs, ends_at: new Date(endsAtMs).toISOString() };
+}
+
 async function getUserPlan(userId, env) {
   // Canonical plan resolver for all application billing decisions.
   // Stripe updates the subscriptions table through webhooks; runtime requests
@@ -20528,6 +20543,7 @@ async function getUserPlan(userId, env) {
   // Current behavior:
   // - missing user_id, missing subscription row, D1 errors -> free
   // - non-active subscription_status values -> free
+  // - past_due inside the payment grace window -> keep the paid plan
   // - expired current_period_end -> free
   // - otherwise normalize and return subscriptions.plan
   if (!userId) return "free";
@@ -20545,13 +20561,8 @@ async function getUserPlan(userId, env) {
 
     if (!sub) return "free";
     const status = String(sub.subscription_status || "").trim().toLowerCase();
-    // past_due: allow access for 7 days from first payment failure (Stripe retry window)
     if (status === "past_due") {
-      const failedAt = sub.payment_failed_at ? new Date(sub.payment_failed_at).getTime() : 0;
-      if (failedAt > 0 && (Date.now() - failedAt) < 7 * 24 * 60 * 60 * 1000) {
-        return normalizePlan(sub.plan);
-      }
-      return "free";
+      return getPaymentGraceState(sub).active ? normalizePlan(sub.plan) : "free";
     }
     if (status && !["active", "trialing"].includes(status)) return "free";
     if (isExpiredDate(sub.current_period_end)) return "free";
@@ -34034,13 +34045,16 @@ export default {
         const trialActive       = isTrialActive(sub);
         const subscriptionActive = isSubscriptionActive(sub);
         const trialRemainingDays = getTrialRemainingDays(sub);
+        const grace             = getPaymentGraceState(sub);
 
-        // Effective plan: trial plan if trialing, otherwise sub.plan, else free
+        // Effective plan: trial plan if trialing, paid plan while active OR
+        // inside the payment grace window (matches getUserPlan so the billing
+        // UI and runtime entitlements never disagree), else free.
         let effectivePlan = "free";
         if (sub) {
           if (trialActive) {
             effectivePlan = normalizePlan(sub.plan ?? TRIAL_PLAN);
-          } else if (subscriptionActive) {
+          } else if (subscriptionActive || grace.active) {
             effectivePlan = normalizePlan(sub.plan);
           }
         }
@@ -34051,7 +34065,7 @@ export default {
         return json({
           plan:                 effectivePlan,
           status:               sub?.subscription_status ?? (sub ? sub.status : "free"),
-          subscription_active:  trialActive || subscriptionActive,
+          subscription_active:  trialActive || subscriptionActive || grace.active,
           trial_active:         trialActive,
           trial_remaining_days: trialRemainingDays,
           trial_start:          sub?.trial_start ?? null,
@@ -34060,6 +34074,9 @@ export default {
           current_period_end:   sub?.current_period_end ?? sub?.expires_at ?? null,
           billing_interval:     sub?.billing_interval ?? "monthly",
           cancel_at_period_end: sub?.cancel_at_period_end === 1 || sub?.cancel_at_period_end === true,
+          cancelled_at:         sub?.cancelled_at ?? null,
+          grace_period_active:  grace.active,
+          grace_period_ends_at: grace.ends_at,
           stripe_subscription_id: sub?.stripe_subscription_id ?? null,
           limits,
           features,

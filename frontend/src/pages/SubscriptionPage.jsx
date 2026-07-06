@@ -463,6 +463,17 @@ export default function SubscriptionPage() {
   const limits            = sub?.limits    ?? null
   const features          = sub?.features  ?? []
 
+  // Billing lifecycle state — grace period, post-grace downgrade, scheduled cancellation
+  const graceActive       = sub?.grace_period_active === true
+  const graceEndsAt       = sub?.grace_period_ends_at ?? null
+  const pastDueExpired    = status === 'past_due' && !graceActive
+  const cancelScheduled   = (sub?.cancel_at_period_end === true) && subscriptionActive && !trialActive
+  const fmtDay = (v) => {
+    if (!v) return null
+    const d = new Date(v)
+    return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+  }
+
   // ── Loading ────────────────────────────────────────────────────────────────
 
   if (loading) {
@@ -566,6 +577,65 @@ export default function SubscriptionPage() {
         <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
           <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
           <p className="text-xs text-red-700">{portalError}</p>
+        </div>
+      )}
+
+      {/* ── Payment grace period — plan still active while Stripe retries ── */}
+      {graceActive && (
+        <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-2xl p-4">
+          <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold text-amber-800">Payment issue — your plan is still active</p>
+            <p className="text-xs text-amber-700 mt-0.5 leading-relaxed">
+              Your latest payment could not be processed. Your {meta?.name || 'paid'} plan remains fully active
+              {fmtDay(graceEndsAt) ? <> until <span className="font-semibold">{fmtDay(graceEndsAt)}</span></> : null} while the charge is retried.
+              Update your payment method to keep your plan.
+            </p>
+            <button onClick={handleManageBilling} disabled={portalLoading}
+              className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg transition-colors disabled:opacity-50">
+              {portalLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CreditCard className="w-3.5 h-3.5" />}
+              Update payment method
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Post-grace downgrade — payment never collected ── */}
+      {pastDueExpired && (
+        <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-2xl p-4">
+          <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold text-red-800">Your workspace moved to the Free plan</p>
+            <p className="text-xs text-red-700 mt-0.5 leading-relaxed">
+              Payment could not be collected, so paid features are paused. Your data and settings are kept safe.
+              Update your payment method to restore your plan.
+            </p>
+            <button onClick={handleManageBilling} disabled={portalLoading}
+              className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors disabled:opacity-50">
+              {portalLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CreditCard className="w-3.5 h-3.5" />}
+              Update payment method
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Scheduled cancellation — access continues until period end ── */}
+      {cancelScheduled && (
+        <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-2xl p-4">
+          <AlertTriangle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold text-blue-800">Your subscription is scheduled to cancel</p>
+            <p className="text-xs text-blue-700 mt-0.5 leading-relaxed">
+              You keep full access to your {meta?.name || 'paid'} plan
+              {fmtDay(sub?.current_period_end) ? <> until <span className="font-semibold">{fmtDay(sub.current_period_end)}</span></> : ' until the end of your billing period'},
+              then your workspace moves to the Free plan. Changed your mind? You can resume your subscription any time before then.
+            </p>
+            <button onClick={handleManageBilling} disabled={portalLoading}
+              className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-blue-700 bg-white border border-blue-200 hover:border-blue-300 rounded-lg transition-colors disabled:opacity-50">
+              {portalLoading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CreditCard className="w-3.5 h-3.5" />}
+              Resume subscription
+            </button>
+          </div>
         </div>
       )}
 
