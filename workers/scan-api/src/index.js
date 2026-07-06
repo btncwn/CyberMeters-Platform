@@ -15134,7 +15134,7 @@ async function buildCyberEssentialsReadiness(wsId, env) {
     top_gaps: topGaps,
     recommendations,
     summary: topGaps.length
-      ? `Cyber Essentials readiness is ${cyberEssentialsStatus(grade).replace(/_/g, ' ')}. Focus first on ${topGaps.slice(0, 2).join(' and ')}`
+      ? `Cyber Essentials readiness is ${cyberEssentialsStatus(grade).replace(/_/g, ' ')}. Two areas to address first: ${topGaps.slice(0, 2).map(g => String(g).trim().replace(/\.+$/, '')).join('; ')}.`
       : 'Cyber Essentials readiness looks strong from currently available CyberMeters signals.',
     generated_at: new Date().toISOString(),
     latest_scan: {
@@ -18713,12 +18713,29 @@ function buildExecutivePdf(pdfData) {
     let y = H - 45;
 
     y = secBar(pg, 'Top 5 Remediation Cards', y); y -= 8;
-    const actions = plan.length ? plan : (topC ?? []).map(r => ({
+    const rawActions = plan.length ? plan : (topC ?? []).map(r => ({
       title: r.title,
       action: r.description,
       impact: 'Reduces likelihood or impact of a security incident.',
       effort_estimate: 'Medium',
     }));
+    // Dedupe near-identical cards (e.g. two "Strengthen DMARC Policy" entries
+    // from different engines) by the core recommended action with the title
+    // prefix stripped — while keeping distinct gaps that share a title
+    // (e.g. several "Improve Cyber Essentials alignment" cards).
+    const _seenRem = new Set();
+    const actions = [];
+    for (const a of rawActions) {
+      const title = String(a.title || '').trim();
+      let act = String(a.recommended_action || a.action || title).trim();
+      if (title && act.toLowerCase().startsWith(title.toLowerCase())) {
+        act = act.slice(title.length).replace(/^\s*[-–:]\s*/, '');
+      }
+      const key = act.toLowerCase().replace(/\s+/g, ' ').replace(/\.+$/, '');
+      if (!key || _seenRem.has(key)) continue;
+      _seenRem.add(key);
+      actions.push(a);
+    }
     if (!actions.length) {
       pg.text('No priority remediation actions at this time. Run additional scans to generate recommendations.', ML + 8, y - 10, 9, 'R', C.mgray);
       y -= 24;
@@ -19321,12 +19338,23 @@ async function collectPdfData(wsId, env) {
        JOIN domains d ON d.id = s.domain_id
        JOIN workspace_domains wd ON wd.domain_id = d.id
        WHERE wd.workspace_id = ?
+         -- Only the latest completed scan per domain, so findings resolved by a
+         -- newer scan (e.g. a DMARC record added since) never linger as active.
+         AND s.id IN (
+           SELECT sx.id FROM scans sx
+           WHERE sx.workspace_id = ? AND sx.status = 'completed'
+             AND sx.created_at = (
+               SELECT MAX(sy.created_at) FROM scans sy
+               WHERE sy.workspace_id = sx.workspace_id AND sy.domain = sx.domain
+                 AND sy.status = 'completed'
+             )
+         )
        ORDER BY CASE f.severity
          WHEN 'critical' THEN 1 WHEN 'high' THEN 2
          WHEN 'medium'   THEN 3 WHEN 'low'  THEN 4 ELSE 5 END,
          s.created_at DESC
        LIMIT 200`
-    ).bind(wsId).all(),
+    ).bind(wsId, wsId).all(),
 
     env.cybermeters_db.prepare(
       `SELECT COUNT(*) AS n FROM findings f
