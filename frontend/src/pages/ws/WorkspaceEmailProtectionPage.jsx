@@ -1661,6 +1661,104 @@ const EP_MODE = {
   not_receiving: { label: 'Not receiving yet', tone: 'na', desc: 'No DMARC aggregate reports have been received yet.' },
 }
 
+// ── Email posture hero ────────────────────────────────────────────────────────
+// One-glance answer that combines what competitors show separately: the DMARC
+// compliance rate (technical), the policy state, AND the business impersonation
+// exposure (business) — the last of which point-tools do not translate. Leads
+// with meaning, ends with the single next action.
+function EmailPostureHero({ wsId, domain, dmarc, policyJourney, onGoto }) {
+  const [bec, setBec] = useState(null)
+  useEffect(() => {
+    if (!wsId || !domain) { setBec(null); return }
+    let cancelled = false
+    api.getBecExposureScore(wsId, domain).then(r => { if (!cancelled) setBec(r || null) }).catch(() => { if (!cancelled) setBec(null) })
+    return () => { cancelled = true }
+  }, [wsId, domain])
+
+  const total    = dmarc?.traffic?.total_messages ?? 0
+  const passRate = dmarc?.traffic?.pass_rate
+  const hasCompliance = total > 0 && passRate != null
+  const stage = policyJourney?.stage || null
+  const stageLabel = { missing: 'No DMARC', monitoring: 'Monitoring (p=none)',
+    partial_enforcement: 'Quarantine', full_enforcement: 'Reject' }[stage] || 'Unknown'
+  const enforcing = ['partial_enforcement', 'full_enforcement'].includes(stage)
+  const cCol = !hasCompliance ? 'text-gray-400' : passRate >= 95 ? 'text-brand-700'
+    : passRate >= 80 ? 'text-amber-600' : 'text-red-700'
+  const sev = bec ? becSev(bec.exposure_level) : null
+
+  const next = stage === 'missing' ? { label: 'Publish a DMARC record', to: 'dmarc-setup' }
+    : !hasCompliance ? { label: 'Connect DMARC reporting', to: 'connect-reporting' }
+    : !enforcing ? { label: 'Move toward enforcement', to: 'dmarc-setup' }
+    : (passRate != null && passRate < 95) ? { label: 'Fix sender alignment', to: 'sender-inventory' }
+    : { label: 'Review sender inventory', to: 'sender-inventory' }
+
+  const pill = (txt, tone) => (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold border ${
+      tone === 'ok' ? 'bg-brand-50 text-brand-700 border-brand-100'
+      : tone === 'warn' ? 'bg-amber-50 text-amber-700 border-amber-200'
+      : tone === 'bad' ? 'bg-red-50 text-red-700 border-red-200'
+      : 'bg-gray-50 text-gray-500 border-gray-200'}`}>{txt}</span>
+  )
+
+  return (
+    <section className="card overflow-hidden">
+      <div className="px-6 py-4 border-b border-gray-200 bg-gray-50/70 flex items-center gap-2.5">
+        <div className="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center flex-shrink-0">
+          <Mail className="w-4 h-4 text-white" />
+        </div>
+        <div className="min-w-0">
+          <span className="eyebrow">Email protection posture</span>
+          <h2 className="section-title leading-tight truncate">Are attackers able to spoof {domain}?</h2>
+        </div>
+      </div>
+
+      <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-5">
+        {/* Compliance — the technical number email teams live by */}
+        <div>
+          <p className="text-sm font-semibold text-gray-900">DMARC compliance</p>
+          <p className={`text-3xl font-black mt-1 tabular-nums ${cCol}`}>{hasCompliance ? `${passRate}%` : '—'}</p>
+          <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+            {hasCompliance
+              ? `of ${total.toLocaleString()} messages passed SPF/DKIM alignment over the reporting window.`
+              : 'Not measured yet — connect DMARC reporting to see who is sending as you.'}
+          </p>
+        </div>
+        {/* Policy state */}
+        <div className="md:border-l md:border-gray-100 md:pl-5">
+          <p className="text-sm font-semibold text-gray-900">DMARC policy</p>
+          <div className="mt-1.5">{pill(stageLabel, enforcing ? 'ok' : stage === 'missing' ? 'bad' : 'warn')}</div>
+          <p className="text-xs text-gray-500 mt-2 leading-relaxed">
+            {stage === 'missing' ? 'No policy — receivers have no instruction for spoofed mail.'
+              : enforcing ? 'Enforcing — messages that fail authentication are actively blocked.'
+              : 'Monitor-only — reports are collected, but spoofed mail is not yet blocked.'}
+          </p>
+        </div>
+        {/* Business exposure — the layer point-tools do not translate */}
+        <div className="md:border-l md:border-gray-100 md:pl-5">
+          <p className="text-sm font-semibold text-gray-900">Business exposure</p>
+          {sev ? (
+            <>
+              <p className={`text-xl font-bold mt-1 ${sev.text}`}>{titleCase(bec.exposure_level)}</p>
+              <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+                Impersonation &amp; invoice-fraud exposure · <span className="font-semibold tabular-nums">{bec.exposure_score}/100</span> · higher = worse.
+              </p>
+            </>
+          ) : (
+            <p className="text-xs text-gray-400 mt-2">Calculating business exposure…</p>
+          )}
+        </div>
+      </div>
+
+      <div className="px-6 py-3 border-t border-gray-100 bg-brand-50/40 flex items-center justify-between gap-3">
+        <p className="text-xs font-semibold text-brand-700 uppercase tracking-wide">Do this next</p>
+        <button onClick={() => onGoto?.(next.to)} className="btn-primary text-sm">
+          {next.label} <ArrowRight className="w-4 h-4" />
+        </button>
+      </div>
+    </section>
+  )
+}
+
 function EmailProtectionOverview({ wsId, domain, dmarcDetail, dmarc, senderData, onGotoSetup, onGotoSenders }) {
   const [endpoint, setEndpoint] = useState(null)
   const [liveStatus, setLiveStatus] = useState(null)
@@ -2321,6 +2419,15 @@ export default function WorkspaceEmailProtectionPage() {
       ) : (
         <div className="space-y-6">
           {toast && <Toast toast={toast} onClose={() => setToast(null)} />}
+
+          {/* 0·hero — compliance % + policy + business exposure in one glance */}
+          <EmailPostureHero
+            wsId={wsId}
+            domain={selectedDomain}
+            dmarc={dmarc}
+            policyJourney={es?.policy_journey}
+            onGoto={(target) => document.getElementById(target)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+          />
 
           {/* 0. Connection status, checklist, ingestion + metrics — the customer answer */}
           <EmailProtectionOverview
