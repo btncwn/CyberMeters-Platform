@@ -140,6 +140,7 @@ function loadScanner(fetchImpl = async () => { throw new Error("network disabled
     SCAN_CHILD_TABLES,
     WORKSPACE_PURGE_TABLES,
     computeConcentration,
+    pdfUtcDate,
     emailHandler: __workerDefault.email,
     computeBusinessRiskScoreFromIds: (ids, data) => computeBusinessRiskScore(new Set(ids), data),
   };`, context, {
@@ -2285,6 +2286,19 @@ results.push(securityContract("email_source_validation_fails_and_unparseable", (
   const fail = scanner.parseEmailAuthHeaders("Authentication-Results: mx.google.com; spf=fail; dkim=fail; dmarc=fail header.from=cybermeters.com", "cybermeters.com");
   const empty = scanner.parseEmailAuthHeaders("Subject: hello\nTo: a@b.com", "cybermeters.com");
   return fail.verdict === "fails" && empty.verdict === "unparseable";
+}));
+results.push(securityContract("pdf_dates_render_utc_labelled_british", () => {
+  // D1 "YYYY-MM-DD HH:MM:SS" carries no zone marker but is UTC. PDFs must
+  // interpret it as UTC (never host-local) and label the zone explicitly, in
+  // British date style. Guards the 1-hour-shift class of bug found 2026-07-06.
+  const bare     = scanner.pdfUtcDate("2026-07-06 14:12:48", true);
+  const iso      = scanner.pdfUtcDate("2026-07-06T20:14:32.000Z", true);
+  const dateOnly = scanner.pdfUtcDate("2026-07-06 14:12:48");
+  return bare === "6 July 2026, 14:12 UTC" &&
+    iso === "6 July 2026, 20:14 UTC" &&
+    dateOnly === "6 July 2026" &&
+    scanner.pdfUtcDate(null) === "" &&
+    scanner.pdfUtcDate("not-a-date", true) === "not-a-date";
 }));
 results.push(securityContract("lifecycle_payment_failed_dedupe_per_invoice", () => {
   const a = scanner.lifecycleDedupeKey({ type: "lifecycle_payment_failed", workspace_id: "w1", ref: "in_123" });

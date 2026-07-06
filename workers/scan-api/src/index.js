@@ -17569,6 +17569,29 @@ function assemblePdf(streams) {
 }
 
 /**
+ * pdfUtcDate(value, withTime) — shared timestamp formatter for every PDF
+ * builder. D1 timestamps ("YYYY-MM-DD HH:MM:SS") carry no zone marker but are
+ * UTC; interpret them as such, and always label rendered times explicitly so a
+ * reader in any timezone knows the reference. British date style, ASCII-only
+ * (the hand-rolled PDF engine's fonts are ASCII-safe).
+ *   pdfUtcDate("2026-07-06 14:12:48")        → "6 July 2026"
+ *   pdfUtcDate("2026-07-06 14:12:48", true)  → "6 July 2026, 14:12 UTC"
+ */
+function pdfUtcDate(value, withTime = false) {
+  if (!value) return "";
+  const s = String(value);
+  const d = new Date(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(s) ? s.replace(" ", "T") + "Z" : s);
+  if (Number.isNaN(d.getTime())) return s.slice(0, 10);
+  const MONTHS = ["January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"];
+  const date = `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+  if (!withTime) return date;
+  const hh = String(d.getUTCHours()).padStart(2, "0");
+  const mm = String(d.getUTCMinutes()).padStart(2, "0");
+  return `${date}, ${hh}:${mm} UTC`;
+}
+
+/**
  * buildScanReportPdf(scan, report) — a focused, single-scan PDF built from the
  * stored V1 report. Uses the same low-level primitives (assemblePdf, pdfEsc,
  * hexToRgbF) as the workspace executive PDF. Returns a Uint8Array. Never leaks
@@ -17637,7 +17660,7 @@ function buildScanReportPdf(scan, report) {
   txt(ML, 40, "CyberMeters", 2, 20, "#FFFFFF");
   txt(ML, 62, "External Security Scan Report", 1, 11, "#DCFCE7");
   txt(PW - MR - 150, 40, domain, 2, 13, "#FFFFFF");
-  const created = (scan.created_at || "").slice(0, 10);
+  const created = pdfUtcDate(scan.created_at, true);
   txt(PW - MR - 150, 60, created ? `Scan date: ${created}` : "", 1, 9, "#DCFCE7");
   y = 122;
 
@@ -17829,14 +17852,10 @@ function buildPdfStreams({ workspace, stats, domains, findings, recommendations,
     ? Math.round(stats.cyber_score_average)
     : null;
 
-  const genDate = new Date().toLocaleDateString("en-US", {
-    year: "numeric", month: "long", day: "numeric",
-  });
+  const genDate = pdfUtcDate(new Date().toISOString(), true);
 
   const latestDate = stats.latest_scan
-    ? new Date(
-        (stats.latest_scan.created_at || "").replace(" ", "T") + "Z"
-      ).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
+    ? pdfUtcDate(stats.latest_scan.created_at, true)
     : "N/A";
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -18603,7 +18622,7 @@ function buildExecutivePdf(pdfData) {
 
   // ── Extract fields ────────────────────────────────────────────────────────
   const ws   = pdfData.workspace            ?? {};
-  const gd   = String(pdfData.generated_at ?? '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+  const gd   = pdfUtcDate(pdfData.generated_at, true) || pdfUtcDate(new Date().toISOString(), true);
   const reportId = pdfData.report_id ?? pdfData.report?.id ?? null;
   const reportVersion = pdfData.report_version ?? 'Executive PDF v2.2';
   const classificationRaw = String(pdfData.report_classification ?? 'Confidential').toLowerCase();
