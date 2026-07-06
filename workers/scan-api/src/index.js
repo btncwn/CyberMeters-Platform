@@ -12821,6 +12821,25 @@ function scoreBrandCandidateRisk(candidate = {}) {
   if (candidate.suspicious_tld === true) { score += 10; reasons.push("suspicious_tld"); }
   if (candidate.looks_like_login === true) { score += 12; reasons.push("looks_like_login"); }
   if (candidate.newly_seen === true) { score += 5; reasons.push("newly_seen"); }
+
+  // Registration-reality gate. String similarity alone does not make a threat:
+  // an unregistered permutation nobody has taken is a watchlist item, not a
+  // high-risk lookalike. Unless a candidate is confirmed live (DNS resolves or
+  // MX present) — or a human classified it — cap its risk at "low" so
+  // theoretical permutations never crowd out domains that actually exist.
+  const confirmedLive = candidate.dns_active === true || candidate.mx_present === true;
+  if (classification === "unreviewed") {
+    if (!confirmedLive) {
+      score = Math.min(score, 30); // caps at "low"
+      reasons.push("not_registered_watchlist");
+    } else if (candidate.mx_present === true) {
+      // Registered AND able to send/receive mail as the brand — real
+      // impersonation capability; ensure it surfaces as at least high.
+      score = Math.max(score, 65);
+      reasons.push("registered_with_mail_capability");
+    }
+  }
+
   if (classification === "suspicious") { score = Math.max(score, 70); reasons.push("marked_suspicious"); }
   if (classification === "confirmed_abuse") { score = Math.max(score, 90); reasons.push("confirmed_abuse"); }
 
@@ -29865,6 +29884,10 @@ export default {
                           FROM workspace_brand_assets
                           WHERE ${where.join(" AND ")}
                           ORDER BY
+                            -- Registered/live candidates first: a domain that
+                            -- actually resolves (and can send mail) is the real
+                            -- threat, ahead of theoretical permutations.
+                            (COALESCE(mx_present, 0) + COALESCE(dns_resolves, 0)) DESC,
                             CASE risk_level WHEN 'critical' THEN 0 WHEN 'high' THEN 1
                               WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END,
                             CASE COALESCE(classification, 'unreviewed')

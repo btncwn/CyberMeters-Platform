@@ -979,6 +979,39 @@ results.push(
     return candidate.classification === "ignored" && candidate.risk_level === "info" &&
       candidate.risk_score === 0 && candidate.action_required === false;
   }),
+  // Registration-reality calibration: an unregistered permutation (no DNS) must
+  // never reach high on string features alone — it is a watchlist item.
+  securityContract("brand_unregistered_lookalike_is_watchlist_not_high", () => {
+    const notResolving = scanner.scoreBrandCandidateRisk({
+      variant_type: "keyword_abuse", similarity_score: 95, dns_active: false,
+      contains_brand_keyword: true, looks_like_login: true, classification: "unreviewed",
+    });
+    const neverChecked = scanner.scoreBrandCandidateRisk({
+      variant_type: "keyword_abuse", similarity_score: 95, dns_active: null,
+      contains_brand_keyword: true, looks_like_login: true, classification: "unreviewed",
+    });
+    // auth-cybermeters.com scenario: high string similarity but not registered.
+    return notResolving.risk_level === "low" && notResolving.reasons.includes("not_registered_watchlist") &&
+      neverChecked.risk_level === "low";
+  }),
+  // A registered domain able to send mail as the brand IS a real threat, even
+  // with modest string similarity.
+  securityContract("brand_registered_with_mx_is_high", () => {
+    const risk = scanner.scoreBrandCandidateRisk({
+      variant_type: "typosquat", similarity_score: 30, dns_active: true,
+      mx_present: true, classification: "unreviewed",
+    });
+    return ["high", "critical"].includes(risk.risk_level) &&
+      risk.reasons.includes("registered_with_mail_capability");
+  }),
+  // A human classification (suspicious) still overrides the watchlist cap.
+  securityContract("brand_suspicious_classification_overrides_watchlist_cap", () => {
+    const risk = scanner.scoreBrandCandidateRisk({
+      variant_type: "insertion", similarity_score: 40, dns_active: false,
+      classification: "suspicious",
+    });
+    return risk.score >= 70 && risk.risk_level === "high";
+  }),
   securityContract("brand_candidate_classification_audit_safe", () => {
     const metadata = scanner.brandClassificationAuditMetadata(
       { candidate_domain: "examp1e.com", token_hash: "SECRET", internal_error: "STACK" },
