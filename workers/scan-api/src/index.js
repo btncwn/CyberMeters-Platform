@@ -32685,6 +32685,11 @@ export default {
     if (domVerInitMatch && request.method === "POST") {
       const domainId = domVerInitMatch[1];
       try {
+        // Auth BEFORE any lookup — an unauthenticated caller must never learn
+        // whether a domain id exists (404 vs 401 is an existence oracle).
+        const dviUser = await requireAuth(request, env);
+        if (!dviUser) return json({ error: "Unauthorized" }, 401);
+
         const domRow = await env.cybermeters_db
           .prepare("SELECT id, domain, verification_status FROM domains WHERE id = ?")
           .bind(domainId)
@@ -32692,8 +32697,6 @@ export default {
         if (!domRow) return json({ error: "Domain not found" }, 404);
 
         // RBAC: resolve all linked workspaces for this domain, then check domain:verify permission
-        const dviUser = await requireAuth(request, env);
-        if (!dviUser) return json({ error: "Unauthorized" }, 401);
         const dviAccess = await requireDomainRole(dviUser, domainId, "domain:verify", env);
         if (!dviAccess) return json({ error: "Forbidden — admin role required to initiate domain verification" }, 403);
 
@@ -32772,6 +32775,10 @@ export default {
     if (domVerCheckMatch && request.method === "POST") {
       const domainId = domVerCheckMatch[1];
       try {
+        // Auth BEFORE any lookup — see domVerInitMatch above (existence oracle).
+        const dvcUser = await requireAuth(request, env);
+        if (!dvcUser) return json({ error: "Unauthorized" }, 401);
+
         const domRow = await env.cybermeters_db
           .prepare("SELECT id, domain, verification_status, verification_token FROM domains WHERE id = ?")
           .bind(domainId)
@@ -32779,8 +32786,6 @@ export default {
         if (!domRow) return json({ error: "Domain not found" }, 404);
 
         // RBAC: resolve all linked workspaces for this domain, then check domain:verify permission
-        const dvcUser = await requireAuth(request, env);
-        if (!dvcUser) return json({ error: "Unauthorized" }, 401);
         const dvcAccess = await requireDomainRole(dvcUser, domainId, "domain:verify", env);
         if (!dvcAccess) return json({ error: "Forbidden — admin role required to verify domain ownership" }, 403);
 
