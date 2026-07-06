@@ -17449,7 +17449,8 @@ function buildScanReportPdf(scan, report) {
   txt(ML + 170, y + 46, rating ? rating.charAt(0).toUpperCase() + rating.slice(1) : "-", 2, 15, BRAND);
   txt(ML + 330, y + 24, "Business Risk", 1, 9, GRAY);
   txt(ML + 330, y + 46, br && br.score != null ? `${br.score} / 100` : "-", 2, 15, DK);
-  txt(ML + 330, y + 60, br && br.band ? `${br.band.charAt(0).toUpperCase() + br.band.slice(1)} risk` : "", 1, 8, GRAY);
+  // band already reads like "Low Business Risk" — show as-is, no suffix
+  txt(ML + 330, y + 60, br && br.band ? String(br.band) : "", 1, 8, GRAY);
   y += 78;
   txt(ML, y, `${actionable.length} finding${actionable.length === 1 ? "" : "s"} to act on`, 2, 11, DK);
   txt(ML + 200, y, `${observations.length} observation${observations.length === 1 ? "" : "s"}`, 1, 11, GRAY);
