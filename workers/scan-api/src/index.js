@@ -16092,19 +16092,18 @@ async function upsertVendorInventory(domainId, vendorRisk, env) {
     // Only touch rows in this workspace — preserve other workspaces.
     if (detectedNames.length > 0) {
       try {
-        // D1 does not support parameterised IN lists of variable length, so
-        // we build a literal list. Values are vendor names (strings) — safe to
-        // embed as SQL string literals after escaping single-quotes.
-        const escaped = detectedNames.map((n) => `'${n.replace(/'/g, "''")}'`).join(", ");
+        // Variable-length IN list via generated `?` placeholders — every value
+        // stays a bound parameter, never string-embedded SQL.
+        const placeholders = detectedNames.map(() => "?").join(", ");
         await env.cybermeters_db
           .prepare(
             `UPDATE workspace_vendors
              SET status = 'inactive', updated_at = ?
              WHERE workspace_id = ? AND status = 'active'
                AND source_module = 'vendor_risk'
-               AND vendor_name NOT IN (${escaped})`
+               AND vendor_name NOT IN (${placeholders})`
           )
-          .bind(now, workspace_id)
+          .bind(now, workspace_id, ...detectedNames)
           .run();
       } catch { /* non-fatal */ }
     }
@@ -22240,6 +22239,13 @@ function buildJsonHeaders(_corsHeaders = buildCorsHeaders(null)) {
     // Scan status, notifications, and workspace data change frequently and must
     // always reflect the current database state.
     'Cache-Control': 'no-store',
+    // Defence-in-depth for a JSON API: none of these responses are documents,
+    // but the headers cost nothing and close residual framing/sniffing paths.
+    'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Content-Security-Policy': "default-src 'none'",
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
   };
 }
 
@@ -22671,6 +22677,25 @@ export default {
         status:  "ok",
         service: "cybermeters-scan-api",
       });
+    }
+
+    // ── Global rate limiting guard ──────────────────────────────────────
+    // Coarse per-IP budgets applied to every route below (reads 300/5min,
+    // writes 60/5min) so no endpoint is entirely unthrottled. Endpoint-
+    // specific limits (signup, login, free-scan, invites, scans) still apply
+    // on top and are stricter. Fail-open and wrapped so the guard can never
+    // take the API down; OPTIONS and /health above are exempt.
+    try {
+      const globalClientIp = request.headers.get("CF-Connecting-IP") || "unknown";
+      const isReadRequest = request.method === "GET" || request.method === "HEAD";
+      const globalAction = isReadRequest ? "global_read" : "global_write";
+      const globalLimit = isReadRequest ? 300 : 60;
+      const globalRl = await consumeApiRateLimit(env,
+        [{ scope: "ip", scope_id: await rateLimitScopeId(globalAction, globalClientIp) }],
+        globalAction, globalLimit, 300);
+      if (globalRl) return json(globalRl.body, globalRl.status);
+    } catch {
+      // Rate limiting must never break request handling.
     }
 
     // ── GET /api/billing/plans ──────────────────────────────────────────
@@ -23144,6 +23169,9 @@ export default {
         "signup",
         5,
         3600,
+        // Abuse-critical: if rate limiting is unavailable, refuse rather than
+        // allow unmetered account creation.
+        { failClosed: true },
       );
       if (signupRateLimit) {
         return json({ error: "Too many signup attempts. Please wait before trying again.", code: "rate_limit_exceeded" }, signupRateLimit.status);
@@ -23259,6 +23287,8 @@ export default {
         "login",
         10,
         900, // 15 minutes
+        // Abuse-critical: never allow unmetered credential guessing.
+        { failClosed: true },
       );
       if (_loginRlResult) {
         return json({ error: "Too many login attempts. Please wait before trying again.", code: "rate_limit_exceeded" }, 429);
@@ -24049,7 +24079,9 @@ export default {
         [{ scope: "ip", scope_id: await rateLimitScopeId("forgot_password", _fpIp) }],
         "forgot_password",
         5,
-        900 // 15 minutes
+        900, // 15 minutes
+        // Abuse-critical: never allow unmetered reset-email generation.
+        { failClosed: true },
       );
       if (_fpRl) return json({ error: "Too many password reset requests. Please wait before trying again.", code: "rate_limit_exceeded" }, _fpRl.status);
 
