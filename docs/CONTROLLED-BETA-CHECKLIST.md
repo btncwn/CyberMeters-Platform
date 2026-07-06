@@ -23,9 +23,9 @@ Statuses below are code-verified on 2026-07-06, not assumed.
 | Dependency vulnerabilities | ✅ Zero open Dependabot alerts |
 | **Deletion requests actually processed** | ✅ Ready (deployed 2026-07-06, worker `f9d62b50`) |
 | Pre-invite smoke runbook (§3) | ✅ Run 2026-07-06 — all scriptable items passed; surfaced + fixed the lifecycle-email retry bug (worker `df650c34`) |
-| Operational readiness (§4) | ⚠ Backups/rollback/monitoring done — **1 blocker: no DMARC on cybermeters.com (F-OPS-1)** + human steps |
+| Operational readiness (§4) | ✅ Backups/rollback/monitoring done; **F-OPS-1 resolved** — DMARC published on cybermeters.com |
 
-**Verdict: One operational blocker remains — publish DMARC on cybermeters.com (§4 F-OPS-1).** All P0 code gates pass; §3 runbook executed. After DMARC is published and the human §4 steps (Cloudflare alert, support inbox, cost check) are confirmed, this is GO.
+**Verdict: GO. 🚀** All P0 code gates pass, the §3 runbook has been executed, and F-OPS-1 is closed (DMARC live on cybermeters.com, `rua` pointing at our own ingestion address — dig-verified and wizard-verified 2026-07-06). Three human disciplines remain as launch-week commitments, not blockers: enable a Cloudflare Worker error-rate alert, monitor support@ daily, and confirm Resend/Cloudflare plan limits. Stagger invites per §5.
 
 ---
 
@@ -101,12 +101,16 @@ Verified 2026-07-06.
 - [x] **Rollback:** worker rollback = `wrangler rollback` (or `wrangler versions deploy <id>`); `wrangler deployments list` confirmed prior versions are retained. Last known good before the current hardening/lifecycle series: `e9725882`. Pages rollback via the Cloudflare Pages deployment list. D1 migrations 043–060 are all additive — no destructive migration pending.
 - [x] **Monitoring procedure documented:** live tail = `cd workers/scan-api && npx wrangler tail --format=pretty`; filter errors with `--status error`. Lifecycle/email failures show as `[lifecycle-email]` / `[lifecycle-retry]`; request errors as `[request-error]` with a `request_id`.
 - [x] **Support channel — in-app:** `FeedbackWidget` is live (mounted in `Layout.jsx`).
-- [~] **Email deliverability (dogfood) — DKIM ✓ / SPF ✓ / DMARC ✗:** see finding F-OPS-1 below. **This is the one operational blocker before inviting users.**
+- [x] **Email deliverability (dogfood) — DKIM ✓ / SPF ✓ / DMARC ✓:** F-OPS-1 resolved 2026-07-06 (see below).
 - [ ] **Monitoring — human step:** review/enable a Cloudflare dashboard alert on Worker error rate (needs dashboard access).
 - [ ] **Support channel — human step:** commit to monitoring `support@cybermeters.com` daily during beta.
 - [ ] **Cost/limits — human step:** confirm Resend + Cloudflare (Workers/D1/Pages) plan limits comfortably cover ~10 active users.
 
-### F-OPS-1 (Medium — blocker): cybermeters.com has no DMARC record
+### F-OPS-1 — RESOLVED 2026-07-06: cybermeters.com had no DMARC record
+
+**Resolution:** `_dmarc.cybermeters.com TXT "v=DMARC1; p=none; rua=mailto:cmrua_…@reports.cybermeters.com"` published in Cloudflare DNS, pointing at our own RUA ingestion endpoint (full dogfood — our reports flow into our own Email Protection). Verified independently via dig AND via the product's own DMARC setup wizard ("DNS looks correctly configured"). Three independent detectors had flagged this: the §4 dogfood DNS check, our own scanner (85/100 report, `email_missing_dmarc` high finding), and Cloudflare Security Insights. Next: reports arrive within 24–72h; move to `p=quarantine` only after alignment is confirmed. Original finding below for the record.
+
+<details><summary>Original finding (historical)</summary>
 
 Ran our own Email Protection checks against our own domain:
 
@@ -122,6 +126,8 @@ DKIM aligns, so our lifecycle emails can pass DMARC once a policy exists — but
 **Fix (DNS, needs Cloudflare zone access — not code):** publish, following our own product's guidance (start at monitor, not enforcement):
 `_dmarc.cybermeters.com  TXT  "v=DMARC1; p=none; rua=mailto:<your-cybermeters-RUA-address>"`
 Then verify in our own Email Protection page. Move to `p=quarantine` only after reports confirm alignment.
+
+</details>
 
 ---
 
