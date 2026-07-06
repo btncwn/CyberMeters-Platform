@@ -15324,10 +15324,16 @@ function computeConcentration(graph, activeVendors) {
     .filter(([, n]) => n.vendor_count === 1 || n.categories.some(c => ['identity_provider','payments'].includes(c)))
     .map(([name]) => name);
 
+  // A "top-3 share" only means something with enough vendors to compare against.
+  // With a tiny sample (1–2 identified) the share is trivially ~100% and must
+  // not read as critical concentration — that's alarmist, not informative. So
+  // share-based escalation requires >= 3 vendors; genuine single points of
+  // failure (sole provider, identity/payments) still surface on their own.
+  const shareMeaningful = total >= 3;
   let level;
-  if (top3Share > 0.7 || spofs.length >= 3) level = 'critical';
-  else if (top3Share > 0.5 || spofs.length >= 2) level = 'high';
-  else if (top3Share > 0.3 || spofs.length >= 1) level = 'medium';
+  if ((shareMeaningful && top3Share > 0.7) || spofs.length >= 3) level = 'critical';
+  else if ((shareMeaningful && top3Share > 0.5) || spofs.length >= 2) level = 'high';
+  else if ((shareMeaningful && top3Share > 0.3) || spofs.length >= 1) level = 'medium';
   else level = 'low';
 
   const concentration_score = Math.max(0, 100 - Math.round(top3Share * 60) - spofs.length * 10);
@@ -18531,7 +18537,6 @@ function buildExecutivePdf(pdfData) {
       pg.text(lbl, fx + 5, ry - 23, 7, 'R', C.white);
       fx += 83;
     }
-    pg.text('cybermeters.io', 208, 20, 7.5, 'R', C.mgray);
     pg.flush();
   }
 

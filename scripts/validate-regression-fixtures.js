@@ -138,6 +138,7 @@ function loadScanner(fetchImpl = async () => { throw new Error("network disabled
     retryFailedLifecycleEmails,
     SCAN_CHILD_TABLES,
     WORKSPACE_PURGE_TABLES,
+    computeConcentration,
     emailHandler: __workerDefault.email,
     computeBusinessRiskScoreFromIds: (ids, data) => computeBusinessRiskScore(new Set(ids), data),
   };`, context, {
@@ -978,6 +979,21 @@ results.push(
     }, { brand_name: "example", primary_domain: "example.com" });
     return candidate.classification === "ignored" && candidate.risk_level === "info" &&
       candidate.risk_score === 0 && candidate.action_required === false;
+  }),
+  // Supply-chain concentration must not scream "critical" from a tiny sample:
+  // one identified vendor is limited visibility / a real-but-modest single point
+  // of failure, not a critical concentration risk.
+  securityContract("concentration_single_vendor_is_not_critical", () => {
+    const oneVendor = scanner.computeConcentration(
+      { Cloudflare: { vendor_count: 1, tier: 1, categories: ["infrastructure"] } },
+      [{ name: "Cloudflare" }]
+    );
+    // Genuine high concentration across enough vendors still escalates.
+    const manyUnderOne = scanner.computeConcentration(
+      { BigCloud: { vendor_count: 4, tier: 1, categories: ["infrastructure"] } },
+      [{}, {}, {}, {}]
+    );
+    return oneVendor.level === "medium" && manyUnderOne.level === "critical";
   }),
   // Registration-reality calibration: an unregistered permutation (no DNS) must
   // never reach high on string features alone — it is a watchlist item.
