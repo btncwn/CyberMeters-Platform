@@ -2254,6 +2254,46 @@ results.push(await asyncSecurityContract("lifecycle_domain_added_dedupe_no_resen
   const r = await scanner.sendLifecycleEmail(env, { type: "lifecycle_domain_added", workspace_id: "w1", domain: "acme.com" });
   return r.skipped === "duplicate" && !runs.some(s => s.includes("UPDATE lifecycle_email_events"));
 }));
+results.push(await asyncSecurityContract("lifecycle_failed_email_is_retried", async () => {
+  // A prior FAILED attempt (e.g. transient network error) must be retried on
+  // the next trigger — not permanently skipped as a duplicate. RESEND_API_KEY
+  // is omitted so delivery short-circuits without a real network call.
+  const runs = [];
+  const env = { FRONTEND_URL: ORIGIN, HELLO_EMAIL_FROM: "hello@cybermeters.com",
+    cybermeters_db: { prepare(sql) { return {
+      _sql: sql, _b: null, bind(...a) { this._b = a; return this },
+      async first() {
+        if (this._sql.includes("FROM users")) return { id: "u1", email: "a@b.com", email_verified: 1 };
+        if (this._sql.includes("WHERE dedupe_key")) return { id: "row_failed", status: "failed" };
+        return null;
+      },
+      async run() {
+        runs.push(this._sql);
+        // INSERT conflicts (row exists); claim UPDATE succeeds.
+        if (this._sql.includes("INSERT INTO lifecycle_email_events")) return { meta: { changes: 0 } };
+        return { meta: { changes: 1 } };
+      },
+    } } } };
+  const r = await scanner.sendLifecycleEmail(env, { type: "lifecycle_welcome", user_id: "u1" });
+  const claimed = runs.some(s => s.includes("UPDATE lifecycle_email_events") && s.includes("status = 'pending'"));
+  // Not skipped as duplicate; the failed row was reclaimed and delivery re-attempted.
+  return r.skipped !== "duplicate" && claimed && r.sent === false;
+}));
+results.push(await asyncSecurityContract("lifecycle_sent_email_not_resent", async () => {
+  // A previously SENT row must still be deduped — retry only applies to failures.
+  const env = { FRONTEND_URL: ORIGIN, HELLO_EMAIL_FROM: "hello@cybermeters.com", RESEND_API_KEY: "x",
+    cybermeters_db: { prepare(sql) { return {
+      _sql: sql, _b: null, bind(...a) { this._b = a; return this },
+      async first() {
+        if (this._sql.includes("FROM users")) return { id: "u1", email: "a@b.com", email_verified: 1 };
+        if (this._sql.includes("WHERE dedupe_key")) return { id: "row_sent", status: "sent" };
+        return null;
+      },
+      async run() { return this._sql.includes("INSERT INTO lifecycle_email_events") ? { meta: { changes: 0 } } : { meta: { changes: 1 } } },
+    } } } };
+  const r = await scanner.sendLifecycleEmail(env, { type: "lifecycle_welcome", user_id: "u1" });
+  return r.skipped === "duplicate";
+}));
 results.push(await asyncSecurityContract("lifecycle_unverified_or_missing_email_no_send", async () => {
   const runs = [];
   const env = { FRONTEND_URL: ORIGIN, cybermeters_db: { prepare(sql) { return {

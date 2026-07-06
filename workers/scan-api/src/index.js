@@ -16711,14 +16711,29 @@ async function sendLifecycleEmail(env, { type, user_id = null, workspace_id = nu
     if (!email) return { skipped: "no_verified_email" };
 
     const dedupeKey = lifecycleDedupeKey({ type, user_id: uid, workspace_id, domain, ref });
-    const id = createId("lifemail");
+    let rowId = createId("lifemail");
     const ins = await env.cybermeters_db
       .prepare(`INSERT INTO lifecycle_email_events (id, user_id, workspace_id, domain, type, dedupe_key, status, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, 'pending', datetime('now'))
                 ON CONFLICT(dedupe_key) DO NOTHING`)
-      .bind(id, uid ?? null, workspace_id ?? null, domain ?? null, type, dedupeKey)
+      .bind(rowId, uid ?? null, workspace_id ?? null, domain ?? null, type, dedupeKey)
       .run();
-    if ((ins.meta?.changes ?? 0) === 0) return { skipped: "duplicate" };
+
+    // Conflict → a row for this scope already exists. Retry only if the prior
+    // attempt FAILED (e.g. a transient network error); 'sent' and in-flight
+    // 'pending' rows are still deduped so we never double-send. Claiming the
+    // failed row back to 'pending' also guards against two concurrent retries.
+    if ((ins.meta?.changes ?? 0) === 0) {
+      const existing = await env.cybermeters_db
+        .prepare("SELECT id, status FROM lifecycle_email_events WHERE dedupe_key = ? LIMIT 1")
+        .bind(dedupeKey).first();
+      if (!existing || existing.status !== "failed") return { skipped: "duplicate" };
+      const claim = await env.cybermeters_db
+        .prepare("UPDATE lifecycle_email_events SET status = 'pending', error = NULL WHERE id = ? AND status = 'failed'")
+        .bind(existing.id).run();
+      if ((claim.meta?.changes ?? 0) === 0) return { skipped: "duplicate" };
+      rowId = existing.id;
+    }
 
     const origin = getEmailFrontendOrigin(env);
     const { subject, html, text } = buildLifecycleEmail(type, { origin, wsName: name, domain });
@@ -16728,7 +16743,7 @@ async function sendLifecycleEmail(env, { type, user_id = null, workspace_id = nu
       .prepare(`UPDATE lifecycle_email_events
                 SET status = ?, provider_id = ?, error = ?, sent_at = CASE WHEN ? = 'sent' THEN datetime('now') ELSE sent_at END
                 WHERE id = ?`)
-      .bind(res.sent ? "sent" : "failed", res.provider_id || null, res.sent ? null : (res.reason || "send_failed"), res.sent ? "sent" : "failed", id)
+      .bind(res.sent ? "sent" : "failed", res.provider_id || null, res.sent ? null : (res.reason || "send_failed"), res.sent ? "sent" : "failed", rowId)
       .run();
     return res.sent ? { sent: true } : { sent: false, reason: res.reason };
   } catch (e) {
