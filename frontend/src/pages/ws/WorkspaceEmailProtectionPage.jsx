@@ -595,16 +595,24 @@ function DifferentiatorBlock({ wsId }) {
 // ── Multi-domain summary ──────────────────────────────────────────────────────
 const STAGE_LABEL = { missing: 'No DMARC', monitoring: 'Monitoring', partial_enforcement: 'Quarantine', full_enforcement: 'Reject' }
 
+const BEC_DOT = { critical: 'text-red-700', high: 'text-red-700', medium: 'text-amber-700', low: 'text-brand-700', minimal: 'text-brand-700' }
 function MultiDomainSummary({ rows, selectedDomain, onSelect }) {
   if (!rows || rows.length < 2) return null
   const cell = (ok) => ok === true ? <CheckCircle className="w-4 h-4 text-brand-600 mx-auto" />
     : ok === false ? <span className="text-gray-300">—</span>
     : <span className="text-gray-300 text-xs">·</span>
+  const compCell = (c) => c == null
+    ? <span className="text-gray-300 text-xs">not measured</span>
+    : <span className={`text-xs font-bold tabular-nums ${c >= 95 ? 'text-brand-700' : c >= 80 ? 'text-amber-600' : 'text-red-700'}`}>{c}%</span>
+  const becCell = (b) => !b
+    ? <span className="text-gray-300 text-xs">·</span>
+    : <span className={`text-xs font-bold ${BEC_DOT[String(b).toLowerCase()] || 'text-gray-500'}`}>{titleCase(b)}</span>
   return (
     <section className="card overflow-hidden">
       <div className="px-6 py-4 border-b border-gray-200 bg-gray-50/70">
-        <span className="eyebrow">Workspace overview</span>
+        <span className="eyebrow">Portfolio</span>
         <h2 className="section-title leading-tight">Email posture across {rows.length} domains</h2>
+        <p className="text-xs text-gray-500 mt-0.5">Compliance is the share of mail passing DMARC alignment; business exposure translates it into impersonation risk. Click a row to focus that domain.</p>
       </div>
       <div className="overflow-x-auto">
         <table className="data-table w-full">
@@ -612,10 +620,12 @@ function MultiDomainSummary({ rows, selectedDomain, onSelect }) {
             <tr>
               <th className="text-left">Domain</th>
               <th className="text-left">DMARC stage</th>
+              <th className="text-center">Compliance</th>
+              <th className="text-left">Business exposure</th>
               <th className="text-center">SPF</th>
               <th className="text-center">DKIM</th>
               <th className="text-center">BIMI</th>
-              <th className="text-center">Open actions</th>
+              <th className="text-center">Open</th>
               <th className="text-left">Last scan</th>
             </tr>
           </thead>
@@ -625,6 +635,8 @@ function MultiDomainSummary({ rows, selectedDomain, onSelect }) {
                 className={`cursor-pointer transition-colors ${r.domain === selectedDomain ? 'bg-brand-50/50' : 'hover:bg-gray-50/60'}`}>
                 <td><span className="font-semibold text-gray-800 text-sm flex items-center gap-1.5"><Globe className="w-3.5 h-3.5 text-gray-400" />{r.domain}</span></td>
                 <td><span className="text-xs font-semibold text-gray-700">{STAGE_LABEL[r.stage] || '—'}</span></td>
+                <td className="text-center">{compCell(r.compliance)}</td>
+                <td>{becCell(r.bec)}</td>
                 <td className="text-center">{cell(r.spf)}</td>
                 <td className="text-center">{cell(r.dkim)}</td>
                 <td className="text-center">{cell(r.bimi)}</td>
@@ -2373,17 +2385,33 @@ export default function WorkspaceEmailProtectionPage() {
     return () => { cancelled = true }
   }, [selectedDomain, domainScans])
 
-  // Build multi-domain summary (bounded parallel report fetches)
+  // Build multi-domain portfolio (bounded parallel fetches). Enriches each
+  // domain with DMARC compliance % (from RUA) and business exposure (BEC) —
+  // the columns email-only portfolio views do not carry.
   useEffect(() => {
     if (domainScans.length < 2) { setSummaryRows([]); return }
     let cancelled = false
     const targets = domainScans.slice(0, 10)
-    Promise.allSettled(targets.map(s => api.getScanReport(s.id))).then(results => {
+    Promise.allSettled(targets.map(async (s) => {
+      const [rep, summ, bec] = await Promise.allSettled([
+        api.getScanReport(s.id),
+        api.getDmarcSummary(wsId, s.domain),
+        api.getBecExposureScore(wsId, s.domain),
+      ])
+      return {
+        scan:    s,
+        report:  rep.status === 'fulfilled' ? rep.value : null,
+        summary: summ.status === 'fulfilled' ? summ.value : null,
+        bec:     bec.status === 'fulfilled' ? bec.value : null,
+      }
+    })).then(results => {
       if (cancelled) return
-      const rows = results.map((res, i) => {
-        const scan = targets[i]
-        const es = res.status === 'fulfilled' ? res.value?.modules?.email_security : null
+      const rows = results.map(res => {
+        if (res.status !== 'fulfilled') return null
+        const { scan, report, summary, bec } = res.value
+        const es = report?.modules?.email_security
         const applicable = es?.applicability ? es.applicability.applicable !== false : true
+        const total = summary?.traffic?.total_messages ?? 0
         return {
           domain: scan.domain,
           lastScan: scan.created_at,
@@ -2392,12 +2420,14 @@ export default function WorkspaceEmailProtectionPage() {
           dkim: es?.dkim_detail ? es.dkim_detail.status === 'detected' : null,
           bimi: es?.bimi_readiness ? Boolean(es.bimi_readiness.record_found) : null,
           openActions: Array.isArray(es?.remediation_actions) ? es.remediation_actions.filter(a => a.status !== 'resolved').length : 0,
+          compliance: total > 0 ? (summary?.traffic?.pass_rate ?? null) : null,
+          bec: bec?.exposure_level || null,
         }
-      })
+      }).filter(Boolean)
       setSummaryRows(rows)
     })
     return () => { cancelled = true }
-  }, [domainScans])
+  }, [domainScans, wsId])
 
   // Load DMARC sender intelligence (summary + senders) for the selected domain.
   const loadSenderIntel = useCallback(async (domain) => {
