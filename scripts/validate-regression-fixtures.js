@@ -136,6 +136,8 @@ function loadScanner(fetchImpl = async () => { throw new Error("network disabled
     getPaymentGraceState,
     isDeletionPurgeDue,
     retryFailedLifecycleEmails,
+    SCAN_CHILD_TABLES,
+    WORKSPACE_PURGE_TABLES,
     emailHandler: __workerDefault.email,
     computeBusinessRiskScoreFromIds: (ids, data) => computeBusinessRiskScore(new Set(ids), data),
   };`, context, {
@@ -2294,6 +2296,46 @@ results.push(await asyncSecurityContract("lifecycle_sent_email_not_resent", asyn
     } } } };
   const r = await scanner.sendLifecycleEmail(env, { type: "lifecycle_welcome", user_id: "u1" });
   return r.skipped === "duplicate";
+}));
+// Deletion purge must cover every table with a FK to scans / workspaces, or
+// D1's FK enforcement makes the hard delete fail and the purge stalls forever.
+// These tests parse the migration SQL and would have caught the missing
+// scan-child tables (findings, hidden_assets, kev_matches, remediation_items,
+// reports) that left scans un-purgeable.
+function fkTablesReferencing(target) {
+  // Read the base schema AND every migration — scan-child tables (findings,
+  // reports, …) live in database/schema.sql, not the migrations dir.
+  const files = [];
+  const base = path.join(repoRoot, "database", "schema.sql");
+  if (fs.existsSync(base)) files.push(base);
+  const dir = path.join(repoRoot, "database", "migrations");
+  for (const f of fs.readdirSync(dir).filter(n => n.endsWith(".sql"))) files.push(path.join(dir, f));
+  const found = new Set();
+  for (const file of files) {
+    const sql = fs.readFileSync(file, "utf8");
+    for (const stmt of sql.split(";")) {
+      if (!new RegExp(`REFERENCES\\s+${target}\\s*\\(`, "i").test(stmt)) continue;
+      const m = stmt.match(/(?:CREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?|ALTER\s+TABLE)\s+([a-z_][a-z0-9_]*)/i);
+      if (m) found.add(m[1].toLowerCase());
+    }
+  }
+  found.delete(target); // a self-reference is not a child table
+  return found;
+}
+results.push(securityContract("purge_covers_all_scan_fk_tables", () => {
+  const covered = new Set(scanner.SCAN_CHILD_TABLES);
+  const missing = [...fkTablesReferencing("scans")].filter(t => !covered.has(t));
+  if (missing.length) console.error("  scan-FK tables missing from SCAN_CHILD_TABLES:", missing.join(", "));
+  return missing.length === 0;
+}));
+results.push(securityContract("purge_covers_all_workspace_fk_tables", () => {
+  // Intentionally retained (not purged): deletion_requests is the purge's own
+  // tracking table and does not block workspace deletion.
+  const EXCEPTIONS = new Set(["deletion_requests"]);
+  const covered = new Set(scanner.WORKSPACE_PURGE_TABLES);
+  const missing = [...fkTablesReferencing("workspaces")].filter(t => !covered.has(t) && !EXCEPTIONS.has(t));
+  if (missing.length) console.error("  workspace-FK tables missing from WORKSPACE_PURGE_TABLES:", missing.join(", "));
+  return missing.length === 0;
 }));
 results.push(await asyncSecurityContract("lifecycle_cron_retry_excludes_payment_failed", async () => {
   // The cron sweep re-fires failed lifecycle emails but must skip

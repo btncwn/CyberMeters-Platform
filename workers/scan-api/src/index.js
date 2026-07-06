@@ -19957,6 +19957,17 @@ function isDeletionPurgeDue(requestRow, nowMs = Date.now()) {
 
 // Tables hard-deleted by workspace_id, children before parents. audit_events,
 // subscriptions and deletion_requests are intentionally NOT here.
+// Tables with a FOREIGN KEY to scans(id). D1 enforces FKs, so these MUST be
+// deleted (by scan_id) BEFORE the scan row, or the scan DELETE fails and the
+// purge stalls forever. Kept in sync with the schema by the regression test
+// `purge_covers_all_scan_fk_tables`.
+const SCAN_CHILD_TABLES = [
+  "findings", "hidden_assets", "kev_matches", "remediation_items", "reports",
+];
+
+// Tables hard-deleted by workspace_id, children before parents. audit_events,
+// subscriptions and deletion_requests are intentionally NOT here (retained /
+// tracking). Kept in sync by `purge_covers_all_workspace_fk_tables`.
 const WORKSPACE_PURGE_TABLES = [
   "dmarc_aggregate_records", "dmarc_aggregate_reports", "email_sender_sources",
   "dmarc_ingest_endpoints", "workspace_brand_assets", "workspace_brand_profiles",
@@ -19969,6 +19980,7 @@ const WORKSPACE_PURGE_TABLES = [
   "report_schedule_runs", "report_schedules", "scheduled_reports",
   "workspace_invitations", "workspace_members", "workspace_retention_settings",
   "lifecycle_email_events", "scheduled_scans", "workspace_domains",
+  "finding_waivers", "api_tokens",
 ];
 
 /**
@@ -19999,6 +20011,12 @@ async function purgeWorkspaceData(env, workspaceId) {
   if ((scans?.results || []).length > 0) {
     for (const s of scans.results) {
       await env.cybermeters_reports.delete(`reports/${s.id}.json`).catch(() => {});
+      // Delete scan children first — D1 enforces the scans FKs, so the scan
+      // DELETE below fails (and the purge stalls) if any child row remains.
+      for (const child of SCAN_CHILD_TABLES) {
+        await env.cybermeters_db
+          .prepare(`DELETE FROM ${child} WHERE scan_id = ?`).bind(s.id).run().catch(() => {});
+      }
       await env.cybermeters_db
         .prepare("DELETE FROM scans WHERE id = ?").bind(s.id).run().catch(() => {});
     }
