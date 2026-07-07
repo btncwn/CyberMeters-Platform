@@ -11,6 +11,8 @@ import CyberMetersLogo from './CyberMetersLogo'
 import { api, logoutWithToken } from '../api'
 import { TOKEN_KEY } from '../context/authKeys'
 import { useAuth } from '../context/AuthContext'
+import { useWorkspace } from '../hooks/useWorkspace'
+import WorkspaceNav from './WorkspaceNav'
 import NotificationBell from './NotificationBell'
 import FeedbackWidget from './FeedbackWidget'
 
@@ -346,6 +348,10 @@ function UpgradePromptModal() {
 
 export default function Layout() {
   const navigate = useNavigate()
+  // The workspace service rail is part of the app shell: once a workspace is
+  // active it stays on screen across every route (dashboard, reports, settings)
+  // instead of vanishing on non-workspace pages.
+  const { wsId, wsName } = useWorkspace()
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -396,9 +402,14 @@ export default function Layout() {
         </div>
       </header>
 
-      {/* Content */}
+      {/* Content — persistent workspace service rail + routed page */}
       <main className="flex-1">
-        <Outlet />
+        <div className="flex">
+          {wsId && <WorkspaceNav wsName={wsName} />}
+          <div className="flex-1 min-w-0">
+            <Outlet />
+          </div>
+        </div>
       </main>
 
       {/* Beta feedback entry point */}
