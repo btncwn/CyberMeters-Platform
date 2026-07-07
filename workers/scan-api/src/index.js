@@ -8409,7 +8409,10 @@ async function ingestDmarcReport(env, opts = {}) {
     workspaceId, domain, source = "manual_paste", xmlString,
     filename: rawFilename = null, actorUserId = null,
     ingestEndpointId = null, domainId = null, enforceDomainMatch = false,
+    provenance = null,
   } = opts;
+  // Inbound sender provenance (null for authenticated manual/signed paths).
+  const prov = provenance && typeof provenance === "object" ? provenance : {};
 
   if (!workspaceId || !domain) {
     return { ok: false, status: 400, error: "missing_binding", message: "Workspace and domain are required." };
@@ -8450,7 +8453,8 @@ async function ingestDmarcReport(env, opts = {}) {
       entity_type: "domain", entity_id: domainId,
       description: `Duplicate DMARC report ignored for ${domain}`,
       metadata: { domain, source, org_name: m.org_name, report_id: identity.external_report_id,
-                  duplicate: true, ingest_endpoint_id: ingestEndpointId },
+                  duplicate: true, ingest_endpoint_id: ingestEndpointId,
+                  auth_verdict: prov.auth_verdict ?? null, reporter_domain: prov.reporter_domain ?? null },
     });
     return { ok: true, imported: false, duplicate: true };
   }
@@ -8462,12 +8466,14 @@ async function ingestDmarcReport(env, opts = {}) {
     .prepare(`INSERT INTO dmarc_aggregate_reports
               (id, workspace_id, domain, org_name, report_email, external_report_id, date_range_begin, date_range_end,
                policy_domain, policy_adkim, policy_aspf, policy_p, policy_sp, policy_pct,
-               record_count, message_count, raw_hash, source, created_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`)
+               record_count, message_count, raw_hash, source,
+               envelope_from, reporter_domain, auth_verdict, auth_evidence, created_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`)
     .bind(reportId, workspaceId, domain, m.org_name || null, m.email || null, identity.external_report_id,
           m.date_range_begin || null, m.date_range_end || null, pol.domain || null, pol.adkim || null,
           pol.aspf || null, pol.p || null, pol.sp || null, pol.pct ?? null,
-          parsed.records.length, messageCount, identity.raw_hash, source)
+          parsed.records.length, messageCount, identity.raw_hash, source,
+          prov.envelope_from ?? null, prov.reporter_domain ?? null, prov.auth_verdict ?? null, prov.auth_evidence ?? null)
     .run();
 
   for (const r of parsed.records) {
@@ -8491,7 +8497,9 @@ async function ingestDmarcReport(env, opts = {}) {
     description: `Ingested DMARC report for ${domain} from ${m.org_name || "unknown reporter"} via ${source}`,
     metadata: { domain, source, org_name: m.org_name, report_id: identity.external_report_id,
                 records: parsed.records.length, messages: messageCount, duplicate: false,
-                filename, ingest_endpoint_id: ingestEndpointId },
+                filename, ingest_endpoint_id: ingestEndpointId,
+                auth_verdict: prov.auth_verdict ?? null, reporter_domain: prov.reporter_domain ?? null,
+                envelope_from: prov.envelope_from ?? null },
   });
 
   return { ok: true, imported: true, duplicate: false, reportId,
@@ -8868,6 +8876,104 @@ function parseEmailAuthHeaders(raw, domain) {
   else if (out.aligned) out.verdict = "authenticated_aligned";
   else if (out.spf === "pass" || out.dkim === "pass") out.verdict = "passes_not_aligned";
   else out.verdict = "fails";
+  return out;
+}
+
+// ── Inbound RUA sender provenance (forged-report hardening) ───────────────────
+//
+// The inbound aggregate-report handler enforces enforceDomainMatch (the XML's
+// policy_published.domain must equal the endpoint's domain). Because the opaque
+// RUA address lives in the customer's PUBLIC DMARC record, an attacker can email
+// a forged-but-well-formed report whose XML sets the domain to match. Cloudflare
+// Email Routing already rejects inbound mail that fails the sender's DMARC policy,
+// so a legitimate reporter cannot be spoofed — but an attacker CAN send a
+// well-formed report from a domain they themselves control. We therefore record
+// who really sent each report and classify a trust verdict, WITHOUT ever dropping
+// a report (many legitimate smaller reporters exist; dropping real reports would
+// regress coverage). See migration 066-dmarc-inbound-provenance.sql.
+
+// Recognised mailbox providers that originate DMARC aggregate (RUA) reports and
+// publish enforcing DMARC — so a delivered message with one of these as its
+// header-From could not have been spoofed past Cloudflare's inbound enforcement.
+// Deliberately conservative: an unlisted legitimate reporter is merely marked
+// 'unverified' (safe, non-breaking) — it is never rejected. Extend as real
+// invited-user report traffic reveals other high-volume reporters.
+const KNOWN_DMARC_REPORTERS = [
+  "google.com", "microsoft.com", "outlook.com", "hotmail.com",
+  "yahoo.com", "yahooinc.com", "yahoo.co.jp", "aol.com",
+  "fastmail.com", "mail.ru", "comcast.net", "gmx.net", "gmx.com",
+  "web.de", "seznam.cz", "t-online.de", "laposte.net", "163.com", "qq.com",
+];
+
+function isKnownDmarcReporter(domain) {
+  const d = String(domain || "").trim().toLowerCase().replace(/\.$/, "");
+  if (!d) return false;
+  return KNOWN_DMARC_REPORTERS.some((r) => d === r || d.endsWith("." + r));
+}
+
+// Extract the domain from an RFC5322 mailbox/address header value ("Name <a@b>"
+// or a bare "a@b"). Returns a normalized hostname or null.
+function extractEmailDomainFromHeader(value) {
+  if (!value || typeof value !== "string") return null;
+  const m = value.match(/<([^<>@\s]+@[^<>@\s]+)>/) || value.match(/([^\s<>@]+@[^\s<>@]+)/);
+  if (!m) return null;
+  const at = m[1].lastIndexOf("@");
+  if (at < 0) return null;
+  return normalizeInboundRecipientDomain(m[1].slice(at + 1));
+}
+
+// The trust anchor. Returns the header-From domain ONLY when the top-level header
+// block contains exactly ONE From header — absent or duplicated From (a header
+// injection attempt) yields null so it can never be classified 'verified'.
+function extractSingleFromDomain(headerBlock) {
+  const unfolded = String(headerBlock || "").replace(/\r?\n[ \t]+/g, " ");
+  const froms = unfolded.split(/\r?\n/).filter((l) => /^from\s*:/i.test(l));
+  if (froms.length !== 1) return null;
+  return extractEmailDomainFromHeader(froms[0].replace(/^from\s*:/i, ""));
+}
+
+// Best-effort provenance for one inbound RUA email. NEVER throws and NEVER blocks
+// ingestion — worst case it returns an 'unverified' verdict with null fields.
+//
+// Trust model: only the RFC5322 header-From domain is trusted, because Cloudflare
+// enforces the header-From domain's DMARC policy BEFORE this Worker runs. The
+// message body is fully attacker-controlled, and even Authentication-Results /
+// DKIM header lines can be forged by the sender, so those tokens are recorded as
+// UNTRUSTED evidence only and never used to grant a 'verified' verdict.
+function deriveInboundReportProvenance(rawLatin1, message, boundDomain) {
+  const out = { envelope_from: null, reporter_domain: null, auth_verdict: "unverified", auth_evidence: null };
+  try {
+    // Only the top-level header block (before the first blank line) is inspected
+    // for auth signals; the body may contain forged header-like lines.
+    const a = rawLatin1.indexOf("\r\n\r\n");
+    const b = rawLatin1.indexOf("\n\n");
+    const sepIdx = a < 0 ? b : (b < 0 ? a : Math.min(a, b));
+    const headerBlock = sepIdx >= 0 ? rawLatin1.slice(0, sepIdx) : rawLatin1;
+
+    const headerFromDomain = extractSingleFromDomain(headerBlock);
+    const envRaw = message && typeof message.from === "string" ? message.from.trim() : "";
+    const envelopeFromDomain = envRaw
+      ? extractEmailDomainFromHeader(envRaw) || normalizeInboundRecipientDomain(envRaw.split("@").pop())
+      : null;
+    out.envelope_from = envRaw ? envRaw.slice(0, 320).toLowerCase() : null;
+
+    // Untrusted forensic signals only (self-asserted by the sender). Restricted to
+    // the header block so body-injected Authentication-Results cannot even appear.
+    const auth = parseEmailAuthHeaders(headerBlock, boundDomain || headerFromDomain || "");
+
+    const matched = Boolean(headerFromDomain && isKnownDmarcReporter(headerFromDomain));
+    out.auth_verdict = matched ? "verified" : "unverified";
+    out.reporter_domain = headerFromDomain || envelopeFromDomain || null;
+    out.auth_evidence = JSON.stringify({
+      header_from: headerFromDomain || null,
+      envelope_from: envelopeFromDomain || null,
+      dkim: auth ? auth.dkim : null,
+      dkim_d: auth ? auth.dkim_domain : null,
+      spf: auth ? auth.spf : null,
+      dmarc: auth ? auth.dmarc : null,
+      basis: matched ? "known_reporter_header_from" : null,
+    }).slice(0, 500);
+  } catch { /* provenance is best-effort; ingestion must proceed regardless */ }
   return out;
 }
 
@@ -37200,7 +37306,16 @@ export default {
       const raw = await readStreamCapped(message.raw, RUA_RAW_EMAIL_MAX_BYTES);
       if (!raw) { await drop(endpoint, "attachment_too_large", recipient); return; }
 
-      const parts = parseMimeParts(_bytesToLatin1(raw));
+      const rawLatin1 = _bytesToLatin1(raw);
+      // Who really sent this report? Cloudflare rejects inbound mail that fails the
+      // sender's DMARC before we run, so a recognised reporter's header-From cannot
+      // be spoofed. Best-effort, never throws, never blocks ingestion — a forged
+      // report from an attacker-controlled domain is still ingested but recorded as
+      // 'unverified' so it is auditable and purgeable (enforceDomainMatch alone
+      // cannot distinguish it from a real report).
+      const provenance = deriveInboundReportProvenance(rawLatin1, message, endpoint.domain);
+
+      const parts = parseMimeParts(rawLatin1);
       const sel = selectDmarcAttachment(parts);
       if (sel.error) { await drop(endpoint, sel.error, recipient); return; }
       const ext = await extractDmarcXmlFromAttachment(sel.part.filename, sel.part.bytes, caps);
@@ -37209,7 +37324,7 @@ export default {
       const result = await ingestDmarcReport(env, {
         workspaceId: endpoint.workspace_id, domain: endpoint.domain, source: "inbound_email",
         xmlString: ext.xml, actorUserId: null, ingestEndpointId: endpoint.id,
-        domainId: endpoint.domain_id, enforceDomainMatch: true,
+        domainId: endpoint.domain_id, enforceDomainMatch: true, provenance,
       });
 
       // Parse/validation rejection (e.g. domain_mismatch). Do NOT mark the
@@ -37240,6 +37355,11 @@ export default {
           decompressed_size: ext.decompressed_size,
           message_count: result.messages,
           record_count: result.records,
+          // Sender provenance — 'unverified' flags a report from a source that is
+          // not a recognised major reporter (still ingested; auditable/purgeable).
+          auth_verdict: provenance.auth_verdict,
+          reporter_domain: provenance.reporter_domain,
+          envelope_from: provenance.envelope_from,
         },
       });
 
