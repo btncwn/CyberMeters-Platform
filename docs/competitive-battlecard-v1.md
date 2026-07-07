@@ -2,7 +2,7 @@
 
 **Audience:** internal — founder, sales conversations, investor/grant Q&A. Not a public document.
 **Rule of use:** every claim here is either independently verified (method noted) or clearly marked as our positioning. Never present the unverified parts as fact. Accuracy is our brand; the battlecard must live by it.
-**Last verified:** 6 July 2026. Re-verify the landscape quarterly (competitors ship and acquire fast).
+**Last verified:** 7 July 2026 (Intruder added; Red Sift/Cloudflare 6 July). Re-verify the landscape quarterly (competitors ship and acquire fast).
 
 ---
 
@@ -36,6 +36,26 @@ shared test:** on cybermeters.com (6 July 2026) it produced a DMARC false positi
 security.txt false negative, 13/16 findings that were prompts to enable Cloudflare's own products —
 and its own DMARC Management product contradicted its Security Insights on the same record, same
 day. Full reproducible pack: `docs/evidence-pack-accuracy-vs-cloudflare-v1.md` (Findings 1–4).
+
+### Intruder — adjacent, NOT a competitor
+
+*Verified live 7 July 2026 (intruder.io): a unified exposure-management platform — external/internal
+vulnerability scanning, web/DAST, cloud config checks (CSPM, AWS/Azure/GCP), API testing, and attack
+surface management. Detection + prioritisation + remediation **guidance** — it does **not**
+auto-remediate. No email security (DMARC/SPF/DKIM) anywhere.*
+
+The only surface we share is **external attack surface / exposure discovery** — and even there we do
+not compete on their core: Intruder does real vulnerability detection (versioned services, CVE
+matching, CVSS); we do exposure/hygiene signals (DNS, certs, headers, admin surfaces), not CVE
+scanning. On the overlap **Intruder is deeper**, and our Cloudflare Workers architecture (subrequest
+limits) structurally caps scan depth.
+
+**Positioning:** they are the neighbour, not the rival. A serious company runs both. **Never** claim
+"Intruder finds it, we fix it" — the things Intruder detects (infra CVEs, cloud misconfig, web/API
+vulns) are almost entirely things we neither detect nor remediate; our autonomy is scoped to the
+DNS/email slice Intruder does not touch. Correct line: *"Intruder finds infrastructure
+vulnerabilities; CyberMeters manages and fixes your email and domain security. Where we overlap —
+external attack surface — they scan broad, we feed the four-service story."*
 
 ---
 
@@ -137,6 +157,60 @@ the same."
 - DMARC dogfood: `_dmarc.cybermeters.com` live, monitor-only, RUA to our own ingestion (`dig +short TXT _dmarc.cybermeters.com`)
 - Registration-reality brand scoring: unregistered lookalikes capped at "low/watchlist" — no fear-inflation
 - security.txt (RFC 9116) live on our own domain while an incumbent scanner reported it absent
+
+---
+
+## 8. Brutal self-audit — where we actually stand (7 July 2026)
+
+Written to counter our own optimism. If a claim here flatters us without evidence, it is deleted.
+
+### The existential gaps (these kill us, not features)
+
+1. **Zero customers, zero validation.** Every "we win on X" is an untested hypothesis. Both
+   competitors have thousands of paying customers, references, funding, and years of real data.
+2. **Bus factor = 1.** ~35k-line monolith, one founder. Enterprise does not buy from bus-factor-1.
+3. **No trust artifacts.** No SOC 2, ISO 27001, or independent pen-test. We sell *security* without
+   our own security badges — a hard credibility wall above SMB.
+4. **Architecture ceiling.** Cloudflare Workers subrequest limits structurally cap scan depth; deep
+   scanning at scale would need re-architecture.
+5. **Autonomy is double-edged.** "We change your DNS automatically" attracts SMBs (low ARPU, high
+   churn) but scares the enterprise security teams who would pay most. The self-driving USP may repel
+   the highest-value buyers. Mitigation on roadmap: an approve-then-act mode.
+
+### Honest gaps vs Red Sift (the real head-to-head, all four services)
+
+- **DMARC maturity:** OnDMARC has processed billions of RUA reports over years; we have processed
+  ~zero. Our BEC score and sender heuristics are calibrated on tiny data and may not hold at scale.
+- **Data-scale moat:** Hardenize (Ivan Ristić / SSL Labs) brings CT firehose + years of passive DNS;
+  our detection is lighter. Their Brand Trust data depth beats ours.
+- **Missing capabilities they have:** hosted/dynamic SPF (we only analyse), DKIM key management/
+  rotation (none), fully hosted MTA-STS (custom-hostname TLS gap), BIMI/VMC execution.
+
+### What is genuinely ours (defensible, not cheerleading)
+
+- Closed-loop **Self-Driving DMARC** (host + measure in one engine) — novel, structurally hard for
+  their siloed products to copy.
+- One integrated **self-serve** product vs their five sales-led products — a real market gap for SMB.
+- Business-language BEC translation; **evidence/honesty culture**; UK / Cyber Essentials wedge.
+- Engineering discipline (Saga/write-ahead, 218 regression contracts) — rare this early. But **good
+  code is not a proven business.**
+
+### Roadmap — proof and trust before features
+
+**Phase 0 — Stop and prove (0–4 wks):** send the first 2 invites; **freeze** deepening the
+autonomy/registry `apply` tier until a real user asks; collect real RUA data to recalibrate.
+**Phase 1 — Trust artifacts (1–3 mo):** public trust page + an independent pen-test; start SOC 2
+Type I (Vanta/Drata); document the riskiest monolith seams to cut bus-factor.
+**Phase 2 — Deepen the lane we win (3–6 mo, feedback-led):** finish the email wedge to parity
+(TLS-RPT hosted apply → dynamic SPF hosting → DKIM rotation); ship approve-then-act autopilot;
+productise Cyber Essentials Readiness.
+**Phase 3 — Only if feedback demands (6 mo+):** integrate-don't-compete with Intruder on ASM; pick
+Brand data-depth battles carefully.
+
+**One honest line:** *CyberMeters is the only integrated, self-serve platform that autonomously
+manages email and domain security for SMB/mid-market — neighbour to Intruder's infra scanning, the
+self-serve alternative to Red Sift's five-product enterprise suite. Unproven, but its engineering and
+honesty are sound.*
 
 ---
 
