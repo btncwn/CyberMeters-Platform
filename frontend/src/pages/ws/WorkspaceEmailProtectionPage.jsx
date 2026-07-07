@@ -1666,47 +1666,61 @@ function ManagedDmarcCard({ wsId, domain, endpointReady }) {
 
           {/* ── Self-Driving DMARC: policy ramp (Phase B) ── */}
           {rec.status === 'connected' && rec.policy_step && (
-            <div className="pt-3 border-t border-brand-100 space-y-2.5">
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <p className="text-xs font-bold text-gray-900">Enforcement journey</p>
+            <div className="pt-5 mt-4 border-t border-brand-100 space-y-5">
+              <div className="flex items-end justify-between gap-3 flex-wrap">
+                <div>
+                  <h4 className="text-base font-bold text-gray-900">Enforcement journey</h4>
+                  <p className="text-sm text-gray-500 mt-0.5">Move safely from monitoring to blocking spoofed mail.</p>
+                </div>
                 {ramp?.compliance && (
-                  <p className="text-[11px] text-gray-500">
-                    7-day compliance:{' '}
-                    <span className={`font-bold tabular-nums ${
-                      ramp.compliance.pass_rate == null ? 'text-gray-400'
+                  <div className="text-right">
+                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">7-day compliance</p>
+                    <p className={`text-2xl font-black tabular-nums leading-none mt-1 ${
+                      ramp.compliance.pass_rate == null ? 'text-gray-300'
                       : ramp.compliance.pass_rate >= 97 ? 'text-brand-700' : 'text-amber-600'}`}>
-                      {ramp.compliance.pass_rate != null ? `${ramp.compliance.pass_rate}%` : 'no data yet'}
-                    </span>
-                    {ramp.compliance.total_messages > 0 && <span className="text-gray-400"> · {ramp.compliance.total_messages.toLocaleString()} msgs</span>}
-                  </p>
+                      {ramp.compliance.pass_rate != null ? `${ramp.compliance.pass_rate}%` : '—'}
+                    </p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {ramp.compliance.pass_rate == null ? 'no reports yet'
+                        : `${ramp.compliance.total_messages.toLocaleString()} messages`}
+                    </p>
+                  </div>
                 )}
               </div>
 
-              {/* Ladder track */}
-              <div className="flex items-center gap-1 flex-wrap">
-                {['Monitor', 'Q 5%', 'Q 25%', 'Q 50%', 'Quarantine', 'Reject'].map((label, i) => (
-                  <span key={label} className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
-                    i === rec.policy_step.index ? 'bg-brand-600 text-white border-brand-600'
-                    : i < rec.policy_step.index ? 'bg-brand-50 text-brand-700 border-brand-200'
-                    : 'bg-white text-gray-400 border-gray-200'}`}>
-                    {label}
-                  </span>
-                ))}
+              {/* Ladder track — generous, legible steps */}
+              <div className="flex items-stretch gap-1.5 overflow-x-auto pb-1">
+                {['Monitor', 'Quarantine 5%', 'Quarantine 25%', 'Quarantine 50%', 'Quarantine', 'Reject'].map((label, i) => {
+                  const state = i === rec.policy_step.index ? 'current' : i < rec.policy_step.index ? 'done' : 'future'
+                  return (
+                    <div key={label} className={`flex-1 min-w-[92px] rounded-xl border px-3 py-2.5 text-center ${
+                      state === 'current' ? 'bg-brand-600 border-brand-600 text-white shadow-sm ring-2 ring-brand-200'
+                      : state === 'done' ? 'bg-brand-50 border-brand-200 text-brand-700'
+                      : 'bg-white border-gray-200 text-gray-400'}`}>
+                      <p className="text-[13px] font-bold leading-tight">{label}</p>
+                      {state === 'current' && <p className="text-[11px] font-semibold text-brand-100 mt-0.5">You are here</p>}
+                      {state === 'done' && <p className="text-[11px] text-brand-600 mt-0.5">✓ passed</p>}
+                    </div>
+                  )
+                })}
               </div>
 
               {rec.change_pending && (
-                <p className="text-[11px] text-amber-700 font-medium">
+                <p className="text-sm text-amber-700 font-medium bg-amber-50 border border-amber-200 rounded-lg px-3.5 py-2.5">
                   A change is being confirmed — controls unlock automatically once it settles.
                 </p>
               )}
+
               {!ramp?.policyAllowed ? (
-                <p className="text-[11px] text-gray-500">
-                  Monitoring is free. <span className="font-semibold text-gray-700">Policy changes and Self-Driving DMARC are available on paid plans</span> — upgrade to move towards enforcement from here.
-                </p>
+                <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3.5">
+                  <p className="text-sm text-gray-700">
+                    Monitoring is free. <span className="font-bold">Policy changes and Self-Driving DMARC are on paid plans</span> — upgrade to move toward enforcement from here.
+                  </p>
+                </div>
               ) : (
                 <>
                   {rec.next_step && !rec.change_pending && (
-                    <div className="flex items-center gap-2 flex-wrap">
+                    <div className="space-y-2.5">
                       <button
                         onClick={() => act('policy', async () => {
                           try {
@@ -1723,32 +1737,41 @@ function ManagedDmarcCard({ wsId, domain, endpointReady }) {
                           }
                         }, { reloadAll: true })}
                         disabled={Boolean(busy)}
-                        className="btn-primary text-xs disabled:opacity-50"
+                        className="btn-primary w-full justify-center py-3 text-sm disabled:opacity-50"
                       >
-                        {busy === 'policy' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <ArrowRight className="w-3.5 h-3.5" />}
+                        {busy === 'policy' ? <RefreshCw className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
                         Advance to {rec.next_step.label}
                       </button>
                       {ramp?.readiness && !ramp.readiness.ready && (
-                        <span className="text-[10px] text-amber-700 font-medium">Interlock: {ramp.readiness.reasons[0]}</span>
+                        <div className="flex items-start gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3.5 py-2.5">
+                          <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                          <span><span className="font-semibold">Safety interlock:</span> {ramp.readiness.reasons[0]}</span>
+                        </div>
                       )}
                       {ramp?.readiness?.ready && (
-                        <span className="text-[10px] text-brand-700 font-semibold">✓ Compliance ready for the next step</span>
+                        <p className="flex items-center gap-1.5 text-sm text-brand-700 font-semibold">
+                          <CheckCircle className="w-4 h-4" /> Compliance is healthy — ready for the next step.
+                        </p>
                       )}
                     </div>
                   )}
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <label className="inline-flex items-center gap-1.5 text-[11px] text-gray-600 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={rec.autopilot}
-                        disabled={Boolean(busy)}
-                        onChange={(e) => act('autopilot', () => api.setHostedDmarcAutopilot(wsId, domain, e.target.checked), { reloadAll: true })}
-                        className="rounded border-gray-300"
-                      />
-                      <span className="font-semibold">Self-Driving DMARC</span>
-                      <span className="text-gray-400">— advance automatically while compliance stays healthy; roll back on regressions</span>
-                    </label>
-                  </div>
+
+                  {/* Self-Driving toggle — a real, legible control row */}
+                  <label className={`flex items-start gap-3 rounded-xl border px-4 py-3.5 cursor-pointer transition-colors ${
+                    rec.autopilot ? 'border-brand-300 bg-brand-50/50' : 'border-gray-200 hover:border-gray-300'}`}>
+                    <input
+                      type="checkbox"
+                      checked={rec.autopilot}
+                      disabled={Boolean(busy)}
+                      onChange={(e) => act('autopilot', () => api.setHostedDmarcAutopilot(wsId, domain, e.target.checked), { reloadAll: true })}
+                      className="mt-0.5 w-4 h-4 rounded border-gray-300 text-brand-600"
+                    />
+                    <span>
+                      <span className="block text-sm font-bold text-gray-900">Self-Driving DMARC</span>
+                      <span className="block text-sm text-gray-500 mt-0.5">Advance automatically while compliance stays healthy, and roll back on regressions.</span>
+                    </span>
+                  </label>
+
                   {rec.can_rollback && (
                     <button
                       onClick={() => {
@@ -1757,9 +1780,10 @@ function ManagedDmarcCard({ wsId, domain, endpointReady }) {
                         }
                       }}
                       disabled={Boolean(busy)}
-                      className="text-[11px] text-gray-400 hover:text-amber-700 disabled:opacity-50"
+                      className="btn-secondary text-sm disabled:opacity-50"
                     >
-                      {busy === 'rollback' ? 'Rolling back…' : '↩ Roll back last policy change'}
+                      <RefreshCw className={`w-4 h-4 ${busy === 'rollback' ? 'animate-spin' : ''}`} />
+                      {busy === 'rollback' ? 'Rolling back…' : 'Roll back last change'}
                     </button>
                   )}
                 </>
@@ -2151,17 +2175,17 @@ function RemediationsPanel({ wsId, domain }) {
                       )}
                       {(fix.fix?.records || []).map((r, i) => (
                         <div key={i}>
-                          <p className="text-[11px] font-semibold text-gray-500 mb-1">{r.type} · {r.name}</p>
+                          <p className="text-xs font-semibold text-gray-500 mb-1">{r.type} · {r.name}</p>
                           <DnsValue value={r.value} />
                         </div>
                       ))}
                       {(fix.fix?.files || []).map((f, i) => (
                         <div key={`f${i}`}>
-                          <p className="text-[11px] font-semibold text-gray-500 mb-1">Serve at {f.path}</p>
+                          <p className="text-xs font-semibold text-gray-500 mb-1">Serve at {f.path}</p>
                           <DnsValue value={f.content} />
                         </div>
                       ))}
-                      {fix.fix?.note && <p className="text-[11px] text-gray-500 leading-relaxed">{fix.fix.note}</p>}
+                      {fix.fix?.note && <p className="text-sm text-gray-500 leading-relaxed">{fix.fix.note}</p>}
                     </>
                   )}
                 </div>
@@ -2177,10 +2201,10 @@ function RemediationsPanel({ wsId, domain }) {
 function ZoneHeader({ n, title, hint }) {
   return (
     <div className="flex items-center gap-3 pt-3">
-      <div className="w-6 h-6 rounded-lg bg-gray-900 text-white text-[11px] font-bold flex items-center justify-center flex-shrink-0">{n}</div>
+      <div className="w-7 h-7 rounded-lg bg-gray-900 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">{n}</div>
       <div className="min-w-0 flex-shrink-0">
-        <h2 className="text-sm font-bold text-gray-900 leading-tight">{title}</h2>
-        {hint && <p className="text-[11px] text-gray-400 leading-tight">{hint}</p>}
+        <h2 className="text-base font-bold text-gray-900 leading-tight">{title}</h2>
+        {hint && <p className="text-xs text-gray-400 leading-tight mt-0.5">{hint}</p>}
       </div>
       <div className="flex-1 h-px bg-gray-100" />
     </div>
