@@ -2076,6 +2076,104 @@ const EP_MODE = {
 }
 
 // ── Zone divider — gives the long page a scannable rhythm ─────────────────────
+// Remediation Registry surface: every hygiene gap with live detection and the
+// exact one-click-copy fix. Where a competitor says "missing", we hand over the
+// precise record and (for DMARC) offer to host + self-drive it.
+function RemediationsPanel({ wsId, domain }) {
+  const [items, setItems] = useState(null)
+  const [openId, setOpenId] = useState(null)
+  const [fix, setFix] = useState(null)
+
+  useEffect(() => {
+    if (!wsId || !domain) { setItems(null); return }
+    let cancelled = false
+    setItems(null); setOpenId(null); setFix(null)
+    api.getRemediations(wsId, domain)
+      .then(r => { if (!cancelled) setItems(r?.remediations || []) })
+      .catch(() => { if (!cancelled) setItems([]) })
+    return () => { cancelled = true }
+  }, [wsId, domain])
+
+  async function toggle(id) {
+    if (openId === id) { setOpenId(null); setFix(null); return }
+    setOpenId(id); setFix(null)
+    try { setFix(await api.getRemediationFix(wsId, domain, id)) }
+    catch { setFix({ error: true }) }
+  }
+
+  if (!items) return null
+  const gaps = items.filter(i => i.applicable && !i.ok)
+  const good = items.filter(i => i.applicable && i.ok)
+
+  return (
+    <section className="card overflow-hidden">
+      <div className="px-6 py-4 border-b border-gray-200 bg-gray-50/70 flex items-center gap-2.5">
+        <div className="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center"><ShieldCheck className="w-4 h-4 text-white" /></div>
+        <div>
+          <span className="eyebrow">Auto-fix</span>
+          <h2 className="section-title leading-tight">Security gaps &amp; one-click fixes</h2>
+        </div>
+        {gaps.length === 0 && good.length > 0 && (
+          <span className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-brand-50 border border-brand-100 text-xs font-semibold text-brand-700">
+            <CheckCircle className="w-3.5 h-3.5" /> All checks pass
+          </span>
+        )}
+      </div>
+      <div className="p-4 space-y-2">
+        {[...gaps, ...good].map(item => {
+          const open = openId === item.id
+          return (
+            <div key={item.id} className="rounded-lg border border-gray-200">
+              <button onClick={() => toggle(item.id)} className="w-full flex items-center gap-3 px-4 py-3 text-left">
+                {item.ok
+                  ? <CheckCircle className="w-4 h-4 text-brand-600 flex-shrink-0" />
+                  : <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0" />}
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-gray-900">{item.title}</p>
+                  <p className="text-xs text-gray-400">
+                    {item.ok ? 'In place' : 'Not configured'}
+                    {item.capability === 'hosted' && <span className="ml-1.5 text-brand-700 font-semibold">· CyberMeters can host this</span>}
+                    {item.capability === 'guided' && <span className="ml-1.5 text-gray-500">· exact fix below</span>}
+                  </p>
+                </div>
+                {!item.ok && <span className="text-xs text-brand-700 font-semibold">{open ? 'Hide' : 'Show fix'}</span>}
+              </button>
+              {open && (
+                <div className="px-4 pb-4 border-t border-gray-100 pt-3 space-y-2">
+                  {!fix ? (
+                    <p className="text-xs text-gray-400 flex items-center gap-1.5"><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Generating the exact fix…</p>
+                  ) : fix.error ? (
+                    <p className="text-xs text-gray-500">The fix could not be generated right now.</p>
+                  ) : (
+                    <>
+                      {item.managed_via === 'hosted-dmarc' && (
+                        <p className="text-xs text-brand-700 font-medium">Use the managed DMARC card above — CyberMeters hosts and self-drives this record for you.</p>
+                      )}
+                      {(fix.fix?.records || []).map((r, i) => (
+                        <div key={i}>
+                          <p className="text-[11px] font-semibold text-gray-500 mb-1">{r.type} · {r.name}</p>
+                          <DnsValue value={r.value} />
+                        </div>
+                      ))}
+                      {(fix.fix?.files || []).map((f, i) => (
+                        <div key={`f${i}`}>
+                          <p className="text-[11px] font-semibold text-gray-500 mb-1">Serve at {f.path}</p>
+                          <DnsValue value={f.content} />
+                        </div>
+                      ))}
+                      {fix.fix?.note && <p className="text-[11px] text-gray-500 leading-relaxed">{fix.fix.note}</p>}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
 function ZoneHeader({ n, title, hint }) {
   return (
     <div className="flex items-center gap-3 pt-3">
@@ -3026,10 +3124,13 @@ export default function WorkspaceEmailProtectionPage() {
             </div>
           </section>
 
-          {/* 4. Differentiator */}
+          {/* 4. Auto-fix registry — every gap + the exact fix */}
+          <RemediationsPanel wsId={wsId} domain={selectedDomain} />
+
+          {/* 5. Differentiator */}
           <DifferentiatorBlock wsId={wsId} />
 
-          {/* 5. Multi-domain summary */}
+          {/* 6. Multi-domain summary */}
           <MultiDomainSummary rows={summaryRows} selectedDomain={selectedDomain} onSelect={setSelectedDomain} />
         </div>
       )}

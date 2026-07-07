@@ -165,6 +165,9 @@ function loadScanner(fetchImpl = async () => { throw new Error("network disabled
     rollbackHostedDmarc,
     reconcileHostedIntent,
     planAllowsHostedPolicyManagement,
+    REMEDIATION_REGISTRY,
+    getRemediation,
+    remediationToApi,
     runHostedDnsVerificationSweep_B: runHostedDnsVerificationSweep,
     emailHandler: __workerDefault.email,
     computeBusinessRiskScoreFromIds: (ids, data) => computeBusinessRiskScore(new Set(ids), data),
@@ -2776,6 +2779,53 @@ results.push(await asyncSecurityContract("hosted_reconciler_commits_or_aborts_au
   return r1.action === "committed" && committed &&
     abortedClean &&
     r3.action === "in_flight" && log3.length === 0;
+}));
+results.push(securityContract("remediation_registry_integrity", () => {
+  const reg = scanner.REMEDIATION_REGISTRY;
+  const ids = reg.map((a) => a.id);
+  const unique = new Set(ids).size === ids.length;
+  const shapeOk = reg.every((a) =>
+    typeof a.id === "string" && typeof a.title === "string" &&
+    ["email", "dns", "web"].includes(a.category) &&
+    ["hosted", "guided"].includes(a.capability) &&
+    typeof a.detect === "function" && typeof a.generate === "function" &&
+    typeof a.verify === "function");
+  // Adding a standard is one entry; lookups resolve by id and reject unknowns.
+  return unique && shapeOk && ids.includes("tls_rpt") && ids.includes("dmarc") &&
+    scanner.getRemediation("tls_rpt")?.id === "tls_rpt" &&
+    scanner.getRemediation("nope") === null;
+}));
+results.push(securityContract("remediation_generators_emit_exact_records", () => {
+  const ctx = { domain: "example.com" };
+  const tls = scanner.getRemediation("tls_rpt").generate(ctx);
+  const mta = scanner.getRemediation("mta_sts").generate(ctx);
+  const caa = scanner.getRemediation("caa").generate(ctx);
+  const bimi = scanner.getRemediation("bimi").generate({ ...ctx, logo_url: "https://example.com/l.svg", vmc_url: "https://example.com/vmc.pem" });
+  return tls.records[0].name === "_smtp._tls.example.com" && /^v=TLSRPTv1; rua=mailto:/.test(tls.records[0].value) &&
+    mta.records[0].name === "_mta-sts.example.com" && /^v=STSv1; id=\d+$/.test(mta.records[0].value) &&
+    Array.isArray(mta.files) && mta.files[0].path === "https://mta-sts.example.com/.well-known/mta-sts.txt" &&
+    /mode: testing/.test(mta.files[0].content) &&
+    caa.records[0].type === "CAA" && /^0 issue "/.test(caa.records[0].value) &&
+    bimi.records[0].name === "default._bimi.example.com" && /a=https:\/\/example\.com\/vmc\.pem/.test(bimi.records[0].value);
+}));
+results.push(await asyncSecurityContract("remediation_detect_maps_to_live_signals", async () => {
+  // detect() must read real DNS: a served record → present, empty zone → absent.
+  const withTls = { domain: "example.com", dnsQueryImpl: async (name, type) =>
+    name === "_smtp._tls.example.com" && type === "TXT"
+      ? { Status: 0, Answer: [{ data: '"v=TLSRPTv1; rua=mailto:x@example.com"' }] }
+      : { Status: 0, Answer: [] } };
+  const withoutTls = { domain: "example.com", dnsQueryImpl: async () => ({ Status: 0, Answer: [] }) };
+  const present = await scanner.getRemediation("tls_rpt").detect(withTls);
+  const absent = await scanner.getRemediation("tls_rpt").detect(withoutTls);
+  // CAA detect uses the same injected resolver.
+  const caaPresent = await scanner.getRemediation("caa").detect({ domain: "example.com",
+    dnsQueryImpl: async () => ({ Status: 0, Answer: [{ data: "0 issue letsencrypt.org" }] }) });
+  const api = scanner.remediationToApi(scanner.getRemediation("tls_rpt"), present);
+  return present.present === true && present.ok === true &&
+    absent.present === false && caaPresent.present === true &&
+    api.id === "tls_rpt" && api.capability === "guided" && api.ok === true &&
+    // serialization never leaks the closures
+    typeof api.detect === "undefined" && typeof api.generate === "undefined";
 }));
 results.push(securityContract("alert_channel_api_never_leaks_url_or_secret", () => {
   const api = scanner.alertChannelToApi({

@@ -7154,6 +7154,152 @@ function parseServerMsHosted(value) {
   return Number.isFinite(ms) ? ms : null;
 }
 
+// ═══ Remediation Registry — plug-and-play auto-fix modules ══════════════════
+// Redshift-class tools say "X is missing" and stop. Each entry here turns one
+// gap into a self-contained module: detect (applicable? present?), generate
+// (the exact record to publish), verify (is it live now?), and — for 'hosted'
+// actions — apply (we execute it via the sealed Hosted Records Engine). Adding
+// a new standard (a new RFC) is one descriptor + one line in the array; the
+// dispatcher, Saga, CF error handling and verification are all shared. That
+// one-file agility is what a monolithic competitor cannot copy.
+
+async function _remediationTxtLookup(name, { dnsQueryImpl = dnsQuery } = {}) {
+  try {
+    const res = await dnsQueryImpl(name, "TXT");
+    if (Number(res?.Status ?? 1) !== 0) return [];
+    return (res?.Answer || []).map((a) => normalizeDnsTxtValue(a?.data)).filter(Boolean);
+  } catch { return []; }
+}
+
+const dmarcRemediation = {
+  id: "dmarc", title: "DMARC policy", category: "email", capability: "hosted",
+  // DMARC has a dedicated managed flow (the Hosted Records Engine + Self-Driving
+  // ramp). The registry lists it and points at that flow rather than duplicating
+  // the create/Saga logic here.
+  managed_via: "hosted-dmarc",
+  async detect(ctx) {
+    const records = await _remediationTxtLookup(`_dmarc.${ctx.domain}`, ctx);
+    const rec = records.find((r) => /^v=DMARC1(?:\s*;|$)/i.test(r)) || null;
+    const detail = rec ? parseDmarcRecord(rec, records.length) : null;
+    return {
+      applicable: true,
+      present: Boolean(detail?.valid),
+      ok: Boolean(detail?.valid) && ["quarantine", "reject"].includes(detail?.policy),
+      evidence: { policy: detail?.policy ?? null, record: rec },
+    };
+  },
+  generate(ctx) {
+    return { records: [{ type: "TXT", name: `_dmarc.${ctx.domain}`, value: "v=DMARC1; p=none; rua=mailto:<your CyberMeters address>" }],
+      note: "Use the managed DMARC card to have CyberMeters host and self-drive this record." };
+  },
+  async verify(ctx) { return (await this.detect(ctx)).ok; },
+};
+
+const tlsRptRemediation = {
+  id: "tls_rpt", title: "TLS reporting (TLS-RPT)", category: "email", capability: "guided",
+  async detect(ctx) {
+    const records = await _remediationTxtLookup(`_smtp._tls.${ctx.domain}`, ctx);
+    const present = records.some((r) => /^v=TLSRPTv1\b/i.test(r));
+    return { applicable: true, present, ok: present, evidence: { record: records[0] || null } };
+  },
+  generate(ctx) {
+    const rua = ctx.rua_email || `tls-reports@${ctx.domain}`;
+    return {
+      records: [{ type: "TXT", name: `_smtp._tls.${ctx.domain}`, value: `v=TLSRPTv1; rua=mailto:${rua}` }],
+      note: "TLS-RPT gives you visibility into SMTP TLS delivery failures. Point rua at a mailbox you monitor.",
+    };
+  },
+  async verify(ctx) { return (await this.detect(ctx)).ok; },
+};
+
+const mtaStsRemediation = {
+  id: "mta_sts", title: "MTA-STS (enforce TLS for inbound mail)", category: "email", capability: "guided",
+  async detect(ctx) {
+    let enabled = false;
+    try { enabled = Boolean((await fetchMtaSts(ctx.domain))?.enabled); } catch { enabled = false; }
+    const txt = await _remediationTxtLookup(`_mta-sts.${ctx.domain}`, ctx);
+    const hasTxt = txt.some((r) => /^v=STSv1\b/i.test(r));
+    return { applicable: true, present: enabled && hasTxt, ok: enabled && hasTxt,
+      evidence: { policy_served: enabled, txt_present: hasTxt } };
+  },
+  generate(ctx) {
+    const id = `${Math.floor(Date.now() / 1000)}`;
+    const mx = Array.isArray(ctx.mx_hosts) && ctx.mx_hosts.length
+      ? ctx.mx_hosts : [`*.${ctx.domain}`];
+    const policyFile = ["version: STSv1", "mode: testing", ...mx.map((m) => `mx: ${m}`), "max_age: 604800"].join("\n");
+    return {
+      records: [{ type: "TXT", name: `_mta-sts.${ctx.domain}`, value: `v=STSv1; id=${id}` }],
+      files: [{ path: `https://mta-sts.${ctx.domain}/.well-known/mta-sts.txt`, content: policyFile }],
+      note: "MTA-STS needs BOTH the TXT record and the policy file served over HTTPS on mta-sts.<domain>. Start in mode: testing, then move to enforce once reports are clean.",
+    };
+  },
+  async verify(ctx) { return (await this.detect(ctx)).ok; },
+};
+
+const bimiRemediation = {
+  id: "bimi", title: "BIMI (brand logo in inbox)", category: "email", capability: "guided",
+  async detect(ctx) {
+    const dmarc = await dmarcRemediation.detect(ctx);
+    const records = await _remediationTxtLookup(`default._bimi.${ctx.domain}`, ctx);
+    const present = records.some((r) => /^v=BIMI1\b/i.test(r));
+    // BIMI only takes effect under enforced DMARC — surface that dependency.
+    return { applicable: dmarc.ok, present, ok: dmarc.ok && present,
+      evidence: { requires_enforced_dmarc: true, dmarc_ok: dmarc.ok, record: records[0] || null } };
+  },
+  generate(ctx) {
+    const logo = ctx.logo_url || `https://${ctx.domain}/bimi/logo.svg`;
+    const vmc = ctx.vmc_url ? ` a=${ctx.vmc_url}` : "";
+    return {
+      records: [{ type: "TXT", name: `default._bimi.${ctx.domain}`, value: `v=BIMI1; l=${logo};${vmc}` }],
+      note: "BIMI requires enforced DMARC (p=quarantine or reject), an SVG Tiny PS logo, and — for Gmail/Apple display — a VMC certificate issued to your brand.",
+    };
+  },
+  async verify(ctx) { return (await this.detect(ctx)).ok; },
+};
+
+const caaRemediation = {
+  id: "caa", title: "CAA (restrict who can issue your certs)", category: "dns", capability: "guided",
+  async detect(ctx) {
+    let present = false;
+    try {
+      const res = await (ctx.dnsQueryImpl || dnsQuery)(ctx.domain, "CAA");
+      present = Number(res?.Status ?? 1) === 0 && (res?.Answer || []).length > 0;
+    } catch { present = false; }
+    return { applicable: true, present, ok: present, evidence: {} };
+  },
+  generate(ctx) {
+    const ca = ctx.ca || "letsencrypt.org";
+    return {
+      records: [
+        { type: "CAA", name: ctx.domain, value: `0 issue "${ca}"` },
+        { type: "CAA", name: ctx.domain, value: `0 iodef "mailto:security@${ctx.domain}"` },
+      ],
+      note: "CAA restricts which certificate authorities may issue for your domain. Set it at the zone apex; list every CA you actually use.",
+    };
+  },
+  async verify(ctx) { return (await this.detect(ctx)).ok; },
+};
+
+const REMEDIATION_REGISTRY = [
+  dmarcRemediation, tlsRptRemediation, mtaStsRemediation, bimiRemediation, caaRemediation,
+];
+function getRemediation(id) {
+  return REMEDIATION_REGISTRY.find((a) => a.id === String(id)) || null;
+}
+// Serialize a descriptor + its live detection for the API. Never leaks internal
+// closures — only the declared, customer-safe fields.
+function remediationToApi(action, detection = null) {
+  return {
+    id: action.id, title: action.title, category: action.category,
+    capability: action.capability,
+    managed_via: action.managed_via || null,
+    ...(detection ? {
+      applicable: detection.applicable, present: detection.present, ok: detection.ok,
+      evidence: detection.evidence || {},
+    } : {}),
+  };
+}
+
 function parseSpfRecord(record, recordCount = record ? 1 : 0) {
   const raw = normalizeDnsTxtValue(record);
   const tokens = raw.split(/\s+/).filter(Boolean);
@@ -33820,6 +33966,58 @@ export default {
     // GET .../spf-analysis — live, read-only SPF chain health ("SPF surgeon").
     // Walks include:/redirect= targets, counts the RFC 7208 10-lookup budget,
     // flags void includes, and suggests a flattened record.
+    // ── Remediation Registry (plug-and-play auto-fixes) ──────────────────────
+    //   GET  .../remediations              → every gap + live detection (read role)
+    //   GET  .../remediations/:id          → detail + the exact generated fix
+    //   GET  .../remediations/:id/verify    → live re-check (is the fix live now?)
+    // 'hosted' actions (DMARC today) point at their dedicated managed flow; the
+    // 'apply' execution tier for other hosted records lands with the record_type
+    // generalisation. This surface is read-only, so it is safe and low-risk.
+    const remediationsMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/domains\/([^/]+)\/remediations(?:\/([a-z0-9_]+)(\/verify)?)?$/);
+    if (remediationsMatch && request.method === "GET") {
+      const workspaceId = remediationsMatch[1];
+      const domain = decodeURIComponent(remediationsMatch[2]).toLowerCase();
+      const actionId = remediationsMatch[3] || null;
+      const wantVerify = Boolean(remediationsMatch[4]);
+      try {
+        const user = await requireAuth(request, env);
+        if (!user) return json({ error: "Unauthorized" }, 401);
+        const access = await requireWorkspaceRole(user, workspaceId, "workspace:read", env);
+        if (!access) return json({ error: "Forbidden" }, 403);
+        const domainId = await resolveWorkspaceDomain(env, workspaceId, domain);
+        if (!domainId) return json({ error: "Domain not found in this workspace" }, 404);
+        const ctx = { workspaceId, domain, env };
+
+        if (!actionId) {
+          // Detect every registered action in parallel; one slow/failing probe
+          // never sinks the list.
+          const items = await Promise.all(REMEDIATION_REGISTRY.map(async (action) => {
+            try { return remediationToApi(action, await action.detect(ctx)); }
+            catch { return remediationToApi(action, { applicable: true, present: false, ok: false, evidence: { error: "probe_failed" } }); }
+          }));
+          return json({ domain, remediations: items });
+        }
+
+        const action = getRemediation(actionId);
+        if (!action) return json({ error: "Unknown remediation" }, 404);
+
+        if (wantVerify) {
+          let ok = false;
+          try { ok = await action.verify(ctx); } catch { ok = false; }
+          return json({ id: action.id, verified: ok });
+        }
+
+        let detection = null;
+        try { detection = await action.detect(ctx); } catch { detection = null; }
+        return json({
+          remediation: remediationToApi(action, detection),
+          fix: action.generate(ctx),
+        });
+      } catch (e) {
+        return serverError("remediations", e, "Could not evaluate remediations.");
+      }
+    }
+
     const spfAnalysisMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/domains\/([^/]+)\/spf-analysis$/);
     if (spfAnalysisMatch && request.method === "GET") {
       const workspaceId = spfAnalysisMatch[1];

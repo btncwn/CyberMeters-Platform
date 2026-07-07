@@ -699,6 +699,14 @@ export const api = {
   getSpfAnalysis: (workspaceId, domain) =>
     request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/spf-analysis`),
 
+  /** Remediation Registry — every gap + live detection, and the exact generated fix */
+  getRemediations: (workspaceId, domain) =>
+    request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/remediations`),
+  getRemediationFix: (workspaceId, domain, id) =>
+    request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/remediations/${encodeURIComponent(id)}`),
+  verifyRemediation: (workspaceId, domain, id) =>
+    request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/remediations/${encodeURIComponent(id)}/verify`),
+
   /** Hosted DMARC (managed record) — Hosted Records Engine */
   getHostedDmarc: (workspaceId, domain) =>
     request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/hosted-dmarc`),
