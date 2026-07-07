@@ -63,7 +63,7 @@ function DnsValue({ value }) {
   if (!value) return null
   return (
     <div className="flex items-start gap-2 mt-2 rounded-lg bg-gray-50 border border-gray-200 p-2.5">
-      <code className="mono text-[11px] text-gray-800 break-all flex-1 leading-relaxed">{value}</code>
+      <code className="mono text-xs text-gray-800 break-all flex-1 leading-relaxed">{value}</code>
       <CopyButton value={value} />
     </div>
   )
@@ -182,7 +182,7 @@ function AuthCard({ icon: Icon, title, status, statusKind = 'na', children }) {
           <h3 className="text-sm font-bold text-gray-900">{title}</h3>
         </div>
         {status && (
-          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${statusPill(statusKind)}`}>
+          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${statusPill(statusKind)}`}>
             {status}
           </span>
         )}
@@ -218,7 +218,7 @@ function Warnings({ items }) {
   return (
     <div className="mt-1 space-y-1.5">
       {safe.map((w, i) => (
-        <p key={i} className="flex items-start gap-1.5 text-[11px] text-amber-700 leading-relaxed">
+        <p key={i} className="flex items-start gap-1.5 text-xs text-amber-700 leading-relaxed">
           <AlertTriangle className="w-3 h-3 flex-shrink-0 mt-0.5" /> {w}
         </p>
       ))}
@@ -263,7 +263,7 @@ function SpfCard({ spf, detail, wsId, domain }) {
           <p className="text-xs font-semibold text-gray-500 mb-1">Includes ({detail.includes.length})</p>
           <div className="flex flex-wrap gap-1">
             {detail.includes.map((inc, i) => (
-              <span key={i} className="mono text-[10px] bg-gray-50 border border-gray-200 rounded px-1.5 py-0.5 text-gray-700">{inc}</span>
+              <span key={i} className="mono text-xs bg-gray-50 border border-gray-200 rounded px-1.5 py-0.5 text-gray-700">{inc}</span>
             ))}
           </div>
         </div>
@@ -294,7 +294,7 @@ function SpfCard({ spf, detail, wsId, domain }) {
                   <p className="text-xs font-semibold text-gray-500 mb-1">Resolved chain ({live.tree.length} records)</p>
                   <div className="space-y-0.5 max-h-32 overflow-y-auto">
                     {live.tree.map((n, i) => (
-                      <p key={i} className="mono text-[10px] text-gray-600 truncate" style={{ paddingLeft: `${n.depth * 10}px` }}>
+                      <p key={i} className="mono text-xs text-gray-600 truncate" style={{ paddingLeft: `${n.depth * 10}px` }}>
                         {n.domain} <span className="text-gray-400">· {n.lookups_here} lookup{n.lookups_here === 1 ? '' : 's'}{!n.record ? ' · no SPF' : ''}</span>
                       </p>
                     ))}
@@ -308,7 +308,7 @@ function SpfCard({ spf, detail, wsId, domain }) {
                     Over the 10-lookup limit — receivers may permerror. Flattened alternative:
                   </p>
                   <DnsValue value={live.flattened.suggested_record} />
-                  <p className="text-[11px] text-gray-400 mt-1 leading-relaxed">
+                  <p className="text-xs text-gray-400 mt-1 leading-relaxed">
                     Flattened records list IPs directly, so they drift when providers change —
                     re-run this analysis after any sending-provider change.
                   </p>
@@ -358,7 +358,7 @@ function DkimCard({ detail }) {
       {/* Always surface the uncertainty caveat safely */}
       <div className="flex items-start gap-1.5 rounded-lg bg-blue-50 border border-blue-100 p-2.5">
         <Info className="w-3.5 h-3.5 text-blue-500 flex-shrink-0 mt-0.5" />
-        <p className="text-[11px] text-blue-800 leading-relaxed">
+        <p className="text-xs text-blue-800 leading-relaxed">
           {detail?.limitation || 'Full DKIM validation requires a signed email sample or a known selector. A custom selector may be in use even when none is detected.'}
         </p>
       </div>
@@ -371,7 +371,7 @@ function BimiCard({ readiness }) {
   const found = readiness.record_found
   return (
     <AuthCard icon={ImageIcon} title="BIMI" status={found ? 'Record found' : 'Not configured'} statusKind={found ? 'info' : 'na'}>
-      <p className="text-[11px] text-gray-500 -mt-1">Readiness only — BIMI is optional and never replaces SPF, DKIM, or DMARC.</p>
+      <p className="text-xs text-gray-500 -mt-1">Readiness only — BIMI is optional and never replaces SPF, DKIM, or DMARC.</p>
       <KV k="Record" v={found ? 'Published' : 'None'} />
       {readiness.logo_url && <KV k="Logo URL" v={readiness.logo_url} mono />}
       {readiness.certificate_url ? <KV k="Certificate URL" v={readiness.certificate_url} mono />
@@ -379,7 +379,7 @@ function BimiCard({ readiness }) {
       {readiness.blockers?.length > 0 && (
         <div className="rounded-lg bg-amber-50 border border-amber-100 p-2.5 space-y-1">
           <p className="text-[11px] font-bold text-amber-700 uppercase tracking-wide">Readiness blockers</p>
-          {readiness.blockers.map((b, i) => <p key={i} className="text-[11px] text-amber-800 leading-relaxed">{b}</p>)}
+          {readiness.blockers.map((b, i) => <p key={i} className="text-xs text-amber-800 leading-relaxed">{b}</p>)}
         </div>
       )}
       <Warnings items={readiness.warnings} />
@@ -427,9 +427,9 @@ function ActionCard({ action }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <p className="text-sm font-bold text-gray-900">{action.title}</p>
-            {action.protocol && <span className="text-[10px] font-bold uppercase tracking-wide text-gray-500 bg-gray-100 border border-gray-200 rounded px-1.5 py-0.5">{action.protocol}</span>}
-            <span className={`text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border ${sev.pill}`}>{sev.label}</span>
-            {action.confidence && <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${CONFIDENCE[action.confidence] || CONFIDENCE.low}`}>{action.confidence} confidence</span>}
+            {action.protocol && <span className="text-xs font-bold uppercase tracking-wide text-gray-500 bg-gray-100 border border-gray-200 rounded px-1.5 py-0.5">{action.protocol}</span>}
+            <span className={`text-xs font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border ${sev.pill}`}>{sev.label}</span>
+            {action.confidence && <span className={`text-xs font-semibold px-1.5 py-0.5 rounded border ${CONFIDENCE[action.confidence] || CONFIDENCE.low}`}>{action.confidence} confidence</span>}
           </div>
           {action.issue && <p className="text-xs text-gray-500 mt-1 leading-relaxed">{action.issue}</p>}
         </div>
@@ -452,7 +452,7 @@ function ActionCard({ action }) {
           {action.caution && (
             <div className="flex items-start gap-1.5 rounded-lg bg-amber-50 border border-amber-100 p-2.5">
               <AlertTriangle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0 mt-0.5" />
-              <p className="text-[11px] text-amber-800 leading-relaxed">{action.caution}</p>
+              <p className="text-xs text-amber-800 leading-relaxed">{action.caution}</p>
             </div>
           )}
         </div>
@@ -550,7 +550,7 @@ function GuidedRemediation({ stage, hasReports, readiness, senders, actions, onG
                 {isDone ? (
                   <CheckCircle className="w-6 h-6 text-brand-600 flex-shrink-0" />
                 ) : (
-                  <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold flex-shrink-0 ${
+                  <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
                     isCurrent ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-400 border border-gray-200'
                   }`}>{i + 1}</span>
                 )}
@@ -560,7 +560,7 @@ function GuidedRemediation({ stage, hasReports, readiness, senders, actions, onG
                       {m.title}
                     </p>
                     {isCurrent && (
-                      <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border bg-brand-50 text-brand-700 border-brand-100">
+                      <span className="text-xs font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border bg-brand-50 text-brand-700 border-brand-100">
                         Start here
                       </span>
                     )}
@@ -780,7 +780,7 @@ function EnforcementReadiness({ readiness }) {
           <span className="eyebrow">Enforcement readiness</span>
           <h2 className="section-title leading-tight">Are you ready to tighten policy?</h2>
         </div>
-        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold border ${confPill}`}>
+        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border ${confPill}`}>
           {readiness.confidence || 'low'} confidence
         </span>
       </div>
@@ -921,12 +921,12 @@ function SenderRow({ sender, onClassify, classifying }) {
         <td><span className="mono text-xs font-semibold text-gray-800">{sender.source_ip}</span></td>
         <td>
           <span className="text-sm text-gray-700 capitalize">{sender.provider_guess || 'unknown'}</span>
-          {sender.provider_confidence && <span className="block text-[10px] text-gray-400">{sender.provider_confidence} confidence</span>}
+          {sender.provider_confidence && <span className="block text-xs text-gray-400">{sender.provider_confidence} confidence</span>}
         </td>
         <td className="text-right"><span className="text-sm font-semibold text-gray-900">{(sender.total_messages ?? 0).toLocaleString()}</span></td>
         <td className="text-right"><span className={`text-sm font-semibold ${(sender.pass_rate ?? 0) < 90 ? 'text-orange-600' : 'text-gray-900'}`}>{sender.pass_rate ?? 0}%</span></td>
         <td className="text-right"><span className={`text-sm ${(sender.failed_messages ?? 0) > 0 ? 'text-orange-600 font-semibold' : 'text-gray-400'}`}>{(sender.failed_messages ?? 0).toLocaleString()}</span></td>
-        <td><span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border capitalize ${riskCls}`}>{sender.risk_level || 'low'}</span></td>
+        <td><span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide border capitalize ${riskCls}`}>{sender.risk_level || 'low'}</span></td>
         <td><span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${cls.pill}`}>{cls.label}</span></td>
         <td className="text-right"><ChevronDown className={`w-4 h-4 text-gray-300 inline transition-transform ${open ? 'rotate-180' : ''}`} /></td>
       </tr>
@@ -937,8 +937,8 @@ function SenderRow({ sender, onClassify, classifying }) {
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-wide text-gray-500 mb-1">Recommended action</p>
                 <p className="text-sm text-gray-700 leading-relaxed">{sender.recommended_action || 'Classify this sender if it is a legitimate business email source.'}</p>
-                <p className="text-[11px] text-gray-400 mt-2">First seen {fmtDate(sender.first_seen)} · Last seen {fmtDate(sender.last_seen)}</p>
-                {sender.provider_reason && <p className="text-[11px] text-gray-400 mt-1">{sender.provider_reason}</p>}
+                <p className="text-xs text-gray-400 mt-2">First seen {fmtDate(sender.first_seen)} · Last seen {fmtDate(sender.last_seen)}</p>
+                {sender.provider_reason && <p className="text-xs text-gray-400 mt-1">{sender.provider_reason}</p>}
               </div>
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-wide text-gray-500 mb-1">Classify this sender</p>
@@ -1075,7 +1075,7 @@ function InstantSourceValidator({ wsId, domain }) {
     }
   }
   const chip = (label, val) => val ? (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-white border border-gray-200 text-gray-700">
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-white border border-gray-200 text-gray-700">
       <span className="text-gray-400">{label}</span> {val}
     </span>
   ) : null
@@ -1415,15 +1415,15 @@ function ConnectDmarcReporting({ wsId, domain, dmarcDetail }) {
               </p>
               <dl className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1 text-xs">
                 <div className="rounded-lg bg-white border border-gray-200 px-3 py-2">
-                  <dt className="text-gray-400 uppercase tracking-wide font-semibold text-[10px]">Last received</dt>
+                  <dt className="text-gray-400 uppercase tracking-wide font-semibold text-xs">Last received</dt>
                   <dd className="text-gray-700 font-medium mt-0.5">{fmt(lastInbound) || 'Not yet'}</dd>
                 </div>
                 <div className="rounded-lg bg-white border border-gray-200 px-3 py-2">
-                  <dt className="text-gray-400 uppercase tracking-wide font-semibold text-[10px]">Last upload</dt>
+                  <dt className="text-gray-400 uppercase tracking-wide font-semibold text-xs">Last upload</dt>
                   <dd className="text-gray-700 font-medium mt-0.5">{fmt(endpoint.last_signed_upload_at) || 'Never'}</dd>
                 </div>
                 <div className="rounded-lg bg-white border border-gray-200 px-3 py-2">
-                  <dt className="text-gray-400 uppercase tracking-wide font-semibold text-[10px]">Last used</dt>
+                  <dt className="text-gray-400 uppercase tracking-wide font-semibold text-xs">Last used</dt>
                   <dd className="text-gray-700 font-medium mt-0.5">{fmt(endpoint.last_used_at) || 'Never'}</dd>
                 </div>
               </dl>
@@ -1494,7 +1494,7 @@ const DNS_PROVIDERS = [
 function CopyField({ label, value }) {
   return (
     <div className="space-y-1">
-      <p className="text-[10px] uppercase tracking-wide font-semibold text-gray-400">{label}</p>
+      <p className="text-xs uppercase tracking-wide font-semibold text-gray-400">{label}</p>
       <div className="flex items-center gap-2">
         <code className="mono text-xs flex-1 break-all bg-white border border-gray-200 rounded-lg px-3 py-2">{value || '—'}</code>
         {value && <CopyButton value={value} label="Copy" />}
@@ -1573,7 +1573,7 @@ function ManagedDmarcCard({ wsId, domain, endpointReady }) {
         <div className="min-w-0">
           <p className="text-sm font-bold text-gray-900">
             Let CyberMeters manage this record
-            {!rec && <span className="ml-2 text-[10px] font-bold uppercase tracking-wide text-brand-700 bg-brand-100 rounded px-1.5 py-0.5">Recommended</span>}
+            {!rec && <span className="ml-2 text-xs font-bold uppercase tracking-wide text-brand-700 bg-brand-100 rounded px-1.5 py-0.5">Recommended</span>}
           </p>
           <p className="text-xs text-gray-500 mt-1 leading-relaxed">
             Add one CNAME and we manage the DMARC value for you — no more DNS edits when your
@@ -1613,7 +1613,7 @@ function ManagedDmarcCard({ wsId, domain, endpointReady }) {
             Set up managed DMARC
           </button>
           {!endpointReady && (
-            <p className="text-[11px] text-gray-400 mt-2">Activate DMARC reporting below first — the managed record includes your reporting address.</p>
+            <p className="text-xs text-gray-400 mt-2">Activate DMARC reporting below first — the managed record includes your reporting address.</p>
           )}
         </div>
       ) : (
@@ -1622,14 +1622,14 @@ function ManagedDmarcCard({ wsId, domain, endpointReady }) {
           {rec.status !== 'connected' && rec.status !== 'pending_removal' && (
             <div className="space-y-1.5">
               <div className="grid grid-cols-[70px,1fr] gap-2 items-center">
-                <span className="text-[11px] font-semibold text-gray-500">Type / Name</span>
+                <span className="text-xs font-semibold text-gray-500">Type / Name</span>
                 <DnsValue value={`CNAME  ${rec.cname_name}`} />
               </div>
               <div className="grid grid-cols-[70px,1fr] gap-2 items-center">
-                <span className="text-[11px] font-semibold text-gray-500">Target</span>
+                <span className="text-xs font-semibold text-gray-500">Target</span>
                 <DnsValue value={rec.cname_target} />
               </div>
-              <p className="text-[11px] text-gray-400">Replace any existing TXT at {rec.cname_name} with this CNAME.</p>
+              <p className="text-xs text-gray-400">Replace any existing TXT at {rec.cname_name} with this CNAME.</p>
             </div>
           )}
           <div className="flex items-center gap-2 flex-wrap">
@@ -1659,7 +1659,7 @@ function ManagedDmarcCard({ wsId, domain, endpointReady }) {
           </div>
           {rec.current_value && rec.status === 'connected' && (
             <div>
-              <p className="text-[11px] font-semibold text-gray-500 mb-1">Managed value (live)</p>
+              <p className="text-xs font-semibold text-gray-500 mb-1">Managed value (live)</p>
               <DnsValue value={rec.current_value} />
             </div>
           )}
@@ -1698,8 +1698,8 @@ function ManagedDmarcCard({ wsId, domain, endpointReady }) {
                       : state === 'done' ? 'bg-brand-50 border-brand-200 text-brand-700'
                       : 'bg-white border-gray-200 text-gray-400'}`}>
                       <p className="text-[13px] font-bold leading-tight">{label}</p>
-                      {state === 'current' && <p className="text-[11px] font-semibold text-brand-100 mt-0.5">You are here</p>}
-                      {state === 'done' && <p className="text-[11px] text-brand-600 mt-0.5">✓ passed</p>}
+                      {state === 'current' && <p className="text-xs font-semibold text-brand-100 mt-0.5">You are here</p>}
+                      {state === 'done' && <p className="text-xs text-brand-600 mt-0.5">✓ passed</p>}
                     </div>
                   )
                 })}
@@ -2070,7 +2070,7 @@ function EpStatusChecklist({ items }) {
             <li key={it.label} className="flex items-center gap-2.5">
               <c.I className={`w-4 h-4 flex-shrink-0 ${c.cls}`} />
               <span className="text-sm text-gray-700 flex-1">{it.label}</span>
-              <span className={`text-[11px] font-medium ${c.cls}`}>{c.txt}</span>
+              <span className={`text-xs font-medium ${c.cls}`}>{c.txt}</span>
             </li>
           )
         })}
@@ -2266,7 +2266,7 @@ function EmailPostureHero({ wsId, domain, dmarc, policyJourney, onGoto }) {
     : { label: 'Review sender inventory', to: 'sender-inventory' }
 
   const pill = (txt, tone) => (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold border ${
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold border ${
       tone === 'ok' ? 'bg-brand-50 text-brand-700 border-brand-100'
       : tone === 'warn' ? 'bg-amber-50 text-amber-700 border-amber-200'
       : tone === 'bad' ? 'bg-red-50 text-red-700 border-red-200'
@@ -2303,7 +2303,7 @@ function EmailPostureHero({ wsId, domain, dmarc, policyJourney, onGoto }) {
           <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
             {pill(stageLabel, enforcing ? 'ok' : stage === 'missing' ? 'bad' : 'warn')}
             {staleScan && (
-              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-brand-700">
+              <span className="inline-flex items-center gap-1 text-xs font-semibold text-brand-700">
                 <CheckCircle className="w-3 h-3" /> Live in DNS
               </span>
             )}
@@ -2573,7 +2573,7 @@ function BecExposure({ wsId, domain }) {
                   Score {data.exposure_score}/100 <span className="font-medium text-gray-500">· Higher means more exposed</span>
                 </p>
                 {data.confidence && (
-                  <span className="inline-flex items-center mt-2 px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-gray-50 text-gray-600 border-gray-200">
+                  <span className="inline-flex items-center mt-2 px-2 py-0.5 rounded-full text-xs font-semibold border bg-gray-50 text-gray-600 border-gray-200">
                     Confidence: {titleCase(data.confidence)}
                   </span>
                 )}
@@ -2587,7 +2587,7 @@ function BecExposure({ wsId, domain }) {
                 <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Evidence</p>
                 <div className="flex flex-wrap gap-1.5">
                   {chips.map((c, i) => (
-                    <span key={i} className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border ${becChipCls(c.tone)}`}>{c.label}</span>
+                    <span key={i} className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border ${becChipCls(c.tone)}`}>{c.label}</span>
                   ))}
                 </div>
               </div>
@@ -2602,7 +2602,7 @@ function BecExposure({ wsId, domain }) {
                     {reasons.map((r, i) => (
                       <li key={r.code || i} className="text-sm">
                         <div className="flex items-center gap-2">
-                          <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold uppercase border ${becSev(r.severity).chip}`}>{r.severity || '—'}</span>
+                          <span className={`inline-flex px-1.5 py-0.5 rounded text-xs font-bold uppercase border ${becSev(r.severity).chip}`}>{r.severity || '—'}</span>
                           <span className="font-semibold text-gray-800">{r.label}</span>
                         </div>
                         {r.detail && <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{r.detail}</p>}
@@ -2618,7 +2618,7 @@ function BecExposure({ wsId, domain }) {
                     {actions.map((a, i) => (
                       <li key={a.code || i} className="text-sm">
                         <div className="flex items-center gap-2">
-                          <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold uppercase border ${becSev(a.priority).chip}`}>{a.priority || '—'}</span>
+                          <span className={`inline-flex px-1.5 py-0.5 rounded text-xs font-bold uppercase border ${becSev(a.priority).chip}`}>{a.priority || '—'}</span>
                           <span className="font-semibold text-gray-800">{a.label}</span>
                         </div>
                         {a.detail && <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{a.detail}</p>}
