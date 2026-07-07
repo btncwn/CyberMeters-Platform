@@ -22267,7 +22267,10 @@ async function retryPendingDomainVerifications(env) {
         .run();
 
       // Mirror the manual-verify success path: notify + audit every linked workspace.
+      // Forward telemetry: fingerprint the verified record + record the resolver
+      // so a future drift check can prove which record we trusted, and when.
       try {
+        const dnsRecordHash = await hashToken(`cybermeters-verification=${row.verification_token}`);
         const wsR = await env.cybermeters_db
           .prepare("SELECT workspace_id FROM workspace_domains WHERE domain_id = ?")
           .bind(row.id).all();
@@ -22282,7 +22285,8 @@ async function retryPendingDomainVerifications(env) {
             workspace_id, user_id: null,
             event_type: "domain_verified", entity_type: "domain", entity_id: row.id,
             description: `${row.domain} ownership verified via DNS TXT (automatic re-check)`,
-            metadata: { domain: row.domain, domain_id: row.id, method: "dns_txt", auto_retry: true },
+            metadata: { domain: row.domain, domain_id: row.id, method: "dns_txt", auto_retry: true,
+                        resolver_used: "cloudflare_doh", dns_record_hash: dnsRecordHash },
           });
         }
       } catch { /* non-fatal */ }
@@ -35202,6 +35206,9 @@ export default {
                       WHERE id = ?`)
             .bind(domainId)
             .run();
+          // Forward telemetry: fingerprint the exact TXT value we trusted + note
+          // the resolver, so a later drift check can prove what was verified.
+          const dnsRecordHash = await hashToken(expectedTxtValue);
           // Notifications + audit — fire-and-forget for all linked workspaces
           try {
             const wsR = await env.cybermeters_db
@@ -35221,7 +35228,8 @@ export default {
                 entity_type: "domain",
                 entity_id:   domainId,
                 description: `${domain} ownership verified via DNS TXT`,
-                metadata:    { domain, domain_id: domainId, method: "dns_txt" },
+                metadata:    { domain, domain_id: domainId, method: "dns_txt",
+                               resolver_used: "cloudflare_doh", dns_record_hash: dnsRecordHash },
               });
             }
           } catch { /* non-fatal */ }
