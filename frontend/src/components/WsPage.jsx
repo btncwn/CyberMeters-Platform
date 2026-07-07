@@ -6,7 +6,6 @@
  */
 import { useNavigate } from 'react-router-dom'
 import { Briefcase } from 'lucide-react'
-import WorkspaceNav from './WorkspaceNav'
 import Spinner from './Spinner'
 import ErrorAlert from './ErrorAlert'
 
@@ -32,21 +31,16 @@ export function NoWorkspaceSelected() {
 
 export default function WsPage({ wsId, wsName, loading, error, onRetry, children }) {
   return (
-    <div className="flex">
-      <WorkspaceNav wsName={wsName} />
-      <div className="flex-1 min-w-0">
-        <div className="max-w-screen-xl mx-auto px-6 py-8">
-          {loading ? (
-            <div className="flex items-center justify-center py-32">
-              <Spinner />
-            </div>
-          ) : error ? (
-            <ErrorAlert message={error} onRetry={onRetry} />
-          ) : (
-            children
-          )}
+    <div className="max-w-screen-xl mx-auto px-6 py-8">
+      {loading ? (
+        <div className="flex items-center justify-center py-32">
+          <Spinner />
         </div>
-      </div>
+      ) : error ? (
+        <ErrorAlert message={error} onRetry={onRetry} />
+      ) : (
+        children
+      )}
     </div>
   )
 }

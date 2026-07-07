@@ -11,6 +11,8 @@ import CyberMetersLogo from './CyberMetersLogo'
 import { api, logoutWithToken } from '../api'
 import { TOKEN_KEY } from '../context/authKeys'
 import { useAuth } from '../context/AuthContext'
+import WorkspaceNav from './WorkspaceNav'
+import SafeBoundary from './SafeBoundary'
 import NotificationBell from './NotificationBell'
 import FeedbackWidget from './FeedbackWidget'
 
@@ -346,6 +348,21 @@ function UpgradePromptModal() {
 
 export default function Layout() {
   const navigate = useNavigate()
+  // Persistent workspace service rail: read the active workspace straight from
+  // localStorage (the same lightweight pattern WorkspaceSelector already uses in
+  // this header) — deliberately NOT the useWorkspace() hook, so Layout never
+  // triggers its own workspaces fetch / bootstrap on every route.
+  const [wsId, setWsId]     = useState(() => localStorage.getItem('cybermeters_workspace_id'))
+  const [wsName, setWsName] = useState(() => localStorage.getItem('cybermeters_workspace_name'))
+  useEffect(() => {
+    function sync() {
+      setWsId(localStorage.getItem('cybermeters_workspace_id'))
+      setWsName(localStorage.getItem('cybermeters_workspace_name') || '')
+    }
+    window.addEventListener('storage', sync)
+    const id = setInterval(sync, 1500)
+    return () => { window.removeEventListener('storage', sync); clearInterval(id) }
+  }, [])
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -396,9 +413,18 @@ export default function Layout() {
         </div>
       </header>
 
-      {/* Content */}
+      {/* Content — persistent workspace service rail + routed page */}
       <main className="flex-1">
-        <Outlet />
+        <div className="flex">
+          {wsId && (
+            <SafeBoundary>
+              <WorkspaceNav wsName={wsName} />
+            </SafeBoundary>
+          )}
+          <div className="flex-1 min-w-0">
+            <Outlet />
+          </div>
+        </div>
       </main>
 
       {/* Beta feedback entry point */}
