@@ -8713,6 +8713,25 @@ function normalizeInboundDropReason(reason) {
   }
 }
 
+// Customer-safe wording for inbound DMARC report drop notifications. Keyed by
+// the normalized drop reason; anything unknown falls back to the generic parse
+// text. Deliberately calm — a single malformed report from a provider is
+// normal and must not read as an incident.
+function inboundDropCustomerMessage(reason) {
+  switch (reason) {
+    case "endpoint_inactive":
+      return "It was sent to a CyberMeters reporting address that is no longer active. Update the rua address in your DMARC record to your current reporting address.";
+    case "domain_mismatch":
+      return "It was a report for a different domain than the one this reporting address belongs to.";
+    case "attachment_too_large":
+    case "decompressed_too_large":
+    case "compression_ratio_exceeded":
+      return "The report attachment was larger than the supported size.";
+    default:
+      return "The report attachment could not be read. Occasional malformed reports from providers are normal — no action is needed unless this keeps happening.";
+  }
+}
+
 // Sanitize internal platform errors (e.g. Cloudflare subrequest-budget messages)
 // before they can surface to customers. Genuine findings pass through unchanged.
 function sanitizeInfraErrorMessage(message, scope) {
@@ -22204,6 +22223,73 @@ async function createNotificationsForDomain(domainId, domain, scanId, score, ris
   } catch { /* non-fatal */ }
 }
 
+// ── Domain verification auto-retry (cron) ───────────────────────────────────
+//
+// A manual verify often fails only because the DNS TXT record hasn't
+// propagated yet (some registrars — GoDaddy notably — take hours). Rather than
+// making the customer poll the Verify button, the hourly cron re-checks the
+// DNS TXT method for up to 48h after verification was initiated and completes
+// it automatically. Only DNS TXT is retried: it is the propagation-bound
+// method; the HTML-file method is instant and gains nothing from retrying.
+// Bounded to 10 domains per run; each check is a single DoH subrequest.
+async function retryPendingDomainVerifications(env) {
+  try {
+    const pending = await env.cybermeters_db
+      .prepare(
+        `SELECT id, domain, verification_token
+         FROM domains
+         WHERE verification_status IN ('pending', 'failed')
+           AND verification_token IS NOT NULL
+           AND verification_initiated_at >= datetime('now', '-48 hours')
+         ORDER BY verification_initiated_at ASC
+         LIMIT 10`
+      )
+      .all();
+
+    for (const row of (pending?.results || [])) {
+      let verified = false;
+      try {
+        const expected = `cybermeters-verification=${row.verification_token}`;
+        const dnsResult = await dnsQuery(`_cybermeters.${row.domain}`, "TXT");
+        verified = (dnsResult.Answer || []).some(a =>
+          String(a.data || "").replace(/^"|"$/g, "").trim() === expected
+        );
+      } catch { /* resolver hiccup — the next hourly run retries */ }
+      if (!verified) continue;
+
+      await env.cybermeters_db
+        .prepare(`UPDATE domains
+                  SET verification_status = 'verified',
+                      verification_method = 'dns_txt',
+                      verified_at = datetime('now')
+                  WHERE id = ? AND verification_status != 'verified'`)
+        .bind(row.id)
+        .run();
+
+      // Mirror the manual-verify success path: notify + audit every linked workspace.
+      try {
+        const wsR = await env.cybermeters_db
+          .prepare("SELECT workspace_id FROM workspace_domains WHERE domain_id = ?")
+          .bind(row.id).all();
+        for (const { workspace_id } of (wsR.results || [])) {
+          await createNotificationEvent(env, workspace_id, {
+            type: "domain_verified", severity: "info",
+            title: `${row.domain} ownership verified`,
+            message: `The DNS TXT record at _cybermeters.${row.domain} has propagated — verification completed automatically.`,
+            metadata: { domain: row.domain, domain_id: row.id, method: "dns_txt", auto_retry: true },
+          });
+          await createAuditEvent(env, {
+            workspace_id, user_id: null,
+            event_type: "domain_verified", entity_type: "domain", entity_id: row.id,
+            description: `${row.domain} ownership verified via DNS TXT (automatic re-check)`,
+            metadata: { domain: row.domain, domain_id: row.id, method: "dns_txt", auto_retry: true },
+          });
+        }
+      } catch { /* non-fatal */ }
+    }
+  } catch { /* cron task must never throw */ }
+}
+
 // ── Subscription Entitlements ────────────────────────────────────────────────
 
 const PLAN_LIMITS = {
@@ -31887,6 +31973,15 @@ export default {
     // (defined near the top of this file, after SECURITY_HEADERS).
 
     if (url.pathname === "/api/validation/benchmark" && request.method === "GET") {
+      // QA-only diagnostic that runs live scan modules against an arbitrary
+      // domain — authenticated + rate-limited so anonymous traffic can't use
+      // it to burn Worker CPU/subrequests (it was previously fully public).
+      const bmUser = await requireAuth(request, env);
+      if (!bmUser) return json({ error: "Unauthorized" }, 401);
+      const bmRl = await consumeApiRateLimit(
+        env, [{ scope: "user", scope_id: bmUser.id }], "validation_benchmark", 10, 3600
+      );
+      if (bmRl) return json(bmRl.body, bmRl.status);
       try {
         // ?all=1 → return the benchmark domain list without running scans
         if (url.searchParams.get("all") === "1") {
@@ -35250,7 +35345,8 @@ export default {
               error:  htmlError || null,
             },
           },
-          message: "Verification failed. Ensure the DNS TXT record or HTML file is in place and try again.",
+          message: "Verification not confirmed yet — DNS changes can take a while to propagate. We re-check automatically every hour for 48 hours from when you generated this verification code, and will notify you when it succeeds.",
+          auto_recheck: { enabled: true, method: "dns_txt", interval: "hourly", window_hours: 48 },
         }, 200);
       } catch (e) {
         return serverError("api", e);
@@ -37007,6 +37103,12 @@ export default {
     // Recovers emails whose first send failed inside a heavy invocation
     // (e.g. first-scan-completed sent at the end of the scan engine).
     ctx.waitUntil(retryFailedLifecycleEmails(env));
+
+    // ── Domain verification auto-retry ─────────────────────────────────────
+    // Re-checks recently initiated/failed DNS TXT verifications for 48h so
+    // slow registrar propagation (e.g. GoDaddy) verifies without the customer
+    // having to keep pressing the Verify button.
+    ctx.waitUntil(retryPendingDomainVerifications(env));
   },
 
   // ── Inbound DMARC aggregate (RUA) email handler ──────────────────────────────
@@ -37028,18 +37130,42 @@ export default {
     // Drop safely with a STABLE, customer-safe reason and no raw payload.
     const drop = async (endpoint, rawReason, recipient = null) => {
       try {
+        const reason = normalizeInboundDropReason(rawReason);
         await createAuditEvent(env, {
           workspace_id: endpoint?.workspace_id || null, user_id: null,
           event_type: "dmarc_inbound_email_dropped", entity_type: "domain",
           entity_id: endpoint?.domain_id || null,
-          description: `Dropped inbound DMARC email (${normalizeInboundDropReason(rawReason)})`,
+          description: `Dropped inbound DMARC email (${reason})`,
           metadata: {
             source: "inbound_email",
-            reason: normalizeInboundDropReason(rawReason),
+            reason,
             recipient_localpart: recipient?.localpart || null,
             recipient_domain: recipient?.domain || null,
           },
         });
+
+        // Customer visibility: an audit row alone leaves the customer blind to
+        // "my reports aren't arriving". When the drop maps to a known workspace,
+        // surface one calm notification — deduped per workspace+domain per 24h
+        // so a misbehaving reporter can't flood the bell.
+        if (endpoint?.workspace_id && endpoint?.domain) {
+          const title = `A DMARC report for ${endpoint.domain} could not be processed`;
+          const dup = await env.cybermeters_db
+            .prepare(`SELECT id FROM notification_events
+                      WHERE workspace_id = ? AND type = 'dmarc_report_dropped' AND title = ?
+                        AND created_at >= datetime('now', '-1 day') LIMIT 1`)
+            .bind(endpoint.workspace_id, title)
+            .first();
+          if (!dup) {
+            await createNotificationEvent(env, endpoint.workspace_id, {
+              type: "dmarc_report_dropped",
+              severity: "info",
+              title,
+              message: inboundDropCustomerMessage(reason),
+              metadata: { domain: endpoint.domain, domain_id: endpoint.domain_id || null, reason },
+            });
+          }
+        }
       } catch { /* never throw from the email handler */ }
     };
     try {
