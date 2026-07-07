@@ -116,15 +116,23 @@ function NotificationCard({ n, onMarkRead }) {
   const cfg      = severityCfg(n.severity)
   const isUnread = n.status === 'unread'
 
-  let meta = null
-  try { meta = n.metadata_json ? JSON.parse(n.metadata_json) : null } catch { /* ignore */ }
+  // The list API returns metadata already parsed as an object (`metadata`) and
+  // drops the raw `metadata_json` string; accept either shape so a notification
+  // is never left un-clickable just because of the field name.
+  let meta = n.metadata ?? null
+  if (!meta && n.metadata_json) {
+    try { meta = JSON.parse(n.metadata_json) } catch { meta = null }
+  }
 
-  const scanId = meta?.scan_id ?? null
-  const domain = meta?.domain ?? null
+  const scanId    = meta?.scan_id ?? null
+  const reportId  = meta?.report_id ?? null
+  const domain    = meta?.domain ?? null
+  const link      = scanId ? `/scans/${scanId}` : reportId ? '/reports' : null
+  const linkLabel = scanId ? 'View scan →' : reportId ? 'View report →' : null
 
   function handleClick() {
     if (isUnread) onMarkRead(n.id)
-    if (scanId) navigate(`/scans/${scanId}`)
+    if (link) navigate(link)
   }
 
   return (
@@ -133,7 +141,7 @@ function NotificationCard({ n, onMarkRead }) {
       className={`
         flex gap-4 px-5 py-4 border-b border-gray-100 last:border-0 transition-colors
         ${isUnread ? 'bg-brand-50/20' : 'bg-white'}
-        ${scanId ? 'cursor-pointer hover:bg-gray-50' : 'cursor-default'}
+        ${link ? 'cursor-pointer hover:bg-gray-50' : 'cursor-default'}
       `}
     >
       {/* Type icon */}
@@ -168,9 +176,9 @@ function NotificationCard({ n, onMarkRead }) {
 
           {/* Right side: unread dot + scan link */}
           <div className="flex items-center gap-3 flex-shrink-0 mt-0.5">
-            {scanId && (
+            {link && (
               <span className="text-xs text-brand-600 font-medium whitespace-nowrap">
-                View scan →
+                {linkLabel}
               </span>
             )}
             {isUnread && (

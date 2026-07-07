@@ -200,18 +200,20 @@ export default function NotificationBell() {
                   const cfg      = severityCfg(n.severity)
                   const isUnread = n.status === 'unread'
 
-                  // Parse scan_id from metadata for click-through navigation
-                  let scanId = null
+                  // Resolve a click-through target. The list API returns metadata
+                  // already parsed as `metadata` and drops the raw `metadata_json`
+                  // string — accept either so notifications stay clickable.
+                  let link = null
                   try {
-                    const meta = n.metadata_json ? JSON.parse(n.metadata_json) : null
-                    scanId = meta?.scan_id ?? null
+                    const meta = n.metadata ?? (n.metadata_json ? JSON.parse(n.metadata_json) : null)
+                    link = meta?.scan_id ? `/scans/${meta.scan_id}` : meta?.report_id ? '/reports' : null
                   } catch { /* ignore */ }
 
                   function handleNotifClick() {
                     if (isUnread) handleMarkRead(n.id)
-                    if (scanId) {
+                    if (link) {
                       setOpen(false)
-                      navigate(`/scans/${scanId}`)
+                      navigate(link)
                     }
                   }
 
@@ -219,7 +221,7 @@ export default function NotificationBell() {
                     <li
                       key={n.id}
                       onClick={handleNotifClick}
-                      className={`flex gap-3 px-4 py-3.5 transition-colors ${isUnread ? 'bg-brand-50/30' : ''} ${scanId ? 'cursor-pointer hover:bg-gray-50' : 'cursor-default hover:bg-gray-50/50'}`}
+                      className={`flex gap-3 px-4 py-3.5 transition-colors ${isUnread ? 'bg-brand-50/30' : ''} ${link ? 'cursor-pointer hover:bg-gray-50' : 'cursor-default hover:bg-gray-50/50'}`}
                     >
                       {/* Type icon */}
                       <div className="flex-shrink-0 mt-0.5">
@@ -233,7 +235,7 @@ export default function NotificationBell() {
                             {n.title}
                           </p>
                           <div className="flex items-center gap-1 flex-shrink-0">
-                            {scanId && (
+                            {link && (
                               <span className="text-[10px] text-brand-500 font-medium">→</span>
                             )}
                             {isUnread && (
