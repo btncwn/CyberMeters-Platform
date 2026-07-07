@@ -2242,17 +2242,20 @@ function EmailPostureHero({ wsId, domain, dmarc, policyJourney, onGoto }) {
   const passRate = dmarc?.traffic?.pass_rate
   const hasCompliance = total > 0 && passRate != null
   const scanStage = policyJourney?.stage || null
-  // Reconcile against live DNS: when the last scan predates a now-published DMARC
-  // record, trust the live record and prompt a re-scan rather than falsely
-  // alarming "No DMARC". Only a SINGLE valid record counts — multiple_dmarc_records
-  // and invalid_dmarc are "present but broken" and must not read as healthy.
-  // Live-lookup failures fall back to the scan's own stage (fail-safe).
+  // Reconcile against live DNS: the live record is more current than the last
+  // scan, so whenever it's healthy we trust IT for the policy state — covering
+  // both a just-published record (scan said "No DMARC") and a just-changed
+  // policy (scan said "monitoring" but it's now quarantine/reject). Only a
+  // SINGLE valid record counts — multiple_dmarc_records and invalid_dmarc are
+  // "present but broken". Live-lookup failures fall back to the scan (fail-safe).
   const liveDmarcHealthy = liveDns?.status === 'verified' || liveDns?.status === 'missing_cybermeters_rua'
   const livePolicyStage  = liveDns?.policy === 'reject' ? 'full_enforcement'
     : liveDns?.policy === 'quarantine' ? 'partial_enforcement'
     : liveDmarcHealthy ? 'monitoring' : null
-  const staleScan = scanStage === 'missing' && liveDmarcHealthy
-  const stage = staleScan ? livePolicyStage : scanStage
+  const stage = (liveDmarcHealthy && livePolicyStage != null) ? livePolicyStage : scanStage
+  // The scan is "stale" whenever live DNS disagrees with it — nudge a re-scan
+  // so compliance/exposure catch up to the current record.
+  const staleScan = liveDmarcHealthy && livePolicyStage != null && livePolicyStage !== scanStage
   const stageLabel = { missing: 'No DMARC', monitoring: 'Monitoring (p=none)',
     partial_enforcement: 'Quarantine', full_enforcement: 'Reject' }[stage] || 'Unknown'
   const enforcing = ['partial_enforcement', 'full_enforcement'].includes(stage)
