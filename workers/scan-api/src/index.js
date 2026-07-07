@@ -6553,6 +6553,8 @@ function hostedDnsRecordToApi(row) {
     cname_target: row.hosted_name,
     current_value: row.current_value,
     status: row.status,
+    // Customer-safe issue class (K2): 'config_error' | 'temporary_issue' | null.
+    issue: row.last_error || null,
     last_verified_at: row.last_verified_at || null,
     created_at: row.created_at,
   };
@@ -6563,7 +6565,40 @@ async function cfCreateHostedTxt(env, name, content, { fetchImpl = fetch } = {})
   if (!String(env?.CLOUDFLARE_API_TOKEN || "").trim() || !/^[a-f0-9]{32}$/i.test(zoneId)) {
     return { ok: false, reason: "missing_config" };
   }
-  const res = await _cloudflareEmailRoutingRequest(env, `/zones/${zoneId}/dns_records`, {
+  const base = `/zones/${zoneId}/dns_records`;
+  const wanted = String(content).replace(/\s+/g, " ").trim();
+
+  // Idempotency (K1): adopt an existing TXT at this name instead of blindly
+  // creating a duplicate. Two identical TXT records at the hosted name would
+  // make the customer's CNAME resolve to two DMARC records — DMARC invalid.
+  // Mirrors the list-before-create pattern in ensureCloudflareEmailRoute.
+  const listed = await _cloudflareEmailRoutingRequest(
+    env, `${base}?type=TXT&name=${encodeURIComponent(name)}&per_page=50`, {}, fetchImpl);
+  if (listed.ok) {
+    const matches = Array.isArray(listed.body?.result) ? listed.body.result : [];
+    if (matches.length > 0) {
+      const [keep, ...extras] = matches;
+      // Self-heal any pre-existing duplicates from before this guard shipped.
+      for (const dup of extras) {
+        if (dup?.id) await cfDeleteHostedTxt(env, dup.id, { fetchImpl });
+      }
+      const keepContent = String(keep?.content || "").replace(/\s+/g, " ").trim();
+      if (keep?.id && keepContent !== wanted) {
+        // Correct drifted content in place — keep the same record id.
+        await _cloudflareEmailRoutingRequest(env, `${base}/${encodeURIComponent(keep.id)}`, {
+          method: "PATCH",
+          body: JSON.stringify({ type: "TXT", name, content, ttl: 300 }),
+        }, fetchImpl);
+      }
+      return keep?.id ? { ok: true, cf_record_id: keep.id, adopted: true } : { ok: false, reason: "api_rejected" };
+    }
+  } else if (listed.reason && listed.reason !== "unsupported_api") {
+    // A hard list failure (auth/rate-limit/outage) — surface it rather than
+    // falling through to a create that could race into a duplicate.
+    return { ok: false, reason: listed.reason };
+  }
+
+  const res = await _cloudflareEmailRoutingRequest(env, base, {
     method: "POST",
     body: JSON.stringify({
       type: "TXT", name, content, ttl: 300,
@@ -6621,10 +6656,12 @@ async function runHostedDnsVerificationSweep(env, {
 } = {}) {
   let rows = [];
   try {
+    // M1: least-recently-verified first (NULLs — never-verified — lead). Ordering
+    // by updated_at let stable connected rows starve fresh pending ones at scale.
     const r = await env.cybermeters_db
       .prepare(`SELECT * FROM hosted_dns_records
                 WHERE status IN ('pending_dns','awaiting_cname','connected','disconnected','pending_removal')
-                ORDER BY updated_at ASC LIMIT ?`)
+                ORDER BY (last_verified_at IS NULL) DESC, last_verified_at ASC LIMIT ?`)
       .bind(HOSTED_DNS_SWEEP_LIMIT).all();
     rows = r.results || [];
   } catch { return { checked: 0, removed: 0 }; }
@@ -6639,8 +6676,19 @@ async function runHostedDnsVerificationSweep(env, {
         if (created.ok) {
           row.cf_record_id = created.cf_record_id;
           await env.cybermeters_db
-            .prepare(`UPDATE hosted_dns_records SET cf_record_id = ?, updated_at = ? WHERE id = ?`)
+            .prepare(`UPDATE hosted_dns_records SET cf_record_id = ?, failure_count = 0, last_error = NULL, updated_at = ? WHERE id = ?`)
             .bind(created.cf_record_id, nowIso, row.id).run();
+        } else {
+          // K2: record the failure class. config_error surfaces to the customer
+          // and to our logs; temporary_issue self-heals on the next sweep.
+          const issue = classifyHostedCfError(created.reason);
+          if (issue === "config_error") {
+            console.error("[hosted-dmarc] config error", JSON.stringify({ id: row.id, reason: created.reason }));
+          }
+          await env.cybermeters_db
+            .prepare(`UPDATE hosted_dns_records SET failure_count = failure_count + 1, last_error = ?, updated_at = ? WHERE id = ?`)
+            .bind(issue, nowIso, row.id).run();
+          continue; // nothing to verify without a published TXT
         }
       }
 
@@ -7520,7 +7568,7 @@ const DMARC_ROUTE_STATUSES = new Set(["not_configured", "pending", "active", "fa
 const DMARC_ROUTE_ERRORS = new Set([
   "missing_config", "api_rejected", "route_exists", "worker_not_found",
   "unsupported_api", "network_error", "unknown_error", "unsupported_domain",
-  "unsupported_localpart",
+  "unsupported_localpart", "auth_error", "rate_limited", "server_error",
 ]);
 
 function sanitizeDmarcRouteStatus(status) {
@@ -7572,10 +7620,24 @@ function _cloudflareRouteFailure(response, body) {
   const messages = Array.isArray(body?.errors)
     ? body.errors.map((error) => String(error?.message || "").toLowerCase()).join(" ") : "";
   if (response?.status === 404 || response?.status === 405) return "unsupported_api";
+  // Distinguish permanent config faults from transient ones so callers can
+  // stop hammering on a bad token yet keep retrying rate-limits/outages.
+  if (response?.status === 401 || response?.status === 403) return "auth_error";
+  if (response?.status === 429) return "rate_limited";
+  if (response && response.status >= 500) return "server_error";
   if (/worker/.test(messages) && /(not found|does not exist|unknown)/.test(messages)) return "worker_not_found";
   if (/(already exists|duplicate)/.test(messages)) return "route_exists";
   if (response && !response.ok) return "api_rejected";
   return "unknown_error";
+}
+
+// Maps a Cloudflare failure reason to a customer-safe issue class for hosted
+// records: config_error is on us (bad/insufficient token) and must surface;
+// temporary_issue is transient (rate-limit, outage, network) and self-heals on
+// the next hourly sweep.
+function classifyHostedCfError(reason) {
+  if (reason === "auth_error" || reason === "missing_config") return "config_error";
+  return "temporary_issue";
 }
 
 async function _cloudflareEmailRoutingRequest(env, path, init = {}, fetchImpl = fetch) {

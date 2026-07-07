@@ -153,6 +153,9 @@ function loadScanner(fetchImpl = async () => { throw new Error("network disabled
     runHostedDnsVerificationSweep,
     newHostedDnsRecordId,
     hostedDmarcSubdomain,
+    cfCreateHostedTxt,
+    classifyHostedCfError,
+    _cloudflareRouteFailure,
     emailHandler: __workerDefault.email,
     computeBusinessRiskScoreFromIds: (ids, data) => computeBusinessRiskScore(new Set(ids), data),
   };`, context, {
@@ -2062,8 +2065,10 @@ results.push(await asyncSecurityContract("rua_route_automation_revoke_safe_failu
   await scanner.auditDmarcRouteResult(env, ROUTE_ENDPOINT, "user-1", result, "revoke");
   const audit = mock.runs.find((run) => /INSERT INTO audit_events/.test(run.sql));
   const metadata = audit?.bindings?.[7] ? JSON.parse(audit.bindings[7]) : null;
-  return endpointRevoked && !result.ok && result.status === "failed" && result.reason === "api_rejected" &&
-    audit?.bindings?.[3] === "dmarc_ingest_route_failed" && metadata?.reason === "api_rejected" &&
+  // A 500 is now classified as the more precise "server_error" (transient),
+  // not a generic "api_rejected" — still non-blocking and sanitised.
+  return endpointRevoked && !result.ok && result.status === "failed" && result.reason === "server_error" &&
+    audit?.bindings?.[3] === "dmarc_ingest_route_failed" && metadata?.reason === "server_error" &&
     !JSON.stringify({ result, metadata }).includes("SECRET upstream");
 }));
 results.push(await asyncSecurityContract("rua_gzip_extract_parses", async () => {
@@ -2407,6 +2412,61 @@ results.push(await asyncSecurityContract("spf_chain_flags_over_limit_void_and_ca
   return r.lookups_used === 11 && r.over_limit === true && voidsFlagged &&
     capped.truncated === true && capped.queries_used === 3 &&
     noSpf.status === "no_spf" && noSpf.flattened === null;
+}));
+results.push(await asyncSecurityContract("hosted_create_idempotent_adopts_and_dedupes", async () => {
+  const value = "v=DMARC1; p=none; rua=mailto:x@reports.cybermeters.com";
+  const env = { CLOUDFLARE_API_TOKEN: "t", CLOUDFLARE_ZONE_ID: "a".repeat(32) };
+  const strip = (u) => u.replace(/^https:\/\/[^/]+/, "");
+
+  // Case 1: an existing TXT (plus a stale duplicate) at the name → adopt the
+  // first id, DELETE the duplicate, and NEVER POST a create.
+  const calls1 = [];
+  const fetch1 = async (url, opts) => {
+    const m = opts?.method || "GET"; calls1.push(`${m} ${strip(url)}`);
+    if (m === "GET") return { ok: true, status: 200, json: async () => ({ success: true, result: [
+      { id: "e".repeat(32), content: value }, { id: "f".repeat(32), content: value },
+    ] }) };
+    return { ok: true, status: 200, json: async () => ({ success: true, result: { id: "new" } }) };
+  };
+  const r1 = await scanner.cfCreateHostedTxt(env, "hd-x.dmarc.cybermeters.com", value, { fetchImpl: fetch1 });
+  const adopted = r1.ok && r1.cf_record_id === "e".repeat(32) && r1.adopted === true;
+  const noCreate = !calls1.some((c) => c.startsWith("POST"));
+  const deduped = calls1.some((c) => c.startsWith("DELETE") && c.includes("f".repeat(32)));
+
+  // Case 2: no existing record → a single POST create happens.
+  const calls2 = [];
+  const fetch2 = async (url, opts) => {
+    const m = opts?.method || "GET"; calls2.push(`${m} ${strip(url)}`);
+    if (m === "GET") return { ok: true, status: 200, json: async () => ({ success: true, result: [] }) };
+    return { ok: true, status: 200, json: async () => ({ success: true, result: { id: "brand-new" } }) };
+  };
+  const r2 = await scanner.cfCreateHostedTxt(env, "hd-y.dmarc.cybermeters.com", value, { fetchImpl: fetch2 });
+  const created = r2.ok && r2.cf_record_id === "brand-new" && !r2.adopted &&
+    calls2.filter((c) => c.startsWith("POST")).length === 1;
+
+  // Case 3: a hard list failure (auth) is surfaced, not papered over by a create.
+  const calls3 = [];
+  const fetch3 = async (url, opts) => {
+    const m = opts?.method || "GET"; calls3.push(`${m} ${strip(url)}`);
+    return { ok: false, status: 403, json: async () => ({ success: false, errors: [{ message: "forbidden" }] }) };
+  };
+  const r3 = await scanner.cfCreateHostedTxt(env, "hd-z.dmarc.cybermeters.com", value, { fetchImpl: fetch3 });
+  const surfaced = r3.ok === false && r3.reason === "auth_error" && !calls3.some((c) => c.startsWith("POST"));
+
+  return adopted && noCreate && deduped && created && surfaced;
+}));
+results.push(securityContract("cf_error_classification_transient_vs_config", () => {
+  const f = scanner._cloudflareRouteFailure;
+  const c = scanner.classifyHostedCfError;
+  return f({ status: 429, ok: false }) === "rate_limited" &&
+    f({ status: 503, ok: false }) === "server_error" &&
+    f({ status: 500, ok: false }) === "server_error" &&
+    f({ status: 401, ok: false }) === "auth_error" &&
+    f({ status: 403, ok: false }) === "auth_error" &&
+    f({ status: 404, ok: false }) === "unsupported_api" &&
+    c("auth_error") === "config_error" && c("missing_config") === "config_error" &&
+    c("rate_limited") === "temporary_issue" && c("server_error") === "temporary_issue" &&
+    c("network_error") === "temporary_issue";
 }));
 results.push(securityContract("hosted_dmarc_status_machine_transitions", () => {
   const n = scanner.nextHostedDnsStatus;

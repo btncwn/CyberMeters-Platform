@@ -1580,6 +1580,17 @@ function ManagedDmarcCard({ wsId, domain, endpointReady }) {
         )}
       </div>
 
+      {rec?.issue && (
+        <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+          <Info className="w-3.5 h-3.5 text-amber-700 flex-shrink-0 mt-0.5" />
+          <p className="text-xs text-amber-800 leading-relaxed">
+            {rec.issue === 'config_error'
+              ? 'Publishing is delayed on our side — no action needed from you. We’ve been notified and will complete setup automatically.'
+              : 'Finishing setup — publishing your managed record can take a few minutes. This will clear on its own.'}
+          </p>
+        </div>
+      )}
+
       {!rec ? (
         <div className="mt-3">
           <button
