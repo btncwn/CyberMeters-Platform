@@ -24,7 +24,7 @@
  *   Inline px-based transformOrigin is broken for non-32 sizes because it operates in
  *   CSS pixel space, not SVG viewBox units. The CSS class uses transform-box:fill-box
  *   so transform-origin:center always resolves to the needle's own bounding-box center
- *   (SVG point 20,16) regardless of the rendered CSS size.
+ *   (SVG point 24,16) regardless of the rendered CSS size.
  *
  * Usage:
  *   <CyberMetersLogo size={36} showWordmark animated />  // navbar
@@ -46,20 +46,20 @@ import { useId } from 'react'
 //
 // Keeping depth === halfHeight preserves the original 45° bracket angle. The
 // 3.5 stroke and −9° needle are fixed by spec. The canvas is wider than it is
-// tall (40 × 32) so the brackets sit well apart from the needle: with armOffset
-// 9.5 the 'wide' tips land at x 2.5 / 37.5 (miter tip ≈ 0.03 / 39.97), the same
-// edge treatment the original had on its 32-wide canvas — just twice the gap.
+// tall (48 × 32) so the brackets sit well apart from the needle: with armOffset
+// 13.5 the 'wide' tips land at x 2.5 / 45.5 (miter tip ≈ 0.03 / 47.97), the same
+// edge treatment the original had on its 32-wide canvas — but three times the gap.
 const SPACING_PRESETS = {
-  balanced: { armOffset: 7.5, depth: 8, halfHeight: 8 }, // moderate separation
-  wide:     { armOffset: 9.5, depth: 8, halfHeight: 8 }, // production — '<' and '>' well apart
-  // Raise armOffset to push the brackets further apart (tips stay on-canvas up to ~10.5).
+  balanced: { armOffset: 11.5, depth: 8, halfHeight: 8 }, // moderate separation
+  wide:     { armOffset: 13.5, depth: 8, halfHeight: 8 }, // production — '<' and '>' well apart
+  // Raise armOffset to push the brackets further apart (tips stay on-canvas up to ~13.5).
 }
 
-// Canvas: 40 wide × 32 tall. Centre is (20, 16); the extra width is what lets the
+// Canvas: 48 wide × 32 tall. Centre is (24, 16); the extra width is what lets the
 // two brackets separate from the needle without the tips overflowing.
-const CENTER_X = 20
+const CENTER_X = 24
 const CENTER_Y = 16
-const CANVAS_W = 40
+const CANVAS_W = 48
 const CANVAS_H = 32
 
 function buildBracketPoints({ armOffset, depth, halfHeight }) {
@@ -96,7 +96,7 @@ export default function CyberMetersLogo({
 
   const mark = (
     <svg
-      viewBox="0 0 40 32"
+      viewBox="0 0 48 32"
       width={Math.round((size * CANVAS_W) / CANVAS_H)}
       height={size}
       fill="none"
@@ -146,11 +146,11 @@ export default function CyberMetersLogo({
                   size except 32. transform-box:fill-box in the CSS class fixes this.
       */}
       <g
-        transform={!animated ? 'rotate(-9, 20, 16)' : undefined}
+        transform={!animated ? 'rotate(-9, 24, 16)' : undefined}
         className={animated ? 'cm-needle-animated' : undefined}
       >
         <rect
-          x="18.5"
+          x="22.5"
           y="1"
           width="3"
           height="30"
