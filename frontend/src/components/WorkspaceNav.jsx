@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { NavLink, Link, useNavigate, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Shield, Lock, Tag, Briefcase, ChevronLeft, ChevronDown,
@@ -96,6 +96,10 @@ export default function WorkspaceNav({ wsName }) {
   const activeKey = detectServiceKey(pathname)
   const [toolsOpen, setToolsOpen] = useState(false)
   const [hoverKey, setHoverKey] = useState(null)
+  // Sub-items behave as a manual accordion: the active service opens by default,
+  // but a click toggles it closed (and open again) without waiting for a route change.
+  const [expandedKey, setExpandedKey] = useState(activeKey)
+  useEffect(() => { setExpandedKey(activeKey) }, [activeKey])
 
   const handlePreload = (to) => {
     const loader = routePreloadMap[to]
@@ -131,6 +135,7 @@ export default function WorkspaceNav({ wsName }) {
       <nav className="flex-1 px-2.5 py-4 space-y-1.5">
         {SERVICES.map(svc => {
           const active = activeKey === svc.key
+          const expanded = expandedKey === svc.key
           const hovered = hoverKey === svc.key
           const t = THEME[svc.key]
           const Icon = svc.icon
@@ -141,6 +146,7 @@ export default function WorkspaceNav({ wsName }) {
                 onMouseEnter={() => { setHoverKey(svc.key); handlePreload(svc.to) }}
                 onMouseLeave={() => setHoverKey(null)}
                 onFocus={() => handlePreload(svc.to)}
+                onClick={() => setExpandedKey(prev => prev === svc.key ? null : svc.key)}
                 style={active
                   ? { backgroundColor: t.bg, borderLeftColor: t.accent }
                   : hovered ? { backgroundColor: t.tint, borderLeftColor: 'transparent' } : { borderLeftColor: 'transparent' }}
@@ -159,13 +165,13 @@ export default function WorkspaceNav({ wsName }) {
                 >
                   {svc.title}
                 </span>
-                {active
+                {expanded
                   ? <ChevronDown className="w-4 h-4 flex-shrink-0" style={{ color: t.accent }} />
                   : <ChevronRight className="w-4 h-4 text-gray-300 flex-shrink-0" />}
               </Link>
 
-              {/* The active service expands into its coloured sub-items */}
-              {active && (
+              {/* The expanded service reveals its coloured sub-items */}
+              {expanded && (
                 <div
                   className="ml-[26px] mt-1 mb-1.5 pl-3.5 space-y-0.5 border-l-2"
                   style={{ borderColor: t.bg }}
