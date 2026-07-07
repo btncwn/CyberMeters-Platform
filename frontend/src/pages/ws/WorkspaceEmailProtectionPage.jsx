@@ -2155,7 +2155,9 @@ function RemediationsPanel({ wsId, domain }) {
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold text-gray-900">{item.title}</p>
                   <p className="text-xs text-gray-400">
-                    {item.ok ? 'In place' : 'Not configured'}
+                    {/* Present-but-not-ok (e.g. DMARC at p=none) must not read as
+                        "Not configured" — it exists, it just isn't protective yet. */}
+                    {item.ok ? 'In place' : item.present ? 'Needs attention' : 'Not configured'}
                     {item.capability === 'hosted' && <span className="ml-1.5 text-brand-700 font-semibold">· CyberMeters can host this</span>}
                     {item.capability === 'guided' && <span className="ml-1.5 text-gray-500">· exact fix below</span>}
                   </p>
