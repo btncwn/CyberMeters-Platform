@@ -76,6 +76,22 @@ export function reloadForFreshAssets() {
   return true
 }
 
+// Called once the app has booted and run healthily for a short window (see
+// main.jsx). A successful load means any prior stale-chunk reload actually
+// worked, so we clear the marker to restore the auto-reload budget — a *later*,
+// independent deploy can then auto-heal again instead of being mistaken for a
+// reload loop. A genuine loop re-throws inside that window, before this runs,
+// so canAutoReload() stays false and the manual card still appears. This fixes
+// the case where two separate deploys within RELOAD_WINDOW_MS looked like a
+// loop and dead-ended the second one on the "Reload page" card.
+export function clearReloadBudget() {
+  try {
+    sessionStorage.removeItem(RELOAD_FLAG)
+  } catch {
+    /* storage unavailable — nothing to clear */
+  }
+}
+
 class ChunkBoundaryInner extends Component {
   state = { error: null, autoReloading: false }
 
