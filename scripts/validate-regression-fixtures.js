@@ -2515,29 +2515,54 @@ results.push(securityContract("hosted_dns_api_never_leaks_internals", () => {
     api.cname_target === "hd-abc123def456.dmarc.cybermeters.com" && idOk &&
     scanner.hostedDmarcSubdomain({}) === "dmarc.cybermeters.com";
 }));
-results.push(await asyncSecurityContract("hosted_dmarc_verify_checks_both_sides", async () => {
-  const row = {
-    domain: "example.com",
-    hosted_name: "hd-aaa.dmarc.cybermeters.com",
-    current_value: "v=DMARC1; p=none; rua=mailto:x@reports.cybermeters.com",
-  };
-  const zone = (answers) => async (name) => ({
-    Status: 0, Answer: (answers[name] || []).map((d) => ({ data: `"${d}"` })),
+results.push(await asyncSecurityContract("hosted_dmarc_verify_requires_real_delegation", async () => {
+  const value = "v=DMARC1; p=none; rua=mailto:x@reports.cybermeters.com";
+  const row = { domain: "example.com", hosted_name: "hd-aaa.dmarc.cybermeters.com", current_value: value };
+  // Type-aware zone mock: entries are { type: 'TXT'|'CNAME', data } per (name, qtype).
+  const zone = (records) => async (name, type) => ({
+    Status: 0,
+    Answer: (records[`${name}|${type}`] || []),
   });
-  const bothLive = await scanner.verifyHostedDmarcRecord(row, { dnsQueryImpl: zone({
-    "hd-aaa.dmarc.cybermeters.com": [row.current_value],
-    "_dmarc.example.com": [row.current_value],
+  const txt = (v) => ({ type: 16, data: `"${v}"` });
+  const cname = (target) => ({ type: 5, data: `${target}.` });
+
+  // 1) Genuine delegation: _dmarc CNAMEs to us (chain visible in TXT answer) → connected.
+  const genuine = await scanner.verifyHostedDmarcRecord(row, { dnsQueryImpl: zone({
+    "hd-aaa.dmarc.cybermeters.com|TXT": [txt(value)],
+    "_dmarc.example.com|TXT": [cname("hd-aaa.dmarc.cybermeters.com"), txt(value)],
   }) });
+
+  // 2) THE MIRROR BUG: standalone TXT with identical content, no CNAME anywhere
+  //    → must NOT read as connected (we manage nothing).
+  const mirrored = await scanner.verifyHostedDmarcRecord(row, { dnsQueryImpl: zone({
+    "hd-aaa.dmarc.cybermeters.com|TXT": [txt(value)],
+    "_dmarc.example.com|TXT": [txt(value)],
+    "_dmarc.example.com|CNAME": [],
+  }) });
+
+  // 3) Chain-omitting resolver: content matches, no type-5 in the TXT answer,
+  //    but an explicit CNAME lookup confirms delegation → connected.
+  const chainHidden = await scanner.verifyHostedDmarcRecord(row, { dnsQueryImpl: zone({
+    "hd-aaa.dmarc.cybermeters.com|TXT": [txt(value)],
+    "_dmarc.example.com|TXT": [txt(value)],
+    "_dmarc.example.com|CNAME": [cname("hd-aaa.dmarc.cybermeters.com")],
+  }) });
+
+  // 4) Hosted TXT live, customer has nothing → awaiting.
   const hostedOnly = await scanner.verifyHostedDmarcRecord(row, { dnsQueryImpl: zone({
-    "hd-aaa.dmarc.cybermeters.com": [row.current_value],
+    "hd-aaa.dmarc.cybermeters.com|TXT": [txt(value)],
   }) });
-  const neither = await scanner.verifyHostedDmarcRecord(row, { dnsQueryImpl: zone({}) });
+
+  // 5) Hosted TXT serves the wrong value → not live at all.
   const wrongValue = await scanner.verifyHostedDmarcRecord(row, { dnsQueryImpl: zone({
-    "hd-aaa.dmarc.cybermeters.com": ["v=DMARC1; p=reject"],
+    "hd-aaa.dmarc.cybermeters.com|TXT": [txt("v=DMARC1; p=reject")],
   }) });
-  return bothLive.hosted_live && bothLive.cname_connected &&
-    hostedOnly.hosted_live && !hostedOnly.cname_connected &&
-    !neither.hosted_live && !wrongValue.hosted_live;
+
+  return genuine.hosted_live && genuine.cname_connected === true &&
+    mirrored.hosted_live && mirrored.cname_connected === false &&
+    chainHidden.cname_connected === true &&
+    hostedOnly.hosted_live && hostedOnly.cname_connected === false &&
+    wrongValue.hosted_live === false;
 }));
 results.push(await asyncSecurityContract("hosted_removal_never_orphans_a_live_cname", async () => {
   // pending_removal + the customer's CNAME still resolves to us + inside the
@@ -2562,16 +2587,21 @@ results.push(await asyncSecurityContract("hosted_removal_never_orphans_a_live_cn
   const cfCalls = [];
   const fetchImpl = async (url, opts) => { cfCalls.push(`${opts?.method || "GET"} ${url}`); return { ok: true, status: 200, json: async () => ({ success: true, result: { id: "d".repeat(32) } }) }; };
 
-  // Case 1: CNAME still points at us, fresh request → nothing deleted.
+  // Case 1: CNAME still points at us (real chain), fresh request → nothing deleted.
   const log1 = []; const row1 = mkRow();
-  const dnsBoth = async (name) => ({ Status: 0, Answer: [{ data: `"${value}"` }] });
+  const dnsBoth = async (name, type) => {
+    if (name.startsWith("hd-")) return { Status: 0, Answer: [{ type: 16, data: `"${value}"` }] };
+    if (type === "TXT") return { Status: 0, Answer: [
+      { type: 5, data: "hd-bbb.dmarc.cybermeters.com." }, { type: 16, data: `"${value}"` }] };
+    return { Status: 0, Answer: [{ type: 5, data: "hd-bbb.dmarc.cybermeters.com." }] };
+  };
   const r1 = await scanner.runHostedDnsVerificationSweep(mkEnv(row1, log1), { dnsQueryImpl: dnsBoth, fetchImpl, now: new Date() });
   const deletedInCase1 = cfCalls.some((c) => c.startsWith("DELETE")) || log1.some((l) => l.startsWith("DELETE:hosted"));
 
   // Case 2: CNAME gone → removal completes (CF delete + row delete).
   cfCalls.length = 0; const log2 = []; const row2 = mkRow();
   const dnsHostedOnly = async (name) => name.startsWith("hd-")
-    ? { Status: 0, Answer: [{ data: `"${value}"` }] }
+    ? { Status: 0, Answer: [{ type: 16, data: `"${value}"` }] }
     : { Status: 0, Answer: [] };
   const r2 = await scanner.runHostedDnsVerificationSweep(mkEnv(row2, log2), { dnsQueryImpl: dnsHostedOnly, fetchImpl, now: new Date() });
   const deletedInCase2 = cfCalls.some((c) => c.startsWith("DELETE")) && log2.some((l) => l.startsWith("DELETE:hosted"));

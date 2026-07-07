@@ -6634,16 +6634,40 @@ async function cfDeleteHostedTxt(env, cfRecordId, { fetchImpl = fetch } = {}) {
 // customer's _dmarc resolves (via their CNAME) to that same value.
 async function verifyHostedDmarcRecord(row, { dnsQueryImpl = dnsQuery } = {}) {
   const expected = String(row.current_value || "").replace(/\s+/g, " ").trim();
-  const txtMatches = async (name) => {
+  const hostedTarget = String(row.hosted_name || "").toLowerCase().replace(/\.$/, "");
+  const fetchAnswers = async (name, type) => {
     try {
-      const res = await dnsQueryImpl(name, "TXT");
-      if (Number(res?.Status ?? 1) !== 0) return false;
-      return (res?.Answer || []).some((a) =>
-        normalizeDnsTxtValue(a?.data).replace(/\s+/g, " ").trim() === expected);
-    } catch { return false; }
+      const res = await dnsQueryImpl(name, type);
+      if (Number(res?.Status ?? 1) !== 0) return null;
+      return res?.Answer || [];
+    } catch { return null; }
   };
-  const hosted_live = await txtMatches(row.hosted_name);
-  const cname_connected = hosted_live ? await txtMatches(`_dmarc.${row.domain}`) : false;
+  const txtValueMatches = (a) =>
+    normalizeDnsTxtValue(a?.data).replace(/\s+/g, " ").trim() === expected;
+
+  const hostedAnswers = await fetchAnswers(row.hosted_name, "TXT");
+  const hosted_live = (hostedAnswers || []).some(txtValueMatches);
+  if (!hosted_live) return { hosted_live: false, cname_connected: false };
+
+  // cname_connected requires GENUINE delegation: _dmarc.<domain> must CNAME to
+  // our hosted name, not merely publish identical content. Phase A mirrors the
+  // customer's existing value, so a standalone TXT with the same content would
+  // otherwise read as "connected" while we manage nothing — and the illusion
+  // would shatter (false disconnect alarm) on the first policy change.
+  const customerName = `_dmarc.${row.domain}`;
+  const answers = await fetchAnswers(customerName, "TXT");
+  const contentMatches = (answers || []).some(txtValueMatches);
+  if (!contentMatches) return { hosted_live, cname_connected: false };
+  // Resolvers include the CNAME chain (type 5) in the answer section.
+  const chainToUs = (answers || []).some((a) => Number(a?.type) === 5 &&
+    String(a?.data || "").toLowerCase().replace(/\.$/, "") === hostedTarget);
+  if (chainToUs) return { hosted_live, cname_connected: true };
+  // Content matches but no visible chain — either a mirrored standalone TXT
+  // (pre-CNAME) or a resolver omitting the chain. An explicit CNAME lookup
+  // settles it either way.
+  const cnameAnswers = await fetchAnswers(customerName, "CNAME");
+  const cname_connected = (cnameAnswers || []).some((a) =>
+    String(a?.data || "").toLowerCase().replace(/\.$/, "").replace(/^"|"$/g, "") === hostedTarget);
   return { hosted_live, cname_connected };
 }
 
