@@ -163,6 +163,7 @@ function loadScanner(fetchImpl = async () => { throw new Error("network disabled
     shouldAutoRollback,
     applyHostedDmarcChange,
     rollbackHostedDmarc,
+    reconcileHostedIntent,
     planAllowsHostedPolicyManagement,
     runHostedDnsVerificationSweep_B: runHostedDnsVerificationSweep,
     emailHandler: __workerDefault.email,
@@ -2645,14 +2646,21 @@ results.push(await asyncSecurityContract("selfdriving_apply_swaps_previous_and_r
   });
   const patches = [];
   const fetchImpl = async (url, opts) => {
-    if ((opts?.method || "GET") === "PATCH") patches.push(JSON.parse(opts.body).content);
+    if ((opts?.method || "GET") === "PATCH") {
+      const sent = JSON.parse(opts.body).content;
+      patches.push(sent);
+      // H2: Cloudflare echoes the served content back.
+      return { ok: true, status: 200, json: async () => ({ success: true, result: { id: "x", content: sent } }) };
+    }
     return { ok: true, status: 200, json: async () => ({ success: true, result: { id: "x" } }) };
   };
-  // Happy path: PATCH carries the new value; D1 swap sets previous_value.
+  // Happy path: intent is written BEFORE the PATCH; commit swaps from pending.
   const log1 = [];
   const r1 = await scanner.applyHostedDmarcChange(mkEnv(log1), mkRow(), {
     policy: "quarantine", pct: 5, source: "manual", passRateNow: 99, fetchImpl });
-  const swap = log1.find((l) => /SET previous_value = current_value/.test(l.sql));
+  const prepared = log1.findIndex((l) => /SET pending_value = \?/.test(l.sql));
+  const committed = log1.findIndex((l) => /current_value = pending_value/.test(l.sql));
+  const swap = committed >= 0 && prepared >= 0 && prepared < committed;
   const audit = log1.find((l) => /INSERT INTO audit_events/.test(l.sql));
   // Budget exhausted: no PATCH, no writes.
   const log2 = []; patches.length = 0;
@@ -2679,14 +2687,95 @@ results.push(await asyncSecurityContract("selfdriving_rollback_restores_verbatim
       async all() { return { results: [] }; },
     }; } } };
   const fetchImpl = async (url, opts) => {
-    if ((opts?.method || "GET") === "PATCH") patches.push(JSON.parse(opts.body).content);
-    return { ok: true, status: 200, json: async () => ({ success: true }) };
+    if ((opts?.method || "GET") === "PATCH") {
+      const sent = JSON.parse(opts.body).content;
+      patches.push(sent);
+      return { ok: true, status: 200, json: async () => ({ success: true, result: { id: "y", content: sent } }) };
+    }
+    return { ok: true, status: 200, json: async () => ({ success: true, result: [] }) };
   };
   const r = await scanner.rollbackHostedDmarc(env, row, { source: "auto", fetchImpl });
   const clearsPrevious = log.some((s) => /previous_value = NULL/.test(s));
   const noPrev = await scanner.rollbackHostedDmarc(env, { ...row, previous_value: null }, { fetchImpl });
   return r.ok && r.value === prev && patches[0] === prev && clearsPrevious &&
     noPrev.ok === false && noPrev.reason === "nothing_to_roll_back";
+}));
+results.push(await asyncSecurityContract("hosted_apply_is_write_ahead_saga", async () => {
+  const value = "v=DMARC1; p=none; rua=mailto:x@reports.cybermeters.com";
+  const mkRow = (extra = {}) => ({ id: "hd-eee", workspace_id: "ws1", domain: "example.com",
+    hosted_name: "hd-eee.dmarc.cybermeters.com", current_value: value,
+    cf_record_id: "a".repeat(32), ...extra });
+  const mkEnv = (log) => ({ CLOUDFLARE_API_TOKEN: "t", CLOUDFLARE_ZONE_ID: "e".repeat(32),
+    cybermeters_db: { prepare(sql) { return {
+      _sql: sql, bind(...a) { this._a = a; return this; },
+      async first() { return /FROM audit_events/.test(this._sql) ? { n: 0 } : null; },
+      async run() { log.push(this._sql); return { meta: { changes: 1 } }; },
+      async all() { return { results: [] }; },
+    }; } } });
+
+  // Case 1: EXECUTE fails → the intent is aborted; no commit, safe state kept.
+  const log1 = []; let fetches1 = 0;
+  const failPatch = async () => { fetches1 += 1; return { ok: false, status: 500, json: async () => ({ success: false }) }; };
+  const r1 = await scanner.applyHostedDmarcChange(mkEnv(log1), mkRow(), {
+    policy: "quarantine", pct: 5, fetchImpl: failPatch });
+  const aborted1 = log1.some((s) => /pending_value = NULL, pending_since = NULL WHERE/.test(s));
+  const committed1 = log1.some((s) => /current_value = pending_value/.test(s));
+
+  // Case 2: VERIFY mismatch (CF serves something else) → intent is LEFT for
+  // the reconciler; no abort, no commit.
+  const log2 = [];
+  const liarPatch = async (url, opts) => (opts?.method === "PATCH"
+    ? { ok: true, status: 200, json: async () => ({ success: true, result: { id: "x", content: "v=DMARC1; p=reject" } }) }
+    : { ok: true, status: 200, json: async () => ({ success: true, result: [] }) });
+  const r2 = await scanner.applyHostedDmarcChange(mkEnv(log2), mkRow(), {
+    policy: "quarantine", pct: 5, fetchImpl: liarPatch });
+  const aborted2 = log2.some((s) => /pending_value = NULL, pending_since = NULL WHERE/.test(s));
+  const committed2 = log2.some((s) => /current_value = pending_value/.test(s));
+
+  // Case 3: an in-flight intent blocks a second overlapping change (per-record lock).
+  const r3 = await scanner.applyHostedDmarcChange(mkEnv([]), mkRow({ pending_value: "x" }), {
+    policy: "quarantine", pct: 5, fetchImpl: failPatch });
+
+  return r1.ok === false && r1.reason === "server_error" && aborted1 && !committed1 && fetches1 === 1 &&
+    r2.ok === false && r2.reason === "verify_mismatch" && !aborted2 && !committed2 &&
+    r3.ok === false && r3.reason === "change_in_progress";
+}));
+results.push(await asyncSecurityContract("hosted_reconciler_commits_or_aborts_authoritatively", async () => {
+  const oldValue = "v=DMARC1; p=none; rua=mailto:x@reports.cybermeters.com";
+  const intent   = "v=DMARC1; p=quarantine; pct=5; rua=mailto:x@reports.cybermeters.com";
+  const mkRow = (extra = {}) => ({ id: "hd-fff", workspace_id: "ws1", domain: "example.com",
+    hosted_name: "hd-fff.dmarc.cybermeters.com", current_value: oldValue,
+    pending_value: intent, pending_since: new Date(Date.now() - 3600e3).toISOString(),
+    cf_record_id: "a".repeat(32), ...extra });
+  const mkEnv = (log) => ({ CLOUDFLARE_API_TOKEN: "t", CLOUDFLARE_ZONE_ID: "e".repeat(32),
+    cybermeters_db: { prepare(sql) { return {
+      _sql: sql, bind(...a) { this._a = a; return this; },
+      async first() { return null; },
+      async run() { log.push(this._sql); return { meta: { changes: 1 } }; },
+      async all() { return { results: [] }; },
+    }; } } });
+  const cfServing = (content) => async () => (
+    { ok: true, status: 200, json: async () => ({ success: true, result: [{ id: "r1", content }] }) });
+
+  // CF already serves the intent → COMMIT completes the crashed saga.
+  const log1 = [];
+  const r1 = await scanner.reconcileHostedIntent(mkEnv(log1), mkRow(), { fetchImpl: cfServing(intent) });
+  const committed = log1.some((s) => /current_value = pending_value/.test(s));
+
+  // CF still serves the old value + grace over → ABORT, old value stays law.
+  const log2 = [];
+  const r2 = await scanner.reconcileHostedIntent(mkEnv(log2), mkRow(), { fetchImpl: cfServing(oldValue) });
+  const abortedClean = r2.action === "aborted" && log2.some((s) => /pending_value = NULL/.test(s)) &&
+    !log2.some((s) => /current_value = pending_value/.test(s));
+
+  // Fresh intent (inside grace) → left in flight, nothing written.
+  const log3 = [];
+  const r3 = await scanner.reconcileHostedIntent(mkEnv(log3),
+    mkRow({ pending_since: new Date().toISOString() }), { fetchImpl: cfServing(oldValue) });
+
+  return r1.action === "committed" && committed &&
+    abortedClean &&
+    r3.action === "in_flight" && log3.length === 0;
 }));
 results.push(securityContract("alert_channel_api_never_leaks_url_or_secret", () => {
   const api = scanner.alertChannelToApi({

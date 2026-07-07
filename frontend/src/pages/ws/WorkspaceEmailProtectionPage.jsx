@@ -1694,13 +1694,18 @@ function ManagedDmarcCard({ wsId, domain, endpointReady }) {
                 ))}
               </div>
 
+              {rec.change_pending && (
+                <p className="text-[11px] text-amber-700 font-medium">
+                  A change is being confirmed — controls unlock automatically once it settles.
+                </p>
+              )}
               {!ramp?.policyAllowed ? (
                 <p className="text-[11px] text-gray-500">
                   Monitoring is free. <span className="font-semibold text-gray-700">Policy changes and Self-Driving DMARC are available on paid plans</span> — upgrade to move towards enforcement from here.
                 </p>
               ) : (
                 <>
-                  {rec.next_step && (
+                  {rec.next_step && !rec.change_pending && (
                     <div className="flex items-center gap-2 flex-wrap">
                       <button
                         onClick={() => act('policy', async () => {

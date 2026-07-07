@@ -6563,6 +6563,7 @@ function hostedDnsRecordToApi(row) {
     next_step: nextStep ? { index: stepIdx + 1, policy: nextStep.policy, pct: nextStep.pct, label: nextStep.label } : null,
     autopilot: Number(row.autopilot) === 1,
     can_rollback: Boolean(row.previous_value),
+    change_pending: Boolean(row.pending_value),
     last_change_at: row.last_change_at || null,
     last_verified_at: row.last_verified_at || null,
     created_at: row.created_at,
@@ -6680,6 +6681,12 @@ async function runHostedDnsVerificationSweep(env, {
   for (const row of rows) {
     try {
       checked += 1;
+      // H1: settle any stranded write-ahead intent first, and never run other
+      // mutations on a row whose saga is unresolved.
+      if (row.pending_value) {
+        await reconcileHostedIntent(env, row, { fetchImpl, now });
+        continue;
+      }
       if (!row.cf_record_id && row.status === "pending_dns") {
         const created = await cfCreateHostedTxt(env, row.hosted_name, row.current_value, { fetchImpl });
         if (created.ok) {
@@ -6916,45 +6923,102 @@ async function countHostedPolicyChangesToday(env, recordId) {
   } catch { return 0; }
 }
 
+// H2 (read-back assertion): the PATCH result reports what Cloudflare now
+// serves. Callers must compare `served` against their intent — "don't guess,
+// verify". When the response omits content, fall back to an authoritative GET.
 async function cfPatchHostedTxt(env, cfRecordId, name, content, { fetchImpl = fetch } = {}) {
   const zoneId = String(env?.CLOUDFLARE_ZONE_ID || "").trim();
   if (!cfRecordId || !String(env?.CLOUDFLARE_API_TOKEN || "").trim() || !/^[a-f0-9]{32}$/i.test(zoneId)) {
     return { ok: false, reason: "missing_config" };
   }
-  return _cloudflareEmailRoutingRequest(
+  const res = await _cloudflareEmailRoutingRequest(
     env, `/zones/${zoneId}/dns_records/${encodeURIComponent(cfRecordId)}`,
     { method: "PATCH", body: JSON.stringify({ type: "TXT", name, content, ttl: 300 }) },
     fetchImpl,
   );
+  if (!res.ok) return res;
+  let served = res.body?.result?.content != null ? String(res.body.result.content) : null;
+  if (served == null) {
+    const read = await cfGetHostedTxt(env, name, { fetchImpl });
+    served = read.ok ? read.content : null;
+  }
+  return { ok: true, served };
 }
 
-// Shared apply path for manual (route), autopilot and rollback changes.
-// Rewrites → budget check → Cloudflare PATCH → D1 swap → audit → alert.
+// Authoritative read of the hosted TXT straight from the Cloudflare API — the
+// reconciler's source of truth. Public DNS caches (TTL 300s) would lie to us
+// right after a change; the zone API cannot.
+async function cfGetHostedTxt(env, name, { fetchImpl = fetch } = {}) {
+  const zoneId = String(env?.CLOUDFLARE_ZONE_ID || "").trim();
+  if (!String(env?.CLOUDFLARE_API_TOKEN || "").trim() || !/^[a-f0-9]{32}$/i.test(zoneId)) {
+    return { ok: false, reason: "missing_config" };
+  }
+  const res = await _cloudflareEmailRoutingRequest(
+    env, `/zones/${zoneId}/dns_records?type=TXT&name=${encodeURIComponent(name)}&per_page=5`,
+    {}, fetchImpl,
+  );
+  if (!res.ok) return res;
+  const first = Array.isArray(res.body?.result) ? res.body.result[0] : null;
+  return { ok: true, content: first?.content != null ? String(first.content) : null, cf_record_id: first?.id || null };
+}
+
+const _normTxt = (v) => String(v ?? "").replace(/\s+/g, " ").trim();
+
+// Shared apply path for manual (route) and autopilot changes — a write-ahead
+// saga (H1): Prepare (intent to D1, BEFORE any side effect) → Execute (the
+// Cloudflare PATCH) → Verify (read back what Cloudflare serves and assert it
+// equals the intent) → Commit (one atomic swap). A crash at any point leaves
+// either the old state or a recorded intent for the sweep reconciler — never
+// a silent divergence between DNS and D1.
 async function applyHostedDmarcChange(env, row, {
   policy, pct = 100, userId = null, source = "manual",
   passRateNow = null, fetchImpl = fetch,
 } = {}) {
   if (!row?.cf_record_id) return { ok: false, reason: "not_published" };
+  if (row.pending_value) return { ok: false, reason: "change_in_progress" };
   const built = buildDmarcPolicyValue(row.current_value, { policy, pct });
   if (!built.ok) return { ok: false, reason: "invalid_target", error: built.error };
-  if (built.value.replace(/\s+/g, " ") === String(row.current_value).replace(/\s+/g, " ")) {
+  if (_normTxt(built.value) === _normTxt(row.current_value)) {
     return { ok: false, reason: "no_change" };
   }
   const changesToday = await countHostedPolicyChangesToday(env, row.id);
   if (changesToday >= HOSTED_POLICY_DAILY_BUDGET) {
     return { ok: false, reason: "change_budget_exceeded" };
   }
-  const patched = await cfPatchHostedTxt(env, row.cf_record_id, row.hosted_name, built.value, { fetchImpl });
-  if (!patched.ok) return { ok: false, reason: patched.reason || "api_rejected" };
 
   const nowIso = new Date().toISOString();
+  // PREPARE — write the intent before touching DNS.
+  await env.cybermeters_db
+    .prepare(`UPDATE hosted_dns_records SET pending_value = ?, pending_since = ? WHERE id = ?`)
+    .bind(built.value, nowIso, row.id).run();
+
+  // EXECUTE — the only side effect.
+  const patched = await cfPatchHostedTxt(env, row.cf_record_id, row.hosted_name, built.value, { fetchImpl });
+  if (!patched.ok) {
+    // Abort the intent: DNS untouched, old state is the safe state.
+    await env.cybermeters_db
+      .prepare(`UPDATE hosted_dns_records SET pending_value = NULL, pending_since = NULL WHERE id = ?`)
+      .bind(row.id).run();
+    return { ok: false, reason: patched.reason || "api_rejected" };
+  }
+
+  // VERIFY — assert Cloudflare now serves exactly the intent. On mismatch the
+  // intent stays recorded so the reconciler can settle it authoritatively.
+  if (_normTxt(patched.served) !== _normTxt(built.value)) {
+    return { ok: false, reason: "verify_mismatch" };
+  }
+
+  // COMMIT — one atomic swap; previous_value becomes the true safe state.
+  // (SQLite evaluates right-hand sides against the OLD row, so this single
+  // statement performs the whole swap.)
   await env.cybermeters_db
     .prepare(`UPDATE hosted_dns_records
-              SET previous_value = current_value, current_value = ?,
+              SET previous_value = current_value, current_value = pending_value,
+                  pending_value = NULL, pending_since = NULL,
                   last_change_at = ?, pass_rate_at_change = ?,
                   failure_count = 0, last_error = NULL, updated_at = ?
               WHERE id = ?`)
-    .bind(built.value, nowIso, passRateNow, nowIso, row.id).run();
+    .bind(nowIso, passRateNow, nowIso, row.id).run();
   await createAuditEvent(env, {
     workspace_id: row.workspace_id, user_id: userId,
     event_type: "hosted_dmarc_policy_changed", entity_type: "hosted_dns_record", entity_id: row.id,
@@ -6973,17 +7037,38 @@ async function applyHostedDmarcChange(env, row, {
 }
 
 // Rollback: restore previous_value verbatim (never rebuild it), then clear
-// previous_value so a second rollback cannot ping-pong.
+// previous_value so a second rollback cannot ping-pong. Same write-ahead saga
+// as apply (H1): Prepare → Execute → Verify → Commit.
 async function rollbackHostedDmarc(env, row, { userId = null, source = "manual", fetchImpl = fetch } = {}) {
   if (!row?.previous_value) return { ok: false, reason: "nothing_to_roll_back" };
   if (!row.cf_record_id) return { ok: false, reason: "not_published" };
-  const patched = await cfPatchHostedTxt(env, row.cf_record_id, row.hosted_name, row.previous_value, { fetchImpl });
-  if (!patched.ok) return { ok: false, reason: patched.reason || "api_rejected" };
+  if (row.pending_value) return { ok: false, reason: "change_in_progress" };
 
   const nowIso = new Date().toISOString();
+  // PREPARE
+  await env.cybermeters_db
+    .prepare(`UPDATE hosted_dns_records SET pending_value = ?, pending_since = ? WHERE id = ?`)
+    .bind(row.previous_value, nowIso, row.id).run();
+
+  // EXECUTE
+  const patched = await cfPatchHostedTxt(env, row.cf_record_id, row.hosted_name, row.previous_value, { fetchImpl });
+  if (!patched.ok) {
+    await env.cybermeters_db
+      .prepare(`UPDATE hosted_dns_records SET pending_value = NULL, pending_since = NULL WHERE id = ?`)
+      .bind(row.id).run();
+    return { ok: false, reason: patched.reason || "api_rejected" };
+  }
+
+  // VERIFY — intent stays recorded on mismatch for the reconciler.
+  if (_normTxt(patched.served) !== _normTxt(row.previous_value)) {
+    return { ok: false, reason: "verify_mismatch" };
+  }
+
+  // COMMIT
   await env.cybermeters_db
     .prepare(`UPDATE hosted_dns_records
-              SET current_value = previous_value, previous_value = NULL,
+              SET current_value = pending_value, previous_value = NULL,
+                  pending_value = NULL, pending_since = NULL,
                   last_change_at = ?, pass_rate_at_change = NULL,
                   failure_count = 0, last_error = NULL, updated_at = ?
               WHERE id = ?`)
@@ -7005,6 +7090,58 @@ async function rollbackHostedDmarc(env, row, { userId = null, source = "manual",
     });
   } catch { /* best-effort */ }
   return { ok: true, value: row.previous_value };
+}
+
+// Reconciler (H1): settles a stranded write-ahead intent using the Cloudflare
+// API as the source of truth (public DNS caches would lie for up to TTL).
+//   - CF serves the intent      → COMMIT (finish what the crashed saga started)
+//   - CF serves the old value   → ABORT once the grace window passes
+//   - CF serves something else  → ABORT after grace + flag temporary_issue
+// A fresh in-flight intent (inside grace) is left alone.
+const HOSTED_INTENT_GRACE_MS = 30 * 60 * 1000;
+
+async function reconcileHostedIntent(env, row, { fetchImpl = fetch, now = new Date() } = {}) {
+  if (!row?.pending_value) return { action: "none" };
+  const nowIso = now.toISOString();
+  const read = await cfGetHostedTxt(env, row.hosted_name, { fetchImpl });
+  if (!read.ok) return { action: "deferred" }; // CF unreachable — try next sweep
+
+  if (_normTxt(read.content) === _normTxt(row.pending_value)) {
+    // DNS already serves the intent: commit exactly like a completed saga.
+    await env.cybermeters_db
+      .prepare(`UPDATE hosted_dns_records
+                SET previous_value = current_value, current_value = pending_value,
+                    pending_value = NULL, pending_since = NULL,
+                    last_change_at = ?, failure_count = 0, last_error = NULL, updated_at = ?
+                WHERE id = ?`)
+      .bind(nowIso, nowIso, row.id).run();
+    await createAuditEvent(env, {
+      workspace_id: row.workspace_id,
+      event_type: "hosted_dmarc_policy_changed", entity_type: "hosted_dns_record", entity_id: row.id,
+      description: `Hosted DMARC change for ${row.domain} reconciled after interruption`,
+      metadata: { from: row.current_value, to: row.pending_value, source: "reconciled" },
+    });
+    return { action: "committed" };
+  }
+
+  const sinceMs = parseServerMsHosted(row.pending_since);
+  const graceOver = sinceMs == null || (now.getTime() - sinceMs) > HOSTED_INTENT_GRACE_MS;
+  if (!graceOver) return { action: "in_flight" };
+
+  const revertedToOld = _normTxt(read.content) === _normTxt(row.current_value);
+  await env.cybermeters_db
+    .prepare(`UPDATE hosted_dns_records
+              SET pending_value = NULL, pending_since = NULL,
+                  last_error = ?, updated_at = ?
+              WHERE id = ?`)
+    .bind(revertedToOld ? null : "temporary_issue", nowIso, row.id).run();
+  await createAuditEvent(env, {
+    workspace_id: row.workspace_id,
+    event_type: "hosted_dmarc_change_aborted", entity_type: "hosted_dns_record", entity_id: row.id,
+    description: `A stranded hosted DMARC change for ${row.domain} was aborted; the previous value remains in force`,
+    metadata: { abandoned_intent: row.pending_value, dns_serves: read.content, source: "reconciler" },
+  });
+  return { action: "aborted" };
 }
 
 function planAllowsHostedPolicyManagement(plan) {
@@ -33806,7 +33943,11 @@ export default {
                 ? "The managed record is not published yet — wait for setup to complete."
                 : applied.reason === "no_change"
                   ? "The record already has this policy."
-                  : "The policy change could not be applied. Please try again shortly.";
+                  : applied.reason === "change_in_progress"
+                    ? "Another change is still being confirmed for this record. It settles automatically within the hour."
+                    : applied.reason === "verify_mismatch"
+                      ? "The change was submitted but could not be confirmed yet. It will settle automatically — check back shortly."
+                      : "The policy change could not be applied. Please try again shortly.";
             return json({ error: msg, code: applied.reason }, 409);
           }
           const row = await env.cybermeters_db
