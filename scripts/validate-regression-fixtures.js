@@ -156,6 +156,15 @@ function loadScanner(fetchImpl = async () => { throw new Error("network disabled
     cfCreateHostedTxt,
     classifyHostedCfError,
     _cloudflareRouteFailure,
+    buildDmarcPolicyValue,
+    dmarcRampStepIndex,
+    DMARC_RAMP_LADDER,
+    evaluateRampReadiness,
+    shouldAutoRollback,
+    applyHostedDmarcChange,
+    rollbackHostedDmarc,
+    planAllowsHostedPolicyManagement,
+    runHostedDnsVerificationSweep_B: runHostedDnsVerificationSweep,
     emailHandler: __workerDefault.email,
     computeBusinessRiskScoreFromIds: (ids, data) => computeBusinessRiskScore(new Set(ids), data),
   };`, context, {
@@ -2573,6 +2582,111 @@ results.push(await asyncSecurityContract("hosted_removal_never_orphans_a_live_cn
   return r1.checked === 1 && r1.removed === 0 && !deletedInCase1 &&
     r2.checked === 1 && r2.removed === 1 && deletedInCase2 &&
     r3.removed === 0 && rowSurvivedCase3;
+}));
+results.push(securityContract("selfdriving_policy_builder_token_preserving", () => {
+  const b = scanner.buildDmarcPolicyValue;
+  const base = "v=DMARC1; p=none; rua=mailto:x@reports.cybermeters.com; adkim=s; fo=1";
+  const q5 = b(base, { policy: "quarantine", pct: 5 });
+  const rej = b(q5.value, { policy: "reject", pct: 100 });
+  const back = b(rej.value, { policy: "none" });
+  return q5.ok && q5.value === "v=DMARC1; p=quarantine; pct=5; rua=mailto:x@reports.cybermeters.com; adkim=s; fo=1" &&
+    // pct=100 is omitted; rua and other tags survive every rewrite verbatim
+    rej.ok && rej.value.includes("p=reject") && !rej.value.includes("pct=") &&
+    rej.value.includes("rua=mailto:x@reports.cybermeters.com") && rej.value.includes("adkim=s") &&
+    back.ok && back.value.includes("p=none") &&
+    b(base, { policy: "quarantine", pct: 0 }).ok === false &&
+    b(base, { policy: "drop" }).ok === false &&
+    b("not a dmarc record", { policy: "none" }).ok === false;
+}));
+results.push(securityContract("selfdriving_ramp_ladder_and_step_mapping", () => {
+  const idx = scanner.dmarcRampStepIndex;
+  return idx("v=DMARC1; p=none; rua=mailto:x@r.c") === 0 &&
+    idx("v=DMARC1; p=quarantine; pct=5; rua=mailto:x@r.c") === 1 &&
+    idx("v=DMARC1; p=quarantine; pct=25; rua=mailto:x@r.c") === 2 &&
+    idx("v=DMARC1; p=quarantine; rua=mailto:x@r.c") === 4 &&      // no pct → 100
+    idx("v=DMARC1; p=quarantine; pct=60; rua=mailto:x@r.c") === 3 && // off-ladder snaps down
+    idx("v=DMARC1; p=reject; rua=mailto:x@r.c") === 5 &&
+    scanner.DMARC_RAMP_LADDER[5].policy === "reject" &&
+    idx("garbage") === -1;
+}));
+results.push(securityContract("selfdriving_readiness_interlock", () => {
+  const ev = scanner.evaluateRampReadiness;
+  const ready = ev({ pass_rate: 99.2, total_messages: 400, days_since_change: 5 });
+  const lowVolume = ev({ pass_rate: 100, total_messages: 10, days_since_change: 10 });
+  const lowRate = ev({ pass_rate: 91, total_messages: 500, days_since_change: 10 });
+  const tooSoon = ev({ pass_rate: 99, total_messages: 500, days_since_change: 1 });
+  const noData = ev({ pass_rate: null, total_messages: 0, days_since_change: null });
+  return ready.ready === true && ready.reasons.length === 0 &&
+    !lowVolume.ready && !lowRate.ready && !tooSoon.ready && !noData.ready &&
+    noData.reasons.length >= 2;
+}));
+results.push(securityContract("selfdriving_auto_rollback_trigger", () => {
+  const s = scanner.shouldAutoRollback;
+  return s({ baseline_pass_rate: 99, current_pass_rate: 92, total_messages: 200 }) === true &&
+    s({ baseline_pass_rate: 99, current_pass_rate: 96, total_messages: 200 }) === false && // 3pp < 5pp
+    s({ baseline_pass_rate: 99, current_pass_rate: 80, total_messages: 5 }) === false &&   // volume too low
+    s({ baseline_pass_rate: null, current_pass_rate: 80, total_messages: 500 }) === false &&
+    scanner.planAllowsHostedPolicyManagement("free") === false &&
+    scanner.planAllowsHostedPolicyManagement("starter") === true &&
+    scanner.planAllowsHostedPolicyManagement("professional") === true;
+}));
+results.push(await asyncSecurityContract("selfdriving_apply_swaps_previous_and_respects_budget", async () => {
+  const value = "v=DMARC1; p=none; rua=mailto:x@reports.cybermeters.com";
+  const mkRow = () => ({ id: "hd-ccc", workspace_id: "ws1", domain: "example.com",
+    hosted_name: "hd-ccc.dmarc.cybermeters.com", current_value: value, cf_record_id: "a".repeat(32) });
+  const mkEnv = (log, { changesToday = 0 } = {}) => ({
+    CLOUDFLARE_API_TOKEN: "t", CLOUDFLARE_ZONE_ID: "e".repeat(32),
+    cybermeters_db: { prepare(sql) { return {
+      _sql: sql, bind(...a) { this._a = a; return this; },
+      async first() { return /FROM audit_events/.test(this._sql) ? { n: changesToday } : null; },
+      async run() { log.push({ sql: this._sql, args: this._a }); return { meta: { changes: 1 } }; },
+      async all() { return { results: [] }; },
+    }; } },
+  });
+  const patches = [];
+  const fetchImpl = async (url, opts) => {
+    if ((opts?.method || "GET") === "PATCH") patches.push(JSON.parse(opts.body).content);
+    return { ok: true, status: 200, json: async () => ({ success: true, result: { id: "x" } }) };
+  };
+  // Happy path: PATCH carries the new value; D1 swap sets previous_value.
+  const log1 = [];
+  const r1 = await scanner.applyHostedDmarcChange(mkEnv(log1), mkRow(), {
+    policy: "quarantine", pct: 5, source: "manual", passRateNow: 99, fetchImpl });
+  const swap = log1.find((l) => /SET previous_value = current_value/.test(l.sql));
+  const audit = log1.find((l) => /INSERT INTO audit_events/.test(l.sql));
+  // Budget exhausted: no PATCH, no writes.
+  const log2 = []; patches.length = 0;
+  const r2 = await scanner.applyHostedDmarcChange(mkEnv(log2, { changesToday: 10 }), mkRow(), {
+    policy: "quarantine", pct: 5, fetchImpl });
+  // No-op change is refused before any network call.
+  const r3 = await scanner.applyHostedDmarcChange(mkEnv([]), mkRow(), { policy: "none", fetchImpl });
+  return r1.ok && r1.value.includes("p=quarantine; pct=5") && swap && audit &&
+    r2.ok === false && r2.reason === "change_budget_exceeded" && patches.length === 0 &&
+    r3.ok === false && r3.reason === "no_change";
+}));
+results.push(await asyncSecurityContract("selfdriving_rollback_restores_verbatim_no_pingpong", async () => {
+  const prev = "v=DMARC1; p=none; rua=mailto:x@reports.cybermeters.com";
+  const row = { id: "hd-ddd", workspace_id: "ws1", domain: "example.com",
+    hosted_name: "hd-ddd.dmarc.cybermeters.com",
+    current_value: "v=DMARC1; p=quarantine; pct=25; rua=mailto:x@reports.cybermeters.com",
+    previous_value: prev, cf_record_id: "b".repeat(32) };
+  const log = []; const patches = [];
+  const env = { CLOUDFLARE_API_TOKEN: "t", CLOUDFLARE_ZONE_ID: "e".repeat(32),
+    cybermeters_db: { prepare(sql) { return {
+      _sql: sql, bind(...a) { this._a = a; return this; },
+      async first() { return null; },
+      async run() { log.push(this._sql); return { meta: { changes: 1 } }; },
+      async all() { return { results: [] }; },
+    }; } } };
+  const fetchImpl = async (url, opts) => {
+    if ((opts?.method || "GET") === "PATCH") patches.push(JSON.parse(opts.body).content);
+    return { ok: true, status: 200, json: async () => ({ success: true }) };
+  };
+  const r = await scanner.rollbackHostedDmarc(env, row, { source: "auto", fetchImpl });
+  const clearsPrevious = log.some((s) => /previous_value = NULL/.test(s));
+  const noPrev = await scanner.rollbackHostedDmarc(env, { ...row, previous_value: null }, { fetchImpl });
+  return r.ok && r.value === prev && patches[0] === prev && clearsPrevious &&
+    noPrev.ok === false && noPrev.reason === "nothing_to_roll_back";
 }));
 results.push(securityContract("alert_channel_api_never_leaks_url_or_secret", () => {
   const api = scanner.alertChannelToApi({

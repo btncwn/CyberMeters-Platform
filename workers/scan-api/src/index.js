@@ -6544,6 +6544,9 @@ function newHostedDnsRecordId() {
 // Safe serialization: cf_record_id and created_by never leave the worker.
 function hostedDnsRecordToApi(row) {
   if (!row) return null;
+  const stepIdx = dmarcRampStepIndex(row.current_value);
+  const step = stepIdx >= 0 ? DMARC_RAMP_LADDER[stepIdx] : null;
+  const nextStep = stepIdx >= 0 ? DMARC_RAMP_LADDER[stepIdx + 1] || null : null;
   return {
     id: row.id,
     domain: row.domain,
@@ -6555,6 +6558,12 @@ function hostedDnsRecordToApi(row) {
     status: row.status,
     // Customer-safe issue class (K2): 'config_error' | 'temporary_issue' | null.
     issue: row.last_error || null,
+    // Phase B: ramp position + self-driving state.
+    policy_step: step ? { index: stepIdx, policy: step.policy, pct: step.pct, label: step.label } : null,
+    next_step: nextStep ? { index: stepIdx + 1, policy: nextStep.policy, pct: nextStep.pct, label: nextStep.label } : null,
+    autopilot: Number(row.autopilot) === 1,
+    can_rollback: Boolean(row.previous_value),
+    last_change_at: row.last_change_at || null,
     last_verified_at: row.last_verified_at || null,
     created_at: row.created_at,
   };
@@ -6723,7 +6732,17 @@ async function runHostedDnsVerificationSweep(env, {
         continue;
       }
 
-      const next = nextHostedDnsStatus(row, checks);
+      let next = nextHostedDnsStatus(row, checks);
+      // Propagation grace: a value change makes public DNS briefly disagree
+      // with current_value (TTL 300s + resolver caches). Do not demote a
+      // healthy record to pending_dns inside the grace window.
+      const changeMs = parseServerMsHosted(row.last_change_at);
+      const withinChangeGrace = changeMs != null
+        && (now.getTime() - changeMs) < HOSTED_CHANGE_PROPAGATION_MS;
+      if (withinChangeGrace && next === "pending_dns"
+          && (row.status === "connected" || row.status === "disconnected")) {
+        next = row.status;
+      }
       if (next !== row.status) {
         await env.cybermeters_db
           .prepare(`UPDATE hosted_dns_records SET status = ?, last_verified_at = ?, updated_at = ? WHERE id = ?`)
@@ -6743,9 +6762,259 @@ async function runHostedDnsVerificationSweep(env, {
           .prepare(`UPDATE hosted_dns_records SET last_verified_at = ? WHERE id = ?`)
           .bind(nowIso, row.id).run();
       }
+
+      // ── Self-driving evaluation (connected records only) ──────────────────
+      // Auto-rollback watches every record with a recent change; autopilot
+      // advances the ladder only when the pass-rate interlock holds.
+      if (next === "connected" && row.cf_record_id && !withinChangeGrace) {
+        const rate = await getHostedDmarcPassRate(env, row.workspace_id, row.domain);
+        if (row.previous_value && row.pass_rate_at_change != null &&
+            shouldAutoRollback({
+              baseline_pass_rate: Number(row.pass_rate_at_change),
+              current_pass_rate: rate.pass_rate,
+              total_messages: rate.total,
+            })) {
+          await rollbackHostedDmarc(env, row, { source: "auto", fetchImpl });
+        } else if (Number(row.autopilot) === 1) {
+          const stepIdx = dmarcRampStepIndex(row.current_value);
+          const nextStep = stepIdx >= 0 ? DMARC_RAMP_LADDER[stepIdx + 1] : null;
+          if (nextStep) {
+            const daysSince = changeMs != null
+              ? Math.floor((now.getTime() - changeMs) / 86400000) : null;
+            const readiness = evaluateRampReadiness({
+              pass_rate: rate.pass_rate, total_messages: rate.total,
+              days_since_change: daysSince,
+            });
+            if (readiness.ready) {
+              await applyHostedDmarcChange(env, row, {
+                policy: nextStep.policy, pct: nextStep.pct,
+                source: "autopilot", passRateNow: rate.pass_rate, fetchImpl,
+              });
+            }
+          }
+        }
+      }
     } catch { /* per-row isolation */ }
   }
   return { checked, removed };
+}
+
+// ─── Self-Driving DMARC — Phase B: policy ramp with pass-rate interlock ─────
+// We host the record AND ingest the RUA reports, so the loop can be closed:
+// advance p=none → quarantine (pct 5→25→50→100) → reject only while measured
+// compliance stays healthy, and automatically roll back to previous_value if
+// compliance drops materially after a change. Competitors host OR measure —
+// closing the loop needs both sides.
+
+const DMARC_RAMP_LADDER = [
+  { policy: "none",       pct: 100, label: "Monitor only" },
+  { policy: "quarantine", pct: 5,   label: "Quarantine 5%" },
+  { policy: "quarantine", pct: 25,  label: "Quarantine 25%" },
+  { policy: "quarantine", pct: 50,  label: "Quarantine 50%" },
+  { policy: "quarantine", pct: 100, label: "Quarantine" },
+  { policy: "reject",     pct: 100, label: "Reject" },
+];
+const HOSTED_POLICY_DAILY_BUDGET = 10;   // manual + automatic changes per record per UTC day
+const RAMP_MIN_MESSAGES = 50;            // minimum 7-day volume for a confident read
+const RAMP_MIN_PASS_RATE = 97;           // % DMARC pass required to advance
+const RAMP_MIN_DAYS_SINCE_CHANGE = 3;    // soak time between autopilot steps
+const ROLLBACK_DROP_PP = 5;              // pass-rate drop (percentage points) that triggers rollback
+const ROLLBACK_MIN_MESSAGES = 20;        // minimum volume before a drop is trusted
+const HOSTED_CHANGE_PROPAGATION_MS = 15 * 60 * 1000; // verify grace after a value change
+
+function dmarcRampStepIndex(raw) {
+  const d = parseDmarcRecord(raw, 1);
+  if (!d.valid) return -1;
+  const idx = DMARC_RAMP_LADDER.findIndex((s) => s.policy === d.policy
+    && (d.policy === "none" || s.pct === d.percentage));
+  if (idx >= 0) return idx;
+  // Off-ladder but valid (e.g. quarantine pct=60): snap to the nearest step
+  // at or below, so "next step" is always meaningful.
+  if (d.policy === "reject") return DMARC_RAMP_LADDER.length - 1;
+  if (d.policy === "quarantine") {
+    for (let i = 4; i >= 1; i -= 1) {
+      if (d.percentage >= DMARC_RAMP_LADDER[i].pct) return i;
+    }
+    return 1;
+  }
+  return 0;
+}
+
+// Token-preserving policy rewrite: only p=, sp= and pct= change; every other
+// tag (rua, ruf, adkim, aspf, fo, ri, …) is kept byte-for-byte. pct=100 is
+// omitted (the RFC default) to keep records tidy.
+function buildDmarcPolicyValue(raw, { policy, pct = 100 } = {}) {
+  if (!["none", "quarantine", "reject"].includes(policy)) {
+    return { ok: false, error: "policy must be none, quarantine, or reject" };
+  }
+  const pctNum = Number(pct);
+  if (!Number.isInteger(pctNum) || pctNum < 1 || pctNum > 100) {
+    return { ok: false, error: "pct must be an integer from 1 to 100" };
+  }
+  const parts = String(raw || "").split(";").map((p) => p.trim()).filter(Boolean);
+  if (!/^v\s*=\s*DMARC1$/i.test(parts[0] || "")) {
+    return { ok: false, error: "The current value is not a valid DMARC record." };
+  }
+  const kept = parts.filter((p) => !/^(p|sp|pct)\s*=/i.test(p));
+  const out = [kept[0], `p=${policy}`];
+  if (pctNum < 100) out.push(`pct=${pctNum}`);
+  out.push(...kept.slice(1));
+  const value = out.join("; ").slice(0, 4096);
+  const parsed = parseDmarcRecord(value, 1);
+  if (!parsed.valid) return { ok: false, error: "The rewritten record failed validation." };
+  return { ok: true, value };
+}
+
+function evaluateRampReadiness({ pass_rate, total_messages, days_since_change }) {
+  const reasons = [];
+  if (total_messages == null || total_messages < RAMP_MIN_MESSAGES) {
+    reasons.push(`Not enough reporting volume yet (${total_messages ?? 0} of ${RAMP_MIN_MESSAGES} messages over 7 days).`);
+  }
+  if (pass_rate == null || pass_rate < RAMP_MIN_PASS_RATE) {
+    reasons.push(pass_rate == null
+      ? "No DMARC compliance measurement is available yet."
+      : `DMARC pass rate is ${pass_rate}% — ${RAMP_MIN_PASS_RATE}% or higher is required before tightening.`);
+  }
+  if (days_since_change != null && days_since_change < RAMP_MIN_DAYS_SINCE_CHANGE) {
+    reasons.push(`The last policy change was ${days_since_change} day(s) ago — allow ${RAMP_MIN_DAYS_SINCE_CHANGE} days of reports between steps.`);
+  }
+  return { ready: reasons.length === 0, reasons };
+}
+
+function shouldAutoRollback({ baseline_pass_rate, current_pass_rate, total_messages }) {
+  if (baseline_pass_rate == null || current_pass_rate == null) return false;
+  if ((total_messages ?? 0) < ROLLBACK_MIN_MESSAGES) return false;
+  return (baseline_pass_rate - current_pass_rate) >= ROLLBACK_DROP_PP;
+}
+
+// 7-day DMARC pass rate from ingested aggregate records. DMARC passes when
+// either aligned mechanism passes.
+async function getHostedDmarcPassRate(env, workspaceId, domain, { sinceDays = 7 } = {}) {
+  try {
+    const row = await env.cybermeters_db
+      .prepare(`SELECT SUM(message_count) AS total,
+                       SUM(CASE WHEN dkim_aligned_result = 'pass' OR spf_aligned_result = 'pass'
+                                THEN message_count ELSE 0 END) AS aligned
+                FROM dmarc_aggregate_records
+                WHERE workspace_id = ? AND domain = ? AND created_at >= datetime('now', ?)`)
+      .bind(workspaceId, domain, `-${Math.max(1, sinceDays)} days`).first();
+    const total = Number(row?.total || 0);
+    if (!total) return { total: 0, pass_rate: null };
+    return { total, pass_rate: Math.round((Number(row?.aligned || 0) / total) * 1000) / 10 };
+  } catch { return { total: 0, pass_rate: null }; }
+}
+
+async function countHostedPolicyChangesToday(env, recordId) {
+  try {
+    const row = await env.cybermeters_db
+      .prepare(`SELECT COUNT(*) AS n FROM audit_events
+                WHERE entity_id = ?
+                  AND event_type IN ('hosted_dmarc_policy_changed','hosted_dmarc_rolled_back')
+                  AND created_at >= date('now')`)
+      .bind(recordId).first();
+    return Number(row?.n || 0);
+  } catch { return 0; }
+}
+
+async function cfPatchHostedTxt(env, cfRecordId, name, content, { fetchImpl = fetch } = {}) {
+  const zoneId = String(env?.CLOUDFLARE_ZONE_ID || "").trim();
+  if (!cfRecordId || !String(env?.CLOUDFLARE_API_TOKEN || "").trim() || !/^[a-f0-9]{32}$/i.test(zoneId)) {
+    return { ok: false, reason: "missing_config" };
+  }
+  return _cloudflareEmailRoutingRequest(
+    env, `/zones/${zoneId}/dns_records/${encodeURIComponent(cfRecordId)}`,
+    { method: "PATCH", body: JSON.stringify({ type: "TXT", name, content, ttl: 300 }) },
+    fetchImpl,
+  );
+}
+
+// Shared apply path for manual (route), autopilot and rollback changes.
+// Rewrites → budget check → Cloudflare PATCH → D1 swap → audit → alert.
+async function applyHostedDmarcChange(env, row, {
+  policy, pct = 100, userId = null, source = "manual",
+  passRateNow = null, fetchImpl = fetch,
+} = {}) {
+  if (!row?.cf_record_id) return { ok: false, reason: "not_published" };
+  const built = buildDmarcPolicyValue(row.current_value, { policy, pct });
+  if (!built.ok) return { ok: false, reason: "invalid_target", error: built.error };
+  if (built.value.replace(/\s+/g, " ") === String(row.current_value).replace(/\s+/g, " ")) {
+    return { ok: false, reason: "no_change" };
+  }
+  const changesToday = await countHostedPolicyChangesToday(env, row.id);
+  if (changesToday >= HOSTED_POLICY_DAILY_BUDGET) {
+    return { ok: false, reason: "change_budget_exceeded" };
+  }
+  const patched = await cfPatchHostedTxt(env, row.cf_record_id, row.hosted_name, built.value, { fetchImpl });
+  if (!patched.ok) return { ok: false, reason: patched.reason || "api_rejected" };
+
+  const nowIso = new Date().toISOString();
+  await env.cybermeters_db
+    .prepare(`UPDATE hosted_dns_records
+              SET previous_value = current_value, current_value = ?,
+                  last_change_at = ?, pass_rate_at_change = ?,
+                  failure_count = 0, last_error = NULL, updated_at = ?
+              WHERE id = ?`)
+    .bind(built.value, nowIso, passRateNow, nowIso, row.id).run();
+  await createAuditEvent(env, {
+    workspace_id: row.workspace_id, user_id: userId,
+    event_type: "hosted_dmarc_policy_changed", entity_type: "hosted_dns_record", entity_id: row.id,
+    description: `Hosted DMARC policy for ${row.domain} set to p=${policy}${pct < 100 ? ` pct=${pct}` : ""} (${source})`,
+    metadata: { from: row.current_value, to: built.value, source },
+  });
+  try {
+    await deliverWorkspaceAlert(env, row.workspace_id, {
+      kind: "hosted_dmarc_policy_changed", severity: "info",
+      title: `DMARC policy updated for ${row.domain}`,
+      summary: `The managed DMARC policy moved to p=${policy}${pct < 100 ? ` (pct=${pct})` : ""}${source === "autopilot" ? " — advanced automatically because compliance stayed healthy." : "."}`,
+      domain: row.domain,
+    });
+  } catch { /* best-effort */ }
+  return { ok: true, value: built.value };
+}
+
+// Rollback: restore previous_value verbatim (never rebuild it), then clear
+// previous_value so a second rollback cannot ping-pong.
+async function rollbackHostedDmarc(env, row, { userId = null, source = "manual", fetchImpl = fetch } = {}) {
+  if (!row?.previous_value) return { ok: false, reason: "nothing_to_roll_back" };
+  if (!row.cf_record_id) return { ok: false, reason: "not_published" };
+  const patched = await cfPatchHostedTxt(env, row.cf_record_id, row.hosted_name, row.previous_value, { fetchImpl });
+  if (!patched.ok) return { ok: false, reason: patched.reason || "api_rejected" };
+
+  const nowIso = new Date().toISOString();
+  await env.cybermeters_db
+    .prepare(`UPDATE hosted_dns_records
+              SET current_value = previous_value, previous_value = NULL,
+                  last_change_at = ?, pass_rate_at_change = NULL,
+                  failure_count = 0, last_error = NULL, updated_at = ?
+              WHERE id = ?`)
+    .bind(nowIso, nowIso, row.id).run();
+  await createAuditEvent(env, {
+    workspace_id: row.workspace_id, user_id: userId,
+    event_type: "hosted_dmarc_rolled_back", entity_type: "hosted_dns_record", entity_id: row.id,
+    description: `Hosted DMARC for ${row.domain} rolled back (${source})`,
+    metadata: { restored: row.previous_value, source },
+  });
+  try {
+    await deliverWorkspaceAlert(env, row.workspace_id, {
+      kind: "hosted_dmarc_rolled_back", severity: source === "auto" ? "high" : "medium",
+      title: `DMARC policy rolled back for ${row.domain}`,
+      summary: source === "auto"
+        ? `Compliance dropped after the last policy change, so the previous policy was restored automatically. Review your sender inventory before tightening again.`
+        : `The managed DMARC policy was rolled back to its previous value.`,
+      domain: row.domain,
+    });
+  } catch { /* best-effort */ }
+  return { ok: true, value: row.previous_value };
+}
+
+function planAllowsHostedPolicyManagement(plan) {
+  return normalizePlan(plan) !== "free";
+}
+
+function parseServerMsHosted(value) {
+  const s = String(value || "");
+  const ms = new Date(s.includes("T") ? s : s.replace(" ", "T") + "Z").getTime();
+  return Number.isFinite(ms) ? ms : null;
 }
 
 function parseSpfRecord(record, recordCount = record ? 1 : 0) {
@@ -33441,16 +33710,20 @@ export default {
       }
     }
 
-    // ── Hosted DMARC (Hosted Records Engine, Phase A) ─────────────────────────
-    //   POST   .../hosted-dmarc         → create the managed record (manage role)
-    //   GET    .../hosted-dmarc         → current state
-    //   GET    .../hosted-dmarc/verify  → live two-sided verification
-    //   DELETE .../hosted-dmarc         → request removal (grace-protected)
-    const hostedDmarcMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/domains\/([^/]+)\/hosted-dmarc(?:\/(verify))?$/);
+    // ── Hosted DMARC (Hosted Records Engine — Phase A + B) ────────────────────
+    //   POST   .../hosted-dmarc           → create the managed record (manage role)
+    //   GET    .../hosted-dmarc           → state + ramp readiness
+    //   GET    .../hosted-dmarc/verify    → live two-sided verification
+    //   PUT    .../hosted-dmarc           → policy change {policy, pct, confirm} (manage + paid)
+    //   POST   .../hosted-dmarc/rollback  → restore previous value (manage; never paywalled)
+    //   PUT    .../hosted-dmarc/autopilot → {enabled} self-driving ramp (manage + paid)
+    //   DELETE .../hosted-dmarc           → request removal (grace-protected)
+    const hostedDmarcMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/domains\/([^/]+)\/hosted-dmarc(?:\/(verify|rollback|autopilot))?$/);
     if (hostedDmarcMatch) {
       const workspaceId = hostedDmarcMatch[1];
       const domain = decodeURIComponent(hostedDmarcMatch[2]).toLowerCase();
-      const isVerify = Boolean(hostedDmarcMatch[3]);
+      const sub = hostedDmarcMatch[3] || null;
+      const isVerify = sub === "verify";
       try {
         const user = await requireAuth(request, env);
         if (!user) return json({ error: "Unauthorized" }, 401);
@@ -33465,8 +33738,115 @@ export default {
                     WHERE workspace_id = ? AND domain = ? AND record_type = 'dmarc' LIMIT 1`)
           .bind(workspaceId, domain).first();
 
-        if (request.method === "GET" && !isVerify) {
-          return json({ record: hostedDnsRecordToApi(existing) });
+        // Workspace plan (owner's plan) gates policy management; create,
+        // monitoring, verification and rollback stay free.
+        const planRow = await env.cybermeters_db
+          .prepare(`SELECT u.plan FROM workspaces w JOIN users u ON u.id = w.owner_user_id WHERE w.id = ?`)
+          .bind(workspaceId).first();
+        const policyAllowed = planAllowsHostedPolicyManagement(planRow?.plan);
+
+        if (request.method === "GET" && !sub) {
+          if (!existing) return json({ record: null, policy_management_available: policyAllowed });
+          const rate = await getHostedDmarcPassRate(env, workspaceId, domain);
+          const changeMs = parseServerMsHosted(existing.last_change_at);
+          const readiness = evaluateRampReadiness({
+            pass_rate: rate.pass_rate,
+            total_messages: rate.total,
+            days_since_change: changeMs != null ? Math.floor((Date.now() - changeMs) / 86400000) : null,
+          });
+          return json({
+            record: hostedDnsRecordToApi(existing),
+            policy_management_available: policyAllowed,
+            compliance: { pass_rate: rate.pass_rate, total_messages: rate.total, window_days: 7 },
+            readiness,
+          });
+        }
+
+        if (request.method === "PUT" && !sub) {
+          if (!existing) return json({ error: "No hosted DMARC record for this domain yet." }, 404);
+          if (!policyAllowed) return json({
+            error: "Managed policy changes are available on paid plans. Monitoring stays free.",
+            code: "upgrade_required",
+          }, 403);
+          let body;
+          try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+          const policy = String(body.policy || "").trim().toLowerCase();
+          const pct = body.pct == null ? 100 : Number(body.pct);
+          const targetIdx = DMARC_RAMP_LADDER.findIndex((s) => s.policy === policy
+            && (policy === "none" || s.pct === pct));
+          if (targetIdx < 0) {
+            return json({ error: "Choose a ladder step: none, quarantine (pct 5/25/50/100), or reject." }, 400);
+          }
+          const currentIdx = dmarcRampStepIndex(existing.current_value);
+          const tightening = targetIdx > currentIdx;
+          if (tightening && body.confirm !== true) {
+            const rate = await getHostedDmarcPassRate(env, workspaceId, domain);
+            const changeMs = parseServerMsHosted(existing.last_change_at);
+            const readiness = evaluateRampReadiness({
+              pass_rate: rate.pass_rate,
+              total_messages: rate.total,
+              days_since_change: changeMs != null ? Math.floor((Date.now() - changeMs) / 86400000) : null,
+            });
+            if (!readiness.ready) {
+              return json({
+                error: "Compliance is not ready for a stricter policy yet.",
+                code: "readiness_check_failed",
+                readiness,
+              }, 409);
+            }
+          }
+          const rateNow = await getHostedDmarcPassRate(env, workspaceId, domain);
+          const applied = await applyHostedDmarcChange(env, existing, {
+            policy, pct, userId: user.id, source: "manual", passRateNow: rateNow.pass_rate,
+          });
+          if (!applied.ok) {
+            const msg = applied.reason === "change_budget_exceeded"
+              ? "Daily policy-change limit reached for this record. Try again tomorrow."
+              : applied.reason === "not_published"
+                ? "The managed record is not published yet — wait for setup to complete."
+                : applied.reason === "no_change"
+                  ? "The record already has this policy."
+                  : "The policy change could not be applied. Please try again shortly.";
+            return json({ error: msg, code: applied.reason }, 409);
+          }
+          const row = await env.cybermeters_db
+            .prepare(`SELECT * FROM hosted_dns_records WHERE id = ?`).bind(existing.id).first();
+          return json({ record: hostedDnsRecordToApi(row) });
+        }
+
+        if (request.method === "POST" && sub === "rollback") {
+          if (!existing) return json({ error: "No hosted DMARC record for this domain." }, 404);
+          const rolled = await rollbackHostedDmarc(env, existing, { userId: user.id, source: "manual" });
+          if (!rolled.ok) {
+            const msg = rolled.reason === "nothing_to_roll_back"
+              ? "There is no previous value to restore."
+              : "The rollback could not be applied. Please try again shortly.";
+            return json({ error: msg, code: rolled.reason }, 409);
+          }
+          const row = await env.cybermeters_db
+            .prepare(`SELECT * FROM hosted_dns_records WHERE id = ?`).bind(existing.id).first();
+          return json({ record: hostedDnsRecordToApi(row) });
+        }
+
+        if (request.method === "PUT" && sub === "autopilot") {
+          if (!existing) return json({ error: "No hosted DMARC record for this domain yet." }, 404);
+          if (!policyAllowed) return json({
+            error: "Self-driving DMARC is available on paid plans.",
+            code: "upgrade_required",
+          }, 403);
+          let body;
+          try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+          const enabled = body.enabled === true ? 1 : 0;
+          await env.cybermeters_db
+            .prepare(`UPDATE hosted_dns_records SET autopilot = ?, updated_at = ? WHERE id = ?`)
+            .bind(enabled, new Date().toISOString(), existing.id).run();
+          await createAuditEvent(env, {
+            workspace_id: workspaceId, user_id: user.id,
+            event_type: enabled ? "hosted_dmarc_autopilot_enabled" : "hosted_dmarc_autopilot_disabled",
+            entity_type: "hosted_dns_record", entity_id: existing.id,
+            description: `Self-driving DMARC ${enabled ? "enabled" : "disabled"} for ${domain}`,
+          });
+          return json({ record: hostedDnsRecordToApi({ ...existing, autopilot: enabled }) });
         }
 
         if (request.method === "GET" && isVerify) {
@@ -33483,7 +33863,7 @@ export default {
           });
         }
 
-        if (request.method === "POST" && !isVerify) {
+        if (request.method === "POST" && !sub) {
           if (existing) return json({ record: hostedDnsRecordToApi(existing), already_exists: true });
 
           // The managed record must keep reporting flowing: a CyberMeters RUA
@@ -33554,7 +33934,7 @@ export default {
           }, 201);
         }
 
-        if (request.method === "DELETE" && !isVerify) {
+        if (request.method === "DELETE" && !sub) {
           if (!existing) return json({ error: "No hosted DMARC record for this domain." }, 404);
           const nowIso = new Date().toISOString();
           await env.cybermeters_db

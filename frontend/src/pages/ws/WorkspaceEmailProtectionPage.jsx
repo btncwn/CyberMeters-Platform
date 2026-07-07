@@ -1536,20 +1536,31 @@ const HOSTED_STATUS_META = {
 
 function ManagedDmarcCard({ wsId, domain, endpointReady }) {
   const [rec, setRec]         = useState(undefined) // undefined=loading, null=none
-  const [busy, setBusy]       = useState(null)      // 'create' | 'verify' | 'remove'
+  const [ramp, setRamp]       = useState(null)      // { policyAllowed, compliance, readiness }
+  const [busy, setBusy]       = useState(null)      // 'create' | 'verify' | 'remove' | 'policy' | 'rollback' | 'autopilot'
   const [error, setError]     = useState(null)
 
   const load = useCallback(async () => {
     if (!wsId || !domain) return
-    try { const r = await api.getHostedDmarc(wsId, domain); setRec(r?.record ?? null) }
-    catch { setRec(null) }
+    try {
+      const r = await api.getHostedDmarc(wsId, domain)
+      setRec(r?.record ?? null)
+      setRamp({
+        policyAllowed: Boolean(r?.policy_management_available),
+        compliance: r?.compliance || null,
+        readiness: r?.readiness || null,
+      })
+    } catch { setRec(null); setRamp(null) }
   }, [wsId, domain])
   useEffect(() => { setRec(undefined); setError(null); load() }, [load])
 
-  async function act(kind, fn) {
+  async function act(kind, fn, { reloadAll = false } = {}) {
     setBusy(kind); setError(null)
-    try { const r = await fn(); setRec(r?.record ?? null) }
-    catch (e) { setError(e?.message || 'The request could not be completed.') }
+    try {
+      const r = await fn()
+      if (reloadAll) await load()
+      else setRec(r?.record ?? null)
+    } catch (e) { setError(e?.message || 'The request could not be completed.') }
     finally { setBusy(null) }
   }
 
@@ -1650,6 +1661,104 @@ function ManagedDmarcCard({ wsId, domain, endpointReady }) {
             <div>
               <p className="text-[11px] font-semibold text-gray-500 mb-1">Managed value (live)</p>
               <DnsValue value={rec.current_value} />
+            </div>
+          )}
+
+          {/* ── Self-Driving DMARC: policy ramp (Phase B) ── */}
+          {rec.status === 'connected' && rec.policy_step && (
+            <div className="pt-3 border-t border-brand-100 space-y-2.5">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <p className="text-xs font-bold text-gray-900">Enforcement journey</p>
+                {ramp?.compliance && (
+                  <p className="text-[11px] text-gray-500">
+                    7-day compliance:{' '}
+                    <span className={`font-bold tabular-nums ${
+                      ramp.compliance.pass_rate == null ? 'text-gray-400'
+                      : ramp.compliance.pass_rate >= 97 ? 'text-brand-700' : 'text-amber-600'}`}>
+                      {ramp.compliance.pass_rate != null ? `${ramp.compliance.pass_rate}%` : 'no data yet'}
+                    </span>
+                    {ramp.compliance.total_messages > 0 && <span className="text-gray-400"> · {ramp.compliance.total_messages.toLocaleString()} msgs</span>}
+                  </p>
+                )}
+              </div>
+
+              {/* Ladder track */}
+              <div className="flex items-center gap-1 flex-wrap">
+                {['Monitor', 'Q 5%', 'Q 25%', 'Q 50%', 'Quarantine', 'Reject'].map((label, i) => (
+                  <span key={label} className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                    i === rec.policy_step.index ? 'bg-brand-600 text-white border-brand-600'
+                    : i < rec.policy_step.index ? 'bg-brand-50 text-brand-700 border-brand-200'
+                    : 'bg-white text-gray-400 border-gray-200'}`}>
+                    {label}
+                  </span>
+                ))}
+              </div>
+
+              {!ramp?.policyAllowed ? (
+                <p className="text-[11px] text-gray-500">
+                  Monitoring is free. <span className="font-semibold text-gray-700">Policy changes and Self-Driving DMARC are available on paid plans</span> — upgrade to move towards enforcement from here.
+                </p>
+              ) : (
+                <>
+                  {rec.next_step && (
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button
+                        onClick={() => act('policy', async () => {
+                          try {
+                            return await api.setHostedDmarcPolicy(wsId, domain, rec.next_step.policy, rec.next_step.pct)
+                          } catch (e) {
+                            if (e?.code === 'readiness_check_failed' || /not ready/i.test(e?.message || '')) {
+                              const reasons = (e?.readiness?.reasons || []).join('\n• ')
+                              if (window.confirm(`Compliance is not ready yet:\n\n• ${reasons}\n\nMove to ${rec.next_step.label} anyway?`)) {
+                                return await api.setHostedDmarcPolicy(wsId, domain, rec.next_step.policy, rec.next_step.pct, true)
+                              }
+                              return null
+                            }
+                            throw e
+                          }
+                        }, { reloadAll: true })}
+                        disabled={Boolean(busy)}
+                        className="btn-primary text-xs disabled:opacity-50"
+                      >
+                        {busy === 'policy' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <ArrowRight className="w-3.5 h-3.5" />}
+                        Advance to {rec.next_step.label}
+                      </button>
+                      {ramp?.readiness && !ramp.readiness.ready && (
+                        <span className="text-[10px] text-amber-700 font-medium">Interlock: {ramp.readiness.reasons[0]}</span>
+                      )}
+                      {ramp?.readiness?.ready && (
+                        <span className="text-[10px] text-brand-700 font-semibold">✓ Compliance ready for the next step</span>
+                      )}
+                    </div>
+                  )}
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <label className="inline-flex items-center gap-1.5 text-[11px] text-gray-600 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={rec.autopilot}
+                        disabled={Boolean(busy)}
+                        onChange={(e) => act('autopilot', () => api.setHostedDmarcAutopilot(wsId, domain, e.target.checked), { reloadAll: true })}
+                        className="rounded border-gray-300"
+                      />
+                      <span className="font-semibold">Self-Driving DMARC</span>
+                      <span className="text-gray-400">— advance automatically while compliance stays healthy; roll back on regressions</span>
+                    </label>
+                  </div>
+                  {rec.can_rollback && (
+                    <button
+                      onClick={() => {
+                        if (window.confirm('Restore the previous policy value?')) {
+                          act('rollback', () => api.rollbackHostedDmarc(wsId, domain), { reloadAll: true })
+                        }
+                      }}
+                      disabled={Boolean(busy)}
+                      className="text-[11px] text-gray-400 hover:text-amber-700 disabled:opacity-50"
+                    >
+                      {busy === 'rollback' ? 'Rolling back…' : '↩ Roll back last policy change'}
+                    </button>
+                  )}
+                </>
+              )}
             </div>
           )}
         </div>

@@ -190,7 +190,13 @@ async function request(path, options = {}) {
       gateError.upgrade_url   = err.upgrade_url
       throw gateError
     }
-    throw friendlyHttpError(res, err)
+    const httpError = friendlyHttpError(res, err)
+    // Preserve machine-readable context (e.g. the readiness interlock details
+    // from hosted-DMARC policy changes) so callers can branch without
+    // string-matching on messages.
+    if (err.code) httpError.code = err.code
+    if (err.readiness) httpError.readiness = err.readiness
+    throw httpError
   }
   return res.json()
 }
@@ -702,6 +708,20 @@ export const api = {
     request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/hosted-dmarc/verify`),
   deleteHostedDmarc: (workspaceId, domain) =>
     request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/hosted-dmarc`, { method: 'DELETE' }),
+
+  /** Self-Driving DMARC (Phase B): ladder-step change, rollback, autopilot */
+  setHostedDmarcPolicy: (workspaceId, domain, policy, pct, confirm = false) =>
+    request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/hosted-dmarc`, {
+      method: 'PUT',
+      body: JSON.stringify({ policy, pct, confirm: confirm || undefined }),
+    }),
+  rollbackHostedDmarc: (workspaceId, domain) =>
+    request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/hosted-dmarc/rollback`, { method: 'POST' }),
+  setHostedDmarcAutopilot: (workspaceId, domain, enabled) =>
+    request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/hosted-dmarc/autopilot`, {
+      method: 'PUT',
+      body: JSON.stringify({ enabled: Boolean(enabled) }),
+    }),
 
   /** GET /api/workspaces/:id/domains/:domain/bec-exposure → BEC Exposure Score (higher = worse) */
   getBecExposureScore: (workspaceId, domain) =>
