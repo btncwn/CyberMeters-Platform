@@ -1,8 +1,9 @@
 import { lazy, Suspense } from 'react'
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import Layout from './components/Layout'
 import ChunkErrorBoundary from './components/ChunkErrorBoundary'
+import ProtectedRoute from './components/ProtectedRoute'
 
 // ── Fallback Spinner Component ───────────────────────────────────────────
 const RouteLoader = () => (
@@ -79,24 +80,6 @@ const WorkspaceAuditLogPage         = lazy(() => import('./pages/ws/WorkspaceAud
 const WorkspaceMembersPage          = lazy(() => import('./pages/ws/WorkspaceMembersPage'))
 const WorkspaceRetentionPage        = lazy(() => import('./pages/ws/WorkspaceRetentionPage'))
 
-function ProtectedRoute({ children }) {
-  const { isAuthenticated, isLoading } = useAuth()
-  const location = useLocation()
-
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="w-8 h-8 border-4 border-brand-600 border-t-transparent rounded-full animate-spin" />
-      </div>
-    )
-  }
-
-  if (!isAuthenticated) {
-    return <Navigate to="/login" state={{ from: location }} replace />
-  }
-
-  return children
-}
 
 function PublicOnlyRoute({ children }) {
   const { isAuthenticated, isLoading } = useAuth()
