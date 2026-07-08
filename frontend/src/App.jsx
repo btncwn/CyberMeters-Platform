@@ -30,6 +30,7 @@ const CookiePolicyPage          = lazy(() => import('./pages/CookiePolicyPage'))
 const SupportPage               = lazy(() => import('./pages/SupportPage'))
 const InvitationLandingPage     = lazy(() => import('./pages/InvitationLandingPage'))
 const FreeScanPage              = lazy(() => import('./pages/FreeScanPage'))
+const CyberEssentialsReadinessPage = lazy(() => import('./pages/CyberEssentialsReadinessPage'))
 
 // ── Lazy-Loaded Core Protected App Pages ─────────────────────────────────
 const Dashboard                 = lazy(() => import('./pages/Dashboard'))
@@ -105,6 +106,7 @@ function AppRoutes() {
           <Route path="/dpa"     element={<DpaPage />} />
           <Route path="/cookies" element={<CookiePolicyPage />} />
           <Route path="/support" element={<SupportPage />} />
+          <Route path="/cyber-essentials-readiness" element={<CyberEssentialsReadinessPage />} />
           <Route path="*"        element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>
@@ -133,6 +135,7 @@ function AppRoutes() {
         <Route path="/support"                element={<SupportPage />} />
         <Route path="/invitations/:token"     element={<InvitationLandingPage />} />
         <Route path="/free-scan"              element={<FreeScanPage />} />
+        <Route path="/cyber-essentials-readiness" element={<CyberEssentialsReadinessPage />} />
 
         {/* ── Protected app ───────────────────────────────────────────── */}
         <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
