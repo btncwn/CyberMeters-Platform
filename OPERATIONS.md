@@ -18,13 +18,12 @@ incident / observability. Every command and value below is taken from the repo
 
 ## Deploy
 
-> **⚠ Working assumption (2026-07-08): pushing to `main` auto-deploys the
-> `cybermeters-platform` worker** via Cloudflare Workers Builds (proven
-> operationally; final dashboard confirmation + keep/disconnect decision with
-> the founder — see `docs/SPRINT-10-DESIGN.md` §8). Until resolved, treat
-> push discipline as deploy discipline: worker changes that are not
-> behaviour-identical stay on a branch until deploy-approved. The
-> `cybermeters-email` worker is NOT git-connected and deploys only manually:
+> **Release model (confirmed 2026-07-08): the worker deploys MANUALLY only.**
+> Workers Builds is disconnected from `cybermeters-platform` (probe-verified:
+> pushes no longer create versions). Flow: feature branch → PR/CI → merge main
+> → manual `wrangler deploy` → tag `vYYYY.MM.DD-n` → CHANGELOG. Pages
+> (frontend) still auto-deploys on push — intended. The `cybermeters-email`
+> worker deploys only manually:
 >
 > ```bash
 > cd workers/scan-api && npx wrangler deploy --config ../email-ingest/wrangler.toml
@@ -121,7 +120,8 @@ The `scheduled()` handler runs each hour and dispatches (all bounded, fail-safe)
 scheduled scans (`LIMIT 20`), scheduled + user reports, Hosted DNS verification
 sweep (retries/reconciles hosted DMARC intents), report retention cleanup
 (daily at 02:00 UTC), deletion purge (soft-delete → 30-day → hard delete),
-lifecycle-email retry, and domain-verification auto-retry.
+lifecycle-email retry, asset-alert email retry, and domain-verification
+auto-retry.
 
 ## Observability
 

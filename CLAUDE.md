@@ -762,26 +762,25 @@ Push when the change is low risk or when instructed.
 
 # Deployment Authority
 
-## ⚠ Deployment-model reality (working assumption, adopted 2026-07-08)
+## Release model (confirmed + adopted 2026-07-08)
 
-**Every push to `main` auto-deploys the `cybermeters-platform` worker**
-(Cloudflare Workers Builds git integration — proven operationally: versions
-track pushes 1:1, live version advanced twice after the last manual deploy
-with zero `wrangler deploy` runs, and GitHub Actions holds no Cloudflare
-secrets so it cannot be the deployer). Until the founder either disconnects
-the integration or moves it to a separate production branch:
+**The worker deploys MANUALLY only.** Cloudflare Workers Builds was
+disconnected from `cybermeters-platform` (founder, 2026-07-08) and the change
+was proven by controlled probe: a docs-only push produced a new worker version
+while connected, and no version after disconnection. The release flow is:
 
-* **Pushing worker code to `main` IS deploying it.** The MEDIUM/HIGH-risk
-  "commit + push, stop before production deployment" flow does NOT hold for
-  the worker — stage MEDIUM/HIGH-risk worker changes on a branch and merge
-  only with deploy approval.
-* Only behaviour-identical worker changes may be pushed straight to `main`.
-* The frontend (Pages) auto-deploy is separate and intended.
-* The standalone `cybermeters-email` worker is NOT git-connected; it deploys
-  only via `wrangler deploy --config ../email-ingest/wrangler.toml`.
+```
+feature branch → PR / review → CI (tests + typecheck) → merge main
+              → manual `wrangler deploy` → release tag (vYYYY.MM.DD-n) → CHANGELOG
+```
 
-This note is removed when the founder resolves the integration
-(see `docs/SPRINT-10-DESIGN.md` §8 risk register — the decision gates Stage C).
+* Pushing to `main` does NOT deploy the worker. Deploys are a deliberate,
+  separate act — record the printed Version ID (rollback needs it).
+* The frontend (Cloudflare Pages) auto-deploys on push to `main` — intended.
+* The `cybermeters-email` worker deploys only via
+  `wrangler deploy --config ../email-ingest/wrangler.toml`.
+* If Workers Builds is ever reconnected: narrow include paths to
+  `workers/scan-api/**` and disable non-production-branch builds first.
 
 ## LOW RISK
 

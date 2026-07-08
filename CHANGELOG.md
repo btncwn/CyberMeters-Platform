@@ -5,6 +5,30 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.08 (v2026.07.08-5 — asset-alert retry + manual release model)
+
+### Changed
+- **Release model:** Cloudflare Workers Builds disconnected from the worker
+  (probe-verified before and after — a docs push created a version while
+  connected, none after). The worker now deploys manually only; Pages keeps
+  auto-deploying the frontend. Flow: feature branch → PR/CI → merge → manual
+  `wrangler deploy` → tag → CHANGELOG.
+
+### Fixed
+- Asset-change alert emails are enrolled in the hourly retry cron
+  (`asset_alert_retry`): previously the dedupe row was written before the
+  send, so a failed delivery was permanently lost (observed 2026-07-08).
+  Migration 067 adds delivery-outcome tracking (safe to re-run, NOT strictly
+  idempotent — duplicate-column error = already applied). Delivery semantics
+  are documented at-least-once. Deployment `2a6e2baa`.
+
+### Added
+- Standalone `cybermeters-email` worker deployed dark (Stage B; 56 KiB bundle;
+  Email Routing still points at the main worker until cutover).
+- Pipeline suite → 31 assertions: billing lifecycle arc (payment-failed →
+  grace holds → cancellation closes the gate → re-subscribe restores) and
+  cron assertions upgraded to exact task-name-set + all-ok outcomes.
+
 ## 2026.07.08 (v2026.07.08-4 — worker decomposition phase 1)
 
 ### Production verification (Sprint 9 closure evidence)
