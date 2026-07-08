@@ -30,6 +30,9 @@ jobs:
       - name: Validate scanner regression fixtures
         run: node scripts/validate-regression-fixtures.js
 
+      - name: Validate security contracts (auth / MFA / RBAC / billing)
+        run: node scripts/validate-security-contracts.js
+
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
