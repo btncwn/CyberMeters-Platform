@@ -7,6 +7,19 @@ release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 
 ## 2026.07.08 (v2026.07.08-5 — asset-alert retry + manual release model)
 
+### Production verification (release closure)
+First cron on deployment `2a6e2baa` — the first run with `asset_alert_retry`
+in the registry (captured via `wrangler tail`, window 14:58–15:04 UTC):
+- **Run time:** 2026-07-08 **15:00:12 UTC** (`"0 * * * *" — Ok`).
+- **Errors:** zero `[cron-error]` / exception lines in the window. A mis-wired
+  registry entry would have surfaced as an `is not a function` cron error; the
+  task-name set is additionally CI-locked (pipeline suite).
+- **`[asset-alert-retry]` log lines:** none — expected: the sweep logs only
+  when it retries something, and the failed-set is empty (the pre-067 lost
+  alert reads `'sent'` by design and is never retro-retried).
+- **Metric reference:** AE `cybermeters_metrics` `cron_task` rows at
+  2026-07-08T15:00Z include `asset_alert_retry` (query in OPERATIONS.md).
+
 ### Changed
 - **Release model:** Cloudflare Workers Builds disconnected from the worker
   (probe-verified before and after — a docs push created a version while
