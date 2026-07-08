@@ -8217,18 +8217,34 @@ function classifyHostedCfError(reason) {
 }
 
 async function _cloudflareEmailRoutingRequest(env, path, init = {}, fetchImpl = fetch) {
+  // Transient CF throttling (429) / unavailability (503) gets a short, bounded
+  // in-request backoff (honour Retry-After, capped) with jitter. Persistent
+  // failures fall through to the caller — the Hosted Records write-ahead intent
+  // survives and the sweep reconciler retries later — so we never wait long here.
+  const MAX_ATTEMPTS = 3;
   let response;
-  try {
-    response = await fetchImpl(`${CLOUDFLARE_API_BASE}${path}`, {
-      ...init,
-      headers: {
-        Authorization: `Bearer ${env.CLOUDFLARE_API_TOKEN}`,
-        "Content-Type": "application/json",
-        ...(init.headers || {}),
-      },
-    });
-  } catch {
-    return { ok: false, reason: "network_error" };
+  for (let attempt = 1; ; attempt++) {
+    try {
+      response = await fetchImpl(`${CLOUDFLARE_API_BASE}${path}`, {
+        ...init,
+        headers: {
+          Authorization: `Bearer ${env.CLOUDFLARE_API_TOKEN}`,
+          "Content-Type": "application/json",
+          ...(init.headers || {}),
+        },
+      });
+    } catch {
+      return { ok: false, reason: "network_error" };
+    }
+    if ((response.status === 429 || response.status === 503) && attempt < MAX_ATTEMPTS) {
+      const retryAfter = Number(response.headers.get("Retry-After"));
+      const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
+        ? Math.min(retryAfter * 1000, 2000)
+        : Math.min(400 * 2 ** (attempt - 1), 1500) + Math.floor(Math.random() * 250);
+      await new Promise((r) => setTimeout(r, waitMs));
+      continue;
+    }
+    break;
   }
   let body;
   try { body = await response.json(); }
@@ -36153,7 +36169,7 @@ export default {
       const typeFilter   = url.searchParams.get('report_type');
       const statusFilter = url.searchParams.get('status');
       try {
-        let sql    = `SELECT id, workspace_id, report_type, report_period, report_key,
+        let sql    = `SELECT id, workspace_id, report_type, report_period,
                              status, generated_at, created_at, metadata_json, retention_policy
                       FROM workspace_reports WHERE workspace_id = ? AND deleted_at IS NULL`;
         const params = [wsId];
@@ -36280,7 +36296,7 @@ export default {
       if (!access) return json({ error: "Forbidden" }, 403);
       try {
         const row = await env.cybermeters_db.prepare(
-          `SELECT id, workspace_id, report_type, report_period, report_key,
+          `SELECT id, workspace_id, report_type, report_period,
                   status, generated_at, created_at, metadata_json, retention_policy
            FROM workspace_reports WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL`
         ).bind(reportId, wsId).first();
