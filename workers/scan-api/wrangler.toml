@@ -11,6 +11,11 @@ database_id = "fd6792cb-441a-44a7-8ca2-9a0b411ec706"
 binding = "cybermeters_reports"
 bucket_name = "cybermeters-reports"
 
+# Exposes the current deployment's version id/tag to the Worker at runtime.
+# Surfaced by GET /health as deployment_id for release traceability.
+[version_metadata]
+binding = "CF_VERSION_METADATA"
+
 [triggers]
 crons = ["0 * * * *"]
 
@@ -18,6 +23,9 @@ crons = ["0 * * * *"]
 # RESEND_API_KEY must be set as a Wrangler secret (never committed):
 #   wrangler secret put RESEND_API_KEY
 [vars]
+# Human-readable release version, surfaced by GET /health. Bump on each
+# production release (date-based: YYYY.MM.DD).
+APP_VERSION = "2026.07.08"
 ALERT_EMAIL_TO   = "ttrnn47@gmail.com"
 ALERT_EMAIL_FROM = "alerts@cybermeters.com"
 SAFE_EMAIL_FROM = "safe@cybermeters.com"

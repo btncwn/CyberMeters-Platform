@@ -24461,6 +24461,7 @@ export default {
     const serverError = (scope, error, message = "Request failed. Please try again.") => {
       console.error("[request-error]", JSON.stringify({
         request_id: requestId,
+        version: env.APP_VERSION || "dev",
         scope,
         error: String(error?.message ?? error),
       }));
@@ -24485,8 +24486,10 @@ export default {
     // ── GET /health ─────────────────────────────────────────────────────
     if (request.method === "GET" && url.pathname === "/health") {
       return json({
-        status:  "ok",
-        service: "cybermeters-scan-api",
+        status:        "ok",
+        service:       "cybermeters-scan-api",
+        version:       env.APP_VERSION || "dev",
+        deployment_id: env.CF_VERSION_METADATA?.id || null,
       });
     }
 
