@@ -17,16 +17,13 @@ bucket_name = "cybermeters-reports"
 binding = "CF_VERSION_METADATA"
 
 # Observability metrics sink (Workers Analytics Engine). recordMetric() writes
-# data points here; query via the CF GraphQL/SQL Analytics API. The code is
-# fail-open — with this binding commented out, recordMetric() is a silent no-op
-# and the Worker serves normally (/ready + [cron-error] logs still work).
-#
-# TO ACTIVATE METRICS: enable Analytics Engine once in the Cloudflare dashboard
-# (https://dash.cloudflare.com/<account>/workers/analytics-engine — free), then
-# uncomment the three lines below and redeploy.
-# [[analytics_engine_datasets]]
-# binding = "METRICS"
-# dataset = "cybermeters_metrics"
+# data points here (fail-open); query via the CF GraphQL/SQL Analytics API.
+# Analytics Engine is enabled on the account and the cybermeters_metrics dataset
+# exists. If ever disabled, comment these three lines out — recordMetric() then
+# becomes a silent no-op and the Worker keeps serving normally.
+[[analytics_engine_datasets]]
+binding = "METRICS"
+dataset = "cybermeters_metrics"
 
 [triggers]
 crons = ["0 * * * *"]
