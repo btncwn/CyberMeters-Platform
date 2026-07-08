@@ -17584,7 +17584,11 @@ function getEmailFrontendOrigin(env) {
 }
 
 function emailDeliveryLog(level, details) {
-  const payload = JSON.stringify({ service: "resend", ...details });
+  // Mask recipient local-parts before logging — logs go to `wrangler tail`, so
+  // never leak customer email addresses (PII). Domain is kept for deliverability
+  // debugging: "john.doe@acme.com" -> "j***@acme.com".
+  const payload = JSON.stringify({ service: "resend", ...details })
+    .replace(/([A-Za-z0-9._%+-])[A-Za-z0-9._%+-]*(@[A-Za-z0-9.-]+)/g, "$1***$2");
   if (level === "error") console.error("[email-delivery]", payload);
   else console.log("[email-delivery]", payload);
 }

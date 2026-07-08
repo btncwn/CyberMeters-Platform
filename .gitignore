@@ -1,6 +1,5 @@
 # Node
 node_modules/
-package-lock.json
 
 # Build artifacts
 dist/
@@ -12,9 +11,10 @@ frontend/dist/
 # Logs
 *.log
 
-# Environment variables
+# Environment variables & secrets
 .env
 .env.local
+.dev.vars
 
 # IDE
 .vscode/
@@ -29,10 +29,6 @@ venv/
 .wrangler/
 workers/scan-api/.wrangler/
 
-# Wrangler
-.wrangler/
-workers/scan-api/.wrangler/
-*.pdf
-*.pdf
+# Generated report artifacts + business docs — keep out of the code repo
 *.pdf
 *.docx

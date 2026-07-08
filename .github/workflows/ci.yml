@@ -2,6 +2,7 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 jobs:
@@ -15,6 +16,14 @@ jobs:
       - name: Show Node version
         run: node --version && npm --version
 
+      - name: Secret scan (tracked files)
+        run: |
+          if git grep -nIE '(-----BEGIN [A-Z ]*PRIVATE KEY-----|AKIA[0-9A-Z]{16}|sk_live_[0-9a-zA-Z]{24})' -- ':!.github/**' ':!*.md'; then
+            echo "::error::Potential secret found in tracked files — remove it and rotate the credential"
+            exit 1
+          fi
+          echo "No obvious secrets in tracked files."
+
       - name: Worker syntax check
         run: node --check workers/scan-api/src/index.js
 
@@ -24,6 +33,10 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
+
+      - name: Audit frontend dependencies
+        working-directory: frontend
+        run: npm audit --audit-level=high
 
       - name: Build frontend
         working-directory: frontend
