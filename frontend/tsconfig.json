@@ -1,0 +1,28 @@
+{
+  // Incremental TypeScript foundation (Sprint 8). No big-bang rewrite:
+  //   - .ts/.tsx files are ALWAYS type-checked (new code goes there),
+  //   - .js/.jsx files opt in with a `// @ts-check` pragma (api.js is first),
+  //   - un-pragma'd JS is parsed for inference but not checked.
+  // Tightening path: once api.js is fully annotated, flip noImplicitAny to true,
+  // then start pragma-ing the highest-churn pages.
+  "compilerOptions": {
+    "target": "es2022",
+    "lib": ["es2022", "dom", "dom.iterable"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "allowJs": true,
+    "checkJs": false,
+    "noEmit": true,
+    "strict": true,
+    // Deliberate incremental exception to `strict`: unannotated params in
+    // pragma'd JS stay implicit-any so the contract can grow method by method.
+    "noImplicitAny": false,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "types": ["vite/client"]
+  },
+  "include": ["src"]
+}

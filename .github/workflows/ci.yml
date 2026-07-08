@@ -55,6 +55,10 @@ jobs:
         working-directory: frontend
         run: npm audit --audit-level=high
 
+      - name: Frontend type check (tsc — api contract + all .ts/.tsx)
+        working-directory: frontend
+        run: npm run typecheck
+
       - name: Frontend component tests (Vitest)
         working-directory: frontend
         run: npm test

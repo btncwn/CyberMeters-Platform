@@ -1,4 +1,24 @@
+// @ts-check
 import { TOKEN_KEY, USER_KEY } from './context/authKeys'
+
+/**
+ * Shared API contract types — see src/types/api.d.ts (kept in lockstep with
+ * docs/openapi.json and the backend pipeline tests).
+ * @typedef {import('./types/api').ApiError} ApiError
+ * @typedef {import('./types/api').User} User
+ * @typedef {import('./types/api').LoginResponse} LoginResponse
+ * @typedef {import('./types/api').MfaStatus} MfaStatus
+ * @typedef {import('./types/api').WorkspaceList} WorkspaceList
+ * @typedef {import('./types/api').WorkspaceDetail} WorkspaceDetail
+ * @typedef {import('./types/api').WorkspaceDomain} WorkspaceDomain
+ * @typedef {import('./types/api').NotificationList} NotificationList
+ * @typedef {import('./types/api').AuditEventList} AuditEventList
+ * @typedef {import('./types/api').ScanList} ScanList
+ * @typedef {import('./types/api').Scan} Scan
+ * @typedef {import('./types/api').ReportList} ReportList
+ * @typedef {import('./types/api').Subscription} Subscription
+ * @typedef {import('./types/api').DomainVerification} DomainVerification
+ */
 
 export const BASE = import.meta.env.VITE_API_BASE_URL
 if (!BASE) {
@@ -8,6 +28,7 @@ if (!BASE) {
   )
 }
 
+/** @returns {Record<string, string>} */
 function getAuthHeaders() {
   const token = localStorage.getItem(TOKEN_KEY)
   return token ? { Authorization: `Bearer ${token}` } : {}
@@ -18,7 +39,9 @@ function getAuthHeaders() {
  * This lets the module-level request() helper trigger a logout without
  * importing React hooks (which can only be used inside components).
  */
+/** @type {(() => void) | null} */
 let _onUnauthorized = null
+/** @param {() => void} fn */
 export function registerUnauthorizedHandler(fn) {
   _onUnauthorized = fn
 }
@@ -30,6 +53,7 @@ export function registerUnauthorizedHandler(fn) {
  * Deliberately bypasses the 401 auto-logout handler so AuthContext can
  * manage the React state transition itself (soft React Router redirect
  * instead of a hard window.location redirect, preserving the intended URL).
+ * @returns {Promise<User | null>}
  */
 export async function validateSession() {
   const token = localStorage.getItem(TOKEN_KEY)
@@ -75,6 +99,7 @@ function handleUnauthorized() {
  * Fire-and-forget server-side session invalidation using a pre-captured token.
  * Exported for use by Layout.handleLogout(), which snapshots the token and clears
  * local auth state before calling this — preventing the 401 race condition.
+ * @param {string | null | undefined} rawToken
  */
 export function logoutWithToken(rawToken) {
   if (!rawToken || !BASE) return
@@ -92,12 +117,15 @@ export function logoutWithToken(rawToken) {
  * being unreachable) surface a friendly, actionable message instead of the raw
  * browser "Failed to fetch" / "Load failed" TypeError. Every caller goes through
  * here, so error states across the app stay customer-friendly.
+ * @param {string} url
+ * @param {RequestInit} [init]
+ * @returns {Promise<Response>}
  */
 async function safeFetch(url, init) {
   try {
     return await fetch(url, init)
   } catch {
-    const netErr = new Error("We couldn't reach CyberMeters. Please check your internet connection and try again.")
+    const netErr = /** @type {ApiError} */ (new Error("We couldn't reach CyberMeters. Please check your internet connection and try again."))
     netErr.code = 'network_error'
     throw netErr
   }
@@ -107,6 +135,9 @@ async function safeFetch(url, init) {
  * Build a friendly Error from a non-OK response, hiding technical detail.
  * Prefers a human-readable message from the server; otherwise maps the status
  * class to a calm, actionable message (never a bare "HTTP 500").
+ * @param {Response} res
+ * @param {any} err  Parsed error body (may be a fallback object).
+ * @returns {ApiError}
  */
 function friendlyHttpError(res, err) {
   // Preserve any server-provided error string verbatim. Some are human-readable
@@ -117,6 +148,7 @@ function friendlyHttpError(res, err) {
   const raw = err && typeof err.error === 'string' ? err.error : ''
   // Attach the HTTP status so callers can branch (e.g. 403 permission handling)
   // without parsing message strings. Additive — messages are unchanged.
+  /** @param {ApiError} e */
   const withStatus = (e) => { e.status = res.status; return e }
   if (raw) return withStatus(new Error(raw))
   if (res.status >= 500) return withStatus(new Error('Something went wrong on our end. Please try again in a moment.'))
@@ -126,6 +158,14 @@ function friendlyHttpError(res, err) {
   return withStatus(new Error('Something went wrong. Please try again.'))
 }
 
+/**
+ * Authenticated JSON request. Throws an {@link ApiError} on any failure —
+ * decorated with status/code/plan-gate context so callers branch on fields,
+ * never on message strings.
+ * @param {string} path  API path starting with '/'.
+ * @param {RequestInit} [options]
+ * @returns {Promise<any>}  Parsed JSON body; annotate call sites for shapes.
+ */
 async function request(path, options = {}) {
   const res = await safeFetch(`${BASE}${path}`, {
     // Disable browser cache so scan status, workspace data, and other dynamic
@@ -157,7 +197,7 @@ async function request(path, options = {}) {
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('cybermeters:plan-limit', { detail: err }))
       }
-      const limitError = new Error('Plan limit reached')
+      const limitError = /** @type {ApiError} */ (new Error('Plan limit reached'))
       limitError.code     = 'plan_limit_exceeded'
       limitError.resource = err.resource
       limitError.limit    = err.limit
@@ -178,12 +218,12 @@ async function request(path, options = {}) {
           },
         }))
       }
-      const rateError = new Error('Scan limit reached')
+      const rateError = /** @type {ApiError} */ (new Error('Scan limit reached'))
       rateError.code = 'rate_limit_exceeded'
       throw rateError
     }
     if (err.error === 'plan_feature_required') {
-      const gateError = new Error(`Feature requires upgrade: ${err.feature ?? ''}`)
+      const gateError = /** @type {ApiError} */ (new Error(`Feature requires upgrade: ${err.feature ?? ''}`))
       gateError.error         = 'plan_feature_required'
       gateError.feature       = err.feature
       gateError.required_plan = err.required_plan
@@ -201,6 +241,13 @@ async function request(path, options = {}) {
   return res.json()
 }
 
+/**
+ * Authenticated request returning a Blob (PDF/CSV downloads). Same ApiError
+ * decoration as request().
+ * @param {string} path
+ * @param {RequestInit} [options]
+ * @returns {Promise<Blob>}
+ */
 async function requestBlob(path, options = {}) {
   const res = await safeFetch(`${BASE}${path}`, {
     headers: {
@@ -218,7 +265,7 @@ async function requestBlob(path, options = {}) {
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('cybermeters:plan-limit', { detail: err }))
       }
-      const limitError = new Error('Plan limit reached')
+      const limitError = /** @type {ApiError} */ (new Error('Plan limit reached'))
       limitError.code     = 'plan_limit_exceeded'
       limitError.resource = err.resource
       limitError.limit    = err.limit
@@ -236,12 +283,12 @@ async function requestBlob(path, options = {}) {
           },
         }))
       }
-      const rateError = new Error('Scan limit reached')
+      const rateError = /** @type {ApiError} */ (new Error('Scan limit reached'))
       rateError.code = 'rate_limit_exceeded'
       throw rateError
     }
     if (err.error === 'plan_feature_required') {
-      const gateError = new Error(`Feature requires upgrade: ${err.feature ?? ''}`)
+      const gateError = /** @type {ApiError} */ (new Error(`Feature requires upgrade: ${err.feature ?? ''}`))
       gateError.error         = 'plan_feature_required'
       gateError.feature       = err.feature
       gateError.required_plan = err.required_plan
@@ -264,6 +311,11 @@ export const api = {
     }),
 
   /** POST /api/auth/login  → { token, user } */
+  /**
+   * @param {string} email
+   * @param {string} password
+   * @returns {Promise<LoginResponse>} `{token, user}` or `{mfa_required, challenge_token}`.
+   */
   authLogin: (email, password) =>
     request('/auth/login', {
       method: 'POST',
@@ -271,6 +323,7 @@ export const api = {
     }),
 
   /** GET /api/auth/me  → { id, email, name, plan } */
+  /** @returns {Promise<User>} */
   authMe: () => request('/auth/me'),
 
   /** POST /api/auth/logout */
@@ -312,6 +365,7 @@ export const api = {
   // ── MFA / TOTP ─────────────────────────────────────────────────────────────
 
   /** GET /api/auth/mfa/status → { mfa_enabled, mfa_enabled_at } */
+  /** @returns {Promise<MfaStatus>} */
   getMfaStatus: () => request('/auth/mfa/status'),
 
   /** POST /api/auth/mfa/setup → { otpauth_uri, secret_base32 } */
@@ -326,6 +380,11 @@ export const api = {
     }),
 
   /** POST /api/auth/mfa/challenge → { token, user } (login second factor) */
+  /**
+   * @param {string} challenge_token
+   * @param {string} code
+   * @returns {Promise<LoginResponse>}
+   */
   mfaChallenge: (challenge_token, code) =>
     request('/auth/mfa/challenge', {
       method: 'POST',
@@ -347,9 +406,11 @@ export const api = {
     }),
 
   /** GET /api/scans */
+  /** @returns {Promise<ScanList>} */
   getScans: () => request('/scans'),
 
   /** GET /api/scans/:id */
+  /** @param {string} id */
   getScan: (id) => request(`/scans/${id}`),
 
   /** GET /api/scans/:id/report */
@@ -368,6 +429,10 @@ export const api = {
   getDomainHistory: (domain) => request(`/domain/${encodeURIComponent(domain)}/history`),
 
   /** POST /api/scan  body: { domain, workspace_id? } */
+  /**
+   * @param {string} domain
+   * @param {string} [workspaceId]
+   */
   createScan: (domain, workspaceId) =>
     request('/scan', {
       method: 'POST',
@@ -391,6 +456,7 @@ export const api = {
   // ── Workspaces ────────────────────────────────────────────────────────
 
   /** GET /api/workspaces — returns { workspaces, default_workspace_id } */
+  /** @returns {Promise<WorkspaceList>} */
   getWorkspaces: () => request('/workspaces'),
 
   /**
@@ -410,9 +476,14 @@ export const api = {
     }),
 
   /** GET /api/workspaces/:id  (includes stats) */
+  /**
+   * @param {string} id
+   * @returns {Promise<WorkspaceDetail>} `{workspace, stats}`.
+   */
   getWorkspace: (id) => request(`/workspaces/${id}`),
 
   /** GET /api/workspaces/:id/domains */
+  /** @param {string} id */
   getWorkspaceDomains: (id) => request(`/workspaces/${id}/domains`),
 
   /** POST /api/workspaces/:id/domains  body: { domain } */
@@ -557,6 +628,12 @@ export const api = {
   // ── Audit Log ─────────────────────────────────────────────────────────────
 
   /** GET /api/workspaces/:id/audit-events */
+  /**
+   * Professional-gated (403 plan_feature_required below that plan).
+   * @param {string} id
+   * @param {{limit?: number, offset?: number, event_type?: string, actor_user_id?: string, entity_type?: string, entity_id?: string, date_from?: string, date_to?: string, search?: string}} [filters]
+   * @returns {Promise<AuditEventList>}
+   */
   getWorkspaceAuditEvents: (id, filters = {}) => {
     const params = new URLSearchParams()
     if (filters.limit)        params.set('limit',         String(filters.limit))
@@ -600,8 +677,13 @@ export const api = {
   // ── Workspace Executive Reports ───────────────────────────────────────────
 
   /** GET /api/workspaces/:id/reports  optional: ?report_type=&status= */
+  /**
+   * @param {string} workspaceId
+   * @param {{limit?: number, offset?: number}} [params]
+   * @returns {Promise<ReportList>}
+   */
   getWorkspaceReports: (workspaceId, params = {}) => {
-    const q = new URLSearchParams(params).toString()
+    const q = new URLSearchParams(/** @type {Record<string, string>} */ (params)).toString()
     return request(`/workspaces/${workspaceId}/reports${q ? `?${q}` : ''}`)
   },
 
@@ -789,14 +871,26 @@ export const api = {
    * GET /api/workspaces/:id/notifications
    * Optional ?status=unread|read  ?limit=N
    */
+  /**
+   * The list returns `metadata` ALREADY PARSED (raw `metadata_json` is dropped
+   * server-side) — the NotificationBell regression contract, under test in
+   * NotificationBell.test.jsx and typed in AppNotification.
+   * @param {string} workspaceId
+   * @param {{limit?: number, offset?: number}} [params]
+   * @returns {Promise<NotificationList>}
+   */
   getWorkspaceNotifications: (workspaceId, params = {}) => {
-    const q = new URLSearchParams(params).toString()
+    const q = new URLSearchParams(/** @type {Record<string, string>} */ (params)).toString()
     return request(`/workspaces/${workspaceId}/notifications${q ? `?${q}` : ''}`)
   },
 
   /**
    * POST /api/workspaces/:id/notifications/:notifId/read
    * Pass notifId = "all" to mark all unread as read.
+   */
+  /**
+   * @param {string} workspaceId
+   * @param {string | 'all'} notifId  Pass 'all' to bulk-clear.
    */
   markNotificationRead: (workspaceId, notifId) =>
     request(`/workspaces/${workspaceId}/notifications/${notifId}/read`, { method: 'POST' }),
@@ -888,6 +982,7 @@ export const api = {
   /**
    * GET /api/account/subscription
    * Returns manual subscription foundation for the authenticated account.
+   * @returns {Promise<{subscription: Subscription}>}
    */
   getSubscription: () => request('/account/subscription'),
 
@@ -895,6 +990,8 @@ export const api = {
    * GET /api/workspaces/:id/subscription
    * Returns workspace-level subscription state: plan, status, trial_active,
    * trial_remaining_days, trial_start, trial_end, limits, features.
+   * @param {string} workspaceId
+   * @returns {Promise<{subscription: Subscription}>}
    */
   getWorkspaceSubscription: (workspaceId) =>
     request(`/workspaces/${workspaceId}/subscription`),
@@ -937,7 +1034,10 @@ export const api = {
   /** GET /api/account/api-tokens */
   getApiTokens: () => request('/account/api-tokens'),
 
-  /** POST /api/account/api-tokens  body: { name, scope, workspace_id?, expires_at? } */
+  /**
+   * POST /api/account/api-tokens — `name` is required by the server.
+   * @param {{name?: string, scope?: 'read' | 'write', workspace_id?: string | null, expires_at?: string | null}} [opts]
+   */
   createApiToken: ({ name, scope = 'read', workspace_id = null, expires_at = null } = {}) =>
     request('/account/api-tokens', {
       method: 'POST',
@@ -1110,9 +1210,8 @@ export const api = {
     request(`/invitations/${encodeURIComponent(token)}/accept`, { method: 'POST' }),
 
   // ── Billing ───────────────────────────────────────────────────────────────
-
-  /** GET /api/billing/plans — public plan metadata, pricing, limits */
-  getBillingPlans: () => request('/billing/plans'),
+  // (getBillingPlans lives in the earlier billing cluster — the type gate
+  // caught a duplicate key here that silently shadowed it.)
 
   /**
    * POST /api/billing/checkout
