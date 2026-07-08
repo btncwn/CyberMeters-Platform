@@ -1,8 +1,12 @@
 # Sprint 10 Design — Worker Decomposition Phase 2: Fault Isolation
 
-Status: **DRAFT — awaiting founder approval. No implementation before approval.**
+Status: **APPROVED** (founder, 2026-07-08) — including the RPC-not-Queues
+decision, the staged rollout, and decision points §10.1-4 in principle (the
+Stage B routing repoint and Stage B secret remain founder actions at stage
+time; Stage C cutover proposed 14:10 UTC).
 Author: Lead Engineering. Date: 2026-07-08.
-Prerequisite: Sprint 9 formally closed (first production cron proof).
+Prerequisite: Sprint 9 formally closed (first production cron proof) — Stage A
+starts only after that evidence lands.
 
 ---
 
