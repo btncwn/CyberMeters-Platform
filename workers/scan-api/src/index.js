@@ -16801,6 +16801,13 @@ async function sendAssetChangeAlert(domainId, domain, scanId, env) {
  * Slack/Teams/webhook fan-out is NOT repeated — it already ran at scan time,
  * independent of email delivery. Bounded to a 3-day window and 10 rows per
  * run, mirroring the lifecycle retry. Never throws.
+ *
+ * Delivery semantics: AT-LEAST-ONCE, deliberately. A send classed as failed
+ * (e.g. timeout / network_error) may in fact have been delivered by the
+ * provider — that ambiguity cannot be resolved client-side, so the sweep
+ * re-sends and a customer may occasionally receive the same alert twice.
+ * A duplicate alert is accepted over a silently lost one; identical to the
+ * lifecycle_email_retry semantics.
  */
 async function retryFailedAssetAlerts(env) {
   try {

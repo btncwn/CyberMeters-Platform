@@ -295,8 +295,14 @@ async function main() {
   await Promise.allSettled(pending);
   delete env.METRICS;
   const cronPoints = datapoints.filter((d) => d.blobs?.[0] === "cron_task");
-  const expected = new Date().getUTCHours() === 2 ? 8 : 7;
-  ok(`scheduled() runs every registered task (${expected} cron_task datapoints)`, cronPoints.length === expected);
+  // Exact NAME-SET match, not just a count: a renamed/typo'd registry entry
+  // with a compensating extra would pass a count but not this.
+  const expectedTasks = ["scheduled_reports", "user_scheduled_reports", "hosted_dns_sweep",
+    "deletion_purge", "lifecycle_email_retry", "asset_alert_retry", "domain_verify_retry"];
+  if (new Date().getUTCHours() === 2) expectedTasks.push("report_retention");
+  const seenTasks = cronPoints.map((d) => String(d.blobs?.[1] ?? "")).sort();
+  ok(`scheduled() runs exactly the registered task set (${expectedTasks.length} tasks, names matched)`,
+    JSON.stringify(seenTasks) === JSON.stringify([...expectedTasks].sort()));
   ok("no task failed with a wiring error (no 'is not a function')",
     !cronPoints.some((d) => (d.blobs ?? []).some((b) => String(b).includes("is not a function"))));
 
