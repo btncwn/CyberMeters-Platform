@@ -171,15 +171,32 @@ forgetting the MFA branch is now a compile error).
 monolith stays JS until Sprints 9-10.
 **DoD (met):** typed API client + shared types; CI type-check step; build unbroken (tsc clean, vitest 24/24, vite build green).
 
-## Sprint 9 — Worker decomposition, phase 1  ·  risk: HIGH  ·  effort: High
+## Sprint 9 — Worker decomposition, phase 1 — CODE DONE, deploy pending approval  ·  risk: HIGH  ·  effort: High
 **Goal:** carve fault-isolated seams out of the monolith without behaviour change.
 **Why (evidence):** single `workers/scan-api/src/index.js` = **~37,258 lines** handling API + cron + email + scan + scoring + PDF. Deploy = whole system; no isolation; 1.6 MB re-parse each deploy. #1 architectural weakness (Architecture 55, Maintainability 52).
-**Tasks:**
-- Extract **cron/scheduler** and the **inbound email handler** into separate modules (shared lib for D1/helpers), behaviour-identical.
-- Regression + security + integration suites must stay green throughout (that safety net is why this comes after Sprints 6-7).
-- Keep one deploy first; module boundaries prove out before splitting deploys.
-**Risk:** touches the whole system; only safe now because tests exist.
-**DoD:** cron + email in their own modules; all suites green; no behaviour delta observed on the two live domains.
+**Shipped (three validated slices):**
+1. **Harness modernisation (enabling move):** the four validation suites now load
+   the worker as a real ES module instead of regex+`vm` (which cannot evaluate
+   `import` — any split would have broken every suite). index.js carries a
+   documented test-only named-export block; named exports are inert in
+   production.
+2. **`src/email/inbound.js` (~540 lines):** the `email()` handler + its
+   exclusive closure (MIME split, gzip/zip bomb-capped decompression,
+   provenance). Move list computed by dependency-closure analysis — provably
+   email-only. 8 shared services imported back from index.js (deliberate,
+   documented index ⇄ inbound cycle; phase 2 dissolves it into `src/lib/`).
+3. **`src/cron/scheduled.js` + `src/lib/metrics.js`:** the scheduled() entry +
+   `runCronTask` extracted with a task-registry injection (no cycle); task
+   bodies stay — their closure reaches the scan engine (19k lines, measured).
+   `recordMetric` is the first shared-lib module.
+**Proof:** regression 225/225 · security 45/45 · integration 18/18 · pipeline
+24/24 (incl. a new cron-orchestration section driving the real `scheduled()`
+and counting per-task datapoints) · `wrangler deploy --dry-run` bundles the
+module graph cleanly (1.38 MiB).
+**Remaining for DoD:** production deploy (needs approval — HIGH risk class) +
+"no behaviour delta observed on the two live domains" watch after deploy.
+**Honest scope note:** this is *modularisation*, not fault isolation — one
+deploy, one isolate, by design. Isolation is Sprint 10.
 
 ## Sprint 10 — Worker decomposition, phase 2 + fault isolation  ·  risk: HIGHEST  ·  effort: High
 **Goal:** independently deployable, fault-isolated services.
