@@ -13,6 +13,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
       - name: Show Node version
         run: node --version && npm --version
 
@@ -32,6 +37,9 @@ jobs:
 
       - name: Validate security contracts (auth / MFA / RBAC / billing)
         run: node scripts/validate-security-contracts.js
+
+      - name: Validate integration flows (tenant isolation / access control)
+        run: node scripts/validate-integration.js
 
       - name: Validate OpenAPI spec
         run: node scripts/validate-openapi.js
