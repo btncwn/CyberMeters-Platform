@@ -166,6 +166,15 @@ Staged, each stage shippable and reversible, suites green throughout:
 | **C — cron worker** | at ~xx:10 (proposed 14:10 UTC): 1) deploy api with `CronTasks` entrypoint **and crons removed** → 2) immediately deploy `workers/cron-dispatch/` with the trigger + binding → 3) watch the next hour | next hourly tick produces ≠1 run set (0 after two hours, or any doubled task), or any `contract_mismatch` error | redeploy api with crons restored; remove cron worker's trigger (two commands, no data risk) |
 | **D — 48h observation** | per-worker cron_task datapoints, inbound RUA ingest on the two live domains, 5xx delta = 0 | any criterion above regressing | stage-specific action above |
 
+**Stage A status: DONE (2026-07-08).** Deployed `324b4a18`, all suites green,
+live /health + /ready verified, no rollback criterion triggered. Deviation
+from §1's module list, driven by measurement: audit.js + notifications.js
+became ONE module (`src/lib/events.js`) — their closures are identical
+(mutually referencing writers; splitting would create a lib cycle) — and
+`src/lib/util.js` was added for dependency-free leaf helpers. The Sprint 9
+index ⇄ inbound cycle is dissolved: nothing under lib/, email/ or cron/
+imports index.js.
+
 Max failure exposure at any point: **one missed cron hour** (self-healing) or
 **minutes of email-routing gap** (sender SMTP retries). Never a doubled task,
 never a lost report, never an api outage caused by the split.
