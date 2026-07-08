@@ -39,6 +39,7 @@ export const CATEGORIES = [
   { slug: 'saas-exposure',             label: 'SaaS Exposure',             icon: 'Layers',      color: 'pink'   },
   { slug: 'vendor-risk',               label: 'Vendor Risk',               icon: 'Briefcase',   color: 'orange' },
   { slug: 'supply-chain-intelligence', label: 'Supply Chain Intelligence', icon: 'Link',        color: 'rose'   },
+  { slug: 'cyber-essentials',          label: 'Cyber Essentials',          icon: 'ClipboardCheck', color: 'green' },
 ]
 
 // ── Articles ─────────────────────────────────────────────────────────────────
@@ -915,6 +916,190 @@ export const ARTICLES = [
     ],
     relatedSlugs: ['vendor-risk-explained', 'third-party-risk', 'solarwinds'],
     findingIds: ['supply_chain_vendor_detected', 'third_party_js_detected', 'known_vulnerable_component'],
+  },
+
+  // ── SEO: Cyber MOT ───────────────────────────────────────────────────────
+  {
+    slug: 'what-is-a-cyber-mot-and-why-your-business-needs-one',
+    title: 'What is a Cyber MOT and why your business needs one',
+    category: 'cyber-essentials',
+    summary: 'A Cyber MOT is a quick, plain-English check of how safe and trusted your business looks from the outside — email, website, TLS, DNS, certificates and Cyber Essentials readiness gaps.',
+    readTime: 5,
+    featured: true,
+    publishedAt: '2026-07-08',
+    sections: [
+      {
+        heading: 'What a Cyber MOT Checks',
+        blocks: [
+          p('A Cyber MOT is a simple way to check whether your business looks safe, trusted and well configured from the outside.'),
+          p('Just like a vehicle MOT does not make a car perfect, a Cyber MOT does not claim your business is fully secure. It checks important visible signals that are often missed: your email protection, website security, TLS, DNS settings, certificates and Cyber Essentials readiness gaps.'),
+          p('For small businesses, this matters because your domain is part of your reputation. Your website, email setup and public records are often the first things customers, suppliers, insurers and attackers can see. A weak setup can make your business easier to impersonate, easier to distrust and harder to work with.'),
+        ],
+      },
+      {
+        heading: 'Why Small Businesses Need It',
+        blocks: [
+          p('Cyber security can feel too big for small companies. Many owners think they need a large consultancy project before they can understand their position. In reality, the first step should be simpler: check the public-facing basics, explain the findings in plain English and fix the highest-risk gaps first. That is the purpose of a Cyber MOT.'),
+          li([
+            'Is your business email protected against spoofing? SPF, DKIM and DMARC help receiving mail services decide whether a message really came from your domain.',
+            'Does your website give the right trust signals? A modern site should use HTTPS properly, avoid expired certificates and include sensible browser protections.',
+            'Are your DNS records clean and understandable? Incorrect records create email delivery problems, trust issues and avoidable operational risk.',
+            'Are your certificates healthy? Expired or misconfigured certificates break websites and damage customer confidence.',
+            'Are you ready for Cyber Essentials? A Cyber MOT should not certify you; it should help you spot gaps before you start the formal self-assessment route.',
+          ]),
+        ],
+      },
+      {
+        heading: 'Cyber Essentials Readiness, Not Certification',
+        blocks: [
+          p('This distinction is important. CyberMeters provides readiness support, not certification. IASME is the NCSC\'s official Cyber Essentials Delivery Partner, and certification is delivered through the approved route.'),
+          callout('A Cyber MOT helps you spot readiness gaps before the formal route. It is not a Cyber Essentials certificate and should not be treated as one.', 'info'),
+        ],
+      },
+      {
+        heading: 'What You Get From a Cyber MOT',
+        blocks: [
+          p('For a UK small business, the real value of a Cyber MOT is clarity. You do not need to understand every technical detail. You need to know whether your domain is protected, whether customers can trust your online presence and whether there are obvious gaps that should be fixed.'),
+          p('For MSPs, a Cyber MOT is also a useful client conversation starter. Instead of leading with fear, the MSP can show a simple report: here is what is good, here is what needs attention and here is the plan.'),
+          p('The best Cyber MOT is not about creating panic. It is about making cyber hygiene visible, affordable and repeatable. Run it once to understand your current posture. Run it regularly to catch changes. Use it before supplier reviews, insurance renewals, Cyber Essentials preparation or customer security questions.'),
+          p('A small business does not need enterprise complexity to make progress. It needs a clear starting point. That is what a Cyber MOT gives you.'),
+        ],
+      },
+    ],
+    relatedSlugs: [],
+    findingIds: [],
+  },
+
+  // ── SEO: DMARC for UK SMBs ───────────────────────────────────────────────
+  {
+    slug: 'dmarc-explained-for-uk-small-businesses',
+    title: 'DMARC explained for UK small businesses',
+    category: 'email-security',
+    summary: 'DMARC helps stop criminals sending emails that appear to come from your domain. For UK small businesses, it is one of the most practical ways to reduce impersonation risk and improve trust in business email.',
+    readTime: 6,
+    featured: false,
+    publishedAt: '2026-07-08',
+    sections: [
+      {
+        heading: 'What DMARC Does',
+        blocks: [
+          p('DMARC stands for Domain-based Message Authentication, Reporting and Conformance. In plain English, it tells receiving mail services what to do when an email claims to come from your domain but fails authentication checks.'),
+          p('DMARC works with SPF and DKIM. SPF lists the systems allowed to send email for your domain. DKIM adds a cryptographic signature to messages. DMARC checks whether those results line up with the visible From address that recipients see.'),
+          callout('SPF and DKIM are important, but DMARC is the policy layer that tells receiving mail services whether to monitor, quarantine or reject suspicious messages.', 'info'),
+        ],
+      },
+      {
+        heading: 'Why It Matters for UK Small Businesses',
+        blocks: [
+          p('Small businesses are attractive targets for impersonation because customers and suppliers often trust familiar names. If your domain has weak email authentication, criminals may be able to send convincing fake invoices, payment changes or password reset messages that appear to come from your business.'),
+          p('DMARC also supports deliverability. Mail providers increasingly expect domains to have modern authentication in place. A clear DMARC setup helps legitimate email look more trustworthy and helps suspicious email get handled correctly.'),
+          li([
+            'Protect customers and suppliers from fake emails using your domain',
+            'Reduce the risk of business email compromise and invoice fraud',
+            'Improve visibility into who is sending email on behalf of your domain',
+            'Support better delivery of legitimate business email',
+          ]),
+        ],
+      },
+      {
+        heading: 'The Three DMARC Policies',
+        blocks: [
+          p('A DMARC record usually starts in monitoring mode, then moves towards enforcement once you understand your legitimate senders.'),
+          li([
+            'p=none means monitor only. You receive reports, but suspicious messages are not blocked because of DMARC.',
+            'p=quarantine tells receiving mail services to treat failing messages as suspicious, often placing them in spam or junk.',
+            'p=reject tells receiving mail services to reject failing messages before they reach the inbox.',
+          ]),
+          callout('For many businesses, p=none is a useful starting point, but it is not the final goal. Protection improves when you move carefully towards quarantine or reject.', 'info'),
+        ],
+      },
+      {
+        heading: 'How to Approach DMARC Safely',
+        blocks: [
+          p('Do not jump straight to reject if you are unsure who sends email for your domain. First identify your legitimate senders: Microsoft 365, Google Workspace, CRM tools, invoicing platforms, marketing systems and support desks.'),
+          li([
+            'Confirm SPF covers your legitimate sending services',
+            'Enable DKIM signing where your mail provider supports it',
+            'Publish DMARC in monitoring mode and review aggregate reports',
+            'Fix legitimate services that fail authentication',
+            'Move towards quarantine or reject once reports are clean',
+          ]),
+          p('A Cyber MOT can highlight whether DMARC is missing, weak or only in monitoring mode. That gives you a practical starting point without needing to read raw DNS records yourself.'),
+        ],
+      },
+    ],
+    relatedSlugs: [],
+    findingIds: [],
+  },
+
+  // ── SEO: Cyber Essentials Readiness ──────────────────────────────────────
+  {
+    slug: 'cyber-essentials-what-you-actually-need-to-pass',
+    title: 'Cyber Essentials: what you actually need to pass',
+    category: 'cyber-essentials',
+    summary: 'Cyber Essentials is the UK baseline for practical cyber hygiene. To prepare well, small businesses need to understand the five control areas and close obvious gaps before starting the formal assessment route.',
+    readTime: 7,
+    featured: false,
+    publishedAt: '2026-07-08',
+    sections: [
+      {
+        heading: 'What Cyber Essentials Covers',
+        blocks: [
+          p('Cyber Essentials is a UK government-backed scheme designed to help organisations protect themselves against common online threats. It focuses on practical controls rather than complex enterprise security programmes.'),
+          p('The scheme is built around five technical control areas: firewalls, secure configuration, user access control, malware protection and security update management. These are the basics that reduce many common risks when they are applied consistently.'),
+          li([
+            'Firewalls that block unwanted inbound access',
+            'Secure configuration of devices, services and cloud systems',
+            'User access control so people only have the access they need',
+            'Malware protection on devices and supported platforms',
+            'Security updates applied promptly to software and operating systems',
+          ]),
+        ],
+      },
+      {
+        heading: 'What You Actually Need to Prepare',
+        blocks: [
+          p('Passing Cyber Essentials is not about buying one tool. It is about knowing what technology you use, removing unnecessary exposure and being able to answer the self-assessment questions accurately.'),
+          p('Start with an inventory. Know your laptops, desktops, phones, tablets, servers, cloud services, routers, firewalls and admin accounts. If you do not know what you have, you cannot confidently say it is configured safely.'),
+          li([
+            'Remove or protect exposed admin panels and remote access services',
+            'Check that unsupported software and operating systems are no longer in use',
+            'Make sure default passwords are changed and multi-factor authentication is used where appropriate',
+            'Limit administrator privileges to people who genuinely need them',
+            'Keep evidence of patching, malware protection and access control decisions',
+          ]),
+        ],
+      },
+      {
+        heading: 'Where Businesses Commonly Fail',
+        blocks: [
+          p('Many businesses struggle because their public-facing basics and internal controls do not match what they believe is in place. A forgotten service, old DNS record, exposed login page or unsupported device can create a gap that only becomes visible late in the process.'),
+          li([
+            'Assuming Microsoft 365 or Google Workspace is secure without checking the settings',
+            'Leaving old remote access tools exposed to the internet',
+            'Keeping unused accounts with administrator privileges',
+            'Missing security updates on laptops, servers or network devices',
+            'Treating Cyber Essentials as paperwork rather than operational hygiene',
+          ]),
+          callout('CyberMeters provides Cyber Essentials readiness support, not certification. Certification is handled through IASME and approved Certification Bodies.', 'info'),
+        ],
+      },
+      {
+        heading: 'How a Cyber MOT Helps',
+        blocks: [
+          p('A Cyber MOT cannot answer every internal Cyber Essentials question for you, but it can highlight visible gaps that often cause trouble: weak email protection, certificate issues, risky DNS records, missing website protections and externally visible services.'),
+          p('Use the report before the formal route so you can fix obvious issues early. That makes the assessment conversation simpler, reduces last-minute surprises and gives directors, insurers or suppliers a clearer view of progress.'),
+          li([
+            'Run a Cyber MOT before starting the self-assessment',
+            'Fix high-priority website, email, DNS and certificate issues first',
+            'Review internal controls against the five Cyber Essentials areas',
+            'Keep repeating checks so new gaps do not appear unnoticed',
+          ]),
+        ],
+      },
+    ],
+    relatedSlugs: [],
+    findingIds: [],
   },
 
 ]
