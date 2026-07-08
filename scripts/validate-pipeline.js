@@ -234,6 +234,26 @@ async function main() {
   ok("offset walks to the last page (1 event, has_more:false)",
     page2.data?.events?.length === 1 && page2.data?.pagination?.has_more === false);
 
+  // ── Cron orchestration (Sprint 9 extraction proof) ──
+  // Drives the real scheduled() entry: the task registry in index.js must wire
+  // every task into src/cron/scheduled.js. A mis-wired registry surfaces as a
+  // "is not a function" cron_task error datapoint; a healthy run records one
+  // datapoint per wrapped task (6 hourly; retention joins only at 02:00 UTC —
+  // triggerScheduledScan is fire-and-forget outside runCronTask by design).
+  section("Cron orchestration");
+  const datapoints = [];
+  env.METRICS = { writeDataPoint: (d) => datapoints.push(d) };
+  const pending = [];
+  await worker.scheduled({ cron: "0 * * * *", scheduledTime: Date.now() },
+    env, { waitUntil: (p) => pending.push(p) });
+  await Promise.allSettled(pending);
+  delete env.METRICS;
+  const cronPoints = datapoints.filter((d) => d.blobs?.[0] === "cron_task");
+  const expected = new Date().getUTCHours() === 2 ? 7 : 6;
+  ok(`scheduled() runs every registered task (${expected} cron_task datapoints)`, cronPoints.length === expected);
+  ok("no task failed with a wiring error (no 'is not a function')",
+    !cronPoints.some((d) => (d.blobs ?? []).some((b) => String(b).includes("is not a function"))));
+
   // ── Login rate limiting (10/15min per hashed IP) — LAST: it poisons login for this run ──
   section("Rate limiting");
   const statuses = [];

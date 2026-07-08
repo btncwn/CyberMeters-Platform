@@ -1,4 +1,6 @@
 import { handleInboundEmail } from "./email/inbound.js";
+import { runScheduled } from "./cron/scheduled.js";
+import { recordMetric } from "./lib/metrics.js";
 // ─────────────────────────────────────────────────────────────────────────────
 // CyberMeters Scan API — Cloudflare Worker
 // ─────────────────────────────────────────────────────────────────────────────
@@ -23850,37 +23852,6 @@ function pageMeta({ items, limit, offset, total = null }) {
   return meta;
 }
 
-// ── Observability metrics (Cloudflare Analytics Engine, fail-open) ────────────
-// Writes one data point to the METRICS dataset when the binding is present.
-// Observability must never break a request or a cron task, so a missing binding
-// is a silent no-op and every failure is swallowed. Convention: blobs[0] = event
-// name; indexes[0] = the sampling key.
-function recordMetric(env, event, { blobs = [], doubles = [], indexes = [] } = {}) {
-  try {
-    env?.METRICS?.writeDataPoint?.({
-      blobs: [String(event), ...blobs.map((b) => String(b ?? ""))],
-      doubles,
-      indexes: indexes.map((i) => String(i ?? "")),
-    });
-  } catch { /* telemetry is best-effort — never throw */ }
-}
-
-// Runs a scheduled task with duration + outcome telemetry. A failure is recorded
-// as a cron_task metric and an [cron-error] alert-level log (which a Cloudflare
-// Logpush / notification rule can trigger on), but never rethrows — matching the
-// existing fire-and-forget cron isolation where one task never aborts another.
-async function runCronTask(env, name, fn) {
-  const start = Date.now();
-  try {
-    await fn();
-    recordMetric(env, "cron_task", { blobs: [name, "ok"], doubles: [Date.now() - start], indexes: [name] });
-  } catch (e) {
-    const dur = Date.now() - start;
-    recordMetric(env, "cron_task", { blobs: [name, "error"], doubles: [dur], indexes: [name] });
-    console.error("[cron-error]", JSON.stringify({ task: name, duration_ms: dur, error: String(e?.message ?? e) }));
-  }
-}
-
 // ── MSP Portfolio Risk Engine v1 ──────────────────────────────────────────────
 //
 // Aggregates existing intelligence (BRS, Supply Chain, Vendor Risk) across all
@@ -36942,71 +36913,19 @@ export default {
     return json({ error: "Not found" }, 404);
   },
 
-  // ── Cron Handler ──────────────────────────────────────────────────────
-  async scheduled(event, env, ctx) {
-    const now = new Date().toISOString();
-
-    // ── Scheduled scans ────────────────────────────────────────────────────
-    let result;
-    try {
-      result = await env.cybermeters_db
-        .prepare(
-          `SELECT id, domain, frequency, workspace_id
-           FROM scheduled_scans
-           WHERE enabled = 1
-             AND (next_run_at IS NULL OR next_run_at <= ?)
-           ORDER BY next_run_at ASC
-           LIMIT 20`
-        )
-        .bind(now)
-        .all();
-    } catch {
-      // Table may not exist yet — nothing to process
-    }
-
-    for (const schedule of (result?.results || [])) {
-      // Each schedule runs independently so one failure cannot abort others
-      ctx.waitUntil(triggerScheduledScan(schedule, env));
-    }
-
-    // ── Scheduled executive reports ────────────────────────────────────────
-    // Weekly on Mondays, monthly on the 1st of the month.
-    // generateScheduledReports is a no-op on all other days.
-    ctx.waitUntil(runCronTask(env, "scheduled_reports", () => generateScheduledReports(now, env)));
-
-	    // ── User-configured scheduled reports ─────────────────────────────────
-	    // Canonical beta path: scheduled_reports, which is used by the active
-	    // Workspace Reports UI. The newer report_schedules processor is paused
-	    // until existing schedules can be migrated without duplicate generation.
-	    ctx.waitUntil(runCronTask(env, "user_scheduled_reports", () => processScheduledReports(now, env)));
-
-	    // ── Hosted DNS records verification (Hosted Records Engine) ──────────
-	    // Retries pending Cloudflare creations, verifies both sides of every
-	    // hosted DMARC record, alerts on disconnection, completes safe removals.
-	    ctx.waitUntil(runCronTask(env, "hosted_dns_sweep", () => runHostedDnsVerificationSweep(env)));
-
-	    // ── Report retention cleanup ─────────────────────────────────────────
-    // The Worker cron also drives scheduled scans, so keep the hourly trigger
-    // and run retention once daily at 02:00 UTC.
-    if (new Date(now).getUTCHours() === 2) {
-      ctx.waitUntil(runCronTask(env, "report_retention", () => cleanupExpiredReports(now, env)));
-    }
-
-    // ── Deletion purge (soft-delete → 30-day window → hard delete) ────────
-    // Bounded per run; requests inside the restore window are never touched.
-    ctx.waitUntil(runCronTask(env, "deletion_purge", () => processDeletionRequests(env)));
-
-    // ── Retry failed lifecycle emails from this clean context ─────────────
-    // Recovers emails whose first send failed inside a heavy invocation
-    // (e.g. first-scan-completed sent at the end of the scan engine).
-    ctx.waitUntil(runCronTask(env, "lifecycle_email_retry", () => retryFailedLifecycleEmails(env)));
-
-    // ── Domain verification auto-retry ─────────────────────────────────────
-    // Re-checks recently initiated/failed DNS TXT verifications for 48h so
-    // slow registrar propagation (e.g. GoDaddy) verifies without the customer
-    // having to keep pressing the Verify button.
-    ctx.waitUntil(runCronTask(env, "domain_verify_retry", () => retryPendingDomainVerifications(env)));
-  },
+  // ── Hourly cron ───────────────────────────────────────────────────────────
+  // Orchestration extracted to src/cron/scheduled.js (Sprint 9 phase 1); task
+  // bodies stay here and are injected so the module needs no cycle.
+  scheduled: (event, env, ctx) => runScheduled(event, env, ctx, {
+    cleanupExpiredReports,
+    generateScheduledReports,
+    processDeletionRequests,
+    processScheduledReports,
+    retryFailedLifecycleEmails,
+    retryPendingDomainVerifications,
+    runHostedDnsVerificationSweep,
+    triggerScheduledScan,
+  }),
 
   // ── Inbound DMARC aggregate (RUA) email handler ──────────────────────────
   // Extracted to src/email/inbound.js (Sprint 9 phase 1). Same behaviour,
