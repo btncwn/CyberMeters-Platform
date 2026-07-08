@@ -80,26 +80,30 @@ and we are already strong on the email side.
 `[ASSESSMENT]` Licenses are clean — orchestration is legally possible. **But the
 license is not the blocker here.**
 
-## The thing a generic market-research prompt cannot know: our stack can't run this
+## Stack reality (CORRECTED 2026-07-08 — see adversarial DD below)
 
-`[STACK]` CyberMeters runs on **Cloudflare Workers**. The prompt's architecture —
-`Katana → httpx → Nuclei → analyzers` — are **Go binaries** needing subprocess
-execution, long run times, a container runtime, and broad network egress.
-**Cloudflare Workers can do none of these:** no subprocesses, CPU/time limits,
-subrequest limits (we hit "Too many subrequests" in this very project). So the
-Nuclei/Katana orchestration is **incompatible with the current infrastructure** —
-it requires a separate container/VM tier (Cloudflare Containers, Fly.io, Fargate,
-a VPS): a whole new operational surface (deploy, secrets, scaling, monitoring,
-cost) from zero.
+`[STACK]` CyberMeters runs on **Cloudflare Workers**. The `Katana → httpx →
+Nuclei → analyzers` chain are **Go binaries** needing subprocess execution, long
+run times, and broad egress — which **Workers themselves cannot do** (no
+subprocesses, CPU/time limits, subrequest limits; we hit "Too many subrequests"
+in this project).
 
-`[STACK]` By contrast **passive checks already run on Workers** — just HTTP fetch +
-header/TLS parsing. And CyberMeters already does most of them: Certificates &
-Trust (TLS/cert posture) + Attack Surface (asset/header/exposure). So:
+**Correction:** an earlier draft called this "incompatible with the current
+infrastructure." That is now imprecise. `[FACT]` **Cloudflare Containers reached
+GA in April 2026**, runs statically-linked Go binaries (<80 ms cold start),
+won't force-shutdown long-running instances, 2 GB image cap. So the orchestration
+CAN run **inside the Cloudflare platform** (a new *native* compute tier, not a
+foreign cloud) — the barrier drops from "wrong vendor" to "a whole new build +
+ops + legal surface from zero." Technical feasibility is therefore **higher**
+than this section originally said; the reason not to build is competitive, not
+technical (adversarial DD below).
 
-- **Passive hook** = market-validated + stack-compatible + **largely existing code.**
-- **Active DAST** = market-questionable + legally heavy + **stack-incompatible** (new infra) + maintenance-heavy.
+`[STACK]` Meanwhile **passive checks already run on Workers** — just HTTP fetch +
+header/TLS parsing — and CyberMeters already does most of them (Certificates &
+Trust + Attack Surface). So the asymmetry holds where it matters:
 
-That single observation decides it.
+- **Passive hook** = market-validated + stack-compatible **today** + largely existing code.
+- **Active DAST** = now technically buildable (Containers) but market-crowded + legally heavy + maintenance-heavy + off our moat.
 
 ## Legal risk (the make-or-break for the active side)
 
@@ -154,6 +158,88 @@ invited users need. Let feedback lead." Even though the passive hook is cheap an
 correct, the order is: **clear the Stage C gate → see the first real report →
 gather invited-user signal → then top-of-funnel.** Ship the hook when feedback
 shows a pull, not as a "nice to have."
+
+---
+
+# Adversarial DD update (2026-07-08) — "orchestration platform" framing
+
+> Follow-up commission: evaluate a broader **orchestration platform** (Katana →
+> httpx → Nuclei → ZAP + our email/DMARC/DNS analysis → one dashboard), with an
+> explicit adversarial brief ("find evidence I am WRONG") and VC-style scores.
+> This section supersedes the passive/active framing above with a competitor-led
+> verdict; the passive-hook recommendation still stands as the fallback.
+
+## Scores & verdict
+
+| Dimension | Score | Basis (evidenced) |
+|---|---:|---|
+| Overall market | **3/10** | Every sub-layer is saturated: DAST, ASM/EASM, scanner-consolidation, security-ratings — funded incumbents in each |
+| Technical feasibility | **6/10** | Now possible via Cloudflare Containers GA; but heavy new build + ops + legal + false-positive maintenance |
+| Competitive difficulty | **9/10** | Aikido, ProjectDiscovery Cloud, UpGuard/SecurityScorecard, Red Sift all hold lanes |
+| Time-to-market | **4/10** | Active-DAST orchestration = months + new container tier; passive posture score = weeks |
+| Differentiation (as framed) | **2-3/10** | "Combine scanners into one dashboard" is Aikido's and PD Cloud's exact value prop |
+| Revenue potential | **4/10** | SMB DMARC niche is real but modest; the DAST-orchestration TAM isn't ours |
+| Founder-market fit | **email/DMARC 8/10 · DAST 3/10** | Deep email-security signal; no AppSec/pentest signal |
+
+**Recommendation: NICHE DOWN.** Not Option A (full DAST engine) and not Option B
+(the scoped scanner orchestration). **Option C:** a DMARC-native, SMB/MSP unified
+*passive* posture score (existing email strength + passive web/TLS/DNS/headers on
+Workers + AI explanation + MSP multi-tenant dashboard). No active Nuclei/ZAP.
+
+## Why (competitor evidence)
+
+- `[FACT]` **Aikido** — "SAST+DAST+SCA+secrets+IaC+container+CSPM in one app,"
+  free-forever tier, $350/mo — *is* the "consolidate scanners into one dashboard"
+  value prop, funded and cheap. The core differentiation is already occupied.
+- `[FACT]` **ProjectDiscovery Cloud** — the *makers* of Nuclei/Katana/httpx
+  already sell hosted orchestration (asset discovery + Nuclei scanning; free +
+  enterprise; former Growth tier $3,500/yr). Orchestrating PD's own tools is
+  their product, not a moat.
+- `[FACT]` **UpGuard's security rating already spans five categories: website
+  security, email security, phishing/malware, brand & reputation, network
+  security** — the "combine email + web + DNS into one score" thesis, shipped
+  (enterprise TPRM, not self-serve SMB/DMARC-first).
+- `[FACT]` **Microsoft Defender EASM / SecurityScorecard** own external attack
+  surface at enterprise scale.
+- `[ASSESSMENT]` Adding **active** DAST makes the idea *less* differentiated — it
+  walks into Aikido + PD Cloud + mature DAST vendors and away from the founder's
+  actual moat (email/DMARC). The only defensible seam is **DMARC-native unified
+  passive posture for the SMB/MSP segment the enterprise players underserve** —
+  which generic DAST/ASM tools treat as a shallow "SPF/DMARC present?" checkbox.
+
+## Legal kill-switch (active, multi-tenant)
+
+`[FACT]` Ownership verification (DNS TXT / file challenge) before active scanning
+is standard; unauthorized active scanning can violate computer-misuse law.
+`[ASSESSMENT]` In self-serve multi-tenant, "customer enters a scan target" +
+active payloads = operating an attack service if the target isn't theirs.
+Mandatory per-target ownership gates kill the "instant scan" hook the idea needs.
+
+## AI reality (Part 7)
+
+`[ASSESSMENT]` Industry "AI" is mostly LLM report-writing / explanation / dedup /
+prioritization text — real, cheap, and **no longer a moat** (everyone, incl.
+Aikido, ships it). "AI exploit generation / attack simulation" is largely
+marketing. CyberMeters' AI-explanation layer is legitimate but not defensible.
+
+## Honest correction carried up
+
+The pre-existing "stack-incompatible" claim was softened above: Cloudflare
+Containers (GA Apr 2026) makes the orchestration technically buildable on-platform.
+This *raised* feasibility and did **not** change the verdict — the reason to pass
+is competition + founder-fit + moat, not the runtime.
+
+## Sources (adversarial DD)
+
+- Aikido pricing: https://www.aikido.dev/pricing · platform: https://www.aikido.dev/platform
+- Cloudflare Containers docs: https://developers.cloudflare.com/containers/ · GA (InfoQ): https://www.infoq.com/news/2026/04/cloudflare-sandboxes-ga/
+- ProjectDiscovery Cloud: https://projectdiscovery.io/blog/announcing-pdcp · pricing: https://projectdiscovery.io/pricing
+- UpGuard 5-category rating: https://www.upguard.com/security-report/securityscorecard
+- SecurityScorecard EASM: https://securityscorecard.com/platform/external-attack-surface-management/
+- Microsoft Defender EASM pricing: https://www.microsoft.com/en-us/security/pricing/microsoft-defender-external-attack-surface-management
+- Invicti — DAST false positives: https://www.invicti.com/blog/web-security/reduce-dast-false-positives
+
+---
 
 ## Sources
 
