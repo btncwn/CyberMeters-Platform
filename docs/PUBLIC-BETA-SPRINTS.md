@@ -193,8 +193,28 @@ monolith stays JS until Sprints 9-10.
 24/24 (incl. a new cron-orchestration section driving the real `scheduled()`
 and counting per-task datapoints) · `wrangler deploy --dry-run` bundles the
 module graph cleanly (1.38 MiB).
-**Remaining for DoD:** production deploy (needs approval — HIGH risk class) +
-"no behaviour delta observed on the two live domains" watch after deploy.
+**Deployed:** 2026-07-08, version `575d361a`, tag `v2026.07.08-4`
+(founder-approved). Live-verified: /health (new deployment_id), /ready (D1+R2),
+auth 401, sanitized 404.
+**DoD closure criterion (CTO review):** first production cron executes cleanly
+(duration + all wrapped tasks + no unexpected exceptions). Inbound RUA email is
+**operational verification**, not DoD — it depends on external reporters and
+can take days; tracked separately.
+**Measured (honest) Sprint 8 → 9 delta:**
+| metric | Sprint 8 | Sprint 9 |
+|---|---:|---:|
+| worker bundle (upload) | 1378.03 KiB | 1382.28 KiB (+0.3%) |
+| worker bundle (gzip) | 283.67 KiB | 284.96 KiB |
+| modules | 1 | 4 |
+| largest file (index.js) | 37,526 lines | 37,097 lines |
+| deploy time (this deploy) | n/m | 14.4s upload + 8.6s triggers |
+| backend assertions | 288 | 312 (incl. cron section) |
+
+Phase 1 deliberately does NOT move bundle/parse — one deploy, one isolate, by
+design. Its measurable gains are maintainability + testability; cold-start,
+blast-radius and parse improvements are exactly what Sprint 10's isolation
+buys. Claiming operational wins now would be the over-claim this plan keeps
+getting reviewed out of.
 **Honest scope note:** this is *modularisation*, not fault isolation — one
 deploy, one isolate, by design. Isolation is Sprint 10.
 
