@@ -234,6 +234,51 @@ async function main() {
   ok("offset walks to the last page (1 event, has_more:false)",
     page2.data?.events?.length === 1 && page2.data?.pagination?.has_more === false);
 
+  // ── Billing lifecycle: payment failure → grace → cancellation → re-subscribe ──
+  // The remaining webhook tail (S6 Phase 3). Every event goes through the real
+  // signature gate; every consequence is asserted on D1 AND on the customer-
+  // visible feature gate (never silently remove paid access).
+  section("Billing lifecycle (webhook tail)");
+
+  const payFailed = await postWebhook({
+    type: "invoice.payment_failed",
+    data: { object: { id: "in_test_1", customer: "cus_pipeline_test", subscription: "sub_pipeline_test" } },
+  });
+  const rowFail = db.prepare("SELECT subscription_status, payment_failed_at, payment_retry_count FROM subscriptions WHERE workspace_id = ?").get("ws1");
+  ok("invoice.payment_failed → past_due + payment_failed_at + retry_count 1",
+    payFailed.status < 300 && rowFail?.subscription_status === "past_due"
+    && rowFail?.payment_failed_at != null && rowFail?.payment_retry_count === 1);
+
+  const graceGate = await call("GET", "/api/workspaces/ws1/audit-events?limit=1", { token: tokenA });
+  ok("GRACE: paid access is NOT silently removed while past_due (gate still 200)", graceGate.status === 200);
+
+  const deleted = await postWebhook({
+    type: "customer.subscription.deleted",
+    data: { object: { id: "sub_pipeline_test", customer: "cus_pipeline_test", status: "canceled", metadata: { user_id: "userA", workspace_id: "ws1" } } },
+  });
+  const rowDel = db.prepare("SELECT subscription_status FROM subscriptions WHERE workspace_id = ?").get("ws1");
+  ok("subscription.deleted → status canceled in D1", deleted.status < 300 && rowDel?.subscription_status === "canceled");
+
+  const postCancelGate = await call("GET", "/api/workspaces/ws1/audit-events?limit=1", { token: tokenA });
+  ok("CANCELLATION takes effect: the gate closes again (403 plan_feature_required)",
+    postCancelGate.status === 403 && postCancelGate.data?.error === "plan_feature_required");
+
+  const resub = await postWebhook({
+    type: "checkout.session.completed",
+    data: { object: {
+      id: "cs_test_resub", customer: "cus_pipeline_test", subscription: "sub_resub_1",
+      client_reference_id: "userA",
+      metadata: { user_id: "userA", workspace_id: "ws1", plan: "professional", interval: "monthly" },
+    } },
+  });
+  const rowResub = db.prepare("SELECT plan, subscription_status, stripe_subscription_id FROM subscriptions WHERE workspace_id = ?").get("ws1");
+  ok("checkout.session.completed → active professional again with the new stripe ids",
+    resub.status < 300 && rowResub?.plan === "professional"
+    && rowResub?.subscription_status === "active" && rowResub?.stripe_subscription_id === "sub_resub_1");
+
+  const resubGate = await call("GET", "/api/workspaces/ws1/audit-events?limit=1", { token: tokenA });
+  ok("RE-SUBSCRIBE restores access end to end (gate 200)", resubGate.status === 200);
+
   // ── Cron orchestration (Sprint 9 extraction proof) ──
   // Drives the real scheduled() entry: the task registry in index.js must wire
   // every task into src/cron/scheduled.js. A mis-wired registry surfaces as a
