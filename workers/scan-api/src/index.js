@@ -24215,6 +24215,37 @@ function pageMeta({ items, limit, offset, total = null }) {
   return meta;
 }
 
+// ── Observability metrics (Cloudflare Analytics Engine, fail-open) ────────────
+// Writes one data point to the METRICS dataset when the binding is present.
+// Observability must never break a request or a cron task, so a missing binding
+// is a silent no-op and every failure is swallowed. Convention: blobs[0] = event
+// name; indexes[0] = the sampling key.
+function recordMetric(env, event, { blobs = [], doubles = [], indexes = [] } = {}) {
+  try {
+    env?.METRICS?.writeDataPoint?.({
+      blobs: [String(event), ...blobs.map((b) => String(b ?? ""))],
+      doubles,
+      indexes: indexes.map((i) => String(i ?? "")),
+    });
+  } catch { /* telemetry is best-effort — never throw */ }
+}
+
+// Runs a scheduled task with duration + outcome telemetry. A failure is recorded
+// as a cron_task metric and an [cron-error] alert-level log (which a Cloudflare
+// Logpush / notification rule can trigger on), but never rethrows — matching the
+// existing fire-and-forget cron isolation where one task never aborts another.
+async function runCronTask(env, name, fn) {
+  const start = Date.now();
+  try {
+    await fn();
+    recordMetric(env, "cron_task", { blobs: [name, "ok"], doubles: [Date.now() - start], indexes: [name] });
+  } catch (e) {
+    const dur = Date.now() - start;
+    recordMetric(env, "cron_task", { blobs: [name, "error"], doubles: [dur], indexes: [name] });
+    console.error("[cron-error]", JSON.stringify({ task: name, duration_ms: dur, error: String(e?.message ?? e) }));
+  }
+}
+
 // ── MSP Portfolio Risk Engine v1 ──────────────────────────────────────────────
 //
 // Aggregates existing intelligence (BRS, Supply Chain, Vendor Risk) across all
@@ -24590,6 +24621,7 @@ export default {
         scope,
         error: String(error?.message ?? error),
       }));
+      recordMetric(env, "http_5xx", { blobs: [scope || "unknown"], indexes: [scope || "unknown"] });
       return json({ error: message, request_id: requestId }, 500);
     };
 
@@ -24616,6 +24648,18 @@ export default {
         version:       env.APP_VERSION || "dev",
         deployment_id: env.CF_VERSION_METADATA?.id || null,
       });
+    }
+
+    // ── GET /readiness ──────────────────────────────────────────────────
+    // Deeper than /health: verifies the D1 and R2 bindings are reachable, so
+    // a load balancer / uptime monitor can distinguish "process up" from
+    // "dependencies healthy". Each check is fail-open; 200 = ready, 503 = degraded.
+    if (request.method === "GET" && url.pathname === "/ready") {
+      const checks = { d1: false, r2: false };
+      try { await env.cybermeters_db.prepare("SELECT 1").first(); checks.d1 = true; } catch { /* d1 unreachable */ }
+      try { await env.cybermeters_reports.head("__readiness_probe__"); checks.r2 = true; } catch { /* r2 unreachable */ }
+      const ready = checks.d1 && checks.r2;
+      return json({ status: ready ? "ready" : "degraded", checks, version: env.APP_VERSION || "dev" }, ready ? 200 : 503);
     }
 
     // ── Global rate limiting guard ──────────────────────────────────────
@@ -37293,40 +37337,40 @@ export default {
     // ── Scheduled executive reports ────────────────────────────────────────
     // Weekly on Mondays, monthly on the 1st of the month.
     // generateScheduledReports is a no-op on all other days.
-    ctx.waitUntil(generateScheduledReports(now, env));
+    ctx.waitUntil(runCronTask(env, "scheduled_reports", () => generateScheduledReports(now, env)));
 
 	    // ── User-configured scheduled reports ─────────────────────────────────
 	    // Canonical beta path: scheduled_reports, which is used by the active
 	    // Workspace Reports UI. The newer report_schedules processor is paused
 	    // until existing schedules can be migrated without duplicate generation.
-	    ctx.waitUntil(processScheduledReports(now, env));
+	    ctx.waitUntil(runCronTask(env, "user_scheduled_reports", () => processScheduledReports(now, env)));
 
 	    // ── Hosted DNS records verification (Hosted Records Engine) ──────────
 	    // Retries pending Cloudflare creations, verifies both sides of every
 	    // hosted DMARC record, alerts on disconnection, completes safe removals.
-	    ctx.waitUntil(runHostedDnsVerificationSweep(env));
+	    ctx.waitUntil(runCronTask(env, "hosted_dns_sweep", () => runHostedDnsVerificationSweep(env)));
 
 	    // ── Report retention cleanup ─────────────────────────────────────────
     // The Worker cron also drives scheduled scans, so keep the hourly trigger
     // and run retention once daily at 02:00 UTC.
     if (new Date(now).getUTCHours() === 2) {
-      ctx.waitUntil(cleanupExpiredReports(now, env));
+      ctx.waitUntil(runCronTask(env, "report_retention", () => cleanupExpiredReports(now, env)));
     }
 
     // ── Deletion purge (soft-delete → 30-day window → hard delete) ────────
     // Bounded per run; requests inside the restore window are never touched.
-    ctx.waitUntil(processDeletionRequests(env));
+    ctx.waitUntil(runCronTask(env, "deletion_purge", () => processDeletionRequests(env)));
 
     // ── Retry failed lifecycle emails from this clean context ─────────────
     // Recovers emails whose first send failed inside a heavy invocation
     // (e.g. first-scan-completed sent at the end of the scan engine).
-    ctx.waitUntil(retryFailedLifecycleEmails(env));
+    ctx.waitUntil(runCronTask(env, "lifecycle_email_retry", () => retryFailedLifecycleEmails(env)));
 
     // ── Domain verification auto-retry ─────────────────────────────────────
     // Re-checks recently initiated/failed DNS TXT verifications for 48h so
     // slow registrar propagation (e.g. GoDaddy) verifies without the customer
     // having to keep pressing the Verify button.
-    ctx.waitUntil(retryPendingDomainVerifications(env));
+    ctx.waitUntil(runCronTask(env, "domain_verify_retry", () => retryPendingDomainVerifications(env)));
   },
 
   // ── Inbound DMARC aggregate (RUA) email handler ──────────────────────────────

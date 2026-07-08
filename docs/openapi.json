@@ -32,6 +32,15 @@
         "responses": { "200": { "description": "Service is up", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Health" } } } } }
       }
     },
+    "/ready": {
+      "get": {
+        "tags": ["System"], "summary": "Readiness probe — D1 + R2 reachability", "operationId": "getReady", "security": [],
+        "responses": {
+          "200": { "description": "All dependencies reachable", "content": { "application/json": { "schema": { "type": "object", "properties": { "status": { "type": "string" }, "checks": { "type": "object" }, "version": { "type": "string" } } } } } },
+          "503": { "description": "A dependency is unreachable (degraded)" }
+        }
+      }
+    },
     "/api/auth/signup": { "post": { "tags": ["Auth"], "summary": "Register an account", "operationId": "signup", "security": [], "responses": { "200": { "$ref": "#/components/responses/Ok" }, "429": { "$ref": "#/components/responses/RateLimited" } } } },
     "/api/auth/login": {
       "post": {

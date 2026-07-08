@@ -118,10 +118,29 @@ cd workers/scan-api && npx wrangler tail          # live structured logs
 ```
 
 Logs are tagged (`[inventory]`, `[email-delivery]`, `[scheduled-monitoring]`,
-`[request-error]`, …). Recipient email local-parts are masked in logs.
-Also: Cloudflare dashboard → Workers analytics (requests, errors, CPU, subrequests);
-the D1 `audit_events` table (business audit trail); `GET /health` (liveness probe,
-unauthenticated).
+`[request-error]`, `[cron-error]`, …). Recipient email local-parts are masked in
+logs. Also: Cloudflare dashboard → Workers analytics (requests, errors, CPU,
+subrequests); the D1 `audit_events` table (business audit trail).
+
+**Probes:** `GET /health` (liveness — returns version + deployment_id).
+`GET /ready` (readiness — checks D1 + R2 reachability; 200 ready / 503 degraded).
+Point uptime monitors at `/ready`.
+
+**Metrics (Analytics Engine, dataset `cybermeters_metrics`, binding `METRICS`):**
+`recordMetric()` writes fail-open data points — `http_5xx` (blob = route scope)
+and `cron_task` (blobs = task name + ok/error, double = duration ms). Query via
+the Analytics Engine SQL API, e.g. cron failures in the last day:
+
+```sql
+SELECT blob1 AS task, blob2 AS outcome, count() AS n, avg(double1) AS avg_ms
+FROM cybermeters_metrics WHERE blob1 != '' AND timestamp > NOW() - INTERVAL '1' DAY
+GROUP BY task, outcome
+```
+
+**Alerting hooks:** a failing cron task emits both a `cron_task`/`error` metric
+and a distinct `[cron-error]` log line; a 5xx emits `http_5xx`. Wire real
+notifications in the Cloudflare dashboard: Notifications → on Workers error-rate,
+or a Logpush job filtered to `[cron-error]` → your channel (email/Slack/PagerDuty).
 
 ## Incident response — first checks
 
