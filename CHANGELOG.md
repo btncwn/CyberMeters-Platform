@@ -5,6 +5,20 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.08 (v2026.07.08-4 — worker decomposition phase 1)
+
+### Changed
+- The worker is now a multi-module ES build (behaviour-identical, single
+  deployment): inbound RUA email handling lives in `src/email/inbound.js`,
+  cron orchestration in `src/cron/scheduled.js` (task-registry injection),
+  and metrics in `src/lib/metrics.js`. Deployment `575d361a`.
+- The four validation suites load the worker as a real ES module (vm-free);
+  the request-pipeline suite gained a cron-orchestration section and now
+  proves login, webhook→entitlement, feature-gate, pagination, rate-limiting
+  and cron wiring end to end (24 assertions).
+- Frontend: Vitest + Testing Library layer (24 tests) and an incremental
+  TypeScript foundation (typed API client, CI type gate) — Sprints 7-8.
+
 ## 2026.07.08
 
 ### Added
