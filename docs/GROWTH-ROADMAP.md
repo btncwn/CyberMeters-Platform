@@ -71,14 +71,47 @@ CivTech · Scottish Enterprise · **R&D tax credits (SME relief)** — the most
 concrete near-term lever for a dev-heavy company. Grants take months + have
 application overhead; a parallel track, never the whole plan.
 
-## Task distribution (4-way)
+## Operating model & authority (4-way)
 
-| Who | Owns | Does NOT do |
+Managed by **risk level, ownership and approval authority** — not "who codes fastest".
+
+> **Codex builds. Claude reviews. ChatGPT directs. Turhan decides.**
+
+| Role | Owns | Never does |
 |---|---|---|
-| **Claude** (this codebase) | Architecture, Workers backend, migrations, billing logic (medium-risk, careful), tests/CI, deploy discipline, **spec + review of all Codex work + integration** | Send outreach; dashboard actions; approve own medium/high-risk prod deploys |
-| **Codex** (new hire) | Well-scoped, isolated build: free-hook UIs, marketing site, self-serve funnel front-end, component work — **from Claude's specs, Claude reviews/integrates** | Touch billing/auth/cron/migrations unsupervised; merge to main without review (two AI coders → one reviewer owns integration, per the divergence lessons this session) |
-| **ChatGPT** | Non-code: positioning/copy (English, UK spelling), landing pages, content/SEO, competitor teardowns, grant-application drafting, MSP outreach templates, CE question-set mirroring | Write production code; make architecture calls |
-| **Turhan** (owner) | Cloudflare/Stripe/business setup, pricing sign-off, **MSP design-partner outreach**, grant submissions, customer conversations, legal/company, **final approval on medium/high-risk deploys** | — |
+| **Turhan** — Founder / final approver | Company direction, pricing sign-off, launch timing, public-beta go/no-go, customer + MSP conversations, design-partner outreach, grant submissions, Cloudflare/Stripe/legal, **final approval on medium/high-risk prod deploys** | Get buried in low-level debugging; let engineering polish delay revenue validation; approve vague work |
+| **ChatGPT** — Product + growth + positioning + task specs | Positioning, Cyber MOT messaging, public-beta scope, growth/SEO/Academy content, CE Readiness wording, competitor teardowns, grant drafts, MSP outreach templates, **Claude/Codex task specs + acceptance criteria** | Write production code; own architecture; approve deploys; change migrations/auth/billing/cron/tenant-isolation |
+| **Claude** — Technical lead / codebase owner / reviewer | Architecture, Workers backend, D1/R2, migrations, billing backend, auth/session, tenant isolation, cron, report consistency, tests/CI, deploy discipline, **spec boundaries + review + integration of all Codex work** | Own outreach; decide pricing/launch/positioning; **approve its own medium/high-risk deploys**; give Codex unsupervised access to sensitive areas |
+| **Codex** — Scoped implementation engineer | Well-scoped isolated build from specs: free-hook UIs, marketing/Academy pages, result/report cards, fix-list, pricing cards, questionnaire UI, empty/loading states, small isolated fixes | Touch billing/auth/cron/migrations/tenant-isolation unsupervised; merge to main without review; deploy; refactor architecture; work from vague prompts |
+
+### Risk-based ownership
+
+| Risk | Examples | Owner |
+|---|---|---|
+| Low | static pages, UI cards, Academy templates, CTA, empty states | **Codex** |
+| Medium | onboarding, pricing UI, result-page integration, questionnaire frontend | **Claude specs → Codex builds → Claude reviews** |
+| High | auth, billing, D1 migrations, R2, cron, tenant isolation, domain verification | **Claude only** |
+| Business | pricing, launch timing, grants, MSP outreach, public-beta approval | **Turhan (+ ChatGPT)** |
+| Positioning | Cyber MOT wording, CE claims, competitor messaging | **ChatGPT (+ Turhan)** |
+| Production | deploys, main merge, release readiness | **Claude prepares → Turhan approves** |
+
+### Required workflow (every meaningful task)
+
+`Turhan states goal → ChatGPT writes product scope + spec → Claude reviews risk + sets implementation boundaries → Codex builds only the assigned scope → Claude reviews/tests/integrates → Turhan approves medium/high-risk prod changes.`
+
+### Claude-only areas (never Codex-unsupervised)
+
+Stripe/webhook logic · subscription state · plan enforcement · auth/session/MFA · D1 migration design · R2 report consistency · cron/scheduled scans · tenant isolation · domain-ownership verification · production deploy · main-branch integration · Stage C / worker-decomposition decisions.
+
+### Non-negotiable rules
+
+1. **Stage C stays frozen** unless Turhan explicitly reopens it.
+2. Codex does not touch billing/auth/cron/migrations without Claude approval.
+3. Claude is the final technical reviewer; Turhan is the final business approver.
+4. No customer-facing "DAST / scanner / pen test / certification / guaranteed secure" — Cyber MOT, Website Security, passive posture check, Cyber Essentials **Readiness** (not certification).
+5. Public beta is blocked by trust-breaking bugs, not missing nice-to-haves.
+6. Revenue-critical work beats architecture polish.
+7. No vague AI tasks — every task carries scope, exclusions, acceptance criteria and test expectations.
 
 ## Leading indicators / honest reset
 
