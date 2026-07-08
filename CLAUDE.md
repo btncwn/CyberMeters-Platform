@@ -762,6 +762,27 @@ Push when the change is low risk or when instructed.
 
 # Deployment Authority
 
+## ⚠ Deployment-model reality (working assumption, adopted 2026-07-08)
+
+**Every push to `main` auto-deploys the `cybermeters-platform` worker**
+(Cloudflare Workers Builds git integration — proven operationally: versions
+track pushes 1:1, live version advanced twice after the last manual deploy
+with zero `wrangler deploy` runs, and GitHub Actions holds no Cloudflare
+secrets so it cannot be the deployer). Until the founder either disconnects
+the integration or moves it to a separate production branch:
+
+* **Pushing worker code to `main` IS deploying it.** The MEDIUM/HIGH-risk
+  "commit + push, stop before production deployment" flow does NOT hold for
+  the worker — stage MEDIUM/HIGH-risk worker changes on a branch and merge
+  only with deploy approval.
+* Only behaviour-identical worker changes may be pushed straight to `main`.
+* The frontend (Pages) auto-deploy is separate and intended.
+* The standalone `cybermeters-email` worker is NOT git-connected; it deploys
+  only via `wrangler deploy --config ../email-ingest/wrangler.toml`.
+
+This note is removed when the founder resolves the integration
+(see `docs/SPRINT-10-DESIGN.md` §8 risk register — the decision gates Stage C).
+
 ## LOW RISK
 
 Examples:

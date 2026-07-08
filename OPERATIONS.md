@@ -18,6 +18,18 @@ incident / observability. Every command and value below is taken from the repo
 
 ## Deploy
 
+> **⚠ Working assumption (2026-07-08): pushing to `main` auto-deploys the
+> `cybermeters-platform` worker** via Cloudflare Workers Builds (proven
+> operationally; final dashboard confirmation + keep/disconnect decision with
+> the founder — see `docs/SPRINT-10-DESIGN.md` §8). Until resolved, treat
+> push discipline as deploy discipline: worker changes that are not
+> behaviour-identical stay on a branch until deploy-approved. The
+> `cybermeters-email` worker is NOT git-connected and deploys only manually:
+>
+> ```bash
+> cd workers/scan-api && npx wrangler deploy --config ../email-ingest/wrangler.toml
+> ```
+
 **Always run the validation gate before deploying the Worker** (see also `CLAUDE.md`):
 
 ```bash
