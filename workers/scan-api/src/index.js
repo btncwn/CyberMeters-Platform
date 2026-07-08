@@ -18751,6 +18751,18 @@ function pdfUtcDate(value, withTime = false) {
   return `${date}, ${hh}:${mm} UTC`;
 }
 
+// ── Ocean & Ice service palette (shared by every PDF builder) ────────────────
+// The four CyberMeters services each own a colour, matched 1:1 to the product
+// sidebar so a report reads as the same product. Any data that belongs to a
+// service is tinted with that service's colour; `tint` is the pale background
+// used behind service headers/blocks. hex is consumed directly by hexToRgbF.
+const PDF_SERVICE = {
+  email:   { name: 'Email Protection',     hex: '#1568C7', tint: '#EAF2FC' }, // Glacial Blue
+  surface: { name: 'Attack Surface',       hex: '#0DA08D', tint: '#E6F6F3' }, // Teal / Emerald
+  brand:   { name: 'Brand Protection',     hex: '#10B9D1', tint: '#E3F7FA' }, // Turquoise / Aqua
+  certs:   { name: 'Certificates & Trust', hex: '#0A8CBE', tint: '#E6F4FA' }, // Deep Cyan
+};
+
 /**
  * buildScanReportPdf(scan, report) — a focused, single-scan PDF built from the
  * stored V1 report. Uses the same low-level primitives (assemblePdf, pdfEsc,
@@ -18870,25 +18882,44 @@ function buildScanReportPdf(scan, report) {
     }
   }
 
-  // ── External posture summary ──
+  // ── External posture, grouped and colour-coded by service ──
+  // Each block carries its CyberMeters service colour, so the reader sees at a
+  // glance which of the four services each signal belongs to.
   const es = (report.modules && report.modules.email_security) || {};
   const ssl = (report.modules && report.modules.ssl) || {};
   const hdr = (report.modules && report.modules.headers) || {};
   const yn = (v) => (v === true ? "Yes" : v === false ? "No" : "-");
-  ensure(40); hline(ML, PW - MR, y, XGRAY); y += 6;
-  txt(ML, y, "External posture", 2, 14, DK); y += 20;
-  const rows = [
-    ["HTTPS available", yn(ssl.https_available)],
-    ["HSTS present", hdr.values && hdr.values["strict-transport-security"] ? "Yes" : "-"],
-    ["SPF present", yn(es.spf && es.spf.present)],
-    ["DMARC policy", es.dmarc && es.dmarc.present ? `p=${es.dmarc.policy || "?"}` : "Not present"],
-    ["DKIM detected", es.dkim && es.dkim.present ? "Yes" : "Not detected via common selectors"],
+  ensure(34); hline(ML, PW - MR, y, XGRAY); y += 8;
+  txt(ML, y, "External posture by service", 2, 14, DK); y += 22;
+
+  const postureGroups = [
+    { svc: PDF_SERVICE.email, rows: [
+      ["SPF", yn(es.spf && es.spf.present)],
+      ["DMARC policy", es.dmarc && es.dmarc.present ? `p=${es.dmarc.policy || "?"}` : "Not present"],
+      ["DKIM", es.dkim && es.dkim.present ? "Detected" : "Not detected via common selectors"],
+    ] },
+    { svc: PDF_SERVICE.certs, rows: [
+      ["HTTPS available", yn(ssl.https_available)],
+      ["Certificate expiry", ssl.cert_expiry_days != null ? `${ssl.cert_expiry_days} days` : "-"],
+    ] },
+    { svc: PDF_SERVICE.surface, rows: [
+      ["HSTS present", hdr.values && hdr.values["strict-transport-security"] ? "Yes" : "-"],
+    ] },
   ];
-  for (const [k, v] of rows) {
-    ensure(16);
-    txt(ML + 10, y, k, 1, 9, GRAY);
-    txt(ML + 200, y, String(v), 2, 9, DK);
-    y += 15;
+  for (const grp of postureGroups) {
+    ensure(24 + grp.rows.length * 15);
+    // Service header: pale tint band + a solid accent tab + service-coloured label.
+    rect(ML, y - 3, CW, 17, grp.svc.tint);
+    rect(ML, y - 3, 3, 17, grp.svc.hex);
+    txt(ML + 11, y + 9, grp.svc.name, 2, 9, grp.svc.hex);
+    y += 24;
+    for (const [k, v] of grp.rows) {
+      ensure(15);
+      txt(ML + 14, y, k, 1, 9, GRAY);
+      txt(ML + 210, y, String(v), 2, 9, DK);
+      y += 15;
+    }
+    y += 8;
   }
 
   endPage();
@@ -19674,10 +19705,30 @@ function buildExecutivePdf(pdfData) {
     amber:   [0.854, 0.467, 0.024],
     blue:    [0.114, 0.306, 0.847],
     teal:    [0.820, 0.980, 0.910],
+    // Ocean & Ice service palette (mirrors PDF_SERVICE / the product sidebar) —
+    // any data belonging to a service is tinted with its colour; *Bg = pale band.
+    svcEmail:     hexToRgbF(PDF_SERVICE.email.hex),
+    svcSurface:   hexToRgbF(PDF_SERVICE.surface.hex),
+    svcBrand:     hexToRgbF(PDF_SERVICE.brand.hex),
+    svcCerts:     hexToRgbF(PDF_SERVICE.certs.hex),
+    svcEmailBg:   hexToRgbF(PDF_SERVICE.email.tint),
+    svcSurfaceBg: hexToRgbF(PDF_SERVICE.surface.tint),
+    svcBrandBg:   hexToRgbF(PDF_SERVICE.brand.tint),
+    svcCertsBg:   hexToRgbF(PDF_SERVICE.certs.tint),
   };
   function rgb(c) { return c.map(v => v.toFixed(3)).join(' '); }
   function sevColor(s) {
     return { critical: C.red, high: C.amber, medium: C.blue, low: C.mgray }[s] ?? C.mgray;
+  }
+  // Map a control-area / posture label to its owning service colour so every
+  // data row reads in the colour of the service it belongs to.
+  function svcColorFor(label) {
+    const t = String(label || '').toLowerCase();
+    if (/dmarc|spf|dkim|email|sender|spoof|bec|mail/.test(t))            return C.svcEmail;
+    if (/ssl|tls|certificate|https|expiry|trust|cipher|hsts/.test(t))    return C.svcCerts;
+    if (/brand|lookalike|typosquat|impersonation|homoglyph/.test(t))     return C.svcBrand;
+    if (/attack surface|subdomain|admin|exposure|asset|cloud|port|dns|third|vendor|supply|resilience/.test(t)) return C.svcSurface;
+    return C.dkgray;
   }
 
   // Escape text for PDF string literals — strict ASCII 0x20–0x7E only
@@ -19774,8 +19825,8 @@ function buildExecutivePdf(pdfData) {
     pg.text(`${whiteLabelFooter}  |  ${classification} - Prepared for ${String(ws.name ?? 'workspace').slice(0, 42)}`, ML, 20, 7.5, 'R', C.mgray);
     pg.text(`Page ${n} of ${total}`, W - 80, 20, 7.5, 'R', C.mgray);
   }
-  function secBar(pg, title, y) {
-    pg.fillRect(ML, y - 2, CW, 19, C.green);
+  function secBar(pg, title, y, barCol = C.green) {
+    pg.fillRect(ML, y - 2, CW, 19, barCol);
     pg.text(title, ML + 8, y + 3, 9.5, 'B', C.white);
     return y - 22;
   }
@@ -19868,7 +19919,10 @@ function buildExecutivePdf(pdfData) {
       const cs = cat?.score  ?? null;
       const st = cat?.status ?? 'unknown';
       const bc = st === 'good' ? C.green : st === 'fair' ? C.blue : st === 'warning' ? C.amber : st === 'critical' ? C.red : C.mgray;
-      pg.text(name, 208, ry, 8.5, 'R', C.dkgray);
+      // Category name in its service colour (which service); bar/score in status
+      // colour (how healthy) — the two axes stay visually distinct.
+      pg.fillRect(203, ry - 2, 2.4, 9, svcColorFor(name));
+      pg.text(name, 208, ry, 8.5, 'B', svcColorFor(name));
       pg.fillRect(315, ry - 2, 88, 9, C.lgray);
       if (cs != null) pg.fillRect(315, ry - 2, Math.max(1, Math.round(88 * cs / 100)), 9, bc);
       pg.text(cs != null ? String(cs) : '-', 408, ry, 8.5, 'B', bc);
@@ -20245,7 +20299,7 @@ function buildExecutivePdf(pdfData) {
     pgFooter(pg, 6, NP);
     let y = H - 45;
 
-    y = secBar(pg, 'Attack Surface Summary', y); y -= 8;
+    y = secBar(pg, 'Attack Surface Summary', y, C.svcSurface); y -= 8;
     const atkItems = [
       ['Exposed Assets',         atk.exposed_assets ?? ai.assets?.current ?? '-'],
       ['SSL/TLS Posture',        atk.ssl_tls_posture ?? sp.ssl_certificates?.status ?? 'unknown'],
@@ -20263,9 +20317,11 @@ function buildExecutivePdf(pdfData) {
         : val === 'critical' || (label.includes('Critical') && Number(value) > 0) ? C.red
         : val === 'warning' || (label.includes('High') && Number(value) > 0) ? C.amber
         : C.dkgray;
+      const _svc = svcColorFor(label);
       pg.fillRect(ax, ay - 28, c2, 34, i % 4 < 2 ? C.lgray : C.white);
-      pg.text(label, ax + 8, ay - 6, 8, 'R', C.mgray);
-      pg.text(val.toUpperCase().slice(0, 28), ax + 8, ay - 22, 12, 'B', vc);
+      pg.fillRect(ax, ay - 28, 2.6, 34, _svc);
+      pg.text(label, ax + 10, ay - 6, 8, 'B', _svc);
+      pg.text(val.toUpperCase().slice(0, 28), ax + 10, ay - 22, 12, 'B', vc);
       if (ax === ML) ax = ML + c2 + 10;
       else { ax = ML; ay -= 40; }
     }
@@ -20282,8 +20338,10 @@ function buildExecutivePdf(pdfData) {
       const score = cat?.score ?? null;
       const status = cat?.status ?? 'unknown';
       const col = status === 'good' ? C.green : status === 'fair' ? C.blue : status === 'warning' ? C.amber : status === 'critical' ? C.red : C.mgray;
+      const svc = svcColorFor(name);
       pg.fillRect(ML, y - 22, CW, 24, C.lgray);
-      pg.text(name, ML + 8, y - 8, 8.5, 'R', C.dkgray);
+      pg.fillRect(ML, y - 22, 3, 24, svc);
+      pg.text(name, ML + 11, y - 8, 8.5, 'B', svc);
       pg.text(score != null ? `${score}/100` : status.toUpperCase(), ML + CW - 82, y - 8, 8.5, 'B', col);
       y -= 28;
     }
