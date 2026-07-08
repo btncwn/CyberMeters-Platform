@@ -301,8 +301,11 @@ async function main() {
     "deletion_purge", "lifecycle_email_retry", "asset_alert_retry", "domain_verify_retry"];
   if (new Date().getUTCHours() === 2) expectedTasks.push("report_retention");
   const seenTasks = cronPoints.map((d) => String(d.blobs?.[1] ?? "")).sort();
+  if (process.env.PIPE_DEBUG) console.error("  [cron outcomes]", cronPoints.map((d) => `${d.blobs?.[1]}:${d.blobs?.[2]}`).join(" "));
   ok(`scheduled() runs exactly the registered task set (${expectedTasks.length} tasks, names matched)`,
     JSON.stringify(seenTasks) === JSON.stringify([...expectedTasks].sort()));
+  ok("every task completed ok on the harness env (outcome blob = ok for all)",
+    cronPoints.length > 0 && cronPoints.every((d) => d.blobs?.[2] === "ok"));
   ok("no task failed with a wiring error (no 'is not a function')",
     !cronPoints.some((d) => (d.blobs ?? []).some((b) => String(b).includes("is not a function"))));
 

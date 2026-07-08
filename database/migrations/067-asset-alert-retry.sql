@@ -20,14 +20,19 @@
 --   wrangler d1 execute cybermeters-db --remote \
 --     --file=database/migrations/067-asset-alert-retry.sql
 --
--- Idempotency limitation: SQLite/D1 ALTER TABLE ADD COLUMN has no IF NOT
--- EXISTS. Re-applying this file fails with "duplicate column name" and makes
--- no changes — same limitation as migrations 050/052.
+-- Re-run safety: SAFE TO RE-RUN, but NOT strictly idempotent — SQLite/D1
+-- ALTER TABLE ADD COLUMN has no IF NOT EXISTS, so a second apply fails loudly
+-- with "duplicate column name" and changes nothing (verified empirically:
+-- schema is byte-identical after the failed re-run). Same limitation as
+-- migrations 050/052. Treat the duplicate-column error as the expected
+-- "already applied" signal, not a failure.
 --
 -- Rollback:
---   ALTER TABLE in D1/SQLite does not support DROP COLUMN here. Safe to
---   leave: with every row at status='sent' the retry sweep matches nothing
---   and behaviour is identical to pre-migration.
+--   Leave the schema in place. Roll back APPLICATION CODE only.
+--   The status column is backward compatible: pre-067 code never reads it,
+--   and with every row at status='sent' the retry sweep matches nothing —
+--   behaviour is identical to pre-migration. (D1/SQLite offers no DROP
+--   COLUMN path here, and none is needed.)
 
 ALTER TABLE asset_alert_records ADD COLUMN status TEXT NOT NULL DEFAULT 'sent';
 ALTER TABLE asset_alert_records ADD COLUMN error TEXT;
