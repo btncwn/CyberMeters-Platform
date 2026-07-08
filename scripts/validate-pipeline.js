@@ -283,8 +283,9 @@ async function main() {
   // Drives the real scheduled() entry: the task registry in index.js must wire
   // every task into src/cron/scheduled.js. A mis-wired registry surfaces as a
   // "is not a function" cron_task error datapoint; a healthy run records one
-  // datapoint per wrapped task (6 hourly; retention joins only at 02:00 UTC —
-  // triggerScheduledScan is fire-and-forget outside runCronTask by design).
+  // datapoint per wrapped task (7 hourly incl. asset_alert_retry; retention
+  // joins only at 02:00 UTC — triggerScheduledScan is fire-and-forget outside
+  // runCronTask by design).
   section("Cron orchestration");
   const datapoints = [];
   env.METRICS = { writeDataPoint: (d) => datapoints.push(d) };
@@ -294,7 +295,7 @@ async function main() {
   await Promise.allSettled(pending);
   delete env.METRICS;
   const cronPoints = datapoints.filter((d) => d.blobs?.[0] === "cron_task");
-  const expected = new Date().getUTCHours() === 2 ? 7 : 6;
+  const expected = new Date().getUTCHours() === 2 ? 8 : 7;
   ok(`scheduled() runs every registered task (${expected} cron_task datapoints)`, cronPoints.length === expected);
   ok("no task failed with a wiring error (no 'is not a function')",
     !cronPoints.some((d) => (d.blobs ?? []).some((b) => String(b).includes("is not a function"))));

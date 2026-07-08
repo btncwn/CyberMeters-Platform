@@ -116,7 +116,7 @@ export class CronTasks extends WorkerEntrypoint {
 type CronTaskName =
   | "scheduled_scans" | "scheduled_reports" | "user_scheduled_reports"
   | "hosted_dns_sweep" | "report_retention" | "deletion_purge"
-  | "lifecycle_email_retry" | "domain_verify_retry";
+  | "lifecycle_email_retry" | "asset_alert_retry" | "domain_verify_retry";
 ```
 
 - Unknown `taskName` or `contract_version` → `{ok:false, error:"contract_mismatch"}`
