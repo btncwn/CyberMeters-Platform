@@ -126,16 +126,24 @@ type CronTaskName =
   metadata-carrying structure — one entry per task:
 
   ```js
-  { name: "asset_alert_retry", owner: "billing", timeoutMs: 300_000,
-    schedule: "hourly", idempotency: "at-least-once",
+  { name: "asset_alert_retry", schedule: "hourly", owner: "billing",
+    timeoutMs: 300_000, criticality: "medium",
+    idempotency: "at-least-once", healthCheck: true,
     handler: retryFailedAssetAlerts }
   ```
 
-  The point is not tests — it is a SINGLE SOURCE feeding the health endpoint,
-  dashboard, metrics dimensions, docs and RPC validation, so they can never
-  disagree about what the scheduler owns. The pipeline suite's name-set +
-  all-ok assertions then read their expectations from this registry instead
-  of a hand-maintained list.
+  The point is not tests — it is a SINGLE SOURCE feeding /health/dependencies,
+  the scheduler dashboard, cron metrics dimensions, RPC validation and doc
+  generation, so they can never disagree about what the scheduler owns. The
+  pipeline suite's name-set + all-ok assertions then read their expectations
+  from this registry instead of a hand-maintained list (fine at 7 tasks,
+  maintenance debt at 12).
+
+  Anti-rot rule: **a metadata field ships together with its first consumer.**
+  `name/schedule/handler` have consumers on day one (dispatch + metrics);
+  `owner/criticality/healthCheck` enter when the dashboard or
+  /health/dependencies actually reads them — declared-but-unread metadata is
+  the documentation equivalent of dead code.
 - `request_id` appears in both workers' logs + the cron_task metric, so one
   dispatch is traceable end to end.
 
