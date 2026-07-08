@@ -198,6 +198,16 @@ handler remains as dormant rollback fallback until Stage C. 24h observation
 running; the first real RUA report (blackbullbarbers) is expected ~09 Jul
 morning and will be the real-data confirmation.
 
+**Stage C entry gate (CTO, 2026-07-08 — change isolation):** Stage C does NOT
+start until all three real-production criteria pass, so any anomaly stays
+attributable to exactly one architectural change:
+1. The first REAL DMARC aggregate report is processed by the new email worker
+   end to end (row in `dmarc_aggregate_reports`, endpoint `last_inbound_at`
+   updated, visible in the UI).
+2. Email-worker error rate over 24-48h ≈ zero (no unexpected exceptions, no
+   duplicate rows).
+3. Cron tasks keep running normally on the api worker throughout.
+
 **Stage A status: DONE (2026-07-08).** Deployed `324b4a18`, all suites green,
 live /health + /ready verified, no rollback criterion triggered. Deviation
 from §1's module list, driven by measurement: audit.js + notifications.js
