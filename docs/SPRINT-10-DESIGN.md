@@ -59,6 +59,20 @@ Ownership (solo team) maps to **resource ownership**, not people:
 - Analytics Engine `cybermeters_metrics`: all three (shared dataset, see §7).
 - Email Routing rule on `reports.cybermeters.com`: points to `cybermeters-email`.
 
+### 3.1 Secret ownership (verified against actual `env.*` usage — minimization)
+
+| secret | api | email | cron |
+|---|:-:|:-:|:-:|
+| `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` | ✓ | — | — |
+| `MFA_ENCRYPTION_KEY` | ✓ | — | — |
+| `AZURE_CLIENT_SECRET` (Microsoft SSO) | ✓ | — | — |
+| `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ZONE_ID` (hosted DMARC) | ✓ | — | — |
+| `RESEND_API_KEY` | ✓ | ✓ (drop-notification lifecycle email only) | — |
+| **total** | 7 | **1** | **0** |
+
+A compromised or buggy cron worker can leak nothing; the email worker can leak
+one revocable key. Today all seven live in one blast radius.
+
 ## 4. Communication: Service-Binding RPC, not Queues
 
 **Decision: cron → api via Cloudflare service binding (WorkerEntrypoint RPC).**
@@ -71,8 +85,58 @@ Ownership (solo team) maps to **resource ownership**, not people:
   hourly tasks that already self-heal** (retry-failed-emails, verification
   retry are themselves retry loops). Queues is the right tool later for
   scan-job backpressure (Phase 3), not for a clock.
-- email → api: none needed at runtime (email worker is self-sufficient via
-  lib + D1). No binding = no coupling.
+- email → api: **this edge deliberately does not exist.** The email worker is
+  self-sufficient (lib + D1); giving it an api binding would re-couple the two
+  planes the split exists to separate. If a future feature needs it, it enters
+  the contract below with a version bump.
+
+### 4.1 RPC contract (versioned — workers speak this, never each other's internals)
+
+```ts
+// workers/api — the ONLY cross-worker surface. Version bumps on any change.
+export class CronTasks extends WorkerEntrypoint {
+  // v1. One method, task name as data — adding a task is a registry entry,
+  // not a new RPC method (keeps the contract stable).
+  async runTask(taskName: CronTaskName, invocation: {
+    contract_version: 1,
+    scheduled_for: string,   // ISO hour the trigger fired for
+    request_id: string,      // dispatcher-generated UUID, logged both sides
+  }): Promise<{
+    ok: boolean,
+    task: CronTaskName,
+    duration_ms: number,
+    error: string | null,    // customer-safe class, never a raw stack
+  }>
+}
+
+type CronTaskName =
+  | "scheduled_scans" | "scheduled_reports" | "user_scheduled_reports"
+  | "hosted_dns_sweep" | "report_retention" | "deletion_purge"
+  | "lifecycle_email_retry" | "domain_verify_retry";
+```
+
+- Unknown `taskName` or `contract_version` → `{ok:false, error:"contract_mismatch"}`
+  and an alertable log line — a version-skewed deploy fails loudly, not weirdly.
+- `request_id` appears in both workers' logs + the cron_task metric, so one
+  dispatch is traceable end to end.
+
+### 4.2 Idempotency (verified against current code, not designed on hope)
+
+| surface | mechanism | status |
+|---|---|---|
+| duplicate inbound email (same RUA report delivered twice) | `ingestDmarcReport` dedupes on the report's natural key `(workspace, domain, org_name, external_report_id, date_range)` and writes a `dmarc_report_duplicate` audit event | **already in production** — verified in code; stronger than message-id hashing (the same report can arrive via different messages) |
+| cron task double-fire | **no-retry policy** (see 4.3): a failed/timed-out RPC is NOT retried — the next hourly tick is the retry. No retry ⇒ no duplicate execution path at the dispatch layer | design rule |
+| double-cron during Stage C cutover | remove-then-add deploy sequence (§6) — at most a missed hour, never a doubled one | staged rollout |
+| RPC delivered but response lost (dispatcher sees timeout, task actually ran) | tolerated by task design: every task is a self-healing sweep (idempotent per hour by construction — e.g. report generation checks what already exists; retention/purge are naturally idempotent) | existing property, asserted in the matrix below |
+
+### 4.3 Timeout / retry matrix
+
+| call | timeout | retry | on failure |
+|---|---|---|---|
+| cron → api `runTask` | 5 min soft per task (`Promise.race`), inside the scheduled handler's 15-min wall budget | **none** — next hour self-heals | `cron_task` metric with error class + `[cron-error]` log (alertable) |
+| email → api | — (edge does not exist) | — | — |
+| email → D1 (ingest) | platform default | none — sender's SMTP retry (Email Routing returns transient failure) is the retry | drop-with-audit path (already built) |
+| api → D1/R2/Stripe/Resend | unchanged from today | unchanged (CF 429 backoff exists) | unchanged |
 
 ## 5. Failure matrix
 
@@ -91,25 +155,16 @@ plane fails alone. That is the sprint's entire value.
 
 Staged, each stage shippable and reversible, suites green throughout:
 
-1. **Stage A — lib extraction (no topology change).** Move the measured 44-decl
-   service layer into `src/lib/` (dmarc-ingest.js, lifecycle-email.js,
-   audit.js, notifications.js). Dissolves the index ⇄ inbound cycle. Single
-   deploy, behaviour-identical, same rollback as Sprint 9 (`wrangler rollback`).
-2. **Stage B — email worker.** New `workers/email-ingest/` with its own
-   wrangler.toml (D1 + AE bindings, RUA vars, `/health`), importing the same
-   `src/lib/` + `src/email/` source. Deploy it **dark** (no traffic). Verify
-   /health. Then repoint the Email Routing rule to it (dashboard — founder
-   action). The API worker's email handler stays in place, dormant.
-   **Rollback = point the routing rule back. Seconds, zero deploy.**
-3. **Stage C — cron worker.** New `workers/cron-dispatch/` with the trigger +
-   RPC binding. API worker gains the `CronTasks` entrypoint. Sequence to avoid
-   double-execution: deploy API (entrypoint added, **crons removed from its
-   wrangler.toml**) at minute ~xx:10, immediately deploy cron worker with the
-   trigger. Max exposure: one missed hour (safe — every task self-heals);
-   never a doubled hour. **Rollback = redeploy API with crons restored, delete
-   cron worker's trigger.**
-4. **Stage D — 48h observation** on the two live domains (cron_task datapoints
-   per worker, inbound RUA ingest, zero 5xx delta), then Sprint 10 closes.
+| stage | sequence | rollback trigger (criterion) | rollback action |
+|---|---|---|---|
+| **A — lib extraction** (no topology change) | move the measured 44-decl service layer into `src/lib/` (dmarc-ingest, lifecycle-email, audit, notifications); dissolves the index ⇄ inbound cycle; single deploy | any suite red; /health or /ready degraded post-deploy; any 5xx delta in the first hour | `npx wrangler rollback` (same as Sprint 9) |
+| **B — email worker** | 1) deploy `workers/email-ingest/` **dark** (D1+AE bindings, RUA vars) → 2) verify its /health → 3) founder repoints the Email Routing rule → 4) observe first inbound | /health not 200 before repoint (→ never repoint); after repoint: any `dmarc_inbound_email_dropped` spike or missing expected ingest within 24h | point the routing rule back to `cybermeters-platform` (dashboard, seconds, **zero deploy** — api's handler stays dormant as fallback) |
+| **C — cron worker** | at ~xx:10 (proposed 14:10 UTC): 1) deploy api with `CronTasks` entrypoint **and crons removed** → 2) immediately deploy `workers/cron-dispatch/` with the trigger + binding → 3) watch the next hour | next hourly tick produces ≠1 run set (0 after two hours, or any doubled task), or any `contract_mismatch` error | redeploy api with crons restored; remove cron worker's trigger (two commands, no data risk) |
+| **D — 48h observation** | per-worker cron_task datapoints, inbound RUA ingest on the two live domains, 5xx delta = 0 | any criterion above regressing | stage-specific action above |
+
+Max failure exposure at any point: **one missed cron hour** (self-healing) or
+**minutes of email-routing gap** (sender SMTP retries). Never a doubled task,
+never a lost report, never an api outage caused by the split.
 
 Secrets: `RESEND_API_KEY` (email worker sends ingest notifications via
 lifecycle lib) must be `wrangler secret put` into the new worker — founder
@@ -121,8 +176,16 @@ action, listed in the runbook. Secret drift risk is in §8.
   by `recordMetric` — one query surface, per-worker filtering. (Chosen over
   per-worker datasets: three dashboards nobody reads is worse than one that
   answers "which worker".)
-- Each worker: `/health` (version + deployment_id) and `/ready` where it has
-  dependencies (api: D1+R2; email: D1; cron: binding ping).
+- Health endpoint matrix:
+
+| endpoint | api | email | cron |
+|---|:-:|:-:|:-:|
+| `/health` (version + deployment_id) | ✓ | ✓ | ✓ |
+| `/ready` (dependency probes) | ✓ D1+R2 | ✓ D1 | ✓ RPC-binding ping (`runTask("noop")`-class check) |
+| `/health/dependencies` (per-binding detail: D1, R2, AE, service binding, secret presence booleans — **names only, never values**) | ✓ | — | — |
+
+- `request_id` from the RPC contract appears in both workers' logs and the
+  cron_task metric — one dispatch traceable end to end.
 - `wrangler tail` per worker; `[cron-error]` stays the alertable string.
 - OPERATIONS.md gains a per-worker deploy/rollback/secrets matrix.
 
