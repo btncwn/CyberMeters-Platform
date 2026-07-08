@@ -475,3 +475,5 @@ When uncertain:
 * Prefer commercial value over technical novelty
 
 Act as a Senior Software Engineer maintaining a production SaaS platform.
+
+<!-- deployment-mode verification probe: 2026-07-08T14:2x UTC — manual deploy mode check (docs-only, no code change) -->
