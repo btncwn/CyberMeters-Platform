@@ -146,15 +146,30 @@ with an in-memory Storage). `npm test` blocks CI before the build step.
   frontend half of the contract the backend pipeline test proves server-side.
 **DoD (met):** critical components under test; CI blocks on frontend test failure.
 
-## Sprint 8 — TypeScript foundation (incremental)  ·  risk: MED-HIGH  ·  effort: High
+## Sprint 8 — TypeScript foundation (incremental) — DONE (CI-blocking `tsc --noEmit`)  ·  risk: MED-HIGH  ·  effort: High
 **Goal:** compile-time safety on the highest-churn surfaces.
 **Why (evidence):** no `tsconfig`, plain JS/JSX across ~37k worker lines + frontend. No type contract between frontend and API (DD maturity gap).
-**Tasks:**
-- Add `tsconfig` with `allowJs`, `checkJs` incremental; no big-bang rewrite.
-- Type the API client (`frontend/src/api.js`) + shared response/domain types first (pairs with the OpenAPI from Sprint 2).
-- Convert new files to `.ts/.tsx`; leave the monolith JS until Sprint 9-10.
-**Risk:** build-tooling change; keep JS interop working, ship in slices.
-**DoD:** typed API client + shared types; CI type-check step; build unbroken.
+**Shipped:**
+- `frontend/tsconfig.json` — allowJs, `checkJs` off: `.js/.jsx` opt in via
+  `// @ts-check`, every future `.ts/.tsx` is always checked. `strict: true` with
+  a deliberate `noImplicitAny: false` exception; tightening path documented in
+  the config (flip it once api.js is fully annotated, then pragma the
+  highest-churn pages).
+- `src/types/api.d.ts` — shared contract types, honest by rule: only shapes
+  verified against the worker or the pipeline tests (LoginResponse MFA union,
+  the Notification metadata regression lesson, Pagination, ApiError decoration,
+  PlanFeatureRequiredError, Workspace/AuditEvent/Scan/Report/Subscription).
+- `src/api.js` pragma'd: typed infra (request/requestBlob/safeFetch/
+  friendlyHttpError/ApiError casts) + ~20 highest-churn methods annotated.
+- CI: `npm run typecheck` blocks before tests/build.
+**The gate caught two real issues on day one:** a duplicate `getBillingPlans`
+key silently shadowing its earlier twin (TS1117), and `createApiToken`'s
+uninferable options contract. A transient negative test proved the gate bites
+(wrong Pagination field type and un-narrowed `LoginResponse.token` both fail —
+forgetting the MFA branch is now a compile error).
+**Convention going forward:** new frontend files are `.ts/.tsx`; the worker
+monolith stays JS until Sprints 9-10.
+**DoD (met):** typed API client + shared types; CI type-check step; build unbroken (tsc clean, vitest 24/24, vite build green).
 
 ## Sprint 9 — Worker decomposition, phase 1  ·  risk: HIGH  ·  effort: High
 **Goal:** carve fault-isolated seams out of the monolith without behaviour change.
