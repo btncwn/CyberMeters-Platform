@@ -171,7 +171,7 @@ forgetting the MFA branch is now a compile error).
 monolith stays JS until Sprints 9-10.
 **DoD (met):** typed API client + shared types; CI type-check step; build unbroken (tsc clean, vitest 24/24, vite build green).
 
-## Sprint 9 — Worker decomposition, phase 1 — CODE DONE, deploy pending approval  ·  risk: HIGH  ·  effort: High
+## Sprint 9 — Worker decomposition, phase 1 — **CLOSED** (production cron proven 2026-07-08 11:00:28 UTC; evidence block in CHANGELOG v2026.07.08-4)  ·  risk: HIGH  ·  effort: High
 **Goal:** carve fault-isolated seams out of the monolith without behaviour change.
 **Why (evidence):** single `workers/scan-api/src/index.js` = **~37,258 lines** handling API + cron + email + scan + scoring + PDF. Deploy = whole system; no isolation; 1.6 MB re-parse each deploy. #1 architectural weakness (Architecture 55, Maintainability 52).
 **Shipped (three validated slices):**

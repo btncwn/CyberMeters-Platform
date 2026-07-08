@@ -7,6 +7,29 @@ release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 
 ## 2026.07.08 (v2026.07.08-4 — worker decomposition phase 1)
 
+### Production verification (Sprint 9 closure evidence)
+First production cron of the modular worker — captured via `wrangler tail`
+(window 10:58–11:04 UTC):
+- **Run time:** 2026-07-08 **11:00:28 UTC** (`"0 * * * *" — Ok`).
+- **Deployment:** `575d361a-0b91-4f35-bc98-4ac865342ab8` (`v2026.07.08-4`).
+- **Tasks:** `triggerScheduledScan` ran visibly — real scheduled scan on
+  blackbullbarbers.co.uk (`scan_06b0c7ee`, inventory 2 assets found, change
+  detection 14 → +2, two workspaces updated). The six wrapped tasks
+  (scheduled_reports, user_scheduled_reports, hosted_dns_sweep,
+  deletion_purge, lifecycle_email_retry, domain_verify_retry) completed with
+  **zero `[cron-error]` lines** (success is metrics-only by design; per-task
+  duration datapoints in AE `cybermeters_metrics`, query in OPERATIONS.md).
+  `report_retention` correctly skipped (only 02:00 UTC).
+- **Unexpected exceptions:** 0. Handled external-dependency errors inside the
+  scan: 1× certspotter CT-log timeout (scan completed past it), 2× alert-email
+  `network_error` (pre-existing failure class — the documented motivation for
+  the lifecycle-retry cron; follow-up: confirm asset-alert emails have a retry
+  path).
+- **API plane served traffic throughout** the cron (notification polls Ok at
+  11:59–12:04 local, uninterrupted).
+- **Reference:** tail capture preserved in session scratchpad; AE `cron_task`
+  rows at 2026-07-08T11:00Z.
+
 ### Changed
 - The worker is now a multi-module ES build (behaviour-identical, single
   deployment): inbound RUA email handling lives in `src/email/inbound.js`,
