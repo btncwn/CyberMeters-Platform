@@ -21,6 +21,18 @@
 
 - **2 free hooks (lead-gen):** Cyber MOT (instant passive scan) + Cyber Essentials Readiness.
 - **4 paid core services (the membership):** Email / Brand / Attack Surface / Certificates.
+
+### Cyber Essentials — TWO separate surfaces (IA decision, do not merge)
+
+| | Public free hook | Paid in-app service |
+|---|---|---|
+| Route | `/cyber-essentials-readiness` (no login) | `ws/cyber-essentials` (authenticated) |
+| Name | **Cyber Essentials Readiness Preview** | **Cyber Essentials Readiness Dashboard** |
+| Purpose | lead-gen / convince | real service / retain |
+| Data | local/temporary, lightweight preview | saved answers + workspace + Cyber MOT evidence via the authenticated `/cyber-essentials/answers` + readiness `self_assessment` |
+| CTA | Create free account · Run Cyber MOT | Save · review · fix |
+
+CTA routing: dashboard/account → `ws/cyber-essentials`; marketing/public → `/cyber-essentials-readiness`; Cyber MOT → `/free-scan`. No surface uses "certification" or implies CyberMeters certifies.
 - **2 private validation domains:** cybermeters.com + blackbullbarbers.co.uk (dogfood everything here before public).
 - **Pricing (proposal, validate in Phase 2):** Free MOT · Starter ~£29/1 domain · Professional ~£79/~5 · Business ~£199/~20 · MSP/Partner ~£399+/20-100+ (per-domain overage). Annual = pay 10, get 12. Domain count = value metric + abuse control.
 
