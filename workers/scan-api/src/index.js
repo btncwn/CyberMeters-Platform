@@ -1,15 +1,16 @@
 import { handleInboundEmail } from "./email/inbound.js";
 import { runScheduled } from "./cron/scheduled.js";
 import { recordMetric } from "./lib/metrics.js";
+import { createId, isValidEmail, normalizeApiResponseData, pageMeta, paginationParams, parseBoundedInteger } from "./lib/util.js";
+import { createAuditEvent, createNotificationEvent, createNotificationsForDomain, sanitizeAuditMetadata } from "./lib/events.js";
+import { RUA_INBOUND_DOMAIN_DEFAULT, ingestDmarcReport, ingestEndpointIsActive, normalizeInboundRecipientDomain, parseEmailAuthHeaders, sha256Hex, updateEmailSenderSources } from "./lib/dmarc-ingest.js";
+import { buildCorsHeaders, buildJsonHeaders, deliverEmail, escapeEmailHtml, getEmailFrontendOrigin, json, retryFailedLifecycleEmails, sendCustomerEmail, sendLifecycleEmail } from "./lib/lifecycle-email.js";
 // ─────────────────────────────────────────────────────────────────────────────
 // CyberMeters Scan API — Cloudflare Worker
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ── Utilities ────────────────────────────────────────────────────────────────
 
-function createId(prefix) {
-  return `${prefix}_${crypto.randomUUID()}`;
-}
 
 function isValidDomain(domain) {
   if (typeof domain !== "string" || domain.length > 253) return false;
@@ -22,17 +23,7 @@ function isValidDomain(domain) {
   );
 }
 
-function isValidEmail(email) {
-  if (typeof email !== "string") return false;
-  const value = email.trim();
-  return value.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
-}
 
-function parseBoundedInteger(value, fallback, min, max) {
-  const parsed = Number.parseInt(value ?? "", 10);
-  if (!Number.isFinite(parsed)) return fallback;
-  return Math.min(max, Math.max(min, parsed));
-}
 
 function customerSafeFailure(context, error, message) {
   console.error(`[${context}]`, error);
@@ -7760,135 +7751,10 @@ function buildEmailRemediationActions(domain, details, emailIntel = {}) {
 // signals, and computes cautious enforcement readiness. Manual import only —
 // no inbound mail receiving, no managed mailbox, no dynamic DNS. All additive.
 
-const DMARC_XML_MAX_BYTES = 2 * 1024 * 1024; // 2 MB hard cap
-const DMARC_MAX_RECORDS   = 5000;            // defensive row cap
 
-async function sha256Hex(input) {
-  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(input)));
-  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
-}
 
-function _xmlDecodeEntities(s) {
-  return String(s)
-    .replace(/&lt;/g, "<").replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"').replace(/&#0*39;/g, "'").replace(/&apos;/g, "'")
-    .replace(/&amp;/g, "&");
-}
-// Extract the inner text of the FIRST occurrence of <tag>…</tag> (tag is a fixed literal).
-function _xmlFirst(xml, tag) {
-  if (!xml) return null;
-  const m = xml.match(new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`, "i"));
-  return m ? _xmlDecodeEntities(m[1]).trim() : null;
-}
-// Return the inner content of EVERY <tag>…</tag> block.
-function _xmlBlocks(xml, tag) {
-  if (!xml) return [];
-  const re = new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`, "gi");
-  const out = []; let m;
-  while ((m = re.exec(xml)) !== null) { out.push(m[1]); if (out.length >= DMARC_MAX_RECORDS) break; }
-  return out;
-}
-function _dmarcInt(v, dflt = 0) { const n = parseInt(v, 10); return Number.isFinite(n) ? n : dflt; }
 
-/**
- * parseDmarcAggregateXml(xml) — controlled, defensive DMARC aggregate parser.
- *
- * Security: rejects empty input and input > 2 MB; rejects DOCTYPE/ENTITY/
- * stylesheet declarations (no XXE / entity expansion); performs no network
- * I/O; never returns or stores raw XML. Returns { error, message } on failure
- * or the structured { metadata, policy_published, records } shape on success.
- */
-function parseDmarcAggregateXml(xml) {
-  if (typeof xml !== "string" || xml.trim() === "") {
-    return { error: "empty_xml", message: "No XML content was provided." };
-  }
-  const byteLen = new TextEncoder().encode(xml).length;
-  if (byteLen > DMARC_XML_MAX_BYTES) {
-    return { error: "xml_too_large", message: "The DMARC report exceeds the 2 MB limit." };
-  }
-  if (/<!DOCTYPE/i.test(xml) || /<!ENTITY/i.test(xml) || /<\?xml-stylesheet/i.test(xml)) {
-    return { error: "unsafe_xml", message: "The XML contains a disallowed declaration." };
-  }
-  const metaBlock   = _xmlFirst(xml, "report_metadata");
-  const policyBlock = _xmlFirst(xml, "policy_published");
-  const recordBlocks = _xmlBlocks(xml, "record");
-  if (!metaBlock && !policyBlock && recordBlocks.length === 0) {
-    return { error: "invalid_structure", message: "The file does not look like a DMARC aggregate report." };
-  }
-  const dateRange = _xmlFirst(metaBlock || xml, "date_range");
-  const metadata = {
-    org_name:         _xmlFirst(metaBlock, "org_name"),
-    email:            _xmlFirst(metaBlock, "email"),
-    report_id:        _xmlFirst(metaBlock, "report_id"),
-    date_range_begin: _dmarcInt(_xmlFirst(dateRange, "begin"), 0) || null,
-    date_range_end:   _dmarcInt(_xmlFirst(dateRange, "end"), 0) || null,
-  };
-  const pctText = _xmlFirst(policyBlock, "pct");
-  const policy_published = {
-    domain: _xmlFirst(policyBlock, "domain"),
-    adkim:  _xmlFirst(policyBlock, "adkim"),
-    aspf:   _xmlFirst(policyBlock, "aspf"),
-    p:      _xmlFirst(policyBlock, "p"),
-    sp:     _xmlFirst(policyBlock, "sp"),
-    pct:    pctText != null ? _dmarcInt(pctText, 100) : null,
-  };
-  const norm = (v) => (v ? String(v).trim().toLowerCase() : null);
-  const records = [];
-  for (const rec of recordBlocks) {
-    const row   = _xmlFirst(rec, "row");
-    const pe    = _xmlFirst(row, "policy_evaluated");
-    const ident = _xmlFirst(rec, "identifiers");
-    const auth  = _xmlFirst(rec, "auth_results");
-    const dkimA = _xmlFirst(auth, "dkim");
-    const spfA  = _xmlFirst(auth, "spf");
-    records.push({
-      source_ip:           _xmlFirst(row, "source_ip"),
-      count:               _dmarcInt(_xmlFirst(row, "count"), 0),
-      disposition:         norm(_xmlFirst(pe, "disposition")),
-      dkim_aligned_result: norm(_xmlFirst(pe, "dkim")),
-      spf_aligned_result:  norm(_xmlFirst(pe, "spf")),
-      header_from:         _xmlFirst(ident, "header_from"),
-      envelope_from:       _xmlFirst(ident, "envelope_from"),
-      dkim_domain:         _xmlFirst(dkimA, "domain"),
-      dkim_selector:       _xmlFirst(dkimA, "selector"),
-      dkim_result:         norm(_xmlFirst(dkimA, "result")),
-      spf_domain:          _xmlFirst(spfA, "domain"),
-      spf_result:          norm(_xmlFirst(spfA, "result")),
-    });
-  }
-  if (records.length === 0) {
-    return { error: "no_records", message: "The DMARC report contained no record rows." };
-  }
-  return { metadata, policy_published, records };
-}
 
-// Basic, never-overclaiming provider guessing from real DMARC sender signals.
-const DMARC_PROVIDER_PATTERNS = [
-  { provider: "google",      needles: ["google.com", "gmail.com", "googlemail.com", "_spf.google.com"] },
-  { provider: "microsoft",   needles: ["outlook.com", "protection.outlook.com", "microsoft.com", "office365", "spf.protection.outlook"] },
-  { provider: "amazonses",   needles: ["amazonses.com"] },
-  { provider: "sendgrid",    needles: ["sendgrid.net", "sendgrid.com"] },
-  { provider: "mailchimp",   needles: ["mcsv.net", "mailchimp", "rsgsv.net", "mandrillapp.com"] },
-  { provider: "mailgun",     needles: ["mailgun.org", "mailgun.net", "mailgun.com"] },
-  { provider: "postmark",    needles: ["postmarkapp.com", "pm.mtasv.net"] },
-  { provider: "zoho",        needles: ["zoho.com", "zohomail.com", "zoho.eu"] },
-  { provider: "shopify",     needles: ["shopify.com", "shopifyemail.com"] },
-  { provider: "wix",         needles: ["wixsite.com", "wix.com"] },
-  { provider: "squarespace", needles: ["squarespace.com"] },
-];
-function guessEmailSenderProvider(record = {}) {
-  const hay = [record.dkim_domain, record.spf_domain, record.envelope_from, record.header_from]
-    .filter(Boolean).map((s) => String(s).toLowerCase()).join(" ");
-  if (hay) {
-    for (const { provider, needles } of DMARC_PROVIDER_PATTERNS) {
-      if (needles.some((n) => hay.includes(n))) {
-        return { provider, confidence: "medium",
-          reason: `DKIM/SPF or envelope domain matched a known ${provider} sender pattern` };
-      }
-    }
-  }
-  return { provider: "unknown", confidence: "low", reason: "No known provider pattern matched" };
-}
 
 function dmarcSenderRiskLevel(sender) {
   const c = sender.classification || "unknown";
@@ -7955,80 +7821,6 @@ function buildDmarcEnforcementReadiness(summary = {}) {
   return { ready_for_quarantine: readyQuarantine, ready_for_reject: readyReject, confidence, blockers, next_step, explanation };
 }
 
-/**
- * updateEmailSenderSources(env, workspaceId, domain, parsedReport) — roll up the
- * parsed report's records into the per-source inventory. Only ever called for a
- * NEW (non-duplicate) report, so increments never double-count. Preserves any
- * existing classification and notes on a sender row.
- */
-async function updateEmailSenderSources(env, workspaceId, domain, parsed) {
-  if (!parsed || !Array.isArray(parsed.records)) return { sources_updated: 0 };
-  const beginIso = parsed.metadata?.date_range_begin
-    ? new Date(parsed.metadata.date_range_begin * 1000).toISOString()
-    : new Date().toISOString();
-  const endIso = parsed.metadata?.date_range_end
-    ? new Date(parsed.metadata.date_range_end * 1000).toISOString()
-    : beginIso;
-
-  const bySource = new Map();
-  for (const r of parsed.records) {
-    const ip = (r.source_ip || "").trim();
-    if (!ip) continue;
-    let agg = bySource.get(ip);
-    if (!agg) { agg = { ip, total: 0, aligned: 0, failed: 0, quarantined: 0, rejected: 0, sample: r }; bySource.set(ip, agg); }
-    const cnt = r.count || 0;
-    agg.total += cnt;
-    const aligned = r.spf_aligned_result === "pass" || r.dkim_aligned_result === "pass";
-    if (aligned) agg.aligned += cnt; else agg.failed += cnt;
-    if (r.disposition === "quarantine") agg.quarantined += cnt;
-    if (r.disposition === "reject") agg.rejected += cnt;
-  }
-
-  let updated = 0;
-  for (const agg of bySource.values()) {
-    const guess = guessEmailSenderProvider(agg.sample);
-    const existing = await env.cybermeters_db
-      .prepare(`SELECT id, total_messages, aligned_messages, failed_messages,
-                       quarantined_messages, rejected_messages, first_seen
-                FROM email_sender_sources
-                WHERE workspace_id = ? AND domain = ? AND source_ip = ? LIMIT 1`)
-      .bind(workspaceId, domain, agg.ip).first();
-    if (existing) {
-      const total    = (existing.total_messages || 0) + agg.total;
-      const alignedM = (existing.aligned_messages || 0) + agg.aligned;
-      const failedM  = (existing.failed_messages || 0) + agg.failed;
-      const quarM    = (existing.quarantined_messages || 0) + agg.quarantined;
-      const rejM     = (existing.rejected_messages || 0) + agg.rejected;
-      const passRate = total > 0 ? Math.round((alignedM / total) * 1000) / 10 : 0;
-      const firstSeen = existing.first_seen && existing.first_seen < beginIso ? existing.first_seen : beginIso;
-      await env.cybermeters_db
-        .prepare(`UPDATE email_sender_sources
-                  SET last_seen = ?, total_messages = ?, aligned_messages = ?, failed_messages = ?,
-                      quarantined_messages = ?, rejected_messages = ?, pass_rate = ?,
-                      provider_guess = ?, provider_confidence = ?, provider_reason = ?,
-                      header_from = COALESCE(header_from, ?), first_seen = ?, updated_at = datetime('now')
-                  WHERE id = ?`)
-        .bind(endIso, total, alignedM, failedM, quarM, rejM, passRate,
-              guess.provider, guess.confidence, guess.reason, agg.sample.header_from || null, firstSeen, existing.id)
-        .run();
-      // classification + notes deliberately omitted from UPDATE → preserved.
-    } else {
-      const passRate = agg.total > 0 ? Math.round((agg.aligned / agg.total) * 1000) / 10 : 0;
-      await env.cybermeters_db
-        .prepare(`INSERT INTO email_sender_sources
-                  (id, workspace_id, domain, source_ip, provider_guess, provider_confidence, provider_reason,
-                   header_from, first_seen, last_seen, total_messages, aligned_messages, failed_messages,
-                   quarantined_messages, rejected_messages, pass_rate, classification, notes, created_at, updated_at)
-                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unknown', NULL, datetime('now'), datetime('now'))`)
-        .bind(createId("esender"), workspaceId, domain, agg.ip, guess.provider, guess.confidence, guess.reason,
-              agg.sample.header_from || null, beginIso, endIso, agg.total, agg.aligned, agg.failed,
-              agg.quarantined, agg.rejected, passRate)
-        .run();
-    }
-    updated++;
-  }
-  return { sources_updated: updated };
-}
 
 // Validate that a domain (hostname) belongs to a workspace; returns domain_id or null.
 async function resolveWorkspaceDomain(env, workspaceId, domain) {
@@ -8090,31 +7882,7 @@ function emailSenderToApi(x) {
 // email). They never store or return raw XML, and the upload token is only ever
 // persisted as a SHA-256 hash.
 
-// Pure, testable: the report identity tuple used for dedupe. Deliberately
-// EXCLUDES source/workspace/domain — dedupe is source-agnostic, so the same
-// report imported via paste and via signed upload is counted exactly once.
-async function dmarcReportIdentity(xmlString, parsed) {
-  const m = parsed?.metadata || {};
-  const rawHash = await sha256Hex(xmlString);
-  const externalReportId = m.report_id || rawHash.slice(0, 32);
-  return {
-    org_name: m.org_name || null,
-    external_report_id: externalReportId,
-    date_range_begin: m.date_range_begin || null,
-    date_range_end: m.date_range_end || null,
-    raw_hash: rawHash,
-  };
-}
 
-// Pure, testable: does a parsed report belong to the bound domain? Used to stop
-// one domain's upload key from poisoning another domain's sender intelligence.
-// A report with no published policy domain cannot be disproven, so it is allowed
-// (documented limitation) — the workspace+domain binding still scopes the data.
-function dmarcReportDomainMatches(parsed, boundDomain) {
-  const reportDomain = (parsed?.policy_published?.domain || "").trim().toLowerCase();
-  if (!reportDomain) return true;
-  return reportDomain === String(boundDomain || "").trim().toLowerCase();
-}
 
 // High-entropy (256-bit) opaque upload token. Prefixed for identifiability in
 // logs/UI; the prefix is not secret. The raw value is returned to the user once
@@ -8131,9 +7899,6 @@ function generateIngestToken() {
 }
 async function hashIngestToken(raw) {
   return sha256Hex(String(raw || ""));
-}
-function ingestEndpointIsActive(row) {
-  return !!row && row.status === "active" && !row.revoked_at;
 }
 function extractIngestToken(request) {
   const auth = request.headers.get("Authorization") || "";
@@ -8399,131 +8164,6 @@ async function configureDmarcEndpointRoute(env, endpoint, actorUserId, options =
   return result;
 }
 
-/**
- * ingestDmarcReport(env, opts) — shared DMARC aggregate ingestion pipeline.
- *
- * Used by manual paste and signed upload (and, later, inbound email) so every
- * source shares identical parse → domain-validate → dedupe → insert → rollup →
- * audit behaviour. Never stores or returns raw XML.
- *
- * opts:
- *   workspaceId         (required)
- *   domain              (required, lowercased hostname the report is bound to)
- *   source              'manual_paste' | 'signed_upload' | 'inbound_email'
- *   xmlString           (required) raw report XML
- *   filename            optional display-only label (sanitised; never used for I/O)
- *   actorUserId         optional user id for audit (null for token ingest)
- *   ingestEndpointId    optional ingest endpoint id for audit (null for manual)
- *   domainId            optional pre-resolved domain row id (audit entity)
- *   enforceDomainMatch  when true, reject reports whose policy_published.domain
- *                       does not match the bound domain (token / inbound sources)
- *
- * Returns a discriminated result (no raw XML, ever):
- *   { ok:true,  imported:true,  duplicate:false, reportId, records, messages, sourcesUpdated }
- *   { ok:true,  imported:false, duplicate:true }
- *   { ok:false, status, error, message }
- */
-async function ingestDmarcReport(env, opts = {}) {
-  const {
-    workspaceId, domain, source = "manual_paste", xmlString,
-    filename: rawFilename = null, actorUserId = null,
-    ingestEndpointId = null, domainId = null, enforceDomainMatch = false,
-    provenance = null,
-  } = opts;
-  // Inbound sender provenance (null for authenticated manual/signed paths).
-  const prov = provenance && typeof provenance === "object" ? provenance : {};
-
-  if (!workspaceId || !domain) {
-    return { ok: false, status: 400, error: "missing_binding", message: "Workspace and domain are required." };
-  }
-  if (typeof xmlString !== "string") {
-    return { ok: false, status: 400, error: "missing_xml", message: "No XML content was provided." };
-  }
-  const filename = typeof rawFilename === "string"
-    ? rawFilename.replace(/[^A-Za-z0-9._!@-]/g, "_").slice(0, 200) : null;
-
-  const parsed = parseDmarcAggregateXml(xmlString);
-  if (parsed.error) {
-    return { ok: false, status: 422, error: parsed.error, message: parsed.message };
-  }
-
-  // Domain-binding safety: only enforced for non-interactive sources so existing
-  // manual-paste behaviour is preserved exactly.
-  if (enforceDomainMatch && !dmarcReportDomainMatches(parsed, domain)) {
-    return { ok: false, status: 422, error: "domain_mismatch",
-      message: "This report is for a different domain than the one this upload key is bound to." };
-  }
-
-  const identity = await dmarcReportIdentity(xmlString, parsed);
-  const m = parsed.metadata;
-
-  // Dedupe (null-safe with IS) — source-agnostic; the same report is never
-  // double-counted regardless of which ingestion path delivered it.
-  const dup = await env.cybermeters_db
-    .prepare(`SELECT id FROM dmarc_aggregate_reports
-              WHERE workspace_id = ? AND domain = ? AND org_name IS ?
-                AND external_report_id = ? AND date_range_begin IS ? AND date_range_end IS ? LIMIT 1`)
-    .bind(workspaceId, domain, identity.org_name, identity.external_report_id,
-          identity.date_range_begin, identity.date_range_end)
-    .first();
-  if (dup) {
-    await createAuditEvent(env, {
-      workspace_id: workspaceId, user_id: actorUserId, event_type: "dmarc_report_duplicate",
-      entity_type: "domain", entity_id: domainId,
-      description: `Duplicate DMARC report ignored for ${domain}`,
-      metadata: { domain, source, org_name: m.org_name, report_id: identity.external_report_id,
-                  duplicate: true, ingest_endpoint_id: ingestEndpointId,
-                  auth_verdict: prov.auth_verdict ?? null, reporter_domain: prov.reporter_domain ?? null },
-    });
-    return { ok: true, imported: false, duplicate: true };
-  }
-
-  const reportId = createId("dmarcrep");
-  const pol = parsed.policy_published || {};
-  const messageCount = parsed.records.reduce((a, r) => a + (r.count || 0), 0);
-  await env.cybermeters_db
-    .prepare(`INSERT INTO dmarc_aggregate_reports
-              (id, workspace_id, domain, org_name, report_email, external_report_id, date_range_begin, date_range_end,
-               policy_domain, policy_adkim, policy_aspf, policy_p, policy_sp, policy_pct,
-               record_count, message_count, raw_hash, source,
-               envelope_from, reporter_domain, auth_verdict, auth_evidence, created_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`)
-    .bind(reportId, workspaceId, domain, m.org_name || null, m.email || null, identity.external_report_id,
-          m.date_range_begin || null, m.date_range_end || null, pol.domain || null, pol.adkim || null,
-          pol.aspf || null, pol.p || null, pol.sp || null, pol.pct ?? null,
-          parsed.records.length, messageCount, identity.raw_hash, source,
-          prov.envelope_from ?? null, prov.reporter_domain ?? null, prov.auth_verdict ?? null, prov.auth_evidence ?? null)
-    .run();
-
-  for (const r of parsed.records) {
-    await env.cybermeters_db
-      .prepare(`INSERT INTO dmarc_aggregate_records
-                (id, report_id, workspace_id, domain, source_ip, message_count, disposition,
-                 dkim_aligned_result, spf_aligned_result, header_from, envelope_from,
-                 dkim_domain, dkim_selector, dkim_result, spf_domain, spf_result, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`)
-      .bind(createId("dmarcrec"), reportId, workspaceId, domain, r.source_ip || null, r.count || 0,
-            r.disposition || null, r.dkim_aligned_result || null, r.spf_aligned_result || null,
-            r.header_from || null, r.envelope_from || null, r.dkim_domain || null, r.dkim_selector || null,
-            r.dkim_result || null, r.spf_domain || null, r.spf_result || null)
-      .run();
-  }
-
-  const rollup = await updateEmailSenderSources(env, workspaceId, domain, parsed);
-  await createAuditEvent(env, {
-    workspace_id: workspaceId, user_id: actorUserId, event_type: "dmarc_report_ingested",
-    entity_type: "domain", entity_id: domainId,
-    description: `Ingested DMARC report for ${domain} from ${m.org_name || "unknown reporter"} via ${source}`,
-    metadata: { domain, source, org_name: m.org_name, report_id: identity.external_report_id,
-                records: parsed.records.length, messages: messageCount, duplicate: false,
-                filename, ingest_endpoint_id: ingestEndpointId,
-                auth_verdict: prov.auth_verdict ?? null, reporter_domain: prov.reporter_domain ?? null,
-                envelope_from: prov.envelope_from ?? null },
-  });
-
-  return { ok: true, imported: true, duplicate: false, reportId,
-    records: parsed.records.length, messages: messageCount, sourcesUpdated: rollup.sources_updated };
-}
 
 // ── Assisted RUA Ingestion v1 (Phase 2) — inbound email helpers ───────────────
 //
@@ -8532,21 +8172,11 @@ async function ingestDmarcReport(env, opts = {}) {
 // store raw payloads, and enforce hard size/ratio caps to defeat decompression
 // bombs. The Worker email() handler wires these together (see the email entry).
 
-const RUA_INBOUND_DOMAIN_DEFAULT = "reports.cybermeters.com";
 function generateInboundLocalpart() {
   const bytes = new Uint8Array(16); // 128-bit
   crypto.getRandomValues(bytes);
   const hex = Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
   return `cmrua_${hex}`;
-}
-// Normalize only DNS hostnames that are safe to retain in audit metadata.
-function normalizeInboundRecipientDomain(domain) {
-  if (typeof domain !== "string") return null;
-  const normalized = domain.trim().toLowerCase().replace(/\.$/, "");
-  if (!normalized || normalized.length > 253 || !/^[a-z0-9.-]+$/.test(normalized)) return null;
-  const labels = normalized.split(".");
-  if (labels.some((label) => !label || label.length > 63 || !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label))) return null;
-  return normalized;
 }
 
 
@@ -8561,61 +8191,6 @@ function sanitizeInfraErrorMessage(message, scope) {
   return safe[scope] || "This check could not be completed during this scan. It may be retried automatically on a future scan.";
 }
 
-function parseEmailAuthHeaders(raw, domain) {
-  const dom = String(domain || "").trim().toLowerCase().replace(/\.$/, "");
-  const text = String(raw || "");
-  const out = {
-    spf: null, dkim: null, dmarc: null, source_ip: null,
-    from_domain: null, dkim_domain: null, dkim_selector: null,
-    aligned: null, verdict: "unparseable",
-  };
-  if (!text.trim()) return out;
-
-  // Unfold header continuation lines (leading whitespace) into single lines.
-  const unfolded = text.replace(/\r?\n[ \t]+/g, " ");
-  const lines = unfolded.split(/\r?\n/);
-
-  const arBlob = lines.filter((l) => /^authentication-results\s*:/i.test(l)).join(" ").toLowerCase();
-  const grab = (re) => { const m = arBlob.match(re); return m ? m[1] : null; };
-  const norm = (v) => (v ? String(v).toLowerCase() : null);
-  out.spf   = norm(grab(/\bspf=([a-z]+)/));
-  out.dkim  = norm(grab(/\bdkim=([a-z]+)/));
-  out.dmarc = norm(grab(/\bdmarc=([a-z]+)/));
-  out.from_domain = grab(/header\.from=([a-z0-9.\-]+)/) || null;
-  // SPF alignment (DMARC) is between the SMTP MAIL FROM domain and header.from,
-  // so the SPF-aligned check must use the mailfrom domain, not header.from.
-  const spfDomain = (grab(/smtp\.mailfrom=([a-z0-9.@\-]+)/) || "").split("@").pop() || null;
-  if (!out.from_domain && spfDomain) out.from_domain = spfDomain;
-  out.dkim_domain = grab(/header\.d=([a-z0-9.\-]+)/);
-
-  const dkimSig = lines.find((l) => /^dkim-signature\s*:/i.test(l));
-  if (dkimSig) {
-    const d = dkimSig.match(/\bd=([a-z0-9.\-]+)/i);
-    if (d && !out.dkim_domain) out.dkim_domain = d[1].toLowerCase();
-    const s = dkimSig.match(/\bs=([a-z0-9._\-]+)/i);
-    if (s) out.dkim_selector = s[1];
-  }
-
-  const cip = text.toLowerCase().match(/client-ip=([0-9a-f.:]+)/);
-  if (cip) out.source_ip = cip[1];
-  if (!out.source_ip) {
-    const rip = text.match(/received:[^\n]*?\[([0-9]{1,3}(?:\.[0-9]{1,3}){3})\]/is);
-    if (rip) out.source_ip = rip[1];
-  }
-  if (out.from_domain) out.from_domain = out.from_domain.toLowerCase().replace(/\.$/, "");
-  if (out.dkim_domain) out.dkim_domain = out.dkim_domain.toLowerCase().replace(/\.$/, "");
-
-  const aligns = (h) => Boolean(h && dom && (h === dom || h.endsWith("." + dom) || dom.endsWith("." + h)));
-  const dkimAligned = out.dkim === "pass" && aligns(out.dkim_domain);
-  const spfAligned  = out.spf === "pass" && aligns(spfDomain ? spfDomain.toLowerCase().replace(/\.$/, "") : null);
-  out.aligned = dkimAligned || spfAligned;
-
-  if (!out.spf && !out.dkim && !out.dmarc) out.verdict = "unparseable";
-  else if (out.aligned) out.verdict = "authenticated_aligned";
-  else if (out.spf === "pass" || out.dkim === "pass") out.verdict = "passes_not_aligned";
-  else out.verdict = "fails";
-  return out;
-}
 
 // ── Inbound RUA sender provenance (forged-report hardening) ───────────────────
 //
@@ -17314,94 +16889,11 @@ function buildAlertEmail(domain, scanId, triggers) {
   return { subject, text, html };
 }
 
-const EMAIL_SENDER_KEYS = new Set(["ALERT_EMAIL_FROM", "SAFE_EMAIL_FROM", "HELLO_EMAIL_FROM"]);
 
-function normalizeEmailRecipients(toEmails) {
-  const values = Array.isArray(toEmails) ? toEmails : typeof toEmails === "string" ? [toEmails] : [];
-  const unique = new Map();
-  for (const value of values) {
-    const email = String(value || "").trim().toLowerCase();
-    if (isValidEmail(email)) unique.set(email, email);
-  }
-  return [...unique.values()];
-}
 
-function resolveEmailSender(env, fromKey) {
-  if (!EMAIL_SENDER_KEYS.has(fromKey)) return null;
-  const sender = String(env[fromKey] || "").trim().toLowerCase();
-  return isValidEmail(sender) ? sender : null;
-}
 
-function getEmailFrontendOrigin(env) {
-  const configured = env.FRONTEND_URL || env.APP_URL || env.ALLOWED_ORIGIN;
-  try {
-    const parsed = new URL(configured);
-    return parsed.protocol === "https:" ? parsed.origin : null;
-  } catch {
-    return null;
-  }
-}
 
-function emailDeliveryLog(level, details) {
-  // Mask recipient local-parts before logging — logs go to `wrangler tail`, so
-  // never leak customer email addresses (PII). Domain is kept for deliverability
-  // debugging: "john.doe@acme.com" -> "j***@acme.com".
-  const payload = JSON.stringify({ service: "resend", ...details })
-    .replace(/([A-Za-z0-9._%+-])[A-Za-z0-9._%+-]*(@[A-Za-z0-9.-]+)/g, "$1***$2");
-  if (level === "error") console.error("[email-delivery]", payload);
-  else console.log("[email-delivery]", payload);
-}
 
-async function deliverEmail(subject, text, html, env, fromKey, toEmails) {
-  const to = normalizeEmailRecipients(toEmails);
-  const from = resolveEmailSender(env, fromKey);
-  const safeSubject = String(subject || "").replace(/[\r\n]+/g, " ").trim();
-  const context = { from_key: fromKey, recipient_count: to.length };
-
-  if (!env.RESEND_API_KEY) {
-    emailDeliveryLog("error", { ...context, outcome: "skipped", reason: "missing_api_key" });
-    return { sent: false, reason: "missing_api_key" };
-  }
-  if (!from) {
-    emailDeliveryLog("error", { ...context, outcome: "skipped", reason: "invalid_sender" });
-    return { sent: false, reason: "invalid_sender" };
-  }
-  if (to.length === 0) {
-    emailDeliveryLog("error", { ...context, outcome: "skipped", reason: "no_valid_recipients" });
-    return { sent: false, reason: "no_valid_recipients" };
-  }
-  if (!safeSubject || !String(text || "").trim() || !String(html || "").trim()) {
-    emailDeliveryLog("error", { ...context, outcome: "skipped", reason: "invalid_content" });
-    return { sent: false, reason: "invalid_content" };
-  }
-
-  try {
-    const response = await fetch("https://api.resend.com/emails", {
-      method:  "POST",
-      headers: {
-        "Content-Type":  "application/json",
-        "Authorization": `Bearer ${env.RESEND_API_KEY}`,
-      },
-      body: JSON.stringify({ from, to, subject: safeSubject, text, html }),
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!response.ok) {
-      emailDeliveryLog("error", { ...context, outcome: "failed", reason: "provider_rejected", status: response.status });
-      return { sent: false, reason: "provider_rejected", status: response.status };
-    }
-    let providerId = null;
-    try { providerId = (await response.json())?.id || null; } catch { /* response ID is optional */ }
-    emailDeliveryLog("info", { ...context, outcome: "accepted", provider_id: providerId });
-    return { sent: true, provider_id: providerId };
-  } catch (error) {
-    emailDeliveryLog("error", {
-      ...context,
-      outcome: "failed",
-      reason: error?.name === "TimeoutError" ? "timeout" : "network_error",
-    });
-    return { sent: false, reason: error?.name === "TimeoutError" ? "timeout" : "network_error" };
-  }
-}
 
 async function sendAlertEmail(subject, text, html, env, fromKey = "ALERT_EMAIL_FROM", toEmails = null) {
   const to = Array.isArray(toEmails) && toEmails.length > 0
@@ -17412,16 +16904,6 @@ async function sendAlertEmail(subject, text, html, env, fromKey = "ALERT_EMAIL_F
   return deliverEmail(subject, text, html, env, fromKey, to);
 }
 
-/**
- * sendCustomerEmail — strict variant for user-facing emails.
- * Unlike sendAlertEmail, this NEVER falls back to env.ALERT_EMAIL_TO.
- * If toEmails is empty or invalid, returns a failed delivery result without sending.
- * Use this for: password reset, workspace alert notifications.
- */
-async function sendCustomerEmail(subject, text, html, env, fromKey = "ALERT_EMAIL_FROM", toEmails = null) {
-  const to = Array.isArray(toEmails) ? toEmails : [];
-  return deliverEmail(subject, text, html, env, fromKey, to);
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Dedicated alert functions — each fires via the appropriate sender address
@@ -17508,245 +16990,12 @@ async function isAlertDuplicate(env, workspaceId, alertType, relatedEntity, chec
   }
 }
 
-function escapeEmailHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
 
-// ── Customer Lifecycle Emails v1 ──────────────────────────────────────────────
-// Concise activation emails sent at most once per scope. Idempotency is enforced
-// by lifecycle_email_events.dedupe_key (UNIQUE). No secrets, tokens, internal
-// IDs or raw errors ever appear in the body; links use FRONTEND_URL only.
-const LIFECYCLE_TYPES = new Set([
-  "lifecycle_welcome",
-  "lifecycle_workspace_created",
-  "lifecycle_domain_added",
-  "lifecycle_first_scan_completed",
-  "lifecycle_email_protection_next_step",
-  "lifecycle_payment_failed",
-]);
 
-// Pure, testable: a stable dedupe key per (type + scope).
-function lifecycleDedupeKey({ type, user_id = null, workspace_id = null, domain = null, ref = null } = {}) {
-  const d = String(domain || "").trim().toLowerCase();
-  switch (type) {
-    case "lifecycle_welcome":                     return `lifecycle_welcome:${user_id || "unknown"}`;
-    case "lifecycle_workspace_created":           return `lifecycle_workspace_created:${workspace_id || "unknown"}`;
-    case "lifecycle_domain_added":                return `lifecycle_domain_added:${workspace_id || "unknown"}:${d}`;
-    case "lifecycle_first_scan_completed":        return `lifecycle_first_scan_completed:${workspace_id || "unknown"}:${d}`;
-    case "lifecycle_email_protection_next_step":  return `lifecycle_email_protection_next_step:${workspace_id || "unknown"}:${d}`;
-    // One notification per failed invoice (`ref`), not per retry attempt —
-    // Stripe fires invoice.payment_failed on every collection retry.
-    case "lifecycle_payment_failed":              return `lifecycle_payment_failed:${ref || workspace_id || "unknown"}`;
-    default:                                       return `${type}:${user_id || ""}:${workspace_id || ""}:${d}`;
-  }
-}
 
-function _lifecycleHtml({ heading, paras, ctaLabel, ctaUrl }) {
-  const body = paras.map(p => `<p style="margin:0 0 14px;color:#374151;font-size:14px;line-height:1.6">${p}</p>`).join("");
-  const button = ctaUrl
-    ? `<p style="margin:6px 0 0"><a href="${ctaUrl}" style="display:inline-block;background:#00876A;color:#ffffff;text-decoration:none;font-weight:600;font-size:14px;padding:10px 18px;border-radius:10px">${escapeEmailHtml(ctaLabel)}</a></p>`
-    : "";
-  return `<div style="font-family:Inter,Arial,sans-serif;max-width:560px;margin:0 auto;padding:8px">`
-    + `<h1 style="font-size:18px;color:#111827;margin:0 0 14px">${escapeEmailHtml(heading)}</h1>`
-    + `${body}${button}`
-    + `<p style="margin:22px 0 0;color:#9ca3af;font-size:12px">CyberMeters · You are receiving this because you signed up for CyberMeters.</p></div>`;
-}
 
-// Pure, testable: build subject + html + text for a lifecycle type. `origin`
-// must be an https FRONTEND_URL origin (or null → links omitted). Never embeds
-// secrets; user-supplied values (domain, workspace name) are HTML-escaped.
-function buildLifecycleEmail(type, { origin = null, wsName = null, domain = null } = {}) {
-  const link = (path) => (origin ? `${origin}${path}` : null);
-  const ws = wsName ? escapeEmailHtml(wsName) : "your workspace";
-  const dom = domain ? escapeEmailHtml(domain) : "your domain";
-  const SERVICES_LINE = "Email Protection (DMARC &amp; impersonation), Brand Protection (lookalike domains), Attack Surface (exposed assets) and Certificates &amp; Trust (TLS &amp; expiry).";
 
-  let subject, heading, paras, ctaLabel, ctaPath;
-  switch (type) {
-    case "lifecycle_welcome":
-      subject = "Welcome to CyberMeters";
-      heading = "Welcome to CyberMeters";
-      paras = [
-        "CyberMeters protects your email, brand, external attack surface and certificates from one workspace.",
-        `Four services work together: ${SERVICES_LINE}`,
-        "To get started, add a domain and run your first scan.",
-      ];
-      ctaLabel = "Open CyberMeters"; ctaPath = "/services";
-      break;
-    case "lifecycle_workspace_created":
-      subject = "Your CyberMeters workspace is ready";
-      heading = "Your workspace is ready";
-      paras = [
-        `Your workspace (${ws}) is set up.`,
-        `A workspace connects ${SERVICES_LINE}`,
-        "Next, add or confirm a domain to start monitoring it.",
-      ];
-      ctaLabel = "Add a domain"; ctaPath = "/ws/dashboard";
-      break;
-    case "lifecycle_domain_added":
-      subject = "Your domain is ready for its first scan";
-      heading = "Your domain is ready";
-      paras = [
-        `${dom} has been added to your workspace.`,
-        "Run your first scan to map exposed assets and check your email posture.",
-        "After that, connect DMARC reporting in Email Protection to see who is sending email using your domain.",
-      ];
-      ctaLabel = "Run first scan"; ctaPath = "/scans/new";
-      break;
-    case "lifecycle_first_scan_completed":
-      subject = "Your first CyberMeters scan is complete";
-      heading = "Your first scan is complete";
-      paras = [
-        `Your first scan for ${dom} has finished.`,
-        "Review your results: findings are issues worth acting on, while observations are informational signals about your external footprint.",
-      ];
-      ctaLabel = "Review your dashboard"; ctaPath = "/dashboard";
-      break;
-    case "lifecycle_payment_failed":
-      subject = "Action needed: your CyberMeters payment could not be processed";
-      heading = "Your payment could not be processed";
-      paras = [
-        "The latest payment for your CyberMeters subscription could not be processed.",
-        "Please update your payment method to keep your paid plan active. The charge will be retried automatically over the next few days.",
-        "If payment continues to fail, your account will move to the free plan. Your data and settings are kept safe either way.",
-      ];
-      ctaLabel = "Update payment method"; ctaPath = "/billing";
-      break;
-    case "lifecycle_email_protection_next_step":
-      subject = "Finish connecting DMARC reporting";
-      heading = "Finish connecting DMARC reporting";
-      paras = [
-        `We have started receiving DMARC reports for ${dom}.`,
-        "Receiving reports does not mean your DNS is verified. To finish, make sure your DMARC record includes the CyberMeters reporting address, then verify DNS.",
-        "Once your record includes the CyberMeters address and DNS is verified, your domain is fully set up.",
-      ];
-      ctaLabel = "Finish DMARC setup"; ctaPath = "/ws/email-protection";
-      break;
-    default:
-      return { subject: "CyberMeters", html: _lifecycleHtml({ heading: "CyberMeters", paras: ["Open CyberMeters to continue."], ctaLabel: "Open CyberMeters", ctaUrl: link("/services") }), text: "Open CyberMeters to continue." };
-  }
 
-  const ctaUrl = link(ctaPath);
-  const html = _lifecycleHtml({ heading, paras, ctaLabel, ctaUrl });
-  const text = `${heading}\n\n`
-    + paras.map(p => p.replace(/&amp;/g, "&")).join("\n\n")
-    + (ctaUrl ? `\n\n${ctaLabel}: ${ctaUrl}` : "")
-    + `\n\nCyberMeters`;
-  return { subject, html, text };
-}
-
-/**
- * sendLifecycleEmail — idempotent activation email. Resolves a VERIFIED
- * recipient (explicit `to`, the user, or the workspace owner), dedupes via the
- * UNIQUE dedupe_key, then delivers through the strict customer-email path. Never
- * throws, never sends to unverified/missing addresses, never leaks internals.
- */
-async function sendLifecycleEmail(env, { type, user_id = null, workspace_id = null, domain = null, to = null, wsName = null, ref = null } = {}) {
-  try {
-    if (!LIFECYCLE_TYPES.has(type)) return { skipped: "unknown_type" };
-
-    let email = null, uid = user_id, name = wsName;
-    if (to && isValidEmail(String(to).trim().toLowerCase())) email = String(to).trim().toLowerCase();
-    if (!email && user_id) {
-      const u = await env.cybermeters_db
-        .prepare("SELECT id, email, email_verified FROM users WHERE id = ? LIMIT 1").bind(user_id).first();
-      if (u?.email_verified && isValidEmail(String(u.email || "").toLowerCase())) email = String(u.email).toLowerCase();
-      uid = u?.id ?? user_id;
-    }
-    if (!email && workspace_id) {
-      const row = await env.cybermeters_db
-        .prepare("SELECT u.id AS uid, u.email AS email, u.email_verified AS ev, w.name AS wname FROM workspaces w JOIN users u ON u.id = w.owner_user_id WHERE w.id = ? LIMIT 1")
-        .bind(workspace_id).first();
-      if (row?.ev && isValidEmail(String(row.email || "").toLowerCase())) email = String(row.email).toLowerCase();
-      uid = uid ?? row?.uid ?? null;
-      if (!name) name = row?.wname || null;
-    }
-    if (!email) return { skipped: "no_verified_email" };
-
-    const dedupeKey = lifecycleDedupeKey({ type, user_id: uid, workspace_id, domain, ref });
-    let rowId = createId("lifemail");
-    const ins = await env.cybermeters_db
-      .prepare(`INSERT INTO lifecycle_email_events (id, user_id, workspace_id, domain, type, dedupe_key, status, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, 'pending', datetime('now'))
-                ON CONFLICT(dedupe_key) DO NOTHING`)
-      .bind(rowId, uid ?? null, workspace_id ?? null, domain ?? null, type, dedupeKey)
-      .run();
-
-    // Conflict → a row for this scope already exists. Retry only if the prior
-    // attempt FAILED (e.g. a transient network error); 'sent' and in-flight
-    // 'pending' rows are still deduped so we never double-send. Claiming the
-    // failed row back to 'pending' also guards against two concurrent retries.
-    if ((ins.meta?.changes ?? 0) === 0) {
-      const existing = await env.cybermeters_db
-        .prepare("SELECT id, status FROM lifecycle_email_events WHERE dedupe_key = ? LIMIT 1")
-        .bind(dedupeKey).first();
-      if (!existing || existing.status !== "failed") return { skipped: "duplicate" };
-      const claim = await env.cybermeters_db
-        .prepare("UPDATE lifecycle_email_events SET status = 'pending', error = NULL WHERE id = ? AND status = 'failed'")
-        .bind(existing.id).run();
-      if ((claim.meta?.changes ?? 0) === 0) return { skipped: "duplicate" };
-      rowId = existing.id;
-    }
-
-    const origin = getEmailFrontendOrigin(env);
-    const { subject, html, text } = buildLifecycleEmail(type, { origin, wsName: name, domain });
-    const res = await sendCustomerEmail(subject, text, html, env, "HELLO_EMAIL_FROM", [email]);
-
-    await env.cybermeters_db
-      .prepare(`UPDATE lifecycle_email_events
-                SET status = ?, provider_id = ?, error = ?, sent_at = CASE WHEN ? = 'sent' THEN datetime('now') ELSE sent_at END
-                WHERE id = ?`)
-      .bind(res.sent ? "sent" : "failed", res.provider_id || null, res.sent ? null : (res.reason || "send_failed"), res.sent ? "sent" : "failed", rowId)
-      .run();
-    return res.sent ? { sent: true } : { sent: false, reason: res.reason };
-  } catch (e) {
-    console.error("[lifecycle-email]", String(e?.message ?? e));
-    return { sent: false, reason: "error" };
-  }
-}
-
-/**
- * retryFailedLifecycleEmails — hourly cron sweep that re-sends lifecycle emails
- * whose first attempt FAILED. This decouples delivery from the context that
- * originally failed: e.g. lifecycle_first_scan_completed is sent at the end of
- * the subrequest-heavy scan engine (ctx.waitUntil), where the outbound Resend
- * fetch can fail; the cron runs in a clean, light invocation with full
- * subrequest budget. Re-firing sendLifecycleEmail reuses the retry-claim path,
- * so the same failed row is reclaimed and re-sent (never double-sent).
- *
- * Excludes lifecycle_payment_failed: its dedupe key includes the Stripe invoice
- * id (`ref`), which is not stored on the row, so it cannot be safely rebuilt
- * here — and it is sent from the light webhook context anyway. Bounded to a
- * 3-day window and 10 rows per run. Never throws.
- */
-async function retryFailedLifecycleEmails(env) {
-  try {
-    const rows = await env.cybermeters_db
-      .prepare(`SELECT id, type, user_id, workspace_id, domain
-                FROM lifecycle_email_events
-                WHERE status = 'failed'
-                  AND type != 'lifecycle_payment_failed'
-                  AND created_at > datetime('now', '-3 days')
-                ORDER BY created_at ASC
-                LIMIT 10`)
-      .all().catch(() => null);
-    for (const row of (rows?.results || [])) {
-      await sendLifecycleEmail(env, {
-        type:         row.type,
-        user_id:      row.user_id ?? null,
-        workspace_id: row.workspace_id ?? null,
-        domain:       row.domain ?? null,
-      }).catch(() => {});
-    }
-  } catch (e) {
-    console.error("[lifecycle-retry]", String(e?.message ?? e));
-  }
-}
 
 // ─── Workspace alert channels (Slack / Teams / signed generic webhooks) ──────
 // SMB teams live in Slack/Teams, not in another dashboard. Channels mirror the
@@ -21895,71 +21144,9 @@ async function requireScanReadAccess(user, scanId, env) {
 
 // ── Notification Helpers ─────────────────────────────────────────────────────
 
-/**
- * createNotificationEvent — inserts one row into notification_events.
- *
- * @param {object} env          - Worker env bindings
- * @param {string} workspace_id - Target workspace
- * @param {object} opts         - { type, severity, title, message, metadata, user_id }
- *
- * Always non-fatal — swallows all errors so callers never need try/catch.
- */
-async function createNotificationEvent(env, workspace_id, { type, severity = "info", title, message = null, metadata = null, user_id = null } = {}) {
-  if (!workspace_id || !type || !title) return;
-  try {
-    const id           = createId("notif");
-    const metaJson     = metadata ? JSON.stringify(metadata) : null;
-    await env.cybermeters_db
-      .prepare(
-        `INSERT INTO notification_events
-           (id, workspace_id, user_id, type, severity, title, message, metadata_json, status, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'unread', datetime('now'))`
-      )
-      .bind(id, workspace_id, user_id, type, severity, title, message, metaJson)
-      .run();
-  } catch { /* non-fatal */ }
-}
 
 // ── Audit Trail Helper ───────────────────────────────────────────────────────
 
-/**
- * createAuditEvent — inserts one row into audit_events.
- *
- * Always non-fatal. Audit failures must never break business logic.
- *
- * @param {object} env              - Worker env bindings
- * @param {object} opts
- *   workspace_id  {string|null}   - Workspace context (null for auth events)
- *   user_id       {string|null}   - Acting user (null for system events)
- *   event_type    {string}        - e.g. 'domain_verified', 'scan_completed'
- *   entity_type   {string|null}   - e.g. 'domain', 'scan', 'member', 'report'
- *   entity_id     {string|null}   - ID of the affected entity
- *   description   {string|null}   - Human-readable summary
- *   metadata      {object|null}   - Arbitrary JSON context
- */
-async function createAuditEvent(env, {
-  workspace_id  = null,
-  user_id       = null,
-  event_type,
-  entity_type   = null,
-  entity_id     = null,
-  description   = null,
-  metadata      = null,
-} = {}) {
-  if (!event_type) return;
-  try {
-    const id       = createId("audit");
-    const metaJson = metadata ? JSON.stringify(metadata) : null;
-    await env.cybermeters_db
-      .prepare(
-        `INSERT INTO audit_events
-           (id, workspace_id, user_id, event_type, entity_type, entity_id, description, metadata_json, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
-      )
-      .bind(id, workspace_id, user_id, event_type, entity_type, entity_id, description, metaJson)
-      .run();
-  } catch { /* non-fatal */ }
-}
 
 /**
  * createNotificationsForDomain — fires workspace-level notifications for a
@@ -21975,74 +21162,7 @@ async function createAuditEvent(env, {
  * @param {object} env          - Worker env bindings
  */
 
-/**
- * sanitizeAuditMetadata — removes sensitive keys from audit event metadata
- * before returning to clients or writing to exports.
- * Keys matching any blocked substring are replaced with "[redacted]".
- */
-function sanitizeAuditMetadata(metadata) {
-  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return metadata;
-  const BLOCKED = [
-    "password", "token", "secret", "authorization", "stripe",
-    "recovery", "totp", "mfa_secret", "api_key", "key_material",
-  ];
-  const sanitized = {};
-  for (const [k, v] of Object.entries(metadata)) {
-    const lower = k.toLowerCase();
-    const blocked = BLOCKED.some(b => lower.includes(b));
-    sanitized[k] = blocked ? "[redacted]" : v;
-  }
-  return sanitized;
-}
 
-async function createNotificationsForDomain(domainId, domain, scanId, score, risk_level, findings, env) {
-  try {
-    const wsResult = await env.cybermeters_db
-      .prepare("SELECT workspace_id FROM workspace_domains WHERE domain_id = ?")
-      .bind(domainId)
-      .all();
-    const workspaceIds = (wsResult.results || []).map(r => r.workspace_id);
-    if (workspaceIds.length === 0) return;
-
-    const criticalCount = findings.filter(f => f.severity === "critical").length;
-    const highCount     = findings.filter(f => f.severity === "high").length;
-    const meta          = { scan_id: scanId, domain, score, risk_level };
-
-    for (const wsId of workspaceIds) {
-      // Scan completed notification
-      await createNotificationEvent(env, wsId, {
-        type:     "scan_completed",
-        severity: criticalCount > 0 ? "critical" : highCount > 0 ? "high" : "info",
-        title:    `Scan completed for ${domain}`,
-        message:  `Score: ${score} · ${risk_level} risk${criticalCount > 0 ? ` · ${criticalCount} critical finding${criticalCount !== 1 ? "s" : ""}` : ""}${highCount > 0 ? ` · ${highCount} high finding${highCount !== 1 ? "s" : ""}` : ""}`,
-        metadata: meta,
-      });
-
-      // Critical findings notification (separate, higher urgency)
-      if (criticalCount > 0) {
-        await createNotificationEvent(env, wsId, {
-          type:     "critical_finding",
-          severity: "critical",
-          title:    `${criticalCount} critical finding${criticalCount !== 1 ? "s" : ""} on ${domain}`,
-          message:  `A scan of ${domain} detected ${criticalCount} critical severity issue${criticalCount !== 1 ? "s" : ""} requiring immediate attention.`,
-          metadata: meta,
-        });
-      }
-
-      // High findings notification. Aggregated separately from critical findings
-      // so mixed critical/high scans still surface both counts without per-finding spam.
-      if (highCount > 0) {
-        await createNotificationEvent(env, wsId, {
-          type:     "high_finding",
-          severity: "high",
-          title:    `${highCount} high-severity finding${highCount !== 1 ? "s" : ""} on ${domain}`,
-          message:  `A scan of ${domain} detected ${highCount} high-severity issue${highCount !== 1 ? "s" : ""}.`,
-          metadata: meta,
-        });
-      }
-    }
-  } catch { /* non-fatal */ }
-}
 
 // ── Domain verification auto-retry (cron) ───────────────────────────────────
 //
@@ -23774,83 +22894,10 @@ async function isPlatformAdmin(user, env) {
   return !!user?.email && allowlist.includes(user.email.toLowerCase());
 }
 
-// corsHeaders is request-scoped — see buildCorsHeaders(env) below.
-// The module-level fallback is used only outside the fetch handler (e.g. json() default).
-function buildCorsHeaders(env) {
-  return {
-    "Access-Control-Allow-Origin":  (env && env.ALLOWED_ORIGIN) || "https://app.cybermeters.com",
-    "Access-Control-Allow-Methods": "GET, POST, PATCH, PUT, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
-    "Access-Control-Expose-Headers": "X-Request-ID",
-  };
-}
 
-// Module-level json() uses the production default — overridden per-request inside fetch().
-function buildJsonHeaders(_corsHeaders = buildCorsHeaders(null)) {
-  return {
-    ..._corsHeaders,
-    // Prevent Cloudflare edge and browser caches from serving stale API responses.
-    // Scan status, notifications, and workspace data change frequently and must
-    // always reflect the current database state.
-    'Cache-Control': 'no-store',
-    // Defence-in-depth for a JSON API: none of these responses are documents,
-    // but the headers cost nothing and close residual framing/sniffing paths.
-    'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
-    'X-Content-Type-Options': 'nosniff',
-    'X-Frame-Options': 'DENY',
-    'Content-Security-Policy': "default-src 'none'",
-    'Referrer-Policy': 'strict-origin-when-cross-origin',
-  };
-}
 
-function normalizeApiResponseData(data, status) {
-  if (!Number.isInteger(status) || status < 400 || !data || typeof data !== "object" || Array.isArray(data)) {
-    return data;
-  }
 
-  const normalized = { ...data };
-  delete normalized.detail;
-  delete normalized.stack;
 
-  if (typeof normalized.error !== "string" || !normalized.error.trim()) {
-    normalized.error = status >= 500 ? "Request failed. Please try again." : "Request could not be completed.";
-  }
-
-  if (!normalized.code) {
-    normalized.code = /^[a-z][a-z0-9_]*$/.test(normalized.error)
-      ? normalized.error
-      : ({ 400: "bad_request", 401: "unauthorized", 403: "forbidden", 404: "not_found", 409: "conflict", 413: "payload_too_large", 414: "uri_too_long", 429: "rate_limit_exceeded" }[status]
-        || (status >= 500 ? "server_error" : "request_error"));
-  }
-
-  return normalized;
-}
-
-function json(data, status = 200, _corsHeaders = buildCorsHeaders(null)) {
-  return Response.json(normalizeApiResponseData(data, status), {
-    status,
-    headers: buildJsonHeaders(_corsHeaders),
-  });
-}
-
-// ── List pagination contract ─────────────────────────────────────────────────
-// Every list endpoint returns a `pagination` object next to its named array so
-// API consumers get one predictable shape. paginationParams parses + clamps
-// limit/offset from the query; pageMeta describes the returned page. has_more is
-// exact when a total is known, otherwise a full-page heuristic (count >= limit).
-function paginationParams(url, { defaultLimit = 50, maxLimit = 100 } = {}) {
-  return {
-    limit:  parseBoundedInteger(url.searchParams.get("limit"), defaultLimit, 1, maxLimit),
-    offset: parseBoundedInteger(url.searchParams.get("offset"), 0, 0, 1_000_000),
-  };
-}
-function pageMeta({ items, limit, offset, total = null }) {
-  const count = Array.isArray(items) ? items.length : 0;
-  const meta = { limit, offset, count };
-  if (total != null) { meta.total = total; meta.has_more = offset + count < total; }
-  else { meta.has_more = count >= limit; }
-  return meta;
-}
 
 // ── MSP Portfolio Risk Engine v1 ──────────────────────────────────────────────
 //
@@ -36939,9 +35986,6 @@ export default {
 // production. If a symbol moves to another module, re-export it from here so
 // the harness import surface stays stable.
 export {
-  RUA_INBOUND_DOMAIN_DEFAULT,
-  createAuditEvent,
-  createNotificationEvent,
   DMARC_RAMP_LADDER,
   INTELLIGENCE_ENGINE_REGISTRY,
   REMEDIATION_REGISTRY,
@@ -36972,7 +36016,6 @@ export {
   buildEmailRemediationActions,
   buildEmailTransportDetails,
   buildExecutiveReportV2,
-  buildLifecycleEmail,
   cfCreateHostedTxt,
   classifyHostedCfError,
   classifyProviderInfrastructure,
@@ -36985,11 +36028,8 @@ export {
   cybermetersRuaPresentInDmarcRecord,
   decryptTotpSecret,
   deduplicateExposureAssets,
-  deliverEmail,
   deliverWorkspaceAlert,
   dmarcRampStepIndex,
-  dmarcReportDomainMatches,
-  dmarcReportIdentity,
   dmarcSenderRiskLevel,
   encryptTotpSecret,
   ensureCloudflareEmailRoute,
@@ -37003,11 +36043,9 @@ export {
   generateSessionToken,
   generateTotpSecret,
   getAccessibleWorkspaceIds,
-  getEmailFrontendOrigin,
   getEmailVerificationTokenStatus,
   getPaymentGraceState,
   getRemediation,
-  guessEmailSenderProvider,
   hasWorkspacePermission,
   hashIngestToken,
   hashPassword,
@@ -37015,30 +36053,18 @@ export {
   hostedDmarcSubdomain,
   hostedDnsRecordToApi,
   inferBrandProfileFromDomains,
-  ingestDmarcReport,
-  ingestEndpointIsActive,
   ingestEndpointToApi,
   isDeletionPurgeDue,
   isEmailVerificationResendCoolingDown,
   isValidDomain,
-  isValidEmail,
   legacyBrandAssetToApi,
-  lifecycleDedupeKey,
   newHostedDnsRecordId,
   nextHostedDnsStatus,
-  normalizeApiResponseData,
   normalizeCertificateSanNames,
   normalizeDiscoveredHostname,
-  normalizeEmailRecipients,
-  normalizeInboundRecipientDomain,
-  pageMeta,
-  paginationParams,
   parseBimiRecord,
-  parseBoundedInteger,
   parseBrandCandidateListParams,
-  parseDmarcAggregateXml,
   parseDmarcRecord,
-  parseEmailAuthHeaders,
   parseSpfRecord,
   pdfUtcDate,
   persistDmarcRouteResult,
@@ -37050,9 +36076,7 @@ export {
   requireWorkspaceAccess,
   requireWorkspaceRole,
   resolveCanonicalScanScore,
-  resolveEmailSender,
   resolveIntelligenceEngine,
-  retryFailedLifecycleEmails,
   revokeCloudflareEmailRoute,
   riskLevelForScore,
   rollbackHostedDmarc,
@@ -37062,11 +36086,9 @@ export {
   runSaasExposureModule,
   sanitizeInfraErrorMessage,
   scoreBrandCandidateRisk,
-  sendLifecycleEmail,
   shouldAutoRollback,
   signAlertWebhookBody,
   summarizeEmailSenders,
-  updateEmailSenderSources,
   validateAlertChannelInput,
   validateBrandProfileInput,
   validateFindingEvidence,
@@ -37095,3 +36117,9 @@ export {
   selectDmarcAttachment,
   unzipSingleEntryXmlBytes,
 } from "./email/inbound.js";
+
+// Re-exported for the test harnesses: these moved to lib modules (Stage A).
+export { isValidEmail, normalizeApiResponseData, pageMeta, paginationParams, parseBoundedInteger } from "./lib/util.js";
+export { createAuditEvent, createNotificationEvent } from "./lib/events.js";
+export { RUA_INBOUND_DOMAIN_DEFAULT, dmarcReportDomainMatches, dmarcReportIdentity, guessEmailSenderProvider, ingestDmarcReport, ingestEndpointIsActive, normalizeInboundRecipientDomain, parseDmarcAggregateXml, parseEmailAuthHeaders, updateEmailSenderSources } from "./lib/dmarc-ingest.js";
+export { buildLifecycleEmail, deliverEmail, getEmailFrontendOrigin, lifecycleDedupeKey, normalizeEmailRecipients, resolveEmailSender, retryFailedLifecycleEmails, sendLifecycleEmail } from "./lib/lifecycle-email.js";

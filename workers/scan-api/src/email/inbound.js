@@ -1,20 +1,12 @@
 // ── Inbound DMARC (RUA) email module ─────────────────────────────────────────
 // Sprint 9 phase-1 extraction: the email() handler plus its exclusive parsing
 // layer (MIME split, gzip/zip bomb-capped decompression, sender provenance)
-// moved out of the monolith. Shared app services still live in index.js and
-// are imported below — a deliberate, documented cycle (index ⇄ inbound); all
-// uses are at call time, which ES modules and the wrangler bundler resolve.
-// Phase 2 dissolves the cycle by moving those services into src/lib/.
-import {
-  RUA_INBOUND_DOMAIN_DEFAULT,
-  createAuditEvent,
-  createNotificationEvent,
-  ingestDmarcReport,
-  ingestEndpointIsActive,
-  normalizeInboundRecipientDomain,
-  parseEmailAuthHeaders,
-  sendLifecycleEmail,
-} from "../index.js";
+// moved out of the monolith. Shared app services are imported from the
+// src/lib/ service modules — the Sprint 9 index ⇄ inbound cycle was dissolved
+// in Sprint 10 Stage A; this module no longer imports index.js.
+import { RUA_INBOUND_DOMAIN_DEFAULT, ingestDmarcReport, ingestEndpointIsActive, normalizeInboundRecipientDomain, parseEmailAuthHeaders } from "../lib/dmarc-ingest.js";
+import { createAuditEvent, createNotificationEvent } from "../lib/events.js";
+import { sendLifecycleEmail } from "../lib/lifecycle-email.js";
 
 const RUA_RAW_EMAIL_MAX_BYTES   = 25 * 1024 * 1024; // Cloudflare inbound ceiling
 const RUA_ATTACHMENT_MAX_BYTES  = 10 * 1024 * 1024; // compressed attachment cap
