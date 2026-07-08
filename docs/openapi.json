@@ -1,0 +1,152 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "CyberMeters Platform API",
+    "version": "2026.07.08",
+    "description": "REST API for the CyberMeters external security posture platform (email protection, brand protection, attack surface, certificates & trust). Contract-level specification derived from workers/scan-api/src/index.js. Covers every route family; request/response bodies are fully schematised where the shape is stable and described otherwise. Not versioned in the path yet (all routes under /api); a /v1 alias is a planned sprint item.",
+    "contact": { "name": "CyberMeters", "url": "https://app.cybermeters.com" }
+  },
+  "servers": [
+    { "url": "https://api.cybermeters.com", "description": "Production (custom domain)" },
+    { "url": "https://cybermeters-platform.ttrnn47.workers.dev", "description": "Production (workers.dev)" }
+  ],
+  "security": [{ "bearerAuth": [] }],
+  "tags": [
+    { "name": "System", "description": "Health and platform metadata (unauthenticated)." },
+    { "name": "Auth", "description": "Registration, login, session, email verification, password reset, Microsoft SSO." },
+    { "name": "MFA", "description": "TOTP enrolment, login challenge, recovery codes." },
+    { "name": "Account", "description": "Profile, sessions, API tokens, usage, subscription, data export/deletion." },
+    { "name": "Workspaces", "description": "Workspace lifecycle and its scoped sub-resources (RBAC enforced)." },
+    { "name": "Domains", "description": "Domain verification and per-domain email/DMARC/remediation detail." },
+    { "name": "Scans", "description": "Scan start, listing, and report retrieval." },
+    { "name": "Reports", "description": "Workspace and scorecard reports (JSON + PDF)." },
+    { "name": "Billing", "description": "Plans, checkout, portal, subscription, Stripe webhooks." },
+    { "name": "DMARC Ingestion", "description": "Signed RUA aggregate report upload (token auth)." },
+    { "name": "Portfolio", "description": "MSP cross-workspace risk aggregation." },
+    { "name": "Public", "description": "Unauthenticated public tools (rate-limited)." }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": ["System"], "summary": "Liveness + release metadata", "operationId": "getHealth", "security": [],
+        "responses": { "200": { "description": "Service is up", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Health" } } } } }
+      }
+    },
+    "/api/auth/signup": { "post": { "tags": ["Auth"], "summary": "Register an account", "operationId": "signup", "security": [], "responses": { "200": { "$ref": "#/components/responses/Ok" }, "429": { "$ref": "#/components/responses/RateLimited" } } } },
+    "/api/auth/login": {
+      "post": {
+        "tags": ["Auth"], "summary": "Log in (may require an MFA challenge)", "operationId": "login", "security": [],
+        "responses": {
+          "200": { "description": "Session created, or an MFA challenge is required", "content": { "application/json": { "schema": { "oneOf": [ { "$ref": "#/components/schemas/Session" }, { "$ref": "#/components/schemas/MfaRequired" } ] } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" }, "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/api/auth/logout": { "post": { "tags": ["Auth"], "summary": "Invalidate the current session", "operationId": "logout", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/auth/me": { "get": { "tags": ["Auth"], "summary": "Current authenticated user", "operationId": "getMe", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "401": { "$ref": "#/components/responses/Unauthorized" } } } },
+    "/api/auth/verify-email": { "post": { "tags": ["Auth"], "summary": "Confirm email with a verification token", "operationId": "verifyEmail", "security": [], "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/auth/resend-verification": { "post": { "tags": ["Auth"], "summary": "Resend the verification email", "operationId": "resendVerification", "security": [], "responses": { "200": { "$ref": "#/components/responses/Ok" }, "429": { "$ref": "#/components/responses/RateLimited" } } } },
+    "/api/auth/forgot-password": { "post": { "tags": ["Auth"], "summary": "Request a password-reset email", "operationId": "forgotPassword", "security": [], "responses": { "200": { "$ref": "#/components/responses/Ok" }, "429": { "$ref": "#/components/responses/RateLimited" } } } },
+    "/api/auth/reset-password": { "post": { "tags": ["Auth"], "summary": "Reset the password with a single-use token", "operationId": "resetPassword", "security": [], "responses": { "200": { "$ref": "#/components/responses/Ok" }, "401": { "$ref": "#/components/responses/Unauthorized" } } } },
+    "/api/auth/exchange": { "post": { "tags": ["Auth"], "summary": "Exchange a one-time code for a session", "operationId": "exchangeCode", "security": [], "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/auth/microsoft/login": { "get": { "tags": ["Auth"], "summary": "Begin Microsoft (Entra) SSO", "operationId": "microsoftLogin", "security": [], "responses": { "302": { "description": "Redirect to the Microsoft authorize endpoint" } } } },
+    "/api/auth/microsoft/callback": { "get": { "tags": ["Auth"], "summary": "Microsoft SSO callback", "operationId": "microsoftCallback", "security": [], "responses": { "302": { "description": "Redirect back to the frontend with a one-time code" } } } },
+    "/api/auth/mfa/status": { "get": { "tags": ["MFA"], "summary": "Whether MFA is enabled", "operationId": "mfaStatus", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/auth/mfa/setup": { "post": { "tags": ["MFA"], "summary": "Begin TOTP enrolment (returns otpauth URI)", "operationId": "mfaSetup", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/auth/mfa/verify-setup": { "post": { "tags": ["MFA"], "summary": "Confirm the first TOTP code, enable MFA, return recovery codes", "operationId": "mfaVerifySetup", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "400": { "$ref": "#/components/responses/BadRequest" } } } },
+    "/api/auth/mfa/challenge": { "post": { "tags": ["MFA"], "summary": "Second-factor login challenge (single-use)", "operationId": "mfaChallenge", "security": [], "responses": { "200": { "description": "Session created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Session" } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } } },
+    "/api/auth/mfa/recovery-code": { "post": { "tags": ["MFA"], "summary": "Sign in with a single-use recovery code", "operationId": "mfaRecoveryCode", "security": [], "responses": { "200": { "$ref": "#/components/responses/Ok" }, "401": { "$ref": "#/components/responses/Unauthorized" } } } },
+    "/api/auth/mfa/disable": { "post": { "tags": ["MFA"], "summary": "Disable MFA (requires TOTP code or current password)", "operationId": "mfaDisable", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "403": { "$ref": "#/components/responses/Forbidden" } } } },
+    "/api/account/profile": { "get": { "tags": ["Account"], "summary": "Get profile", "operationId": "getProfile", "responses": { "200": { "$ref": "#/components/responses/Ok" } } }, "patch": { "tags": ["Account"], "summary": "Update profile", "operationId": "updateProfile", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/account/sessions": { "get": { "tags": ["Account"], "summary": "List active sessions", "operationId": "listSessions", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/account/sessions/{id}": { "parameters": [{ "$ref": "#/components/parameters/id" }], "delete": { "tags": ["Account"], "summary": "Revoke a session", "operationId": "revokeSession", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/NotFound" } } } },
+    "/api/account/api-tokens": { "get": { "tags": ["Account"], "summary": "List API tokens", "operationId": "listApiTokens", "responses": { "200": { "$ref": "#/components/responses/Ok" } } }, "post": { "tags": ["Account"], "summary": "Create an API token (raw token shown once)", "operationId": "createApiToken", "responses": { "201": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/account/api-tokens/{id}": { "parameters": [{ "$ref": "#/components/parameters/id" }], "delete": { "tags": ["Account"], "summary": "Revoke an API token", "operationId": "revokeApiToken", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/NotFound" } } } },
+    "/api/account/usage": { "get": { "tags": ["Account"], "summary": "Plan usage counters", "operationId": "getUsage", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/account/subscription": { "get": { "tags": ["Account"], "summary": "Current subscription state", "operationId": "getAccountSubscription", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/account/export": { "get": { "tags": ["Account"], "summary": "Export account data (GDPR)", "operationId": "exportAccount", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/account/delete-request": { "post": { "tags": ["Account"], "summary": "Request account deletion", "operationId": "requestAccountDeletion", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/account/login-history": { "get": { "tags": ["Account"], "summary": "Recent login history", "operationId": "getLoginHistory", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/workspaces": { "get": { "tags": ["Workspaces"], "summary": "List accessible workspaces", "operationId": "listWorkspaces", "responses": { "200": { "$ref": "#/components/responses/Ok" } } }, "post": { "tags": ["Workspaces"], "summary": "Create a workspace", "operationId": "createWorkspace", "responses": { "201": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/workspaces/{workspaceId}": { "parameters": [{ "$ref": "#/components/parameters/workspaceId" }], "get": { "tags": ["Workspaces"], "summary": "Get a workspace", "operationId": "getWorkspace", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } } }, "patch": { "tags": ["Workspaces"], "summary": "Update a workspace", "operationId": "updateWorkspace", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "403": { "$ref": "#/components/responses/Forbidden" } } }, "delete": { "tags": ["Workspaces"], "summary": "Soft-delete a workspace (30-day restore window)", "operationId": "deleteWorkspace", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "403": { "$ref": "#/components/responses/Forbidden" } } } },
+    "/api/workspaces/{workspaceId}/restore": { "parameters": [{ "$ref": "#/components/parameters/workspaceId" }], "post": { "tags": ["Workspaces"], "summary": "Restore a soft-deleted workspace (owner only)", "operationId": "restoreWorkspace", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "403": { "$ref": "#/components/responses/Forbidden" }, "409": { "$ref": "#/components/responses/Conflict" } } } },
+    "/api/workspaces/{workspaceId}/domains": { "parameters": [{ "$ref": "#/components/parameters/workspaceId" }], "get": { "tags": ["Workspaces"], "summary": "List workspace domains", "operationId": "listWorkspaceDomains", "responses": { "200": { "$ref": "#/components/responses/Ok" } } }, "post": { "tags": ["Workspaces"], "summary": "Add a domain (admin)", "operationId": "addWorkspaceDomain", "responses": { "201": { "$ref": "#/components/responses/Ok" }, "403": { "$ref": "#/components/responses/Forbidden" } } } },
+    "/api/workspaces/{workspaceId}/domains/import": { "parameters": [{ "$ref": "#/components/parameters/workspaceId" }], "post": { "tags": ["Workspaces"], "summary": "Bulk import domains (admin)", "operationId": "importWorkspaceDomains", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "403": { "$ref": "#/components/responses/Forbidden" } } } },
+    "/api/workspaces/{workspaceId}/members": { "parameters": [{ "$ref": "#/components/parameters/workspaceId" }], "get": { "tags": ["Workspaces"], "summary": "List members", "operationId": "listMembers", "responses": { "200": { "$ref": "#/components/responses/Ok" } } }, "post": { "tags": ["Workspaces"], "summary": "Invite/add a member (admin)", "operationId": "addMember", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "403": { "$ref": "#/components/responses/Forbidden" } } } },
+    "/api/workspaces/{workspaceId}/invitations": { "parameters": [{ "$ref": "#/components/parameters/workspaceId" }], "post": { "tags": ["Workspaces"], "summary": "Send a workspace invitation (rate-limited, admin)", "operationId": "sendInvitation", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "403": { "$ref": "#/components/responses/Forbidden" }, "429": { "$ref": "#/components/responses/RateLimited" } } } },
+    "/api/workspaces/{workspaceId}/notifications": { "parameters": [{ "$ref": "#/components/parameters/workspaceId" }], "get": { "tags": ["Workspaces"], "summary": "List notifications (metadata is a parsed object)", "operationId": "listNotifications", "parameters": [{ "$ref": "#/components/parameters/limit" }, { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["unread"] } }], "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/workspaces/{workspaceId}/notifications/{notifId}/read": { "parameters": [{ "$ref": "#/components/parameters/workspaceId" }, { "name": "notifId", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Notification id, or 'all'" }], "post": { "tags": ["Workspaces"], "summary": "Mark a notification (or all) read", "operationId": "markNotificationRead", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/workspaces/{workspaceId}/reports": { "parameters": [{ "$ref": "#/components/parameters/workspaceId" }], "get": { "tags": ["Reports"], "summary": "List workspace reports", "operationId": "listWorkspaceReports", "parameters": [{ "name": "report_type", "in": "query", "schema": { "type": "string" } }, { "name": "status", "in": "query", "schema": { "type": "string" } }], "responses": { "200": { "$ref": "#/components/responses/Ok" } } }, "post": { "tags": ["Reports"], "summary": "Generate a workspace executive report", "operationId": "createWorkspaceReport", "responses": { "201": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/workspaces/{workspaceId}/reports/{reportId}": { "parameters": [{ "$ref": "#/components/parameters/workspaceId" }, { "name": "reportId", "in": "path", "required": true, "schema": { "type": "string" } }], "get": { "tags": ["Reports"], "summary": "Get a report", "operationId": "getWorkspaceReport", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/NotFound" } } }, "delete": { "tags": ["Reports"], "summary": "Delete a report (admin) — purges the R2 object", "operationId": "deleteWorkspaceReport", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "403": { "$ref": "#/components/responses/Forbidden" } } } },
+    "/api/workspaces/{workspaceId}/hosted-dmarc": { "parameters": [{ "$ref": "#/components/parameters/workspaceId" }], "get": { "tags": ["Domains"], "summary": "Hosted DMARC record state + ramp readiness", "operationId": "getHostedDmarc", "responses": { "200": { "$ref": "#/components/responses/Ok" } } }, "post": { "tags": ["Domains"], "summary": "Create/change the hosted DMARC policy (write-ahead saga)", "operationId": "changeHostedDmarc", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "403": { "$ref": "#/components/responses/Forbidden" }, "409": { "$ref": "#/components/responses/Conflict" } } } },
+    "/api/workspaces/{workspaceId}/analytics": { "parameters": [{ "$ref": "#/components/parameters/workspaceId" }], "get": { "tags": ["Workspaces"], "summary": "Read-only analytics sub-resources", "operationId": "getWorkspaceAnalytics", "description": "Family of RBAC-read GET endpoints sharing this workspace path prefix: posture, summary, health, usage, business-risk, supply-chain, vendors, vendor-relationships, certificates, assets, admin-surfaces, cloud-assets, saas-exposure, third-party-assets, identity-assets, scorecard, executive-dashboard, cyber-essentials-readiness, activity, audit-events, brand, brand-monitoring, storage, subscription, billing. Each returns a workspace-scoped JSON payload; management sub-resources (alerts, alert-channels, notification-preferences, retention, report-retention, report-schedules, scheduled-reports, delete-request) additionally accept POST/PUT/DELETE gated by the RBAC matrix.", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "403": { "$ref": "#/components/responses/Forbidden" } } } },
+    "/api/domains/{domainId}/verification": { "parameters": [{ "$ref": "#/components/parameters/domainId" }], "post": { "tags": ["Domains"], "summary": "Start domain verification (issues a DNS TXT token)", "operationId": "startDomainVerification", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "403": { "$ref": "#/components/responses/Forbidden" } } } },
+    "/api/domains/{domainId}/verify": { "parameters": [{ "$ref": "#/components/parameters/domainId" }], "post": { "tags": ["Domains"], "summary": "Check verification (DNS TXT then HTML file); auto-retries hourly for 48h", "operationId": "verifyDomain", "responses": { "200": { "description": "Verified, or not-yet with an auto_recheck field", "content": { "application/json": { "schema": { "type": "object" } } } }, "403": { "$ref": "#/components/responses/Forbidden" } } } },
+    "/api/domains/{domainId}/detail": { "parameters": [{ "$ref": "#/components/parameters/domainId" }], "get": { "tags": ["Domains"], "summary": "Per-domain email/DMARC/remediation sub-resources", "operationId": "getDomainDetail", "description": "Family sharing the /api/domains/{id}/ prefix: check-verification, dmarc-dns-check, dmarc-summary, dmarc-reports, dmarc-ingest-endpoint, bec-exposure, email-senders (+ /{sourceId}/classify), spf-analysis, hosted-dmarc (+ /verify, /rollback, /autopilot), remediations, finding-waivers, validate-source. Reads are GET; classify/waiver/hosted-dmarc mutations require the workspace:manage permission.", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "403": { "$ref": "#/components/responses/Forbidden" } } } },
+    "/api/scan": { "post": { "tags": ["Scans"], "summary": "Start a scan (fire-and-forget; poll the scan until completed)", "operationId": "startScan", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "429": { "$ref": "#/components/responses/RateLimited" } } } },
+    "/api/scans": { "get": { "tags": ["Scans"], "summary": "List scans", "operationId": "listScans", "parameters": [{ "$ref": "#/components/parameters/limit" }], "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/scans/{scanId}/report": { "parameters": [{ "$ref": "#/components/parameters/scanId" }], "get": { "tags": ["Scans"], "summary": "Get the stored scan report (JSON)", "operationId": "getScanReport", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } } } },
+    "/api/scans/{scanId}/report/pdf": { "parameters": [{ "$ref": "#/components/parameters/scanId" }], "get": { "tags": ["Scans"], "summary": "Download the scan report as PDF", "operationId": "getScanReportPdf", "responses": { "200": { "description": "PDF document", "content": { "application/pdf": { "schema": { "type": "string", "format": "binary" } } } }, "404": { "$ref": "#/components/responses/NotFound" } } } },
+    "/api/scans/{scanId}/executive-report-v2": { "parameters": [{ "$ref": "#/components/parameters/scanId" }], "get": { "tags": ["Scans"], "summary": "Intelligence-engine executive report", "operationId": "getExecutiveReportV2", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/schedules": { "get": { "tags": ["Scans"], "summary": "List scheduled scans", "operationId": "listSchedules", "responses": { "200": { "$ref": "#/components/responses/Ok" } } }, "post": { "tags": ["Scans"], "summary": "Create a scheduled scan", "operationId": "createSchedule", "responses": { "201": { "$ref": "#/components/responses/Ok" }, "403": { "$ref": "#/components/responses/Forbidden" } } } },
+    "/api/billing/plans": { "get": { "tags": ["Billing"], "summary": "Public plan catalogue (no Stripe price ids)", "operationId": "getBillingPlans", "security": [], "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/billing/checkout": { "post": { "tags": ["Billing"], "summary": "Create a Stripe checkout session", "operationId": "createCheckout", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/billing/portal": { "post": { "tags": ["Billing"], "summary": "Create a Stripe billing-portal session", "operationId": "createBillingPortal", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/billing/subscription": { "get": { "tags": ["Billing"], "summary": "Current subscription", "operationId": "getBillingSubscription", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/billing/webhook": { "post": { "tags": ["Billing"], "summary": "Stripe webhook (signature-verified, not session-authed)", "operationId": "stripeWebhook", "security": [], "responses": { "200": { "$ref": "#/components/responses/Ok" }, "400": { "$ref": "#/components/responses/BadRequest" } } } },
+    "/api/dmarc-ingest": { "post": { "tags": ["DMARC Ingestion"], "summary": "Signed RUA aggregate report upload", "operationId": "dmarcIngest", "description": "Authenticated by a per-workspace+domain upload token in the Authorization: Bearer header (or X-CM-Ingest-Token). Body is raw XML or { xml }.", "security": [{ "ingestToken": [] }], "requestBody": { "content": { "application/xml": { "schema": { "type": "string" } }, "application/json": { "schema": { "type": "object", "properties": { "xml": { "type": "string" } } } } } }, "responses": { "200": { "$ref": "#/components/responses/Ok" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "429": { "$ref": "#/components/responses/RateLimited" } } } },
+    "/api/free-scan": { "post": { "tags": ["Public"], "summary": "Public lightweight scan (DNS/SSL/headers/email)", "operationId": "freeScan", "security": [], "responses": { "200": { "$ref": "#/components/responses/Ok" }, "429": { "$ref": "#/components/responses/RateLimited" } } } },
+    "/api/validation/benchmark": { "get": { "tags": ["Public"], "summary": "QA benchmark (authenticated, rate-limited)", "operationId": "validationBenchmark", "parameters": [{ "name": "domain", "in": "query", "schema": { "type": "string" } }], "responses": { "200": { "$ref": "#/components/responses/Ok" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "429": { "$ref": "#/components/responses/RateLimited" } } } },
+    "/api/portfolio/overview": { "get": { "tags": ["Portfolio"], "summary": "MSP portfolio risk overview", "operationId": "portfolioOverview", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/portfolio/trends": { "get": { "tags": ["Portfolio"], "summary": "Portfolio risk trends", "operationId": "portfolioTrends", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/portfolio/alerts": { "get": { "tags": ["Portfolio"], "summary": "Portfolio alerts", "operationId": "portfolioAlerts", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/portfolio/workspaces": { "get": { "tags": ["Portfolio"], "summary": "Portfolio per-workspace roll-up", "operationId": "portfolioWorkspaces", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/invitations/{token}": { "parameters": [{ "name": "token", "in": "path", "required": true, "schema": { "type": "string" } }], "get": { "tags": ["Workspaces"], "summary": "Preview an invitation (public)", "operationId": "getInvitation", "security": [], "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/NotFound" } } } }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": { "type": "http", "scheme": "bearer", "description": "User session token or API token (cm_...) in the Authorization header. There is no cookie auth (so CSRF is not applicable)." },
+      "ingestToken": { "type": "http", "scheme": "bearer", "description": "Per-workspace+domain DMARC upload token." }
+    },
+    "parameters": {
+      "id": { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } },
+      "workspaceId": { "name": "workspaceId", "in": "path", "required": true, "schema": { "type": "string" } },
+      "domainId": { "name": "domainId", "in": "path", "required": true, "schema": { "type": "string" } },
+      "scanId": { "name": "scanId", "in": "path", "required": true, "schema": { "type": "string" } },
+      "limit": { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer", "minimum": 1, "maximum": 100 } },
+      "offset": { "name": "offset", "in": "query", "required": false, "schema": { "type": "integer", "minimum": 0 } }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "description": "Customer-safe error envelope. Raw stack traces / internal messages are never returned.",
+        "properties": { "error": { "type": "string" }, "code": { "type": "string", "examples": ["unauthorized", "forbidden", "not_found", "rate_limit_exceeded", "server_error"] }, "request_id": { "type": "string", "format": "uuid" } },
+        "required": ["error"]
+      },
+      "Health": {
+        "type": "object",
+        "properties": { "status": { "type": "string", "examples": ["ok"] }, "service": { "type": "string" }, "version": { "type": "string" }, "deployment_id": { "type": ["string", "null"] } },
+        "required": ["status", "service"]
+      },
+      "Session": {
+        "type": "object",
+        "properties": { "token": { "type": "string", "description": "Bearer session token (send in the Authorization header)." }, "user": { "type": "object" } },
+        "required": ["token", "user"]
+      },
+      "MfaRequired": {
+        "type": "object",
+        "properties": { "mfa_required": { "type": "boolean", "const": true }, "challenge_token": { "type": "string" } },
+        "required": ["mfa_required", "challenge_token"]
+      }
+    },
+    "responses": {
+      "Ok": { "description": "Success", "content": { "application/json": { "schema": { "type": "object" } } } },
+      "BadRequest": { "description": "Invalid request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "Unauthorized": { "description": "Missing or invalid credentials", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "Forbidden": { "description": "Authenticated but not permitted (RBAC)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "NotFound": { "description": "Resource not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "Conflict": { "description": "State conflict (e.g. change already in progress)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "RateLimited": { "description": "Rate limit exceeded. A coarse per-IP guard (reads 300 / writes 60 per 5 min) plus stricter per-route limits apply.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+    }
+  }
+}
