@@ -85,15 +85,28 @@ Scoped accurately: this phase is **authorization**, not the whole pipeline.
 - Soft-delete inaccessibility.
 - `getAccessibleWorkspaceIds` filtering (excludes foreign tenants + soft-deleted).
 
-### Phase 2 — pending (the flows the name over-promised)
-- **Login / session lifecycle:** login → session → refresh → logout → expired/revoked token.
-- **Billing:** Stripe `invoice.payment_failed` webhook → entitlement/plan change → grace → downgrade.
+### Phase 2 — request-pipeline integration — DONE (`scripts/validate-pipeline.js`, 14 assertions, CI-blocking)
+Drives the worker's real `fetch(request)` (router → middleware → `requireAuth` →
+RBAC → D1 → Response) against a real in-memory SQLite seeded with the **actual
+schema** (schema.sql + all migrations, best-effort) — the true integration layer,
+not leaf functions. Every assertion is verified on the response body / DB state.
+- **End-to-end request pipeline** proven: `GET /health` → 200 drives the whole chain.
+- **Auth gate at the HTTP layer:** unauthenticated / invalid-token → 401.
+- **Tenant isolation end to end:** owner reads OWN workspace → 200 with the real
+  record; same user+token → FOREIGN workspace → 403, no data leak.
+- **Login / session lifecycle:** wrong password → 401 (no token); correct → 200 +
+  session token; token authenticates `/api/auth/me` as the right user; logout;
+  the same token is then dead → 401.
+- **Stripe webhook → entitlement:** unsigned → 4xx; wrong-secret signature → 400
+  (forgery rejected); a correctly-signed `customer.subscription.created` actually
+  upserts the subscription to professional/active in D1.
+
+### Phase 3 — remaining tail (incremental, on the now-existing harness)
 - **Domain verify lifecycle** end to end (initiate → DNS TXT → verified → auto-retry).
+- **More billing events:** `invoice.payment_failed` → grace → downgrade; `subscription.deleted`.
 - **Permission inheritance** if/when a workspace→project→resource hierarchy exists.
-- **End-to-end request pipeline:** drive the real `fetch(request)` (router →
-  middleware → auth → DB → response) with a mock `env`, not just the leaf
-  functions — the true integration test.
-**DoD (Phase 1, met):** flow tests green in CI; a cross-tenant access attempt proven to 403.
+**DoD (Phases 1 & 2, met):** flow + pipeline tests green in CI; a cross-tenant
+access attempt proven to 403; login lifecycle and webhook→entitlement proven end to end.
 
 ## Sprint 7 — Frontend test layer  ·  risk: MED  ·  effort: Med
 **Goal:** protect the customer-facing critical paths from regression.
