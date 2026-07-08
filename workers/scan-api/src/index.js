@@ -1,6 +1,7 @@
 import { handleInboundEmail } from "./email/inbound.js";
 import { runScheduled } from "./cron/scheduled.js";
 import { recordMetric } from "./lib/metrics.js";
+import { CE_QUESTIONS, CE_QUESTION_SET_VERSION, mergeReadiness } from "./lib/cyber-essentials.js";
 import { createId, isValidEmail, normalizeApiResponseData, pageMeta, paginationParams, parseBoundedInteger } from "./lib/util.js";
 import { createAuditEvent, createNotificationEvent, createNotificationsForDomain, sanitizeAuditMetadata } from "./lib/events.js";
 import { RUA_INBOUND_DOMAIN_DEFAULT, ingestDmarcReport, ingestEndpointIsActive, normalizeInboundRecipientDomain, parseEmailAuthHeaders, sha256Hex, updateEmailSenderSources } from "./lib/dmarc-ingest.js";
@@ -29827,6 +29828,66 @@ export default {
       }
     }
 
+    // ── Cyber Essentials Readiness — self-attestation answers ────────────────
+    // GET returns the question set + stored answers; PUT upserts answers. The
+    // questionnaire covers the INTERNAL controls we cannot observe externally;
+    // the readiness endpoint merges these with measured signal (measured wins).
+    const ceAnswersMatch = url.pathname.match(
+      /^\/api\/workspaces\/([^/]+)\/cyber-essentials\/answers$/
+    );
+    if (ceAnswersMatch && (request.method === 'GET' || request.method === 'PUT')) {
+      const wsId = ceAnswersMatch[1];
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, wsId, request.method === 'PUT' ? "workspace:manage" : "workspace:read", env);
+      if (!access) return json({ error: "Forbidden" }, 403);
+      {
+        const ownerId = await getWorkspaceBillingUserId(wsId, user.id, env);
+        const plan = await getEffectivePlan(ownerId, env);
+        if (!hasFeatureEntitlement(plan, 'cyber_essentials')) {
+          return json({ error: 'plan_feature_required', feature: 'cyber_essentials', required_plan: 'professional', upgrade_url: '/billing' }, 403);
+        }
+      }
+
+      const validKeys = new Map(CE_QUESTIONS.map((c) => [c.control_key, new Set(c.questions.map((q) => q.key))]));
+      const validAnswers = new Set(['yes', 'partial', 'no', 'unknown']);
+
+      if (request.method === 'PUT') {
+        let body;
+        try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+        const items = Array.isArray(body?.answers) ? body.answers : [];
+        for (const it of items) {
+          const ck = String(it?.control_key ?? '');
+          const qk = String(it?.question_key ?? '');
+          const ans = String(it?.answer ?? '');
+          // Ignore unknown control/question/answer keys — never trust client input.
+          if (!validKeys.has(ck) || !validKeys.get(ck).has(qk) || !validAnswers.has(ans)) continue;
+          try {
+            await env.cybermeters_db
+              .prepare(`INSERT INTO cyber_essentials_answers (id, workspace_id, control_key, question_key, answer, note, answered_by, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                        ON CONFLICT(workspace_id, control_key, question_key)
+                        DO UPDATE SET answer = excluded.answer, note = excluded.note, answered_by = excluded.answered_by, updated_at = datetime('now')`)
+              .bind(createId(), wsId, ck, qk, ans, it?.note ? String(it.note).slice(0, 500) : null, user.id)
+              .run();
+          } catch { /* skip a bad row, keep going — never surface raw DB errors */ }
+        }
+      }
+
+      let answerRows = { results: [] };
+      try {
+        answerRows = await env.cybermeters_db
+          .prepare(`SELECT control_key, question_key, answer, note, updated_at FROM cyber_essentials_answers WHERE workspace_id = ?`)
+          .bind(wsId).all();
+      } catch { /* empty answer set */ }
+      const answers = {};
+      for (const r of (answerRows.results || [])) {
+        if (!answers[r.control_key]) answers[r.control_key] = {};
+        answers[r.control_key][r.question_key] = r.answer;
+      }
+      return json({ question_set_version: CE_QUESTION_SET_VERSION, questions: CE_QUESTIONS, answers });
+    }
+
     // ── GET /api/workspaces/:id/cyber-essentials-readiness ───────────────────
     // Cyber Essentials readiness guidance only. Dynamically calculated from
     // existing CyberMeters scan/report/workspace intelligence data.
@@ -29861,6 +29922,25 @@ export default {
 
       const readiness = await buildCyberEssentialsReadiness(wsId, env);
       if (!readiness) return json({ error: 'Database error' }, 500);
+      // Additive: merge self-attestation answers with the measured categories
+      // (measured wins on contradiction). Never break base readiness if this fails.
+      try {
+        const arows = await env.cybermeters_db
+          .prepare(`SELECT control_key, question_key, answer FROM cyber_essentials_answers WHERE workspace_id = ?`)
+          .bind(wsId).all();
+        const answers = {};
+        for (const r of (arows.results || [])) {
+          if (!answers[r.control_key]) answers[r.control_key] = {};
+          answers[r.control_key][r.question_key] = r.answer;
+        }
+        const measured = (readiness.categories || []).map((c) => ({
+          control_key: c.key, measured_score: c.score, measured_gaps: c.gaps || [],
+        }));
+        readiness.self_assessment = {
+          question_set_version: CE_QUESTION_SET_VERSION,
+          controls: mergeReadiness(measured, answers),
+        };
+      } catch { /* self-assessment is additive; base readiness stands */ }
       return json(readiness);
     }
 

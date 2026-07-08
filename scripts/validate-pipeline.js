@@ -279,6 +279,28 @@ async function main() {
   const resubGate = await call("GET", "/api/workspaces/ws1/audit-events?limit=1", { token: tokenA });
   ok("RE-SUBSCRIBE restores access end to end (gate 200)", resubGate.status === 200);
 
+  // ── Cyber Essentials Readiness answers endpoint (Phase 1) ──
+  // ws1 is professional at this point (re-subscribed above), so the plan gate
+  // passes. Tests auth gate, PUT/GET round-trip, and server-side key validation.
+  section("Cyber Essentials Readiness");
+  const ceUnauth = await call("PUT", "/api/workspaces/ws1/cyber-essentials/answers", { body: { answers: [] } });
+  ok("CE answers PUT unauthenticated → 401", ceUnauth.status === 401);
+
+  const cePut = await call("PUT", "/api/workspaces/ws1/cyber-essentials/answers", { token: tokenA, body: { answers: [
+    { control_key: "access_control", question_key: "mfa_enabled", answer: "yes" },
+    { control_key: "malware_protection", question_key: "endpoint_av_enabled", answer: "no" },
+    { control_key: "BOGUS_CONTROL", question_key: "nope", answer: "yes" },              // unknown control → ignored
+    { control_key: "access_control", question_key: "mfa_enabled", answer: "banana" },   // invalid answer → ignored (keeps 'yes')
+  ] } });
+  ok("CE answers PUT (professional) → 200 with the 5-control question set",
+    cePut.status === 200 && !!cePut.data?.question_set_version && Array.isArray(cePut.data?.questions) && cePut.data.questions.length === 5);
+  ok("CE saved answers round-trip (mfa_enabled=yes, endpoint_av_enabled=no)",
+    cePut.data?.answers?.access_control?.mfa_enabled === "yes" && cePut.data?.answers?.malware_protection?.endpoint_av_enabled === "no");
+  ok("CE server-side validation drops unknown control keys (BOGUS not stored)", !cePut.data?.answers?.BOGUS_CONTROL);
+
+  const ceGet = await call("GET", "/api/workspaces/ws1/cyber-essentials/answers", { token: tokenA });
+  ok("CE answers GET persists across requests", ceGet.status === 200 && ceGet.data?.answers?.access_control?.mfa_enabled === "yes");
+
   // ── Cron orchestration (Sprint 9 extraction proof) ──
   // Drives the real scheduled() entry: the task registry in index.js must wire
   // every task into src/cron/scheduled.js. A mis-wired registry surfaces as a
