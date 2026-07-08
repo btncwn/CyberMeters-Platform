@@ -189,6 +189,15 @@ Staged, each stage shippable and reversible, suites green throughout:
 | **C — cron worker** | at ~xx:10 (proposed 14:10 UTC): 1) deploy api with `CronTasks` entrypoint **and crons removed** → 2) immediately deploy `workers/cron-dispatch/` with the trigger + binding → 3) watch the next hour | next hourly tick produces ≠1 run set (0 after two hours, or any doubled task), or any `contract_mismatch` error | redeploy api with crons restored; remove cron worker's trigger (two commands, no data risk) |
 | **D — 48h observation** | per-worker cron_task datapoints, inbound RUA ingest on the two live domains, 5xx delta = 0 | any criterion above regressing | stage-specific action above |
 
+**Stage B status: CUTOVER DONE (2026-07-08 16:34 UTC).** RESEND_API_KEY set
+(worker version `a90a59c7`); both `cmrua_…@reports.cybermeters.com` routing
+rules repointed to `cybermeters-email`; smoke test proven end to end — Gmail →
+new worker (`Email … — Ok`, tail) → D1 `dmarc_inbound_email_dropped` audit with
+reason `no_dmarc_attachment`, one second end-to-end. The api worker's email
+handler remains as dormant rollback fallback until Stage C. 24h observation
+running; the first real RUA report (blackbullbarbers) is expected ~09 Jul
+morning and will be the real-data confirmation.
+
 **Stage A status: DONE (2026-07-08).** Deployed `324b4a18`, all suites green,
 live /health + /ready verified, no rollback criterion triggered. Deviation
 from §1's module list, driven by measurement: audit.js + notifications.js
