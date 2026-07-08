@@ -84,8 +84,17 @@ async function hmacHex(secret, message) {
   return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-let passed = 0, failed = 0; const results = [];
-function ok(name, cond) { if (cond) { passed++; results.push(`PASS ${name}`); } else { failed++; results.push(`FAIL ${name}`); } }
+// Tests are grouped into sections (Auth, Tenant, Billing, …) so the suite stays
+// navigable as it grows toward 80-100 assertions.
+let passed = 0, failed = 0, currentSection = "General";
+const results = []; const sectionCounts = new Map();
+function section(name) { currentSection = name; }
+function ok(name, cond) {
+  const s = sectionCounts.get(currentSection) ?? { passed: 0, failed: 0 };
+  if (cond) { passed++; s.passed++; results.push(`PASS [${currentSection}] ${name}`); }
+  else      { failed++; s.failed++; results.push(`FAIL [${currentSection}] ${name}`); }
+  sectionCounts.set(currentSection, s);
+}
 
 async function main() {
   const { worker, hash } = loadWorker();
@@ -121,10 +130,12 @@ async function main() {
   const has = (r, sub) => JSON.stringify(r.data ?? r.text ?? "").includes(sub);
 
   // ── The pipeline actually runs (status AND body, so a pass can't be a coincidence) ──
+  section("Health / pipeline");
   const health = await call("GET", "/health");
   ok("GET /health drives the real fetch() → 200 {status:ok}", health.status === 200 && health.data?.status === "ok");
 
   // ── Auth gate at the HTTP layer ──
+  section("Auth gate");
   const noAuth = await call("GET", "/api/workspaces/ws1");
   ok("unauthenticated workspace request → 401 Unauthorized", noAuth.status === 401 && has(noAuth, "nauthorized"));
 
@@ -132,6 +143,7 @@ async function main() {
   ok("invalid token → 401", badToken.status === 401);
 
   // ── Tenant isolation through the FULL pipeline (router→auth→RBAC→DB→response) ──
+  section("Tenant isolation");
   const own = await call("GET", "/api/workspaces/ws1", { token: tokenA });
   ok("owner reaches OWN workspace → 200 with the real record (id ws1, name Alpha)",
     own.status === 200 && own.data?.workspace?.id === "ws1" && own.data?.workspace?.name === "Alpha");
@@ -141,6 +153,7 @@ async function main() {
     foreign.status === 403 && has(foreign, "orbidden") && !has(foreign, "Bravo"));
 
   // ── Login / session lifecycle through the real pipeline ──
+  section("Login / session lifecycle");
   const badLogin = await call("POST", "/api/auth/login", { body: { email: "a@example.com", password: "wrong-password" } });
   ok("login with wrong password → 401 (no token leaked)", badLogin.status === 401 && !badLogin.data?.token);
 
@@ -158,6 +171,14 @@ async function main() {
   ok("the session is DEAD after logout → 401 (token no longer resolves)", afterLogout.status === 401);
 
   // ── Stripe webhook → entitlement, through the real signature gate ──
+  section("Billing / webhook → entitlement");
+
+  // Before any webhook: userA is on the free plan, so the professional-gated
+  // audit-events endpoint must refuse with a clear upgrade signal.
+  const preGate = await call("GET", "/api/workspaces/ws1/audit-events", { token: tokenA });
+  ok("FEATURE GATE before upgrade: audit-events on free plan → 403 plan_feature_required",
+    preGate.status === 403 && preGate.data?.error === "plan_feature_required");
+
   const secret = env.STRIPE_WEBHOOK_SECRET;
   const postWebhook = async (payload, { sign = true, ts = Math.floor(Date.now() / 1000) } = {}) => {
     const raw = JSON.stringify(payload);
@@ -198,7 +219,44 @@ async function main() {
   ok("ENTITLEMENT: the webhook upserted ws1's subscription to the paid plan (professional, active)",
     subRow?.plan === "professional" && String(subRow?.subscription_status).toLowerCase() === "active");
 
+  // The upgrade must actually TAKE EFFECT: the same endpoint that refused on
+  // free now serves — billing → entitlement → feature gate, end to end.
+  const postGate = await call("GET", "/api/workspaces/ws1/audit-events", { token: tokenA });
+  ok("FEATURE GATE after upgrade: the same endpoint now serves → 200 (entitlement took effect)",
+    postGate.status === 200 && Array.isArray(postGate.data?.events));
+
+  // ── Pagination contract through the real pipeline (Sprint 3 helpers) ──
+  // The endpoint self-audits (each view writes an audit_log_viewed event — the
+  // harness caught that), so the assertions filter to event_type=test_event to
+  // stay deterministic. This exercises the filter parameter too.
+  section("Pagination");
+  const ae = db.prepare("INSERT INTO audit_events (id, workspace_id, user_id, event_type, description) VALUES (?, ?, ?, ?, ?)");
+  ae.run("ae1", "ws1", "userA", "test_event", "first");
+  ae.run("ae2", "ws1", "userA", "test_event", "second");
+  ae.run("ae3", "ws1", "userA", "test_event", "third");
+  const page = await call("GET", "/api/workspaces/ws1/audit-events?event_type=test_event&limit=2&offset=0", { token: tokenA });
+  const pg = page.data?.pagination;
+  ok("limit is honoured (3 matching rows, limit=2 → exactly 2 events)", page.status === 200 && page.data?.events?.length === 2);
+  ok("pagination meta is correct ({limit:2, offset:0, count:2, has_more:true, total:3})",
+    pg?.limit === 2 && pg?.offset === 0 && pg?.count === 2 && pg?.has_more === true && pg?.total === 3);
+  const page2 = await call("GET", "/api/workspaces/ws1/audit-events?event_type=test_event&limit=2&offset=2", { token: tokenA });
+  ok("offset walks to the last page (1 event, has_more:false)",
+    page2.data?.events?.length === 1 && page2.data?.pagination?.has_more === false);
+
+  // ── Login rate limiting (10/15min per hashed IP) — LAST: it poisons login for this run ──
+  section("Rate limiting");
+  const statuses = [];
+  for (let i = 0; i < 12; i++) {
+    const r = await call("POST", "/api/auth/login", { body: { email: "nobody@example.com", password: "x" } });
+    statuses.push(r.status);
+  }
+  ok("hammering login trips the limiter → 429 within 12 attempts", statuses.includes(429));
+  ok("once tripped it STAYS tripped in the window (last attempt is 429)", statuses[statuses.length - 1] === 429);
+  ok("the limiter fails closed, never crashes (only 401/429, no 5xx)", statuses.every((s) => s === 401 || s === 429));
+
   for (const line of results) if (line.startsWith("FAIL")) console.error(line);
+  console.log("");
+  for (const [name, s] of sectionCounts) console.log(`  ${s.failed === 0 ? "✓" : "✗"} ${name}: ${s.passed}/${s.passed + s.failed}`);
   console.log(`\nPipeline tests: ${passed}/${passed + failed} passed`);
   if (failed > 0) { console.error("pipeline validation FAILED"); process.exit(1); }
   console.log("pipeline validation passed");

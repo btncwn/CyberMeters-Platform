@@ -85,11 +85,14 @@ Scoped accurately: this phase is **authorization**, not the whole pipeline.
 - Soft-delete inaccessibility.
 - `getAccessibleWorkspaceIds` filtering (excludes foreign tenants + soft-deleted).
 
-### Phase 2 — request-pipeline integration — DONE (`scripts/validate-pipeline.js`, 14 assertions, CI-blocking)
+### Phase 2 — request-pipeline integration — DONE (`scripts/validate-pipeline.js`, 22 assertions in 7 sections, CI-blocking)
 Drives the worker's real `fetch(request)` (router → middleware → `requireAuth` →
 RBAC → D1 → Response) against a real in-memory SQLite seeded with the **actual
 schema** (schema.sql + all migrations, best-effort) — the true integration layer,
-not leaf functions. Every assertion is verified on the response body / DB state.
+not leaf functions. Every assertion is verified on the response body / DB state,
+and tests are grouped into named sections (Health, Auth gate, Tenant isolation,
+Login/session, Billing, Pagination, Rate limiting) so the suite stays navigable
+as it grows.
 - **End-to-end request pipeline** proven: `GET /health` → 200 drives the whole chain.
 - **Auth gate at the HTTP layer:** unauthenticated / invalid-token → 401.
 - **Tenant isolation end to end:** owner reads OWN workspace → 200 with the real
@@ -97,13 +100,26 @@ not leaf functions. Every assertion is verified on the response body / DB state.
 - **Login / session lifecycle:** wrong password → 401 (no token); correct → 200 +
   session token; token authenticates `/api/auth/me` as the right user; logout;
   the same token is then dead → 401.
-- **Stripe webhook → entitlement:** unsigned → 4xx; wrong-secret signature → 400
-  (forgery rejected); a correctly-signed `customer.subscription.created` actually
-  upserts the subscription to professional/active in D1.
+- **Stripe webhook → entitlement → feature gate:** unsigned → 4xx; wrong-secret
+  signature → 400 (forgery rejected); a correctly-signed
+  `customer.subscription.created` upserts the subscription to professional/active
+  in D1 — and the professional-gated audit-events endpoint flips from
+  403 `plan_feature_required` to 200 on the same token. The upgrade demonstrably
+  *takes effect*.
+- **Pagination contract via HTTP:** limit honoured, `{limit, offset, count,
+  has_more, total}` correct, offset walks to the last page (audit-events;
+  the harness also caught that the endpoint self-audits each view).
+- **Login rate limiting:** hammering login trips 429 within the 10/15-min window,
+  stays tripped, and never 5xxs.
+- **CSRF: N/A by architecture (verified):** auth is a Bearer token in the
+  `Authorization` header; the API sets no cookies (all Set-Cookie references in
+  the worker are the *scanner* checking customers' sites). No ambient credential
+  → nothing for a cross-site request to ride.
 
 ### Phase 3 — remaining tail (incremental, on the now-existing harness)
+- **More billing events:** `invoice.payment_failed` → grace → downgrade;
+  `customer.subscription.deleted`; `checkout.session.completed`.
 - **Domain verify lifecycle** end to end (initiate → DNS TXT → verified → auto-retry).
-- **More billing events:** `invoice.payment_failed` → grace → downgrade; `subscription.deleted`.
 - **Permission inheritance** if/when a workspace→project→resource hierarchy exists.
 **DoD (Phases 1 & 2, met):** flow + pipeline tests green in CI; a cross-tenant
 access attempt proven to 403; login lifecycle and webhook→entitlement proven end to end.
