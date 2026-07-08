@@ -1,130 +1,228 @@
 /**
- * FreeScanPage — public landing page for CyberMeters lead generation.
+ * FreeScanPage — public Cyber MOT lead generation page.
  *
- * Route: /free-scan  (public, no auth required, outside Layout shell)
+ * Route: /free-scan (public, no auth required, outside Layout shell)
  *
- * Flow:
- *   1. Visitor enters domain → clicks "Scan Domain"
- *   2. POST /api/free-scan → loading state (~4–6s)
- *   3. Preview report: score card, top 5 findings, severity breakdown
- *   4. Gated panels for: full findings, remediation, history, monitoring, PDF
- *   5. CTAs: "Start Monitoring This Domain" → /signup?domain=xxx
- *
- * Phase 4–7: Conversion gates + Academy integration + CTA design
- * are all included in this single file per sprint spec.
+ * The backend contract is owned by Workers:
+ *   POST /api/free-scan { domain }
  */
 import { useState, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  Shield, AlertTriangle, CheckCircle, Lock, ArrowRight,
-  Globe, Mail, FileText, Bell, BarChart2,
-  ChevronRight, GraduationCap, ScanLine, RefreshCw,
-  ShieldAlert, Zap,
+  AlertTriangle,
+  ArrowRight,
+  BarChart2,
+  CheckCircle,
+  ChevronRight,
+  ClipboardCheck,
+  FileText,
+  Globe,
+  GraduationCap,
+  Lock,
+  Mail,
+  RefreshCw,
+  SearchCheck,
+  Shield,
+  ShieldCheck,
+  Sparkles,
 } from 'lucide-react'
+import CyberMetersLogo from '../components/CyberMetersLogo'
 import { BASE } from '../api'
 
-// ── Constants ─────────────────────────────────────────────────────────────────
+const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info']
 
 const SEVERITY_CFG = {
-  critical: { dot: 'bg-red-500',    badge: 'bg-red-100 text-red-700 border-red-200',    label: 'Critical', icon: '🔴' },
-  high:     { dot: 'bg-orange-400', badge: 'bg-orange-100 text-orange-700 border-orange-200', label: 'High',     icon: '🟠' },
-  medium:   { dot: 'bg-amber-400',  badge: 'bg-amber-100 text-amber-700 border-amber-200',    label: 'Medium',   icon: '🟡' },
-  low:      { dot: 'bg-blue-400',   badge: 'bg-blue-100 text-blue-700 border-blue-200',       label: 'Low',      icon: '🔵' },
-  info:     { dot: 'bg-gray-300',   badge: 'bg-gray-100 text-gray-600 border-gray-200',       label: 'Info',     icon: '⚪' },
+  critical: { dot: 'bg-red-500',    badge: 'bg-red-50 text-red-700 border-red-200',       label: 'Critical', bar: 'bg-red-500' },
+  high:     { dot: 'bg-orange-500', badge: 'bg-orange-50 text-orange-700 border-orange-200', label: 'High',     bar: 'bg-orange-500' },
+  medium:   { dot: 'bg-amber-400',  badge: 'bg-amber-50 text-amber-700 border-amber-200',    label: 'Medium',   bar: 'bg-amber-400' },
+  low:      { dot: 'bg-blue-400',   badge: 'bg-blue-50 text-blue-700 border-blue-200',       label: 'Low',      bar: 'bg-blue-400' },
+  info:     { dot: 'bg-gray-300',   badge: 'bg-gray-50 text-gray-600 border-gray-200',       label: 'Info',     bar: 'bg-gray-300' },
 }
 
-function sevCfg(s) { return SEVERITY_CFG[s] ?? SEVERITY_CFG.info }
+function sevCfg(severity) {
+  return SEVERITY_CFG[severity] ?? SEVERITY_CFG.info
+}
 
 const RISK_LEVEL_CFG = {
-  // Scan posture ratings (score-derived, System A)
-  excellent: { label: 'Excellent',     color: 'text-brand-600',  ring: 'stroke-brand-500',  bg: 'bg-brand-50'  },
-  good:      { label: 'Good',          color: 'text-green-600',  ring: 'stroke-green-500',  bg: 'bg-green-50'  },
-  moderate:  { label: 'Moderate',      color: 'text-amber-600',  ring: 'stroke-amber-400',  bg: 'bg-amber-50'  },
-  // Finding / asset severity (System B — kept for backward compat)
-  critical:  { label: 'Critical Risk', color: 'text-red-600',    ring: 'stroke-red-500',    bg: 'bg-red-50'    },
-  high:      { label: 'High Risk',     color: 'text-orange-600', ring: 'stroke-orange-400', bg: 'bg-orange-50' },
-  medium:    { label: 'Medium Risk',   color: 'text-amber-600',  ring: 'stroke-amber-400',  bg: 'bg-amber-50'  },
-  low:       { label: 'Low Risk',      color: 'text-green-600',  ring: 'stroke-green-500',  bg: 'bg-green-50'  },
-  info:      { label: 'No Issues',     color: 'text-brand-600',  ring: 'stroke-brand-500',  bg: 'bg-brand-50'  },
+  excellent: { label: 'Excellent',     text: 'text-brand-700',  ring: 'stroke-brand-500',  bg: 'bg-brand-50',  border: 'border-brand-100' },
+  good:      { label: 'Good',          text: 'text-green-700',  ring: 'stroke-green-500',  bg: 'bg-green-50',  border: 'border-green-100' },
+  moderate:  { label: 'Moderate',      text: 'text-amber-700',  ring: 'stroke-amber-400',  bg: 'bg-amber-50',  border: 'border-amber-100' },
+  critical:  { label: 'Critical Risk', text: 'text-red-700',    ring: 'stroke-red-500',    bg: 'bg-red-50',    border: 'border-red-100' },
+  high:      { label: 'High Risk',     text: 'text-orange-700', ring: 'stroke-orange-500', bg: 'bg-orange-50', border: 'border-orange-100' },
+  medium:    { label: 'Medium Risk',   text: 'text-amber-700',  ring: 'stroke-amber-400',  bg: 'bg-amber-50',  border: 'border-amber-100' },
+  low:       { label: 'Low Risk',      text: 'text-green-700',  ring: 'stroke-green-500',  bg: 'bg-green-50',  border: 'border-green-100' },
+  info:      { label: 'No Issues',     text: 'text-brand-700',  ring: 'stroke-brand-500',  bg: 'bg-brand-50',  border: 'border-brand-100' },
 }
 
-function riskCfg(r) { return RISK_LEVEL_CFG[r] ?? RISK_LEVEL_CFG.medium }
+function riskCfg(riskLevel) {
+  return RISK_LEVEL_CFG[riskLevel] ?? RISK_LEVEL_CFG.moderate
+}
 
 const LOADING_MESSAGES = [
-  'Checking DNS records…',
-  'Validating SSL certificate…',
-  'Scanning security headers…',
-  'Auditing email security (SPF · DMARC · DKIM)…',
-  'Computing security score…',
+  'Checking email protection records...',
+  'Reviewing website trust signals...',
+  'Checking DNS configuration...',
+  'Reading security headers...',
+  'Preparing your Cyber MOT report...',
 ]
 
-// ── Score Ring ────────────────────────────────────────────────────────────────
+const EMAIL_KEYWORDS = [
+  'dmarc',
+  'spf',
+  'dkim',
+  'mx',
+  'mail',
+  'email',
+  'sender',
+  'spoof',
+]
 
-function ScoreRing({ score, risk_level }) {
-  const cfg       = riskCfg(risk_level)
-  const radius    = 52
-  const circ      = 2 * Math.PI * radius
-  const progress  = circ - (score / 100) * circ
+const WEBSITE_KEYWORDS = [
+  'tls',
+  'ssl',
+  'certificate',
+  'https',
+  'header',
+  'hsts',
+  'csp',
+  'dns',
+  'domain',
+  'subdomain',
+  'http',
+]
+
+function signupPath(domain) {
+  return `/signup${domain ? `?domain=${encodeURIComponent(domain)}` : ''}`
+}
+
+function scoreSafe(score) {
+  const n = Number(score)
+  if (!Number.isFinite(n)) return 0
+  return Math.max(0, Math.min(100, n))
+}
+
+function findingText(finding) {
+  return [
+    finding?.module,
+    finding?.category,
+    finding?.type,
+    finding?.title,
+    finding?.description,
+  ].filter(Boolean).join(' ').toLowerCase()
+}
+
+function isEmailFinding(finding) {
+  const text = findingText(finding)
+  return EMAIL_KEYWORDS.some(keyword => text.includes(keyword))
+}
+
+function isWebsiteFinding(finding) {
+  const text = findingText(finding)
+  return WEBSITE_KEYWORDS.some(keyword => text.includes(keyword))
+}
+
+function groupFindings(findings = []) {
+  const groups = {
+    email: [],
+    website: [],
+  }
+
+  findings.forEach(finding => {
+    if (isEmailFinding(finding)) {
+      groups.email.push(finding)
+      return
+    }
+    if (isWebsiteFinding(finding)) {
+      groups.website.push(finding)
+      return
+    }
+    groups.website.push(finding)
+  })
+
+  return groups
+}
+
+function moduleLabel(moduleName) {
+  const labels = {
+    dns: 'DNS',
+    tls: 'TLS',
+    ssl: 'TLS',
+    headers: 'Headers',
+    email: 'Email',
+    dmarc: 'DMARC',
+    spf: 'SPF',
+    dkim: 'DKIM',
+  }
+  return labels[moduleName] ?? String(moduleName || '').replace(/[_-]/g, ' ')
+}
+
+function ScoreGauge({ score, riskLevel }) {
+  const cfg = riskCfg(riskLevel)
+  const value = scoreSafe(score)
+  const radius = 54
+  const circumference = 2 * Math.PI * radius
+  const offset = circumference - (value / 100) * circumference
 
   return (
     <div className="flex flex-col items-center">
-      <div className="relative w-36 h-36">
-        <svg className="w-36 h-36 -rotate-90" viewBox="0 0 120 120">
-          {/* Track */}
-          <circle cx="60" cy="60" r={radius} fill="none" stroke="#e5e7eb" strokeWidth="10" />
-          {/* Progress */}
+      <div className="relative h-40 w-40">
+        <svg className="h-40 w-40 -rotate-90" viewBox="0 0 128 128" aria-hidden="true">
+          <circle cx="64" cy="64" r={radius} fill="none" stroke="#e5e7eb" strokeWidth="11" />
           <circle
-            cx="60" cy="60" r={radius} fill="none"
+            cx="64"
+            cy="64"
+            r={radius}
+            fill="none"
             className={cfg.ring}
-            strokeWidth="10"
+            strokeWidth="11"
             strokeLinecap="round"
-            strokeDasharray={circ}
-            strokeDashoffset={progress}
-            style={{ transition: 'stroke-dashoffset 1s ease' }}
+            strokeDasharray={circumference}
+            strokeDashoffset={offset}
+            style={{ transition: 'stroke-dashoffset 700ms ease' }}
           />
         </svg>
-        {/* Score number */}
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className={`text-3xl font-black leading-none ${cfg.color}`}>{score}</span>
-          <span className="text-[10px] font-semibold text-gray-400 mt-0.5">/ 100</span>
+          <span className={`text-4xl font-bold tabular-nums ${cfg.text}`}>{value}</span>
+          <span className="text-xs font-semibold text-gray-400">out of 100</span>
         </div>
       </div>
-      <div className={`mt-3 px-3 py-1 rounded-full text-sm font-bold ${cfg.color} ${cfg.bg}`}>
+      <span className={`mt-3 inline-flex items-center rounded-full border px-3 py-1 text-sm font-bold ${cfg.text} ${cfg.bg} ${cfg.border}`}>
         {cfg.label}
-      </div>
+      </span>
     </div>
   )
 }
 
-// ── Severity Bar ──────────────────────────────────────────────────────────────
+function SeverityBreakdown({ counts = {} }) {
+  const total = SEVERITIES.reduce((sum, severity) => sum + (Number(counts[severity]) || 0), 0)
 
-function SeverityBreakdown({ counts }) {
-  const total = Object.values(counts).reduce((s, n) => s + n, 0)
-  if (total === 0) return (
-    <div className="flex items-center gap-2 text-sm text-green-600 font-semibold">
-      <CheckCircle className="w-4 h-4" />
-      No issues found in these checks
-    </div>
-  )
+  if (total === 0) {
+    return (
+      <div className="flex items-center gap-2 rounded-xl border border-green-100 bg-green-50 px-4 py-3 text-sm font-semibold text-green-700">
+        <CheckCircle className="h-4 w-4 flex-shrink-0" />
+        No issues found in these checks
+      </div>
+    )
+  }
+
   return (
-    <div className="space-y-2">
-      {['critical', 'high', 'medium', 'low', 'info'].map(sev => {
-        const n = counts[sev] ?? 0
-        if (n === 0) return null
-        const cfg = sevCfg(sev)
+    <div className="space-y-3">
+      {SEVERITIES.map(severity => {
+        const count = Number(counts[severity]) || 0
+        const cfg = sevCfg(severity)
         return (
-          <div key={sev} className="flex items-center gap-3">
-            <span className={`inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full border ${cfg.badge} min-w-[72px]`}>
-              <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
+          <div key={severity} className="grid grid-cols-[88px_1fr_28px] items-center gap-3">
+            <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-bold uppercase ${cfg.badge}`}>
+              <span className={`h-1.5 w-1.5 rounded-full ${cfg.dot}`} />
               {cfg.label}
             </span>
-            <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden">
+            <div className="h-2 overflow-hidden rounded-full bg-gray-100">
               <div
-                className={`h-full rounded-full ${cfg.dot}`}
-                style={{ width: `${(n / total) * 100}%`, transition: 'width 0.8s ease' }}
+                className={`h-full rounded-full ${cfg.bar}`}
+                style={{ width: total ? `${(count / total) * 100}%` : '0%' }}
               />
             </div>
-            <span className="text-sm font-bold text-gray-700 w-5 text-right">{n}</span>
+            <span className="text-right text-sm font-bold tabular-nums text-gray-700">{count}</span>
           </div>
         )
       })}
@@ -132,114 +230,131 @@ function SeverityBreakdown({ counts }) {
   )
 }
 
-// ── Finding Preview Card ──────────────────────────────────────────────────────
-
-function FindingCard({ f, index }) {
-  const cfg = sevCfg(f.severity)
-  const appBase = window.location.origin
+function FindingCard({ finding }) {
+  const cfg = sevCfg(finding?.severity)
 
   return (
-    <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm">
-      <div className="flex items-start gap-3">
-        <span className={`flex-shrink-0 text-[11px] font-black w-6 h-6 rounded-lg flex items-center justify-center ${cfg.badge} border`}>
-          {index + 1}
+    <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-card">
+      <div className="flex items-start justify-between gap-3">
+        <h4 className="text-sm font-bold leading-snug text-gray-900">{finding?.title || 'Security finding'}</h4>
+        <span className={`flex-shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${cfg.badge}`}>
+          {cfg.label}
         </span>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-start justify-between gap-3">
-            <p className="text-sm font-bold text-gray-900 leading-snug">{f.title}</p>
-            <span className={`flex-shrink-0 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full border ${cfg.badge}`}>
-              {cfg.label}
-            </span>
-          </div>
-          <p className="text-xs text-gray-500 mt-1.5 leading-relaxed">{f.description}</p>
-          <div className="flex items-center gap-3 mt-2.5">
-            {f.academy_slug ? (
-              <Link
-                to={`/academy/${f.academy_slug}`}
-                className="flex items-center gap-1 text-[11px] font-semibold text-brand-600 hover:text-brand-800 transition-colors"
-              >
-                <GraduationCap className="w-3 h-3" />
-                Learn more in Academy
-                <ChevronRight className="w-2.5 h-2.5" />
-              </Link>
-            ) : null}
-          </div>
-        </div>
       </div>
+      {finding?.description && (
+        <p className="mt-2 text-sm leading-relaxed text-gray-500">{finding.description}</p>
+      )}
+      {finding?.academy_slug && (
+        <Link
+          to={`/academy/${finding.academy_slug}`}
+          className="mt-3 inline-flex items-center gap-1.5 text-xs font-bold text-brand-600 hover:text-brand-800"
+        >
+          <GraduationCap className="h-3.5 w-3.5" />
+          Plain-English guidance
+          <ChevronRight className="h-3 w-3" />
+        </Link>
+      )}
     </div>
   )
 }
 
-// ── Gated Panel ───────────────────────────────────────────────────────────────
-
-function GatedPanel({ icon: Icon, title, description, domain }) {
+function ResultSection({ icon: Icon, title, description, checks, findings }) {
   return (
-    <div className="relative rounded-xl border border-gray-200 bg-gray-50 overflow-hidden">
-      {/* Blurred preview content */}
-      <div className="p-4 select-none pointer-events-none" style={{ filter: 'blur(4px)', opacity: 0.4 }}>
-        <div className="flex items-center gap-2 mb-3">
-          <Icon className="w-4 h-4 text-gray-400" />
-          <span className="text-sm font-bold text-gray-700">{title}</span>
+    <section className="card p-5 sm:p-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-brand-50 ring-1 ring-brand-100">
+            <Icon className="h-5 w-5 text-brand-600" />
+          </div>
+          <div>
+            <h3 className="text-lg font-bold tracking-tight text-gray-900">{title}</h3>
+            <p className="mt-1 text-sm leading-relaxed text-gray-500">{description}</p>
+          </div>
         </div>
-        <div className="space-y-2">
-          <div className="h-3 bg-gray-300 rounded w-3/4" />
-          <div className="h-3 bg-gray-200 rounded w-1/2" />
-          <div className="h-3 bg-gray-300 rounded w-2/3" />
+        <div className="flex flex-wrap gap-2 sm:justify-end">
+          {checks.map(check => (
+            <span key={check} className="rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-[11px] font-semibold text-gray-600">
+              {check}
+            </span>
+          ))}
         </div>
       </div>
-      {/* Lock overlay */}
-      <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/80 backdrop-blur-[2px]">
-        <Lock className="w-5 h-5 text-gray-400 mb-2" />
-        <p className="text-xs font-bold text-gray-700 text-center px-4">{description}</p>
-        <Link
-          to={`/signup${domain ? `?domain=${encodeURIComponent(domain)}` : ''}`}
-          className="mt-3 text-[11px] font-bold text-brand-600 hover:text-brand-800 flex items-center gap-1 transition-colors"
-        >
-          Unlock with a free account
-          <ArrowRight className="w-3 h-3" />
+
+      <div className="mt-5 space-y-3">
+        {findings.length > 0 ? (
+          findings.map((finding, index) => (
+            <FindingCard key={finding.id || `${title}-${index}`} finding={finding} />
+          ))
+        ) : (
+          <div className="rounded-xl border border-green-100 bg-green-50 px-4 py-3 text-sm font-semibold text-green-700">
+            No preview findings in this section.
+          </div>
+        )}
+      </div>
+    </section>
+  )
+}
+
+function HiddenFindingsCta({ count, domain }) {
+  if (!count || count <= 0) return null
+
+  return (
+    <div className="card-md overflow-hidden border-brand-200 bg-brand-50">
+      <div className="grid gap-5 p-6 sm:grid-cols-[1fr_auto] sm:items-center">
+        <div className="flex items-start gap-3">
+          <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-white ring-1 ring-brand-100">
+            <Lock className="h-5 w-5 text-brand-600" />
+          </div>
+          <div>
+            <h3 className="text-lg font-bold text-gray-900">
+              {count} more findings found — create a free account to see them all
+            </h3>
+            <p className="mt-1 text-sm leading-relaxed text-gray-600">
+              Unlock the full report, plain-English fixes, PDF export, and ongoing change alerts for this domain.
+            </p>
+          </div>
+        </div>
+        <Link to={signupPath(domain)} className="btn-primary whitespace-nowrap">
+          Create free account
+          <ArrowRight className="h-4 w-4" />
         </Link>
       </div>
     </div>
   )
 }
 
-// ── Loading State ─────────────────────────────────────────────────────────────
-
 function LoadingState({ domain, messageIdx }) {
   return (
-    <div className="flex flex-col items-center py-16 text-center">
-      <div className="w-16 h-16 rounded-2xl bg-brand-50 flex items-center justify-center mb-6 relative">
-        <ScanLine className="w-8 h-8 text-brand-600" />
-        <div className="absolute inset-0 rounded-2xl border-2 border-brand-200 animate-ping opacity-30" />
+    <div className="card mx-auto max-w-2xl p-8 text-center sm:p-10">
+      <div className="relative mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-brand-50">
+        <SearchCheck className="h-8 w-8 text-brand-600" />
+        <div className="absolute inset-0 rounded-2xl border-2 border-brand-200 opacity-30 animate-ping" />
       </div>
-      <h2 className="text-lg font-bold text-gray-900 mb-1">Scanning {domain}</h2>
-      <p className="text-sm text-gray-400 mb-6">This takes 5–10 seconds</p>
-      <div className="w-64 h-1 bg-gray-100 rounded-full overflow-hidden mb-6">
+      <h2 className="text-lg font-bold text-gray-900">Preparing Cyber MOT for {domain}</h2>
+      <p className="mt-1 text-sm text-gray-500">This usually takes around two minutes or less.</p>
+      <div className="mx-auto mt-6 h-1.5 w-full max-w-xs overflow-hidden rounded-full bg-gray-100">
         <div
-          className="h-full bg-brand-500 rounded-full transition-all duration-500"
+          className="h-full rounded-full bg-brand-500 transition-all duration-500"
           style={{ width: `${Math.min(95, ((messageIdx + 1) / LOADING_MESSAGES.length) * 100)}%` }}
         />
       </div>
-      <p className="text-xs text-gray-400 font-medium">{LOADING_MESSAGES[messageIdx] ?? LOADING_MESSAGES[0]}</p>
+      <p className="mt-5 text-xs font-semibold text-gray-500">{LOADING_MESSAGES[messageIdx] ?? LOADING_MESSAGES[0]}</p>
     </div>
   )
 }
 
-// ── Main page ─────────────────────────────────────────────────────────────────
-
 export default function FreeScanPage() {
-  const [domain,     setDomain]     = useState('')
-  const [scanning,   setScanning]   = useState(false)
-  const [msgIdx,     setMsgIdx]     = useState(0)
-  const [result,     setResult]     = useState(null)
-  const [error,      setError]      = useState(null)
+  const [domain, setDomain] = useState('')
+  const [scanning, setScanning] = useState(false)
+  const [msgIdx, setMsgIdx] = useState(0)
+  const [result, setResult] = useState(null)
+  const [error, setError] = useState(null)
 
-  const timerRef    = useRef(null)
-  const resultsRef  = useRef(null)
+  const timerRef = useRef(null)
+  const resultsRef = useRef(null)
 
-  // Domain cleanup — strip protocol/path
-  function normaliseDomain(val) {
-    return val.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '')
+  function normaliseDomain(value) {
+    return value.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '')
   }
 
   function startMessageCycle() {
@@ -272,17 +387,16 @@ export default function FreeScanPage() {
     try {
       const apiBase = BASE || ''
       const res = await fetch(`${apiBase}/api/free-scan`, {
-        method:  'POST',
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ domain: d }),
+        body: JSON.stringify({ domain: d }),
       })
       const data = await res.json()
       if (!res.ok) {
-        setError(data.error || 'Scan failed. Please try again.')
+        setError(data.error || 'The check could not be completed. Please try again.')
         return
       }
       setResult(data)
-      // Scroll to results
       setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100)
     } catch {
       setError('Connection error. Please check your network and try again.')
@@ -297,304 +411,262 @@ export default function FreeScanPage() {
     setError(null)
   }
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  const groupedFindings = groupFindings(result?.preview_findings || [])
+  const modules = result?.modules_scanned || []
 
   return (
-    <div className="min-h-screen bg-gray-50">
-
-      {/* ── Header ── */}
-      <header className="bg-white border-b border-gray-100 sticky top-0 z-40">
-        <div className="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-brand-600 flex items-center justify-center">
-              <Shield className="w-4 h-4 text-white" />
-            </div>
-            <span className="text-sm font-black text-gray-900 tracking-tight">CyberMeters</span>
+    <div className="min-h-screen bg-[#EEF1F6] text-gray-900">
+      <header className="sticky top-0 z-40 border-b border-gray-100 bg-white/95 backdrop-blur">
+        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-5">
+          <Link to="/" aria-label="CyberMeters home">
+            <CyberMetersLogo className="h-7" />
           </Link>
           <div className="flex items-center gap-3">
-            <Link to="/login" className="text-sm text-gray-500 hover:text-gray-800 font-medium transition-colors">
+            <Link to="/login" className="hidden text-sm font-medium text-gray-600 hover:text-gray-900 sm:inline">
               Sign in
             </Link>
-            <Link
-              to={`/signup${result?.domain ? `?domain=${encodeURIComponent(result.domain)}` : ''}`}
-              className="text-sm font-bold text-white bg-brand-600 hover:bg-brand-700 px-4 py-1.5 rounded-lg transition-colors"
-            >
+            <Link to={signupPath(result?.domain)} className="btn-primary px-4 py-2 text-sm">
               Create free account
             </Link>
           </div>
         </div>
       </header>
 
-      {/* ── Hero ── */}
       {!result && !scanning && (
-        <div className="bg-white border-b border-gray-100">
-          <div className="max-w-3xl mx-auto px-4 py-16 text-center">
-            <div className="inline-flex items-center gap-2 bg-brand-50 text-brand-700 text-xs font-bold uppercase tracking-widest px-3 py-1.5 rounded-full mb-6">
-              <Zap className="w-3.5 h-3.5" />
-              Free External Security Scan
-            </div>
-            <h1 className="text-4xl font-black text-gray-900 leading-tight mb-4 tracking-tight">
-              See your business the way<br className="hidden sm:block" /> attackers do.
-            </h1>
-            <p className="text-lg text-gray-500 mb-10 max-w-xl mx-auto leading-relaxed">
-              Scan any domain in seconds. No account needed.
-              Check your email security, SSL certificate, DNS configuration,
-              and security headers — for free.
-            </p>
-
-            {/* Scan form */}
-            <form onSubmit={handleScan} className="flex gap-2 max-w-lg mx-auto">
-              <div className="flex-1 relative">
-                <Globe className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input
-                  type="text"
-                  value={domain}
-                  onChange={e => setDomain(e.target.value)}
-                  placeholder="yourdomain.com"
-                  className="w-full pl-10 pr-4 py-3 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-300 focus:border-transparent bg-white"
-                  autoFocus
-                  autoComplete="off"
-                  spellCheck={false}
-                />
-              </div>
-              <button
-                type="submit"
-                disabled={!domain.trim()}
-                className="flex items-center gap-2 px-5 py-3 text-sm font-bold text-white bg-brand-600 hover:bg-brand-700 disabled:opacity-40 rounded-xl transition-colors whitespace-nowrap"
-              >
-                <ScanLine className="w-4 h-4" />
-                Scan Domain
-              </button>
-            </form>
-
-            {error && (
-              <div className="flex items-center gap-2 mt-4 text-sm text-red-600 bg-red-50 border border-red-100 px-4 py-3 rounded-xl max-w-lg mx-auto">
-                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-                {error}
-              </div>
-            )}
-
-            {/* What we check */}
-            <div className="flex flex-wrap justify-center gap-4 mt-10 text-xs text-gray-400 font-medium">
-              {[
-                { icon: Mail,         label: 'Email Security (SPF · DMARC · DKIM)' },
-                { icon: Lock,         label: 'SSL Certificate' },
-                { icon: ShieldAlert,  label: 'Security Headers' },
-                { icon: Globe,        label: 'DNS Configuration' },
-              ].map(({ icon: Icon, label }) => (
-                <span key={label} className="flex items-center gap-1.5">
-                  <Icon className="w-3.5 h-3.5 text-brand-400" />
-                  {label}
+        <main>
+          <section className="bg-white">
+            <div className="mx-auto grid max-w-6xl grid-cols-1 gap-10 px-5 py-12 sm:py-16 lg:grid-cols-[1.08fr_0.92fr] lg:items-center">
+              <div>
+                <span className="eyebrow inline-flex items-center gap-2 rounded-full border border-brand-100 bg-brand-50 px-3 py-1">
+                  <Sparkles className="h-3.5 w-3.5" />
+                  Free Cyber MOT
                 </span>
-              ))}
+                <h1 className="mt-5 max-w-3xl text-[34px] font-bold leading-[1.08] tracking-tight text-gray-900 sm:text-[48px]">
+                  Cyber MOT - the 2-minute security check for your business.
+                </h1>
+                <p className="mt-5 max-w-2xl text-base leading-relaxed text-gray-600 sm:text-lg">
+                  Get a clear website and email security report for your domain. Built for UK small businesses that need practical answers without jargon.
+                </p>
+
+                <form onSubmit={handleScan} className="mt-8 grid gap-3 sm:max-w-2xl sm:grid-cols-[1fr_auto]">
+                  <div className="relative">
+                    <Globe className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                    <input
+                      type="text"
+                      value={domain}
+                      onChange={e => setDomain(e.target.value)}
+                      placeholder="yourbusiness.co.uk"
+                      className="input pl-11"
+                      autoFocus
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                  </div>
+                  <button type="submit" disabled={!domain.trim()} className="btn-primary py-3 disabled:cursor-not-allowed disabled:opacity-40">
+                    Start free check
+                    <ArrowRight className="h-4 w-4" />
+                  </button>
+                </form>
+
+                {error && (
+                  <div className="mt-4 flex max-w-2xl items-center gap-2 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
+                    <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                    {error}
+                  </div>
+                )}
+
+                <div className="mt-8 grid max-w-2xl grid-cols-1 gap-3 sm:grid-cols-2">
+                  {[
+                    { icon: Mail, title: 'Email Security', copy: 'DMARC, SPF, DKIM, and spoofing protection signals.' },
+                    { icon: Globe, title: 'Website Security', copy: 'TLS, security headers, and DNS trust checks.' },
+                  ].map(({ icon: Icon, title, copy }) => (
+                    <div key={title} className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                      <Icon className="h-5 w-5 text-brand-600" />
+                      <h2 className="mt-3 text-sm font-bold text-gray-900">{title}</h2>
+                      <p className="mt-1 text-sm leading-relaxed text-gray-500">{copy}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="card-md p-5 sm:p-6">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <span className="eyebrow">Sample report</span>
+                    <h2 className="mt-1 text-xl font-bold tracking-tight text-gray-900">Plain-English Cyber MOT</h2>
+                  </div>
+                  <ShieldCheck className="h-8 w-8 text-brand-600" />
+                </div>
+                <div className="mt-6 grid grid-cols-3 gap-3">
+                  {[
+                    { label: 'Score', value: '78/100' },
+                    { label: 'Email', value: 'Review' },
+                    { label: 'Website', value: 'Good' },
+                  ].map(item => (
+                    <div key={item.label} className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-3">
+                      <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">{item.label}</p>
+                      <p className="mt-1 text-sm font-bold text-gray-900">{item.value}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-5 space-y-3">
+                  {[
+                    'Email authentication record needs attention',
+                    'Security header missing on website',
+                    'TLS certificate is valid',
+                  ].map((item, index) => (
+                    <div key={item} className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-medium text-gray-700">
+                      {index === 2 ? <CheckCircle className="h-4 w-4 text-brand-600" /> : <AlertTriangle className="h-4 w-4 text-amber-500" />}
+                      {item}
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
+          </section>
+        </main>
       )}
 
-      {/* ── Loading ── */}
       {scanning && (
-        <div className="max-w-3xl mx-auto px-4 py-8">
+        <main className="mx-auto max-w-6xl px-5 py-10">
           <LoadingState domain={domain} messageIdx={msgIdx} />
-        </div>
+        </main>
       )}
 
-      {/* ── Results ── */}
       {result && !scanning && (
-        <div ref={resultsRef} className="max-w-3xl mx-auto px-4 py-8 space-y-6">
-
-          {/* Re-scan header */}
-          <div className="flex items-center justify-between">
+        <main ref={resultsRef} className="mx-auto max-w-6xl px-5 py-8 sm:py-10">
+          <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <p className="text-xs text-gray-400 font-medium mb-0.5">Scan results for</p>
-              <h1 className="text-xl font-black text-gray-900">{result.domain}</h1>
+              <span className="eyebrow">Cyber MOT report</span>
+              <h1 className="mt-1 text-2xl font-bold tracking-tight text-gray-900 sm:text-3xl">{result.domain}</h1>
+              <p className="mt-1 text-sm text-gray-500">
+                Website and email security check
+                {result.scanned_at ? ` completed ${new Date(result.scanned_at).toLocaleString('en-GB')}` : ''}
+              </p>
             </div>
-            <button
-              onClick={handleRescan}
-              className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 hover:text-gray-800 bg-white border border-gray-200 px-3 py-2 rounded-xl transition-colors"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              Scan another domain
+            <button onClick={handleRescan} className="btn-secondary justify-center">
+              <RefreshCw className="h-4 w-4" />
+              Check another domain
             </button>
           </div>
 
-          {/* ── Score Card ── */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-            <div className="flex flex-col sm:flex-row items-center gap-8">
-              <ScoreRing score={result.score} risk_level={result.risk_level} />
-              <div className="flex-1 w-full">
-                <h2 className="text-sm font-bold text-gray-900 mb-4">
-                  {result.total_findings === 0
-                    ? 'No issues found in the scanned checks.'
-                    : `${result.total_findings} issue${result.total_findings !== 1 ? 's' : ''} found across email, SSL, headers, and DNS.`}
-                </h2>
-                <SeverityBreakdown counts={result.severity_counts} />
-                <p className="text-[11px] text-gray-300 mt-4">
-                  Scanned: email security · SSL · security headers · DNS configuration
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* ── Preview Findings ── */}
-          {result.preview_findings?.length > 0 && (
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="text-sm font-bold text-gray-900">
-                  Top {result.preview_findings.length} finding{result.preview_findings.length !== 1 ? 's' : ''}
-                </h2>
-                {result.hidden_count > 0 && (
-                  <span className="text-xs text-gray-400 font-medium">
-                    +{result.hidden_count} more hidden
-                  </span>
-                )}
-              </div>
-              <div className="space-y-3">
-                {result.preview_findings.map((f, i) => (
-                  <FindingCard key={f.id} f={f} index={i} />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {result.total_findings === 0 && (
-            <div className="bg-green-50 border border-green-100 rounded-2xl p-6 text-center">
-              <CheckCircle className="w-10 h-10 text-green-500 mx-auto mb-3" />
-              <h2 className="text-base font-bold text-green-800 mb-1">Looking good!</h2>
-              <p className="text-sm text-green-600">
-                No issues found in the scanned checks. Create a free account to run a
-                full surface scan including subdomains, cloud storage, and asset exposure.
-              </p>
-            </div>
-          )}
-
-          {/* ── Gated panels ── */}
-          <div>
-            <div className="flex items-center gap-2 mb-3">
-              <Lock className="w-4 h-4 text-gray-300" />
-              <h2 className="text-sm font-bold text-gray-400">Unlock with a free account</h2>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <GatedPanel
-                icon={Zap}
-                title="Step-by-step remediation"
-                description="Exact commands and configuration to fix each finding"
-                domain={result.domain}
-              />
-              <GatedPanel
-                icon={BarChart2}
-                title="Historical score tracking"
-                description="See how your security posture changes over time"
-                domain={result.domain}
-              />
-              <GatedPanel
-                icon={Bell}
-                title="Change detection alerts"
-                description="Get alerted the moment your attack surface changes"
-                domain={result.domain}
-              />
-              <GatedPanel
-                icon={FileText}
-                title="Executive PDF report"
-                description="One-click board-ready report for your domain"
-                domain={result.domain}
-              />
-            </div>
-          </div>
-
-          {/* ── What a full scan adds ── */}
-          <div className="bg-brand-50/50 border border-brand-100 rounded-2xl p-5">
-            <h3 className="text-sm font-bold text-brand-900 mb-3 flex items-center gap-2">
-              <ScanLine className="w-4 h-4 text-brand-600" />
-              Full scan also includes
-            </h3>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {[
-                'Subdomain discovery',
-                'Subdomain takeover detection',
-                'Cloud storage exposure',
-                'Admin surface detection',
-                'Vendor & supply chain risk',
-                'Technology detection',
-                'WHOIS intelligence',
-                'Asset inventory',
-                'Scheduled monitoring',
-              ].map(item => (
-                <div key={item} className="flex items-center gap-1.5 text-xs text-brand-700 font-medium">
-                  <CheckCircle className="w-3 h-3 text-brand-500 flex-shrink-0" />
-                  {item}
+          <section className="card-md p-5 sm:p-6">
+            <div className="grid gap-8 lg:grid-cols-[220px_1fr] lg:items-center">
+              <ScoreGauge score={result.score} riskLevel={result.risk_level} />
+              <div>
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                    <ClipboardCheck className="h-5 w-5 text-brand-600" />
+                    <p className="mt-3 text-sm font-semibold text-gray-500">Findings found</p>
+                    <p className="mt-1 text-2xl font-bold tabular-nums text-gray-900">{result.total_findings ?? 0}</p>
+                  </div>
+                  <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                    <FileText className="h-5 w-5 text-brand-600" />
+                    <p className="mt-3 text-sm font-semibold text-gray-500">Preview shown</p>
+                    <p className="mt-1 text-2xl font-bold tabular-nums text-gray-900">{result.preview_findings?.length ?? 0}</p>
+                  </div>
+                  <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                    <Lock className="h-5 w-5 text-brand-600" />
+                    <p className="mt-3 text-sm font-semibold text-gray-500">Available after signup</p>
+                    <p className="mt-1 text-2xl font-bold tabular-nums text-gray-900">{result.hidden_count ?? 0}</p>
+                  </div>
                 </div>
+                <div className="mt-6">
+                  <h2 className="mb-3 text-sm font-bold text-gray-900">Severity breakdown</h2>
+                  <SeverityBreakdown counts={result.severity_counts} />
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {modules.length > 0 && (
+            <div className="mt-5 flex flex-wrap gap-2">
+              {modules.map(moduleName => (
+                <span key={moduleName} className="rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-semibold capitalize text-gray-600">
+                  {moduleLabel(moduleName)}
+                </span>
               ))}
             </div>
+          )}
+
+          <div className="mt-6 grid gap-5 lg:grid-cols-2">
+            <ResultSection
+              icon={Mail}
+              title="Email Security"
+              description="Checks that help stop criminals sending convincing emails that appear to come from your business."
+              checks={['DMARC', 'SPF', 'DKIM']}
+              findings={groupedFindings.email}
+            />
+            <ResultSection
+              icon={Globe}
+              title="Website Security"
+              description="Checks that show whether your public website and domain are using common trust and protection settings."
+              checks={['TLS', 'Headers', 'DNS']}
+              findings={groupedFindings.website}
+            />
           </div>
 
-          {/* ── Primary CTA strip ── */}
-          <div className="bg-gray-900 rounded-2xl p-7 text-center">
-            <h2 className="text-xl font-black text-white mb-2">
-              Start monitoring {result.domain}
-            </h2>
-            <p className="text-sm text-gray-400 mb-6 max-w-sm mx-auto">
-              Get alerted when anything changes. Full findings, remediation guidance,
-              scheduled scans, and executive reports — free to start.
-            </p>
-            <div className="flex flex-col sm:flex-row gap-3 justify-center">
-              <Link
-                to={`/signup?domain=${encodeURIComponent(result.domain)}`}
-                className="flex items-center justify-center gap-2 px-6 py-3 text-sm font-bold text-white bg-brand-600 hover:bg-brand-500 rounded-xl transition-colors"
-              >
-                Start Monitoring This Domain
-                <ArrowRight className="w-4 h-4" />
-              </Link>
-              <Link
-                to="/signup"
-                className="flex items-center justify-center gap-2 px-6 py-3 text-sm font-semibold text-gray-300 bg-white/10 hover:bg-white/20 rounded-xl transition-colors"
-              >
-                Create free account
-              </Link>
-            </div>
-            <p className="text-[11px] text-gray-500 mt-4">No credit card required · Free to start</p>
-          </div>
-
-          {/* ── Academy promo ── */}
-          <div className="bg-white border border-gray-100 rounded-2xl p-5 flex items-start gap-4">
-            <div className="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center flex-shrink-0">
-              <GraduationCap className="w-5 h-5 text-brand-600" />
-            </div>
-            <div className="flex-1">
-              <h3 className="text-sm font-bold text-gray-900 mb-1">Learn what these findings mean</h3>
-              <p className="text-xs text-gray-400 leading-relaxed mb-3">
-                The CyberMeters Academy explains every security concept in plain English —
-                from SPF records to subdomain takeovers. No jargon, no assumed knowledge.
+          {result.total_findings === 0 && (
+            <div className="mt-6 rounded-2xl border border-green-100 bg-green-50 p-6 text-center">
+              <CheckCircle className="mx-auto mb-3 h-10 w-10 text-green-600" />
+              <h2 className="text-lg font-bold text-green-900">Your Cyber MOT looks healthy</h2>
+              <p className="mx-auto mt-2 max-w-2xl text-sm leading-relaxed text-green-700">
+                No issues were found in the preview checks. A free account adds the full report, monitoring, and change alerts.
               </p>
-              <Link
-                to="/academy"
-                className="inline-flex items-center gap-1.5 text-xs font-bold text-brand-600 hover:text-brand-800 transition-colors"
-              >
-                Browse the Academy
-                <ArrowRight className="w-3 h-3" />
-              </Link>
             </div>
+          )}
+
+          <div className="mt-6">
+            <HiddenFindingsCta count={result.hidden_count} domain={result.domain} />
           </div>
 
-        </div>
+          <section className="mt-6 rounded-2xl bg-gray-900 p-6 text-center sm:p-8">
+            <h2 className="text-2xl font-bold tracking-tight text-white">Turn this Cyber MOT into ongoing monitoring</h2>
+            <p className="mx-auto mt-3 max-w-2xl text-sm leading-relaxed text-gray-300">
+              Create a free account to keep the report, view every finding, receive practical remediation guidance, and track changes over time.
+            </p>
+            <div className="mt-6 flex flex-col justify-center gap-3 sm:flex-row">
+              <Link to={signupPath(result.domain)} className="btn-primary">
+                Create free account
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+              <Link to="/academy" className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-700 px-5 py-2.5 text-sm font-semibold text-gray-200 transition-colors hover:bg-gray-800">
+                Plain-English guidance
+                <GraduationCap className="h-4 w-4" />
+              </Link>
+            </div>
+            <p className="mt-4 text-[11px] font-medium text-gray-500">No credit card required</p>
+          </section>
+
+          <section className="mt-6 grid gap-4 sm:grid-cols-3">
+            {[
+              { icon: Mail, title: 'Email protection', copy: 'Monitor DMARC and sender trust over time.' },
+              { icon: BarChart2, title: 'Score history', copy: 'See whether your security posture is improving.' },
+              { icon: Shield, title: 'Executive report', copy: 'Share a clear PDF with directors or clients.' },
+            ].map(({ icon: Icon, title, copy }) => (
+              <div key={title} className="card p-5">
+                <Icon className="h-5 w-5 text-brand-600" />
+                <h3 className="mt-3 text-sm font-bold text-gray-900">{title}</h3>
+                <p className="mt-1 text-sm leading-relaxed text-gray-500">{copy}</p>
+              </div>
+            ))}
+          </section>
+        </main>
       )}
 
-      {/* ── Footer ── */}
-      <footer className="border-t border-gray-100 mt-16 py-8">
-        <div className="max-w-5xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2 text-xs text-gray-400">
-            <Shield className="w-3.5 h-3.5 text-brand-400" />
-            <span>© 2026 CyberMeters. External attack surface monitoring.</span>
+      <footer className="mt-12 border-t border-gray-200 bg-white">
+        <div className="mx-auto flex max-w-6xl flex-col gap-4 px-5 py-8 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2 text-sm text-gray-500">
+            <Shield className="h-4 w-4 text-brand-600" />
+            <span>© 2026 CyberMeters. UK cyber-security SaaS.</span>
           </div>
-          <div className="flex items-center gap-4 text-xs text-gray-400">
-            <Link to="/privacy" className="hover:text-gray-600 transition-colors">Privacy</Link>
-            <Link to="/terms"   className="hover:text-gray-600 transition-colors">Terms</Link>
-            <Link to="/support" className="hover:text-gray-600 transition-colors">Support</Link>
-            <Link to="/academy" className="hover:text-gray-600 transition-colors">Academy</Link>
+          <div className="flex flex-wrap items-center gap-4 text-sm text-gray-500">
+            <Link to="/privacy" className="hover:text-gray-900">Privacy</Link>
+            <Link to="/terms" className="hover:text-gray-900">Terms</Link>
+            <Link to="/support" className="hover:text-gray-900">Support</Link>
           </div>
         </div>
       </footer>
-
     </div>
   )
 }
