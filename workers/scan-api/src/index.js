@@ -12676,7 +12676,9 @@ async function insertAdminSurfaceEvents(scanId, domainId, adminModule, env) {
 //
 // Fires once per workspace per scan, grouped into a single summary email.
 // Dedup is enforced by asset_alert_records UNIQUE(workspace_id, scan_id):
-//   INSERT OR IGNORE silently no-ops if an alert was already sent.
+//   INSERT OR IGNORE silently no-ops if an alert record already exists.
+// Delivery outcome is tracked on the record (status/error); failed sends are
+// re-sent by the hourly asset_alert_retry cron (retryFailedAssetAlerts).
 //
 // Alert-worthy event types and their severity contribution:
 //   takeover_risk_detected  → critical
@@ -16635,6 +16637,10 @@ async function upsertVendorInventory(domainId, vendorRisk, env) {
  * scan, builds a grouped summary, and sends one email per workspace.
  *
  * Dedup: INSERT OR IGNORE into asset_alert_records prevents re-sends.
+ * After sending, the row's status/error (migration 067) record the delivery
+ * outcome; a 'failed' row is re-sent by the hourly asset_alert_retry cron
+ * (retryFailedAssetAlerts), so a Resend failure inside this heavy scan
+ * invocation no longer loses the alert.
  * The whole function is non-fatal — any error is swallowed.
  */
 async function sendAssetChangeAlert(domainId, domain, scanId, env) {
@@ -16735,10 +16741,27 @@ async function sendAssetChangeAlert(domainId, domain, scanId, env) {
           frontendOrigin ? `${frontendOrigin}/assets` : null,
         );
         const delivery = await sendAlertEmail(subject, text, html, env, "ALERT_EMAIL_FROM");
+        // Record the delivery outcome: a 'failed' row is what the hourly retry
+        // cron (retryFailedAssetAlerts) picks up — without it the dedupe row
+        // permanently swallows the alert. The INSERT above deliberately keeps
+        // the pre-067 column list and this UPDATE has its own catch, so a
+        // worker deployed ahead of migration 067 (auto-deploy on push) degrades
+        // to the old fire-and-forget behaviour instead of losing the alert or
+        // the channel fan-out below.
+        let queuedForRetry = false;
+        try {
+          await env.cybermeters_db
+            .prepare(`UPDATE asset_alert_records SET status = ?, error = ? WHERE id = ?`)
+            .bind(delivery.sent ? "sent" : "failed", delivery.sent ? null : (delivery.reason || "send_failed"), recId)
+            .run();
+          queuedForRetry = !delivery.sent;
+        } catch (outcomeErr) {
+          console.error("[asset-alert] outcome not recorded", JSON.stringify({ workspace_id, scanId, reason: outcomeErr?.message }));
+        }
         if (delivery.sent) {
           console.log("[asset-alert] accepted", JSON.stringify({ workspace_id, scanId, severity, counts, provider_id: delivery.provider_id || null }));
         } else {
-          console.error("[asset-alert] delivery failed", JSON.stringify({ workspace_id, scanId, reason: delivery.reason }));
+          console.error("[asset-alert] delivery failed", JSON.stringify({ workspace_id, scanId, reason: delivery.reason, queued_for_retry: queuedForRetry }));
         }
 
         // Slack/Teams/webhook fan-out mirrors the email; never blocks the sweep.
@@ -16758,6 +16781,80 @@ async function sendAssetChangeAlert(domainId, domain, scanId, env) {
     }
   } catch (err) {
     console.error("[asset-alert] failed:", err?.message);
+  }
+}
+
+/**
+ * retryFailedAssetAlerts
+ *
+ * Hourly cron sweep that re-sends asset change alert emails whose delivery
+ * FAILED. sendAssetChangeAlert runs at the end of the subrequest-heavy scan
+ * engine, where the outbound Resend fetch can fail (observed: network_error
+ * during the 2026-07-08 11:00 UTC scheduled-scan cron); this sweep runs in a
+ * clean invocation with full subrequest budget — the same recovery pattern as
+ * retryFailedLifecycleEmails.
+ *
+ * The failed asset_alert_records row already stores everything needed to
+ * rebuild the exact email (domain, severity, event_counts, top_hostnames), so
+ * no asset_events re-read is needed. Each row is claimed back to 'pending'
+ * before sending so overlapping sweeps can never double-send. The
+ * Slack/Teams/webhook fan-out is NOT repeated — it already ran at scan time,
+ * independent of email delivery. Bounded to a 3-day window and 10 rows per
+ * run, mirroring the lifecycle retry. Never throws.
+ */
+async function retryFailedAssetAlerts(env) {
+  try {
+    const rows = await env.cybermeters_db
+      .prepare(
+        `SELECT id, workspace_id, scan_id, domain, severity, event_counts, top_hostnames
+         FROM asset_alert_records
+         WHERE status = 'failed'
+           AND sent_at > datetime('now', '-3 days')
+         ORDER BY sent_at ASC
+         LIMIT 10`
+      )
+      .all().catch(() => null);
+
+    for (const row of (rows?.results || [])) {
+      try {
+        // Claim the row so a concurrent sweep cannot send the same alert twice.
+        const claim = await env.cybermeters_db
+          .prepare(`UPDATE asset_alert_records SET status = 'pending', error = NULL WHERE id = ? AND status = 'failed'`)
+          .bind(row.id)
+          .run();
+        if ((claim.meta?.changes ?? 0) === 0) continue;
+
+        let counts = {};
+        let topHostnames = [];
+        try { counts = JSON.parse(row.event_counts || "{}") || {}; } catch { /* degrade to a counts-less summary */ }
+        try { topHostnames = JSON.parse(row.top_hostnames || "[]") || []; } catch { /* hostname list is optional */ }
+
+        const frontendOrigin = getEmailFrontendOrigin(env);
+        const { subject, text, html } = buildAssetAlertEmail(
+          row.domain,
+          row.workspace_id,
+          row.scan_id,
+          counts,
+          topHostnames,
+          row.severity || "info",
+          frontendOrigin ? `${frontendOrigin}/assets` : null,
+        );
+        const delivery = await sendAlertEmail(subject, text, html, env, "ALERT_EMAIL_FROM");
+        await env.cybermeters_db
+          .prepare(`UPDATE asset_alert_records SET status = ?, error = ? WHERE id = ?`)
+          .bind(delivery.sent ? "sent" : "failed", delivery.sent ? null : (delivery.reason || "send_failed"), row.id)
+          .run();
+        if (delivery.sent) {
+          console.log("[asset-alert-retry] delivered", JSON.stringify({ workspace_id: row.workspace_id, scan_id: row.scan_id, provider_id: delivery.provider_id || null }));
+        } else {
+          console.error("[asset-alert-retry] delivery failed", JSON.stringify({ workspace_id: row.workspace_id, scan_id: row.scan_id, reason: delivery.reason }));
+        }
+      } catch (rowErr) {
+        console.error("[asset-alert-retry] row error", row.id, rowErr?.message);
+      }
+    }
+  } catch (err) {
+    console.error("[asset-alert-retry] failed:", err?.message);
   }
 }
 
@@ -35968,6 +36065,7 @@ export default {
     generateScheduledReports,
     processDeletionRequests,
     processScheduledReports,
+    retryFailedAssetAlerts,
     retryFailedLifecycleEmails,
     retryPendingDomainVerifications,
     runHostedDnsVerificationSweep,
@@ -36077,6 +36175,7 @@ export {
   requireWorkspaceRole,
   resolveCanonicalScanScore,
   resolveIntelligenceEngine,
+  retryFailedAssetAlerts,
   revokeCloudflareEmailRoute,
   riskLevelForScore,
   rollbackHostedDmarc,
@@ -36086,6 +36185,7 @@ export {
   runSaasExposureModule,
   sanitizeInfraErrorMessage,
   scoreBrandCandidateRisk,
+  sendAssetChangeAlert,
   shouldAutoRollback,
   signAlertWebhookBody,
   summarizeEmailSenders,

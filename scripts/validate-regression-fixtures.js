@@ -3002,6 +3002,59 @@ results.push(await asyncSecurityContract("lifecycle_unverified_or_missing_email_
   // unverified → never inserts an event or delivers.
   return r.skipped === "no_verified_email" && !runs.some(s => s.includes("INSERT INTO lifecycle_email_events"));
 }));
+results.push(await asyncSecurityContract("asset_alert_failed_delivery_recorded_for_retry", async () => {
+  // A failed asset-alert email must flip its dedupe row to status='failed' so
+  // the hourly cron re-sends it — never remain a silent permanent skip (the
+  // 2026-07-08 network_error incident). RESEND_API_KEY is omitted so delivery
+  // short-circuits without a network call.
+  const statements = []; const updates = [];
+  const env = { FRONTEND_URL: ORIGIN, ALERT_EMAIL_FROM: "alerts@cybermeters.com", ALERT_EMAIL_TO: "ops@cybermeters.com",
+    cybermeters_db: { prepare(sql) { statements.push(sql); return {
+      _sql: sql, _b: null, bind(...a) { this._b = a; return this },
+      async all() {
+        if (this._sql.includes("FROM workspace_domains")) return { results: [{ workspace_id: "w1" }] };
+        if (this._sql.includes("FROM asset_events")) return { results: [{ workspace_id: "w1", event_type: "new_asset_discovered", hostname: "dev.example.com" }] };
+        return { results: [] };
+      },
+      async first() { return null },
+      async run() {
+        if (this._sql.includes("UPDATE asset_alert_records")) updates.push(this._b);
+        return { meta: { changes: 1 } };
+      },
+    } } } };
+  await scanner.sendAssetChangeAlert("dom_1", "example.com", "scan_1", env);
+  // The dedupe INSERT keeps the pre-067 column list (a worker auto-deployed
+  // ahead of the migration must still record alerts), and the outcome is then
+  // persisted with a safe reason enum.
+  const insertLegacyShape = statements.some(s => s.includes("INSERT OR IGNORE INTO asset_alert_records") && !s.includes("status"));
+  return insertLegacyShape && updates.length === 1 && updates[0][0] === "failed" && updates[0][1] === "missing_api_key";
+}));
+results.push(await asyncSecurityContract("asset_alert_cron_retry_resends_failed_alert", async () => {
+  // The hourly sweep selects failed rows in a bounded window, claims each row
+  // back to 'pending' (no double-send across overlapping sweeps), rebuilds the
+  // email from the persisted record, and marks it sent on success.
+  const okResend = await loadScanner(async () => ({ ok: true, status: 200, json: async () => ({ id: "re_retry_1" }) }));
+  const statements = []; const updates = [];
+  const env = { FRONTEND_URL: ORIGIN, ALERT_EMAIL_FROM: "alerts@cybermeters.com", ALERT_EMAIL_TO: "ops@cybermeters.com", RESEND_API_KEY: "k",
+    cybermeters_db: { prepare(sql) { statements.push(sql); return {
+      _sql: sql, _b: null, bind(...a) { this._b = a; return this },
+      async all() { return this._sql.includes("FROM asset_alert_records") ? { results: [{
+        id: "aar_1", workspace_id: "w1", scan_id: "scan_1", domain: "example.com",
+        severity: "high", event_counts: JSON.stringify({ new_asset_discovered: 2 }),
+        top_hostnames: JSON.stringify(["dev.example.com"]),
+      }] } : { results: [] } },
+      async first() { return null },
+      async run() {
+        if (this._sql.includes("UPDATE asset_alert_records") && !this._sql.includes("'pending'")) updates.push(this._b);
+        return { meta: { changes: 1 } };
+      },
+    } } } };
+  await okResend.retryFailedAssetAlerts(env);
+  const sweep = statements.find(s => s.includes("FROM asset_alert_records")) || "";
+  const claimed = statements.some(s => s.includes("UPDATE asset_alert_records") && s.includes("status = 'pending'") && s.includes("status = 'failed'"));
+  return /status = 'failed'/.test(sweep) && /-3 days/.test(sweep) && /LIMIT 10/.test(sweep) &&
+    claimed && updates.length === 1 && updates[0][0] === "sent" && updates[0][1] === null && updates[0][2] === "aar_1";
+}));
 
 // Internal platform errors are sanitized; genuine findings pass through intact.
 results.push(securityContract("infra_error_sanitized_for_customer", () => {

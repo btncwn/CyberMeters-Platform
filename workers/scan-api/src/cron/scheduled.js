@@ -80,6 +80,11 @@ export async function runScheduled(event, env, ctx, tasks) {
   // (e.g. first-scan-completed sent at the end of the scan engine).
   ctx.waitUntil(runCronTask(env, "lifecycle_email_retry", () => tasks.retryFailedLifecycleEmails(env)));
 
+  // ── Retry failed asset change alert emails ────────────────────────────
+  // Same recovery pattern: the original send runs at the end of the
+  // subrequest-heavy scan engine, where the outbound Resend fetch can fail.
+  ctx.waitUntil(runCronTask(env, "asset_alert_retry", () => tasks.retryFailedAssetAlerts(env)));
+
   // ── Domain verification auto-retry ─────────────────────────────────────
   // Re-checks recently initiated/failed DNS TXT verifications for 48h so
   // slow registrar propagation (e.g. GoDaddy) verifies without the customer
