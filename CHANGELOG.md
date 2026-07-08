@@ -5,6 +5,21 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.08 (v2026.07.08-6 — Cyber Essentials Readiness)
+
+### Added
+- **Cyber Essentials Readiness endpoint** (deployment `22fe448e`): GET/PUT
+  `/api/workspaces/:id/cyber-essentials/answers` (auth + professional plan gate +
+  server-side key validation + upsert on migration 068). The readiness endpoint
+  now additively returns `self_assessment` — measured categories merged with
+  self-attestation, with an HONEST per-control evidence label
+  (self_attested_only for internal controls — never "verified";
+  contradicted_by_scan where an optimistic answer conflicts with observed
+  evidence). Partial verification, transparently labelled.
+- **CE Readiness free-hook page** (frontend, Codex + Claude review): public
+  `/cyber-essentials-readiness` lead-gen questionnaire (local state), distinct
+  from the paid in-app `ws/cyber-essentials` service. Not yet wired to data.
+
 ## 2026.07.08 (v2026.07.08-5 — asset-alert retry + manual release model)
 
 ### Production verification (release closure)
