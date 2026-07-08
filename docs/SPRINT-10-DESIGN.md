@@ -121,6 +121,21 @@ type CronTaskName =
 
 - Unknown `taskName` or `contract_version` → `{ok:false, error:"contract_mismatch"}`
   and an alertable log line — a version-skewed deploy fails loudly, not weirdly.
+- **Stage C implementation guidance (CTO review, 2026-07-08):** when the RPC
+  contract lands, the task registry graduates from a name→fn map to a
+  metadata-carrying structure — one entry per task:
+
+  ```js
+  { name: "asset_alert_retry", owner: "billing", timeoutMs: 300_000,
+    schedule: "hourly", idempotency: "at-least-once",
+    handler: retryFailedAssetAlerts }
+  ```
+
+  The point is not tests — it is a SINGLE SOURCE feeding the health endpoint,
+  dashboard, metrics dimensions, docs and RPC validation, so they can never
+  disagree about what the scheduler owns. The pipeline suite's name-set +
+  all-ok assertions then read their expectations from this registry instead
+  of a hand-maintained list.
 - `request_id` appears in both workers' logs + the cron_task metric, so one
   dispatch is traceable end to end.
 
