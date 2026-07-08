@@ -44,6 +44,9 @@ jobs:
       - name: Validate request pipeline (fetch → auth → RBAC → DB; login + webhook)
         run: node scripts/validate-pipeline.js
 
+      - name: Validate email worker equivalence (golden vs api worker)
+        run: node scripts/validate-email-worker.js
+
       - name: Validate OpenAPI spec
         run: node scripts/validate-openapi.js
 

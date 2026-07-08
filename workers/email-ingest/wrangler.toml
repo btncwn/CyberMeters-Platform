@@ -1,0 +1,35 @@
+# cybermeters-email — standalone inbound RUA ingestion worker (Sprint 10 Stage B).
+# Receives Email Routing messages for RUA_INBOUND_DOMAIN and runs the SAME
+# handleInboundEmail + src/lib service modules as the api worker (single source
+# of truth — code is imported from ../scan-api/src, bundled at deploy).
+#
+# Deploy (reuses the scan-api wrangler install):
+#   cd workers/scan-api && npx wrangler deploy --config ../email-ingest/wrangler.toml
+# Secrets required BEFORE the Email Routing repoint:
+#   npx wrangler secret put RESEND_API_KEY --config ../email-ingest/wrangler.toml
+name = "cybermeters-email"
+main = "src/index.js"
+compatibility_date = "2026-06-18"
+
+[[d1_databases]]
+binding = "cybermeters_db"
+database_name = "cybermeters-db"
+database_id = "fd6792cb-441a-44a7-8ca2-9a0b411ec706"
+
+[version_metadata]
+binding = "CF_VERSION_METADATA"
+
+[[analytics_engine_datasets]]
+binding = "METRICS"
+dataset = "cybermeters_metrics"
+
+[vars]
+APP_VERSION = "2026.07.08"
+# Tags this worker's metric datapoints (trailing blob — additive, see lib/metrics.js).
+WORKER_NAME = "email-ingest"
+RUA_INBOUND_DOMAIN = "reports.cybermeters.com"
+FRONTEND_URL = "https://app.cybermeters.com"
+SAFE_EMAIL_FROM = "safe@cybermeters.com"
+HELLO_EMAIL_FROM = "hello@cybermeters.com"
+ALERT_EMAIL_FROM = "alerts@cybermeters.com"
+ALERT_EMAIL_TO = "ttrnn47@gmail.com"
