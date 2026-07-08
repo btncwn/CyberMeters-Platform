@@ -9,33 +9,22 @@
 //
 import fs from "node:fs";
 import path from "node:path";
-import vm from "node:vm";
 import { webcrypto } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, "..");
 const workerPath = path.join(root, "workers", "scan-api", "src", "index.js");
 
 // ── Load the worker's default export (the { fetch, scheduled, email } object) ──
-function loadWorker() {
-  const source = fs.readFileSync(workerPath, "utf8")
-    .replace(/\bexport\s+default\b/, "const __workerDefault =");
-  const context = {
-    console,
-    crypto: { randomUUID: () => webcrypto.randomUUID(), getRandomValues: (a) => webcrypto.getRandomValues(a), subtle: webcrypto.subtle },
-    btoa: (s) => Buffer.from(String(s), "binary").toString("base64"),
-    atob: (s) => Buffer.from(String(s), "base64").toString("binary"),
-    Response, Request, URL, URLSearchParams, Headers,
-    DecompressionStream, CompressionStream, Uint8Array, TextEncoder, TextDecoder,
-    fetch: async () => { throw new Error("network disabled"); },
-    AbortSignal: { timeout: () => undefined },
-    Date, setTimeout, clearTimeout,
-  };
-  vm.createContext(context);
-  vm.runInContext(`${source}\nthis.__worker = __workerDefault;\nthis.__hash = { hashToken, hashPassword };`, context);
-  return { worker: context.__worker, hash: context.__hash };
+// ESM worker loading (vm-free): the worker is a real module since Sprint 9
+// split it up — vm.runInContext cannot evaluate `import`. Network stays
+// disabled and Workers-global stubs are applied process-wide before import.
+async function loadWorker() {
+  globalThis.fetch = async () => { throw new Error("network disabled"); };
+  AbortSignal.timeout = () => undefined;
+  return import(pathToFileURL(workerPath).href);
 }
 
 // ── Real schema (best-effort: a few migrations are ordering/idempotency no-ops) ──
@@ -97,7 +86,9 @@ function ok(name, cond) {
 }
 
 async function main() {
-  const { worker, hash } = loadWorker();
+  const mod = await loadWorker();
+  const worker = mod.default;
+  const hash = { hashToken: mod.hashToken, hashPassword: mod.hashPassword };
   const db = buildDb();
   const env = makeEnv(db);
 

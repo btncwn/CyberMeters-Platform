@@ -1,184 +1,50 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import path from "node:path";
-import vm from "node:vm";
 import { webcrypto } from "node:crypto";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 const fixturePath = path.join(repoRoot, "docs", "regression-fixtures.json");
 const workerPath = path.join(repoRoot, "workers", "scan-api", "src", "index.js");
 
-function loadScanner(fetchImpl = async () => { throw new Error("network disabled in regression runner"); }) {
-  const source = fs.readFileSync(workerPath, "utf8")
-    .replace(/\bexport\s+default\b/, "const __workerDefault =");
-  const context = {
-    console,
-    crypto: {
-      // randomUUID stays deterministic so existing id-dependent fixtures are stable.
-      randomUUID: () => "00000000-0000-4000-8000-000000000000",
-      // Real entropy + real SHA-256 so token/hash helpers behave as in production.
-      getRandomValues: (arr) => webcrypto.getRandomValues(arr),
-      subtle: webcrypto.subtle,
-    },
-    btoa: (s) => Buffer.from(String(s), "binary").toString("base64"),
-    atob: (s) => Buffer.from(String(s), "base64").toString("binary"),
-    // Streams/Response for inbound RUA decompression helpers (present in Workers
-    // and in Node 18+); CompressionStream is used by tests to build fixtures.
-    Response,
-    DecompressionStream,
-    CompressionStream,
-    Uint8Array,
-    fetch: fetchImpl,
-    AbortSignal: { timeout: () => undefined },
-    TextEncoder,
-    TextDecoder,
-    URL,
-    Date,
-    setTimeout,
-    clearTimeout,
-  };
-  vm.createContext(context);
-  vm.runInContext(`${source}\nthis.__scanner = {
-    computeScore,
-    validateFindingEvidence,
-    applyEvidenceQuality,
-    resolveCanonicalScanScore,
-    riskLevelForScore,
-    isValidDomain,
-    isValidEmail,
-    parseBoundedInteger,
-    validateFrontendRedirectUrl,
-    normalizeApiResponseData,
-    validateMicrosoftIdTokenClaims,
-    hasWorkspacePermission,
-    getEmailVerificationTokenStatus,
-    isEmailVerificationResendCoolingDown,
-    normalizeEmailRecipients,
-    resolveEmailSender,
-    getEmailFrontendOrigin,
-    formatAlertEmail,
-    buildAssetAlertEmail,
-    deliverEmail,
-    buildExecutiveReportV2,
-    INTELLIGENCE_ENGINE_REGISTRY,
-    resolveIntelligenceEngine,
-    normalizeDiscoveredHostname,
-    normalizeCertificateSanNames,
-    filterWildcardBruteforceResults,
-    providerForInfrastructureHostname,
-    providerMetadataForHostname,
-    classifyProviderInfrastructure,
-    annotateExposureInfrastructure,
-    deduplicateExposureAssets,
-    consolidateInventoryAssetAliases,
-    assetFingerprintSignals,
-    runAdminSurfaceModule,
-    runSaasExposureModule,
-    runCertificateIntelligenceModule,
-    buildCertificateOwnershipAssessment,
-    inferBrandProfileFromDomains,
-    buildBrandProfileDomainScope,
-    filterBrandCandidatesToProfile,
-    validateBrandProfileInput,
-    scoreBrandCandidateRisk,
-    brandCandidateToApi,
-    buildBrandProtectionSummary,
-    brandClassificationAuditMetadata,
-    parseBrandCandidateListParams,
-    legacyBrandAssetToApi,
-    parseDmarcRecord,
-    buildDmarcDnsRecommendedValue,
-    verifyDmarcDnsSetup,
-    parseSpfRecord,
-    buildDmarcPolicyJourney,
-    buildDkimDetail,
-    parseBimiRecord,
-    buildEmailTransportDetails,
-    buildEmailRemediationActions,
-    parseDmarcAggregateXml,
-    guessEmailSenderProvider,
-    updateEmailSenderSources,
-    summarizeEmailSenders,
-    buildDmarcEnforcementReadiness,
-    buildDmarcReportRemediationActions,
-    parseEmailAuthHeaders,
-    deriveInboundReportProvenance,
-    isKnownDmarcReporter,
-    extractSingleFromDomain,
-    extractEmailDomainFromHeader,
-    buildDmarcBusinessRisk,
-    computeBecExposureScore,
-    cybermetersRuaPresentInDmarcRecord,
-    dmarcSenderRiskLevel,
-    dmarcReportIdentity,
-    dmarcReportDomainMatches,
-    generateIngestToken,
-    hashIngestToken,
-    ingestEndpointIsActive,
-    ingestEndpointToApi,
-    ensureCloudflareEmailRoute,
-    revokeCloudflareEmailRoute,
-    persistDmarcRouteResult,
-    auditDmarcRouteResult,
-    configureDmarcEndpointRoute,
-    generateInboundLocalpart,
-    normalizeInboundRecipientDomain,
-    parseInboundRecipient,
-    extractInboundLocalpart,
-    gunzipXmlBytes,
-    unzipSingleEntryXmlBytes,
-    extractDmarcXmlFromAttachment,
-    parseMimeParts,
-    selectDmarcAttachment,
-    normalizeInboundDropReason,
-    sanitizeInfraErrorMessage,
-    ingestDmarcReport,
-    lifecycleDedupeKey,
-    buildLifecycleEmail,
-    sendLifecycleEmail,
-    getPaymentGraceState,
-    isDeletionPurgeDue,
-    retryFailedLifecycleEmails,
-    SCAN_CHILD_TABLES,
-    WORKSPACE_PURGE_TABLES,
-    computeConcentration,
-    pdfUtcDate,
-    validateAlertChannelInput,
-    buildAlertChannelPayload,
-    signAlertWebhookBody,
-    deliverWorkspaceAlert,
-    alertChannelToApi,
-    analyzeSpfChain,
-    hostedDnsRecordToApi,
-    nextHostedDnsStatus,
-    verifyHostedDmarcRecord,
-    runHostedDnsVerificationSweep,
-    newHostedDnsRecordId,
-    hostedDmarcSubdomain,
-    cfCreateHostedTxt,
-    classifyHostedCfError,
-    _cloudflareRouteFailure,
-    buildDmarcPolicyValue,
-    dmarcRampStepIndex,
-    DMARC_RAMP_LADDER,
-    evaluateRampReadiness,
-    shouldAutoRollback,
-    applyHostedDmarcChange,
-    rollbackHostedDmarc,
-    reconcileHostedIntent,
-    planAllowsHostedPolicyManagement,
-    REMEDIATION_REGISTRY,
-    getRemediation,
-    remediationToApi,
-    runHostedDnsVerificationSweep_B: runHostedDnsVerificationSweep,
-    emailHandler: __workerDefault.email,
-    computeBusinessRiskScoreFromIds: (ids, data) => computeBusinessRiskScore(new Set(ids), data),
-  };`, context, {
-    filename: workerPath,
-  });
-  return context.__scanner;
+// ── ESM worker loading (vm-free) ──────────────────────────────────────────────
+// The worker is imported as a real ES module (required since Sprint 9 split it
+// into modules — vm.runInContext cannot evaluate `import`). Workers globals used
+// by the code (fetch/AbortSignal/crypto) are patched process-wide BEFORE import:
+//   - fetch delegates to a mutable impl so fixtures can inject fake responses,
+//   - crypto.randomUUID stays deterministic for id-dependent fixtures,
+//   - AbortSignal.timeout is a no-op stub (no real timers in tests).
+let __workerModPromise = null;
+function importWorker() {
+  if (!__workerModPromise) {
+    globalThis.__cmFetchImpl = async () => { throw new Error("network disabled in regression runner"); };
+    globalThis.fetch = (...args) => globalThis.__cmFetchImpl(...args);
+    crypto.randomUUID = () => "00000000-0000-4000-8000-000000000000";
+    AbortSignal.timeout = () => undefined;
+    __workerModPromise = import(pathToFileURL(workerPath).href);
+  }
+  return __workerModPromise;
+}
+
+// Each loadScanner(fetchImpl) returns a view of the SAME module whose function
+// properties bind fetch to that impl at every call — replacing the per-vm
+// isolation the old loader provided. The runner awaits each contract before
+// building the next scanner, so the delegate cannot interleave.
+async function loadScanner(fetchImpl = async () => { throw new Error("network disabled in regression runner"); }) {
+  const mod = await importWorker();
+  const bound = {};
+  for (const key of Object.keys(mod)) {
+    const value = mod[key];
+    bound[key] = typeof value === "function"
+      ? (...args) => { globalThis.__cmFetchImpl = fetchImpl; return value(...args); }
+      : value;
+  }
+  bound.runHostedDnsVerificationSweep_B = (...args) => { globalThis.__cmFetchImpl = fetchImpl; return mod.runHostedDnsVerificationSweep(...args); };
+  bound.emailHandler = (...args) => { globalThis.__cmFetchImpl = fetchImpl; return mod.default.email(...args); };
+  bound.computeBusinessRiskScoreFromIds = (ids, data) => { globalThis.__cmFetchImpl = fetchImpl; return mod.computeBusinessRiskScore(new Set(ids), data); };
+  return bound;
 }
 
 // Sprint 9E.1: mapping from legacy string confidence to numeric equivalents.
@@ -383,7 +249,7 @@ parsed.fixtures.forEach((fixture, index) => {
 
 if (process.exitCode) process.exit(process.exitCode);
 
-const scanner = loadScanner();
+const scanner = await loadScanner();
 const results = parsed.fixtures.map((fixture) => runFixture(scanner, fixture));
 
 function securityContract(scenario, check) {
@@ -1242,7 +1108,7 @@ results.push(await asyncSecurityContract("dmarc_dns_check_no_token_hash_or_route
 }));
 
 const acceptedRequests = [];
-const acceptedEmailScanner = loadScanner(async (requestUrl, options) => {
+const acceptedEmailScanner = await loadScanner(async (requestUrl, options) => {
   acceptedRequests.push({ requestUrl, options });
   return { ok: true, status: 200, json: async () => ({ id: "email_test_1" }) };
 });
@@ -1263,7 +1129,7 @@ results.push(await asyncSecurityContract("email_delivery_provider_acceptance", a
     payload.to?.[0] === "owner@example.com";
 }));
 
-const rejectedEmailScanner = loadScanner(async () => ({ ok: false, status: 429, json: async () => ({}) }));
+const rejectedEmailScanner = await loadScanner(async () => ({ ok: false, status: 429, json: async () => ({}) }));
 results.push(await asyncSecurityContract("email_delivery_provider_rejection", async () => {
   const delivery = await rejectedEmailScanner.deliverEmail(
     "Security alert",

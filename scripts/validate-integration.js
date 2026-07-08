@@ -11,32 +11,20 @@
 //
 import fs from "node:fs";
 import path from "node:path";
-import vm from "node:vm";
 import { webcrypto } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const workerPath = path.join(__dirname, "..", "workers", "scan-api", "src", "index.js");
 
-function loadAuthFns() {
-  const source = fs.readFileSync(workerPath, "utf8")
-    .replace(/\bexport\s+default\b/, "const __workerDefault =");
-  const context = {
-    console,
-    crypto: { randomUUID: () => webcrypto.randomUUID(), getRandomValues: (a) => webcrypto.getRandomValues(a), subtle: webcrypto.subtle },
-    btoa: (s) => Buffer.from(String(s), "binary").toString("base64"),
-    atob: (s) => Buffer.from(String(s), "base64").toString("binary"),
-    Response, DecompressionStream, CompressionStream, Uint8Array,
-    fetch: async () => { throw new Error("network disabled"); },
-    AbortSignal: { timeout: () => undefined },
-    TextEncoder, TextDecoder, URL, Date, setTimeout, clearTimeout,
-  };
-  vm.createContext(context);
-  vm.runInContext(`${source}\nthis.__itest = {
-    requireWorkspaceAccess, requireWorkspaceRole, getAccessibleWorkspaceIds, hasWorkspacePermission,
-  };`, context);
-  return context.__itest;
+// ESM worker loading (vm-free): the worker is a real module since Sprint 9
+// split it up — vm.runInContext cannot evaluate `import`. Network stays
+// disabled and Workers-global stubs are applied process-wide before import.
+async function loadAuthFns() {
+  globalThis.fetch = async () => { throw new Error("network disabled"); };
+  AbortSignal.timeout = () => undefined;
+  return import(pathToFileURL(workerPath).href);
 }
 
 // ── D1-compatible adapter over node:sqlite ────────────────────────────────────
@@ -84,7 +72,7 @@ async function ok(name, promiseOrBool) {
 }
 
 async function main() {
-  const S = loadAuthFns();
+  const S = await loadAuthFns();
   const env = { cybermeters_db: makeD1(seedDb()) };
   const u = (id, extra = {}) => ({ id, ...extra });
 
