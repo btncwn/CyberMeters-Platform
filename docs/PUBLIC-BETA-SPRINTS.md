@@ -116,11 +116,13 @@ as it grows.
   the worker are the *scanner* checking customers' sites). No ambient credential
   → nothing for a cross-site request to ride.
 
-### Phase 3 — remaining tail (incremental, on the now-existing harness)
-- **More billing events:** `invoice.payment_failed` → grace → downgrade;
-  `customer.subscription.deleted`; `checkout.session.completed`.
-- **Domain verify lifecycle** end to end (initiate → DNS TXT → verified → auto-retry).
-- **Permission inheritance** if/when a workspace→project→resource hierarchy exists.
+### Phase 3 — webhook tail DONE (billing lifecycle arc, 30 pipeline assertions)
+- **DONE:** `invoice.payment_failed` → past_due + grace holds (gate stays 200 —
+  "never silently remove paid access", now CI-enforced);
+  `customer.subscription.deleted` → canceled + gate closes (403);
+  `checkout.session.completed` → re-subscribe restores access (gate 200).
+- Remaining (incremental): **domain verify lifecycle** end to end;
+  **permission inheritance** if/when a hierarchy exists.
 **DoD (Phases 1 & 2, met):** flow + pipeline tests green in CI; a cross-tenant
 access attempt proven to 403; login lifecycle and webhook→entitlement proven end to end.
 
