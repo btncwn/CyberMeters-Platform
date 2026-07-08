@@ -24090,6 +24090,25 @@ function json(data, status = 200, _corsHeaders = buildCorsHeaders(null)) {
   });
 }
 
+// ── List pagination contract ─────────────────────────────────────────────────
+// Every list endpoint returns a `pagination` object next to its named array so
+// API consumers get one predictable shape. paginationParams parses + clamps
+// limit/offset from the query; pageMeta describes the returned page. has_more is
+// exact when a total is known, otherwise a full-page heuristic (count >= limit).
+function paginationParams(url, { defaultLimit = 50, maxLimit = 100 } = {}) {
+  return {
+    limit:  parseBoundedInteger(url.searchParams.get("limit"), defaultLimit, 1, maxLimit),
+    offset: parseBoundedInteger(url.searchParams.get("offset"), 0, 0, 1_000_000),
+  };
+}
+function pageMeta({ items, limit, offset, total = null }) {
+  const count = Array.isArray(items) ? items.length : 0;
+  const meta = { limit, offset, count };
+  if (total != null) { meta.total = total; meta.has_more = offset + count < total; }
+  else { meta.has_more = count >= limit; }
+  return meta;
+}
+
 // ── MSP Portfolio Risk Engine v1 ──────────────────────────────────────────────
 //
 // Aggregates existing intelligence (BRS, Supply Chain, Vendor Risk) across all
@@ -33568,7 +33587,7 @@ export default {
 
         return json({
           events: enriched,
-          pagination: { limit, offset, total },
+          pagination: pageMeta({ items: enriched, limit, offset, total }),
         });
       } catch (e) {
         return serverError("api", e);
@@ -33769,6 +33788,7 @@ export default {
           unread_count:   unreadRow.results?.[0]?.cnt ?? 0,
           count:          notifications.length,
           notifications,
+          pagination:     pageMeta({ items: notifications, limit, offset: 0 }),
         });
       } catch (e) {
         return serverError("api", e);
@@ -36172,15 +36192,18 @@ export default {
       const typeFilter   = url.searchParams.get('report_type');
       const statusFilter = url.searchParams.get('status');
       try {
+        const { limit, offset } = paginationParams(url, { defaultLimit: 100, maxLimit: 100 });
         let sql    = `SELECT id, workspace_id, report_type, report_period,
                              status, generated_at, created_at, metadata_json, retention_policy
                       FROM workspace_reports WHERE workspace_id = ? AND deleted_at IS NULL`;
         const params = [wsId];
         if (typeFilter)   { sql += ' AND report_type = ?'; params.push(typeFilter); }
         if (statusFilter) { sql += ' AND status = ?';      params.push(statusFilter); }
-        sql += ' ORDER BY created_at DESC LIMIT 100';
+        sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+        params.push(limit, offset);
         const { results } = await env.cybermeters_db.prepare(sql).bind(...params).all();
-        return json({ reports: results ?? [] });
+        const reports = results ?? [];
+        return json({ reports, pagination: pageMeta({ items: reports, limit, offset }) });
       } catch (err) {
         return serverError("api", err);
       }

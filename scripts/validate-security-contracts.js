@@ -42,6 +42,7 @@ function loadSecurityFns() {
     hasWorkspacePermission,
     verifyStripeWebhookSignature, getPaymentGraceState,
     hashToken, generateSessionToken,
+    paginationParams, pageMeta,
   };`, context);
   return context.__sec;
 }
@@ -161,6 +162,18 @@ async function main() {
   ok("session: token hash matches hashToken(raw)", t1.hash === await S.hashToken(t1.raw));
   const t2 = await S.generateSessionToken();
   ok("session: tokens are unique (entropy)", t1.raw !== t2.raw);
+
+  // ── 9. Pagination contract ──
+  const pp = (q, opts) => S.paginationParams(new URL("https://x/api" + q), opts);
+  ok("pagination: parses limit + offset", (() => { const p = pp("?limit=10&offset=20"); return p.limit === 10 && p.offset === 20; })());
+  ok("pagination: clamps limit to maxLimit", pp("?limit=9999", { maxLimit: 100 }).limit === 100);
+  ok("pagination: clamps limit to >=1", pp("?limit=0").limit === 1);
+  ok("pagination: default limit when absent", pp("", { defaultLimit: 50 }).limit === 50);
+  ok("pagination: negative offset floored to 0", pp("?offset=-5").offset === 0);
+  ok("pageMeta: full page implies has_more", (() => { const m = S.pageMeta({ items: [1, 2, 3], limit: 3, offset: 0 }); return m.count === 3 && m.has_more === true; })());
+  ok("pageMeta: partial page has no more", S.pageMeta({ items: [1, 2], limit: 5, offset: 0 }).has_more === false);
+  ok("pageMeta: with total computes has_more exactly", (() => { const m = S.pageMeta({ items: [1, 2, 3], limit: 10, offset: 0, total: 25 }); return m.total === 25 && m.has_more === true; })());
+  ok("pageMeta: last page with total has no more", S.pageMeta({ items: [1, 2], limit: 10, offset: 8, total: 10 }).has_more === false);
 
   // ── report ──
   for (const line of results) if (line.startsWith("FAIL")) console.error(line);
