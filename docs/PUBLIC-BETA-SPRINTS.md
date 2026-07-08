@@ -124,15 +124,27 @@ as it grows.
 **DoD (Phases 1 & 2, met):** flow + pipeline tests green in CI; a cross-tenant
 access attempt proven to 403; login lifecycle and webhook→entitlement proven end to end.
 
-## Sprint 7 — Frontend test layer  ·  risk: MED  ·  effort: Med
+## Sprint 7 — Frontend test layer — DONE (24 tests / 6 files, CI-blocking)  ·  risk: MED  ·  effort: Med
 **Goal:** protect the customer-facing critical paths from regression.
-**Why (evidence):** **zero** frontend test tooling (no vitest/jest/testing-library). Notification-click and blank-screen incidents this session were caught only by luck/manual checks.
-**Tasks:**
-- Add Vitest + Testing Library; CI step.
-- Cover: auth guard/redirect, `WorkspaceNav` render + accordion, notification click-through (the bug we fixed), `SafeBoundary` fallback, billing state rendering.
-- Smoke test the `SafeBoundary`/`ChunkErrorBoundary` recovery paths.
-**Risk:** test-only.
-**DoD:** critical components under test; CI blocks on frontend test failure.
+**Why (evidence):** **zero** frontend test tooling existed. Notification-click and blank-screen incidents were caught only by luck/manual checks.
+**Shipped:** Vitest + Testing Library (`vitest.config.js` separate from the build
+config; jsdom ^26; setup replaces Node 22+'s undefined global storage getters
+with an in-memory Storage). `npm test` blocks CI before the build step.
+- **NotificationBell click-through** — the real regression: parsed `metadata` →
+  `/scans/:id`; legacy `metadata_json` string still works; report → `/reports`;
+  target-less clicks don't break navigation.
+- **ProtectedRoute** (extracted from App.jsx, same JSX): loading holds the
+  spinner (no premature redirect); unauthenticated → `/login`; authed → children.
+- **ChunkErrorBoundary**: one auto-reload on stale chunks + loading state; budget
+  refuses the second and shows the customer-safe card (manual always allowed);
+  non-chunk errors never leak raw text; `clearReloadBudget` restores after a
+  healthy boot.
+- **SafeBoundary**: contains throwing widgets, fallback only, no raw error.
+- **WorkspaceNav**: four services, no cross-service sub-item mixing, accordion
+  toggle (the fixed bug), sub-items inherit the parent service colour.
+- **PlanGate**: 403 `plan_feature_required` renders the upgrade wall — the
+  frontend half of the contract the backend pipeline test proves server-side.
+**DoD (met):** critical components under test; CI blocks on frontend test failure.
 
 ## Sprint 8 — TypeScript foundation (incremental)  ·  risk: MED-HIGH  ·  effort: High
 **Goal:** compile-time safety on the highest-churn surfaces.
