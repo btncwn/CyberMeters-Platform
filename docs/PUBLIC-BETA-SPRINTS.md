@@ -70,15 +70,30 @@ version surfaced, rollback is ad-hoc (see `OPERATIONS.md`). CI does not deploy.
 **Risk:** additive instrumentation; keep it fail-open so telemetry never breaks a request.
 **DoD:** a dashboard shows the key rates; one alert fires in a test; `/ready` reflects dependency health.
 
-## Sprint 6 — Integration test harness (D1-mocked)  ·  risk: MED  ·  effort: Med-High
-**Goal:** cover the flows the pure-function tests can't.
-**Why (evidence):** tests today are 218 scoring fixtures + 36 security contracts (pure functions). No flow tests: full login, `requireWorkspaceAccess` end-to-end, tenant isolation, Stripe webhook → entitlement.
-**Tasks:**
-- Build an in-memory/mock D1 for the vm harness.
-- Flow tests: login→session, workspace access denial across tenants, webhook→plan change, domain verify lifecycle.
-- Wire into CI as a blocking step.
-**Risk:** test-only; the mock must faithfully mirror D1 semantics (FK, ordering).
-**DoD:** flow tests green in CI; a cross-tenant access attempt is proven to 403.
+## Sprint 6 — Integration test harness  ·  risk: MED  ·  effort: Med-High
+**Why (evidence):** tests were 218 scoring fixtures + 36 security contracts (pure functions). No flow tests touched the database.
+**Approach:** a real in-memory SQLite (`node:sqlite`) wrapped in a D1-compatible
+adapter — high fidelity (real JOINs / NULL / ordering), not a hand-programmed
+mock. CI pinned to Node 24 for determinism.
+
+### Phase 1 — Authorization integration — DONE (`scripts/validate-integration.js`, 18 assertions, CI-blocking)
+Scoped accurately: this phase is **authorization**, not the whole pipeline.
+- Tenant isolation: cross-tenant access proven to 403 (`userB(ws1) → ws2 → denied`).
+- RBAC via `requireWorkspaceRole` (access + permission matrix together).
+- API-token workspace boundary.
+- Legacy owner fallback (workspace with no member rows).
+- Soft-delete inaccessibility.
+- `getAccessibleWorkspaceIds` filtering (excludes foreign tenants + soft-deleted).
+
+### Phase 2 — pending (the flows the name over-promised)
+- **Login / session lifecycle:** login → session → refresh → logout → expired/revoked token.
+- **Billing:** Stripe `invoice.payment_failed` webhook → entitlement/plan change → grace → downgrade.
+- **Domain verify lifecycle** end to end (initiate → DNS TXT → verified → auto-retry).
+- **Permission inheritance** if/when a workspace→project→resource hierarchy exists.
+- **End-to-end request pipeline:** drive the real `fetch(request)` (router →
+  middleware → auth → DB → response) with a mock `env`, not just the leaf
+  functions — the true integration test.
+**DoD (Phase 1, met):** flow tests green in CI; a cross-tenant access attempt proven to 403.
 
 ## Sprint 7 — Frontend test layer  ·  risk: MED  ·  effort: Med
 **Goal:** protect the customer-facing critical paths from regression.
