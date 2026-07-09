@@ -21772,7 +21772,7 @@ async function createWorkspaceTrialSubscription(workspaceId, ownerUserId, env) {
 
 function normalizeBillingInterval(interval) {
   const value = String(interval || "monthly").trim().toLowerCase();
-  return value === "annual" ? "annual" : "monthly";
+  return (value === "annual" || value === "yearly") ? "annual" : "monthly";
 }
 
 function parseCheckoutPlan(plan) {
@@ -21818,6 +21818,13 @@ function buildStripePriceMapFromIndividualVars(env) {
     ["STRIPE_PRO_ANNUAL_PRICE_ID",       "professional_annual"],
     ["STRIPE_BUSINESS_MONTHLY_PRICE_ID", "business_monthly"],
     ["STRIPE_BUSINESS_ANNUAL_PRICE_ID",  "business_annual"],
+    // Accepted aliases for the secret names configured in production
+    // (PROFESSIONAL vs PRO, YEARLY vs ANNUAL). A set alias fills the same key.
+    ["STRIPE_STARTER_YEARLY_PRICE_ID",       "starter_annual"],
+    ["STRIPE_PROFESSIONAL_MONTHLY_PRICE_ID", "professional_monthly"],
+    ["STRIPE_PROFESSIONAL_YEARLY_PRICE_ID",  "professional_annual"],
+    ["STRIPE_PROFESSIONAL_ANNUAL_PRICE_ID",  "professional_annual"],
+    ["STRIPE_BUSINESS_YEARLY_PRICE_ID",      "business_annual"],
   ];
   for (const [envVar, key] of mappings) {
     if (env?.[envVar]) map[key] = env[envVar];
@@ -23446,7 +23453,7 @@ export default {
       const stripeConfig = validateStripeBillingConfig(env);
       return json({
         currency: "gbp",
-        checkout_enabled: false,
+        checkout_enabled: stripeConfig.ok,
         plans: getPublicBillingPlans(),
         stripe: {
           configured: stripeConfig.ok,

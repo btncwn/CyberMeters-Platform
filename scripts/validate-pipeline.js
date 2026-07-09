@@ -59,6 +59,7 @@ function makeEnv(db) {
     cybermeters_db: makeD1(db),
     cybermeters_reports: noR2,
     MFA_ENCRYPTION_KEY: "pipeline-test-mfa-key", STRIPE_WEBHOOK_SECRET: "whsec_test", STRIPE_SECRET_KEY: "sk_test_x",
+    STRIPE_PRICE_MAP: JSON.stringify({ starter_monthly: "price_sm", professional_monthly: "price_pm", business_monthly: "price_bm" }),
     ALLOWED_ORIGIN: "https://app.cybermeters.com", FRONTEND_URL: "https://app.cybermeters.com",
     APP_VERSION: "test", RESEND_API_KEY: "", ADMIN_EMAILS: "",
   };
@@ -169,6 +170,13 @@ async function main() {
   const preGate = await call("GET", "/api/workspaces/ws1/audit-events", { token: tokenA });
   ok("FEATURE GATE before upgrade: audit-events on free plan → 403 plan_feature_required",
     preGate.status === 403 && preGate.data?.error === "plan_feature_required");
+
+  // /billing/plans must reflect real Stripe config, not a hardcoded flag
+  // (regression guard: checkout_enabled was hardcoded false, disabling the UI
+  // even when Stripe was fully configured).
+  const plansResp = await call("GET", "/api/billing/plans");
+  ok("billing/plans: checkout_enabled reflects config (true when Stripe configured, not hardcoded false)",
+    plansResp.status === 200 && plansResp.data?.checkout_enabled === true && plansResp.data?.stripe?.configured === true);
 
   const secret = env.STRIPE_WEBHOOK_SECRET;
   const postWebhook = async (payload, { sign = true, ts = Math.floor(Date.now() / 1000) } = {}) => {
