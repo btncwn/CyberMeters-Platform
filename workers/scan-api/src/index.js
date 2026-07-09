@@ -15,6 +15,7 @@ import { dnsQuery, dnsQueryDnssec, dnsQueryGoogle, dnsQueryQuad9, dnsAnswerValue
 import { buildDnsOperationalResilience } from "./engines/dns-resilience.js";
 import { SCANNER_REGRESSION_FIXTURES } from "./engines/regression-fixtures.js";
 import { ENTERPRISE_BENCHMARK, ENTERPRISE_DOMAINS, POSTURE_WEIGHTS } from "./engines/scoring-config.js";
+import { customerSafeFailure } from "./lib/errors.js";
 import { applyEvidenceQuality, isActionableFinding, normalizeFindingSchema, validateFindingEvidence } from "./engines/findings.js";
 // ─────────────────────────────────────────────────────────────────────────────
 // CyberMeters Scan API — Cloudflare Worker
@@ -35,11 +36,6 @@ function isValidDomain(domain) {
 }
 
 
-
-function customerSafeFailure(context, error, message) {
-  console.error(`[${context}]`, error);
-  return message;
-}
 
 function validateFrontendRedirectUrl(value, env) {
   if (typeof value !== "string" || !value.trim()) return null;
