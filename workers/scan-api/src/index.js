@@ -17,6 +17,7 @@ import { SCANNER_REGRESSION_FIXTURES } from "./engines/regression-fixtures.js";
 import { ENTERPRISE_BENCHMARK, ENTERPRISE_DOMAINS, POSTURE_WEIGHTS } from "./engines/scoring-config.js";
 import { customerSafeFailure } from "./lib/errors.js";
 import { runDnsModule } from "./engines/dns-scan.js";
+import { normalizeCertificateSanNames, normalizeDiscoveredHostname, parseCertificateSanNames } from "./engines/hostnames.js";
 import { applyEvidenceQuality, isActionableFinding, normalizeFindingSchema, validateFindingEvidence } from "./engines/findings.js";
 // ─────────────────────────────────────────────────────────────────────────────
 // CyberMeters Scan API — Cloudflare Worker
@@ -1762,31 +1763,6 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP) {
     wildcard_warning:   wildcardWarning,
     error:              null,
   };
-}
-
-function normalizeDiscoveredHostname(value, domain) {
-  const hostname = String(value || "").trim().toLowerCase().replace(/\.$/, "");
-  const root = String(domain || "").trim().toLowerCase().replace(/\.$/, "");
-  if (!hostname || !root || hostname.includes("*")) return null;
-  if (!isValidDomain(hostname)) return null;
-  return hostname === root || hostname.endsWith(`.${root}`) ? hostname : null;
-}
-
-function normalizeCertificateSanNames(value, domain) {
-  return [...new Set(
-    parseCertificateSanNames(value)
-      .map((name) => normalizeDiscoveredHostname(name, domain))
-      .filter(Boolean)
-  )];
-}
-
-function parseCertificateSanNames(value) {
-  return [...new Set(
-    String(value || "")
-      .split(/\s+/)
-      .map((name) => name.trim().toLowerCase().replace(/\.$/, ""))
-      .filter(Boolean)
-  )];
 }
 
 // ── DNS Brute-Force Discovery ─────────────────────────────────────────────────
