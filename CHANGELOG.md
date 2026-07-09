@@ -5,6 +5,17 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.09 (v2026.07.09-3 — Cyber MOT welcome-email copy)
+
+### Changed
+- **Welcome email wording** (worker `d8a1bd45`, PR #7 `a79e6f3`): the signup
+  welcome email now leads with Cyber MOT / Website Security / Certificates & Trust
+  instead of "external attack surface" + "run your first scan". Copy-only, part of
+  the ChatGPT-led Cyber MOT wording pass (docs/COPY-CLEANUP-BACKLOG.md); the
+  matching frontend copy (dashboard, onboarding, pricing hero, scans, workspaces)
+  shipped on Pages via the same PR. No logic, pricing, or template-structure change;
+  email-worker golden equivalence 9/9.
+
 ## 2026.07.09 (v2026.07.09-2 — trust-copy corrections)
 
 ### Fixed
