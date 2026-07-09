@@ -5,6 +5,20 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.09 (v2026.07.09-2 — trust-copy corrections)
+
+### Fixed
+- **Mis-selling plan copy** (worker `38a9291b`, commit `0c6518a`): the upgrade
+  wall advertised "Up to 25 domains" (Starter, sells 1) and "Up to 250 domains"
+  (Professional, sells 5) — now matches the frozen tiers (1 / up to 5 / up to
+  20 monitored domains). Billing plan-limits grid is domain-first (internal
+  workspace/scan quotas no longer rendered). Free Cyber MOT 429 no longer
+  promises "unlimited scanning" (free plan has monthly caps). Source: external
+  audit P1s, each verified against source before fixing.
+- Also shipped on Pages this cycle: Cyber MOT domain handoff through signup →
+  onboarding (+ regression tests via PR #6), CE Preview/Dashboard naming, and
+  the in-app entry for the paid CE dashboard (previously an orphan route).
+
 ## 2026.07.09 (v2026.07.09-1 — pricing coherence + single-workspace SMB)
 
 ### Fixed
