@@ -2,7 +2,7 @@ import { handleInboundEmail } from "./email/inbound.js";
 import { runScheduled } from "./cron/scheduled.js";
 import { recordMetric } from "./lib/metrics.js";
 import { CE_QUESTIONS, CE_QUESTION_SET_VERSION, mergeReadiness } from "./lib/cyber-essentials.js";
-import { createId, isValidEmail, normalizeApiResponseData, pageMeta, paginationParams, parseBoundedInteger } from "./lib/util.js";
+import { createId, isValidDomain, isValidEmail, normalizeApiResponseData, pageMeta, paginationParams, parseBoundedInteger } from "./lib/util.js";
 import { createAuditEvent, createNotificationEvent, createNotificationsForDomain, sanitizeAuditMetadata } from "./lib/events.js";
 import { RUA_INBOUND_DOMAIN_DEFAULT, ingestDmarcReport, ingestEndpointIsActive, normalizeInboundRecipientDomain, parseEmailAuthHeaders, sha256Hex, updateEmailSenderSources } from "./lib/dmarc-ingest.js";
 import { buildCorsHeaders, buildJsonHeaders, deliverEmail, escapeEmailHtml, getEmailFrontendOrigin, json, retryFailedLifecycleEmails, sendCustomerEmail, sendLifecycleEmail } from "./lib/lifecycle-email.js";
@@ -23,20 +23,6 @@ import { applyEvidenceQuality, isActionableFinding, normalizeFindingSchema, vali
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ── Utilities ────────────────────────────────────────────────────────────────
-
-
-function isValidDomain(domain) {
-  if (typeof domain !== "string" || domain.length > 253) return false;
-  const labels = domain.split(".");
-  if (labels.length < 2 || !/^[a-zA-Z]{2,63}$/.test(labels.at(-1) || "")) return false;
-  return labels.every((label) =>
-    label.length >= 1 &&
-    label.length <= 63 &&
-    /^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$/.test(label)
-  );
-}
-
-
 
 function validateFrontendRedirectUrl(value, env) {
   if (typeof value !== "string" || !value.trim()) return null;

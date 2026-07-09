@@ -11,6 +11,17 @@ function isValidEmail(email) {
   return value.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
+function isValidDomain(domain) {
+  if (typeof domain !== "string" || domain.length > 253) return false;
+  const labels = domain.split(".");
+  if (labels.length < 2 || !/^[a-zA-Z]{2,63}$/.test(labels.at(-1) || "")) return false;
+  return labels.every((label) =>
+    label.length >= 1 &&
+    label.length <= 63 &&
+    /^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$/.test(label)
+  );
+}
+
 function parseBoundedInteger(value, fallback, min, max) {
   const parsed = Number.parseInt(value ?? "", 10);
   if (!Number.isFinite(parsed)) return fallback;
@@ -62,6 +73,7 @@ function pageMeta({ items, limit, offset, total = null }) {
 
 export {
   createId,
+  isValidDomain,
   isValidEmail,
   normalizeApiResponseData,
   pageMeta,
