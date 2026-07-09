@@ -21358,7 +21358,7 @@ const PLAN_LIMITS = {
     pending_invitations: 10,
   },
   starter: {
-    workspaces: 3,
+    workspaces: 1,  // SMB = single tenant; domains are the value metric (see pricing cards)
     domains: 1,
     users: 3,
     history_days: 90,
@@ -21372,7 +21372,7 @@ const PLAN_LIMITS = {
     pending_invitations: 25,
   },
   professional: {
-    workspaces: 10,
+    workspaces: 1,  // SMB = single tenant; 5 domains in one workspace (see pricing cards)
     domains: 5,
     users: 10,
     history_days: 365,
