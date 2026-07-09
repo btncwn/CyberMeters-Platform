@@ -53,7 +53,7 @@ const FEATURES = [
     icon:  Package2,
     color: 'bg-orange-50 text-orange-500',
     title: 'Vendor Risk',
-    desc:  'Third-party tools and services detected on your attack surface, each assessed for risk level.',
+    desc:  'Third-party tools and services detected across your visible external posture, each assessed for risk level.',
     href:  '/ws/vendors',
     cta:   'Explore vendors',
   },

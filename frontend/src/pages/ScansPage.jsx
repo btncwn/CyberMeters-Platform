@@ -86,9 +86,9 @@ export default function ScansPage() {
               <div className="flex-1 min-w-0">
                 <p className="text-base font-bold text-gray-900 mb-1">No scans yet</p>
                 <p className="text-sm text-gray-500 leading-relaxed">
-                  A scan runs CyberMeters' Intelligence Engines across your domain — Attack Surface, Business Email and
-                  Brand — and turns the evidence into a scored Executive Report in minutes. Run your first scan to start
-                  monitoring your external exposure.
+                  A Cyber MOT runs CyberMeters' Intelligence Engines across your domain — Website Security, Email Protection,
+                  Brand Protection, and Certificates &amp; Trust, then turns the evidence into a scored Executive Report in minutes. Run your first
+                  Cyber MOT to start monitoring what is visible from outside.
                 </p>
               </div>
               <Link to="/scans/new" className="btn-primary flex-shrink-0 inline-flex items-center gap-2">

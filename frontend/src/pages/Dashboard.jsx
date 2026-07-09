@@ -114,7 +114,7 @@ function deriveInsights(scans, report) {
   // Recommended actions
   const actions = []
   if (scans.length === 0) {
-    actions.push({ id: 'a1', priority: 1, title: 'Run your first security scan',  desc: 'Add a domain to discover your external attack surface exposure.',   cta: 'Start Scan', href: '/scans/new' })
+    actions.push({ id: 'a1', priority: 1, title: 'Start your first Cyber MOT',  desc: 'Add a domain to see what is visible from outside and get a plain-English fix list.',   cta: 'Start Cyber MOT', href: '/scans/new' })
   } else if (failed > 0) {
     actions.push({ id: 'a2', priority: 1, title: 'Investigate failed scans',      desc: `${failed} scan(s) returned errors. Review and retry to ensure full coverage.`, cta: 'View Scans', href: '/scans' })
   }
