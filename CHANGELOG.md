@@ -5,6 +5,27 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.09 (v2026.07.09-1 — pricing coherence + single-workspace SMB)
+
+### Fixed
+- **SMB plans are single-workspace** (worker version `2d17cf49`): Starter and
+  Professional allowed multi-workspace (ws=3 / ws=10) while domains are enforced
+  per-workspace, so a Professional user could reach 10×5=50 domains vs the
+  advertised 5. Set starter/professional `workspaces` to 1 (free already 1);
+  Business (50) and Enterprise (unlimited) keep multi-workspace for per-client
+  tenant isolation. Enforcement is creation-only — existing workspaces are never
+  touched (verified against prod D1: the only >1-workspace account is the
+  founder's own and stays intact).
+- **Pricing cards are tier-aware** (frontend / Pages, commit `b629fc0`): SMB
+  tiers lead with domains (the value metric); MSP tiers show client workspaces +
+  domains-per-workspace. Removed internal scans/reports quotas from the cards,
+  added a "Most popular" badge on Professional, and persisted the billing-cycle
+  choice so it survives the signup/checkout round-trip.
+- **Self-serve checkout** (worker deploy `bd43876d`): checkout was disabled by
+  three of our own bugs (hardcoded `checkout_enabled:false`, env-var name
+  mismatch, yearly→monthly interval collapse) — not the Stripe configuration.
+  Verified live: 6/6 checkout sessions created, zero missing-price errors.
+
 ## 2026.07.08 (v2026.07.08-6 — Cyber Essentials Readiness)
 
 ### Added
