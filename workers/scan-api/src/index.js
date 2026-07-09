@@ -14,6 +14,7 @@ import { generateSessionToken, generateApiToken, generateInviteToken, generateEm
 import { dnsQuery, dnsQueryDnssec, dnsQueryGoogle, dnsQueryQuad9, dnsAnswerValues, computeResolverAgreementScore, buildDnsCrossCheck } from "./engines/dns.js";
 import { buildDnsOperationalResilience } from "./engines/dns-resilience.js";
 import { SCANNER_REGRESSION_FIXTURES } from "./engines/regression-fixtures.js";
+import { ENTERPRISE_BENCHMARK, ENTERPRISE_DOMAINS, POSTURE_WEIGHTS } from "./engines/scoring-config.js";
 import { applyEvidenceQuality, isActionableFinding, normalizeFindingSchema, validateFindingEvidence } from "./engines/findings.js";
 // ─────────────────────────────────────────────────────────────────────────────
 // CyberMeters Scan API — Cloudflare Worker
@@ -201,28 +202,6 @@ const SECURITY_HEADERS = [
 // often serve different responses to automated scanner IPs than to real browsers.
 // We track these domains so the scoring engine can apply conservative confidence
 // when the probe results are internally contradictory.
-
-const ENTERPRISE_BENCHMARK = [
-  { domain: "google.com",     max_header_findings: 0, max_email_findings: 0, expect_https_redirect: true },
-  { domain: "github.com",     max_header_findings: 0, max_email_findings: 0, expect_https_redirect: true },
-  { domain: "cloudflare.com", max_header_findings: 0, max_email_findings: 0, expect_https_redirect: true },
-  { domain: "microsoft.com",  max_header_findings: 0, max_email_findings: 0, expect_https_redirect: true },
-  { domain: "amazon.com",     max_header_findings: 0, max_email_findings: 0, expect_https_redirect: true },
-  { domain: "openai.com",     max_header_findings: 0, max_email_findings: 0, expect_https_redirect: true },
-];
-
-// Fast O(1) membership test used in computeScore
-const ENTERPRISE_DOMAINS = new Set(ENTERPRISE_BENCHMARK.map(b => b.domain));
-
-// Security posture category metadata — shared by computeSecurityPosture and
-// the /scorecard/pdf-data route.  Defined at module scope so both can reference it.
-const POSTURE_WEIGHTS = {
-  email_security:   { label: 'Email Security',     pct: 20 },
-  ssl_certificates: { label: 'SSL & Certificates', pct: 20 },
-  attack_surface:   { label: 'Attack Surface',     pct: 25 },
-  third_party_risk: { label: 'Third-Party Risk',   pct: 15 },
-  admin_exposure:   { label: 'Admin Exposure',     pct: 20 },
-};
 
 function evaluateRegressionFixtures(fixtures = SCANNER_REGRESSION_FIXTURES) {
   const results = fixtures.map((fixture) => {
