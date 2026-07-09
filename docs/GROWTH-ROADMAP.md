@@ -34,17 +34,15 @@
 
 CTA routing: dashboard/account → `ws/cyber-essentials`; marketing/public → `/cyber-essentials-readiness`; Cyber MOT → `/free-scan`. No surface uses "certification" or implies CyberMeters certifies.
 - **2 private validation domains:** cybermeters.com + blackbullbarbers.co.uk (dogfood everything here before public).
-- **Pricing (DECIDED 2026-07-09 — competitor research closed, do not re-research):**
-  live Stripe-aligned prices are FROZEN for the beta: Free MOT · Starter £29/mo
-  (1 monitored domain) · Professional £149/mo (up to 5) · Business £399/mo
-  (up to 20, an SMB plan, never presented as MSP) · **MSP/Partner =
-  sales-led, platform fee + per monitored client domain** (Mailhardener-style;
-  fixed 20–100+ bands are banned). Public value metric = **monitored domains**;
-  cards never show workspaces/users/scans/reports. Annual copy = "Save with
-  annual billing." only (live annuals ≈ 20% off, so no "pay for 10, get 12"
-  claim). At most ONE final pre-beta price change (candidate on the table:
-  Pro £79 / Business £199 / MSP £199 + £5/domain, min 25) — if triggered, Stripe
-  + backend metadata + cards change in one lockstep step with founder approval.
+- **Pricing → see [PRICING-POLICY.md](PRICING-POLICY.md) (canonical, research CLOSED).**
+  DECIDED 2026-07-09 (MAX-aggressive): Free forever · Starter £9/3 · Growth £29/10 ·
+  Business £69/25 (single workspace) · MSP/Partner £29 + £1/domain (min 25). Value
+  metric = **monitored domains**; cards never show workspaces/users/scans/reports.
+  Annual = pay 9, get 12. **Adopted but NOT yet live** — the platform has only ever
+  used Stripe sandbox keys, so the change is a one-time test→live cutover done at
+  public-beta launch (live keys + webhook + prices + backend + cards in one lockstep,
+  founder-approved, verified with a real £9 charge). Until then the OLD £29/£149/£399
+  stay live.
 
 ## Sequencing (the founder's plan, locked)
 
