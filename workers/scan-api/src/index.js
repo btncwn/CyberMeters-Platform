@@ -17,7 +17,7 @@ import { SCANNER_REGRESSION_FIXTURES } from "./engines/regression-fixtures.js";
 import { ENTERPRISE_BENCHMARK, ENTERPRISE_DOMAINS, POSTURE_WEIGHTS } from "./engines/scoring-config.js";
 import { customerSafeFailure } from "./lib/errors.js";
 import { runDnsModule } from "./engines/dns-scan.js";
-import { normalizeCertificateSanNames, normalizeDiscoveredHostname, parseCertificateSanNames } from "./engines/hostnames.js";
+import { normalizeCertificateSanNames, normalizeDiscoveredHostname, normalizeHostname, parseCertificateSanNames } from "./engines/hostnames.js";
 import { runSslModule } from "./engines/ssl-scan.js";
 import { classifyHeaderStrength, runHeadersModule } from "./engines/headers-scan.js";
 import { DKIM_PROVIDER_LABELS, DKIM_SELECTORS, buildDkimDetail, buildDmarcPolicyJourney, buildEmailRemediationActions, buildEmailTransportDetails, normalizeDnsTxtValue, parseBimiRecord, parseDmarcRecord, parseSpfRecord, remediationAction, sanitizeInfraErrorMessage } from "./engines/email-analysis.js";
@@ -7074,34 +7074,6 @@ async function runHistoricalModule(scanId, domain, currentScore, currentFindings
 //   • Full URL                "https://api.example.com/path?x=1"
 //   • URL without scheme      "//api.example.com/path"
 //   • Hostname with path      "api.example.com/path"   (no scheme)
-function normalizeHostname(value) {
-  if (!value) return null;
-  let s = String(value).trim();
-  if (!s) return null;
-
-  // Normalise scheme-relative URLs so the URL parser can handle them
-  if (s.startsWith("//")) s = "https:" + s;
-
-  if (/^https?:\/\//i.test(s)) {
-    try {
-      s = new URL(s).hostname;
-    } catch {
-      return null;
-    }
-  } else {
-    // No scheme — strip any path/query/fragment that follows the first "/"
-    const slashIdx = s.indexOf("/");
-    if (slashIdx !== -1) s = s.slice(0, slashIdx);
-    // Strip port number (":digits" at end)
-    s = s.replace(/:\d+$/, "");
-  }
-
-  s = s.toLowerCase().replace(/\.$/, "");
-  // Must contain at least one dot and no spaces to be a valid hostname
-  if (!s || s.includes(" ") || !s.includes(".")) return null;
-  return s;
-}
-
 // ── Asset Inventory Upsert ────────────────────────────────────────────────────
 // Persists cross-scan asset state into workspace_assets + asset_events.
 // Called AFTER the scan completion status is written to D1 so a upsert failure

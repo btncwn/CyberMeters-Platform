@@ -28,3 +28,32 @@ export function parseCertificateSanNames(value) {
       .filter(Boolean)
   )];
 }
+
+// URL/value → bare lowercased hostname (strips scheme/path/port; null if not a hostname).
+export function normalizeHostname(value) {
+  if (!value) return null;
+  let s = String(value).trim();
+  if (!s) return null;
+
+  // Normalise scheme-relative URLs so the URL parser can handle them
+  if (s.startsWith("//")) s = "https:" + s;
+
+  if (/^https?:\/\//i.test(s)) {
+    try {
+      s = new URL(s).hostname;
+    } catch {
+      return null;
+    }
+  } else {
+    // No scheme — strip any path/query/fragment that follows the first "/"
+    const slashIdx = s.indexOf("/");
+    if (slashIdx !== -1) s = s.slice(0, slashIdx);
+    // Strip port number (":digits" at end)
+    s = s.replace(/:\d+$/, "");
+  }
+
+  s = s.toLowerCase().replace(/\.$/, "");
+  // Must contain at least one dot and no spaces to be a valid hostname
+  if (!s || s.includes(" ") || !s.includes(".")) return null;
+  return s;
+}
