@@ -62,39 +62,25 @@ function formatLimit(value) {
   return value
 }
 
-// SMB tiers lead with domains (the value metric) as a single tenant.
-// MSP/agency tiers keep the multi-workspace framing — per-client tenant
-// isolation is their value, so "client workspaces" stays front and centre.
-const SMB_TIERS = new Set(['free', 'starter', 'professional'])
+// Customer-facing value metric is monitored domains (product rule). Workspaces,
+// users and internal scan/report quotas are enforcement concepts and never
+// appear on pricing cards. MSP / Partner is presented separately and sales-led —
+// Business is an SMB plan, not an MSP plan.
+const MSP_DISPLAY = {
+  name: 'MSP / Partner',
+  description: 'Built for MSPs and cyber advisors managing client portfolios.',
+  features: ['Platform fee + per monitored client domain'],
+}
 
 function planFeatures(plan) {
-  // Customer-facing capacity only. Internal quotas (scans/reports per month) are
-  // operational plumbing and are never shown on the pricing page.
-  const limits = plan.limits || {}
-  const out = []
-
-  if (SMB_TIERS.has(plan.key)) {
-    const domains = formatLimit(limits.domains)
-    if (domains != null) out.push(`${domains} domain${limits.domains === 1 ? '' : 's'}`)
-    const users = formatLimit(limits.users)
-    if (users != null) out.push(`${users} team member${limits.users === 1 ? '' : 's'}`)
-  } else {
-    const workspaces = formatLimit(limits.workspaces)
-    if (workspaces != null) out.push(`${workspaces} client workspace${limits.workspaces === 1 ? '' : 's'}`)
-    const domains = formatLimit(limits.domains)
-    if (domains != null) {
-      out.push(limits.domains >= 999999 ? 'Unlimited domains per workspace' : `${domains} domains per workspace`)
-    }
-    const users = formatLimit(limits.users)
-    if (users != null) out.push(`${users} team member${limits.users === 1 ? '' : 's'}`)
-  }
-
-  if (out.length > 0) return out
-  return plan.features || [] // fallback copy when live limits are unavailable
+  if (plan.key === 'enterprise') return MSP_DISPLAY.features
+  const domains = plan.limits?.domains
+  if (domains == null) return plan.features || [] // fallback copy when live limits are unavailable
+  return [domains === 1 ? '1 monitored domain' : `Up to ${formatLimit(domains)} monitored domains`]
 }
 
 function priceFor(plan, interval) {
-  if (plan.key === 'enterprise') return 'Custom'
+  if (plan.key === 'enterprise') return 'Talk to us'
   if (interval === 'annual' && Number.isFinite(plan.annual_gbp)) {
     return `£${plan.annual_gbp}/yr`
   }
@@ -246,8 +232,12 @@ export default function PricingPage() {
                 </span>
               )}
               <div>
-                <h2 className="text-lg font-bold text-gray-900">{plan.name || plan.key}</h2>
-                <p className="text-sm text-gray-600 mt-2 min-h-[60px] font-medium">{plan.description}</p>
+                <h2 className="text-lg font-bold text-gray-900">
+                  {plan.key === 'enterprise' ? MSP_DISPLAY.name : (plan.name || plan.key)}
+                </h2>
+                <p className="text-sm text-gray-600 mt-2 min-h-[60px] font-medium">
+                  {plan.key === 'enterprise' ? MSP_DISPLAY.description : plan.description}
+                </p>
                 <div className="mt-5">
                   <span className="text-3xl font-bold text-gray-900">{priceFor(plan, interval)}</span>
                 </div>
