@@ -35712,8 +35712,10 @@ export default {
         { failClosed: true },
       );
       if (rateLimitResult) {
+        // Honest copy: a free account raises limits and saves results — it is
+        // not unlimited (free plan has monthly caps). Never overpromise here.
         return json({
-          error: "Too many free scans. Please wait an hour or create a free account for unlimited scanning.",
+          error: "Too many checks from this connection. Please wait an hour, or create a free account to save your results and monitor your domain.",
           code: "rate_limit_exceeded",
         }, 429);
       }

@@ -56,12 +56,14 @@ const FEATURE_LABELS = {
   msp_dashboard:       'MSP Dashboard',
 }
 
-// What each required plan unlocks (shown in the upgrade CTA)
+// What each required plan unlocks (shown in the upgrade CTA).
+// Domain allowances MUST match the frozen public tiers (Starter 1 / Pro 5 /
+// Business 20) — this card is an upgrade wall, so wrong numbers are mis-selling.
 const PLAN_FEATURES = {
-  starter:      ['Business Risk Score', 'Executive PDF Reports', 'Up to 25 domains'],
-  professional: ['Cyber Essentials Readiness', 'Vendor Risk Analysis', 'Supply Chain Intelligence', 'Up to 250 domains'],
-  business:     ['Portfolio Risk Monitoring', 'Multi-workspace Analytics', 'White Label Reports'],
-  enterprise:   ['MSP Dashboard', 'Unlimited workspaces', 'Dedicated support'],
+  starter:      ['Business Risk Score', 'Executive PDF Reports', '1 monitored domain'],
+  professional: ['Cyber Essentials Readiness', 'Vendor Risk Analysis', 'Supply Chain Intelligence', 'Up to 5 monitored domains'],
+  business:     ['Portfolio Risk Monitoring', 'White Label Reports', 'Up to 20 monitored domains'],
+  enterprise:   ['MSP Dashboard', 'Built for client portfolios', 'Dedicated support'],
 }
 
 // ── PlanBadge ────────────────────────────────────────────────────────────────

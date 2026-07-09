@@ -255,12 +255,12 @@ function PlanCard({ plan, status, meta, onUpgrade, subscriptionActive, trialActi
 function LimitsGrid({ limits }) {
   if (!limits) return null
   const items = [
-    { label: 'Workspaces',       value: limits.workspaces,  icon: Building2  },
-    { label: 'Domains',          value: limits.domains,     icon: Globe      },
-    { label: 'Users',            value: limits.users,       icon: Users      },
-    { label: 'Scans / month',    value: limits.scans_per_month, icon: RefreshCw },
-    { label: 'Scheduled scans',  value: limits.scheduled_scans, icon: Calendar  },
-    { label: 'History (days)',   value: limits.history_days, icon: Clock      },
+    // Customer-facing value metric is monitored domains — lead with it. Internal
+    // enforcement quotas (workspaces, scans/month, scheduled scans) are not
+    // customer-facing plan value and are no longer rendered here.
+    { label: 'Monitored domains', value: limits.domains,      icon: Globe },
+    { label: 'Team members',      value: limits.users,        icon: Users },
+    { label: 'Report history (days)', value: limits.history_days, icon: Clock },
   ]
   function fmt(v) {
     if (v === undefined || v === null) return '—'
