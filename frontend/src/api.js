@@ -530,6 +530,17 @@ export const api = {
   getWorkspaceCyberEssentialsReadiness: (id) =>
     request(`/workspaces/${id}/cyber-essentials-readiness`),
 
+  /** GET /api/workspaces/:id/cyber-essentials/answers */
+  getWorkspaceCyberEssentialsAnswers: (id) =>
+    request(`/workspaces/${id}/cyber-essentials/answers`),
+
+  /** PUT /api/workspaces/:id/cyber-essentials/answers */
+  saveWorkspaceCyberEssentialsAnswers: (id, answers) =>
+    request(`/workspaces/${id}/cyber-essentials/answers`, {
+      method: 'PUT',
+      body: JSON.stringify({ answers }),
+    }),
+
   /** GET /api/workspaces/:id/posture */
   getWorkspacePosture: (id) => request(`/workspaces/${id}/posture`),
 
