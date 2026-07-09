@@ -207,6 +207,9 @@ export default function PricingPage() {
               {key === 'monthly' ? 'Monthly' : 'Annual'}
             </button>
           ))}
+          {/* Approved safe wording only — never claim a specific ratio (e.g. "pay for
+              10, get 12") unless the Stripe annual prices actually match it. */}
+          <span className="text-xs text-gray-400 ml-1">Save with annual billing.</span>
           {loading && <span className="text-xs text-gray-400 ml-2">Loading live plan metadata…</span>}
         </div>
 
