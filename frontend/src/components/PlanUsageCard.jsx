@@ -57,12 +57,13 @@ const FEATURE_LABELS = {
 }
 
 // What each required plan unlocks (shown in the upgrade CTA).
-// Domain allowances MUST match the frozen public tiers (Starter 1 / Pro 5 /
-// Business 20) — this card is an upgrade wall, so wrong numbers are mis-selling.
+// Domain allowances MUST match the launch tiers (Starter 3 / Growth 10 /
+// Business 25 — docs/PRICING-POLICY.md) — this card is an upgrade wall, so wrong
+// numbers are mis-selling.
 const PLAN_FEATURES = {
-  starter:      ['Business Risk Score', 'Executive PDF Reports', '1 monitored domain'],
-  professional: ['Cyber Essentials Readiness', 'Vendor Risk Analysis', 'Supply Chain Intelligence', 'Up to 5 monitored domains'],
-  business:     ['Portfolio Risk Monitoring', 'White Label Reports', 'Up to 20 monitored domains'],
+  starter:      ['Business Risk Score', 'Executive PDF Reports', 'Up to 3 monitored domains'],
+  professional: ['Cyber Essentials Readiness', 'Vendor Risk Analysis', 'Supply Chain Intelligence', 'Up to 10 monitored domains'],
+  business:     ['Portfolio Risk Monitoring', 'White Label Reports', 'Up to 25 monitored domains'],
   enterprise:   ['MSP Dashboard', 'Built for client portfolios', 'Dedicated support'],
 }
 

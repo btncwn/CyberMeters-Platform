@@ -22,28 +22,28 @@ const FALLBACK_PLANS = [
     key: 'starter',
     name: 'Starter',
     description: 'Business Risk Score, scheduled scans, and basic executive reports.',
-    monthly_gbp: 29,
-    annual_gbp: 276,
+    monthly_gbp: 9,
+    annual_gbp: 81,
     checkout_enabled: true,
-    limits: { workspaces: 1, domains: 1, users: 3 },
+    limits: { workspaces: 1, domains: 3, users: 3 },
   },
   {
     key: 'professional',
     name: 'Professional',
     description: 'Cyber Essentials Readiness, Vendor Risk, and advanced reports.',
-    monthly_gbp: 149,
-    annual_gbp: 1428,
+    monthly_gbp: 29,
+    annual_gbp: 261,
     checkout_enabled: true,
-    limits: { workspaces: 1, domains: 5, users: 10 },
+    limits: { workspaces: 1, domains: 10, users: 10 },
   },
   {
     key: 'business',
     name: 'Business',
     description: 'Portfolio Monitoring, White Label reports, and extended retention.',
-    monthly_gbp: 399,
-    annual_gbp: 3828,
+    monthly_gbp: 69,
+    annual_gbp: 621,
     checkout_enabled: true,
-    limits: { workspaces: 50, domains: 20, users: 50 },
+    limits: { workspaces: 1, domains: 25, users: 50 },
   },
   {
     key: 'enterprise',
@@ -207,9 +207,10 @@ export default function PricingPage() {
               {key === 'monthly' ? 'Monthly' : 'Annual'}
             </button>
           ))}
-          {/* Approved safe wording only — never claim a specific ratio (e.g. "pay for
-              10, get 12") unless the Stripe annual prices actually match it. */}
-          <span className="text-xs text-gray-400 ml-1">Save with annual billing.</span>
+          {/* Annual prices are set to exactly 9x monthly (pay 9, get 12), so the
+              "3 months free" claim is accurate. If annual ever drifts off 9x, revert
+              to the neutral "Save with annual billing." wording. */}
+          <span className="text-xs text-gray-400 ml-1">Annual billing — 3 months free.</span>
           {loading && <span className="text-xs text-gray-400 ml-2">Loading live plan metadata…</span>}
         </div>
 

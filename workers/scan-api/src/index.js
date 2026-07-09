@@ -21345,7 +21345,7 @@ async function retryPendingDomainVerifications(env) {
 const PLAN_LIMITS = {
   free: {
     workspaces: 1,
-    domains: 1,       // UK Cyber MOT tiers (2026-07): Free 1 / Starter 1 / Pro 5 / Business 20 / MSP(enterprise) 20-100+
+    domains: 1,       // Monitored-domain tiers (docs/PRICING-POLICY.md): Free 1 / Starter 3 / Growth(professional) 10 / Business 25 / MSP(enterprise) per-domain
     users: 1,
     history_days: 30,
     report_retention: "90_days",
@@ -21359,7 +21359,7 @@ const PLAN_LIMITS = {
   },
   starter: {
     workspaces: 1,  // SMB = single tenant; domains are the value metric (see pricing cards)
-    domains: 1,
+    domains: 3,
     users: 3,
     history_days: 90,
     report_retention: "90_days",
@@ -21372,8 +21372,8 @@ const PLAN_LIMITS = {
     pending_invitations: 25,
   },
   professional: {
-    workspaces: 1,  // SMB = single tenant; 5 domains in one workspace (see pricing cards)
-    domains: 5,
+    workspaces: 1,  // SMB = single tenant; up to 10 domains in one workspace (see pricing cards)
+    domains: 10,
     users: 10,
     history_days: 365,
     report_retention: "2_years",
@@ -21386,8 +21386,8 @@ const PLAN_LIMITS = {
     pending_invitations: 50,
   },
   business: {
-    workspaces: 50,
-    domains: 20,
+    workspaces: 1,  // Business = single-org SMB (NOT MSP); MSP/Partner (enterprise) keeps multi-workspace
+    domains: 25,
     users: 50,
     history_days: 730,
     report_retention: "7_years",
@@ -21482,25 +21482,25 @@ const BILLING_PLAN_METADATA = {
   starter: {
     name: "Starter",
     description: "Business Risk Score, scheduled scans, and basic executive reports.",
-    monthly_gbp: 29,
-    annual_gbp: 276,
-    annual_equivalent_monthly_gbp: 23,
+    monthly_gbp: 9,
+    annual_gbp: 81,   // pay 9, get 12 (9x monthly)
+    annual_equivalent_monthly_gbp: 7,
     checkout_enabled: true,
   },
   professional: {
     name: "Professional",
     description: "Cyber Essentials Readiness, Vendor Risk, and advanced reports.",
-    monthly_gbp: 149,
-    annual_gbp: 1428,
-    annual_equivalent_monthly_gbp: 119,
+    monthly_gbp: 29,
+    annual_gbp: 261,   // pay 9, get 12 (9x monthly)
+    annual_equivalent_monthly_gbp: 22,
     checkout_enabled: true,
   },
   business: {
     name: "Business",
     description: "Portfolio Monitoring, White Label reports, and extended retention.",
-    monthly_gbp: 399,
-    annual_gbp: 3828,
-    annual_equivalent_monthly_gbp: 319,
+    monthly_gbp: 69,
+    annual_gbp: 621,   // pay 9, get 12 (9x monthly)
+    annual_equivalent_monthly_gbp: 52,
     checkout_enabled: true,
   },
   enterprise: {
