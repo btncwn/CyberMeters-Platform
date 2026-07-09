@@ -1,5 +1,5 @@
-import { lazy, Suspense } from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { lazy, Suspense, useEffect } from 'react'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import Layout from './components/Layout'
 import ChunkErrorBoundary from './components/ChunkErrorBoundary'
@@ -95,6 +95,21 @@ function isMarketingHost() {
   return h === 'cybermeters.com' || h === 'www.cybermeters.com'
 }
 
+// Marketing host serves only landing/legal/CE-readiness. Auth and app routes
+// live on the app subdomain — a react-router <Navigate> cannot cross hosts, so
+// without this, links like "Sign in" or "Run your Cyber MOT" on cybermeters.com
+// silently bounced back to the landing page via the catch-all route.
+function AppHostRedirect() {
+  const location = useLocation()
+  useEffect(() => {
+    window.location.replace(`https://app.cybermeters.com${location.pathname}${location.search}`)
+  }, [location])
+  return <RouteLoader />
+}
+
+// App-host paths reachable from marketing pages or typed by users.
+const APP_HOST_PATHS = ['/login', '/signup', '/free-scan', '/pricing', '/dashboard', '/forgot-password', '/reset-password', '/verify-email']
+
 function AppRoutes() {
   if (isMarketingHost()) {
     return (
@@ -107,6 +122,9 @@ function AppRoutes() {
           <Route path="/cookies" element={<CookiePolicyPage />} />
           <Route path="/support" element={<SupportPage />} />
           <Route path="/cyber-essentials-readiness" element={<CyberEssentialsReadinessPage />} />
+          {APP_HOST_PATHS.map(p => (
+            <Route key={p} path={p} element={<AppHostRedirect />} />
+          ))}
           <Route path="*"        element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>

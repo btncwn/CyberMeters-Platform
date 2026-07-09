@@ -63,6 +63,7 @@ function TopBar() {
         <CyberMetersLogo className="h-7" />
         <div className="flex items-center gap-3">
           <a href={CONTACT} className="hidden sm:inline text-sm font-medium text-gray-600 hover:text-gray-900">Contact</a>
+          <a href={`${APP_URL}/login`} className="text-sm font-medium text-gray-600 hover:text-gray-900">Sign in</a>
           <Link to="/free-scan" className="btn-primary text-sm">Run your Cyber MOT <ArrowRight className="w-4 h-4" /></Link>
         </div>
       </div>
