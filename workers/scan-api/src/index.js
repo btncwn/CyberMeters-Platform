@@ -21345,7 +21345,7 @@ async function retryPendingDomainVerifications(env) {
 const PLAN_LIMITS = {
   free: {
     workspaces: 1,
-    domains: 3,
+    domains: 1,       // UK Cyber MOT tiers (2026-07): Free 1 / Starter 1 / Pro 5 / Business 20 / MSP(enterprise) 20-100+
     users: 1,
     history_days: 30,
     report_retention: "90_days",
@@ -21359,7 +21359,7 @@ const PLAN_LIMITS = {
   },
   starter: {
     workspaces: 3,
-    domains: 10,
+    domains: 1,
     users: 3,
     history_days: 90,
     report_retention: "90_days",
@@ -21373,7 +21373,7 @@ const PLAN_LIMITS = {
   },
   professional: {
     workspaces: 10,
-    domains: 100,
+    domains: 5,
     users: 10,
     history_days: 365,
     report_retention: "2_years",
@@ -21387,7 +21387,7 @@ const PLAN_LIMITS = {
   },
   business: {
     workspaces: 50,
-    domains: 1000,
+    domains: 20,
     users: 50,
     history_days: 730,
     report_retention: "7_years",
