@@ -25,7 +25,7 @@ const FALLBACK_PLANS = [
     monthly_gbp: 29,
     annual_gbp: 276,
     checkout_enabled: true,
-    limits: { workspaces: 3, domains: 1, users: 3 },
+    limits: { workspaces: 1, domains: 1, users: 3 },
   },
   {
     key: 'professional',
@@ -34,7 +34,7 @@ const FALLBACK_PLANS = [
     monthly_gbp: 149,
     annual_gbp: 1428,
     checkout_enabled: true,
-    limits: { workspaces: 10, domains: 5, users: 10 },
+    limits: { workspaces: 1, domains: 5, users: 10 },
   },
   {
     key: 'business',

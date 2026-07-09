@@ -84,7 +84,11 @@ export default function OnboardingPage() {
   const [scans, setScans] = useState([])
   const [reports, setReports] = useState([])
   const [workspaceName, setWorkspaceName] = useState('')
-  const [domainName, setDomainName] = useState('')
+  // Prefill from the free Cyber MOT handoff (/signup?domain=… stored by SignupPage),
+  // so the domain the user just scanned is waiting for them here.
+  const [domainName, setDomainName] = useState(() => {
+    try { return localStorage.getItem('cm_pending_domain') || '' } catch { return '' }
+  })
   const [verificationInstructions, setVerificationInstructions] = useState(null)
   const [verifyResult, setVerifyResult] = useState(null)
   const [firstScan, setFirstScan] = useState(null)
@@ -179,6 +183,7 @@ export default function OnboardingPage() {
       setDomains(list)
       setSelectedDomain(list.find(item => domainNameOf(item) === domainName.trim()) || created || list[0])
       setDomainName('')
+      try { localStorage.removeItem('cm_pending_domain') } catch { /* ignore */ } // handoff consumed
     } catch (e) {
       setError(e.message)
     } finally {

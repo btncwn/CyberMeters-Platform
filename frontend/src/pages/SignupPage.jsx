@@ -1,8 +1,17 @@
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
-import { Mail, Lock, User, AlertTriangle, UserPlus, CheckCircle } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
+import { Mail, Lock, User, AlertTriangle, UserPlus, CheckCircle, Globe } from 'lucide-react'
 import CyberMetersLogo from '../components/CyberMetersLogo'
 import { api } from '../api'
+
+// The free Cyber MOT links here as /signup?domain=<scanned domain>. Persist that
+// domain so onboarding can prefill it after the verify-email round-trip —
+// otherwise the highest-intent conversion handoff on the site is lost.
+function sanitizeDomainParam(raw) {
+  if (!raw) return null
+  const d = raw.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/[/?#].*$/, '')
+  return /^[a-z0-9][a-z0-9.-]{1,251}\.[a-z]{2,}$/.test(d) ? d : null
+}
 
 function ResendLink({ email }) {
   const [sent,    setSent]    = useState(false)
@@ -43,6 +52,14 @@ export default function SignupPage() {
   const [error,    setError]    = useState(null)
   const [loading,  setLoading]  = useState(false)
   const [done,     setDone]     = useState(false)
+
+  // Carry the Cyber MOT domain through signup → verify → onboarding.
+  const [searchParams] = useSearchParams()
+  const pendingDomain = sanitizeDomainParam(searchParams.get('domain'))
+  useEffect(() => {
+    if (!pendingDomain) return
+    try { localStorage.setItem('cm_pending_domain', pendingDomain) } catch { /* storage unavailable — ignore */ }
+  }, [pendingDomain])
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -105,6 +122,13 @@ export default function SignupPage() {
       <div className="card w-full max-w-sm p-8">
         <h1 className="text-xl font-bold text-gray-900 mb-1">Create account</h1>
         <p className="text-sm text-gray-400 mb-6">See your business's external security risks in minutes.</p>
+
+        {pendingDomain && (
+          <div className="flex items-center gap-2 px-3 py-2 mb-5 bg-brand-50 border border-brand-100 rounded-xl text-xs text-brand-800">
+            <Globe className="w-3.5 h-3.5 flex-shrink-0 text-brand-600" />
+            <span>We'll set up <span className="font-semibold">{pendingDomain}</span> right after you sign up.</span>
+          </div>
+        )}
 
         {error && (
           <div className="flex items-center gap-2.5 px-4 py-3 mb-5 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600">
