@@ -3,15 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { Mail, Lock, User, AlertTriangle, UserPlus, CheckCircle, Globe } from 'lucide-react'
 import CyberMetersLogo from '../components/CyberMetersLogo'
 import { api } from '../api'
-
-// The free Cyber MOT links here as /signup?domain=<scanned domain>. Persist that
-// domain so onboarding can prefill it after the verify-email round-trip —
-// otherwise the highest-intent conversion handoff on the site is lost.
-function sanitizeDomainParam(raw) {
-  if (!raw) return null
-  const d = raw.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/[/?#].*$/, '')
-  return /^[a-z0-9][a-z0-9.-]{1,251}\.[a-z]{2,}$/.test(d) ? d : null
-}
+import { persistSignupDomainParam, sanitizeDomainParam } from '../utils/signupDomainHandoff'
 
 function ResendLink({ email }) {
   const [sent,    setSent]    = useState(false)
@@ -57,9 +49,8 @@ export default function SignupPage() {
   const [searchParams] = useSearchParams()
   const pendingDomain = sanitizeDomainParam(searchParams.get('domain'))
   useEffect(() => {
-    if (!pendingDomain) return
-    try { localStorage.setItem('cm_pending_domain', pendingDomain) } catch { /* storage unavailable — ignore */ }
-  }, [pendingDomain])
+    try { persistSignupDomainParam(searchParams.get('domain')) } catch { /* storage unavailable — ignore */ }
+  }, [searchParams])
 
   async function handleSubmit(e) {
     e.preventDefault()

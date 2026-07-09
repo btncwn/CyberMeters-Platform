@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { api } from '../api'
 import Spinner from '../components/Spinner'
+import { PENDING_SIGNUP_DOMAIN_KEY } from '../utils/signupDomainHandoff'
 
 function domainIdOf(domain) {
   return domain?.domain_id || domain?.id
@@ -87,7 +88,7 @@ export default function OnboardingPage() {
   // Prefill from the free Cyber MOT handoff (/signup?domain=… stored by SignupPage),
   // so the domain the user just scanned is waiting for them here.
   const [domainName, setDomainName] = useState(() => {
-    try { return localStorage.getItem('cm_pending_domain') || '' } catch { return '' }
+    try { return localStorage.getItem(PENDING_SIGNUP_DOMAIN_KEY) || '' } catch { return '' }
   })
   const [verificationInstructions, setVerificationInstructions] = useState(null)
   const [verifyResult, setVerifyResult] = useState(null)
@@ -183,7 +184,7 @@ export default function OnboardingPage() {
       setDomains(list)
       setSelectedDomain(list.find(item => domainNameOf(item) === domainName.trim()) || created || list[0])
       setDomainName('')
-      try { localStorage.removeItem('cm_pending_domain') } catch { /* ignore */ } // handoff consumed
+      try { localStorage.removeItem(PENDING_SIGNUP_DOMAIN_KEY) } catch { /* ignore */ } // handoff consumed
     } catch (e) {
       setError(e.message)
     } finally {
