@@ -5,6 +5,29 @@
 // from index.js (monolith decomposition, Phase 1c). Self-contained — no imports. Heavily
 // covered by the accuracy + pipeline regression harnesses.
 
+export const DKIM_SELECTORS = [
+  "default", "mail", "google", "k1", "selector1", "selector2",
+  "dkim", "smtp", "email", "s1", "s2",
+  // Expanded generic set
+  "godaddy1", "godaddy2", "pm", "postmark", "zoho", "fm1", "mc1", "relay",
+];
+
+export const DKIM_PROVIDER_SELECTORS = {
+  godaddy:      [],                                      // default, godaddy1, godaddy2, mail all in generic
+  microsoft365: [],                                      // selector1, selector2 in generic
+  google:       [],                                      // google in generic; date-based selectors are impractical
+  sendgrid:     ["smtpapi"],                             // s1, s2 in generic
+  mailchimp:    ["k2", "k3"],                            // k1 in generic
+  mailgun:      ["mg1", "mg"],                           // smtp in generic
+  amazonses:    [],                                      // hash-based selectors — impractical
+  zoho:         ["zmail"],                               // zoho, mail in generic
+  protonmail:   ["protonmail", "protonmail2", "protonmail3"],
+  fastmail:     ["fm2", "fm3"],                          // fm1 in generic
+  mimecast:     ["mc2", "mc3"],                          // mc1, selector1 in generic
+  proofpoint:   ["pp1", "pp2", "proofpoint"],            // selector1 in generic
+  postmark:     [],                                      // pm, postmark in generic
+};
+
 export const DKIM_PROVIDER_MAP = [
   { includes: "secureserver.net",           provider: "godaddy"      },
   { includes: "spf.protection.outlook.com", provider: "microsoft365" },

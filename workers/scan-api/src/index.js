@@ -20,7 +20,7 @@ import { runDnsModule } from "./engines/dns-scan.js";
 import { normalizeCertificateSanNames, normalizeDiscoveredHostname, parseCertificateSanNames } from "./engines/hostnames.js";
 import { runSslModule } from "./engines/ssl-scan.js";
 import { classifyHeaderStrength, runHeadersModule } from "./engines/headers-scan.js";
-import { DKIM_PROVIDER_LABELS, buildDkimDetail, buildDmarcPolicyJourney, buildEmailRemediationActions, buildEmailTransportDetails, findDkimInResults, inferEmailProvider, normalizeDnsTxtValue, parseBimiRecord, parseDmarcRecord, parseSpfRecord, remediationAction, sanitizeInfraErrorMessage } from "./engines/email-analysis.js";
+import { DKIM_PROVIDER_LABELS, DKIM_PROVIDER_SELECTORS, DKIM_SELECTORS, buildDkimDetail, buildDmarcPolicyJourney, buildEmailRemediationActions, buildEmailTransportDetails, findDkimInResults, inferEmailProvider, normalizeDnsTxtValue, parseBimiRecord, parseDmarcRecord, parseSpfRecord, remediationAction, sanitizeInfraErrorMessage } from "./engines/email-analysis.js";
 import { applyEvidenceQuality, isActionableFinding, normalizeFindingSchema, validateFindingEvidence } from "./engines/findings.js";
 // ─────────────────────────────────────────────────────────────────────────────
 // CyberMeters Scan API — Cloudflare Worker
@@ -266,12 +266,6 @@ function buildCertificateAuthorityConcentrationFromModule(certMod) {
 
 // Generic selectors — always probed (expanded from original 13-item list).
 // Ordered roughly by prevalence so the first hit terminates the search early.
-const DKIM_SELECTORS = [
-  "default", "mail", "google", "k1", "selector1", "selector2",
-  "dkim", "smtp", "email", "s1", "s2",
-  // Expanded generic set
-  "godaddy1", "godaddy2", "pm", "postmark", "zoho", "fm1", "mc1", "relay",
-];
 
 // Maps SPF include substrings → internal provider key.
 // A substring match on the raw SPF record string is sufficient.
@@ -279,21 +273,6 @@ const DKIM_SELECTORS = [
 // Additional selectors probed only when the provider is identified from SPF.
 // Lists here contain selectors NOT already in DKIM_SELECTORS above.
 // Providers where all relevant selectors are already in the generic list have [].
-const DKIM_PROVIDER_SELECTORS = {
-  godaddy:      [],                                      // default, godaddy1, godaddy2, mail all in generic
-  microsoft365: [],                                      // selector1, selector2 in generic
-  google:       [],                                      // google in generic; date-based selectors are impractical
-  sendgrid:     ["smtpapi"],                             // s1, s2 in generic
-  mailchimp:    ["k2", "k3"],                            // k1 in generic
-  mailgun:      ["mg1", "mg"],                           // smtp in generic
-  amazonses:    [],                                      // hash-based selectors — impractical
-  zoho:         ["zmail"],                               // zoho, mail in generic
-  protonmail:   ["protonmail", "protonmail2", "protonmail3"],
-  fastmail:     ["fm2", "fm3"],                          // fm1 in generic
-  mimecast:     ["mc2", "mc3"],                          // mc1, selector1 in generic
-  proofpoint:   ["pp1", "pp2", "proofpoint"],            // selector1 in generic
-  postmark:     [],                                      // pm, postmark in generic
-};
 
 // Display-friendly provider labels for finding titles and descriptions.
 
