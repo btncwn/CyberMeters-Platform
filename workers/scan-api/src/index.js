@@ -6,6 +6,7 @@ import { createId, isValidEmail, normalizeApiResponseData, pageMeta, paginationP
 import { createAuditEvent, createNotificationEvent, createNotificationsForDomain, sanitizeAuditMetadata } from "./lib/events.js";
 import { RUA_INBOUND_DOMAIN_DEFAULT, ingestDmarcReport, ingestEndpointIsActive, normalizeInboundRecipientDomain, parseEmailAuthHeaders, sha256Hex, updateEmailSenderSources } from "./lib/dmarc-ingest.js";
 import { buildCorsHeaders, buildJsonHeaders, deliverEmail, escapeEmailHtml, getEmailFrontendOrigin, json, retryFailedLifecycleEmails, sendCustomerEmail, sendLifecycleEmail } from "./lib/lifecycle-email.js";
+import { safeFetch } from "./lib/http.js";
 import { dnsQuery, dnsQueryDnssec, dnsQueryGoogle, dnsQueryQuad9, dnsAnswerValues, computeResolverAgreementScore, buildDnsCrossCheck } from "./engines/dns.js";
 // ─────────────────────────────────────────────────────────────────────────────
 // CyberMeters Scan API — Cloudflare Worker
@@ -493,20 +494,6 @@ async function requireApiToken(request, env) {
  * DNS-over-HTTPS query via Cloudflare (1.1.1.1).
  * Workers have no raw socket access; DoH is the Cloudflare-native approach.
  */
-/**
- * HTTP fetch that never throws — returns null on timeout / network error.
- */
-async function safeFetch(url, options = {}) {
-  try {
-    return await fetch(url, {
-      ...options,
-      signal: AbortSignal.timeout(10_000),
-    });
-  } catch {
-    return null;
-  }
-}
-
 // ── Security Headers Config ───────────────────────────────────────────────────
 
 const SECURITY_HEADERS = [
