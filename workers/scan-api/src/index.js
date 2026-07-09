@@ -7,6 +7,7 @@ import { createAuditEvent, createNotificationEvent, createNotificationsForDomain
 import { RUA_INBOUND_DOMAIN_DEFAULT, ingestDmarcReport, ingestEndpointIsActive, normalizeInboundRecipientDomain, parseEmailAuthHeaders, sha256Hex, updateEmailSenderSources } from "./lib/dmarc-ingest.js";
 import { buildCorsHeaders, buildJsonHeaders, deliverEmail, escapeEmailHtml, getEmailFrontendOrigin, json, retryFailedLifecycleEmails, sendCustomerEmail, sendLifecycleEmail } from "./lib/lifecycle-email.js";
 import { safeFetch } from "./lib/http.js";
+import { base32Decode, base32Encode } from "./lib/base32.js";
 import { dnsQuery, dnsQueryDnssec, dnsQueryGoogle, dnsQueryQuad9, dnsAnswerValues, computeResolverAgreementScore, buildDnsCrossCheck } from "./engines/dns.js";
 // ─────────────────────────────────────────────────────────────────────────────
 // CyberMeters Scan API — Cloudflare Worker
@@ -245,40 +246,6 @@ async function generateMfaChallengeToken() {
 // Pure WebCrypto — no third-party libraries.
 // TOTP = HOTP(key, T) where T = floor(unix_seconds / 30)
 // HOTP uses HMAC-SHA1 per RFC 4226.
-
-const BASE32_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-
-function base32Encode(buf) {
-  const bytes = new Uint8Array(buf);
-  let bits = 0, value = 0, output = "";
-  for (const byte of bytes) {
-    value = (value << 8) | byte;
-    bits += 8;
-    while (bits >= 5) {
-      output += BASE32_CHARS[(value >>> (bits - 5)) & 0x1f];
-      bits -= 5;
-    }
-  }
-  if (bits > 0) output += BASE32_CHARS[(value << (5 - bits)) & 0x1f];
-  return output;
-}
-
-function base32Decode(str) {
-  const clean = str.toUpperCase().replace(/[=\s]/g, "");
-  let bits = 0, value = 0;
-  const output = [];
-  for (const char of clean) {
-    const idx = BASE32_CHARS.indexOf(char);
-    if (idx < 0) throw new Error(`Invalid base32 character: ${char}`);
-    value = (value << 5) | idx;
-    bits += 5;
-    if (bits >= 8) {
-      output.push((value >>> (bits - 8)) & 0xff);
-      bits -= 8;
-    }
-  }
-  return new Uint8Array(output);
-}
 
 function generateTotpSecret() {
   // 20 bytes = 160-bit secret (RFC 4226 recommended minimum)
