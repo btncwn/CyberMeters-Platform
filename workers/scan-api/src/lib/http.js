@@ -11,3 +11,6 @@ export async function safeFetch(url, options = {}) {
     return null;
   }
 }
+
+// Shared RDAP/WHOIS request User-Agent (identifies the CyberMeters scanner honestly).
+export const RDAP_UA = "CyberMeters/1.0 (https://cybermeters.com)";

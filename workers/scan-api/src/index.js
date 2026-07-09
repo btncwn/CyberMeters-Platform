@@ -6,7 +6,7 @@ import { createId, isValidDomain, isValidEmail, normalizeApiResponseData, pageMe
 import { createAuditEvent, createNotificationEvent, createNotificationsForDomain, sanitizeAuditMetadata } from "./lib/events.js";
 import { RUA_INBOUND_DOMAIN_DEFAULT, ingestDmarcReport, ingestEndpointIsActive, normalizeInboundRecipientDomain, parseEmailAuthHeaders, sha256Hex, updateEmailSenderSources } from "./lib/dmarc-ingest.js";
 import { buildCorsHeaders, buildJsonHeaders, deliverEmail, escapeEmailHtml, getEmailFrontendOrigin, json, retryFailedLifecycleEmails, sendCustomerEmail, sendLifecycleEmail } from "./lib/lifecycle-email.js";
-import { safeFetch } from "./lib/http.js";
+import { RDAP_UA, safeFetch } from "./lib/http.js";
 import { generateTotpSecret, verifyTotp } from "./lib/totp.js";
 import { hashPassword, verifyPassword } from "./lib/password.js";
 import { validateMicrosoftIdToken, validateMicrosoftIdTokenClaims } from "./lib/microsoft-jwt.js";
@@ -535,7 +535,6 @@ function getRdapUrls(registeredDomain) {
   return urls;
 }
 
-const RDAP_UA = "CyberMeters/1.0 (https://cybermeters.com)";
 
 async function runWhoisModule(domain) {
   try {
