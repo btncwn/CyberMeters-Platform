@@ -384,16 +384,16 @@ export default function OnboardingPage() {
         )}
       </StepCard>
 
-      <StepCard number={4} title="Run First Scan" done={steps.scan} active={activeStep === 4}>
+      <StepCard number={4} title="Run First Cyber MOT" done={steps.scan} active={activeStep === 4}>
         {!steps.verification ? (
-          <p className="text-sm text-gray-400">Verify the domain before starting the first scan.</p>
+          <p className="text-sm text-gray-400">Verify the domain before starting your first passive posture check.</p>
         ) : steps.scan ? (
-          <p className="text-sm text-gray-600">First scan has been created for {selectedDomainName}.</p>
+          <p className="text-sm text-gray-600">Your first passive posture check is running for {selectedDomainName}.</p>
         ) : (
           <button onClick={runFirstScan} className="btn-primary" disabled={actionLoading === 'scan'}>
             {actionLoading === 'scan'
               ? <><RefreshCw className="w-4 h-4 animate-spin" /> Starting...</>
-              : <><ScanLine className="w-4 h-4" /> Run First Scan</>
+              : <><ScanLine className="w-4 h-4" /> Run First Cyber MOT</>
             }
           </button>
         )}

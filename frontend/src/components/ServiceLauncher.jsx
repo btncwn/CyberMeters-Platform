@@ -109,16 +109,16 @@ export default function ServiceLauncher() {
     : hasDomain === false
       ? { text: 'Add your first domain so CyberMeters can start monitoring it.', cta: 'Add a domain', to: '/ws/dashboard' }
       : hasScan === false
-        ? { text: 'Run your first scan to map your external risk and email posture.', cta: 'Run a scan', to: '/scans/new' }
+        ? { text: 'Run your first Cyber MOT to check your website, email posture, certificates and visible external posture.', cta: 'Start Cyber MOT', to: '/scans/new' }
         : (hasDomain || hasScan)
           ? { text: 'Connect Email Protection to start receiving DMARC reports for your domain.', cta: 'Open Email Protection', to: '/ws/email-protection' }
-          : { text: 'Recommended first step: run a scan and connect Email Protection.', cta: 'Run a scan', to: '/scans/new' }
+          : { text: 'Recommended first step: run a Cyber MOT and connect Email Protection.', cta: 'Start Cyber MOT', to: '/scans/new' }
 
   // ── First-run checklist statuses (never invented) ──
   const st = (done, ready) => done ? 'done' : ready ? 'next' : 'waiting'
   const steps = [
     { n: 1, title: 'Add or confirm your primary domain', explanation: 'Tell CyberMeters which domain to protect.', status: hasDomain == null ? 'recommended' : st(hasDomain, !!wsId), actionLabel: 'Add domain', to: '/ws/dashboard' },
-    { n: 2, title: 'Run your first scan', explanation: 'Map your external attack surface and email posture.', status: hasScan == null ? 'recommended' : st(hasScan, hasDomain === true), actionLabel: 'Run scan', to: '/scans/new' },
+    { n: 2, title: 'Run your first Cyber MOT', explanation: 'Check your website, email posture, certificates and visible external posture.', status: hasScan == null ? 'recommended' : st(hasScan, hasDomain === true), actionLabel: 'Start Cyber MOT', to: '/scans/new' },
     { n: 3, title: 'Connect DMARC reporting', explanation: 'Start receiving reports on who is sending email using your domain.', status: hasScan ? 'recommended' : 'waiting', actionLabel: 'Set up', to: '/ws/email-protection' },
     { n: 4, title: 'Review BEC Exposure', explanation: 'See how exposed your domain is to spoofing and invoice fraud.', status: hasScan ? 'recommended' : 'waiting', actionLabel: 'Review', to: '/ws/email-protection' },
     { n: 5, title: 'Review Brand Protection candidates', explanation: 'Find lookalike domains that could impersonate your brand.', status: hasScan ? 'recommended' : 'waiting', actionLabel: 'Review', to: '/ws/brand-monitoring' },
@@ -136,10 +136,10 @@ export default function ServiceLauncher() {
           </span>
           <h1 className="page-title">Welcome to CyberMeters</h1>
           <p className="text-base text-gray-600 mt-2 max-w-2xl leading-relaxed">
-            Start by adding a domain, running your first scan, and connecting Email Protection.
+            Start by adding a domain, running your first Cyber MOT, and connecting Email Protection.
           </p>
           <p className="text-sm text-gray-500 mt-1.5 max-w-2xl leading-relaxed">
-            CyberMeters helps you monitor email impersonation risk, brand abuse, external attack surface, and certificate trust — all from one workspace.
+            CyberMeters helps you monitor email impersonation risk, brand abuse, Website Security, and certificate trust — all from one workspace.
           </p>
           {wsName && <p className="text-xs text-gray-400 mt-2">Current workspace: <span className="font-medium text-gray-600">{wsName}</span></p>}
         </header>

@@ -186,7 +186,7 @@ export default function PricingPage() {
           <p className="text-xs font-bold uppercase tracking-widest text-brand-600 mb-3">Pricing</p>
           <h1 className="text-4xl font-bold text-gray-900 tracking-tight">Choose the plan that matches your security workflow.</h1>
           <p className="text-gray-500 mt-4">
-            Start with external attack surface monitoring, then add executive reporting, vendor risk, and MSP-ready capabilities as you grow.
+            Start with a simple Cyber MOT for your first monitored domain, then add monitoring, executive reporting, and MSP-ready capabilities as you grow.
           </p>
         </div>
 

@@ -167,9 +167,9 @@ function buildLifecycleEmail(type, { origin = null, wsName = null, domain = null
       subject = "Welcome to CyberMeters";
       heading = "Welcome to CyberMeters";
       paras = [
-        "CyberMeters protects your email, brand, external attack surface and certificates from one workspace.",
+        "CyberMeters helps you understand your email, brand, Website Security and Certificates & Trust from one workspace.",
         `Four services work together: ${SERVICES_LINE}`,
-        "To get started, add a domain and run your first scan.",
+        "To get started, add a domain and run your first Cyber MOT.",
       ];
       ctaLabel = "Open CyberMeters"; ctaPath = "/services";
       break;

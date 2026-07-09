@@ -203,7 +203,7 @@ export default function WorkspacesPage() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {[
               { icon: Globe,     color: 'bg-brand-50 text-brand-600',   title: 'Domain Management', desc: 'Add and verify domains. CyberMeters tracks ownership and monitors for unauthorised changes.'         },
-              { icon: Shield,    color: 'bg-red-50 text-red-500',        title: 'Security Scanning',  desc: 'Run on-demand or scheduled scans to continuously assess your external attack surface.'            },
+              { icon: Shield,    color: 'bg-red-50 text-red-500',        title: 'Cyber MOT monitoring', desc: 'Run on-demand or scheduled Cyber MOT checks to monitor your domains from the outside.'          },
               { icon: FileText,  color: 'bg-purple-50 text-purple-600', title: 'Executive Reports',  desc: 'Generate PDF risk reports for clients, stakeholders, or compliance purposes in one click.'        },
             ].map(({ icon: Icon, color, title, desc }) => (
               <div key={title} className="card p-5">
