@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  Mail, Radar, Globe, Lock, ArrowRight, Sparkles, CheckCircle,
+  Mail, Radar, Globe, Lock, ArrowRight, Sparkles, CheckCircle, ClipboardCheck,
 } from 'lucide-react'
 import { api } from '../api'
 import { useWorkspace } from '../hooks/useWorkspace'
@@ -163,6 +163,30 @@ export default function ServiceLauncher() {
             {SERVICES.map(s => <ServiceCard key={s.key} service={s} />)}
           </div>
         </div>
+
+        {/* 3b · Cyber Essentials Readiness Dashboard — compliance companion to the
+            four services (kept as a slim secondary strip, not a fifth service card).
+            This is the in-app entry point for the paid readiness dashboard. */}
+        <Link
+          to="/ws/cyber-essentials"
+          className="group card p-5 flex flex-col sm:flex-row sm:items-center gap-4 hover:border-brand-200 hover:shadow-card-md transition-all"
+        >
+          <div className="w-10 h-10 rounded-xl bg-brand-50 ring-1 ring-brand-100 flex items-center justify-center flex-shrink-0 group-hover:bg-brand-600 transition-colors">
+            <ClipboardCheck className="w-5 h-5 text-brand-600 group-hover:text-white transition-colors" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-sm font-bold text-gray-900">Cyber Essentials Readiness Dashboard</h2>
+              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full border text-gray-500 bg-gray-50 border-gray-200">Professional plan</span>
+            </div>
+            <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">
+              Check how prepared your business looks against the five Cyber Essentials control areas — scan evidence combined with your own saved answers.
+            </p>
+          </div>
+          <span className="text-xs font-semibold text-brand-700 group-hover:text-brand-800 flex-shrink-0 whitespace-nowrap">
+            Open dashboard →
+          </span>
+        </Link>
 
         {/* 4 · First-run checklist */}
         <section className="card p-6">

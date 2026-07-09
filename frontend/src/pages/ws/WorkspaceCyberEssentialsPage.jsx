@@ -449,7 +449,7 @@ export default function WorkspaceCyberEssentialsPage() {
         <div className="mb-8 flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
           <div>
             <span className="eyebrow">Paid workspace service</span>
-            <h1 className="mt-1 text-2xl font-bold text-gray-900">Cyber Essentials Readiness</h1>
+            <h1 className="mt-1 text-2xl font-bold text-gray-900">Cyber Essentials Readiness Dashboard</h1>
             <p className="mt-1 max-w-3xl text-sm leading-relaxed text-gray-500">
               Save self-declared answers for this workspace and combine them with external Cyber MOT evidence for readiness guidance and gap analysis.
             </p>

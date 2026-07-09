@@ -436,9 +436,9 @@ function IntroView({ onStart }) {
     <main className="mx-auto max-w-6xl px-5 py-10 sm:py-14">
       <div className="grid gap-8 lg:grid-cols-[1.05fr_0.95fr] lg:items-start">
         <div>
-          <span className="eyebrow">Cyber Essentials Readiness</span>
+          <span className="eyebrow">Free preview</span>
           <h1 className="mt-2 text-[34px] font-bold leading-tight tracking-tight text-gray-900 sm:text-[44px]">
-            Cyber Essentials Readiness
+            Cyber Essentials Readiness Preview
           </h1>
           <p className="mt-4 max-w-3xl text-base leading-relaxed text-gray-600 sm:text-lg">
             Check how prepared your business looks against the five Cyber Essentials control areas. CyberMeters combines external evidence from your Cyber MOT with your own answers for the internal controls we cannot see from outside.
@@ -510,7 +510,7 @@ function QuestionnaireView({ answers, onAnswer, onSubmit, onBack }) {
             <ArrowLeft className="h-4 w-4" />
             Back to intro
           </button>
-          <h1 className="text-2xl font-bold tracking-tight text-gray-900 sm:text-3xl">Cyber Essentials Readiness</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-gray-900 sm:text-3xl">Cyber Essentials Readiness Preview</h1>
           <p className="mt-1 max-w-3xl text-sm leading-relaxed text-gray-500">
             Work through each control area. You can change answers before viewing your readiness result.
           </p>
@@ -671,7 +671,7 @@ function ResultView({ result, onEdit }) {
       <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <span className="eyebrow">Readiness result</span>
-          <h1 className="mt-1 text-2xl font-bold tracking-tight text-gray-900 sm:text-3xl">Cyber Essentials Readiness</h1>
+          <h1 className="mt-1 text-2xl font-bold tracking-tight text-gray-900 sm:text-3xl">Cyber Essentials Readiness Preview</h1>
           <p className="mt-1 max-w-3xl text-sm leading-relaxed text-gray-500">
             This result combines your self-declared answers with any available Cyber MOT context. Internal controls still need to be confirmed by your organisation.
           </p>
