@@ -5,51 +5,54 @@ import CyberMetersLogo from '../components/CyberMetersLogo'
 import { api } from '../api'
 import { useAuth } from '../context/AuthContext'
 
+// Fallback copy keeps the pricing page usable if live billing metadata is
+// unreachable. Limits mirror the backend PLAN_LIMITS so the same tier-aware
+// display logic renders consistently whether or not the API responds.
 const FALLBACK_PLANS = [
   {
     key: 'free',
     name: 'Free',
-    description: 'Evaluate CyberMeters with basic scans and on-screen results.',
+    description: 'Platform evaluation with basic scans and on-screen results.',
     monthly_gbp: 0,
     annual_gbp: 0,
     checkout_enabled: false,
-    features: ['Basic scans', 'Basic reports', '1 workspace'],
+    limits: { workspaces: 1, domains: 1, users: 1 },
   },
   {
     key: 'starter',
     name: 'Starter',
-    description: 'Scheduled scans and starter executive reporting.',
+    description: 'Business Risk Score, scheduled scans, and basic executive reports.',
     monthly_gbp: 29,
     annual_gbp: 276,
     checkout_enabled: true,
-    features: ['3 workspaces', '10 domains', 'Scheduled scans'],
+    limits: { workspaces: 3, domains: 1, users: 3 },
   },
   {
     key: 'professional',
     name: 'Professional',
-    description: 'Business risk, Cyber Essentials readiness, and vendor risk.',
+    description: 'Cyber Essentials Readiness, Vendor Risk, and advanced reports.',
     monthly_gbp: 149,
     annual_gbp: 1428,
     checkout_enabled: true,
-    features: ['Business Risk Score', 'Cyber Essentials Readiness', 'Vendor Risk'],
+    limits: { workspaces: 10, domains: 5, users: 10 },
   },
   {
     key: 'business',
     name: 'Business',
-    description: 'Portfolio monitoring, white-label reports, and extended retention.',
+    description: 'Portfolio Monitoring, White Label reports, and extended retention.',
     monthly_gbp: 399,
     annual_gbp: 3828,
     checkout_enabled: true,
-    features: ['Portfolio Monitoring', 'White-label reports', 'Extended retention'],
+    limits: { workspaces: 50, domains: 20, users: 50 },
   },
   {
     key: 'enterprise',
     name: 'Enterprise',
-    description: 'MSP dashboard, custom limits, priority support, and onboarding.',
+    description: 'MSP Dashboard, custom limits, priority support, and dedicated onboarding.',
     monthly_gbp: null,
     annual_gbp: null,
     checkout_enabled: false,
-    features: ['MSP Dashboard', 'Custom limits', 'Priority support'],
+    limits: { workspaces: 999999, domains: 999999, users: 999999 },
   },
 ]
 
@@ -59,18 +62,35 @@ function formatLimit(value) {
   return value
 }
 
-function planFeatures(plan) {
-  const limits = plan.limits || {}
-  const fromLimits = [
-    formatLimit(limits.workspaces) && `${formatLimit(limits.workspaces)} workspace${limits.workspaces === 1 ? '' : 's'}`,
-    formatLimit(limits.domains) && `${formatLimit(limits.domains)} domain${limits.domains === 1 ? '' : 's'}`,
-    formatLimit(limits.users) && `${formatLimit(limits.users)} user${limits.users === 1 ? '' : 's'}`,
-    formatLimit(limits.scans_per_month) && `${formatLimit(limits.scans_per_month)} scans/month`,
-    formatLimit(limits.reports_per_month) && `${formatLimit(limits.reports_per_month)} reports/month`,
-  ].filter(Boolean)
+// SMB tiers lead with domains (the value metric) as a single tenant.
+// MSP/agency tiers keep the multi-workspace framing — per-client tenant
+// isolation is their value, so "client workspaces" stays front and centre.
+const SMB_TIERS = new Set(['free', 'starter', 'professional'])
 
-  if (fromLimits.length > 0) return fromLimits.slice(0, 5)
-  return plan.features || []
+function planFeatures(plan) {
+  // Customer-facing capacity only. Internal quotas (scans/reports per month) are
+  // operational plumbing and are never shown on the pricing page.
+  const limits = plan.limits || {}
+  const out = []
+
+  if (SMB_TIERS.has(plan.key)) {
+    const domains = formatLimit(limits.domains)
+    if (domains != null) out.push(`${domains} domain${limits.domains === 1 ? '' : 's'}`)
+    const users = formatLimit(limits.users)
+    if (users != null) out.push(`${users} team member${limits.users === 1 ? '' : 's'}`)
+  } else {
+    const workspaces = formatLimit(limits.workspaces)
+    if (workspaces != null) out.push(`${workspaces} client workspace${limits.workspaces === 1 ? '' : 's'}`)
+    const domains = formatLimit(limits.domains)
+    if (domains != null) {
+      out.push(limits.domains >= 999999 ? 'Unlimited domains per workspace' : `${domains} domains per workspace`)
+    }
+    const users = formatLimit(limits.users)
+    if (users != null) out.push(`${users} team member${limits.users === 1 ? '' : 's'}`)
+  }
+
+  if (out.length > 0) return out
+  return plan.features || [] // fallback copy when live limits are unavailable
 }
 
 function priceFor(plan, interval) {
@@ -88,7 +108,14 @@ export default function PricingPage() {
   const navigate = useNavigate()
   const { isAuthenticated } = useAuth()
   const [plans, setPlans] = useState(FALLBACK_PLANS)
-  const [interval, setInterval] = useState('monthly')
+  const [interval, setInterval] = useState(() => {
+    // Persist the billing-cycle choice so it survives the signup/checkout round-trip.
+    try {
+      return localStorage.getItem('cm_billing_interval') === 'annual' ? 'annual' : 'monthly'
+    } catch {
+      return 'monthly'
+    }
+  })
   const [loading, setLoading] = useState(true)
   const [checkoutPlan, setCheckoutPlan] = useState(null)
   const [error, setError] = useState(null)
@@ -181,7 +208,10 @@ export default function PricingPage() {
           {['monthly', 'annual'].map(key => (
             <button
               key={key}
-              onClick={() => setInterval(key)}
+              onClick={() => {
+                setInterval(key)
+                try { localStorage.setItem('cm_billing_interval', key) } catch { /* storage unavailable — ignore */ }
+              }}
               className={`px-4 py-2 rounded-xl text-sm font-semibold border ${
                 interval === key
                   ? 'bg-white text-gray-900 border-gray-200 shadow-sm'
@@ -202,10 +232,22 @@ export default function PricingPage() {
 
         <div className="grid md:grid-cols-2 xl:grid-cols-5 gap-4">
           {orderedPlans.map(plan => (
-            <section key={plan.key} className="bg-white border border-gray-100 rounded-2xl shadow-card p-5 flex flex-col">
+            <section
+              key={plan.key}
+              className={`bg-white rounded-2xl shadow-card p-5 flex flex-col ${
+                plan.key === 'professional'
+                  ? 'relative border border-brand-500 ring-1 ring-brand-500'
+                  : 'border border-gray-100'
+              }`}
+            >
+              {plan.key === 'professional' && (
+                <span className="absolute -top-3 left-5 inline-flex items-center rounded-full bg-brand-600 px-3 py-1 text-xs font-semibold text-white shadow-sm">
+                  Most popular
+                </span>
+              )}
               <div>
                 <h2 className="text-lg font-bold text-gray-900">{plan.name || plan.key}</h2>
-                <p className="text-sm text-gray-500 mt-2 min-h-[60px]">{plan.description}</p>
+                <p className="text-sm text-gray-600 mt-2 min-h-[60px] font-medium">{plan.description}</p>
                 <div className="mt-5">
                   <span className="text-3xl font-bold text-gray-900">{priceFor(plan, interval)}</span>
                 </div>
