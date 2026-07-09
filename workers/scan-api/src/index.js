@@ -490,10 +490,6 @@ async function requireApiToken(request, env) {
   return requireAuth(request, env);
 }
 
-/**
- * DNS-over-HTTPS query via Cloudflare (1.1.1.1).
- * Workers have no raw socket access; DoH is the Cloudflare-native approach.
- */
 // ── Security Headers Config ───────────────────────────────────────────────────
 
 const SECURITY_HEADERS = [
