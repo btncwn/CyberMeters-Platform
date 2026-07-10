@@ -10,30 +10,37 @@ const APP_URL = 'https://app.cybermeters.com'
 const CONTACT = 'mailto:hello@cybermeters.com'
 
 // The four core services, each led with the question a business owner actually asks.
+// Each carries a cool "glacier" identity colour drawn from the ice/water palette,
+// so the four services read as four distinct surfaces — brand green stays primary
+// on the nav, CTAs and hero.
 const SERVICES = [
   {
     icon: Mail, name: 'Email Protection',
     q: '“Can attackers send email as me?”',
     copy: 'DMARC, SPF and DKIM in plain English. See who is sending as your domain, get a BEC exposure score, and move safely toward enforcement.',
     tags: ['DMARC setup', 'Sender inventory', 'BEC score'],
+    theme: { bg: '#EEF3FD', ring: '#D6E2FB', chip: '#DCE8FC', icon: '#1E5FDB', q: '#1A4FB8' }, // Glacier blue
   },
   {
     icon: ShieldCheck, name: 'Brand Protection',
     q: '“Is anyone impersonating my brand?”',
     copy: 'Lookalike domains, typosquats and homoglyphs — scored by real registration risk, not string guesswork. A queue you can actually work through.',
     tags: ['Lookalike domains', 'Impersonation', 'Classification'],
+    theme: { bg: '#E5F7FB', ring: '#C7EDF5', chip: '#D5F1F8', icon: '#0797BC', q: '#0A7592' }, // Turquoise
   },
   {
     icon: Search, name: 'Attack Surface',
     q: '“What of mine is exposed to the internet?”',
     copy: 'Subdomains, forgotten admin panels, exposed services and takeover risks — the assets you own but stopped watching. Findings, not noise.',
     tags: ['Asset inventory', 'Subdomains', 'Takeover risk'],
+    theme: { bg: '#E6F5F3', ring: '#CBEBE6', chip: '#D6F0EC', icon: '#12938C', q: '#0E736D' }, // Glacier teal
   },
   {
     icon: Lock, name: 'Certificates & Trust',
     q: '“Will my site quietly break trust?”',
     copy: 'Certificate expiry, TLS posture and HTTPS trust signals — so a lapsed certificate never turns customers away at the door.',
     tags: ['Expiry alerts', 'TLS posture', 'HTTPS trust'],
+    theme: { bg: '#E8F3FC', ring: '#CFE6F8', chip: '#DBEDFB', icon: '#1685C9', q: '#0F689F' }, // Azure
   },
 ]
 
@@ -132,10 +139,10 @@ function MotCard() {
   }, [])
 
   const rows = [
-    { icon: Mail, name: 'Email Protection', val: 'SPF ✓ · DKIM ✗', tag: 'Advisory', tone: 'adv' },
-    { icon: ShieldCheck, name: 'Brand Protection', val: '0 lookalikes', tag: 'Clear', tone: 'pass' },
-    { icon: Search, name: 'Attack Surface', val: '3 assets · 0 risks', tag: 'Clear', tone: 'pass' },
-    { icon: Lock, name: 'Certificates & Trust', val: 'valid · 74 days', tag: 'Renew soon', tone: 'adv' },
+    { icon: Mail, name: 'Email Protection', val: 'SPF ✓ · DKIM ✗', tag: 'Advisory', tone: 'adv', chip: '#DCE8FC', ic: '#1E5FDB' },
+    { icon: ShieldCheck, name: 'Brand Protection', val: '0 lookalikes', tag: 'Clear', tone: 'pass', chip: '#D5F1F8', ic: '#0797BC' },
+    { icon: Search, name: 'Attack Surface', val: '3 assets · 0 risks', tag: 'Clear', tone: 'pass', chip: '#D6F0EC', ic: '#12938C' },
+    { icon: Lock, name: 'Certificates & Trust', val: 'valid · 74 days', tag: 'Renew soon', tone: 'adv', chip: '#DBEDFB', ic: '#1685C9' },
   ]
   const toneCls = {
     pass: 'bg-emerald-50 text-emerald-700',
@@ -180,7 +187,7 @@ function MotCard() {
             const Icon = r.icon
             return (
               <div key={r.name} className="flex items-center gap-3 py-3 border-t border-gray-100">
-                <div className="w-[34px] h-[34px] rounded-[10px] grid place-items-center flex-shrink-0 bg-brand-50 text-brand-700">
+                <div className="w-[34px] h-[34px] rounded-[10px] grid place-items-center flex-shrink-0" style={{ background: r.chip, color: r.ic }}>
                   <Icon className="w-[18px] h-[18px]" />
                 </div>
                 <span className="font-medium text-[15px] text-gray-800 flex-1">{r.name}</span>
@@ -276,18 +283,23 @@ export default function PublicLandingPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-[18px] mt-11">
             {SERVICES.map(s => {
               const Icon = s.icon
+              const th = s.theme
               return (
-                <div key={s.name} data-reveal className="reveal card p-7 hover:-translate-y-1 transition-transform duration-200">
+                <div key={s.name} data-reveal className="reveal rounded-[14px] p-7 border shadow-card hover:-translate-y-1 hover:shadow-card-md transition-all duration-200"
+                  style={{ background: th.bg, borderColor: th.ring }}>
                   <div className="flex items-center gap-3.5 mb-4">
-                    <div className="w-11 h-11 rounded-[10px] grid place-items-center flex-shrink-0 bg-brand-50 ring-1 ring-brand-100 text-brand-700">
+                    <div className="w-11 h-11 rounded-[10px] grid place-items-center flex-shrink-0" style={{ background: th.chip, color: th.icon }}>
                       <Icon className="w-[22px] h-[22px]" />
                     </div>
-                    <h3 className="text-[1.24rem] font-semibold">{s.name}</h3>
+                    <h3 className="text-[1.24rem] font-semibold text-gray-900">{s.name}</h3>
                   </div>
-                  <p className="mono text-[13px] text-brand-800 font-medium mb-2.5">{s.q}</p>
+                  <p className="mono text-[13px] font-medium mb-2.5" style={{ color: th.q }}>{s.q}</p>
                   <p className="text-gray-600">{s.copy}</p>
                   <div className="flex flex-wrap gap-2 mt-4">
-                    {s.tags.map(t => <span key={t} className="text-[13px] text-gray-600 bg-gray-50 border border-gray-100 px-3 py-1 rounded-full">{t}</span>)}
+                    {s.tags.map(t => (
+                      <span key={t} className="text-[13px] text-gray-600 px-3 py-1 rounded-full border"
+                        style={{ background: 'rgba(255,255,255,0.72)', borderColor: th.ring }}>{t}</span>
+                    ))}
                   </div>
                 </div>
               )
