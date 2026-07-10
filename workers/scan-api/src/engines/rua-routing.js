@@ -419,11 +419,84 @@ export async function auditDmarcRouteResult(env, endpoint, actorUserId, result, 
   });
 }
 
+// RFC 7489 §7.1 — external destination verification. A receiver only sends
+// aggregate reports for <domain> to a cross-org rua address if
+// <domain>._report._dmarc.<rua-domain> publishes a DMARC TXT record. Without
+// it, external reporters (Google, Microsoft, …) silently send nothing — the
+// exact failure mode that stalled the first external pilot. Same-org
+// destinations (rua domain equal to or under the report domain, e.g.
+// reports.cybermeters.com for cybermeters.com) are exempt per the RFC, so
+// nothing is provisioned for them. Idempotent: adopts an existing record at
+// the name instead of creating duplicates. Never throws.
+export async function ensureExternalReportAuthorization(env, domain, { fetchImpl = fetch } = {}) {
+  const inboundDomain = normalizeInboundRecipientDomain(env?.RUA_INBOUND_DOMAIN || RUA_INBOUND_DOMAIN_DEFAULT);
+  const reportDomain = normalizeInboundRecipientDomain(domain);
+  if (!inboundDomain || !reportDomain) return { ok: false, reason: "invalid_domain" };
+  // Same-org test without a PSL: our inbound domain is always one label under
+  // our organizational domain (reports.<org>), so dropping that label yields
+  // the org domain. Exempts the org apex AND sibling subdomains
+  // (app.cybermeters.com), not just ancestors of the inbound domain.
+  const inboundOrg = inboundDomain.split(".").slice(1).join(".");
+  if (
+    inboundDomain === reportDomain ||
+    inboundDomain.endsWith(`.${reportDomain}`) ||
+    (inboundOrg && (reportDomain === inboundOrg || reportDomain.endsWith(`.${inboundOrg}`)))
+  ) {
+    return { ok: true, skipped: "same_org" };
+  }
+  const zoneId = String(env?.CLOUDFLARE_ZONE_ID || "").trim();
+  if (!String(env?.CLOUDFLARE_API_TOKEN || "").trim() || !/^[a-f0-9]{32}$/i.test(zoneId)) {
+    return { ok: false, reason: "missing_config" };
+  }
+  const name = `${reportDomain}._report._dmarc.${inboundDomain}`;
+  const base = `/zones/${zoneId}/dns_records`;
+  const listed = await _cloudflareEmailRoutingRequest(
+    env, `${base}?type=TXT&name=${encodeURIComponent(name)}&per_page=5`, {}, fetchImpl);
+  if (listed.ok) {
+    const matches = Array.isArray(listed.body?.result) ? listed.body.result : [];
+    const existing = matches.find((r) => /v\s*=\s*DMARC1/i.test(String(r?.content || "")));
+    if (existing) return { ok: true, cf_record_id: existing.id || null, adopted: true };
+  } else if (listed.reason && listed.reason !== "unsupported_api") {
+    return { ok: false, reason: listed.reason };
+  }
+  const res = await _cloudflareEmailRoutingRequest(env, base, {
+    method: "POST",
+    body: JSON.stringify({
+      type: "TXT",
+      name,
+      content: "v=DMARC1;",
+      ttl: 3600,
+      comment: "CyberMeters RUA external report authorization (RFC 7489 7.1)",
+    }),
+  }, fetchImpl);
+  if (!res.ok) return { ok: false, reason: res.reason || "api_rejected" };
+  return { ok: true, cf_record_id: res.body?.result?.id || null, created: true };
+}
+
 export async function configureDmarcEndpointRoute(env, endpoint, actorUserId, options = {}) {
   const inboundDomain = env.RUA_INBOUND_DOMAIN || RUA_INBOUND_DOMAIN_DEFAULT;
   const result = await safelyEnsureCloudflareEmailRoute(env, endpoint.address_local, inboundDomain, options);
   await persistDmarcRouteResult(env, endpoint.id, result);
   await auditDmarcRouteResult(env, endpoint, actorUserId, result, "ensure");
+  // The RFC 7489 §7.1 authorization record rides along with every route
+  // provisioning pass, so re-configuring an endpoint self-heals a missing
+  // record. A failure never blocks route setup — the ops runbook still covers
+  // manual creation and the next configure call retries.
+  try {
+    const auth = await ensureExternalReportAuthorization(env, endpoint.domain, options);
+    if (!auth.ok) {
+      console.error("[rua] report-authorization not ensured", JSON.stringify({
+        endpoint_id: endpoint.id, domain: endpoint.domain, reason: auth.reason,
+      }));
+    } else if (!auth.skipped) {
+      console.log("[rua] report-authorization ensured", JSON.stringify({
+        endpoint_id: endpoint.id, domain: endpoint.domain,
+        created: !!auth.created, cf_record_id: auth.cf_record_id || null,
+      }));
+    }
+  } catch (e) {
+    console.error("[rua] report-authorization error", e?.message);
+  }
   return result;
 }
 
