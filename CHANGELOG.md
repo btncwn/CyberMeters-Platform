@@ -5,6 +5,27 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.10 (v2026.07.10-7 — router split COMPLETE, PRs #14–#20)
+
+### Changed
+- **Router split PRs #14–#20 — Phase 2 COMPLETE** (behaviour-preserving, solo):
+  scans (start/report/PDF + scheduled scans), portfolio + workspace list,
+  **attack-surface** (assets/alerts/posture/vendors, 1,493 lines — largest
+  band), workspace-insights (validation/usage/summary/health), account
+  (profile/tokens/sessions/GDPR export + platform QA), global-billing (plans,
+  DMARC signed-upload ingest, **Stripe webhook**, checkout/portal) and finally
+  **auth** (signup/login/MFA/SSO/password lifecycle, 1,499 lines, zero
+  routeCtx changes). **index.js 15,637 → 2,242 lines (−86%) across 20 PRs**;
+  every route group now lives in `src/routes/` (16 modules) behind the
+  per-request routeCtx dispatcher; engines grew by plan-usage +
+  subscription-state. Every PR: byte-equality vs main, index-def leak scan +
+  cross-module missing-import scan, all 5 harnesses, CI green.
+- Post-deploy smoke: `GET /health` → 200,
+  `deployment_id f0528ca1-cefa-4123-9b96-4d33e4432730`; auth paths verified
+  live (bad login → 401 not 500, anon `/api/auth/me` → 401,
+  `/api/billing/plans` → 200). Rollback: previous version
+  `892f8ee6-7d90-43be-91d3-52f72eb855ee`.
+
 ## 2026.07.10 (v2026.07.10-6 — router split PRs #11–#13)
 
 ### Changed
