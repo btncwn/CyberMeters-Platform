@@ -47,6 +47,14 @@ jobs:
       - name: Validate email worker equivalence (golden vs api worker)
         run: node scripts/validate-email-worker.js
 
+      - name: Install worker deps
+        working-directory: workers/scan-api
+        run: npm ci || npm install
+
+      - name: Worker bundle dry-run (Cloudflare packaging + import graph)
+        working-directory: workers/scan-api
+        run: npx wrangler deploy --dry-run
+
       - name: Validate OpenAPI spec
         run: node scripts/validate-openapi.js
 
