@@ -8,15 +8,15 @@ import {
 import { preloadComponent } from '../utils/preload'
 import { routePreloadMap } from '../utils/preloadMap'
 
-// ── Ocean & Ice palette — each service is its own product with a colour identity ──
-// Glacial blue (Email) → teal/emerald (Attack Surface) → bright turquoise (Brand)
-// → deep ocean cyan (Certificates). Inline styles so the four themes are dynamic
-// without touching tailwind.config (no purge risk).
+// ── Glacier palette — each service is its own product with a colour identity ──
+// Kept in exact sync with the public landing, dashboard and service pages so the
+// four services read as the same four surfaces everywhere. Inline styles so the
+// themes are dynamic without touching tailwind.config (no purge risk).
 const THEME = {
-  email:   { icon: '#1568C7', text: '#124F94', bg: '#EAF2FC', accent: '#1568C7', tint: '#F4F9FE' }, // Glacial Blue
-  surface: { icon: '#0DA08D', text: '#0A7568', bg: '#E6F6F3', accent: '#0DA08D', tint: '#F2FBF9' }, // Teal / Emerald
-  brand:   { icon: '#10B9D1', text: '#0A8195', bg: '#E3F7FA', accent: '#10B9D1', tint: '#F1FBFD' }, // Turquoise / Aqua
-  certs:   { icon: '#0A8CBE', text: '#086C93', bg: '#E6F4FA', accent: '#0A8CBE', tint: '#F2F9FD' }, // Deep Cyan
+  email:   { icon: '#1E5FDB', text: '#1A4FB8', bg: '#DCE8FC', accent: '#1E5FDB', tint: '#EEF3FD' }, // Glacier blue
+  surface: { icon: '#12938C', text: '#0E736D', bg: '#D6F0EC', accent: '#12938C', tint: '#E6F5F3' }, // Glacier teal
+  brand:   { icon: '#0797BC', text: '#0A7592', bg: '#D5F1F8', accent: '#0797BC', tint: '#E5F7FB' }, // Turquoise
+  certs:   { icon: '#1685C9', text: '#0F689F', bg: '#DBEDFB', accent: '#1685C9', tint: '#E8F3FC' }, // Azure
 }
 
 // ── The four CyberMeters services — the only primary sections in the sidebar ──
@@ -123,7 +123,7 @@ export default function WorkspaceNav({ wsName }) {
         <div className="flex items-center gap-2.5">
           <div
             className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-            style={{ backgroundColor: activeTheme ? activeTheme.icon : '#0A8CBE' }}
+            style={{ backgroundColor: activeTheme ? activeTheme.icon : '#00876A' }}
           >
             <Briefcase className="w-4 h-4 text-white" />
           </div>
