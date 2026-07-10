@@ -1217,6 +1217,11 @@ export async function authRoutes(rctx) {
       try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
       const code = (body.code || "").trim();
       if (!code) return json({ error: "code is required" }, 400);
+      // Fail-closed throttle on the TOTP proof: 10 attempts / 15 min per user.
+      const vsRl = await consumeApiRateLimit(env,
+        [{ scope: "user", scope_id: await rateLimitScopeId("mfa_verify_setup", user.id) }],
+        "mfa_verify_setup", 10, 900, { failClosed: true });
+      if (vsRl) return json(vsRl.body, vsRl.status);
       try {
         const row = await env.cybermeters_db
           .prepare("SELECT totp_secret, mfa_enabled FROM users WHERE id = ? LIMIT 1")
@@ -1280,6 +1285,14 @@ export async function authRoutes(rctx) {
       const code         = (body.code || "").trim();
       if (!rawChallenge) return json({ error: "challenge_token is required" }, 400);
       if (!code)         return json({ error: "code is required" }, 400);
+      // Fail-closed IP throttle on the login-MFA proof: 20 attempts / 15 min.
+      // Complements the per-challenge single-use guard (used_at set regardless of
+      // outcome below) — this bounds cross-challenge grinding from one source.
+      const _mfaChIp = request.headers.get("CF-Connecting-IP") || "unknown";
+      const chRl = await consumeApiRateLimit(env,
+        [{ scope: "ip", scope_id: await rateLimitScopeId("mfa_challenge", _mfaChIp) }],
+        "mfa_challenge", 20, 900, { failClosed: true });
+      if (chRl) return json(chRl.body, chRl.status);
       try {
         const challengeHash = await hashToken(rawChallenge);
         const challenge = await env.cybermeters_db
@@ -1463,6 +1476,13 @@ export async function authRoutes(rctx) {
       const code     = (body.code     || "").trim();  // TOTP code
       const password = (body.password || "").trim();  // alternative: current password
       if (!code && !password) return json({ error: "Either a TOTP code or current password is required" }, 400);
+      // Fail-closed throttle on the disable proof (TOTP or password): 10 / 15 min
+      // per user — an attacker on a hijacked session must not be able to grind
+      // the second factor off.
+      const disRl = await consumeApiRateLimit(env,
+        [{ scope: "user", scope_id: await rateLimitScopeId("mfa_disable", user.id) }],
+        "mfa_disable", 10, 900, { failClosed: true });
+      if (disRl) return json(disRl.body, disRl.status);
       try {
         const row = await env.cybermeters_db
           .prepare("SELECT totp_secret, mfa_enabled, password_hash FROM users WHERE id = ? LIMIT 1")
