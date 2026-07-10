@@ -192,11 +192,11 @@ export default function CertificatesPage() {
 
       {/* 1 · Hero / module header */}
       <div className="card p-6 mb-6 flex flex-col lg:flex-row lg:items-center gap-5">
-        <div className="w-12 h-12 rounded-2xl bg-brand-50 flex items-center justify-center flex-shrink-0">
-          <ShieldCheck className="w-6 h-6 text-brand-600" />
+        <div className="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ background: '#DBEDFB' }}>
+          <ShieldCheck className="w-6 h-6" style={{ color: '#1685C9' }} />
         </div>
         <div className="flex-1 min-w-0">
-          <span className="eyebrow">Certificates &amp; Trust</span>
+          <span className="eyebrow" style={{ color: '#0F689F' }}>Certificates &amp; Trust</span>
           <h1 className="text-2xl font-bold text-gray-900 leading-tight">Certificates &amp; Trust</h1>
           <p className="text-sm text-gray-500 mt-1 leading-relaxed">
             Monitor certificate expiry, HTTPS trust posture and domain transport security across your workspace.

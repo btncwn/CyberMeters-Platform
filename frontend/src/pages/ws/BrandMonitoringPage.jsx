@@ -421,11 +421,11 @@ export default function BrandMonitoringPage() {
 
       {/* 1 · Hero */}
       <div className="card p-6 mb-6 flex flex-col lg:flex-row lg:items-center gap-5">
-        <div className="w-12 h-12 rounded-2xl bg-brand-50 flex items-center justify-center flex-shrink-0">
-          <Radar className="w-6 h-6 text-brand-600" />
+        <div className="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ background: '#D5F1F8' }}>
+          <Radar className="w-6 h-6" style={{ color: '#0797BC' }} />
         </div>
         <div className="flex-1 min-w-0">
-          <span className="eyebrow">Brand Protection</span>
+          <span className="eyebrow" style={{ color: '#0A7592' }}>Brand Protection</span>
           <h1 className="page-title">Brand Protection</h1>
           <p className="page-subtitle">Monitor lookalike domains, typosquats, impersonation risk and brand-abuse signals.</p>
         </div>

@@ -2985,7 +2985,7 @@ export default function WorkspaceEmailProtectionPage() {
   const header = (
     <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4 mb-6">
       <div className="min-w-0">
-        <span className="eyebrow">Email Protection</span>
+        <span className="eyebrow" style={{ color: '#1A4FB8' }}>Email Protection</span>
         <h1 className="page-title">Email Protection</h1>
         <p className="page-subtitle">Monitor DMARC alignment, sender authentication and report ingestion for your domains.</p>
         <p className="text-xs text-gray-400 mt-1">
