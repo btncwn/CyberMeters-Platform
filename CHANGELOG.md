@@ -5,6 +5,22 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.10 (v2026.07.10-6 — router split PRs #11–#13)
+
+### Changed
+- **Router split PRs #11–#13** (behaviour-preserving, solo): workspaces-core
+  (detail/rename/domain-link CRUD + delete-request/restore; routeCtx gains
+  DELETION_PURGE_WINDOW_DAYS), the **subscription/trial-state engine**
+  (`engines/subscription-state.js`: TRIAL_PLAN constants, trial/subscription
+  state checks, workspace subscription resolution, checkout plan parsing,
+  public billing plans), and billing + free-scan routes (last group before the
+  404 fallback; routeCtx gains rateLimitScopeId). index.js 9,579 → 8,916
+  (running total 15,637 → 8,916 across 13 PRs). Byte-equality + double leak
+  scans + all 5 harnesses per PR; CI green throughout.
+- Post-deploy smoke: `GET /health` → 200,
+  `deployment_id 892f8ee6-7d90-43be-91d3-52f72eb855ee`; `/api/billing/plans`
+  → 200. Rollback: previous version `e95c982d-fd2f-4f6a-8f95-11f6394bb01c`.
+
 ## 2026.07.10 (v2026.07.10-5 — router split PRs #7–#10)
 
 ### Changed
