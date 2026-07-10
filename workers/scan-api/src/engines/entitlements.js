@@ -252,3 +252,9 @@ export function hasFeatureEntitlement(plan, featureKey) {
   if (!featureKey || typeof featureKey !== "string") return false;
   return getPlanFeatures(plan).includes(featureKey);
 }
+
+// Billing interval normaliser (monthly|annual).
+export function normalizeBillingInterval(interval) {
+  const value = String(interval || "monthly").trim().toLowerCase();
+  return (value === "annual" || value === "yearly") ? "annual" : "monthly";
+}
