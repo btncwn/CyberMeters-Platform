@@ -5,6 +5,28 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.10 (v2026.07.10-2 — asset alert trust fixes)
+
+### Fixed
+- **Inventory diff survives domain delete/re-add** (`145974e`): existing assets are
+  matched by hostname (root or `*.root`) as well as `domain_id`. Previously a re-added
+  domain got a new `domain_id`, making rows written under the old id invisible to the
+  diff — every later scan re-announced known assets as `new_asset_discovered` while
+  `UNIQUE(workspace_id, hostname)` silently blocked the re-insert and froze `last_seen`
+  (observed live: `cybermeters.com` + `app.cybermeters.com` stuck at 2026-06-19 while
+  alerted as "new" by scan `scan_2d7183d1` on 2026-07-10). Matched rows are re-linked
+  to the current `domain_id`, so orphaned inventory self-heals on the next scan.
+- **Asset change alert scoped to the scan's own workspace** (`8ccf344`): one scan
+  produced three alert emails — HIGH "new assets" to the owning workspace plus two
+  identical MEDIUM "reappeared" mails to the other workspaces linked to the same
+  domain, each exposing the owning workspace's scan id. Alert email + channel fan-out
+  now target only the scan's workspace; asset events remain written for every linked
+  workspace (in-app feeds unchanged). Scans without a workspace keep the old fan-out.
+- Validation: accuracy 227/227, security-contracts 45/45, integration 18/18,
+  email-worker equivalence 9/9, `wrangler deploy --dry-run` clean. Post-deploy smoke:
+  `GET /health` → 200, `deployment_id 4003937f-100f-41e3-ab2d-b838a14fbe39`.
+  Rollback: previous version `b35a8990-00fd-46f6-968f-11837db07747`.
+
 ## 2026.07.10 (v2026.07.10-1 — monolith decomposition Phase 1)
 
 ### Changed
