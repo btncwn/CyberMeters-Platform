@@ -167,9 +167,12 @@ export async function domainRoutes(rctx) {
           .first();
         if (!domRow) return json({ error: "Domain not found" }, 404);
 
-        // RBAC: resolve all linked workspaces for this domain, then check domain:verify permission
+        // RBAC: resolve all linked workspaces for this domain, then check domain:verify permission.
+        // A denied caller gets the SAME 404 as a nonexistent id so an authenticated
+        // user cannot use 403-vs-404 to probe which domain ids exist in other tenants
+        // (opaque ids make this hard, but the oracle is closed regardless).
         const dviAccess = await requireDomainRole(dviUser, domainId, "domain:verify", env);
-        if (!dviAccess) return json({ error: "Forbidden — admin role required to initiate domain verification" }, 403);
+        if (!dviAccess) return json({ error: "Domain not found" }, 404);
 
         // Already verified — don't reset
         if (domRow.verification_status === "verified") {
@@ -256,9 +259,11 @@ export async function domainRoutes(rctx) {
           .first();
         if (!domRow) return json({ error: "Domain not found" }, 404);
 
-        // RBAC: resolve all linked workspaces for this domain, then check domain:verify permission
+        // RBAC: resolve all linked workspaces for this domain, then check domain:verify permission.
+        // Denied → same 404 as nonexistent (see domVerInitMatch above): closes the
+        // authenticated cross-tenant existence oracle.
         const dvcAccess = await requireDomainRole(dvcUser, domainId, "domain:verify", env);
-        if (!dvcAccess) return json({ error: "Forbidden — admin role required to verify domain ownership" }, 403);
+        if (!dvcAccess) return json({ error: "Domain not found" }, 404);
 
         if (domRow.verification_status === "verified") {
           return json({
