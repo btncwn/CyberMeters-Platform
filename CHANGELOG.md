@@ -5,6 +5,24 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.10 (v2026.07.10-3 — router split, low-risk batch)
+
+### Changed
+- **Router split PRs #1–#6** (behaviour-preserving; PRs #21/#22/#23 via Codex +
+  3 solo): route groups extracted from the monolithic `fetch()` router into
+  `src/routes/` modules dispatched through a per-request `routeCtx` —
+  workspace-analytics (scorecard/CE/BRS), workspace-intel (identity/vendor-rel/
+  supply-chain), brand (intelligence v1 + monitoring), workspace-reports
+  (reports + scheduled-reports), workspace-activity (audit events +
+  notifications); plus the 31-function plan-usage/report-lifecycle engine
+  (`engines/plan-usage.js`: plan limits, usage metering, retention, quota
+  checkers, report cadence, generateWorkspaceExecutiveReport). index.js
+  15,637 → 12,558 lines. Every move byte-equality-verified against main with a
+  full bare-identifier leak scan; all 4 harnesses green per PR.
+- Post-deploy smoke: `GET /health` → 200,
+  `deployment_id 42e170a8-21e7-4b8c-a9fc-b4f7373fb7ae`.
+  Rollback: previous version `4003937f-100f-41e3-ab2d-b838a14fbe39`.
+
 ## 2026.07.10 (v2026.07.10-2 — asset alert trust fixes)
 
 ### Fixed
