@@ -5,6 +5,27 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.10 (v2026.07.10-8 — RUA external report authorization auto-provisioning)
+
+### Added
+- **RFC 7489 §7.1 authorization auto-provisioning** (`24ff2a7`): configuring a
+  DMARC ingest endpoint's Cloudflare route now also upserts the
+  `<domain>._report._dmarc.<rua-domain>` TXT (`v=DMARC1;`) on our zone, so
+  cross-org receivers (Google, Microsoft) actually send aggregate reports for
+  external customer domains — previously a manual, silently-gating step (the
+  first pilot's stall). Same-org domains (apex + sibling subdomains of the
+  inbound domain's org) exempt per the RFC; idempotent (adopts existing
+  records); a failure never blocks route setup and self-heals on the next
+  configure pass. Unit-tested against a mocked CF API (6/6); 5/5 harnesses.
+- Post-deploy smoke: `GET /health` → 200,
+  `deployment_id fd583e3d-525b-4a35-8561-80ab91deda3f`; plans 200, anon
+  auth/me 401. Rollback: previous version
+  `f0528ca1-cefa-4123-9b96-4d33e4432730`.
+- Same day: **first real external DMARC aggregate ingested** — google.com →
+  blackbullbarbers.co.uk (3 records: SPF aligned pass ×3, DKIM aligned fail ×3
+  from Microsoft 365 IPs — confirming the known M365-DKIM-disabled gap),
+  stored in the correct workspace end-to-end.
+
 ## 2026.07.10 (v2026.07.10-7 — router split COMPLETE, PRs #14–#20)
 
 ### Changed
