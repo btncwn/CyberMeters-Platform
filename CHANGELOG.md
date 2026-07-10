@@ -5,6 +5,36 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.10 (v2026.07.10-9 — pre-beta security hardening)
+
+### Fixed (independent Codex audit at 0bf010e, all verified against HEAD)
+- **Cross-tenant domain existence oracle** (`4783ef6`): the domain verification
+  init + check routes returned 403 for a domain owned by another tenant but 404
+  for a nonexistent id — an authenticated user could distinguish foreign-existing
+  from nonexistent domain ids. Both now return an identical 404 (ids are opaque
+  UUIDs so enumeration was already impractical; the response oracle is closed).
+- **Invitation-send rate limiting now fail-closed** (`4af86f7`): invite_send
+  hourly/daily limits fell open on a rate_limit table outage; each invite sends
+  an email from our domain, so an outage was an open spam/reputation window. Now
+  fail-closed (503) — a brief inability to invite beats unbounded outbound mail.
+- **Fail-closed throttles on MFA proof endpoints** (`27d597f`): verify-setup /
+  disable (per user, 10/15min) and login challenge (per IP, 20/15min) had no
+  endpoint-specific limit — the TOTP/password proofs relied only on the fail-open
+  global guard. Defense-in-depth atop the existing per-challenge single-use guard.
+
+### CI
+- **Worker bundle dry-run added to CI** (`a762bec`): CI ran all 5 harnesses +
+  frontend build but not the Cloudflare bundling step — the exact class that
+  produced the v-3 PLAN_LIMITS runtime break would now be caught pre-merge.
+
+### Deploy note
+- Live version **7c7c7a05-449e-42cd-9d28-6dbcc362365c** (100% traffic, confirmed
+  via `wrangler deployments list` + `/health`). The `wrangler deploy` client
+  reported "fetch failed" on its final confirmation fetch due to flaky local
+  network, but the Cloudflare-side activation succeeded — verified independently.
+  Post-deploy smoke: `/health` 200, `/api/billing/plans` 200, anon `/api/auth/me`
+  401. Rollback: previous version `fd583e3d-525b-4a35-8561-80ab91deda3f`.
+
 ## 2026.07.10 (v2026.07.10-8 — RUA external report authorization auto-provisioning)
 
 ### Added
