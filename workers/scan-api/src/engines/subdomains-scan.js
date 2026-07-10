@@ -289,7 +289,7 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP) {
 // Results are merged into modules.subdomains.items so takeover + exposure
 // detection automatically benefit from the expanded list.
 
-const BRUTEFORCE_MAX_NAMES  = 15;
+export const BRUTEFORCE_MAX_NAMES  = 15;
 const BRUTEFORCE_TIMEOUT_MS = 6_000;
 
 // High-value names only — exactly BRUTEFORCE_MAX_NAMES entries.
