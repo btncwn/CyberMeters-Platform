@@ -17,6 +17,21 @@ export async function sendAssetChangeAlert(domainId, domain, scanId, env) {
     const workspaceIds = (wsResult.results || []).map((r) => r.workspace_id);
     if (workspaceIds.length === 0) return;
 
+    // Alert emails are scoped to the workspace the scan belongs to. Inventory
+    // events are still written for every linked workspace (visible in-app),
+    // but emailing each of them re-announces one scan several times to the
+    // same owner and puts one workspace's scan id inside another workspace's
+    // alert. Scans without a workspace (legacy rows) keep the old fan-out.
+    const scanRow = await env.cybermeters_db
+      .prepare(`SELECT workspace_id FROM scans WHERE id = ?`)
+      .bind(scanId)
+      .first()
+      .catch(() => null);
+    const scanWorkspaceId = scanRow?.workspace_id ?? null;
+    const alertTargets = scanWorkspaceId && workspaceIds.includes(scanWorkspaceId)
+      ? [scanWorkspaceId]
+      : workspaceIds;
+
     // Fetch all asset events for this scan (across all workspaces in one query)
     const eventsResult = await env.cybermeters_db
       .prepare(
@@ -35,7 +50,7 @@ export async function sendAssetChangeAlert(domainId, domain, scanId, env) {
       byWorkspace.get(ev.workspace_id).push(ev);
     }
 
-    for (const workspace_id of workspaceIds) {
+    for (const workspace_id of alertTargets) {
       try {
         const events = byWorkspace.get(workspace_id) || [];
         if (events.length === 0) continue;
