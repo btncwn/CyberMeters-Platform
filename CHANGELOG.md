@@ -5,6 +5,24 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.10 (v2026.07.10-5 — router split PRs #7–#10)
+
+### Changed
+- **Router split PRs #7–#10** (behaviour-preserving, solo): workspace-members
+  (invitations + members, routeCtx gains consumeApiRateLimit + ROLE_RANK),
+  executive-dashboard (KPI + activity feed), **email-protection** (the whole
+  email-wedge route band — DMARC report import/list/summary, sender inventory,
+  BEC exposure, hosted DMARC/DNS management, RUA routing, alert channels;
+  1,040 lines, 54 symbols from 9 modules), and domains (import + verification
+  lifecycle; /domains/import precedence over :domainId preserved; routeCtx
+  gains requireDomainRole). index.js 11,928 → 10,037 lines. Every PR:
+  byte-equality vs main, index-def leak scan + cross-module missing-import
+  scan, all 5 harnesses (incl. validate-pipeline — mandatory since the v-4
+  incident), CI green.
+- Post-deploy smoke: `GET /health` → 200,
+  `deployment_id e95c982d-fd2f-4f6a-8f95-11f6394bb01c`; `/api/billing/plans`
+  → 200. Rollback: previous version `414ec706-13f6-4682-8f46-6d322737a1cd`.
+
 ## 2026.07.10 (v2026.07.10-4 — hotfix: PLAN_LIMITS import)
 
 ### Fixed
