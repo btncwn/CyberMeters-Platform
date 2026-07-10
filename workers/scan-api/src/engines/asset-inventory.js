@@ -193,13 +193,21 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
       //   • asset_no_longer_seen is only emitted if last_seen was > 2 h ago
       //     AND no asset_no_longer_seen already fired for this hostname today.
       //   • asset_reappeared is only emitted if it hasn't fired today.
+      // Existing assets are matched by hostname (root or *.root), not by
+      // domain_id lineage: deleting and re-adding a domain issues a NEW
+      // domain_id, and rows written under the old id would otherwise be
+      // invisible to this diff — re-announced as "new" while the
+      // UNIQUE(workspace_id, hostname) constraint silently blocks their
+      // re-insert, freezing last_seen forever. domain_id is still included
+      // so pre-normalisation rows with hostname variants keep matching.
+      const rootHost = _rootHost ?? domain;
       const [existingResult, recentEvtResult] = await env.cybermeters_db.batch([
         env.cybermeters_db
           .prepare(
             `SELECT id, hostname, status, last_seen FROM workspace_assets
-             WHERE workspace_id = ? AND domain_id = ?`
+             WHERE workspace_id = ? AND (domain_id = ? OR hostname = ? OR hostname LIKE ?)`
           )
-          .bind(workspace_id, domainId),
+          .bind(workspace_id, domainId, rootHost, `%.${rootHost}`),
         env.cybermeters_db
           .prepare(
             `SELECT event_type, hostname FROM asset_events
@@ -270,12 +278,14 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
               )
           );
         } else {
-          // Existing asset — update last_seen + status
+          // Existing asset — update last_seen + status. domain_id is re-linked
+          // to the current domain row so rows orphaned by a domain
+          // delete/re-add are adopted instead of drifting further.
           stmts.push(
             env.cybermeters_db
               .prepare(
                 `UPDATE workspace_assets
-                 SET last_seen = ?, status = 'active',
+                 SET last_seen = ?, status = 'active', domain_id = ?,
                      risk_level = COALESCE(?, risk_level),
                      cloud_provider = COALESCE(?, cloud_provider),
                      redirect_to = COALESCE(?, redirect_to),
@@ -284,7 +294,7 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
                  WHERE workspace_id = ? AND hostname = ?`
               )
               .bind(
-                now,
+                now, domainId,
                 asset.risk_level ?? null,
                 asset.cloud ?? null,
                 asset.redirect_to ?? null,
@@ -334,10 +344,10 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
             env.cybermeters_db
               .prepare(
                 `UPDATE workspace_assets
-                 SET status = 'inactive', updated_at = ?
+                 SET status = 'inactive', domain_id = ?, updated_at = ?
                  WHERE workspace_id = ? AND hostname = ?`
               )
-              .bind(now, workspace_id, hostname)
+              .bind(domainId, now, workspace_id, hostname)
           );
 
           if (!recentEvtSet.has(`asset_no_longer_seen:${hostname}`)) {
