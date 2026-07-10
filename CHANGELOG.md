@@ -5,6 +5,30 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.10 (v2026.07.10-1 — monolith decomposition Phase 1)
+
+### Changed
+- **Worker modularisation** (worker `780d3120`, decomposition commits `61b63a3`…`d95f242`):
+  the 36,321-line `workers/scan-api/src/index.js` monolith was split into **66 focused
+  modules** (53 `src/engines/` + 13 `src/lib/`); index.js is now ~15,637 lines. Every
+  extraction is a **verbatim, behaviour-preserving move** — no logic, scoring, copy,
+  pricing, schema, or API change. Extracted: all scan/discovery modules, the scoring
+  engine (`computeScore`), the email wedge (analysis/scan/intel/BEC), brand protection,
+  the DMARC/hosted/RUA subsystem (incl. the hosted DMARC records engine), PDF generation,
+  billing (entitlements + Stripe), alerts, risk-scoring (BRS/vendor/supply-chain/portfolio/
+  CE), and the scan pipeline orchestrator (`runScanEngine` → `engines/scan-engine.js`,
+  which now composes 56 symbols from 37 modules). Remaining index.js = worker entry/auth
+  glue + operational plumbing + the HTTP router.
+- **Latent bug fixed in passing:** the dangling-reference audit caught `computeScanBudget`'s
+  fallback referencing `BRUTEFORCE_MAX_NAMES` (a `subdomains-scan` module-internal) — a
+  `ReferenceError` on the non-numeric branch that the test suites never exercised. Now
+  exported + imported. This branch existed pre-decomposition too; the refactor surfaced it.
+- Verified at every step and at release: all 5 regression suites green (accuracy 227/227,
+  pipeline real-fetch, security-contracts, integration authz, email-worker golden
+  equivalence 9/9), `wrangler deploy --dry-run` clean (bundle 1399 KiB, identical to the
+  deployed bundle), `git diff --check` clean. Post-deploy smoke: `GET /health` → 200 with
+  `deployment_id 780d3120`. Structural refactor done pre-revenue at zero customer stakes.
+
 ## 2026.07.09 (v2026.07.09-3 — Cyber MOT welcome-email copy)
 
 ### Changed
