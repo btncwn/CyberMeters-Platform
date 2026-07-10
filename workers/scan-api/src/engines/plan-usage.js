@@ -6,7 +6,7 @@
 import { buildExecutivePdf, collectPdfData } from "./pdf.js";
 import { createAuditEvent, createNotificationEvent } from "../lib/events.js";
 import { createId } from "../lib/util.js";
-import { getEffectivePlan, normalizePlan } from "./entitlements.js";
+import { getEffectivePlan, normalizePlan, PLAN_LIMITS } from "./entitlements.js";
 
 /**
  * Compute next_run_at for a scheduled_reports row.
