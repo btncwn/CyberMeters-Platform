@@ -50,7 +50,7 @@ describe('WorkspaceNav (four-service sidebar)', () => {
 
   it('sub-items inherit their parent service colour', () => {
     renderNav('/ws/email-protection')
-    // THEME.email.text — the glacial-blue identity of Email Protection.
-    expect(screen.getByText('DMARC Setup')).toHaveStyle({ color: '#124F94' })
+    // THEME.email.text — the glacier-blue identity of Email Protection.
+    expect(screen.getByText('DMARC Setup')).toHaveStyle({ color: '#1A4FB8' })
   })
 })
