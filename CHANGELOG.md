@@ -5,6 +5,21 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.10 (v2026.07.10-4 — hotfix: PLAN_LIMITS import)
+
+### Fixed
+- **`/api/billing/plans` 500 introduced by v2026.07.10-3**: PR #4 moved
+  `getPlanLimits` into `engines/plan-usage.js` without carrying the
+  `PLAN_LIMITS` import (bracket access evaded the call-based dependency scan;
+  the symbol was satisfied by index.js's own import — for the old scope).
+  Caught by CI `validate-pipeline` (local runs had skipped that harness — all
+  5 are now mandatory for every change, no exceptions). A cross-module
+  missing-import scan (refs to another module's exports without importing
+  them) now runs over every extracted module: all 7 clean. Post-deploy:
+  endpoint 200, `deployment_id 414ec706-13f6-4682-8f46-6d322737a1cd`.
+  Broken window: ~70 min on a public no-auth metadata endpoint; quota checks
+  were unaffected (fail-open by design).
+
 ## 2026.07.10 (v2026.07.10-3 — router split, low-risk batch)
 
 ### Changed
