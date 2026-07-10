@@ -82,6 +82,27 @@
   .accent-warning { @apply border-l-2 border-amber-400; }
   .accent-info    { @apply border-l-2 border-blue-400; }
 
+  /* Premium glacier-light atmosphere — a soft, full-viewport field that gives
+     auth screens and the app shell the same calm depth as the landing hero.
+     Content sits above it via the z-indexed child rule. */
+  .auth-bg { background-color: #F6F8F7; position: relative; }
+  .auth-bg::before {
+    content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background:
+      radial-gradient(900px 520px at 82% -10%, #D6EAE2 0%, transparent 60%),
+      radial-gradient(760px 480px at 8% 108%, #E7F2EE 0%, transparent 58%),
+      linear-gradient(180deg, #EDF2F0 0%, #F6F8F7 55%);
+  }
+  .auth-bg > * { position: relative; z-index: 1; }
+
+  /* Reusable status-pill eyebrow (landing signature, also used on auth + app). */
+  .pill-eyebrow {
+    @apply inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-brand-100
+           text-[11px] font-semibold uppercase tracking-[0.13em] text-brand-800;
+    background: rgba(231,242,238,0.7); font-family: 'JetBrains Mono', monospace;
+  }
+  .pill-eyebrow .pill-dot { @apply w-[7px] h-[7px] rounded-full bg-brand-600; }
+
   /* Buttons */
   .btn-primary {
     @apply inline-flex items-center justify-center gap-2 px-5 py-2.5

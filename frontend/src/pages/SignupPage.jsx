@@ -78,7 +78,7 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4">
+    <div className="min-h-screen auth-bg flex flex-col items-center justify-center px-4">
 
       {/* Brand */}
       <CyberMetersLogo size={48} showWordmark animated className="mb-8" />
@@ -110,7 +110,7 @@ export default function SignupPage() {
       ) : (
 
       /* ── Signup form ── */
-      <div className="card w-full max-w-sm p-8">
+      <div className="card w-full max-w-sm p-8 shadow-card-lg !rounded-[20px]">
         <h1 className="text-xl font-bold text-gray-900 mb-1">Create account</h1>
         <p className="text-sm text-gray-400 mb-6">See your business's external security risks in minutes.</p>
 

@@ -427,15 +427,26 @@ function SelectWorkspaceState() {
 
 /* ─── Service KPI card (four-service product model) ────────────────────── */
 
+// Glacier identity colours — kept in sync with the public landing so the four
+// services read as the same four surfaces across the marketing site and the app.
+const SERVICE_THEME = {
+  email:   { chip: '#DCE8FC', icon: '#1E5FDB' }, // glacier blue
+  brand:   { chip: '#D5F1F8', icon: '#0797BC' }, // turquoise
+  surface: { chip: '#D6F0EC', icon: '#12938C' }, // glacier teal
+  certs:   { chip: '#DBEDFB', icon: '#1685C9' }, // azure
+}
+
 const titleCase = (s) => (s ? String(s).replace(/[_-]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '—')
 
-function ServiceKpiCard({ icon: Icon, title, to, cta, accentTone, kpis, fallback, status }) {
+function ServiceKpiCard({ icon: Icon, title, to, cta, accentTone, kpis, fallback, status, theme }) {
   const accent = accentTone === 'bad' ? 'accent-danger' : accentTone === 'warn' ? 'accent-warning' : ''
   return (
-    <div className={`card p-5 flex flex-col ${accent}`}>
+    <div className={`card p-5 flex flex-col relative overflow-hidden ${accent}`}>
+      {theme && <span className="absolute top-0 left-0 right-0 h-[3px]" style={{ background: theme.icon, opacity: 0.85 }} />}
       <div className="flex items-center gap-2 mb-3">
-        <div className="w-9 h-9 rounded-lg bg-brand-50 flex items-center justify-center flex-shrink-0">
-          <Icon className="w-4 h-4 text-brand-600" />
+        <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
+          style={theme ? { background: theme.chip } : undefined}>
+          <Icon className={`w-4 h-4 ${theme ? '' : 'text-brand-600'}`} style={theme ? { color: theme.icon } : undefined} />
         </div>
         <h3 className="text-sm font-bold text-gray-900">{title}</h3>
       </div>
@@ -693,16 +704,16 @@ export default function Dashboard() {
               <h2 className="section-title mb-3">Your services</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
                 <ServiceKpiCard icon={Mail} title="Email Protection" to="/ws/email-protection" cta="Open Email Protection"
-                  status="Not measured"
+                  theme={SERVICE_THEME.email} status="Not measured"
                   fallback="Connect DMARC reporting to measure impersonation exposure." />
                 <ServiceKpiCard icon={Tag} title="Brand Protection" to="/ws/brand-monitoring" cta="Review Brand Protection"
-                  kpis={brandKpis} accentTone={brand && (brand.high ?? 0) > 0 ? 'bad' : ''}
+                  theme={SERVICE_THEME.brand} kpis={brandKpis} accentTone={brand && (brand.high ?? 0) > 0 ? 'bad' : ''}
                   fallback="Add a protected brand profile to monitor lookalike domains." />
                 <ServiceKpiCard icon={Globe} title="Attack Surface" to="/assets" cta="Review Attack Surface"
-                  kpis={surfaceKpis} accentTone={critical > 0 ? 'bad' : high > 0 ? 'warn' : ''}
+                  theme={SERVICE_THEME.surface} kpis={surfaceKpis} accentTone={critical > 0 ? 'bad' : high > 0 ? 'warn' : ''}
                   fallback="Run your first external scan to discover exposed assets." />
                 <ServiceKpiCard icon={Lock} title="Certificates & Trust" to="/ws/certificates" cta="Review Certificates"
-                  kpis={certKpis} accentTone={cr && ['high', 'critical'].includes(cr) ? 'bad' : cr === 'medium' ? 'warn' : ''}
+                  theme={SERVICE_THEME.certs} kpis={certKpis} accentTone={cr && ['high', 'critical'].includes(cr) ? 'bad' : cr === 'medium' ? 'warn' : ''}
                   fallback="Review certificate expiry and HTTPS trust posture." />
               </div>
             </div>
