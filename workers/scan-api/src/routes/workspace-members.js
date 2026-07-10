@@ -51,10 +51,12 @@ export async function workspaceMembersRoutes(rctx) {
       if (!access) return json({ error: "Forbidden — admin role required to invite members" }, 403);
 
       // ── Task 1: Rate limiting — 10/hour, 25/day per workspace ────────────
-      // Uses the shared D1-backed consumeApiRateLimit helper. Fails open if the
-      // rate_limit table is unavailable so a transient DB hiccup never blocks invites.
+      // Uses the shared D1-backed consumeApiRateLimit helper. Fail-CLOSED: each
+      // invite sends an email from our domain, so a rate_limit outage must not
+      // become an open spam/reputation window. A brief inability to invite is
+      // the safer failure mode than unbounded outbound mail.
       const inviteScopes = [{ scope: "workspace", scope_id: workspaceId }];
-      const rlHourly = await consumeApiRateLimit(env, inviteScopes, "invite_send", 10, 3600);
+      const rlHourly = await consumeApiRateLimit(env, inviteScopes, "invite_send", 10, 3600, { failClosed: true });
       if (rlHourly) {
         await createAuditEvent(env, {
           workspace_id: workspaceId,
@@ -67,7 +69,7 @@ export async function workspaceMembersRoutes(rctx) {
         });
         return json({ error: "Too many invitations sent. Please try again later.", code: "rate_limit_exceeded" }, 429);
       }
-      const rlDaily = await consumeApiRateLimit(env, inviteScopes, "invite_send_daily", 25, 86400);
+      const rlDaily = await consumeApiRateLimit(env, inviteScopes, "invite_send_daily", 25, 86400, { failClosed: true });
       if (rlDaily) {
         await createAuditEvent(env, {
           workspace_id: workspaceId,
