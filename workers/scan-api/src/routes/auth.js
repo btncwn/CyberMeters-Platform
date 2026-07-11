@@ -52,12 +52,42 @@ export async function authRoutes(rctx) {
       }
 
       try {
-        // Check for duplicate email
+        // Check for duplicate email. Anti-enumeration: an existing account must
+        // NOT be revealed via a distinct 409 — that lets an attacker probe which
+        // emails are registered. Instead respond exactly as a fresh signup would
+        // (same generic 201 below), create nothing, and send a security notice to
+        // the genuine owner so a real person still learns of the attempt.
         const existing = await env.cybermeters_db
           .prepare("SELECT id FROM users WHERE email = ? LIMIT 1")
           .bind(email)
           .first();
-        if (existing) return json({ error: "An account with this email already exists" }, 409);
+        if (existing) {
+          await createAuditEvent(env, {
+            user_id:     existing.id,
+            event_type:  "USER_SIGNUP_EXISTING_EMAIL",
+            entity_type: "user",
+            entity_id:   existing.id,
+            description: "Signup attempted for an email that already has an account",
+            metadata:    { email },
+          }).catch(() => {});
+          const notifyBase = env.FRONTEND_URL || "https://app.cybermeters.com";
+          await sendCustomerEmail(
+            "A sign-up attempt used your CyberMeters email",
+            `Hi,\n\nSomeone just tried to create a CyberMeters account with your email address, but you already have an account — so nothing was created or changed.\n\nIf this was you, simply sign in:\n${notifyBase}/login\n\nForgotten your password?\n${notifyBase}/forgot-password\n\nIf this wasn't you, no action is needed.\n\nThe CyberMeters Team`,
+            `<!DOCTYPE html><html><body style="font-family:sans-serif;color:#1f2937;max-width:560px;margin:40px auto;padding:0 20px">
+              <h2 style="color:#00876A">A sign-up attempt used your email</h2>
+              <p>Someone just tried to create a CyberMeters account with your email address, but you already have an account — so nothing was created or changed.</p>
+              <p style="margin:28px 0">
+                <a href="${notifyBase}/login" style="background:#00876A;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Sign in</a>
+              </p>
+              <p style="color:#6b7280;font-size:14px">Forgotten your password? <a href="${notifyBase}/forgot-password" style="color:#00876A">Reset it here</a>. If this wasn't you, no action is needed.</p>
+            </body></html>`,
+            env,
+            "HELLO_EMAIL_FROM",
+            [email]
+          ).catch(() => {});
+          return json({ success: true, verification_required: true, email }, 201);
+        }
 
         const userId      = createId("usr");
         const passwordHash = await hashPassword(password);
