@@ -1,5 +1,6 @@
 // @ts-check
 import { TOKEN_KEY, USER_KEY } from './context/authKeys'
+import { friendlyHttpError } from './lib/httpErrors'
 
 /**
  * Shared API contract types — see src/types/api.d.ts (kept in lockstep with
@@ -132,42 +133,6 @@ async function safeFetch(url, init) {
 }
 
 /**
- * Build a friendly Error from a non-OK response, hiding technical detail.
- * Prefers a human-readable message from the server; otherwise maps the status
- * class to a calm, actionable message (never a bare "HTTP 500").
- * @param {Response} res
- * @param {any} err  Parsed error body (may be a fallback object).
- * @returns {ApiError}
- */
-function friendlyHttpError(res, err) {
-  // Preserve any server-provided error string verbatim. Some are human-readable
-  // ("Invalid email or password"); others are machine codes the UI switches on
-  // ("email_verification_required", "plan_feature_required"). Rewriting either
-  // would break existing flows, so we only synthesise a message when the body is
-  // empty — which is exactly the case that used to surface a bare "HTTP 500".
-  const raw = err && typeof err.error === 'string' ? err.error.trim() : ''
-  const detail = err && typeof err.message === 'string' ? err.message.trim() : ''
-  // Attach the HTTP status so callers can branch (e.g. 403 permission handling)
-  // without parsing message strings. Additive — messages are unchanged.
-  /** @param {ApiError} e */
-  const withStatus = (e) => { e.status = res.status; return e }
-  // A bare HTTP status word ("Forbidden", "Unauthorized", …) is a machine token,
-  // not a customer message — it leaks raw protocol detail and reads as a bug.
-  // When that's all the server gave us, prefer any human-readable `message`, then
-  // fall through to the friendly status-based text below. Genuinely descriptive
-  // server strings (e.g. "Forbidden — admin role required") still pass through.
-  const BARE_HTTP_WORD = /^(forbidden|unauthorized|not found|bad request|internal server error|conflict|too many requests|service unavailable|gateway timeout|method not allowed)$/i
-  const isBareWord = BARE_HTTP_WORD.test(raw)
-  if (raw && !isBareWord) return withStatus(new Error(raw))
-  if (isBareWord && detail) return withStatus(new Error(detail))
-  if (res.status >= 500) return withStatus(new Error('Something went wrong on our end. Please try again in a moment.'))
-  if (res.status === 404) return withStatus(new Error('We couldn’t find what you were looking for.'))
-  if (res.status === 403) return withStatus(new Error('You don’t have access to this. Try switching workspace or contact your admin.'))
-  if (res.status === 429) return withStatus(new Error('Too many requests right now. Please wait a moment and try again.'))
-  return withStatus(new Error('Something went wrong. Please try again.'))
-}
-
-/**
  * Authenticated JSON request. Throws an {@link ApiError} on any failure —
  * decorated with status/code/plan-gate context so callers branch on fields,
  * never on message strings.
@@ -202,6 +167,18 @@ async function request(path, options = {}) {
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }))
+    // Planned maintenance — the whole API is intentionally down. Announce it so a
+    // global overlay can take over, and surface the server's friendly message
+    // instead of the bare "maintenance" code.
+    if (res.status === 503 && err.code === 'maintenance') {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('cybermeters:maintenance'))
+      }
+      const maintErr = /** @type {ApiError} */ (new Error(err.message || 'CyberMeters is undergoing scheduled maintenance and will be back shortly.'))
+      maintErr.code = 'maintenance'
+      maintErr.status = 503
+      throw maintErr
+    }
     if (err.error === 'plan_limit_exceeded') {
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('cybermeters:plan-limit', { detail: err }))
@@ -270,6 +247,18 @@ async function requestBlob(path, options = {}) {
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }))
+    // Planned maintenance — the whole API is intentionally down. Announce it so a
+    // global overlay can take over, and surface the server's friendly message
+    // instead of the bare "maintenance" code.
+    if (res.status === 503 && err.code === 'maintenance') {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('cybermeters:maintenance'))
+      }
+      const maintErr = /** @type {ApiError} */ (new Error(err.message || 'CyberMeters is undergoing scheduled maintenance and will be back shortly.'))
+      maintErr.code = 'maintenance'
+      maintErr.status = 503
+      throw maintErr
+    }
     if (err.error === 'plan_limit_exceeded') {
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('cybermeters:plan-limit', { detail: err }))

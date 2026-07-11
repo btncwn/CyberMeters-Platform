@@ -4,6 +4,7 @@ node_modules/
 # Build artifacts
 dist/
 frontend/dist/
+frontend/coverage/
 frontend/playwright-report/
 frontend/test-results/
 

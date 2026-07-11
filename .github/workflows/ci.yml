@@ -92,9 +92,9 @@ jobs:
         working-directory: frontend
         run: npm run typecheck
 
-      - name: Frontend component tests (Vitest)
+      - name: Frontend component tests with coverage (Vitest)
         working-directory: frontend
-        run: npm test
+        run: npm run test:coverage
 
       - name: Build frontend
         working-directory: frontend
