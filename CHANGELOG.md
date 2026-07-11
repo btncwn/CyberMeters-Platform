@@ -5,6 +5,24 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.12 (v2026.07.12-1 — planned maintenance mode) — deployed 2026-07-12
+
+### Operations
+- **Planned maintenance mode** (`17dc938`): `MAINTENANCE_MODE` var (off by
+  default, fail-safe). When on, every API route returns the uniform
+  `503 { code: "maintenance", message }` + `Retry-After: 300` — placed right
+  after `/health` and `/ready` so monitoring stays reachable; `/health` reports a
+  `maintenance` flag. `MAINTENANCE_BYPASS_TOKEN` + `X-Maintenance-Bypass` header
+  lets the founder smoke-test a deploy mid-window. Frontend detects the contract
+  and shows a full-screen "back shortly" overlay (covers login too) that polls
+  `/health` and auto-reloads when the window lifts. Guarded by
+  `validate-maintenance-mode.js` (29 assertions, CI-blocking); enable/verify/lift
+  runbook in `docs/07-RELEASE-CHECKLIST.md`. Capability shipped with the flag OFF
+  (behaviourally inert until toggled).
+- Live version **4d9898d4-d0e2-45c0-b77f-59842dff7a29**; `/health` 200
+  (version 2026.07.12, maintenance:false). Rollback: previous stable
+  **60d557a2-9467-4e3f-b28a-11b18d4637a8**.
+
 ## 2026.07.11 (v2026.07.11-3 — daily ops-health heartbeat) — deployed 2026-07-11
 
 ### Operations
