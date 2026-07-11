@@ -11,10 +11,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '24'
 
@@ -94,6 +94,24 @@ jobs:
         working-directory: frontend
         run: npm run build
 
+      # ── SBOM (CycloneDX) — supply-chain inventory for both workspaces ──────
+      # node_modules for both are installed above, so the trees are accurate.
+      # Uploaded as a build artifact per commit; committed snapshots in sbom/
+      # are the point-in-time reference for the Trust Center.
+      - name: Generate SBOMs (CycloneDX)
+        run: |
+          mkdir -p sbom
+          ( cd workers/scan-api && npx --yes @cyclonedx/cyclonedx-npm@6.0.0 --ignore-npm-errors --output-format JSON --output-file ../../sbom/scan-api.cdx.json )
+          ( cd frontend && npx --yes @cyclonedx/cyclonedx-npm@6.0.0 --ignore-npm-errors --output-format JSON --output-file ../sbom/frontend.cdx.json )
+          node -e "for(const f of ['sbom/scan-api.cdx.json','sbom/frontend.cdx.json']){const d=require('./'+f);const n=(d.components||[]).length;console.log(f,n,'components, spec',d.specVersion);if(n===0)throw new Error('empty SBOM: '+f)}"
+
+      - name: Upload SBOM artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sbom-cyclonedx
+          path: sbom/*.cdx.json
+          if-no-files-found: error
+
   # Static application security testing — runs independently of the main suite so
   # a security rule change surfaces on its own. Blocks the merge on any finding
   # (false positives are suppressed inline with a documented `nosemgrep`).
@@ -101,10 +119,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: '3.12'
 

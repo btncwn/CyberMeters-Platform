@@ -1,0 +1,2267 @@
+{
+  "$schema": "http://cyclonedx.org/schema/bom-1.6.schema.json",
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "version": 1,
+  "serialNumber": "urn:uuid:d2f22aeb-23ef-4a0d-9740-a93d00f4e6e4",
+  "metadata": {
+    "timestamp": "2026-07-11T18:53:57.556Z",
+    "tools": {
+      "components": [
+        {
+          "type": "application",
+          "name": "npm",
+          "version": "11.16.0"
+        },
+        {
+          "type": "application",
+          "name": "cyclonedx-npm",
+          "group": "@cyclonedx",
+          "version": "6.0.0",
+          "author": "Jan Kowalleck",
+          "description": "Create CycloneDX Software Bill of Materials (SBOM) from NPM projects.",
+          "licenses": [
+            {
+              "license": {
+                "id": "Apache-2.0"
+              }
+            }
+          ],
+          "externalReferences": [
+            {
+              "url": "git+https://github.com/CycloneDX/cyclonedx-node-npm.git",
+              "type": "vcs",
+              "comment": "as detected from PackageJson property \"repository.url\""
+            },
+            {
+              "url": "https://github.com/CycloneDX/cyclonedx-node-npm#readme",
+              "type": "website",
+              "comment": "as detected from PackageJson property \"homepage\""
+            },
+            {
+              "url": "https://github.com/CycloneDX/cyclonedx-node-npm/issues",
+              "type": "issue-tracker",
+              "comment": "as detected from PackageJson property \"bugs.url\""
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "name": "cyclonedx-library",
+          "group": "@cyclonedx",
+          "version": "10.1.0",
+          "author": "Jan Kowalleck",
+          "description": "Core functionality of CycloneDX for JavaScript (Node.js or WebBrowser).",
+          "licenses": [
+            {
+              "license": {
+                "id": "Apache-2.0"
+              }
+            }
+          ],
+          "externalReferences": [
+            {
+              "url": "git+https://github.com/CycloneDX/cyclonedx-javascript-library.git",
+              "type": "vcs",
+              "comment": "as detected from PackageJson property \"repository.url\""
+            },
+            {
+              "url": "https://github.com/CycloneDX/cyclonedx-javascript-library#readme",
+              "type": "website",
+              "comment": "as detected from PackageJson property \"homepage\""
+            },
+            {
+              "url": "https://github.com/CycloneDX/cyclonedx-javascript-library/issues",
+              "type": "issue-tracker",
+              "comment": "as detected from PackageJson property \"bugs.url\""
+            }
+          ]
+        }
+      ]
+    },
+    "component": {
+      "type": "application",
+      "name": "cybermeters-scan-api",
+      "version": "0.1.0",
+      "bom-ref": "cybermeters-scan-api@0.1.0",
+      "purl": "pkg:npm/cybermeters-scan-api@0.1.0",
+      "properties": [
+        {
+          "name": "cdx:npm:package:private",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": ""
+        }
+      ]
+    }
+  },
+  "components": [
+    {
+      "type": "library",
+      "name": "wrangler",
+      "version": "4.110.0",
+      "bom-ref": "cybermeters-scan-api@0.1.0|wrangler@4.110.0",
+      "author": "wrangler@cloudflare.com",
+      "description": "Command-line interface for all things Cloudflare Workers",
+      "licenses": [
+        {
+          "expression": "MIT OR Apache-2.0",
+          "acknowledgement": "declared"
+        }
+      ],
+      "purl": "pkg:npm/wrangler@4.110.0",
+      "externalReferences": [
+        {
+          "url": "git+https://github.com/cloudflare/workers-sdk.git#packages/wrangler",
+          "type": "vcs",
+          "comment": "as detected from PackageJson property \"repository.url\" and \"repository.directory\""
+        },
+        {
+          "url": "https://github.com/cloudflare/workers-sdk#readme",
+          "type": "website",
+          "comment": "as detected from PackageJson property \"homepage\""
+        },
+        {
+          "url": "https://github.com/cloudflare/workers-sdk/issues",
+          "type": "issue-tracker",
+          "comment": "as detected from PackageJson property \"bugs.url\""
+        },
+        {
+          "url": "https://registry.npmjs.org/wrangler/-/wrangler-4.110.0.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "c597972988bb8714111796a72febfbed192e7c936917d7f712a7b2aaad9006c113a4b6608740208f48c9e893ed91b827eae919761f0e2b97a0b063d621d8ad82"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/wrangler"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "kv-asset-handler",
+      "group": "@cloudflare",
+      "version": "0.5.0",
+      "bom-ref": "cybermeters-scan-api@0.1.0|@cloudflare/kv-asset-handler@0.5.0",
+      "author": "wrangler@cloudflare.com",
+      "description": "Routes requests to KV assets",
+      "licenses": [
+        {
+          "expression": "MIT OR Apache-2.0",
+          "acknowledgement": "declared"
+        }
+      ],
+      "purl": "pkg:npm/%40cloudflare/kv-asset-handler@0.5.0",
+      "externalReferences": [
+        {
+          "url": "git+https://github.com/cloudflare/workers-sdk.git#packages/kv-asset-handler",
+          "type": "vcs",
+          "comment": "as detected from PackageJson property \"repository.url\" and \"repository.directory\""
+        },
+        {
+          "url": "https://github.com/cloudflare/workers-sdk#readme",
+          "type": "website",
+          "comment": "as detected from PackageJson property \"homepage\""
+        },
+        {
+          "url": "https://github.com/cloudflare/workers-sdk/issues",
+          "type": "issue-tracker",
+          "comment": "as detected from PackageJson property \"bugs.url\""
+        },
+        {
+          "url": "https://registry.npmjs.org/@cloudflare/kv-asset-handler/-/kv-asset-handler-0.5.0.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "8f1418923f1d488cdcd1c0fa70c30d74e7355158ea4aabbc059768af9b3c7068d6d88f018ce0edfe458f55d63ebbdce3de6b3be50e6a699827c5469df37f9e02"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/@cloudflare/kv-asset-handler"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "unenv-preset",
+      "group": "@cloudflare",
+      "version": "2.16.1",
+      "bom-ref": "cybermeters-scan-api@0.1.0|@cloudflare/unenv-preset@2.16.1",
+      "description": "cloudflare preset for unenv",
+      "licenses": [
+        {
+          "expression": "MIT OR Apache-2.0",
+          "acknowledgement": "declared"
+        }
+      ],
+      "purl": "pkg:npm/%40cloudflare/unenv-preset@2.16.1",
+      "externalReferences": [
+        {
+          "url": "git+https://github.com/cloudflare/workers-sdk.git#packages/unenv-preset",
+          "type": "vcs",
+          "comment": "as detected from PackageJson property \"repository.url\" and \"repository.directory\""
+        },
+        {
+          "url": "https://github.com/cloudflare/workers-sdk#readme",
+          "type": "website",
+          "comment": "as detected from PackageJson property \"homepage\""
+        },
+        {
+          "url": "https://github.com/cloudflare/workers-sdk/issues",
+          "type": "issue-tracker",
+          "comment": "as detected from PackageJson property \"bugs.url\""
+        },
+        {
+          "url": "https://registry.npmjs.org/@cloudflare/unenv-preset/-/unenv-preset-2.16.1.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "102c4e6eb31fc939796e141ffe56425f0a391bac57f48014a3e9c330a2b8499f26e09befc69e76be2971cb24925a1d984d9cfcf87434eea187ff6ac4a26d6f0f"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/@cloudflare/unenv-preset"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "blake3-wasm",
+      "version": "2.1.5",
+      "bom-ref": "cybermeters-scan-api@0.1.0|blake3-wasm@2.1.5",
+      "author": "Connor Peet",
+      "description": "BLAKE3 hashing for JavaScript: native Node bindings (where available) and WebAssembly",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/blake3-wasm@2.1.5",
+      "externalReferences": [
+        {
+          "url": "git+https://github.com/connor4312/blake3.git",
+          "type": "vcs",
+          "comment": "as detected from PackageJson property \"repository.url\""
+        },
+        {
+          "url": "https://github.com/connor4312/blake3#readme",
+          "type": "website",
+          "comment": "as detected from PackageJson property \"homepage\""
+        },
+        {
+          "url": "https://github.com/connor4312/blake3/issues",
+          "type": "issue-tracker",
+          "comment": "as detected from PackageJson property \"bugs.url\""
+        },
+        {
+          "url": "https://registry.npmjs.org/blake3-wasm/-/blake3-wasm-2.1.5.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "175f8af046df399138f5db683ed9b1510ae95da048977202bdab0b87e9c9b5ad31933fbd905ffbb9eb7d7cb9f02aa843ae68fa83ee8add3c3dc903d483691ae6"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/blake3-wasm"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "esbuild",
+      "version": "0.28.1",
+      "bom-ref": "cybermeters-scan-api@0.1.0|esbuild@0.28.1",
+      "description": "An extremely fast JavaScript and CSS bundler and minifier.",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/esbuild@0.28.1",
+      "externalReferences": [
+        {
+          "url": "git+https://github.com/evanw/esbuild.git",
+          "type": "vcs",
+          "comment": "as detected from PackageJson property \"repository.url\""
+        },
+        {
+          "url": "https://github.com/evanw/esbuild#readme",
+          "type": "website",
+          "comment": "as detected from PackageJson property \"homepage\""
+        },
+        {
+          "url": "https://github.com/evanw/esbuild/issues",
+          "type": "issue-tracker",
+          "comment": "as detected from PackageJson property \"bugs.url\""
+        },
+        {
+          "url": "https://registry.npmjs.org/esbuild/-/esbuild-0.28.1.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "1eb26bbd9bf96b2c41ccf7f0a613a837393338822589fce4d0a26b18ad9cf11e3e2caa4cb6960b41e51d8e7c235affcb665907da569993ee30efca62f7d0f857"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/esbuild"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "fsevents",
+      "version": "2.3.3",
+      "bom-ref": "cybermeters-scan-api@0.1.0|fsevents@2.3.3",
+      "description": "Native Access to MacOS FSEvents",
+      "scope": "optional",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/fsevents@2.3.3",
+      "externalReferences": [
+        {
+          "url": "git+https://github.com/fsevents/fsevents.git",
+          "type": "vcs",
+          "comment": "as detected from PackageJson property \"repository.url\""
+        },
+        {
+          "url": "https://github.com/fsevents/fsevents",
+          "type": "website",
+          "comment": "as detected from PackageJson property \"homepage\""
+        },
+        {
+          "url": "https://github.com/fsevents/fsevents/issues",
+          "type": "issue-tracker",
+          "comment": "as detected from PackageJson property \"bugs.url\""
+        },
+        {
+          "url": "https://registry.npmjs.org/fsevents/-/fsevents-2.3.3.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "e71a037d7f9f2fb7da0139da82658fa5b16dc21fd1efb5a630caaa1c64bae42defbc1d181eb805f81d58999df8e35b4c8f99fade4d36d765cda09c339617df43"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/fsevents"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "miniflare",
+      "version": "4.20260708.1",
+      "bom-ref": "cybermeters-scan-api@0.1.0|miniflare@4.20260708.1",
+      "author": "MrBBot",
+      "description": "Fun, full-featured, fully-local simulator for Cloudflare Workers",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/miniflare@4.20260708.1",
+      "externalReferences": [
+        {
+          "url": "git+https://github.com/cloudflare/workers-sdk.git#packages/miniflare",
+          "type": "vcs",
+          "comment": "as detected from PackageJson property \"repository.url\" and \"repository.directory\""
+        },
+        {
+          "url": "https://github.com/cloudflare/workers-sdk/tree/main/packages/miniflare#readme",
+          "type": "website",
+          "comment": "as detected from PackageJson property \"homepage\""
+        },
+        {
+          "url": "https://github.com/cloudflare/workers-sdk/issues",
+          "type": "issue-tracker",
+          "comment": "as detected from PackageJson property \"bugs.url\""
+        },
+        {
+          "url": "https://registry.npmjs.org/miniflare/-/miniflare-4.20260708.1.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "73de0ef7344321276a3b5f041edea5d2217f7d6816b7ca75f0f26f46c03f2ff34967d09f91edecfc5e41960d575c5ed60eeb554735955b2f15cb82da4f989fb0"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/miniflare"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "path-to-regexp",
+      "version": "6.3.0",
+      "bom-ref": "cybermeters-scan-api@0.1.0|path-to-regexp@6.3.0",
+      "description": "Express style path to RegExp utility",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/path-to-regexp@6.3.0",
+      "externalReferences": [
+        {
+          "url": "git+https://github.com/pillarjs/path-to-regexp.git",
+          "type": "vcs",
+          "comment": "as detected from PackageJson property \"repository.url\""
+        },
+        {
+          "url": "https://github.com/pillarjs/path-to-regexp#readme",
+          "type": "website",
+          "comment": "as detected from PackageJson property \"homepage\""
+        },
+        {
+          "url": "https://github.com/pillarjs/path-to-regexp/issues",
+          "type": "issue-tracker",
+          "comment": "as detected from PackageJson property \"bugs.url\""
+        },
+        {
+          "url": "https://registry.npmjs.org/path-to-regexp/-/path-to-regexp-6.3.0.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "621a70e13f42ea13e980f780dbcbacd3b3897aa67913341391b7f0ba1b14834736dfb468985a044c9826a76b1adc5ff8d607cb13a1b972a718c339e678478e95"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/path-to-regexp"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "unenv",
+      "version": "2.0.0-rc.24",
+      "bom-ref": "cybermeters-scan-api@0.1.0|unenv@2.0.0-rc.24",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/unenv@2.0.0-rc.24",
+      "externalReferences": [
+        {
+          "url": "git+https://github.com/unjs/unenv.git",
+          "type": "vcs",
+          "comment": "as detected from PackageJson property \"repository.url\""
+        },
+        {
+          "url": "https://github.com/unjs/unenv#readme",
+          "type": "website",
+          "comment": "as detected from PackageJson property \"homepage\""
+        },
+        {
+          "url": "https://github.com/unjs/unenv/issues",
+          "type": "issue-tracker",
+          "comment": "as detected from PackageJson property \"bugs.url\""
+        },
+        {
+          "url": "https://registry.npmjs.org/unenv/-/unenv-2.0.0-rc.24.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "8bba910a6638db3982c2762587d1f64af2c4ca91051b27b989198430a8dc1a2ef393d52aba28118c5b532f3d1362aaf46462d985a30797f7e8cb56d947e0b097"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/unenv"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "workerd",
+      "version": "1.20260708.1",
+      "bom-ref": "cybermeters-scan-api@0.1.0|workerd@1.20260708.1",
+      "description": "👷 workerd, Cloudflare's JavaScript/Wasm Runtime",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/workerd@1.20260708.1",
+      "externalReferences": [
+        {
+          "url": "git+https://github.com/cloudflare/workerd.git",
+          "type": "vcs",
+          "comment": "as detected from PackageJson property \"repository.url\""
+        },
+        {
+          "url": "https://github.com/cloudflare/workerd#readme",
+          "type": "website",
+          "comment": "as detected from PackageJson property \"homepage\""
+        },
+        {
+          "url": "https://github.com/cloudflare/workerd/issues",
+          "type": "issue-tracker",
+          "comment": "as detected from PackageJson property \"bugs.url\""
+        },
+        {
+          "url": "https://registry.npmjs.org/workerd/-/workerd-1.20260708.1.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "5802be2adfd55424a5747daa4abf25c78e97089e10f9b7651cd685a94b4e1ed84110807c0b537c1d55be54e2ebc43a130a4d0d18dbf4cda8e705e40ae09381f7"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/workerd"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "darwin-arm64",
+      "group": "@esbuild",
+      "version": "0.28.1",
+      "bom-ref": "cybermeters-scan-api@0.1.0|@esbuild/darwin-arm64@0.28.1",
+      "description": "The macOS ARM 64-bit binary for esbuild, a JavaScript bundler.",
+      "scope": "optional",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/%40esbuild/darwin-arm64@0.28.1",
+      "externalReferences": [
+        {
+          "url": "git+https://github.com/evanw/esbuild.git",
+          "type": "vcs",
+          "comment": "as detected from PackageJson property \"repository.url\""
+        },
+        {
+          "url": "https://github.com/evanw/esbuild#readme",
+          "type": "website",
+          "comment": "as detected from PackageJson property \"homepage\""
+        },
+        {
+          "url": "https://github.com/evanw/esbuild/issues",
+          "type": "issue-tracker",
+          "comment": "as detected from PackageJson property \"bugs.url\""
+        },
+        {
+          "url": "https://registry.npmjs.org/@esbuild/darwin-arm64/-/darwin-arm64-0.28.1.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "4d96d691063b92f4c05db5d44fbb9500247970c1ec0e24b3f73ed92805ff453abf589124dd0c91af4c19a4d8410d7fbfd02b5da9420994e8a875072d6bab58dd"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/@esbuild/darwin-arm64"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "source-map-support",
+      "group": "@cspotcode",
+      "version": "0.8.1",
+      "bom-ref": "cybermeters-scan-api@0.1.0|@cspotcode/source-map-support@0.8.1",
+      "description": "Fixes stack traces for files with source maps",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/%40cspotcode/source-map-support@0.8.1",
+      "externalReferences": [
+        {
+          "url": "git+https://github.com/cspotcode/node-source-map-support.git",
+          "type": "vcs",
+          "comment": "as detected from PackageJson property \"repository.url\""
+        },
+        {
+          "url": "https://github.com/cspotcode/node-source-map-support#readme",
+          "type": "website",
+          "comment": "as detected from PackageJson property \"homepage\""
+        },
+        {
+          "url": "https://github.com/cspotcode/node-source-map-support/issues",
+          "type": "issue-tracker",
+          "comment": "as detected from PackageJson property \"bugs.url\""
+        },
+        {
+          "url": "https://registry.npmjs.org/@cspotcode/source-map-support/-/source-map-support-0.8.1.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "21c84d7fa74de2d1e8305227ffb384f0b599d7d63aabfebb0667fabe719112ff1149b0556fd2cf27111c9f0adcc17ea2c52bda886a2898052fbb8612c57ad583"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/@cspotcode/source-map-support"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "sharp",
+      "version": "0.34.5",
+      "bom-ref": "cybermeters-scan-api@0.1.0|sharp@0.34.5",
+      "author": "Lovell Fuller",
+      "description": "High performance Node.js image processing, the fastest module to resize JPEG, PNG, WebP, GIF, AVIF and TIFF images",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/sharp@0.34.5",
+      "externalReferences": [
+        {
+          "url": "git://github.com/lovell/sharp.git",
+          "type": "vcs",
+          "comment": "as detected from PackageJson property \"repository.url\""
+        },
+        {
+          "url": "https://sharp.pixelplumbing.com",
+          "type": "website",
+          "comment": "as detected from PackageJson property \"homepage\""
+        },
+        {
+          "url": "https://github.com/lovell/sharp/issues",
+          "type": "issue-tracker",
+          "comment": "as detected from PackageJson property \"bugs.url\""
+        },
+        {
+          "url": "https://registry.npmjs.org/sharp/-/sharp-0.34.5.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "3aef48e45b7d58d7026d7ad4f5c3203c17022bc2e2c0ba9c6f2c16dede280d5dfb9f5a73a6e34bb1888057c78e0e78dbb509520f067671411e433e04e781e5b6"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/sharp"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "undici",
+      "version": "7.28.0",
+      "bom-ref": "cybermeters-scan-api@0.1.0|undici@7.28.0",
+      "description": "An HTTP/1.1 client, written from scratch for Node.js",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/undici@7.28.0",
+      "externalReferences": [
+        {
+          "url": "git+https://github.com/nodejs/undici.git",
+          "type": "vcs",
+          "comment": "as detected from PackageJson property \"repository.url\""
+        },
+        {
+          "url": "https://undici.nodejs.org",
+          "type": "website",
+          "comment": "as detected from PackageJson property \"homepage\""
+        },
+        {
+          "url": "https://github.com/nodejs/undici/issues",
+          "type": "issue-tracker",
+          "comment": "as detected from PackageJson property \"bugs.url\""
+        },
+        {
+          "url": "https://registry.npmjs.org/undici/-/undici-7.28.0.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "711658ad30f05b39e59d188f8e08001b16576a7b72e8cf115757dff169b82d65c1a7bfc81bcbf90e73a6ef80ed501a7d38e3692bbe5894f9c88d0a97d1d043b4"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/undici"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "ws",
+      "version": "8.21.0",
+      "bom-ref": "cybermeters-scan-api@0.1.0|ws@8.21.0",
+      "author": "Einar Otto Stangvik",
+      "description": "Simple to use, blazing fast and thoroughly tested websocket client and server for Node.js",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/ws@8.21.0",
+      "externalReferences": [
+        {
+          "url": "git+https://github.com/websockets/ws.git",
+          "type": "vcs",
+          "comment": "as detected from PackageJson property \"repository.url\""
+        },
+        {
+          "url": "https://github.com/websockets/ws",
+          "type": "website",
+          "comment": "as detected from PackageJson property \"homepage\""
+        },
+        {
+          "url": "https://github.com/websockets/ws/issues",
+          "type": "issue-tracker",
+          "comment": "as detected from PackageJson property \"bugs.url\""
+        },
+        {
+          "url": "https://registry.npmjs.org/ws/-/ws-8.21.0.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "56ca76f1bec345c8a6150bebaaed967a4df3d626310c25aa1d807c42c9e4fd2e117da090ccf18fc8136e563255ddc77a5222ad52da7ab0d33bee05afcdc087fa"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/ws"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "youch",
+      "version": "4.1.0-beta.10",
+      "bom-ref": "cybermeters-scan-api@0.1.0|youch@4.1.0-beta.10",
+      "author": "Harminder Virk",
+      "description": "Pretty print JavaScript errors on the Web and the Terminal",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/youch@4.1.0-beta.10",
+      "externalReferences": [
+        {
+          "url": "git+https://github.com/poppinss/youch.git",
+          "type": "vcs",
+          "comment": "as detected from PackageJson property \"repository.url\""
+        },
+        {
+          "url": "https://github.com/poppinss/youch#readme",
+          "type": "website",
+          "comment": "as detected from PackageJson property \"homepage\""
+        },
+        {
+          "url": "https://github.com/poppinss/youch/issues",
+          "type": "issue-tracker",
+          "comment": "as detected from PackageJson property \"bugs.url\""
+        },
+        {
+          "url": "https://registry.npmjs.org/youch/-/youch-4.1.0-beta.10.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "acb7d52c1e058109de0ebd1dbf5a1d74255998a8dc27ac97ea64b8a54f3632afc3b7d6b770b650eb6a4304be0050efae56b0afb56cf764550bd87140149fc15d"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/youch"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "pathe",
+      "version": "2.0.3",
+      "bom-ref": "cybermeters-scan-api@0.1.0|pathe@2.0.3",
+      "description": "Universal filesystem path utils",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/pathe@2.0.3",
+      "externalReferences": [
+        {
+          "url": "git+https://github.com/unjs/pathe.git",
+          "type": "vcs",
+          "comment": "as detected from PackageJson property \"repository.url\""
+        },
+        {
+          "url": "https://github.com/unjs/pathe#readme",
+          "type": "website",
+          "comment": "as detected from PackageJson property \"homepage\""
+        },
+        {
+          "url": "https://github.com/unjs/pathe/issues",
+          "type": "issue-tracker",
+          "comment": "as detected from PackageJson property \"bugs.url\""
+        },
+        {
+          "url": "https://registry.npmjs.org/pathe/-/pathe-2.0.3.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "5948c6700a8fd6041a72841ef8e049b0503b2dde03c97b9422367971cef970b1ef27b76d36c4ee8298712000f0b294be02b68051e3c22ab495b4f2c58ff17cf3"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/pathe"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "workerd-darwin-arm64",
+      "group": "@cloudflare",
+      "version": "1.20260708.1",
+      "bom-ref": "cybermeters-scan-api@0.1.0|@cloudflare/workerd-darwin-arm64@1.20260708.1",
+      "description": "👷 workerd for macOS ARM 64-bit, Cloudflare's JavaScript/Wasm Runtime",
+      "scope": "optional",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/%40cloudflare/workerd-darwin-arm64@1.20260708.1",
+      "externalReferences": [
+        {
+          "url": "git+https://github.com/cloudflare/workerd.git",
+          "type": "vcs",
+          "comment": "as detected from PackageJson property \"repository.url\""
+        },
+        {
+          "url": "https://github.com/cloudflare/workerd#readme",
+          "type": "website",
+          "comment": "as detected from PackageJson property \"homepage\""
+        },
+        {
+          "url": "https://github.com/cloudflare/workerd/issues",
+          "type": "issue-tracker",
+          "comment": "as detected from PackageJson property \"bugs.url\""
+        },
+        {
+          "url": "https://registry.npmjs.org/@cloudflare/workerd-darwin-arm64/-/workerd-darwin-arm64-1.20260708.1.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "25594968a0e845354a4aba072257fc8375023e32a3e220db31913608d621b79a90fb6acbd05014895955f361b706a2a79f0f641d89e7b0ccc2d3c6fdcd5b5dcc"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/@cloudflare/workerd-darwin-arm64"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "trace-mapping",
+      "group": "@jridgewell",
+      "version": "0.3.9",
+      "bom-ref": "cybermeters-scan-api@0.1.0|@jridgewell/trace-mapping@0.3.9",
+      "author": "Justin Ridgewell",
+      "description": "Trace the original position through a source map",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/%40jridgewell/trace-mapping@0.3.9",
+      "externalReferences": [
+        {
+          "url": "git+https://github.com/jridgewell/trace-mapping.git",
+          "type": "vcs",
+          "comment": "as detected from PackageJson property \"repository.url\""
+        },
+        {
+          "url": "https://github.com/jridgewell/trace-mapping#readme",
+          "type": "website",
+          "comment": "as detected from PackageJson property \"homepage\""
+        },
+        {
+          "url": "https://github.com/jridgewell/trace-mapping/issues",
+          "type": "issue-tracker",
+          "comment": "as detected from PackageJson property \"bugs.url\""
+        },
+        {
+          "url": "https://registry.npmjs.org/@jridgewell/trace-mapping/-/trace-mapping-0.3.9.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "dc17a5b7ab5d73c6cf800b5b72676d349962ad5a139846f97b6802f783e7930116f6323a0801d47a81bce6d8d63f95aabaa7dabe832d330886e0ff76e9928ab9"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/@jridgewell/trace-mapping"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "colour",
+      "group": "@img",
+      "version": "1.1.0",
+      "bom-ref": "cybermeters-scan-api@0.1.0|@img/colour@1.1.0",
+      "description": "The ESM-only 'color' package made compatible for use with CommonJS runtimes",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/%40img/colour@1.1.0",
+      "externalReferences": [
+        {
+          "url": "git+https://github.com/lovell/colour.git",
+          "type": "vcs",
+          "comment": "as detected from PackageJson property \"repository.url\""
+        },
+        {
+          "url": "https://github.com/lovell/colour#readme",
+          "type": "website",
+          "comment": "as detected from PackageJson property \"homepage\""
+        },
+        {
+          "url": "https://github.com/lovell/colour/issues",
+          "type": "issue-tracker",
+          "comment": "as detected from PackageJson property \"bugs.url\""
+        },
+        {
+          "url": "https://registry.npmjs.org/@img/colour/-/colour-1.1.0.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "4ddefaabb8f9ee8fed2d57604bbe3a7180117d2cb193c8847d1c5ec0bf61e0e3336216d6e1301ca69974993e1ecaa5dd761e8bfe3c2833be66a3b8b16bfa4279"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/@img/colour"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "sharp-darwin-arm64",
+      "group": "@img",
+      "version": "0.34.5",
+      "bom-ref": "cybermeters-scan-api@0.1.0|@img/sharp-darwin-arm64@0.34.5",
+      "author": "Lovell Fuller",
+      "description": "Prebuilt sharp for use with macOS 64-bit ARM",
+      "scope": "optional",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/%40img/sharp-darwin-arm64@0.34.5",
+      "externalReferences": [
+        {
+          "url": "git+https://github.com/lovell/sharp.git#npm/darwin-arm64",
+          "type": "vcs",
+          "comment": "as detected from PackageJson property \"repository.url\" and \"repository.directory\""
+        },
+        {
+          "url": "https://sharp.pixelplumbing.com",
+          "type": "website",
+          "comment": "as detected from PackageJson property \"homepage\""
+        },
+        {
+          "url": "https://github.com/lovell/sharp/issues",
+          "type": "issue-tracker",
+          "comment": "as detected from PackageJson property \"bugs.url\""
+        },
+        {
+          "url": "https://registry.npmjs.org/@img/sharp-darwin-arm64/-/sharp-darwin-arm64-0.34.5.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "8a6b50dd63095db318e1fc5bfcd769e87053355b5609423459da1bca17867f9f9a77ac57f152033bcbb6c44e2a73f7ebd3c08a1bfedd0ec785b67e8cea0febdf"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/@img/sharp-darwin-arm64"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "sharp-libvips-darwin-arm64",
+      "group": "@img",
+      "version": "1.2.4",
+      "bom-ref": "cybermeters-scan-api@0.1.0|@img/sharp-libvips-darwin-arm64@1.2.4",
+      "author": "Lovell Fuller",
+      "description": "Prebuilt libvips and dependencies for use with sharp on macOS 64-bit ARM",
+      "scope": "optional",
+      "licenses": [
+        {
+          "license": {
+            "id": "LGPL-3.0-or-later",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/%40img/sharp-libvips-darwin-arm64@1.2.4",
+      "externalReferences": [
+        {
+          "url": "git+https://github.com/lovell/sharp-libvips.git#npm/darwin-arm64",
+          "type": "vcs",
+          "comment": "as detected from PackageJson property \"repository.url\" and \"repository.directory\""
+        },
+        {
+          "url": "https://sharp.pixelplumbing.com",
+          "type": "website",
+          "comment": "as detected from PackageJson property \"homepage\""
+        },
+        {
+          "url": "https://github.com/lovell/sharp-libvips/issues",
+          "type": "issue-tracker",
+          "comment": "as detected from PackageJson property \"bugs.url\""
+        },
+        {
+          "url": "https://registry.npmjs.org/@img/sharp-libvips-darwin-arm64/-/sharp-libvips-darwin-arm64-1.2.4.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "cea8e3a3b45ab457c5a0fd0c910e758dfb856419d5136a5189ac9d289d46feb1d9be7b2b1c039c4002c88bdb00e5ca39c5e9d0753ba00afb5bd5cb9fefc55fe2"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/@img/sharp-libvips-darwin-arm64"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "detect-libc",
+      "version": "2.1.2",
+      "bom-ref": "cybermeters-scan-api@0.1.0|detect-libc@2.1.2",
+      "author": "Lovell Fuller",
+      "description": "Node.js module to detect the C standard library (libc) implementation family and version",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/detect-libc@2.1.2",
+      "externalReferences": [
+        {
+          "url": "git://github.com/lovell/detect-libc.git",
+          "type": "vcs",
+          "comment": "as detected from PackageJson property \"repository.url\""
+        },
+        {
+          "url": "https://github.com/lovell/detect-libc#readme",
+          "type": "website",
+          "comment": "as detected from PackageJson property \"homepage\""
+        },
+        {
+          "url": "https://github.com/lovell/detect-libc/issues",
+          "type": "issue-tracker",
+          "comment": "as detected from PackageJson property \"bugs.url\""
+        },
+        {
+          "url": "https://registry.npmjs.org/detect-libc/-/detect-libc-2.1.2.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "06d8f604e38ef37a375b21f9f5ef0c817b3111055c6ab9143a9118aee6c1d2eaf09cdd74c90dfae2bb22072535d67665a966199b4e62fe87fb8a8e26ce2841b5"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/detect-libc"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "semver",
+      "version": "7.8.5",
+      "bom-ref": "cybermeters-scan-api@0.1.0|semver@7.8.5",
+      "author": "GitHub Inc.",
+      "description": "The semantic version parser used by npm.",
+      "licenses": [
+        {
+          "license": {
+            "id": "ISC",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/semver@7.8.5",
+      "externalReferences": [
+        {
+          "url": "git+https://github.com/npm/node-semver.git",
+          "type": "vcs",
+          "comment": "as detected from PackageJson property \"repository.url\""
+        },
+        {
+          "url": "https://github.com/npm/node-semver#readme",
+          "type": "website",
+          "comment": "as detected from PackageJson property \"homepage\""
+        },
+        {
+          "url": "https://github.com/npm/node-semver/issues",
+          "type": "issue-tracker",
+          "comment": "as detected from PackageJson property \"bugs.url\""
+        },
+        {
+          "url": "https://registry.npmjs.org/semver/-/semver-7.8.5.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "63bfca0ec6fc2e3a28669c1aa86cae94ee8342592c8029dc7211c693eb19218e1206f52870c044147e54af57c8e1d57e26f974c3a723bee71a222e34a6e462a0"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/semver"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "colors",
+      "group": "@poppinss",
+      "version": "4.1.6",
+      "bom-ref": "cybermeters-scan-api@0.1.0|@poppinss/colors@4.1.6",
+      "author": "virk",
+      "description": "A wrapper on top of kleur with ability to write test against the color functions",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/%40poppinss/colors@4.1.6",
+      "externalReferences": [
+        {
+          "url": "git+https://github.com/poppinss/colors.git",
+          "type": "vcs",
+          "comment": "as detected from PackageJson property \"repository.url\""
+        },
+        {
+          "url": "https://github.com/poppinss/colors#readme",
+          "type": "website",
+          "comment": "as detected from PackageJson property \"homepage\""
+        },
+        {
+          "url": "https://github.com/poppinss/colors/issues",
+          "type": "issue-tracker",
+          "comment": "as detected from PackageJson property \"bugs.url\""
+        },
+        {
+          "url": "https://registry.npmjs.org/@poppinss/colors/-/colors-4.1.6.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "1fdc6421d16cc1b4bc9f577abe645df3e735d2dd907bead92136db0c71e4422c47e7edb1d450c69a2ff42be5a05a2a9014a3d2948601ee3947e8aa5f9fa1657a"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/@poppinss/colors"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "dumper",
+      "group": "@poppinss",
+      "version": "0.6.5",
+      "bom-ref": "cybermeters-scan-api@0.1.0|@poppinss/dumper@0.6.5",
+      "author": "Harminder Virk",
+      "description": "Pretty print JavaScript data types in the terminal and the browser",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/%40poppinss/dumper@0.6.5",
+      "externalReferences": [
+        {
+          "url": "git+https://github.com/poppinss/dumper.git",
+          "type": "vcs",
+          "comment": "as detected from PackageJson property \"repository.url\""
+        },
+        {
+          "url": "https://github.com/poppinss/dumper#readme",
+          "type": "website",
+          "comment": "as detected from PackageJson property \"homepage\""
+        },
+        {
+          "url": "https://github.com/poppinss/dumper/issues",
+          "type": "issue-tracker",
+          "comment": "as detected from PackageJson property \"bugs.url\""
+        },
+        {
+          "url": "https://registry.npmjs.org/@poppinss/dumper/-/dumper-0.6.5.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "34175821bf7427b2df388df674e7b0288d6bef09e4887ea6f76d29b90dea1d47999313644221675d55a813a62d152bfa40e88f3dfef2b3a8be1d659e703cfbb3"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/@poppinss/dumper"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "core",
+      "group": "@speed-highlight",
+      "version": "1.2.17",
+      "bom-ref": "cybermeters-scan-api@0.1.0|@speed-highlight/core@1.2.17",
+      "author": "matubu",
+      "description": "🌈 Light, fast, and easy to use, dependencies free javascript syntax highlighter, with automatic language detection",
+      "licenses": [
+        {
+          "license": {
+            "id": "CC0-1.0",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/%40speed-highlight/core@1.2.17",
+      "externalReferences": [
+        {
+          "url": "git://github.com/speed-highlight/core.git",
+          "type": "vcs",
+          "comment": "as detected from PackageJson property \"repository.url\""
+        },
+        {
+          "url": "https://github.com/speed-highlight/core#readme",
+          "type": "website",
+          "comment": "as detected from PackageJson property \"homepage\""
+        },
+        {
+          "url": "https://github.com/speed-highlight/core/issues",
+          "type": "issue-tracker",
+          "comment": "as detected from PackageJson property \"bugs.url\""
+        },
+        {
+          "url": "https://registry.npmjs.org/@speed-highlight/core/-/core-1.2.17.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "67dd85c0aa42b5f696d55d234d4fdf87743360464df300f0af34480680030897e7e2624235c24dfd77a089f5fb043ad0f3f87d5e1fc99dbc8c7212f416a5eb92"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/@speed-highlight/core"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "cookie",
+      "version": "1.1.1",
+      "bom-ref": "cybermeters-scan-api@0.1.0|cookie@1.1.1",
+      "author": "Roman Shtylman",
+      "description": "HTTP server cookie parsing and serialization",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/cookie@1.1.1",
+      "externalReferences": [
+        {
+          "url": "git+https://github.com/jshttp/cookie.git",
+          "type": "vcs",
+          "comment": "as detected from PackageJson property \"repository.url\""
+        },
+        {
+          "url": "https://github.com/jshttp/cookie#readme",
+          "type": "website",
+          "comment": "as detected from PackageJson property \"homepage\""
+        },
+        {
+          "url": "https://github.com/jshttp/cookie/issues",
+          "type": "issue-tracker",
+          "comment": "as detected from PackageJson property \"bugs.url\""
+        },
+        {
+          "url": "https://registry.npmjs.org/cookie/-/cookie-1.1.1.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "7a2f00a2cee36b4c1e469173267100f541c9ffb5d09aa8256d1c277f60138dc07d5aaf3be15287f647e38e2acce94854dbf1397c561a77297284595d72a4a275"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/cookie"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "youch-core",
+      "version": "0.3.3",
+      "bom-ref": "cybermeters-scan-api@0.1.0|youch-core@0.3.3",
+      "author": "Harminder Virk",
+      "description": "Error parser to parse an error instance into a collection of frames",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/youch-core@0.3.3",
+      "externalReferences": [
+        {
+          "url": "git+https://github.com/poppinss/youch-core.git",
+          "type": "vcs",
+          "comment": "as detected from PackageJson property \"repository.url\""
+        },
+        {
+          "url": "https://github.com/poppinss/youch-core#readme",
+          "type": "website",
+          "comment": "as detected from PackageJson property \"homepage\""
+        },
+        {
+          "url": "https://github.com/poppinss/youch-core/issues",
+          "type": "issue-tracker",
+          "comment": "as detected from PackageJson property \"bugs.url\""
+        },
+        {
+          "url": "https://registry.npmjs.org/youch-core/-/youch-core-0.3.3.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "868ed7b868cb689da1587a0af32167b141b2d98e6e0e9a924ead459072cae3fa2a2adc945350056ce3b16382290bd7f47d32e3c186ec954cf43e8e41a43d70ac"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/youch-core"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "resolve-uri",
+      "group": "@jridgewell",
+      "version": "3.1.2",
+      "bom-ref": "cybermeters-scan-api@0.1.0|@jridgewell/resolve-uri@3.1.2",
+      "author": "Justin Ridgewell",
+      "description": "Resolve a URI relative to an optional base URI",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/%40jridgewell/resolve-uri@3.1.2",
+      "externalReferences": [
+        {
+          "url": "git+https://github.com/jridgewell/resolve-uri.git",
+          "type": "vcs",
+          "comment": "as detected from PackageJson property \"repository.url\""
+        },
+        {
+          "url": "https://github.com/jridgewell/resolve-uri#readme",
+          "type": "website",
+          "comment": "as detected from PackageJson property \"homepage\""
+        },
+        {
+          "url": "https://github.com/jridgewell/resolve-uri/issues",
+          "type": "issue-tracker",
+          "comment": "as detected from PackageJson property \"bugs.url\""
+        },
+        {
+          "url": "https://registry.npmjs.org/@jridgewell/resolve-uri/-/resolve-uri-3.1.2.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "6d12128022233f6d3fb5b5923d63048b9e1054f45913192e0fd9492fe508c542adc15240f305b54eb6f58ccb354455e8d42053359ff98690bd42f98a59da292b"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/@jridgewell/resolve-uri"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "sourcemap-codec",
+      "group": "@jridgewell",
+      "version": "1.5.5",
+      "bom-ref": "cybermeters-scan-api@0.1.0|@jridgewell/sourcemap-codec@1.5.5",
+      "author": "Justin Ridgewell",
+      "description": "Encode/decode sourcemap mappings",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/%40jridgewell/sourcemap-codec@1.5.5",
+      "externalReferences": [
+        {
+          "url": "git+https://github.com/jridgewell/sourcemaps.git#packages/sourcemap-codec",
+          "type": "vcs",
+          "comment": "as detected from PackageJson property \"repository.url\" and \"repository.directory\""
+        },
+        {
+          "url": "https://github.com/jridgewell/sourcemaps/tree/main/packages/sourcemap-codec",
+          "type": "website",
+          "comment": "as detected from PackageJson property \"homepage\""
+        },
+        {
+          "url": "https://github.com/jridgewell/sourcemaps/issues",
+          "type": "issue-tracker",
+          "comment": "as detected from PackageJson property \"bugs.url\""
+        },
+        {
+          "url": "https://registry.npmjs.org/@jridgewell/sourcemap-codec/-/sourcemap-codec-1.5.5.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "71843ddf5d20aeac6e7966e5f96b885086a251a0dc8fb58eab97d58449633558117ce52163d7f2db34ef7e8a96b2779b87c4a5ef45527056c80af2672ca0743a"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/@jridgewell/sourcemap-codec"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "kleur",
+      "version": "4.1.5",
+      "bom-ref": "cybermeters-scan-api@0.1.0|kleur@4.1.5",
+      "author": "Luke Edwards",
+      "description": "The fastest Node.js library for formatting terminal text with ANSI colors~!",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/kleur@4.1.5",
+      "externalReferences": [
+        {
+          "url": "git+https://github.com/lukeed/kleur.git",
+          "type": "vcs",
+          "comment": "as detected from PackageJson property \"repository.url\""
+        },
+        {
+          "url": "https://github.com/lukeed/kleur#readme",
+          "type": "website",
+          "comment": "as detected from PackageJson property \"homepage\""
+        },
+        {
+          "url": "https://github.com/lukeed/kleur/issues",
+          "type": "issue-tracker",
+          "comment": "as detected from PackageJson property \"bugs.url\""
+        },
+        {
+          "url": "https://registry.npmjs.org/kleur/-/kleur-4.1.5.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "a3e34efbc5ab462404138ffb9f044984dd475a9566266e75d690475313cbb69d015084b3941a653916129937250a726f42adad2aefec825df156991ced95ae41"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/kleur"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "is",
+      "group": "@sindresorhus",
+      "version": "7.2.0",
+      "bom-ref": "cybermeters-scan-api@0.1.0|@sindresorhus/is@7.2.0",
+      "author": "Sindre Sorhus",
+      "description": "Type check values",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/%40sindresorhus/is@7.2.0",
+      "externalReferences": [
+        {
+          "url": "git+https://github.com/sindresorhus/is.git",
+          "type": "vcs",
+          "comment": "as detected from PackageJson property \"repository.url\""
+        },
+        {
+          "url": "https://github.com/sindresorhus/is#readme",
+          "type": "website",
+          "comment": "as detected from PackageJson property \"homepage\""
+        },
+        {
+          "url": "https://github.com/sindresorhus/is/issues",
+          "type": "issue-tracker",
+          "comment": "as detected from PackageJson property \"bugs.url\""
+        },
+        {
+          "url": "https://registry.npmjs.org/@sindresorhus/is/-/is-7.2.0.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "3f50b3d5d59a15f478211f94d779aaaa21ac2c57f529b6b2c9b5b075ddaf7dcb5d57a843a54920098d2728e2cb4cc4a845dfe324d8ed6eacdfd772bc0c209743"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/@sindresorhus/is"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "supports-color",
+      "version": "10.2.2",
+      "bom-ref": "cybermeters-scan-api@0.1.0|supports-color@10.2.2",
+      "author": "Sindre Sorhus",
+      "description": "Detect whether a terminal supports color",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/supports-color@10.2.2",
+      "externalReferences": [
+        {
+          "url": "git+https://github.com/chalk/supports-color.git",
+          "type": "vcs",
+          "comment": "as detected from PackageJson property \"repository.url\""
+        },
+        {
+          "url": "https://github.com/chalk/supports-color#readme",
+          "type": "website",
+          "comment": "as detected from PackageJson property \"homepage\""
+        },
+        {
+          "url": "https://github.com/chalk/supports-color/issues",
+          "type": "issue-tracker",
+          "comment": "as detected from PackageJson property \"bugs.url\""
+        },
+        {
+          "url": "https://registry.npmjs.org/supports-color/-/supports-color-10.2.2.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "492fa3c78e461754238045d0c78349655f489aa98ed8d3f3e4536c207aec0e387662c1e76b0a5a9fb48d435a3c36e86b6c7672f4066122809488279a5bf0bcd2"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/supports-color"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "exception",
+      "group": "@poppinss",
+      "version": "1.2.3",
+      "bom-ref": "cybermeters-scan-api@0.1.0|@poppinss/exception@1.2.3",
+      "author": "Harminder Virk",
+      "description": "Utility to create custom exceptions",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/%40poppinss/exception@1.2.3",
+      "externalReferences": [
+        {
+          "url": "git+https://github.com/poppinss/exception.git",
+          "type": "vcs",
+          "comment": "as detected from PackageJson property \"repository.url\""
+        },
+        {
+          "url": "https://github.com/poppinss/exception#readme",
+          "type": "website",
+          "comment": "as detected from PackageJson property \"homepage\""
+        },
+        {
+          "url": "https://github.com/poppinss/exception/issues",
+          "type": "issue-tracker",
+          "comment": "as detected from PackageJson property \"bugs.url\""
+        },
+        {
+          "url": "https://registry.npmjs.org/@poppinss/exception/-/exception-1.2.3.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "742103f9044285355ab44f626eda1ac5cf9691dcce4a36132a2ffeb9a707588b1fa1d55fa6cb9ea37f832a9814e4fc7ca978e0997912be15ef482cf77e73fd97"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/@poppinss/exception"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "error-stack-parser-es",
+      "version": "1.0.5",
+      "bom-ref": "cybermeters-scan-api@0.1.0|error-stack-parser-es@1.0.5",
+      "description": "Cross-browser Error parser",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/error-stack-parser-es@1.0.5",
+      "externalReferences": [
+        {
+          "url": "git+https://github.com/antfu/error-stack-parser-es.git",
+          "type": "vcs",
+          "comment": "as detected from PackageJson property \"repository.url\""
+        },
+        {
+          "url": "https://github.com/antfu/error-stack-parser-es#readme",
+          "type": "website",
+          "comment": "as detected from PackageJson property \"homepage\""
+        },
+        {
+          "url": "https://github.com/antfu/error-stack-parser-es/issues",
+          "type": "issue-tracker",
+          "comment": "as detected from PackageJson property \"bugs.url\""
+        },
+        {
+          "url": "https://registry.npmjs.org/error-stack-parser-es/-/error-stack-parser-es-1.0.5.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "e6ab9c56dd9772e18c7041a0588ee2fb26699a907243c27594785c2fb3f0a82c2ef453cfdd5517cd3e25b477b98b6cfd75e3f010770354e01f4a71ec3a509744"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/error-stack-parser-es"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "ref": "cybermeters-scan-api@0.1.0",
+      "dependsOn": [
+        "cybermeters-scan-api@0.1.0|wrangler@4.110.0"
+      ]
+    },
+    {
+      "ref": "cybermeters-scan-api@0.1.0|wrangler@4.110.0",
+      "dependsOn": [
+        "cybermeters-scan-api@0.1.0|@cloudflare/kv-asset-handler@0.5.0",
+        "cybermeters-scan-api@0.1.0|@cloudflare/unenv-preset@2.16.1",
+        "cybermeters-scan-api@0.1.0|blake3-wasm@2.1.5",
+        "cybermeters-scan-api@0.1.0|esbuild@0.28.1",
+        "cybermeters-scan-api@0.1.0|fsevents@2.3.3",
+        "cybermeters-scan-api@0.1.0|miniflare@4.20260708.1",
+        "cybermeters-scan-api@0.1.0|path-to-regexp@6.3.0",
+        "cybermeters-scan-api@0.1.0|unenv@2.0.0-rc.24",
+        "cybermeters-scan-api@0.1.0|workerd@1.20260708.1"
+      ]
+    },
+    {
+      "ref": "cybermeters-scan-api@0.1.0|@cloudflare/kv-asset-handler@0.5.0"
+    },
+    {
+      "ref": "cybermeters-scan-api@0.1.0|@cloudflare/unenv-preset@2.16.1",
+      "dependsOn": [
+        "cybermeters-scan-api@0.1.0|unenv@2.0.0-rc.24",
+        "cybermeters-scan-api@0.1.0|workerd@1.20260708.1"
+      ]
+    },
+    {
+      "ref": "cybermeters-scan-api@0.1.0|blake3-wasm@2.1.5"
+    },
+    {
+      "ref": "cybermeters-scan-api@0.1.0|esbuild@0.28.1",
+      "dependsOn": [
+        "cybermeters-scan-api@0.1.0|@esbuild/darwin-arm64@0.28.1"
+      ]
+    },
+    {
+      "ref": "cybermeters-scan-api@0.1.0|fsevents@2.3.3"
+    },
+    {
+      "ref": "cybermeters-scan-api@0.1.0|miniflare@4.20260708.1",
+      "dependsOn": [
+        "cybermeters-scan-api@0.1.0|@cspotcode/source-map-support@0.8.1",
+        "cybermeters-scan-api@0.1.0|sharp@0.34.5",
+        "cybermeters-scan-api@0.1.0|undici@7.28.0",
+        "cybermeters-scan-api@0.1.0|workerd@1.20260708.1",
+        "cybermeters-scan-api@0.1.0|ws@8.21.0",
+        "cybermeters-scan-api@0.1.0|youch@4.1.0-beta.10"
+      ]
+    },
+    {
+      "ref": "cybermeters-scan-api@0.1.0|path-to-regexp@6.3.0"
+    },
+    {
+      "ref": "cybermeters-scan-api@0.1.0|unenv@2.0.0-rc.24",
+      "dependsOn": [
+        "cybermeters-scan-api@0.1.0|pathe@2.0.3"
+      ]
+    },
+    {
+      "ref": "cybermeters-scan-api@0.1.0|workerd@1.20260708.1",
+      "dependsOn": [
+        "cybermeters-scan-api@0.1.0|@cloudflare/workerd-darwin-arm64@1.20260708.1"
+      ]
+    },
+    {
+      "ref": "cybermeters-scan-api@0.1.0|@esbuild/darwin-arm64@0.28.1"
+    },
+    {
+      "ref": "cybermeters-scan-api@0.1.0|@cspotcode/source-map-support@0.8.1",
+      "dependsOn": [
+        "cybermeters-scan-api@0.1.0|@jridgewell/trace-mapping@0.3.9"
+      ]
+    },
+    {
+      "ref": "cybermeters-scan-api@0.1.0|sharp@0.34.5",
+      "dependsOn": [
+        "cybermeters-scan-api@0.1.0|@img/colour@1.1.0",
+        "cybermeters-scan-api@0.1.0|@img/sharp-darwin-arm64@0.34.5",
+        "cybermeters-scan-api@0.1.0|@img/sharp-libvips-darwin-arm64@1.2.4",
+        "cybermeters-scan-api@0.1.0|detect-libc@2.1.2",
+        "cybermeters-scan-api@0.1.0|semver@7.8.5"
+      ]
+    },
+    {
+      "ref": "cybermeters-scan-api@0.1.0|undici@7.28.0"
+    },
+    {
+      "ref": "cybermeters-scan-api@0.1.0|ws@8.21.0"
+    },
+    {
+      "ref": "cybermeters-scan-api@0.1.0|youch@4.1.0-beta.10",
+      "dependsOn": [
+        "cybermeters-scan-api@0.1.0|@poppinss/colors@4.1.6",
+        "cybermeters-scan-api@0.1.0|@poppinss/dumper@0.6.5",
+        "cybermeters-scan-api@0.1.0|@speed-highlight/core@1.2.17",
+        "cybermeters-scan-api@0.1.0|cookie@1.1.1",
+        "cybermeters-scan-api@0.1.0|youch-core@0.3.3"
+      ]
+    },
+    {
+      "ref": "cybermeters-scan-api@0.1.0|pathe@2.0.3"
+    },
+    {
+      "ref": "cybermeters-scan-api@0.1.0|@cloudflare/workerd-darwin-arm64@1.20260708.1"
+    },
+    {
+      "ref": "cybermeters-scan-api@0.1.0|@jridgewell/trace-mapping@0.3.9",
+      "dependsOn": [
+        "cybermeters-scan-api@0.1.0|@jridgewell/resolve-uri@3.1.2",
+        "cybermeters-scan-api@0.1.0|@jridgewell/sourcemap-codec@1.5.5"
+      ]
+    },
+    {
+      "ref": "cybermeters-scan-api@0.1.0|@img/colour@1.1.0"
+    },
+    {
+      "ref": "cybermeters-scan-api@0.1.0|@img/sharp-darwin-arm64@0.34.5",
+      "dependsOn": [
+        "cybermeters-scan-api@0.1.0|@img/sharp-libvips-darwin-arm64@1.2.4"
+      ]
+    },
+    {
+      "ref": "cybermeters-scan-api@0.1.0|@img/sharp-libvips-darwin-arm64@1.2.4"
+    },
+    {
+      "ref": "cybermeters-scan-api@0.1.0|detect-libc@2.1.2"
+    },
+    {
+      "ref": "cybermeters-scan-api@0.1.0|semver@7.8.5"
+    },
+    {
+      "ref": "cybermeters-scan-api@0.1.0|@poppinss/colors@4.1.6",
+      "dependsOn": [
+        "cybermeters-scan-api@0.1.0|kleur@4.1.5"
+      ]
+    },
+    {
+      "ref": "cybermeters-scan-api@0.1.0|@poppinss/dumper@0.6.5",
+      "dependsOn": [
+        "cybermeters-scan-api@0.1.0|@poppinss/colors@4.1.6",
+        "cybermeters-scan-api@0.1.0|@sindresorhus/is@7.2.0",
+        "cybermeters-scan-api@0.1.0|supports-color@10.2.2"
+      ]
+    },
+    {
+      "ref": "cybermeters-scan-api@0.1.0|@speed-highlight/core@1.2.17"
+    },
+    {
+      "ref": "cybermeters-scan-api@0.1.0|cookie@1.1.1"
+    },
+    {
+      "ref": "cybermeters-scan-api@0.1.0|youch-core@0.3.3",
+      "dependsOn": [
+        "cybermeters-scan-api@0.1.0|@poppinss/exception@1.2.3",
+        "cybermeters-scan-api@0.1.0|error-stack-parser-es@1.0.5"
+      ]
+    },
+    {
+      "ref": "cybermeters-scan-api@0.1.0|@jridgewell/resolve-uri@3.1.2"
+    },
+    {
+      "ref": "cybermeters-scan-api@0.1.0|@jridgewell/sourcemap-codec@1.5.5"
+    },
+    {
+      "ref": "cybermeters-scan-api@0.1.0|kleur@4.1.5"
+    },
+    {
+      "ref": "cybermeters-scan-api@0.1.0|@sindresorhus/is@7.2.0"
+    },
+    {
+      "ref": "cybermeters-scan-api@0.1.0|supports-color@10.2.2"
+    },
+    {
+      "ref": "cybermeters-scan-api@0.1.0|@poppinss/exception@1.2.3"
+    },
+    {
+      "ref": "cybermeters-scan-api@0.1.0|error-stack-parser-es@1.0.5"
+    }
+  ]
+}

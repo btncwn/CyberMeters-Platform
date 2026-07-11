@@ -64,12 +64,12 @@ turning this from "we passed the tests" into "the tests can't regress".
 |---|---|---|---|
 | 1 | OWASP ASVS 5.0 Level 2 gap assessment | ✅ | `docs/ASVS-GAP-ASSESSMENT.md` — 16 chapters mapped to implementation + evidence; at/near L2, 7 tracked gaps |
 | 2 | Threat model per critical flow | ✅ | `docs/THREAT-MODEL.md` — STRIDE across 16 flows with control + evidence + residual risk |
-| 3 | CI security gates (expand) | ✅ | secret-scan, 8 harnesses (now incl. log-redaction, purge-completeness, migrations), dry-run, OpenAPI, frontend audit, typecheck, vitest, build. SAST ✅ (Semgrep). Worker `npm audit --audit-level=high` ✅ (0 vulns) and migration validation ✅ now CI-blocking. Remaining polish: license policy, pinned action SHAs. |
+| 3 | CI security gates (expand) | ✅ | secret-scan, 8 harnesses (now incl. log-redaction, purge-completeness, migrations), dry-run, OpenAPI, frontend audit, typecheck, vitest, build. SAST ✅ (Semgrep). Worker `npm audit --audit-level=high` ✅ (0 vulns), migration validation ✅, SBOM generation ✅, and all Actions pinned to commit SHAs ✅ — all CI-blocking. Remaining polish: license policy. |
 | 4 | Business-logic abuse tests | 🟡 | Trial recycle closed (`5b57af3`) + notification scoping (`68d056b`); formalise the abuse matrix below as tests |
 | 5 | Load / resilience / idempotency tests | ⬜ | Concurrent scans, large DMARC XML, slow DNS, provider timeouts, cron double-run |
 | 6 | Migration test system | 🟡 | All migrations additive — now **enforced** by `validate-migrations.js` (destructive-statement scan + fresh-apply convergence, CI-blocking); **staging apply + rollback/corrective plan per migration = remaining gap** |
 | 7 | Staging parity with production | ⬜ | Same runtime/bindings, separate D1/R2/Stripe-test/secrets; anonymised data only |
-| 8 | Dependency + SBOM process | 🟡 | Lockfiles committed (`6068eb3`), `npm audit` 0 across all; **SBOM generation + pinned CI actions = gap** |
+| 8 | Dependency + SBOM process | ✅ | Lockfiles committed (`6068eb3`), `npm audit --audit-level=high` 0 across both workspaces (CI-blocking); **CycloneDX SBOMs** generated per workspace (`sbom/*.cdx.json`, regenerated + uploaded as a CI artifact each run); **all CI GitHub Actions pinned to full commit SHAs** (checkout/setup-node/setup-python/upload-artifact) so a mutated tag can't inject code. |
 | 9 | Secure release checklist | 🟡 | Manual deploy discipline + CHANGELOG + tags + rollback IDs in place; formalise as the gate below |
 | 10 | Data retention + deletion verification | ✅ | Soft-delete + 30-day purge verified (beta checklist); `validate-purge-completeness.js` now seeds every purge table + reports + scan (+children) for two workspaces, runs the real `purgeWorkspaceData` to completion, and asserts zero orphaned rows/R2 objects for the purged workspace with the other fully intact (10/10, CI-blocking) — guards the `workspace_assets` orphan class. |
 
