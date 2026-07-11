@@ -114,6 +114,9 @@ jobs:
           ( cd frontend && npx --yes @cyclonedx/cyclonedx-npm@6.0.0 --ignore-npm-errors --output-format JSON --output-file ../sbom/frontend.cdx.json )
           node -e "for(const f of ['sbom/scan-api.cdx.json','sbom/frontend.cdx.json']){const d=require('./'+f);const n=(d.components||[]).length;console.log(f,n,'components, spec',d.specVersion);if(n===0)throw new Error('empty SBOM: '+f)}"
 
+      - name: Validate license policy (no copyleft/unknown deps)
+        run: node scripts/validate-licenses.js
+
       - name: Upload SBOM artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

@@ -3,9 +3,9 @@
   "bomFormat": "CycloneDX",
   "specVersion": "1.6",
   "version": 1,
-  "serialNumber": "urn:uuid:d2f22aeb-23ef-4a0d-9740-a93d00f4e6e4",
+  "serialNumber": "urn:uuid:496343b8-7a74-4b90-9d7e-a0f1b2b68f0a",
   "metadata": {
-    "timestamp": "2026-07-11T18:53:57.556Z",
+    "timestamp": "2026-07-11T23:15:41.808Z",
     "tools": {
       "components": [
         {
@@ -131,20 +131,10 @@
         {
           "url": "https://registry.npmjs.org/wrangler/-/wrangler-4.110.0.tgz",
           "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "c597972988bb8714111796a72febfbed192e7c936917d7f712a7b2aaad9006c113a4b6608740208f48c9e893ed91b827eae919761f0e2b97a0b063d621d8ad82"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+          "comment": "as detected from npm-ls property \"resolved\""
         }
       ],
       "properties": [
-        {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/wrangler"
@@ -185,20 +175,10 @@
         {
           "url": "https://registry.npmjs.org/@cloudflare/kv-asset-handler/-/kv-asset-handler-0.5.0.tgz",
           "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "8f1418923f1d488cdcd1c0fa70c30d74e7355158ea4aabbc059768af9b3c7068d6d88f018ce0edfe458f55d63ebbdce3de6b3be50e6a699827c5469df37f9e02"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+          "comment": "as detected from npm-ls property \"resolved\""
         }
       ],
       "properties": [
-        {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/@cloudflare/kv-asset-handler"
@@ -238,20 +218,10 @@
         {
           "url": "https://registry.npmjs.org/@cloudflare/unenv-preset/-/unenv-preset-2.16.1.tgz",
           "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "102c4e6eb31fc939796e141ffe56425f0a391bac57f48014a3e9c330a2b8499f26e09befc69e76be2971cb24925a1d984d9cfcf87434eea187ff6ac4a26d6f0f"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+          "comment": "as detected from npm-ls property \"resolved\""
         }
       ],
       "properties": [
-        {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/@cloudflare/unenv-preset"
@@ -293,20 +263,10 @@
         {
           "url": "https://registry.npmjs.org/blake3-wasm/-/blake3-wasm-2.1.5.tgz",
           "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "175f8af046df399138f5db683ed9b1510ae95da048977202bdab0b87e9c9b5ad31933fbd905ffbb9eb7d7cb9f02aa843ae68fa83ee8add3c3dc903d483691ae6"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+          "comment": "as detected from npm-ls property \"resolved\""
         }
       ],
       "properties": [
-        {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/blake3-wasm"
@@ -347,20 +307,10 @@
         {
           "url": "https://registry.npmjs.org/esbuild/-/esbuild-0.28.1.tgz",
           "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "1eb26bbd9bf96b2c41ccf7f0a613a837393338822589fce4d0a26b18ad9cf11e3e2caa4cb6960b41e51d8e7c235affcb665907da569993ee30efca62f7d0f857"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+          "comment": "as detected from npm-ls property \"resolved\""
         }
       ],
       "properties": [
-        {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/esbuild"
@@ -373,7 +323,6 @@
       "version": "2.3.3",
       "bom-ref": "cybermeters-scan-api@0.1.0|fsevents@2.3.3",
       "description": "Native Access to MacOS FSEvents",
-      "scope": "optional",
       "licenses": [
         {
           "license": {
@@ -402,20 +351,10 @@
         {
           "url": "https://registry.npmjs.org/fsevents/-/fsevents-2.3.3.tgz",
           "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "e71a037d7f9f2fb7da0139da82658fa5b16dc21fd1efb5a630caaa1c64bae42defbc1d181eb805f81d58999df8e35b4c8f99fade4d36d765cda09c339617df43"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+          "comment": "as detected from npm-ls property \"resolved\""
         }
       ],
       "properties": [
-        {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/fsevents"
@@ -457,20 +396,10 @@
         {
           "url": "https://registry.npmjs.org/miniflare/-/miniflare-4.20260708.1.tgz",
           "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "73de0ef7344321276a3b5f041edea5d2217f7d6816b7ca75f0f26f46c03f2ff34967d09f91edecfc5e41960d575c5ed60eeb554735955b2f15cb82da4f989fb0"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+          "comment": "as detected from npm-ls property \"resolved\""
         }
       ],
       "properties": [
-        {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/miniflare"
@@ -511,20 +440,10 @@
         {
           "url": "https://registry.npmjs.org/path-to-regexp/-/path-to-regexp-6.3.0.tgz",
           "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "621a70e13f42ea13e980f780dbcbacd3b3897aa67913341391b7f0ba1b14834736dfb468985a044c9826a76b1adc5ff8d607cb13a1b972a718c339e678478e95"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+          "comment": "as detected from npm-ls property \"resolved\""
         }
       ],
       "properties": [
-        {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/path-to-regexp"
@@ -564,20 +483,10 @@
         {
           "url": "https://registry.npmjs.org/unenv/-/unenv-2.0.0-rc.24.tgz",
           "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "8bba910a6638db3982c2762587d1f64af2c4ca91051b27b989198430a8dc1a2ef393d52aba28118c5b532f3d1362aaf46462d985a30797f7e8cb56d947e0b097"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+          "comment": "as detected from npm-ls property \"resolved\""
         }
       ],
       "properties": [
-        {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/unenv"
@@ -618,20 +527,10 @@
         {
           "url": "https://registry.npmjs.org/workerd/-/workerd-1.20260708.1.tgz",
           "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "5802be2adfd55424a5747daa4abf25c78e97089e10f9b7651cd685a94b4e1ed84110807c0b537c1d55be54e2ebc43a130a4d0d18dbf4cda8e705e40ae09381f7"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+          "comment": "as detected from npm-ls property \"resolved\""
         }
       ],
       "properties": [
-        {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/workerd"
@@ -645,7 +544,6 @@
       "version": "0.28.1",
       "bom-ref": "cybermeters-scan-api@0.1.0|@esbuild/darwin-arm64@0.28.1",
       "description": "The macOS ARM 64-bit binary for esbuild, a JavaScript bundler.",
-      "scope": "optional",
       "licenses": [
         {
           "license": {
@@ -674,20 +572,10 @@
         {
           "url": "https://registry.npmjs.org/@esbuild/darwin-arm64/-/darwin-arm64-0.28.1.tgz",
           "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "4d96d691063b92f4c05db5d44fbb9500247970c1ec0e24b3f73ed92805ff453abf589124dd0c91af4c19a4d8410d7fbfd02b5da9420994e8a875072d6bab58dd"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+          "comment": "as detected from npm-ls property \"resolved\""
         }
       ],
       "properties": [
-        {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/@esbuild/darwin-arm64"
@@ -729,20 +617,10 @@
         {
           "url": "https://registry.npmjs.org/@cspotcode/source-map-support/-/source-map-support-0.8.1.tgz",
           "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "21c84d7fa74de2d1e8305227ffb384f0b599d7d63aabfebb0667fabe719112ff1149b0556fd2cf27111c9f0adcc17ea2c52bda886a2898052fbb8612c57ad583"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+          "comment": "as detected from npm-ls property \"resolved\""
         }
       ],
       "properties": [
-        {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/@cspotcode/source-map-support"
@@ -784,20 +662,10 @@
         {
           "url": "https://registry.npmjs.org/sharp/-/sharp-0.34.5.tgz",
           "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "3aef48e45b7d58d7026d7ad4f5c3203c17022bc2e2c0ba9c6f2c16dede280d5dfb9f5a73a6e34bb1888057c78e0e78dbb509520f067671411e433e04e781e5b6"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+          "comment": "as detected from npm-ls property \"resolved\""
         }
       ],
       "properties": [
-        {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/sharp"
@@ -838,20 +706,10 @@
         {
           "url": "https://registry.npmjs.org/undici/-/undici-7.28.0.tgz",
           "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "711658ad30f05b39e59d188f8e08001b16576a7b72e8cf115757dff169b82d65c1a7bfc81bcbf90e73a6ef80ed501a7d38e3692bbe5894f9c88d0a97d1d043b4"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+          "comment": "as detected from npm-ls property \"resolved\""
         }
       ],
       "properties": [
-        {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/undici"
@@ -893,20 +751,10 @@
         {
           "url": "https://registry.npmjs.org/ws/-/ws-8.21.0.tgz",
           "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "56ca76f1bec345c8a6150bebaaed967a4df3d626310c25aa1d807c42c9e4fd2e117da090ccf18fc8136e563255ddc77a5222ad52da7ab0d33bee05afcdc087fa"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+          "comment": "as detected from npm-ls property \"resolved\""
         }
       ],
       "properties": [
-        {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/ws"
@@ -948,20 +796,10 @@
         {
           "url": "https://registry.npmjs.org/youch/-/youch-4.1.0-beta.10.tgz",
           "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "acb7d52c1e058109de0ebd1dbf5a1d74255998a8dc27ac97ea64b8a54f3632afc3b7d6b770b650eb6a4304be0050efae56b0afb56cf764550bd87140149fc15d"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+          "comment": "as detected from npm-ls property \"resolved\""
         }
       ],
       "properties": [
-        {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/youch"
@@ -1002,20 +840,10 @@
         {
           "url": "https://registry.npmjs.org/pathe/-/pathe-2.0.3.tgz",
           "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "5948c6700a8fd6041a72841ef8e049b0503b2dde03c97b9422367971cef970b1ef27b76d36c4ee8298712000f0b294be02b68051e3c22ab495b4f2c58ff17cf3"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+          "comment": "as detected from npm-ls property \"resolved\""
         }
       ],
       "properties": [
-        {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/pathe"
@@ -1029,7 +857,6 @@
       "version": "1.20260708.1",
       "bom-ref": "cybermeters-scan-api@0.1.0|@cloudflare/workerd-darwin-arm64@1.20260708.1",
       "description": "👷 workerd for macOS ARM 64-bit, Cloudflare's JavaScript/Wasm Runtime",
-      "scope": "optional",
       "licenses": [
         {
           "license": {
@@ -1058,20 +885,10 @@
         {
           "url": "https://registry.npmjs.org/@cloudflare/workerd-darwin-arm64/-/workerd-darwin-arm64-1.20260708.1.tgz",
           "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "25594968a0e845354a4aba072257fc8375023e32a3e220db31913608d621b79a90fb6acbd05014895955f361b706a2a79f0f641d89e7b0ccc2d3c6fdcd5b5dcc"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+          "comment": "as detected from npm-ls property \"resolved\""
         }
       ],
       "properties": [
-        {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/@cloudflare/workerd-darwin-arm64"
@@ -1114,20 +931,10 @@
         {
           "url": "https://registry.npmjs.org/@jridgewell/trace-mapping/-/trace-mapping-0.3.9.tgz",
           "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "dc17a5b7ab5d73c6cf800b5b72676d349962ad5a139846f97b6802f783e7930116f6323a0801d47a81bce6d8d63f95aabaa7dabe832d330886e0ff76e9928ab9"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+          "comment": "as detected from npm-ls property \"resolved\""
         }
       ],
       "properties": [
-        {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/@jridgewell/trace-mapping"
@@ -1169,20 +976,10 @@
         {
           "url": "https://registry.npmjs.org/@img/colour/-/colour-1.1.0.tgz",
           "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "4ddefaabb8f9ee8fed2d57604bbe3a7180117d2cb193c8847d1c5ec0bf61e0e3336216d6e1301ca69974993e1ecaa5dd761e8bfe3c2833be66a3b8b16bfa4279"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+          "comment": "as detected from npm-ls property \"resolved\""
         }
       ],
       "properties": [
-        {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/@img/colour"
@@ -1197,7 +994,6 @@
       "bom-ref": "cybermeters-scan-api@0.1.0|@img/sharp-darwin-arm64@0.34.5",
       "author": "Lovell Fuller",
       "description": "Prebuilt sharp for use with macOS 64-bit ARM",
-      "scope": "optional",
       "licenses": [
         {
           "license": {
@@ -1226,20 +1022,10 @@
         {
           "url": "https://registry.npmjs.org/@img/sharp-darwin-arm64/-/sharp-darwin-arm64-0.34.5.tgz",
           "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "8a6b50dd63095db318e1fc5bfcd769e87053355b5609423459da1bca17867f9f9a77ac57f152033bcbb6c44e2a73f7ebd3c08a1bfedd0ec785b67e8cea0febdf"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+          "comment": "as detected from npm-ls property \"resolved\""
         }
       ],
       "properties": [
-        {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/@img/sharp-darwin-arm64"
@@ -1254,7 +1040,6 @@
       "bom-ref": "cybermeters-scan-api@0.1.0|@img/sharp-libvips-darwin-arm64@1.2.4",
       "author": "Lovell Fuller",
       "description": "Prebuilt libvips and dependencies for use with sharp on macOS 64-bit ARM",
-      "scope": "optional",
       "licenses": [
         {
           "license": {
@@ -1283,20 +1068,10 @@
         {
           "url": "https://registry.npmjs.org/@img/sharp-libvips-darwin-arm64/-/sharp-libvips-darwin-arm64-1.2.4.tgz",
           "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "cea8e3a3b45ab457c5a0fd0c910e758dfb856419d5136a5189ac9d289d46feb1d9be7b2b1c039c4002c88bdb00e5ca39c5e9d0753ba00afb5bd5cb9fefc55fe2"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+          "comment": "as detected from npm-ls property \"resolved\""
         }
       ],
       "properties": [
-        {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/@img/sharp-libvips-darwin-arm64"
@@ -1338,20 +1113,10 @@
         {
           "url": "https://registry.npmjs.org/detect-libc/-/detect-libc-2.1.2.tgz",
           "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "06d8f604e38ef37a375b21f9f5ef0c817b3111055c6ab9143a9118aee6c1d2eaf09cdd74c90dfae2bb22072535d67665a966199b4e62fe87fb8a8e26ce2841b5"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+          "comment": "as detected from npm-ls property \"resolved\""
         }
       ],
       "properties": [
-        {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/detect-libc"
@@ -1393,20 +1158,10 @@
         {
           "url": "https://registry.npmjs.org/semver/-/semver-7.8.5.tgz",
           "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "63bfca0ec6fc2e3a28669c1aa86cae94ee8342592c8029dc7211c693eb19218e1206f52870c044147e54af57c8e1d57e26f974c3a723bee71a222e34a6e462a0"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+          "comment": "as detected from npm-ls property \"resolved\""
         }
       ],
       "properties": [
-        {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/semver"
@@ -1449,20 +1204,10 @@
         {
           "url": "https://registry.npmjs.org/@poppinss/colors/-/colors-4.1.6.tgz",
           "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "1fdc6421d16cc1b4bc9f577abe645df3e735d2dd907bead92136db0c71e4422c47e7edb1d450c69a2ff42be5a05a2a9014a3d2948601ee3947e8aa5f9fa1657a"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+          "comment": "as detected from npm-ls property \"resolved\""
         }
       ],
       "properties": [
-        {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/@poppinss/colors"
@@ -1505,20 +1250,10 @@
         {
           "url": "https://registry.npmjs.org/@poppinss/dumper/-/dumper-0.6.5.tgz",
           "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "34175821bf7427b2df388df674e7b0288d6bef09e4887ea6f76d29b90dea1d47999313644221675d55a813a62d152bfa40e88f3dfef2b3a8be1d659e703cfbb3"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+          "comment": "as detected from npm-ls property \"resolved\""
         }
       ],
       "properties": [
-        {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/@poppinss/dumper"
@@ -1561,20 +1296,10 @@
         {
           "url": "https://registry.npmjs.org/@speed-highlight/core/-/core-1.2.17.tgz",
           "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "67dd85c0aa42b5f696d55d234d4fdf87743360464df300f0af34480680030897e7e2624235c24dfd77a089f5fb043ad0f3f87d5e1fc99dbc8c7212f416a5eb92"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+          "comment": "as detected from npm-ls property \"resolved\""
         }
       ],
       "properties": [
-        {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/@speed-highlight/core"
@@ -1616,20 +1341,10 @@
         {
           "url": "https://registry.npmjs.org/cookie/-/cookie-1.1.1.tgz",
           "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "7a2f00a2cee36b4c1e469173267100f541c9ffb5d09aa8256d1c277f60138dc07d5aaf3be15287f647e38e2acce94854dbf1397c561a77297284595d72a4a275"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+          "comment": "as detected from npm-ls property \"resolved\""
         }
       ],
       "properties": [
-        {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/cookie"
@@ -1671,20 +1386,10 @@
         {
           "url": "https://registry.npmjs.org/youch-core/-/youch-core-0.3.3.tgz",
           "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "868ed7b868cb689da1587a0af32167b141b2d98e6e0e9a924ead459072cae3fa2a2adc945350056ce3b16382290bd7f47d32e3c186ec954cf43e8e41a43d70ac"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+          "comment": "as detected from npm-ls property \"resolved\""
         }
       ],
       "properties": [
-        {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/youch-core"
@@ -1727,20 +1432,10 @@
         {
           "url": "https://registry.npmjs.org/@jridgewell/resolve-uri/-/resolve-uri-3.1.2.tgz",
           "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "6d12128022233f6d3fb5b5923d63048b9e1054f45913192e0fd9492fe508c542adc15240f305b54eb6f58ccb354455e8d42053359ff98690bd42f98a59da292b"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+          "comment": "as detected from npm-ls property \"resolved\""
         }
       ],
       "properties": [
-        {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/@jridgewell/resolve-uri"
@@ -1783,20 +1478,10 @@
         {
           "url": "https://registry.npmjs.org/@jridgewell/sourcemap-codec/-/sourcemap-codec-1.5.5.tgz",
           "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "71843ddf5d20aeac6e7966e5f96b885086a251a0dc8fb58eab97d58449633558117ce52163d7f2db34ef7e8a96b2779b87c4a5ef45527056c80af2672ca0743a"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+          "comment": "as detected from npm-ls property \"resolved\""
         }
       ],
       "properties": [
-        {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/@jridgewell/sourcemap-codec"
@@ -1838,20 +1523,10 @@
         {
           "url": "https://registry.npmjs.org/kleur/-/kleur-4.1.5.tgz",
           "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "a3e34efbc5ab462404138ffb9f044984dd475a9566266e75d690475313cbb69d015084b3941a653916129937250a726f42adad2aefec825df156991ced95ae41"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+          "comment": "as detected from npm-ls property \"resolved\""
         }
       ],
       "properties": [
-        {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/kleur"
@@ -1894,20 +1569,10 @@
         {
           "url": "https://registry.npmjs.org/@sindresorhus/is/-/is-7.2.0.tgz",
           "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "3f50b3d5d59a15f478211f94d779aaaa21ac2c57f529b6b2c9b5b075ddaf7dcb5d57a843a54920098d2728e2cb4cc4a845dfe324d8ed6eacdfd772bc0c209743"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+          "comment": "as detected from npm-ls property \"resolved\""
         }
       ],
       "properties": [
-        {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/@sindresorhus/is"
@@ -1949,20 +1614,10 @@
         {
           "url": "https://registry.npmjs.org/supports-color/-/supports-color-10.2.2.tgz",
           "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "492fa3c78e461754238045d0c78349655f489aa98ed8d3f3e4536c207aec0e387662c1e76b0a5a9fb48d435a3c36e86b6c7672f4066122809488279a5bf0bcd2"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+          "comment": "as detected from npm-ls property \"resolved\""
         }
       ],
       "properties": [
-        {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/supports-color"
@@ -2005,20 +1660,10 @@
         {
           "url": "https://registry.npmjs.org/@poppinss/exception/-/exception-1.2.3.tgz",
           "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "742103f9044285355ab44f626eda1ac5cf9691dcce4a36132a2ffeb9a707588b1fa1d55fa6cb9ea37f832a9814e4fc7ca978e0997912be15ef482cf77e73fd97"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+          "comment": "as detected from npm-ls property \"resolved\""
         }
       ],
       "properties": [
-        {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/@poppinss/exception"
@@ -2059,20 +1704,10 @@
         {
           "url": "https://registry.npmjs.org/error-stack-parser-es/-/error-stack-parser-es-1.0.5.tgz",
           "type": "distribution",
-          "hashes": [
-            {
-              "alg": "SHA-512",
-              "content": "e6ab9c56dd9772e18c7041a0588ee2fb26699a907243c27594785c2fb3f0a82c2ef453cfdd5517cd3e25b477b98b6cfd75e3f010770354e01f4a71ec3a509744"
-            }
-          ],
-          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+          "comment": "as detected from npm-ls property \"resolved\""
         }
       ],
       "properties": [
-        {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/error-stack-parser-es"

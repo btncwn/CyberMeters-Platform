@@ -25,6 +25,24 @@ uploads them as the `sbom-cyclonedx` build artifact, so the artifact is always
 accurate for that commit. The committed files here are the point-in-time
 snapshot for reference; refresh them when dependencies change materially.
 
+## License policy (CI-enforced)
+
+`scripts/validate-licenses.js` reads these SBOMs and fails CI if any component
+ships under a license that isn't permissive (MIT/ISC/BSD/Apache-2.0/CC0/… — the
+full allowlist is in the script) and isn't a documented exception. This keeps a
+copyleft (GPL/AGPL/LGPL/SSPL/BUSL) or unknown-licensed dependency from silently
+entering the product. Runs right after SBOM generation in CI; reads the committed
+snapshots locally.
+
+Current exceptions (both safe, both non-shipped):
+- **sharp-libvips-\*** (LGPL-3.0-or-later) — optional, platform-specific native
+  image lib; dynamically used, unmodified, never bundled into the Worker.
+- **caniuse-lite** (CC-BY-4.0) — build-time browser-compatibility data, not
+  redistributed in the app bundle.
+
+To add a dependency under a new license: either it's already permissive (nothing
+to do), or add a documented `EXCEPTIONS` entry only if it's genuinely safe.
+
 ## Notes
 
 - `--ignore-npm-errors` tolerates optional-dependency quirks (e.g. `fsevents`
