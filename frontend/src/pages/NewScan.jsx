@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import {
   ScanLine, Globe, ArrowLeft, CheckCircle,
@@ -26,6 +26,17 @@ export default function NewScan() {
   const [error, setError]     = useState(null)
   const [success, setSuccess] = useState(null)
   const navigate = useNavigate()
+
+  // Clicking "New Scan" in the header while already on this page resets the form
+  // to a clean state (Router won't remount the same route on its own).
+  useEffect(() => {
+    const reset = () => {
+      setDomain(''); setError(null); setSuccess(null); setLoading(false)
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    }
+    window.addEventListener('cybermeters:new-scan-reset', reset)
+    return () => window.removeEventListener('cybermeters:new-scan-reset', reset)
+  }, [])
 
   const valid = isValidDomain(domain)
 

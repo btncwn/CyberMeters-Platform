@@ -430,7 +430,15 @@ export default function Layout() {
 
             <NotificationBell />
 
-            <button onClick={() => navigate('/scans/new')} className="btn-primary">
+            <button
+              onClick={() => {
+                // Reset the New Scan form even when already on the page (React
+                // Router won't remount the same route). Harmless off-page.
+                navigate('/scans/new')
+                window.dispatchEvent(new CustomEvent('cybermeters:new-scan-reset'))
+              }}
+              className="btn-primary"
+            >
               <Plus className="w-4 h-4" />
               New Scan
             </button>
