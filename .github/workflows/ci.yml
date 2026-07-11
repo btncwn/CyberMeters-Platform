@@ -41,6 +41,9 @@ jobs:
       - name: Validate integration flows (tenant isolation / access control)
         run: node scripts/validate-integration.js
 
+      - name: Validate tenant-isolation matrix (cross-tenant read/write/delete/oracle)
+        run: node scripts/validate-tenant-isolation.js
+
       - name: Validate request pipeline (fetch → auth → RBAC → DB; login + webhook)
         run: node scripts/validate-pipeline.js
 

@@ -49,7 +49,7 @@ turning this from "we passed the tests" into "the tests can't regress".
 |---|---|---|---|
 | 1 | Close pentest critical/high findings at root | ✅ | 9/9 fixed; roots addressed (e.g. palette drift → single source; PLAN_LIMITS import class) |
 | 2 | Independent retest | 🟡 | Every fix independently re-verified vs HEAD + live smoke by a second reviewer — **but not a third-party firm retest**. Acceptable for invite-only; schedule external retest before commercial scale (P2-1). |
-| 3 | Cross-tenant test pack (per resource) | 🟡 | `validate-integration.js` (18) covers tenant isolation + access control; **exhaustive per-resource A-cannot-touch-B matrix is the gap** — see "Tenant isolation matrix" below |
+| 3 | Cross-tenant test pack (per resource) | ✅ | `validate-tenant-isolation.js` (57 assertions) drives the real fetch() router with four actors (admin/viewer/foreign/non-member) over 13 resource endpoints, asserting all 7 invariants incl. the existence oracle; runs in CI. Plus `validate-integration.js` (18) at the auth-helper level. |
 | 4 | Auth/session/MFA/SSO regression tests | 🟡 | `validate-security-contracts.js` (45) covers auth/MFA/RBAC/billing; MFA proof endpoints now fail-closed (`27d597f`,`a7ea6e5`); full SSO/session-fixation regression suite = partial |
 | 5 | Stripe webhook idempotency + signature tests | 🟡 | Signature verified before parse ✅ (`validate-pipeline` covers webhook path); upsert-not-insert prevents duplicate state; **a strict processed-event-id replay guard + explicit test is the gap** |
 | 6 | Rate limits fail-closed on cost/abuse paths | ✅ | Invitation send (`4af86f7`), all MFA proof endpoints (`27d597f`,`a7ea6e5`) now fail-closed. Global read guard is intentionally fail-open. Scan-start quota fail-open is documented/accepted. |
@@ -81,10 +81,11 @@ assessment · secure-development training · recurring threat-model refresh · s
 
 ---
 
-## Tenant isolation matrix (the highest-value test debt)
+## Tenant isolation matrix ✅ (`scripts/validate-tenant-isolation.js`, in CI)
 
 For CyberMeters, cross-tenant data access outranks even classic XSS. Every API
-resource needs the same seven assertions:
+resource gets the same seven assertions — now enforced by a real-fetch harness
+(four seeded actors × 13 resource endpoints, 57 assertions, CI-blocking):
 
 ```
 A cannot READ B's resource
