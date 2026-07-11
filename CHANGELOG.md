@@ -5,6 +5,28 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.10 (v2026.07.10-10 — red-team hardening) — deployed 2026-07-11
+
+### Security
+- **Signup user-enumeration removed** (`429f2e0`): signup returned a distinct
+  409 for a registered email, letting an attacker probe which emails have
+  accounts (found in the authorized black-box red-team pass). Signup with an
+  existing email now returns the exact same generic 201 as a fresh signup — no
+  account is created, and a security-notice email goes to the genuine owner
+  instead. The HTTP response is now indistinguishable between registered and
+  unregistered emails; signup stays rate-limited (5/hour/IP). Verified live:
+  existing vs non-existing email now return identical responses.
+- **Dev-dependency CVEs cleared** (`eb2562a`, no deploy needed): wrangler
+  bumped v3 → ^4.24.4, clearing 5 advisories (esbuild dev-server SSRF, undici
+  ×9, miniflare) — all devDependency-only, never in the production runtime.
+  `npm audit` now 0 across frontend + both workers.
+- Authorized black-box red-team pass (16 checks) otherwise clean: HSTS/CSP/
+  X-Frame/nosniff, auth-required 401s, error sanitisation, login rate-limit
+  fires at the 10th attempt, CORS not reflected, body 413 / URL 414, webhook
+  400 unsigned, no file leaks, security.txt present, no cookies.
+- Live version **fa3c49d1-c111-4785-bbdf-a2d136d282e0**; `/health` 200.
+  Rollback: previous version `fd583e3d-525b-4a35-8561-80ab91deda3f`.
+
 ## 2026.07.10 (v2026.07.10-9 — pre-beta security hardening)
 
 ### Fixed (independent Codex audit at 0bf010e, all verified against HEAD)
