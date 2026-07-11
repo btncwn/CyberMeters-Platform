@@ -468,6 +468,12 @@ export default function FreeScanPage() {
                   </button>
                 </form>
 
+                <p className="mt-3 max-w-2xl text-xs text-gray-400 leading-relaxed">
+                  Non-intrusive and read-only — we only inspect publicly available data (DNS,
+                  certificates, public web signals), the same information any visitor can see.
+                  Please only check domains you own or are authorised to assess.
+                </p>
+
                 {error && (
                   <div className="mt-4 flex max-w-2xl items-center gap-2 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
                     <AlertTriangle className="h-4 w-4 flex-shrink-0" />
