@@ -56,7 +56,7 @@ turning this from "we passed the tests" into "the tests can't regress".
 | 7 | Secret + log redaction | 🟡 | CI secret-scan ✅; audit-metadata redaction ✅ (`sanitizeAuditMetadata` blocks password/token/secret/mfa/totp/stripe/recovery/api_key); customer error sanitisation ✅; **central console.log redaction helper = gap** |
 | 8 | Backup + real restore test | 🟡 | D1 backup taken before invites (checklist §4); **a proven RESTORE drill (D1 + R2) with RPO/RTO recorded is the gap** |
 | 9 | Production monitoring + alerting | 🟡 | `wrangler tail`, audit_events, `[request-error]` with request_id, FeedbackWidget ✅; **automated Cloudflare error-rate / 5xx / auth-failure alerting = gap** |
-| 10 | Incident-response base plan | ⬜ | Not written — see "Incident response" below |
+| 10 | Incident-response base plan | ✅ | `docs/INCIDENT-RESPONSE-PLAN.md` — roles, SEV1/2/3, lifecycle, break-glass command reference (rollback / secret rotation / session + token revoke / account freeze), 12 per-incident playbooks, ICO 72h notification path, RPO/RTO, post-incident review template |
 
 ### P1 — before public beta
 
@@ -150,14 +150,18 @@ Secrets out of the repo (CI secret-scan ✅) · prod/staging split · rotation
 procedure ⬜ · revocation process ⬜ · least privilege · unused-key cleanup ·
 **scan git HISTORY, not just current files** ⬜ · leak incident procedure ⬜.
 
-## Incident-response plan (⬜ — to write)
+## Incident-response plan ✅ (`docs/INCIDENT-RESPONSE-PLAN.md`)
 
-Written playbooks for: cross-tenant exposure · stolen API token · compromised
-user/admin account · secret leak · malicious dependency · Stripe webhook abuse ·
-DB corruption · R2 report leak · email-account compromise · mass scan abuse ·
-Cloudflare account compromise. Each must state: who decides · which access is
-cut · how secrets rotate · how logs are preserved · how affected customers are
-identified · who notifies customers · whether a regulator notification is needed.
+Written playbooks for all 12 incident types (cross-tenant exposure · stolen API
+token · compromised user/admin account · secret leak · malicious dependency ·
+Stripe webhook abuse · DB corruption · R2 report leak · email-account compromise ·
+mass scan abuse · Cloudflare account compromise), each with Detect → Contain →
+Investigate → Recover → Notify. Includes a break-glass command reference
+(worker rollback, per-secret rotation, session/token revoke, account freeze,
+evidence snapshot), SEV1/2/3 targets, the ICO 72-hour notification decision path,
+and RPO/RTO. Each answers: who decides · which access is cut · how secrets rotate ·
+how logs are preserved · how affected customers are identified · who notifies ·
+whether the regulator must be told.
 
 ---
 
