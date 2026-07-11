@@ -5,6 +5,23 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.11 (v2026.07.11-2 — uniform API error contract) — deployed 2026-07-11
+
+### API / trust
+- **Uniform error contract** (`c33aff9`): every error response (HTTP ≥ 400) now
+  carries `{ error, code, message }` — a snake_case machine `code` the UI can
+  switch on and a customer-safe human `message` a user can read verbatim —
+  enforced centrally in `normalizeApiResponseData` (the choke point behind
+  `json()`), so all 568+ error sites conform with no route churn. Completed the
+  status→code map (405/410/422/502/503) and guaranteed `message` (added only
+  when a route didn't set its own). `detail`/`stack` are still stripped.
+  Backward-compatible: `error` unchanged (existing machine-code switches keep
+  working); `message` is additive. OpenAPI Error schema updated. New CI-blocking
+  harness `validate-error-contract.js` (116 assertions). Live 401 now returns a
+  clean sentence instead of a bare "Unauthorized".
+- Live version **60d557a2-9467-4e3f-b28a-11b18d4637a8**; `/health` 200. Rollback:
+  previous version **9e0949d6-123b-4526-b863-a635f7236928**.
+
 ## 2026.07.11 (v2026.07.11-1 — secure-SDLC batch: log redaction, Stripe replay guard, purge + migration CI gates) — deployed 2026-07-11
 
 ### Security / reliability (every finding paired with an automated regression)
