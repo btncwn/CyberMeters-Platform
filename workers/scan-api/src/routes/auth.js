@@ -1414,6 +1414,13 @@ export async function authRoutes(rctx) {
       const submittedCode  = (body.recovery_code    || "").trim();
       if (!rawChallenge)  return json({ error: "challenge_token is required" }, 400);
       if (!submittedCode) return json({ error: "recovery_code is required" }, 400);
+      // Fail-closed IP throttle on the recovery-code proof — same guard the TOTP
+      // challenge has, so invalid-challenge grinding can't hammer D1 unbounded.
+      const _rcIp = request.headers.get("CF-Connecting-IP") || "unknown";
+      const rcRl = await consumeApiRateLimit(env,
+        [{ scope: "ip", scope_id: await rateLimitScopeId("mfa_recovery", _rcIp) }],
+        "mfa_recovery", 20, 900, { failClosed: true });
+      if (rcRl) return json(rcRl.body, rcRl.status);
       try {
         const challengeHash = await hashToken(rawChallenge);
         const challenge = await env.cybermeters_db
