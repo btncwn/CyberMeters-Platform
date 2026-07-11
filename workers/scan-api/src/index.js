@@ -1864,6 +1864,21 @@ async function isPlatformAdmin(user, env) {
 
 // ── Worker Handler ────────────────────────────────────────────────────────────
 
+// ── Maintenance mode helpers ──────────────────────────────────────────────────
+// Toggle via the MAINTENANCE_MODE var (on/1/true). Fail-safe: anything else —
+// including unset — reads as OFF, so the API can never be taken down by a typo.
+function isMaintenanceMode(env) {
+  const v = String(env?.MAINTENANCE_MODE ?? "").trim().toLowerCase();
+  return v === "on" || v === "1" || v === "true";
+}
+// Bypass lets the founder verify a deploy while the flag is still on. Only active
+// when MAINTENANCE_BYPASS_TOKEN is set; the request must send it in the header.
+function isMaintenanceBypass(request, env) {
+  const token = env?.MAINTENANCE_BYPASS_TOKEN;
+  if (!token) return false;
+  return request.headers.get("X-Maintenance-Bypass") === token;
+}
+
 export default {
   async fetch(request, env, ctx) {
     // Build CORS headers once per request, honouring the ALLOWED_ORIGIN binding.
@@ -1908,6 +1923,9 @@ export default {
         service:       "cybermeters-scan-api",
         version:       env.APP_VERSION || "dev",
         deployment_id: env.CF_VERSION_METADATA?.id || null,
+        // Exposed so the frontend maintenance overlay can auto-dismiss when the
+        // window lifts (both /health and /ready stay reachable during maintenance).
+        maintenance:   isMaintenanceMode(env),
       });
     }
 
@@ -1921,6 +1939,23 @@ export default {
       try { await env.cybermeters_reports.head("__readiness_probe__"); checks.r2 = true; } catch { /* r2 unreachable */ }
       const ready = checks.d1 && checks.r2;
       return json({ status: ready ? "ready" : "degraded", checks, version: env.APP_VERSION || "dev" }, ready ? 200 : 503);
+    }
+
+    // ── Maintenance mode ────────────────────────────────────────────────
+    // When MAINTENANCE_MODE is on, every API route returns a clean 503 so
+    // customers see a friendly "back shortly" message instead of half-broken
+    // behaviour during a planned window. /health and /ready above are exempt so
+    // monitoring keeps working, and a bypass token lets the founder smoke-test
+    // the deploy before lifting the flag. Fail-safe: an unset/garbled var reads
+    // as OFF, so this can never accidentally take the API down.
+    if (isMaintenanceMode(env) && !isMaintenanceBypass(request, env)) {
+      return Response.json(
+        normalizeApiResponseData({
+          error: "maintenance",
+          message: "CyberMeters is undergoing scheduled maintenance and will be back shortly. Please try again in a few minutes.",
+        }, 503),
+        { status: 503, headers: { ...buildJsonHeaders(corsHeaders), "X-Request-ID": requestId, "Retry-After": "300" } },
+      );
     }
 
     // ── Global rate limiting guard ──────────────────────────────────────
@@ -2137,6 +2172,8 @@ export {
   SCAN_CHILD_TABLES,
   WORKSPACE_PURGE_TABLES,
   purgeWorkspaceData,
+  isMaintenanceMode,
+  isMaintenanceBypass,
   _cloudflareRouteFailure,
   alertChannelToApi,
   analyzeSpfChain,
