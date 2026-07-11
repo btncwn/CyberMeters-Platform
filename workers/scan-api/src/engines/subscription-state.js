@@ -124,6 +124,18 @@ export async function getWorkspaceSubscription(workspaceId, env) {
 export async function createWorkspaceTrialSubscription(workspaceId, ownerUserId, env) {
   if (!workspaceId || !ownerUserId) return;
   try {
+    // Trial is once per OWNER, not per workspace. Without this an owner can farm
+    // unlimited 14-day Professional trials by creating a workspace, soft-deleting
+    // it (so it drops out of the usage count) and creating another. Check the
+    // owner's whole subscription history — soft-deleting a workspace does not
+    // remove its subscription row, so a prior trial is still visible here.
+    const priorTrial = await env.cybermeters_db
+      .prepare(`SELECT 1 FROM subscriptions WHERE owner_user_id = ? AND trial_start IS NOT NULL LIMIT 1`)
+      .bind(ownerUserId)
+      .first()
+      .catch(() => null);
+    if (priorTrial) return; // owner already used their lifetime trial
+
     const now     = new Date();
     const trialEnd = new Date(now.getTime() + TRIAL_DURATION_DAYS * 24 * 60 * 60 * 1000);
     const subId   = createId("sub");
