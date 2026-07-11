@@ -35,6 +35,10 @@ crons = ["0 * * * *"]
 # Human-readable release version, surfaced by GET /health. Bump on each
 # production release (date-based: YYYY.MM.DD).
 APP_VERSION = "2026.07.11"
+# Planned-maintenance switch. "off" = normal. Set to "on" and redeploy to return
+# a clean 503 for every API route (except /health + /ready); flip back to "off"
+# and redeploy to lift. See docs/07-RELEASE-CHECKLIST.md → Maintenance mode.
+MAINTENANCE_MODE = "off"
 ALERT_EMAIL_TO   = "ttrnn47@gmail.com"
 ALERT_EMAIL_FROM = "alerts@cybermeters.com"
 SAFE_EMAIL_FROM = "safe@cybermeters.com"

@@ -131,6 +131,35 @@ curl -s https://cybermeters-platform.ttrnn47.workers.dev/health   # confirm reve
 
 ---
 
+## Maintenance mode (planned windows)
+
+For a risky migration or a window where the API must be quiet, put the platform
+into maintenance instead of letting customers hit half-broken behaviour.
+
+**Enable:**
+```bash
+# set MAINTENANCE_MODE = "on" in workers/scan-api/wrangler.toml [vars], then:
+cd workers/scan-api && npx wrangler deploy
+```
+Every API route now returns a clean `503 { code: "maintenance", message }` with
+`Retry-After: 300`. `/health` and `/ready` stay up (monitoring keeps working);
+`/health` reports `maintenance: true`. The frontend shows a full-screen
+"back shortly" overlay that auto-refreshes when the window lifts.
+
+**Verify the deploy while still in maintenance (bypass):**
+```bash
+# one-time: wrangler secret put MAINTENANCE_BYPASS_TOKEN
+curl -H "X-Maintenance-Bypass: <token>" https://<api-host>/api/workspaces   # 401, not 503
+```
+
+**Lift:** set `MAINTENANCE_MODE = "off"` and `wrangler deploy` again. Confirm
+`curl https://<api-host>/health` shows `"maintenance": false`.
+
+Fail-safe: an unset/garbled `MAINTENANCE_MODE` reads as OFF. Guarded by
+`scripts/validate-maintenance-mode.js` (29 assertions).
+
+---
+
 # Final Rule
 
 Never deploy code you would not confidently demonstrate to a paying customer —

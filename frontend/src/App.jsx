@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-route
 import { AuthProvider, useAuth } from './context/AuthContext'
 import Layout from './components/Layout'
 import ChunkErrorBoundary from './components/ChunkErrorBoundary'
+import MaintenanceOverlay from './components/MaintenanceOverlay'
 import ProtectedRoute from './components/ProtectedRoute'
 
 // ── Fallback Spinner Component ───────────────────────────────────────────
@@ -221,6 +222,7 @@ export default function App() {
         <ChunkErrorBoundary>
           <AppRoutes />
         </ChunkErrorBoundary>
+        <MaintenanceOverlay />
       </AuthProvider>
     </BrowserRouter>
   )

@@ -202,6 +202,18 @@ async function request(path, options = {}) {
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }))
+    // Planned maintenance — the whole API is intentionally down. Announce it so a
+    // global overlay can take over, and surface the server's friendly message
+    // instead of the bare "maintenance" code.
+    if (res.status === 503 && err.code === 'maintenance') {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('cybermeters:maintenance'))
+      }
+      const maintErr = /** @type {ApiError} */ (new Error(err.message || 'CyberMeters is undergoing scheduled maintenance and will be back shortly.'))
+      maintErr.code = 'maintenance'
+      maintErr.status = 503
+      throw maintErr
+    }
     if (err.error === 'plan_limit_exceeded') {
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('cybermeters:plan-limit', { detail: err }))
@@ -270,6 +282,18 @@ async function requestBlob(path, options = {}) {
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }))
+    // Planned maintenance — the whole API is intentionally down. Announce it so a
+    // global overlay can take over, and surface the server's friendly message
+    // instead of the bare "maintenance" code.
+    if (res.status === 503 && err.code === 'maintenance') {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('cybermeters:maintenance'))
+      }
+      const maintErr = /** @type {ApiError} */ (new Error(err.message || 'CyberMeters is undergoing scheduled maintenance and will be back shortly.'))
+      maintErr.code = 'maintenance'
+      maintErr.status = 503
+      throw maintErr
+    }
     if (err.error === 'plan_limit_exceeded') {
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('cybermeters:plan-limit', { detail: err }))
