@@ -63,7 +63,7 @@ export default function NewScan() {
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-gray-900">New Scan</h1>
         <p className="text-sm text-gray-400 mt-1">
-          Assess any domain you own. We'll map your external exposure and turn it into a clear Executive Report — usually within a few minutes.
+          Assess any domain from the outside. We'll map its external exposure and turn it into a clear Executive Report — usually within a few minutes.
         </p>
       </div>
 
@@ -132,8 +132,11 @@ export default function NewScan() {
                     : <><ScanLine className="w-5 h-5" /><span>Start Scan</span></>}
                 </button>
 
-                <p className="text-center text-xs text-gray-400">
-                  Scans are non-intrusive and read-only. No credentials required.
+                <p className="text-center text-xs text-gray-400 leading-relaxed">
+                  Scans are non-intrusive and read-only — we only inspect publicly available data
+                  (DNS, certificates, public web signals), the same information any visitor can see.
+                  Only scan domains you own or are authorised to assess; you are responsible for
+                  ensuring you have the right to scan a domain.
                 </p>
               </form>
             </>
