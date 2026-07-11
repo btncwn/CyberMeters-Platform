@@ -50,9 +50,22 @@ jobs:
       - name: Validate email worker equivalence (golden vs api worker)
         run: node scripts/validate-email-worker.js
 
+      - name: Validate log redaction (secrets never reach logs)
+        run: node scripts/validate-log-redaction.js
+
+      - name: Validate purge completeness (no orphaned tenant rows / R2 objects)
+        run: node scripts/validate-purge-completeness.js
+
+      - name: Validate migrations (additive-only + fresh-apply convergence)
+        run: node scripts/validate-migrations.js
+
       - name: Install worker deps
         working-directory: workers/scan-api
         run: npm ci || npm install
+
+      - name: Audit worker dependencies
+        working-directory: workers/scan-api
+        run: npm audit --audit-level=high
 
       - name: Worker bundle dry-run (Cloudflare packaging + import graph)
         working-directory: workers/scan-api
