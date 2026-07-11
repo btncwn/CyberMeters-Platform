@@ -1,78 +1,137 @@
-# CyberMeters Release Checklist v1.0
+# CyberMeters Release Checklist v2.0 — Operational Runbook
 
-## Purpose
+> The executable gate for every worker release. v1.0 was a values checklist; this
+> is the step-by-step runbook, matched to the real manual-deploy model (Workers
+> Builds is disconnected — pushing to `main` does **not** deploy the worker;
+> deploy is a deliberate act). Frontend (Pages) auto-deploys on push to `main`.
+> Cross-links: [MONITORING](MONITORING.md) · [INCIDENT-RESPONSE-PLAN](INCIDENT-RESPONSE-PLAN.md) · [BACKUP-RESTORE-DRILL](BACKUP-RESTORE-DRILL.md).
 
-Every release must satisfy this checklist before deployment.
+## Release flow (canonical)
 
-No shortcuts.
+```
+feature branch → PR → CI green (validate + sast) → merge main
+   → [if DB change] apply migration to remote D1 → verify
+   → wrangler deploy → RECORD Version ID → smoke test → tag vYYYY.MM.DD-n → CHANGELOG
+   → confirm CI green on main
+```
 
----
+## Risk gate — who may deploy (from CLAUDE.md)
 
-# Product
+| Tier | Examples | Claude may deploy? |
+|---|---|---|
+| **LOW** | frontend UI/copy, error-handling, scoring calibration, non-destructive API response shaping, test/CI additions, docs | ✅ implement → validate → commit → push → **deploy** |
+| **MEDIUM** | migrations, billing logic, auth routes, scheduled/cron engine, RUA ingestion, Stripe webhooks, delete/retention | ⚠ build → validate → commit → push → **STOP, get Turhan's approval before deploy** |
+| **HIGH** | destructive migrations, DROP/large DELETE, auth/session/RBAC/Stripe architecture redesign, tenant-isolation redesign | ⛔ **STOP before implementation** — present options + risks, wait for approval |
 
-- Feature matches Product Constitution
-- Feature aligns with Roadmap
-- No duplicate functionality introduced
-- Existing capabilities reviewed before implementation
-
----
-
-# Engineering
-
-- Code reviewed
-- Minimal change set
-- No unnecessary complexity
-- No dead code introduced
-- Consistent naming
-- Documentation updated
-
----
-
-# Security
-
-- Security Playbook followed
-- Authentication verified
-- Authorization verified
-- Tenant isolation verified
-- Input validation reviewed
-- Secrets protected
-- No sensitive information exposed
+Determine the tier first. If MEDIUM/HIGH, stop where the table says.
 
 ---
 
-# Testing
+## 1. Pre-flight (before touching the deploy)
 
-- Manual testing completed
-- Regression testing completed
-- Existing functionality verified
-- Edge cases checked
-- Error handling verified
+- [ ] Change is on a branch / PR; **CI green** (`validate` + `sast`) on the PR or main.
+- [ ] Reviewed the diff (`git diff --check` clean; no stray debug/secrets).
+- [ ] Risk tier identified; if MEDIUM/HIGH, approval obtained per the gate above.
 
----
+## 2. Local validation gate (must all pass)
 
-# Deployment
+```bash
+# Worker
+node --check workers/scan-api/src/index.js
+for s in regression-fixtures security-contracts integration tenant-isolation \
+         pipeline email-worker log-redaction purge-completeness migrations \
+         error-contract ops-health openapi; do
+  node scripts/validate-$s.js || echo "❌ $s FAILED"
+done
+( cd workers/scan-api && npm audit --audit-level=high && npx wrangler deploy --dry-run )
 
-- Build successful
-- Worker deployment successful
-- Frontend deployment successful
-- Database migrations verified
-- Environment variables validated
+# Frontend (if touched)
+( cd frontend && npm run typecheck && npm test && npm run build )
 
----
+git diff --check && git status --short
+```
 
-# Validation
+- [ ] Every harness passes; dry-run packages cleanly; frontend build/typecheck/tests green.
 
-- Application loads correctly
-- Authentication works
-- Dashboard works
-- Scanning works
-- Reports work
-- Billing unaffected
-- No console errors
-- No API errors
+## 3. Database migration (only if the change adds one)
+
+Migrations are **MEDIUM risk** — needs approval. Additive-only (enforced by
+`validate-migrations.js`). Apply to remote D1 **before** deploying the code that
+reads the new schema.
+
+```bash
+cd workers/scan-api
+# Snapshot first (cheap insurance — see BACKUP-RESTORE-DRILL.md)
+npx wrangler d1 export cybermeters-db --remote --output=../../backups/pre-$(git rev-parse --short HEAD).sql
+# Apply
+npx wrangler d1 execute cybermeters-db --remote --file=../../database/migrations/<NNN>-*.sql
+# Verify the new object exists
+npx wrangler d1 execute cybermeters-db --remote --command="SELECT name FROM sqlite_master WHERE name='<new_table>';"
+```
+
+- [ ] Snapshot taken · migration applied · new object verified present.
+
+## 4. Deploy
+
+```bash
+cd workers/scan-api
+# Bump APP_VERSION in wrangler.toml if the date rolled over
+npx wrangler deploy
+```
+
+- [ ] **RECORD the printed `Current Version ID`** (rollback needs it): `________________`
+- [ ] Note the **previous** Version ID for rollback (from CHANGELOG's last entry): `________________`
+
+> Second `cybermeters-email` worker (only if changed):
+> `npx wrangler deploy --config ../email-ingest/wrangler.toml`
+
+## 5. Post-deploy smoke test (live)
+
+```bash
+BASE=https://cybermeters-platform.ttrnn47.workers.dev
+curl -s $BASE/health        # version + deployment_id == what you just deployed
+curl -s $BASE/ready         # {"status":"ready","checks":{"d1":true,"r2":true}}
+curl -s -o /dev/null -w "%{http_code}\n" $BASE/api/workspaces   # 401 (auth enforced)
+```
+
+- [ ] `/health` shows the new deployment_id (poll ~30s for propagation).
+- [ ] `/ready` is `ready` (d1 + r2 true).
+- [ ] Anonymous protected endpoint returns 401 (auth still enforced).
+- [ ] If frontend changed: load `app.cybermeters.com`, confirm it renders + a login works (CSP didn't break anything).
+
+## 6. Record the release
+
+```bash
+# CHANGELOG entry: version, what shipped, live Version ID, rollback (previous) ID
+git commit -m "release(worker): vYYYY.MM.DD-n — <summary>"
+git tag -a vYYYY.MM.DD-n -m "vYYYY.MM.DD-n — <summary>. Live <version-id>."
+git push origin main && git push origin vYYYY.MM.DD-n
+```
+
+- [ ] CHANGELOG updated with live Version ID **and** rollback target.
+- [ ] Release tagged `vYYYY.MM.DD-n` and pushed.
+- [ ] CI green on the main push.
+
+## 7. Rollback (if smoke test fails or an alert fires)
+
+Fast path — no rebuild needed (full detail in [INCIDENT-RESPONSE-PLAN §4](INCIDENT-RESPONSE-PLAN.md)):
+
+```bash
+cd workers/scan-api
+npx wrangler deployments list                    # confirm the last good Version ID
+npx wrangler rollback --version-id <PREVIOUS_ID>  # or: wrangler versions deploy <ID>
+curl -s https://cybermeters-platform.ttrnn47.workers.dev/health   # confirm reverted
+```
+
+- If the release included a migration, additive migrations are safe to leave in
+  place on rollback (older code ignores the new column/table). **Never** pair a
+  rollback with a destructive down-migration without a fresh snapshot + approval.
+- Secret/key rotation, DB break-glass, and per-incident playbooks all live in
+  [INCIDENT-RESPONSE-PLAN.md](INCIDENT-RESPONSE-PLAN.md) — don't duplicate here.
 
 ---
 
 # Final Rule
 
-Never deploy code you would not confidently demonstrate to a paying customer.
+Never deploy code you would not confidently demonstrate to a paying customer —
+and never deploy without a recorded Version ID you can roll back to.
