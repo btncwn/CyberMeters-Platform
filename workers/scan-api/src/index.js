@@ -1,6 +1,7 @@
 import { handleInboundEmail } from "./email/inbound.js";
 import { runScheduled } from "./cron/scheduled.js";
 import { recordMetric } from "./lib/metrics.js";
+import { redactedJson } from "./lib/redact.js";
 import { CE_QUESTIONS, CE_QUESTION_SET_VERSION, mergeReadiness } from "./lib/cyber-essentials.js";
 import { createId, isValidDomain, isValidEmail, normalizeApiResponseData, pageMeta, paginationParams, parseBoundedInteger } from "./lib/util.js";
 import { createAuditEvent, createNotificationEvent, createNotificationsForDomain, sanitizeAuditMetadata } from "./lib/events.js";
@@ -1846,7 +1847,7 @@ export default {
       headers: { ...buildJsonHeaders(corsHeaders), "X-Request-ID": requestId },
     });
     const serverError = (scope, error, message = "Request failed. Please try again.") => {
-      console.error("[request-error]", JSON.stringify({
+      console.error("[request-error]", redactedJson({
         request_id: requestId,
         version: env.APP_VERSION || "dev",
         scope,
@@ -2105,6 +2106,7 @@ export {
   REMEDIATION_REGISTRY,
   SCAN_CHILD_TABLES,
   WORKSPACE_PURGE_TABLES,
+  purgeWorkspaceData,
   _cloudflareRouteFailure,
   alertChannelToApi,
   analyzeSpfChain,
