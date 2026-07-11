@@ -5,6 +5,23 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.11 (v2026.07.11-3 — daily ops-health heartbeat) — deployed 2026-07-11
+
+### Operations
+- **Daily ops-health heartbeat** (`4850c91`): a cron self-check (08:00 UTC) runs
+  read-only signal queries — scans stuck `running` >15min, undelivered
+  lifecycle-email backlog, undelivered asset-alert backlog, deletion purges
+  overdue >35d — and emails ops (`ALERT_EMAIL_TO`) ONLY when a threshold is
+  breached, so a healthy system stays silent (≤1 alert/day). If every query is
+  skipped the DB is treated as unreachable and the alert says so. Per-run
+  `ops_health` metric for trends. Fully isolated via `runCronTask` (never affects
+  existing cron tasks). New `src/lib/ops-health.js` (pure, tunable
+  `OPS_THRESHOLDS`) + CI-blocking `validate-ops-health.js` (29 assertions).
+  `docs/MONITORING.md` documents all three layers (/health+/ready probes,
+  Cloudflare 5xx/log notifications, this heartbeat) + response runbook.
+- Live version **16212a24-1b94-4892-87ef-28a04e52ed6d**; `/health` 200, `/ready`
+  d1+r2 healthy. Rollback: previous version **60d557a2-9467-4e3f-b28a-11b18d4637a8**.
+
 ## 2026.07.11 (v2026.07.11-2 — uniform API error contract) — deployed 2026-07-11
 
 ### API / trust
