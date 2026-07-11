@@ -34,7 +34,7 @@ crons = ["0 * * * *"]
 [vars]
 # Human-readable release version, surfaced by GET /health. Bump on each
 # production release (date-based: YYYY.MM.DD).
-APP_VERSION = "2026.07.10"
+APP_VERSION = "2026.07.11"
 ALERT_EMAIL_TO   = "ttrnn47@gmail.com"
 ALERT_EMAIL_FROM = "alerts@cybermeters.com"
 SAFE_EMAIL_FROM = "safe@cybermeters.com"

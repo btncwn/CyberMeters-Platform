@@ -5,6 +5,42 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.11 (v2026.07.11-1 — secure-SDLC batch: log redaction, Stripe replay guard, purge + migration CI gates) — deployed 2026-07-11
+
+### Security / reliability (every finding paired with an automated regression)
+- **P0#7 — central log redaction** (`a168bd4`): new `src/lib/redact.js` (recursive,
+  cycle-safe, depth-capped) strips secret-named keys (password/token/secret/
+  authorization/cookie/api-key/mfa/totp/session/…) and secret-shaped values
+  (JWT, Stripe sk/rk/pk, whsec_, cm_/cmrua_, Bearer, long hex). The `serverError`
+  request-error logger now routes through `redactedJson()` — defense-in-depth so
+  no log site can ever leak a credential. Test: `validate-log-redaction.js` (17/17).
+- **P0#5 — idempotent Stripe webhooks** (`c18defb`): a replayed/retried event
+  (same id) could re-run entitlement side effects. Every handled event id is now
+  persisted in `stripe_processed_events` (migration 069, additive) and an
+  `INSERT OR IGNORE` before the switch short-circuits a replay to
+  `{received, deduped}` without reprocessing; signature verification unchanged and
+  still first. Test: `validate-pipeline.js` posts the webhook twice and asserts
+  the replay is deduped (38/38). Migration 069 applied to remote D1 before deploy.
+- **P1#10 — purge-completeness regression** (`adc9e0f`): `validate-purge-completeness.js`
+  seeds every purge table + reports + a scan (+children) for two workspaces, runs
+  the real `purgeWorkspaceData` to completion, and asserts zero orphaned rows/R2
+  objects for the purged workspace with the other fully intact (10/10). Guards the
+  forgotten-table orphan class.
+- **P1#3 — CI security gates expanded** (`33222a8`): new `validate-migrations.js`
+  enforces additive-only migrations (destructive-statement scan) + fresh-apply
+  convergence (79/79); worker `npm audit --audit-level=high` (0 vulns) and the
+  three new harnesses are now CI-blocking.
+
+### UX
+- **New Scan re-click resets the form** (`ea84ff0`): clicking the header New Scan
+  button while already on /scans/new now clears + scrolls the form. Feedback
+  widget simplified to a single **Contact support** action (bug/feature options
+  removed).
+
+- Live version **9e0949d6-123b-4526-b863-a635f7236928**; `/health` 200 (version
+  2026.07.11), anon endpoints 401. Rollback: previous version
+  **5dc30474-f8df-4e4d-a198-fbe7484a4c50**.
+
 ## 2026.07.10 (v2026.07.10-11 — authenticated red-team fixes) — deployed 2026-07-11
 
 ### Security (Codex authenticated logic-layer red-team — all findings verified vs HEAD)
