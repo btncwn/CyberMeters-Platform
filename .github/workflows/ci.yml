@@ -62,6 +62,9 @@ jobs:
       - name: Validate error contract (uniform { error, code, message }, no leak)
         run: node scripts/validate-error-contract.js
 
+      - name: Validate ops-health monitoring (signals + thresholds + DB-down)
+        run: node scripts/validate-ops-health.js
+
       - name: Install worker deps
         working-directory: workers/scan-api
         run: npm ci || npm install

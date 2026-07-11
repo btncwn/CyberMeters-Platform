@@ -2,6 +2,7 @@ import { handleInboundEmail } from "./email/inbound.js";
 import { runScheduled } from "./cron/scheduled.js";
 import { recordMetric } from "./lib/metrics.js";
 import { redactedJson } from "./lib/redact.js";
+import { computeOpsHealth, formatOpsHealthEmail } from "./lib/ops-health.js";
 import { CE_QUESTIONS, CE_QUESTION_SET_VERSION, mergeReadiness } from "./lib/cyber-essentials.js";
 import { createId, isValidDomain, isValidEmail, normalizeApiResponseData, pageMeta, paginationParams, parseBoundedInteger } from "./lib/util.js";
 import { createAuditEvent, createNotificationEvent, createNotificationsForDomain, sanitizeAuditMetadata } from "./lib/events.js";
@@ -1043,6 +1044,34 @@ async function completeDeletionRequest(env, requestId, status = "completed") {
     .bind(status, requestId).run().catch(() => {});
 }
 
+/**
+ * opsHealthHeartbeat — daily self-check. Runs the read-only ops-health signals
+ * (stuck scans, undelivered email/alert backlogs, overdue deletion purges) and
+ * emails ops (ALERT_EMAIL_TO) ONLY when a threshold is breached, so a healthy
+ * system stays silent. Records a metric every run for trend visibility. Never
+ * throws — wrapped by runCronTask, but defensive here too.
+ */
+async function opsHealthHeartbeat(env) {
+  const health = await computeOpsHealth(env);
+  const breached = health.signals.filter((s) => s.breached).map((s) => s.key);
+  recordMetric(env, "ops_health", {
+    blobs: [health.healthy ? "healthy" : "unhealthy", breached.join(",") || "none"],
+    doubles: [breached.length],
+    indexes: [health.healthy ? "healthy" : "unhealthy"],
+  });
+  if (health.healthy) return;
+
+  console.error("[ops-health]", JSON.stringify({
+    healthy: false, db_reachable: health.dbReachable, breached,
+    signals: health.signals.map((s) => ({ key: s.key, count: s.count, threshold: s.threshold })),
+  }));
+
+  const mail = formatOpsHealthEmail(health, { version: env.APP_VERSION || "dev" });
+  if (mail) {
+    await sendAlertEmail(mail.subject, mail.text, mail.html, env, "ALERT_EMAIL_FROM").catch(() => {});
+  }
+}
+
 async function purgeWorkspaceRequest(env, req) {
   const ws = await env.cybermeters_db
     .prepare("SELECT id, name, deleted_at, owner_user_id FROM workspaces WHERE id = ? LIMIT 1")
@@ -2080,6 +2109,7 @@ export default {
   scheduled: (event, env, ctx) => runScheduled(event, env, ctx, {
     cleanupExpiredReports,
     generateScheduledReports,
+    opsHealthHeartbeat,
     processDeletionRequests,
     processScheduledReports,
     retryFailedAssetAlerts,

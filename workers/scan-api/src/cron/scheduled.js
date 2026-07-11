@@ -71,6 +71,14 @@ export async function runScheduled(event, env, ctx, tasks) {
     ctx.waitUntil(runCronTask(env, "report_retention", () => tasks.cleanupExpiredReports(now, env)));
   }
 
+  // ── Ops-health heartbeat ─────────────────────────────────────────────
+  // Once daily at 08:00 UTC: read-only self-check for silent-accumulation
+  // failures (stuck scans, undelivered-email backlog, overdue purges). Emails
+  // ops only when a threshold is breached; at most one alert per day, no spam.
+  if (tasks.opsHealthHeartbeat && new Date(now).getUTCHours() === 8) {
+    ctx.waitUntil(runCronTask(env, "ops_health_heartbeat", () => tasks.opsHealthHeartbeat(env)));
+  }
+
   // ── Deletion purge (soft-delete → 30-day window → hard delete) ────────
   // Bounded per run; requests inside the restore window are never touched.
   ctx.waitUntil(runCronTask(env, "deletion_purge", () => tasks.processDeletionRequests(env)));
