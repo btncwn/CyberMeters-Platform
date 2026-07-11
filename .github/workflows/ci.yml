@@ -59,6 +59,9 @@ jobs:
       - name: Validate migrations (additive-only + fresh-apply convergence)
         run: node scripts/validate-migrations.js
 
+      - name: Validate error contract (uniform { error, code, message }, no leak)
+        run: node scripts/validate-error-contract.js
+
       - name: Install worker deps
         working-directory: workers/scan-api
         run: npm ci || npm install
