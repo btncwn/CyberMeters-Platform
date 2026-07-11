@@ -5,6 +5,27 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.10 (v2026.07.10-11 — authenticated red-team fixes) — deployed 2026-07-11
+
+### Security (Codex authenticated logic-layer red-team — all findings verified vs HEAD)
+- **P1 — Free trial is now once-per-owner** (`5b57af3`): trials were minted per
+  workspace with no lifetime check, and workspace usage ignores soft-deleted
+  workspaces, so an owner could farm unlimited 14-day Professional trials via
+  create → soft-delete → create. Trial creation now skips if the owner already
+  has any subscription with a trial_start (survives soft-delete). First workspace
+  still trials; recycled ones do not.
+- **P1 — Workspace notifications scoped per user** (`68d056b`): notification_events
+  has a user_id column (NULL = global) but list/count/mark-read filtered only by
+  workspace_id, so any member could see and clear another member's user-specific
+  notifications. All four queries now scope by (user_id IS NULL OR user_id =
+  caller). Backward-compatible — today all rows are global.
+- **P2 — MFA recovery-code endpoint throttle** (`a7ea6e5`): added the fail-closed
+  IP limiter the other MFA proof endpoints already had.
+- **P2 — Worker lockfiles committed** (`6068eb3`): npm audit now reproducible on
+  both workers, 0 vulnerabilities.
+- Live version **5dc30474-f8df-4e4d-a198-fbe7484a4c50**; `/health` 200, anon
+  endpoints 401. Rollback: previous version `fa3c49d1-c111-4785-bbdf-a2d136d282e0`.
+
 ## 2026.07.10 (v2026.07.10-10 — red-team hardening) — deployed 2026-07-11
 
 ### Security
