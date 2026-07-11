@@ -4,6 +4,8 @@ node_modules/
 # Build artifacts
 dist/
 frontend/dist/
+frontend/playwright-report/
+frontend/test-results/
 
 # macOS
 .DS_Store
