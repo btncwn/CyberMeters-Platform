@@ -15,5 +15,37 @@ export default defineConfig({
     setupFiles: ['./src/test/setup.js'],
     include: ['src/**/*.test.{js,jsx}'],
     css: false,
+    env: {
+      VITE_API_BASE_URL: 'http://localhost/api',
+    },
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json', 'html'],
+      reportsDirectory: './coverage',
+      include: [
+        'src/lib/**/*.js',
+        'src/utils/**/*.js',
+        'src/hooks/**/*.js',
+        'src/components/ErrorAlert.jsx',
+        'src/components/StatusBadge.jsx',
+        'src/components/PlanUsageCard.jsx',
+        'src/components/ProtectedRoute.jsx',
+        'src/components/SafeBoundary.jsx',
+        'src/theme/**/*.js',
+      ],
+      exclude: [
+        'src/**/*.test.{js,jsx}',
+        'src/test/**',
+        'src/types/**',
+        'src/main.jsx',
+        'src/utils/preloadMap.js',
+      ],
+      thresholds: {
+        lines: 80,
+        functions: 80,
+        statements: 80,
+        branches: 70,
+      },
+    },
   },
 })
