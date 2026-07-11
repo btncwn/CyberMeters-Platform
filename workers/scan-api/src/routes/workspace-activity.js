@@ -299,26 +299,30 @@ export async function workspaceActivityRoutes(rctx) {
           .first();
         if (!ws) return json({ error: "Workspace not found" }, 404);
 
+        // Scope to this user's view: workspace-global notifications (user_id IS
+        // NULL) are visible to every member; user-specific ones only to their
+        // owner. Without this a member sees — and can mark read — another
+        // member's private notifications.
         let query, binds;
         if (status) {
           query  = `SELECT id, type, severity, title, message, metadata_json, status, created_at, read_at
                     FROM notification_events
-                    WHERE workspace_id = ? AND status = ?
+                    WHERE workspace_id = ? AND status = ? AND (user_id IS NULL OR user_id = ?)
                     ORDER BY created_at DESC LIMIT ?`;
-          binds  = [workspaceId, status, limit];
+          binds  = [workspaceId, status, user.id, limit];
         } else {
           query  = `SELECT id, type, severity, title, message, metadata_json, status, created_at, read_at
                     FROM notification_events
-                    WHERE workspace_id = ?
+                    WHERE workspace_id = ? AND (user_id IS NULL OR user_id = ?)
                     ORDER BY created_at DESC LIMIT ?`;
-          binds  = [workspaceId, limit];
+          binds  = [workspaceId, user.id, limit];
         }
 
         const [rows, unreadRow] = await env.cybermeters_db.batch([
           env.cybermeters_db.prepare(query).bind(...binds),
           env.cybermeters_db
-            .prepare("SELECT COUNT(*) AS cnt FROM notification_events WHERE workspace_id = ? AND status = 'unread'")
-            .bind(workspaceId),
+            .prepare("SELECT COUNT(*) AS cnt FROM notification_events WHERE workspace_id = ? AND status = 'unread' AND (user_id IS NULL OR user_id = ?)")
+            .bind(workspaceId, user.id),
         ]);
 
         const notifications = (rows.results || []).map(n => ({
@@ -356,11 +360,12 @@ export async function workspaceActivityRoutes(rctx) {
         if (!ws) return json({ error: "Workspace not found" }, 404);
 
         if (notifId === "all") {
-          // Mark all unread notifications for this workspace as read
+          // Mark all unread notifications visible to THIS user as read — global
+          // ones plus their own, never another member's user-specific ones.
           await env.cybermeters_db
             .prepare(`UPDATE notification_events SET status = 'read', read_at = datetime('now')
-                      WHERE workspace_id = ? AND status = 'unread'`)
-            .bind(workspaceId)
+                      WHERE workspace_id = ? AND status = 'unread' AND (user_id IS NULL OR user_id = ?)`)
+            .bind(workspaceId, notifUser.id)
             .run();
           // Audit: bulk mark read
           await createAuditEvent(env, {
@@ -373,10 +378,11 @@ export async function workspaceActivityRoutes(rctx) {
           });
           return json({ success: true, marked: "all" });
         }
-        // Mark a specific notification as read
+        // Mark a specific notification as read — only if it is global or the
+        // caller's own, so a member cannot read-off another member's private one.
         const row = await env.cybermeters_db
-          .prepare("SELECT id FROM notification_events WHERE id = ? AND workspace_id = ?")
-          .bind(notifId, workspaceId)
+          .prepare("SELECT id FROM notification_events WHERE id = ? AND workspace_id = ? AND (user_id IS NULL OR user_id = ?)")
+          .bind(notifId, workspaceId, notifUser.id)
           .first();
         if (!row) return json({ error: "Notification not found" }, 404);
         await env.cybermeters_db
