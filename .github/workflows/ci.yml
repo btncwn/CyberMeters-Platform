@@ -68,6 +68,12 @@ jobs:
       - name: Validate maintenance mode (503 gate + health/ready exempt + bypass)
         run: node scripts/validate-maintenance-mode.js
 
+      - name: Validate cron orchestration (dispatch + daily gates + isolation)
+        run: node scripts/validate-cron.js
+
+      - name: Validate email lifecycle (send/dedupe/retry + payment_failed exclusion)
+        run: node scripts/validate-email-lifecycle.js
+
       - name: Install worker deps
         working-directory: workers/scan-api
         run: npm ci || npm install
