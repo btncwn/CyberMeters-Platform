@@ -271,6 +271,22 @@ const RESOURCE_LABELS = {
 function UpgradePromptModal() {
   const navigate = useNavigate()
   const [limit, setLimit] = useState(null)
+  // Draggable: offset from the centred position. Re-centres each time it opens.
+  const [pos, setPos] = useState({ x: 0, y: 0 })
+  const dragRef = useRef(null)
+  useEffect(() => { if (limit) setPos({ x: 0, y: 0 }) }, [limit])
+  const onDragStart = (e) => {
+    dragRef.current = { sx: e.clientX, sy: e.clientY, bx: pos.x, by: pos.y }
+    e.currentTarget.setPointerCapture?.(e.pointerId)
+  }
+  const onDragMove = (e) => {
+    if (!dragRef.current) return
+    setPos({ x: dragRef.current.bx + (e.clientX - dragRef.current.sx), y: dragRef.current.by + (e.clientY - dragRef.current.sy) })
+  }
+  const onDragEnd = (e) => {
+    dragRef.current = null
+    e.currentTarget.releasePointerCapture?.(e.pointerId)
+  }
 
   useEffect(() => {
     function handlePlanLimit(e) {
@@ -304,8 +320,18 @@ function UpgradePromptModal() {
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/30 px-4">
-      <div className="w-full max-w-md rounded-xl bg-white border border-gray-100 shadow-xl p-5">
-        <div className="flex items-start gap-3">
+      <div
+        className="w-full max-w-md rounded-xl bg-white border border-gray-100 shadow-xl p-5"
+        style={{ transform: `translate(${pos.x}px, ${pos.y}px)` }}
+      >
+        <div
+          className="flex items-start gap-3 cursor-grab active:cursor-grabbing select-none touch-none"
+          onPointerDown={onDragStart}
+          onPointerMove={onDragMove}
+          onPointerUp={onDragEnd}
+          onPointerCancel={onDragEnd}
+          title="Drag to move"
+        >
           <div className="w-9 h-9 rounded-lg bg-amber-50 flex items-center justify-center flex-shrink-0">
             <AlertTriangle className="w-5 h-5 text-amber-600" />
           </div>
@@ -319,7 +345,8 @@ function UpgradePromptModal() {
           <button
             type="button"
             onClick={() => setLimit(null)}
-            className="w-7 h-7 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-50 flex items-center justify-center"
+            onPointerDown={(e) => e.stopPropagation()}
+            className="w-7 h-7 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-50 flex items-center justify-center cursor-pointer"
             aria-label="Close"
           >
             <X className="w-4 h-4" />
