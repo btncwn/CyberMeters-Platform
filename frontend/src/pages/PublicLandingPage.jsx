@@ -5,6 +5,7 @@ import {
   Users, FileBarChart2, History, ClipboardList, Cloud, SearchCheck, Search,
 } from 'lucide-react'
 import CyberMetersLogo from '../components/CyberMetersLogo'
+import { SERVICE_COLORS } from '../theme/serviceColors'
 
 const APP_URL = 'https://app.cybermeters.com'
 const CONTACT = 'mailto:hello@cybermeters.com'
@@ -19,28 +20,28 @@ const SERVICES = [
     q: '“Can attackers send email as me?”',
     copy: 'DMARC, SPF and DKIM in plain English. See who is sending as your domain, get a BEC exposure score, and move safely toward enforcement.',
     tags: ['DMARC setup', 'Sender inventory', 'BEC score'],
-    theme: { bg: '#EEF3FD', ring: '#D6E2FB', chip: '#DCE8FC', icon: '#1E5FDB', q: '#1A4FB8' }, // Glacier blue
+    key: 'email',
   },
   {
     icon: ShieldCheck, name: 'Brand Protection',
     q: '“Is anyone impersonating my brand?”',
     copy: 'Lookalike domains, typosquats and homoglyphs — scored by real registration risk, not string guesswork. A queue you can actually work through.',
     tags: ['Lookalike domains', 'Impersonation', 'Classification'],
-    theme: { bg: '#E5F7FB', ring: '#C7EDF5', chip: '#D5F1F8', icon: '#0797BC', q: '#0A7592' }, // Turquoise
+    key: 'brand',
   },
   {
     icon: Search, name: 'Attack Surface',
     q: '“What of mine is exposed to the internet?”',
     copy: 'Subdomains, forgotten admin panels, exposed services and takeover risks — the assets you own but stopped watching. Findings, not noise.',
     tags: ['Asset inventory', 'Subdomains', 'Takeover risk'],
-    theme: { bg: '#E6F5F3', ring: '#CBEBE6', chip: '#D6F0EC', icon: '#12938C', q: '#0E736D' }, // Glacier teal
+    key: 'surface',
   },
   {
     icon: Lock, name: 'Certificates & Trust',
     q: '“Will my site quietly break trust?”',
     copy: 'Certificate expiry, TLS posture and HTTPS trust signals — so a lapsed certificate never turns customers away at the door.',
     tags: ['Expiry alerts', 'TLS posture', 'HTTPS trust'],
-    theme: { bg: '#E8F3FC', ring: '#CFE6F8', chip: '#DBEDFB', icon: '#1685C9', q: '#0F689F' }, // Azure
+    key: 'certs',
   },
 ]
 
@@ -139,10 +140,10 @@ function MotCard() {
   }, [])
 
   const rows = [
-    { icon: Mail, name: 'Email Protection', val: 'SPF ✓ · DKIM ✗', tag: 'Advisory', tone: 'adv', chip: '#DCE8FC', ic: '#1E5FDB' },
-    { icon: ShieldCheck, name: 'Brand Protection', val: '0 lookalikes', tag: 'Clear', tone: 'pass', chip: '#D5F1F8', ic: '#0797BC' },
-    { icon: Search, name: 'Attack Surface', val: '3 assets · 0 risks', tag: 'Clear', tone: 'pass', chip: '#D6F0EC', ic: '#12938C' },
-    { icon: Lock, name: 'Certificates & Trust', val: 'valid · 74 days', tag: 'Renew soon', tone: 'adv', chip: '#DBEDFB', ic: '#1685C9' },
+    { icon: Mail, name: 'Email Protection', val: 'SPF ✓ · DKIM ✗', tag: 'Advisory', tone: 'adv', chip: SERVICE_COLORS.email.chip, ic: SERVICE_COLORS.email.icon },
+    { icon: ShieldCheck, name: 'Brand Protection', val: '0 lookalikes', tag: 'Clear', tone: 'pass', chip: SERVICE_COLORS.brand.chip, ic: SERVICE_COLORS.brand.icon },
+    { icon: Search, name: 'Attack Surface', val: '3 assets · 0 risks', tag: 'Clear', tone: 'pass', chip: SERVICE_COLORS.surface.chip, ic: SERVICE_COLORS.surface.icon },
+    { icon: Lock, name: 'Certificates & Trust', val: 'valid · 74 days', tag: 'Renew soon', tone: 'adv', chip: SERVICE_COLORS.certs.chip, ic: SERVICE_COLORS.certs.icon },
   ]
   const toneCls = {
     pass: 'bg-emerald-50 text-emerald-700',
@@ -283,7 +284,8 @@ export default function PublicLandingPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-[18px] mt-11">
             {SERVICES.map(s => {
               const Icon = s.icon
-              const th = s.theme
+              const c = SERVICE_COLORS[s.key]
+              const th = { bg: c.card, ring: c.ring, chip: c.chip, icon: c.icon, q: c.text }
               return (
                 <div key={s.name} data-reveal className="reveal rounded-[14px] p-7 border shadow-card hover:-translate-y-1 hover:shadow-card-md transition-all duration-200"
                   style={{ background: th.bg, borderColor: th.ring }}>

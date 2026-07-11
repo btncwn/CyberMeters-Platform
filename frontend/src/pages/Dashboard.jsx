@@ -11,6 +11,7 @@ import Spinner from '../components/Spinner'
 import OnboardingProgress  from '../components/OnboardingProgress'
 import FirstResultsGuide   from '../components/FirstResultsGuide'
 import TeamOnboardingCard  from '../components/TeamOnboardingCard'
+import { SERVICE_COLORS }   from '../theme/serviceColors'
 
 /* ─── Helpers ──────────────────────────────────────────────────────────── */
 
@@ -427,14 +428,9 @@ function SelectWorkspaceState() {
 
 /* ─── Service KPI card (four-service product model) ────────────────────── */
 
-// Glacier identity colours — kept in sync with the public landing so the four
-// services read as the same four surfaces across the marketing site and the app.
-const SERVICE_THEME = {
-  email:   { chip: '#DCE8FC', icon: '#1E5FDB' }, // glacier blue
-  brand:   { chip: '#D5F1F8', icon: '#0797BC' }, // turquoise
-  surface: { chip: '#D6F0EC', icon: '#12938C' }, // glacier teal
-  certs:   { chip: '#DBEDFB', icon: '#1685C9' }, // azure
-}
+// Glacier identity colours — from the shared single source of truth so the
+// dashboard KPI cards always match the landing, service pages and sidebar.
+const SERVICE_THEME = SERVICE_COLORS
 
 const titleCase = (s) => (s ? String(s).replace(/[_-]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '—')
 

@@ -1,6 +1,13 @@
 import { render, screen, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import WorkspaceNav from '../WorkspaceNav'
+import { SERVICE_COLORS } from '../../theme/serviceColors'
+
+// Small helper: jsdom reports colours as rgb(), so compare hex → rgb.
+function hexToRgb(hex) {
+  const n = parseInt(hex.slice(1), 16)
+  return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`
+}
 
 // Keep the test hermetic: hovering/clicking nav entries must not actually
 // dynamic-import route modules.
@@ -50,7 +57,8 @@ describe('WorkspaceNav (four-service sidebar)', () => {
 
   it('sub-items inherit their parent service colour', () => {
     renderNav('/ws/email-protection')
-    // THEME.email.text — the glacier-blue identity of Email Protection.
-    expect(screen.getByText('DMARC Setup')).toHaveStyle({ color: '#1A4FB8' })
+    // Derives from the shared palette, so re-theming Email can never silently
+    // desync this assertion from the sidebar again.
+    expect(screen.getByText('DMARC Setup')).toHaveStyle({ color: hexToRgb(SERVICE_COLORS.email.text) })
   })
 })

@@ -23,6 +23,26 @@ for (const key of ['localStorage', 'sessionStorage']) {
   })
 }
 
+// jsdom ships neither IntersectionObserver nor matchMedia; components that use
+// them (scroll-reveal, prefers-reduced-motion) would throw on render. Provide
+// inert, deterministic stand-ins so those components mount cleanly in tests.
+if (!globalThis.IntersectionObserver) {
+  globalThis.IntersectionObserver = class {
+    constructor(cb) { this._cb = cb }
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+    takeRecords() { return [] }
+  }
+}
+if (!globalThis.matchMedia) {
+  globalThis.matchMedia = (query) => ({
+    matches: false, media: query, onchange: null,
+    addEventListener() {}, removeEventListener() {},
+    addListener() {}, removeListener() {}, dispatchEvent() { return false },
+  })
+}
+
 // Storage persists between tests in the same file — start every test clean.
 beforeEach(() => {
   localStorage.clear()

@@ -7,17 +7,18 @@ import {
 } from 'lucide-react'
 import { preloadComponent } from '../utils/preload'
 import { routePreloadMap } from '../utils/preloadMap'
+import { SERVICE_COLORS } from '../theme/serviceColors'
 
-// ── Glacier palette — each service is its own product with a colour identity ──
-// Kept in exact sync with the public landing, dashboard and service pages so the
-// four services read as the same four surfaces everywhere. Inline styles so the
-// themes are dynamic without touching tailwind.config (no purge risk).
-const THEME = {
-  email:   { icon: '#1E5FDB', text: '#1A4FB8', bg: '#DCE8FC', accent: '#1E5FDB', tint: '#EEF3FD' }, // Glacier blue
-  surface: { icon: '#12938C', text: '#0E736D', bg: '#D6F0EC', accent: '#12938C', tint: '#E6F5F3' }, // Glacier teal
-  brand:   { icon: '#0797BC', text: '#0A7592', bg: '#D5F1F8', accent: '#0797BC', tint: '#E5F7FB' }, // Turquoise
-  certs:   { icon: '#1685C9', text: '#0F689F', bg: '#DBEDFB', accent: '#1685C9', tint: '#E8F3FC' }, // Azure
-}
+// ── Glacier palette — from the shared single source of truth ──────────────────
+// The sidebar maps the shared per-service colours onto the field names it uses
+// (bg = active-item background = the shared `chip`; accent = `icon`). Inline
+// styles keep the themes dynamic without touching tailwind.config (no purge risk).
+const THEME = Object.fromEntries(
+  Object.entries(SERVICE_COLORS).map(([key, c]) => [
+    key,
+    { icon: c.icon, text: c.text, bg: c.chip, accent: c.icon, tint: c.tint },
+  ])
+)
 
 // ── The four CyberMeters services — the only primary sections in the sidebar ──
 const SERVICES = [
