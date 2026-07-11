@@ -200,6 +200,22 @@ export async function globalBillingRoutes(rctx) {
       const eventType = event?.type ?? "unknown";
       const obj       = event?.data?.object;
 
+      // Idempotency / replay protection: Stripe retries deliveries and can
+      // re-send the same event. Record the event id; if we've already handled
+      // it, acknowledge (200) and skip so a replay can't re-apply a state
+      // transition. Signature is already verified above.
+      const eventId = event?.id;
+      if (eventId) {
+        const dedup = await env.cybermeters_db
+          .prepare(`INSERT OR IGNORE INTO stripe_processed_events (id, event_type, processed_at) VALUES (?, ?, datetime('now'))`)
+          .bind(eventId, eventType)
+          .run()
+          .catch(() => null);
+        if (dedup && (dedup.meta?.changes ?? 0) === 0) {
+          return json({ received: true, deduped: true }, 200);
+        }
+      }
+
       try {
         switch (eventType) {
 

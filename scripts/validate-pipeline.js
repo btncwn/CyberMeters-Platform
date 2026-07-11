@@ -190,6 +190,7 @@ async function main() {
     return { status: res.status, text };
   };
   const subEvent = {
+    id: "evt_pipeline_test",
     type: "customer.subscription.created",
     data: { object: {
       id: "sub_pipeline_test", customer: "cus_pipeline_test", status: "active",
@@ -217,6 +218,12 @@ async function main() {
   if (process.env.PIPE_DEBUG) console.error("  [subscriptions ws1 row]", JSON.stringify(subRow));
   ok("ENTITLEMENT: the webhook upserted ws1's subscription to the paid plan (professional, active)",
     subRow?.plan === "professional" && String(subRow?.subscription_status).toLowerCase() === "active");
+
+  // Replay protection: re-delivering the SAME event id is acknowledged (Stripe
+  // stops retrying) but must NOT be processed again.
+  const replay = await postWebhook(subEvent);
+  ok("REPLAY: a re-delivered Stripe event id is acknowledged (2xx) and deduped, not reprocessed",
+    replay.status >= 200 && replay.status < 300 && replay.text.includes("deduped"));
 
   // The upgrade must actually TAKE EFFECT: the same endpoint that refused on
   // free now serves — billing → entitlement → feature gate, end to end.
