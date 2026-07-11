@@ -145,12 +145,21 @@ function friendlyHttpError(res, err) {
   // ("email_verification_required", "plan_feature_required"). Rewriting either
   // would break existing flows, so we only synthesise a message when the body is
   // empty — which is exactly the case that used to surface a bare "HTTP 500".
-  const raw = err && typeof err.error === 'string' ? err.error : ''
+  const raw = err && typeof err.error === 'string' ? err.error.trim() : ''
+  const detail = err && typeof err.message === 'string' ? err.message.trim() : ''
   // Attach the HTTP status so callers can branch (e.g. 403 permission handling)
   // without parsing message strings. Additive — messages are unchanged.
   /** @param {ApiError} e */
   const withStatus = (e) => { e.status = res.status; return e }
-  if (raw) return withStatus(new Error(raw))
+  // A bare HTTP status word ("Forbidden", "Unauthorized", …) is a machine token,
+  // not a customer message — it leaks raw protocol detail and reads as a bug.
+  // When that's all the server gave us, prefer any human-readable `message`, then
+  // fall through to the friendly status-based text below. Genuinely descriptive
+  // server strings (e.g. "Forbidden — admin role required") still pass through.
+  const BARE_HTTP_WORD = /^(forbidden|unauthorized|not found|bad request|internal server error|conflict|too many requests|service unavailable|gateway timeout|method not allowed)$/i
+  const isBareWord = BARE_HTTP_WORD.test(raw)
+  if (raw && !isBareWord) return withStatus(new Error(raw))
+  if (isBareWord && detail) return withStatus(new Error(detail))
   if (res.status >= 500) return withStatus(new Error('Something went wrong on our end. Please try again in a moment.'))
   if (res.status === 404) return withStatus(new Error('We couldn’t find what you were looking for.'))
   if (res.status === 403) return withStatus(new Error('You don’t have access to this. Try switching workspace or contact your admin.'))

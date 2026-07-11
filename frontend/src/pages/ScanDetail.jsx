@@ -1316,7 +1316,7 @@ export default function ScanDetail() {
         loadReport()
       }
     } catch (e) {
-      setError(e.message)
+      setError({ message: e.message, status: e.status })
     } finally {
       setLoading(false)
       setRefreshing(false)
@@ -1351,7 +1351,13 @@ export default function ScanDetail() {
       {loading ? (
         <div className="flex items-center justify-center py-32"><Spinner size="lg" /></div>
       ) : error ? (
-        <ErrorAlert message={error} onRetry={() => load()} />
+        <ErrorAlert
+          title={error.status === 403 ? "You don’t have access to this scan"
+               : error.status === 404 ? "Scan not found"
+               : "Something went wrong"}
+          message={error.message}
+          onRetry={(error.status === 403 || error.status === 404) ? undefined : () => load()}
+        />
       ) : !scan ? null : (
         <>
           {/* Page header */}
