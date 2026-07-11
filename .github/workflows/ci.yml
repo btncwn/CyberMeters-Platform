@@ -80,3 +80,28 @@ jobs:
       - name: Build frontend
         working-directory: frontend
         run: npm run build
+
+  # Static application security testing — runs independently of the main suite so
+  # a security rule change surfaces on its own. Blocks the merge on any finding
+  # (false positives are suppressed inline with a documented `nosemgrep`).
+  sast:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Semgrep
+        run: pip install --quiet semgrep
+
+      - name: Semgrep SAST (JS / security-audit / OWASP Top Ten)
+        run: >
+          semgrep scan
+          --config p/javascript --config p/security-audit --config p/owasp-top-ten
+          --exclude node_modules --exclude dist
+          --metrics off --error
+          workers/scan-api/src frontend/src scripts

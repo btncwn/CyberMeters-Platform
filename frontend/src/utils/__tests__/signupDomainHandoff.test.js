@@ -22,6 +22,7 @@ describe('signup domain handoff', () => {
   it('rejects script-like input and does not persist it', () => {
     const storage = memoryStorage()
 
+    // nosemgrep: unknown-value-with-script-tag — this is the security test itself; it asserts the XSS payload is rejected, not rendered.
     expect(persistSignupDomainParam('<script>alert(1)</script>', storage)).toBeNull()
     expect(storage.getItem(PENDING_SIGNUP_DOMAIN_KEY)).toBeNull()
   })

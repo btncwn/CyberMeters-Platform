@@ -62,9 +62,9 @@ turning this from "we passed the tests" into "the tests can't regress".
 
 | # | Item | Status | Notes |
 |---|---|---|---|
-| 1 | OWASP ASVS 5.0 Level 2 gap assessment | ⬜ | Map ASVS-x.y.z → middleware/function → test → evidence |
-| 2 | Threat model per critical flow | ⬜ | Registration, reset, MFA, SSO/OTC, invites, domain-verify, scan, R2 access, DMARC import, Stripe, API tokens, workspace delete, admin, email, cron |
-| 3 | CI security gates (expand) | 🟡 | Have: secret-scan, 5 harnesses, dry-run, OpenAPI, frontend audit, typecheck, vitest. **Add: SAST (Semgrep/CodeQL), worker `npm audit` (lockfiles now exist `6068eb3`), migration validation, license policy, pinned action SHAs** |
+| 1 | OWASP ASVS 5.0 Level 2 gap assessment | ✅ | `docs/ASVS-GAP-ASSESSMENT.md` — 16 chapters mapped to implementation + evidence; at/near L2, 7 tracked gaps |
+| 2 | Threat model per critical flow | ✅ | `docs/THREAT-MODEL.md` — STRIDE across 16 flows with control + evidence + residual risk |
+| 3 | CI security gates (expand) | 🟡 | Have: secret-scan, 5 harnesses, dry-run, OpenAPI, frontend audit, typecheck, vitest. **SAST added ✅ (Semgrep p/security-audit + p/owasp-top-ten, CI-blocking). Still add: worker `npm audit` in CI, migration validation, license policy, pinned action SHAs** |
 | 4 | Business-logic abuse tests | 🟡 | Trial recycle closed (`5b57af3`) + notification scoping (`68d056b`); formalise the abuse matrix below as tests |
 | 5 | Load / resilience / idempotency tests | ⬜ | Concurrent scans, large DMARC XML, slow DNS, provider timeouts, cron double-run |
 | 6 | Migration test system | 🟡 | All migrations additive (audited); **staging apply + rollback/corrective plan per migration = gap** |
