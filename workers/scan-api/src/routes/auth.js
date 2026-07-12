@@ -197,6 +197,25 @@ export async function authRoutes(rctx) {
       if (_loginRlResult) {
         return json({ error: "Too many login attempts. Please wait before trying again.", code: "rate_limit_exceeded" }, 429);
       }
+      // ── Per-account brute-force ceiling ───────────────────────────────────
+      // The per-IP limit above cannot stop a DISTRIBUTED attack (many IPs, one
+      // account). Cap attempts per target account regardless of source IP.
+      // Keyed on the (normalised) email so it applies before any credential
+      // check and reveals no account state. Fail-CLOSED like the IP limit.
+      // Threshold is generous (20 / 15 min) so a real user never trips it; the
+      // short window bounds the account-lockout DoS tradeoff inherent to any
+      // per-account throttle.
+      const _loginAcctRl = await consumeApiRateLimit(
+        env,
+        [{ scope: "user", scope_id: await rateLimitScopeId("login_acct", email) }],
+        "login_account",
+        20,
+        900, // 15 minutes
+        { failClosed: true },
+      );
+      if (_loginAcctRl) {
+        return json({ error: "Too many login attempts. Please wait before trying again.", code: "rate_limit_exceeded" }, 429);
+      }
       // ─────────────────────────────────────────────────────────────────────
 
       try {
