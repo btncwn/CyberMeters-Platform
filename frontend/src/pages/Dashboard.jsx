@@ -11,6 +11,7 @@ import Spinner from '../components/Spinner'
 import OnboardingProgress  from '../components/OnboardingProgress'
 import FirstResultsGuide   from '../components/FirstResultsGuide'
 import TeamOnboardingCard  from '../components/TeamOnboardingCard'
+import RecentChangesCard   from '../components/RecentChangesCard'
 import { SERVICE_COLORS }   from '../theme/serviceColors'
 
 /* ─── Helpers ──────────────────────────────────────────────────────────── */
@@ -741,6 +742,9 @@ export default function Dashboard() {
           </div>
         )
       })()}
+
+      {/* ── Recent changes (Exposure Timeline habit hook — self-hides when empty) ── */}
+      <RecentChangesCard workspaceId={activeWorkspaceId} />
 
       {/* ── Team onboarding card — shown once after joining via invitation ── */}
       {showTeamOnboarding && <TeamOnboardingCard />}
