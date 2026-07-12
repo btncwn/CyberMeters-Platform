@@ -80,6 +80,9 @@ jobs:
       - name: Validate Stripe events (per-event-type subscription state)
         run: node scripts/validate-stripe-events.js
 
+      - name: Validate exposure timeline events (DNS-level asset changes)
+        run: node scripts/validate-exposure-events.js
+
       - name: Install worker deps
         working-directory: workers/scan-api
         run: npm ci || npm install
