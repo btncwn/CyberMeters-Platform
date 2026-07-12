@@ -1001,6 +1001,16 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
+  /** GET /api/account/report-branding — white-label brand + plan availability */
+  getReportBranding: () => request('/account/report-branding'),
+
+  /** PUT /api/account/report-branding — set logo/accent/white-label toggle */
+  updateReportBranding: (data) =>
+    request('/account/report-branding', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
   /**
    * GET /api/account/subscription
    * Returns manual subscription foundation for the authenticated account.

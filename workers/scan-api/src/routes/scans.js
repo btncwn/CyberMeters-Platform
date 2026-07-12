@@ -10,6 +10,7 @@ import { getEffectivePlan } from "../engines/entitlements.js";
 import { buildExecutiveReportV2, resolveCanonicalScanScore } from "../engines/executive-report.js";
 import { applyEvidenceQuality, normalizeFindingSchema } from "../engines/findings.js";
 import { buildScanReportPdf } from "../engines/pdf.js";
+import { resolveReportBranding } from "../engines/report-branding.js";
 import { checkScanLimit, checkScheduledScanLimit, getAccountUsage, getEntitlementUsage, getPlanLimits, getWorkspaceBillingUserId, planLimitExceeded } from "../engines/plan-usage.js";
 import { buildScanQuality, runScanEngine } from "../engines/scan-engine.js";
 import { riskLevelForScore } from "../engines/scoring.js";
@@ -359,7 +360,11 @@ export async function scanRoutes(rctx) {
         // PDF's score matches the on-screen report exactly.
         report.business_risk = deriveScanBusinessRisk(report);
 
-        const bytes = buildScanReportPdf(scan, report);
+        // White-label: lead the PDF with the account's brand when enabled.
+        const branding = access.workspace_id
+          ? await resolveReportBranding(env, access.workspace_id)
+          : null;
+        const bytes = buildScanReportPdf(scan, report, branding);
 
         await createAuditEvent(env, {
           workspace_id: access.workspace_id || null,
@@ -434,6 +439,13 @@ export async function scanRoutes(rctx) {
             execReport.intelligence_engines.business_email.evidence.dmarc_sender_intelligence = senderIntel;
           }
         } catch { /* non-fatal — exec report remains unchanged */ }
+        // White-label: attach the account brand (logo/name/accent) so the
+        // shareable HTML report can lead with the MSP's identity. Null → CyberMeters.
+        try {
+          execReport.branding = access.workspace_id
+            ? await resolveReportBranding(env, access.workspace_id)
+            : null;
+        } catch { execReport.branding = null; }
         return json(execReport);
       } catch (error) {
         return serverError("executive-report-v2", error, "Executive report could not be generated.");
