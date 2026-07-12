@@ -9,6 +9,7 @@ import { useWorkspace } from '../../hooks/useWorkspace'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
 import RiskBadge from '../../components/RiskBadge'
 import StatCard from '../../components/StatCard'
+import IdentityExposureCard from '../../components/IdentityExposureCard'
 
 // ── Identity type configuration ───────────────────────────────────────────────
 
@@ -174,6 +175,11 @@ export default function WorkspaceIdentityPage() {
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           Refresh
         </button>
+      </div>
+
+      {/* Identity Exposure — consolidated verdict (explanation first) */}
+      <div className="mb-6">
+        <IdentityExposureCard workspaceId={wsId} />
       </div>
 
       {/* Stats */}
