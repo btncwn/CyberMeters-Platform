@@ -5,6 +5,19 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.12 (v2026.07.12-4 — SSRF gate hardening) — deployed 2026-07-12
+
+### Security (internal pentest, code-side)
+- **SSRF domain-gate hardening** (`7a64a28`): `isValidDomain` (enforced before
+  every scan AND the public free-scan) now also rejects reserved / private-use
+  TLDs (internal/local/localhost/corp/lan/…). Closes a finding from the internal
+  pentest: `metadata.google.internal` previously passed the alpha-TLD rule.
+  Verified live — metadata + IP-literal targets rejected, legitimate domains
+  unaffected. Locked by `validate-ssrf-domain-guard.js` (37) +
+  `validate-dmarc-xml-safety.js` (18, XXE/DoS), both CI-blocking.
+- Live version **22ab9763-9d90-48f2-a7f0-4f87cb0935d6**. Rollback: previous
+  version **8e243e0b-5264-42c5-84d2-8e50ec9038d2**.
+
 ## 2026.07.12 (v2026.07.12-3 — weekly Exposure Timeline digest) — deployed 2026-07-12
 
 ### Product (Faz 0 — retention hook)
