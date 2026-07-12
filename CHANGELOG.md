@@ -5,6 +5,36 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.12 (v2026.07.12-7 — White-label report branding) — deployed 2026-07-12
+
+### Product (Faz 1 — MSP wedge)
+- **White-label report branding** (PR #29): MSPs on Business+ can put their own
+  company name, logo, and accent colour on the reports they share with clients —
+  the answer to "can I send the report with my own logo?" is now yes, **including
+  a real logo image on the PDF**. Branding is account-level (`customer_profiles`,
+  keyed by owner_user_id) so it applies to every customer workspace the MSP owns;
+  OFF by default → existing reports unchanged.
+  - `GET/PUT /api/account/report-branding` — Business `white_label` entitlement
+    gate on switch-ON, requires a company profile (409), rejects api-token
+    sessions, audited.
+  - PDF logo image (`engines/pdf-image.js` + `assemblePdfWithImage`): JPEG via
+    `/DCTDecode`; PNG inflated/de-filtered/alpha-flattened over the accent band
+    and re-deflated as an 8-bit DeviceRGB XObject; SVG/WebP/CMYK → text-wordmark
+    fallback (never throws). Header wordmark → logo/name, accent band, footer
+    "Prepared by <MSP> | Powered by CyberMeters". Logo also rides the HTML exec
+    report brand bar.
+  - CI-blocking `validate-report-branding.js` (42) incl. PNG decode round-trip,
+    JPEG passthrough, plan gating, company-profile requirement, cross-account
+    isolation. Verified end-to-end with pypdf (valid PDF, `/Im0` Image XObject).
+- **Migration 070** (`customer_profiles.brand_logo/brand_accent/report_white_label`,
+  additive) applied to remote D1 before deploy; columns verified present.
+- Also fixed a pre-existing time-of-day flake in `validate-pipeline.js` (cron
+  task-set assertion now mirrors the 08:00-UTC ops-health + Monday weekly-digest
+  tasks, not just 02:00 retention).
+- Live version **36f77bb0-3082-4854-9bab-72f3750d2741**; report-branding endpoint
+  401 unauth (sanitized). Rollback: previous version
+  **99acf2bf-ae61-4d16-9947-76b96b60cddb**.
+
 ## 2026.07.12 (v2026.07.12-6 — Identity Exposure) — deployed 2026-07-12
 
 ### Product (Faz 0 — final bet)
