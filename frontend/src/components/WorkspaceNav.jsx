@@ -45,11 +45,12 @@ const SERVICES = [
   },
   {
     key: 'surface', title: 'Attack Surface', icon: Server, to: '/assets',
-    match: p => p.startsWith('/assets') || p.startsWith('/ws/admin-surfaces')
+    match: p => p.startsWith('/assets') || p.startsWith('/exposure') || p.startsWith('/ws/admin-surfaces')
       || p.startsWith('/ws/cloud-assets') || p.startsWith('/ws/saas-exposure')
       || p.startsWith('/ws/third-party') || p.startsWith('/scans') || p.startsWith('/schedules'),
     items: [
       { to: '/assets',            label: 'Overview', end: true },
+      { to: '/exposure',          label: 'Timeline' },
       { to: '/assets',            label: 'Assets' },
       { to: '/scans',             label: 'Scans' },
       { to: '/schedules',         label: 'Schedules' },

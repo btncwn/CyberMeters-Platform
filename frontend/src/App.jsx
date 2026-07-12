@@ -42,6 +42,7 @@ const ScanDetail                = lazy(() => import('./pages/ScanDetail'))
 const DomainHistory             = lazy(() => import('./pages/DomainHistory'))
 const ScansPage                 = lazy(() => import('./pages/ScansPage'))
 const AssetsPage                = lazy(() => import('./pages/AssetsPage'))
+const ExposureTimelinePage      = lazy(() => import('./pages/ExposureTimelinePage'))
 const ReportsPage               = lazy(() => import('./pages/ReportsPage'))
 const SchedulesPage             = lazy(() => import('./pages/SchedulesPage'))
 const SettingsPage              = lazy(() => import('./pages/SettingsPage'))
@@ -178,6 +179,7 @@ function AppRoutes() {
           <Route path="scans/:id"               element={<ScanDetail />} />
           <Route path="domain/:domain/history"  element={<DomainHistory />} />
           <Route path="assets"                  element={<AssetsPage />} />
+          <Route path="exposure"                element={<ExposureTimelinePage />} />
           <Route path="reports"                 element={<ReportsPage />} />
           <Route path="schedules"               element={<SchedulesPage />} />
           <Route path="accuracy"                element={<AccuracyPage />} />

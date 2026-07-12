@@ -509,6 +509,15 @@ export const api = {
   /** GET /api/workspaces/:id/assets/timeline */
   getWorkspaceAssetsTimeline: (id) => request(`/workspaces/${id}/assets/timeline`),
 
+  /** GET /api/workspaces/:id/exposure/feed — Exposure Timeline change feed.
+   *  params: { limit, offset, severity, category, event_type, hostname, since, until } */
+  getExposureFeed: (id, params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString()
+    return request(`/workspaces/${id}/exposure/feed${q ? `?${q}` : ''}`)
+  },
+
   /** GET /api/workspaces/:id/assets/:assetId */
   getWorkspaceAsset: (workspaceId, assetId) =>
     request(`/workspaces/${workspaceId}/assets/${assetId}`),
