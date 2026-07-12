@@ -6,6 +6,48 @@ import { buildAssetInventoryMetadata, consolidateInventoryAssetAliases, probeAss
 import { normalizeHostname } from "./hostnames.js";
 import { createId } from "../lib/util.js";
 
+function normalizeInventoryValue(value) {
+  return String(value ?? "").trim();
+}
+
+function normalizeIpAddressList(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item ?? "").trim()).filter(Boolean).sort().join(", ");
+  }
+  const raw = normalizeInventoryValue(value);
+  if (!raw) return "";
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed.map((item) => String(item ?? "").trim()).filter(Boolean).sort().join(", ");
+    }
+  } catch {
+    // Fall back to the legacy comma-separated representation below.
+  }
+  return raw.split(",").map((item) => item.trim()).filter(Boolean).sort().join(", ");
+}
+
+function hostnameFromRedirectTarget(value) {
+  const raw = normalizeInventoryValue(value);
+  if (!raw) return "";
+  try {
+    return normalizeHostname(new URL(raw).hostname);
+  } catch {
+    try {
+      return normalizeHostname(new URL(`https://${raw}`).hostname);
+    } catch {
+      return normalizeHostname(raw);
+    }
+  }
+}
+
+function isExternalRedirectTarget(value, domain) {
+  const targetHost = hostnameFromRedirectTarget(value);
+  const rootHost = normalizeHostname(domain);
+  if (!targetHost || !rootHost) return false;
+  return targetHost !== rootHost && !targetHost.endsWith(`.${rootHost}`);
+}
+
 // ── Asset Inventory Upsert ────────────────────────────────────────────────────
 // Persists cross-scan asset state into workspace_assets + asset_events.
 // Called AFTER the scan completion status is written to D1 so a upsert failure
@@ -204,7 +246,7 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
       const [existingResult, recentEvtResult] = await env.cybermeters_db.batch([
         env.cybermeters_db
           .prepare(
-            `SELECT id, hostname, status, last_seen FROM workspace_assets
+            `SELECT id, hostname, status, last_seen, ip_addresses, cname, redirect_to FROM workspace_assets
              WHERE workspace_id = ? AND (domain_id = ? OR hostname = ? OR hostname LIKE ?)`
           )
           .bind(workspace_id, domainId, rootHost, `%.${rootHost}`),
@@ -281,6 +323,77 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
           // Existing asset — update last_seen + status. domain_id is re-linked
           // to the current domain row so rows orphaned by a domain
           // delete/re-add are adopted instead of drifting further.
+          const previousIps = normalizeIpAddressList(existing.ip_addresses);
+          const currentIps = normalizeIpAddressList(asset.ip_addresses);
+          if (previousIps && currentIps && previousIps !== currentIps &&
+              !recentEvtSet.has(`dns_ip_changed:${asset.hostname}`)) {
+            recentEvtSet.add(`dns_ip_changed:${asset.hostname}`);
+            stmts.push(
+              env.cybermeters_db
+                .prepare(
+                  `INSERT INTO asset_events
+                     (id, workspace_id, domain_id, asset_id, scan_id,
+                      event_type, hostname, severity, description, created_at)
+                   VALUES (?,?,?,?,?,'dns_ip_changed',?,'medium',?,?)`
+                )
+                .bind(
+                  createId("evt"), workspace_id, domainId,
+                  existing.id, scanId,
+                  asset.hostname,
+                  `IP address for ${asset.hostname} changed: ${previousIps} → ${currentIps}`,
+                  now
+                )
+            );
+          }
+
+          const previousCname = normalizeInventoryValue(existing.cname);
+          const currentCname = normalizeInventoryValue(asset.cname);
+          if (previousCname && currentCname && previousCname !== currentCname &&
+              !recentEvtSet.has(`dns_cname_changed:${asset.hostname}`)) {
+            recentEvtSet.add(`dns_cname_changed:${asset.hostname}`);
+            stmts.push(
+              env.cybermeters_db
+                .prepare(
+                  `INSERT INTO asset_events
+                     (id, workspace_id, domain_id, asset_id, scan_id,
+                      event_type, hostname, severity, description, created_at)
+                   VALUES (?,?,?,?,?,'dns_cname_changed',?,'medium',?,?)`
+                )
+                .bind(
+                  createId("evt"), workspace_id, domainId,
+                  existing.id, scanId,
+                  asset.hostname,
+                  `CNAME for ${asset.hostname} changed: ${previousCname} → ${currentCname}`,
+                  now
+                )
+            );
+          }
+
+          const previousRedirect = normalizeInventoryValue(existing.redirect_to);
+          const currentRedirect = normalizeInventoryValue(asset.redirect_to);
+          if (previousRedirect && currentRedirect && previousRedirect !== currentRedirect &&
+              !recentEvtSet.has(`dns_redirect_changed:${asset.hostname}`)) {
+            const redirectSeverity = isExternalRedirectTarget(currentRedirect, domain) ? "high" : "low";
+            recentEvtSet.add(`dns_redirect_changed:${asset.hostname}`);
+            stmts.push(
+              env.cybermeters_db
+                .prepare(
+                  `INSERT INTO asset_events
+                     (id, workspace_id, domain_id, asset_id, scan_id,
+                      event_type, hostname, severity, description, created_at)
+                   VALUES (?,?,?,?,?,'dns_redirect_changed',?,?,?,?)`
+                )
+                .bind(
+                  createId("evt"), workspace_id, domainId,
+                  existing.id, scanId,
+                  asset.hostname,
+                  redirectSeverity,
+                  `${asset.hostname} now redirects to ${currentRedirect} (was ${previousRedirect})`,
+                  now
+                )
+            );
+          }
+
           stmts.push(
             env.cybermeters_db
               .prepare(
@@ -288,6 +401,8 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
                  SET last_seen = ?, status = 'active', domain_id = ?,
                      risk_level = COALESCE(?, risk_level),
                      cloud_provider = COALESCE(?, cloud_provider),
+                     ip_addresses = COALESCE(?, ip_addresses),
+                     cname = COALESCE(?, cname),
                      redirect_to = COALESCE(?, redirect_to),
                      metadata_json = COALESCE(?, metadata_json),
                      updated_at = ?
@@ -297,6 +412,8 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
                 now, domainId,
                 asset.risk_level ?? null,
                 asset.cloud ?? null,
+                asset.ip_addresses ?? null,
+                asset.cname ?? null,
                 asset.redirect_to ?? null,
                 buildAssetInventoryMetadata(asset),
                 now,

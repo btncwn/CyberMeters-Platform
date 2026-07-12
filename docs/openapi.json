@@ -72,6 +72,10 @@
     {
       "name": "Public",
       "description": "Unauthenticated public tools (rate-limited)."
+    },
+    {
+      "name": "Exposure",
+      "description": "Exposure Timeline — chronological feed of externally visible change events."
     }
   ],
   "paths": {
@@ -1538,6 +1542,136 @@
           }
         }
       }
+    },
+    "/api/workspaces/{workspaceId}/exposure/feed": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/workspaceId"
+        }
+      ],
+      "get": {
+        "tags": [
+          "Exposure"
+        ],
+        "summary": "Exposure Timeline change feed",
+        "description": "Reverse-chronological, enriched, filterable feed of asset / DNS / email / certificate / exposure change events. Consumed by the Exposure Timeline UI and the weekly digest.",
+        "operationId": "getExposureFeed",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/limit"
+          },
+          {
+            "$ref": "#/components/parameters/offset"
+          },
+          {
+            "name": "severity",
+            "in": "query",
+            "description": "Minimum severity",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "info",
+                "low",
+                "medium",
+                "high",
+                "critical"
+              ]
+            }
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "description": "Filter by category",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asset",
+                "dns",
+                "email",
+                "certificate",
+                "exposure"
+              ]
+            }
+          },
+          {
+            "name": "event_type",
+            "in": "query",
+            "description": "Exact event type",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "hostname",
+            "in": "query",
+            "description": "Filter to one asset/host",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "domain_id",
+            "in": "query",
+            "description": "Filter to one domain",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "description": "ISO lower bound",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "description": "ISO upper bound",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated exposure event feed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "workspace_id": {
+                      "type": "string"
+                    },
+                    "events": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ExposureEvent"
+                      }
+                    },
+                    "pagination": {
+                      "$ref": "#/components/schemas/Pagination"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1725,6 +1859,75 @@
           "offset",
           "count",
           "has_more"
+        ]
+      },
+      "ExposureEvent": {
+        "type": "object",
+        "description": "A single exposure-change event, enriched server-side with a category and a short human title. The stored description carries the before/after detail.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "event_type": {
+            "type": "string",
+            "example": "email_dmarc_policy_changed"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "asset",
+              "dns",
+              "email",
+              "certificate",
+              "exposure"
+            ]
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "info",
+              "low",
+              "medium",
+              "high",
+              "critical"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "example": "DMARC policy changed"
+          },
+          "description": {
+            "type": "string",
+            "example": "DMARC policy changed: reject → none"
+          },
+          "hostname": {
+            "type": "string",
+            "nullable": true
+          },
+          "domain_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "asset_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "scan_id": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "event_type",
+          "category",
+          "severity",
+          "title"
         ]
       }
     },
