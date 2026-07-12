@@ -5,6 +5,21 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.12 (v2026.07.12-5 — MSP Portfolio: change-counts + exec summary) — deployed 2026-07-12
+
+### Product (Faz 0 — MSP wedge)
+- **MSP Portfolio sharpening** (`86067ca`): the "which customer needs attention
+  today?" view now shows THIS WEEK'S Exposure-Timeline change counts per customer
+  and factors new high/critical changes into the attention ranking (connecting the
+  two Faz 0 bets). New `GET /api/portfolio/executive-summary` — portfolio-level
+  posture spread + this week's movement + top-3 attention list + plain-English
+  narrative the MSP can share. Per-customer logic extracted to a shared,
+  unit-tested engine. New CI-blocking `validate-portfolio.js` (21) closes the
+  previously-untested CROSS-MSP ISOLATION invariant (MSP A never sees MSP B's
+  customers). No migration.
+- Live version **77bd47ac-facb-46db-9b6c-47ef15e8657e**; new endpoints 401 unauth.
+  Rollback: previous version **22ab9763-9d90-48f2-a7f0-4f87cb0935d6**.
+
 ## 2026.07.12 (v2026.07.12-4 — SSRF gate hardening) — deployed 2026-07-12
 
 ### Security (internal pentest, code-side)
