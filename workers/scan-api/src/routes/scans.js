@@ -83,7 +83,12 @@ export async function scanRoutes(rctx) {
         ],
         "scan_start",
         burstLimit,
-        3600
+        3600,
+        // Fail-CLOSED: a scan is expensive (many subrequests). Under D1 stress
+        // — exactly when the limiter's DB reads fail — allowing unmetered scan
+        // starts would let one account exhaust Worker subrequests / cost. A
+        // brief 503 + retry is the safer failure mode than an unthrottled burst.
+        { failClosed: true }
       );
       if (burstLimitError) return json(burstLimitError.body, burstLimitError.status);
 

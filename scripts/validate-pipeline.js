@@ -363,6 +363,24 @@ async function main() {
   ok("once tripped it STAYS tripped in the window (last attempt is 429)", statuses[statuses.length - 1] === 429);
   ok("the limiter fails closed, never crashes (only 401/429, no 5xx)", statuses.every((s) => s === 401 || s === 429));
 
+  // ── Per-account brute-force ceiling (distributed: many IPs, one account) ──
+  // Each attempt from a UNIQUE source IP, so the per-IP limit (10) never trips —
+  // only the per-account limit (20/15min) can stop it. Proves a distributed
+  // attack against one account is capped regardless of source-IP spread.
+  const acctStatuses = [];
+  for (let i = 0; i < 22; i++) {
+    const req = new Request("https://api.cybermeters.com/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "CF-Connecting-IP": `203.0.113.${i + 1}` },
+      body: JSON.stringify({ email: "distributed-bf@example.com", password: "x" }),
+    });
+    acctStatuses.push((await worker.fetch(req, env, ctx)).status);
+  }
+  ok("distributed brute-force (unique IPs) still trips the per-ACCOUNT limit → 429", acctStatuses.includes(429));
+  ok("per-account limit lets the first 20 through (401), no single IP over its own limit", acctStatuses.slice(0, 20).every((s) => s === 401));
+  ok("per-account limit blocks the 21st+ attempt (429)", acctStatuses[20] === 429 && acctStatuses[21] === 429);
+  ok("per-account limiter fails closed too (only 401/429, no 5xx)", acctStatuses.every((s) => s === 401 || s === 429));
+
   for (const line of results) if (line.startsWith("FAIL")) console.error(line);
   console.log("");
   for (const [name, s] of sectionCounts) console.log(`  ${s.failed === 0 ? "✓" : "✗"} ${name}: ${s.passed}/${s.passed + s.failed}`);
