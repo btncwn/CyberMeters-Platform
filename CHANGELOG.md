@@ -5,6 +5,32 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.12 (v2026.07.12-8 — Hosted DNS v2 + TLS-RPT hosting & ingestion) — deployed 2026-07-12
+
+### Architecture (pre-revenue refactor + Phase C)
+- **Hosted DNS v2 bounded context** (PR #34): `hosted_dns_records` was pinned by
+  `CHECK (record_type IN ('dmarc'))` — Codex's audit caught it; widening a CHECK
+  needs a `DROP TABLE` rebuild the additive-only guard rightly forbids. So the
+  layer was redesigned additively as `hosted_dns_entries` — one table for
+  DMARC/TLS-RPT/MTA-STS/SPF, **no CHECK** (enums in code → new kinds never need a
+  migration). Migration **071** created it + **idempotent 1:1 backfill** of the
+  live hosted DMARC row (verified: `_dmarc.cybermeters.com`, connected, mapped
+  1:1). Engine + routes repointed via an aliased projection → **DMARC behaviour
+  identical** (the 3 hosted-DMARC lifecycle contracts + regression 227/227 green).
+  Old table retired-in-place (kept + still purged; no `DROP TABLE`).
+- **TLS-RPT hosting** — new `record_kind='tlsrpt'`, no migration: `/hosted-tls-rpt`
+  create/verify/delete via CNAME delegation (`_smtp._tls.<domain>`), reusing the
+  domain's reporting mailbox. `validate-hosted-tls-rpt.js` (20).
+- **TLS-RPT report ingestion** — migration **072** (`tlsrpt_aggregate_reports` +
+  `tlsrpt_failure_details`, both purged); a **separate JSON parser**
+  (`lib/tlsrpt-ingest.js`) — never the DMARC XML path; the inbound handler now
+  **routes by attachment type** (TLS-RPT JSON → new path; DMARC XML unchanged).
+  `GET /tls-rpt/reports` + a SMTP-TLS-delivery-health card. `validate-tlsrpt-ingest.js`
+  (21, incl. real inbound routing end-to-end + no-regression).
+- Migrations 071 + 072 applied to remote D1 (071 first — backfill). Live version
+  **8fa4b19d-c681-4876-892a-e6bbc8873633**; health/ready 200, new + repointed
+  routes 401 unauth. Rollback: **36f77bb0-3082-4854-9bab-72f3750d2741**.
+
 ## 2026.07.12 (v2026.07.12-7 — White-label report branding) — deployed 2026-07-12
 
 ### Product (Faz 1 — MSP wedge)
