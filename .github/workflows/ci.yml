@@ -74,6 +74,9 @@ jobs:
       - name: Validate email lifecycle (send/dedupe/retry + payment_failed exclusion)
         run: node scripts/validate-email-lifecycle.js
 
+      - name: Validate weekly digest (active-only + dedup + all-quiet + windowing)
+        run: node scripts/validate-weekly-digest.js
+
       - name: Validate billing lifecycle (entitlement state machine + grace window)
         run: node scripts/validate-billing-lifecycle.js
 

@@ -326,6 +326,7 @@ async function retryFailedLifecycleEmails(env) {
                 FROM lifecycle_email_events
                 WHERE status = 'failed'
                   AND type != 'lifecycle_payment_failed'
+                  AND type != 'lifecycle_weekly_digest'
                   AND created_at > datetime('now', '-3 days')
                 ORDER BY created_at ASC
                 LIMIT 10`)

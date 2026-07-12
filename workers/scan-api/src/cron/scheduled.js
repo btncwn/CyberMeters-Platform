@@ -79,6 +79,14 @@ export async function runScheduled(event, env, ctx, tasks) {
     ctx.waitUntil(runCronTask(env, "ops_health_heartbeat", () => tasks.opsHealthHeartbeat(env)));
   }
 
+  // ── Weekly Exposure Timeline digest ──────────────────────────────────
+  // Mondays at 08:00 UTC: the "what changed this week" email to active
+  // workspaces. Deduped per ISO week; quiet weeks send a short reassurance,
+  // dormant workspaces get nothing.
+  if (tasks.sendWeeklyDigests && new Date(now).getUTCDay() === 1 && new Date(now).getUTCHours() === 8) {
+    ctx.waitUntil(runCronTask(env, "weekly_digest", () => tasks.sendWeeklyDigests(env)));
+  }
+
   // ── Deletion purge (soft-delete → 30-day window → hard delete) ────────
   // Bounded per run; requests inside the restore window are never touched.
   ctx.waitUntil(runCronTask(env, "deletion_purge", () => tasks.processDeletionRequests(env)));
