@@ -8,6 +8,7 @@ import { getEffectivePlan, hasFeatureEntitlement } from "../engines/entitlements
 import { assemblePdf, buildPdfStreams } from "../engines/pdf.js";
 import { getEntitlementUsage, getPlanLimits, planLimitExceeded } from "../engines/plan-usage.js";
 import { computePortfolioRisk } from "../engines/portfolio-risk.js";
+import { computePortfolioCustomerRows, buildExecutiveSummary } from "../engines/portfolio-customers.js";
 import { auditApiTokenSessionRouteDenied, createWorkspaceTrialSubscription } from "../engines/subscription-state.js";
 import { createAuditEvent } from "../lib/events.js";
 import { sendLifecycleEmail } from "../lib/lifecycle-email.js";
@@ -320,127 +321,25 @@ export async function portfolioRoutes(rctx) {
       const user = await requireAuth(request, env);
       if (!user) return json({ error: "Unauthorized" }, 401);
       try {
-        const db = env.cybermeters_db;
         const workspaceIds = await getAccessibleWorkspaceIds(user, env);
-        if (workspaceIds.length === 0) return json({ workspaces: [] });
-        const wsIn = workspaceIds.map(() => "?").join(",");
-        const [
-          wsRes, domCountRes, assetCountRes, vendorCountRes, brandCountRes,
-          findingsRes, scanRes, rptRes,
-        ] = await Promise.allSettled([
-          db.prepare(`SELECT id, name, created_at FROM workspaces WHERE id IN (${wsIn}) ORDER BY created_at`).bind(...workspaceIds).all(),
-          db.prepare(`SELECT workspace_id, COUNT(*) AS count FROM workspace_domains WHERE workspace_id IN (${wsIn}) GROUP BY workspace_id`).bind(...workspaceIds).all(),
-          db.prepare(`SELECT workspace_id, COUNT(*) AS count FROM workspace_assets WHERE status='active' AND workspace_id IN (${wsIn}) GROUP BY workspace_id`).bind(...workspaceIds).all(),
-          db.prepare(`SELECT workspace_id, COUNT(*) AS count FROM workspace_vendors WHERE status='active' AND workspace_id IN (${wsIn}) GROUP BY workspace_id`).bind(...workspaceIds).all(),
-          db.prepare(`SELECT workspace_id, COUNT(*) AS count FROM workspace_brand_assets WHERE status='active' AND workspace_id IN (${wsIn}) GROUP BY workspace_id`).bind(...workspaceIds).all(),
-          // Critical + high per workspace from latest scan per domain
-          db.prepare(`
-            WITH lpd AS (
-              SELECT domain_id, MAX(created_at) AS mx
-              FROM scans WHERE status='completed' GROUP BY domain_id
-            )
-            SELECT wd.workspace_id, f.severity, COUNT(*) AS cnt
-            FROM findings f
-            JOIN scans s ON f.scan_id = s.id
-            JOIN lpd   ON s.domain_id = lpd.domain_id AND s.created_at = lpd.mx
-            JOIN workspace_domains wd ON s.domain_id = wd.domain_id
-            WHERE f.severity IN ('critical','high')
-              AND wd.workspace_id IN (${wsIn})
-            GROUP BY wd.workspace_id, f.severity
-          `).bind(...workspaceIds).all(),
-          // Latest scan avg score + last_scan_at per workspace
-          db.prepare(`
-            WITH lpd AS (
-              SELECT domain_id, MAX(created_at) AS mx
-              FROM scans WHERE status='completed' GROUP BY domain_id
-            )
-            SELECT wd.workspace_id,
-                   AVG(s.score)      AS avg_score,
-                   MAX(s.created_at) AS last_scan_at
-            FROM scans s
-            JOIN lpd              ON s.domain_id = lpd.domain_id AND s.created_at = lpd.mx
-            JOIN workspace_domains wd ON s.domain_id = wd.domain_id
-            WHERE s.score IS NOT NULL
-              AND wd.workspace_id IN (${wsIn})
-            GROUP BY wd.workspace_id
-          `).bind(...workspaceIds).all(),
-          db.prepare(`
-            SELECT workspace_id, MAX(generated_at) AS last_report_at
-            FROM workspace_reports WHERE status='completed' AND deleted_at IS NULL AND workspace_id IN (${wsIn})
-            GROUP BY workspace_id
-          `).bind(...workspaceIds).all(),
-        ]);
-
-        const workspaces = wsRes.status === 'fulfilled' ? (wsRes.value?.results ?? []) : [];
-
-        // Build lookup maps
-        const domMap    = {};
-        for (const r of (domCountRes.status    === 'fulfilled' ? (domCountRes.value?.results    ?? []) : [])) domMap[r.workspace_id]    = r.count;
-        const assetMap  = {};
-        for (const r of (assetCountRes.status  === 'fulfilled' ? (assetCountRes.value?.results  ?? []) : [])) assetMap[r.workspace_id]  = r.count;
-        const vendorMap = {};
-        for (const r of (vendorCountRes.status === 'fulfilled' ? (vendorCountRes.value?.results ?? []) : [])) vendorMap[r.workspace_id] = r.count;
-        const brandMap  = {};
-        for (const r of (brandCountRes.status  === 'fulfilled' ? (brandCountRes.value?.results  ?? []) : [])) brandMap[r.workspace_id]  = r.count;
-
-        const findingsMap = {};
-        for (const r of (findingsRes.status === 'fulfilled' ? (findingsRes.value?.results ?? []) : [])) {
-          if (!findingsMap[r.workspace_id]) findingsMap[r.workspace_id] = { critical: 0, high: 0 };
-          findingsMap[r.workspace_id][r.severity] = r.cnt;
-        }
-
-        const scanMap = {};
-        for (const r of (scanRes.status === 'fulfilled' ? (scanRes.value?.results ?? []) : [])) scanMap[r.workspace_id] = r;
-
-        const rptMap = {};
-        for (const r of (rptRes.status === 'fulfilled' ? (rptRes.value?.results ?? []) : [])) rptMap[r.workspace_id] = r.last_report_at;
-
-        const now = Date.now();
-        const rows = workspaces.map(ws => {
-          const scan    = scanMap[ws.id]    ?? {};
-          const findings = findingsMap[ws.id] ?? {};
-          const avgScore = scan.avg_score != null ? Math.round(scan.avg_score) : null;
-
-          let risk_rating = null;
-          if (avgScore !== null) {
-            if      (avgScore >= 80) risk_rating = 'Low';
-            else if (avgScore >= 60) risk_rating = 'Medium';
-            else if (avgScore >= 40) risk_rating = 'High';
-            else                     risk_rating = 'Critical';
-          }
-
-          const lastScanAt = scan.last_scan_at ?? null;
-          const status = lastScanAt && (now - new Date(lastScanAt).getTime()) < 30 * 24 * 3600 * 1000
-            ? 'active' : 'inactive';
-
-          return {
-            workspace_id:          ws.id,
-            workspace_name:        ws.name,
-            domains:               domMap[ws.id]    ?? 0,
-            active_assets:         assetMap[ws.id]  ?? 0,
-            vendors:               vendorMap[ws.id] ?? 0,
-            brand_candidates:      brandMap[ws.id]  ?? 0,
-            latest_score:          avgScore,
-            security_posture_score: avgScore,
-            risk_rating,
-            critical_findings:     findings.critical ?? 0,
-            high_findings:         findings.high     ?? 0,
-            last_scan_at:          lastScanAt,
-            last_report_at:        rptMap[ws.id] ?? null,
-            status,
-          };
-        });
-
-        // Sort: critical desc → high desc → score asc (lowest=most risk) → last_scan desc
-        rows.sort((a, b) => {
-          if (b.critical_findings !== a.critical_findings) return b.critical_findings - a.critical_findings;
-          if (b.high_findings     !== a.high_findings)     return b.high_findings     - a.high_findings;
-          const sa = a.latest_score ?? 999, sb = b.latest_score ?? 999;
-          if (sa !== sb) return sa - sb;
-          return (b.last_scan_at ?? '').localeCompare(a.last_scan_at ?? '');
-        });
-
+        const rows = await computePortfolioCustomerRows(env.cybermeters_db, workspaceIds);
         return json({ workspaces: rows });
+      } catch (err) {
+        return serverError("api", err);
+      }
+    }
+
+    // ── GET /api/portfolio/executive-summary ─────────────────────────────────
+    // Portfolio-level exec summary the MSP can review or share: posture spread,
+    // this week's movement, and the top customers needing attention. Scoped to
+    // the caller's accessible workspaces (getAccessibleWorkspaceIds).
+    if (request.method === "GET" && url.pathname === "/api/portfolio/executive-summary") {
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      try {
+        const workspaceIds = await getAccessibleWorkspaceIds(user, env);
+        const rows = await computePortfolioCustomerRows(env.cybermeters_db, workspaceIds);
+        return json({ ...buildExecutiveSummary(rows), generated_at: new Date().toISOString() });
       } catch (err) {
         return serverError("api", err);
       }

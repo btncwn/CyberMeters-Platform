@@ -1294,6 +1294,9 @@ export const api = {
   /** GET /api/portfolio/risk — MSP portfolio risk intelligence */
   getPortfolioRisk: () => request('/portfolio/risk'),
 
+  /** GET /api/portfolio/executive-summary — portfolio-level exec summary */
+  getPortfolioExecutiveSummary: () => request('/portfolio/executive-summary'),
+
   // ── Account Security ──────────────────────────────────────────────────────
 
   /** GET /api/account/login-history */

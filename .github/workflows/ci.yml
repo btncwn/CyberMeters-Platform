@@ -50,6 +50,9 @@ jobs:
       - name: Validate SSRF domain guard (IP/localhost/metadata/reserved-TLD reject)
         run: node scripts/validate-ssrf-domain-guard.js
 
+      - name: Validate MSP portfolio (cross-MSP isolation + change counts + exec summary)
+        run: node scripts/validate-portfolio.js
+
       - name: Validate request pipeline (fetch → auth → RBAC → DB; login + webhook)
         run: node scripts/validate-pipeline.js
 
