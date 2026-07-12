@@ -618,7 +618,7 @@ function DifferentiatorBlock({ wsId }) {
           </div>
           <h2 className="section-title mb-2">Impersonation risk doesn't stop at the inbox</h2>
           <p className="text-sm text-gray-600 leading-relaxed max-w-2xl">
-            Email sender intelligence is part of your external attack surface. Weak authentication and
+            Email sender intelligence is part of your overall security posture. Weak authentication and
             unknown senders can increase impersonation risk — combined with exposed assets or a weak
             external posture, this raises the likelihood of phishing, invoice fraud, or supplier
             impersonation. CyberMeters connects DMARC sender intelligence and authentication remediation

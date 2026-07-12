@@ -17,7 +17,16 @@
 - **Legal docs** (Terms/Privacy/DPA) describe the service as "ASM/SPM" — preserve legal meaning;
   soften only if ChatGPT confirms it stays accurate.
 
-## SOFTEN — positioning copy (highest priority: first impressions)
+> **Status (2026-07-12): SOFTEN pass DONE.** All positioning copy below now leads
+> with Cyber MOT / Website Security / monitoring — "external attack surface" and
+> generic "scan" removed from *positioning* narrative across Pricing, lifecycle
+> welcome email, ServiceLauncher, Dashboard (empty state + insight + CTA),
+> Workspaces, Scans, Onboarding, FirstResultsGuide, PublicLandingPage, and the
+> Email Protection cross-sell. JUDGMENT/CAREFUL/KEEP items below were deliberately
+> preserved (functional scan buttons, legal ASM/SPM, service-name + Academy SEO).
+> ChatGPT retains final wording authority to tweak any line.
+
+## SOFTEN — positioning copy (highest priority: first impressions) — ✅ DONE
 | File:line | Current text |
 |---|---|
 | `frontend/src/pages/PricingPage.jsx:189` | "Start with external attack surface monitoring, then add executive reporting, vendor risk, and MSP-ready capabilities as you grow." |
