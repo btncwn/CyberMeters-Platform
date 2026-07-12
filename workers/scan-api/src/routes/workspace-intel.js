@@ -4,6 +4,7 @@
 // Receives the per-request routeCtx from index.js; returns a Response when a
 // route matches, or null so the main router continues.
 import { computeSupplyChainIntelligence } from "../engines/supply-chain.js";
+import { computeIdentityExposure } from "../engines/identity-exposure.js";
 import { getEffectivePlan, hasFeatureEntitlement } from "../engines/entitlements.js";
 
 export async function workspaceIntelRoutes(rctx) {
@@ -15,6 +16,23 @@ export async function workspaceIntelRoutes(rctx) {
 
     const identityListMatch    = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/identity-assets$/);
     const identitySummaryMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/identity-assets\/summary$/);
+
+    // GET /api/workspaces/:id/identity-exposure — consolidated Identity Exposure
+    // (exposed login surfaces + active impersonation infra + email spoofing).
+    const identityExposureMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/identity-exposure$/);
+    if (identityExposureMatch && request.method === "GET") {
+      const wsId = identityExposureMatch[1];
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, wsId, "workspace:read", env);
+      if (!access) return json({ error: "Forbidden" }, 403);
+      try {
+        const exposure = await computeIdentityExposure(env, wsId);
+        return json({ workspace_id: wsId, ...exposure, generated_at: new Date().toISOString() });
+      } catch (err) {
+        return serverError("api", err);
+      }
+    }
 
     if ((identityListMatch || identitySummaryMatch) && request.method === "GET") {
       const wsId = (identityListMatch ?? identitySummaryMatch)[1];

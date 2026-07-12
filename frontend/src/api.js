@@ -631,6 +631,10 @@ export const api = {
   /** GET /api/workspaces/:id/identity-assets/summary */
   getWorkspaceIdentitySummary: (id) => request(`/workspaces/${id}/identity-assets/summary`),
 
+  /** GET /api/workspaces/:id/identity-exposure — consolidated Identity Exposure
+   *  (exposed login surfaces + active impersonation infra + email spoofing) */
+  getIdentityExposure: (id) => request(`/workspaces/${id}/identity-exposure`),
+
   /** GET /api/workspaces/:id/vendor-relationships */
   getVendorRelationships: (id, params = {}) => {
     const q = new URLSearchParams(params).toString()
