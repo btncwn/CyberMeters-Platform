@@ -5,6 +5,27 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.13 (v2026.07.13-1 — Auth rate-limit hardening) — deployed 2026-07-13
+
+### Security (P0 pre-public-beta hardening — see docs/P0-PUBLIC-BETA-BLOCKERS.md)
+- **Per-account login lockout** (PR #38 #1): login was throttled per-IP only, so a
+  DISTRIBUTED attack (many IPs, one account) had no per-account ceiling. Added a
+  per-account consume (20 / 15 min, keyed on the normalised email, fail-closed)
+  before any credential check. Generous threshold so real users never trip it;
+  the short window bounds the account-lockout DoS inherent to any per-account
+  throttle. `validate-pipeline.js` proves it (22 attempts from unique IPs → 21st
+  is 429 while no single IP is over its own limit).
+- **Fail-closed `scan_start`** (PR #38 #2): the scan-start burst limiter failed
+  OPEN on D1 error, so under the exact D1 stress an attack causes an account could
+  start unmetered (expensive, many-subrequest) scans. Now fail-closed — a brief
+  503 + retry is safer than an unthrottled burst. (The coarse global read/write
+  guard is deliberately left fail-open — defense-in-depth behind the fail-closed
+  primary limiters; hard-closing it would 503 the whole API on any D1 blip.)
+- No migration. pipeline 42/42, security-contracts, regression, integration green.
+- Live version **a6ff57eb-f8f4-48fb-a760-61d83b9359a5** (health reports
+  2026.07.13); login path verified (bogus creds → 401, no 5xx). Rollback:
+  **c9a46eed-b9e0-46c0-8c5a-50c83d6f7960**.
+
 ## 2026.07.12 (v2026.07.12-9 — Guided-hybrid MTA-STS) — deployed 2026-07-12
 
 ### Product (Phase C — email wedge, on the hosted DNS v2 foundation)
