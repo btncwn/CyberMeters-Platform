@@ -405,6 +405,8 @@ export default function PublicLandingPage() {
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+              <FooterLink to="/trust">Trust &amp; Security</FooterLink>
+              <FooterLink to="/status">Status</FooterLink>
               <FooterLink to="/privacy">Privacy</FooterLink>
               <FooterLink to="/terms">Terms</FooterLink>
               <FooterLink to="/dpa">DPA</FooterLink>
