@@ -30,6 +30,7 @@ import { isActionableFinding, normalizeFindingSchema } from "./findings.js";
 import { runHeadersModule } from "./headers-scan.js";
 import { runHistoricalModule } from "./historical-scan.js";
 import { runIdentityDiscoveryModule } from "./identity-scan.js";
+import { recordPostureEvents } from "./posture-events.js";
 import { computeScore, isEmailApplicable } from "./scoring.js";
 import { runSslModule } from "./ssl-scan.js";
 import { BRUTEFORCE_MAX_NAMES, filterWildcardBruteforceResults, runBruteforceModule, runSubdomainsModule } from "./subdomains-scan.js";
@@ -815,6 +816,12 @@ function buildCanonicalUrlProfile(modules) {
       await upsertAssetInventory(scanId, domainId, domain, modules, env);
     } catch { /* non-fatal — inventory update will catch up on next scan */ }
 
+    // Phase 8a.1: Posture Timeline Events — cross-scan email-auth and exposed
+    // service diffs. Uses previous completed scan report from R2 as baseline.
+    try {
+      await recordPostureEvents(scanId, domainId, domain, modules, env);
+    } catch { /* non-fatal — posture events catch up on next scan */ }
+
     // Phase 8b: Admin Surface Events — one asset_event per detected service per workspace.
     // Runs after upsertAssetInventory so workspace_assets rows are already present,
     // allowing asset_id FK resolution.
@@ -1195,4 +1202,3 @@ export async function upsertVendorInventory(domainId, vendorRisk, env) {
     }
   }
 }
-
