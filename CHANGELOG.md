@@ -5,6 +5,24 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.12 (v2026.07.12-2 — Exposure Timeline backend) — deployed 2026-07-12
+
+### Product (Faz 0 — the subscription hinge)
+- **Exposure Timeline change detection + feed** (`#26`,`#27`,`#28`): the platform
+  now records what changed between scans — turning a one-time scan tool into a
+  subscription product. New `asset_events` on top of the existing subdomain/cert
+  diffs: DNS changes (IP / CNAME / redirect target, external redirect = high),
+  email-auth changes (SPF record, DMARC policy weakened/strengthened, DKIM), and
+  new/resolved internet-exposed services. Surfaced by a new enriched, filterable,
+  paginated feed API `GET /api/workspaces/:id/exposure/feed` (category + severity
+  + hostname + date filters), consumed by the upcoming Timeline UI + weekly digest.
+  Fully test-covered (validate-exposure-events / -posture-events / -exposure-feed,
+  all CI-blocking) and documented in OpenAPI (ExposureEvent schema). New events
+  accrue on future scans, so deploying now starts building change history.
+- Live version **52281cb0-aadf-41ea-80b7-0eb2830b2954**; `/health` 200,
+  `/exposure/feed` 401 (auth enforced). Rollback: previous version
+  **4d9898d4-d0e2-45c0-b77f-59842dff7a29**.
+
 ## 2026.07.12 (v2026.07.12-1 — planned maintenance mode) — deployed 2026-07-12
 
 ### Operations
