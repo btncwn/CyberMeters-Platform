@@ -341,7 +341,7 @@ function CreateFirstWorkspaceState() {
         <h2 className="text-xl font-bold text-gray-900 mb-2">Create your first workspace</h2>
         <p className="text-sm text-gray-400 mb-2 max-w-md leading-relaxed">
           A workspace holds the domains, scans, and reports for one organisation or client.
-          Create your first workspace to begin monitoring your external attack surface.
+          Create your first workspace to begin monitoring your website, email and certificate security.
         </p>
         <p className="text-xs text-gray-300 mb-8">Takes less than a minute · No credit card required</p>
         <div className="flex flex-wrap items-center justify-center gap-3">
@@ -791,9 +791,9 @@ export default function Dashboard() {
           <div className="flex-1 lg:border-l border-gray-200 lg:pl-8">
             <p className="text-[15px] text-gray-700 leading-relaxed max-w-lg">
               {ins.score === null
-                ? 'Run your first scan to generate your Cyber Metrics Score and reveal your external security posture.'
+                ? 'Run your first Cyber MOT to generate your Cyber Metrics Score and reveal your external security posture.'
                 : ins.score >= 75
-                  ? 'Your external attack surface is well protected. Keep monitoring to catch new exposure as it appears.'
+                  ? 'Your external security posture is well protected. Keep monitoring to catch new exposure as it appears.'
                   : ins.score >= 50
                     ? `Moderate exposure detected. ${ins.findings.length} issue${ins.findings.length !== 1 ? 's' : ''} require attention to strengthen your posture.`
                     : 'Critical exposures detected. Prioritise the findings below — immediate action is recommended.'}
@@ -805,7 +805,7 @@ export default function Dashboard() {
                 </Link>
               ) : (
                 <Link to="/scans/new" className="btn-primary">
-                  <ScanLine className="w-4 h-4" /> Run your first scan
+                  <ScanLine className="w-4 h-4" /> Run your first Cyber MOT
                 </Link>
               )}
               <Link to="/scans" className="btn-secondary">View all scans</Link>

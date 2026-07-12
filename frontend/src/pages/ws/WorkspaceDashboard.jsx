@@ -693,7 +693,7 @@ export default function WorkspaceDashboard() {
                   <ScanLine className="w-7 h-7 text-brand-600" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-base font-bold text-gray-900 mb-1">Run your first security scan</p>
+                  <p className="text-base font-bold text-gray-900 mb-1">Run your first Cyber MOT</p>
                   <p className="text-sm text-gray-500 leading-relaxed">
                     A CyberMeters scan analyses your domain's DNS configuration, SSL certificates, security headers,
                     email security posture, exposed assets, and subdomains — producing a scored risk report in minutes.

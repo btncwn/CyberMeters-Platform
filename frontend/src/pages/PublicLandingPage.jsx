@@ -249,7 +249,7 @@ export default function PublicLandingPage() {
                 Know where your business is <span className="relative text-brand-800">exposed<span className="absolute left-0 right-0 -z-10 rounded-sm" style={{ bottom: '0.07em', height: '0.16em', background: '#D6EAE2' }} /></span> — before anyone else does.
               </h1>
               <p className="text-[1.18rem] text-gray-600 mt-5 leading-relaxed max-w-[34ch]">
-                CyberMeters checks your email, brand, external attack surface and certificates, then tells you what to fix first. One clear posture. No jargon.
+                CyberMeters checks your email, brand, website security and certificates, then tells you what to fix first. One clear posture. No jargon.
               </p>
               <div className="flex flex-wrap items-center gap-3.5 mt-8">
                 <Link to="/free-scan" className="btn-primary !rounded-full">Run your free Cyber MOT <ArrowRight className="w-4 h-4" /></Link>

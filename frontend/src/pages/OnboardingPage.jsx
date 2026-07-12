@@ -422,7 +422,7 @@ export default function OnboardingPage() {
             </div>
           </div>
         ) : (
-          <p className="text-sm text-gray-400">Run your first scan to generate the Executive Report.</p>
+          <p className="text-sm text-gray-400">Run your first Cyber MOT to generate the Executive Report.</p>
         )}
       </StepCard>
     </div>
