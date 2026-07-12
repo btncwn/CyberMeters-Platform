@@ -552,6 +552,49 @@ export async function emailProtectionRoutes(rctx) {
       }
     }
 
+    // GET .../tls-rpt/reports — SMTP TLS delivery health from ingested TLS-RPT
+    // reports: success rate + top failures. Read-only, tenant-scoped.
+    const tlsRptReportsMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/domains\/([^/]+)\/tls-rpt\/reports$/);
+    if (tlsRptReportsMatch && request.method === "GET") {
+      const workspaceId = tlsRptReportsMatch[1];
+      const domain = decodeURIComponent(tlsRptReportsMatch[2]).toLowerCase();
+      try {
+        const user = await requireAuth(request, env);
+        if (!user) return json({ error: "Unauthorized" }, 401);
+        const access = await requireWorkspaceRole(user, workspaceId, "workspace:read", env);
+        if (!access) return json({ error: "Forbidden" }, 403);
+
+        const reports = (await env.cybermeters_db
+          .prepare(`SELECT id, org_name, external_report_id, date_range_begin, date_range_end, policy_type,
+                           total_successful_sessions, total_failure_sessions, failure_count, provenance, created_at
+                    FROM tlsrpt_aggregate_reports WHERE workspace_id = ? AND domain = ?
+                    ORDER BY created_at DESC LIMIT 50`)
+          .bind(workspaceId, domain).all()).results || [];
+        let succ = 0, fail = 0;
+        for (const r of reports) { succ += r.total_successful_sessions || 0; fail += r.total_failure_sessions || 0; }
+        const totalSessions = succ + fail;
+        const topFailures = (await env.cybermeters_db
+          .prepare(`SELECT result_type, COUNT(*) AS report_hits, SUM(failed_session_count) AS sessions
+                    FROM tlsrpt_failure_details WHERE workspace_id = ? AND domain = ?
+                    GROUP BY result_type ORDER BY sessions DESC LIMIT 5`)
+          .bind(workspaceId, domain).all()).results || [];
+
+        return json({
+          summary: {
+            report_count: reports.length,
+            total_sessions: totalSessions,
+            successful_sessions: succ,
+            failed_sessions: fail,
+            success_rate: totalSessions > 0 ? Math.round((succ / totalSessions) * 100) : null,
+            top_failures: topFailures,
+          },
+          reports,
+        });
+      } catch (e) {
+        return serverError("tls-rpt-reports", e, "TLS-RPT reports could not be loaded.");
+      }
+    }
+
     // POST .../dmarc-ingest-endpoint — create (idempotent; never duplicates).
     if (ingestEpMatch && request.method === "POST") {
       const workspaceId = ingestEpMatch[1];

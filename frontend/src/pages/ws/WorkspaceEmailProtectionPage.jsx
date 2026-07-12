@@ -1534,6 +1534,55 @@ const HOSTED_STATUS_META = {
   pending_removal: { label: 'Removing…',           kind: 'na',   hint: 'Remove the CNAME at your DNS provider; the hosted value stays live until your DNS no longer depends on it.' },
 }
 
+function TlsRptHealthCard({ wsId, domain }) {
+  const [data, setData] = useState(undefined) // undefined=loading, null=none
+  useEffect(() => {
+    let alive = true
+    api.getTlsRptReports(wsId, domain)
+      .then(r => { if (alive) setData(r?.summary?.report_count > 0 ? r.summary : null) })
+      .catch(() => { if (alive) setData(null) })
+    return () => { alive = false }
+  }, [wsId, domain])
+
+  if (!data) return null // self-hide while loading or when no reports yet
+  const rate = data.success_rate
+  const rateCls = rate == null ? 'text-gray-400' : rate >= 99 ? 'text-brand-700' : rate >= 95 ? 'text-amber-600' : 'text-red-600'
+  return (
+    <div className="mx-6 mt-4 rounded-xl border border-gray-200 bg-white p-5">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <p className="text-sm font-bold text-gray-900">SMTP TLS delivery health</p>
+          <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+            From TLS-RPT reports — is mail being delivered to you securely over TLS, and where is it failing.
+          </p>
+        </div>
+        <div className="text-right">
+          <p className={`text-3xl font-black tabular-nums leading-none ${rateCls}`}>{rate != null ? `${rate}%` : '—'}</p>
+          <p className="text-xs text-gray-400 mt-0.5">success rate</p>
+        </div>
+      </div>
+      <div className="mt-3 grid grid-cols-3 gap-3 text-center">
+        <div><p className="text-lg font-bold text-gray-900 tabular-nums">{data.total_sessions.toLocaleString()}</p><p className="text-xs text-gray-400">sessions</p></div>
+        <div><p className="text-lg font-bold text-gray-900 tabular-nums">{data.failed_sessions.toLocaleString()}</p><p className="text-xs text-gray-400">failed</p></div>
+        <div><p className="text-lg font-bold text-gray-900 tabular-nums">{data.report_count}</p><p className="text-xs text-gray-400">reports</p></div>
+      </div>
+      {data.top_failures?.length > 0 && (
+        <div className="mt-4 pt-3 border-t border-gray-100">
+          <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Top failures</p>
+          <div className="space-y-1.5">
+            {data.top_failures.map((f, i) => (
+              <div key={i} className="flex items-center justify-between text-xs">
+                <span className="text-gray-700 font-medium">{(f.result_type || 'unknown').replace(/-/g, ' ')}</span>
+                <span className="text-gray-400 tabular-nums">{(f.sessions || 0).toLocaleString()} sessions</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ManagedTlsRptCard({ wsId, domain, endpointReady }) {
   const [rec, setRec]     = useState(undefined) // undefined=loading, null=none
   const [busy, setBusy]   = useState(null)      // 'create' | 'verify' | 'remove'
@@ -2052,6 +2101,7 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
 
       <ManagedDmarcCard wsId={wsId} domain={domain} endpointReady={Boolean(inboundMailto)} />
       <ManagedTlsRptCard wsId={wsId} domain={domain} endpointReady={Boolean(inboundMailto)} />
+      <TlsRptHealthCard wsId={wsId} domain={domain} />
 
       <div className="p-6 space-y-5">
         {loading ? (

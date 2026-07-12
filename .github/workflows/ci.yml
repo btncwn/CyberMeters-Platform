@@ -65,6 +65,9 @@ jobs:
       - name: Validate hosted TLS-RPT (create/verify/delete + coexistence + isolation)
         run: node scripts/validate-hosted-tls-rpt.js
 
+      - name: Validate TLS-RPT ingestion (parse + inbound routing + dedup + isolation)
+        run: node scripts/validate-tlsrpt-ingest.js
+
       - name: Validate request pipeline (fetch → auth → RBAC → DB; login + webhook)
         run: node scripts/validate-pipeline.js
 

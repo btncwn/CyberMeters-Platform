@@ -830,6 +830,8 @@ export const api = {
     request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/hosted-tls-rpt/verify`),
   deleteHostedTlsRpt: (workspaceId, domain) =>
     request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/hosted-tls-rpt`, { method: 'DELETE' }),
+  getTlsRptReports: (workspaceId, domain) =>
+    request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/tls-rpt/reports`),
 
   /** Self-Driving DMARC (Phase B): ladder-step change, rollback, autopilot */
   setHostedDmarcPolicy: (workspaceId, domain, policy, pct, confirm = false) =>
