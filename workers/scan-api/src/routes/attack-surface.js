@@ -7,11 +7,120 @@
 import { buildCaConcentrationAnalytics, buildCertificateLifecycleIntelligence, detectSelfSignedCertificate, mapCertificateAuthorityOwner, normalizeCertificateIssuer } from "../engines/cert-analysis.js";
 import { remapToThirdPartyCategory } from "../engines/discovery-scan.js";
 import { computeWorkspaceVendorRisk, confidenceToScore, normalizeVendorKey, normalizeVendorRiskCategory, signalWeightForVendor } from "../engines/vendor-risk.js";
-import { parseBoundedInteger } from "../lib/util.js";
+import { SEVERITY_RANK, enrichEvent, eventTypesForCategory } from "../lib/exposure-events.js";
+import { pageMeta, paginationParams, parseBoundedInteger } from "../lib/util.js";
 
 export async function attackSurfaceRoutes(rctx) {
   const { request, env, url, json,
           requireAuth, requireWorkspaceRole } = rctx;
+
+    // ── GET /api/workspaces/:id/exposure/feed ───────────────────────────────
+    const feedMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/exposure\/feed$/);
+    if (feedMatch && request.method === "GET") {
+      const wsId = feedMatch[1];
+
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, wsId, "workspace:read", env);
+      if (!access) return json({ error: "Forbidden" }, 403);
+
+      let ws;
+      try {
+        ws = await env.cybermeters_db
+          .prepare(`SELECT id FROM workspaces WHERE id = ?`)
+          .bind(wsId)
+          .first();
+      } catch {
+        return json({ error: "Database error" }, 500);
+      }
+      if (!ws) return json({ error: "Workspace not found" }, 404);
+
+      const { limit, offset } = paginationParams(url, { defaultLimit: 50, maxLimit: 100 });
+      const where = ["workspace_id = ?"];
+      const binds = [wsId];
+
+      const severity = url.searchParams.get("severity");
+      if (severity && SEVERITY_RANK[severity] != null) {
+        const allowed = Object.entries(SEVERITY_RANK)
+          .filter(([, rank]) => rank >= SEVERITY_RANK[severity])
+          .map(([name]) => name);
+        where.push(`severity IN (${allowed.map(() => "?").join(",")})`);
+        binds.push(...allowed);
+      }
+
+      const category = url.searchParams.get("category");
+      if (category) {
+        const eventTypes = eventTypesForCategory(category);
+        if (eventTypes.length > 0) {
+          where.push(`event_type IN (${eventTypes.map(() => "?").join(",")})`);
+          binds.push(...eventTypes);
+        } else {
+          where.push("1 = 0");
+        }
+      }
+
+      const eventType = url.searchParams.get("event_type");
+      if (eventType) {
+        where.push("event_type = ?");
+        binds.push(eventType);
+      }
+
+      const hostname = url.searchParams.get("hostname");
+      if (hostname) {
+        where.push("hostname = ?");
+        binds.push(hostname);
+      }
+
+      const domainId = url.searchParams.get("domain_id");
+      if (domainId) {
+        where.push("domain_id = ?");
+        binds.push(domainId);
+      }
+
+      const since = url.searchParams.get("since");
+      if (since && Number.isFinite(Date.parse(since))) {
+        where.push("created_at >= ?");
+        binds.push(since);
+      }
+
+      const until = url.searchParams.get("until");
+      if (until && Number.isFinite(Date.parse(until))) {
+        where.push("created_at <= ?");
+        binds.push(until);
+      }
+
+      const whereSql = where.join(" AND ");
+      try {
+        const [pageResult, totalResult] = await env.cybermeters_db.batch([
+          env.cybermeters_db
+            .prepare(
+              `SELECT id, workspace_id, domain_id, asset_id, scan_id, event_type,
+                      hostname, severity, description, created_at
+               FROM asset_events
+               WHERE ${whereSql}
+               ORDER BY created_at DESC, id DESC
+               LIMIT ? OFFSET ?`
+            )
+            .bind(...binds, limit, offset),
+          env.cybermeters_db
+            .prepare(
+              `SELECT COUNT(*) AS n FROM asset_events
+               WHERE ${whereSql}`
+            )
+            .bind(...binds),
+        ]);
+
+        const events = (pageResult.results || []).map(enrichEvent);
+        const total = totalResult.results?.[0]?.n ?? 0;
+        return json({
+          workspace_id: wsId,
+          events,
+          pagination: pageMeta({ items: events, limit, offset, total }),
+        });
+      } catch {
+        return json({ error: "Database error" }, 500);
+      }
+    }
 
     // ── /api/workspaces/:id/assets/* ────────────────────────────────────────
     // Handles list, events, summary, timeline, and per-asset detail.
