@@ -11,6 +11,7 @@ import { buildExecutiveReportV2, resolveCanonicalScanScore } from "../engines/ex
 import { applyEvidenceQuality, normalizeFindingSchema } from "../engines/findings.js";
 import { buildScanReportPdf } from "../engines/pdf.js";
 import { resolveReportBranding } from "../engines/report-branding.js";
+import { prepareLogoXObject } from "../engines/pdf-image.js";
 import { checkScanLimit, checkScheduledScanLimit, getAccountUsage, getEntitlementUsage, getPlanLimits, getWorkspaceBillingUserId, planLimitExceeded } from "../engines/plan-usage.js";
 import { buildScanQuality, runScanEngine } from "../engines/scan-engine.js";
 import { riskLevelForScore } from "../engines/scoring.js";
@@ -360,10 +361,15 @@ export async function scanRoutes(rctx) {
         // PDF's score matches the on-screen report exactly.
         report.business_risk = deriveScanBusinessRisk(report);
 
-        // White-label: lead the PDF with the account's brand when enabled.
+        // White-label: lead the PDF with the account's brand when enabled. When a
+        // logo is set, prepare it as an embeddable Image-XObject (JPEG direct /
+        // PNG decoded); on any failure it resolves to null → text wordmark.
         const branding = access.workspace_id
           ? await resolveReportBranding(env, access.workspace_id)
           : null;
+        if (branding && branding.logo) {
+          branding.logoImage = await prepareLogoXObject(branding.logo, branding.accent || "#00876A");
+        }
         const bytes = buildScanReportPdf(scan, report, branding);
 
         await createAuditEvent(env, {
