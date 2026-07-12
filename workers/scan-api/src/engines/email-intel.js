@@ -108,7 +108,7 @@ function enrichDkim(emailMod) {
  * Ported from mta_sts.py analyze_mta_sts() — HTTP GET, not DNS.
  */
 export async function fetchMtaSts(domain) {
-  const result = { enabled: false, policy_mode: null, mx_patterns: [], max_age: null, errors: [] };
+  const result = { enabled: false, policy_version: null, policy_mode: null, mx_patterns: [], max_age: null, errors: [] };
   try {
     const res = await safeFetch(`https://mta-sts.${domain}/.well-known/mta-sts.txt`, {
       signal: AbortSignal.timeout(10_000),
@@ -118,7 +118,9 @@ export async function fetchMtaSts(domain) {
     const text = await res.text();
     for (const raw of text.split(/\r?\n/)) {
       const line = raw.trim();
-      if (line.startsWith("mode:")) {
+      if (line.startsWith("version:")) {
+        result.policy_version = line.split(":", 2)[1]?.trim() || null;
+      } else if (line.startsWith("mode:")) {
         result.policy_mode = line.split(":", 2)[1]?.trim() || null;
       } else if (line.startsWith("mx:")) {
         const mx = line.split(":", 2)[1]?.trim();
