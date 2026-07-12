@@ -1534,6 +1534,170 @@ const HOSTED_STATUS_META = {
   pending_removal: { label: 'Removing…',           kind: 'na',   hint: 'Remove the CNAME at your DNS provider; the hosted value stays live until your DNS no longer depends on it.' },
 }
 
+function TlsRptHealthCard({ wsId, domain }) {
+  const [data, setData] = useState(undefined) // undefined=loading, null=none
+  useEffect(() => {
+    let alive = true
+    api.getTlsRptReports(wsId, domain)
+      .then(r => { if (alive) setData(r?.summary?.report_count > 0 ? r.summary : null) })
+      .catch(() => { if (alive) setData(null) })
+    return () => { alive = false }
+  }, [wsId, domain])
+
+  if (!data) return null // self-hide while loading or when no reports yet
+  const rate = data.success_rate
+  const rateCls = rate == null ? 'text-gray-400' : rate >= 99 ? 'text-brand-700' : rate >= 95 ? 'text-amber-600' : 'text-red-600'
+  return (
+    <div className="mx-6 mt-4 rounded-xl border border-gray-200 bg-white p-5">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <p className="text-sm font-bold text-gray-900">SMTP TLS delivery health</p>
+          <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+            From TLS-RPT reports — is mail being delivered to you securely over TLS, and where is it failing.
+          </p>
+        </div>
+        <div className="text-right">
+          <p className={`text-3xl font-black tabular-nums leading-none ${rateCls}`}>{rate != null ? `${rate}%` : '—'}</p>
+          <p className="text-xs text-gray-400 mt-0.5">success rate</p>
+        </div>
+      </div>
+      <div className="mt-3 grid grid-cols-3 gap-3 text-center">
+        <div><p className="text-lg font-bold text-gray-900 tabular-nums">{data.total_sessions.toLocaleString()}</p><p className="text-xs text-gray-400">sessions</p></div>
+        <div><p className="text-lg font-bold text-gray-900 tabular-nums">{data.failed_sessions.toLocaleString()}</p><p className="text-xs text-gray-400">failed</p></div>
+        <div><p className="text-lg font-bold text-gray-900 tabular-nums">{data.report_count}</p><p className="text-xs text-gray-400">reports</p></div>
+      </div>
+      {data.top_failures?.length > 0 && (
+        <div className="mt-4 pt-3 border-t border-gray-100">
+          <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Top failures</p>
+          <div className="space-y-1.5">
+            {data.top_failures.map((f, i) => (
+              <div key={i} className="flex items-center justify-between text-xs">
+                <span className="text-gray-700 font-medium">{(f.result_type || 'unknown').replace(/-/g, ' ')}</span>
+                <span className="text-gray-400 tabular-nums">{(f.sessions || 0).toLocaleString()} sessions</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ManagedTlsRptCard({ wsId, domain, endpointReady }) {
+  const [rec, setRec]     = useState(undefined) // undefined=loading, null=none
+  const [busy, setBusy]   = useState(null)      // 'create' | 'verify' | 'remove'
+  const [error, setError] = useState(null)
+
+  const load = useCallback(async () => {
+    if (!wsId || !domain) return
+    try { const r = await api.getHostedTlsRpt(wsId, domain); setRec(r?.record ?? null) }
+    catch { setRec(null) }
+  }, [wsId, domain])
+  useEffect(() => { setRec(undefined); setError(null); load() }, [load])
+
+  async function act(kind, fn) {
+    setBusy(kind); setError(null)
+    try { const r = await fn(); setRec(r?.record ?? null) }
+    catch (e) { setError(e?.message || 'The request could not be completed.') }
+    finally { setBusy(null) }
+  }
+
+  if (rec === undefined) return null
+  const meta = rec ? (HOSTED_STATUS_META[rec.status] || HOSTED_STATUS_META.pending_dns) : null
+
+  return (
+    <div className="mx-6 mt-4 rounded-xl border border-gray-200 bg-gray-50/50 p-5">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="min-w-0">
+          <p className="text-sm font-bold text-gray-900">
+            Host your TLS reporting (TLS-RPT)
+            {!rec && <span className="ml-2 text-xs font-bold uppercase tracking-wide text-gray-600 bg-gray-100 rounded px-1.5 py-0.5">Optional</span>}
+          </p>
+          <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+            Add one CNAME and we host the <code className="text-[11px]">_smtp._tls</code> record for you, so you get
+            reports when someone can’t deliver mail to you over TLS.
+          </p>
+        </div>
+        {rec && meta && (
+          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border ${
+            meta.kind === 'good' ? 'bg-brand-50 text-brand-700 border-brand-200'
+            : meta.kind === 'warn' ? 'bg-amber-50 text-amber-800 border-amber-200'
+            : meta.kind === 'bad' ? 'bg-red-50 text-red-700 border-red-200'
+            : 'bg-gray-50 text-gray-500 border-gray-200'}`}>
+            {meta.label}
+          </span>
+        )}
+      </div>
+
+      {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+
+      {!rec ? (
+        <div className="mt-3">
+          <button
+            onClick={() => act('create', () => api.createHostedTlsRpt(wsId, domain))}
+            disabled={!endpointReady || busy === 'create'}
+            className="btn-secondary text-sm disabled:opacity-50"
+          >
+            {busy === 'create' ? <RefreshCw className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+            Host TLS-RPT
+          </button>
+          {!endpointReady && (
+            <p className="text-xs text-gray-400 mt-2">Activate DMARC reporting below first — TLS-RPT reuses the same reporting address.</p>
+          )}
+        </div>
+      ) : (
+        <div className="mt-3 space-y-2.5">
+          <p className="text-xs text-gray-600">{meta.hint}</p>
+          {rec.status !== 'connected' && rec.status !== 'pending_removal' && (
+            <div className="space-y-1.5">
+              <div className="grid grid-cols-[70px,1fr] gap-2 items-center">
+                <span className="text-xs font-semibold text-gray-500">Type / Name</span>
+                <DnsValue value={`CNAME  ${rec.cname_name}`} />
+              </div>
+              <div className="grid grid-cols-[70px,1fr] gap-2 items-center">
+                <span className="text-xs font-semibold text-gray-500">Target</span>
+                <DnsValue value={rec.cname_target} />
+              </div>
+              <p className="text-xs text-gray-400">Add this CNAME at {rec.cname_name}.</p>
+            </div>
+          )}
+          <div className="flex items-center gap-2 flex-wrap">
+            {rec.status !== 'pending_removal' && (
+              <button
+                onClick={() => act('verify', () => api.verifyHostedTlsRpt(wsId, domain))}
+                disabled={Boolean(busy)}
+                className="btn-secondary text-xs disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${busy === 'verify' ? 'animate-spin' : ''}`} />
+                Check connection
+              </button>
+            )}
+            {rec.status !== 'pending_removal' && (
+              <button
+                onClick={() => {
+                  if (window.confirm('Stop hosting this record? You will need to publish your own TLS-RPT TXT again.')) {
+                    act('remove', () => api.deleteHostedTlsRpt(wsId, domain))
+                  }
+                }}
+                disabled={Boolean(busy)}
+                className="text-xs text-gray-400 hover:text-red-600 disabled:opacity-50"
+              >
+                Stop hosting
+              </button>
+            )}
+          </div>
+          {rec.current_value && rec.status === 'connected' && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 mb-1">Hosted value (live)</p>
+              <DnsValue value={rec.current_value} />
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ManagedDmarcCard({ wsId, domain, endpointReady }) {
   const [rec, setRec]         = useState(undefined) // undefined=loading, null=none
   const [ramp, setRamp]       = useState(null)      // { policyAllowed, compliance, readiness }
@@ -1936,6 +2100,8 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
       </div>
 
       <ManagedDmarcCard wsId={wsId} domain={domain} endpointReady={Boolean(inboundMailto)} />
+      <ManagedTlsRptCard wsId={wsId} domain={domain} endpointReady={Boolean(inboundMailto)} />
+      <TlsRptHealthCard wsId={wsId} domain={domain} />
 
       <div className="p-6 space-y-5">
         {loading ? (

@@ -9,7 +9,7 @@ import { ALERT_CHANNEL_MAX_PER_WORKSPACE, alertChannelToApi, deliverWorkspaceAle
 import { computeBecExposureScore } from "../engines/bec.js";
 import { dnsQuery } from "../engines/dns.js";
 import { normalizeDnsTxtValue, parseDmarcRecord } from "../engines/email-analysis.js";
-import { DMARC_RAMP_LADDER, HOSTED_DNS_REMOVAL_GRACE_DAYS, REMEDIATION_REGISTRY, analyzeSpfChain, applyHostedDmarcChange, buildDmarcDnsRecommendedValue, cfCreateHostedTxt, dmarcRampStepIndex, evaluateRampReadiness, getHostedDmarcPassRate, getRemediation, hostedDmarcSubdomain, hostedDnsRecordToApi, newHostedDnsRecordId, nextHostedDnsStatus, parseServerMsHosted, planAllowsHostedPolicyManagement, remediationToApi, rollbackHostedDmarc, verifyDmarcDnsSetup, verifyHostedDmarcRecord } from "../engines/hosted-dmarc.js";
+import { DMARC_RAMP_LADDER, HOSTED_DNS_ENTRY_SELECT, HOSTED_DNS_REMOVAL_GRACE_DAYS, REMEDIATION_REGISTRY, analyzeSpfChain, applyHostedDmarcChange, buildDmarcDnsRecommendedValue, buildTlsRptValue, cfCreateHostedTxt, dmarcRampStepIndex, evaluateRampReadiness, getHostedDmarcPassRate, getRemediation, hostedCustomerRecordName, hostedDmarcSubdomain, hostedDnsRecordToApi, newHostedDnsRecordId, nextHostedDnsStatus, parseServerMsHosted, planAllowsHostedPolicyManagement, remediationToApi, rollbackHostedDmarc, verifyDmarcDnsSetup, verifyHostedDmarcRecord } from "../engines/hosted-dmarc.js";
 import { auditDmarcRouteResult, buildDmarcEnforcementReadiness, configureDmarcEndpointRoute, emailSenderToApi, generateInboundLocalpart, generateIngestToken, hashIngestToken, ingestEndpointToApi, loadEmailSenderSources, persistDmarcRouteResult, resolveWorkspaceDomain, safelyEnsureCloudflareEmailRoute, safelyRevokeCloudflareEmailRoute, summarizeEmailSenders } from "../engines/rua-routing.js";
 import { buildDmarcBusinessRisk, buildDmarcReportRemediationActions, loadBecExposureEvidence } from "../engines/sender-provenance.js";
 import { RUA_INBOUND_DOMAIN_DEFAULT, ingestDmarcReport, normalizeInboundRecipientDomain, parseEmailAuthHeaders } from "../lib/dmarc-ingest.js";
@@ -204,8 +204,8 @@ export async function emailProtectionRoutes(rctx) {
         if (!domainId) return json({ error: "Domain not found in this workspace" }, 404);
 
         const existing = await env.cybermeters_db
-          .prepare(`SELECT * FROM hosted_dns_records
-                    WHERE workspace_id = ? AND domain = ? AND record_type = 'dmarc' LIMIT 1`)
+          .prepare(`${HOSTED_DNS_ENTRY_SELECT}
+                    WHERE workspace_id = ? AND domain = ? AND record_kind = 'dmarc' LIMIT 1`)
           .bind(workspaceId, domain).first();
 
         // Workspace plan (owner's plan) gates policy management; create,
@@ -284,7 +284,7 @@ export async function emailProtectionRoutes(rctx) {
             return json({ error: msg, code: applied.reason }, 409);
           }
           const row = await env.cybermeters_db
-            .prepare(`SELECT * FROM hosted_dns_records WHERE id = ?`).bind(existing.id).first();
+            .prepare(`${HOSTED_DNS_ENTRY_SELECT} WHERE id = ?`).bind(existing.id).first();
           return json({ record: hostedDnsRecordToApi(row) });
         }
 
@@ -298,7 +298,7 @@ export async function emailProtectionRoutes(rctx) {
             return json({ error: msg, code: rolled.reason }, 409);
           }
           const row = await env.cybermeters_db
-            .prepare(`SELECT * FROM hosted_dns_records WHERE id = ?`).bind(existing.id).first();
+            .prepare(`${HOSTED_DNS_ENTRY_SELECT} WHERE id = ?`).bind(existing.id).first();
           return json({ record: hostedDnsRecordToApi(row) });
         }
 
@@ -312,7 +312,7 @@ export async function emailProtectionRoutes(rctx) {
           try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
           const enabled = body.enabled === true ? 1 : 0;
           await env.cybermeters_db
-            .prepare(`UPDATE hosted_dns_records SET autopilot = ?, updated_at = ? WHERE id = ?`)
+            .prepare(`UPDATE hosted_dns_entries SET autopilot = ?, updated_at = ? WHERE id = ?`)
             .bind(enabled, new Date().toISOString(), existing.id).run();
           await createAuditEvent(env, {
             workspace_id: workspaceId, user_id: user.id,
@@ -329,7 +329,7 @@ export async function emailProtectionRoutes(rctx) {
           const next = nextHostedDnsStatus(existing, checks);
           const nowIso = new Date().toISOString();
           await env.cybermeters_db
-            .prepare(`UPDATE hosted_dns_records SET status = ?, last_verified_at = ?, updated_at = ? WHERE id = ?`)
+            .prepare(`UPDATE hosted_dns_entries SET verification_state = ?, verified_at = ?, updated_at = ? WHERE id = ?`)
             .bind(next, nowIso, nowIso, existing.id).run();
           return json({
             record: hostedDnsRecordToApi({ ...existing, status: next, last_verified_at: nowIso }),
@@ -373,11 +373,11 @@ export async function emailProtectionRoutes(rctx) {
           const hostedName = `${id}.${hostedDmarcSubdomain(env)}`;
           const nowIso = new Date().toISOString();
           await env.cybermeters_db
-            .prepare(`INSERT INTO hosted_dns_records
-                        (id, workspace_id, domain, record_type, hosted_name, current_value,
-                         status, created_by, created_at, updated_at)
-                      VALUES (?, ?, ?, 'dmarc', ?, ?, 'pending_dns', ?, ?, ?)`)
-            .bind(id, workspaceId, domain, hostedName, value, user.id, nowIso, nowIso).run();
+            .prepare(`INSERT INTO hosted_dns_entries
+                        (id, workspace_id, domain, record_kind, customer_name, target_name, target_value,
+                         provider, verification_state, created_by, created_at, updated_at)
+                      VALUES (?, ?, ?, 'dmarc', ?, ?, ?, 'cloudflare', 'pending_dns', ?, ?, ?)`)
+            .bind(id, workspaceId, domain, `_dmarc.${domain}`, hostedName, value, user.id, nowIso, nowIso).run();
 
           // Try the Cloudflare create immediately; the sweep retries on failure.
           let row = { id, workspace_id: workspaceId, domain, record_type: "dmarc",
@@ -386,7 +386,7 @@ export async function emailProtectionRoutes(rctx) {
           const created = await cfCreateHostedTxt(env, hostedName, value);
           if (created.ok) {
             await env.cybermeters_db
-              .prepare(`UPDATE hosted_dns_records SET cf_record_id = ?, status = 'awaiting_cname', updated_at = ? WHERE id = ?`)
+              .prepare(`UPDATE hosted_dns_entries SET provider_record_id = ?, verification_state = 'awaiting_cname', updated_at = ? WHERE id = ?`)
               .bind(created.cf_record_id, nowIso, id).run();
             row = { ...row, status: "awaiting_cname" };
           }
@@ -412,7 +412,7 @@ export async function emailProtectionRoutes(rctx) {
           if (!existing) return json({ error: "No hosted DMARC record for this domain." }, 404);
           const nowIso = new Date().toISOString();
           await env.cybermeters_db
-            .prepare(`UPDATE hosted_dns_records SET status = 'pending_removal', updated_at = ? WHERE id = ?`)
+            .prepare(`UPDATE hosted_dns_entries SET verification_state = 'pending_removal', updated_at = ? WHERE id = ?`)
             .bind(nowIso, existing.id).run();
           await createAuditEvent(env, {
             workspace_id: workspaceId, user_id: user.id,
@@ -428,6 +428,170 @@ export async function emailProtectionRoutes(rctx) {
         return json({ error: "Method not allowed" }, 405);
       } catch (e) {
         return serverError("hosted-dmarc", e, "Could not update the hosted DMARC record.");
+      }
+    }
+
+    // ── Hosted TLS-RPT (Phase C, on the v2 hosted_dns_entries foundation) ──────
+    //   POST   .../hosted-tls-rpt         → create the managed record (manage role)
+    //   GET    .../hosted-tls-rpt         → current state
+    //   GET    .../hosted-tls-rpt/verify  → live two-sided verification
+    //   DELETE .../hosted-tls-rpt         → request removal (grace-protected)
+    // Slimmer than DMARC: no policy ramp, autopilot or rollback — TLS-RPT is a
+    // static, report-only record. Hosting + verification only; report ingestion
+    // is a later packet.
+    const hostedTlsRptMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/domains\/([^/]+)\/hosted-tls-rpt(?:\/(verify))?$/);
+    if (hostedTlsRptMatch) {
+      const workspaceId = hostedTlsRptMatch[1];
+      const domain = decodeURIComponent(hostedTlsRptMatch[2]).toLowerCase();
+      const isVerify = hostedTlsRptMatch[3] === "verify";
+      try {
+        const user = await requireAuth(request, env);
+        if (!user) return json({ error: "Unauthorized" }, 401);
+        const permission = request.method === "GET" ? "workspace:read" : "workspace:manage";
+        const access = await requireWorkspaceRole(user, workspaceId, permission, env);
+        if (!access) return json({ error: "Forbidden" }, 403);
+        const domainId = await resolveWorkspaceDomain(env, workspaceId, domain);
+        if (!domainId) return json({ error: "Domain not found in this workspace" }, 404);
+
+        const existing = await env.cybermeters_db
+          .prepare(`${HOSTED_DNS_ENTRY_SELECT}
+                    WHERE workspace_id = ? AND domain = ? AND record_kind = 'tlsrpt' LIMIT 1`)
+          .bind(workspaceId, domain).first();
+
+        const customerName = hostedCustomerRecordName(domain, "tlsrpt"); // _smtp._tls.<domain>
+
+        if (request.method === "GET" && !isVerify) {
+          return json({ record: existing ? hostedDnsRecordToApi(existing) : null });
+        }
+
+        if (request.method === "GET" && isVerify) {
+          if (!existing) return json({ error: "No hosted TLS-RPT record for this domain yet." }, 404);
+          const checks = await verifyHostedDmarcRecord(existing); // kind-aware (reads customer_name)
+          const next = nextHostedDnsStatus(existing, checks);
+          const nowIso = new Date().toISOString();
+          await env.cybermeters_db
+            .prepare(`UPDATE hosted_dns_entries SET verification_state = ?, verified_at = ?, updated_at = ? WHERE id = ?`)
+            .bind(next, nowIso, nowIso, existing.id).run();
+          return json({ record: hostedDnsRecordToApi({ ...existing, status: next, last_verified_at: nowIso }), checks });
+        }
+
+        if (request.method === "POST") {
+          if (existing) return json({ record: hostedDnsRecordToApi(existing), already_exists: true });
+          // TLS-RPT reporting needs a CyberMeters mailbox — reuse the domain's
+          // existing reporting address (same one DMARC RUA uses).
+          const endpoint = await env.cybermeters_db
+            .prepare(`SELECT address_local FROM dmarc_ingest_endpoints
+                      WHERE workspace_id = ? AND domain = ? AND status = 'active' AND revoked_at IS NULL
+                      ORDER BY created_at DESC LIMIT 1`)
+            .bind(workspaceId, domain).first();
+          if (!endpoint?.address_local) {
+            return json({ error: "Create a CyberMeters reporting address for this domain first." }, 400);
+          }
+          const inboundDomain = normalizeInboundRecipientDomain(env.RUA_INBOUND_DOMAIN || RUA_INBOUND_DOMAIN_DEFAULT)
+            || RUA_INBOUND_DOMAIN_DEFAULT;
+          const value = buildTlsRptValue(`${endpoint.address_local}@${inboundDomain}`);
+
+          const id = newHostedDnsRecordId();
+          const hostedName = `${id}.${hostedDmarcSubdomain(env)}`;
+          const nowIso = new Date().toISOString();
+          await env.cybermeters_db
+            .prepare(`INSERT INTO hosted_dns_entries
+                        (id, workspace_id, domain, domain_id, record_kind, customer_name, target_name, target_value,
+                         provider, verification_state, created_by, created_at, updated_at)
+                      VALUES (?, ?, ?, ?, 'tlsrpt', ?, ?, ?, 'cloudflare', 'pending_dns', ?, ?, ?)`)
+            .bind(id, workspaceId, domain, domainId, customerName, hostedName, value, user.id, nowIso, nowIso).run();
+
+          let row = { id, workspace_id: workspaceId, domain, record_type: "tlsrpt",
+            customer_name: customerName, hosted_name: hostedName, current_value: value,
+            status: "pending_dns", last_verified_at: null, created_at: nowIso };
+          const created = await cfCreateHostedTxt(env, hostedName, value);
+          if (created.ok) {
+            await env.cybermeters_db
+              .prepare(`UPDATE hosted_dns_entries SET provider_record_id = ?, verification_state = 'awaiting_cname', updated_at = ? WHERE id = ?`)
+              .bind(created.cf_record_id, nowIso, id).run();
+            row = { ...row, status: "awaiting_cname" };
+          }
+
+          await createAuditEvent(env, {
+            workspace_id: workspaceId, user_id: user.id,
+            event_type: "hosted_tls_rpt_created", entity_type: "hosted_dns_record", entity_id: id,
+            description: `Hosted TLS-RPT record created for ${domain}`,
+          });
+
+          return json({
+            record: hostedDnsRecordToApi(row),
+            instructions: {
+              step: `Add a CNAME at ${customerName} pointing to the target below`,
+              cname_name: customerName,
+              cname_target: hostedName,
+              note: "After the CNAME resolves, CyberMeters manages the TLS-RPT record for you.",
+            },
+          }, 201);
+        }
+
+        if (request.method === "DELETE") {
+          if (!existing) return json({ error: "No hosted TLS-RPT record for this domain." }, 404);
+          const nowIso = new Date().toISOString();
+          await env.cybermeters_db
+            .prepare(`UPDATE hosted_dns_entries SET verification_state = 'pending_removal', updated_at = ? WHERE id = ?`)
+            .bind(nowIso, existing.id).run();
+          await createAuditEvent(env, {
+            workspace_id: workspaceId, user_id: user.id,
+            event_type: "hosted_tls_rpt_removal_requested", entity_type: "hosted_dns_record", entity_id: existing.id,
+            description: `Hosted TLS-RPT removal requested for ${domain}`,
+          });
+          return json({
+            record: hostedDnsRecordToApi({ ...existing, status: "pending_removal" }),
+            message: `Remove the CNAME at ${customerName} (or replace it with your own TXT). The hosted value stays live until your DNS no longer depends on it, for up to ${HOSTED_DNS_REMOVAL_GRACE_DAYS} days.`,
+          });
+        }
+
+        return json({ error: "Method not allowed" }, 405);
+      } catch (e) {
+        return serverError("hosted-tls-rpt", e, "Could not update the hosted TLS-RPT record.");
+      }
+    }
+
+    // GET .../tls-rpt/reports — SMTP TLS delivery health from ingested TLS-RPT
+    // reports: success rate + top failures. Read-only, tenant-scoped.
+    const tlsRptReportsMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/domains\/([^/]+)\/tls-rpt\/reports$/);
+    if (tlsRptReportsMatch && request.method === "GET") {
+      const workspaceId = tlsRptReportsMatch[1];
+      const domain = decodeURIComponent(tlsRptReportsMatch[2]).toLowerCase();
+      try {
+        const user = await requireAuth(request, env);
+        if (!user) return json({ error: "Unauthorized" }, 401);
+        const access = await requireWorkspaceRole(user, workspaceId, "workspace:read", env);
+        if (!access) return json({ error: "Forbidden" }, 403);
+
+        const reports = (await env.cybermeters_db
+          .prepare(`SELECT id, org_name, external_report_id, date_range_begin, date_range_end, policy_type,
+                           total_successful_sessions, total_failure_sessions, failure_count, provenance, created_at
+                    FROM tlsrpt_aggregate_reports WHERE workspace_id = ? AND domain = ?
+                    ORDER BY created_at DESC LIMIT 50`)
+          .bind(workspaceId, domain).all()).results || [];
+        let succ = 0, fail = 0;
+        for (const r of reports) { succ += r.total_successful_sessions || 0; fail += r.total_failure_sessions || 0; }
+        const totalSessions = succ + fail;
+        const topFailures = (await env.cybermeters_db
+          .prepare(`SELECT result_type, COUNT(*) AS report_hits, SUM(failed_session_count) AS sessions
+                    FROM tlsrpt_failure_details WHERE workspace_id = ? AND domain = ?
+                    GROUP BY result_type ORDER BY sessions DESC LIMIT 5`)
+          .bind(workspaceId, domain).all()).results || [];
+
+        return json({
+          summary: {
+            report_count: reports.length,
+            total_sessions: totalSessions,
+            successful_sessions: succ,
+            failed_sessions: fail,
+            success_rate: totalSessions > 0 ? Math.round((succ / totalSessions) * 100) : null,
+            top_failures: topFailures,
+          },
+          reports,
+        });
+      } catch (e) {
+        return serverError("tls-rpt-reports", e, "TLS-RPT reports could not be loaded.");
       }
     }
 

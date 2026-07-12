@@ -59,6 +59,15 @@ jobs:
       - name: Validate report branding (white-label gating + PDF wordmark + isolation)
         run: node scripts/validate-report-branding.js
 
+      - name: Validate hosted DNS v2 migration (backfill 1:1 + no-CHECK + idempotent)
+        run: node scripts/validate-hosted-dns-v2.js
+
+      - name: Validate hosted TLS-RPT (create/verify/delete + coexistence + isolation)
+        run: node scripts/validate-hosted-tls-rpt.js
+
+      - name: Validate TLS-RPT ingestion (parse + inbound routing + dedup + isolation)
+        run: node scripts/validate-tlsrpt-ingest.js
+
       - name: Validate request pipeline (fetch → auth → RBAC → DB; login + webhook)
         run: node scripts/validate-pipeline.js
 

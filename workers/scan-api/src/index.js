@@ -946,7 +946,8 @@ const WORKSPACE_PURGE_TABLES = [
   "workspace_invitations", "workspace_members", "workspace_retention_settings",
   "lifecycle_email_events", "scheduled_scans", "workspace_domains",
   "finding_waivers", "api_tokens", "workspace_alert_channels",
-  "hosted_dns_records",
+  "hosted_dns_records", "hosted_dns_entries",
+  "tlsrpt_aggregate_reports", "tlsrpt_failure_details",
 ];
 
 /**

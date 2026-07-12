@@ -5,6 +5,7 @@
 // src/lib/ service modules — the Sprint 9 index ⇄ inbound cycle was dissolved
 // in Sprint 10 Stage A; this module no longer imports index.js.
 import { RUA_INBOUND_DOMAIN_DEFAULT, ingestDmarcReport, ingestEndpointIsActive, normalizeInboundRecipientDomain, parseEmailAuthHeaders } from "../lib/dmarc-ingest.js";
+import { ingestTlsRptReport } from "../lib/tlsrpt-ingest.js";
 import { createAuditEvent, createNotificationEvent } from "../lib/events.js";
 import { sendLifecycleEmail } from "../lib/lifecycle-email.js";
 
@@ -285,6 +286,43 @@ function selectDmarcAttachment(parts) {
   return { part: candidates[0] };
 }
 
+// ── TLS-RPT (RFC 8460) attachment handling ────────────────────────────────────
+// TLS-RPT reports arrive at the same mailbox as DMARC but are JSON. Detect them
+// so the handler can route to the JSON path; absence of a match just means "not
+// TLS-RPT, try DMARC" (returns { part: null }, never an error).
+function selectTlsRptAttachment(parts) {
+  const candidates = (parts || []).filter((p) => {
+    const n = (p.filename || "").toLowerCase();
+    const ct = (p.contentType || "").toLowerCase();
+    const ctOk = ct === "application/tlsrpt+gzip" || ct === "application/tlsrpt+json";
+    const extOk = n.endsWith(".json") || n.endsWith(".json.gz");
+    return ctOk || extOk;
+  });
+  if (candidates.length === 0) return { part: null };
+  return { part: candidates[0] };
+}
+
+// Extract the JSON body from a TLS-RPT attachment (gzip or plain JSON), applying
+// the same size/ratio caps as DMARC. Returns { json, attachment_type, sizes } or { error }.
+async function extractTlsRptFromAttachment(filename, bytes, caps = RUA_DEFAULT_CAPS) {
+  if (!bytes || !bytes.length) return { error: "empty_attachment" };
+  const name = (filename || "").toLowerCase();
+  const looksGz = name.endsWith(".gz") || (bytes[0] === 0x1f && bytes[1] === 0x8b);
+  let jsonBytes, attachmentType;
+  if (looksGz) {
+    const r = await gunzipXmlBytes(bytes, caps); if (r.error) return r; jsonBytes = r.bytes; attachmentType = "gzip";
+  } else {
+    if (bytes.length > caps.decompressedMax) return { error: "attachment_too_large" };
+    jsonBytes = bytes; attachmentType = "json";
+  }
+  return {
+    json: new TextDecoder("utf-8").decode(jsonBytes),
+    attachment_type: attachmentType,
+    compressed_size: bytes.length,
+    decompressed_size: jsonBytes.length,
+  };
+}
+
 /**
  * parseEmailAuthHeaders(raw, domain) — instant sender validation from pasted
  * email headers, without waiting for DMARC aggregate reports to arrive. Parses
@@ -398,14 +436,15 @@ export async function handleInboundEmail(message, env, _ctx) {
     ratioMax: RUA_MAX_COMPRESSION_RATIO,
   };
   // Drop safely with a STABLE, customer-safe reason and no raw payload.
-  const drop = async (endpoint, rawReason, recipient = null) => {
+  // `kind` labels the report type in customer-facing text ("DMARC"/"TLS-RPT").
+  const drop = async (endpoint, rawReason, recipient = null, kind = "DMARC") => {
     try {
       const reason = normalizeInboundDropReason(rawReason);
       await createAuditEvent(env, {
         workspace_id: endpoint?.workspace_id || null, user_id: null,
         event_type: "dmarc_inbound_email_dropped", entity_type: "domain",
         entity_id: endpoint?.domain_id || null,
-        description: `Dropped inbound DMARC email (${reason})`,
+        description: `Dropped inbound ${kind} email (${reason})`,
         metadata: {
           source: "inbound_email",
           reason,
@@ -419,7 +458,7 @@ export async function handleInboundEmail(message, env, _ctx) {
       // surface one calm notification — deduped per workspace+domain per 24h
       // so a misbehaving reporter can't flood the bell.
       if (endpoint?.workspace_id && endpoint?.domain) {
-        const title = `A DMARC report for ${endpoint.domain} could not be processed`;
+        const title = `A ${kind} report for ${endpoint.domain} could not be processed`;
         const dup = await env.cybermeters_db
           .prepare(`SELECT id FROM notification_events
                     WHERE workspace_id = ? AND type = 'dmarc_report_dropped' AND title = ?
@@ -472,6 +511,36 @@ export async function handleInboundEmail(message, env, _ctx) {
     const provenance = deriveInboundReportProvenance(rawLatin1, message, endpoint.domain);
 
     const parts = parseMimeParts(rawLatin1);
+
+    // Route by attachment type: TLS-RPT (JSON) → its own parser; DMARC XML falls
+    // through to the existing path, byte-for-byte unchanged.
+    const tlsSel = selectTlsRptAttachment(parts);
+    if (tlsSel.part) {
+      const tlsExt = await extractTlsRptFromAttachment(tlsSel.part.filename, tlsSel.part.bytes, caps);
+      if (tlsExt.error) { await drop(endpoint, tlsExt.error, recipient, "TLS-RPT"); return; }
+      const tlsResult = await ingestTlsRptReport(env, {
+        workspaceId: endpoint.workspace_id, domain: endpoint.domain, jsonString: tlsExt.json,
+        ingestEndpointId: endpoint.id, domainId: endpoint.domain_id, enforceDomainMatch: true, provenance,
+      });
+      if (!tlsResult.ok) { await drop(endpoint, tlsResult.error, recipient, "TLS-RPT"); return; }
+      await env.cybermeters_db
+        .prepare(`UPDATE dmarc_ingest_endpoints SET last_used_at = datetime('now'), last_inbound_at = datetime('now') WHERE id = ?`)
+        .bind(endpoint.id).run();
+      if (tlsResult.duplicate) return;
+      await createAuditEvent(env, {
+        workspace_id: endpoint.workspace_id, user_id: null, event_type: "tlsrpt_inbound_email_received",
+        entity_type: "domain", entity_id: endpoint.domain_id,
+        description: `Received inbound TLS-RPT report for ${endpoint.domain}`,
+        metadata: {
+          domain: endpoint.domain, recipient_localpart: localpart, source: "inbound_email",
+          attachment_type: tlsExt.attachment_type, compressed_size: tlsExt.compressed_size,
+          decompressed_size: tlsExt.decompressed_size, sessions: tlsResult.sessions, failures: tlsResult.failures,
+          auth_verdict: provenance.auth_verdict, reporter_domain: provenance.reporter_domain,
+        },
+      }).catch(() => {});
+      return;
+    }
+
     const sel = selectDmarcAttachment(parts);
     if (sel.error) { await drop(endpoint, sel.error, recipient); return; }
     const ext = await extractDmarcXmlFromAttachment(sel.part.filename, sel.part.bytes, caps);
