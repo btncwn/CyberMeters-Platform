@@ -9,13 +9,61 @@ import { ALERT_CHANNEL_MAX_PER_WORKSPACE, alertChannelToApi, deliverWorkspaceAle
 import { computeBecExposureScore } from "../engines/bec.js";
 import { dnsQuery } from "../engines/dns.js";
 import { normalizeDnsTxtValue, parseDmarcRecord } from "../engines/email-analysis.js";
-import { DMARC_RAMP_LADDER, HOSTED_DNS_ENTRY_SELECT, HOSTED_DNS_REMOVAL_GRACE_DAYS, REMEDIATION_REGISTRY, analyzeSpfChain, applyHostedDmarcChange, buildDmarcDnsRecommendedValue, buildTlsRptValue, cfCreateHostedTxt, dmarcRampStepIndex, evaluateRampReadiness, getHostedDmarcPassRate, getRemediation, hostedCustomerRecordName, hostedDmarcSubdomain, hostedDnsRecordToApi, newHostedDnsRecordId, nextHostedDnsStatus, parseServerMsHosted, planAllowsHostedPolicyManagement, remediationToApi, rollbackHostedDmarc, verifyDmarcDnsSetup, verifyHostedDmarcRecord } from "../engines/hosted-dmarc.js";
+import { DMARC_RAMP_LADDER, HOSTED_DNS_ENTRY_SELECT, HOSTED_DNS_REMOVAL_GRACE_DAYS, REMEDIATION_REGISTRY, analyzeSpfChain, applyHostedDmarcChange, buildDmarcDnsRecommendedValue, buildMtaStsPolicy, buildMtaStsTxtValue, buildTlsRptValue, cfCreateHostedTxt, dmarcRampStepIndex, evaluateRampReadiness, getHostedDmarcPassRate, getRemediation, hostedCustomerRecordName, hostedDmarcSubdomain, hostedDnsRecordToApi, mxHostsFromDnsResponse, newHostedDnsRecordId, nextHostedDnsStatus, parseServerMsHosted, planAllowsHostedPolicyManagement, remediationToApi, rollbackHostedDmarc, verifyDmarcDnsSetup, verifyHostedDmarcRecord, verifyMtaStsHttpsPolicy } from "../engines/hosted-dmarc.js";
 import { auditDmarcRouteResult, buildDmarcEnforcementReadiness, configureDmarcEndpointRoute, emailSenderToApi, generateInboundLocalpart, generateIngestToken, hashIngestToken, ingestEndpointToApi, loadEmailSenderSources, persistDmarcRouteResult, resolveWorkspaceDomain, safelyEnsureCloudflareEmailRoute, safelyRevokeCloudflareEmailRoute, summarizeEmailSenders } from "../engines/rua-routing.js";
 import { buildDmarcBusinessRisk, buildDmarcReportRemediationActions, loadBecExposureEvidence } from "../engines/sender-provenance.js";
 import { RUA_INBOUND_DOMAIN_DEFAULT, ingestDmarcReport, normalizeInboundRecipientDomain, parseEmailAuthHeaders } from "../lib/dmarc-ingest.js";
 import { createAuditEvent } from "../lib/events.js";
 import { getEmailFrontendOrigin } from "../lib/lifecycle-email.js";
 import { createId } from "../lib/util.js";
+
+const MTA_STS_POLICY_BOUNDARY = "CyberMeters manages the MTA-STS DNS policy ID. Your organisation or web provider hosts the HTTPS policy file.";
+
+async function buildMtaStsPolicyFromLiveMx(domain) {
+  let response = null;
+  let lookupOk = false;
+  try { response = await dnsQuery(domain, "MX"); lookupOk = true; } catch { response = null; }
+  const mxHosts = mxHostsFromDnsResponse(response, domain);
+  return { mx_hosts: mxHosts, policy_content: buildMtaStsPolicy(domain, mxHosts), lookup_ok: lookupOk };
+}
+
+async function detectMtaStsMxDrift(domain, pinnedPolicyContent) {
+  const live = await buildMtaStsPolicyFromLiveMx(domain);
+  const detected = Boolean(pinnedPolicyContent) && live.lookup_ok && live.policy_content !== pinnedPolicyContent;
+  return {
+    detected,
+    current_policy_content: detected ? live.policy_content : null,
+    mx_hosts: live.mx_hosts,
+    message: detected ? "Your MX records have changed since this MTA-STS policy was generated. Review the policy content and republish it before changing the DNS policy ID." : null,
+  };
+}
+
+function mtaStsRecordToApi(row, { dnsChecks = null, httpsPolicy = null, mxDrift = null } = {}) {
+  const record = hostedDnsRecordToApi(row);
+  if (!record) return null;
+  const dnsState = record.status || "pending_dns";
+  const policyState = httpsPolicy || {
+    state: "not_checked",
+    path: record.policy_path,
+    matches_pinned_policy: false,
+    version: null,
+    mode: null,
+    mx_patterns: [],
+    max_age: null,
+    errors: [],
+  };
+  const reviewRequired = Boolean(mxDrift?.detected);
+  return {
+    ...record,
+    boundary: MTA_STS_POLICY_BOUNDARY,
+    dns_txt: { state: dnsState, checks: dnsChecks },
+    https_policy: policyState,
+    mx_drift: mxDrift || { detected: false, current_policy_content: null, mx_hosts: [], message: null },
+    complete: dnsState === "connected" && policyState.state === "reachable_valid"
+      && policyState.matches_pinned_policy === true && !reviewRequired,
+    review_required: reviewRequired,
+  };
+}
 
 export async function emailProtectionRoutes(rctx) {
   const { request, env, url, json, serverError,
@@ -549,6 +597,127 @@ export async function emailProtectionRoutes(rctx) {
         return json({ error: "Method not allowed" }, 405);
       } catch (e) {
         return serverError("hosted-tls-rpt", e, "Could not update the hosted TLS-RPT record.");
+      }
+    }
+
+    // ── Hosted MTA-STS (guided-hybrid) ───────────────────────────────────────
+    //   POST   .../hosted-mta-sts         → create the managed TXT policy-id record
+    //   GET    .../hosted-mta-sts         → current DNS + pinned policy guidance
+    //   GET    .../hosted-mta-sts/verify  → live DNS TXT + HTTPS policy verification
+    //   DELETE .../hosted-mta-sts         → request removal (grace-protected)
+    // CyberMeters manages only _mta-sts.<domain> via CNAME delegation. The
+    // customer hosts the HTTPS policy file at mta-sts.<domain>.
+    const hostedMtaStsMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/domains\/([^/]+)\/hosted-mta-sts(?:\/(verify))?$/);
+    if (hostedMtaStsMatch) {
+      const workspaceId = hostedMtaStsMatch[1];
+      const domain = decodeURIComponent(hostedMtaStsMatch[2]).toLowerCase();
+      const isVerify = hostedMtaStsMatch[3] === "verify";
+      try {
+        const user = await requireAuth(request, env);
+        if (!user) return json({ error: "Unauthorized" }, 401);
+        const permission = request.method === "GET" ? "workspace:read" : "workspace:manage";
+        const access = await requireWorkspaceRole(user, workspaceId, permission, env);
+        if (!access) return json({ error: "Forbidden" }, 403);
+        const domainId = await resolveWorkspaceDomain(env, workspaceId, domain);
+        if (!domainId) return json({ error: "Domain not found in this workspace" }, 404);
+
+        const existing = await env.cybermeters_db
+          .prepare(`${HOSTED_DNS_ENTRY_SELECT}
+                    WHERE workspace_id = ? AND domain = ? AND record_kind = 'mtasts' LIMIT 1`)
+          .bind(workspaceId, domain).first();
+
+        const customerName = hostedCustomerRecordName(domain, "mtasts"); // _mta-sts.<domain>
+
+        if (request.method === "GET" && !isVerify) {
+          const mxDrift = existing ? await detectMtaStsMxDrift(domain, existing.policy_content || "") : null;
+          return json({ record: existing ? mtaStsRecordToApi(existing, { mxDrift }) : null });
+        }
+
+        if (request.method === "GET" && isVerify) {
+          if (!existing) return json({ error: "No hosted MTA-STS record for this domain yet." }, 404);
+          const dnsChecks = await verifyHostedDmarcRecord(existing); // kind-aware (reads customer_name)
+          const next = nextHostedDnsStatus(existing, dnsChecks);
+          const nowIso = new Date().toISOString();
+          await env.cybermeters_db
+            .prepare(`UPDATE hosted_dns_entries SET verification_state = ?, verified_at = ?, updated_at = ? WHERE id = ?`)
+            .bind(next, nowIso, nowIso, existing.id).run();
+          const httpsPolicy = await verifyMtaStsHttpsPolicy(domain, existing.policy_content || "");
+          const mxDrift = await detectMtaStsMxDrift(domain, existing.policy_content || "");
+          return json({
+            record: mtaStsRecordToApi({ ...existing, status: next, last_verified_at: nowIso }, {
+              dnsChecks, httpsPolicy, mxDrift,
+            }),
+            checks: { dns_txt: dnsChecks, https_policy: httpsPolicy, mx_drift: mxDrift },
+          });
+        }
+
+        if (request.method === "POST") {
+          if (existing) return json({ record: mtaStsRecordToApi(existing), already_exists: true });
+          const generated = await buildMtaStsPolicyFromLiveMx(domain);
+          const policyId = `${Math.floor(Date.now() / 1000)}`;
+          const value = buildMtaStsTxtValue(policyId);
+
+          const id = newHostedDnsRecordId();
+          const hostedName = `${id}.${hostedDmarcSubdomain(env)}`;
+          const nowIso = new Date().toISOString();
+          await env.cybermeters_db
+            .prepare(`INSERT INTO hosted_dns_entries
+                        (id, workspace_id, domain, domain_id, record_kind, customer_name, target_name, target_value,
+                         policy_content, provider, verification_state, created_by, created_at, updated_at)
+                      VALUES (?, ?, ?, ?, 'mtasts', ?, ?, ?, ?, 'cloudflare', 'pending_dns', ?, ?, ?)`)
+            .bind(id, workspaceId, domain, domainId, customerName, hostedName, value, generated.policy_content, user.id, nowIso, nowIso).run();
+
+          let row = { id, workspace_id: workspaceId, domain, record_type: "mtasts",
+            customer_name: customerName, hosted_name: hostedName, current_value: value,
+            policy_content: generated.policy_content, status: "pending_dns",
+            last_verified_at: null, created_at: nowIso };
+          const created = await cfCreateHostedTxt(env, hostedName, value);
+          if (created.ok) {
+            await env.cybermeters_db
+              .prepare(`UPDATE hosted_dns_entries SET provider_record_id = ?, verification_state = 'awaiting_cname', updated_at = ? WHERE id = ?`)
+              .bind(created.cf_record_id, nowIso, id).run();
+            row = { ...row, status: "awaiting_cname" };
+          }
+
+          await createAuditEvent(env, {
+            workspace_id: workspaceId, user_id: user.id,
+            event_type: "hosted_mta_sts_created", entity_type: "hosted_dns_record", entity_id: id,
+            description: `Hosted MTA-STS DNS policy ID created for ${domain}`,
+          });
+
+          return json({
+            record: mtaStsRecordToApi(row),
+            instructions: {
+              step: `Add a CNAME at ${customerName} pointing to the target below`,
+              cname_name: customerName,
+              cname_target: hostedName,
+              policy_path: `https://mta-sts.${domain}/.well-known/mta-sts.txt`,
+              policy_content: generated.policy_content,
+              note: MTA_STS_POLICY_BOUNDARY,
+            },
+          }, 201);
+        }
+
+        if (request.method === "DELETE") {
+          if (!existing) return json({ error: "No hosted MTA-STS record for this domain." }, 404);
+          const nowIso = new Date().toISOString();
+          await env.cybermeters_db
+            .prepare(`UPDATE hosted_dns_entries SET verification_state = 'pending_removal', updated_at = ? WHERE id = ?`)
+            .bind(nowIso, existing.id).run();
+          await createAuditEvent(env, {
+            workspace_id: workspaceId, user_id: user.id,
+            event_type: "hosted_mta_sts_removal_requested", entity_type: "hosted_dns_record", entity_id: existing.id,
+            description: `Hosted MTA-STS DNS policy ID removal requested for ${domain}`,
+          });
+          return json({
+            record: mtaStsRecordToApi({ ...existing, status: "pending_removal" }),
+            message: `Remove the CNAME at ${customerName} (or replace it with your own TXT). The hosted value stays live until your DNS no longer depends on it, for up to ${HOSTED_DNS_REMOVAL_GRACE_DAYS} days.`,
+          });
+        }
+
+        return json({ error: "Method not allowed" }, 405);
+      } catch (e) {
+        return serverError("hosted-mta-sts", e, "Could not update the hosted MTA-STS record.");
       }
     }
 

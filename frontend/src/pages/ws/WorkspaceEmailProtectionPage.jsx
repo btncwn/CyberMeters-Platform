@@ -1698,6 +1698,144 @@ function ManagedTlsRptCard({ wsId, domain, endpointReady }) {
   )
 }
 
+function ManagedMtaStsCard({ wsId, domain }) {
+  const [rec, setRec]     = useState(undefined) // undefined=loading, null=none
+  const [busy, setBusy]   = useState(null)      // 'create' | 'verify' | 'remove'
+  const [error, setError] = useState(null)
+
+  const load = useCallback(async () => {
+    if (!wsId || !domain) return
+    try { const r = await api.getHostedMtaSts(wsId, domain); setRec(r?.record ?? null) }
+    catch { setRec(null) }
+  }, [wsId, domain])
+  useEffect(() => { setRec(undefined); setError(null); load() }, [load])
+
+  async function act(kind, fn) {
+    setBusy(kind); setError(null)
+    try { const r = await fn(); setRec(r?.record ?? null) }
+    catch (e) { setError(e?.message || 'The request could not be completed.') }
+    finally { setBusy(null) }
+  }
+
+  if (rec === undefined) return null
+  const meta = rec ? (HOSTED_STATUS_META[rec.status] || HOSTED_STATUS_META.pending_dns) : null
+  const policyVerified = rec?.https_policy?.state === 'reachable_valid' && rec?.https_policy?.matches_pinned_policy
+  const dnsConnected = rec?.dns_txt?.state === 'connected' || rec?.status === 'connected'
+  const complete = Boolean(rec?.complete)
+
+  return (
+    <div className="mx-6 mt-4 rounded-xl border border-gray-200 bg-white p-5">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="min-w-0">
+          <p className="text-sm font-bold text-gray-900">
+            MTA-STS readiness
+            {!rec && <span className="ml-2 text-xs font-bold uppercase tracking-wide text-gray-600 bg-gray-100 rounded px-1.5 py-0.5">Guided</span>}
+          </p>
+          <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+            CyberMeters manages the MTA-STS DNS policy ID. Your organisation or web provider hosts the HTTPS policy file.
+          </p>
+        </div>
+        {rec && (
+          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border ${
+            complete ? 'bg-brand-50 text-brand-700 border-brand-200'
+            : rec.review_required ? 'bg-amber-50 text-amber-800 border-amber-200'
+            : 'bg-gray-50 text-gray-600 border-gray-200'}`}>
+            {complete ? 'MTA-STS active in testing mode' : rec.review_required ? 'Review needed' : meta?.label || 'Not checked'}
+          </span>
+        )}
+      </div>
+
+      {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+
+      {!rec ? (
+        <div className="mt-3">
+          <button
+            onClick={() => act('create', () => api.createHostedMtaSts(wsId, domain))}
+            disabled={busy === 'create'}
+            className="btn-secondary text-sm disabled:opacity-50"
+          >
+            {busy === 'create' ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
+            Generate MTA-STS guidance
+          </button>
+          <p className="text-xs text-gray-400 mt-2">Starts in testing mode. CyberMeters will not switch this to enforce automatically.</p>
+        </div>
+      ) : (
+        <div className="mt-4 space-y-3">
+          <div className="grid sm:grid-cols-2 gap-2">
+            <div className={`rounded-lg border p-3 ${dnsConnected ? 'border-brand-100 bg-brand-50/40' : 'border-gray-200 bg-gray-50'}`}>
+              <p className="text-xs font-bold text-gray-700">DNS policy ID</p>
+              <p className="text-xs text-gray-500 mt-1">{dnsConnected ? 'CNAME connected to the CyberMeters TXT value.' : meta?.hint}</p>
+            </div>
+            <div className={`rounded-lg border p-3 ${policyVerified ? 'border-brand-100 bg-brand-50/40' : 'border-gray-200 bg-gray-50'}`}>
+              <p className="text-xs font-bold text-gray-700">HTTPS policy file</p>
+              <p className="text-xs text-gray-500 mt-1">{policyVerified ? 'Policy file is reachable and matches the pinned content.' : 'Publish the exact policy file below, then check again.'}</p>
+            </div>
+          </div>
+
+          {rec.review_required && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+              {rec.mx_drift?.message || 'Your mail servers changed. Review and republish the MTA-STS policy before changing the DNS policy ID.'}
+            </div>
+          )}
+
+          {rec.status !== 'connected' && rec.status !== 'pending_removal' && (
+            <div className="space-y-1.5">
+              <div className="grid grid-cols-[86px,1fr] gap-2 items-center">
+                <span className="text-xs font-semibold text-gray-500">Type / Name</span>
+                <DnsValue value={`CNAME  ${rec.cname_name}`} />
+              </div>
+              <div className="grid grid-cols-[86px,1fr] gap-2 items-center">
+                <span className="text-xs font-semibold text-gray-500">Target</span>
+                <DnsValue value={rec.cname_target} />
+              </div>
+            </div>
+          )}
+
+          <div>
+            <p className="text-xs font-semibold text-gray-500 mb-1">HTTPS policy path</p>
+            <DnsValue value={rec.policy_path} />
+          </div>
+          {rec.policy_content && (
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-xs font-semibold text-gray-500">Policy file content</p>
+                <CopyButton value={rec.policy_content} />
+              </div>
+              <pre className="mono text-xs text-gray-800 whitespace-pre-wrap rounded-lg bg-gray-50 border border-gray-200 p-3 leading-relaxed">{rec.policy_content}</pre>
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 flex-wrap">
+            {rec.status !== 'pending_removal' && (
+              <button
+                onClick={() => act('verify', () => api.verifyHostedMtaSts(wsId, domain))}
+                disabled={Boolean(busy)}
+                className="btn-secondary text-xs disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${busy === 'verify' ? 'animate-spin' : ''}`} />
+                Check DNS and policy
+              </button>
+            )}
+            {rec.status !== 'pending_removal' && (
+              <button
+                onClick={() => {
+                  if (window.confirm('Stop managing the MTA-STS DNS policy ID? Your HTTPS policy file is not changed by CyberMeters.')) {
+                    act('remove', () => api.deleteHostedMtaSts(wsId, domain))
+                  }
+                }}
+                disabled={Boolean(busy)}
+                className="text-xs text-gray-400 hover:text-red-600 disabled:opacity-50"
+              >
+                Stop DNS management
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ManagedDmarcCard({ wsId, domain, endpointReady }) {
   const [rec, setRec]         = useState(undefined) // undefined=loading, null=none
   const [ramp, setRamp]       = useState(null)      // { policyAllowed, compliance, readiness }
@@ -2101,6 +2239,7 @@ function DmarcSetupWizard({ wsId, domain, dmarcDetail, hasScanData, totalMessage
 
       <ManagedDmarcCard wsId={wsId} domain={domain} endpointReady={Boolean(inboundMailto)} />
       <ManagedTlsRptCard wsId={wsId} domain={domain} endpointReady={Boolean(inboundMailto)} />
+      <ManagedMtaStsCard wsId={wsId} domain={domain} />
       <TlsRptHealthCard wsId={wsId} domain={domain} />
 
       <div className="p-6 space-y-5">

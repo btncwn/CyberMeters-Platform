@@ -191,6 +191,8 @@ export function hostedDnsRecordToApi(row) {
     autopilot: isDmarc && Number(row.autopilot) === 1,
     can_rollback: isDmarc && Boolean(row.previous_value),
     change_pending: Boolean(row.pending_value),
+    policy_content: kind === "mtasts" ? row.policy_content || null : null,
+    policy_path: kind === "mtasts" ? `https://mta-sts.${row.domain}/.well-known/mta-sts.txt` : null,
     last_change_at: row.last_change_at || null,
     last_verified_at: row.last_verified_at || null,
     created_at: row.created_at,
@@ -203,9 +205,104 @@ export function buildTlsRptValue(reportingAddress) {
   return `v=TLSRPTv1; rua=mailto:${reportingAddress}`;
 }
 
+export function buildMtaStsTxtValue(id) {
+  return `v=STSv1; id=${id}`;
+}
+
+function normalizeMtaStsMxHost(value) {
+  const host = String(value || "").trim().toLowerCase().replace(/\.$/, "");
+  return /^[a-z0-9*][a-z0-9*.-]{0,251}[a-z0-9]$/.test(host) ? host : "";
+}
+
+export function mxHostsFromDnsResponse(response, domain) {
+  const hosts = [];
+  for (const answer of response?.Answer || []) {
+    const data = String(answer?.data || "").trim();
+    if (!data) continue;
+    const parts = data.split(/\s+/);
+    const host = normalizeMtaStsMxHost(parts[parts.length - 1]);
+    if (host && !hosts.includes(host)) hosts.push(host);
+  }
+  return hosts.length ? hosts : [`*.${domain}`];
+}
+
+export function buildMtaStsPolicy(domain, mxHosts = []) {
+  const hosts = (Array.isArray(mxHosts) ? mxHosts : [])
+    .map(normalizeMtaStsMxHost)
+    .filter(Boolean);
+  const effectiveHosts = hosts.length ? [...new Set(hosts)] : [`*.${domain}`];
+  return ["version: STSv1", "mode: testing", ...effectiveHosts.map((m) => `mx: ${m}`), "max_age: 604800"].join("\n");
+}
+
+function parseMtaStsPolicyContent(content) {
+  const result = { mode: null, mx: [], max_age: null };
+  for (const raw of String(content || "").split(/\r?\n/)) {
+    const line = raw.trim();
+    if (/^mode:/i.test(line)) result.mode = line.split(":", 2)[1]?.trim() || null;
+    else if (/^mx:/i.test(line)) {
+      const mx = line.split(":", 2)[1]?.trim();
+      if (mx) result.mx.push(mx);
+    } else if (/^max_age:/i.test(line)) {
+      const n = parseInt((line.split(":", 2)[1] || "").trim(), 10);
+      if (!Number.isNaN(n)) result.max_age = n;
+    }
+  }
+  return result;
+}
+
+export async function verifyMtaStsHttpsPolicy(domain, expectedPolicyContent, { fetchMtaStsImpl = fetchMtaSts } = {}) {
+  const path = `https://mta-sts.${domain}/.well-known/mta-sts.txt`;
+  try {
+    const fetched = await fetchMtaStsImpl(domain);
+    if (!fetched?.enabled) return {
+      state: "not_published",
+      path,
+      matches_pinned_policy: false,
+      mode: null,
+      version: null,
+      mx_patterns: [],
+      max_age: null,
+      errors: fetched?.errors || [],
+    };
+    const valid = String(fetched.policy_version || "") === "STSv1" && Boolean(fetched.policy_mode) && Array.isArray(fetched.mx_patterns)
+      && fetched.mx_patterns.length > 0 && fetched.max_age != null;
+    const expected = parseMtaStsPolicyContent(expectedPolicyContent);
+    const expectedMx = [...expected.mx].sort();
+    const actualMx = [...(fetched.mx_patterns || [])].sort();
+    const matches = valid
+      && String(fetched.policy_mode || "") === String(expected.mode || "")
+      && Number(fetched.max_age) === Number(expected.max_age)
+      && expectedMx.length === actualMx.length
+      && expectedMx.every((mx, idx) => mx === actualMx[idx]);
+    return {
+      state: valid ? "reachable_valid" : "reachable_invalid",
+      path,
+      matches_pinned_policy: matches,
+      version: fetched.policy_version || null,
+      mode: fetched.policy_mode || null,
+      mx_patterns: fetched.mx_patterns || [],
+      max_age: fetched.max_age ?? null,
+      errors: fetched.errors || [],
+    };
+  } catch (e) {
+    return {
+      state: "not_published",
+      path,
+      matches_pinned_policy: false,
+      mode: null,
+      version: null,
+      mx_patterns: [],
+      max_age: null,
+      errors: [e?.message || "MTA-STS policy check failed"],
+    };
+  }
+}
+
 // Customer-side record name we expect to CNAME to our hosted name, per kind.
 export function hostedCustomerRecordName(domain, recordKind) {
-  return recordKind === "tlsrpt" ? `_smtp._tls.${domain}` : `_dmarc.${domain}`;
+  if (recordKind === "tlsrpt") return `_smtp._tls.${domain}`;
+  if (recordKind === "mtasts") return `_mta-sts.${domain}`;
+  return `_dmarc.${domain}`;
 }
 
 export async function cfCreateHostedTxt(env, name, content, { fetchImpl = fetch } = {}) {
@@ -877,7 +974,8 @@ const tlsRptRemediation = {
 };
 
 const mtaStsRemediation = {
-  id: "mta_sts", title: "MTA-STS (enforce TLS for inbound mail)", category: "email", capability: "guided",
+  id: "mta_sts", title: "MTA-STS (enforce TLS for inbound mail)", category: "email", capability: "hosted",
+  managed_via: "hosted-mta-sts",
   async detect(ctx) {
     let enabled = false;
     try { enabled = Boolean((await fetchMtaSts(ctx.domain))?.enabled); } catch { enabled = false; }
@@ -890,9 +988,9 @@ const mtaStsRemediation = {
     const id = `${Math.floor(Date.now() / 1000)}`;
     const mx = Array.isArray(ctx.mx_hosts) && ctx.mx_hosts.length
       ? ctx.mx_hosts : [`*.${ctx.domain}`];
-    const policyFile = ["version: STSv1", "mode: testing", ...mx.map((m) => `mx: ${m}`), "max_age: 604800"].join("\n");
+    const policyFile = buildMtaStsPolicy(ctx.domain, mx);
     return {
-      records: [{ type: "TXT", name: `_mta-sts.${ctx.domain}`, value: `v=STSv1; id=${id}` }],
+      records: [{ type: "TXT", name: `_mta-sts.${ctx.domain}`, value: buildMtaStsTxtValue(id) }],
       files: [{ path: `https://mta-sts.${ctx.domain}/.well-known/mta-sts.txt`, content: policyFile }],
       note: "MTA-STS needs BOTH the TXT record and the policy file served over HTTPS on mta-sts.<domain>. Start in mode: testing, then move to enforce once reports are clean.",
     };

@@ -830,6 +830,15 @@ export const api = {
     request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/hosted-tls-rpt/verify`),
   deleteHostedTlsRpt: (workspaceId, domain) =>
     request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/hosted-tls-rpt`, { method: 'DELETE' }),
+  // Hosted MTA-STS (guided hybrid) — host only the _mta-sts DNS policy ID.
+  getHostedMtaSts: (workspaceId, domain) =>
+    request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/hosted-mta-sts`),
+  createHostedMtaSts: (workspaceId, domain) =>
+    request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/hosted-mta-sts`, { method: 'POST' }),
+  verifyHostedMtaSts: (workspaceId, domain) =>
+    request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/hosted-mta-sts/verify`),
+  deleteHostedMtaSts: (workspaceId, domain) =>
+    request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/hosted-mta-sts`, { method: 'DELETE' }),
   getTlsRptReports: (workspaceId, domain) =>
     request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/tls-rpt/reports`),
 
