@@ -821,6 +821,16 @@ export const api = {
   deleteHostedDmarc: (workspaceId, domain) =>
     request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/hosted-dmarc`, { method: 'DELETE' }),
 
+  // Hosted TLS-RPT (Phase C) — host the _smtp._tls record via CNAME delegation.
+  getHostedTlsRpt: (workspaceId, domain) =>
+    request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/hosted-tls-rpt`),
+  createHostedTlsRpt: (workspaceId, domain) =>
+    request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/hosted-tls-rpt`, { method: 'POST' }),
+  verifyHostedTlsRpt: (workspaceId, domain) =>
+    request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/hosted-tls-rpt/verify`),
+  deleteHostedTlsRpt: (workspaceId, domain) =>
+    request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/hosted-tls-rpt`, { method: 'DELETE' }),
+
   /** Self-Driving DMARC (Phase B): ladder-step change, rollback, autopilot */
   setHostedDmarcPolicy: (workspaceId, domain, policy, pct, confirm = false) =>
     request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/hosted-dmarc`, {

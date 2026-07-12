@@ -166,7 +166,12 @@ export const HOSTED_DNS_ENTRY_SELECT =
 // Safe serialization: cf_record_id and created_by never leave the worker.
 export function hostedDnsRecordToApi(row) {
   if (!row) return null;
-  const stepIdx = dmarcRampStepIndex(row.current_value);
+  // Hosted DNS v2: record-kind aware. DMARC-ramp concepts only apply to dmarc;
+  // other kinds (tlsrpt/mtasts/spf) get null ramp fields. cname_name is the
+  // stored customer record name (falls back to _dmarc for legacy/ad-hoc rows).
+  const kind = row.record_type || "dmarc";
+  const isDmarc = kind === "dmarc";
+  const stepIdx = isDmarc ? dmarcRampStepIndex(row.current_value) : -1;
   const step = stepIdx >= 0 ? DMARC_RAMP_LADDER[stepIdx] : null;
   const nextStep = stepIdx >= 0 ? DMARC_RAMP_LADDER[stepIdx + 1] || null : null;
   return {
@@ -174,22 +179,33 @@ export function hostedDnsRecordToApi(row) {
     domain: row.domain,
     record_type: row.record_type,
     hosted_name: row.hosted_name,
-    cname_name: `_dmarc.${row.domain}`,
+    cname_name: row.customer_name || `_dmarc.${row.domain}`,
     cname_target: row.hosted_name,
     current_value: row.current_value,
     status: row.status,
     // Customer-safe issue class (K2): 'config_error' | 'temporary_issue' | null.
     issue: row.last_error || null,
-    // Phase B: ramp position + self-driving state.
+    // Phase B: ramp position + self-driving state (dmarc only).
     policy_step: step ? { index: stepIdx, policy: step.policy, pct: step.pct, label: step.label } : null,
     next_step: nextStep ? { index: stepIdx + 1, policy: nextStep.policy, pct: nextStep.pct, label: nextStep.label } : null,
-    autopilot: Number(row.autopilot) === 1,
-    can_rollback: Boolean(row.previous_value),
+    autopilot: isDmarc && Number(row.autopilot) === 1,
+    can_rollback: isDmarc && Boolean(row.previous_value),
     change_pending: Boolean(row.pending_value),
     last_change_at: row.last_change_at || null,
     last_verified_at: row.last_verified_at || null,
     created_at: row.created_at,
   };
+}
+
+// TLS-RPT reporting record value (RFC 8460). Points reporting at a mailbox we
+// control (the domain's existing CyberMeters reporting address).
+export function buildTlsRptValue(reportingAddress) {
+  return `v=TLSRPTv1; rua=mailto:${reportingAddress}`;
+}
+
+// Customer-side record name we expect to CNAME to our hosted name, per kind.
+export function hostedCustomerRecordName(domain, recordKind) {
+  return recordKind === "tlsrpt" ? `_smtp._tls.${domain}` : `_dmarc.${domain}`;
 }
 
 export async function cfCreateHostedTxt(env, name, content, { fetchImpl = fetch } = {}) {
@@ -271,12 +287,14 @@ export async function verifyHostedDmarcRecord(row, { dnsQueryImpl = dnsQuery } =
   const hosted_live = (hostedAnswers || []).some(txtValueMatches);
   if (!hosted_live) return { hosted_live: false, cname_connected: false };
 
-  // cname_connected requires GENUINE delegation: _dmarc.<domain> must CNAME to
-  // our hosted name, not merely publish identical content. Phase A mirrors the
-  // customer's existing value, so a standalone TXT with the same content would
-  // otherwise read as "connected" while we manage nothing — and the illusion
-  // would shatter (false disconnect alarm) on the first policy change.
-  const customerName = `_dmarc.${row.domain}`;
+  // cname_connected requires GENUINE delegation: the customer record (e.g.
+  // _dmarc.<domain> or _smtp._tls.<domain>) must CNAME to our hosted name, not
+  // merely publish identical content. A standalone TXT with the same content
+  // would otherwise read as "connected" while we manage nothing — and the
+  // illusion would shatter (false disconnect alarm) on the first change.
+  // v2: the customer record name is stored per row (kind-aware); legacy/ad-hoc
+  // rows without it fall back to the DMARC name.
+  const customerName = row.customer_name || `_dmarc.${row.domain}`;
   const answers = await fetchAnswers(customerName, "TXT");
   const contentMatches = (answers || []).some(txtValueMatches);
   if (!contentMatches) return { hosted_live, cname_connected: false };
