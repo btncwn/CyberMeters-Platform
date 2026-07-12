@@ -9,7 +9,7 @@ import { ALERT_CHANNEL_MAX_PER_WORKSPACE, alertChannelToApi, deliverWorkspaceAle
 import { computeBecExposureScore } from "../engines/bec.js";
 import { dnsQuery } from "../engines/dns.js";
 import { normalizeDnsTxtValue, parseDmarcRecord } from "../engines/email-analysis.js";
-import { DMARC_RAMP_LADDER, HOSTED_DNS_REMOVAL_GRACE_DAYS, REMEDIATION_REGISTRY, analyzeSpfChain, applyHostedDmarcChange, buildDmarcDnsRecommendedValue, cfCreateHostedTxt, dmarcRampStepIndex, evaluateRampReadiness, getHostedDmarcPassRate, getRemediation, hostedDmarcSubdomain, hostedDnsRecordToApi, newHostedDnsRecordId, nextHostedDnsStatus, parseServerMsHosted, planAllowsHostedPolicyManagement, remediationToApi, rollbackHostedDmarc, verifyDmarcDnsSetup, verifyHostedDmarcRecord } from "../engines/hosted-dmarc.js";
+import { DMARC_RAMP_LADDER, HOSTED_DNS_ENTRY_SELECT, HOSTED_DNS_REMOVAL_GRACE_DAYS, REMEDIATION_REGISTRY, analyzeSpfChain, applyHostedDmarcChange, buildDmarcDnsRecommendedValue, cfCreateHostedTxt, dmarcRampStepIndex, evaluateRampReadiness, getHostedDmarcPassRate, getRemediation, hostedDmarcSubdomain, hostedDnsRecordToApi, newHostedDnsRecordId, nextHostedDnsStatus, parseServerMsHosted, planAllowsHostedPolicyManagement, remediationToApi, rollbackHostedDmarc, verifyDmarcDnsSetup, verifyHostedDmarcRecord } from "../engines/hosted-dmarc.js";
 import { auditDmarcRouteResult, buildDmarcEnforcementReadiness, configureDmarcEndpointRoute, emailSenderToApi, generateInboundLocalpart, generateIngestToken, hashIngestToken, ingestEndpointToApi, loadEmailSenderSources, persistDmarcRouteResult, resolveWorkspaceDomain, safelyEnsureCloudflareEmailRoute, safelyRevokeCloudflareEmailRoute, summarizeEmailSenders } from "../engines/rua-routing.js";
 import { buildDmarcBusinessRisk, buildDmarcReportRemediationActions, loadBecExposureEvidence } from "../engines/sender-provenance.js";
 import { RUA_INBOUND_DOMAIN_DEFAULT, ingestDmarcReport, normalizeInboundRecipientDomain, parseEmailAuthHeaders } from "../lib/dmarc-ingest.js";
@@ -204,8 +204,8 @@ export async function emailProtectionRoutes(rctx) {
         if (!domainId) return json({ error: "Domain not found in this workspace" }, 404);
 
         const existing = await env.cybermeters_db
-          .prepare(`SELECT * FROM hosted_dns_records
-                    WHERE workspace_id = ? AND domain = ? AND record_type = 'dmarc' LIMIT 1`)
+          .prepare(`${HOSTED_DNS_ENTRY_SELECT}
+                    WHERE workspace_id = ? AND domain = ? AND record_kind = 'dmarc' LIMIT 1`)
           .bind(workspaceId, domain).first();
 
         // Workspace plan (owner's plan) gates policy management; create,
@@ -284,7 +284,7 @@ export async function emailProtectionRoutes(rctx) {
             return json({ error: msg, code: applied.reason }, 409);
           }
           const row = await env.cybermeters_db
-            .prepare(`SELECT * FROM hosted_dns_records WHERE id = ?`).bind(existing.id).first();
+            .prepare(`${HOSTED_DNS_ENTRY_SELECT} WHERE id = ?`).bind(existing.id).first();
           return json({ record: hostedDnsRecordToApi(row) });
         }
 
@@ -298,7 +298,7 @@ export async function emailProtectionRoutes(rctx) {
             return json({ error: msg, code: rolled.reason }, 409);
           }
           const row = await env.cybermeters_db
-            .prepare(`SELECT * FROM hosted_dns_records WHERE id = ?`).bind(existing.id).first();
+            .prepare(`${HOSTED_DNS_ENTRY_SELECT} WHERE id = ?`).bind(existing.id).first();
           return json({ record: hostedDnsRecordToApi(row) });
         }
 
@@ -312,7 +312,7 @@ export async function emailProtectionRoutes(rctx) {
           try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
           const enabled = body.enabled === true ? 1 : 0;
           await env.cybermeters_db
-            .prepare(`UPDATE hosted_dns_records SET autopilot = ?, updated_at = ? WHERE id = ?`)
+            .prepare(`UPDATE hosted_dns_entries SET autopilot = ?, updated_at = ? WHERE id = ?`)
             .bind(enabled, new Date().toISOString(), existing.id).run();
           await createAuditEvent(env, {
             workspace_id: workspaceId, user_id: user.id,
@@ -329,7 +329,7 @@ export async function emailProtectionRoutes(rctx) {
           const next = nextHostedDnsStatus(existing, checks);
           const nowIso = new Date().toISOString();
           await env.cybermeters_db
-            .prepare(`UPDATE hosted_dns_records SET status = ?, last_verified_at = ?, updated_at = ? WHERE id = ?`)
+            .prepare(`UPDATE hosted_dns_entries SET verification_state = ?, verified_at = ?, updated_at = ? WHERE id = ?`)
             .bind(next, nowIso, nowIso, existing.id).run();
           return json({
             record: hostedDnsRecordToApi({ ...existing, status: next, last_verified_at: nowIso }),
@@ -373,11 +373,11 @@ export async function emailProtectionRoutes(rctx) {
           const hostedName = `${id}.${hostedDmarcSubdomain(env)}`;
           const nowIso = new Date().toISOString();
           await env.cybermeters_db
-            .prepare(`INSERT INTO hosted_dns_records
-                        (id, workspace_id, domain, record_type, hosted_name, current_value,
-                         status, created_by, created_at, updated_at)
-                      VALUES (?, ?, ?, 'dmarc', ?, ?, 'pending_dns', ?, ?, ?)`)
-            .bind(id, workspaceId, domain, hostedName, value, user.id, nowIso, nowIso).run();
+            .prepare(`INSERT INTO hosted_dns_entries
+                        (id, workspace_id, domain, record_kind, customer_name, target_name, target_value,
+                         provider, verification_state, created_by, created_at, updated_at)
+                      VALUES (?, ?, ?, 'dmarc', ?, ?, ?, 'cloudflare', 'pending_dns', ?, ?, ?)`)
+            .bind(id, workspaceId, domain, `_dmarc.${domain}`, hostedName, value, user.id, nowIso, nowIso).run();
 
           // Try the Cloudflare create immediately; the sweep retries on failure.
           let row = { id, workspace_id: workspaceId, domain, record_type: "dmarc",
@@ -386,7 +386,7 @@ export async function emailProtectionRoutes(rctx) {
           const created = await cfCreateHostedTxt(env, hostedName, value);
           if (created.ok) {
             await env.cybermeters_db
-              .prepare(`UPDATE hosted_dns_records SET cf_record_id = ?, status = 'awaiting_cname', updated_at = ? WHERE id = ?`)
+              .prepare(`UPDATE hosted_dns_entries SET provider_record_id = ?, verification_state = 'awaiting_cname', updated_at = ? WHERE id = ?`)
               .bind(created.cf_record_id, nowIso, id).run();
             row = { ...row, status: "awaiting_cname" };
           }
@@ -412,7 +412,7 @@ export async function emailProtectionRoutes(rctx) {
           if (!existing) return json({ error: "No hosted DMARC record for this domain." }, 404);
           const nowIso = new Date().toISOString();
           await env.cybermeters_db
-            .prepare(`UPDATE hosted_dns_records SET status = 'pending_removal', updated_at = ? WHERE id = ?`)
+            .prepare(`UPDATE hosted_dns_entries SET verification_state = 'pending_removal', updated_at = ? WHERE id = ?`)
             .bind(nowIso, existing.id).run();
           await createAuditEvent(env, {
             workspace_id: workspaceId, user_id: user.id,

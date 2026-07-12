@@ -151,6 +151,18 @@ export function newHostedDnsRecordId() {
   return `hd-${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
 }
 
+// Hosted DNS v2: rows now live in hosted_dns_entries. This projection reads that
+// table but aliases the new columns back to the legacy field names the engine +
+// routes already use (status, hosted_name, current_value, cf_record_id,
+// last_verified_at, record_type), so the repoint is SQL-only — no JS-access churn
+// and no change to DMARC behaviour. The new native names are also present on the
+// row (harmless). WHERE/ORDER-BY clauses must reference the real column names.
+export const HOSTED_DNS_ENTRY_SELECT =
+  "SELECT *, verification_state AS status, verified_at AS last_verified_at, " +
+  "target_name AS hosted_name, target_value AS current_value, " +
+  "provider_record_id AS cf_record_id, record_kind AS record_type " +
+  "FROM hosted_dns_entries";
+
 // Safe serialization: cf_record_id and created_by never leave the worker.
 export function hostedDnsRecordToApi(row) {
   if (!row) return null;
@@ -303,9 +315,9 @@ export async function runHostedDnsVerificationSweep(env, {
     // M1: least-recently-verified first (NULLs — never-verified — lead). Ordering
     // by updated_at let stable connected rows starve fresh pending ones at scale.
     const r = await env.cybermeters_db
-      .prepare(`SELECT * FROM hosted_dns_records
-                WHERE status IN ('pending_dns','awaiting_cname','connected','disconnected','pending_removal')
-                ORDER BY (last_verified_at IS NULL) DESC, last_verified_at ASC LIMIT ?`)
+      .prepare(`${HOSTED_DNS_ENTRY_SELECT}
+                WHERE verification_state IN ('pending_dns','awaiting_cname','connected','disconnected','pending_removal')
+                ORDER BY (verified_at IS NULL) DESC, verified_at ASC LIMIT ?`)
       .bind(HOSTED_DNS_SWEEP_LIMIT).all();
     rows = r.results || [];
   } catch { return { checked: 0, removed: 0 }; }
@@ -326,7 +338,7 @@ export async function runHostedDnsVerificationSweep(env, {
         if (created.ok) {
           row.cf_record_id = created.cf_record_id;
           await env.cybermeters_db
-            .prepare(`UPDATE hosted_dns_records SET cf_record_id = ?, failure_count = 0, last_error = NULL, updated_at = ? WHERE id = ?`)
+            .prepare(`UPDATE hosted_dns_entries SET provider_record_id = ?, failure_count = 0, last_error = NULL, updated_at = ? WHERE id = ?`)
             .bind(created.cf_record_id, nowIso, row.id).run();
         } else {
           // K2: record the failure class. config_error surfaces to the customer
@@ -336,7 +348,7 @@ export async function runHostedDnsVerificationSweep(env, {
             console.error("[hosted-dmarc] config error", JSON.stringify({ id: row.id, reason: created.reason }));
           }
           await env.cybermeters_db
-            .prepare(`UPDATE hosted_dns_records SET failure_count = failure_count + 1, last_error = ?, updated_at = ? WHERE id = ?`)
+            .prepare(`UPDATE hosted_dns_entries SET failure_count = failure_count + 1, last_error = ?, updated_at = ? WHERE id = ?`)
             .bind(issue, nowIso, row.id).run();
           continue; // nothing to verify without a published TXT
         }
@@ -361,7 +373,7 @@ export async function runHostedDnsVerificationSweep(env, {
           }
           if (cfCleared) {
             await env.cybermeters_db
-              .prepare(`DELETE FROM hosted_dns_records WHERE id = ?`).bind(row.id).run();
+              .prepare(`DELETE FROM hosted_dns_entries WHERE id = ?`).bind(row.id).run();
             removed += 1;
             await createAuditEvent(env, {
               workspace_id: row.workspace_id,
@@ -386,7 +398,7 @@ export async function runHostedDnsVerificationSweep(env, {
       }
       if (next !== row.status) {
         await env.cybermeters_db
-          .prepare(`UPDATE hosted_dns_records SET status = ?, last_verified_at = ?, updated_at = ? WHERE id = ?`)
+          .prepare(`UPDATE hosted_dns_entries SET verification_state = ?, verified_at = ?, updated_at = ? WHERE id = ?`)
           .bind(next, nowIso, nowIso, row.id).run();
         if (next === "disconnected" && row.status === "connected") {
           try {
@@ -400,7 +412,7 @@ export async function runHostedDnsVerificationSweep(env, {
         }
       } else {
         await env.cybermeters_db
-          .prepare(`UPDATE hosted_dns_records SET last_verified_at = ? WHERE id = ?`)
+          .prepare(`UPDATE hosted_dns_entries SET verified_at = ? WHERE id = ?`)
           .bind(nowIso, row.id).run();
       }
 
@@ -623,7 +635,7 @@ export async function applyHostedDmarcChange(env, row, {
   const nowIso = new Date().toISOString();
   // PREPARE — write the intent before touching DNS.
   await env.cybermeters_db
-    .prepare(`UPDATE hosted_dns_records SET pending_value = ?, pending_since = ? WHERE id = ?`)
+    .prepare(`UPDATE hosted_dns_entries SET pending_value = ?, pending_since = ? WHERE id = ?`)
     .bind(built.value, nowIso, row.id).run();
 
   // EXECUTE — the only side effect.
@@ -631,7 +643,7 @@ export async function applyHostedDmarcChange(env, row, {
   if (!patched.ok) {
     // Abort the intent: DNS untouched, old state is the safe state.
     await env.cybermeters_db
-      .prepare(`UPDATE hosted_dns_records SET pending_value = NULL, pending_since = NULL WHERE id = ?`)
+      .prepare(`UPDATE hosted_dns_entries SET pending_value = NULL, pending_since = NULL WHERE id = ?`)
       .bind(row.id).run();
     return { ok: false, reason: patched.reason || "api_rejected" };
   }
@@ -646,8 +658,8 @@ export async function applyHostedDmarcChange(env, row, {
   // (SQLite evaluates right-hand sides against the OLD row, so this single
   // statement performs the whole swap.)
   await env.cybermeters_db
-    .prepare(`UPDATE hosted_dns_records
-              SET previous_value = current_value, current_value = pending_value,
+    .prepare(`UPDATE hosted_dns_entries
+              SET previous_value = target_value, target_value = pending_value,
                   pending_value = NULL, pending_since = NULL,
                   last_change_at = ?, pass_rate_at_change = ?,
                   failure_count = 0, last_error = NULL, updated_at = ?
@@ -681,14 +693,14 @@ export async function rollbackHostedDmarc(env, row, { userId = null, source = "m
   const nowIso = new Date().toISOString();
   // PREPARE
   await env.cybermeters_db
-    .prepare(`UPDATE hosted_dns_records SET pending_value = ?, pending_since = ? WHERE id = ?`)
+    .prepare(`UPDATE hosted_dns_entries SET pending_value = ?, pending_since = ? WHERE id = ?`)
     .bind(row.previous_value, nowIso, row.id).run();
 
   // EXECUTE
   const patched = await cfPatchHostedTxt(env, row.cf_record_id, row.hosted_name, row.previous_value, { fetchImpl });
   if (!patched.ok) {
     await env.cybermeters_db
-      .prepare(`UPDATE hosted_dns_records SET pending_value = NULL, pending_since = NULL WHERE id = ?`)
+      .prepare(`UPDATE hosted_dns_entries SET pending_value = NULL, pending_since = NULL WHERE id = ?`)
       .bind(row.id).run();
     return { ok: false, reason: patched.reason || "api_rejected" };
   }
@@ -700,8 +712,8 @@ export async function rollbackHostedDmarc(env, row, { userId = null, source = "m
 
   // COMMIT
   await env.cybermeters_db
-    .prepare(`UPDATE hosted_dns_records
-              SET current_value = pending_value, previous_value = NULL,
+    .prepare(`UPDATE hosted_dns_entries
+              SET target_value = pending_value, previous_value = NULL,
                   pending_value = NULL, pending_since = NULL,
                   last_change_at = ?, pass_rate_at_change = NULL,
                   failure_count = 0, last_error = NULL, updated_at = ?
@@ -743,8 +755,8 @@ export async function reconcileHostedIntent(env, row, { fetchImpl = fetch, now =
   if (_normTxt(read.content) === _normTxt(row.pending_value)) {
     // DNS already serves the intent: commit exactly like a completed saga.
     await env.cybermeters_db
-      .prepare(`UPDATE hosted_dns_records
-                SET previous_value = current_value, current_value = pending_value,
+      .prepare(`UPDATE hosted_dns_entries
+                SET previous_value = target_value, target_value = pending_value,
                     pending_value = NULL, pending_since = NULL,
                     last_change_at = ?, failure_count = 0, last_error = NULL, updated_at = ?
                 WHERE id = ?`)
@@ -764,7 +776,7 @@ export async function reconcileHostedIntent(env, row, { fetchImpl = fetch, now =
 
   const revertedToOld = _normTxt(read.content) === _normTxt(row.current_value);
   await env.cybermeters_db
-    .prepare(`UPDATE hosted_dns_records
+    .prepare(`UPDATE hosted_dns_entries
               SET pending_value = NULL, pending_since = NULL,
                   last_error = ?, updated_at = ?
               WHERE id = ?`)

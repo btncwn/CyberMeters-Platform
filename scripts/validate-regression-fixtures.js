@@ -2533,7 +2533,7 @@ results.push(await asyncSecurityContract("hosted_removal_never_orphans_a_live_cn
     cybermeters_db: { prepare(sql) { return {
       _sql: sql, bind(...a) { this._a = a; return this; },
       async all() { return { results: [row] }; },
-      async run() { log.push(this._sql.trim().split(/\s+/)[0] + ":" + (this._sql.includes("hosted_dns_records") ? "hosted" : "other")); return { meta: { changes: 1 } }; },
+      async run() { log.push(this._sql.trim().split(/\s+/)[0] + ":" + (this._sql.includes("hosted_dns_entries") ? "hosted" : "other")); return { meta: { changes: 1 } }; },
       async first() { return null; },
     }; } },
   });
@@ -2645,7 +2645,7 @@ results.push(await asyncSecurityContract("selfdriving_apply_swaps_previous_and_r
   const r1 = await scanner.applyHostedDmarcChange(mkEnv(log1), mkRow(), {
     policy: "quarantine", pct: 5, source: "manual", passRateNow: 99, fetchImpl });
   const prepared = log1.findIndex((l) => /SET pending_value = \?/.test(l.sql));
-  const committed = log1.findIndex((l) => /current_value = pending_value/.test(l.sql));
+  const committed = log1.findIndex((l) => /target_value = pending_value/.test(l.sql));
   const swap = committed >= 0 && prepared >= 0 && prepared < committed;
   const audit = log1.find((l) => /INSERT INTO audit_events/.test(l.sql));
   // Budget exhausted: no PATCH, no writes.
@@ -2705,7 +2705,7 @@ results.push(await asyncSecurityContract("hosted_apply_is_write_ahead_saga", asy
   const r1 = await scanner.applyHostedDmarcChange(mkEnv(log1), mkRow(), {
     policy: "quarantine", pct: 5, fetchImpl: failPatch });
   const aborted1 = log1.some((s) => /pending_value = NULL, pending_since = NULL WHERE/.test(s));
-  const committed1 = log1.some((s) => /current_value = pending_value/.test(s));
+  const committed1 = log1.some((s) => /target_value = pending_value/.test(s));
 
   // Case 2: VERIFY mismatch (CF serves something else) → intent is LEFT for
   // the reconciler; no abort, no commit.
@@ -2716,7 +2716,7 @@ results.push(await asyncSecurityContract("hosted_apply_is_write_ahead_saga", asy
   const r2 = await scanner.applyHostedDmarcChange(mkEnv(log2), mkRow(), {
     policy: "quarantine", pct: 5, fetchImpl: liarPatch });
   const aborted2 = log2.some((s) => /pending_value = NULL, pending_since = NULL WHERE/.test(s));
-  const committed2 = log2.some((s) => /current_value = pending_value/.test(s));
+  const committed2 = log2.some((s) => /target_value = pending_value/.test(s));
 
   // Case 3: an in-flight intent blocks a second overlapping change (per-record lock).
   const r3 = await scanner.applyHostedDmarcChange(mkEnv([]), mkRow({ pending_value: "x" }), {
@@ -2746,13 +2746,13 @@ results.push(await asyncSecurityContract("hosted_reconciler_commits_or_aborts_au
   // CF already serves the intent → COMMIT completes the crashed saga.
   const log1 = [];
   const r1 = await scanner.reconcileHostedIntent(mkEnv(log1), mkRow(), { fetchImpl: cfServing(intent) });
-  const committed = log1.some((s) => /current_value = pending_value/.test(s));
+  const committed = log1.some((s) => /target_value = pending_value/.test(s));
 
   // CF still serves the old value + grace over → ABORT, old value stays law.
   const log2 = [];
   const r2 = await scanner.reconcileHostedIntent(mkEnv(log2), mkRow(), { fetchImpl: cfServing(oldValue) });
   const abortedClean = r2.action === "aborted" && log2.some((s) => /pending_value = NULL/.test(s)) &&
-    !log2.some((s) => /current_value = pending_value/.test(s));
+    !log2.some((s) => /target_value = pending_value/.test(s));
 
   // Fresh intent (inside grace) → left in flight, nothing written.
   const log3 = [];
