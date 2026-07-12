@@ -44,6 +44,12 @@ jobs:
       - name: Validate tenant-isolation matrix (cross-tenant read/write/delete/oracle)
         run: node scripts/validate-tenant-isolation.js
 
+      - name: Validate DMARC XML safety (XXE / entity-expansion / size DoS)
+        run: node scripts/validate-dmarc-xml-safety.js
+
+      - name: Validate SSRF domain guard (IP/localhost/metadata/reserved-TLD reject)
+        run: node scripts/validate-ssrf-domain-guard.js
+
       - name: Validate request pipeline (fetch → auth → RBAC → DB; login + webhook)
         run: node scripts/validate-pipeline.js
 

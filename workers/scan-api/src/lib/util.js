@@ -11,10 +11,22 @@ function isValidEmail(email) {
   return value.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
+// RFC 6761/6762 + common private-use TLDs that must never be a scan target — a
+// hostname ending in one of these is not publicly resolvable and is a classic
+// SSRF pivot (e.g. metadata.google.internal). Defence-in-depth on top of the
+// alpha-TLD rule (which already rejects IP literals) and the Workers runtime's
+// private-range egress block.
+const RESERVED_TLDS = new Set([
+  "internal", "local", "localhost", "localdomain", "test", "invalid",
+  "example", "onion", "home", "corp", "lan", "intranet", "private",
+]);
+
 function isValidDomain(domain) {
   if (typeof domain !== "string" || domain.length > 253) return false;
   const labels = domain.split(".");
-  if (labels.length < 2 || !/^[a-zA-Z]{2,63}$/.test(labels.at(-1) || "")) return false;
+  const tld = (labels.at(-1) || "").toLowerCase();
+  if (labels.length < 2 || !/^[a-zA-Z]{2,63}$/.test(tld)) return false;
+  if (RESERVED_TLDS.has(tld)) return false;
   return labels.every((label) =>
     label.length >= 1 &&
     label.length <= 63 &&
