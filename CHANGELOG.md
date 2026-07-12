@@ -5,6 +5,19 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.12 (v2026.07.12-3 — weekly Exposure Timeline digest) — deployed 2026-07-12
+
+### Product (Faz 0 — retention hook)
+- **Weekly digest** (`4377c6e`): a Monday 08:00 UTC "what changed this week" email
+  to active workspaces (verified owner + >=1 monitored domain), deduped once per
+  ISO week, aggregating the last 7 days of exposure events (severity + category
+  breakdown + top 5). Quiet weeks send a short "all quiet — posture stable"
+  reassurance; dormant/unverified owners get nothing (protects deliverability).
+  Completes the Exposure Timeline (change detection -> feed API -> UI -> digest) —
+  the one-time-scan -> subscription hinge. No migration (reuses lifecycle_email_events).
+- Live version **8e243e0b-5264-42c5-84d2-8e50ec9038d2**; /health 200, /ready d1+r2
+  healthy, free-scan verified. Rollback: previous version **52281cb0-aadf-41ea-80b7-0eb2830b2954**.
+
 ## 2026.07.12 (v2026.07.12-2 — Exposure Timeline backend) — deployed 2026-07-12
 
 ### Product (Faz 0 — the subscription hinge)
