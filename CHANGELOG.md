@@ -5,6 +5,29 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.12 (v2026.07.12-9 — Guided-hybrid MTA-STS) — deployed 2026-07-12
+
+### Product (Phase C — email wedge, on the hosted DNS v2 foundation)
+- **Guided-hybrid MTA-STS** (PR #36): CyberMeters hosts + manages the
+  `_mta-sts.<domain>` DNS TXT (policy id) via `record_kind='mtasts'` on
+  `hosted_dns_entries`; generates a standards-compliant policy from the domain's
+  **live MX**, pinned at creation. Deliberately **guided-hybrid, not full-hosted**
+  — the customer/their web provider serves the HTTPS policy file at
+  `https://mta-sts.<domain>/.well-known/mta-sts.txt` (full hosting via Cloudflare
+  for SaaS custom hostnames is a separate post-beta packet).
+  - Two **independent** verified states: DNS TXT (CNAME delegation, existing saga)
+    and HTTPS policy (reachable + matches pinned content). UI says "MTA-STS active
+    in testing mode" only when **both** are green — never "protected/hosted".
+  - Strictly `mode: testing`; never auto-`enforce`. MX drift is surfaced ("review
+    and republish"), never silently applied, and the DNS policy id is not bumped
+    before the policy verifies. Explicit product boundary shown in the UI.
+  - Migration **073** additive (`hosted_dns_entries.policy_content`). DMARC +
+    TLS-RPT parity preserved. `validate-hosted-mta-sts.js` (36) covers every
+    guardrail; regression 227/227 green.
+- Live version **c9a46eed-b9e0-46c0-8c5a-50c83d6f7960**; new route 401 unauth,
+  existing hosted-dmarc/tls-rpt routes intact. Rollback:
+  **8fa4b19d-c681-4876-892a-e6bbc8873633**.
+
 ## 2026.07.12 (v2026.07.12-8 — Hosted DNS v2 + TLS-RPT hosting & ingestion) — deployed 2026-07-12
 
 ### Architecture (pre-revenue refactor + Phase C)
