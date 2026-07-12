@@ -5,7 +5,8 @@
 // Extracted near-verbatim from index.js (router split, Phase 2 PR #18).
 // Receives the per-request routeCtx from index.js; returns a Response when a
 // route matches, or null so the main router continues.
-import { PLAN_FEATURES, getEffectivePlan, getPlanFeatures, normalizeBillingInterval, normalizePlan } from "../engines/entitlements.js";
+import { PLAN_FEATURES, getEffectivePlan, getPlanFeatures, hasFeatureEntitlement, normalizeBillingInterval, normalizePlan } from "../engines/entitlements.js";
+import { validateBrandingInput } from "../engines/report-branding.js";
 import { validateFindingEvidence } from "../engines/findings.js";
 import { getEntitlementUsage, getPlanContext, getPlanLimits, getUpgradeRecommendation, planLimitExceeded } from "../engines/plan-usage.js";
 import { auditApiTokenSessionRouteDenied } from "../engines/subscription-state.js";
@@ -386,6 +387,120 @@ export async function accountRoutes(rctx) {
           },
         });
         return json({ company });
+      } catch (e) {
+        return serverError("api", e);
+      }
+    }
+
+    // ── GET /api/account/report-branding ─────────────────────────────────
+    // White-label branding for reports (MSP "send with my own logo"). Reads
+    // the account-level brand + whether the plan may switch it on.
+    if (request.method === "GET" && url.pathname === "/api/account/report-branding") {
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      try {
+        const row = await env.cybermeters_db
+          .prepare(
+            `SELECT company_name, brand_logo, brand_accent, report_white_label
+             FROM customer_profiles WHERE owner_user_id = ?`
+          )
+          .bind(user.id)
+          .first();
+        const plan = await getEffectivePlan(user.id, env);
+        return json({
+          branding: {
+            company_name:       row?.company_name ?? null,
+            brand_logo:         row?.brand_logo ?? null,
+            brand_accent:       row?.brand_accent ?? null,
+            report_white_label: row ? !!row.report_white_label : false,
+          },
+          white_label_available: hasFeatureEntitlement(plan, "white_label"),
+          has_company_profile:   !!row,
+        });
+      } catch (e) {
+        return serverError("api", e);
+      }
+    }
+
+    // ── PUT /api/account/report-branding ─────────────────────────────────
+    // Set the report brand. Turning white-label ON requires the white_label
+    // entitlement (Business+); logo/accent may be staged on any plan.
+    if (request.method === "PUT" && url.pathname === "/api/account/report-branding") {
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      if (user.api_token_id) {
+        await auditApiTokenSessionRouteDenied(env, user, request);
+        return json({ error: "Session authentication required" }, 403);
+      }
+      let body;
+      try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+
+      const parsed = validateBrandingInput(body);
+      if (!parsed.ok) return json({ error: parsed.error }, 400);
+      const b = parsed.value;
+
+      // Enforce the plan gate only when switching white-label ON.
+      if (b.report_white_label === 1) {
+        const plan = await getEffectivePlan(user.id, env);
+        if (!hasFeatureEntitlement(plan, "white_label")) {
+          return json({
+            error:         "plan_feature_required",
+            feature:       "white_label",
+            required_plan: "business",
+            upgrade_url:   "/billing",
+          }, 403);
+        }
+      }
+
+      try {
+        // Branding lives on the company profile — it must exist first so the
+        // report always has a company name to lead with.
+        const existing = await env.cybermeters_db
+          .prepare(`SELECT id FROM customer_profiles WHERE owner_user_id = ?`)
+          .bind(user.id)
+          .first();
+        if (!existing) {
+          return json({ error: "Set your company profile first", need_company_profile: true }, 409);
+        }
+
+        const sets = [], binds = [];
+        if ("brand_logo" in b)         { sets.push("brand_logo = ?");         binds.push(b.brand_logo); }
+        if ("brand_accent" in b)       { sets.push("brand_accent = ?");       binds.push(b.brand_accent); }
+        if ("report_white_label" in b) { sets.push("report_white_label = ?"); binds.push(b.report_white_label); }
+        if (sets.length) {
+          sets.push("updated_at = datetime('now')");
+          binds.push(user.id);
+          await env.cybermeters_db
+            .prepare(`UPDATE customer_profiles SET ${sets.join(", ")} WHERE owner_user_id = ?`)
+            .bind(...binds)
+            .run();
+        }
+
+        const row = await env.cybermeters_db
+          .prepare(
+            `SELECT company_name, brand_logo, brand_accent, report_white_label
+             FROM customer_profiles WHERE owner_user_id = ?`
+          )
+          .bind(user.id)
+          .first();
+
+        await createAuditEvent(env, {
+          user_id:     user.id,
+          event_type:  "report_branding_updated",
+          entity_type: "customer_profile",
+          entity_id:   existing.id,
+          description: "Report white-label branding updated",
+          metadata:    { report_white_label: row ? !!row.report_white_label : false, has_logo: !!row?.brand_logo },
+        });
+
+        return json({
+          branding: {
+            company_name:       row?.company_name ?? null,
+            brand_logo:         row?.brand_logo ?? null,
+            brand_accent:       row?.brand_accent ?? null,
+            report_white_label: row ? !!row.report_white_label : false,
+          },
+        });
       } catch (e) {
         return serverError("api", e);
       }

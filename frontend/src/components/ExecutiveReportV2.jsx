@@ -319,9 +319,31 @@ export default function ExecutiveReportV2({ report }) {
   const observations = report.observations || []
   const priorityActions = summary.priority_actions || []
   const topRisks = summary.top_risks || []
+  const branding = report.branding || null
+  const accent = /^#[0-9a-fA-F]{6}$/.test(branding?.accent || '') ? branding.accent : null
 
   return (
     <div className="space-y-5">
+
+      {/* White-label brand bar — leads the report with the MSP's identity */}
+      {branding?.company_name && (
+        <section
+          className="card-md overflow-hidden flex items-center gap-4 px-6 py-4"
+          style={accent ? { borderTop: `3px solid ${accent}` } : undefined}
+        >
+          {branding.logo && (
+            <img
+              src={branding.logo}
+              alt={`${branding.company_name} logo`}
+              className="h-10 w-auto max-w-[160px] object-contain flex-shrink-0"
+            />
+          )}
+          <div className="min-w-0">
+            <p className="text-base font-bold text-gray-900 truncate">{branding.company_name}</p>
+            <p className="text-[11px] text-gray-500">Prepared by {branding.company_name} · Powered by CyberMeters</p>
+          </div>
+        </section>
+      )}
 
       {/* Executive Summary hero */}
       <section className="card-md overflow-hidden">

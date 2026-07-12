@@ -336,7 +336,13 @@ async function main() {
   // with a compensating extra would pass a count but not this.
   const expectedTasks = ["scheduled_reports", "user_scheduled_reports", "hosted_dns_sweep",
     "deletion_purge", "lifecycle_email_retry", "asset_alert_retry", "domain_verify_retry"];
-  if (new Date().getUTCHours() === 2) expectedTasks.push("report_retention");
+  // Time-gated tasks must mirror src/cron/scheduled.js exactly, or this exact
+  // name-set match fails whenever CI happens to run in the relevant window
+  // (retention 02:00 UTC; ops-health 08:00 UTC; weekly digest Mon 08:00 UTC).
+  const nowD = new Date();
+  if (nowD.getUTCHours() === 2) expectedTasks.push("report_retention");
+  if (nowD.getUTCHours() === 8) expectedTasks.push("ops_health_heartbeat");
+  if (nowD.getUTCDay() === 1 && nowD.getUTCHours() === 8) expectedTasks.push("weekly_digest");
   const seenTasks = cronPoints.map((d) => String(d.blobs?.[1] ?? "")).sort();
   if (process.env.PIPE_DEBUG) console.error("  [cron outcomes]", cronPoints.map((d) => `${d.blobs?.[1]}:${d.blobs?.[2]}`).join(" "));
   ok(`scheduled() runs exactly the registered task set (${expectedTasks.length} tasks, names matched)`,
