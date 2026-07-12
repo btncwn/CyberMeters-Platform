@@ -5,6 +5,22 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.12 (v2026.07.12-6 — Identity Exposure) — deployed 2026-07-12
+
+### Product (Faz 0 — final bet)
+- **Identity Exposure** (`7a1c594`,`104c6da`): consolidates three REAL, free,
+  outside-in signals under "how can an attacker impersonate/steal/abuse your
+  identity?" — exposed login surfaces (identity_assets), active impersonation
+  infrastructure (resolving lookalikes that can send mail / host a login), and
+  email spoofing (SPF/DMARC weakness = the #1 BEC threat, from the latest scan
+  report). Overall Low/Medium/High level + plain-English summary. New
+  GET /api/workspaces/:id/identity-exposure + an explanation-first card on the
+  identity page. NO fake HIBP placeholder — HIBP breached-credentials is a
+  genuine Faz 1 add. CI-blocking validate-identity-exposure.js (14) incl. tenant
+  isolation. No migration.
+- Live version **99acf2bf-ae61-4d16-9947-76b96b60cddb**; endpoint 401 unauth,
+  /ready healthy, free-scan verified. Rollback: **77bd47ac-facb-46db-9b6c-47ef15e8657e**.
+
 ## 2026.07.12 (v2026.07.12-5 — MSP Portfolio: change-counts + exec summary) — deployed 2026-07-12
 
 ### Product (Faz 0 — MSP wedge)
