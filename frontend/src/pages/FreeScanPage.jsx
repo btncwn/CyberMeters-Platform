@@ -385,8 +385,9 @@ export default function FreeScanPage() {
     startMessageCycle()
 
     try {
+      // BASE already ends in /api — do NOT prepend another /api (that 404s).
       const apiBase = BASE || ''
-      const res = await fetch(`${apiBase}/api/free-scan`, {
+      const res = await fetch(`${apiBase}/free-scan`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ domain: d }),

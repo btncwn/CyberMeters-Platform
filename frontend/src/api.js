@@ -1102,7 +1102,7 @@ export const api = {
    */
   exportAccountData: () => {
     const headers = { ...getAuthHeaders(), Accept: 'application/json' }
-    return fetch(`${BASE}/api/account/export`, { method: 'GET', headers })
+    return fetch(`${BASE}/account/export`, { method: 'GET', headers })
   },
 
   /**
@@ -1337,7 +1337,7 @@ export const api = {
    *            preview_findings, hidden_count, modules_scanned, scanned_at }
    */
   runFreeScan: (domain) =>
-    fetch(`${BASE}/api/free-scan`, {
+    fetch(`${BASE}/free-scan`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ domain }),
