@@ -64,7 +64,7 @@ const CHECKS = [
   { icon: Cloud,        label: 'Cloud-native SaaS' },
 ]
 
-const BUSINESSES = ['Barbers', 'Accountants', 'Clinics', 'Agencies', 'MSPs', 'Independent retailers']
+const CAPABILITIES = ['AI-analysed findings', 'Continuous monitoring', 'Prioritised, not noisy', 'Executive-ready reports']
 
 // ── Reveal-on-scroll (respects reduced motion) ──
 function useReveal() {
@@ -263,11 +263,11 @@ export default function PublicLandingPage() {
             <div className="lg:pl-2"><MotCard /></div>
           </div>
 
-          {/* trust strip */}
+          {/* capability strip */}
           <div className="mt-10 pt-8 border-t border-gray-200/70">
-            <p className="text-center text-[12px] uppercase tracking-[0.1em] text-gray-400">Built for the businesses that can’t afford a security team</p>
+            <p className="text-center text-[12px] uppercase tracking-[0.1em] text-gray-400">AI-powered security intelligence — enterprise-grade, in plain English</p>
             <div className="flex flex-wrap gap-x-10 gap-y-3 justify-center mt-4 opacity-70">
-              {BUSINESSES.map(b => <span key={b} className="font-semibold text-gray-600 tracking-tight">{b}</span>)}
+              {CAPABILITIES.map(c => <span key={c} className="font-semibold text-gray-600 tracking-tight">{c}</span>)}
             </div>
           </div>
         </section>
