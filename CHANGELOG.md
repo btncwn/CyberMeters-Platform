@@ -5,6 +5,23 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.13 (v2026.07.13-12 — SSO nOAuth hardening) — deployed 2026-07-13
+
+### Security (public-beta P0 #6 — from the pre-beta audit)
+- **Microsoft SSO email-linking gated to single-tenant** (PR #53): the callback
+  auto-linked an incoming Microsoft identity to an existing local account by
+  email (and auto-verified it) — safe only when the email claim is trustworthy.
+  Extracted `isSingleTenantConfig(tenantId)`; the email-based auto-link + verify
+  now runs ONLY under a single-tenant config (org-controlled email + enforced
+  tid). Under a multi-tenant alias the link is skipped, closing the nOAuth
+  account-takeover footgun before it can ship. **Behaviour-preserving for the
+  live single-tenant config** (AZURE_TENANT_ID is a specific GUID → already not
+  exploitable; tid was enforced). Founder-approved HIGH-risk auth change. No
+  migration. `validate-sso-linking-guard.js` (13). Login-initiation verified live
+  (still redirects to the single-tenant authorize URL).
+- Live version **98ab6f36-f930-4f47-9455-95f07fa545a7**. Rollback:
+  **eea81821-d43c-4a7c-97e3-285869954f88**.
+
 ## 2026.07.13 (v2026.07.13-11 — SSRF scan-fetch hardening) — deployed 2026-07-13
 
 ### Security (public-beta P0 #3a — from the pre-beta audit)
