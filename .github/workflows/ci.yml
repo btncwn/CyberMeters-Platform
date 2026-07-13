@@ -62,6 +62,9 @@ jobs:
       - name: Validate hosted DNS v2 migration (backfill 1:1 + no-CHECK + idempotent)
         run: node scripts/validate-hosted-dns-v2.js
 
+      - name: Validate DMARC operational alerts (new sender / spoofing + dedup + isolation)
+        run: node scripts/validate-dmarc-alerts.js
+
       - name: Validate hosted TLS-RPT (create/verify/delete + coexistence + isolation)
         run: node scripts/validate-hosted-tls-rpt.js
 

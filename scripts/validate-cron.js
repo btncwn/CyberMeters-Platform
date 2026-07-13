@@ -54,6 +54,7 @@ function makeTasks(calls, throwers = new Set()) {
     generateScheduledReports: rec("generateScheduledReports"),
     processScheduledReports: rec("processScheduledReports"),
     runHostedDnsVerificationSweep: rec("runHostedDnsVerificationSweep"),
+    runDmarcAlertsSweep: rec("runDmarcAlertsSweep"),
     cleanupExpiredReports: rec("cleanupExpiredReports"),
     opsHealthHeartbeat: rec("opsHealthHeartbeat"),
     processDeletionRequests: rec("processDeletionRequests"),
@@ -91,6 +92,7 @@ async function runAtHour(hourUTC, { throwers } = {}) {
 
 // ── Always-on tasks fire every hour + the due scan dispatches ────────────────
 const ALWAYS = ["generateScheduledReports", "processScheduledReports", "runHostedDnsVerificationSweep",
+  "runDmarcAlertsSweep",
   "processDeletionRequests", "retryFailedLifecycleEmails", "retryFailedAssetAlerts", "retryPendingDomainVerifications"];
 
 const mid = await runAtHour(13); // 13:00 UTC — no daily gate active
