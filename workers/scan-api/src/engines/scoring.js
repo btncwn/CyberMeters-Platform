@@ -2,64 +2,15 @@
 // The central posture-scoring engine: security-headers config, email-applicability gating,
 // computeScore (translates all module evidence into score + findings + recommendations),
 // and score→risk-level mapping. Extracted verbatim from index.js (monolith decomposition,
-// Phase 1c). SECURITY_HEADERS + NON_MAIL_PREFIXES are module-internal.
+// Phase 1c). NON_MAIL_PREFIXES is module-internal; SECURITY_HEADERS is the shared
+// leaf config in security-headers-config.js (see that file for the anti-cycle rationale).
 import { assetFingerprintSignals } from "./asset-intel.js";
 import { runTyposquatModule } from "./brand-typosquat.js";
 import { DKIM_PROVIDER_LABELS, DKIM_SELECTORS } from "./email-analysis.js";
 import { applyEvidenceQuality } from "./findings.js";
 import { classifyHeaderStrength } from "./headers-scan.js";
 import { ENTERPRISE_BENCHMARK, ENTERPRISE_DOMAINS } from "./scoring-config.js";
-
-// ── Security Headers Config ───────────────────────────────────────────────────
-
-const SECURITY_HEADERS = [
-  {
-    name:         "strict-transport-security",
-    label:        "HTTP Strict Transport Security (HSTS)",
-    severity:     "high",
-    score_impact: -5,
-    recommendation:
-      'Add: Strict-Transport-Security: max-age=31536000; includeSubDomains; preload',
-  },
-  {
-    name:         "content-security-policy",
-    label:        "Content Security Policy (CSP)",
-    severity:     "medium",
-    score_impact: -3,
-    recommendation:
-      "Add a Content-Security-Policy header to restrict which resources the browser may load.",
-  },
-  {
-    name:         "x-frame-options",
-    label:        "X-Frame-Options",
-    severity:     "medium",
-    score_impact: -2,
-    recommendation: "Add: X-Frame-Options: DENY to prevent clickjacking attacks.",
-  },
-  {
-    name:         "x-content-type-options",
-    label:        "X-Content-Type-Options",
-    severity:     "low",
-    score_impact: -2,
-    recommendation: "Add: X-Content-Type-Options: nosniff to prevent MIME-type sniffing.",
-  },
-  {
-    name:         "referrer-policy",
-    label:        "Referrer-Policy",
-    severity:     "low",
-    score_impact: -1,
-    recommendation:
-      "Add: Referrer-Policy: strict-origin-when-cross-origin",
-  },
-  {
-    name:         "permissions-policy",
-    label:        "Permissions-Policy",
-    severity:     "info",
-    score_impact: -1,
-    recommendation:
-      "Add a Permissions-Policy header to restrict access to browser APIs (camera, microphone, geolocation).",
-  },
-];
+import { SECURITY_HEADERS } from "./security-headers-config.js";
 
 // ── Email Security Applicability ─────────────────────────────────────────────
 //

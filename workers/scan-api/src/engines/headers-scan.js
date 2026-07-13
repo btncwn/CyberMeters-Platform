@@ -4,6 +4,7 @@
 // index.js (monolith decomposition, Phase 1c). Internal: BOT_CHALLENGE_URL_PATTERNS,
 // HEADER_PROBE_INIT, detectBotProtection. classifyHeaderStrength is also used elsewhere.
 import { safeFetch } from "../lib/http.js";
+import { SECURITY_HEADERS } from "./security-headers-config.js";
 
 // ── Bot Protection & Challenge Detection ─────────────────────────────────────
 //
