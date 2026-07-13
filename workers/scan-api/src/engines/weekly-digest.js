@@ -8,7 +8,7 @@
 // protecting deliverability. Never throws.
 
 import { enrichEvent, SEVERITY_RANK } from "../lib/exposure-events.js";
-import { deliverEmail } from "../lib/lifecycle-email.js";
+import { deliverEmail, escapeEmailHtml } from "../lib/lifecycle-email.js";
 import { createId } from "../lib/util.js";
 
 const DIGEST_TYPE = "lifecycle_weekly_digest";
@@ -54,7 +54,9 @@ export async function computeWeeklyChanges(env, workspaceId) {
 export function buildDigestEmail(wsName, changes, origin) {
   const name = wsName || "your workspace";
   const link = `${(origin || "https://app.cybermeters.com").replace(/\/$/, "")}/exposure`;
-  const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  // Canonical HTML escaper (also escapes quotes) — future-proofs against a value
+  // ever being interpolated into an HTML attribute in this builder.
+  const esc = escapeEmailHtml;
 
   if (changes.total === 0) {
     const subject = `Your CyberMeters week — all quiet on ${name}`;

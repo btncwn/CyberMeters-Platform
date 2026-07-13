@@ -59,8 +59,25 @@ function makeD1(db) {
   };
 }
 
+// A ws1-owned R2 report object. get() returns it ONLY for the ws1 scan's key, so
+// if any report route skipped its ownership check and fetched by key, the marker
+// would leak — proving the guard is a real ownership check, not key-existence.
+const REPORT_MARKER = "REPORT-SECRET";
+const ws1ReportObject = {
+  // The marker lives inside `modules` because the report route rebuilds the
+  // envelope from the scan row and echoes the normalised modules — so an
+  // authorised read surfaces it, and any unauthorised 200 would leak it.
+  json:        async () => ({ scan_id: "scan_ws1", modules: { leak_probe: REPORT_MARKER } }),
+  text:        async () => JSON.stringify({ marker: REPORT_MARKER }),
+  arrayBuffer: async () => new TextEncoder().encode(REPORT_MARKER).buffer,
+  body:        REPORT_MARKER,
+};
+
 function makeEnv(db) {
-  const noR2 = { get: async () => null, put: async () => ({}), head: async () => null, delete: async () => ({}), list: async () => ({ objects: [] }) };
+  const noR2 = {
+    get: async (key) => (String(key ?? "").includes("scan_ws1") ? ws1ReportObject : null),
+    put: async () => ({}), head: async () => null, delete: async () => ({}), list: async () => ({ objects: [] }),
+  };
   return {
     cybermeters_db: makeD1(db),
     cybermeters_reports: noR2,
@@ -123,6 +140,7 @@ async function main() {
   tryInsert("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES ('ws1','dom1')");
   tryInsert("INSERT INTO workspace_assets (id, workspace_id, domain_id, hostname, asset_type, source, first_seen, last_seen, status, created_at, updated_at) VALUES ('a1','ws1','dom1','asset-SECRET.example','subdomain','ct', datetime('now'), datetime('now'), 'active', datetime('now'), datetime('now'))");
   tryInsert("INSERT INTO managed_cases (id, workspace_id, case_type, domain, finding_id, asset_ref, severity, status, evidence_json, recommended_actions_json, created_at, updated_at) VALUES ('mc-secret','ws1','asm_exposure','secret1.example','admin_surface_high','case-SECRET.example','high','open','{}','[]',datetime('now'),datetime('now'))");
+  tryInsert("INSERT INTO scans (id, domain_id, domain, score, rating, status, created_at) VALUES ('scan_ws1','dom1','secret1.example',80,'good','completed', datetime('now'))");
   tryInsert("INSERT INTO notification_events (id, workspace_id, user_id, type, severity, title, message, status) VALUES ('n1','ws1',NULL,'scan','info','notif-SECRET','m','unread')");
   tryInsert("INSERT INTO workspace_invitations (id, workspace_id, email, role, token_hash, invited_by, status, expires_at, created_at) VALUES ('inv1','ws1','invitee@x.co','viewer', 'invhash1','admin','pending', datetime('now','+7 day'), datetime('now'))");
 
@@ -180,6 +198,26 @@ async function main() {
   const foreignFake = await call("GET", "/api/workspaces/ws_does_not_exist", T.foreign);
   ok("existence oracle: foreign real-ws vs fake-ws return the same status",
      foreignReal.status === foreignFake.status);
+
+  // ── Invariant 1 (R2): scan reports are ownership-scoped, not key-guessable ──
+  // scan_ws1 is owned by ws1 (via dom1). Its R2 object carries REPORT_MARKER, so
+  // a route that fetched by key without an ownership check would leak it.
+  section("Invariant 1 (R2) — scan report objects are ownership-scoped");
+  const SCAN_REPORT_ENDPOINTS = [
+    "/api/scans/scan_ws1/report",
+    "/api/scans/scan_ws1/report/pdf",
+    "/api/scans/scan_ws1/executive-report-v2",
+  ];
+  for (const p of SCAN_REPORT_ENDPOINTS) {
+    ok(`foreign cannot read ${p}`,     denied(await call("GET", p, T.foreign), REPORT_MARKER));
+    ok(`non-member cannot read ${p}`,  denied(await call("GET", p, T.nobody),  REPORT_MARKER));
+    ok(`anon cannot read ${p}`,        denied(await call("GET", p, null),       REPORT_MARKER));
+  }
+  // Positive control: the owner (admin, via the domain) CAN read the JSON report,
+  // proving the R2 object is reachable — so the foreign denials are real ownership
+  // checks, not just "report not found".
+  ok("owner CAN read the scan report (foreign denials above are ownership-based)",
+     leaks(await call("GET", "/api/scans/scan_ws1/report", T.admin), REPORT_MARKER));
 
   // ── Invariant 2 & 3: foreign cannot MODIFY / DELETE ws1 resources ──
   section("Invariant 2+3 — foreign cannot modify / delete ws1 resources");
