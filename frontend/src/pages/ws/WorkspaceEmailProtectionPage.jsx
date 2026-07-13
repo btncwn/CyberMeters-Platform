@@ -780,6 +780,14 @@ function EnforcementReadiness({ readiness }) {
   const confPill = readiness.confidence === 'high' ? 'bg-brand-50 text-brand-700 border-brand-100'
     : readiness.confidence === 'medium' ? 'bg-amber-50 text-amber-700 border-amber-100'
     : 'bg-gray-100 text-gray-500 border-gray-200'
+  const hasScore = typeof readiness.score === 'number'
+  const statusPill = readiness.status === 'ready' ? 'bg-green-50 text-green-700 border-green-200'
+    : readiness.status === 'approaching' ? 'bg-amber-50 text-amber-700 border-amber-200'
+    : 'bg-gray-100 text-gray-600 border-gray-200'
+  const statusLabel = readiness.status === 'ready' ? 'Ready' : readiness.status === 'approaching' ? 'Approaching' : 'Not ready'
+  const checkTone = (st) => st === 'pass' ? { dot: 'bg-green-500', txt: 'text-gray-700' }
+    : st === 'warn' ? { dot: 'bg-amber-400', txt: 'text-gray-700' }
+    : { dot: 'bg-red-500', txt: 'text-gray-800' }
   return (
     <section className="card-md overflow-hidden">
       <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-200 bg-gray-50/70">
@@ -790,6 +798,12 @@ function EnforcementReadiness({ readiness }) {
           <span className="eyebrow">Enforcement readiness</span>
           <h2 className="section-title leading-tight">Are you ready to tighten policy?</h2>
         </div>
+        {hasScore && (
+          <div className="flex flex-col items-end mr-1">
+            <span className="text-2xl font-bold tabular-nums leading-none text-gray-900">{readiness.score}<span className="text-sm font-semibold text-gray-400">/100</span></span>
+            <span className={`mt-1 inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border ${statusPill}`}>{statusLabel}</span>
+          </div>
+        )}
         <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border ${confPill}`}>
           {readiness.confidence || 'low'} confidence
         </span>
@@ -815,7 +829,26 @@ function EnforcementReadiness({ readiness }) {
           })}
         </div>
       </div>
-      <div className="px-6 pb-6 pt-2">
+      {readiness.checks?.length > 0 && (
+        <div className="px-6 pt-4 pb-1">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-gray-500 mb-2">Readiness checks</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-2">
+            {readiness.checks.map((c) => {
+              const tone = checkTone(c.status)
+              return (
+                <div key={c.id} className="flex items-start gap-2" title={c.detail}>
+                  <span className={`mt-1.5 w-2 h-2 rounded-full flex-shrink-0 ${tone.dot}`} />
+                  <div className="min-w-0">
+                    <p className={`text-sm font-medium leading-tight ${tone.txt}`}>{c.label}</p>
+                    <p className="text-xs text-gray-500 leading-snug">{c.detail}</p>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+      <div className="px-6 pb-6 pt-4">
         <div className="rounded-xl border border-amber-100 bg-amber-50/40 p-4">
           {readiness.explanation && <p className="text-sm text-gray-700 leading-relaxed mb-3">{readiness.explanation}</p>}
           {readiness.blockers?.length > 0 && (
