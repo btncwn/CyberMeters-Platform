@@ -36,7 +36,7 @@ release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
     incl. append-only + prior-version-preserved + concurrent-capture no-loss).
   - **Positioning:** NOT "Managed Brand Protection" until the live DoD pilot
     passes — until then "Brand abuse detection with guided takedown preparation".
-- Live version **<pending>**. Rollback:
+- Live version **b4597747-9ba2-474b-91dd-9efcd003a2b4**. Rollback:
   **4eab3458-1970-4039-9292-c8fde85cde38**.
 
 ## 2026.07.13 (v2026.07.13-13 — CI defense-in-depth locks) — deployed 2026-07-13
