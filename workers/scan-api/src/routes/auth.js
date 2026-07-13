@@ -11,7 +11,7 @@ import { getEffectivePlan } from "../engines/entitlements.js";
 import { decryptTotpSecret, encryptTotpSecret, generateEmailVerificationToken, generateMfaChallengeToken, generatePasswordResetToken, generateRecoveryCodes, generateSessionToken, getEmailVerificationTokenStatus, hashToken, isEmailVerificationResendCoolingDown, verifyRecoveryCode } from "../lib/auth-crypto.js";
 import { createAuditEvent } from "../lib/events.js";
 import { escapeEmailHtml, getEmailFrontendOrigin, sendCustomerEmail, sendLifecycleEmail } from "../lib/lifecycle-email.js";
-import { validateMicrosoftIdToken } from "../lib/microsoft-jwt.js";
+import { isSingleTenantConfig, validateMicrosoftIdToken } from "../lib/microsoft-jwt.js";
 import { hashPassword, verifyPassword } from "../lib/password.js";
 import { generateTotpSecret, verifyTotp } from "../lib/totp.js";
 import { createId, isValidEmail } from "../lib/util.js";
@@ -753,7 +753,17 @@ export async function authRoutes(rctx) {
         .bind(msOid)
         .first();
 
-      if (!user) {
+      // nOAuth guard: auto-linking an incoming Microsoft identity to an existing
+      // local account by EMAIL (and auto-verifying it) is only safe when the
+      // email claim is trustworthy — i.e. a single-tenant app, where only the
+      // configured org's users can obtain a token and the tid is enforced. In a
+      // multi-tenant config any tenant's token is accepted and its email claim is
+      // attacker-controllable, so email-based auto-linking would be account
+      // takeover. When not trusted we skip the link entirely (a Microsoft
+      // identity then only ever creates/uses its own oid-keyed account).
+      const tenantTrusted = isSingleTenantConfig(tenantId);
+
+      if (!user && tenantTrusted) {
         // Try to link to an existing email/password account
         user = await env.cybermeters_db
           .prepare("SELECT id, email, name, plan, status FROM users WHERE email = ? LIMIT 1")

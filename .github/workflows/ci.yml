@@ -53,6 +53,9 @@ jobs:
       - name: Validate SSRF scan guard (redirect-time + resolved-IP block in safeFetch)
         run: node scripts/validate-ssrf-scan-guard.js
 
+      - name: Validate SSO nOAuth guard (single-tenant tid enforcement + email-link gate)
+        run: node scripts/validate-sso-linking-guard.js
+
       - name: Validate MSP portfolio (cross-MSP isolation + change counts + exec summary)
         run: node scripts/validate-portfolio.js
 
