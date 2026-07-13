@@ -5,6 +5,28 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.13 (v2026.07.13-3 — DMARC impact forecast + post-change monitor) — deployed 2026-07-13
+
+### Product (DMARC managed maturity — scorecard epic #2)
+- **DMARC policy impact forecast + post-change monitor** (PR #42): quantifies what
+  a policy change would do, using epic #1's classification to separate legitimate
+  mail from spoofing. `engines/dmarc-impact.js`:
+  - `forecastPolicyImpact` — before a change: affected messages / %, a
+    **legitimate-affected** breakdown + a "who gets hurt" sender list, and
+    risky-affected (mail you want to block). `insufficient_data` on thin windows.
+  - `comparePolicyImpact` — before/after a change (windowed by the report's
+    `date_range_begin`, not ingest time): legitimate-failed-rate delta.
+  - `assessImpactRollback` — recommends review when the legitimate failed-mail rate
+    rises > 2pp. **Recommend-only:** the sweep emits an audit event +
+    `hosted_dmarc_impact_regression` notification (the first real DMARC operational
+    alert); it never auto-rolls-back and leaves the conservative `shouldAutoRollback`
+    untouched (blast-radius safety — never break mail flow).
+  - Respects the manual sender override (`classified_at` wins). **No migration**
+    (on-demand from existing aggregate + sender tables). Tenant-isolated (joins
+    enforce `workspace_id`). `validate-dmarc-impact.js` (15).
+- Live version **0121ecbe-bb3d-4c0c-9f4c-6f612326cca9**; hosted-dmarc path verified.
+  Rollback: **fbd1e3a3-34dc-4a56-9b79-e79a334fdf0a**.
+
 ## 2026.07.13 (v2026.07.13-2 — Automated sender classification) — deployed 2026-07-13
 
 ### Product (DMARC managed maturity — scorecard gap #1)
