@@ -5,6 +5,23 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.13 (v2026.07.13-10 — P0 scheduled-scan burst cap + free-scan backstop) — deployed 2026-07-13
+
+### Ops / security (public-beta P0 hardening — from the pre-beta audit)
+- **Scheduled-scan subrequest burst cap (#8)** (PR #51): the per-tick `LIMIT`
+  capped schedule count, but all due scans ran concurrently in one invocation
+  sharing the 1,000-subrequest budget — ~8-15 rich-domain schedules in a tick
+  could blow it. Added a bounded worker pool (`SCHEDULED_SCAN_CONCURRENCY=3`) so
+  peak fan-out stays well under 1,000, plus a named per-tick cap
+  (`SCHEDULED_SCAN_MAX_PER_TICK=12`). Fairness (oldest-due-first) preserved;
+  per-item failures isolated. `validate-cron.js` locks peak concurrency ≤ cap +
+  isolation (25→31).
+- **Free-scan global backstop (#3b)** (PR #51): `/api/free-scan` was throttled
+  per-IP only (5/hr); a botnet spreading across IPs had no aggregate ceiling.
+  Added a fail-closed global cap (500/hr) independent of source IP. No migration.
+- Live version **56e0b5f0-0005-415c-8f5e-95bbcfe53295**. Rollback:
+  **03e84d63-8767-4ba3-944b-56feb0297bd3**.
+
 ## 2026.07.13 (v2026.07.13-9 — ASM verification completeness guard) — deployed 2026-07-13
 
 ### Product (Managed ASM — verification honesty hardening)
