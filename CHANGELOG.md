@@ -5,6 +5,45 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.13 (v2026.07.13-17 — exposure probe honesty: not-checked ≠ clean) — deployed 2026-07-13
+
+### Fix (customer trust — unchecked exposure never presented as a clean result)
+- **Report subrequest-starved exposure probes as not-checked, not `reachable:false`**
+  (PR **#56**, commit **565fcccac90f510a363ef21c710617a4dc2d9559**).
+  - **Root cause:** when a scan exhausts the Worker's per-invocation subrequest
+    budget, every remaining `fetch` throws *"Too many subrequests by single Worker
+    invocation."* `probeAsset` swallowed this into `reachable:false`.
+  - **Customer risk:** an exposure probe that **never actually ran** appeared as a
+    **confirmed-unreachable / falsely clean** result, and managed-case verification
+    could resolve off a scan that never re-checked the exposure. (Proven long-standing:
+    exposure has been budget-starved on every scan since the earliest 2026-07-06 report.)
+  - **Fix (trust/semantic only — no capacity, order, estimator, resolver-count or
+    architecture change):**
+    - `probeAsset` distinguishes budget exhaustion from a genuine failure →
+      `reachable:null, probe_status:"not_executed", reason:"subrequest_budget_exhausted"`.
+      Genuine failures stay `reachable:false`; successful probes unchanged.
+    - `runExposureModule` flags `incomplete:true` (+ reason + `not_executed_count`)
+      and a customer-safe `notice` — never raw runtime error text.
+    - `buildScanQuality` forces `scan_quality:"partial"` and lists the module in
+      `modules_skipped`.
+    - `moduleCompletionGate` (managed ASM) treats `incomplete` like `error`, so cases
+      are **deferred, never resolved** off an unchecked scan.
+  - **Regression test:** `scripts/validate-exposure-honesty.js` (22 assertions,
+    negative-control verified) wired into CI. SSRF controls untouched.
+  - **No migration / schema change** — pure code.
+  - **Live validation** — scan **`scan_28901eca-4c95-4689-8856-d59ef241f9bd`**
+    (blackbullbarbers.co.uk): all 5 hosts `reachable:null`,
+    `probe_status:"not_executed"`, `reason:"subrequest_budget_exhausted"`;
+    `asset_exposure.incomplete:true`; `scan_quality.status:"partial"`
+    (`modules_skipped:["asset_exposure"]`); no falsely-clean "0 exposed assets".
+  - **Not fixed here (separate queued workstream):** exposure probes are still
+    starved — the *capacity* fix (reserve/reorder subrequest budget) is tracked as a
+    separate design brief pending review. This release makes the starved state
+    honest, not resolved.
+- Deployed commit **565fcccac90f510a363ef21c710617a4dc2d9559**. Active version
+  **33fe2a3f-f71f-44ed-a91b-b11208607b2a**. Rollback:
+  **83dea0c7-80ea-4b04-97bd-70121b8e42b3** (v2026.07.13-16).
+
 ## 2026.07.13 (v2026.07.13-16 — headers-scan runtime binding fix) — deployed 2026-07-13
 
 ### Fix (scanner reliability — security-headers module restored)
