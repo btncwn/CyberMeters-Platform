@@ -5,6 +5,40 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.13 (v2026.07.13-14 — Managed Brand Protection v1) — deployed 2026-07-13
+
+### Product (4-service managed maturity — Epic 3: Brand becomes managed)
+- **Managed Brand Protection v1 — takedown lifecycle** (PR #50, Codex built /
+  Claude reviewed×3+integrated): Brand is the shared Managed Case Platform's
+  second consumer (`case_type='brand_abuse'` on `managed_cases`, reusing
+  `case-workflow.js` — no new engine). A registered, high-risk impersonation
+  candidate becomes a governed takedown case: detected → triage → confirmed_abuse
+  → customer_approval → evidence_ready → takedown_submitted → provider_followup →
+  verification_pending → resolved (+ false_positive/duplicate/provider_no_response/
+  escalated/reappeared/closed).
+  - **Registration-reality gate:** a case opens only for a *registered/active*
+    candidate at risk_level high/critical — never an unregistered permutation
+    (watchlist only).
+  - **No-self-resolve:** resolved/reappeared/provider_no_response are
+    system-only; a customer/analyst cannot self-mark removal.
+  - **Immutable evidence bundles:** new `brand_evidence_bundles` table — INSERT-only,
+    versioned (`UNIQUE(ws,case,version)`, atomic in-SQL MAX+1 + retry), canonically
+    hashed (sorted-key JSON → SHA-256), append-only; `managed_cases.evidence_json`
+    holds only the `{latest_evidence_bundle_id, latest_evidence_version}` pointer.
+    Submissions bind an exact bundle id+version+hash.
+  - **Technical verification only:** the hourly `brand_takedown_followup` sweep
+    resolves a case solely when CyberMeters re-observes the abusive domain gone
+    (DNS+MX); an incomplete probe **defers**, never false-resolves. Reappearance
+    links a `brand_abuse_campaigns` row + system-reopens.
+  - Additive migration 077 (`brand_abuse_campaigns` + `brand_evidence_bundles`),
+    both added to `WORKSPACE_PURGE_TABLES` before the parent case. Routes
+    tenant-scoped + manage/read-gated. `validate-brand-takedown-lifecycle.js` (25,
+    incl. append-only + prior-version-preserved + concurrent-capture no-loss).
+  - **Positioning:** NOT "Managed Brand Protection" until the live DoD pilot
+    passes — until then "Brand abuse detection with guided takedown preparation".
+- Live version **<pending>**. Rollback:
+  **4eab3458-1970-4039-9292-c8fde85cde38**.
+
 ## 2026.07.13 (v2026.07.13-13 — CI defense-in-depth locks) — deployed 2026-07-13
 
 ### Security (public-beta P0 #5 + #4 — regression locks, both surfaces already safe)
