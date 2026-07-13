@@ -77,6 +77,12 @@ jobs:
       - name: Validate DMARC change workflow (state machine + separation-of-duties + review queue)
         run: node scripts/validate-dmarc-change-workflow.js
 
+      - name: Validate managed case workflow (generic engine + ASM/DMARC graphs)
+        run: node scripts/validate-managed-case-workflow.js
+
+      - name: Validate ASM remediation loop (managed cases + verification)
+        run: node scripts/validate-asm-remediation-loop.js
+
       - name: Validate hosted TLS-RPT (create/verify/delete + coexistence + isolation)
         run: node scripts/validate-hosted-tls-rpt.js
 

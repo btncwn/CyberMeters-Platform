@@ -518,6 +518,28 @@ export const api = {
     return request(`/workspaces/${id}/exposure/feed${q ? `?${q}` : ''}`)
   },
 
+  /** GET /api/workspaces/:id/managed-cases — Managed ASM remediation cases */
+  getManagedCases: (id, params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString()
+    return request(`/workspaces/${id}/managed-cases${q ? `?${q}` : ''}`)
+  },
+
+  /** POST /api/workspaces/:id/managed-cases/:caseId/assign */
+  assignManagedCaseOwner: (id, caseId, payload) =>
+    request(`/workspaces/${id}/managed-cases/${encodeURIComponent(caseId)}/assign`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  /** POST /api/workspaces/:id/managed-cases/:caseId/transition */
+  transitionManagedCase: (id, caseId, payload) =>
+    request(`/workspaces/${id}/managed-cases/${encodeURIComponent(caseId)}/transition`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
   /** GET /api/workspaces/:id/assets/:assetId */
   getWorkspaceAsset: (workspaceId, assetId) =>
     request(`/workspaces/${workspaceId}/assets/${assetId}`),

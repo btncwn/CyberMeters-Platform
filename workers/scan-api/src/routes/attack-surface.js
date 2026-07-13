@@ -5,6 +5,7 @@
 // PR #16). Receives the per-request routeCtx from index.js; returns a
 // Response when a route matches, or null so the main router continues.
 import { buildCaConcentrationAnalytics, buildCertificateLifecycleIntelligence, detectSelfSignedCertificate, mapCertificateAuthorityOwner, normalizeCertificateIssuer } from "../engines/cert-analysis.js";
+import { assignManagedCaseOwner, getManagedCase, listManagedCaseEvents, listManagedCases, managedCaseToApi, transitionManagedCase } from "../engines/asm-cases.js";
 import { remapToThirdPartyCategory } from "../engines/discovery-scan.js";
 import { computeWorkspaceVendorRisk, confidenceToScore, normalizeVendorKey, normalizeVendorRiskCategory, signalWeightForVendor } from "../engines/vendor-risk.js";
 import { SEVERITY_RANK, enrichEvent, eventTypesForCategory } from "../lib/exposure-events.js";
@@ -13,6 +14,98 @@ import { pageMeta, paginationParams, parseBoundedInteger } from "../lib/util.js"
 export async function attackSurfaceRoutes(rctx) {
   const { request, env, url, json,
           requireAuth, requireWorkspaceRole } = rctx;
+
+    // ── /api/workspaces/:id/managed-cases ──────────────────────────────────
+    const casesMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/managed-cases(?:\/([^/]+)(?:\/([^/]+))?)?$/);
+    if (casesMatch) {
+      const wsId = casesMatch[1];
+      const caseId = casesMatch[2] || null;
+      const action = casesMatch[3] || null;
+
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const permission = request.method === "GET" ? "workspace:read" : "workspace:manage";
+      const access = await requireWorkspaceRole(user, wsId, permission, env);
+      if (!access) return json({ error: "Forbidden" }, 403);
+
+      const ws = await env.cybermeters_db
+        .prepare(`SELECT id FROM workspaces WHERE id = ?`)
+        .bind(wsId)
+        .first()
+        .catch(() => null);
+      if (!ws) return json({ error: "Workspace not found" }, 404);
+
+      if (request.method === "GET" && !caseId) {
+        try {
+          const cases = await listManagedCases(env, wsId, {
+            status: url.searchParams.get("status"),
+            case_type: url.searchParams.get("case_type") || "asm_exposure",
+            limit: parseBoundedInteger(url.searchParams.get("limit"), 50, 1, 200),
+          });
+          return json({ workspace_id: wsId, count: cases.length, cases });
+        } catch {
+          return json({ error: "Database error" }, 500);
+        }
+      }
+
+      if (!caseId) return json({ error: "Not found" }, 404);
+      const row = await getManagedCase(env, wsId, caseId).catch(() => null);
+      if (!row) return json({ error: "Managed case not found" }, 404);
+
+      if (request.method === "GET" && !action) {
+        const events = await listManagedCaseEvents(env, wsId, caseId).catch(() => []);
+        return json({ case: managedCaseToApi(row), events });
+      }
+
+      if (request.method === "POST" && action === "assign") {
+        const body = await request.json().catch(() => null);
+        const ownerRef = String(body?.owner_ref || "").trim();
+        if (!ownerRef) return json({ error: "owner_ref is required" }, 400);
+        try {
+          let current = row;
+          if (current.status === "open") {
+            const triage = await transitionManagedCase(env, current, "triage", {
+              actor_type: "customer", actor_id: user.id, action: "transition",
+            });
+            if (!triage.ok) return json({ error: triage.error }, 400);
+            current = triage.case;
+          }
+          const assigned = await assignManagedCaseOwner(env, current, {
+            owner_type: body?.owner_type || "unknown",
+            owner_ref: ownerRef,
+            assigned_by: "customer",
+            actor_id: user.id,
+          });
+          if (!assigned.ok) return json({ error: assigned.error }, 400);
+          const fresh = await getManagedCase(env, wsId, caseId);
+          return json({ case: managedCaseToApi(fresh || assigned.case) });
+        } catch {
+          return json({ error: "Could not assign owner" }, 500);
+        }
+      }
+
+      if (request.method === "POST" && action === "transition") {
+        const body = await request.json().catch(() => null);
+        const target = String(body?.status || "").trim();
+        if (!target) return json({ error: "status is required" }, 400);
+        try {
+          const result = await transitionManagedCase(env, row, target, {
+            actor_type: "customer",
+            actor_id: user.id,
+            action: body?.action || "transition",
+            reason: body?.reason || null,
+            risk_accepted_until: body?.risk_accepted_until || null,
+            detail: { reason: body?.reason || null, risk_accepted_until: body?.risk_accepted_until || null },
+          });
+          if (!result.ok) return json({ error: result.error }, 400);
+          return json({ case: managedCaseToApi(result.case) });
+        } catch {
+          return json({ error: "Could not update managed case" }, 500);
+        }
+      }
+
+      return json({ error: "Not found" }, 404);
+    }
 
     // ── GET /api/workspaces/:id/exposure/feed ───────────────────────────────
     const feedMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/exposure\/feed$/);

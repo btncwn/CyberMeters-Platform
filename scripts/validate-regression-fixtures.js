@@ -1873,9 +1873,9 @@ function _ruaHandlerHarness({ duplicate = false, status = "active", revoked_at =
             if (/UPDATE dmarc_ingest_endpoints SET last_used_at/.test(this._sql)) state.lastInboundUpdates++;
             if (/INSERT INTO audit_events/.test(this._sql)) {
               state.audits.push({
-                event_type: this._bindings[3],
-                description: this._bindings[6],
-                metadata: this._bindings[7] ? JSON.parse(this._bindings[7]) : null,
+                event_type: this._bindings[4],
+                description: this._bindings[7],
+                metadata: this._bindings[8] ? JSON.parse(this._bindings[8]) : null,
               });
             }
             return {};
@@ -1943,10 +1943,10 @@ results.push(await asyncSecurityContract("rua_route_automation_missing_config_do
   const result = await scanner.configureDmarcEndpointRoute(env, ROUTE_ENDPOINT, "user-1");
   const persisted = mock.runs.find((run) => /cloudflare_route_status/.test(run.sql));
   const audit = mock.runs.find((run) => /INSERT INTO audit_events/.test(run.sql));
-  const metadata = audit?.bindings?.[7] ? JSON.parse(audit.bindings[7]) : null;
+  const metadata = audit?.bindings?.[8] ? JSON.parse(audit.bindings[8]) : null;
   const serialized = JSON.stringify({ result, metadata });
   return result.ok === false && result.status === "not_configured" && result.reason === "missing_config" &&
-    persisted?.bindings?.[1] === "not_configured" && audit?.bindings?.[3] === "dmarc_ingest_route_skipped" &&
+    persisted?.bindings?.[1] === "not_configured" && audit?.bindings?.[4] === "dmarc_ingest_route_skipped" &&
     metadata?.reason === "missing_config" && !/token|secret/i.test(serialized);
 }));
 
@@ -2030,11 +2030,11 @@ results.push(await asyncSecurityContract("rua_route_automation_revoke_safe_failu
   await scanner.persistDmarcRouteResult(env, ROUTE_ENDPOINT.id, result);
   await scanner.auditDmarcRouteResult(env, ROUTE_ENDPOINT, "user-1", result, "revoke");
   const audit = mock.runs.find((run) => /INSERT INTO audit_events/.test(run.sql));
-  const metadata = audit?.bindings?.[7] ? JSON.parse(audit.bindings[7]) : null;
+  const metadata = audit?.bindings?.[8] ? JSON.parse(audit.bindings[8]) : null;
   // A 500 is now classified as the more precise "server_error" (transient),
   // not a generic "api_rejected" — still non-blocking and sanitised.
   return endpointRevoked && !result.ok && result.status === "failed" && result.reason === "server_error" &&
-    audit?.bindings?.[3] === "dmarc_ingest_route_failed" && metadata?.reason === "server_error" &&
+    audit?.bindings?.[4] === "dmarc_ingest_route_failed" && metadata?.reason === "server_error" &&
     !JSON.stringify({ result, metadata }).includes("SECRET upstream");
 }));
 results.push(await asyncSecurityContract("rua_gzip_extract_parses", async () => {
@@ -2176,8 +2176,8 @@ results.push(await asyncSecurityContract("rua_duplicate_inbound_no_double_count"
   });
   const insertedReport = runs.some((r) => /INSERT INTO dmarc_aggregate_reports/.test(r.sql));
   const insertedRecords = runs.some((r) => /INSERT INTO dmarc_aggregate_records/.test(r.sql));
-  const auditDup = runs.find((r) => /INSERT INTO audit_events/.test(r.sql) && r.b[3] === "dmarc_report_duplicate");
-  const dupMetaOk = auditDup && typeof auditDup.b[7] === "string" && auditDup.b[7].includes('"source":"inbound_email"');
+  const auditDup = runs.find((r) => /INSERT INTO audit_events/.test(r.sql) && r.b[4] === "dmarc_report_duplicate");
+  const dupMetaOk = auditDup && typeof auditDup.b[8] === "string" && auditDup.b[8].includes('"source":"inbound_email"');
   return res.ok && res.duplicate === true && !insertedReport && !insertedRecords && !!dupMetaOk;
 }));
 // Every internal drop cause maps to a STABLE reason in the documented set.
