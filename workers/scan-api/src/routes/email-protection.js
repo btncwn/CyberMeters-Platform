@@ -994,7 +994,7 @@ export async function emailProtectionRoutes(rctx) {
         if (!sender) return json({ error: "Sender not found for this workspace/domain" }, 404);
 
         await env.cybermeters_db
-          .prepare(`UPDATE email_sender_sources SET classification = ?, notes = ?, updated_at = datetime('now') WHERE id = ?`)
+          .prepare(`UPDATE email_sender_sources SET classification = ?, notes = ?, classified_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`)
           .bind(classification, notes, sourceId).run();
         await createAuditEvent(env, {
           workspace_id: workspaceId, user_id: user.id, event_type: "email_sender_classified",
@@ -1002,7 +1002,7 @@ export async function emailProtectionRoutes(rctx) {
           description: `Classified sender ${sender.source_ip} as ${classification} for ${domain}`,
           metadata: { domain, source_ip: sender.source_ip, classification },
         });
-        return json({ sender: emailSenderToApi({ ...sender, classification, notes }) });
+        return json({ sender: emailSenderToApi({ ...sender, classification, notes, classified_at: new Date().toISOString() }) });
       } catch (e) {
         return serverError("email-sender-classify", e, "Could not classify sender.");
       }

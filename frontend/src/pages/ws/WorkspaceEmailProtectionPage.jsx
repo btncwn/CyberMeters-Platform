@@ -750,6 +750,16 @@ const CLASSIFY = {
   ignored:    { label: 'Ignored',    pill: 'bg-gray-100 text-gray-500 border-gray-200' },
   unknown:    { label: 'Unknown',    pill: 'bg-blue-50 text-blue-700 border-blue-100' },
 }
+const AUTO_CLASSIFY = {
+  authorised:        { label: 'Authorised',        pill: 'bg-brand-50 text-brand-700 border-brand-100' },
+  likely_authorised: { label: 'Likely authorised', pill: 'bg-blue-50 text-blue-700 border-blue-100' },
+  forwarder:         { label: 'Forwarder',         pill: 'bg-indigo-50 text-indigo-700 border-indigo-100' },
+  mailing_list:      { label: 'Mailing list',      pill: 'bg-purple-50 text-purple-700 border-purple-100' },
+  misconfigured:     { label: 'Misconfigured',     pill: 'bg-amber-50 text-amber-700 border-amber-100' },
+  unknown:           { label: 'Unknown',           pill: 'bg-gray-100 text-gray-500 border-gray-200' },
+  suspicious:        { label: 'Suspicious',        pill: 'bg-orange-50 text-orange-700 border-orange-100' },
+  unauthorised:      { label: 'Unauthorised',      pill: 'bg-red-50 text-red-700 border-red-100' },
+}
 const RISK = {
   critical: 'bg-red-50 text-red-700 border-red-100',
   high:     'bg-orange-50 text-orange-700 border-orange-100',
@@ -914,7 +924,9 @@ function SenderRow({ sender, onClassify, classifying }) {
   const [open, setOpen] = useState(false)
   const [notes, setNotes] = useState(sender.notes || '')
   const cls = CLASSIFY[sender.classification] || CLASSIFY.unknown
+  const autoCls = AUTO_CLASSIFY[sender.auto_classification] || AUTO_CLASSIFY.unknown
   const riskCls = RISK[sender.risk_level] || RISK.low
+  const confidencePct = typeof sender.auto_confidence === 'number' ? Math.round(sender.auto_confidence * 100) : null
   return (
     <>
       <tr onClick={() => setOpen(o => !o)} className="cursor-pointer hover:bg-gray-50/60 transition-colors">
@@ -939,6 +951,30 @@ function SenderRow({ sender, onClassify, classifying }) {
                 <p className="text-sm text-gray-700 leading-relaxed">{sender.recommended_action || 'Classify this sender if it is a legitimate business email source.'}</p>
                 <p className="text-xs text-gray-400 mt-2">First seen {fmtDate(sender.first_seen)} · Last seen {fmtDate(sender.last_seen)}</p>
                 {sender.provider_reason && <p className="text-xs text-gray-400 mt-1">{sender.provider_reason}</p>}
+                <div className="mt-3 rounded-lg border border-gray-200 bg-white p-3">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${autoCls.pill}`}>{autoCls.label}</span>
+                    <span className="text-xs text-gray-500">
+                      {sender.classification_source === 'manual' ? 'Manual decision active' : 'Automated evidence'}
+                      {confidencePct != null ? ` · ${confidencePct}% confidence` : ''}
+                    </span>
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-gray-600">
+                    <div className="rounded-md bg-gray-50 border border-gray-100 p-2">
+                      <span className="font-semibold text-gray-700">SPF aligned</span>
+                      <span className="block tabular-nums">{sender.spf_aligned_rate ?? 0}% · {(sender.spf_aligned_messages ?? 0).toLocaleString()} msg</span>
+                    </div>
+                    <div className="rounded-md bg-gray-50 border border-gray-100 p-2">
+                      <span className="font-semibold text-gray-700">DKIM aligned</span>
+                      <span className="block tabular-nums">{sender.dkim_aligned_rate ?? 0}% · {(sender.dkim_aligned_messages ?? 0).toLocaleString()} msg</span>
+                    </div>
+                  </div>
+                  {sender.auto_reasons?.length > 0 && (
+                    <ul className="mt-2 space-y-1 text-xs text-gray-500 list-disc pl-4">
+                      {sender.auto_reasons.map((reason, idx) => <li key={idx}>{reason}</li>)}
+                    </ul>
+                  )}
+                </div>
               </div>
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-wide text-gray-500 mb-1">Classify this sender</p>

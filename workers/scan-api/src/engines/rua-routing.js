@@ -20,20 +20,27 @@ import { createAuditEvent } from "../lib/events.js";
 
 
 export function dmarcSenderRiskLevel(sender) {
-  const c = sender.classification || "unknown";
-  if (c === "threat") return "critical";
-  if (c === "suspicious") return "high";
+  const c = sender.effective_classification || sender.classification || sender.auto_classification || "unknown";
+  if (c === "threat" || c === "unauthorised") return "critical";
+  if (c === "suspicious" || c === "misconfigured") return "high";
   if (c === "trusted" || c === "ignored") return "low";
+  if (c === "authorised" || c === "likely_authorised" || c === "forwarder" || c === "mailing_list") return "low";
   const pr = typeof sender.pass_rate === "number" ? sender.pass_rate : 100;
   if (pr < 90 && (sender.total_messages || 0) >= 50) return "medium";
   return "low";
 }
 function dmarcSenderRecommendedAction(sender) {
-  switch (sender.classification) {
+  switch (sender.effective_classification || sender.classification) {
     case "trusted":    return "No action required. This sender is confirmed legitimate.";
     case "suspicious": return "Investigate this sender and confirm whether it is legitimate before enforcement.";
     case "threat":     return "Treat as impersonation. Confirm it is unauthorised and ensure DMARC enforcement blocks it.";
     case "ignored":    return "No action — this sender has been intentionally ignored.";
+    case "authorised": return "This sender appears authorised from DMARC evidence. Keep the manual decision if your team has already reviewed it.";
+    case "likely_authorised": return "This sender likely belongs to your business. Confirm it before tightening DMARC policy.";
+    case "forwarder": return "This looks like forwarded mail. Confirm whether the forwarding path is expected before enforcement.";
+    case "mailing_list": return "This looks like a mailing-list or campaign sender. Confirm ownership and alignment before enforcement.";
+    case "misconfigured": return "This looks like a recognised sender with weak alignment. Fix SPF or DKIM alignment before enforcement.";
+    case "unauthorised": return "Treat as likely unauthorised until confirmed. Review before moving to stricter DMARC enforcement.";
     default:           return "Classify this sender if it is a legitimate business email source.";
   }
 }
@@ -124,17 +131,39 @@ export function summarizeEmailSenders(senders) {
   return s;
 }
 export function emailSenderToApi(x) {
+  let autoReasons = [];
+  try {
+    const parsed = typeof x.auto_reasons === "string" ? JSON.parse(x.auto_reasons) : x.auto_reasons;
+    autoReasons = Array.isArray(parsed) ? parsed.map((r) => String(r).slice(0, 500)).slice(0, 8) : [];
+  } catch { autoReasons = []; }
+  const total = x.total_messages || 0;
+  const spfAligned = x.spf_aligned_messages || 0;
+  const dkimAligned = x.dkim_aligned_messages || 0;
+  const spfRate = total > 0 ? Math.round((spfAligned / total) * 1000) / 10 : 0;
+  const dkimRate = total > 0 ? Math.round((dkimAligned / total) * 1000) / 10 : 0;
+  const manual = Boolean(x.classified_at);
+  const effective = manual ? (x.classification || "unknown") : (x.auto_classification || x.classification || "unknown");
+  const enriched = { ...x, effective_classification: effective };
   return {
     id: x.id, source_ip: x.source_ip,
     provider_guess: x.provider_guess, provider_confidence: x.provider_confidence, provider_reason: x.provider_reason,
     first_seen: x.first_seen, last_seen: x.last_seen,
     total_messages: x.total_messages || 0, aligned_messages: x.aligned_messages || 0, failed_messages: x.failed_messages || 0,
+    spf_aligned_messages: spfAligned, dkim_aligned_messages: dkimAligned,
+    spf_aligned_rate: spfRate, dkim_aligned_rate: dkimRate,
     quarantined_messages: x.quarantined_messages || 0, rejected_messages: x.rejected_messages || 0,
     pass_rate: typeof x.pass_rate === "number" ? x.pass_rate : 0,
     classification: x.classification || "unknown",
+    effective_classification: effective,
+    classification_source: manual ? "manual" : "auto",
+    classified_at: x.classified_at || null,
+    auto_classification: x.auto_classification || null,
+    auto_confidence: typeof x.auto_confidence === "number" ? x.auto_confidence : null,
+    auto_reasons: autoReasons,
+    provider_map_version: x.provider_map_version || null,
     notes: x.notes || null,
-    risk_level: dmarcSenderRiskLevel(x),
-    recommended_action: dmarcSenderRecommendedAction(x),
+    risk_level: dmarcSenderRiskLevel(enriched),
+    recommended_action: dmarcSenderRecommendedAction(enriched),
   };
 }
 

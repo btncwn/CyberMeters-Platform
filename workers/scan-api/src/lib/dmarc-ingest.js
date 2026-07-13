@@ -4,6 +4,7 @@
 // route and the inbound email worker path.
 import { createId } from "./util.js";
 import { createAuditEvent } from "./events.js";
+import { PROVIDER_MAP_VERSION, classifyWorkspaceDomainSenders } from "../engines/sender-classification.js";
 
 const DMARC_XML_MAX_BYTES = 2 * 1024 * 1024; // 2 MB hard cap
 
@@ -160,11 +161,13 @@ async function updateEmailSenderSources(env, workspaceId, domain, parsed) {
     const ip = (r.source_ip || "").trim();
     if (!ip) continue;
     let agg = bySource.get(ip);
-    if (!agg) { agg = { ip, total: 0, aligned: 0, failed: 0, quarantined: 0, rejected: 0, sample: r }; bySource.set(ip, agg); }
+    if (!agg) { agg = { ip, total: 0, aligned: 0, spfAligned: 0, dkimAligned: 0, failed: 0, quarantined: 0, rejected: 0, sample: r }; bySource.set(ip, agg); }
     const cnt = r.count || 0;
     agg.total += cnt;
     const aligned = r.spf_aligned_result === "pass" || r.dkim_aligned_result === "pass";
     if (aligned) agg.aligned += cnt; else agg.failed += cnt;
+    if (r.spf_aligned_result === "pass") agg.spfAligned += cnt;
+    if (r.dkim_aligned_result === "pass") agg.dkimAligned += cnt;
     if (r.disposition === "quarantine") agg.quarantined += cnt;
     if (r.disposition === "reject") agg.rejected += cnt;
   }
@@ -174,6 +177,7 @@ async function updateEmailSenderSources(env, workspaceId, domain, parsed) {
     const guess = guessEmailSenderProvider(agg.sample);
     const existing = await env.cybermeters_db
       .prepare(`SELECT id, total_messages, aligned_messages, failed_messages,
+                       spf_aligned_messages, dkim_aligned_messages,
                        quarantined_messages, rejected_messages, first_seen
                 FROM email_sender_sources
                 WHERE workspace_id = ? AND domain = ? AND source_ip = ? LIMIT 1`)
@@ -181,6 +185,8 @@ async function updateEmailSenderSources(env, workspaceId, domain, parsed) {
     if (existing) {
       const total    = (existing.total_messages || 0) + agg.total;
       const alignedM = (existing.aligned_messages || 0) + agg.aligned;
+      const spfAlignedM = (existing.spf_aligned_messages || 0) + agg.spfAligned;
+      const dkimAlignedM = (existing.dkim_aligned_messages || 0) + agg.dkimAligned;
       const failedM  = (existing.failed_messages || 0) + agg.failed;
       const quarM    = (existing.quarantined_messages || 0) + agg.quarantined;
       const rejM     = (existing.rejected_messages || 0) + agg.rejected;
@@ -189,12 +195,14 @@ async function updateEmailSenderSources(env, workspaceId, domain, parsed) {
       await env.cybermeters_db
         .prepare(`UPDATE email_sender_sources
                   SET last_seen = ?, total_messages = ?, aligned_messages = ?, failed_messages = ?,
+                      spf_aligned_messages = ?, dkim_aligned_messages = ?,
                       quarantined_messages = ?, rejected_messages = ?, pass_rate = ?,
-                      provider_guess = ?, provider_confidence = ?, provider_reason = ?,
+                      provider_guess = ?, provider_confidence = ?, provider_reason = ?, provider_map_version = ?,
                       header_from = COALESCE(header_from, ?), first_seen = ?, updated_at = datetime('now')
                   WHERE id = ?`)
-        .bind(endIso, total, alignedM, failedM, quarM, rejM, passRate,
-              guess.provider, guess.confidence, guess.reason, agg.sample.header_from || null, firstSeen, existing.id)
+        .bind(endIso, total, alignedM, failedM, spfAlignedM, dkimAlignedM, quarM, rejM, passRate,
+              guess.provider, guess.confidence, guess.reason, PROVIDER_MAP_VERSION,
+              agg.sample.header_from || null, firstSeen, existing.id)
         .run();
       // classification + notes deliberately omitted from UPDATE → preserved.
     } else {
@@ -203,11 +211,12 @@ async function updateEmailSenderSources(env, workspaceId, domain, parsed) {
         .prepare(`INSERT INTO email_sender_sources
                   (id, workspace_id, domain, source_ip, provider_guess, provider_confidence, provider_reason,
                    header_from, first_seen, last_seen, total_messages, aligned_messages, failed_messages,
-                   quarantined_messages, rejected_messages, pass_rate, classification, notes, created_at, updated_at)
-                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unknown', NULL, datetime('now'), datetime('now'))`)
+                   quarantined_messages, rejected_messages, pass_rate,
+                   spf_aligned_messages, dkim_aligned_messages, classification, notes, provider_map_version, created_at, updated_at)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unknown', NULL, ?, datetime('now'), datetime('now'))`)
         .bind(createId("esender"), workspaceId, domain, agg.ip, guess.provider, guess.confidence, guess.reason,
               agg.sample.header_from || null, beginIso, endIso, agg.total, agg.aligned, agg.failed,
-              agg.quarantined, agg.rejected, passRate)
+              agg.quarantined, agg.rejected, passRate, agg.spfAligned, agg.dkimAligned, PROVIDER_MAP_VERSION)
         .run();
     }
     updated++;
@@ -356,6 +365,7 @@ async function ingestDmarcReport(env, opts = {}) {
   }
 
   const rollup = await updateEmailSenderSources(env, workspaceId, domain, parsed);
+  try { await classifyWorkspaceDomainSenders(env, workspaceId, domain); } catch { /* auto-classification is best-effort */ }
   await createAuditEvent(env, {
     workspace_id: workspaceId, user_id: actorUserId, event_type: "dmarc_report_ingested",
     entity_type: "domain", entity_id: domainId,
