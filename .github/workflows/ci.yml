@@ -89,6 +89,9 @@ jobs:
       - name: Validate ASM remediation loop (managed cases + verification)
         run: node scripts/validate-asm-remediation-loop.js
 
+      - name: Validate managed brand takedown lifecycle (evidence + approval + verification)
+        run: node scripts/validate-brand-takedown-lifecycle.js
+
       - name: Validate hosted TLS-RPT (create/verify/delete + coexistence + isolation)
         run: node scripts/validate-hosted-tls-rpt.js
 

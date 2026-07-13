@@ -141,6 +141,7 @@ async function main() {
   tryInsert("INSERT INTO workspace_assets (id, workspace_id, domain_id, hostname, asset_type, source, first_seen, last_seen, status, created_at, updated_at) VALUES ('a1','ws1','dom1','asset-SECRET.example','subdomain','ct', datetime('now'), datetime('now'), 'active', datetime('now'), datetime('now'))");
   tryInsert("INSERT INTO managed_cases (id, workspace_id, case_type, domain, finding_id, asset_ref, severity, status, evidence_json, recommended_actions_json, created_at, updated_at) VALUES ('mc-secret','ws1','asm_exposure','secret1.example','admin_surface_high','case-SECRET.example','high','open','{}','[]',datetime('now'),datetime('now'))");
   tryInsert("INSERT INTO scans (id, domain_id, domain, score, rating, status, created_at) VALUES ('scan_ws1','dom1','secret1.example',80,'good','completed', datetime('now'))");
+  tryInsert("INSERT INTO managed_cases (id, workspace_id, case_type, domain, finding_id, asset_ref, severity, status, evidence_json, recommended_actions_json, created_at, updated_at) VALUES ('mc-brand-secret','ws1','brand_abuse','brand-case-SECRET.example','brand-secret','example.com','high','triage','{}','[]',datetime('now'),datetime('now'))");
   tryInsert("INSERT INTO notification_events (id, workspace_id, user_id, type, severity, title, message, status) VALUES ('n1','ws1',NULL,'scan','info','notif-SECRET','m','unread')");
   tryInsert("INSERT INTO workspace_invitations (id, workspace_id, email, role, token_hash, invited_by, status, expires_at, created_at) VALUES ('inv1','ws1','invitee@x.co','viewer', 'invhash1','admin','pending', datetime('now','+7 day'), datetime('now'))");
 
@@ -168,6 +169,7 @@ async function main() {
     { path: "/api/workspaces/ws1",                 marker: "Alpha-SECRET" },
     { path: "/api/workspaces/ws1/assets",          marker: "asset-SECRET" },
     { path: "/api/workspaces/ws1/managed-cases",   marker: "case-SECRET" },
+    { path: "/api/workspaces/ws1/brand/cases",     marker: "brand-case-SECRET" },
     { path: "/api/workspaces/ws1/assets/summary",  marker: "asset-SECRET" },
     { path: "/api/workspaces/ws1/domains",         marker: "secret1.example" },
     { path: "/api/workspaces/ws1/notifications",   marker: "notif-SECRET" },
@@ -226,6 +228,7 @@ async function main() {
     ["POST",   "/api/workspaces/ws1/invitations",         { email: "x@y.co", role: "admin" }],
     ["POST",   "/api/workspaces/ws1/notifications/all/read", {}],
     ["POST",   "/api/workspaces/ws1/managed-cases/mc-secret/assign", { owner_ref: "foreign", owner_type: "team" }],
+    ["POST",   "/api/workspaces/ws1/brand/cases/mc-brand-secret/review", { classification: "confirmed_abuse", reason: "foreign attempt" }],
     ["PATCH",  "/api/workspaces/ws1",                      { name: "Hijacked" }],
     ["POST",   "/api/workspaces/ws1/delete-request",       {}],
     ["POST",   "/api/workspaces/ws1/members",             { email: "foreign@b.co", role: "admin" }],
@@ -247,6 +250,7 @@ async function main() {
     ["PATCH", "/api/workspaces/ws1",               { name: "ViewerRenamed" }],
     ["POST",  "/api/workspaces/ws1/domains",       { domain: "viewer.example" }],
     ["POST",  "/api/workspaces/ws1/managed-cases/mc-secret/assign", { owner_ref: "viewer", owner_type: "team" }],
+    ["POST",  "/api/workspaces/ws1/brand/cases/mc-brand-secret/review", { classification: "confirmed_abuse", reason: "viewer attempt" }],
   ];
   for (const [m, p, b] of adminActions) {
     const r = await call(m, p, T.viewer, b);

@@ -643,6 +643,22 @@ export const api = {
     request(`/workspaces/${id}/brand/candidates/${candidateId}/classify`, {
       method: 'POST', body: JSON.stringify({ classification }),
     }),
+  /** GET /api/workspaces/:id/brand/cases */
+  getBrandCases: (id, params = {}) => {
+    const q = new URLSearchParams(params).toString()
+    return request(`/workspaces/${id}/brand/cases${q ? `?${q}` : ''}`)
+  },
+  /** GET /api/workspaces/:id/brand/cases/:caseId */
+  getBrandCase: (id, caseId) => request(`/workspaces/${id}/brand/cases/${caseId}`),
+  /** POST /api/workspaces/:id/brand/cases/:caseId/review */
+  reviewBrandCase: (id, caseId, payload) =>
+    request(`/workspaces/${id}/brand/cases/${caseId}/review`, { method: 'POST', body: JSON.stringify(payload) }),
+  /** POST /api/workspaces/:id/brand/cases/:caseId/approve */
+  approveBrandTakedown: (id, caseId, payload = {}) =>
+    request(`/workspaces/${id}/brand/cases/${caseId}/approve`, { method: 'POST', body: JSON.stringify(payload) }),
+  /** POST /api/workspaces/:id/brand/cases/:caseId/submission */
+  recordBrandTakedownSubmission: (id, caseId, payload) =>
+    request(`/workspaces/${id}/brand/cases/${caseId}/submission`, { method: 'POST', body: JSON.stringify(payload) }),
 
   /** GET /api/workspaces/:id/identity-assets  optional: ?identity_type=&provider=&min_risk_score= */
   getWorkspaceIdentityAssets: (id, params = {}) => {
