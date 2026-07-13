@@ -5,6 +5,26 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.13 (v2026.07.13-5 — DMARC graduated reject ramp) — deployed 2026-07-13
+
+### Product (DMARC managed maturity — scorecard epic #5)
+- **Graduated reject ramp + per-tag diff + configurable thresholds** (PR #45):
+  the riskiest managed transition — quarantine→reject — no longer jumps to full
+  enforcement. `DMARC_RAMP_LADDER` now percentage-ramps reject (10→25→50→100), so
+  a misclassified legitimate sender surfaces on a small slice before full reject;
+  `dmarcRampStepIndex` snaps off-ladder values **down** (never overstates
+  progress). `dmarcTagDiff` renders a policy change as `p: none→reject,
+  pct: null→10` (surfaced as `pending_diff`/`next_step_diff`), never a blind
+  overwrite. `resolveRampThresholds(env)` makes ramp/rollback gating tunable per
+  environment (min messages / pass-rate / soak days / rollback drop pp / rollback
+  min messages) with safe fallback to the constants — threaded through the
+  autopilot sweep and both route call sites. Frontend ladder track 6→9 steps.
+  Both live records sit at `p=none` (index 0) — unaffected. No migration.
+  `validate-dmarc-graduated-ramp.js` (27); regression 227/227. Deployed under the
+  standing MEDIUM-risk delegation.
+- Live version **2ce0bab7-a4ed-4a11-9506-a42711425b8d**. Rollback:
+  **5d39290b-2914-48c5-9df1-0cf6df17f91e**.
+
 ## 2026.07.13 (v2026.07.13-4 — DMARC operational alerts) — deployed 2026-07-13
 
 ### Product (DMARC managed maturity — scorecard epic #3)
