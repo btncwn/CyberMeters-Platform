@@ -60,3 +60,15 @@
   ! Expires
   Content-Type: text/plain; charset=utf-8
   Cache-Control: public, max-age=86400
+
+# ── Microsoft Entra publisher-domain verification ─────────────────────────
+# Proves ownership of this domain for the Azure AD app registration's Publisher
+# domain (and, with MPN association, the verified-publisher badge on the OAuth
+# consent screen). applicationId is the app's public client ID. Must be served
+# as application/json for Microsoft's verifier to accept it.
+/.well-known/microsoft-identity-association.json
+  ! Cache-Control
+  ! Pragma
+  ! Expires
+  Content-Type: application/json; charset=utf-8
+  Cache-Control: public, max-age=3600
