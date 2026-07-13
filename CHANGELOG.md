@@ -5,6 +5,31 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.13 (v2026.07.13-2 — Automated sender classification) — deployed 2026-07-13
+
+### Product (DMARC managed maturity — scorecard gap #1)
+- **Automated evidence-based sender classification** (PR #40): turns the manual
+  sender triage into an automated, explainable verdict per DMARC sender from
+  evidence we already parse — per-method SPF/DKIM alignment, provider, volume,
+  pass-rate. Taxonomy: authorised | likely_authorised | forwarder | mailing_list
+  | misconfigured | unknown | suspicious | unauthorised, each with a confidence
+  and human-readable reasons.
+  - **The manual override stays sacred**: the engine writes only new `auto_*`
+    columns; `classification`/`notes` are never touched and the manual decision
+    still wins and persists across re-ingests. The API exposes both with a
+    `classification_source` (manual|auto) and an effective classification.
+  - **Honest confidence**: `mailing_list` requires a recognised list provider (not
+    inferred from aggregate data), `forwarder` requires the real DKIM-pass/SPF-fail
+    signature, and weak/low-volume evidence returns `unknown` — never a
+    high-confidence guess.
+  - Migration **074** additive (7 `ADD COLUMN`s incl. per-method alignment counts +
+    `provider_map_version`). `validate-sender-classification.js` (30) proves the
+    full taxonomy, the manual-override invariant across re-ingest, honest
+    low-evidence handling, and tenant isolation of the DMARC sender surface.
+- Live version **fbd1e3a3-34dc-4a56-9b79-e79a334fdf0a**; email-senders API path
+  verified, hosted-dmarc unaffected. Rollback:
+  **a6ff57eb-f8f4-48fb-a760-61d83b9359a5**.
+
 ## 2026.07.13 (v2026.07.13-1 — Auth rate-limit hardening) — deployed 2026-07-13
 
 ### Security (P0 pre-public-beta hardening — see docs/P0-PUBLIC-BETA-BLOCKERS.md)
