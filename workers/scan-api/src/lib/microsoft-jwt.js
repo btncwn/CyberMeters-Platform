@@ -3,6 +3,17 @@
 
 // ── Microsoft Entra OAuth helpers ────────────────────────────────────────────
 
+// True when AZURE_TENANT_ID is a specific tenant GUID rather than a multi-tenant
+// alias. In single-tenant mode only that org's users can obtain a token AND the
+// tid is enforced below — so the token's email claim is org-controlled and safe
+// to key account linking on. Multi-tenant aliases accept ANY tenant's token,
+// where the email claim is attacker-controllable (nOAuth), so email-based
+// account auto-linking must NOT run in that mode (see routes/auth.js).
+const MULTI_TENANT_ALIASES = new Set(["common", "organizations", "consumers"]);
+export function isSingleTenantConfig(tenantId) {
+  return !MULTI_TENANT_ALIASES.has(String(tenantId || "").toLowerCase());
+}
+
 /** Decode a base64url string to a UTF-8 string (safe for JWT header/payload). */
 function b64urlDecode(str) {
   const base64 = str.replace(/-/g, "+").replace(/_/g, "/");
@@ -32,8 +43,7 @@ export function validateMicrosoftIdTokenClaims(header, payload, clientId, tenant
   if (!payload.oid) throw new Error("id_token: missing oid claim");
   if (!payload.tid) throw new Error("id_token: missing tid claim");
 
-  const multiTenantAliases = new Set(["common", "organizations", "consumers"]);
-  if (!multiTenantAliases.has(tenantId) && payload.tid !== tenantId) {
+  if (isSingleTenantConfig(tenantId) && payload.tid !== tenantId) {
     throw new Error("id_token: tenant mismatch");
   }
   const expectedIssuer = `https://login.microsoftonline.com/${payload.tid}/v2.0`;
