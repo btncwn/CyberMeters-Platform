@@ -348,7 +348,6 @@ function ManagedBrandCases({ cases, busyId, onReview, onApprove, onSubmit }) {
                   </div>
                   <p className="text-xs text-gray-500 mt-1">
                     Protected brand: <span className="mono">{c.asset_ref || '—'}</span>
-                    {c.evidence?.campaign_id ? <span> · Campaign linked</span> : null}
                   </p>
                   {bundleReady && (
                     <div className="mt-3 rounded-lg bg-gray-50 border border-gray-100 p-3 text-xs text-gray-600">

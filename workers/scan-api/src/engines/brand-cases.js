@@ -90,6 +90,11 @@ function newBrandCampaignId() {
   return "bac-" + (uuid || "").slice(0, 12).padEnd(12, "0");
 }
 
+function newEvidenceBundleId() {
+  const uuid = (globalThis.crypto?.randomUUID?.() || "").replace(/-/g, "");
+  return "beb-" + (uuid || "").slice(0, 12).padEnd(12, "0");
+}
+
 function normalizeDomain(domain) {
   return String(domain || "").trim().toLowerCase();
 }
@@ -115,7 +120,7 @@ function candidateCanOpenCase(candidate, profile) {
 }
 
 export function brandCaseToApi(row = {}) {
-  const evidence = evidenceToApi(parseJson(row.evidence_json, null));
+  const evidence = evidenceToApi(parseJson(row.evidence_json, null), row._latestEvidenceBundle || null);
   return {
     id: row.id,
     workspace_id: row.workspace_id,
@@ -138,10 +143,9 @@ export function brandCaseToApi(row = {}) {
   };
 }
 
-function evidenceToApi(evidence) {
+function evidenceToApi(evidence, latest = null) {
   if (!evidence || typeof evidence !== "object") return evidence;
-  const latest = latestEvidenceBundle(evidence);
-  return latest ? { ...evidence, bundle: latest.bundle } : evidence;
+  return latest ? { ...evidence, bundle: latest.bundle, latest_evidence_bundle: latest } : evidence;
 }
 
 async function writeBrandCaseEvent(env, caseRow, { actor_type = "system", actor_id = null, from_status = null, to_status = null, action, detail = null } = {}) {
@@ -180,35 +184,85 @@ function mergeEvidence(row, patch) {
   return { ...evidence, ...patch };
 }
 
-function latestEvidenceBundle(evidence = {}) {
-  const versions = Array.isArray(evidence.evidence_bundles) ? evidence.evidence_bundles : [];
-  if (versions.length === 0) return evidence.bundle ? { version: 1, bundle: evidence.bundle, content_hash: null } : null;
-  return versions
-    .filter((entry) => entry && typeof entry === "object" && entry.bundle)
-    .sort((a, b) => Number(b.version || 0) - Number(a.version || 0))[0] || null;
+function evidencePointer(bundle) {
+  return bundle ? {
+    latest_evidence_bundle_id: bundle.id,
+    latest_evidence_version: bundle.version,
+  } : null;
 }
 
-async function appendEvidenceBundle(caseRow, bundle) {
-  const evidence = parseJson(caseRow.evidence_json, {}) || {};
-  const existingVersions = Array.isArray(evidence.evidence_bundles) ? [...evidence.evidence_bundles] : [];
-  if (existingVersions.length === 0 && evidence.bundle) {
-    existingVersions.push({
-      version: 1,
-      content_hash: await hashEvidenceBundle(evidence.bundle),
-      captured_at: evidence.bundle.evidence_captured_at || caseRow.updated_at || caseRow.created_at || null,
-      bundle: evidence.bundle,
-    });
+async function candidateForCase(env, caseRow) {
+  return env.cybermeters_db
+    .prepare(`SELECT * FROM workspace_brand_assets
+              WHERE workspace_id = ? AND candidate_domain = ?
+              ORDER BY updated_at DESC LIMIT 1`)
+    .bind(caseRow.workspace_id, caseRow.domain)
+    .first()
+    .catch(() => null);
+}
+
+function bundleRowToApi(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    version: Number(row.version || 0),
+    content_hash: row.content_hash,
+    captured_at: row.captured_at || null,
+    created_at: row.created_at || null,
+    bundle: parseJson(row.bundle_json, null),
+  };
+}
+
+async function getLatestEvidenceBundle(env, workspaceId, caseId) {
+  const row = await env.cybermeters_db
+    .prepare(`SELECT id, workspace_id, case_id, version, content_hash, bundle_json, captured_at, created_at
+              FROM brand_evidence_bundles
+              WHERE workspace_id = ? AND case_id = ?
+              ORDER BY version DESC LIMIT 1`)
+    .bind(workspaceId, caseId)
+    .first()
+    .catch(() => null);
+  return bundleRowToApi(row);
+}
+
+async function attachLatestEvidenceBundle(env, row) {
+  if (!row) return row;
+  return { ...row, _latestEvidenceBundle: await getLatestEvidenceBundle(env, row.workspace_id, row.id) };
+}
+
+async function insertEvidenceBundle(env, caseRow, bundle, { maxRetries = 5 } = {}) {
+  const legacyEvidence = parseJson(caseRow.evidence_json, {}) || {};
+  const existingLatest = await getLatestEvidenceBundle(env, caseRow.workspace_id, caseRow.id);
+  if (!existingLatest && legacyEvidence.bundle) {
+    await insertEvidenceBundle(env, { ...caseRow, evidence_json: safeJson(evidencePointer(null)) }, legacyEvidence.bundle, { maxRetries });
   }
-  const version = Math.max(0, ...existingVersions.map((entry) => Number(entry?.version || 0))) + 1;
   const contentHash = await hashEvidenceBundle(bundle);
   const capturedAt = bundle.evidence_captured_at || new Date().toISOString();
-  const entry = { version, content_hash: contentHash, captured_at: capturedAt, bundle };
-  const { bundle: _legacyBundle, ...rest } = evidence;
-  return {
-    ...rest,
-    evidence_bundles: [...existingVersions, entry],
-    current_evidence_bundle: { version, content_hash: contentHash, captured_at: capturedAt },
-  };
+  const bundleJson = stableJson(bundle);
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const id = newEvidenceBundleId();
+    try {
+      await env.cybermeters_db
+        .prepare(`INSERT INTO brand_evidence_bundles
+          (id, workspace_id, case_id, version, content_hash, bundle_json, captured_at, created_at)
+          SELECT ?, ?, ?, COALESCE(MAX(version), 0) + 1, ?, ?, ?, datetime('now')
+          FROM brand_evidence_bundles
+          WHERE workspace_id = ? AND case_id = ?`)
+        .bind(id, caseRow.workspace_id, caseRow.id, contentHash, bundleJson, capturedAt, caseRow.workspace_id, caseRow.id)
+        .run();
+      const row = await env.cybermeters_db
+        .prepare(`SELECT id, workspace_id, case_id, version, content_hash, bundle_json, captured_at, created_at
+                  FROM brand_evidence_bundles WHERE id = ? AND workspace_id = ? AND case_id = ?`)
+        .bind(id, caseRow.workspace_id, caseRow.id)
+        .first();
+      return bundleRowToApi(row);
+    } catch (e) {
+      const msg = String(e?.message || e || "");
+      if (/content_hash|idx_brand_evidence|UNIQUE/i.test(msg) && attempt < maxRetries - 1) continue;
+      throw e;
+    }
+  }
+  throw new Error("Could not append evidence bundle.");
 }
 
 async function updateCaseRow(env, next) {
@@ -248,23 +302,25 @@ async function applyBrandTransition(env, caseRow, to, ctx = {}) {
 
   if (to === "evidence_ready") {
     const bundle = ctx.bundle || await buildBrandEvidenceBundle(env, caseRow);
-    next.evidence_json = safeJson(await appendEvidenceBundle(caseRow, bundle));
+    const evidenceBundle = await insertEvidenceBundle(env, caseRow, bundle);
+    next.evidence_json = safeJson(evidencePointer(evidenceBundle));
+    next._latestEvidenceBundle = evidenceBundle;
     next.recommended_actions_json = safeJson(bundle.recommended_actions, "[]");
   }
   if (to === "takedown_submitted") {
-    const evidence = mergeEvidence(caseRow, {});
-    const latestBundle = latestEvidenceBundle(evidence);
-    const submissions = Array.isArray(evidence.submissions) ? evidence.submissions : [];
-    submissions.push({
+    const latestBundle = await getLatestEvidenceBundle(env, caseRow.workspace_id, caseRow.id);
+    next.evidence_json = safeJson(evidencePointer(latestBundle));
+    next._latestEvidenceBundle = latestBundle;
+    next._submissionDetail = {
       submitted_at: ctx.now || new Date().toISOString(),
       submitted_by: ctx.actor_id || null,
       reference: ctx.submission_reference,
+      evidence_bundle_id: latestBundle?.id || null,
       evidence_bundle_version: latestBundle?.version || null,
       evidence_bundle_hash: latestBundle?.content_hash || null,
       recipients: ctx.recipients || latestBundle?.bundle?.recipients || [],
       note: ctx.reason || null,
-    });
-    next.evidence_json = safeJson({ ...evidence, submissions });
+    };
     next.due_at = ctx.follow_up_at || new Date(Date.now() + 7 * 86400000).toISOString();
   }
 
@@ -275,7 +331,7 @@ async function applyBrandTransition(env, caseRow, to, ctx = {}) {
     from_status: caseRow.status,
     to_status: to,
     action: ctx.action || "transition",
-    detail: ctx.detail || { reason: ctx.reason || null, submission_reference: ctx.submission_reference || null },
+    detail: ctx.detail || next._submissionDetail || { reason: ctx.reason || null, submission_reference: ctx.submission_reference || null },
   });
   return { ok: true, case: next };
 }
@@ -289,31 +345,31 @@ export async function recaptureBrandEvidenceBundle(env, caseRow, { actor_id = nu
     return { ok: false, error: "Evidence can only be re-captured after the case is approved." };
   }
   const nextBundle = bundle || await buildBrandEvidenceBundle(env, caseRow);
-  const evidence = await appendEvidenceBundle(caseRow, nextBundle);
+  const evidenceBundle = await insertEvidenceBundle(env, caseRow, nextBundle);
   const next = {
     ...caseRow,
-    evidence_json: safeJson(evidence),
+    evidence_json: safeJson(evidencePointer(evidenceBundle)),
     recommended_actions_json: safeJson(nextBundle.recommended_actions, "[]"),
     updated_at: new Date().toISOString(),
   };
   await updateCaseRow(env, next);
-  const latest = latestEvidenceBundle(evidence);
   await writeBrandCaseEvent(env, next, {
     actor_type: actor_id ? "customer" : "system",
     actor_id,
     from_status: caseRow.status,
     to_status: caseRow.status,
     action: "evidence_recaptured",
-    detail: { reason, evidence_bundle_version: latest?.version || null, evidence_bundle_hash: latest?.content_hash || null },
+    detail: { reason, evidence_bundle_version: evidenceBundle.version, evidence_bundle_hash: evidenceBundle.content_hash },
   });
-  return { ok: true, case: next, evidence_bundle: latest };
+  return { ok: true, case: { ...next, _latestEvidenceBundle: evidenceBundle }, evidence_bundle: evidenceBundle };
 }
 
 export async function getBrandCase(env, workspaceId, caseId) {
-  return env.cybermeters_db
+  const row = await env.cybermeters_db
     .prepare(`SELECT * FROM managed_cases WHERE id = ? AND workspace_id = ? AND case_type = ?`)
     .bind(caseId, workspaceId, BRAND_CASE_TYPE)
     .first();
+  return attachLatestEvidenceBundle(env, row);
 }
 
 export async function listBrandCases(env, workspaceId, { status = null, limit = 50 } = {}) {
@@ -324,7 +380,8 @@ export async function listBrandCases(env, workspaceId, { status = null, limit = 
     .prepare(`SELECT * FROM managed_cases WHERE ${where.join(" AND ")} ORDER BY created_at ASC LIMIT ?`)
     .bind(...binds, Math.max(1, Math.min(200, Number(limit || 50))))
     .all();
-  return buildCaseQueue(rows.results || []).map(brandCaseToApi);
+  const hydrated = await Promise.all((rows.results || []).map((row) => attachLatestEvidenceBundle(env, row)));
+  return buildCaseQueue(hydrated).map(brandCaseToApi);
 }
 
 export async function listBrandCaseEvents(env, workspaceId, caseId) {
@@ -370,8 +427,8 @@ export async function resolveBrandProviderContacts(candidateDomain) {
 }
 
 export async function buildBrandEvidenceBundle(env, caseRow, { now = new Date().toISOString() } = {}) {
-  const evidence = parseJson(caseRow.evidence_json, {}) || {};
-  const candidate = evidence.candidate || {};
+  const candidate = await candidateForCase(env, caseRow) || {};
+  const candidateApi = candidate.id ? brandCandidateToApi(candidate, await loadWorkspaceBrandProfile(env, caseRow.workspace_id)) : {};
   const domain = normalizeDomain(caseRow.domain);
   const dns = {};
   for (const type of ["A", "MX"]) {
@@ -385,14 +442,14 @@ export async function buildBrandEvidenceBundle(env, caseRow, { now = new Date().
   const contacts = await resolveBrandProviderContacts(domain);
   return {
     candidate_domain: domain,
-    protected_brand: candidate.protected_domain || caseRow.asset_ref || null,
+    protected_brand: candidateApi.protected_domain || caseRow.asset_ref || null,
     evidence_captured_at: now,
     dns_snapshot: dns,
     rdap_snapshot: contacts.rdap,
-    mx_present: Array.isArray(dns.MX) ? dns.MX.length > 0 : candidate.mx_present === true,
-    tls_or_ct: { available: candidate.https_active ?? null, note: "Worker-native snapshot; screenshots require external render service." },
-    similarity: { score: candidate.similarity_score ?? null, variant_type: candidate.variant_type ?? null },
-    abuse_indicators: candidate.risk_reasons || [],
+    mx_present: Array.isArray(dns.MX) ? dns.MX.length > 0 : candidateApi.mx_present === true,
+    tls_or_ct: { available: candidateApi.https_active ?? null, note: "Worker-native snapshot; screenshots require external render service." },
+    similarity: { score: candidateApi.similarity_score ?? null, variant_type: candidateApi.variant_type ?? null },
+    abuse_indicators: candidateApi.risk_reasons || [],
     recipients: contacts.recipients,
     recommended_actions: [
       { title: "Prepare takedown submission", action: "Send the evidence bundle to the registrar or abuse contact and record the submission reference." },
@@ -452,12 +509,6 @@ export async function createBrandCaseForCandidate(env, workspaceId, candidateRow
   }
 
   const now = new Date().toISOString();
-  const evidence = {
-    candidate: gate.candidate,
-    candidate_id: candidateRow.id,
-    brand_profile_id: candidateRow.brand_profile_id || profile?.id || null,
-    opened_at: now,
-  };
   const id = newManagedCaseId();
   await env.cybermeters_db
     .prepare(`INSERT INTO managed_cases
@@ -468,7 +519,7 @@ export async function createBrandCaseForCandidate(env, workspaceId, candidateRow
       id, workspaceId, BRAND_CASE_TYPE, normalizeDomain(candidateRow.candidate_domain),
       key, gate.candidate.protected_domain || profile?.primary_domain || null,
       gate.candidate.risk_level || "high",
-      safeJson(evidence), safeJson([{ title: "Review brand abuse", action: "Confirm whether this candidate is abusive before preparing takedown material." }], "[]"),
+      null, safeJson([{ title: "Review brand abuse", action: "Confirm whether this candidate is abusive before preparing takedown material." }], "[]"),
       actor_id || "system",
     )
     .run();
@@ -522,17 +573,24 @@ async function updateCandidateClassification(env, workspaceId, candidateId, clas
     .catch(() => {});
 }
 
+async function updateCaseCandidateClassification(env, caseRow, classification) {
+  await env.cybermeters_db
+    .prepare(`UPDATE workspace_brand_assets SET classification = ?, updated_at = datetime('now')
+              WHERE workspace_id = ? AND candidate_domain = ?`)
+    .bind(classification, caseRow.workspace_id, caseRow.domain)
+    .run()
+    .catch(() => {});
+}
+
 export async function reviewBrandCase(env, caseRow, { classification, reason, actor_id = null } = {}) {
-  const evidence = parseJson(caseRow.evidence_json, {}) || {};
-  const candidateId = evidence.candidate_id;
   if (classification === "confirmed_abuse") {
-    await updateCandidateClassification(env, caseRow.workspace_id, candidateId, "confirmed_abuse");
+    await updateCaseCandidateClassification(env, caseRow, "confirmed_abuse");
     return transitionBrandCase(env, caseRow, "confirmed_abuse", {
       actor_type: "customer", actor_id, reason, action: "confirmed_abuse",
     });
   }
   if (classification === "false_positive") {
-    await updateCandidateClassification(env, caseRow.workspace_id, candidateId, "false_positive");
+    await updateCaseCandidateClassification(env, caseRow, "false_positive");
     return transitionBrandCase(env, caseRow, "false_positive", {
       actor_type: "customer", actor_id, reason, action: "false_positive",
     });
@@ -559,8 +617,8 @@ export async function approveBrandTakedown(env, caseRow, { actor_id = null, reas
 }
 
 export async function recordBrandTakedownSubmission(env, caseRow, { actor_id = null, submission_reference, recipients = null, note = null } = {}) {
-  const evidence = parseJson(caseRow.evidence_json, {}) || {};
-  const bundleRecipients = latestEvidenceBundle(evidence)?.bundle?.recipients || [];
+  const bundleRecipients = caseRow._latestEvidenceBundle?.bundle?.recipients ||
+    (await getLatestEvidenceBundle(env, caseRow.workspace_id, caseRow.id))?.bundle?.recipients || [];
   return transitionBrandCase(env, caseRow, "takedown_submitted", {
     actor_type: "customer",
     actor_id,
@@ -597,8 +655,6 @@ export async function verifyBrandCandidateGone(candidateDomain, { verifier = nul
 }
 
 export async function linkBrandCampaign(env, workspaceId, candidateRow, caseRow) {
-  const evidence = parseJson(caseRow.evidence_json, {}) || {};
-  if (evidence.campaign_id) return { campaign_id: evidence.campaign_id };
   const campaignId = newBrandCampaignId();
   const domain = normalizeDomain(candidateRow.candidate_domain || caseRow.domain);
   const ips = candidateRow.ip_address ? [candidateRow.ip_address] : [];
@@ -607,13 +663,12 @@ export async function linkBrandCampaign(env, workspaceId, candidateRow, caseRow)
       (id, workspace_id, brand_profile_id, linked_domains, linked_ips, shared_certs,
        shared_favicon_hashes, first_seen_at, last_seen_at, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, '[]', '[]', datetime('now'), datetime('now'), datetime('now'), datetime('now'))`)
-    .bind(campaignId, workspaceId, candidateRow.brand_profile_id || evidence.brand_profile_id || null, safeJson([domain], "[]"), safeJson(ips, "[]"))
+    .bind(campaignId, workspaceId, candidateRow.brand_profile_id || null, safeJson([domain], "[]"), safeJson(ips, "[]"))
     .run();
-  const nextEvidence = { ...evidence, campaign_id: campaignId };
   await env.cybermeters_db
-    .prepare(`UPDATE managed_cases SET evidence_json = ?, reopened_count = reopened_count + 1, updated_at = datetime('now')
+    .prepare(`UPDATE managed_cases SET reopened_count = reopened_count + 1, updated_at = datetime('now')
               WHERE id = ? AND workspace_id = ?`)
-    .bind(safeJson(nextEvidence), caseRow.id, workspaceId)
+    .bind(caseRow.id, workspaceId)
     .run();
   return { campaign_id: campaignId };
 }

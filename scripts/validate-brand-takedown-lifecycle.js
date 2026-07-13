@@ -141,34 +141,59 @@ const approved = await brandCases.approveBrandTakedown(env, confirmed.case, {
   bundle: evidenceBundle,
 });
 ok("customer approval prepares grounded evidence bundle", approved.ok && approved.case.status === "evidence_ready");
-const storedEvidence = JSON.parse(db.prepare("SELECT evidence_json FROM managed_cases WHERE id=?").get(opened.case.id).evidence_json);
-ok("evidence bundle is stored as immutable version 1", storedEvidence.evidence_bundles?.[0]?.version === 1 && storedEvidence.evidence_bundles?.[0]?.bundle?.dns_snapshot?.A?.[0] === "203.0.113.10");
-ok("evidence bundle version has a content hash and current pointer", /^sha256:[a-f0-9]{64}$/.test(storedEvidence.evidence_bundles?.[0]?.content_hash || "") &&
-  storedEvidence.current_evidence_bundle?.content_hash === storedEvidence.evidence_bundles?.[0]?.content_hash);
+let casePointer = JSON.parse(db.prepare("SELECT evidence_json FROM managed_cases WHERE id=?").get(opened.case.id).evidence_json);
+let bundleRows = db.prepare("SELECT * FROM brand_evidence_bundles WHERE workspace_id='ws1' AND case_id=? ORDER BY version").all(opened.case.id);
+ok("managed case evidence_json stores only the latest bundle pointer", Object.keys(casePointer).sort().join(",") === "latest_evidence_bundle_id,latest_evidence_version");
+ok("evidence bundle is stored as immutable version 1", bundleRows.length === 1 && bundleRows[0].version === 1 &&
+  JSON.parse(bundleRows[0].bundle_json).dns_snapshot.A[0] === "203.0.113.10");
+ok("evidence bundle version has a content hash and current pointer", /^sha256:[a-f0-9]{64}$/.test(bundleRows[0].content_hash || "") &&
+  casePointer.latest_evidence_bundle_id === bundleRows[0].id && casePointer.latest_evidence_version === 1);
 
-const firstHash = storedEvidence.evidence_bundles[0].content_hash;
+const firstHash = bundleRows[0].content_hash;
+const firstBundleJson = bundleRows[0].bundle_json;
 const recaptured = await brandCases.recaptureBrandEvidenceBundle(env, approved.case, {
   actor_id: "admin",
   reason: "Second capture before submission.",
   bundle: { ...evidenceBundle, evidence_captured_at: "2026-07-13T11:00:00Z", dns_snapshot: { A: ["203.0.113.11"], MX: ["10 mail.examp1e-login.com"] } },
 });
 ok("evidence re-capture appends a new version", recaptured.ok && recaptured.evidence_bundle.version === 2 && recaptured.evidence_bundle.content_hash !== firstHash);
-const recapturedEvidence = JSON.parse(db.prepare("SELECT evidence_json FROM managed_cases WHERE id=?").get(opened.case.id).evidence_json);
-ok("prior evidence version is preserved after re-capture", recapturedEvidence.evidence_bundles.length === 2 &&
-  recapturedEvidence.evidence_bundles[0].content_hash === firstHash &&
-  recapturedEvidence.evidence_bundles[0].bundle.dns_snapshot.A[0] === "203.0.113.10" &&
-  recapturedEvidence.current_evidence_bundle.version === 2);
+bundleRows = db.prepare("SELECT * FROM brand_evidence_bundles WHERE workspace_id='ws1' AND case_id=? ORDER BY version").all(opened.case.id);
+casePointer = JSON.parse(db.prepare("SELECT evidence_json FROM managed_cases WHERE id=?").get(opened.case.id).evidence_json);
+ok("prior evidence version is preserved after re-capture", bundleRows.length === 2 &&
+  bundleRows[0].content_hash === firstHash &&
+  bundleRows[0].bundle_json === firstBundleJson &&
+  JSON.parse(bundleRows[0].bundle_json).dns_snapshot.A[0] === "203.0.113.10" &&
+  casePointer.latest_evidence_bundle_id === bundleRows[1].id &&
+  casePointer.latest_evidence_version === 2);
 
-const submitted = await brandCases.recordBrandTakedownSubmission(env, recaptured.case, {
+const [capA, capB] = await Promise.all([
+  brandCases.recaptureBrandEvidenceBundle(env, recaptured.case, {
+    actor_id: "admin",
+    reason: "Parallel capture A.",
+    bundle: { ...evidenceBundle, evidence_captured_at: "2026-07-13T11:30:00Z", dns_snapshot: { A: ["203.0.113.12"], MX: ["10 mail.examp1e-login.com"] } },
+  }),
+  brandCases.recaptureBrandEvidenceBundle(env, recaptured.case, {
+    actor_id: "admin",
+    reason: "Parallel capture B.",
+    bundle: { ...evidenceBundle, evidence_captured_at: "2026-07-13T11:31:00Z", dns_snapshot: { A: ["203.0.113.13"], MX: ["10 mail.examp1e-login.com"] } },
+  }),
+]);
+bundleRows = db.prepare("SELECT * FROM brand_evidence_bundles WHERE workspace_id='ws1' AND case_id=? ORDER BY version").all(opened.case.id);
+ok("two concurrent captures create two distinct versions with no lost row", capA.ok && capB.ok &&
+  bundleRows.length === 4 && new Set(bundleRows.map((r) => r.version)).size === 4);
+const latestCase = await brandCases.getBrandCase(env, "ws1", opened.case.id);
+
+const submitted = await brandCases.recordBrandTakedownSubmission(env, latestCase, {
   actor_id: "admin",
   submission_reference: "REG-12345",
   note: "Submitted to registrar abuse desk.",
 });
 ok("submission tracking records takedown reference", submitted.ok && submitted.case.status === "takedown_submitted");
-const submissionEvidence = JSON.parse(db.prepare("SELECT evidence_json FROM managed_cases WHERE id=?").get(opened.case.id).evidence_json);
-ok("submission reference is persisted with evidence bundle integrity pointer", submissionEvidence.submissions?.[0]?.reference === "REG-12345" &&
-  submissionEvidence.submissions?.[0]?.evidence_bundle_version === 2 &&
-  submissionEvidence.submissions?.[0]?.evidence_bundle_hash === recaptured.evidence_bundle.content_hash);
+const submissionEvent = db.prepare("SELECT detail_json FROM managed_case_events WHERE case_id=? AND action='takedown_submitted' ORDER BY created_at DESC LIMIT 1").get(opened.case.id);
+const submissionDetail = JSON.parse(submissionEvent.detail_json);
+ok("submission reference is persisted with evidence bundle integrity pointer", submissionDetail.reference === "REG-12345" &&
+  submissionDetail.evidence_bundle_version === 4 &&
+  submissionDetail.evidence_bundle_hash === bundleRows[3].content_hash);
 
 const sweep = await brandCases.runBrandTakedownFollowupSweep(env, {
   verifier: async () => ({ complete: true, gone: true, observed: { a_records: 0, mx_records: 0 } }),
