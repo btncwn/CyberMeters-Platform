@@ -192,6 +192,13 @@ export function hostedDnsRecordToApi(row) {
     autopilot: isDmarc && Number(row.autopilot) === 1,
     can_rollback: isDmarc && Boolean(row.previous_value),
     change_pending: Boolean(row.pending_value),
+    // Per-tag diffs (transparency — the customer sees exactly what changes, never
+    // a blind overwrite). pending_diff = current→in-flight; next_step_diff =
+    // what advancing one ramp step would change.
+    pending_diff: isDmarc && row.pending_value ? dmarcTagDiff(row.current_value, row.pending_value) : null,
+    next_step_diff: isDmarc && nextStep
+      ? dmarcTagDiff(row.current_value, buildDmarcPolicyValue(row.current_value, { policy: nextStep.policy, pct: nextStep.pct }))
+      : null,
     policy_content: kind === "mtasts" ? row.policy_content || null : null,
     policy_path: kind === "mtasts" ? `https://mta-sts.${row.domain}/.well-known/mta-sts.txt` : null,
     last_change_at: row.last_change_at || null,
@@ -574,7 +581,7 @@ export async function runHostedDnsVerificationSweep(env, {
               baseline_pass_rate: Number(row.pass_rate_at_change),
               current_pass_rate: rate.pass_rate,
               total_messages: rate.total,
-            })) {
+            }, resolveRampThresholds(env))) {
           await rollbackHostedDmarc(env, row, { source: "auto", fetchImpl });
         } else if (Number(row.autopilot) === 1) {
           const stepIdx = dmarcRampStepIndex(row.current_value);
@@ -585,7 +592,7 @@ export async function runHostedDnsVerificationSweep(env, {
             const readiness = evaluateRampReadiness({
               pass_rate: rate.pass_rate, total_messages: rate.total,
               days_since_change: daysSince,
-            });
+            }, resolveRampThresholds(env));
             if (readiness.ready) {
               await applyHostedDmarcChange(env, row, {
                 policy: nextStep.policy, pct: nextStep.pct,
@@ -613,8 +620,17 @@ export const DMARC_RAMP_LADDER = [
   { policy: "quarantine", pct: 25,  label: "Quarantine 25%" },
   { policy: "quarantine", pct: 50,  label: "Quarantine 50%" },
   { policy: "quarantine", pct: 100, label: "Quarantine" },
+  // Graduated reject soak — the riskiest transition (quarantine→reject) must not
+  // jump straight to 100%. Percentage-ramp reject so a misclassified legitimate
+  // sender surfaces on a small slice before full enforcement.
+  { policy: "reject",     pct: 10,  label: "Reject 10%" },
+  { policy: "reject",     pct: 25,  label: "Reject 25%" },
+  { policy: "reject",     pct: 50,  label: "Reject 50%" },
   { policy: "reject",     pct: 100, label: "Reject" },
 ];
+// Index of the first reject step (used by step-snapping below).
+const DMARC_RAMP_FIRST_REJECT = 5;
+const DMARC_RAMP_LAST_QUAR = 4;
 const HOSTED_POLICY_DAILY_BUDGET = 10;   // manual + automatic changes per record per UTC day
 const RAMP_MIN_MESSAGES = 50;            // minimum 7-day volume for a confident read
 const RAMP_MIN_PASS_RATE = 97;           // % DMARC pass required to advance
@@ -631,9 +647,14 @@ export function dmarcRampStepIndex(raw) {
   if (idx >= 0) return idx;
   // Off-ladder but valid (e.g. quarantine pct=60): snap to the nearest step
   // at or below, so "next step" is always meaningful.
-  if (d.policy === "reject") return DMARC_RAMP_LADDER.length - 1;
+  if (d.policy === "reject") {
+    for (let i = DMARC_RAMP_LADDER.length - 1; i >= DMARC_RAMP_FIRST_REJECT; i -= 1) {
+      if (d.percentage >= DMARC_RAMP_LADDER[i].pct) return i;
+    }
+    return DMARC_RAMP_FIRST_REJECT;
+  }
   if (d.policy === "quarantine") {
-    for (let i = 4; i >= 1; i -= 1) {
+    for (let i = DMARC_RAMP_LAST_QUAR; i >= 1; i -= 1) {
       if (d.percentage >= DMARC_RAMP_LADDER[i].pct) return i;
     }
     return 1;
@@ -644,6 +665,39 @@ export function dmarcRampStepIndex(raw) {
 // Token-preserving policy rewrite: only p=, sp= and pct= change; every other
 // tag (rua, ruf, adkim, aspf, fo, ri, …) is kept byte-for-byte. pct=100 is
 // omitted (the RFC default) to keep records tidy.
+// Per-tag before→after diff of two DMARC record values — so a change is shown as
+// "p: none→quarantine, pct: 100→5", never a blind overwrite. Returns
+// [{ tag, before, after }] for every changed/added/removed tag.
+export function dmarcTagDiff(beforeValue, afterValue) {
+  const toMap = (v) => {
+    const map = {};
+    String(v || "").split(";").forEach((part) => {
+      const m = part.trim().match(/^([a-z]+)\s*=\s*(.*)$/i);
+      if (m) map[m[1].toLowerCase()] = m[2].trim();
+    });
+    return map;
+  };
+  const b = toMap(beforeValue), a = toMap(afterValue);
+  const changes = [];
+  for (const tag of [...new Set([...Object.keys(b), ...Object.keys(a)])]) {
+    if ((b[tag] ?? null) !== (a[tag] ?? null)) changes.push({ tag, before: b[tag] ?? null, after: a[tag] ?? null });
+  }
+  return changes;
+}
+
+// Ramp/rollback thresholds, configurable per environment (defaults = the module
+// constants). Keeps enforcement gating tunable without a code change.
+export function resolveRampThresholds(env = {}) {
+  const num = (v, d) => { const n = Number(v); return Number.isFinite(n) ? n : d; };
+  return {
+    minMessages:         num(env.HOSTED_DMARC_MIN_MESSAGES, RAMP_MIN_MESSAGES),
+    minPassRate:         num(env.HOSTED_DMARC_MIN_PASS_RATE, RAMP_MIN_PASS_RATE),
+    minDaysSinceChange:  num(env.HOSTED_DMARC_MIN_DAYS, RAMP_MIN_DAYS_SINCE_CHANGE),
+    rollbackDropPp:      num(env.HOSTED_DMARC_ROLLBACK_DROP_PP, ROLLBACK_DROP_PP),
+    rollbackMinMessages: num(env.HOSTED_DMARC_ROLLBACK_MIN_MESSAGES, ROLLBACK_MIN_MESSAGES),
+  };
+}
+
 export function buildDmarcPolicyValue(raw, { policy, pct = 100 } = {}) {
   if (!["none", "quarantine", "reject"].includes(policy)) {
     return { ok: false, error: "policy must be none, quarantine, or reject" };
@@ -666,26 +720,31 @@ export function buildDmarcPolicyValue(raw, { policy, pct = 100 } = {}) {
   return { ok: true, value };
 }
 
-export function evaluateRampReadiness({ pass_rate, total_messages, days_since_change }) {
+export function evaluateRampReadiness({ pass_rate, total_messages, days_since_change }, overrides = {}) {
+  const minMsgs = overrides.minMessages ?? RAMP_MIN_MESSAGES;
+  const minRate = overrides.minPassRate ?? RAMP_MIN_PASS_RATE;
+  const minDays = overrides.minDaysSinceChange ?? RAMP_MIN_DAYS_SINCE_CHANGE;
   const reasons = [];
-  if (total_messages == null || total_messages < RAMP_MIN_MESSAGES) {
-    reasons.push(`Not enough reporting volume yet (${total_messages ?? 0} of ${RAMP_MIN_MESSAGES} messages over 7 days).`);
+  if (total_messages == null || total_messages < minMsgs) {
+    reasons.push(`Not enough reporting volume yet (${total_messages ?? 0} of ${minMsgs} messages over 7 days).`);
   }
-  if (pass_rate == null || pass_rate < RAMP_MIN_PASS_RATE) {
+  if (pass_rate == null || pass_rate < minRate) {
     reasons.push(pass_rate == null
       ? "No DMARC compliance measurement is available yet."
-      : `DMARC pass rate is ${pass_rate}% — ${RAMP_MIN_PASS_RATE}% or higher is required before tightening.`);
+      : `DMARC pass rate is ${pass_rate}% — ${minRate}% or higher is required before tightening.`);
   }
-  if (days_since_change != null && days_since_change < RAMP_MIN_DAYS_SINCE_CHANGE) {
-    reasons.push(`The last policy change was ${days_since_change} day(s) ago — allow ${RAMP_MIN_DAYS_SINCE_CHANGE} days of reports between steps.`);
+  if (days_since_change != null && days_since_change < minDays) {
+    reasons.push(`The last policy change was ${days_since_change} day(s) ago — allow ${minDays} days of reports between steps.`);
   }
   return { ready: reasons.length === 0, reasons };
 }
 
-export function shouldAutoRollback({ baseline_pass_rate, current_pass_rate, total_messages }) {
+export function shouldAutoRollback({ baseline_pass_rate, current_pass_rate, total_messages }, overrides = {}) {
+  const minMsgs = overrides.rollbackMinMessages ?? ROLLBACK_MIN_MESSAGES;
+  const dropPp = overrides.rollbackDropPp ?? ROLLBACK_DROP_PP;
   if (baseline_pass_rate == null || current_pass_rate == null) return false;
-  if ((total_messages ?? 0) < ROLLBACK_MIN_MESSAGES) return false;
-  return (baseline_pass_rate - current_pass_rate) >= ROLLBACK_DROP_PP;
+  if ((total_messages ?? 0) < minMsgs) return false;
+  return (baseline_pass_rate - current_pass_rate) >= dropPp;
 }
 
 // 7-day DMARC pass rate from ingested aggregate records. DMARC passes when

@@ -56,7 +56,7 @@ import { computeBecExposureScore } from "./engines/bec.js";
 import { upsertAssetInventory } from "./engines/asset-inventory.js";
 import { computePortfolioRisk } from "./engines/portfolio-risk.js";
 import { _cloudflareEmailRoutingRequest, _cloudflareRouteFailure, auditDmarcRouteResult, buildDmarcEnforcementReadiness, classifyHostedCfError, configureDmarcEndpointRoute, dmarcSenderRiskLevel, emailSenderToApi, ensureCloudflareEmailRoute, extractIngestToken, generateInboundLocalpart, generateIngestToken, hashIngestToken, ingestEndpointToApi, loadEmailSenderSources, persistDmarcRouteResult, resolveWorkspaceDomain, revokeCloudflareEmailRoute, safelyEnsureCloudflareEmailRoute, safelyRevokeCloudflareEmailRoute, summarizeEmailSenders } from "./engines/rua-routing.js";
-import { DMARC_RAMP_LADDER, HOSTED_DNS_REMOVAL_GRACE_DAYS, REMEDIATION_REGISTRY, analyzeSpfChain, applyHostedDmarcChange, buildDmarcDnsRecommendedValue, buildDmarcPolicyValue, cfCreateHostedTxt, dmarcRampStepIndex, evaluateRampReadiness, getHostedDmarcPassRate, getRemediation, hostedDmarcSubdomain, hostedDnsRecordToApi, newHostedDnsRecordId, nextHostedDnsStatus, parseServerMsHosted, planAllowsHostedPolicyManagement, reconcileHostedIntent, remediationToApi, rollbackHostedDmarc, runHostedDnsVerificationSweep, shouldAutoRollback, verifyDmarcDnsSetup, verifyHostedDmarcRecord } from "./engines/hosted-dmarc.js";
+import { DMARC_RAMP_LADDER, HOSTED_DNS_REMOVAL_GRACE_DAYS, REMEDIATION_REGISTRY, analyzeSpfChain, applyHostedDmarcChange, buildDmarcDnsRecommendedValue, buildDmarcPolicyValue, cfCreateHostedTxt, dmarcRampStepIndex, dmarcTagDiff, evaluateRampReadiness, getHostedDmarcPassRate, getRemediation, hostedDmarcSubdomain, hostedDnsRecordToApi, newHostedDnsRecordId, nextHostedDnsStatus, parseServerMsHosted, planAllowsHostedPolicyManagement, reconcileHostedIntent, remediationToApi, resolveRampThresholds, rollbackHostedDmarc, runHostedDnsVerificationSweep, shouldAutoRollback, verifyDmarcDnsSetup, verifyHostedDmarcRecord } from "./engines/hosted-dmarc.js";
 import { runDmarcAlertsSweep } from "./engines/dmarc-alerts.js";
 import { buildDmarcBusinessRisk, buildDmarcReportRemediationActions, buildDmarcSenderIntelligenceEvidence, cybermetersRuaPresentInDmarcRecord, loadBecExposureEvidence } from "./engines/sender-provenance.js";
 import { retryFailedAssetAlerts, sendAssetChangeAlert } from "./engines/asset-alert-delivery.js";
@@ -2219,6 +2219,7 @@ export {
   deliverWorkspaceAlert,
   dmarcRampStepIndex,
   dmarcSenderRiskLevel,
+  dmarcTagDiff,
   encryptTotpSecret,
   ensureCloudflareEmailRoute,
   evaluateRampReadiness,
@@ -2265,6 +2266,7 @@ export {
   requireWorkspaceRole,
   resolveCanonicalScanScore,
   resolveIntelligenceEngine,
+  resolveRampThresholds,
   retryFailedAssetAlerts,
   revokeCloudflareEmailRoute,
   riskLevelForScore,

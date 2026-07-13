@@ -2592,8 +2592,13 @@ results.push(securityContract("selfdriving_ramp_ladder_and_step_mapping", () => 
     idx("v=DMARC1; p=quarantine; pct=25; rua=mailto:x@r.c") === 2 &&
     idx("v=DMARC1; p=quarantine; rua=mailto:x@r.c") === 4 &&      // no pct → 100
     idx("v=DMARC1; p=quarantine; pct=60; rua=mailto:x@r.c") === 3 && // off-ladder snaps down
-    idx("v=DMARC1; p=reject; rua=mailto:x@r.c") === 5 &&
-    scanner.DMARC_RAMP_LADDER[5].policy === "reject" &&
+    // Graduated reject soak: reject 10/25/50/100 map to 5/6/7/8.
+    idx("v=DMARC1; p=reject; pct=10; rua=mailto:x@r.c") === 5 &&
+    idx("v=DMARC1; p=reject; pct=25; rua=mailto:x@r.c") === 6 &&
+    idx("v=DMARC1; p=reject; pct=50; rua=mailto:x@r.c") === 7 &&
+    idx("v=DMARC1; p=reject; rua=mailto:x@r.c") === 8 &&          // no pct → 100 → full reject
+    idx("v=DMARC1; p=reject; pct=60; rua=mailto:x@r.c") === 7 &&  // off-ladder snaps down to reject 50
+    scanner.DMARC_RAMP_LADDER[5].policy === "reject" && scanner.DMARC_RAMP_LADDER.length === 9 &&
     idx("garbage") === -1;
 }));
 results.push(securityContract("selfdriving_readiness_interlock", () => {
