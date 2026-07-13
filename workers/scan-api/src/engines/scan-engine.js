@@ -9,6 +9,7 @@ import { createAuditEvent, createNotificationsForDomain } from "../lib/events.js
 import { json, sendLifecycleEmail } from "../lib/lifecycle-email.js";
 import { createId } from "../lib/util.js";
 import { processAlertsForWorkspace } from "./alerts.js";
+import { createManagedAsmCasesForScan, verifyManagedAsmCasesForScan } from "./asm-cases.js";
 import { sendAssetChangeAlert } from "./asset-alert-delivery.js";
 import { annotateExposureInfrastructure, deduplicateExposureAssets, runAdminSurfaceModule, runExposureModule, runRemediationModule, runRiskModule } from "./asset-intel.js";
 import { upsertAssetInventory } from "./asset-inventory.js";
@@ -815,6 +816,14 @@ function buildCanonicalUrlProfile(modules) {
     try {
       await upsertAssetInventory(scanId, domainId, domain, modules, env);
     } catch { /* non-fatal — inventory update will catch up on next scan */ }
+
+    // Phase 8a.0: Managed ASM cases — opens cases for new exposure findings,
+    // verifies customer-completed fixes against the fresh scan, and reopens
+    // resolved cases when the same finding returns. Reuses scan evidence only.
+    try {
+      await createManagedAsmCasesForScan(scanId, domainId, domain, normalizedFindings, recommendations, env);
+      await verifyManagedAsmCasesForScan(scanId, domainId, domain, normalizedFindings, env);
+    } catch { /* non-fatal — managed cases catch up on the next scan */ }
 
     // Phase 8a.1: Posture Timeline Events — cross-scan email-auth and exposed
     // service diffs. Uses previous completed scan report from R2 as baseline.

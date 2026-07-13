@@ -46,6 +46,7 @@ async function createNotificationEvent(env, workspace_id, { type, severity = "in
 async function createAuditEvent(env, {
   workspace_id  = null,
   user_id       = null,
+  actor_type    = null,
   event_type,
   entity_type   = null,
   entity_id     = null,
@@ -59,10 +60,10 @@ async function createAuditEvent(env, {
     await env.cybermeters_db
       .prepare(
         `INSERT INTO audit_events
-           (id, workspace_id, user_id, event_type, entity_type, entity_id, description, metadata_json, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+           (id, workspace_id, user_id, actor_type, event_type, entity_type, entity_id, description, metadata_json, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
       )
-      .bind(id, workspace_id, user_id, event_type, entity_type, entity_id, description, metaJson)
+      .bind(id, workspace_id, user_id, actor_type || (user_id ? "customer" : "system"), event_type, entity_type, entity_id, description, metaJson)
       .run();
   } catch { /* non-fatal */ }
 }

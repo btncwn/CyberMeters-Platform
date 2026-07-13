@@ -3,7 +3,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import {
   RefreshCw, Server, AlertTriangle, Globe, Cloud,
-  Shield, Activity, X, ChevronRight, Layers,
+  Shield, Activity, X, ChevronRight, Layers, UserCheck,
+  CheckCircle, Clock, Wrench,
 } from 'lucide-react'
 import { api } from '../api'
 import Spinner from '../components/Spinner'
@@ -61,6 +62,167 @@ function TypeBadge({ type }) {
     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${cls}`}>
       {label}
     </span>
+  )
+}
+
+const CASE_STATUS_META = {
+  open: { label: 'Open', cls: 'bg-red-50 text-red-700 border-red-100' },
+  triage: { label: 'Triage', cls: 'bg-amber-50 text-amber-700 border-amber-100' },
+  owner_assigned: { label: 'Owner assigned', cls: 'bg-blue-50 text-blue-700 border-blue-100' },
+  remediation_in_progress: { label: 'In progress', cls: 'bg-blue-50 text-blue-700 border-blue-100' },
+  verification_requested: { label: 'Verification requested', cls: 'bg-purple-50 text-purple-700 border-purple-100' },
+  verifying: { label: 'Verifying', cls: 'bg-purple-50 text-purple-700 border-purple-100' },
+  verification_failed: { label: 'Fix not verified', cls: 'bg-amber-50 text-amber-700 border-amber-100' },
+  resolved: { label: 'Resolved', cls: 'bg-green-50 text-green-700 border-green-100' },
+  reopened: { label: 'Reopened', cls: 'bg-red-50 text-red-700 border-red-100' },
+  risk_accepted: { label: 'Risk accepted', cls: 'bg-gray-50 text-gray-600 border-gray-200' },
+  false_positive: { label: 'False positive', cls: 'bg-gray-50 text-gray-600 border-gray-200' },
+  closed: { label: 'Closed', cls: 'bg-gray-50 text-gray-600 border-gray-200' },
+}
+
+function CaseStatusPill({ status }) {
+  const meta = CASE_STATUS_META[status] || { label: status, cls: 'bg-gray-50 text-gray-600 border-gray-200' }
+  return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${meta.cls}`}>{meta.label}</span>
+}
+
+function ManagedCasesPanel({ workspaceId }) {
+  const [cases, setCases] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+  const [busy, setBusy] = useState(null)
+  const [owners, setOwners] = useState({})
+
+  const loadCases = useCallback(async () => {
+    if (!workspaceId) return
+    setLoading(true)
+    setError(null)
+    try {
+      const data = await api.getManagedCases(workspaceId, { case_type: 'asm_exposure', limit: 20 })
+      setCases(data.cases || [])
+    } catch (e) {
+      setError(e.message || 'Could not load managed cases.')
+    } finally {
+      setLoading(false)
+    }
+  }, [workspaceId])
+
+  useEffect(() => { loadCases() }, [loadCases])
+
+  async function assignOwner(item) {
+    const owner = (owners[item.id] || '').trim()
+    if (!owner) return
+    setBusy(item.id)
+    try {
+      await api.assignManagedCaseOwner(workspaceId, item.id, { owner_type: 'unknown', owner_ref: owner })
+      setOwners(prev => ({ ...prev, [item.id]: '' }))
+      await loadCases()
+    } catch (e) {
+      setError(e.message || 'Could not assign owner.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function transition(item, status, action) {
+    setBusy(item.id)
+    try {
+      await api.transitionManagedCase(workspaceId, item.id, { status, action })
+      await loadCases()
+    } catch (e) {
+      setError(e.message || 'Could not update case.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  if (loading) return null
+  if (!error && cases.length === 0) return null
+
+  return (
+    <div className="card p-0 overflow-hidden">
+      <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-100">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-xl bg-brand-50 flex items-center justify-center">
+            <Wrench className="w-4 h-4 text-brand-600" />
+          </div>
+          <div>
+            <h2 className="text-sm font-bold text-gray-900">Managed Cases</h2>
+            <p className="text-xs text-gray-400">Customer-owned fixes with CyberMeters verification.</p>
+          </div>
+        </div>
+        <button onClick={loadCases} className="btn-secondary text-xs">
+          <RefreshCw className="w-3.5 h-3.5" />
+          Refresh
+        </button>
+      </div>
+      {error && (
+        <div className="mx-5 mt-4 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700">
+          {error}
+        </div>
+      )}
+      <div className="divide-y divide-gray-100">
+        {cases.map(item => (
+          <div key={item.id} className="px-5 py-4">
+            <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
+              <div className="min-w-0 space-y-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <RiskBadge level={item.severity} />
+                  <CaseStatusPill status={item.status} />
+                  {item.reopened_count > 0 && (
+                    <span className="inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700">
+                      Reopened {item.reopened_count}x
+                    </span>
+                  )}
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-gray-900">{item.evidence?.finding?.title || item.finding_id}</p>
+                  <p className="mono text-xs text-gray-500 mt-0.5">{item.asset_ref || item.domain}</p>
+                </div>
+                <p className="text-xs text-gray-500 leading-relaxed max-w-3xl">
+                  {item.evidence?.finding?.description || item.recommended_actions?.[0]?.action || 'Review this externally visible exposure and confirm the fix when complete.'}
+                </p>
+                <div className="flex items-center gap-4 text-xs text-gray-400">
+                  <span className="inline-flex items-center gap-1"><Clock className="w-3.5 h-3.5" /> {item.age_hours ?? 0}h open</span>
+                  {item.owner_ref && <span className="inline-flex items-center gap-1"><UserCheck className="w-3.5 h-3.5" /> {item.owner_ref}</span>}
+                  {item.last_verified_at && <span className="inline-flex items-center gap-1"><CheckCircle className="w-3.5 h-3.5" /> checked {fmtDate(item.last_verified_at)}</span>}
+                </div>
+              </div>
+              <div className="w-full lg:w-72 flex-shrink-0 space-y-2">
+                {!item.owner_ref && (
+                  <div className="flex gap-2">
+                    <input
+                      value={owners[item.id] || ''}
+                      onChange={e => setOwners(prev => ({ ...prev, [item.id]: e.target.value }))}
+                      placeholder="Owner or team"
+                      className="input text-sm min-w-0"
+                    />
+                    <button onClick={() => assignOwner(item)} disabled={busy === item.id || !(owners[item.id] || '').trim()} className="btn-secondary text-xs disabled:opacity-50">
+                      Assign
+                    </button>
+                  </div>
+                )}
+                {item.status === 'owner_assigned' && (
+                  <button onClick={() => transition(item, 'remediation_in_progress', 'remediation_started')} disabled={busy === item.id} className="btn-secondary w-full justify-center text-xs disabled:opacity-50">
+                    Start remediation
+                  </button>
+                )}
+                {(item.status === 'remediation_in_progress' || item.status === 'verification_failed') && (
+                  <button onClick={() => transition(item, 'verification_requested', 'fix_completed')} disabled={busy === item.id} className="btn-primary w-full justify-center text-xs disabled:opacity-50">
+                    Mark fix completed
+                  </button>
+                )}
+                {item.status === 'verification_requested' && (
+                  <p className="rounded-lg bg-purple-50 px-3 py-2 text-xs text-purple-700">CyberMeters will verify this on the next Cyber MOT.</p>
+                )}
+                {item.status === 'resolved' && (
+                  <p className="rounded-lg bg-green-50 px-3 py-2 text-xs text-green-700">Verified resolved by CyberMeters.</p>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -405,6 +567,8 @@ export default function AssetsPage() {
         </div>
       ) : (
         <>
+          <ManagedCasesPanel workspaceId={workspaceId} />
+
           {/* ── Summary cards ─────────────────────────────────────────────── */}
           {summary && (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
