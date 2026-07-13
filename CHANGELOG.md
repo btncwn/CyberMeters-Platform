@@ -5,6 +5,37 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.13 (v2026.07.13-15 — Certificates & Trust L2 guided intelligence) — deployed 2026-07-13
+
+### Product (4-service managed maturity — Certificates & Trust: L1 → L2)
+- **Certificates & Trust L2 Guided Trust Remediation** (PR #55, Codex built /
+  Claude reviewed+integrated): honesty-first L2 over the existing CT-only
+  inventory. New `engines/cert-trust-l2.js` (compute-on-read, **no migration**):
+  - **Explainable findings** — typed enum (expiring_soon/expired/self_signed/
+    unexpected_issuer/unexpected_san/unexpected_wildcard/parallel_certificate/
+    coverage_gap/ct_source_incomplete) with evidence + reasons + confidence.
+    **Forbidden fabricated types (weak_key/weak_signature/untrusted_chain/revoked)
+    are never emitted** (harness-locked).
+  - **Renewal readiness** — status + days + `auto_renew_observed` derived from CT
+    reissue history (observational; never claims *configured* auto-renew) + CA
+    provider + blockers + actions.
+  - **Honest trust-path** — HTTPS/redirect/HSTS/expiry from observable evidence;
+    **chain_valid / root_trusted / OCSP stay `"unknown"`** (require a live TLS
+    handshake CyberMeters does not perform). Replaces the frontend's misleading
+    `valid ?? chain_valid` "Secure/Broken" boolean + the always-0 "Broken HTTPS"
+    stat with a truthful posture.
+  - **Anomalies** — unexpected issuer/SAN/wildcard/parallel-certificate from the
+    `certificate_observations` history + existing cert `asset_events`.
+  - Route `GET /api/workspaces/:id/certificates` extended additively; tenant-scoped
+    (foreign → 403, harness-locked). `validate-cert-trust-l2.js`.
+  - **Out of scope (unchanged):** external TLS prober, managed renewal, deployment
+    verification, edge consistency, revocation automation, private-key handling —
+    all remain a future L3 epic. Never presents a CT-observed cert as live
+    deployment; unsupported TLS fields stay `"unknown"`.
+  - **Positioning:** "Guided certificate & trust remediation" (NOT "managed").
+- Live version **45b9cd68-7bc8-4b55-b1b8-bebb0ff802c8**. Rollback:
+  **b4597747-9ba2-474b-91dd-9efcd003a2b4**.
+
 ## 2026.07.13 (v2026.07.13-14 — Managed Brand Protection v1) — deployed 2026-07-13
 
 ### Product (4-service managed maturity — Epic 3: Brand becomes managed)
