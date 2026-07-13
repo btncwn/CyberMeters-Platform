@@ -822,7 +822,7 @@ function buildCanonicalUrlProfile(modules) {
     // resolved cases when the same finding returns. Reuses scan evidence only.
     try {
       await createManagedAsmCasesForScan(scanId, domainId, domain, normalizedFindings, recommendations, env);
-      await verifyManagedAsmCasesForScan(scanId, domainId, domain, normalizedFindings, env);
+      await verifyManagedAsmCasesForScan(scanId, domainId, domain, normalizedFindings, env, { modules, scanQuality });
     } catch { /* non-fatal — managed cases catch up on the next scan */ }
 
     // Phase 8a.1: Posture Timeline Events — cross-scan email-auth and exposed

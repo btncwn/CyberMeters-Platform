@@ -158,6 +158,42 @@ await createManagedAsmCasesForScan("scan_6", "dom_case", "case.example", [{
 const waived = (await listManagedCases(env, "ws_case")).filter((c) => c.finding_id === "cloud_storage_detected");
 ok("finding waivers suppress auto-open", waived.length === 0);
 
+// ── Scan-completeness guard: never resolve off an incomplete scan ─────────────
+const guardFinding = { id: "admin_surface_critical", module: "admin_surface_detection", severity: "critical", title: "Admin panel exposed", evidence: [{ hostname: "panel.case.example" }] };
+await createManagedAsmCasesForScan("scan_g1", "dom_case", "case.example", [guardFinding], [], env);
+let gCase = (await listManagedCases(env, "ws_case")).find((c) => c.finding_id === "admin_surface_critical");
+let gRow = await getManagedCase(env, "ws_case", gCase.id);
+gRow = (await transitionManagedCase(env, gRow, "triage", { actor_type: "customer", actor_id: "user1" })).case;
+gRow = (await assignManagedCaseOwner(env, gRow, { owner_type: "team", owner_ref: "IT", assigned_by: "customer", actor_id: "user1" })).case;
+gRow = (await transitionManagedCase(env, gRow, "remediation_in_progress", { actor_type: "customer", actor_id: "user1" })).case;
+gRow = (await transitionManagedCase(env, gRow, "verification_requested", { actor_type: "customer", actor_id: "user1", action: "fix_completed" })).case;
+
+// Finding absent BUT its module failed/timed-out this scan → must DEFER, not resolve.
+const deferredRun = await verifyManagedAsmCasesForScan("scan_g2", "dom_case", "case.example", [], env, {
+  modules: { admin_surface_detection: { error: "timed out" } },
+  scanQuality: { status: "degraded", modules_skipped: ["admin_surface_detection"] },
+});
+gRow = await getManagedCase(env, "ws_case", gCase.id);
+ok("incomplete module defers verification (no false resolve)",
+   deferredRun.deferred === 1 && deferredRun.resolved === 0 && gRow.status === "verification_requested");
+const deferEvent = (await listManagedCaseEvents(env, "ws_case", gCase.id)).some((e) => e.action === "verification_deferred");
+ok("deferral is recorded on the case timeline", deferEvent);
+
+// A partial scan (a core module broke) also defers, even with the ASM module clean.
+const partialRun = await verifyManagedAsmCasesForScan("scan_g3", "dom_case", "case.example", [], env, {
+  modules: { admin_surface_detection: {} },
+  scanQuality: { status: "partial", modules_skipped: [] },
+});
+ok("partial scan defers verification", partialRun.deferred === 1 && partialRun.resolved === 0);
+
+// Same finding absent, module completed cleanly on a complete scan → resolve.
+const cleanRun = await verifyManagedAsmCasesForScan("scan_g4", "dom_case", "case.example", [], env, {
+  modules: { admin_surface_detection: {} },
+  scanQuality: { status: "complete", modules_skipped: [] },
+});
+gRow = await getManagedCase(env, "ws_case", gCase.id);
+ok("complete scan verifies and resolves", cleanRun.resolved === 1 && gRow.status === "resolved");
+
 console.log(`\nASM remediation loop: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("asm-remediation-loop validation FAILED"); process.exit(1); }
 console.log("asm-remediation-loop validation passed");
