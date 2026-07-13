@@ -5,6 +5,21 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.13 (v2026.07.13-4 — DMARC operational alerts) — deployed 2026-07-13
+
+### Product (DMARC managed maturity — scorecard epic #3)
+- **DMARC operational alerts** (PR #43): a new hourly `dmarc_alerts_sweep` turns
+  classified sender data into actionable notifications through the existing
+  pipeline (in-app bell + workspace alert channels) — `dmarc_new_sender` (a new,
+  high-volume, not-yet-recognised source) and `dmarc_spoofing_spike` (an
+  `unauthorised` source failing auth at volume while claiming the domain).
+  Read-only, deduped (24h), tenant-scoped; the manual sender override wins
+  (a trusted-override suppresses the alert). No migration. `validate-dmarc-alerts.js`
+  (10). Complements epic #2's `hosted_dmarc_impact_regression` and the hosted
+  lifecycle alerts. First deploy under the standing MEDIUM-risk delegation.
+- Live version **5d39290b-2914-48c5-9df1-0cf6df17f91e**. Rollback:
+  **0121ecbe-bb3d-4c0c-9f4c-6f612326cca9**.
+
 ## 2026.07.13 (v2026.07.13-3 — DMARC impact forecast + post-change monitor) — deployed 2026-07-13
 
 ### Product (DMARC managed maturity — scorecard epic #2)
