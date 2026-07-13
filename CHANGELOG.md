@@ -5,6 +5,23 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.13 (v2026.07.13-9 — ASM verification completeness guard) — deployed 2026-07-13
+
+### Product (Managed ASM — verification honesty hardening)
+- **Scan-completeness guard** (PR #49): closes the known limitation from v...-8.
+  Verification treated a finding absent from the latest scan as "resolved", so a
+  silently-failed / timed-out / skipped scan module could false-resolve a case
+  (absence of a finding it never looked for). `verifyManagedAsmCasesForScan` now
+  consumes the scan's `{ modules, scanQuality }`: if the exposure's own module
+  errored/timed-out/was-skipped, or the whole scan came back `partial` (a core
+  module broke), the case is **deferred** (left awaiting verification with a
+  `verification_deferred` timeline event, retried next complete scan) — never
+  resolved off incomplete evidence. Only explicitly-signalled incompleteness
+  gates, so the happy path never regresses; legacy callers unchanged. No
+  migration. `validate-asm-remediation-loop.js` 22/22.
+- Live version **03e84d63-8767-4ba3-944b-56feb0297bd3**. Rollback:
+  **85486b4a-a104-4337-8254-de300aa3fb42**.
+
 ## 2026.07.13 (v2026.07.13-8 — Managed Case Platform v1 + ASM remediation loop) — deployed 2026-07-13
 
 ### Product (4-service managed maturity — Epic 1: Attack Surface goes managed)
