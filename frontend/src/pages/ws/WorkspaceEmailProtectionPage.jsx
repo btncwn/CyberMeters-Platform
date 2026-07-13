@@ -2059,6 +2059,38 @@ function ManagedDmarcCard({ wsId, domain, endpointReady }) {
                 <>
                   {rec.next_step && !rec.change_pending && (
                     <div className="space-y-2.5">
+                      {rec.projected_impact && (
+                        <div className={`rounded-xl border px-4 py-3 ${
+                          rec.projected_impact.insufficient_data ? 'border-gray-200 bg-gray-50' : 'border-blue-100 bg-blue-50/60'}`}>
+                          <p className="text-xs font-bold uppercase tracking-wide text-gray-500">Projected impact</p>
+                          <p className="text-sm text-gray-700 mt-1 leading-relaxed">
+                            Advancing to {rec.next_step.label} would affect about{' '}
+                            <span className="font-bold tabular-nums">{(rec.projected_impact.affected_messages || 0).toLocaleString()}</span>
+                            {' '}message{rec.projected_impact.affected_messages === 1 ? '' : 's'} ({rec.projected_impact.affected_percentage || 0}%),
+                            including{' '}
+                            <span className="font-bold tabular-nums">{(rec.projected_impact.legitimate_affected_messages || 0).toLocaleString()}</span>
+                            {' '}from legitimate senders.
+                          </p>
+                          {rec.projected_impact.insufficient_data && (
+                            <p className="text-xs text-gray-500 mt-1">Not enough recent DMARC volume yet for a confident forecast.</p>
+                          )}
+                          {rec.projected_impact.legitimate_affected_senders?.length > 0 && (
+                            <p className="text-xs text-gray-500 mt-1">
+                              Review: {rec.projected_impact.legitimate_affected_senders.slice(0, 3).map(s => `${s.provider || s.source_ip} (${s.affected})`).join(', ')}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                      {rec.impact_assessment && !rec.impact_assessment.insufficient_data && (
+                        <div className={`rounded-xl border px-4 py-3 ${
+                          rec.impact_assessment.rollbackRecommended ? 'border-amber-200 bg-amber-50' : 'border-brand-100 bg-brand-50/40'}`}>
+                          <p className="text-xs font-bold uppercase tracking-wide text-gray-500">Post-change monitor</p>
+                          <p className="text-sm text-gray-700 mt-1 leading-relaxed">
+                            Legitimate failed-mail rate changed by {rec.impact_assessment.delta?.legitimate_failed_rate_increase ?? 0} percentage points after the last change.
+                            {rec.impact_assessment.rollbackRecommended ? ' Review rollback before continuing.' : ' No rollback signal from legitimate mail at this stage.'}
+                          </p>
+                        </div>
+                      )}
                       <button
                         onClick={() => act('policy', async () => {
                           try {

@@ -7,6 +7,7 @@
 // matches, or null so the main router continues.
 import { ALERT_CHANNEL_MAX_PER_WORKSPACE, alertChannelToApi, deliverWorkspaceAlert, validateAlertChannelInput } from "../engines/alerts.js";
 import { computeBecExposureScore } from "../engines/bec.js";
+import { assessImpactRollback, comparePolicyImpact, forecastPolicyImpact } from "../engines/dmarc-impact.js";
 import { dnsQuery } from "../engines/dns.js";
 import { normalizeDnsTxtValue, parseDmarcRecord } from "../engines/email-analysis.js";
 import { DMARC_RAMP_LADDER, HOSTED_DNS_ENTRY_SELECT, HOSTED_DNS_REMOVAL_GRACE_DAYS, REMEDIATION_REGISTRY, analyzeSpfChain, applyHostedDmarcChange, buildDmarcDnsRecommendedValue, buildMtaStsPolicy, buildMtaStsTxtValue, buildTlsRptValue, cfCreateHostedTxt, dmarcRampStepIndex, evaluateRampReadiness, getHostedDmarcPassRate, getRemediation, hostedCustomerRecordName, hostedDmarcSubdomain, hostedDnsRecordToApi, mxHostsFromDnsResponse, newHostedDnsRecordId, nextHostedDnsStatus, parseServerMsHosted, planAllowsHostedPolicyManagement, remediationToApi, rollbackHostedDmarc, verifyDmarcDnsSetup, verifyHostedDmarcRecord, verifyMtaStsHttpsPolicy } from "../engines/hosted-dmarc.js";
@@ -62,6 +63,32 @@ function mtaStsRecordToApi(row, { dnsChecks = null, httpsPolicy = null, mxDrift 
     complete: dnsState === "connected" && policyState.state === "reachable_valid"
       && policyState.matches_pinned_policy === true && !reviewRequired,
     review_required: reviewRequired,
+  };
+}
+
+async function buildHostedDmarcImpactState(env, workspaceId, domain, row) {
+  const record = hostedDnsRecordToApi(row);
+  if (!record) return { record: null, projected_impact: null, impact_assessment: null };
+  let projectedImpact = null;
+  if (record.next_step) {
+    try {
+      projectedImpact = await forecastPolicyImpact(env, workspaceId, domain, {
+        targetPolicy: record.next_step.policy,
+        targetPct: record.next_step.pct,
+      });
+    } catch { projectedImpact = null; }
+  }
+  let impactAssessment = null;
+  if (row?.last_change_at) {
+    try {
+      const comparison = await comparePolicyImpact(env, workspaceId, domain, { changeAt: row.last_change_at });
+      impactAssessment = assessImpactRollback(comparison);
+    } catch { impactAssessment = null; }
+  }
+  return {
+    record: { ...record, projected_impact: projectedImpact, impact_assessment: impactAssessment },
+    projected_impact: projectedImpact,
+    impact_assessment: impactAssessment,
   };
 }
 
@@ -272,11 +299,14 @@ export async function emailProtectionRoutes(rctx) {
             total_messages: rate.total,
             days_since_change: changeMs != null ? Math.floor((Date.now() - changeMs) / 86400000) : null,
           });
+          const impactState = await buildHostedDmarcImpactState(env, workspaceId, domain, existing);
           return json({
-            record: hostedDnsRecordToApi(existing),
+            record: impactState.record,
             policy_management_available: policyAllowed,
             compliance: { pass_rate: rate.pass_rate, total_messages: rate.total, window_days: 7 },
             readiness,
+            projected_impact: impactState.projected_impact,
+            impact_assessment: impactState.impact_assessment,
           });
         }
 
@@ -305,11 +335,16 @@ export async function emailProtectionRoutes(rctx) {
               total_messages: rate.total,
               days_since_change: changeMs != null ? Math.floor((Date.now() - changeMs) / 86400000) : null,
             });
+            const projectedImpact = await forecastPolicyImpact(env, workspaceId, domain, {
+              targetPolicy: policy,
+              targetPct: pct,
+            }).catch(() => null);
             if (!readiness.ready) {
               return json({
                 error: "Compliance is not ready for a stricter policy yet.",
                 code: "readiness_check_failed",
                 readiness,
+                projected_impact: projectedImpact,
               }, 409);
             }
           }
@@ -333,7 +368,8 @@ export async function emailProtectionRoutes(rctx) {
           }
           const row = await env.cybermeters_db
             .prepare(`${HOSTED_DNS_ENTRY_SELECT} WHERE id = ?`).bind(existing.id).first();
-          return json({ record: hostedDnsRecordToApi(row) });
+          const impactState = await buildHostedDmarcImpactState(env, workspaceId, domain, row);
+          return json({ record: impactState.record, projected_impact: impactState.projected_impact });
         }
 
         if (request.method === "POST" && sub === "rollback") {

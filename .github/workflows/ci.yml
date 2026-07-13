@@ -74,6 +74,9 @@ jobs:
       - name: Validate DMARC sender classification (auto evidence + manual override)
         run: node scripts/validate-sender-classification.js
 
+      - name: Validate DMARC impact forecast (legitimate-vs-risky + rollback assessment)
+        run: node scripts/validate-dmarc-impact.js
+
       - name: Validate request pipeline (fetch → auth → RBAC → DB; login + webhook)
         run: node scripts/validate-pipeline.js
 
