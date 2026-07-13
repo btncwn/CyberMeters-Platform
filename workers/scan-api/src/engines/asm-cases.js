@@ -216,7 +216,19 @@ export async function assignManagedCaseOwner(env, caseRow, { owner_type, owner_r
   return { ok: true, case: updated };
 }
 
+// Verification-outcome states are reached ONLY by CyberMeters' own scan-driven
+// verification (verifyManagedAsmCasesForScan → updateCaseStatus with
+// actor_type "system"). A customer/analyst-initiated transition must never be
+// able to self-drive them, or "independent fix verification" would be a lie and
+// a case could be marked resolved without the exposure being observably absent.
+export const SYSTEM_ONLY_CASE_STATES = new Set([
+  "verifying", "resolved", "verification_failed", "reopened",
+]);
+
 export async function transitionManagedCase(env, caseRow, to, ctx = {}) {
+  if ((ctx.actor_type || "customer") !== "system" && SYSTEM_ONLY_CASE_STATES.has(to)) {
+    return { ok: false, error: "This step is verified by CyberMeters and cannot be set manually." };
+  }
   return updateCaseStatus(env, caseRow, to, ctx);
 }
 

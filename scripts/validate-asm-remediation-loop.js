@@ -104,6 +104,16 @@ ok("owner_assigned advances to remediation", inProgress.ok && inProgress.case.st
 let fixCompleted = await transitionManagedCase(env, inProgress.case, "verification_requested", { actor_type: "customer", actor_id: "user1", action: "fix_completed" });
 ok("customer fix completed requests verification", fixCompleted.ok && fixCompleted.case.status === "verification_requested");
 
+// Trust guard: a customer must NOT be able to self-drive the verification
+// outcome — that is CyberMeters' independent step. Resolution must come only
+// from a real scan observing the exposure absent.
+const selfVerify = await transitionManagedCase(env, fixCompleted.case, "verifying", { actor_type: "customer", actor_id: "user1" });
+ok("customer cannot self-start verification", !selfVerify.ok && /verified by CyberMeters/i.test(selfVerify.error));
+const selfResolve = await transitionManagedCase(env, fixCompleted.case, "resolved", { actor_type: "customer", actor_id: "user1" });
+ok("customer cannot self-resolve a case", !selfResolve.ok);
+const dbStatusAfterSelf = (await getManagedCase(env, "ws_case", cases[0].id)).status;
+ok("case stays awaiting verification after blocked self-resolve", dbStatusAfterSelf === "verification_requested");
+
 const resolved = await verifyManagedAsmCasesForScan("scan_2", "dom_case", "case.example", [], env);
 row = await getManagedCase(env, "ws_case", cases[0].id);
 ok("fresh scan with finding absent resolves case", resolved.resolved === 1 && row.status === "resolved" && row.resolved_at);
