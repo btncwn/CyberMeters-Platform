@@ -71,6 +71,13 @@ export async function runScheduled(event, env, ctx, tasks) {
 	      ctx.waitUntil(runCronTask(env, "dmarc_alerts_sweep", () => tasks.runDmarcAlertsSweep(env)));
 	    }
 
+	    // ── Managed Brand Protection follow-up ───────────────────────────────
+	    // Advances takedown submissions through provider follow-up and performs
+	    // CyberMeters-only technical verification of resolved/reappeared cases.
+	    if (tasks.runBrandTakedownFollowupSweep) {
+	      ctx.waitUntil(runCronTask(env, "brand_takedown_followup", () => tasks.runBrandTakedownFollowupSweep(env)));
+	    }
+
 	    // ── Report retention cleanup ─────────────────────────────────────────
   // The Worker cron also drives scheduled scans, so keep the hourly trigger
   // and run retention once daily at 02:00 UTC.

@@ -320,7 +320,7 @@ async function main() {
   // Drives the real scheduled() entry: the task registry in index.js must wire
   // every task into src/cron/scheduled.js. A mis-wired registry surfaces as a
   // "is not a function" cron_task error datapoint; a healthy run records one
-  // datapoint per wrapped task (7 hourly incl. asset_alert_retry; retention
+  // datapoint per wrapped task (hourly incl. asset_alert_retry and brand follow-up; retention
   // joins only at 02:00 UTC — triggerScheduledScan is fire-and-forget outside
   // runCronTask by design).
   section("Cron orchestration");
@@ -335,7 +335,7 @@ async function main() {
   // Exact NAME-SET match, not just a count: a renamed/typo'd registry entry
   // with a compensating extra would pass a count but not this.
   const expectedTasks = ["scheduled_reports", "user_scheduled_reports", "hosted_dns_sweep",
-    "dmarc_alerts_sweep",
+    "dmarc_alerts_sweep", "brand_takedown_followup",
     "deletion_purge", "lifecycle_email_retry", "asset_alert_retry", "domain_verify_retry"];
   // Time-gated tasks must mirror src/cron/scheduled.js exactly, or this exact
   // name-set match fails whenever CI happens to run in the relevant window

@@ -5,6 +5,7 @@
 // Receives the per-request routeCtx from index.js; returns a Response when a
 // route matches, or null so the main router continues.
 import { BRAND_CLASSIFICATIONS, BRAND_SUSPICIOUS_TLDS, brandCandidateToApi, brandClassificationAuditMetadata, brandProfileToApi, brandSimilarityScore, buildBrandProfileDomainScope, buildBrandProtectionSummary, legacyBrandAssetToApi, loadWorkspaceBrandProfile, normalizeBrandVariantType, parseBrandCandidateListParams, scoreBrandCandidateRisk, validateBrandProfileInput } from "../engines/brand-protection.js";
+import { approveBrandTakedown, brandCaseToApi, createBrandCaseForCandidateId, createBrandCasesForWorkspace, getBrandCase, listBrandCaseEvents, listBrandCases, recordBrandTakedownSubmission, reviewBrandCase, transitionBrandCase } from "../engines/brand-cases.js";
 import { extractBrandParts, generateTyposquatCandidates, HIGH_RISK_BRAND_KEYWORDS } from "../engines/brand-typosquat.js";
 import { dnsQuery } from "../engines/dns.js";
 import { createAuditEvent } from "../lib/events.js";
@@ -18,16 +19,21 @@ export async function brandRoutes(rctx) {
     // routes below retain their response contracts for the existing frontend.
     const brandProfileMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/brand\/profile$/);
     const brandSummaryV1Match = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/brand\/summary$/);
+    const brandCasesMatch = url.pathname.match(
+      /^\/api\/workspaces\/([^/]+)\/brand\/cases(?:\/([^/]+)(?:\/(review|approve|submission|advance))?)?$/
+    );
     const brandCandidatesMatch = url.pathname.match(
       /^\/api\/workspaces\/([^/]+)\/brand\/candidates(?:\/([^/]+)(?:\/(classify))?)?$/
     );
-    if (brandProfileMatch || brandSummaryV1Match || brandCandidatesMatch) {
-      const wsId = (brandProfileMatch || brandSummaryV1Match || brandCandidatesMatch)[1];
+    if (brandProfileMatch || brandSummaryV1Match || brandCasesMatch || brandCandidatesMatch) {
+      const wsId = (brandProfileMatch || brandSummaryV1Match || brandCasesMatch || brandCandidatesMatch)[1];
       const user = await requireAuth(request, env);
       if (!user) return json({ error: "Unauthorized" }, 401);
       const isProfileWrite = Boolean(brandProfileMatch && request.method === "POST");
+      const isCaseWrite = Boolean(brandCasesMatch && request.method !== "GET");
       const isClassificationWrite = Boolean(brandCandidatesMatch?.[3] === "classify" && request.method === "POST");
       const permission = isProfileWrite ? "workspace:manage"
+        : isCaseWrite ? "workspace:manage"
         : isClassificationWrite ? "workspace:manage" : "workspace:read";
       const access = await requireWorkspaceRole(user, wsId, permission, env);
       if (!access) return json({ error: "Forbidden" }, 403);
@@ -105,6 +111,85 @@ export async function brandRoutes(rctx) {
             .bind(wsId, ...domainScope.bindings).all();
           const candidates = (rows.results || []).map((row) => brandCandidateToApi(row, profile));
           return json(buildBrandProtectionSummary(candidates));
+        }
+
+        if (brandCasesMatch) {
+          const caseId = brandCasesMatch[2] || null;
+          const action = brandCasesMatch[3] || null;
+          if (caseId && !/^[a-zA-Z0-9_-]{1,120}$/.test(caseId)) return json({ error: "Invalid case id" }, 400);
+
+          if (!caseId && !action && request.method === "GET") {
+            const cases = await listBrandCases(env, wsId, {
+              status: url.searchParams.get("status"),
+              limit: url.searchParams.get("limit") || 50,
+            });
+            return json({ workspace_id: wsId, cases });
+          }
+
+          const caseRow = caseId ? await getBrandCase(env, wsId, caseId) : null;
+          if (!caseRow) return json({ error: "Brand case not found" }, 404);
+
+          if (!action && request.method === "GET") {
+            const events = await listBrandCaseEvents(env, wsId, caseId);
+            return json({ case: brandCaseToApi(caseRow), events });
+          }
+
+          if (action === "review" && request.method === "POST") {
+            const body = await request.json().catch(() => null);
+            const classification = String(body?.classification || "").toLowerCase();
+            let current = caseRow;
+            if (current.status === "detected") {
+              const triage = await transitionBrandCase(env, current, "triage", {
+                actor_type: "customer", actor_id: user.id, action: "triage_started",
+              });
+              if (!triage.ok) return json({ error: triage.error }, 400);
+              current = triage.case;
+            }
+            const result = await reviewBrandCase(env, current, {
+              classification,
+              reason: String(body?.reason || "").trim(),
+              actor_id: user.id,
+            });
+            if (!result.ok) return json({ error: result.error }, 400);
+            return json({ case: brandCaseToApi(result.case), events: await listBrandCaseEvents(env, wsId, caseId) });
+          }
+
+          if (action === "approve" && request.method === "POST") {
+            const body = await request.json().catch(() => ({}));
+            const result = await approveBrandTakedown(env, caseRow, {
+              actor_id: user.id,
+              reason: String(body?.reason || "Customer approved takedown preparation.").trim(),
+            });
+            if (!result.ok) return json({ error: result.error }, 400);
+            return json({ case: brandCaseToApi(result.case), events: await listBrandCaseEvents(env, wsId, caseId) });
+          }
+
+          if (action === "submission" && request.method === "POST") {
+            const body = await request.json().catch(() => null);
+            const submissionReference = String(body?.submission_reference || "").trim();
+            if (!submissionReference) return json({ error: "Submission reference is required" }, 400);
+            const result = await recordBrandTakedownSubmission(env, caseRow, {
+              actor_id: user.id,
+              submission_reference: submissionReference,
+              recipients: Array.isArray(body?.recipients) ? body.recipients : null,
+              note: body?.note ? String(body.note) : null,
+            });
+            if (!result.ok) return json({ error: result.error }, 400);
+            return json({ case: brandCaseToApi(result.case), events: await listBrandCaseEvents(env, wsId, caseId) });
+          }
+
+          if (action === "advance" && request.method === "POST") {
+            const body = await request.json().catch(() => null);
+            const target = String(body?.status || "").trim();
+            const result = await transitionBrandCase(env, caseRow, target, {
+              actor_type: "customer",
+              actor_id: user.id,
+              reason: body?.reason ? String(body.reason) : null,
+              action: "manual_advance",
+            });
+            if (!result.ok) return json({ error: result.error }, 400);
+            return json({ case: brandCaseToApi(result.case), events: await listBrandCaseEvents(env, wsId, caseId) });
+          }
         }
 
         if (brandCandidatesMatch) {
@@ -204,7 +289,27 @@ export async function brandRoutes(rctx) {
               description: `Classified brand candidate ${row.candidate_domain} as ${classification}`,
               metadata: brandClassificationAuditMetadata(row, previous, classification, candidate.risk_level),
             });
-            return json({ candidate });
+            let managedCase = null;
+            if (classification === "confirmed_abuse") {
+              const caseResult = await createBrandCaseForCandidateId(env, wsId, candidateId, { actor_id: user.id }).catch(() => null);
+              let caseRow = caseResult?.case || null;
+              if (caseRow?.status === "detected") {
+                const triage = await transitionBrandCase(env, caseRow, "triage", {
+                  actor_type: "customer", actor_id: user.id, action: "triage_started",
+                });
+                if (triage.ok) caseRow = triage.case;
+              }
+              if (caseRow?.status === "triage") {
+                const review = await reviewBrandCase(env, caseRow, {
+                  classification: "confirmed_abuse",
+                  reason: "Confirmed from brand candidate review.",
+                  actor_id: user.id,
+                });
+                if (review.ok) caseRow = review.case;
+              }
+              managedCase = caseRow ? brandCaseToApi(caseRow) : null;
+            }
+            return json({ candidate, managed_case: managedCase });
           }
         }
 
@@ -412,6 +517,7 @@ export async function brandRoutes(rctx) {
                       WHERE workspace_id = ? AND brand_profile_id IS NULL`)
             .bind(wsId, wsId).run();
         } catch { /* profile is optional */ }
+        const managedCases = await createBrandCasesForWorkspace(env, wsId).catch(() => ({ opened: 0 }));
 
         const activeResults  = validationResults.filter(v => v.dns_resolves);
         const highRiskActive = activeResults.filter(v => ['high', 'critical'].includes(v.risk_level)).length;
@@ -423,6 +529,7 @@ export async function brandRoutes(rctx) {
           candidates_checked: toValidate.length,
           active_domains:     activeResults.length,
           high_risk_active:   highRiskActive,
+          managed_cases_opened: managedCases.opened || 0,
           validated_at:       now,
           results:            activeResults,
         });

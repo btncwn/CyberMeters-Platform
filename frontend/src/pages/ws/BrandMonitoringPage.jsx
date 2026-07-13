@@ -303,11 +303,97 @@ const FILTERS = [
   { key: 'ignored',    label: 'Ignored' },
 ]
 
+const CASE_CHIP = {
+  detected: 'bg-amber-50 text-amber-700 border-amber-200',
+  triage: 'bg-amber-50 text-amber-700 border-amber-200',
+  confirmed_abuse: 'bg-red-50 text-red-700 border-red-200',
+  customer_approval: 'bg-blue-50 text-blue-700 border-blue-200',
+  evidence_ready: 'bg-brand-50 text-brand-700 border-brand-100',
+  takedown_submitted: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+  provider_followup: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+  verification_pending: 'bg-gray-50 text-gray-700 border-gray-200',
+  resolved: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  provider_no_response: 'bg-red-50 text-red-700 border-red-200',
+  reappeared: 'bg-red-50 text-red-700 border-red-200',
+}
+
+function ManagedBrandCases({ cases, busyId, onReview, onApprove, onSubmit }) {
+  if (!cases?.length) return null
+  return (
+    <section className="card p-5 mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
+        <div>
+          <span className="eyebrow">Managed takedown cases</span>
+          <h2 className="section-title mt-1">Brand abuse workflow</h2>
+          <p className="text-sm text-gray-500 mt-1 max-w-2xl">
+            Human review controls classification and approval. CyberMeters only marks removal after technical verification.
+          </p>
+        </div>
+        <span className="text-xs text-gray-400">{cases.length} active</span>
+      </div>
+      <div className="space-y-3">
+        {cases.map((c) => {
+          const status = String(c.status || '').replace(/_/g, ' ')
+          const bundleReady = c.evidence?.bundle
+          return (
+            <div key={c.id} className="rounded-xl border border-gray-200 p-4">
+              <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="mono text-sm font-semibold text-gray-900">{c.domain}</span>
+                    <span className={`inline-flex px-2 py-0.5 rounded-full border text-[11px] font-semibold ${CASE_CHIP[c.status] || 'bg-gray-50 text-gray-600 border-gray-200'}`}>
+                      {humanize(status)}
+                    </span>
+                    <RiskBadge level={c.severity} />
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Protected brand: <span className="mono">{c.asset_ref || '—'}</span>
+                    {c.evidence?.campaign_id ? <span> · Campaign linked</span> : null}
+                  </p>
+                  {bundleReady && (
+                    <div className="mt-3 rounded-lg bg-gray-50 border border-gray-100 p-3 text-xs text-gray-600">
+                      <p className="font-semibold text-gray-800">Evidence bundle ready</p>
+                      <p className="mt-1">DNS, registrar/provider contacts and abuse indicators are prepared for takedown submission.</p>
+                    </div>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-2 lg:justify-end">
+                  {c.status === 'detected' || c.status === 'triage' ? (
+                    <>
+                      <button disabled={busyId === c.id} onClick={() => onReview(c, 'confirmed_abuse')} className="btn-primary text-xs py-2 disabled:opacity-50">
+                        Confirm abuse
+                      </button>
+                      <button disabled={busyId === c.id} onClick={() => onReview(c, 'false_positive')} className="btn-secondary text-xs py-2 disabled:opacity-50">
+                        False positive
+                      </button>
+                    </>
+                  ) : null}
+                  {c.status === 'confirmed_abuse' || c.status === 'customer_approval' ? (
+                    <button disabled={busyId === c.id} onClick={() => onApprove(c)} className="btn-primary text-xs py-2 disabled:opacity-50">
+                      Approve takedown prep
+                    </button>
+                  ) : null}
+                  {c.status === 'evidence_ready' ? (
+                    <button disabled={busyId === c.id} onClick={() => onSubmit(c)} className="btn-primary text-xs py-2 disabled:opacity-50">
+                      Record submission
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
 export default function BrandMonitoringPage() {
   const { wsId, wsName } = useWorkspace()
   const [profile, setProfile]       = useState(null)
   const [summary, setSummary]       = useState(null)
   const [candidates, setCandidates] = useState([])
+  const [cases, setCases]           = useState([])
   const [loading, setLoading]       = useState(true)
   const [error, setError]           = useState(null)
   const [editing, setEditing]       = useState(false)
@@ -323,10 +409,11 @@ export default function BrandMonitoringPage() {
     if (!wsId) { setLoading(false); return }
     setLoading(true); setError(null)
     try {
-      const [p, s, c] = await Promise.allSettled([
+      const [p, s, c, mc] = await Promise.allSettled([
         api.getBrandProfile(wsId),
         api.getBrandSummary(wsId),
         api.getBrandCandidates(wsId, {}),
+        api.getBrandCases(wsId, {}),
       ])
       setProfile(p.status === 'fulfilled' ? (p.value?.profile ?? p.value ?? null) : null)
       setSummary(s.status === 'fulfilled' ? (s.value?.summary ?? s.value ?? null) : null)
@@ -338,6 +425,7 @@ export default function BrandMonitoringPage() {
         catch { cands = [] }
       }
       setCandidates((cands || []).map(normCandidate))
+      setCases(mc.status === 'fulfilled' ? (mc.value?.cases || []) : [])
     } catch (e) {
       setError(e.message)
     } finally {
@@ -369,6 +457,47 @@ export default function BrandMonitoringPage() {
     } catch (e) {
       if (e.status === 403) showToast('err', 'You need workspace management permission to classify brand risks.')
       else showToast('err', e.message || 'Could not update classification.')
+    } finally { setBusyId(null) }
+  }
+
+  async function handleCaseReview(caseRow, classification) {
+    const reason = classification === 'confirmed_abuse'
+      ? 'Confirmed from Brand Protection review.'
+      : 'Reviewed and marked as false positive.'
+    setBusyId(caseRow.id)
+    try {
+      await api.reviewBrandCase(wsId, caseRow.id, { classification, reason })
+      showToast('ok', 'Brand case updated.')
+      await load()
+    } catch (e) {
+      if (e.status === 403) showToast('err', 'You need workspace management permission to review brand cases.')
+      else showToast('err', e.message || 'Could not update brand case.')
+    } finally { setBusyId(null) }
+  }
+
+  async function handleCaseApprove(caseRow) {
+    setBusyId(caseRow.id)
+    try {
+      await api.approveBrandTakedown(wsId, caseRow.id, { reason: 'Approved for takedown preparation.' })
+      showToast('ok', 'Evidence bundle prepared.')
+      await load()
+    } catch (e) {
+      if (e.status === 403) showToast('err', 'You need workspace management permission to approve takedown prep.')
+      else showToast('err', e.message || 'Could not prepare evidence bundle.')
+    } finally { setBusyId(null) }
+  }
+
+  async function handleCaseSubmit(caseRow) {
+    const submission_reference = window.prompt('Submission reference from the registrar or provider')
+    if (!submission_reference?.trim()) return
+    setBusyId(caseRow.id)
+    try {
+      await api.recordBrandTakedownSubmission(wsId, caseRow.id, { submission_reference: submission_reference.trim() })
+      showToast('ok', 'Takedown submission recorded.')
+      await load()
+    } catch (e) {
+      if (e.status === 403) showToast('err', 'You need workspace management permission to record submissions.')
+      else showToast('err', e.message || 'Could not record takedown submission.')
     } finally { setBusyId(null) }
   }
 
@@ -465,6 +594,14 @@ export default function BrandMonitoringPage() {
           </div>
         </section>
       )}
+
+      <ManagedBrandCases
+        cases={cases}
+        busyId={busyId}
+        onReview={handleCaseReview}
+        onApprove={handleCaseApprove}
+        onSubmit={handleCaseSubmit}
+      />
 
       {/* 5 · Investigation queue */}
       <section ref={queueRef} id="typosquats" className="card overflow-hidden scroll-mt-20">

@@ -62,6 +62,7 @@ import { runDmarcAlertsSweep } from "./engines/dmarc-alerts.js";
 import { buildDmarcBusinessRisk, buildDmarcReportRemediationActions, buildDmarcSenderIntelligenceEvidence, cybermetersRuaPresentInDmarcRecord, loadBecExposureEvidence } from "./engines/sender-provenance.js";
 import { retryFailedAssetAlerts, sendAssetChangeAlert } from "./engines/asset-alert-delivery.js";
 import { sendWeeklyDigests } from "./engines/weekly-digest.js";
+import { runBrandTakedownFollowupSweep } from "./engines/brand-cases.js";
 import { calculateNextRun, checkReportLimit, checkScanLimit, checkScheduledScanLimit, computeScheduledReportNextRunAt, countEnabledScheduledScans, countReportsThisMonth, countScansThisMonth, generateWorkspaceExecutiveReport, getAccountUsage, getEntitlementUsage, getMonthResetAt, getMonthStart, getOwnedWorkspaceIds, getPlanContext, getPlanLimits, getPlanRetentionDays, getReportExpiresAt, getReportRetentionPolicyForWorkspace, getRetentionCutoff, getRetentionCutoffForDays, getUpgradeRecommendation, getWorkspaceBillingUserId, getWorkspaceOwnerId, getWorkspaceReportStorageMetrics, getWorkspaceRetentionSettings, normalizeReportScheduleFrequency, normalizeReportScheduleRecipients, planLimitExceeded, retentionDaysToPolicy, retentionPolicyToDays } from "./engines/plan-usage.js";
 import { TRIAL_PLAN, TRIAL_DURATION_DAYS, auditApiTokenSessionRouteDenied, createWorkspaceTrialSubscription, getPublicBillingPlans, getTrialRemainingDays, getWorkspaceSubscription, isSubscriptionActive, isTrialActive, parseCheckoutPlan } from "./engines/subscription-state.js";
 import { workspaceAnalyticsRoutes } from "./routes/workspace-analytics.js";
@@ -937,6 +938,7 @@ const SCAN_CHILD_TABLES = [
 // tracking). Kept in sync by `purge_covers_all_workspace_fk_tables`.
 const WORKSPACE_PURGE_TABLES = [
   "dmarc_aggregate_records", "dmarc_aggregate_reports", "email_sender_sources",
+  "brand_abuse_campaigns",
   "dmarc_ingest_endpoints", "workspace_brand_assets", "workspace_brand_profiles",
   "asset_events", "asset_alert_records", "workspace_assets",
   "managed_case_events", "managed_cases",
@@ -2159,6 +2161,7 @@ export default {
     retryPendingDomainVerifications,
     runHostedDnsVerificationSweep,
     runDmarcAlertsSweep,
+    runBrandTakedownFollowupSweep,
     triggerScheduledScan,
   }),
 
