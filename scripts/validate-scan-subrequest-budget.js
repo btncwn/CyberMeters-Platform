@@ -25,6 +25,12 @@
 // primitives must satisfy. Node 24+. CI-blocking.
 //
 
+import {
+  resolveScanCapacity, computeExposureCap, SubrequestBudget,
+  CRITICAL_PREFIXES_MANDATORY, CRITICAL_PREFIXES_OPTIONAL, deferredCapacityAsset,
+  makeDnsCache, dnsCacheKey, CAPACITY_DEFAULTS,
+} from "../workers/scan-api/src/engines/scan-budget.js";
+
 let pass = 0, fail = 0;
 const ok = (name, cond, detail = "") => { cond ? pass++ : fail++; if (!cond) console.log(`FAIL ${name}${detail ? " — " + detail : ""}`); };
 const eq = (name, got, want) => ok(name, got === want, `got ${JSON.stringify(got)} want ${JSON.stringify(want)}`);
@@ -253,6 +259,53 @@ function nHosts(n) {
   // admin_surface derived from exposure evidence → 0 additional
   eq("verification profile: ~3 subrequests (resolve + probe, C_h budget)", c.total <= 3, true);
   eq("verification: no CT/KEV/NVD/enrichment", (c.byCategory.ct || 0) + (c.byCategory.kev || 0) + (c.byCategory.nvd || 0), 0);
+}
+
+// ── Fixture I: production primitives satisfy the contract (Commit 2) ──────────
+{
+  const def = resolveScanCapacity({});
+  eq("prod: default limit 50", def.limit, 50);
+  eq("prod: default mode legacy", def.mode, "legacy");
+  eq("prod: safety margin 5", def.safetyMargin, 5);
+  eq("prod: per-host cost 2", def.perHostCost, PER_HOST_COST);
+  eq("prod: max redirect hops 3", def.maxProbeRedirectHops, MAX_PROBE_REDIRECT_HOPS);
+
+  const over = resolveScanCapacity({ SCAN_SUBREQUEST_LIMIT: "1000", SCAN_CAPACITY_MODE: "reserved" });
+  eq("prod: env limit override 1000", over.limit, 1000);
+  eq("prod: env mode reserved", over.mode, "reserved");
+  eq("prod: junk limit falls back to 50", resolveScanCapacity({ SCAN_SUBREQUEST_LIMIT: "abc" }).limit, 50);
+  eq("prod: unknown mode falls back to legacy", resolveScanCapacity({ SCAN_CAPACITY_MODE: "wild" }).mode, "legacy");
+
+  // computeExposureCap matches the reference plan for every CT state.
+  const c = resolveScanCapacity({});
+  eq("prod: cap CT hit = 5", computeExposureCap({ limit: c.limit, safetyMargin: c.safetyMargin, consumed: 35, perHostCost: c.perHostCost }), 5);
+  eq("prod: cap CT miss = 3", computeExposureCap({ limit: c.limit, safetyMargin: c.safetyMargin, consumed: 39, perHostCost: c.perHostCost }), 3);
+  eq("prod: cap over budget = 0", computeExposureCap({ limit: 50, safetyMargin: 5, consumed: 45, perHostCost: 2 }), 0);
+  eq("prod: cap limit 1000 large", computeExposureCap({ limit: 1000, safetyMargin: 5, consumed: 35, perHostCost: 2 }) >= 25, true);
+
+  // critical-prefix list is exactly the 8 mandatory.
+  eq("prod: 8 mandatory prefixes", CRITICAL_PREFIXES_MANDATORY.length, 8);
+  ok("prod: admin/login/portal/dashboard/manage/vpn/remote/api",
+     ["admin","login","portal","dashboard","manage","vpn","remote","api"].every((p) => CRITICAL_PREFIXES_MANDATORY.includes(p)));
+  ok("prod: optional prefixes present", CRITICAL_PREFIXES_OPTIONAL.includes("management") && CRITICAL_PREFIXES_OPTIONAL.includes("staging"));
+
+  // deferred_capacity state shape.
+  const d = deferredCapacityAsset("admin.example.com");
+  ok("prod: deferred_capacity is not-checked (reachable null, not false)",
+     d.reachable === null && d.probe_status === "deferred_capacity");
+
+  // SubrequestBudget ledger.
+  const b = new SubrequestBudget({ limit: 50, safetyMargin: 5 });
+  eq("prod: budget usable 45", b.usable(), 45);
+  b.spend("doh", 35);
+  eq("prod: budget remaining after core", b.remaining(), 10);
+  ok("prod: wouldExceed guards a 12-cost batch at 35 consumed", b.wouldExceed(12) === true);
+  ok("prod: 10-cost batch fits", b.wouldExceed(10) === false);
+
+  // DNS cache: resolve once.
+  const cache = makeDnsCache();
+  cache.set(dnsCacheKey("WWW.Example.com", "a"), { cached: true });
+  ok("prod: dns cache key is case-normalised", cache.has(dnsCacheKey("www.example.com", "A")));
 }
 
 console.log(`\nscan-subrequest-budget: ${pass} passed, ${fail} failed`);

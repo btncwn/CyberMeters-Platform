@@ -59,6 +59,9 @@ jobs:
       - name: Validate scan subrequest budget (counter + dynamic cap + CT-state ledgers)
         run: node scripts/validate-scan-subrequest-budget.js
 
+      - name: Validate scan-engine subrequest counter (faithful engine run, mocked fetch/D1/R2)
+        run: node scripts/validate-scan-engine-counter.js
+
       - name: Validate SSO nOAuth guard (single-tenant tid enforcement + email-link gate)
         run: node scripts/validate-sso-linking-guard.js
 

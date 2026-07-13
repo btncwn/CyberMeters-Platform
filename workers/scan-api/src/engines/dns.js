@@ -15,6 +15,23 @@ export async function dnsQuery(name, type) {
   return res.json();
 }
 
+// Single-resolver A lookup with an optional per-scan cache (dnsCacheKey format
+// "name|A"). Used by the critical-prefix discovery pass: strict — one resolver,
+// A-only, no cross-check — and budget-safe (never throws; returns null on failure).
+// The cache guarantees each (name,"A") is resolved at most once per scan.
+export async function dnsResolveACached(name, cache = null) {
+  const key = `${String(name).toLowerCase()}|A`;
+  if (cache && cache.has(key)) return cache.get(key);
+  let answer = null;
+  try {
+    answer = await dnsQuery(name, "A");
+  } catch {
+    answer = null;
+  }
+  if (cache) cache.set(key, answer);
+  return answer;
+}
+
 export async function dnsQueryDnssec(name, type) {
   const res = await fetch(
     `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}&do=1`,
