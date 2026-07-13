@@ -5,6 +5,23 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.13 (v2026.07.13-11 — SSRF scan-fetch hardening) — deployed 2026-07-13
+
+### Security (public-beta P0 #3a — from the pre-beta audit)
+- **SSRF-hardened scan fetches** (PR #52): the string input-gate only vetted the
+  initial user string; two vectors were mitigated only by the Cloudflare egress
+  backstop. `safeFetch` is now SSRF-aware at the single choke point every scan
+  module routes through — it validates the host on every hop and follows
+  redirects **manually**, refusing a mid-chain internal target (redirect-time
+  SSRF). New `lib/ssrf.js` classifier + `resolvesToPrivateIp` (A+AAAA,
+  fail-open); free-scan resolves the target and refuses private/reserved IPs at
+  the door (A-record SSRF). Behaviour-preserving for legit scans. No migration.
+  `validate-ssrf-scan-guard.js` (45). **Production-verified:** `example.com`
+  scans normally (4 modules, score 95); `localtest.me` (→127.0.0.1) and
+  `10-0-0-1.nip.io` (→10.0.0.1) are refused (400).
+- Live version **eea81821-d43c-4a7c-97e3-285869954f88**. Rollback:
+  **56e0b5f0-0005-415c-8f5e-95bbcfe53295**.
+
 ## 2026.07.13 (v2026.07.13-10 — P0 scheduled-scan burst cap + free-scan backstop) — deployed 2026-07-13
 
 ### Ops / security (public-beta P0 hardening — from the pre-beta audit)
