@@ -68,6 +68,9 @@ jobs:
       - name: Validate hosted DMARC lifecycle (pass-rate + readiness + auto-rollback runtime)
         run: node scripts/validate-hosted-dmarc-lifecycle.js
 
+      - name: Validate DMARC graduated-reject ramp (9-step ladder + tag diff + configurable thresholds)
+        run: node scripts/validate-dmarc-graduated-ramp.js
+
       - name: Validate hosted TLS-RPT (create/verify/delete + coexistence + isolation)
         run: node scripts/validate-hosted-tls-rpt.js
 

@@ -10,7 +10,7 @@ import { computeBecExposureScore } from "../engines/bec.js";
 import { assessImpactRollback, comparePolicyImpact, forecastPolicyImpact } from "../engines/dmarc-impact.js";
 import { dnsQuery } from "../engines/dns.js";
 import { normalizeDnsTxtValue, parseDmarcRecord } from "../engines/email-analysis.js";
-import { DMARC_RAMP_LADDER, HOSTED_DNS_ENTRY_SELECT, HOSTED_DNS_REMOVAL_GRACE_DAYS, REMEDIATION_REGISTRY, analyzeSpfChain, applyHostedDmarcChange, buildDmarcDnsRecommendedValue, buildMtaStsPolicy, buildMtaStsTxtValue, buildTlsRptValue, cfCreateHostedTxt, dmarcRampStepIndex, evaluateRampReadiness, getHostedDmarcPassRate, getRemediation, hostedCustomerRecordName, hostedDmarcSubdomain, hostedDnsRecordToApi, mxHostsFromDnsResponse, newHostedDnsRecordId, nextHostedDnsStatus, parseServerMsHosted, planAllowsHostedPolicyManagement, remediationToApi, rollbackHostedDmarc, verifyDmarcDnsSetup, verifyHostedDmarcRecord, verifyMtaStsHttpsPolicy } from "../engines/hosted-dmarc.js";
+import { DMARC_RAMP_LADDER, HOSTED_DNS_ENTRY_SELECT, HOSTED_DNS_REMOVAL_GRACE_DAYS, REMEDIATION_REGISTRY, analyzeSpfChain, applyHostedDmarcChange, buildDmarcDnsRecommendedValue, buildMtaStsPolicy, buildMtaStsTxtValue, buildTlsRptValue, cfCreateHostedTxt, dmarcRampStepIndex, evaluateRampReadiness, getHostedDmarcPassRate, getRemediation, hostedCustomerRecordName, hostedDmarcSubdomain, hostedDnsRecordToApi, mxHostsFromDnsResponse, newHostedDnsRecordId, nextHostedDnsStatus, parseServerMsHosted, planAllowsHostedPolicyManagement, remediationToApi, resolveRampThresholds, rollbackHostedDmarc, verifyDmarcDnsSetup, verifyHostedDmarcRecord, verifyMtaStsHttpsPolicy } from "../engines/hosted-dmarc.js";
 import { auditDmarcRouteResult, buildDmarcEnforcementReadiness, configureDmarcEndpointRoute, emailSenderToApi, generateInboundLocalpart, generateIngestToken, hashIngestToken, ingestEndpointToApi, loadEmailSenderSources, persistDmarcRouteResult, resolveWorkspaceDomain, safelyEnsureCloudflareEmailRoute, safelyRevokeCloudflareEmailRoute, summarizeEmailSenders } from "../engines/rua-routing.js";
 import { buildDmarcBusinessRisk, buildDmarcReportRemediationActions, loadBecExposureEvidence } from "../engines/sender-provenance.js";
 import { RUA_INBOUND_DOMAIN_DEFAULT, ingestDmarcReport, normalizeInboundRecipientDomain, parseEmailAuthHeaders } from "../lib/dmarc-ingest.js";
@@ -298,7 +298,7 @@ export async function emailProtectionRoutes(rctx) {
             pass_rate: rate.pass_rate,
             total_messages: rate.total,
             days_since_change: changeMs != null ? Math.floor((Date.now() - changeMs) / 86400000) : null,
-          });
+          }, resolveRampThresholds(env));
           const impactState = await buildHostedDmarcImpactState(env, workspaceId, domain, existing);
           return json({
             record: impactState.record,
@@ -323,7 +323,7 @@ export async function emailProtectionRoutes(rctx) {
           const targetIdx = DMARC_RAMP_LADDER.findIndex((s) => s.policy === policy
             && (policy === "none" || s.pct === pct));
           if (targetIdx < 0) {
-            return json({ error: "Choose a ladder step: none, quarantine (pct 5/25/50/100), or reject." }, 400);
+            return json({ error: "Choose a ladder step: none, quarantine (pct 5/25/50/100), or reject (pct 10/25/50/100)." }, 400);
           }
           const currentIdx = dmarcRampStepIndex(existing.current_value);
           const tightening = targetIdx > currentIdx;
@@ -334,7 +334,7 @@ export async function emailProtectionRoutes(rctx) {
               pass_rate: rate.pass_rate,
               total_messages: rate.total,
               days_since_change: changeMs != null ? Math.floor((Date.now() - changeMs) / 86400000) : null,
-            });
+            }, resolveRampThresholds(env));
             const projectedImpact = await forecastPolicyImpact(env, workspaceId, domain, {
               targetPolicy: policy,
               targetPct: pct,

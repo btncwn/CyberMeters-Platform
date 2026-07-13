@@ -2028,7 +2028,7 @@ function ManagedDmarcCard({ wsId, domain, endpointReady }) {
 
               {/* Ladder track — generous, legible steps */}
               <div className="flex items-stretch gap-1.5 overflow-x-auto pb-1">
-                {['Monitor', 'Quarantine 5%', 'Quarantine 25%', 'Quarantine 50%', 'Quarantine', 'Reject'].map((label, i) => {
+                {['Monitor', 'Quarantine 5%', 'Quarantine 25%', 'Quarantine 50%', 'Quarantine', 'Reject 10%', 'Reject 25%', 'Reject 50%', 'Reject'].map((label, i) => {
                   const state = i === rec.policy_step.index ? 'current' : i < rec.policy_step.index ? 'done' : 'future'
                   return (
                     <div key={label} className={`flex-1 min-w-[92px] rounded-xl border px-3 py-2.5 text-center ${
