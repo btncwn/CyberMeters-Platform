@@ -8,6 +8,7 @@
 import { RUA_INBOUND_DOMAIN_DEFAULT, normalizeInboundRecipientDomain } from "../lib/dmarc-ingest.js";
 import { createAuditEvent } from "../lib/events.js";
 import { deliverWorkspaceAlert } from "./alerts.js";
+import { assessImpactRollback, comparePolicyImpact } from "./dmarc-impact.js";
 import { dnsQuery } from "./dns.js";
 import { normalizeDnsTxtValue, parseDmarcRecord, parseSpfRecord } from "./email-analysis.js";
 import { fetchMtaSts } from "./email-intel.js";
@@ -536,6 +537,38 @@ export async function runHostedDnsVerificationSweep(env, {
       // advances the ladder only when the pass-rate interlock holds.
       if (next === "connected" && row.cf_record_id && !withinChangeGrace) {
         const rate = await getHostedDmarcPassRate(env, row.workspace_id, row.domain);
+        let impactAssessment = null;
+        if (row.last_change_at) {
+          try {
+            const comparison = await comparePolicyImpact(env, row.workspace_id, row.domain, { changeAt: row.last_change_at, now });
+            impactAssessment = assessImpactRollback(comparison);
+            if (impactAssessment.rollbackRecommended) {
+              const recent = await env.cybermeters_db
+                .prepare(`SELECT id FROM audit_events
+                          WHERE workspace_id = ? AND entity_id = ?
+                            AND event_type = 'hosted_dmarc_impact_regression'
+                            AND created_at >= datetime('now', '-1 day')
+                          LIMIT 1`)
+                .bind(row.workspace_id, row.id).first();
+              if (!recent) {
+                await createAuditEvent(env, {
+                  workspace_id: row.workspace_id,
+                  event_type: "hosted_dmarc_impact_regression", entity_type: "hosted_dns_record", entity_id: row.id,
+                  description: `Hosted DMARC impact monitor recommends review for ${row.domain}`,
+                  metadata: { domain: row.domain, assessment: impactAssessment },
+                });
+                try {
+                  await deliverWorkspaceAlert(env, row.workspace_id, {
+                    kind: "hosted_dmarc_impact_regression", severity: impactAssessment.severity || "medium",
+                    title: `DMARC impact review recommended for ${row.domain}`,
+                    summary: impactAssessment.triggers?.[0] || "Legitimate mail failures increased after a managed DMARC policy change.",
+                    domain: row.domain,
+                  });
+                } catch { /* alerting is best-effort */ }
+              }
+            }
+          } catch { impactAssessment = null; }
+        }
         if (row.previous_value && row.pass_rate_at_change != null &&
             shouldAutoRollback({
               baseline_pass_rate: Number(row.pass_rate_at_change),
