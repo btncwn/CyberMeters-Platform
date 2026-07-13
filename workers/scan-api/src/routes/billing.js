@@ -14,7 +14,9 @@ import { BILLING_PLAN_METADATA, getPaymentGraceState, getPlanFeatures, normalize
 import { getPlanLimits, getWorkspaceBillingUserId } from "../engines/plan-usage.js";
 import { getStripePriceIdForPlan, validateStripeSecretConfig } from "../engines/stripe.js";
 import { TRIAL_PLAN, auditApiTokenSessionRouteDenied, getPublicBillingPlans, getTrialRemainingDays, getWorkspaceSubscription, isSubscriptionActive, isTrialActive, parseCheckoutPlan } from "../engines/subscription-state.js";
+import { dnsQuery } from "../engines/dns.js";
 import { createAuditEvent } from "../lib/events.js";
+import { resolvesToPrivateIp } from "../lib/ssrf.js";
 import { createId, isValidDomain } from "../lib/util.js";
 
 export async function billingRoutes(rctx) {
@@ -48,6 +50,14 @@ export async function billingRoutes(rctx) {
       // Block obviously internal / reserved domains
       const BLOCKED_DOMAINS = ["localhost", "127.0.0.1", "0.0.0.0", "local"];
       if (BLOCKED_DOMAINS.some(b => domain === b || domain.endsWith("." + b))) {
+        return json({ error: "That domain cannot be scanned" }, 400);
+      }
+
+      // SSRF: the string gate never resolves DNS, so a public-looking domain
+      // whose A/AAAA record points at an internal address would otherwise be
+      // fetched. Resolve first and refuse private/reserved targets. (Redirect-
+      // time SSRF is handled per-hop inside safeFetch.)
+      if (await resolvesToPrivateIp(domain, dnsQuery)) {
         return json({ error: "That domain cannot be scanned" }, 400);
       }
 
