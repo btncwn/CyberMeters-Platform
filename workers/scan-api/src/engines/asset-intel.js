@@ -71,29 +71,44 @@ function isSubrequestBudgetError(err) {
   return /too many subrequests/i.test(err?.message || "");
 }
 
+// Default probe fetcher — the exact pre-existing legacy behaviour: native
+// redirect:"follow", GET, 8s timeout. Legacy callers (probeAsset(host)) get this
+// unchanged. The reserved path injects an SSRF-safe capped-redirect fetcher instead.
+function defaultProbeFetch(url) {
+  return fetch(url, {
+    method:   "GET",
+    redirect: "follow",
+    signal:   AbortSignal.timeout(8_000),
+  });
+}
+
 /**
  * Probe a single host over HTTPS (with HTTP fallback) and return exposure metadata.
  * Never throws. Returns reachable:false on a genuine network failure, or a
  * not-executed record (reachable:null) when the Worker subrequest budget was
  * exhausted before the host could be probed.
+ *
+ * opts.fetcher (optional) overrides the outbound fetch. It must return a Response,
+ * or null to signal the target was refused (e.g. reserved SSRF guard). Omit it and
+ * behaviour is byte-identical to the legacy native fetch.
  */
-export async function probeAsset(host) {
+export async function probeAsset(host, opts = {}) {
+  const fetcher = typeof opts.fetcher === "function" ? opts.fetcher : defaultProbeFetch;
   let budgetExhausted = false;   // a probe attempt was starved, not genuinely failed
   for (const proto of ["https", "http"]) {
     const url = `${proto}://${host}`;
     let res = null;
     try {
-      res = await fetch(url, {
-        method:   "GET",
-        redirect: "follow",
-        signal:   AbortSignal.timeout(8_000),
-      });
+      res = await fetcher(url);
     } catch (err) {
       // Timeout or network error — try HTTP fallback. Distinguish a genuine failure
       // from subrequest-budget exhaustion (the latter means we never really checked).
       if (isSubrequestBudgetError(err)) budgetExhausted = true;
       continue;
     }
+    // A fetcher may return null to refuse a target (reserved SSRF guard); the legacy
+    // defaultProbeFetch never returns null, so this is a no-op for legacy.
+    if (!res) continue;
 
     const status      = res.status;
     const reachable   = status < 500;
@@ -352,7 +367,7 @@ export function assetFingerprintSignals(asset) {
  * lightweight exposure metadata (status, title, server header, tech stack).
  * Cap at 50 subdomains for v1.
  */
-export async function runExposureModule(domain, subdomains) {
+export async function runExposureModule(domain, subdomains, opts = {}) {
   const source = "http_probe";
 
   if (!subdomains || subdomains.length === 0) {
@@ -361,8 +376,10 @@ export async function runExposureModule(domain, subdomains) {
 
   const targets = subdomains.slice(0, 50);
 
-  // All probes run in parallel; individual failures return reachable:false records
-  const settled = await Promise.allSettled(targets.map((host) => probeAsset(host)));
+  // All probes run in parallel; individual failures return reachable:false records.
+  // opts (e.g. opts.fetcher for the reserved SSRF-safe prober) is passed through; the
+  // legacy caller passes nothing, so probeAsset uses its default native fetcher.
+  const settled = await Promise.allSettled(targets.map((host) => probeAsset(host, opts)));
 
   const assets = settled
     .filter((r) => r.status === "fulfilled")

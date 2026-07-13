@@ -1,0 +1,159 @@
+// ── Reserved-mode scan orchestration (Tier-1, SCAN_CAPACITY_MODE=reserved) ─────
+// A separated flow that runs the customer-critical ASSET EXPOSURE probe FIRST — before
+// the heavy DNS-posture / DKIM-sweep / CT / brute-force modules can consume the ~50-class
+// Worker subrequest budget — then runs the remaining modules only if the runtime budget
+// still permits. The legacy path (default) does not import or execute any of this.
+//
+// Order:  minimal root/www DNS → critical-prefix A lookups → dedupe + prioritise
+//         → RESERVED ASSET EXPOSURE (SSRF-safe prober, live-metered) → admin_surface
+//         (derived downstream, zero network) → remaining modules only if budget permits.
+//
+// A module that does not fit is SKIPPED before issuing any fetch and reported honestly
+// ({skipped:true, skip_reason:"subrequest_budget"}) — never a fake clean / zero result.
+// Design: docs/SCAN-SUBREQUEST-CAPACITY-FIX-BRIEF.md (f226790).
+import { customerSafeFailure } from "../lib/errors.js";
+import { annotateExposureInfrastructure, deduplicateExposureAssets, runExposureModule } from "./asset-intel.js";
+import { dnsResolveACached } from "./dns.js";
+import { runDnsModule } from "./dns-scan.js";
+import { runEmailModule } from "./email-scan.js";
+import { runHeadersModule } from "./headers-scan.js";
+import { makeReservedProbeFetch } from "./reserved-probe.js";
+import {
+  CRITICAL_PREFIXES_MANDATORY, MODULE_SUBREQUEST_COST, SubrequestBudget,
+  computeExposureCap, deferredCapacityAsset, skippedModuleResult,
+} from "./scan-budget.js";
+import { runSslModule } from "./ssl-scan.js";
+import { filterWildcardBruteforceResults, runBruteforceModule, runSubdomainsModule } from "./subdomains-scan.js";
+import { runTakeoverModule } from "./takeover-scan.js";
+import { runTechModule } from "./tech-scan.js";
+import { runWhoisModule } from "./whois-scan.js";
+
+function hasAnswer(ans) { return !!ans && Array.isArray(ans.Answer) && ans.Answer.length > 0; }
+
+// ── Discovery + priority helpers (also unit-tested directly) ──────────────────
+export async function runCriticalPrefixDiscovery(domain, cache, prefixes = CRITICAL_PREFIXES_MANDATORY) {
+  const items = [];
+  for (const prefix of prefixes) {
+    const host = `${prefix}.${domain}`;
+    const ans = await dnsResolveACached(host, cache);
+    if (hasAnswer(ans)) items.push(host);
+  }
+  return { source: "critical_prefix_dns", checked: prefixes.length, found: items.length, items };
+}
+
+export function prioritiseExposureHosts(domain, { criticalHits = [], ctHosts = [], bruteHosts = [] } = {}) {
+  const ordered = [];
+  const seen = new Set();
+  const add = (host, src) => {
+    const key = String(host || "").toLowerCase();
+    if (key && !seen.has(key)) { seen.add(key); ordered.push({ host, src }); }
+  };
+  add(domain, "root");
+  add(`www.${domain}`, "www");
+  for (const h of criticalHits) add(h, "critical_prefix");
+  for (const h of ctHosts) add(h, "ct");
+  for (const h of bruteHosts) add(h, "brute");
+  return ordered;
+}
+
+// Reserved exposure: probe up to the dynamic cap by priority; overflow → deferred_capacity.
+export async function runReservedExposureModule(domain, orderedHosts, { cap, fetcher }) {
+  const safeCap = Math.max(0, cap | 0);
+  const toProbe = orderedHosts.slice(0, safeCap);
+  const overflow = orderedHosts.slice(safeCap);
+
+  const probed = await runExposureModule(domain, toProbe.map((h) => h.host), { fetcher });
+  const deferred = overflow.map((h) => deferredCapacityAsset(h.host, "projected_subrequest_budget"));
+  const assets = [...(probed.assets || []), ...deferred];
+  const incompleteFromProbe = probed.incomplete === true;
+  const incomplete = incompleteFromProbe || deferred.length > 0;
+
+  return {
+    ...probed,
+    assets,
+    checked: orderedHosts.length,
+    reachable: assets.filter((a) => a.reachable === true).length,
+    host_cap: safeCap,
+    deferred_capacity_count: deferred.length,
+    ...(incomplete ? {
+      incomplete: true,
+      incomplete_reason: incompleteFromProbe ? (probed.incomplete_reason || "subrequest_budget_exhausted") : "projected_subrequest_budget",
+      notice: probed.notice || "Some external exposure checks could not complete. Results may be incomplete.",
+    } : {}),
+  };
+}
+
+// Gate a post-exposure module: run it only if its estimated cost fits the remaining
+// budget; otherwise SKIP it before any fetch and report honestly.
+async function gateModule(budget, name, run, skipExtra = {}) {
+  const cost = MODULE_SUBREQUEST_COST[name] ?? 8;
+  if (budget.wouldExceed(cost)) return skippedModuleResult(name, skipExtra);
+  budget.spend(name, cost);
+  try { return await run(); }
+  catch (err) { return { error: customerSafeFailure(`scan/${name}`, err, `${name} module failed`) }; }
+}
+
+// ── Full reserved scan: produces the complete network-module set (real or skipped) ──
+export async function runReservedScan(domain, { capacity }) {
+  const budget = new SubrequestBudget({ limit: capacity.limit, safetyMargin: capacity.safetyMargin });
+  const dnsCache = new Map();
+
+  // Stage 1: minimal root/www discovery (A only) — enough to know the domain resolves
+  // and to seed the exposure list + the shared cache. ~2 calls.
+  const rootA = await dnsResolveACached(domain, dnsCache);           budget.spend("discovery");
+  await dnsResolveACached(`www.${domain}`, dnsCache);                budget.spend("discovery");
+  const resolves = hasAnswer(rootA);
+
+  // Stage 2: critical-prefix discovery (deterministic, CT-independent). 8 A lookups.
+  const criticalPrefixResult = await runCriticalPrefixDiscovery(domain, dnsCache);
+  budget.spend("critical_prefix", criticalPrefixResult.checked);
+
+  // Stage 3: prioritise (root → www → critical). CT is NOT here — it is post-exposure.
+  const ordered = prioritiseExposureHosts(domain, { criticalHits: criticalPrefixResult.items });
+
+  // Stage 4: RESERVED EXPOSURE, live-metered (each real prober fetch decrements budget).
+  const consumedBeforeExposure = budget.consumed;
+  const cap = computeExposureCap({ limit: capacity.limit, safetyMargin: capacity.safetyMargin, consumed: consumedBeforeExposure, perHostCost: capacity.perHostCost });
+  const fetcher = makeReservedProbeFetch({ cache: dnsCache, maxHops: capacity.maxProbeRedirectHops, onOutbound: () => budget.spend("exposure") });
+  let assetExposureResult = await runReservedExposureModule(domain, ordered, { cap, fetcher });
+
+  // Stage 6: remaining modules, budget-gated (customer-critical exposure already done).
+  const dns                  = await gateModule(budget, "dns", () => runDnsModule(domain), { resolves });
+  const ssl                  = await gateModule(budget, "ssl", () => runSslModule(domain));
+  const headers              = await gateModule(budget, "headers", () => runHeadersModule(domain));
+  const email_security       = await gateModule(budget, "email_security", () => runEmailModule(domain));
+  const subdomains           = await gateModule(budget, "subdomains", () => runSubdomainsModule(domain), { count: 0, items: [], wildcard_dns: false, wildcard_dns_addresses: [] });
+  const technology_detection = await gateModule(budget, "technology_detection", () => runTechModule(domain));
+  const whois_intelligence   = await gateModule(budget, "whois_intelligence", () => runWhoisModule(domain));
+
+  // Takeover + brute-force use the discovered host list.
+  const ctItems = Array.isArray(subdomains?.items) ? subdomains.items : [];
+  const ctSet = new Set(ctItems.map((h) => String(h).toLowerCase()));
+  const mergedSubdomainItems = [
+    ...ctItems,
+    ...criticalPrefixResult.items.filter((h) => !ctSet.has(String(h).toLowerCase())),
+  ];
+  const subdomain_takeover = await gateModule(budget, "subdomain_takeover", () => runTakeoverModule(domain, mergedSubdomainItems), { checked: 0, potential_risks: 0, risks: [] });
+  const dns_bruteforce = await gateModule(budget, "dns_bruteforce", async () => {
+    const raw = await runBruteforceModule(domain);
+    return filterWildcardBruteforceResults(raw, subdomains?.wildcard_dns_addresses || []);
+  }, { checked: 0, found: 0, items: [] });
+
+  // Annotate + dedupe exposure now that takeover cname_observations are available.
+  assetExposureResult = annotateExposureInfrastructure(assetExposureResult, subdomain_takeover?.cname_observations);
+  assetExposureResult = deduplicateExposureAssets(assetExposureResult, domain);
+  assetExposureResult.projected_consumed = consumedBeforeExposure;
+  assetExposureResult.exposure_budget = Math.max(0, budget.usable() - consumedBeforeExposure);
+
+  return {
+    resolves,
+    modules: {
+      dns, ssl, headers, email_security, subdomains, technology_detection, whois_intelligence,
+      subdomain_takeover, dns_bruteforce,
+      asset_exposure: assetExposureResult,
+      critical_prefix_discovery: criticalPrefixResult,
+    },
+    mergedSubdomainItems,
+    budget,
+  };
+}

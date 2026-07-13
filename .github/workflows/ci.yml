@@ -62,6 +62,15 @@ jobs:
       - name: Validate scan-engine subrequest counter (faithful engine run, mocked fetch/D1/R2)
         run: node scripts/validate-scan-engine-counter.js
 
+      - name: Validate reserved-mode scan (exposure-first + budget-gated modules)
+        run: node scripts/validate-reserved-scan.js
+
+      - name: Validate scan-engine hard-50 (reserved reaches exposure within a 50 ceiling)
+        run: node scripts/validate-scan-engine-hard50.js
+
+      - name: Validate reserved prober SSRF (per-hop revalidation + rebinding + redirect matrix)
+        run: node scripts/validate-reserved-probe-ssrf.js
+
       - name: Validate SSO nOAuth guard (single-tenant tid enforcement + email-link gate)
         run: node scripts/validate-sso-linking-guard.js
 

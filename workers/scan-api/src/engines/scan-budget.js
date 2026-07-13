@@ -51,6 +51,32 @@ export function computeExposureCap({ limit, safetyMargin, consumed, perHostCost 
   return Math.max(0, Math.floor(exposureBudget / perHostCost));
 }
 
+// Conservative per-module external-subrequest cost, used to gate post-exposure modules:
+// a module only runs if its cost fits the remaining budget, else it is skipped BEFORE
+// issuing any fetch. These are upper-bounds for the typical fan-out (a bot-challenge /
+// heavy-redirect path can exceed them — the safety margin + honest degradation absorb
+// that). The live meter measures discovery + exposure exactly; these estimate the rest.
+export const MODULE_SUBREQUEST_COST = Object.freeze({
+  dns:                  18,   // full DNS posture (A/AAAA/MX/NS/TXT/DMARC/CAA + cross-checks)
+  ssl:                  6,
+  headers:              6,
+  email_security:       24,   // SPF/DMARC/BIMI + DKIM selector sweep
+  subdomains:           6,    // CT: crt.sh + CertSpotter + wildcard
+  technology_detection: 4,
+  whois_intelligence:   4,
+  subdomain_takeover:   12,
+  dns_bruteforce:       24,
+  cve:                  4,
+  kev:                  4,
+  cloud_storage:        12,
+});
+
+// Honest "not run because exposure consumed its reserved budget" module result — never
+// a fake clean/zero-findings result. Represented in scan_quality/modules_skipped/warnings.
+export function skippedModuleResult(source, extra = {}) {
+  return { skipped: true, skip_reason: "subrequest_budget", source, ...extra };
+}
+
 // Runtime subrequest ledger. spend() accrues consumption per category; wouldExceed()
 // lets a stage refuse to start an over-budget batch (honest skip) before issuing I/O.
 export class SubrequestBudget {

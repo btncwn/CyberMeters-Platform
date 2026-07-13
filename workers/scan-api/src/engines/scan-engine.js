@@ -32,6 +32,8 @@ import { runHeadersModule } from "./headers-scan.js";
 import { runHistoricalModule } from "./historical-scan.js";
 import { runIdentityDiscoveryModule } from "./identity-scan.js";
 import { recordPostureEvents } from "./posture-events.js";
+import { runReservedScan } from "./reserved-scan.js";
+import { MODULE_SUBREQUEST_COST, resolveScanCapacity, skippedModuleResult } from "./scan-budget.js";
 import { computeScore, isEmailApplicable } from "./scoring.js";
 import { runSslModule } from "./ssl-scan.js";
 import { BRUTEFORCE_MAX_NAMES, filterWildcardBruteforceResults, runBruteforceModule, runSubdomainsModule } from "./subdomains-scan.js";
@@ -127,12 +129,25 @@ export function buildScanQuality(modules = {}) {
     warnings.push(`Module incomplete: ${name}`);
   }
 
+  // Reserved mode: a module explicitly skipped because exposure consumed its reserved
+  // subrequest budget ({skipped:true, skip_reason:"subrequest_budget"}) is honest
+  // absence, never a clean result. List it as skipped + warn; a skipped CORE module
+  // (dns/ssl/headers/email) degrades the scan to "partial". Legacy never sets skipped.
+  const budgetSkippedModules = Object.entries(modules)
+    .filter(([, value]) => value?.skipped === true)
+    .map(([name]) => name);
+  for (const name of budgetSkippedModules) {
+    if (!modulesSkipped.includes(name)) modulesSkipped.push(name);
+    warnings.push(`Module skipped (subrequest budget): ${name}`);
+  }
+  const coreBudgetSkipped = budgetSkippedModules.filter((n) => coreModules.includes(n));
+
   // Only warn on real core module failures.
   for (const name of coreIncomplete) {
     warnings.push(`Core module incomplete: ${name}`);
   }
 
-  const status = (coreIncomplete.length > 0 || incompleteModules.length > 0)
+  const status = (coreIncomplete.length > 0 || incompleteModules.length > 0 || coreBudgetSkipped.length > 0)
     ? "partial"
     : (warnings.length > 0 || modulesSkipped.length > 0 ? "degraded" : "complete");
 
@@ -158,111 +173,102 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env) 
       .bind(scanId)
       .run();
 
-    // Phase 1: Run the 8 core modules in parallel.
-    // • Subdomain discovery: 15s hard cap (parallel crt.sh 12s + CertSpotter 8s + wildcard DNS)
-    // • DNS brute-force: 8s hard cap, runs concurrently — results merged after phase completes
-    // • WHOIS uses RDAP (HTTP+JSON) — 12s timeout, fully non-blocking.
-    const [dnsSettled, sslSettled, headersSettled, emailSettled, subdomainsSettled, techSettled, whoisSettled, bruteforceSettled] =
-      await Promise.allSettled([
-        runDnsModule(domain),
-        runSslModule(domain),
-        runHeadersModule(domain),
-        runEmailModule(domain),
-        runSubdomainsModule(domain),
-        runTechModule(domain),
-        runWhoisModule(domain),
-        runBruteforceModule(domain),
-      ]);
+    // Capacity mode (default "legacy" — the legacy branch below is byte-for-byte the
+    // prior behaviour). "reserved" runs the separated exposure-first flow.
+    const capacity = resolveScanCapacity(env);
+    const reservedMode = capacity.mode === "reserved";
 
-    const subdomainsResult = subdomainsSettled.status === "fulfilled"
-      ? subdomainsSettled.value
-      : { count: 0, items: [], sensitive: [], source: "certificate_transparency_multi_source",
-          sources: { crt_sh: { count: 0, error: "module rejected" }, certspotter: { count: 0, error: "module rejected" } },
-          wildcard_dns: false, wildcard_dns_addresses: [], wildcard_test_host: null, wildcard_warning: null,
-          error: customerSafeFailure("scan/subdomains", subdomainsSettled.reason, "Subdomain module failed") };
+    // Network module results — set by whichever path runs; both produce the same shape
+    // so the modules object and everything downstream are identical.
+    let dnsResult, sslResult, headersResult, emailResult, subdomainsResult,
+        techResult, whoisResult, bruteforceResult, takeoverResult, assetExposureResult;
+    let criticalPrefixResult = null;
+    let reservedBudget = null;
 
-    const rawBruteforceResult = bruteforceSettled.status === "fulfilled"
-      ? bruteforceSettled.value
-      : { checked: 0, found: 0, items: [], source: "dns_bruteforce",
-          error: customerSafeFailure("scan/dns-bruteforce", bruteforceSettled.reason, "Brute-force module failed") };
-    const bruteforceResult = filterWildcardBruteforceResults(
-      rawBruteforceResult,
-      subdomainsResult.wildcard_dns_addresses
-    );
+    if (reservedMode) {
+      // ── Reserved path (isolated in reserved-scan.js): customer-critical ASSET
+      // EXPOSURE runs FIRST within a live-metered budget; the remaining modules run
+      // only if the runtime budget permits and are otherwise SKIPPED honestly. Never
+      // starves exposure. admin_surface is derived downstream (zero network). ──
+      const reserved = await runReservedScan(domain, { capacity });
+      const m = reserved.modules;
+      dnsResult = m.dns; sslResult = m.ssl; headersResult = m.headers; emailResult = m.email_security;
+      subdomainsResult = m.subdomains; techResult = m.technology_detection; whoisResult = m.whois_intelligence;
+      bruteforceResult = m.dns_bruteforce; takeoverResult = m.subdomain_takeover;
+      assetExposureResult = m.asset_exposure; criticalPrefixResult = m.critical_prefix_discovery;
+      reservedBudget = reserved.budget;
+    } else {
+      // ── Legacy path (unchanged): 8 core modules in parallel, then takeover, then
+      // asset exposure over the merged (CT + brute-force) subdomain list. ──
+      const [dnsSettled, sslSettled, headersSettled, emailSettled, subdomainsSettled, techSettled, whoisSettled, bruteforceSettled] =
+        await Promise.allSettled([
+          runDnsModule(domain),
+          runSslModule(domain),
+          runHeadersModule(domain),
+          runEmailModule(domain),
+          runSubdomainsModule(domain),
+          runTechModule(domain),
+          runWhoisModule(domain),
+          runBruteforceModule(domain),
+        ]);
 
-    // Merge brute-force finds into the subdomain item list (deduplicated).
-    // Takeover and exposure modules receive the enriched list.
-    const ctHostnames = new Set(subdomainsResult.items);
-    const bruteNewItems = (bruteforceResult.items || [])
-      .filter((item) => item.wildcard_match !== true)
-      .map((i) => i.hostname)
-      .filter((h) => h && !ctHostnames.has(h));
-    const mergedSubdomainItems = [...subdomainsResult.items, ...bruteNewItems];
+      dnsResult = dnsSettled.status === "fulfilled" ? dnsSettled.value : { error: customerSafeFailure("scan/dns", dnsSettled.reason, "DNS module failed") };
+      sslResult = sslSettled.status === "fulfilled" ? sslSettled.value : { error: customerSafeFailure("scan/ssl", sslSettled.reason, "SSL module failed") };
+      headersResult = headersSettled.status === "fulfilled" ? headersSettled.value : { error: customerSafeFailure("scan/headers", headersSettled.reason, "Headers module failed") };
+      emailResult = emailSettled.status === "fulfilled" ? emailSettled.value : { error: customerSafeFailure("scan/email", emailSettled.reason, "Email module failed") };
+      subdomainsResult = subdomainsSettled.status === "fulfilled"
+        ? subdomainsSettled.value
+        : { count: 0, items: [], sensitive: [], source: "certificate_transparency_multi_source",
+            sources: { crt_sh: { count: 0, error: "module rejected" }, certspotter: { count: 0, error: "module rejected" } },
+            wildcard_dns: false, wildcard_dns_addresses: [], wildcard_test_host: null, wildcard_warning: null,
+            error: customerSafeFailure("scan/subdomains", subdomainsSettled.reason, "Subdomain module failed") };
+      techResult = techSettled.status === "fulfilled" ? techSettled.value : { error: customerSafeFailure("scan/technology", techSettled.reason, "Technology module failed") };
+      whoisResult = whoisSettled.status === "fulfilled" ? whoisSettled.value : { error: customerSafeFailure("scan/whois", whoisSettled.reason, "WHOIS module failed") };
 
-    // Phase 2: Takeover detection — uses merged (CT + brute-force) subdomain list.
-    let takeoverResult;
-    try {
-      takeoverResult = await runTakeoverModule(domain, mergedSubdomainItems);
-    } catch (err) {
-      takeoverResult = { checked: 0, potential_risks: 0, risks: [], source: "subdomain_cname_fingerprint", error: customerSafeFailure("scan/takeover", err, "Takeover module failed") };
-    }
+      const rawBruteforceResult = bruteforceSettled.status === "fulfilled"
+        ? bruteforceSettled.value
+        : { checked: 0, found: 0, items: [], source: "dns_bruteforce",
+            error: customerSafeFailure("scan/dns-bruteforce", bruteforceSettled.reason, "Brute-force module failed") };
+      bruteforceResult = filterWildcardBruteforceResults(rawBruteforceResult, subdomainsResult.wildcard_dns_addresses);
 
-    // Phase 3: Asset exposure probing — HTTP/HTTPS reachability + metadata.
-    // Runs after takeover (sequential) to bound total concurrent I/O.
-    let assetExposureResult;
-    try {
-      assetExposureResult = await runExposureModule(domain, mergedSubdomainItems);
-      assetExposureResult = annotateExposureInfrastructure(
-        assetExposureResult,
-        takeoverResult.cname_observations
-      );
-      assetExposureResult = deduplicateExposureAssets(assetExposureResult, domain);
-    } catch (err) {
-      assetExposureResult = {
-        checked:   0,
-        reachable: 0,
-        assets:    [],
-        source:    "http_probe",
-        error:     customerSafeFailure("scan/asset-exposure", err, "Asset exposure module failed"),
-      };
+      const ctHostnames = new Set(subdomainsResult.items);
+      const bruteNewItems = (bruteforceResult.items || [])
+        .filter((item) => item.wildcard_match !== true)
+        .map((i) => i.hostname)
+        .filter((h) => h && !ctHostnames.has(h));
+      const mergedSubdomainItems = [...subdomainsResult.items, ...bruteNewItems];
+
+      try {
+        takeoverResult = await runTakeoverModule(domain, mergedSubdomainItems);
+      } catch (err) {
+        takeoverResult = { checked: 0, potential_risks: 0, risks: [], source: "subdomain_cname_fingerprint", error: customerSafeFailure("scan/takeover", err, "Takeover module failed") };
+      }
+
+      try {
+        assetExposureResult = await runExposureModule(domain, mergedSubdomainItems);
+        assetExposureResult = annotateExposureInfrastructure(assetExposureResult, takeoverResult.cname_observations);
+        assetExposureResult = deduplicateExposureAssets(assetExposureResult, domain);
+      } catch (err) {
+        assetExposureResult = { checked: 0, reachable: 0, assets: [], source: "http_probe", error: customerSafeFailure("scan/asset-exposure", err, "Asset exposure module failed") };
+      }
     }
 
     const modules = {
-      dns: dnsSettled.status === "fulfilled"
-        ? dnsSettled.value
-        : { error: customerSafeFailure("scan/dns", dnsSettled.reason, "DNS module failed") },
-
-      ssl: sslSettled.status === "fulfilled"
-        ? sslSettled.value
-        : { error: customerSafeFailure("scan/ssl", sslSettled.reason, "SSL module failed") },
-
-      headers: headersSettled.status === "fulfilled"
-        ? headersSettled.value
-        : { error: customerSafeFailure("scan/headers", headersSettled.reason, "Headers module failed") },
-
-      email_security: emailSettled.status === "fulfilled"
-        ? emailSettled.value
-        : { error: customerSafeFailure("scan/email", emailSettled.reason, "Email module failed") },
-
-      subdomains: subdomainsResult,
-
-      subdomain_takeover: takeoverResult,
-
-      asset_exposure: assetExposureResult,
-
-      technology_detection: techSettled.status === "fulfilled"
-        ? techSettled.value
-        : { error: customerSafeFailure("scan/technology", techSettled.reason, "Technology module failed") },
-
-      whois_intelligence: whoisSettled.status === "fulfilled"
-        ? whoisSettled.value
-        : { error: customerSafeFailure("scan/whois", whoisSettled.reason, "WHOIS module failed") },
-
-      dns_bruteforce: bruteforceResult,
-
+      dns:                       dnsResult,
+      ssl:                       sslResult,
+      headers:                   headersResult,
+      email_security:            emailResult,
+      subdomains:                subdomainsResult,
+      subdomain_takeover:        takeoverResult,
+      asset_exposure:            assetExposureResult,
+      // Present only in reserved mode (null in legacy) — the deterministic critical-prefix pass.
+      critical_prefix_discovery: criticalPrefixResult,
+      technology_detection:      techResult,
+      whois_intelligence:        whoisResult,
+      dns_bruteforce:            bruteforceResult,
       // Phase 7i: pure computation, zero network I/O — must run before computeScore
       // so brand findings are included in the scored findings array.
-      brand_monitoring: runTyposquatModule(domain),
+      brand_monitoring:          runTyposquatModule(domain),
     };
     const emailApplicability = isEmailApplicable(domain, modules.dns);
     if (!modules.email_security.error) {
@@ -454,6 +460,15 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env) 
     // • CVE: queries NVD for high/critical CVEs per detected technology
     // • KEV: fetches CISA catalog and matches by technology keyword
     // • EmailIntel: enriches SPF/DMARC/DKIM, adds MTA-STS + TLS-RPT, computes email score
+    // In reserved mode these are budget-permitting enrichment: skipped honestly (no fetch
+    // attempted) when the exposure-first budget is already spent.
+    const phase5Cost = MODULE_SUBREQUEST_COST.cve + MODULE_SUBREQUEST_COST.kev + 4;
+    if (reservedMode && reservedBudget && reservedBudget.wouldExceed(phase5Cost)) {
+      modules.cve_intelligence = skippedModuleResult("cve", { technologies_checked: [], results: {}, total_cves: 0, critical_count: 0, high_count: 0 });
+      modules.known_exploited_vulnerabilities = skippedModuleResult("kev", { matches: [], checked: 0, matched: 0 });
+      modules.email_security_intelligence = skippedModuleResult("email_intelligence");
+    } else {
+    if (reservedMode && reservedBudget) reservedBudget.spend("phase5", phase5Cost);
     const [cveSettled, kevSettled, emailIntelSettled] = await Promise.allSettled([
       runCveModule(modules.technology_detection),
       runKevModule(modules.technology_detection),
@@ -473,7 +488,8 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env) 
     modules.email_security_intelligence = emailIntelSettled.status === "fulfilled"
       ? emailIntelSettled.value
       : { error: customerSafeFailure("scan/email-intelligence", emailIntelSettled.reason, "Email intelligence module failed") };
-    if (!modules.email_security_intelligence.error && emailApplicability.applicable) {
+    }
+    if (!modules.email_security_intelligence.error && !modules.email_security_intelligence.skipped && emailApplicability.applicable) {
       const transportDetails = buildEmailTransportDetails(modules.email_security_intelligence);
       Object.assign(modules.email_security, transportDetails);
       modules.email_security.remediation_actions = buildEmailRemediationActions(
@@ -496,7 +512,13 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env) 
     // Phase 7: Cloud storage discovery — validates only evidence-backed storage
     // candidates from observed ASM/CNAME/header signals. No guessing or listing
     // enumeration; response bodies are only inspected for listing indicators.
-    modules.cloud_storage_discovery = await runCloudStorageModule(domain, modules);
+    // Reserved mode: cloud-storage validation is budget-permitting enrichment.
+    if (reservedMode && reservedBudget && reservedBudget.wouldExceed(MODULE_SUBREQUEST_COST.cloud_storage)) {
+      modules.cloud_storage_discovery = skippedModuleResult("cloud_storage", { total: 0, checked: 0, findings: [] });
+    } else {
+      if (reservedMode && reservedBudget) reservedBudget.spend("cloud_storage", MODULE_SUBREQUEST_COST.cloud_storage);
+      modules.cloud_storage_discovery = await runCloudStorageModule(domain, modules);
+    }
     for (const f of modules.cloud_storage_discovery.findings || []) {
       findings.push(f);
     }
