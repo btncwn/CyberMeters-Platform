@@ -5,6 +5,42 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.13 (v2026.07.13-8 — Managed Case Platform v1 + ASM remediation loop) — deployed 2026-07-13
+
+### Product (4-service managed maturity — Epic 1: Attack Surface goes managed)
+- **Managed Case Platform v1 + Managed ASM remediation loop** (PR #48, Codex built /
+  Claude reviewed+fixed+integrated): the first generic managed-case platform, with Attack
+  Surface as its first consumer. A new external exposure becomes a governed case that is
+  owned, remediated by the customer, **independently re-verified by CyberMeters against a
+  fresh scan**, resolved only when the exposure is actually gone, and **auto-reopened if it
+  returns** — full tenant-scoped audit trail.
+  - Generic `engines/case-workflow.js` — a pure, domain-agnostic, parameterised state-machine
+    runner + reusable guard helpers. Proven against both the ASM graph and (in tests) the DMARC
+    graph, without touching the shipped DMARC workflow.
+  - `engines/asm-cases.js` — ASM machine (open→triage→owner_assigned→remediation_in_progress→
+    verification_requested→verifying→resolved, + risk_accepted-with-expiry / verification_failed /
+    reopened / false_positive). Case creation + verification hook rides the existing scan re-probe
+    (no parallel prober); anchored on the stable `finding_id`; respects `finding_waivers`.
+    Risk-acceptance now carries a mandatory expiry (closes the waiver-no-expiry gap).
+  - Migration 076 (additive): `managed_cases` + `managed_case_events` + `audit_events.actor_type`
+    column; both new tables added to the workspace-purge list.
+  - Routes under `/api/workspaces/:id/managed-cases` (list/detail/assign/transition); Managed
+    Cases panel on the Attack Surface page.
+  - **Review fix (Claude):** the customer transition route could drive verification-outcome
+    states (verifying/resolved/verification_failed/reopened). Locked those to CyberMeters'
+    system verification only (`SYSTEM_ONLY_CASE_STATES`) — a customer can no longer self-mark
+    an exposure "resolved"/"verified", preserving the independent-verification promise.
+  - Validation: `validate-managed-case-workflow.js`, `validate-asm-remediation-loop.js` (18,
+    incl. the DoD scenario + self-resolve-blocked assertions), tenant-isolation extended,
+    regression 227/227, migrations, pipeline, cron, frontend build, wrangler dry-run all green.
+  - **Known limitation / fast-follow:** verification treats a finding absent from the latest
+    scan as resolved; a silently-failed scan module could transiently false-resolve, but
+    auto-reopen self-corrects on the next complete scan. A scan-completeness guard is the
+    follow-up. Positioning "Managed exposure remediation with independent fix verification"
+    holds once the DoD scenario is exercised live.
+- Live version **85486b4a-a104-4337-8254-de300aa3fb42**. Rollback:
+  **ab6c2b64-d56a-4e2d-8503-75225b83bb88**.
+
 ## 2026.07.13 (v2026.07.13-7 — managed DMARC change workflow, Level 3) — deployed 2026-07-13
 
 ### Product (DMARC managed maturity — scorecard epic #7, final / Level 3)
