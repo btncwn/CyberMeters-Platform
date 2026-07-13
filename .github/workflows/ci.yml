@@ -74,6 +74,9 @@ jobs:
       - name: Validate enforcement readiness v2 (unified 7-check model + score + tri-state status)
         run: node scripts/validate-enforcement-readiness-v2.js
 
+      - name: Validate DMARC change workflow (state machine + separation-of-duties + review queue)
+        run: node scripts/validate-dmarc-change-workflow.js
+
       - name: Validate hosted TLS-RPT (create/verify/delete + coexistence + isolation)
         run: node scripts/validate-hosted-tls-rpt.js
 

@@ -856,6 +856,19 @@ export const api = {
       body: JSON.stringify({ enabled: Boolean(enabled) }),
     }),
 
+  // ── Managed DMARC change-workflow — analyst review queue (Level 3) ─────────
+  /** GET /api/workspaces/:id/dmarc/change-requests[?state=] → { queue, requests } */
+  listDmarcChangeRequests: (workspaceId, state) =>
+    request(`/workspaces/${workspaceId}/dmarc/change-requests${state ? `?state=${encodeURIComponent(state)}` : ''}`),
+  /** POST /api/workspaces/:id/dmarc/change-requests → propose a policy change */
+  createDmarcChangeRequest: (workspaceId, payload) =>
+    request(`/workspaces/${workspaceId}/dmarc/change-requests`, { method: 'POST', body: JSON.stringify(payload) }),
+  /** POST /api/workspaces/:id/dmarc/change-requests/:cid/transition → approve/reject/… */
+  transitionDmarcChangeRequest: (workspaceId, changeId, payload) =>
+    request(`/workspaces/${workspaceId}/dmarc/change-requests/${encodeURIComponent(changeId)}/transition`, {
+      method: 'POST', body: JSON.stringify(payload),
+    }),
+
   /** GET /api/workspaces/:id/domains/:domain/bec-exposure → BEC Exposure Score (higher = worse) */
   getBecExposureScore: (workspaceId, domain) =>
     request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/bec-exposure`),

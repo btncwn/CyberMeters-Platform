@@ -8,6 +8,7 @@
 import { ALERT_CHANNEL_MAX_PER_WORKSPACE, alertChannelToApi, deliverWorkspaceAlert, validateAlertChannelInput } from "../engines/alerts.js";
 import { computeBecExposureScore } from "../engines/bec.js";
 import { assessImpactRollback, comparePolicyImpact, forecastPolicyImpact } from "../engines/dmarc-impact.js";
+import { applyChangeTransition, buildChangeReviewQueue, changeRequestToApi, newChangeRequestId } from "../engines/dmarc-change-workflow.js";
 import { dnsQuery } from "../engines/dns.js";
 import { normalizeDnsTxtValue, parseDmarcRecord } from "../engines/email-analysis.js";
 import { DMARC_RAMP_LADDER, HOSTED_DNS_ENTRY_SELECT, HOSTED_DNS_REMOVAL_GRACE_DAYS, REMEDIATION_REGISTRY, analyzeSpfChain, applyHostedDmarcChange, buildDmarcDnsRecommendedValue, buildMtaStsPolicy, buildMtaStsTxtValue, buildTlsRptValue, cfCreateHostedTxt, dmarcRampStepIndex, evaluateRampReadiness, getHostedDmarcPassRate, getRemediation, hostedCustomerRecordName, hostedDmarcSubdomain, hostedDnsRecordToApi, mxHostsFromDnsResponse, newHostedDnsRecordId, nextHostedDnsStatus, parseServerMsHosted, planAllowsHostedPolicyManagement, remediationToApi, resolveRampThresholds, rollbackHostedDmarc, verifyDmarcDnsSetup, verifyHostedDmarcRecord, verifyMtaStsHttpsPolicy } from "../engines/hosted-dmarc.js";
@@ -512,6 +513,121 @@ export async function emailProtectionRoutes(rctx) {
         return json({ error: "Method not allowed" }, 405);
       } catch (e) {
         return serverError("hosted-dmarc", e, "Could not update the hosted DMARC record.");
+      }
+    }
+
+    // ── Managed DMARC change-workflow — analyst review queue (Level 3) ─────────
+    //   GET  .../dmarc/change-requests[?state=]  → the review queue (read role)
+    //   POST .../dmarc/change-requests           → propose a change (manage role)
+    //   POST .../dmarc/change-requests/:id/transition → approve/reject/… (manage)
+    // A proposed policy change is governed here before it ever touches DNS. The
+    // state machine + separation-of-duties live in engines/dmarc-change-workflow.js.
+    const changeReqCollMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/dmarc\/change-requests$/);
+    if (changeReqCollMatch) {
+      const workspaceId = changeReqCollMatch[1];
+      try {
+        const user = await requireAuth(request, env);
+        if (!user) return json({ error: "Unauthorized" }, 401);
+
+        if (request.method === "GET") {
+          const access = await requireWorkspaceRole(user, workspaceId, "workspace:read", env);
+          if (!access) return json({ error: "Forbidden" }, 403);
+          const stateFilter = url.searchParams.get("state");
+          const rows = (await env.cybermeters_db
+            .prepare(`SELECT * FROM dmarc_change_requests WHERE workspace_id = ?${stateFilter ? " AND state = ?" : ""} ORDER BY created_at DESC LIMIT 200`)
+            .bind(...(stateFilter ? [workspaceId, stateFilter] : [workspaceId])).all()).results || [];
+          return json({
+            queue: buildChangeReviewQueue(rows),                 // pending, oldest-first, with age
+            requests: rows.map(changeRequestToApi),              // everything (filtered if ?state=)
+          });
+        }
+
+        if (request.method === "POST") {
+          const access = await requireWorkspaceRole(user, workspaceId, "workspace:manage", env);
+          if (!access) return json({ error: "Forbidden" }, 403);
+          let body;
+          try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+          const domain = String(body.domain || "").trim().toLowerCase();
+          if (!domain) return json({ error: "A domain is required." }, 400);
+          const domainId = await resolveWorkspaceDomain(env, workspaceId, domain);
+          if (!domainId) return json({ error: "Domain not found in this workspace" }, 404);
+          const toPolicy = String(body.to_policy || "").trim().toLowerCase();
+          if (!["none", "quarantine", "reject"].includes(toPolicy)) {
+            return json({ error: "to_policy must be none, quarantine, or reject." }, 400);
+          }
+          const id = newChangeRequestId();
+          const now = new Date().toISOString();
+          let evidence = null;
+          try { evidence = body.evidence ? JSON.stringify(body.evidence).slice(0, 8000) : null; } catch { evidence = null; }
+          await env.cybermeters_db
+            .prepare(`INSERT INTO dmarc_change_requests
+              (id, workspace_id, domain, record_kind, state, from_policy, to_policy, from_value, to_value,
+               requested_by, evidence_snapshot, created_at, updated_at)
+              VALUES (?, ?, ?, 'dmarc', 'pending_review', ?, ?, ?, ?, ?, ?, ?, ?)`)
+            .bind(id, workspaceId, domain,
+              String(body.from_policy || "").trim().toLowerCase() || null, toPolicy,
+              body.from_value ? String(body.from_value).slice(0, 4096) : null,
+              body.to_value ? String(body.to_value).slice(0, 4096) : null,
+              user.id, evidence, now, now).run();
+          await createAuditEvent(env, {
+            workspace_id: workspaceId, user_id: user.id, event_type: "dmarc_change_request_created",
+            entity_type: "dmarc_change_request", entity_id: id,
+            description: `Proposed DMARC policy change to ${toPolicy} for ${domain}`,
+            metadata: { domain, to_policy: toPolicy },
+          });
+          const row = await env.cybermeters_db.prepare(`SELECT * FROM dmarc_change_requests WHERE id = ?`).bind(id).first();
+          return json({ request: changeRequestToApi(row) }, 201);
+        }
+
+        return json({ error: "Method not allowed" }, 405);
+      } catch (e) {
+        return serverError("dmarc-change-requests", e, "Could not load the change queue.");
+      }
+    }
+
+    const changeReqTransitionMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/dmarc\/change-requests\/([^/]+)\/transition$/);
+    if (changeReqTransitionMatch && request.method === "POST") {
+      const workspaceId = changeReqTransitionMatch[1];
+      const requestId = changeReqTransitionMatch[2];
+      try {
+        const user = await requireAuth(request, env);
+        if (!user) return json({ error: "Unauthorized" }, 401);
+        const access = await requireWorkspaceRole(user, workspaceId, "workspace:manage", env);
+        if (!access) return json({ error: "Forbidden" }, 403);
+        let body;
+        try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+        const to = String(body.to || "").trim();
+        if (!to) return json({ error: "A target state 'to' is required." }, 400);
+
+        const row = await env.cybermeters_db
+          .prepare(`SELECT * FROM dmarc_change_requests WHERE id = ? AND workspace_id = ?`)
+          .bind(requestId, workspaceId).first();
+        if (!row) return json({ error: "Change request not found" }, 404);
+
+        const result = applyChangeTransition(row, to, {
+          actor: user.id,
+          reason: body.reason,
+          scheduled_at: body.scheduled_at,
+          now: new Date().toISOString(),
+        });
+        if (!result.ok) return json({ error: result.error, code: "invalid_transition" }, 409);
+
+        const n = result.request;
+        await env.cybermeters_db
+          .prepare(`UPDATE dmarc_change_requests
+            SET state = ?, reason = ?, reviewed_by = ?, reviewed_at = ?, scheduled_at = ?, applied_at = ?, updated_at = ?
+            WHERE id = ? AND workspace_id = ?`)
+          .bind(n.state, n.reason ?? null, n.reviewed_by ?? null, n.reviewed_at ?? null,
+            n.scheduled_at ?? null, n.applied_at ?? null, n.updated_at, requestId, workspaceId).run();
+        await createAuditEvent(env, {
+          workspace_id: workspaceId, user_id: user.id, event_type: `dmarc_change_request_${to}`,
+          entity_type: "dmarc_change_request", entity_id: requestId,
+          description: `DMARC change request ${row.state} → ${to}`,
+          metadata: { from: row.state, to, reason: n.reason || null },
+        });
+        return json({ request: changeRequestToApi(n) });
+      } catch (e) {
+        return serverError("dmarc-change-transition", e, "Could not update the change request.");
       }
     }
 
