@@ -5,6 +5,39 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.13 (v2026.07.13-16 — headers-scan runtime binding fix) — deployed 2026-07-13
+
+### Fix (scanner reliability — security-headers module restored)
+- **Restore the HTTP security-headers scan module** (commits **b6467fb** fix +
+  **0692da2** test). **Root cause:** the Phase-1c monolith extraction
+  (`dd76969`, 2026-07-09) moved `runHeadersModule` into
+  `engines/headers-scan.js` but left its `SECURITY_HEADERS` dependency as a
+  private const in `scoring.js`. The extracted module referenced it as a bare
+  free identifier — valid syntax (passes `node --check` and
+  `wrangler --dry-run`) but a **runtime `ReferenceError: SECURITY_HEADERS is not
+  defined`**.
+  - **Customer impact:** the headers module **failed on every scan since
+    2026-07-09** (all domains) — surfaced as "Headers module failed" and forced
+    `scan_quality: partial`. HSTS/CSP/X-Frame-Options and related header findings
+    were absent for ~4 days.
+  - **Fix:** move `SECURITY_HEADERS` into a shared leaf module
+    `engines/security-headers-config.js`, imported by both `scoring.js` and
+    `headers-scan.js`. Leaf module (not `scoring.js`) avoids a cycle —
+    `scoring.js` already imports `classifyHeaderStrength` from `headers-scan.js`.
+    Single source of truth, no duplicate copies. **safeFetch/SSRF untouched.**
+  - **Regression test:** `scripts/validate-security-headers-binding.js` executes
+    `runHeadersModule` end-to-end (imported as its own ES module, as esbuild
+    bundles it) so a missing/renamed cross-module binding throws instead of being
+    swallowed. Negative-control verified (reverting the fix fails 10/14). Wired
+    into CI.
+  - **No migration / no schema change** — pure code.
+  - **Live validation:** headers module returned **`accessible:true`,
+    `status_code:200`** on scan
+    **`scan_2eb60973-0873-449c-9610-dd22d317b4e0`** (blackbullbarbers.co.uk).
+- Deployed commit **0692da2165decb46e92e8af4f8c776a84bc5e010**. Active version
+  **83dea0c7-80ea-4b04-97bd-70121b8e42b3**. Rollback:
+  **45b9cd68-7bc8-4b55-b1b8-bebb0ff802c8** (v2026.07.13-15).
+
 ## 2026.07.13 (v2026.07.13-15 — Certificates & Trust L2 guided intelligence) — deployed 2026-07-13
 
 ### Product (4-service managed maturity — Certificates & Trust: L1 → L2)
