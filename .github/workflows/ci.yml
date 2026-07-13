@@ -107,6 +107,9 @@ jobs:
       - name: Validate ASM remediation loop (managed cases + verification)
         run: node scripts/validate-asm-remediation-loop.js
 
+      - name: Validate managed-verification profile (lean re-check + lifecycle + hard-50 + tenant)
+        run: node scripts/validate-managed-verification.js
+
       - name: Validate exposure-probe honesty (subrequest exhaustion → not-checked, not clean)
         run: node scripts/validate-exposure-honesty.js
 

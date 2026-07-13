@@ -6,7 +6,7 @@
 // Response when a route matches, or null so the main router continues.
 import { buildCaConcentrationAnalytics, buildCertificateLifecycleIntelligence, detectSelfSignedCertificate, mapCertificateAuthorityOwner, normalizeCertificateIssuer } from "../engines/cert-analysis.js";
 import { buildCertificateTrustL2 } from "../engines/cert-trust-l2.js";
-import { assignManagedCaseOwner, getManagedCase, listManagedCaseEvents, listManagedCases, managedCaseToApi, transitionManagedCase } from "../engines/asm-cases.js";
+import { assignManagedCaseOwner, getManagedCase, listManagedCaseEvents, listManagedCases, managedCaseToApi, transitionManagedCase, verifyManagedCaseById } from "../engines/asm-cases.js";
 import { remapToThirdPartyCategory } from "../engines/discovery-scan.js";
 import { computeWorkspaceVendorRisk, confidenceToScore, normalizeVendorKey, normalizeVendorRiskCategory, signalWeightForVendor } from "../engines/vendor-risk.js";
 import { SEVERITY_RANK, enrichEvent, eventTypesForCategory } from "../lib/exposure-events.js";
@@ -83,6 +83,35 @@ export async function attackSurfaceRoutes(rctx) {
         } catch {
           return json({ error: "Could not assign owner" }, 500);
         }
+      }
+
+      if (request.method === "POST" && action === "verify") {
+        // Managed-verification profile trigger. Trusted: requires workspace:manage (checked
+        // above). ALL scope is derived from the stored case — no hostname/domain_id/
+        // finding_type is accepted from the client. Foreign case → 404 (non-enumerating).
+        // Concurrency is CAS-based (single-invocation dedup); the optional header is an
+        // audit correlation id only, not durable cross-window idempotency.
+        const correlationId = (request.headers.get("x-correlation-id") || request.headers.get("idempotency-key") || "").trim().slice(0, 200) || null;
+        let result;
+        try {
+          result = await verifyManagedCaseById(env, { workspaceId: wsId, caseId, actorId: user.id, correlationId });
+        } catch {
+          return json({ error: "Could not run verification" }, 500);
+        }
+        if (!result.ok) {
+          // Non-enumerating: scope failures return the same 404 as a missing case.
+          if (["not_found", "host_scope_mismatch", "domain_ineligible"].includes(result.code)) {
+            return json({ error: "Managed case not found" }, 404);
+          }
+          if (result.code === "ineligible_state") return json({ error: "Case is not in a verification-eligible state" }, 409);
+          if (result.code === "unsupported_finding_type") return json({ error: "Verification is not supported for this finding type" }, 422);
+          return json({ error: "Verification could not run" }, 400);
+        }
+        const fresh = await getManagedCase(env, wsId, caseId).catch(() => null);
+        return json({
+          case: fresh ? managedCaseToApi(fresh) : null,
+          verification: { profile: "managed_verification", code: result.code, decision: result.decision || null, completeness: result.completeness || null, outbound_calls: result.outbound_calls ?? null, idempotent: result.idempotent || false },
+        });
       }
 
       if (request.method === "POST" && action === "transition") {

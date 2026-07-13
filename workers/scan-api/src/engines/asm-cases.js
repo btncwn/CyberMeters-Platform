@@ -13,6 +13,7 @@ import {
   requireReason,
 } from "./case-workflow.js";
 import { createAuditEvent, createNotificationEvent } from "../lib/events.js";
+import { MANAGED_VERIFICATION_PROFILE, findingTypeOf, isSupportedVerification, runManagedVerificationProbe } from "./managed-verification.js";
 
 export const ASM_CASE_TYPE = "asm_exposure";
 export const ASM_CASE_STATES = [
@@ -472,6 +473,130 @@ export async function verifyManagedAsmCasesForScan(scanId, domainId, domain, fin
   } catch {
     return { resolved: 0, failed: 0, deferred: 0 };
   }
+}
+
+// ── Managed-verification profile (single-case, lean re-check) ─────────────────
+// Verifies ONE case's affected host via the managed_verification profile — it does not
+// run a full scan. All scope is derived from the STORED case (never the client).
+//
+// Concurrency model (Commit 4 scope): compare-and-set on managed_cases.status —
+// single-invocation dedup, so duplicate concurrent requests cause exactly one probe.
+// This is NOT durable cross-window idempotency (no idempotency-key table); the
+// correlation key is recorded in the audit trail only. A deferred probe RELEASES the
+// claim (verifying → verification_requested) so it stays retryable.
+export const VERIFICATION_ELIGIBLE_STATES = new Set(["verification_requested", "verifying", "resolved"]);
+
+// Stable short version of a finding (case + finding version → idempotency key).
+function findingVersionHash(text) {
+  let h = 5381;
+  for (const ch of String(text || "")) h = ((h << 5) + h + ch.charCodeAt(0)) & 0xffffffff;
+  return (h >>> 0).toString(36);
+}
+
+// Atomic compare-and-set on case status. Returns true iff THIS caller moved it (so
+// duplicate concurrent verification runs cannot both proceed).
+async function casCaseStatus(env, caseRow, from, to, extraSet = "") {
+  const res = await env.cybermeters_db
+    .prepare(`UPDATE managed_cases SET status = ?, updated_at = datetime('now')${extraSet} WHERE id = ? AND workspace_id = ? AND status = ?`)
+    .bind(to, caseRow.id, caseRow.workspace_id, from)
+    .run();
+  return (res?.meta?.changes || 0) === 1;
+}
+
+export async function verifyManagedCaseById(env, { workspaceId, caseId, actorId = null, correlationId = null } = {}) {
+  // 1. Load case (workspace-scoped) — foreign workspace/case → not found (non-enumerating).
+  const caseRow = await getManagedCase(env, workspaceId, caseId).catch(() => null);
+  if (!caseRow) return { ok: false, code: "not_found" };
+
+  // 2. Eligible state
+  if (!VERIFICATION_ELIGIBLE_STATES.has(caseRow.status)) return { ok: false, code: "ineligible_state", status: caseRow.status };
+
+  // 3. Finding + allowlisted, supported type (unsupported fails closed → deferred).
+  const finding = parseJson(caseRow.evidence_json)?.finding || {};
+  if (!isSupportedVerification(finding)) {
+    await writeCaseEvent(env, caseRow, { actor_type: "system", from_status: caseRow.status, to_status: caseRow.status, action: "verification_deferred", detail: { profile: MANAGED_VERIFICATION_PROFILE, reason: "unsupported_finding_type", finding_type: findingTypeOf(finding) } });
+    return { ok: false, code: "unsupported_finding_type" };
+  }
+
+  // 4. Affected host derived from the STORED case; must belong to the case's domain.
+  const host = String(caseRow.asset_ref || "").trim().toLowerCase();
+  const domain = normaliseDomain(caseRow.domain);
+  if (!host || !(host === domain || host.endsWith(`.${domain}`))) return { ok: false, code: "host_scope_mismatch" };
+
+  // 5. Domain still linked to this workspace (removed/archived → ineligible).
+  const link = await env.cybermeters_db
+    .prepare(`SELECT d.id FROM domains d JOIN workspace_domains wd ON wd.domain_id = d.id WHERE wd.workspace_id = ? AND d.domain = ? LIMIT 1`)
+    .bind(workspaceId, domain).first().catch(() => null);
+  if (!link) return { ok: false, code: "domain_ineligible" };
+
+  // 6. Correlation key for the audit trail. NOTE: this is NOT durable cross-window
+  //    idempotency enforcement — concurrency is enforced by the compare-and-set claim
+  //    in step 7 (single-invocation dedup). Commit 4 is scoped to CAS-based concurrency.
+  const correlationKey = correlationId || `${caseId}:${findingVersionHash(caseRow.evidence_json)}:${caseRow.status}`;
+
+  // 7. Concurrency claim via compare-and-set. verification_requested → verifying (winner
+  //    only); an in-flight 'verifying' means another run holds it → no-op. 'resolved'
+  //    probes for reappearance and claims resolved→reopened below.
+  let workingStatus = caseRow.status;
+  if (caseRow.status === "verification_requested") {
+    const won = await casCaseStatus(env, caseRow, "verification_requested", "verifying");
+    if (!won) return { ok: true, code: "in_progress", idempotent: true };
+    workingStatus = "verifying";
+    await writeCaseEvent(env, { ...caseRow, status: "verifying" }, { actor_type: "system", from_status: "verification_requested", to_status: "verifying", action: "verification_started", detail: { profile: MANAGED_VERIFICATION_PROFILE, correlation_key: correlationKey } });
+  } else if (caseRow.status === "verifying") {
+    return { ok: true, code: "in_progress", idempotent: true };
+  }
+
+  // 8. Lean probe of ONLY the affected host, metered.
+  let outbound = 0;
+  const startedAt = new Date().toISOString();
+  const probe = await runManagedVerificationProbe(finding, host, { onOutbound: () => { outbound++; } });
+  const audit = { profile: MANAGED_VERIFICATION_PROFILE, case_id: caseId, finding_id: caseRow.finding_id, finding_type: findingTypeOf(finding), host, correlation_key: correlationKey, started_at: startedAt, completed_at: new Date().toISOString(), outbound_calls: outbound, completeness: probe.completeness, decision: probe.decision, evidence: probe.evidence || null };
+  const working = { ...caseRow, status: workingStatus };
+
+  // 9. Decision → lifecycle (system actor only).
+  if (probe.decision === "deferred") {
+    // Release the claim so the case is never permanently locked in 'verifying': a
+    // timeout / SSRF refusal / DNS-indeterminate / budget result must stay retryable.
+    // Atomic verifying → verification_requested (preserves ownership).
+    if (working.status === "verifying") {
+      await casCaseStatus(env, caseRow, "verifying", "verification_requested");
+      await writeCaseEvent(env, { ...caseRow, status: "verification_requested" }, { actor_type: "system", from_status: "verifying", to_status: "verification_requested", action: "verification_deferred", detail: audit });
+    } else {
+      await writeCaseEvent(env, working, { actor_type: "system", from_status: working.status, to_status: working.status, action: "verification_deferred", detail: audit });
+    }
+    return { ok: true, code: "deferred", decision: "deferred", completeness: probe.completeness, outbound_calls: outbound };
+  }
+
+  if (probe.decision === "still_present") {
+    if (working.status === "verifying") {
+      const r = await updateCaseStatus(env, working, "verification_failed", { actor_type: "system", action: "verification_failed", reason: "CyberMeters still observed this exposure.", detail: audit });
+      if (r.ok) await notifyCase(env, r.case, { type: "managed_case_verification_failed", severity: r.case.severity || "high", title: `Fix not verified for ${domain}`, message: "CyberMeters still observed the exposure on the affected host." });
+    } else if (working.status === "resolved") {
+      // Reappearance: claim resolved → reopened exactly once (CAS), then remediation.
+      const won = await casCaseStatus(env, caseRow, "resolved", "reopened", ", reopened_count = COALESCE(reopened_count, 0) + 1");
+      if (won) {
+        await writeCaseEvent(env, { ...caseRow, status: "reopened" }, { actor_type: "system", from_status: "resolved", to_status: "reopened", action: "reopened", detail: audit });
+        const fresh = await getManagedCase(env, workspaceId, caseId);
+        if (fresh) {
+          await updateCaseStatus(env, fresh, "remediation_in_progress", { actor_type: "system", action: "transition", detail: audit });
+          await notifyCase(env, fresh, { type: "managed_case_reopened", severity: fresh.severity || "high", title: `Managed case reopened for ${domain}`, message: `${finding.title || caseRow.finding_id} was detected again on ${host}.` });
+        }
+      }
+    }
+    return { ok: true, code: "still_present", decision: "still_present", outbound_calls: outbound };
+  }
+
+  if (probe.decision === "fixed") {
+    if (working.status === "verifying") {
+      const r = await updateCaseStatus(env, working, "resolved", { actor_type: "system", action: "verified_resolved", detail: audit });
+      if (r.ok) await notifyCase(env, r.case, { type: "managed_case_resolved", severity: "info", title: `Managed case resolved for ${domain}`, message: "CyberMeters no longer observed the exposure on the affected host." });
+    }
+    // A 'resolved' case that is still fixed → no-op (idempotent).
+    return { ok: true, code: "fixed", decision: "fixed", outbound_calls: outbound };
+  }
+
+  return { ok: true, code: "no_change", outbound_calls: outbound };
 }
 
 export async function reassessExpiredRiskAcceptedCases(env, workspaceId = null, now = new Date().toISOString()) {
