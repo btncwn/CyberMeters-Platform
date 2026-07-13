@@ -335,6 +335,7 @@ async function main() {
   // Exact NAME-SET match, not just a count: a renamed/typo'd registry entry
   // with a compensating extra would pass a count but not this.
   const expectedTasks = ["scheduled_reports", "user_scheduled_reports", "hosted_dns_sweep",
+    "dmarc_alerts_sweep",
     "deletion_purge", "lifecycle_email_retry", "asset_alert_retry", "domain_verify_retry"];
   // Time-gated tasks must mirror src/cron/scheduled.js exactly, or this exact
   // name-set match fails whenever CI happens to run in the relevant window

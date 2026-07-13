@@ -64,6 +64,13 @@ export async function runScheduled(event, env, ctx, tasks) {
 	    // hosted DMARC record, alerts on disconnection, completes safe removals.
 	    ctx.waitUntil(runCronTask(env, "hosted_dns_sweep", () => tasks.runHostedDnsVerificationSweep(env)));
 
+	    // ── DMARC operational alerts (new sender / spoofing spike) ───────────
+	    // Turns classified sender data into actionable alerts through the
+	    // notification pipeline; deduped, tenant-scoped, read-only.
+	    if (tasks.runDmarcAlertsSweep) {
+	      ctx.waitUntil(runCronTask(env, "dmarc_alerts_sweep", () => tasks.runDmarcAlertsSweep(env)));
+	    }
+
 	    // ── Report retention cleanup ─────────────────────────────────────────
   // The Worker cron also drives scheduled scans, so keep the hourly trigger
   // and run retention once daily at 02:00 UTC.
