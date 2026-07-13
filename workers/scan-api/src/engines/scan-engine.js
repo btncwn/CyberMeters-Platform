@@ -114,12 +114,25 @@ export function buildScanQuality(modules = {}) {
     }
   }
 
+  // Trust: a module that self-reports incomplete evidence (e.g. exposure probes
+  // starved by the Worker subrequest budget) did not actually execute. Treat it as
+  // incomplete — list it as skipped and force scan_quality "partial" — so absence of
+  // findings is never presented as a clean result and downstream verification /
+  // managed-case resolution defers. This does not change module order/estimator.
+  const incompleteModules = Object.entries(modules)
+    .filter(([, value]) => value?.incomplete === true)
+    .map(([name]) => name);
+  for (const name of incompleteModules) {
+    if (!modulesSkipped.includes(name)) modulesSkipped.push(name);
+    warnings.push(`Module incomplete: ${name}`);
+  }
+
   // Only warn on real core module failures.
   for (const name of coreIncomplete) {
     warnings.push(`Core module incomplete: ${name}`);
   }
 
-  const status = coreIncomplete.length > 0
+  const status = (coreIncomplete.length > 0 || incompleteModules.length > 0)
     ? "partial"
     : (warnings.length > 0 || modulesSkipped.length > 0 ? "degraded" : "complete");
 

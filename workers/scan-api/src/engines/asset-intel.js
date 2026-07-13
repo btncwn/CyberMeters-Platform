@@ -62,11 +62,23 @@ function detectTech(headers, body) {
   return [...tech];
 }
 
+// When a Cloudflare Worker exhausts its per-invocation subrequest budget, EVERY
+// remaining fetch throws "Too many subrequests by single Worker invocation." That is
+// a property of the Worker run, not of the target host — the probe never actually
+// executed. Reporting it as reachable:false would falsely read as "confirmed
+// unreachable / no exposure", so it must be surfaced as not-checked instead.
+function isSubrequestBudgetError(err) {
+  return /too many subrequests/i.test(err?.message || "");
+}
+
 /**
  * Probe a single host over HTTPS (with HTTP fallback) and return exposure metadata.
- * Never throws — returns a reachable:false record on total failure.
+ * Never throws. Returns reachable:false on a genuine network failure, or a
+ * not-executed record (reachable:null) when the Worker subrequest budget was
+ * exhausted before the host could be probed.
  */
 export async function probeAsset(host) {
+  let budgetExhausted = false;   // a probe attempt was starved, not genuinely failed
   for (const proto of ["https", "http"]) {
     const url = `${proto}://${host}`;
     let res = null;
@@ -76,8 +88,10 @@ export async function probeAsset(host) {
         redirect: "follow",
         signal:   AbortSignal.timeout(8_000),
       });
-    } catch {
-      // Timeout or network error — try HTTP fallback
+    } catch (err) {
+      // Timeout or network error — try HTTP fallback. Distinguish a genuine failure
+      // from subrequest-budget exhaustion (the latter means we never really checked).
+      if (isSubrequestBudgetError(err)) budgetExhausted = true;
       continue;
     }
 
@@ -116,7 +130,26 @@ export async function probeAsset(host) {
     };
   }
 
-  // Both HTTPS and HTTP unreachable
+  // No protocol returned a response.
+  if (budgetExhausted) {
+    // The Worker ran out of subrequest budget before this host could be probed.
+    // It was NOT checked — report it honestly as not-executed (reachable:null),
+    // never as a confirmed-unreachable / clean result.
+    return {
+      host,
+      url:          `https://${host}`,
+      status:       null,
+      reachable:    null,
+      probe_status: "not_executed",
+      reason:       "subrequest_budget_exhausted",
+      title:        null,
+      server:       null,
+      content_type: null,
+      tech:         [],
+    };
+  }
+
+  // Genuine network failure / timeout — the host really did not respond.
   return {
     host,
     url:          `https://${host}`,
@@ -335,7 +368,14 @@ export async function runExposureModule(domain, subdomains) {
     .filter((r) => r.status === "fulfilled")
     .map((r) => r.value);
 
-  const reachableCount = assets.filter((a) => a.reachable).length;
+  const reachableCount = assets.filter((a) => a.reachable === true).length;
+
+  // Trust: if any host could not be probed because the Worker subrequest budget was
+  // exhausted, this module's evidence is incomplete. Absence of exposure here is NOT
+  // proof of a clean surface — flag it so scan_quality goes partial and downstream
+  // verification / managed-case resolution defers instead of treating 0 as verified.
+  const notExecuted = assets.filter((a) => a.probe_status === "not_executed");
+  const incomplete = notExecuted.length > 0;
 
   return {
     checked:   targets.length,
@@ -343,6 +383,13 @@ export async function runExposureModule(domain, subdomains) {
     assets,
     source,
     error: null,
+    ...(incomplete ? {
+      incomplete:        true,
+      incomplete_reason: "subrequest_budget_exhausted",
+      not_executed_count: notExecuted.length,
+      // Customer-safe copy — never expose raw runtime error text.
+      notice: "Some external exposure checks could not complete. Results may be incomplete.",
+    } : {}),
   };
 }
 

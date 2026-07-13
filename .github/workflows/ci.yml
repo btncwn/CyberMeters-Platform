@@ -92,6 +92,9 @@ jobs:
       - name: Validate ASM remediation loop (managed cases + verification)
         run: node scripts/validate-asm-remediation-loop.js
 
+      - name: Validate exposure-probe honesty (subrequest exhaustion → not-checked, not clean)
+        run: node scripts/validate-exposure-honesty.js
+
       - name: Validate managed brand takedown lifecycle (evidence + approval + verification)
         run: node scripts/validate-brand-takedown-lifecycle.js
 

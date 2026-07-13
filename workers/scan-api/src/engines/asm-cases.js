@@ -373,11 +373,13 @@ export async function createManagedAsmCasesForScan(scanId, domainId, domain, fin
 // info is supplied (legacy callers), gating is disabled and behaviour is
 // unchanged. Only explicitly-signalled incompleteness gates — an untracked
 // module is trusted exactly as before, so the happy path never regresses.
-function moduleCompletionGate(modules, scanQuality) {
+export function moduleCompletionGate(modules, scanQuality) {
   if (!modules && !scanQuality) return null;
   const incomplete = new Set(scanQuality?.modules_skipped || []);
   for (const [name, value] of Object.entries(modules || {})) {
-    if (value?.error) incomplete.add(name);
+    // A module that errored OR self-reported incomplete evidence (e.g. exposure
+    // probes starved by the subrequest budget) did not truly re-check the exposure.
+    if (value?.error || value?.incomplete === true) incomplete.add(name);
   }
   const scanPartial = scanQuality?.status === "partial";
   return {
