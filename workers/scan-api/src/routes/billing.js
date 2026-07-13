@@ -73,6 +73,29 @@ export async function billingRoutes(rctx) {
         }, 429);
       }
 
+      // Global backstop: the per-IP cap alone doesn't bound a distributed /
+      // botnet attack that spreads guesses across many IPs to drive scan cost
+      // (each scan fans out ~10-20 subrequests, several to external CT services
+      // that can throttle our egress IP). This aggregate ceiling — fail-closed,
+      // so it can't be evaporated during the D1 stress an attack causes — bounds
+      // total free-scan volume regardless of source IP. Generous enough not to
+      // affect legitimate traffic at beta scale; tune via the constant.
+      const FREE_SCAN_GLOBAL_HOURLY_CAP = 500;
+      const globalLimited = await consumeApiRateLimit(
+        env,
+        [{ scope: "global", scope_id: "free_scan_global" }],
+        "free_scan_global",
+        FREE_SCAN_GLOBAL_HOURLY_CAP,
+        3600,
+        { failClosed: true },
+      );
+      if (globalLimited) {
+        return json({
+          error: "Free checks are experiencing high demand right now. Please try again shortly, or create a free account to run your scan.",
+          code: "rate_limit_exceeded",
+        }, 429);
+      }
+
       // Run 4 core modules in parallel — no subdomains, no brute-force, no tech, no WHOIS
       const scannedAt = new Date().toISOString();
       const [dnsR, sslR, headersR, emailR] = await Promise.allSettled([

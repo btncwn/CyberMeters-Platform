@@ -13,7 +13,7 @@ import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
-const { runScheduled } = await import(
+const { runScheduled, runBoundedPool, SCHEDULED_SCAN_CONCURRENCY, SCHEDULED_SCAN_MAX_PER_TICK } = await import(
   pathToFileURL(path.join(root, "workers", "scan-api", "src", "cron", "scheduled.js")).href
 );
 
@@ -118,6 +118,32 @@ for (const t of ALWAYS.filter((t) => t !== "processDeletionRequests")) {
   ok(`isolation: ${t} still runs despite deletion_purge throwing`, iso[t] === 1);
 }
 ok("isolation: scheduled scan still dispatched", iso.triggerScheduledScan === 1);
+
+// ── Scheduled-scan burst cap: runBoundedPool never exceeds the concurrency bound ─
+{
+  ok("per-tick cap is a sane bound", SCHEDULED_SCAN_MAX_PER_TICK >= SCHEDULED_SCAN_CONCURRENCY && SCHEDULED_SCAN_MAX_PER_TICK <= 50);
+  let inFlight = 0, peak = 0, done = 0;
+  const items = Array.from({ length: 10 }, (_, i) => i); // 10 due scans > concurrency
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const run = runBoundedPool(items, SCHEDULED_SCAN_CONCURRENCY, async () => {
+    inFlight++; peak = Math.max(peak, inFlight);
+    await gate;            // hold every started worker so peak reflects true concurrency
+    inFlight--; done++;
+  });
+  await Promise.resolve(); await Promise.resolve(); // let workers start & saturate the pool
+  ok("bounded pool never exceeds the concurrency cap", peak <= SCHEDULED_SCAN_CONCURRENCY && peak > 0);
+  release();
+  await run;
+  ok("bounded pool processes every item", done === items.length);
+}
+
+// A per-item failure never aborts the rest of the pool (isolation preserved).
+{
+  let completed = 0;
+  await runBoundedPool([1, 2, 3, 4], 2, async (n) => { if (n === 2) throw new Error("boom"); completed++; });
+  ok("bounded pool isolates a failing item (others still run)", completed === 3);
+}
 
 console.log(`\nCron orchestration: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("cron validation FAILED"); process.exit(1); }
