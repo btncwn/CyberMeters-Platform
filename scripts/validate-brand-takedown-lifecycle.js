@@ -142,16 +142,33 @@ const approved = await brandCases.approveBrandTakedown(env, confirmed.case, {
 });
 ok("customer approval prepares grounded evidence bundle", approved.ok && approved.case.status === "evidence_ready");
 const storedEvidence = JSON.parse(db.prepare("SELECT evidence_json FROM managed_cases WHERE id=?").get(opened.case.id).evidence_json);
-ok("evidence bundle is stored on the shared managed case", storedEvidence.bundle?.dns_snapshot?.A?.[0] === "203.0.113.10");
+ok("evidence bundle is stored as immutable version 1", storedEvidence.evidence_bundles?.[0]?.version === 1 && storedEvidence.evidence_bundles?.[0]?.bundle?.dns_snapshot?.A?.[0] === "203.0.113.10");
+ok("evidence bundle version has a content hash and current pointer", /^sha256:[a-f0-9]{64}$/.test(storedEvidence.evidence_bundles?.[0]?.content_hash || "") &&
+  storedEvidence.current_evidence_bundle?.content_hash === storedEvidence.evidence_bundles?.[0]?.content_hash);
 
-const submitted = await brandCases.recordBrandTakedownSubmission(env, approved.case, {
+const firstHash = storedEvidence.evidence_bundles[0].content_hash;
+const recaptured = await brandCases.recaptureBrandEvidenceBundle(env, approved.case, {
+  actor_id: "admin",
+  reason: "Second capture before submission.",
+  bundle: { ...evidenceBundle, evidence_captured_at: "2026-07-13T11:00:00Z", dns_snapshot: { A: ["203.0.113.11"], MX: ["10 mail.examp1e-login.com"] } },
+});
+ok("evidence re-capture appends a new version", recaptured.ok && recaptured.evidence_bundle.version === 2 && recaptured.evidence_bundle.content_hash !== firstHash);
+const recapturedEvidence = JSON.parse(db.prepare("SELECT evidence_json FROM managed_cases WHERE id=?").get(opened.case.id).evidence_json);
+ok("prior evidence version is preserved after re-capture", recapturedEvidence.evidence_bundles.length === 2 &&
+  recapturedEvidence.evidence_bundles[0].content_hash === firstHash &&
+  recapturedEvidence.evidence_bundles[0].bundle.dns_snapshot.A[0] === "203.0.113.10" &&
+  recapturedEvidence.current_evidence_bundle.version === 2);
+
+const submitted = await brandCases.recordBrandTakedownSubmission(env, recaptured.case, {
   actor_id: "admin",
   submission_reference: "REG-12345",
   note: "Submitted to registrar abuse desk.",
 });
 ok("submission tracking records takedown reference", submitted.ok && submitted.case.status === "takedown_submitted");
 const submissionEvidence = JSON.parse(db.prepare("SELECT evidence_json FROM managed_cases WHERE id=?").get(opened.case.id).evidence_json);
-ok("submission reference is persisted in evidence", submissionEvidence.submissions?.[0]?.reference === "REG-12345");
+ok("submission reference is persisted with evidence bundle integrity pointer", submissionEvidence.submissions?.[0]?.reference === "REG-12345" &&
+  submissionEvidence.submissions?.[0]?.evidence_bundle_version === 2 &&
+  submissionEvidence.submissions?.[0]?.evidence_bundle_hash === recaptured.evidence_bundle.content_hash);
 
 const sweep = await brandCases.runBrandTakedownFollowupSweep(env, {
   verifier: async () => ({ complete: true, gone: true, observed: { a_records: 0, mx_records: 0 } }),
@@ -165,6 +182,8 @@ row = await brandCases.getBrandCase(env, "ws1", opened.case.id);
 ok("reappeared candidate links a campaign and reopens confirmed-abuse workflow", reopened.opened === false && row.status === "confirmed_abuse" && row.reopened_count >= 1);
 const campaignCount = db.prepare("SELECT COUNT(*) AS n FROM brand_abuse_campaigns WHERE workspace_id='ws1'").get().n;
 ok("reappearance creates campaign linkage", campaignCount === 1);
+const reappearanceNotif = db.prepare("SELECT COUNT(*) AS n FROM notification_events WHERE workspace_id='ws1' AND type='brand_case_reappeared'").get().n;
+ok("reappearance creates a customer-visible notification", reappearanceNotif === 1);
 
 const cases = await brandCases.listBrandCases(env, "ws1");
 ok("case list is tenant scoped to ws1", cases.length === 1 && cases[0].workspace_id === "ws1");

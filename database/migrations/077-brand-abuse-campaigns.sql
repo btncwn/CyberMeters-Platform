@@ -23,4 +23,4 @@ CREATE INDEX IF NOT EXISTS idx_brand_abuse_campaigns_profile
 CREATE UNIQUE INDEX IF NOT EXISTS idx_managed_cases_brand_open_dedup
   ON managed_cases (workspace_id, finding_id)
   WHERE case_type = 'brand_abuse'
-    AND status NOT IN ('false_positive', 'duplicate', 'closed');
+    AND status NOT IN ('false_positive', 'closed', 'risk_accepted');

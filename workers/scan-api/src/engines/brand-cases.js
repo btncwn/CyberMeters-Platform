@@ -67,6 +67,24 @@ function parseJson(raw, fallback = null) {
   try { return typeof raw === "string" ? JSON.parse(raw) : raw; } catch { return fallback; }
 }
 
+function stableJson(value) {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function hex(bytes) {
+  return [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function hashEvidenceBundle(bundle) {
+  const encoded = new TextEncoder().encode(stableJson(bundle));
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", encoded);
+  return `sha256:${hex(digest)}`;
+}
+
 function newBrandCampaignId() {
   const uuid = (globalThis.crypto?.randomUUID?.() || "").replace(/-/g, "");
   return "bac-" + (uuid || "").slice(0, 12).padEnd(12, "0");
@@ -97,6 +115,7 @@ function candidateCanOpenCase(candidate, profile) {
 }
 
 export function brandCaseToApi(row = {}) {
+  const evidence = evidenceToApi(parseJson(row.evidence_json, null));
   return {
     id: row.id,
     workspace_id: row.workspace_id,
@@ -106,7 +125,7 @@ export function brandCaseToApi(row = {}) {
     asset_ref: row.asset_ref,
     severity: row.severity,
     status: row.status,
-    evidence: parseJson(row.evidence_json, null),
+    evidence,
     recommended_actions: parseJson(row.recommended_actions_json, []),
     reason: row.reason || null,
     due_at: row.due_at || null,
@@ -117,6 +136,12 @@ export function brandCaseToApi(row = {}) {
     updated_at: row.updated_at || null,
     age_hours: row.age_hours,
   };
+}
+
+function evidenceToApi(evidence) {
+  if (!evidence || typeof evidence !== "object") return evidence;
+  const latest = latestEvidenceBundle(evidence);
+  return latest ? { ...evidence, bundle: latest.bundle } : evidence;
 }
 
 async function writeBrandCaseEvent(env, caseRow, { actor_type = "system", actor_id = null, from_status = null, to_status = null, action, detail = null } = {}) {
@@ -153,6 +178,37 @@ async function notifyBrandCase(env, caseRow, { type, title, message, severity = 
 function mergeEvidence(row, patch) {
   const evidence = parseJson(row.evidence_json, {}) || {};
   return { ...evidence, ...patch };
+}
+
+function latestEvidenceBundle(evidence = {}) {
+  const versions = Array.isArray(evidence.evidence_bundles) ? evidence.evidence_bundles : [];
+  if (versions.length === 0) return evidence.bundle ? { version: 1, bundle: evidence.bundle, content_hash: null } : null;
+  return versions
+    .filter((entry) => entry && typeof entry === "object" && entry.bundle)
+    .sort((a, b) => Number(b.version || 0) - Number(a.version || 0))[0] || null;
+}
+
+async function appendEvidenceBundle(caseRow, bundle) {
+  const evidence = parseJson(caseRow.evidence_json, {}) || {};
+  const existingVersions = Array.isArray(evidence.evidence_bundles) ? [...evidence.evidence_bundles] : [];
+  if (existingVersions.length === 0 && evidence.bundle) {
+    existingVersions.push({
+      version: 1,
+      content_hash: await hashEvidenceBundle(evidence.bundle),
+      captured_at: evidence.bundle.evidence_captured_at || caseRow.updated_at || caseRow.created_at || null,
+      bundle: evidence.bundle,
+    });
+  }
+  const version = Math.max(0, ...existingVersions.map((entry) => Number(entry?.version || 0))) + 1;
+  const contentHash = await hashEvidenceBundle(bundle);
+  const capturedAt = bundle.evidence_captured_at || new Date().toISOString();
+  const entry = { version, content_hash: contentHash, captured_at: capturedAt, bundle };
+  const { bundle: _legacyBundle, ...rest } = evidence;
+  return {
+    ...rest,
+    evidence_bundles: [...existingVersions, entry],
+    current_evidence_bundle: { version, content_hash: contentHash, captured_at: capturedAt },
+  };
 }
 
 async function updateCaseRow(env, next) {
@@ -192,17 +248,20 @@ async function applyBrandTransition(env, caseRow, to, ctx = {}) {
 
   if (to === "evidence_ready") {
     const bundle = ctx.bundle || await buildBrandEvidenceBundle(env, caseRow);
-    next.evidence_json = safeJson(mergeEvidence(caseRow, { bundle }));
+    next.evidence_json = safeJson(await appendEvidenceBundle(caseRow, bundle));
     next.recommended_actions_json = safeJson(bundle.recommended_actions, "[]");
   }
   if (to === "takedown_submitted") {
     const evidence = mergeEvidence(caseRow, {});
+    const latestBundle = latestEvidenceBundle(evidence);
     const submissions = Array.isArray(evidence.submissions) ? evidence.submissions : [];
     submissions.push({
       submitted_at: ctx.now || new Date().toISOString(),
       submitted_by: ctx.actor_id || null,
       reference: ctx.submission_reference,
-      recipients: ctx.recipients || evidence.bundle?.recipients || [],
+      evidence_bundle_version: latestBundle?.version || null,
+      evidence_bundle_hash: latestBundle?.content_hash || null,
+      recipients: ctx.recipients || latestBundle?.bundle?.recipients || [],
       note: ctx.reason || null,
     });
     next.evidence_json = safeJson({ ...evidence, submissions });
@@ -223,6 +282,31 @@ async function applyBrandTransition(env, caseRow, to, ctx = {}) {
 
 export async function transitionBrandCase(env, caseRow, to, ctx = {}) {
   return applyBrandTransition(env, caseRow, to, ctx);
+}
+
+export async function recaptureBrandEvidenceBundle(env, caseRow, { actor_id = null, bundle = null, reason = "Evidence bundle re-captured." } = {}) {
+  if (!["customer_approval", "evidence_ready", "takedown_submitted", "provider_followup", "verification_pending", "provider_no_response", "escalated"].includes(caseRow.status)) {
+    return { ok: false, error: "Evidence can only be re-captured after the case is approved." };
+  }
+  const nextBundle = bundle || await buildBrandEvidenceBundle(env, caseRow);
+  const evidence = await appendEvidenceBundle(caseRow, nextBundle);
+  const next = {
+    ...caseRow,
+    evidence_json: safeJson(evidence),
+    recommended_actions_json: safeJson(nextBundle.recommended_actions, "[]"),
+    updated_at: new Date().toISOString(),
+  };
+  await updateCaseRow(env, next);
+  const latest = latestEvidenceBundle(evidence);
+  await writeBrandCaseEvent(env, next, {
+    actor_type: actor_id ? "customer" : "system",
+    actor_id,
+    from_status: caseRow.status,
+    to_status: caseRow.status,
+    action: "evidence_recaptured",
+    detail: { reason, evidence_bundle_version: latest?.version || null, evidence_bundle_hash: latest?.content_hash || null },
+  });
+  return { ok: true, case: next, evidence_bundle: latest };
 }
 
 export async function getBrandCase(env, workspaceId, caseId) {
@@ -346,12 +430,22 @@ export async function createBrandCaseForCandidate(env, workspaceId, candidateRow
         detail: { candidate_domain: candidateRow.candidate_domain, campaign_id: linked.campaign_id },
       });
       if (reopened.ok) {
-        await applyBrandTransition(env, reopened.case, "confirmed_abuse", {
+        const confirmed = await applyBrandTransition(env, reopened.case, "confirmed_abuse", {
           actor_type: "system",
           reason: "Previously resolved brand abuse candidate reappeared.",
           action: "campaign_relinked",
           detail: { campaign_id: linked.campaign_id },
         });
+        if (confirmed.ok) {
+          await notifyBrandCase(env, confirmed.case, {
+            type: "brand_case_reappeared",
+            severity: "high",
+            title: `Brand abuse case reappeared for ${confirmed.case.domain}`,
+            message: "A previously resolved brand abuse candidate is technically present again and has been linked to its campaign.",
+            metadata: { campaign_id: linked.campaign_id },
+          });
+          return { opened: false, case: confirmed.case, reappeared: true };
+        }
       }
     }
     return { opened: false, case: existing };
@@ -466,7 +560,7 @@ export async function approveBrandTakedown(env, caseRow, { actor_id = null, reas
 
 export async function recordBrandTakedownSubmission(env, caseRow, { actor_id = null, submission_reference, recipients = null, note = null } = {}) {
   const evidence = parseJson(caseRow.evidence_json, {}) || {};
-  const bundleRecipients = evidence.bundle?.recipients || [];
+  const bundleRecipients = latestEvidenceBundle(evidence)?.bundle?.recipients || [];
   return transitionBrandCase(env, caseRow, "takedown_submitted", {
     actor_type: "customer",
     actor_id,

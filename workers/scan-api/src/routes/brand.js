@@ -5,7 +5,7 @@
 // Receives the per-request routeCtx from index.js; returns a Response when a
 // route matches, or null so the main router continues.
 import { BRAND_CLASSIFICATIONS, BRAND_SUSPICIOUS_TLDS, brandCandidateToApi, brandClassificationAuditMetadata, brandProfileToApi, brandSimilarityScore, buildBrandProfileDomainScope, buildBrandProtectionSummary, legacyBrandAssetToApi, loadWorkspaceBrandProfile, normalizeBrandVariantType, parseBrandCandidateListParams, scoreBrandCandidateRisk, validateBrandProfileInput } from "../engines/brand-protection.js";
-import { approveBrandTakedown, brandCaseToApi, createBrandCaseForCandidateId, createBrandCasesForWorkspace, getBrandCase, listBrandCaseEvents, listBrandCases, recordBrandTakedownSubmission, reviewBrandCase, transitionBrandCase } from "../engines/brand-cases.js";
+import { approveBrandTakedown, brandCaseToApi, createBrandCaseForCandidateId, createBrandCasesForWorkspace, getBrandCase, listBrandCaseEvents, listBrandCases, recaptureBrandEvidenceBundle, recordBrandTakedownSubmission, reviewBrandCase, transitionBrandCase } from "../engines/brand-cases.js";
 import { extractBrandParts, generateTyposquatCandidates, HIGH_RISK_BRAND_KEYWORDS } from "../engines/brand-typosquat.js";
 import { dnsQuery } from "../engines/dns.js";
 import { createAuditEvent } from "../lib/events.js";
@@ -156,10 +156,10 @@ export async function brandRoutes(rctx) {
 
           if (action === "approve" && request.method === "POST") {
             const body = await request.json().catch(() => ({}));
-            const result = await approveBrandTakedown(env, caseRow, {
-              actor_id: user.id,
-              reason: String(body?.reason || "Customer approved takedown preparation.").trim(),
-            });
+            const reason = String(body?.reason || "Customer approved takedown preparation.").trim();
+            const result = caseRow.status === "evidence_ready"
+              ? await recaptureBrandEvidenceBundle(env, caseRow, { actor_id: user.id, reason: "Evidence bundle re-captured before submission." })
+              : await approveBrandTakedown(env, caseRow, { actor_id: user.id, reason });
             if (!result.ok) return json({ error: result.error }, 400);
             return json({ case: brandCaseToApi(result.case), events: await listBrandCaseEvents(env, wsId, caseId) });
           }
