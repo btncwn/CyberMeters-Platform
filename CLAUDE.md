@@ -834,18 +834,27 @@ You may:
 * validate
 * commit
 * push
+* **deploy** (see standing delegation below)
 
-Stop before production deployment.
+**Standing deploy delegation (founder, adopted 2026-07-13).** Claude may now
+carry MEDIUM-risk changes all the way to production — merge, apply migrations to
+remote D1, `wrangler deploy`, tag `vYYYY.MM.DD-n`, and update the CHANGELOG —
+**without waiting for per-change approval**, provided ALL of the following hold:
 
-Provide:
+* the change is **additive / reversible** (additive migrations only — never a
+  destructive one; those are HIGH RISK and still require approval);
+* the **full validation gate is green** (relevant `validate-*.js` harnesses,
+  regression, migrations guard, frontend build, `wrangler --dry-run`);
+* for anything touching the **live hosted-DMARC policy path**, the existing
+  hosted-DMARC lifecycle contracts stay byte-for-byte green (no policy-behaviour
+  regression on real customer records);
+* the **rollback Version ID is recorded** in the CHANGELOG + release tag;
+* the change is not otherwise HIGH RISK.
 
-* summary
-* validation result
-* risk notes
-* migration notes
-* deployment recommendation
-
-Wait for approval before deployment.
+After deploying, still report: summary, validation result, live + rollback
+Version IDs, and any risks. If any condition above is not met — or you are
+unsure — fall back to the old rule: stop, provide the deployment recommendation,
+and wait for approval.
 
 ---
 
