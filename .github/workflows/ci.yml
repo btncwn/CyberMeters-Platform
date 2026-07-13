@@ -71,6 +71,9 @@ jobs:
       - name: Validate DMARC graduated-reject ramp (9-step ladder + tag diff + configurable thresholds)
         run: node scripts/validate-dmarc-graduated-ramp.js
 
+      - name: Validate enforcement readiness v2 (unified 7-check model + score + tri-state status)
+        run: node scripts/validate-enforcement-readiness-v2.js
+
       - name: Validate hosted TLS-RPT (create/verify/delete + coexistence + isolation)
         run: node scripts/validate-hosted-tls-rpt.js
 

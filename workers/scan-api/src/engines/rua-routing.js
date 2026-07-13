@@ -45,9 +45,73 @@ function dmarcSenderRecommendedAction(sender) {
   }
 }
 
+// Enforcement-readiness v2 — the single structured model both the customer
+// summary and the hosted autopilot speak. One evidence-based check set →
+// numeric score → tri-state status, so "are we ready to tighten DMARC?" has a
+// consistent, explainable answer instead of two engines disagreeing.
+//
+// A check is { id, label, status: 'pass'|'warn'|'fail', detail, weight }. Score
+// is the weighted fraction of satisfied checks (warn = half credit), 0–100.
+// Status: 'ready' (no fail + score ≥ 85), 'approaching' (score ≥ 55), else
+// 'not_ready'. Hard blockers (alignment failures, active threats) can never sit
+// in a 'ready' verdict because a single fail caps the status below ready.
+export const ENFORCEMENT_CHECK_WEIGHTS = {
+  dmarc_pass_rate: 25, sender_alignment: 20, no_active_threats: 15,
+  reporting_window: 15, sender_classification: 10, message_volume: 10, soak_time: 5,
+};
+
+export function buildEnforcementReadinessChecks(summary = {}) {
+  const days    = summary.days_with_data || 0;
+  const total   = summary.total_messages || 0;
+  const pass    = typeof summary.pass_rate === "number" ? summary.pass_rate : 0;
+  const unknown = summary.unknown_senders || 0;
+  const highVolFailed = summary.high_volume_failed_senders || 0;
+  const threat  = summary.threat_senders || 0;
+  const suspicious = summary.suspicious_senders || 0;
+  const daysSinceChange = summary.days_since_change; // null/undefined = no change yet (n/a)
+
+  const mk = (id, label, status, detail) => ({ id, label, status, detail, weight: ENFORCEMENT_CHECK_WEIGHTS[id] });
+  const checks = [
+    mk("dmarc_pass_rate", "DMARC pass rate",
+       pass >= 98 ? "pass" : pass >= 95 ? "warn" : "fail",
+       total > 0 ? `${pass}% of observed mail passes DMARC (98% recommended before reject).` : "No compliance measurement yet."),
+    mk("sender_alignment", "Sender alignment",
+       highVolFailed > 0 ? "fail" : "pass",
+       highVolFailed > 0 ? `${highVolFailed} high-volume sender(s) fail SPF/DKIM alignment.` : "No high-volume sender is failing alignment."),
+    mk("no_active_threats", "No active impersonation",
+       threat > 0 ? "fail" : suspicious > 0 ? "warn" : "pass",
+       threat > 0 ? `${threat} sender(s) are classified as impersonation threats.`
+         : suspicious > 0 ? `${suspicious} sender(s) are still suspicious.` : "No confirmed or suspicious impersonation senders."),
+    mk("reporting_window", "Reporting window",
+       days >= 14 ? "pass" : days >= 7 ? "warn" : "fail",
+       `${days} day(s) of DMARC reports imported (14+ recommended before reject).`),
+    mk("sender_classification", "Sender classification",
+       unknown === 0 ? "pass" : unknown <= 2 ? "warn" : "fail",
+       unknown === 0 ? "Every observed sender is classified." : `${unknown} sender(s) remain unclassified.`),
+    mk("message_volume", "Reporting volume",
+       total >= 50 ? "pass" : total > 0 ? "warn" : "fail",
+       total > 0 ? `${total} message(s) observed in the window.` : "No message volume observed yet."),
+    mk("soak_time", "Soak time since last change",
+       daysSinceChange == null ? "pass" : daysSinceChange >= 3 ? "pass" : daysSinceChange >= 1 ? "warn" : "fail",
+       daysSinceChange == null ? "No recent policy change to soak." : `Last policy change was ${daysSinceChange} day(s) ago (allow 3).`),
+  ];
+
+  const maxScore = checks.reduce((a, c) => a + c.weight, 0);
+  const earned = checks.reduce((a, c) => a + c.weight * (c.status === "pass" ? 1 : c.status === "warn" ? 0.5 : 0), 0);
+  const score = maxScore > 0 ? Math.round((earned / maxScore) * 100) : 0;
+  const anyFail = checks.some((c) => c.status === "fail");
+  const status = (!anyFail && score >= 85) ? "ready" : score >= 55 ? "approaching" : "not_ready";
+  return { status, score, checks };
+}
+
 /**
  * buildDmarcEnforcementReadiness(summary) — cautious enforcement guidance.
  * Never tells the user it is safe to reject all failing mail.
+ *
+ * Returns the legacy milestone keys (ready_for_quarantine / ready_for_reject /
+ * confidence / blockers / next_step / explanation) unchanged for backward
+ * compatibility, plus the unified v2 model (status / score / checks) from
+ * buildEnforcementReadinessChecks so every surface shares one vocabulary.
  */
 export function buildDmarcEnforcementReadiness(summary = {}) {
   const days    = summary.days_with_data || 0;
@@ -88,7 +152,9 @@ export function buildDmarcEnforcementReadiness(summary = {}) {
     next_step = "Classify legitimate senders and improve alignment before moving to enforcement.";
     explanation = "The domain is not ready for enforcement yet. Resolve the blockers below, then re-evaluate.";
   }
-  return { ready_for_quarantine: readyQuarantine, ready_for_reject: readyReject, confidence, blockers, next_step, explanation };
+  const v2 = buildEnforcementReadinessChecks(summary);
+  return { ready_for_quarantine: readyQuarantine, ready_for_reject: readyReject, confidence, blockers, next_step, explanation,
+           status: v2.status, score: v2.score, checks: v2.checks };
 }
 
 

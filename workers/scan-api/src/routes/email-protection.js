@@ -1114,6 +1114,7 @@ export async function emailProtectionRoutes(rctx) {
         const readiness = buildDmarcEnforcementReadiness({
           days_with_data: daysWithData, total_messages: totalMsgs || sSummary.total_messages,
           pass_rate: passRate, unknown_senders: sSummary.unknown_senders, high_volume_failed_senders: highVolFailed,
+          threat_senders: sSummary.threat_senders, suspicious_senders: sSummary.suspicious_senders,
         });
 
         const businessRisk = buildDmarcBusinessRisk({
