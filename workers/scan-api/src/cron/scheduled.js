@@ -5,6 +5,30 @@
 // registry, so this module has no import cycle.
 import { recordMetric } from "../lib/metrics.js";
 
+// Scheduled-scan burst controls. Each full scan fans out ~80-250 subrequests,
+// and every due scan in a tick shares the ONE Worker invocation's 1,000-
+// subrequest budget (waitUntil work does not get a fresh budget). So we cap both
+// how many are picked per tick AND how many run concurrently: peak fan-out ≈
+// CONCURRENCY × max_per_scan, kept well under 1,000. Fairness is preserved by
+// the SELECT's `ORDER BY next_run_at ASC` (oldest-due first; a picked schedule
+// advances next_run_at before running, so it moves to the back of the queue).
+export const SCHEDULED_SCAN_MAX_PER_TICK = 12;
+export const SCHEDULED_SCAN_CONCURRENCY = 3;
+
+// Bounded worker pool: at most `concurrency` fn(item) run at once. Per-item
+// failures are isolated — one scan can never abort another — preserving the
+// prior fire-and-forget isolation while capping concurrent subrequest fan-out.
+export async function runBoundedPool(items, concurrency, fn) {
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < items.length) {
+      const item = items[cursor++];
+      try { await fn(item); } catch { /* isolated — the pool continues */ }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(concurrency, items.length)) }, worker));
+}
+
 // Runs a scheduled task with duration + outcome telemetry. A failure is recorded
 // as a cron_task metric and an [cron-error] alert-level log (which a Cloudflare
 // Logpush / notification rule can trigger on), but never rethrows — matching the
@@ -35,7 +59,7 @@ export async function runScheduled(event, env, ctx, tasks) {
          WHERE enabled = 1
            AND (next_run_at IS NULL OR next_run_at <= ?)
          ORDER BY next_run_at ASC
-         LIMIT 20`
+         LIMIT ${SCHEDULED_SCAN_MAX_PER_TICK}`
       )
       .bind(now)
       .all();
@@ -43,9 +67,12 @@ export async function runScheduled(event, env, ctx, tasks) {
     // Table may not exist yet — nothing to process
   }
 
-  for (const schedule of (result?.results || [])) {
-    // Each schedule runs independently so one failure cannot abort others
-    ctx.waitUntil(tasks.triggerScheduledScan(schedule, env));
+  // Run the due scans through a bounded pool so at most SCHEDULED_SCAN_CONCURRENCY
+  // full scans fan out at once — the shared 1,000-subrequest budget is never blown
+  // even when many rich-domain schedules are due in the same tick.
+  const dueScans = result?.results || [];
+  if (dueScans.length > 0) {
+    ctx.waitUntil(runBoundedPool(dueScans, SCHEDULED_SCAN_CONCURRENCY, (schedule) => tasks.triggerScheduledScan(schedule, env)));
   }
 
   // ── Scheduled executive reports ────────────────────────────────────────
@@ -69,6 +96,13 @@ export async function runScheduled(event, env, ctx, tasks) {
 	    // notification pipeline; deduped, tenant-scoped, read-only.
 	    if (tasks.runDmarcAlertsSweep) {
 	      ctx.waitUntil(runCronTask(env, "dmarc_alerts_sweep", () => tasks.runDmarcAlertsSweep(env)));
+	    }
+
+	    // ── Managed Brand Protection follow-up ───────────────────────────────
+	    // Advances takedown submissions through provider follow-up and performs
+	    // CyberMeters-only technical verification of resolved/reappeared cases.
+	    if (tasks.runBrandTakedownFollowupSweep) {
+	      ctx.waitUntil(runCronTask(env, "brand_takedown_followup", () => tasks.runBrandTakedownFollowupSweep(env)));
 	    }
 
 	    // ── Report retention cleanup ─────────────────────────────────────────
