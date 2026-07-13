@@ -364,10 +364,41 @@ export async function createManagedAsmCasesForScan(scanId, domainId, domain, fin
   }
 }
 
-export async function verifyManagedAsmCasesForScan(scanId, domainId, domain, findings = [], env) {
+// Verification completeness gate. A case must NEVER be resolved off an
+// incomplete scan: if the exposure's own module explicitly failed / timed out /
+// was skipped, or the whole scan came back "partial" (a core module broke),
+// absence of the finding is NOT evidence the exposure is gone — it may just not
+// have been looked for. Such cases are deferred (left awaiting verification,
+// with an audit event) and retried on the next complete scan. When no module
+// info is supplied (legacy callers), gating is disabled and behaviour is
+// unchanged. Only explicitly-signalled incompleteness gates — an untracked
+// module is trusted exactly as before, so the happy path never regresses.
+function moduleCompletionGate(modules, scanQuality) {
+  if (!modules && !scanQuality) return null;
+  const incomplete = new Set(scanQuality?.modules_skipped || []);
+  for (const [name, value] of Object.entries(modules || {})) {
+    if (value?.error) incomplete.add(name);
+  }
+  const scanPartial = scanQuality?.status === "partial";
+  return {
+    incomplete,
+    scanPartial,
+    canVerify(relevantModule) {
+      if (relevantModule && incomplete.has(relevantModule)) return false;
+      return !scanPartial;
+    },
+  };
+}
+
+function relevantModuleForCase(caseRow) {
+  return parseJson(caseRow.evidence_json)?.finding?.module || null;
+}
+
+export async function verifyManagedAsmCasesForScan(scanId, domainId, domain, findings = [], env, { modules = null, scanQuality = null } = {}) {
   try {
     const present = new Set(findings.filter(isAsmManagedFinding).map((f) => f.id));
     const cleanDomain = normaliseDomain(domain);
+    const gate = moduleCompletionGate(modules, scanQuality);
     const rows = await env.cybermeters_db
       .prepare(`SELECT mc.*
                 FROM managed_cases mc
@@ -378,8 +409,21 @@ export async function verifyManagedAsmCasesForScan(scanId, domainId, domain, fin
                  AND mc.status IN ('verification_requested', 'verifying')`)
       .bind(domainId, ASM_CASE_TYPE, cleanDomain)
       .all();
-    let resolved = 0, failed = 0;
+    let resolved = 0, failed = 0, deferred = 0;
     for (const row of (rows.results || [])) {
+      // Completeness guard: never resolve/fail off a scan that did not actually
+      // re-check this exposure's module. Defer and retry on the next scan.
+      if (gate && !gate.canVerify(relevantModuleForCase(row))) {
+        await writeCaseEvent(env, row, {
+          actor_type: "system",
+          from_status: row.status,
+          to_status: row.status,
+          action: "verification_deferred",
+          detail: { scan_id: scanId, module: relevantModuleForCase(row), reason: "scan_incomplete" },
+        });
+        deferred++;
+        continue;
+      }
       let current = row;
       if (current.status === "verification_requested") {
         const verifying = await updateCaseStatus(env, current, "verifying", {
@@ -422,9 +466,9 @@ export async function verifyManagedAsmCasesForScan(scanId, domainId, domain, fin
         }
       }
     }
-    return { resolved, failed };
+    return { resolved, failed, deferred };
   } catch {
-    return { resolved: 0, failed: 0 };
+    return { resolved: 0, failed: 0, deferred: 0 };
   }
 }
 
