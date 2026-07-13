@@ -877,6 +877,104 @@ function EnforcementReadiness({ readiness }) {
   )
 }
 
+// ── Managed change review queue (Level 3) — analyst approval before enforcement ─
+// Governance layer: a proposed policy change waits here for an analyst to
+// approve (a different person than the requester) or reject with a reason,
+// before it ever touches DNS.
+function ChangeReviewQueue({ wsId }) {
+  const [queue, setQueue]   = useState(null) // null=loading, []=empty
+  const [failed, setFailed] = useState(false)
+  const [busy, setBusy]     = useState(null) // change-request id being actioned
+  const [err, setErr]       = useState(null)
+
+  const load = useCallback(() => {
+    if (!wsId) { setQueue([]); return }
+    let cancelled = false
+    setFailed(false)
+    api.listDmarcChangeRequests(wsId, 'pending_review')
+      .then(res => { if (!cancelled) setQueue(res?.queue || []) })
+      .catch(() => { if (!cancelled) { setQueue([]); setFailed(true) } })
+    return () => { cancelled = true }
+  }, [wsId])
+  useEffect(() => load(), [load])
+
+  const act = async (id, to) => {
+    let reason
+    if (to === 'rejected') {
+      reason = window.prompt('Reason for rejecting this change (required):')
+      if (!reason || !reason.trim()) return
+    }
+    setBusy(id); setErr(null)
+    try {
+      await api.transitionDmarcChangeRequest(wsId, id, { to, reason })
+      load()
+    } catch (e) {
+      setErr(e?.message || 'Could not update the change request.')
+    } finally { setBusy(null) }
+  }
+
+  if (queue === null) return null           // silent while loading — never a flash
+  if (failed || queue.length === 0) return null  // no queue → don't clutter the page
+
+  return (
+    <section className="card-md overflow-hidden">
+      <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-200 bg-gray-50/70">
+        <div className="w-8 h-8 rounded-lg bg-amber-500 flex items-center justify-center flex-shrink-0">
+          <Users className="w-4 h-4 text-white" />
+        </div>
+        <div className="flex-1">
+          <span className="eyebrow">Managed change review</span>
+          <h2 className="section-title leading-tight">Policy changes awaiting approval</h2>
+        </div>
+        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border bg-amber-50 text-amber-700 border-amber-200">
+          {queue.length} pending
+        </span>
+      </div>
+      {err && (
+        <div className="mx-6 mt-4 flex items-start gap-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3.5 py-2.5">
+          <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" /> {err}
+        </div>
+      )}
+      <ul className="divide-y divide-gray-100">
+        {queue.map((c) => (
+          <li key={c.id} className="px-6 py-4">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mb-2">
+              <span className="font-semibold text-gray-900">{c.domain}</span>
+              <span className="inline-flex items-center gap-1.5 text-sm text-gray-600">
+                <span className="font-medium">{c.from_policy || 'none'}</span>
+                <ArrowRight className="w-3.5 h-3.5 text-gray-400" />
+                <span className="font-semibold text-gray-900">{c.to_policy}</span>
+              </span>
+              <span className="text-xs text-gray-400">
+                requested by {c.requested_by || 'unknown'} · {c.age_hours}h ago
+              </span>
+            </div>
+            {typeof c.evidence?.score === 'number' && (
+              <p className="text-xs text-gray-500 mb-2">
+                Readiness at proposal: <span className="font-semibold tabular-nums">{c.evidence.score}/100</span>
+                {c.evidence.status ? ` (${c.evidence.status.replace('_', ' ')})` : ''}
+              </p>
+            )}
+            <div className="flex items-center gap-2">
+              <button onClick={() => act(c.id, 'approved')} disabled={busy === c.id}
+                className="btn-primary text-sm inline-flex items-center gap-1.5 disabled:opacity-50">
+                <CheckCircle className="w-4 h-4" /> Approve
+              </button>
+              <button onClick={() => act(c.id, 'rejected')} disabled={busy === c.id}
+                className="btn-secondary text-sm inline-flex items-center gap-1.5 disabled:opacity-50">
+                <X className="w-4 h-4" /> Reject
+              </button>
+            </div>
+          </li>
+        ))}
+      </ul>
+      <p className="px-6 py-3 text-xs text-gray-400 border-t border-gray-100">
+        Approving analyst must differ from the requester. Every decision is recorded in the audit log.
+      </p>
+    </section>
+  )
+}
+
 // ── DMARC summary panel ───────────────────────────────────────────────────────
 function DmarcSummaryPanel({ summary }) {
   if (!summary) return null
@@ -3481,6 +3579,9 @@ export default function WorkspaceEmailProtectionPage() {
 
           {/* 1b. Enforcement readiness (DMARC sender intelligence) */}
           {dmarc && hasReports && <EnforcementReadiness readiness={dmarc.readiness} />}
+
+          {/* 1b-2. Managed change review queue — analyst approval gate (Level 3) */}
+          <ChangeReviewQueue wsId={wsId} />
 
           {/* 1c. DMARC summary or get-started hint */}
           {siLoading && !dmarc ? (

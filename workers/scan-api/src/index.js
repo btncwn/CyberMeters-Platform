@@ -53,6 +53,7 @@ import { buildScorecardData } from "./engines/scorecard.js";
 import { buildCyberEssentialsReadiness } from "./engines/ce-readiness.js";
 import { computeBusinessRiskScore, deriveScanBusinessRisk, expandFindingIds, latestScanBusinessRisk } from "./engines/business-risk.js";
 import { computeBecExposureScore } from "./engines/bec.js";
+import { CHANGE_STATES, applyChangeTransition, buildChangeReviewQueue, canTransitionChange, changeRequestToApi, isTerminalChangeState, newChangeRequestId } from "./engines/dmarc-change-workflow.js";
 import { upsertAssetInventory } from "./engines/asset-inventory.js";
 import { computePortfolioRisk } from "./engines/portfolio-risk.js";
 import { _cloudflareEmailRoutingRequest, _cloudflareRouteFailure, auditDmarcRouteResult, buildDmarcEnforcementReadiness, buildEnforcementReadinessChecks, classifyHostedCfError, configureDmarcEndpointRoute, dmarcSenderRiskLevel, emailSenderToApi, ensureCloudflareEmailRoute, extractIngestToken, generateInboundLocalpart, generateIngestToken, hashIngestToken, ingestEndpointToApi, loadEmailSenderSources, persistDmarcRouteResult, resolveWorkspaceDomain, revokeCloudflareEmailRoute, safelyEnsureCloudflareEmailRoute, safelyRevokeCloudflareEmailRoute, summarizeEmailSenders } from "./engines/rua-routing.js";
@@ -949,6 +950,7 @@ const WORKSPACE_PURGE_TABLES = [
   "finding_waivers", "api_tokens", "workspace_alert_channels",
   "hosted_dns_records", "hosted_dns_entries",
   "tlsrpt_aggregate_reports", "tlsrpt_failure_details",
+  "dmarc_change_requests",
 ];
 
 /**
@@ -2183,6 +2185,7 @@ export {
   alertChannelToApi,
   analyzeSpfChain,
   annotateExposureInfrastructure,
+  applyChangeTransition,
   applyEvidenceQuality,
   applyHostedDmarcChange,
   assetFingerprintSignals,
@@ -2203,11 +2206,15 @@ export {
   buildDmarcReportRemediationActions,
   buildEmailRemediationActions,
   buildEmailTransportDetails,
+  buildChangeReviewQueue,
   buildEnforcementReadinessChecks,
   buildExecutiveReportV2,
   cfCreateHostedTxt,
   classifyHostedCfError,
   classifyProviderInfrastructure,
+  canTransitionChange,
+  changeRequestToApi,
+  CHANGE_STATES,
   computeBecExposureScore,
   computeBusinessRiskScore,
   computeConcentration,
@@ -2246,8 +2253,10 @@ export {
   ingestEndpointToApi,
   isDeletionPurgeDue,
   isEmailVerificationResendCoolingDown,
+  isTerminalChangeState,
   isValidDomain,
   legacyBrandAssetToApi,
+  newChangeRequestId,
   newHostedDnsRecordId,
   nextHostedDnsStatus,
   normalizeCertificateSanNames,
