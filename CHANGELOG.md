@@ -5,6 +5,21 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.13 (v2026.07.13-13 — CI defense-in-depth locks) — deployed 2026-07-13
+
+### Security (public-beta P0 #5 + #4 — regression locks, both surfaces already safe)
+- **R2 report ownership lock** (PR #54): `validate-tenant-isolation.js` now
+  exercises the scan-report R2 endpoints — a ws1-owned scan's report object
+  carries a marker; foreign/non-member/anon are asserted refused on `/report`,
+  `/report/pdf`, `/executive-report-v2` (no leak) with an owner positive control.
+  Locks `requireScanReadAccess` + workspace-scoped `report_key`. 72/72.
+- **Digest escaper unification** (PR #54): `weekly-digest.js` now uses the
+  canonical `escapeEmailHtml` (quote-safe) instead of a local `&<>`-only `esc` —
+  future-proofs against attribute-context interpolation. Behaviour-equivalent.
+  No migration.
+- Live version **4eab3458-1970-4039-9292-c8fde85cde38**. Rollback:
+  **98ab6f36-f930-4f47-9455-95f07fa545a7**.
+
 ## 2026.07.13 (v2026.07.13-12 — SSO nOAuth hardening) — deployed 2026-07-13
 
 ### Security (public-beta P0 #6 — from the pre-beta audit)
