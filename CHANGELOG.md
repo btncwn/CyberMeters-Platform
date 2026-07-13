@@ -5,6 +5,26 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.13 (v2026.07.13-6 — enforcement readiness v2) — deployed 2026-07-13
+
+### Product (DMARC managed maturity — scorecard epic #6)
+- **Unified enforcement readiness (v2)** (PR #46): the customer DMARC summary and
+  the hosted autopilot each answered "are we ready to tighten DMARC?" with a
+  different vocabulary and different thresholds. Now unified behind one
+  explainable model — `buildEnforcementReadinessChecks` produces a 7-check
+  evidence set (pass-rate, sender alignment, active-threats, reporting window,
+  sender classification, volume, soak time) → weighted numeric **score** (0-100)
+  → tri-state **status** (ready / approaching / not_ready). A single hard fail
+  (alignment failure or active impersonation threat) can never sit inside a
+  "ready" verdict. `buildDmarcEnforcementReadiness` merges `{status, score,
+  checks}` onto its return **alongside** every legacy milestone key (unchanged —
+  no consumer regresses). Frontend readiness card now shows the score/status
+  pill + the 7-check green/amber/red breakdown. No migration.
+  `validate-enforcement-readiness-v2.js` (28) proves legacy and v2 verdicts
+  agree on healthy and unhealthy domains.
+- Live version **bf91cbf8-9a58-4123-91ed-6e80ec132e75**. Rollback:
+  **2ce0bab7-a4ed-4a11-9506-a42711425b8d**.
+
 ## 2026.07.13 (v2026.07.13-5 — DMARC graduated reject ramp) — deployed 2026-07-13
 
 ### Product (DMARC managed maturity — scorecard epic #5)
