@@ -5,6 +5,29 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.13 (v2026.07.13-7 — managed DMARC change workflow, Level 3) — deployed 2026-07-13
+
+### Product (DMARC managed maturity — scorecard epic #7, final / Level 3)
+- **Managed change-workflow state machine + analyst review queue** (PR #47): the
+  human-in-the-loop governance layer that turns a proposed managed-policy change
+  into a reviewable request an analyst must approve before it executes — the last
+  piece for honest "Managed DMARC" positioning. `engines/dmarc-change-workflow.js`
+  is a pure, guarded state machine (draft → pending_review → approved → scheduled
+  → applying → verifying → completed, plus rejected/rolled_back/cancelled). Guards
+  enforce **separation of duties** (approver ≠ requester), a required reason on
+  reject/rollback, a required time on schedule, and terminal immutability;
+  `buildChangeReviewQueue` surfaces pending items FIFO with an age. Routes
+  (GET/POST `/dmarc/change-requests`, POST `.../:id/transition`) are tenant-scoped,
+  manage-role gated and audit-logged; the frontend `ChangeReviewQueue` panel lets
+  an analyst approve/reject with a reason. **Purely additive** — the autopilot /
+  manual policy path is untouched; routing a change through the queue is opt-in.
+- **Migration 075** (`dmarc_change_requests`, additive CREATE TABLE) applied to
+  remote D1 before deploy; added to the workspace-purge table list.
+  `validate-dmarc-change-workflow.js` (31) proves the state machine, guards,
+  queue and a tenant-scoped DB round-trip; regression 227/227.
+- Live version **ab6c2b64-d56a-4e2d-8503-75225b83bb88**. Rollback:
+  **bf91cbf8-9a58-4123-91ed-6e80ec132e75**.
+
 ## 2026.07.13 (v2026.07.13-6 — enforcement readiness v2) — deployed 2026-07-13
 
 ### Product (DMARC managed maturity — scorecard epic #6)
