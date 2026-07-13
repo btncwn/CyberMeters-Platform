@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  Lock, AlertTriangle, XCircle, ShieldCheck, Clock, ScanLine, Globe, Mail,
+  Lock, AlertTriangle, XCircle, ShieldCheck, Clock, ScanLine, Mail,
 } from 'lucide-react'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -21,16 +21,16 @@ function expiryStatus(daysLeft) {
   return { label: `${daysLeft}d left`, cls: 'text-brand-600' }
 }
 
-// HTTPS / certificate trust state derived from existing validity fields only.
-function httpsState(row) {
-  const valid = row.valid ?? row.chain_valid
-  if (valid === true)  return { label: 'Secure', tone: 'ok' }
-  if (valid === false) return { label: 'Broken / untrusted', tone: 'bad' }
-  return { label: 'Unknown', tone: 'na' }
+function trustPathState(row) {
+  const path = row.trust_path || {}
+  if (path.https_reachable === false) return { label: 'HTTPS not reachable', tone: 'bad' }
+  if (path.expiry_ok === false) return { label: 'Expiry problem', tone: 'bad' }
+  if (path.https_reachable === true && path.expiry_ok === true) return { label: 'CT evidence healthy', tone: 'ok' }
+  return { label: 'Partly unknown', tone: 'na' }
 }
 
 function HttpsChip({ row }) {
-  const s = httpsState(row)
+  const s = trustPathState(row)
   const cls = s.tone === 'ok' ? 'bg-brand-50 text-brand-700 border-brand-100'
     : s.tone === 'bad' ? 'bg-red-50 text-red-600 border-red-100'
     : 'bg-gray-50 text-gray-500 border-gray-200'
@@ -115,6 +115,25 @@ function TrustTile({ icon: Icon, label, status, tone, hint, to }) {
   return to ? <Link to={to} className="block">{inner}</Link> : inner
 }
 
+function FindingPill({ finding }) {
+  const cls = finding.severity === 'critical' ? 'bg-red-100 text-red-800 border-red-200'
+    : finding.severity === 'high' ? 'bg-red-50 text-red-700 border-red-100'
+    : finding.severity === 'medium' ? 'bg-amber-50 text-amber-700 border-amber-100'
+    : finding.severity === 'low' ? 'bg-blue-50 text-blue-700 border-blue-100'
+    : 'bg-gray-50 text-gray-600 border-gray-200'
+  return (
+    <div className="rounded-lg border border-gray-100 bg-white p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-gray-900">{finding.title || finding.type}</p>
+          <p className="text-xs text-gray-500 mt-1">{finding.reasons?.[0] || 'Certificate evidence needs review.'}</p>
+        </div>
+        <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full border ${cls}`}>{finding.severity || 'info'}</span>
+      </div>
+    </div>
+  )
+}
+
 export default function CertificatesPage() {
   const { wsId, wsName } = useWorkspace()
   const [certs, setCerts]     = useState([])
@@ -157,8 +176,11 @@ export default function CertificatesPage() {
   const hasData      = certs.length > 0
   const expiringSoon = certs.filter(c => c.days_until_expiry != null && c.days_until_expiry < 30 && c.days_until_expiry >= 0).length
   const expired      = certs.filter(c => c.days_until_expiry != null && c.days_until_expiry < 0).length
-  const broken       = certs.filter(c => (c.valid ?? c.chain_valid) === false).length
+  const trustUnknown = certs.filter(c => ['unknown', undefined, null].includes(c.trust_path?.chain_valid)).length
+  const httpsIssues  = certs.filter(c => c.trust_path?.https_reachable === false || c.trust_path?.expiry_ok === false).length
   const needsReview  = certs.filter(c => ['high', 'critical'].includes(c.certificate_risk_level)).length
+  const l2Findings   = certs.flatMap(c => (c.findings || []).filter(f => f.type !== 'unknown').map(f => ({ ...f, domain: c.domain })))
+  const anomalies    = certs.flatMap(c => (c.anomalies || []).map(a => ({ ...a, domain: c.domain })))
   const buckets      = bucketCounts(certs)
   const chartData    = timeline.slice().reverse().map(day => ({ day: day.day, events: day.events?.length || 0 }))
 
@@ -166,7 +188,8 @@ export default function CertificatesPage() {
   const actions = []
   if (expired > 0)      actions.push({ severity: 'critical', title: 'Certificate expired', body: `${expired} certificate${expired === 1 ? '' : 's'} have expired. Renew now to restore HTTPS trust for affected hosts.` })
   if (expiringSoon > 0) actions.push({ severity: 'high', title: 'Certificate expiring soon', body: `${expiringSoon} certificate${expiringSoon === 1 ? '' : 's'} expire within 30 days. Schedule renewal to avoid an outage.` })
-  if (broken > 0)       actions.push({ severity: 'high', title: 'HTTPS not available or untrusted', body: `${broken} host${broken === 1 ? '' : 's'} returned an invalid or untrusted certificate chain.` })
+  if (httpsIssues > 0)  actions.push({ severity: 'high', title: 'HTTPS or expiry issue', body: `${httpsIssues} certificate record${httpsIssues === 1 ? '' : 's'} show HTTPS reachability or expiry evidence that needs review.` })
+  if (anomalies.length > 0) actions.push({ severity: 'medium', title: 'Certificate change needs review', body: `${anomalies.length} historical certificate change${anomalies.length === 1 ? '' : 's'} were observed across issuer, SAN or parallel-certificate evidence.` })
   if (needsReview > 0)  actions.push({ severity: 'medium', title: 'Certificate trust needs review', body: `${needsReview} certificate${needsReview === 1 ? '' : 's'} are flagged high or critical risk and should be reviewed.` })
 
   const scrollToIssues = () => issuesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -176,16 +199,16 @@ export default function CertificatesPage() {
   // "Healthy"/"Monitored" require REAL data — an observed cert whose details we
   // could not retrieve (expiry/validity unknown) must never read as healthy.
   const hasKnownExpiry = certs.some(c => c.days_until_expiry != null)
-  const hasKnownHttps  = certs.some(c => (c.valid ?? c.chain_valid) != null)
   const expiryTile = expired > 0 ? { status: 'Expired certs present', tone: 'bad' }
     : expiringSoon > 0 ? { status: 'Renewals due soon', tone: 'warn' }
     : hasKnownExpiry ? { status: 'Healthy', tone: 'ok' }
     : hasData ? { status: 'Not yet retrieved', tone: 'na' }
     : { status: 'No data yet', tone: 'na' }
-  const httpsTile = broken > 0 ? { status: 'Issues found', tone: 'bad' }
-    : hasKnownHttps ? { status: 'Monitored', tone: 'ok' }
+  const httpsTile = httpsIssues > 0 ? { status: 'Issues found', tone: 'bad' }
+    : certs.some(c => c.trust_path?.https_reachable === true) ? { status: 'CT evidence healthy', tone: 'ok' }
     : hasData ? { status: 'Not yet retrieved', tone: 'na' }
     : { status: 'No data yet', tone: 'na' }
+  const chainTile = trustUnknown > 0 ? { status: 'Unknown', tone: 'na' } : { status: 'Not assessed', tone: 'na' }
 
   return (
     <WsPage wsId={wsId} wsName={wsName} loading={loading} error={error} onRetry={load}>
@@ -229,7 +252,7 @@ export default function CertificatesPage() {
             <StatCard icon={Lock}        label="Certificates"      value={certs.length} />
             <StatCard icon={Clock}       label="Expiring (<30d)"   value={expiringSoon} warning={expiringSoon > 0} />
             <StatCard icon={XCircle}     label="Expired"           value={expired}      danger={expired > 0} />
-            <StatCard icon={AlertTriangle} label="Broken HTTPS"    value={broken}       danger={broken > 0} />
+            <StatCard icon={AlertTriangle} label="Trust path unknown" value={trustUnknown} />
             <StatCard icon={ShieldCheck} label="Needs review"      value={needsReview}  warning={needsReview > 0} />
           </div>
 
@@ -266,7 +289,7 @@ export default function CertificatesPage() {
             ) : (
               <div className="card p-6 text-center text-sm text-gray-400">
                 {hasKnownExpiry
-                  ? 'No certificate issues detected in the latest scan. Expiry, HTTPS and trust signals look healthy.'
+                  ? 'No certificate issues detected in the latest scan evidence. Live chain, root trust and OCSP checks remain unknown because CyberMeters has not performed live TLS inspection.'
                   : 'Certificate details have not been retrieved yet for the monitored hosts. Run a scan to populate issuer, expiry and HTTPS status.'}
               </div>
             )}
@@ -276,16 +299,33 @@ export default function CertificatesPage() {
           <div id="cert-trust" className="card p-6 mb-6 scroll-mt-20">
             <h2 className="font-semibold text-gray-900 mb-1">Trust posture</h2>
             <p className="text-sm text-gray-500 leading-relaxed mb-4 max-w-3xl">
-              Certificate and transport-security signals help determine whether customers, mail receivers and partners can trust this domain’s infrastructure.
+              Certificate Transparency and HTTP-level signals help you review certificate expiry, issuer changes and visible transport posture. Chain validation, trusted root and OCSP status require live TLS inspection and are not performed here.
             </p>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
-              <TrustTile icon={Lock}        label="HTTPS / TLS certificate" status={httpsTile.status}  tone={httpsTile.tone} hint="From discovered certificates" />
+              <TrustTile icon={Lock}        label="HTTPS reachability"      status={httpsTile.status}  tone={httpsTile.tone} hint="From latest scan evidence" />
               <TrustTile icon={Clock}       label="Certificate expiry"      status={expiryTile.status} tone={expiryTile.tone} hint="Expiry across monitored hosts" />
+              <TrustTile icon={ShieldCheck} label="Chain / root / OCSP"     status={chainTile.status} tone={chainTile.tone} hint="Unknown — requires live TLS inspection" />
               <TrustTile icon={Mail}        label="MTA-STS"                 status="Checked in Email Protection" tone="na" hint="Mail transport policy" to="/ws/email-protection" />
               <TrustTile icon={Mail}        label="TLS-RPT"                 status="Checked in Email Protection" tone="na" hint="TLS reporting readiness" to="/ws/email-protection" />
-              <TrustTile icon={Globe}       label="Secure redirect"        status="Checked during scan" tone="na" hint="HTTP→HTTPS posture" />
             </div>
           </div>
+
+          {(l2Findings.length > 0 || anomalies.length > 0) && (
+            <div className="card p-6 mb-6">
+              <div className="flex items-center justify-between gap-3 mb-4">
+                <div>
+                  <h2 className="font-semibold text-gray-900">Certificate L2 findings</h2>
+                  <p className="text-sm text-gray-500 mt-1">Evidence-backed certificate changes and renewal readiness signals from CT and scan history.</p>
+                </div>
+                <span className="text-sm text-gray-400">{l2Findings.length + anomalies.length} item{l2Findings.length + anomalies.length === 1 ? '' : 's'}</span>
+              </div>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                {[...l2Findings, ...anomalies].slice(0, 8).map((finding, idx) => (
+                  <FindingPill key={`${finding.domain || 'domain'}-${finding.type}-${idx}`} finding={finding} />
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* 4 · Certificate inventory */}
           <div id="cert-inventory" className="card overflow-hidden mb-6 scroll-mt-20">

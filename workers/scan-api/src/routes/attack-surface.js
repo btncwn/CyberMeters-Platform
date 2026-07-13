@@ -5,6 +5,7 @@
 // PR #16). Receives the per-request routeCtx from index.js; returns a
 // Response when a route matches, or null so the main router continues.
 import { buildCaConcentrationAnalytics, buildCertificateLifecycleIntelligence, detectSelfSignedCertificate, mapCertificateAuthorityOwner, normalizeCertificateIssuer } from "../engines/cert-analysis.js";
+import { buildCertificateTrustL2 } from "../engines/cert-trust-l2.js";
 import { assignManagedCaseOwner, getManagedCase, listManagedCaseEvents, listManagedCases, managedCaseToApi, transitionManagedCase } from "../engines/asm-cases.js";
 import { remapToThirdPartyCategory } from "../engines/discovery-scan.js";
 import { computeWorkspaceVendorRisk, confidenceToScore, normalizeVendorKey, normalizeVendorRiskCategory, signalWeightForVendor } from "../engines/vendor-risk.js";
@@ -934,10 +935,12 @@ export async function attackSurfaceRoutes(rctx) {
 	      );
 
 	      const caConcentrationByDomain = new Map();
+	      const certificateHistoryByDomain = new Map();
 	      try {
 	        const observed = await env.cybermeters_db
 	          .prepare(
-	            `SELECT domain_id, issuer, first_seen, last_seen
+	            `SELECT domain_id, subject, issuer, san_count, expires_at,
+	                    first_seen, last_seen, evidence_json
 	             FROM certificate_observations
 	             WHERE workspace_id = ?`
 	          )
@@ -950,6 +953,7 @@ export async function attackSurfaceRoutes(rctx) {
 	          byDomain.get(row.domain_id).push(row);
 	        }
 	        for (const [domainId, rows] of byDomain.entries()) {
+	          certificateHistoryByDomain.set(domainId, rows);
 	          caConcentrationByDomain.set(domainId, buildCaConcentrationAnalytics(rows, {
 	            source: "historical_certificate_observations",
 	          }));
@@ -965,7 +969,7 @@ export async function attackSurfaceRoutes(rctx) {
         const ci = report?.modules?.certificate_intelligence;
         if (!ci) continue;
 
-        certificates.push({
+        const certificate = {
           domain:                       report.domain || null,
           certificate_risk_level:       ci.certificate_risk_level,
 	          certificate_status:           ci.certificate_status,
@@ -995,7 +999,11 @@ export async function attackSurfaceRoutes(rctx) {
           ct_sources:                   ci.ct_sources || {},
           suspicious_certificate_signals: ci.suspicious_certificate_signals || [],
           scan_id:                      scanRows[i]?.id || null,
-        });
+        };
+        Object.assign(certificate, buildCertificateTrustL2(certificate, {
+          history: certificateHistoryByDomain.get(scanRows[i]?.domain_id) || [],
+        }));
+        certificates.push(certificate);
       }
 
       // Sort: critical first, then high, medium, low

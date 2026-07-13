@@ -155,6 +155,9 @@ jobs:
       - name: Validate exposure timeline feed (auth + filters + pagination)
         run: node scripts/validate-exposure-feed.js
 
+      - name: Validate Certificates & Trust L2 (findings + honest unknowns)
+        run: node scripts/validate-cert-trust-l2.js
+
       - name: Install worker deps
         working-directory: workers/scan-api
         run: npm ci || npm install
