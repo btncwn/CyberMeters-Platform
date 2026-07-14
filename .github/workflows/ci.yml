@@ -143,6 +143,9 @@ jobs:
       - name: Validate security-invariant-stabilization contracts (oracle + finalize/reconcile + dmarc + dead-code)
         run: node scripts/validate-stabilization-contracts.js
 
+      - name: Validate bounded scheduled-report generation (batch limit + determinism + idempotency + fairness + entitlement)
+        run: node scripts/validate-bounded-scheduled-reports.js
+
       - name: Validate KEV catalogue R2 cache (hit/miss/stale/unavailable + honest degrade)
         run: node scripts/validate-kev-cache.js
 

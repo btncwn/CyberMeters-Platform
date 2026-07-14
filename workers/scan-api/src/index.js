@@ -84,6 +84,7 @@ import { authRoutes } from "./routes/auth.js";
 import { attackSurfaceRoutes } from "./routes/attack-surface.js";
 import { workspaceInsightRoutes } from "./routes/workspace-insights.js";
 import { buildCertificateAuthorityConcentrationFromModule, buildScanQuality, computeScanBudget, insertAdminSurfaceEvents, runScanEngine, upsertVendorInventory, upsertVendorRelationships } from "./engines/scan-engine.js";
+import { runBoundedScheduledReports } from "./engines/scheduled-reports.js";
 import { assemblePdf, buildExecutivePdf, buildPdfStreams, buildScanReportPdf, collectPdfData, pdfUtcDate } from "./engines/pdf.js";
 import { BILLING_PLAN_METADATA, PLAN_FEATURES, PLAN_LIMITS, getEffectivePlan, getPaymentGraceState, getPlanFeatures, getUserPlan, hasFeatureEntitlement, normalizeBillingInterval, normalizePlan } from "./engines/entitlements.js";
 import { findSubscriptionRowId, getBillingIntervalFromStripeSubscription, getPlanFromStripePriceId, getStripeObjectId, getStripePriceIdForPlan, getStripeSubscriptionPrice, handleCheckoutSessionCompleted, handleStripeInvoicePaymentFailed, handleStripeInvoicePaymentSucceeded, handleStripeSubscriptionDeleted, handleStripeSubscriptionUpsert, normalizeStripeSubscriptionStatus, stripeUnixToIso, validateStripeBillingConfig, validateStripeSecretConfig, validateStripeWebhookConfig, verifyStripeWebhookSignature, writeSubscriptionEvent } from "./engines/stripe.js";
@@ -1337,60 +1338,18 @@ async function cleanupExpiredReports(nowIso, env) {
 // Generates weekly reports on Mondays, monthly reports on the 1st of the month.
 // Skips if a report for the same (workspace, type, period) already exists.
 
+// Weekly (Monday) / monthly (1st) executive report generation, BOUNDED per cron
+// invocation. All batching / determinism / idempotency / fairness / entitlement /
+// observability lives in engines/scheduled-reports.js so it is unit-testable without
+// the Worker runtime. The deferred remainder drains across the report-day's later
+// hourly invocations (a completed report drops out of the next selection). No-op on
+// non-report days. Never throws (runCronTask also isolates it).
 async function generateScheduledReports(now, env) {
-  const d   = new Date(now);
-  const dow = d.getUTCDay();   // 0=Sun … 6=Sat
-  const dom = d.getUTCDate();  // 1–31
-
-  const doWeekly  = dow === 1;  // Monday
-  const doMonthly = dom === 1;  // 1st of month
-
-  if (!doWeekly && !doMonthly) return;
-
-  let workspaces;
   try {
-    const r = await env.cybermeters_db.prepare('SELECT id FROM workspaces').all();
-    workspaces = r.results ?? [];
-  } catch { return; }
-
-  for (const ws of workspaces) {
-    if (doWeekly) {
-      try {
-        const td = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-        td.setUTCDate(td.getUTCDate() + 4 - (td.getUTCDay() || 7));
-        const year = td.getUTCFullYear();
-        const wk   = Math.ceil((((td - Date.UTC(year, 0, 1)) / 86400000) + 1) / 7);
-        const period = `${year}-W${String(wk).padStart(2, '0')}`;
-
-        const exists = await env.cybermeters_db.prepare(
-          `SELECT id FROM workspace_reports
-           WHERE workspace_id = ? AND report_type = ? AND report_period = ? AND deleted_at IS NULL LIMIT 1`
-        ).bind(ws.id, 'weekly_executive', period).first();
-        if (exists) continue;
-
-        await generateWorkspaceExecutiveReport(ws.id, env, {
-          report_type:   'weekly_executive',
-          report_period: period,
-        });
-      } catch { /* one workspace failing must not abort others */ }
-    }
-
-    if (doMonthly) {
-      try {
-        const period = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
-
-        const exists = await env.cybermeters_db.prepare(
-          `SELECT id FROM workspace_reports
-           WHERE workspace_id = ? AND report_type = ? AND report_period = ? AND deleted_at IS NULL LIMIT 1`
-        ).bind(ws.id, 'monthly_executive', period).first();
-        if (exists) continue;
-
-        await generateWorkspaceExecutiveReport(ws.id, env, {
-          report_type:   'monthly_executive',
-          report_period: period,
-        });
-      } catch { /* one workspace failing must not abort others */ }
-    }
+    return await runBoundedScheduledReports(now, env);
+  } catch (e) {
+    console.error("[scheduled-reports] invocation error:", String(e?.message ?? e));
+    return null;
   }
 }
 
