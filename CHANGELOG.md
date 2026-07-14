@@ -5,6 +5,19 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.14 (v2026.07.14-11 — canonical remediation registry) — deployed 2026-07-14
+
+### Feat (one canonical source of truth for customer-facing remediation content across all eight Cyber MOT domains)
+- **Canonical remediation registry + resolver** (PR **#69**, merge **e554db0**). **No migration, no schema change, no frontend change.** Code-backed, resolved at read time; historical reports keep resolving via aliases.
+  - `engines/remediation-registry.js` — **49 active entries** across the eight domains (domain keys derived from `CYBER_MOT_DOMAINS`, single source of truth). Full contract per entry: `remediation_id` (stable dotted slug, independent of display copy), `version`, `status`, `domain_key`, `finding_types[]`, `customer_title`, `technical_explanation`, `business_impact`, `recommended_action`, `effort`, `owner_type`, `verification_method` + `verification_evidence_requirements`, `supporting_evidence_types[]`, `managed_workflow_compatible`, `case_type`, `applicability`, `limitations[]`, `references[]`, `introduced_at`/`deprecated_at`/`replacement_remediation_id`.
+  - `resolveRemediation({finding_type, domain_key, evidence, context, surface})` — pure, deterministic, **surface-invariant**. Known type → primary (+ secondaries); legacy alias → same canonical; **unknown → fails honestly, no generic advice**; deprecated → forwards to replacement, flagged; evidence-dependent applicability (BIMI needs enforced DMARC); unsupported verification (cert chain/OCSP/revocation) stays **explicit**. The finding_type index **throws on a conflicting primary** so the invariant cannot silently break.
+  - **Wired the shared backend generation points** to source canonical advice: `scoring.js` (the persisted `remediation_items` path — scan detail, scorecard, executive report and PDF all inherit it), `email-intel.js` + `email-analysis.js` (the email fan-out), and `business-risk.js` IMPACT_MAP. **Real conflicts fixed:** DMARC now consistently **ramps from p=none** (was `p=quarantine` in scoring vs `p=reject` in BRS — previously visible together in one PDF); SPF guidance unified. Concrete DNS records / affected-host lists preserved as surface detail.
+  - **Honest scope enforced per domain:** Identity = exposed sign-in surface only (no breach/credential/dark-web); Shadow IT = externally observed only; Cyber Essentials certification stays external (IASME); Brand takedown stays prepare-and-track.
+  - **Deliberately deferred (documented follow-up, NOT this PR):** `posture-scoring.js` reason-promotion, `ce-readiness.js` re-wording, `pdf.js` title fabrication, and frontend `data/remediation.js` still hold their own copies. This wires the highest-leverage, conflict-bearing backend points, not every screen.
+  - **Tests:** new CI-blocking `validate-remediation-registry.js` (**55 assertions** — stable ids, 8 domain keys, all finding types resolve, aliases → same canonical, deprecated forwards safely, unknown fails honestly, surface invariance + wired-generator parity, historical compat, per-domain honesty wording, determinism, no duplicate/conflicting primaries). Full gate green: worker parses, regression **227/227**, **all 70 CI validators pass**, hosted-DMARC lifecycle contracts unchanged and green, wrangler dry-run clean.
+  - **Deployed Worker Version ID:** `a54d51ef-8742-42ed-b85b-b83e0e0a6f02` (`GET /health` confirms in production).
+  - **Rollback Version ID:** `e6604068-837f-47cb-b98b-772c368eaaff`.
+
 ## 2026.07.14 (v2026.07.14-10 — eight-domain coverage-state parity) — deployed 2026-07-14
 
 ### Fix (parity patch to v2026.07.14-9 — three honesty gaps closed before the episode closes)
