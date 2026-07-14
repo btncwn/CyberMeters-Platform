@@ -19,9 +19,10 @@
 // storage substrate (extended additively by migration 082). No parallel tables.
 
 import { applyCaseTransition, createCaseMachine, isTerminal, canTransition,
-  requireActor, requireReason, requireField, requireExpiry } from "./case-workflow.js";
-import { ASM_CASE_TYPE, ASM_CASE_MACHINE, ASM_CASE_STATES, SYSTEM_ONLY_CASE_STATES } from "./asm-cases.js";
-import { BRAND_CASE_TYPE, BRAND_CASE_MACHINE, BRAND_CASE_STATES, BRAND_SYSTEM_ONLY_STATES } from "./brand-cases.js";
+  requireActor, requireReason, requireField, requireExpiry,
+  newManagedCaseId, newCaseEventId } from "./case-workflow.js";
+import { ASM_CASE_TYPE, ASM_CASE_MACHINE, ASM_CASE_STATES, SYSTEM_ONLY_CASE_STATES } from "./asm-case-machine.js";
+import { BRAND_CASE_TYPE, BRAND_CASE_MACHINE, BRAND_CASE_STATES, BRAND_SYSTEM_ONLY_STATES } from "./brand-case-machine.js";
 import { CYBER_MOT_DOMAINS } from "./cyber-mot-domains.js";
 import { findingRemediation } from "./remediation-registry.js";
 
@@ -86,8 +87,11 @@ export const BASE_CASE_MACHINE = createCaseMachine({
     // canTransitionCase — the machine edge alone never verifies.
   },
 });
-// Base states only reachable via product verification (not customer-set).
-export const BASE_SYSTEM_ONLY_STATES = new Set(["verified"]);
+// Base (manual-verification) domains have NO system-only states this episode:
+// `verified` is reachable by manual attestation from an allowed actor, gated by
+// the verification-evidence contract (structured attestation required). ASM/Brand
+// keep their own system-only sets (their `resolved` stays CyberMeters-only).
+export const BASE_SYSTEM_ONLY_STATES = new Set();
 
 // ── Canonical phase folding ─────────────────────────────────────────────────
 // Every state of every registered case_type folds onto ONE canonical phase, so a
@@ -174,17 +178,45 @@ function isVerifiedTarget(entry, target) {
   return entry.verified_states.has(String(target));
 }
 
-// Verification evidence must be a domain/finding-specific verification RESULT —
-// a scan merely completing is never sufficient (rule: scan completion alone
-// cannot verify). We accept an explicit verified flag or a "fixed" probe
-// decision with complete completeness.
-function hasVerificationEvidence(evidence) {
-  if (!evidence || typeof evidence !== "object") return false;
-  if (evidence.scan_completed_only === true) return false;
-  if (evidence.verified === true) return true;
-  if (evidence.decision === "fixed" && evidence.completeness === "complete") return true;
-  if (evidence.decision === "verified" && evidence.completeness === "complete") return true;
-  return false;
+// ── Verification evidence contract ──────────────────────────────────────────
+// A verified transition needs a STRUCTURED verification result — never a bare
+// flag, a completed scan, or a customer note. Every verification evidence object
+// must carry: verification_method, verification_result, evidence_type,
+// observed_at, and an evidence_reference OR a structured observation.
+export const VERIFICATION_RESULTS = Object.freeze(["fixed", "verified", "still_present", "inconclusive", "failed"]);
+const POSITIVE_RESULTS = new Set(["fixed", "verified"]);
+
+// Returns { ok, reason }. `support` is the case_type's verification_support
+// ("automated" | "manual"); `actor` gates manual attestation.
+export function validateVerificationEvidence(evidence, { support = "automated", actor = {} } = {}) {
+  if (!evidence || typeof evidence !== "object") return { ok: false, reason: "verification_evidence_missing" };
+  // A bare scan completion or a customer note never verifies.
+  if (evidence.scan_completed_only === true) return { ok: false, reason: "scan_completion_not_verification" };
+  if (evidence.note_only === true) return { ok: false, reason: "note_not_verification" };
+  const method = String(evidence.verification_method || "");
+  const result = String(evidence.verification_result || "");
+  if (!method || method === "unsupported") return { ok: false, reason: "verification_unsupported" };
+  if (!VERIFICATION_RESULTS.includes(result)) return { ok: false, reason: "verification_result_invalid" };
+  // Failed / inconclusive / still-present never become verified.
+  if (!POSITIVE_RESULTS.has(result)) return { ok: false, reason: "verification_not_positive" };
+  if (!evidence.evidence_type) return { ok: false, reason: "evidence_type_missing" };
+  if (!evidence.observed_at || !Number.isFinite(Date.parse(evidence.observed_at))) return { ok: false, reason: "observed_at_missing" };
+  const hasObservation = evidence.evidence_reference != null ||
+    (evidence.observation != null && typeof evidence.observation === "object") ||
+    (evidence.attestation != null && typeof evidence.attestation === "object");
+  if (!hasObservation) return { ok: false, reason: "observation_missing" };
+  // Manual attestation requires a structured attestation AND an identified actor
+  // (the route enforces the actor's role).
+  if (method === "manual_attestation") {
+    if (!evidence.attestation || typeof evidence.attestation !== "object") return { ok: false, reason: "attestation_required" };
+    if (!actor.actor_id) return { ok: false, reason: "attestation_actor_required" };
+  } else {
+    // Automated verification requires an explicit machine result + observation.
+    if (support === "automated" && evidence.observation == null && evidence.evidence_reference == null) {
+      return { ok: false, reason: "automated_observation_required" };
+    }
+  }
+  return { ok: true };
 }
 
 // Canonical-lifecycle timestamp for a target phase.
@@ -225,23 +257,8 @@ export function canTransitionCase(opts = {}) {
   const actorType = actor.actor_type || "customer";
   const actorId = actor.actor_id || actor.id || null;
 
-  // System-only states cannot be set by a customer/manual actor.
-  if (entry.system_only?.has?.(target) && actorType !== "system") {
-    return { ok: false, code: "system_only", error: "This step is verified by CyberMeters and cannot be set manually." };
-  }
-
-  // Verified rule — a scan completing is never enough; require a system actor
-  // and a domain/finding-specific verification result.
-  if (isVerifiedTarget(entry, target)) {
-    if (actorType !== "system") {
-      return { ok: false, code: "verify_requires_system", error: "Only CyberMeters verification can mark a case verified." };
-    }
-    if (!hasVerificationEvidence(evidence)) {
-      return { ok: false, code: "verify_requires_evidence", error: "Verification evidence is required; a completed scan alone does not verify a case." };
-    }
-  }
-
-  // Delegate edge + guard + terminal-immutability enforcement to the machine.
+  // 1) Edge legality FIRST — an illegal/terminal transition is rejected before
+  //    any authorization or evidence question (clear error precedence).
   const ctx = {
     actor_type: actorType, actor_id: actorId, actor: actorId,
     reason, now: opts.now || new Date().toISOString(),
@@ -252,6 +269,27 @@ export function canTransitionCase(opts = {}) {
 
   const result = applyCaseTransition(entry.machine, caseRecord, target, ctx);
   if (!result.ok) return { ok: false, code: "invalid_transition", error: result.error };
+
+  // 2) System-only states cannot be set by a customer/manual actor.
+  if (entry.system_only?.has?.(target) && actorType !== "system") {
+    return { ok: false, code: "system_only", error: "This step is verified by CyberMeters and cannot be set manually." };
+  }
+
+  // 3) Verified rule — a scan completing is never enough. AUTOMATED case types
+  //    (ASM/Brand) can only be verified by CyberMeters (system actor) with a valid
+  //    automated result; MANUAL case types (the six base domains) verify via a
+  //    structured attestation from an identified actor. Both go through the
+  //    verification-evidence contract; failed/inconclusive never verifies.
+  if (isVerifiedTarget(entry, target)) {
+    const support = entry.verification_support;
+    if (support === "automated" && actorType !== "system") {
+      return { ok: false, code: "verify_requires_system", error: "Only CyberMeters verification can mark this case verified." };
+    }
+    const v = validateVerificationEvidence(evidence, { support, actor: { actor_id: actorId, actor_type: actorType } });
+    if (!v.ok) {
+      return { ok: false, code: "verify_requires_evidence", error: `Verification evidence is required (${v.reason}); a completed scan or a note alone does not verify a case.`, reason: v.reason };
+    }
+  }
 
   const next = result.case;
   const phase = entry.phase[target] ?? null;
@@ -279,4 +317,118 @@ export function caseRemediationId(caseRecord) {
   const ft = caseRecord?.source_finding_type || caseRecord?.finding_id;
   const r = ft ? findingRemediation({ id: ft, finding_type: "finding" }) : null;
   return r?.remediation_id ?? null;
+}
+
+// ── Append-only event taxonomy ──────────────────────────────────────────────
+// The canonical event types every UNIVERSAL write uses. Legacy ASM/Brand event
+// `action` strings remain readable, but new universal writes use these. Each
+// type declares the keys its detail_json must carry (deterministic shape).
+export const CASE_EVENT_TYPES = Object.freeze({
+  case_created:              ["domain_key", "case_type", "source_finding_type", "source_scan_id", "remediation_id"],
+  status_changed:            ["from_status", "to_status", "reason"],
+  assignment_changed:        ["owner_type", "owner_ref", "assigned_user_id"],
+  evidence_added:            ["evidence_type", "evidence_reference"],
+  verification_requested:    ["verification_method"],
+  verification_completed:    ["verification_method", "verification_result", "evidence_type", "observed_at"],
+  comment_added:             ["comment"],
+  external_action_recorded:  ["action_type", "reference"],
+  case_reopened:             ["previous_status", "reason"],
+});
+
+// Build a canonical, deterministic detail_json for an event type. Missing keys
+// are set to null so the shape is stable; unknown keys are dropped.
+export function buildCaseEventDetail(type, values = {}) {
+  const keys = CASE_EVENT_TYPES[type];
+  if (!keys) throw new Error(`managed-case-model: unknown event type "${type}"`);
+  const detail = {};
+  for (const k of keys) detail[k] = values[k] ?? null;
+  return detail;
+}
+export function isCanonicalEventType(type) {
+  return Object.prototype.hasOwnProperty.call(CASE_EVENT_TYPES, type);
+}
+
+// ── Universal case-creation primitive ───────────────────────────────────────
+// createManagedCase — the ONE way the six base-lifecycle domains (and future
+// domain workflows) open a case. Enforces valid domain/case_type + their match,
+// an active (non-soft-deleted) workspace and domain link, canonical remediation
+// linkage (or explicit null), initial state `detected`, deduplication against an
+// open case for the same source, source finding/scan linkage, a creation
+// timestamp, an append-only `case_created` event, and tenant integrity. Pure of
+// side effects beyond the two writes. Returns { ok, created, case } or
+// { ok:false, code }.
+export async function createManagedCase(env, {
+  workspace_id, domain_key, case_type, source_finding_type = null, source_finding_id = null,
+  source_scan_id = null, domain = null, asset_ref = null, title = null, summary = null,
+  severity = "medium", priority = null, evidence = null, actor = {},
+} = {}) {
+  if (!workspace_id) return { ok: false, code: "workspace_required" };
+  if (!isValidDomainKey(domain_key)) return { ok: false, code: "invalid_domain_key" };
+  const entry = caseTypeEntry(case_type);
+  if (!entry) return { ok: false, code: "invalid_case_type" };
+  if (entry.domain_key !== domain_key) return { ok: false, code: "domain_case_type_mismatch" };
+
+  // Active workspace (not soft-deleted).
+  const ws = await env.cybermeters_db
+    .prepare(`SELECT id FROM workspaces WHERE id = ? AND deleted_at IS NULL`)
+    .bind(workspace_id).first().catch(() => null);
+  if (!ws) return { ok: false, code: "workspace_inactive" };
+
+  // If a domain is supplied it must be linked to this workspace (active).
+  if (domain) {
+    const link = await env.cybermeters_db
+      .prepare(`SELECT d.id FROM domains d JOIN workspace_domains wd ON wd.domain_id = d.id
+                JOIN workspaces w ON w.id = wd.workspace_id
+                WHERE wd.workspace_id = ? AND d.domain = ? AND w.deleted_at IS NULL LIMIT 1`)
+      .bind(workspace_id, domain).first().catch(() => null);
+    if (!link) return { ok: false, code: "domain_ineligible" };
+  }
+
+  // Canonical remediation linkage (or explicit null).
+  const remediation_id = source_finding_type
+    ? (findingRemediation({ id: source_finding_type, finding_type: "finding" })?.remediation_id ?? null)
+    : null;
+
+  const findingKey = source_finding_id || source_finding_type || null;
+  // Deduplicate against an OPEN case for the same source (non-terminal).
+  if (findingKey) {
+    const existing = await env.cybermeters_db
+      .prepare(`SELECT * FROM managed_cases
+                WHERE workspace_id = ? AND case_type = ? AND finding_id = ?
+                  AND status NOT IN ('rejected','false_positive','closed_no_action','superseded','closed')
+                LIMIT 1`)
+      .bind(workspace_id, case_type, findingKey).first().catch(() => null);
+    if (existing) return { ok: true, created: false, case: existing };
+  }
+
+  const id = newManagedCaseId();
+  const now = new Date().toISOString();
+  const initialStatus = "detected";
+  const row = {
+    id, workspace_id, case_type, domain_key, domain, finding_id: findingKey,
+    source_finding_type, source_scan_id, remediation_id, asset_ref,
+    title, summary, severity: severity || "medium", priority,
+    status: initialStatus, evidence_json: evidence ? JSON.stringify(evidence) : null,
+    created_at: now, updated_at: now,
+  };
+  await env.cybermeters_db
+    .prepare(`INSERT INTO managed_cases
+      (id, workspace_id, case_type, domain_key, domain, finding_id, source_finding_type,
+       source_scan_id, remediation_id, asset_ref, title, summary, severity, priority,
+       status, evidence_json, created_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .bind(id, workspace_id, case_type, domain_key, domain, findingKey, source_finding_type,
+      source_scan_id, remediation_id, asset_ref, title, summary, row.severity, priority,
+      initialStatus, row.evidence_json, actor.actor_id || "system", now, now)
+    .run();
+  // Append-only case_created event (canonical taxonomy).
+  await env.cybermeters_db
+    .prepare(`INSERT INTO managed_case_events
+      (id, case_id, workspace_id, actor_type, actor_id, from_status, to_status, action, detail_json, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'case_created', ?, datetime('now'))`)
+    .bind(newCaseEventId(), id, workspace_id, actor.actor_type || "system", actor.actor_id || null,
+      null, initialStatus,
+      JSON.stringify(buildCaseEventDetail("case_created", { domain_key, case_type, source_finding_type, source_scan_id, remediation_id })))
+    .run();
+  return { ok: true, created: true, case: row };
 }

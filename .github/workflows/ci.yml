@@ -113,6 +113,9 @@ jobs:
       - name: Validate universal managed-case model (8 domains + transition validator + verified rules + compat + isolation)
         run: node scripts/validate-managed-case-model.js
 
+      - name: Validate universal case-creation factory (6 base types + mismatch/soft-delete/dedup + append-only case_created)
+        run: node scripts/validate-universal-case-factory.js
+
       - name: Validate ASM remediation loop (managed cases + verification)
         run: node scripts/validate-asm-remediation-loop.js
 

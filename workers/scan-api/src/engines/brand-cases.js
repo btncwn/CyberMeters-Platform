@@ -4,59 +4,19 @@
 import { deliverWorkspaceAlert } from "./alerts.js";
 import { brandCandidateToApi, loadWorkspaceBrandProfile } from "./brand-protection.js";
 import {
-  applyCaseTransition,
   buildCaseQueue,
-  createCaseMachine,
   newCaseEventId,
   newManagedCaseId,
-  requireActor,
-  requireField,
-  requireReason,
 } from "./case-workflow.js";
 import { dnsQuery } from "./dns.js";
 import { safeFetch } from "../lib/http.js";
 import { createAuditEvent, createNotificationEvent } from "../lib/events.js";
 import { findingRemediation } from "./remediation-registry.js";
+import { BRAND_CASE_TYPE, BRAND_CASE_MACHINE, BRAND_CASE_STATES, BRAND_SYSTEM_ONLY_STATES } from "./brand-case-machine.js";
+import { canTransitionCase } from "./managed-case-model.js";
 
-export const BRAND_CASE_TYPE = "brand_abuse";
-export const BRAND_CASE_STATES = [
-  "detected", "triage", "confirmed_abuse", "customer_approval", "evidence_ready",
-  "takedown_submitted", "provider_followup", "verification_pending", "resolved",
-  "false_positive", "duplicate", "provider_no_response", "escalated", "reappeared", "closed",
-];
-
-export const BRAND_CASE_MACHINE = createCaseMachine({
-  states: BRAND_CASE_STATES,
-  transitions: {
-    detected: ["triage"],
-    triage: ["confirmed_abuse", "false_positive", "duplicate"],
-    confirmed_abuse: ["customer_approval"],
-    customer_approval: ["evidence_ready"],
-    evidence_ready: ["takedown_submitted"],
-    takedown_submitted: ["provider_followup"],
-    provider_followup: ["verification_pending", "provider_no_response", "escalated"],
-    verification_pending: ["resolved", "provider_no_response", "escalated"],
-    resolved: ["reappeared", "closed"],
-    reappeared: ["confirmed_abuse"],
-    provider_no_response: ["provider_followup", "escalated", "closed"],
-    escalated: ["provider_followup", "verification_pending", "closed"],
-    false_positive: [],
-    duplicate: [],
-    closed: [],
-  },
-  terminals: ["false_positive", "duplicate", "closed"],
-  guards: {
-    confirmed_abuse: [requireReason],
-    false_positive: [requireReason],
-    duplicate: [requireReason],
-    customer_approval: [requireReason],
-    evidence_ready: [(_row, ctx) => requireActor(ctx)],
-    takedown_submitted: [requireField("submission_reference")],
-    provider_no_response: [requireReason],
-  },
-});
-
-export const BRAND_SYSTEM_ONLY_STATES = new Set(["resolved", "reappeared", "provider_no_response"]);
+// Re-exported from the neutral machine module so existing importers are unchanged.
+export { BRAND_CASE_TYPE, BRAND_CASE_MACHINE, BRAND_CASE_STATES, BRAND_SYSTEM_ONLY_STATES };
 
 function safeJson(value, fallback = null) {
   if (value == null) return fallback;
@@ -289,11 +249,18 @@ async function updateCaseRow(env, next) {
 }
 
 async function applyBrandTransition(env, caseRow, to, ctx = {}) {
-  if ((ctx.actor_type || "customer") !== "system" && BRAND_SYSTEM_ONLY_STATES.has(to)) {
-    return { ok: false, error: "This state is set only after CyberMeters technical verification." };
-  }
-  const result = applyCaseTransition(BRAND_CASE_MACHINE, caseRow, to, ctx);
-  if (!result.ok) return result;
+  // Route every Brand status change through the UNIVERSAL validator (no bypass).
+  // It dispatches to the same Brand machine, enforces the system-only rule
+  // (resolved/reappeared/provider_no_response) and the verified-evidence contract
+  // for `resolved`. Brand's bespoke side effects (evidence bundle, submission,
+  // due_at) still run below on the returned case.
+  const result = canTransitionCase({
+    case: caseRow, target_status: to,
+    actor: { actor_type: ctx.actor_type || "customer", actor_id: ctx.actor_id || null },
+    evidence: ctx.evidence ?? null, reason: ctx.reason ?? null,
+    submission_reference: ctx.submission_reference ?? null, now: ctx.now,
+  });
+  if (!result.ok) return { ok: false, error: result.error, code: result.code };
   const next = {
     ...result.case,
     evidence_json: caseRow.evidence_json,
@@ -719,6 +686,15 @@ export async function runBrandTakedownFollowupSweep(env, { verifier = null, now 
         actor_type: "system",
         action: "technically_verified_removed",
         detail: { observed: probe.observed },
+        // Structured verification evidence — product-verified removal (DNS/MX
+        // gone), never a customer assertion.
+        evidence: {
+          verification_method: "rescan",
+          verification_result: "verified",
+          evidence_type: "dns_probe",
+          observed_at: new Date().toISOString(),
+          observation: probe.observed || { gone: true },
+        },
       });
       if (done.ok) {
         resolved++;
