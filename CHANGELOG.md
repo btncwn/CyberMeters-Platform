@@ -5,6 +5,38 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.14 (v2026.07.14-4 — workspace-scoped domain verification + scan-start gate) — deployed 2026-07-14
+
+### Fix (security beta-blocker — scans required workspace-level proof of control)
+- **Workspace-scoped domain verification + hard scan-start gate** (PR **#62**, merge
+  **5554bd5eedc64271f8b4bc244553d3b196145905**).
+  - **Root cause:** scan-start had no verification guard; verification was advisory
+    and domain-global-per-user, so a workspace could scan a domain it never proved
+    control of (found via the external Microsoft SSO onboarding test —
+    scan_5e51158e on the unverified domain_3fe1e1a2).
+  - **Fix:** migration **079** adds verification columns to `workspace_domains` (per
+    workspace-domain link; additive, no DROP). A fail-closed gate on `POST /api/scan`
+    and `triggerScheduledScan` rejects/skips unless the exact (workspace_id,
+    domain_id) link is verified → `403 {error:"domain_verification_required",
+    message:"Verify domain ownership before starting a Cyber MOT."}` with no scan
+    row / R2 placeholder / telemetry / case / report. Verification lifecycle is now
+    workspace-explicit (token + status on the link); legacy domains.verification_*
+    is read-only compat, never a scan gate. Scheduled scans only skip + log (no
+    config mutation).
+  - **Migration 079 result (remote D1):** 6 columns added; link count unchanged
+    (24); backfill promoted exactly **3** verified-domain links (21 unverified;
+    0 miss; 0 unrelated). Canonical BBB link (workspace_8f4e7bd1 / domain_2ba2cce0)
+    → **verified** (verified_at 2026-06-23 preserved); SSO test link
+    (workspace_35e25fc5 / domain_3fe1e1a2) → **unverified**. No row deleted.
+  - **Tests:** scripts/validate-domain-verification-gate.js (34 assertions);
+    migrations guard 89/89; tenant-isolation + SSO-linking-guard + error-contract +
+    regression + frontend typecheck/build green.
+  - **Production smoke:** unauth `/api/scan` → 401; SSO test workspace unchanged
+    (no new scan); SSO link unverified → gate 403; canonical BBB link verified →
+    eligible (side-effect-free); scheduled configs intact (3 total / 2 enabled).
+  - **Deployed Worker Version ID:** `c1dd9175-150a-40c0-8f1c-06d97c84bde8`.
+  - **Rollback Version ID:** `e6604068-837f-47cb-b98b-772c368eaaff`.
+
 ## 2026.07.14 (v2026.07.14-3 — portfolio entitlement consistency + deterministic latest-scan) — deployed 2026-07-14
 
 ### Fix (packaging + correctness — MSP Portfolio hardening)
