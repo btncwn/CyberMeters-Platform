@@ -265,7 +265,7 @@ export async function scanRoutes(rctx) {
         // Direct attribution for attributed scans; join fallback for NULL workspace_id.
         result = await env.cybermeters_db
           .prepare(
-            `SELECT DISTINCT s.id, s.domain, s.status, s.score, s.rating, s.created_at
+            `SELECT DISTINCT s.id, s.domain, s.status, s.score, s.rating, s.scan_quality, s.created_at
              FROM scans s
              JOIN domains d ON d.id = s.domain_id
              JOIN workspace_domains wd ON wd.domain_id = d.id
@@ -327,6 +327,7 @@ export async function scanRoutes(rctx) {
                 status: correctedStatus,
                 score:  raw.cyber_metrics_score ?? s.score,
                 rating: raw.risk_level          ?? s.rating,
+                scan_quality: raw.scan_quality?.status ?? s.scan_quality ?? null,
               };
             } catch { return null; }
           })
@@ -685,7 +686,7 @@ export async function scanRoutes(rctx) {
 
       const history = await env.cybermeters_db
         .prepare(
-          `SELECT DISTINCT s.id, s.domain_id, s.domain, s.status, s.score, s.rating, s.created_at
+          `SELECT DISTINCT s.id, s.domain_id, s.domain, s.status, s.score, s.rating, s.scan_quality, s.created_at
            FROM scans s
            JOIN workspace_domains wd ON wd.domain_id = s.domain_id
            WHERE s.domain = ? AND wd.workspace_id IN (${placeholders})

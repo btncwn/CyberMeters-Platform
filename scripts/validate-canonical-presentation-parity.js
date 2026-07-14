@@ -86,6 +86,17 @@ const files = walk(S);
   ok("scan-detail delegates to resolveAssessmentPresentation", /resolveAssessmentPresentation/.test(sc));
   ok("scan-detail returns the canonical assessment object", /\n\s*assessment,/.test(sc));
   ok("scan-detail score_change is gated on comparability", /assessment\.comparable && historicalChanges\?\.previous_score/.test(sc));
+  // The scan LIST + history API must carry scan_quality so no client can reconstruct
+  // a clean rating from a partial scan.
+  ok("scan-list API selects scan_quality", /s\.rating, s\.scan_quality, s\.created_at/.test(sc));
+  ok("scan-history API selects scan_quality", /s\.score, s\.rating, s\.scan_quality, s\.created_at/.test(sc));
+}
+
+// ── 4b. Main Dashboard hero is completeness-aware (authoritative = latest complete) ─
+{
+  const dash = fs.readFileSync(path.join(root, "frontend", "src", "pages", "Dashboard.jsx"), "utf8");
+  ok("Dashboard authoritative posture = latest complete-quality scan", /scan_quality === 'complete'/.test(dash));
+  ok("Dashboard suppresses the rating for a provisional latest", /postureProvisional \? null : ins\.riskLevel/.test(dash));
 }
 
 // ── 5. Report + PDF delegate to the resolver (customer artifacts) ────────────

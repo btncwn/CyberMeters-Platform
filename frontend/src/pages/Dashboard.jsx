@@ -41,10 +41,16 @@ function deriveInsights(scans, report) {
   const active    = scans.filter(s => ['queued','running','processing'].includes(s.status)).length
   const domains   = [...new Set(scans.map(s => s.domain))]
 
-  // Score: use the real score from D1 (set by scan engine on the latest completed scan)
-  const latestCompleted = completed[0] || null
-  const score = latestCompleted?.score ?? null
-  const riskLevel = latestCompleted?.rating ?? null
+  // Canonical current posture: authoritative = latest COMPLETE scan. A partial/
+  // degraded/unknown latest shows a provisional score with NO rating — never a clean
+  // Excellent/Good. If no complete scan exists, posture is not yet established.
+  const authoritative = completed.find(s => s.scan_quality === 'complete') || null
+  const latest = completed[0] || null
+  const provisionalLatest = latest && latest.scan_quality !== 'complete' ? latest : null
+  const score = authoritative?.score ?? provisionalLatest?.score ?? null
+  const riskLevel = authoritative?.rating ?? null
+  const postureProvisional = !authoritative && !!provisionalLatest
+  const postureEstablished = !!authoritative
 
   // Health categories: derive from report modules if available, else use scan counts
   const mods = report?.modules ?? {}
@@ -142,7 +148,7 @@ function deriveInsights(scans, report) {
   const highCount     = report?.findings?.filter(f => f.severity === 'high').length ?? 0
 
   return {
-    score, riskLevel, completed, failed, active, domains,
+    score, riskLevel, postureProvisional, postureEstablished, completed, failed, active, domains,
     healthCategories, findings, trend, actions,
     criticalCount, highCount,
   }
@@ -783,14 +789,19 @@ export default function Dashboard() {
         <div className="flex flex-col lg:flex-row lg:items-center gap-8 px-8 py-8">
           {/* Score ring */}
           <div className="flex flex-col items-center gap-3 lg:min-w-[240px]">
-            <span className="eyebrow">Cyber Metrics Score</span>
-            <ScoreRing score={ins.score} riskLevel={ins.riskLevel} />
+            <span className="eyebrow">{ins.postureProvisional ? 'Provisional Score' : 'Cyber Metrics Score'}</span>
+            <ScoreRing score={ins.score} riskLevel={ins.postureProvisional ? null : ins.riskLevel} />
+            {ins.postureProvisional && (
+              <p className="text-[11px] text-amber-700 text-center leading-relaxed max-w-[200px] font-medium">Some checks were not completed. This score is provisional.</p>
+            )}
           </div>
 
           {/* Posture statement + actions */}
           <div className="flex-1 lg:border-l border-gray-200 lg:pl-8">
             <p className="text-[15px] text-gray-700 leading-relaxed max-w-lg">
-              {ins.score === null
+              {ins.postureProvisional
+                ? 'Some checks were not completed, so current posture is not yet established. Re-run the Cyber MOT for a complete assessment.'
+                : ins.score === null
                 ? 'Run your first Cyber MOT to generate your Cyber Metrics Score and reveal your external security posture.'
                 : ins.score >= 75
                   ? 'Your external security posture is well protected. Keep monitoring to catch new exposure as it appears.'
