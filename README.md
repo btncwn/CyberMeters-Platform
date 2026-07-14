@@ -50,9 +50,9 @@ Current roadmap state:
 | Universal Managed-Case Model (incl. enforced invariants) | Live |
 | Shadow IT Approved Inventory + Correlation Depth | Live |
 | Certificates Managed Lifecycle | Live |
-| Identity Exposure Managed Workflow | Next canonical episode |
-| Complete ASM Verification | Planned |
-| Alerts Across All Eight Domains | Planned |
+| Identity Exposure Managed Workflow | Live |
+| Complete ASM Verification | Live |
+| Alerts Across All Eight Domains | Next canonical episode |
 | MSP Portfolio Per-Domain State and Trend | Planned |
 | M5 Completion Across All Eight Domains | Planned |
 | Debugging and Reliability Hardening | Planned after managed lifecycle completion |
