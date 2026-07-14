@@ -5,6 +5,20 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.14 (v2026.07.14-14 — universal case invariants enforced) — deployed 2026-07-14
+
+### Feat (completes the Universal Managed-Case Model — transition + creation invariants enforced platform-wide)
+- **Universal case invariants** (PR **#75**, merge on main). Builds on v2026.07.14-13, unchanged. **No schema change this increment.**
+  - **No bypass:** the ASM and Brand state machines were extracted into neutral leaf modules (`asm-case-machine.js`, `brand-case-machine.js`) to break the import cycle, so `asm-cases.js` (`updateCaseStatus` + the `casCaseStatus` CAS) and `brand-cases.js` (`applyBrandTransition`) validate through `canTransitionCase` before persisting + appending the event. **No raw `applyCaseTransition` status-mutation remains in either engine.** Machines, stored states and side effects unchanged; one additive ASM edge (`verifying→verification_requested`) makes the concurrency release validator-legal instead of a raw-CAS bypass.
+  - **Verification contract:** `validateVerificationEvidence` requires structured evidence (`verification_method`, `verification_result`, `evidence_type`, `observed_at`, `observation`/`attestation`/`evidence_reference`). Unsupported / scan-completion-only / note-only / failed / inconclusive / still-present never verify; automated case types (ASM/Brand) verify only by CyberMeters (system actor); manual base domains verify via a structured attestation from an identified actor. ASM/Brand resolve sites pass conforming automated evidence. Precedence: edge → system-only → verified.
+  - **`createManagedCase` factory (six base types):** validates domain key + case_type + match, active workspace + linked domain, canonical remediation linkage or explicit null, initial state, deduplication, source linkage, creation timestamp, and an append-only `case_created` event. Wired to `POST /api/workspaces/:id/cases` (base types only).
+  - **Event taxonomy:** `CASE_EVENT_TYPES` + `buildCaseEventDetail` define the canonical deterministic `detail_json` shape for every universal write; legacy ASM/Brand actions stay readable.
+  - **Frontend:** the AssetsPage `CasesQueue` mount is labelled a temporary integration proof (component is standalone/reusable; not the permanent IA).
+  - **Tests (CI-blocking):** `validate-universal-case-factory.js` (21, DB-backed); `validate-managed-case-model.js` grown to 92. ASM/Brand compatibility green. Full gate: **all 75 CI validators**, frontend build, `wrangler dry-run`, migrations guard.
+  - **Deployed Worker Version ID:** `554e6ac1-2edd-48b0-8f7b-32877ffe5182` (`GET /health` confirms; GET/POST `/cases` + `/cases/:id/transition` live, auth-gated). Pages redeployed.
+  - **Rollback Version ID:** `8d91a9ab-d74f-4d39-b108-277bd082ecf6`.
+  - **Deferred (NOT started):** Shadow IT inventory, cert renewal workflow, identity domain workflow, all-domain alerts, MSP portfolio, M5.
+
 ## 2026.07.14 (v2026.07.14-13 — universal managed-case model) — deployed 2026-07-14
 
 ### Feat (one shared managed-case platform across all eight Cyber MOT domains — platform, not per-domain workflow depth)
