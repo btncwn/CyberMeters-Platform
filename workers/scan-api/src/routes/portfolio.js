@@ -10,6 +10,7 @@ import { REPORT_FINDINGS_SQL, REPORT_RECOMMENDATIONS_SQL } from "../engines/repo
 import { getEntitlementUsage, getPlanLimits, planLimitExceeded } from "../engines/plan-usage.js";
 import { computePortfolioRisk } from "../engines/portfolio-risk.js";
 import { computePortfolioCustomerRows, buildExecutiveSummary, LATEST_SCAN_CTE } from "../engines/portfolio-customers.js";
+import { getCurrentPosturePresentation } from "../engines/current-posture.js";
 import { auditApiTokenSessionRouteDenied, createWorkspaceTrialSubscription } from "../engines/subscription-state.js";
 import { createAuditEvent } from "../lib/events.js";
 import { sendLifecycleEmail } from "../lib/lifecycle-email.js";
@@ -68,11 +69,14 @@ export async function portfolioRoutes(rctx) {
            WHERE wd.workspace_id = ? AND s.status = 'completed'`
         ).bind(wsId).first(),
         env.cybermeters_db.prepare(
+          // COMPLETE-only: a partial/degraded scan must never contribute to the
+          // headline average, or a workspace whose only scan is partial would
+          // read as a clean "Excellent" (partial-scan honesty).
           `SELECT AVG(s.score) AS avg
            FROM scans s
            JOIN domains d ON d.id = s.domain_id
            JOIN workspace_domains wd ON wd.domain_id = d.id
-           WHERE wd.workspace_id = ? AND s.status = 'completed' AND s.score IS NOT NULL`
+           WHERE wd.workspace_id = ? AND s.status = 'completed' AND s.score IS NOT NULL AND s.scan_quality = 'complete'`
         ).bind(wsId).first(),
         env.cybermeters_db.prepare(
           `SELECT s.id, s.domain, s.created_at
@@ -84,11 +88,23 @@ export async function portfolioRoutes(rctx) {
         ).bind(wsId).first(),
       ]).catch(() => [null, null, null, null]);
 
+      // Canonical authoritative posture (latest COMPLETE scan) — same selector the
+      // scorecard/executive-dashboard use, so the executive PDF headline agrees
+      // with every other surface and a partial-only workspace reads as
+      // "not yet established" rather than a clean rating.
+      let posture = null;
+      try { posture = await getCurrentPosturePresentation(env, { workspaceId: wsId }); } catch { /* tolerate */ }
+
       const stats = {
         total_domains:        domRow?.n    ?? 0,
         total_scans:          scanRow?.n   ?? 0,
         cyber_score_average:  avgRow?.avg  ?? null,
         latest_scan:          latestRow    ?? null,
+        // Completeness-aware headline posture for the cover KPI + summary row.
+        posture_established:  posture?.state === "established",
+        posture_score:        posture?.authoritative?.display_score  ?? null,
+        posture_rating:       posture?.authoritative?.display_rating ?? null,
+        posture_message:      posture?.posture_message ?? null,
       };
 
       // 3. Domains enriched with latest scan
@@ -97,11 +113,12 @@ export async function portfolioRoutes(rctx) {
         const dr = await env.cybermeters_db.prepare(
           `SELECT d.id AS domain_id, d.domain,
                   s.id AS last_scan_id, s.score AS latest_score,
-                  s.status AS latest_status, s.created_at AS last_scanned_at
+                  s.status AS latest_status, s.scan_quality AS latest_quality,
+                  s.created_at AS last_scanned_at
            FROM workspace_domains wd
            JOIN domains d ON d.id = wd.domain_id
            LEFT JOIN scans s ON s.id = (
-             SELECT id FROM scans WHERE domain_id = d.id ORDER BY created_at DESC LIMIT 1
+             SELECT id FROM scans WHERE domain_id = d.id ORDER BY created_at DESC, id DESC LIMIT 1
            )
            WHERE wd.workspace_id = ?
            ORDER BY d.domain ASC`

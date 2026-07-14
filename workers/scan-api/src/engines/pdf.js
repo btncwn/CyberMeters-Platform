@@ -505,6 +505,18 @@ export function buildPdfStreams({ workspace, stats, domains, findings, recommend
     ? Math.round(stats.cyber_score_average)
     : null;
 
+  // ── Completeness-aware headline posture (partial-scan honesty) ─────────────
+  // The cover "Cyber Score" and the summary row present the AUTHORITATIVE posture
+  // (latest complete scan). When no complete assessment exists the score/rating
+  // are withheld and a provisional caveat is shown — a partial-only workspace must
+  // never render a clean rating such as "Excellent".
+  const postureEstablished = stats.posture_established === true && stats.posture_score != null;
+  const postureScore  = postureEstablished ? Math.round(stats.posture_score) : null;
+  const postureRating = postureEstablished && stats.posture_rating
+    ? stats.posture_rating.charAt(0).toUpperCase() + stats.posture_rating.slice(1)
+    : null;
+  const postureMsg = stats.posture_message || "Current posture not yet established";
+
   const genDate = pdfUtcDate(new Date().toISOString(), true);
 
   const latestDate = stats.latest_scan
@@ -536,7 +548,7 @@ export function buildPdfStreams({ workspace, stats, domains, findings, recommend
   // Three KPI boxes
   const BOX_H = 82;
   const boxes = [
-    { label: "CYBER SCORE",        value: avgScore != null ? String(avgScore) : "N/A", sub: scoreToRating(avgScore), valueHex: scoreToColor(avgScore), x: ML },
+    { label: "CYBER SCORE",        value: postureEstablished ? String(postureScore) : "N/A", sub: postureRating || "Not yet established", valueHex: scoreToColor(postureEstablished ? postureScore : null), x: ML },
     { label: "DOMAINS MONITORED",  value: String(stats.total_domains  || 0), sub: "In workspace",      valueHex: "#111111", x: ML + 186 },
     { label: "TOTAL SCANS",        value: String(stats.total_scans    || 0), sub: "Completed",         valueHex: "#111111", x: ML + 372 },
   ];
@@ -566,7 +578,7 @@ export function buildPdfStreams({ workspace, stats, domains, findings, recommend
   const summaryRows = [
     ["Total Domains",       String(stats.total_domains  || 0)],
     ["Total Scans",         String(stats.total_scans    || 0)],
-    ["Average Cyber Score", avgScore != null ? `${avgScore} / 100 — ${scoreToRating(avgScore)}` : "No completed scans"],
+    ["Cyber Posture", postureEstablished ? `${postureScore} / 100 — ${postureRating}` : postureMsg],
     ["Latest Assessment",   latestDate],
     ["Report Generated",    genDate],
   ];
@@ -592,8 +604,11 @@ export function buildPdfStreams({ workspace, stats, domains, findings, recommend
   for (const d of (domains || [])) {
     checkBreak(17);
     const ds = d.latest_score;
+    // A clean rating shows only when the domain's latest scan is COMPLETE; a
+    // partial/degraded/unknown latest scan is provisional and never rated.
+    const domComplete = d.latest_quality === "complete";
     const domScore  = ds != null ? String(ds) : "—";
-    const domRating = ds != null ? scoreToRating(ds) : "N/A";
+    const domRating = ds != null ? (domComplete ? scoreToRating(ds) : "Provisional") : "N/A";
     const domDate   = d.last_scanned_at
       ? new Date((d.last_scanned_at || "").replace(" ", "T") + "Z")
           .toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })

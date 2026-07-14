@@ -59,6 +59,22 @@ const files = walk(S);
     ok(`${c} no longer emits a raw latestScan score/rating as the headline`,
       !/security_score:\s*latestScan\?\.score|risk_(level|rating):\s*latestScan\?\.rating/.test(src));
   }
+  // executive-workspace PDF (GET /api/workspaces/:id/report) headline delegates
+  // to the canonical posture selector — NOT a raw AVG(score) that mixes partials.
+  {
+    const pf = read("routes/portfolio.js");
+    ok("executive-workspace report delegates to the canonical current-posture helper",
+      /getCurrentPosturePresentation/.test(pf));
+    ok("executive-workspace report average is complete-only",
+      /AVG\(s\.score\)/.test(pf) && /s\.score IS NOT NULL AND s\.scan_quality = 'complete'/.test(pf));
+    ok("executive-workspace report domain inventory carries latest_quality",
+      /s\.scan_quality AS latest_quality/.test(pf));
+    const pdf = read("engines/pdf.js");
+    ok("buildPdfStreams headline gates rating on an established (complete) posture",
+      /postureEstablished/.test(pdf) && /CYBER SCORE[\s\S]{0,160}postureEstablished \? String\(postureScore\)/.test(pdf));
+    ok("buildPdfStreams domain inventory withholds a rating for a non-complete latest scan",
+      /latest_quality === "complete"/.test(pdf) && /domComplete \? scoreToRating\(ds\) : "Provisional"/.test(pdf));
+  }
   // workspace-insights authoritative aggregate is complete-only.
   ok("workspace-insights latest-posture aggregate is complete-only",
     (read("routes/workspace-insights.js").match(/status = 'completed' AND scan_quality = 'complete'/g) || []).length >= 2);
