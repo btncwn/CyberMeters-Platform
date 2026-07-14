@@ -114,7 +114,12 @@ ok("registered high-risk candidate opens a managed brand case", opened.opened &&
 let row = await brandCases.getBrandCase(env, "ws1", opened.case.id);
 
 const customerResolve = await brandCases.transitionBrandCase(env, row, "resolved", { actor_type: "customer", actor_id: "admin" });
-ok("customer cannot set system-only resolved state", !customerResolve.ok && /technical verification/i.test(customerResolve.error));
+// A customer cannot unilaterally mark a brand case resolved. From `detected` the
+// universal validator now blocks it at the edge check (detected→resolved is not a
+// legal edge); the system-only protection from a legal edge (verification_pending
+// →resolved) is proven in validate-managed-case-model.js. Either rejection is a
+// valid block.
+ok("customer cannot set resolved state", !customerResolve.ok && /(technical verification|verified by cybermeters|cannot be set manually|cannot move a case)/i.test(customerResolve.error));
 
 const triage = await brandCases.transitionBrandCase(env, row, "triage", { actor_type: "customer", actor_id: "admin", action: "triage_started" });
 ok("case moves detected -> triage", triage.ok && triage.case.status === "triage");

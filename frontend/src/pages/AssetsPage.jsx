@@ -570,7 +570,10 @@ export default function AssetsPage() {
         <>
           <ManagedCasesPanel workspaceId={workspaceId} />
 
-          {/* Cross-domain managed-case queue (universal model, all services) */}
+          {/* TEMPORARY integration mount of the reusable cross-domain CasesQueue.
+              The Attack Surface page is NOT the permanent home for all-domain
+              cases; the queue component is workspace-scoped and standalone, ready
+              to move to its own route/nav in a later IA pass (not this episode). */}
           <div className="mt-4">
             <CasesQueue workspaceId={workspaceId} />
           </div>

@@ -3,54 +3,18 @@
 // exposures. Reuses scan evidence; never performs a parallel probe.
 import { deliverWorkspaceAlert } from "./alerts.js";
 import {
-  applyCaseTransition,
   buildCaseQueue,
-  createCaseMachine,
   newCaseEventId,
   newManagedCaseId,
-  requireExpiry,
-  requireField,
-  requireReason,
 } from "./case-workflow.js";
 import { createAuditEvent, createNotificationEvent } from "../lib/events.js";
 import { MANAGED_VERIFICATION_PROFILE, findingTypeOf, isSupportedVerification, runManagedVerificationProbe } from "./managed-verification.js";
 import { findingRemediation } from "./remediation-registry.js";
+import { ASM_CASE_TYPE, ASM_CASE_MACHINE, ASM_CASE_STATES, SYSTEM_ONLY_CASE_STATES } from "./asm-case-machine.js";
+import { canTransitionCase } from "./managed-case-model.js";
 
-export const ASM_CASE_TYPE = "asm_exposure";
-export const ASM_CASE_STATES = [
-  "open", "triage", "owner_assigned", "remediation_in_progress",
-  "verification_requested", "verifying", "resolved",
-  "risk_acceptance_requested", "risk_accepted", "false_positive",
-  "verification_failed", "reopened", "closed",
-];
-
-export const ASM_CASE_MACHINE = createCaseMachine({
-  states: ASM_CASE_STATES,
-  transitions: {
-    open: ["triage"],
-    triage: ["owner_assigned", "false_positive"],
-    owner_assigned: ["remediation_in_progress", "risk_acceptance_requested", "false_positive"],
-    remediation_in_progress: ["verification_requested", "risk_acceptance_requested", "false_positive", "closed"],
-    verification_requested: ["verifying"],
-    verifying: ["resolved", "verification_failed"],
-    verification_failed: ["remediation_in_progress", "verification_requested", "risk_acceptance_requested"],
-    resolved: ["reopened", "closed"],
-    reopened: ["remediation_in_progress"],
-    risk_acceptance_requested: ["risk_accepted", "remediation_in_progress"],
-    risk_accepted: ["triage"],
-    false_positive: [],
-    closed: [],
-  },
-  terminals: ["false_positive", "closed"],
-  guards: {
-    owner_assigned: [requireField("owner_ref")],
-    remediation_in_progress: [requireField("owner_ref")],
-    risk_acceptance_requested: [requireReason],
-    risk_accepted: [requireReason, requireExpiry],
-    false_positive: [requireReason],
-    verification_failed: [requireReason],
-  },
-});
+// Re-exported from the neutral machine module so existing importers are unchanged.
+export { ASM_CASE_TYPE, ASM_CASE_MACHINE, ASM_CASE_STATES, SYSTEM_ONLY_CASE_STATES };
 
 const ASM_MODULES = new Set([
   "admin_surface_detection",
@@ -168,18 +132,33 @@ async function notifyCase(env, caseRow, { type, title, message, severity = "info
 }
 
 async function updateCaseStatus(env, caseRow, to, ctx = {}) {
-  const result = applyCaseTransition(ASM_CASE_MACHINE, caseRow, to, ctx);
+  // Route ASM status changes through the UNIVERSAL validator (no bypass). It
+  // dispatches to the same ASM machine + enforces the universal invariants
+  // (system-only, verified-requires-structured-evidence). Verification evidence
+  // for the resolve transition is supplied by the caller via ctx.evidence.
+  const result = canTransitionCase({
+    case: caseRow, target_status: to,
+    actor: { actor_type: ctx.actor_type || "system", actor_id: ctx.actor_id || null },
+    evidence: ctx.evidence ?? null, reason: ctx.reason ?? null,
+    risk_accepted_until: ctx.risk_accepted_until ?? null, owner_ref: ctx.owner_ref ?? null,
+    now: ctx.now,
+  });
   if (!result.ok) return result;
   const next = result.case;
   await env.cybermeters_db
     .prepare(`UPDATE managed_cases
       SET status = ?, reason = ?, risk_accepted_until = ?, last_verified_at = ?,
-          resolved_at = ?, reopened_count = ?, updated_at = ?
+          resolved_at = ?, reopened_count = ?, updated_at = ?,
+          verified_at = ?, action_started_at = ?, awaiting_verification_at = ?,
+          reopened_at = ?, accepted_at = ?, closed_at = ?
       WHERE id = ? AND workspace_id = ?`)
     .bind(
       next.status, next.reason || null, next.risk_accepted_until || null,
       next.last_verified_at || null, next.resolved_at || null,
-      Number(next.reopened_count || 0), next.updated_at, next.id, next.workspace_id,
+      Number(next.reopened_count || 0), next.updated_at,
+      next.verified_at || null, next.action_started_at || null, next.awaiting_verification_at || null,
+      next.reopened_at || null, next.accepted_at || null, next.closed_at || null,
+      next.id, next.workspace_id,
     )
     .run();
   await writeCaseEvent(env, next, {
@@ -223,10 +202,6 @@ export async function assignManagedCaseOwner(env, caseRow, { owner_type, owner_r
 // actor_type "system"). A customer/analyst-initiated transition must never be
 // able to self-drive them, or "independent fix verification" would be a lie and
 // a case could be marked resolved without the exposure being observably absent.
-export const SYSTEM_ONLY_CASE_STATES = new Set([
-  "verifying", "resolved", "verification_failed", "reopened",
-]);
-
 export async function transitionManagedCase(env, caseRow, to, ctx = {}) {
   if ((ctx.actor_type || "customer") !== "system" && SYSTEM_ONLY_CASE_STATES.has(to)) {
     return { ok: false, error: "This step is verified by CyberMeters and cannot be set manually." };
@@ -472,6 +447,15 @@ export async function verifyManagedAsmCasesForScan(scanId, domainId, domain, fin
           actor_type: "system",
           action: "verified_resolved",
           detail: { scan_id: scanId, expected: "finding_absent", observed: "finding_absent" },
+          // Structured verification evidence (module-completeness already gated
+          // above, so this is a re-check of the specific exposure, not a bare scan).
+          evidence: {
+            verification_method: "rescan",
+            verification_result: "fixed",
+            evidence_type: "scan_absence",
+            observed_at: new Date().toISOString(),
+            observation: { scan_id: scanId, finding_id: current.finding_id, absent: true, module_complete: true },
+          },
         });
         if (ok.ok) {
           resolved++;
@@ -511,6 +495,17 @@ function findingVersionHash(text) {
 // Atomic compare-and-set on case status. Returns true iff THIS caller moved it (so
 // duplicate concurrent verification runs cannot both proceed).
 async function casCaseStatus(env, caseRow, from, to, extraSet = "") {
+  // Validate the edge through the universal validator BEFORE the atomic write —
+  // the CAS provides concurrency safety, canTransitionCase provides legality (no
+  // status mutation bypasses the validator). System actor: these claim/release/
+  // reappearance edges are all CyberMeters-driven.
+  const decision = canTransitionCase({
+    case: { ...caseRow, status: from }, target_status: to,
+    actor: { actor_type: "system", actor_id: null },
+    // Reappearance (resolved → reopened) is not a verified target, so no evidence
+    // is required; the release and claim edges are non-verified too.
+  });
+  if (!decision.ok) return false;
   const res = await env.cybermeters_db
     .prepare(`UPDATE managed_cases SET status = ?, updated_at = datetime('now')${extraSet} WHERE id = ? AND workspace_id = ? AND status = ?`)
     .bind(to, caseRow.id, caseRow.workspace_id, from)
@@ -604,7 +599,14 @@ export async function verifyManagedCaseById(env, { workspaceId, caseId, actorId 
 
   if (probe.decision === "fixed") {
     if (working.status === "verifying") {
-      const r = await updateCaseStatus(env, working, "resolved", { actor_type: "system", action: "verified_resolved", detail: audit });
+      const r = await updateCaseStatus(env, working, "resolved", { actor_type: "system", action: "verified_resolved", detail: audit,
+        evidence: {
+          verification_method: "automated_probe",
+          verification_result: "fixed",
+          evidence_type: "http_probe",
+          observed_at: audit.completed_at,
+          observation: audit.evidence || { host: audit.host, decision: audit.decision, completeness: audit.completeness },
+        } });
       if (r.ok) await notifyCase(env, r.case, { type: "managed_case_resolved", severity: "info", title: `Managed case resolved for ${domain}`, message: "CyberMeters no longer observed the exposure on the affected host." });
     }
     // A 'resolved' case that is still fixed → no-op (idempotent).

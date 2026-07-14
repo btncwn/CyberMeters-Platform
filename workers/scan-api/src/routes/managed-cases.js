@@ -9,7 +9,7 @@
 // base-lifecycle domains and any generic edge.
 import {
   canTransitionCase, canonicalPhaseFor, caseTypeEntry, CASE_TYPE_REGISTRY,
-  CANONICAL_DOMAIN_KEYS, isValidDomainKey,
+  CANONICAL_DOMAIN_KEYS, isValidDomainKey, createManagedCase,
 } from "../engines/managed-case-model.js";
 import { newCaseEventId } from "../engines/case-workflow.js";
 import { parseBoundedInteger } from "../lib/util.js";
@@ -102,6 +102,38 @@ export async function managedCasesRoutes(rctx) {
     } catch {
       return json({ error: "Database error" }, 500);
     }
+  }
+
+  // ── POST /cases — create a base-lifecycle case via the common factory ────
+  if (request.method === "POST" && !caseId) {
+    let body = {};
+    try { body = await request.json(); } catch { body = {}; }
+    const entry = caseTypeEntry(body.case_type);
+    // The generic factory is for the six base-lifecycle domains; ASM/Brand cases
+    // are opened by their own engines (bespoke dedup/evidence).
+    if (!entry) return json({ error: "invalid_case_type" }, 400);
+    if (!entry.base) return json({ error: "Use the domain-specific flow for this case type." }, 409);
+    const result = await createManagedCase(env, {
+      workspace_id: wsId,
+      domain_key: body.domain_key,
+      case_type: body.case_type,
+      source_finding_type: body.source_finding_type ?? null,
+      source_finding_id: body.source_finding_id ?? null,
+      source_scan_id: body.source_scan_id ?? null,
+      domain: body.domain ?? null,
+      asset_ref: body.asset_ref ?? null,
+      title: body.title ?? null,
+      summary: body.summary ?? null,
+      severity: body.severity ?? "medium",
+      priority: body.priority ?? null,
+      actor: { actor_type: "customer", actor_id: user.id },
+    });
+    if (!result.ok) {
+      const status = result.code === "workspace_inactive" || result.code === "domain_ineligible" ? 404
+        : result.code === "domain_case_type_mismatch" || result.code === "invalid_domain_key" || result.code === "invalid_case_type" ? 400 : 409;
+      return json({ error: result.code }, status);
+    }
+    return json({ case: caseToUniversalApi(result.case), created: result.created }, result.created ? 201 : 200);
   }
 
   if (!caseId) return json({ error: "Not found" }, 404);

@@ -61,12 +61,23 @@ eq("triaged → monitoring forbidden", canTransitionCase({ case: mkCase({ status
 eq("terminal false_positive cannot transition", canTransitionCase({ case: mkCase({ status: "false_positive" }), target_status: "triaged", actor: { actor_type: "customer" } }).ok, false);
 eq("assigned requires an owner (guard)", canTransitionCase({ case: mkCase({ status: "triaged" }), target_status: "assigned", actor: { actor_type: "customer" } }).code, "invalid_transition");
 
-// ── 5/6. Verified requires evidence; a scan alone cannot verify ──────────────
-const av = mkCase({ status: "awaiting_verification" });
-eq("verified by a customer is refused (system-only)", canTransitionCase({ case: av, target_status: "verified", actor: { actor_type: "customer" }, evidence: { verified: true } }).code, "system_only");
-eq("verified with NO evidence is refused", canTransitionCase({ case: av, target_status: "verified", actor: { actor_type: "system" } }).code, "verify_requires_evidence");
-eq("verified from a bare scan completion is refused", canTransitionCase({ case: av, target_status: "verified", actor: { actor_type: "system" }, evidence: { scan_completed_only: true } }).code, "verify_requires_evidence");
-ok("verified with a complete 'fixed' probe result succeeds", canTransitionCase({ case: av, target_status: "verified", actor: { actor_type: "system" }, evidence: { decision: "fixed", completeness: "complete" } }).ok);
+// ── 5/6. Verified requires STRUCTURED evidence; scan/note alone cannot verify ─
+// Base (manual) domains verify via a structured attestation from an identified
+// actor. A bare flag / scan / note never verifies.
+const av = mkCase({ status: "awaiting_verification" }); // email_case = base (manual)
+const attn = { verification_method: "manual_attestation", verification_result: "verified", evidence_type: "attestation", observed_at: "2026-07-14T00:00:00Z", attestation: { by: "u1", statement: "fixed" } };
+eq("verified with NO evidence is refused", canTransitionCase({ case: av, target_status: "verified", actor: { actor_type: "customer", actor_id: "u1" } }).code, "verify_requires_evidence");
+eq("verified from a bare scan completion is refused", canTransitionCase({ case: av, target_status: "verified", actor: { actor_type: "customer", actor_id: "u1" }, evidence: { scan_completed_only: true } }).code, "verify_requires_evidence");
+eq("verified from a customer note alone is refused", canTransitionCase({ case: av, target_status: "verified", actor: { actor_type: "customer", actor_id: "u1" }, evidence: { note_only: true } }).code, "verify_requires_evidence");
+eq("verified with a bare {verified:true} flag is refused (not structured)", canTransitionCase({ case: av, target_status: "verified", actor: { actor_type: "customer", actor_id: "u1" }, evidence: { verified: true } }).code, "verify_requires_evidence");
+eq("manual attestation without an actor is refused", canTransitionCase({ case: av, target_status: "verified", actor: { actor_type: "customer" }, evidence: attn }).reason, "attestation_actor_required");
+ok("base manual attestation with structured evidence + actor succeeds", canTransitionCase({ case: av, target_status: "verified", actor: { actor_type: "customer", actor_id: "u1" }, evidence: attn }).ok);
+// Automated (ASM) verified state is CyberMeters-only.
+const asmVfy = mkCase({ status: "verifying", case_type: "asm_exposure" });
+eq("ASM resolved by a customer is refused (system-only)", canTransitionCase({ case: asmVfy, target_status: "resolved", actor: { actor_type: "customer", actor_id: "u1" }, evidence: { verification_method: "automated_probe", verification_result: "fixed", evidence_type: "http_probe", observed_at: "2026-07-14T00:00:00Z", observation: { status: 404 } } }).code, "system_only");
+eq("ASM resolved with a failed result is refused", canTransitionCase({ case: asmVfy, target_status: "resolved", actor: { actor_type: "system" }, evidence: { verification_method: "automated_probe", verification_result: "still_present", evidence_type: "http_probe", observed_at: "2026-07-14T00:00:00Z", observation: { status: 200 } } }).reason, "verification_not_positive");
+eq("ASM resolved with unsupported method is refused", canTransitionCase({ case: asmVfy, target_status: "resolved", actor: { actor_type: "system" }, evidence: { verification_method: "unsupported", verification_result: "fixed", evidence_type: "x", observed_at: "2026-07-14T00:00:00Z", observation: {} } }).reason, "verification_unsupported");
+ok("ASM resolved with a complete positive probe result succeeds", canTransitionCase({ case: asmVfy, target_status: "resolved", actor: { actor_type: "system" }, evidence: { verification_method: "automated_probe", verification_result: "fixed", evidence_type: "http_probe", observed_at: "2026-07-14T00:00:00Z", observation: { status: 404 } } }).ok);
 
 // ── 7/8. Accepted-risk and false-positive are NEVER the verified phase ───────
 ok("accepted_risk phase ≠ verified (base)", canonicalPhaseFor("email_case", "accepted_risk") === "accepted_risk");
@@ -128,6 +139,27 @@ ok("universal route mutates ONLY through canTransitionCase (persists validator o
 ok("universal route scopes every case query by workspace_id", /WHERE id = \? AND workspace_id = \?/.test(routeCode));
 ok("universal route gates on soft-delete (deleted_at IS NULL)", /deleted_at IS NULL/.test(routeCode));
 ok("universal route returns the SAME 'Case not found' for foreign + nonexistent", /Case not found/.test(routeCode));
+
+// No status mutation bypasses the validator: ASM + Brand engines route through
+// canTransitionCase and NO raw applyCaseTransition status-mutation remains in them.
+const asmEngine = stripComments(fs.readFileSync(path.join(enginesDir, "asm-cases.js"), "utf8"));
+const brandEngine = stripComments(fs.readFileSync(path.join(enginesDir, "brand-cases.js"), "utf8"));
+ok("ASM engine imports + uses canTransitionCase", /canTransitionCase\(/.test(asmEngine) && /from\s*["']\.\/managed-case-model\.js["']/.test(asmEngine));
+ok("Brand engine imports + uses canTransitionCase", /canTransitionCase\(/.test(brandEngine) && /from\s*["']\.\/managed-case-model\.js["']/.test(brandEngine));
+ok("ASM engine has NO raw applyCaseTransition status-mutation (no bypass)", !/applyCaseTransition\s*\(/.test(asmEngine));
+ok("Brand engine has NO raw applyCaseTransition status-mutation (no bypass)", !/applyCaseTransition\s*\(/.test(brandEngine));
+ok("ASM updateCaseStatus routes through canTransitionCase", /async function updateCaseStatus[\s\S]{0,400}canTransitionCase\(/.test(asmEngine));
+ok("ASM casCaseStatus validates via canTransitionCase before the CAS write", /async function casCaseStatus[\s\S]{0,500}canTransitionCase\([\s\S]{0,400}UPDATE managed_cases SET status/.test(asmEngine));
+ok("Brand applyBrandTransition routes through canTransitionCase", /async function applyBrandTransition[\s\S]{0,400}canTransitionCase\(/.test(brandEngine));
+// The neutral machine modules exist (cycle-break) and the model imports them.
+ok("ASM machine extracted to a neutral leaf module", fs.existsSync(path.join(enginesDir, "asm-case-machine.js")));
+ok("Brand machine extracted to a neutral leaf module", fs.existsSync(path.join(enginesDir, "brand-case-machine.js")));
+const modelSrc = stripComments(fs.readFileSync(path.join(enginesDir, "managed-case-model.js"), "utf8"));
+ok("model imports machines from neutral modules (no cycle)",
+  /from\s*["']\.\/asm-case-machine\.js["']/.test(modelSrc) && /from\s*["']\.\/brand-case-machine\.js["']/.test(modelSrc)
+  && !/from\s*["']\.\/asm-cases\.js["']/.test(modelSrc) && !/from\s*["']\.\/brand-cases\.js["']/.test(modelSrc));
+// The universal create route uses the common factory.
+ok("universal route creates via the common factory createManagedCase", /createManagedCase\(/.test(routeCode));
 
 const asmSrc = stripComments(fs.readFileSync(path.join(enginesDir, "asm-cases.js"), "utf8"));
 ok("ASM auto-open gates soft-deleted workspaces", /deleted_at IS NULL/.test(asmSrc));
