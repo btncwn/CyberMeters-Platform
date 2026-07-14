@@ -248,18 +248,59 @@ const TAKEOVER_FINGERPRINTS = [
  * Requires modules.subdomains.items as input — always runs after subdomain
  * discovery so no extra CT lookups are needed.
  */
+// ── Canonical takeover predicate (detector + verifier share this) ─────────────
+// `risks` is the ONE authoritative statement of "a takeover risk is confirmed here":
+// scoring.js raises subdomain_takeover from it, and the managed-verification profile
+// asks the same question per host. Neither re-implements the condition.
+export function hostHasConfirmedTakeoverRisk(mod, host) {
+  const h = String(host || "").trim().toLowerCase();
+  return (mod?.risks || []).some((r) => String(r.host || "").toLowerCase() === h);
+}
+
+// Whether the module reached a CONCLUSIVE answer for this host.
+//
+// This exists because "no confirmed risk" is not the same claim as "not vulnerable".
+// The module reaches `risks=[]` for several very different reasons, and three of them
+// are ignorance rather than evidence:
+//   • cname_lookup_failed — DNS did not answer; nothing was observed.
+//   • probe_unconfirmed   — the CNAME still points at a vulnerable provider, but the
+//                           body fetch was refused/failed/unreadable, so we never saw
+//                           whether the service is still unclaimed.
+// Only these are conclusive absence:
+//   • no_cname                     — nothing dangles any more.
+//   • cname_not_vulnerable_provider— the CNAME no longer targets a takeover-prone provider.
+//   • provider_claimed             — body fetched, the takeover fingerprint is gone.
+// Returns { complete, status, reason }. A caller must never treat complete=false as fixed.
+export function takeoverObservationFor(mod, host) {
+  const h = String(host || "").trim().toLowerCase();
+  if ((mod?.lookup_failed_hosts || []).some((x) => String(x).toLowerCase() === h)) {
+    return { complete: false, status: "cname_lookup_failed", reason: "dns_indeterminate" };
+  }
+  if (hostHasConfirmedTakeoverRisk(mod, h)) {
+    return { complete: true, status: "risk_confirmed", reason: null };
+  }
+  const unconfirmed = (mod?.unconfirmed || []).find((u) => String(u.host || "").toLowerCase() === h);
+  if (unconfirmed) {
+    return { complete: false, status: "probe_unconfirmed", reason: unconfirmed.reason || "probe_failed" };
+  }
+  if (!(mod?.checked_hosts || []).some((x) => String(x).toLowerCase() === h)) {
+    return { complete: false, status: "not_checked", reason: "host_not_in_scope" };
+  }
+  return { complete: true, status: "no_takeover_surface", reason: null };
+}
+
 // opts.fetcher / opts.dnsQueryImpl are injectable so the managed-verification profile can
 // re-run this EXACT detector for a single host through its SSRF-guarded reserved probe
 // (house pattern, mirrors runExposureModule). Defaults preserve the scan's behaviour
-// unchanged — a null return from an injected fetcher means "refused", handled like a
-// failed fetch (no risk confirmed).
+// unchanged. An injected fetcher returning null means the SSRF guard REFUSED the target —
+// that is recorded as unconfirmed, never as "no risk".
 export async function runTakeoverModule(domain, subdomains, opts = {}) {
   const source = "subdomain_cname_fingerprint";
   const fetchImpl = typeof opts.fetcher === "function" ? opts.fetcher : null;
   const dnsImpl = typeof opts.dnsQueryImpl === "function" ? opts.dnsQueryImpl : dnsQuery;
 
   if (!subdomains || subdomains.length === 0) {
-    return { checked: 0, potential_risks: 0, risks: [], source, error: null };
+    return { checked: 0, potential_risks: 0, risks: [], checked_hosts: [], lookup_failed_hosts: [], unconfirmed: [], source, error: null };
   }
 
   // Cap at 100 to bound concurrent I/O without sacrificing coverage
@@ -273,9 +314,12 @@ export async function runTakeoverModule(domain, subdomains, opts = {}) {
   // Step 2: collect candidates whose CNAME resolves to a known vulnerable provider
   const candidates = [];
   const cname_observations = [];
+  // A CNAME lookup that never answered is ignorance, not evidence of safety — record it
+  // so a verifier defers instead of reading the resulting risks=[] as "fixed".
+  const lookup_failed_hosts = [];
   for (let i = 0; i < targets.length; i++) {
     const r = cnameResults[i];
-    if (r.status !== "fulfilled") continue;
+    if (r.status !== "fulfilled") { lookup_failed_hosts.push(targets[i]); continue; }
     const answers = r.value.Answer || [];
     for (const answer of answers) {
       const cname = (answer.data || "").toLowerCase().replace(/\.$/, "");
@@ -290,7 +334,10 @@ export async function runTakeoverModule(domain, subdomains, opts = {}) {
   }
 
   if (candidates.length === 0) {
-    return { checked: targets.length, potential_risks: 0, risks: [], cname_observations, source, error: null };
+    return {
+      checked: targets.length, potential_risks: 0, risks: [], cname_observations,
+      checked_hosts: targets, lookup_failed_hosts, unconfirmed: [], source, error: null,
+    };
   }
 
   // Step 3: fetch each candidate to confirm takeover via body fingerprint
@@ -301,10 +348,21 @@ export async function runTakeoverModule(domain, subdomains, opts = {}) {
   );
 
   const risks = [];
+  // Candidates whose CNAME still targets a takeover-prone provider but whose body we
+  // could NOT read. Previously these were silently skipped and became indistinguishable
+  // from "provider claimed" — i.e. a refused/failed probe looked exactly like a fix.
+  const unconfirmed = [];
   for (let i = 0; i < candidates.length; i++) {
     const { host, cname, fingerprint } = candidates[i];
     const settled = bodyResults[i];
-    if (settled.status !== "fulfilled" || !settled.value) continue;
+    // rejected = network/DNS/timeout; null value = SSRF guard refused the target.
+    if (settled.status !== "fulfilled" || !settled.value) {
+      unconfirmed.push({
+        host, cname, provider: fingerprint.provider ?? fingerprint.service,
+        reason: settled.status !== "fulfilled" ? "fetch_failed" : "probe_refused",
+      });
+      continue;
+    }
     try {
       const text = await settled.value.text();
       if (text.includes(fingerprint.body_pattern)) {
@@ -317,8 +375,13 @@ export async function runTakeoverModule(domain, subdomains, opts = {}) {
           severity: fingerprint.risk ?? "high",
         });
       }
+      // else: body read, fingerprint absent → conclusively claimed. Not unconfirmed.
     } catch {
-      // body read error — skip this candidate
+      // Body read error — we never saw the page, so we cannot claim anything.
+      unconfirmed.push({
+        host, cname, provider: fingerprint.provider ?? fingerprint.service,
+        reason: "body_unreadable",
+      });
     }
   }
 
@@ -327,6 +390,10 @@ export async function runTakeoverModule(domain, subdomains, opts = {}) {
     potential_risks: candidates.length,
     risks,
     cname_observations,
+    // Structured completeness — additive; existing consumers read only the fields above.
+    checked_hosts:   targets,
+    lookup_failed_hosts,
+    unconfirmed,
     source,
     error: null,
   };

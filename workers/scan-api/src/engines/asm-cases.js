@@ -78,12 +78,76 @@ function assetRefForFinding(finding = {}, domain) {
 // never trusted as in-scope on the strength of having been stored). Cases created before
 // affected_hosts existed carry no structured hosts; asset_ref is retried, and if it is
 // legacy prose it fails validation and the case defers rather than probing the wrong host.
-function verificationHostsForCase(caseRow, finding) {
+function verificationHostsForCase(caseRow, finding, evidence = null) {
   const domain = normaliseDomain(caseRow.domain);
   const hosts = affectedHostsForFinding(finding, domain);
   if (hosts.length > 0) return hosts;
+  // Enrichment appended on a later observation of the same finding (see
+  // enrichCaseAffectedHosts) — re-validated here, never trusted as stored.
+  const enriched = affectedHostsForFinding({ affected_hosts: evidence?.affected_hosts }, domain);
+  if (enriched.length > 0) return enriched;
   const legacy = normalizeDiscoveredHostname(caseRow.asset_ref, domain);
   return legacy ? [legacy] : [];
+}
+
+// ── Legacy-case enrichment ───────────────────────────────────────────────────
+// Cases opened before affected_hosts existed stored the finding's DESCRIPTION in
+// asset_ref, so they can never be verified (the host-scope guard correctly rejects
+// prose). We do NOT parse that prose back into a host — it is customer-facing copy,
+// not data. Instead, when the SAME finding is observed again by a later scan and that
+// fresh observation carries structured hosts, we append them to the case.
+//
+// Append-only and non-destructive:
+//   • the original evidence_json.finding snapshot is left byte-for-byte intact;
+//   • hosts are added as a NEW top-level evidence key alongside it;
+//   • asset_ref is only rewritten when what is stored is not a valid in-scope host
+//     (i.e. legacy prose) — a case that already has a real host keeps it;
+//   • the change is recorded as a case event, so the enrichment is auditable.
+// The effect: the next verification of that case can proceed from real evidence.
+async function enrichCaseAffectedHosts(env, existing, finding, scanId) {
+  const domain = normaliseDomain(existing.domain);
+  const freshHosts = affectedHostsForFinding(finding, domain);
+  if (freshHosts.length === 0) return;
+
+  const evidence = parseJson(existing.evidence_json, null);
+  if (!evidence || typeof evidence !== "object") return;
+
+  const storedHosts = affectedHostsForFinding(
+    { affected_hosts: evidence.affected_hosts ?? evidence.finding?.affected_hosts },
+    domain,
+  );
+  const assetRefUsable = Boolean(normalizeDiscoveredHostname(existing.asset_ref, domain));
+  // Already verifiable and unchanged → nothing to do (idempotent on repeat scans).
+  if (assetRefUsable && JSON.stringify(storedHosts) === JSON.stringify(freshHosts)) return;
+
+  const nextEvidence = {
+    ...evidence,
+    affected_hosts: freshHosts,
+    affected_hosts_observed_at: new Date().toISOString(),
+    affected_hosts_scan_id: scanId,
+  };
+  const nextAssetRef = assetRefUsable ? existing.asset_ref : String(freshHosts[0]).slice(0, 255);
+
+  await env.cybermeters_db
+    .prepare(`UPDATE managed_cases SET evidence_json = ?, asset_ref = ?, updated_at = datetime('now')
+              WHERE id = ? AND workspace_id = ?`)
+    .bind(safeJson(nextEvidence), nextAssetRef, existing.id, existing.workspace_id)
+    .run();
+
+  await writeCaseEvent(env, existing, {
+    actor_type: "system",
+    from_status: existing.status,
+    to_status: existing.status,
+    action: "affected_hosts_enriched",
+    detail: {
+      scan_id: scanId,
+      affected_hosts: freshHosts,
+      asset_ref_replaced: !assetRefUsable,
+      reason: assetRefUsable ? "affected_hosts_refreshed" : "legacy_asset_ref_not_a_host",
+    },
+  });
+  existing.evidence_json = safeJson(nextEvidence);
+  existing.asset_ref = nextAssetRef;
 }
 
 function isAsmManagedFinding(finding = {}) {
@@ -298,6 +362,9 @@ async function openCaseForFinding(env, { workspaceId, domainId, scanId, domain, 
     .first();
 
   if (existing) {
+    // Same finding observed again → append any structured hosts this observation
+    // carries, so a legacy prose-asset_ref case becomes verifiable from real evidence.
+    await enrichCaseAffectedHosts(env, existing, finding, scanId).catch(() => {});
     if (existing.status === "resolved") {
       const reopened = await updateCaseStatus(env, existing, "reopened", {
         actor_type: "system",
@@ -587,7 +654,8 @@ export async function verifyManagedCaseById(env, { workspaceId, caseId, actorId 
   if (!VERIFICATION_ELIGIBLE_STATES.has(caseRow.status)) return { ok: false, code: "ineligible_state", status: caseRow.status };
 
   // 3. Finding + allowlisted, supported type (unsupported fails closed → deferred).
-  const finding = parseJson(caseRow.evidence_json)?.finding || {};
+  const caseEvidence = parseJson(caseRow.evidence_json, null);
+  const finding = caseEvidence?.finding || {};
   if (!isSupportedVerification(finding)) {
     await writeCaseEvent(env, caseRow, { actor_type: "system", from_status: caseRow.status, to_status: caseRow.status, action: "verification_deferred", detail: { profile: MANAGED_VERIFICATION_PROFILE, reason: "unsupported_finding_type", finding_type: findingTypeOf(finding) } });
     return { ok: false, code: "unsupported_finding_type" };
@@ -597,7 +665,7 @@ export async function verifyManagedCaseById(env, { workspaceId, caseId, actorId 
   //    domain. A finding may cover several hosts, so this is a validated list — the
   //    probe concludes "fixed" only when EVERY one of them is observed clear.
   const domain = normaliseDomain(caseRow.domain);
-  const hosts = verificationHostsForCase(caseRow, finding);
+  const hosts = verificationHostsForCase(caseRow, finding, caseEvidence);
   if (hosts.length === 0) {
     await writeCaseEvent(env, caseRow, {
       actor_type: "system", from_status: caseRow.status, to_status: caseRow.status,
