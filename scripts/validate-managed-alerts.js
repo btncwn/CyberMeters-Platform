@@ -21,6 +21,7 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const eng = (f) => pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", f)).href;
 const {
   emitManagedAlert, buildAlertDedupeKey, isTerminalReason, reasonIsRetryable,
+  ensureAlertActivation, observationIsAfterWatermark,
   TERMINAL_REASONS, RETRYABLE_REASONS, MONITORING_CHANNELS, ALERTS_FEATURE_KEY,
 } = await import(eng("managed-alerts.js"));
 const { PLAN_FEATURES } = await import(eng("entitlements.js"));
@@ -91,12 +92,27 @@ const env = {
 
 const ledger = (ws) => db.prepare("SELECT * FROM alert_deliveries WHERE workspace_id = ? ORDER BY created_at, channel").all(ws);
 const notifs = (ws) => db.prepare("SELECT * FROM notification_events WHERE workspace_id = ?").all(ws);
+const WATERMARK = "2020-01-01T00:00:00Z";        // baseline established long ago
+const OBSERVED_AFTER = "2026-07-15T00:00:00Z";   // a change observed after it
+
+// Pre-activate: these sections test DELIVERY, not the baseline. The baseline
+// itself is proved in its own section below, on a workspace that has never
+// been activated.
+async function preActivate(ws, domainKey = "certificates_trust") {
+  await ensureAlertActivation(env, ws, domainKey, { now: WATERMARK });
+}
+
 const alert = (over = {}) => ({
   workspace_id: "ws_paid", domain_key: "certificates_trust", kind: "cert_expiring",
   severity: "high", title: "Certificate expiring", message: "Renew it.",
+  observed_at: OBSERVED_AFTER,
   dedupe_key: buildAlertDedupeKey({ domain_key: "certificates_trust", kind: "cert_expiring", subject: "www.example.com" }),
   ...over,
 });
+
+await preActivate("ws_paid");
+await preActivate("ws_free");
+await preActivate("ws_dead");
 
 // ── 1. Deterministic identity ────────────────────────────────────────────────
 {
@@ -250,6 +266,109 @@ const alert = (over = {}) => ({
   const r = await emitManagedAlert(brokenEnv, alert({ dedupe_key: "broken|1" }));
   eq("a broken database never throws into the caller", r.emitted, false);
   eq("a broken database reports why", r.reason, "emit_failed");
+}
+
+// ── 13. FIRST-RUN FLOOD PREVENTION (the activation watermark) ────────────────
+// Wiring alerts onto the shipped evaluators fires them over rows that ALREADY
+// exist. This section proves the backlog stays silent.
+{
+  user("u_fresh", "fresh@example.com", "professional"); subscribe("u_fresh", "professional");
+  workspace("ws_fresh", "u_fresh");
+
+  // Simulate the first evaluation after deploy: 5 pre-existing lifecycle rows,
+  // each carrying recurrence_type computed long before alerting existed.
+  const backlog = ["a.example.com", "b.example.com", "c.example.com", "d.example.com", "e.example.com"];
+  const first = [];
+  for (const host of backlog) {
+    first.push(await emitManagedAlert(env, {
+      workspace_id: "ws_fresh", domain_key: "certificates_trust", kind: "cert_expiring",
+      severity: "critical", title: `Certificate expiring: ${host}`, message: "Pre-existing state.",
+      dedupe_key: buildAlertDedupeKey({ domain_key: "certificates_trust", kind: "cert_expiring", subject: host }),
+      observed_at: "2026-01-01T00:00:00Z",   // observed BEFORE activation
+    }));
+  }
+
+  ok("first run: nothing emitted", first.every((r) => r.emitted === false));
+  ok("first run: every suppression is the baseline", first.every((r) => r.reason === "alert_baseline_established"));
+  eq("first run: ZERO bell notifications created", notifs("ws_fresh").length, 0);
+  eq("first run: ZERO outbound deliveries", ledger("ws_fresh").filter((d) => d.outcome === "delivered").length, 0);
+  ok("first run: baseline rows are terminal (never enqueued for retry)",
+     ledger("ws_fresh").every((d) => d.terminal === 1 && d.outcome === "suppressed"));
+  ok("baseline reason is terminal, not retryable",
+     isTerminalReason("alert_baseline_established") && !reasonIsRetryable("alert_baseline_established"));
+
+  // Activation is established exactly once, and is idempotent + tenant-scoped.
+  const act = db.prepare("SELECT * FROM alert_activation WHERE workspace_id = 'ws_fresh'").all();
+  eq("activation established exactly once for the domain", act.length, 1);
+  eq("activation is tenant-scoped", act[0].workspace_id, "ws_fresh");
+  eq("activation is per-domain", act[0].domain_key, "certificates_trust");
+
+  const again = await ensureAlertActivation(env, "ws_fresh", "certificates_trust");
+  ok("re-activation is idempotent (never re-baselines)", again.established_now === false);
+  eq("re-activation does not duplicate the row",
+     db.prepare("SELECT COUNT(*) c FROM alert_activation WHERE workspace_id = 'ws_fresh'").get().c, 1);
+  const concurrent = await Promise.all([
+    ensureAlertActivation(env, "ws_fresh", "identity_exposure"),
+    ensureAlertActivation(env, "ws_fresh", "identity_exposure"),
+  ]);
+  eq("concurrent activation establishes exactly once", concurrent.filter((a) => a.established_now).length, 1);
+
+  // A change observed AFTER the watermark is genuine news and alerts normally.
+  const fresh = await emitManagedAlert(env, {
+    workspace_id: "ws_fresh", domain_key: "certificates_trust", kind: "cert_expiring",
+    severity: "high", title: "Certificate expiring: new.example.com", message: "This changed after activation.",
+    dedupe_key: "fresh|after|1", observed_at: "2030-01-01T00:00:00Z",
+  });
+  ok("a change after the watermark DOES alert", fresh.emitted === true && fresh.reason === null);
+  eq("post-watermark alert creates exactly one bell notification", notifs("ws_fresh").length, 1);
+
+  // A late-arriving pre-watermark observation stays suppressed forever.
+  const late = await emitManagedAlert(env, {
+    workspace_id: "ws_fresh", domain_key: "certificates_trust", kind: "cert_expiring",
+    severity: "critical", title: "Old news", message: "Observed before activation.",
+    dedupe_key: "fresh|late|1", observed_at: "2019-01-01T00:00:00Z",
+  });
+  eq("a pre-watermark observation never alerts, even at critical", late.reason, "alert_baseline_established");
+  eq("pre-watermark observation creates no bell notification", notifs("ws_fresh").length, 1);
+
+  // Watermark predicate, directly.
+  ok("watermark: after → allowed", observationIsAfterWatermark("2026-02-01T00:00:00Z", "2026-01-01T00:00:00Z"));
+  ok("watermark: before → blocked", !observationIsAfterWatermark("2025-12-01T00:00:00Z", "2026-01-01T00:00:00Z"));
+  ok("watermark: exactly at the mark → blocked (pre-existing, not news)",
+     !observationIsAfterWatermark("2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"));
+  ok("watermark: unparseable timestamp fails closed", !observationIsAfterWatermark("not-a-date", "2026-01-01T00:00:00Z"));
+  ok("watermark: no observed_at → caller asserts it just happened", observationIsAfterWatermark(null, "2026-01-01T00:00:00Z"));
+
+
+  // ── The second-run flood ───────────────────────────────────────────────────
+  // The evaluators refresh `evaluated_at` on every pass. A consumer that passed
+  // the EVALUATION time as observed_at would clear the watermark on run 2 and
+  // release the whole backlog — the baseline would only have delayed the flood.
+  // A pre-existing condition must stay silent across repeated evaluations.
+  const CONDITION_SEEN = "2026-01-01T00:00:00Z";   // stable: first_seen_at / last_changed_at
+  const runs = [];
+  for (let pass = 0; pass < 3; pass++) {
+    runs.push(await emitManagedAlert(env, {
+      workspace_id: "ws_fresh", domain_key: "certificates_trust", kind: "cert_expiring",
+      severity: "critical", title: "Backlog cert", message: "Still overdue.",
+      dedupe_key: buildAlertDedupeKey({ domain_key: "certificates_trust", kind: "cert_expiring", subject: "backlog.example.com" }),
+      observed_at: CONDITION_SEEN,   // the CONDITION's own timestamp, not evaluated_at
+    }));
+  }
+  ok("re-evaluating a pre-existing condition never alerts (no second-run flood)",
+     runs.every((r) => r.emitted === false && r.reason === "alert_baseline_established"));
+  ok("re-evaluation creates no bell notification for backlog",
+     !notifs("ws_fresh").some((n) => n.title === "Backlog cert"));
+
+  // The trap itself: had the consumer passed the evaluation time, this WOULD alert.
+  // Documenting it as an executable warning rather than prose.
+  const wouldFlood = observationIsAfterWatermark(new Date().toISOString(), WATERMARK);
+  ok("passing evaluated_at/now WOULD defeat the watermark (why consumers must not)", wouldFlood === true);
+
+  // Baseline must not leak across tenants.
+  ok("another tenant's activation does not baseline this one",
+     db.prepare("SELECT COUNT(*) c FROM alert_activation WHERE workspace_id = 'ws_paid'").get().c >= 1);
+  ok("ws_fresh ledger contains only ws_fresh rows", ledger("ws_fresh").every((d) => d.workspace_id === "ws_fresh"));
 }
 
 globalThis.fetch = realFetch;

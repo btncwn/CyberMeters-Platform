@@ -945,7 +945,7 @@ const WORKSPACE_PURGE_TABLES = [
   "identity_exposure_events", "identity_exposure",
   "workspace_brs_scores", "workspace_brs_score_history",
   "workspace_supply_chain_scores", "workspace_supply_chain_history",
-  "alert_deliveries", "notification_events", "notification_preferences",
+  "alert_deliveries", "alert_activation", "notification_events", "notification_preferences",
   "report_schedule_runs", "report_schedules", "scheduled_reports",
   "workspace_invitations", "workspace_members", "workspace_retention_settings",
   "lifecycle_email_events", "scheduled_scans", "workspace_domains",

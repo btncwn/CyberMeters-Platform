@@ -23,6 +23,11 @@
 --    "silently lost". alert_deliveries is the append-only ledger: one row per
 --    alert per channel per attempt, with an explicit terminal/retryable outcome.
 --
+-- 4. NO ACTIVATION BASELINE. The lifecycle evaluators already carry recurrence
+--    state for rows that predate alerting, so switching alerts on would announce
+--    the entire existing backlog as if it were new. alert_activation is the
+--    per-(workspace, domain) watermark that makes pre-existing state history.
+--
 -- Honest scope: this records what CyberMeters ATTEMPTED and what the provider
 -- ACCEPTED. Provider acceptance is not proof a human read the alert; no column
 -- here should ever be presented as "the customer was informed".
@@ -132,3 +137,42 @@ CREATE INDEX IF NOT EXISTS idx_alert_deliveries_retry
 -- Per-alert audit: every attempt against one notification.
 CREATE INDEX IF NOT EXISTS idx_alert_deliveries_notification
     ON alert_deliveries (notification_id, created_at);
+
+-- ── alert_activation — the first-run flood guard ─────────────────────────────
+--
+-- Wiring alerts onto the shipped lifecycle evaluators would otherwise fire
+-- RETROACTIVELY: certificate_lifecycle, identity_exposure and shadow_it_inventory
+-- rows already exist in production carrying non-null recurrence_type, recomputed on
+-- every evaluation. Without a watermark, the first evaluation after deploy would
+-- alert on every pre-existing row at once — the first invited customers would open
+-- an inbox flood describing conditions that are not new to them.
+--
+-- So each (workspace, domain) is ACTIVATED exactly once. The activating evaluation
+-- establishes the baseline and alerts on nothing; only changes observed strictly
+-- after activated_at may alert. Pre-existing state is history, not news.
+--
+-- Idempotent by construction: UNIQUE (workspace_id, domain_key) + INSERT OR IGNORE
+-- means a concurrent or repeated pass cannot re-baseline or double-activate, and
+-- cannot un-suppress what a previous pass already treated as history.
+--
+-- Tenant-scoped: keyed by workspace_id with an FK, and purged with the workspace.
+CREATE TABLE IF NOT EXISTS alert_activation (
+    id             TEXT PRIMARY KEY,
+    workspace_id   TEXT NOT NULL,
+    -- A CYBER_MOT_DOMAINS key. Activation is per-domain so a domain wired later
+    -- baselines on its own first evaluation rather than inheriting another's.
+    domain_key     TEXT NOT NULL,
+    -- The watermark. Anything observed at or before this instant is pre-existing
+    -- state and must never become an alert.
+    activated_at   TEXT NOT NULL,
+    -- How many records the baseline pass saw. Diagnostic only — it is NOT a claim
+    -- that the customer was told about them.
+    baseline_count INTEGER NOT NULL DEFAULT 0,
+    created_at     TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    UNIQUE (workspace_id, domain_key),
+    FOREIGN KEY (workspace_id) REFERENCES workspaces(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_alert_activation_workspace
+    ON alert_activation (workspace_id, domain_key);

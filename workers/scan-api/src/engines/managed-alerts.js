@@ -11,14 +11,19 @@
 // Registry. Nothing here is a second copy of any of those.
 //
 // ── The pipeline, in order ───────────────────────────────────────────────────
-//   1. workspace live?          → workspace_deleted        (terminal)
-//   2. dedupe (UNIQUE key)      → deduplicated             (terminal)
-//   3. WRITE THE CANONICAL EVENT — always, from here on
-//   4. cooldown                 → cooldown_active          (terminal, outbound only)
-//   5. entitlement              → feature_not_entitled     (terminal, outbound only)
-//   6. per-channel preference   → channel_disabled         (terminal, per channel)
-//   7. verified recipients      → no_verified_recipient    (terminal)
-//   8. send                     → delivered | retryable failure
+//   1. workspace live?          → workspace_deleted          (terminal)
+//   2. activation watermark     → alert_baseline_established  (terminal)
+//   3. dedupe (UNIQUE key)      → deduplicated               (terminal)
+//   4. WRITE THE CANONICAL EVENT — always, from here on
+//   5. cooldown                 → cooldown_active            (terminal, outbound only)
+//   6. entitlement              → feature_not_entitled       (terminal, outbound only)
+//   7. per-channel preference   → channel_disabled           (terminal, per channel)
+//   8. verified recipients      → no_verified_recipient      (terminal)
+//   9. send                     → delivered | retryable failure
+//
+// Step 2 sits ABOVE event creation and dedupe deliberately: pre-existing lifecycle
+// state must not become a bell notification at all, so it must never reach the
+// INSERT. Gating later would still write the event and merely suppress the email.
 //
 // Step 3 sits ABOVE the outbound gates on purpose: an unentitled or
 // channel-disabled workspace still accrues its canonical in-app history. What the
@@ -58,6 +63,7 @@ export const TERMINAL_REASONS = Object.freeze(new Set([
   "deduplicated",
   "cooldown_active",
   "recipient_undeliverable",
+  "alert_baseline_established",
 ]));
 
 // Retryable: we tried (or could not determine) and it may yet succeed. A hard
@@ -127,6 +133,56 @@ async function recordDelivery(env, {
 
 // ── Gates ────────────────────────────────────────────────────────────────────
 
+// ── Activation watermark (first-run flood guard) ─────────────────────────────
+// Each (workspace, domain) is activated exactly once. The activating pass
+// establishes the baseline and alerts on NOTHING; only changes observed strictly
+// after activated_at may alert.
+//
+// This exists because the shipped evaluators (certificate/identity/shadow-IT)
+// recompute recurrence_type on every run over rows that already exist in
+// production. Without this, switching alerting on would announce the entire
+// backlog at once — true statements, but not news, and an inbox flood is how a
+// monitoring product teaches customers to ignore it.
+//
+// Idempotent + tenant-scoped by construction: INSERT OR IGNORE against
+// UNIQUE (workspace_id, domain_key). A concurrent or repeated pass cannot
+// re-baseline, cannot double-activate, and cannot un-suppress history.
+//
+// Returns { activated_at, established_now }. On any DB error it fails CLOSED
+// (treated as just-established), because alerting a backlog is worse than a
+// delayed alert.
+export async function ensureAlertActivation(env, workspaceId, domainKey, { now = new Date().toISOString() } = {}) {
+  try {
+    const insert = await env.cybermeters_db
+      .prepare(`INSERT OR IGNORE INTO alert_activation (id, workspace_id, domain_key, activated_at, created_at)
+                VALUES (?, ?, ?, ?, datetime('now'))`)
+      .bind(`aa_${createId()}`, workspaceId, domainKey, now)
+      .run();
+    if ((insert.meta?.changes ?? 0) === 1) return { activated_at: now, established_now: true };
+
+    const row = await env.cybermeters_db
+      .prepare(`SELECT activated_at FROM alert_activation WHERE workspace_id = ? AND domain_key = ?`)
+      .bind(workspaceId, domainKey).first();
+    return { activated_at: row?.activated_at || now, established_now: false };
+  } catch (err) {
+    console.error("[managed-alert] activation check failed", JSON.stringify({ workspace_id: workspaceId, domain_key: domainKey, reason: err?.message }));
+    return { activated_at: now, established_now: true, error: true };
+  }
+}
+
+// Is this observation new enough to alert on?
+//   • the activating pass itself  → never (it IS the baseline)
+//   • observed at/before the mark → never (pre-existing state, not news)
+//   • no observed_at supplied     → allowed: the caller is asserting "this just
+//     happened". Consumers of pre-existing state MUST pass observed_at.
+export function observationIsAfterWatermark(observedAt, activatedAt) {
+  if (!observedAt) return true;
+  const o = Date.parse(observedAt), a = Date.parse(activatedAt);
+  if (!Number.isFinite(o) || !Number.isFinite(a)) return false; // unparseable → fail closed
+  return o > a;
+}
+
+
 // A soft-deleted workspace is nonexistent: no event, no email, no channel.
 async function workspaceIsLive(env, workspaceId) {
   const row = await env.cybermeters_db
@@ -190,6 +246,18 @@ export async function emitManagedAlert(env, {
   title, message, dedupe_key = null, link = null,
   case_id = null, remediation_id = null, metadata = {},
   cooldownActive = false,
+  // When the underlying CONDITION was observed — not when it was evaluated.
+  //
+  // This distinction is the whole flood guard. The lifecycle evaluators refresh
+  // `evaluated_at` on EVERY pass, so a consumer passing evaluated_at (or now())
+  // would clear the watermark on the second run and release the entire backlog —
+  // the activation baseline would only have delayed the flood by one hour.
+  //
+  // Consumers MUST pass a timestamp that is stable across evaluations and belongs
+  // to the condition itself: replacement_detected_at, last_changed_at,
+  // first_seen_at. Then a pre-existing condition stays pre-existing no matter how
+  // many times it is re-evaluated, and only a genuinely new observation alerts.
+  observed_at = null,
 } = {}) {
   const deliveries = [];
   const base = { workspace_id, domain_key, alert_kind: kind, dedupe_key, severity };
@@ -200,7 +268,17 @@ export async function emitManagedAlert(env, {
       return { emitted: false, notification_id: null, reason: "workspace_deleted", deliveries };
     }
 
-    // 2 + 3. Dedupe and write the canonical event in ONE statement. INSERT OR
+    // 2. Activation watermark — BEFORE event creation and dedupe, so pre-existing
+    //    state never becomes a bell notification and is never enqueued for retry.
+    const activation = await ensureAlertActivation(env, workspace_id, domain_key);
+    if (activation.established_now || !observationIsAfterWatermark(observed_at, activation.activated_at)) {
+      deliveries.push(await recordDelivery(env, {
+        ...base, channel: "in_app", outcome: "suppressed", reason: "alert_baseline_established",
+      }));
+      return { emitted: false, notification_id: null, reason: "alert_baseline_established", deliveries };
+    }
+
+    // 3 + 4. Dedupe and write the canonical event in ONE statement. INSERT OR
     // IGNORE against the partial UNIQUE index makes duplicate suppression a
     // database guarantee — two concurrent scans cannot both win.
     const notifId = `notif_${createId()}`;
