@@ -180,7 +180,7 @@ export function buildScanQuality(modules = {}) {
 // polls. If R2 is written but the D1 write keeps failing, the scan is left with a
 // durable completed report the reconciler converges D1 from — never a silent orphan.
 export function createFinalizeLatch() {
-  return { state: "open", status: null, at: null, r2Written: false, d1Written: false, score: null, rating: null };
+  return { state: "open", status: null, at: null, r2Written: false, d1Written: false, score: null, rating: null, quality: null };
 }
 
 export async function finalizeScanResult(latch, { scanId, report, score = null, rating = null, status, env }) {
@@ -198,10 +198,15 @@ export async function finalizeScanResult(latch, { scanId, report, score = null, 
     latch.status = status;
     latch.score  = score;
     latch.rating = rating;
+    // Persist the SAME coverage quality that is written into the R2 report, so D1 and
+    // R2 can never present contradictory quality. NULL for a failed/qualityless report
+    // (= 'unknown'); never inferred from status/score.
+    latch.quality = report?.scan_quality?.status ?? null;
   }
-  const effStatus = latch.status;
-  const effScore  = latch.score;
-  const effRating = latch.rating;
+  const effStatus  = latch.status;
+  const effScore   = latch.score;
+  const effRating  = latch.rating;
+  const effQuality = latch.quality;
 
   const errors = {};
   // Terminal R2 report — skipped when the completed report is already durable
@@ -223,8 +228,8 @@ export async function finalizeScanResult(latch, { scanId, report, score = null, 
   if (!latch.d1Written && (latch.r2Written || effStatus === "failed")) {
     try {
       await env.cybermeters_db
-        .prepare(`UPDATE scans SET status = ?, score = ?, rating = ? WHERE id = ?`)
-        .bind(effStatus, effScore, effRating, scanId)
+        .prepare(`UPDATE scans SET status = ?, score = ?, rating = ?, scan_quality = ? WHERE id = ?`)
+        .bind(effStatus, effScore, effRating, effQuality, scanId)
         .run();
       latch.d1Written = true;
     } catch (e) { errors.d1 = e?.message || String(e); }
@@ -879,6 +884,17 @@ function buildCanonicalUrlProfile(modules) {
     modules.scan_budget = computeScanBudget(bruteforceResult.checked);
     const scanQuality = buildScanQuality(modules);
 
+    // Trend eligibility (partial-scan honesty): only a COMPLETE assessment is a
+    // comparable trend point. A partial/degraded/unknown current scan must never
+    // produce a score delta (improved/declined/+N), so suppress its own report's
+    // score_change here — the single central gate feeding the report, scan-detail,
+    // and the executive-report trend direction.
+    if (modules.historical_changes) {
+      const comparable = scanQuality.status === "complete";
+      modules.historical_changes.comparable   = comparable;
+      if (!comparable) modules.historical_changes.score_change = null;
+    }
+
     // Phase 7e: Vendor Risk — pure computation, zero I/O.
     // Detects third-party vendors from signals already captured in modules:
     // SPF, MX, NS, DKIM, CSP, Server header, CNAME targets, tech detection.
@@ -1013,10 +1029,10 @@ function buildCanonicalUrlProfile(modules) {
         await env.cybermeters_db
           .prepare(
             `INSERT OR IGNORE INTO historical_scores
-               (id, workspace_id, domain_id, scan_id, domain, score, rating, brs_score, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+               (id, workspace_id, domain_id, scan_id, domain, score, rating, brs_score, scan_quality, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           )
-          .bind(createId("hscore"), workspaceId, domainId, scanId, domain, score, risk_level, brsScore, completedAt)
+          .bind(createId("hscore"), workspaceId, domainId, scanId, domain, score, risk_level, brsScore, scanQuality?.status ?? null, completedAt)
           .run();
       } catch { /* non-fatal — scan completion remains source of truth */ }
     }

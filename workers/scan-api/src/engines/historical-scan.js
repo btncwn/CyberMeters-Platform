@@ -34,11 +34,13 @@ export async function runHistoricalModule(scanId, domain, currentScore, currentF
   // Step 1: find the most recent previous completed scan for this domain in D1
   let prevScan;
   try {
+    // Trend baseline must be a COMPLETE assessment — a partial/degraded/unknown
+    // previous scan is never a comparable baseline (partial-scan honesty).
     prevScan = await env.cybermeters_db
       .prepare(
         `SELECT id, score FROM scans
-         WHERE domain = ? AND status = 'completed' AND id != ?
-         ORDER BY created_at DESC LIMIT 1`
+         WHERE domain = ? AND status = 'completed' AND scan_quality = 'complete' AND id != ?
+         ORDER BY created_at DESC, id DESC LIMIT 1`
       )
       .bind(domain, scanId)
       .first();

@@ -359,11 +359,15 @@ export default function ExecutiveReportV2({ report }) {
         <div className="flex flex-col lg:flex-row">
           {/* Score */}
           <div className="flex flex-col items-center justify-center gap-2 px-8 py-7 lg:border-r border-gray-200 lg:min-w-[220px]">
-            <span className="eyebrow">Cyber Metrics Score</span>
+            <span className="eyebrow">{score.provisional ? 'Provisional Score' : 'Cyber Metrics Score'}</span>
             <ScoreRing score={score.value} rating={score.rating} />
-            <p className="text-[11px] text-gray-500 text-center leading-relaxed max-w-[180px]">
-              Overall external security health, from 0 to 100. Higher is safer.
-            </p>
+            {score.provisional && score.message ? (
+              <p className="text-[11px] text-amber-700 text-center leading-relaxed max-w-[180px] font-medium">{score.message}</p>
+            ) : (
+              <p className="text-[11px] text-gray-500 text-center leading-relaxed max-w-[180px]">
+                Overall external security health, from 0 to 100. Higher is safer.
+              </p>
+            )}
           </div>
           {/* Narrative + signals */}
           <div className="flex-1 px-7 py-7 flex flex-col gap-4">

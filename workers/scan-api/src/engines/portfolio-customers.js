@@ -43,9 +43,17 @@ export async function computePortfolioCustomerRows(db, workspaceIds) {
        JOIN workspace_domains wd ON s.domain_id = wd.domain_id
        WHERE f.severity IN ('critical','high') AND wd.workspace_id IN (${wsIn})
        GROUP BY wd.workspace_id, f.severity`),
-    q(`WITH ${LATEST_SCAN_CTE}
+    // Authoritative per-customer posture uses the latest COMPLETE scan per domain — a
+    // partial/degraded latest never establishes the customer's rating (honesty).
+    q(`WITH lcd AS (
+         SELECT scan_id, domain_id FROM (
+           SELECT id AS scan_id, domain_id,
+                  ROW_NUMBER() OVER (PARTITION BY domain_id ORDER BY created_at DESC, id DESC) AS rn
+           FROM scans WHERE status='completed' AND scan_quality='complete'
+         ) WHERE rn = 1
+       )
        SELECT wd.workspace_id, AVG(s.score) AS avg_score, MAX(s.created_at) AS last_scan_at
-       FROM scans s JOIN lpd ON lpd.scan_id = s.id
+       FROM scans s JOIN lcd ON lcd.scan_id = s.id
        JOIN workspace_domains wd ON s.domain_id = wd.domain_id
        WHERE s.score IS NOT NULL AND wd.workspace_id IN (${wsIn})
        GROUP BY wd.workspace_id`),

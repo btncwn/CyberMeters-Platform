@@ -3,6 +3,7 @@
 // route). Extracted near-verbatim from index.js (router split, Phase 2 PR #8).
 // Receives the per-request routeCtx from index.js; returns a Response when a
 // route matches, or null so the main router continues.
+import { getCurrentPosturePresentation } from "../engines/current-posture.js";
 import { getEffectivePlan, hasFeatureEntitlement } from "../engines/entitlements.js";
 import { getWorkspaceBillingUserId } from "../engines/plan-usage.js";
 import { parseBoundedInteger } from "../lib/util.js";
@@ -161,8 +162,8 @@ export async function executiveDashboardRoutes(rctx) {
           env.cybermeters_db
             .prepare(
               `SELECT score, created_at, domain
-               FROM historical_scores WHERE workspace_id = ?
-               ORDER BY created_at DESC LIMIT 2`
+               FROM historical_scores WHERE workspace_id = ? AND scan_quality = 'complete'
+               ORDER BY created_at DESC, id DESC LIMIT 2`
             )
             .bind(wsId),
 
@@ -204,6 +205,9 @@ export async function executiveDashboardRoutes(rctx) {
 
         const domainData    = domainRow.results[0]       ?? { total: 0, verified: 0 };
         const latestScan    = latestScanRow.results[0]   ?? null;
+        // Canonical current posture: authoritative = latest COMPLETE scan; the raw
+        // security_score/risk_level are shown ONLY for a complete assessment.
+        const posture = await getCurrentPosturePresentation(env, { workspaceId: wsId });
         const activeAssets  = activeAssetsRow.results[0]?.n ?? 0;
         const criticalCount = criticalRow.results[0]?.n  ?? 0;
         const highCount     = highRow.results[0]?.n      ?? 0;
@@ -256,8 +260,12 @@ export async function executiveDashboardRoutes(rctx) {
           generated_at: new Date().toISOString(),
 
           summary: {
-            security_score:    latestScan?.score   ?? null,
-            risk_level:        latestScan?.rating  ?? null,
+            // Authoritative posture only (complete). display_rating is null for a
+            // provisional latest — never an unqualified rating. Full canonical
+            // decision + any provisional latest are exposed under current_posture.
+            security_score:    posture.authoritative?.display_score  ?? null,
+            risk_level:        posture.authoritative?.display_rating ?? null,
+            current_posture:   posture,
             domains:           totalDomains,
             verified_domains:  verifiedCount,
             verification_rate: verificationRate,

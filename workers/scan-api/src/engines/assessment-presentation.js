@@ -1,0 +1,65 @@
+// ── Canonical assessment presentation resolver ────────────────────────────────
+// The SINGLE seam that turns a raw score + scan coverage quality into a customer-
+// facing decision. Raw scoring (computeScore / riskLevelForScore) stays PURE — this
+// module owns all provisional / authoritative / comparable / rating / message
+// semantics. Every score/rating surface (dashboard, scan detail, executive report,
+// PDF, scorecard, insights, portfolio, API, trends) MUST delegate here so they can
+// never disagree about whether a result is a final clean conclusion.
+//
+// Strict trust model (partial-scan honesty): ONLY quality='complete' is
+// authoritative, comparable, and may show a final rating. partial / degraded /
+// unknown are provisional — a raw score may be shown as provisional, but never an
+// unqualified rating, and they never establish/replace the authoritative posture or
+// participate in trend deltas. NULL/legacy quality = 'unknown', NEVER 'complete'.
+
+import { riskLevelForScore } from "./scoring.js";
+
+export const SCAN_QUALITY = Object.freeze({
+  COMPLETE: "complete", PARTIAL: "partial", DEGRADED: "degraded", UNKNOWN: "unknown",
+});
+
+// NULL / undefined / any unrecognised value → 'unknown' (never 'complete'). Quality
+// describes EXECUTION + EVIDENCE COVERAGE, not security posture — a clean scan with
+// no findings is still 'complete'; a scan whose risk-producing checks did not run is
+// 'partial'; degraded evidence sources are 'degraded'.
+export function normalizeQuality(q) {
+  const v = String(q ?? "").trim().toLowerCase();
+  return (v === "complete" || v === "partial" || v === "degraded") ? v : "unknown";
+}
+
+// Customer-safe status messages (status language only — no product copy).
+export const ASSESSMENT_MESSAGES = Object.freeze({
+  complete: null,
+  partial:  "Some checks were not completed. This score is provisional.",
+  degraded: "Some checks or evidence sources were degraded. This score is provisional.",
+  unknown:  "Legacy assessment — coverage quality unavailable.",
+});
+
+// Shown when a scope has NO complete assessment to establish authoritative posture.
+export const POSTURE_NOT_ESTABLISHED_MESSAGE = "Current posture not yet established.";
+
+// The canonical decision model. `scanQuality` is the persisted scans.scan_quality
+// (or report.scan_quality.status). `status` is the D1 scan status; a non-completed
+// scan yields no usable score. `coverage` is optional detail (e.g. modules_skipped)
+// passed through untouched for callers that want to render specifics.
+export function resolveAssessmentPresentation({ score = null, scanQuality = null, status = null, coverage = null } = {}) {
+  const quality  = normalizeQuality(scanQuality);
+  const complete = quality === "complete";
+  // A score is only usable when the scan actually completed.
+  const completed = status == null || String(status).toLowerCase() === "completed";
+  const hasScore  = completed && Number.isFinite(score);
+
+  return {
+    raw_score:      hasScore ? score : null,
+    // The raw number may be shown for provisional results, but it is NOT a rating.
+    display_score:  hasScore ? score : null,
+    // A final rating is displayed ONLY for a complete assessment.
+    display_rating: complete && hasScore ? riskLevelForScore(score) : null,
+    quality,
+    provisional:    !complete,
+    authoritative:  complete,
+    comparable:     complete,
+    coverage:       coverage ?? null,
+    message:        ASSESSMENT_MESSAGES[quality],
+  };
+}

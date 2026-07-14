@@ -3,8 +3,8 @@
 // and the executive report v2 builder (findings → remediation-grouped executive summary).
 // Extracted verbatim from index.js (monolith decomposition, Phase 1c).
 // findRegisteredIntelligenceEngine + buildExecutiveReportV2Remediation are module-internal.
+import { resolveAssessmentPresentation } from "./assessment-presentation.js";
 import { applyEvidenceQuality, isActionableFinding, normalizeFindingSchema } from "./findings.js";
-import { riskLevelForScore } from "./scoring.js";
 
 export function resolveCanonicalScanScore(storedScore, reportScore) {
   const storedValue = storedScore == null || storedScore === "" ? NaN : Number(storedScore);
@@ -118,8 +118,18 @@ export function buildExecutiveReportV2({ scan, rawReport, workspace = null, gene
   const observations = allFindings.filter((finding) => !isActionableFinding(finding));
   const recommendations = Array.isArray(raw.recommendations) ? raw.recommendations : [];
   const canonicalScore = resolveCanonicalScanScore(scan?.score, raw.cyber_metrics_score);
-  const rating = riskLevelForScore(canonicalScore);
+  // Canonical completeness-aware presentation — a final rating shows ONLY for a
+  // complete assessment; partial/degraded/unknown are provisional (no rating).
+  const assessment = resolveAssessmentPresentation({
+    score: canonicalScore,
+    scanQuality: raw.scan_quality?.status,
+    status: scan?.status || raw.status,
+    coverage: raw.scan_quality?.modules_skipped ?? null,
+  });
+  const rating = assessment.display_rating;
   const historical = evidence.historical_changes || {};
+  // Only a complete current assessment against a complete baseline is comparable.
+  const trendComparable = assessment.comparable && historical.comparable !== false;
   const severityRank = { critical: 5, high: 4, medium: 3, low: 2, info: 1, informational: 1 };
   const topRisks = [...verifiedFindings]
     .sort((a, b) => (severityRank[b.severity] || 0) - (severityRank[a.severity] || 0)
@@ -130,25 +140,32 @@ export function buildExecutiveReportV2({ scan, rawReport, workspace = null, gene
     recommendations,
     evidence.remediation_plan,
   );
-  const riskNarrative = evidence.risk_intelligence?.narrative || (
-    canonicalScore >= 90
-      ? "External exposure controls are strong. Continue monitoring for material changes."
-      : canonicalScore >= 75
-        ? "External exposure is generally well controlled, with focused improvements recommended."
-        : canonicalScore >= 50
-          ? "Several external exposure issues require planned remediation and continued monitoring."
-          : "Material external exposure issues require prioritized remediation."
-  );
+  // A provisional (partial/degraded/unknown) assessment must never emit reassuring
+  // clean-state language — surface the status caveat instead.
+  const riskNarrative = !assessment.authoritative
+    ? assessment.message
+    : (evidence.risk_intelligence?.narrative || (
+        canonicalScore >= 90
+          ? "External exposure controls are strong. Continue monitoring for material changes."
+          : canonicalScore >= 75
+            ? "External exposure is generally well controlled, with focused improvements recommended."
+            : canonicalScore >= 50
+              ? "Several external exposure issues require planned remediation and continued monitoring."
+              : "Material external exposure issues require prioritized remediation."
+      ));
+  // Trend deltas/direction appear ONLY for comparable (complete-vs-complete)
+  // assessments — a partial/degraded scan never renders improved/declined/+N.
   const trendSummary = {
-    status: historical.has_previous ? "available" : "not_available",
-    previous_scan_id: historical.previous_scan_id || null,
-    previous_score: historical.previous_score ?? null,
+    status: (trendComparable && historical.has_previous) ? "available" : "not_available",
+    comparable: trendComparable,
+    previous_scan_id: trendComparable ? (historical.previous_scan_id || null) : null,
+    previous_score: trendComparable ? (historical.previous_score ?? null) : null,
     current_score: canonicalScore,
-    score_change: historical.previous_score != null ? canonicalScore - historical.previous_score : null,
-    direction: historical.previous_score == null
-      ? "not_available"
-      : canonicalScore > historical.previous_score ? "improved"
-        : canonicalScore < historical.previous_score ? "declined" : "unchanged",
+    score_change: (trendComparable && historical.previous_score != null) ? canonicalScore - historical.previous_score : null,
+    direction: (trendComparable && historical.previous_score != null)
+      ? (canonicalScore > historical.previous_score ? "improved"
+        : canonicalScore < historical.previous_score ? "declined" : "unchanged")
+      : "not_available",
     new_findings_count: Array.isArray(historical.new_findings) ? historical.new_findings.length : 0,
     resolved_findings_count: Array.isArray(historical.resolved_findings) ? historical.resolved_findings.length : 0,
   };
@@ -191,8 +208,13 @@ export function buildExecutiveReportV2({ scan, rawReport, workspace = null, gene
     },
     generated_at: generatedAt,
     cyber_metrics_score: {
-      value: canonicalScore,
-      rating,
+      value: assessment.display_score,
+      rating,                       // null for a provisional (non-complete) assessment
+      provisional: assessment.provisional,
+      authoritative: assessment.authoritative,
+      comparable: assessment.comparable,
+      quality: assessment.quality,
+      message: assessment.message,  // status caveat, null when complete
       minimum: 0,
       maximum: 100,
       source: scan?.score == null ? "legacy_report_fallback" : "scan_record",

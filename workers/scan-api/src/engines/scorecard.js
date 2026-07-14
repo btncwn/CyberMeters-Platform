@@ -3,6 +3,7 @@
 // R2 data (posture, exposure, certs, third-party, supply-chain). Extracted verbatim from
 // index.js (monolith decomposition, Phase 1c).
 import { computeSecurityPosture } from "./posture-scoring.js";
+import { getCurrentPosturePresentation } from "./current-posture.js";
 
 /**
  * buildScorecardData(wsId, env)
@@ -90,6 +91,9 @@ export async function buildScorecardData(wsId, env) {
   }
 
   const latestScan     = b1[0].results?.[0]  ?? null;
+  // Canonical current posture — authoritative score/rating come ONLY from the latest
+  // COMPLETE scan; a provisional latest never establishes the rating.
+  const posture        = await getCurrentPosturePresentation(env, { workspaceId: wsId });
   const wsName         = b1[1].results?.[0]?.name ?? 'Unknown';
   const activeAssets   = b1[2].results?.[0]?.n    ?? 0;
   const assetTypeRows  = b1[3].results ?? [];
@@ -282,8 +286,9 @@ export async function buildScorecardData(wsId, env) {
   return {
     workspace_id:        wsId,
     workspace_name:      wsName,
-    security_score:      latestScan?.score  ?? null,
-    risk_rating:         latestScan?.rating ?? 'unknown',
+    security_score:      posture.authoritative?.display_score  ?? null,
+    risk_rating:         posture.authoritative?.display_rating ?? 'unknown',
+    current_posture:     posture,
     last_scan_at:        latestScan?.created_at ?? null,
     last_scanned_domain: latestScan?.domain     ?? null,
     attack_surface_size: activeAssets,

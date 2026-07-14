@@ -14,10 +14,10 @@ import { resolveReportBranding } from "../engines/report-branding.js";
 import { prepareLogoXObject } from "../engines/pdf-image.js";
 import { checkScanLimit, checkScheduledScanLimit, getAccountUsage, getEntitlementUsage, getPlanLimits, getWorkspaceBillingUserId, planLimitExceeded } from "../engines/plan-usage.js";
 import { buildScanQuality, runScanEngine } from "../engines/scan-engine.js";
-import { riskLevelForScore } from "../engines/scoring.js";
 import { buildDmarcSenderIntelligenceEvidence } from "../engines/sender-provenance.js";
 import { createAuditEvent } from "../lib/events.js";
 import { DOMAIN_VERIFICATION_REQUIRED, isWorkspaceDomainVerified } from "../lib/domain-verification.js";
+import { resolveAssessmentPresentation } from "../engines/assessment-presentation.js";
 import { createId, isValidDomain, parseBoundedInteger } from "../lib/util.js";
 
 export async function scanRoutes(rctx) {
@@ -265,7 +265,7 @@ export async function scanRoutes(rctx) {
         // Direct attribution for attributed scans; join fallback for NULL workspace_id.
         result = await env.cybermeters_db
           .prepare(
-            `SELECT DISTINCT s.id, s.domain, s.status, s.score, s.rating, s.created_at
+            `SELECT DISTINCT s.id, s.domain, s.status, s.score, s.rating, s.scan_quality, s.created_at
              FROM scans s
              JOIN domains d ON d.id = s.domain_id
              JOIN workspace_domains wd ON wd.domain_id = d.id
@@ -307,14 +307,17 @@ export async function scanRoutes(rctx) {
                 raw.status === 'completed' ? 'completed' :
                 raw.status === 'failed'    ? 'failed'    : null;
               if (!correctedStatus) return null;
-              // Correct D1 so future queries also return the right status, score, and rating.
+              // Correct D1 so future queries also return the right status, score,
+              // rating, AND coverage quality — converged from the SAME R2 report, so
+              // D1 and R2 cannot present contradictory quality after reconciliation.
               try {
                 await env.cybermeters_db
-                  .prepare(`UPDATE scans SET status = ?, score = ?, rating = ? WHERE id = ?`)
+                  .prepare(`UPDATE scans SET status = ?, score = ?, rating = ?, scan_quality = ? WHERE id = ?`)
                   .bind(
                     correctedStatus,
                     raw.cyber_metrics_score ?? null,
                     raw.risk_level          ?? null,
+                    raw.scan_quality?.status ?? null,
                     s.id
                   )
                   .run();
@@ -324,6 +327,7 @@ export async function scanRoutes(rctx) {
                 status: correctedStatus,
                 score:  raw.cyber_metrics_score ?? s.score,
                 rating: raw.risk_level          ?? s.rating,
+                scan_quality: raw.scan_quality?.status ?? s.scan_quality ?? null,
               };
             } catch { return null; }
           })
@@ -556,12 +560,18 @@ export async function scanRoutes(rctx) {
       const businessRisk = deriveScanBusinessRisk(raw);
 
       const canonicalScore = resolveCanonicalScanScore(scan.score, raw.cyber_metrics_score);
-      const canonicalRiskLevel = riskLevelForScore(canonicalScore);
+      // Canonical completeness-aware presentation for THIS scan — a partial/degraded/
+      // unknown scan gets no final rating and no trend delta.
+      const scanQualityStatus = (raw.scan_quality ?? buildScanQuality(normalisedModules))?.status;
+      const assessment = resolveAssessmentPresentation({ score: canonicalScore, scanQuality: scanQualityStatus, status: scan.status });
+      const canonicalRiskLevel = assessment.display_rating;
       const historicalChanges = normalisedModules.historical_changes;
       normalisedModules.historical_changes = {
         ...historicalChanges,
         current_score: canonicalScore,
-        score_change: historicalChanges?.previous_score != null
+        comparable: assessment.comparable,
+        // Only a complete assessment produces a delta — never improved/declined/+N.
+        score_change: (assessment.comparable && historicalChanges?.previous_score != null)
           ? canonicalScore - historicalChanges.previous_score
           : null,
       };
@@ -570,8 +580,9 @@ export async function scanRoutes(rctx) {
         scan_id:             scan.id,
         domain:              scan.domain,
         status:              scan.status,
-        cyber_metrics_score: canonicalScore,
+        cyber_metrics_score: assessment.display_score,
         risk_level:          canonicalRiskLevel,
+        assessment,          // canonical decision: provisional/authoritative/comparable/quality/message
         findings:            reportFindings,
         recommendations:     Array.isArray(raw.recommendations) ? raw.recommendations : [],
         scan_quality:         raw.scan_quality ?? buildScanQuality(normalisedModules),
@@ -675,7 +686,7 @@ export async function scanRoutes(rctx) {
 
       const history = await env.cybermeters_db
         .prepare(
-          `SELECT DISTINCT s.id, s.domain_id, s.domain, s.status, s.score, s.rating, s.created_at
+          `SELECT DISTINCT s.id, s.domain_id, s.domain, s.status, s.score, s.rating, s.scan_quality, s.created_at
            FROM scans s
            JOIN workspace_domains wd ON wd.domain_id = s.domain_id
            WHERE s.domain = ? AND wd.workspace_id IN (${placeholders})

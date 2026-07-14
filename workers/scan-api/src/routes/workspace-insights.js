@@ -296,7 +296,7 @@ export async function workspaceInsightRoutes(rctx) {
               WITH lpd AS (
                 SELECT domain_id, MAX(created_at) AS mx
                 FROM scans
-                WHERE workspace_id = ? AND status = 'completed'
+                WHERE workspace_id = ? AND status = 'completed' AND scan_quality = 'complete'
                 GROUP BY domain_id
               )
               SELECT AVG(s.score) AS avg_score
@@ -309,7 +309,7 @@ export async function workspaceInsightRoutes(rctx) {
               WITH lpd AS (
                 SELECT domain_id, MAX(created_at) AS mx
                 FROM scans
-                WHERE workspace_id = ? AND status = 'completed'
+                WHERE workspace_id = ? AND status = 'completed' AND scan_quality = 'complete'
                 GROUP BY domain_id
               )
               SELECT

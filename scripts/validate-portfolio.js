@@ -44,7 +44,7 @@ for (const [ws, owner, name] of [["ws_a1", "u_a", "Acme"], ["ws_a2", "u_a", "Bet
 // Domains + one completed scan each (score → risk_rating).
 for (const [ws, dom, domId, score] of [["ws_a1", "acme.co.uk", "d_a1", 30], ["ws_a2", "beta.co.uk", "d_a2", 92], ["ws_b1", "rival.co.uk", "d_b1", 50]]) {
   db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES (?,?)").run(ws, domId);
-  db.prepare("INSERT INTO scans (id, domain_id, domain, status, score, created_at) VALUES (?,?,?, 'completed', ?, datetime('now','-1 day'))").run(`sc_${ws}`, domId, dom, score);
+  db.prepare("INSERT INTO scans (id, domain_id, domain, status, score, scan_quality, created_at) VALUES (?,?,?, 'completed', ?, 'complete', datetime('now','-1 day'))").run(`sc_${ws}`, domId, dom, score);
 }
 // Acme (ws_a1): 1 critical finding + this-week changes (2 high, 1 info) + 1 OLD change (must not count).
 db.prepare("INSERT INTO findings (id, scan_id, severity, title) VALUES ('f1','sc_ws_a1','critical','HTTPS not available')").run();
@@ -79,8 +79,8 @@ db.prepare("INSERT INTO users (id, email, email_verified) VALUES ('u_c','c@examp
 //     completed scan resolved — the old critical must NOT be counted as current.
 db.prepare("INSERT INTO workspaces (id, name, owner_user_id) VALUES ('ws_hist','Hist Co','u_c')").run();
 db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES ('ws_hist','d_hist')").run();
-db.prepare("INSERT INTO scans (id, domain_id, domain, status, score, created_at) VALUES ('sc_hist_old','d_hist','hist.co.uk','completed',40, datetime('now','-10 days'))").run();
-db.prepare("INSERT INTO scans (id, domain_id, domain, status, score, created_at) VALUES ('sc_hist_new','d_hist','hist.co.uk','completed',90, datetime('now','-1 day'))").run();
+db.prepare("INSERT INTO scans (id, domain_id, domain, status, score, scan_quality, created_at) VALUES ('sc_hist_old','d_hist','hist.co.uk','completed',40,'complete', datetime('now','-10 days'))").run();
+db.prepare("INSERT INTO scans (id, domain_id, domain, status, score, scan_quality, created_at) VALUES ('sc_hist_new','d_hist','hist.co.uk','completed',90,'complete', datetime('now','-1 day'))").run();
 db.prepare("INSERT INTO findings (id, scan_id, severity, title) VALUES ('fh_old','sc_hist_old','critical','OLD HTTPS crit (resolved)')").run();
 // (b) Identical-timestamp dedup: TWO completed scans with the SAME created_at, each
 //     carrying a critical — the domain must count ONCE (the deterministic winner),
@@ -88,8 +88,8 @@ db.prepare("INSERT INTO findings (id, scan_id, severity, title) VALUES ('fh_old'
 const DUP_TS = "2026-07-14 12:00:00";
 db.prepare("INSERT INTO workspaces (id, name, owner_user_id) VALUES ('ws_dup','Dup Co','u_c')").run();
 db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES ('ws_dup','d_dup')").run();
-db.prepare("INSERT INTO scans (id, domain_id, domain, status, score, created_at) VALUES ('sc_dup_a','d_dup','dup.co.uk','completed',55,?)").run(DUP_TS);
-db.prepare("INSERT INTO scans (id, domain_id, domain, status, score, created_at) VALUES ('sc_dup_b','d_dup','dup.co.uk','completed',55,?)").run(DUP_TS);
+db.prepare("INSERT INTO scans (id, domain_id, domain, status, score, scan_quality, created_at) VALUES ('sc_dup_a','d_dup','dup.co.uk','completed',55,'complete',?)").run(DUP_TS);
+db.prepare("INSERT INTO scans (id, domain_id, domain, status, score, scan_quality, created_at) VALUES ('sc_dup_b','d_dup','dup.co.uk','completed',55,'complete',?)").run(DUP_TS);
 db.prepare("INSERT INTO findings (id, scan_id, severity, title) VALUES ('fd_a','sc_dup_a','critical','dup crit A')").run();
 db.prepare("INSERT INTO findings (id, scan_id, severity, title) VALUES ('fd_b','sc_dup_b','critical','dup crit B')").run();
 
