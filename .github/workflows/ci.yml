@@ -116,6 +116,9 @@ jobs:
       - name: Validate universal case-creation factory (6 base types + mismatch/soft-delete/dedup + append-only case_created)
         run: node scripts/validate-universal-case-factory.js
 
+      - name: Validate Shadow IT approved inventory (identity + correlation + classification + case linkage + isolation)
+        run: node scripts/validate-shadow-it-inventory.js
+
       - name: Validate ASM remediation loop (managed cases + verification)
         run: node scripts/validate-asm-remediation-loop.js
 

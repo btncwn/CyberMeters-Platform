@@ -559,6 +559,25 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  /** GET /api/workspaces/:id/shadow-it/inventory — externally-observed technology inventory */
+  getShadowItInventory: (id, params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString()
+    return request(`/workspaces/${id}/shadow-it/inventory${q ? `?${q}` : ''}`)
+  },
+
+  /** GET /api/workspaces/:id/shadow-it/inventory/:itemId — item + history + linked case */
+  getShadowItItem: (id, itemId) =>
+    request(`/workspaces/${id}/shadow-it/inventory/${encodeURIComponent(itemId)}`),
+
+  /** POST /api/workspaces/:id/shadow-it/inventory/:itemId/action — classify/assign/lifecycle */
+  shadowItAction: (id, itemId, payload) =>
+    request(`/workspaces/${id}/shadow-it/inventory/${encodeURIComponent(itemId)}/action`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
   /** GET /api/workspaces/:id/assets/:assetId */
   getWorkspaceAsset: (workspaceId, assetId) =>
     request(`/workspaces/${workspaceId}/assets/${assetId}`),
