@@ -5,6 +5,24 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.14 (v2026.07.14-18 — Identity Exposure Managed Workflow) — deployed 2026-07-14
+
+- **Live Worker Version ID:** `895e7719-2a40-4163-99ce-20523a6cf6a1`
+- **Rollback Worker Version ID:** `62a197de-639f-4123-91d0-b64fbf81ba5b`
+- **Remote D1 migration applied:** `086-identity-exposure.sql` (additive; both tables verified present in production).
+
+### Feat (Identity Exposure becomes a managed external identity-exposure workflow)
+- **Identity Exposure Managed Workflow** (PR **#82**, squash-merged to main as `b88d17c`). **Additive migration 086.** Extends the existing identity-observation architecture — no second identity scanner, no duplicate asset table.
+  - **Source-of-truth split:** `identity_assets` (mig 030) stays the raw externally-observed evidence + history (referenced, never copied); new `identity_exposure` (mig 086) owns classification, ownership, remediation, verification and monitoring; `identity_exposure_events` is append-only. Both added to `WORKSPACE_PURGE_TABLES`.
+  - **Deterministic identity** (`identity-policy.js`): explicit provider alias layer (Entra ≠ M365; never fuzzy), closed surface-type set, canonical identity key — a hostname-anchored surface keeps its identity across a provider change (material event with OLD evidence preserved), a provider-level detection anchors on provider+surface. Explainable, non-alarmist risk model (an expected, owned provider login is `ok`; an unexpected public admin surface is `high`).
+  - **Lifecycle engine** (`identity-lifecycle.js`): correlation with non-destructive evidence union; three-role ownership (business/technical/identity → known/partial/missing); 15 audited workflow actions (exceptions require reason+expiry); **external-observation-only verification** — a customer-recorded change/removal is NEVER verified until re-observed (removal: absent across a 14-day window → verified, still observed → failed, within window → inconclusive, nothing recorded → pending); ONE deterministic monitoring evaluator with explicit precedence (exception window → exception-expired → removal-contradicted → verification-failed → owner-missing(assign_owner) → public-admin → unexpected → retired-reappeared → investigate → provider-change → stale) that opens/reopens `identity_case` **via `createManagedCase`/`canTransitionCase`** → `identity.*` canonical remediation.
+  - **5 new canonical remediation entries:** `identity.review.unexpected_surface`, `identity.review.public_admin_surface`, `identity.assign.owner`, `identity.review.provider_change`, `identity.review.exception_expired` — each states the exposed-surface-only scope; no leaked-credential/dark-web/MFA/Conditional-Access claim anywhere.
+  - **APIs:** `/api/workspaces/:id/identity-surfaces[/:id[/action|/verify]]` — workspace-scoped, non-enumerating (foreign/nonexistent → same 404), soft-delete-gated. Distinct path from the preserved `/identity-exposure` verdict + `/identity-assets` inventory. Wired as scan **Phase 8l**.
+  - **Frontend:** focused Identity Exposure managed page (`/ws/identity-exposure`, nav sub-item) + `identityExposureDisplay.js` (co-located Vitest) — hard line between **Observed externally / Classified by you / Verified by CyberMeters**; server-provided actions only.
+  - **Honesty preserved:** `cyber-mot-domains.js` identity_exposure domain-state unchanged; `unknown_signals` carried on every record and verification.
+  - **Tests (CI-blocking):** `validate-identity-exposure-lifecycle.js` (**78**, DB-backed). Full gate re-run at merge: regression, migrations guard, purge **10/10**, managed-case **92/92**, tenant isolation, error-contract, openapi (65 paths/76 ops), remediation registry **62** + parity **12**, worker syntax, `wrangler --dry-run` clean, frontend Vitest **106/106** + build. CI green on PR #82 and on main.
+  - **Production proof (side-effect-safe):** `GET /health` returns deployment `895e7719…`; `/ready` 200; `/identity-surfaces` live and auth-gated (401); both tables verified in production D1; 25 active `identity_assets` await first correlation on the next scan (Phase 8l is scan-driven, so `identity_exposure` correctly starts empty). Authenticated founder-workspace UI smoke remains a final release-gate action.
+
 ## 2026.07.14 (v2026.07.14-17 — Certificates Managed Lifecycle) — deployed 2026-07-14
 
 - **Live Worker Version ID:** `62a197de-639f-4123-91d0-b64fbf81ba5b`
