@@ -161,6 +161,9 @@ jobs:
       - name: Validate frontend is not a remediation source (semantics from backend, steps keyed by canonical id)
         run: node scripts/validate-frontend-remediation-source.js
 
+      - name: Validate cross-surface remediation parity (scan detail / exec report / scorecard-PDF / posture / CE agree on identity)
+        run: node scripts/validate-remediation-surface-parity.js
+
       - name: Validate bounded scheduled-report generation (batch limit + determinism + idempotency + fairness + entitlement)
         run: node scripts/validate-bounded-scheduled-reports.js
 
