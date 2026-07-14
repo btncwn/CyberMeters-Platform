@@ -5,6 +5,53 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.14 (v2026.07.14-8 — atomic scheduled-report occurrence claim) — deployed 2026-07-14
+
+### Fix (concurrency — close the v2026.07.14-7 overlap gap)
+- **Atomic occurrence claim for scheduled report generation** (PR **#66**, merge
+  **9f25df0**). v2026.07.14-7 bounded scheduled reports but the overlap-idempotency
+  evidence was only two *sequential* invocations. Two genuinely overlapping cron
+  invocations could both observe no completed row, both `INSERT` a pending row, both
+  build the PDF, and both complete — duplicating the `workspace_reports` row, the
+  customer notification, and the monthly usage count (a COUNT of completed rows). The
+  claim was a SELECT-then-INSERT with **no atomic constraint**.
+  - **Migration 081 (additive):** partial `UNIQUE INDEX
+    idx_workspace_reports_active_occurrence (workspace_id, report_type,
+    report_period) WHERE deleted_at IS NULL AND status != 'failed' AND report_period
+    IS NOT NULL`. Excludes soft-deleted history (regeneration after delete stays
+    possible) and failed rows (retryable). D1 partial-index support proven (migration
+    076 already uses one). **Pre-checked against production D1 — zero conflicting
+    active duplicates — before applying.**
+  - **`claimReportOccurrence`** — the pending INSERT is now `INSERT OR IGNORE`, so
+    exactly ONE concurrent caller wins (`changes=1`). A loser returns the existing
+    row with `claimed:false` and performs **zero** generation side effects (no PDF
+    build, R2 write, notification, or usage row). Side effects were already
+    post-completion, so only the winner emits them.
+  - **Stale-claim recovery:** a pending row older than `STALE_REPORT_CLAIM_MINUTES`
+    (30) means the owning invocation died; it is transitioned to `failed` (guarded)
+    and the claim retried once, so a crash can never block the occurrence forever. A
+    fresh live pending is never stolen.
+  - The user-schedule caller (`processScheduledReports`) now notifies/audits only
+    when it actually generated (`claimed !== false`) — no duplicate notification. The
+    bounded engine counts a claim-loser as `jobs_deduplicated`, not
+    `reports_generated`.
+  - No report content, product naming, navigation, or scan-execution change. No
+    Queue/Durable Object; no in-memory lock.
+  - **Tests:** `validate-report-occurrence-claim.js` (23 assertions — true
+    interleaving, DB uniqueness enforcement, completed no-regeneration, failed retry,
+    stale recovery + fresh-not-stolen, R2-failure retryable, loss-path zero
+    side-effects, overlapping retry → one claim, soft-delete history coexistence,
+    caller notification guard), wired into CI. Bounded-batching / entitlement /
+    fairness / report scoping+branding / lifecycle / migrations guard / dry-run green.
+  - **Production proof (side-effect-safe):** against the live index, two
+    `INSERT OR IGNORE` claims for a synthetic throwaway occurrence yielded
+    `rows_written` 1 then **0** (the second blocked) — exactly one row — then the
+    synthetic rows were deleted. No customer report / email / usage created.
+  - **Deployed Worker Version ID:** `3fae558d-1196-4198-ab7d-54d7276d9867`.
+  - **Rollback Version ID:** `b96353c2-8893-46cd-ad7e-e257daea17e0`
+    (migration 081 is additive — rollback is worker-only; the index is harmless to
+    the prior worker, which it also protects).
+
 ## 2026.07.14 (v2026.07.14-7 — bounded scheduled report generation) — deployed 2026-07-14
 
 ### Fix (architecture audit follow-up — the single launch-adjacent finding)
