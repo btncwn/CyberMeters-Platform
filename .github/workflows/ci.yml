@@ -110,6 +110,9 @@ jobs:
       - name: Validate managed case workflow (generic engine + ASM/DMARC graphs)
         run: node scripts/validate-managed-case-workflow.js
 
+      - name: Validate universal managed-case model (8 domains + transition validator + verified rules + compat + isolation)
+        run: node scripts/validate-managed-case-model.js
+
       - name: Validate ASM remediation loop (managed cases + verification)
         run: node scripts/validate-asm-remediation-loop.js
 

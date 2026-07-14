@@ -1,4 +1,5 @@
 import { parseServerDate } from '../utils/dates'
+import CasesQueue from '../components/CasesQueue'
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import {
@@ -568,6 +569,11 @@ export default function AssetsPage() {
       ) : (
         <>
           <ManagedCasesPanel workspaceId={workspaceId} />
+
+          {/* Cross-domain managed-case queue (universal model, all services) */}
+          <div className="mt-4">
+            <CasesQueue workspaceId={workspaceId} />
+          </div>
 
           {/* ── Summary cards ─────────────────────────────────────────────── */}
           {summary && (

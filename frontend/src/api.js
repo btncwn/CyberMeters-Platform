@@ -540,6 +540,25 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  /** GET /api/workspaces/:id/cases — universal cross-domain managed cases */
+  getCases: (id, params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString()
+    return request(`/workspaces/${id}/cases${q ? `?${q}` : ''}`)
+  },
+
+  /** GET /api/workspaces/:id/cases/:caseId — single case + append-only history */
+  getCase: (id, caseId) =>
+    request(`/workspaces/${id}/cases/${encodeURIComponent(caseId)}`),
+
+  /** POST /api/workspaces/:id/cases/:caseId/transition — validated by the backend */
+  transitionCase: (id, caseId, payload) =>
+    request(`/workspaces/${id}/cases/${encodeURIComponent(caseId)}/transition`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
   /** GET /api/workspaces/:id/assets/:assetId */
   getWorkspaceAsset: (workspaceId, assetId) =>
     request(`/workspaces/${workspaceId}/assets/${assetId}`),

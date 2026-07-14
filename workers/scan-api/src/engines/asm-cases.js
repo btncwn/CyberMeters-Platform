@@ -14,6 +14,7 @@ import {
 } from "./case-workflow.js";
 import { createAuditEvent, createNotificationEvent } from "../lib/events.js";
 import { MANAGED_VERIFICATION_PROFILE, findingTypeOf, isSupportedVerification, runManagedVerificationProbe } from "./managed-verification.js";
+import { findingRemediation } from "./remediation-registry.js";
 
 export const ASM_CASE_TYPE = "asm_exposure";
 export const ASM_CASE_STATES = [
@@ -303,12 +304,19 @@ async function openCaseForFinding(env, { workspaceId, domainId, scanId, domain, 
     return { opened: false, case: existing };
   }
 
+  // Universal-case linkage: attach the canonical domain_key, the source finding
+  // type + scan, and the canonical remediation_id (null when no remediation).
+  const remediationId = findingRemediation({ id: finding.id, finding_type: "finding" })?.remediation_id ?? null;
   const row = {
     id: newManagedCaseId(),
     workspace_id: workspaceId,
     case_type: ASM_CASE_TYPE,
+    domain_key: "attack_surface",
     domain,
     finding_id: finding.id,
+    source_finding_type: finding.id,
+    source_scan_id: scanId,
+    remediation_id: remediationId,
     asset_ref: assetRefForFinding(finding, domain),
     severity: finding.severity || "medium",
     status: "open",
@@ -317,10 +325,13 @@ async function openCaseForFinding(env, { workspaceId, domainId, scanId, domain, 
   };
   await env.cybermeters_db
     .prepare(`INSERT INTO managed_cases
-      (id, workspace_id, case_type, domain, finding_id, asset_ref, severity, status,
+      (id, workspace_id, case_type, domain_key, domain, finding_id, source_finding_type,
+       source_scan_id, remediation_id, asset_ref, severity, status,
        evidence_json, recommended_actions_json, created_by, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, 'system', datetime('now'), datetime('now'))`)
-    .bind(row.id, row.workspace_id, row.case_type, row.domain, row.finding_id, row.asset_ref, row.severity, row.evidence_json, row.recommended_actions_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, 'system', datetime('now'), datetime('now'))`)
+    .bind(row.id, row.workspace_id, row.case_type, row.domain_key, row.domain, row.finding_id,
+      row.source_finding_type, row.source_scan_id, row.remediation_id, row.asset_ref, row.severity,
+      row.evidence_json, row.recommended_actions_json)
     .run();
   await writeCaseEvent(env, row, {
     actor_type: "system",
@@ -341,8 +352,12 @@ async function openCaseForFinding(env, { workspaceId, domainId, scanId, domain, 
 export async function createManagedAsmCasesForScan(scanId, domainId, domain, findings = [], recommendations = [], env) {
   try {
     const cleanDomain = normaliseDomain(domain);
+    // Soft-deleted workspaces must NOT keep auto-opening cases during the 30-day
+    // purge window — join workspaces and exclude deleted_at rows.
     const wsRows = await env.cybermeters_db
-      .prepare(`SELECT workspace_id FROM workspace_domains WHERE domain_id = ?`)
+      .prepare(`SELECT wd.workspace_id FROM workspace_domains wd
+                JOIN workspaces w ON w.id = wd.workspace_id
+                WHERE wd.domain_id = ? AND w.deleted_at IS NULL`)
       .bind(domainId)
       .all();
     const workspaces = wsRows.results || [];

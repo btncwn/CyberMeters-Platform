@@ -169,6 +169,7 @@ async function main() {
     { path: "/api/workspaces/ws1",                 marker: "Alpha-SECRET" },
     { path: "/api/workspaces/ws1/assets",          marker: "asset-SECRET" },
     { path: "/api/workspaces/ws1/managed-cases",   marker: "case-SECRET" },
+    { path: "/api/workspaces/ws1/cases",           marker: "case-SECRET" },
     { path: "/api/workspaces/ws1/brand/cases",     marker: "brand-case-SECRET" },
     { path: "/api/workspaces/ws1/assets/summary",  marker: "asset-SECRET" },
     { path: "/api/workspaces/ws1/domains",         marker: "secret1.example" },

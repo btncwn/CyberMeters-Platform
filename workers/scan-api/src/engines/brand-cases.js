@@ -16,6 +16,7 @@ import {
 import { dnsQuery } from "./dns.js";
 import { safeFetch } from "../lib/http.js";
 import { createAuditEvent, createNotificationEvent } from "../lib/events.js";
+import { findingRemediation } from "./remediation-registry.js";
 
 export const BRAND_CASE_TYPE = "brand_abuse";
 export const BRAND_CASE_STATES = [
@@ -510,14 +511,18 @@ export async function createBrandCaseForCandidate(env, workspaceId, candidateRow
 
   const now = new Date().toISOString();
   const id = newManagedCaseId();
+  // Universal-case linkage: brand cases carry the canonical brand domain_key and
+  // resolve to the brand lookalike-review remediation (prepare-and-track).
+  const brandRemediationId = findingRemediation({ id: "brand_lookalike_detected", finding_type: "finding" })?.remediation_id ?? null;
   await env.cybermeters_db
     .prepare(`INSERT INTO managed_cases
-      (id, workspace_id, case_type, domain, finding_id, asset_ref, severity, status,
+      (id, workspace_id, case_type, domain_key, domain, finding_id, source_finding_type,
+       remediation_id, asset_ref, severity, status,
        evidence_json, recommended_actions_json, created_by, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'detected', ?, ?, ?, datetime('now'), datetime('now'))`)
+      VALUES (?, ?, ?, 'brand_protection', ?, ?, 'brand_lookalike_detected', ?, ?, ?, 'detected', ?, ?, ?, datetime('now'), datetime('now'))`)
     .bind(
       id, workspaceId, BRAND_CASE_TYPE, normalizeDomain(candidateRow.candidate_domain),
-      key, gate.candidate.protected_domain || profile?.primary_domain || null,
+      key, brandRemediationId, gate.candidate.protected_domain || profile?.primary_domain || null,
       gate.candidate.risk_level || "high",
       null, safeJson([{ title: "Review brand abuse", action: "Confirm whether this candidate is abusive before preparing takedown material." }], "[]"),
       actor_id || "system",
