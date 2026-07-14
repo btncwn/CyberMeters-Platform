@@ -143,6 +143,12 @@ jobs:
       - name: Validate security-invariant-stabilization contracts (oracle + finalize/reconcile + dmarc + dead-code)
         run: node scripts/validate-stabilization-contracts.js
 
+      - name: Validate eight-domain Cyber MOT coverage-state resolver (honest states, never healthy-on-missing)
+        run: node scripts/validate-eight-domain-coverage-state.js
+
+      - name: Validate eight-domain coverage-state wiring (four surfaces + PDF renders all eight)
+        run: node scripts/validate-eight-domain-wiring.js
+
       - name: Validate bounded scheduled-report generation (batch limit + determinism + idempotency + fairness + entitlement)
         run: node scripts/validate-bounded-scheduled-reports.js
 

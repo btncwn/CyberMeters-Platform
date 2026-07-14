@@ -18,6 +18,7 @@ import { buildDmarcSenderIntelligenceEvidence } from "../engines/sender-provenan
 import { createAuditEvent } from "../lib/events.js";
 import { DOMAIN_VERIFICATION_REQUIRED, isWorkspaceDomainVerified } from "../lib/domain-verification.js";
 import { resolveAssessmentPresentation } from "../engines/assessment-presentation.js";
+import { resolveCyberMotDomainStates } from "../engines/cyber-mot-domains.js";
 import { createId, isValidDomain, parseBoundedInteger } from "../lib/util.js";
 
 export async function scanRoutes(rctx) {
@@ -456,6 +457,12 @@ export async function scanRoutes(rctx) {
           : null;
 
         const execReport = buildExecutiveReportV2({ scan, rawReport, workspace });
+        // Additive: canonical eight-domain Cyber MOT coverage states so the Executive
+        // Report UI can show all eight domains with one honest state each (no domain
+        // silently disappears; Identity/Shadow-IT stay in their honest scopes).
+        try {
+          execReport.cyber_mot_domains = resolveCyberMotDomainStates(rawReport, { scanId: scan.id });
+        } catch { execReport.cyber_mot_domains = resolveCyberMotDomainStates(null); }
         // Additive: attach DMARC sender-intelligence evidence to the Business Email
         // engine when imported report data exists. Never alters existing structure.
         try {
@@ -577,6 +584,18 @@ export async function scanRoutes(rctx) {
           : null,
       };
 
+      // Canonical eight-domain Cyber MOT coverage states — computed from THIS
+      // report so every domain is always present with one honest state and missing
+      // evidence never renders as healthy. Compute-on-read; no new storage.
+      const cyberMotDomains = resolveCyberMotDomainStates({
+        scan_id:      scan.id,
+        completed_at: raw.completed_at,
+        created_at:   raw.created_at,
+        scan_quality: raw.scan_quality ?? buildScanQuality(normalisedModules),
+        modules:      normalisedModules,
+        findings:     reportFindings,
+      }, { scanId: scan.id });
+
       return json({
         scan_id:             scan.id,
         domain:              scan.domain,
@@ -584,6 +603,7 @@ export async function scanRoutes(rctx) {
         cyber_metrics_score: assessment.display_score,
         risk_level:          canonicalRiskLevel,
         assessment,          // canonical decision: provisional/authoritative/comparable/quality/message
+        cyber_mot_domains:   cyberMotDomains,
         findings:            reportFindings,
         recommendations:     Array.isArray(raw.recommendations) ? raw.recommendations : [],
         scan_quality:         raw.scan_quality ?? buildScanQuality(normalisedModules),

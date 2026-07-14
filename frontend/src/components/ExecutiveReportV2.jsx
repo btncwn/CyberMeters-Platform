@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import CyberMotDomains from './CyberMotDomains'
 import {
   Shield, Globe, Mail, Fingerprint, Eye, TrendingUp, TrendingDown,
   Minus, AlertCircle, CheckCircle, ChevronDown, Target, Clock,
@@ -344,6 +345,9 @@ export default function ExecutiveReportV2({ report }) {
           </div>
         </section>
       )}
+
+      {/* Eight-domain Cyber MOT coverage — all eight domains, server-resolved states */}
+      <CyberMotDomains domains={report.cyber_mot_domains} />
 
       {/* Executive Summary hero */}
       <section className="card-md overflow-hidden">

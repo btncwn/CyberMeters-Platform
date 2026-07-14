@@ -12,6 +12,7 @@ import OnboardingProgress  from '../components/OnboardingProgress'
 import FirstResultsGuide   from '../components/FirstResultsGuide'
 import TeamOnboardingCard  from '../components/TeamOnboardingCard'
 import RecentChangesCard   from '../components/RecentChangesCard'
+import CyberMotDomains      from '../components/CyberMotDomains'
 import { SERVICE_COLORS }   from '../theme/serviceColors'
 
 /* ─── Helpers ──────────────────────────────────────────────────────────── */
@@ -59,13 +60,13 @@ function deriveInsights(scans, report) {
       label:  'DNS',
       status: mods.dns
         ? (mods.dns.resolves ? 'good' : 'danger')
-        : (completed.length > 0 ? 'good' : 'unknown'),
+        : 'unknown',
     },
     {
       label:  'SSL / HTTPS',
       status: mods.ssl
         ? (mods.ssl.https_available ? (mods.ssl.http_redirects_to_https ? 'good' : 'warning') : 'danger')
-        : (completed.length > 0 ? 'good' : 'unknown'),
+        : 'unknown',
     },
     {
       label:  'Email Security',
@@ -73,13 +74,13 @@ function deriveInsights(scans, report) {
         ? (!mods.email_security.spf?.present || !mods.email_security.dmarc?.present
             ? 'warning'
             : mods.email_security.dmarc?.policy === 'none' ? 'warning' : 'good')
-        : (failed > 0 ? 'warning' : completed.length > 0 ? 'good' : 'unknown'),
+        : (failed > 0 ? 'warning' : 'unknown'),
     },
     {
       label:  'Security Headers',
       status: mods.headers
         ? (mods.headers.missing?.length > 3 ? 'danger' : mods.headers.missing?.length > 1 ? 'warning' : 'good')
-        : (completed.length > 0 ? 'good' : 'unknown'),
+        : 'unknown',
     },
     {
       label:  'IPv6',
@@ -702,6 +703,12 @@ export default function Dashboard() {
 
         return (
           <div className="space-y-6">
+            {/* Eight-domain Cyber MOT coverage — all eight always shown with one honest
+                server-resolved state; missing evidence is never shown as healthy. */}
+            {report?.cyber_mot_domains && (
+              <CyberMotDomains domains={report.cyber_mot_domains} subtitle="Your full Cyber MOT coverage from the latest authoritative scan." />
+            )}
+
             {/* Four service KPI cards */}
             <div>
               <h2 className="section-title mb-3">Your services</h2>
