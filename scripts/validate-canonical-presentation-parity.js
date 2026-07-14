@@ -89,9 +89,13 @@ const files = walk(S);
     ok("WorkspaceDetailPage renders posture, not an average-derived rating",
       /posture_established/.test(wdp) && !/avgRating/.test(wdp));
   }
-  // workspace-insights authoritative aggregate is complete-only.
-  ok("workspace-insights latest-posture aggregate is complete-only",
-    (read("routes/workspace-insights.js").match(/status = 'completed' AND scan_quality = 'complete'/g) || []).length >= 2);
+  // workspace-insights current-findings aggregate delegates to the ONE canonical
+  // latest-complete-scan scope (no bespoke MAX(created_at) tie-prone join).
+  {
+    const wi = read("routes/workspace-insights.js");
+    ok("workspace-insights delegates to the canonical LATEST_COMPLETED_SCAN_SCOPE",
+      /LATEST_COMPLETED_SCAN_SCOPE/.test(wi) && !/MAX\(created_at\) AS mx/.test(wi));
+  }
   // portfolio per-customer rating uses latest COMPLETE scan.
   ok("portfolio per-customer rating uses latest COMPLETE scan",
     /scan_quality='complete'/.test(read("engines/portfolio-customers.js")));

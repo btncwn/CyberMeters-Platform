@@ -131,6 +131,18 @@ jobs:
       - name: Validate canonical presentation parity (all score/rating consumers delegate to one decision)
         run: node scripts/validate-canonical-presentation-parity.js
 
+      - name: Validate scheduled-scan eligibility parity (verification + entitlement + quota + rate-limit at run time)
+        run: node scripts/validate-scheduled-eligibility.js
+
+      - name: Validate Email Protection entitlement (effective plan, not stale users.plan)
+        run: node scripts/validate-email-entitlement.js
+
+      - name: Validate current-findings de-duplication (one canonical latest-complete-scan scope)
+        run: node scripts/validate-current-findings-dedup.js
+
+      - name: Validate security-invariant-stabilization contracts (oracle + finalize/reconcile + dmarc + dead-code)
+        run: node scripts/validate-stabilization-contracts.js
+
       - name: Validate KEV catalogue R2 cache (hit/miss/stale/unavailable + honest degrade)
         run: node scripts/validate-kev-cache.js
 

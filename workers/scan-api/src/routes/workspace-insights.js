@@ -8,6 +8,7 @@ import { runDnsModule } from "../engines/dns-scan.js";
 import { runEmailModule } from "../engines/email-scan.js";
 import { getEffectivePlan } from "../engines/entitlements.js";
 import { runHeadersModule } from "../engines/headers-scan.js";
+import { LATEST_COMPLETED_SCAN_SCOPE } from "../engines/report-queries.js";
 import { getMonthStart, getPlanLimits, getWorkspaceBillingUserId } from "../engines/plan-usage.js";
 import { ENTERPRISE_BENCHMARK, ENTERPRISE_DOMAINS } from "../engines/scoring-config.js";
 import { computeScore, isEmailApplicable } from "../engines/scoring.js";
@@ -291,33 +292,24 @@ export async function workspaceInsightRoutes(rctx) {
             .prepare("SELECT COUNT(*) AS cnt FROM workspace_vendors WHERE workspace_id = ? AND status = 'active'")
             .bind(workspaceId)
             .first(),
+          // Average current score — canonical latest-COMPLETE-scan-per-domain scope
+          // (deterministic id tie-break), so a tied timestamp cannot double-count a
+          // domain and a partial scan never contributes. Same constant the
+          // dashboard/report/PDF use.
           env.cybermeters_db
-            .prepare(`
-              WITH lpd AS (
-                SELECT domain_id, MAX(created_at) AS mx
-                FROM scans
-                WHERE workspace_id = ? AND status = 'completed' AND scan_quality = 'complete'
-                GROUP BY domain_id
-              )
-              SELECT AVG(s.score) AS avg_score
-              FROM scans s JOIN lpd ON lpd.domain_id = s.domain_id AND lpd.mx = s.created_at
-            `)
+            .prepare(`SELECT AVG(s.score) AS avg_score FROM scans s WHERE ${LATEST_COMPLETED_SCAN_SCOPE}`)
             .bind(workspaceId)
             .first(),
+          // Current critical/high finding counts — same canonical scope, so the same
+          // finding across several scans is counted once.
           env.cybermeters_db
             .prepare(`
-              WITH lpd AS (
-                SELECT domain_id, MAX(created_at) AS mx
-                FROM scans
-                WHERE workspace_id = ? AND status = 'completed' AND scan_quality = 'complete'
-                GROUP BY domain_id
-              )
               SELECT
                 SUM(CASE WHEN f.severity = 'critical' THEN 1 ELSE 0 END) AS critical_findings,
                 SUM(CASE WHEN f.severity = 'high'     THEN 1 ELSE 0 END) AS high_findings
               FROM findings f
               JOIN scans s ON s.id = f.scan_id
-              JOIN lpd ON lpd.domain_id = s.domain_id AND lpd.mx = s.created_at
+              WHERE ${LATEST_COMPLETED_SCAN_SCOPE}
             `)
             .bind(workspaceId)
             .first(),

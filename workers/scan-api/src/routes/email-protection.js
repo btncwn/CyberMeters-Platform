@@ -11,6 +11,7 @@ import { assessImpactRollback, comparePolicyImpact, forecastPolicyImpact } from 
 import { applyChangeTransition, buildChangeReviewQueue, changeRequestToApi, newChangeRequestId } from "../engines/dmarc-change-workflow.js";
 import { dnsQuery } from "../engines/dns.js";
 import { normalizeDnsTxtValue, parseDmarcRecord } from "../engines/email-analysis.js";
+import { getEffectivePlan } from "../engines/entitlements.js";
 import { DMARC_RAMP_LADDER, HOSTED_DNS_ENTRY_SELECT, HOSTED_DNS_REMOVAL_GRACE_DAYS, REMEDIATION_REGISTRY, analyzeSpfChain, applyHostedDmarcChange, buildDmarcDnsRecommendedValue, buildMtaStsPolicy, buildMtaStsTxtValue, buildTlsRptValue, cfCreateHostedTxt, dmarcRampStepIndex, evaluateRampReadiness, getHostedDmarcPassRate, getRemediation, hostedCustomerRecordName, hostedDmarcSubdomain, hostedDnsRecordToApi, mxHostsFromDnsResponse, newHostedDnsRecordId, nextHostedDnsStatus, parseServerMsHosted, planAllowsHostedPolicyManagement, remediationToApi, resolveRampThresholds, rollbackHostedDmarc, verifyDmarcDnsSetup, verifyHostedDmarcRecord, verifyMtaStsHttpsPolicy } from "../engines/hosted-dmarc.js";
 import { auditDmarcRouteResult, buildDmarcEnforcementReadiness, configureDmarcEndpointRoute, emailSenderToApi, generateInboundLocalpart, generateIngestToken, hashIngestToken, ingestEndpointToApi, loadEmailSenderSources, persistDmarcRouteResult, resolveWorkspaceDomain, safelyEnsureCloudflareEmailRoute, safelyRevokeCloudflareEmailRoute, summarizeEmailSenders } from "../engines/rua-routing.js";
 import { buildDmarcBusinessRisk, buildDmarcReportRemediationActions, loadBecExposureEvidence } from "../engines/sender-provenance.js";
@@ -284,12 +285,19 @@ export async function emailProtectionRoutes(rctx) {
                     WHERE workspace_id = ? AND domain = ? AND record_kind = 'dmarc' LIMIT 1`)
           .bind(workspaceId, domain).first();
 
-        // Workspace plan (owner's plan) gates policy management; create,
-        // monitoring, verification and rollback stay free.
-        const planRow = await env.cybermeters_db
-          .prepare(`SELECT u.plan FROM workspaces w JOIN users u ON u.id = w.owner_user_id WHERE w.id = ?`)
+        // Workspace plan (owner's CURRENT effective plan) gates policy management;
+        // create, monitoring, verification and rollback stay free. Resolve via the
+        // canonical subscriptions-based resolver — never the stale, never-synced
+        // users.plan column (which is permanently 'free' for real accounts). Auth
+        // (requireWorkspaceRole) already ran above, so this discloses no cross-tenant
+        // entitlement. A cancelled/downgraded owner follows the effective plan.
+        const ownerRow = await env.cybermeters_db
+          .prepare(`SELECT owner_user_id FROM workspaces WHERE id = ?`)
           .bind(workspaceId).first();
-        const policyAllowed = planAllowsHostedPolicyManagement(planRow?.plan);
+        const ownerPlan = ownerRow?.owner_user_id
+          ? await getEffectivePlan(ownerRow.owner_user_id, env)
+          : "free";
+        const policyAllowed = planAllowsHostedPolicyManagement(ownerPlan);
 
         if (request.method === "GET" && !sub) {
           if (!existing) return json({ record: null, policy_management_available: policyAllowed });

@@ -65,14 +65,27 @@ export async function globalBillingRoutes(rctx) {
             message: "Upload credentials are invalid or have been revoked." }, 401);
         }
 
-        // Abuse control: per-endpoint and per-workspace hourly caps.
+        // Abuse control: per-endpoint and per-workspace hourly caps. FAIL CLOSED —
+        // DMARC ingest is an externally reachable write path (XML parse + D1/R2
+        // persistence); if the rate-limit store is unavailable the cap must not
+        // silently evaporate under the very D1 stress an abuse flood would create.
+        // Returns 503 (retryable) BEFORE any parse/persistence, so no partial D1/R2
+        // state is written; dedup is unaffected (it runs later inside ingest).
         const rl = await consumeApiRateLimit(env,
           [{ scope: "dmarc_ingest_endpoint", scope_id: endpoint.id },
            { scope: "dmarc_ingest_ws", scope_id: endpoint.workspace_id }],
-          "dmarc_ingest", 120, 3600);
+          "dmarc_ingest", 120, 3600, { failClosed: true });
         if (rl) {
-          return json({ imported: false, error: "rate_limited",
-            message: "Too many uploads. Please retry later." }, rl.status);
+          const unavailable = rl.status === 503;
+          console.warn("[dmarc-ingest] rate-limit gate", JSON.stringify({
+            ingest_endpoint_id: endpoint.id, workspace_id: endpoint.workspace_id,
+            reason: unavailable ? "rate_limit_unavailable" : "rate_limited",
+          }));
+          return json({ imported: false,
+            error:   unavailable ? "rate_limit_unavailable" : "rate_limited",
+            message: unavailable
+              ? "Report ingestion is temporarily unavailable. Please retry shortly."
+              : "Too many uploads. Please retry later." }, rl.status);
         }
 
         // Read body: raw XML by default, or JSON { xml } when so labelled.

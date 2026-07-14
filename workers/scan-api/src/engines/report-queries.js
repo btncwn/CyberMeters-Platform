@@ -9,17 +9,27 @@
 // and it resurfaces issues already resolved by a newer scan. Both inflate the counts
 // and read as raw database output: a customer-trust defect (permanent #1).
 //
-// This scope mirrors the proven subquery in collectPdfData() (pdf.js), so both
-// executive-PDF paths agree. Every consumer binds the workspace id TWICE (the outer
-// workspace filter, then the scope's inner `sx.workspace_id`).
-
-const LATEST_COMPLETED_SCAN_SCOPE = `s.id IN (
+// This is the ONE canonical "current authoritative findings per domain" scope,
+// reused by the executive report/PDF, the Executive Dashboard and Workspace
+// Insights, so every customer-facing current-finding count agrees.
+//
+// Two properties matter for trust:
+//   • COMPLETE-quality only — a partial/degraded/unknown scan is not authoritative,
+//     so it must never fabricate or replace current findings (partial-scan honesty).
+//   • DETERMINISTIC — exactly one scan per (workspace, domain), chosen by
+//     ORDER BY created_at DESC, id DESC. A plain `created_at = MAX(...)` join
+//     double-counts when two scans share a timestamp; the id tie-break prevents it.
+// Every consumer binds the workspace id TWICE (the outer workspace filter, then the
+// scope's inner `sx.workspace_id`).
+export const LATEST_COMPLETED_SCAN_SCOPE = `s.id IN (
     SELECT sx.id FROM scans sx
-    WHERE sx.workspace_id = ? AND sx.status = 'completed'
-      AND sx.created_at = (
-        SELECT MAX(sy.created_at) FROM scans sy
+    WHERE sx.workspace_id = ? AND sx.status = 'completed' AND sx.scan_quality = 'complete'
+      AND sx.id = (
+        SELECT sy.id FROM scans sy
         WHERE sy.workspace_id = sx.workspace_id AND sy.domain = sx.domain
-          AND sy.status = 'completed'
+          AND sy.status = 'completed' AND sy.scan_quality = 'complete'
+        ORDER BY sy.created_at DESC, sy.id DESC
+        LIMIT 1
       )
   )`;
 
