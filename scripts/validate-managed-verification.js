@@ -227,5 +227,127 @@ async function scenario(status, fetchOpts, { workspaceId = "ws_1", caseId = "cas
   eq("concurrent reappearance: exactly one reopen notification", reopenNotifs, 1);
 }
 
+// ── 8. Dispatch coverage is an explicit, honest allowlist ────────────────────
+{
+  const { isSupportedVerification, supportedVerificationTypes, runManagedVerificationProbe } =
+    await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "managed-verification.js")).href);
+
+  const supported = supportedVerificationTypes();
+  for (const id of ["asset_exposure_admin_interface", "asset_exposure_sensitive_tool", "asset_exposure_dev_env",
+                    "admin_surface_critical", "admin_surface_high", "admin_surface_medium"]) {
+    ok(`dispatch: ${id} is verifiable`, supported.includes(id) && isSupportedVerification({ id }));
+  }
+  // Types that must NOT claim verification support. Each fails closed.
+  for (const id of ["cloud_storage_public_listing", "cloud_storage_takeover_risk", "cloud_storage_exposure_observed",
+                    "asset_exposure_interface_observed", "asset_provider_infrastructure_observed",
+                    "subdomain_takeover", "dse_missing_caa", "dse_cookie_no_secure"]) {
+    ok(`dispatch: ${id} is NOT claimed as verifiable`, !supported.includes(id) && !isSupportedVerification({ id }));
+    const probe = await runManagedVerificationProbe({ id }, "admin.example.com");
+    ok(`dispatch: ${id} fails closed (deferred, never fixed)`,
+       probe.decision === "deferred" && probe.completeness === "unsupported_finding_type");
+  }
+  // A client-supplied value can never select a verifier.
+  const injected = await runManagedVerificationProbe({ id: "constructor" }, "admin.example.com");
+  eq("dispatch: prototype key cannot select a verifier", injected.decision, "deferred");
+}
+
+// ── 9. Multi-host findings: "fixed" requires EVERY affected host observed clear ─
+{
+  const { runManagedVerificationProbe, MAX_VERIFICATION_HOSTS } =
+    await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "managed-verification.js")).href);
+
+  // fetch resolving any *.example.com, with a per-host page title.
+  const installMulti = (titles, { budgetHosts = new Set() } = {}) => {
+    const calls = [];
+    globalThis.fetch = async (url) => {
+      const s = String(url); const cat = classifyRequest(s);
+      calls.push({ url: s, cat });
+      if (cat === "doh") {
+        const name = new URL(s).searchParams.get("name");
+        const type = new URL(s).searchParams.get("type");
+        return new Response(JSON.stringify({ Answer: type === "A" && /\.example\.com$/.test(name || "") ? [{ data: "93.184.216.34" }] : [] }), { status: 200 });
+      }
+      if (cat === "exposure") {
+        const host = new URL(s).hostname;
+        if (budgetHosts.has(host)) throw new Error("Too many subrequests by single Worker invocation.");
+        return new Response(`<title>${titles[host] ?? "Welcome"}</title>`, { status: 200, headers: { "content-type": "text/html" } });
+      }
+      return new Response("{}", { status: 200 });
+    };
+    return calls;
+  };
+  const finding = { id: "asset_exposure_admin_interface" };
+  const hosts = ["admin.example.com", "portal.example.com"];
+
+  installMulti({ "admin.example.com": "Welcome", "portal.example.com": "Welcome" });
+  const allClear = await runManagedVerificationProbe(finding, hosts);
+  eq("multi-host: every host clear → fixed", allClear.decision, "fixed");
+  eq("multi-host: fixed reports both hosts checked", allClear.evidence.hosts_checked, 2);
+
+  installMulti({ "admin.example.com": "Welcome", "portal.example.com": "Admin Login" });
+  const oneLive = await runManagedVerificationProbe(finding, hosts);
+  eq("multi-host: ANY host still exposed → still_present", oneLive.decision, "still_present");
+
+  // One host inconclusive and none present: absence on a subset is NOT remediation.
+  installMulti({ "admin.example.com": "Welcome", "portal.example.com": "Welcome" }, { budgetHosts: new Set(["portal.example.com"]) });
+  const partial = await runManagedVerificationProbe(finding, hosts);
+  eq("multi-host: inconclusive host blocks 'fixed' → deferred", partial.decision, "deferred");
+
+  // Over the bound → defer rather than conclude from a subset. No probing at all.
+  const many = Array.from({ length: MAX_VERIFICATION_HOSTS + 1 }, (_, i) => `h${i}.example.com`);
+  const capCalls = installMulti({});
+  const capped = await runManagedVerificationProbe(finding, many);
+  eq("multi-host: over the host cap → deferred", capped.decision, "deferred");
+  eq("multi-host: over the host cap → completeness", capped.completeness, "too_many_affected_hosts");
+  eq("multi-host: over the host cap → no probing at all", capCalls.length, 0);
+  globalThis.fetch = realFetch;
+}
+
+// ── 10. Stored affected_hosts are re-validated: out-of-scope hosts never probed ─
+{
+  const cases = new Map([["case_1", {
+    ...mkCase("verification_requested"),
+    // A stored finding carrying an out-of-scope host (and a bare non-hostname).
+    evidence_json: JSON.stringify({ finding: {
+      id: "asset_exposure_admin_interface", module: "asset_exposure", title: "Admin interface",
+      affected_hosts: ["admin.example.com", "attacker.evil.com", "169.254.169.254", "not a hostname"],
+    } }),
+  }]]);
+  const links = new Set(["ws_1|example.com"]);
+  const env = { cybermeters_db: makeDb({ cases, links }), cybermeters_reports: r2 };
+  const calls = installFetch({ getStatus: 200, getTitle: "Welcome" });
+  const res = await verifyManagedCaseById(env, { workspaceId: "ws_1", caseId: "case_1" });
+  globalThis.fetch = realFetch;
+  eq("stored hosts: in-scope host still verifies", res.decision, "fixed");
+  ok("stored hosts: out-of-scope/metadata hosts are never probed",
+     calls.length > 0 && !calls.some((c) => /evil|attacker|169\.254|127\.0\.0\.1/.test(c.url)));
+  ok("stored hosts: only the in-scope affected host is probed",
+     calls.every((c) => c.url.includes("admin.example.com")));
+}
+
+// ── 11. Legacy prose asset_ref defers instead of probing the wrong host ────────
+{
+  // Cases created before affected_hosts existed stored the finding DESCRIPTION in
+  // asset_ref. That must never be coerced into a probe target.
+  const cases = new Map([["case_1", {
+    ...mkCase("verification_requested"),
+    asset_ref: "1 administrative or login interface is publicly accessible: admin.example.com. Restrict access.",
+    evidence_json: JSON.stringify({ finding: { id: "asset_exposure_admin_interface", module: "asset_exposure", title: "Admin interface" } }),
+  }]]);
+  const links = new Set(["ws_1|example.com"]);
+  const db = makeDb({ cases, links });
+  const env = { cybermeters_db: db, cybermeters_reports: r2 };
+  const calls = installFetch({ getStatus: 200, getTitle: "Welcome" });
+  const res = await verifyManagedCaseById(env, { workspaceId: "ws_1", caseId: "case_1" });
+  globalThis.fetch = realFetch;
+  eq("legacy prose asset_ref → host_scope_mismatch", res.code, "host_scope_mismatch");
+  ok("legacy prose asset_ref → nothing probed", calls.length === 0);
+  ok("legacy prose asset_ref → case NOT resolved", cases.get("case_1").status !== "resolved");
+  // _events rows are raw bind arrays; the action + reason travel in them.
+  ok("legacy prose asset_ref → deferral is audited",
+     db._events.some((binds) => binds.includes("verification_deferred")
+       && binds.some((b) => typeof b === "string" && b.includes("no_affected_host_in_scope"))));
+}
+
 console.log(`\nmanaged-verification: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

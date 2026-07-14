@@ -8,6 +8,7 @@ import {
   newManagedCaseId,
 } from "./case-workflow.js";
 import { createAuditEvent, createNotificationEvent } from "../lib/events.js";
+import { normalizeDiscoveredHostname } from "./hostnames.js";
 import { MANAGED_VERIFICATION_PROFILE, findingTypeOf, isSupportedVerification, runManagedVerificationProbe } from "./managed-verification.js";
 import { findingRemediation } from "./remediation-registry.js";
 import { ASM_CASE_TYPE, ASM_CASE_MACHINE, ASM_CASE_STATES, SYSTEM_ONLY_CASE_STATES } from "./asm-case-machine.js";
@@ -38,10 +39,51 @@ function normaliseDomain(domain) {
   return String(domain || "").trim().toLowerCase();
 }
 
+// ── Affected hosts (the verification target) ─────────────────────────────────
+// The hosts a finding actually concerns, as machine-readable hostnames scoped to the
+// case's own domain. `affected_hosts` is emitted structurally by the ASM detectors from
+// the real asset records — it is never parsed back out of customer-facing prose.
+//
+// Every candidate goes through normalizeDiscoveredHostname, which both validates the
+// hostname shape and confirms it is the domain or a subdomain of it. Anything else
+// (a sentence, a URL, a third-party bucket endpoint) is dropped rather than coerced.
+//
+// History: asset_ref previously fell back to the first evidence entry's `value`, which
+// for every ASM finding is the finding's DESCRIPTION — so asset_ref held a prose sentence
+// instead of a host, and verification could never pass its host-scope guard. The fallback
+// is deliberately gone: a finding with no resolvable host now yields the domain itself,
+// never free text.
+function affectedHostsForFinding(finding = {}, domain) {
+  const root = normaliseDomain(domain);
+  const candidates = Array.isArray(finding.affected_hosts) ? finding.affected_hosts : [];
+  const hosts = [];
+  for (const candidate of candidates) {
+    const host = normalizeDiscoveredHostname(candidate, root);
+    if (host && !hosts.includes(host)) hosts.push(host);
+  }
+  if (hosts.length === 0) {
+    const single = normalizeDiscoveredHostname(finding.hostname || finding.asset_ref, root);
+    if (single) hosts.push(single);
+  }
+  return hosts;
+}
+
 function assetRefForFinding(finding = {}, domain) {
-  const evidence = Array.isArray(finding.evidence) ? finding.evidence : [];
-  const fromEvidence = evidence.find((e) => e?.hostname || e?.host || e?.asset || e?.value);
-  return String(finding.hostname || finding.asset_ref || fromEvidence?.hostname || fromEvidence?.host || fromEvidence?.asset || fromEvidence?.value || domain || "").slice(0, 255);
+  const hosts = affectedHostsForFinding(finding, domain);
+  return String(hosts[0] || normaliseDomain(domain) || "").slice(0, 255);
+}
+
+// Verification target for a stored case: the structured hosts captured on the finding at
+// creation, each re-validated against the case's domain at read time (a stored value is
+// never trusted as in-scope on the strength of having been stored). Cases created before
+// affected_hosts existed carry no structured hosts; asset_ref is retried, and if it is
+// legacy prose it fails validation and the case defers rather than probing the wrong host.
+function verificationHostsForCase(caseRow, finding) {
+  const domain = normaliseDomain(caseRow.domain);
+  const hosts = affectedHostsForFinding(finding, domain);
+  if (hosts.length > 0) return hosts;
+  const legacy = normalizeDiscoveredHostname(caseRow.asset_ref, domain);
+  return legacy ? [legacy] : [];
 }
 
 function isAsmManagedFinding(finding = {}) {
@@ -360,12 +402,21 @@ export async function createManagedAsmCasesForScan(scanId, domainId, domain, fin
 // was skipped, or the whole scan came back "partial" (a core module broke),
 // absence of the finding is NOT evidence the exposure is gone — it may just not
 // have been looked for. Such cases are deferred (left awaiting verification,
-// with an audit event) and retried on the next complete scan. When no module
-// info is supplied (legacy callers), gating is disabled and behaviour is
-// unchanged. Only explicitly-signalled incompleteness gates — an untracked
-// module is trusted exactly as before, so the happy path never regresses.
+// with an audit event) and retried on the next complete scan.
+//
+// FAIL-CLOSED. Absence-of-finding is only evidence of remediation when we can show
+// the module that would have detected the exposure actually ran and completed. So
+// the gate now refuses to verify whenever it cannot demonstrate that:
+//   • no modules/scan-quality evidence at all → nothing verifies. Previously this
+//     returned null and callers (`if (gate && !gate.canVerify(...))`) skipped gating
+//     entirely, which is precisely "a completed scan verified the fix" — the thing
+//     the platform's verification contract forbids.
+//   • a case whose finding records no module → nothing to prove ran → no verification.
+//   • an untracked module (present in neither `modules` nor the scan-quality report)
+//     was previously trusted by omission; absence of telemetry is not evidence.
+// The gate always returns an object now, so a caller can never silently opt out.
 export function moduleCompletionGate(modules, scanQuality) {
-  if (!modules && !scanQuality) return null;
+  const haveEvidence = Boolean(modules || scanQuality);
   const incomplete = new Set(scanQuality?.modules_skipped || []);
   for (const [name, value] of Object.entries(modules || {})) {
     // A module that errored OR self-reported incomplete evidence (e.g. exposure
@@ -376,9 +427,13 @@ export function moduleCompletionGate(modules, scanQuality) {
   return {
     incomplete,
     scanPartial,
+    haveEvidence,
     canVerify(relevantModule) {
-      if (relevantModule && incomplete.has(relevantModule)) return false;
-      return !scanPartial;
+      if (!haveEvidence) return false;              // no completeness evidence → never verify
+      if (scanPartial) return false;
+      if (!relevantModule) return false;            // unknown detecting module → cannot prove it ran
+      if (incomplete.has(relevantModule)) return false;
+      return Object.prototype.hasOwnProperty.call(modules || {}, relevantModule); // must have run
     },
   };
 }
@@ -404,15 +459,25 @@ export async function verifyManagedAsmCasesForScan(scanId, domainId, domain, fin
       .all();
     let resolved = 0, failed = 0, deferred = 0;
     for (const row of (rows.results || [])) {
-      // Completeness guard: never resolve/fail off a scan that did not actually
-      // re-check this exposure's module. Defer and retry on the next scan.
-      if (gate && !gate.canVerify(relevantModuleForCase(row))) {
+      // Completeness guard (fail-closed): never resolve/fail off a scan that cannot be
+      // shown to have actually re-checked this exposure's module. Defer and retry on
+      // the next complete scan.
+      const relevantModule = relevantModuleForCase(row);
+      if (!gate.canVerify(relevantModule)) {
         await writeCaseEvent(env, row, {
           actor_type: "system",
           from_status: row.status,
           to_status: row.status,
           action: "verification_deferred",
-          detail: { scan_id: scanId, module: relevantModuleForCase(row), reason: "scan_incomplete" },
+          detail: {
+            scan_id: scanId,
+            module: relevantModule,
+            reason: !gate.haveEvidence ? "no_completeness_evidence"
+              : gate.scanPartial ? "scan_partial"
+              : !relevantModule ? "unknown_detecting_module"
+              : gate.incomplete.has(relevantModule) ? "module_incomplete"
+              : "module_did_not_run",
+          },
         });
         deferred++;
         continue;
@@ -528,10 +593,19 @@ export async function verifyManagedCaseById(env, { workspaceId, caseId, actorId 
     return { ok: false, code: "unsupported_finding_type" };
   }
 
-  // 4. Affected host derived from the STORED case; must belong to the case's domain.
-  const host = String(caseRow.asset_ref || "").trim().toLowerCase();
+  // 4. Affected host(s) derived from the STORED case; each must belong to the case's
+  //    domain. A finding may cover several hosts, so this is a validated list — the
+  //    probe concludes "fixed" only when EVERY one of them is observed clear.
   const domain = normaliseDomain(caseRow.domain);
-  if (!host || !(host === domain || host.endsWith(`.${domain}`))) return { ok: false, code: "host_scope_mismatch" };
+  const hosts = verificationHostsForCase(caseRow, finding);
+  if (hosts.length === 0) {
+    await writeCaseEvent(env, caseRow, {
+      actor_type: "system", from_status: caseRow.status, to_status: caseRow.status,
+      action: "verification_deferred",
+      detail: { profile: MANAGED_VERIFICATION_PROFILE, reason: "no_affected_host_in_scope", finding_type: findingTypeOf(finding) },
+    });
+    return { ok: false, code: "host_scope_mismatch" };
+  }
 
   // 5. Domain still linked to this workspace (removed/archived → ineligible).
   const link = await env.cybermeters_db
@@ -557,11 +631,11 @@ export async function verifyManagedCaseById(env, { workspaceId, caseId, actorId 
     return { ok: true, code: "in_progress", idempotent: true };
   }
 
-  // 8. Lean probe of ONLY the affected host, metered.
+  // 8. Lean probe of ONLY the affected host(s), metered.
   let outbound = 0;
   const startedAt = new Date().toISOString();
-  const probe = await runManagedVerificationProbe(finding, host, { onOutbound: () => { outbound++; } });
-  const audit = { profile: MANAGED_VERIFICATION_PROFILE, case_id: caseId, finding_id: caseRow.finding_id, finding_type: findingTypeOf(finding), host, correlation_key: correlationKey, started_at: startedAt, completed_at: new Date().toISOString(), outbound_calls: outbound, completeness: probe.completeness, decision: probe.decision, evidence: probe.evidence || null };
+  const probe = await runManagedVerificationProbe(finding, hosts, { onOutbound: () => { outbound++; } });
+  const audit = { profile: MANAGED_VERIFICATION_PROFILE, case_id: caseId, finding_id: caseRow.finding_id, finding_type: findingTypeOf(finding), host: hosts[0], hosts, correlation_key: correlationKey, started_at: startedAt, completed_at: new Date().toISOString(), outbound_calls: outbound, completeness: probe.completeness, decision: probe.decision, evidence: probe.evidence || null };
   const working = { ...caseRow, status: workingStatus };
 
   // 9. Decision → lifecycle (system actor only).
@@ -590,7 +664,7 @@ export async function verifyManagedCaseById(env, { workspaceId, caseId, actorId 
         const fresh = await getManagedCase(env, workspaceId, caseId);
         if (fresh) {
           await updateCaseStatus(env, fresh, "remediation_in_progress", { actor_type: "system", action: "transition", detail: audit });
-          await notifyCase(env, fresh, { type: "managed_case_reopened", severity: fresh.severity || "high", title: `Managed case reopened for ${domain}`, message: `${finding.title || caseRow.finding_id} was detected again on ${host}.` });
+          await notifyCase(env, fresh, { type: "managed_case_reopened", severity: fresh.severity || "high", title: `Managed case reopened for ${domain}`, message: `${finding.title || caseRow.finding_id} was detected again on ${hosts.join(", ")}.` });
         }
       }
     }
