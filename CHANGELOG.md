@@ -5,6 +5,25 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.15 (v2026.07.15-1 — tenant alert recipients: no operator fallback) — deployed 2026-07-15
+
+- **Live Worker Version ID:** `2e92c5fd-455c-416a-aba0-1158b73e644b`
+- **Rollback Worker Version ID:** `d032e4ed-5267-44bd-a6cc-5c036de535cf`
+- **Remote D1 migration applied:** none — no schema change.
+
+### Fix (latent P0 — found while mapping the Alerts episode, shipped ahead of it)
+- **Tenant alerts resolve their own verified recipients and never the operator inbox** (PR **#86**, squash-merged to main as `6bc29e3`).
+  - **The defect:** every asset-change alert email was delivered to the **operator's** inbox instead of the customer. `sendAlertEmail` falls back to `[env.ALERT_EMAIL_TO]` (`alerts.js:152`) when given no recipients, `wrangler.toml:42` points that at a personal address, and both asset-alert send sites called it with none. No workspace owner ever received their asset alerts, and every tenant's domains/hostnames/workspace ids aggregated into one mailbox. Only founder-controlled domains exist today, so **nothing reached a third party** — a latent P0 and a pre-invitation blocker, fixed before more domains are wired onto the same sender.
+  - **Two further defects in the same path:** recipients were never filtered by `email_verified` (`alerts.js:166-169`), unlike every other sender (`weekly-digest.js:106`, `lifecycle-email.js:253`) — security findings could be emailed to an unverified, attacker-controlled address; and a D1 error returned `[]` (`alerts.js:191`) which was then recorded as `email_delivery={status:"skipped", reason:"no_recipients"}`, storing a transient failure permanently as a fact about the customer.
+  - **`resolveWorkspaceAlertRecipients(env, workspaceId)`** is now the ONE place deciding who may receive a workspace's alerts, so every path inherits: tenant-scoped membership only (no global fallback), `u.email_verified` required, and `workspaces.deleted_at IS NULL` (a soft-deleted workspace is nonexistent). Returns `{ok, emails, reason}` so a lookup failure (`recipient_lookup_failed`) stays distinct from a genuine empty audience (`no_verified_recipient`). The workspace owner is folded into the same query rather than a second unguarded lookup, so the rules cannot be bypassed.
+  - **`sendTenantAlertEmail(...)`** is the only way an alert reaches a customer by email — it never touches `ALERT_EMAIL_TO` and refuses to send with no audience. Both asset-alert sites use it; **no engine calls `sendAlertEmail`** any more. `sendAlertEmail` is retained and documented **OPS-ONLY** (the fallback is correct for `opsHealthHeartbeat`, `index.js:1078`).
+  - **Fail honest, don't retry forever:** `deliveryOutcome()` maps a missing audience to `status='skipped'` (not `'failed'`), recorded with a safe reason and not retried hourly for three days; transient failures and lookup errors stay retryable. No CHECK constraint on the column → **no migration**.
+  - `sendAssetChangeAlert` now joins `workspaces ... deleted_at IS NULL`, gating **channels as well as email**; the resolver re-checks independently (defence in depth).
+  - **Tests (CI-blocking):** `validate-alert-recipients.js` (**33**, DB-backed) — no cross-tenant recipient leakage, unverified + plain-member users excluded, soft-deleted workspaces receive nothing (zero outbound email), unknown workspaces non-enumerating, no-recipient cases skip with zero outbound email, a D1 error never reported as an empty audience, retry mapping, and a structural guard that no engine may call the operator-fallback sender. Two regression fixtures encoded the OLD contract (they reached the delivery path only because the fallback guaranteed a recipient) and now seed the workspace's own verified recipient; they still test retry enrolment and the bounded sweep.
+  - **Full gate:** **80/80** CI validators, regression **227/227**, worker syntax, `wrangler --dry-run` clean, frontend Vitest **106/106** + build. CI green on PR #86 and on main.
+  - **Production proof (side-effect-safe):** `GET /health` returns deployment `2e92c5fd…` (confirmed after propagation); `/ready` 200; `/notifications` live and auth-gated (401). No migration to verify. No alert was sent to any address as part of this proof.
+  - **Not included:** the Alerts Across All Eight Domains refactor itself — not started; the episode's pre-change map is complete and two founder decisions (plan gating, unsubscribe scope) are outstanding.
+
 ## 2026.07.14 (v2026.07.14-20 — ASM Verification closed: honest DNS/header verification) — deployed 2026-07-14
 
 - **Live Worker Version ID:** `d032e4ed-5267-44bd-a6cc-5c036de535cf`
