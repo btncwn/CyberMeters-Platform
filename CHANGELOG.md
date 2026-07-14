@@ -5,6 +5,20 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.14 (v2026.07.14-12 — canonical remediation coverage completion) — deployed 2026-07-14
+
+### Feat (completes the canonical remediation registry — every customer-facing source now resolves canonically)
+- **Canonical remediation coverage completion** (PR **#70**, merge **255d366**; CI-blocking parity harness PR **#71**, merge **fa7fcbf**). Builds on v2026.07.14-11 (PR #69 / e554db0), unchanged. **No migration, no schema change.**
+  - **Registry (additive):** new `cert.intelligence.review`, `cert.caa.configure`, `ce.backlog.remediate`, `ce.access.saas_review`; extended `asm.exposure.admin` (`admin_surface_critical/high/medium`), `web.header.hsts` (`dse_hsts_not_preload_eligible`), `web.cookie.flags` (`dse_cookie_no_samesite`) — closing emitted-but-unmapped actionable finding types. New `resolveByCustomerTitle()` (reunites persisted canonical titles with their identity) and `findingRemediation()`.
+  - **Executive PDF — fabrication removed.** `priority_actions`/`top_recommendations` no longer promote raw posture reasons or fabricate `"Improve {category}"` titles — they consume the canonical remediations posture scoring now exposes; `priority_action_plan` is assembled only from canonical remediations (enriched `top_recommendations` + CE `canonical_remediations`) carrying `remediation_id` + canonical `business_impact`, deduped by identity; generic impact only as an honest fallback. `executive-report.js` threads `remediation_id` + `verification_method` so the Executive Report UI and the PDF carry the **same** remediation identity per title.
+  - **Cyber Essentials:** `ce-readiness.js addGap` resolves each control-gap ACTION from the registry (reusing the technical remediations + the new CE entries); the `reason` stays CE risk framing; emits `canonical_remediations`. Certification stays external (IASME) — separate from readiness remediation.
+  - **Posture scoring:** each category keeps its risk `reasons` AND exposes canonical `remediations` for any promoted action; surface-expansion-only signals promote nothing (honest, no invented advice).
+  - **Frontend is no longer a second source of truth:** `frontend/src/data/remediation.js` drops `LIBRARY`/`METADATA_ONLY`/`PREFIX_ALIASES`/`MODULE_OWNER` (~560 lines); all semantics (title, business impact, action, owner, effort, verification) come from the backend `finding.remediation`; only step-by-step + a CLI verification command remain, keyed strictly by canonical `remediation_id`. `/report` enriches each finding with its canonical remediation (compute-on-read).
+  - **Production finding coverage:** `validate-remediation-coverage.js` checks EMITTERS against the registry — every actionable production finding type → exactly one primary canonical remediation; informational → explicit `remediation_not_required`; a static emitter sweep fails CI on any new unclassified finding id. Forward-looking entries with no current producer (`cert.ca_concentration`, `ce.certification.external`, `identity.*`) are reported.
+  - **Tests (CI-blocking):** `validate-remediation-coverage.js`, `validate-frontend-remediation-source.js` (frontend cannot override canonical title/action), `validate-remediation-surface-parity.js` (Scan Detail / Exec Report / Scorecard-PDF join / posture→PDF / CE all resolve the SAME `remediation_id` for Email + Web/ASM + CE — proven by running the actual builders), plus cross-surface join-parity in `validate-remediation-registry.js` (62 assertions). Full gate green: regression **227/227**, **all 72 CI validators**, frontend build, `wrangler deploy --dry-run`.
+  - **Deployed Worker Version ID:** `41d1608c-909a-4a81-a10b-4365e9f93327` (`GET /health` confirms in production; Pages frontend redeployed).
+  - **Rollback Version ID:** `c1dd9175-150a-40c0-8f1c-06d97c84bde8`.
+
 ## 2026.07.14 (v2026.07.14-11 — canonical remediation registry) — deployed 2026-07-14
 
 ### Feat (one canonical source of truth for customer-facing remediation content across all eight Cyber MOT domains)
