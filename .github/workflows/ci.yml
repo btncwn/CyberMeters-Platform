@@ -119,6 +119,9 @@ jobs:
       - name: Validate scan deadline + partial finalization (waitUntil-cancellation guard)
         run: node scripts/validate-scan-deadline.js
 
+      - name: Validate KEV catalogue R2 cache (hit/miss/stale/unavailable + honest degrade)
+        run: node scripts/validate-kev-cache.js
+
       - name: Validate managed brand takedown lifecycle (evidence + approval + verification)
         run: node scripts/validate-brand-takedown-lifecycle.js
 

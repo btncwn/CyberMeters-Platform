@@ -526,7 +526,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     if (reservedMode && reservedBudget) reservedBudget.spend("phase5", phase5Cost);
     const [cveSettled, kevSettled, emailIntelSettled] = await Promise.allSettled([
       runCveModule(modules.technology_detection),
-      runKevModule(modules.technology_detection),
+      runKevModule(modules.technology_detection, env),
       runEmailIntelModule(domain, modules.email_security, modules.dns),
     ]);
 
