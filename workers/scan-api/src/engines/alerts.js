@@ -25,7 +25,10 @@ function shouldSendAlert(historicalChanges) {
 
   const triggers = [];
 
-  if (historicalChanges.score_change != null && historicalChanges.score_change <= -10) {
+  // Only a comparable (complete-vs-complete) delta may alert — a partial/degraded
+  // scan never emits a "score dropped" alert (its score_change is already nulled by
+  // the central gate; this is the explicit belt-and-braces).
+  if (historicalChanges.comparable !== false && historicalChanges.score_change != null && historicalChanges.score_change <= -10) {
     triggers.push({
       type:   "score_drop",
       detail: `Score dropped ${historicalChanges.score_change} points ` +
@@ -548,8 +551,8 @@ export async function processAlertsForWorkspace(workspaceId, domainId, domain, s
     const hist = currentModules.historical_changes;
     const ssl = currentModules.ssl;
 
-    // ── 1. Score Drop Alert ──
-    if (hist?.has_previous && hist.score_change != null && hist.score_change <= -10) {
+    // ── 1. Score Drop Alert ── (comparable/complete assessments only)
+    if (hist?.has_previous && hist.comparable !== false && hist.score_change != null && hist.score_change <= -10) {
       const isDuplicate = await isAlertDuplicate(env, workspaceId, "score_drop", domain);
       if (!isDuplicate) {
         const scoreDiff = Math.abs(hist.score_change);

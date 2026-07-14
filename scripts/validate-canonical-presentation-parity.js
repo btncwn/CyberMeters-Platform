@@ -103,6 +103,9 @@ const files = walk(S);
 {
   ok("executive report V2 delegates to resolveAssessmentPresentation", /resolveAssessmentPresentation/.test(read("engines/executive-report.js")));
   ok("scan-report PDF delegates to resolveAssessmentPresentation", /resolveAssessmentPresentation/.test(read("engines/pdf.js")));
+  // Score-drop alerts/emails only fire on a comparable (complete) delta.
+  const al = read("engines/alerts.js");
+  ok("score-drop alert is gated on comparability", (al.match(/comparable !== false/g) || []).length >= 2);
 }
 
 // ── 6. Persistence: finalize + reconciler write scan_quality (D1↔R2 convergence) ─
