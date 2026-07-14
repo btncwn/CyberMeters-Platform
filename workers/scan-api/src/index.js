@@ -82,6 +82,7 @@ import { accountRoutes } from "./routes/account.js";
 import { globalBillingRoutes } from "./routes/global-billing.js";
 import { authRoutes } from "./routes/auth.js";
 import { attackSurfaceRoutes } from "./routes/attack-surface.js";
+import { managedCasesRoutes } from "./routes/managed-cases.js";
 import { workspaceInsightRoutes } from "./routes/workspace-insights.js";
 import { buildCertificateAuthorityConcentrationFromModule, buildScanQuality, computeScanBudget, insertAdminSurfaceEvents, runScanEngine, upsertVendorInventory, upsertVendorRelationships } from "./engines/scan-engine.js";
 import { runBoundedScheduledReports } from "./engines/scheduled-reports.js";
@@ -1993,6 +1994,14 @@ export default {
     {
       const attackSurfaceResponse = await attackSurfaceRoutes(routeCtx);
       if (attackSurfaceResponse) return attackSurfaceResponse;
+    }
+
+    // ── Universal managed-cases routes (cross-domain queue + generic transition) ──
+    // Pattern /api/workspaces/:id/cases is disjoint from the ASM
+    // /api/workspaces/:id/managed-cases and every other route.
+    {
+      const casesResponse = await managedCasesRoutes(routeCtx);
+      if (casesResponse) return casesResponse;
     }
 
     // ── Workspace analytics routes (scorecard, CE readiness, business risk) ──
