@@ -5,6 +5,21 @@
 // sorted so the customer that needs attention floats to the top. Shared by
 // GET /portfolio/workspaces and /portfolio/executive-summary; unit-testable.
 
+// Deterministic "latest completed scan per domain" CTE body. Selecting on
+// MAX(created_at) alone double-counts a domain when two completed scans share the
+// SAME timestamp (both match `created_at = mx`). Ranking by (created_at DESC, id
+// DESC) and taking rn=1 picks EXACTLY ONE scan per domain — the scan id is the
+// deterministic tie-break. Consumers write:
+//   `WITH ${LATEST_SCAN_CTE} SELECT ... JOIN lpd ON lpd.scan_id = s.id`
+// Shared by portfolio.js (overview) and the queries below so both agree.
+export const LATEST_SCAN_CTE = `lpd AS (
+    SELECT scan_id, domain_id FROM (
+      SELECT id AS scan_id, domain_id,
+             ROW_NUMBER() OVER (PARTITION BY domain_id ORDER BY created_at DESC, id DESC) AS rn
+      FROM scans WHERE status='completed'
+    ) WHERE rn = 1
+  )`;
+
 // Returns the sorted customer rows for a set of workspace ids (already scoped to
 // the caller's accessible workspaces by the route). Read-only; never throws
 // beyond a rejected DB promise (route wraps in serverError).
@@ -21,16 +36,16 @@ export async function computePortfolioCustomerRows(db, workspaceIds) {
     q(`SELECT workspace_id, COUNT(*) AS count FROM workspace_assets WHERE status='active' AND workspace_id IN (${wsIn}) GROUP BY workspace_id`),
     q(`SELECT workspace_id, COUNT(*) AS count FROM workspace_vendors WHERE status='active' AND workspace_id IN (${wsIn}) GROUP BY workspace_id`),
     q(`SELECT workspace_id, COUNT(*) AS count FROM workspace_brand_assets WHERE status='active' AND workspace_id IN (${wsIn}) GROUP BY workspace_id`),
-    q(`WITH lpd AS (SELECT domain_id, MAX(created_at) AS mx FROM scans WHERE status='completed' GROUP BY domain_id)
+    q(`WITH ${LATEST_SCAN_CTE}
        SELECT wd.workspace_id, f.severity, COUNT(*) AS cnt
        FROM findings f JOIN scans s ON f.scan_id = s.id
-       JOIN lpd ON s.domain_id = lpd.domain_id AND s.created_at = lpd.mx
+       JOIN lpd ON lpd.scan_id = s.id
        JOIN workspace_domains wd ON s.domain_id = wd.domain_id
        WHERE f.severity IN ('critical','high') AND wd.workspace_id IN (${wsIn})
        GROUP BY wd.workspace_id, f.severity`),
-    q(`WITH lpd AS (SELECT domain_id, MAX(created_at) AS mx FROM scans WHERE status='completed' GROUP BY domain_id)
+    q(`WITH ${LATEST_SCAN_CTE}
        SELECT wd.workspace_id, AVG(s.score) AS avg_score, MAX(s.created_at) AS last_scan_at
-       FROM scans s JOIN lpd ON s.domain_id = lpd.domain_id AND s.created_at = lpd.mx
+       FROM scans s JOIN lpd ON lpd.scan_id = s.id
        JOIN workspace_domains wd ON s.domain_id = wd.domain_id
        WHERE s.score IS NOT NULL AND wd.workspace_id IN (${wsIn})
        GROUP BY wd.workspace_id`),
