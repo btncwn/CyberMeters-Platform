@@ -5,6 +5,17 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.14 (v2026.07.14-10 — eight-domain coverage-state parity) — deployed 2026-07-14
+
+### Fix (parity patch to v2026.07.14-9 — three honesty gaps closed before the episode closes)
+- **Eight-domain coverage-state parity** (PR **#68**, merge **f3c37c7**). No migration.
+  1. **Cyber Essentials cross-surface parity.** New canonical `getCyberEssentialsSnapshot(wsId, env)` is the single CE source; scan `/report`, `/executive-report-v2`, the Executive PDF (`collectPdfData`) and the new `/cyber-mot-domains` endpoint all pass it into the same resolver, so a workspace shows the SAME CE state on every surface. The snapshot gates on questionnaire **completeness** (not `COUNT(*)>0`): no answers **or** a partial answer set → `customer_input_required`; only a COMPLETE questionnaire (all 20 questions answered non-`unknown`, via `isCyberEssentialsQuestionnaireComplete` over the canonical `CE_QUESTIONS`) yields a readiness verdict, and `assessed_healthy` only when complete **and** likely_ready. **Live proof:** BBB shows `customer_input_required` identically on the Dashboard endpoint, `/report` and `/executive-report-v2`.
+  2. **Dashboard no-scan + endpoint-failure visibility.** New `GET /api/workspaces/:id/cyber-mot-domains` (workspace:read, no feature gate) server-resolves the eight states from the authoritative scan, the canonical no-scan states when none exists, or the no-scan set on any error — always eight. The Dashboard fetches it and renders unconditionally. New `frontend/src/lib/cyberMotDisplay.js` `resolveDisplayDomains()` guarantees the component never renders fewer than eight: absent/malformed/failed data → the eight canonical domain names in a non-healthy `unavailable` state (no domain disappears, none becomes healthy; no state derived in the frontend).
+  3. **Per-domain healthy-eligibility predicates.** `assessed_healthy` now requires a domain's own `required` module(s) to have been assessed on a COMPLETE scan with no material finding — email→[email_security], brand→[brand_monitoring], attack_surface→[subdomains,dns] (closes the CT/subdomain healthy-off-missing hole), certificates_trust→[certificate_intelligence] (chain/root/OCSP/revocation stay **unknown** via limitation — never a positive trust claim), website→[headers,ssl], identity→[identity_discovery]. A required module errored/skipped/incomplete → `evidence_insufficient`; absent → `not_yet_assessed`; provisional scan → `provisional`. **Live proof:** BBB `missing-evidence-healthy: false` — every healthy domain has evidence.
+  - **Tests:** `validate-eight-domain-parity.js` (83 — CE parity + real node:sqlite full-vs-partial questionnaire completeness, no-scan, endpoint-failure fallback, per-domain healthy matrix); updated coverage-state (29) + wiring (15). Full regression + report scoping/branding + parity + tenant isolation + entitlement + migrations + lifecycle + frontend build + wrangler dry-run green.
+  - **Deployed Worker Version ID:** `ef8860fc-6f1b-44b8-9b85-582ae7282707`.
+  - **Rollback Version ID:** `d79da556-84d5-44fa-800d-61cf048d461f`.
+
 ## 2026.07.14 (v2026.07.14-9 — eight-domain Cyber MOT coverage-state honesty) — deployed 2026-07-14
 
 ### Feat (first before-public-beta episode of the eight-domain managed Cyber MOT roadmap)
