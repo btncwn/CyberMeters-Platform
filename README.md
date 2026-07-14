@@ -1,479 +1,992 @@
-# CLAUDE.md
+# CyberMeters Platform
 
-# CyberMeters Platform — AI Engineering Context
+CyberMeters is a multi-tenant, evidence-led **Cyber MOT platform** for small businesses, IT support providers and MSPs.
 
-Version: June 2026
+It helps organisations understand, prioritise, manage and verify their externally observable security posture across eight canonical domains:
 
----
+1. Email Protection
+2. Brand Protection
+3. Attack Surface
+4. Certificates & Trust
+5. Cyber Essentials Readiness
+6. Website Security
+7. Identity Exposure
+8. Shadow IT & Unmanaged Technology
 
-# Project Overview
+CyberMeters is not a generic vulnerability scanner, penetration-testing platform, DAST product, EDR, SIEM or internal asset-discovery system.
 
-CyberMeters is a production-oriented:
+The product focuses on turning external evidence into an operational lifecycle:
 
-* Attack Surface Management (ASM) Platform
-* Security Posture Management (SPM) Platform
-* Portfolio Monitoring Platform
-* Executive Reporting Platform
-
-CyberMeters is no longer a scanner project.
-
-CyberMeters is currently in the Productization Phase.
-
-Primary objective:
-
-Convert the existing ASM platform into a commercially viable multi-tenant SaaS product.
-
----
-
-# Current Strategic Status
-
-| Area                 | Completion |
-| -------------------- | ---------: |
-| Core Scanner Engine  |        92% |
-| ASM Engine           |        82% |
-| Reporting Platform   |        90% |
-| Historical Tracking  |        90% |
-| Asset Inventory      |        90% |
-| Portfolio Platform   |        85% |
-| Product Platform     |        35% |
-| Commercial Readiness |        50% |
+```text
+Observe
+→ assess evidence
+→ explain risk
+→ prioritise
+→ resolve canonical remediation
+→ open or link a managed case
+→ assign ownership
+→ track action
+→ verify outcome
+→ monitor recurrence
+→ reopen when required
+```
 
 ---
 
-# Current Priorities
+## Current Product Phase
 
-Priority order:
+CyberMeters is in:
 
-1. Authentication
-2. Domain Ownership Verification
-3. Notifications
-4. Dedicated Asset Inventory API
-5. RBAC
-6. Customer Portal
-7. Billing
-8. Team Management
+> **Pre-public-beta managed-platform completion**
 
-New scanner development is not currently a priority.
+The platform foundations are live, and the current focus is completing the managed lifecycle across all eight domains before controlled external invitations.
+
+Current roadmap state:
+
+| Platform Area | Status |
+| --- | --- |
+| Eight-Domain Coverage-State Honesty | Live |
+| Canonical Remediation Registry | Live |
+| Universal Managed-Case Model (incl. enforced invariants) | Live |
+| Shadow IT Approved Inventory + Correlation Depth | Live |
+| Certificates Managed Lifecycle | Live |
+| Identity Exposure Managed Workflow | Next canonical episode |
+| Complete ASM Verification | Planned |
+| Alerts Across All Eight Domains | Planned |
+| MSP Portfolio Per-Domain State and Trend | Planned |
+| M5 Completion Across All Eight Domains | Planned |
+| Debugging and Reliability Hardening | Planned after managed lifecycle completion |
+| Pentesting and Security Assurance | Planned after managed lifecycle completion |
+| Founder-Controlled Acceptance Testing | Planned |
+| Final Public-Beta Gate | Planned |
+
+---
+
+# Product Capabilities
+
+## Email Protection
+
+Externally observable email-security posture and managed email-authentication readiness, including:
+
+- SPF
+- DKIM
+- DMARC
+- DMARC aggregate-report ingestion
+- sender intelligence
+- policy readiness
+- MTA-STS
+- TLS-RPT
+- BIMI where applicable
+- BEC exposure interpretation
+- remediation guidance
+
+CyberMeters distinguishes between:
+
+- DNS configuration;
+- report ingestion;
+- sender alignment;
+- enforcement readiness;
+- externally verifiable state.
+
+Reports arriving do not automatically mean DNS is fully connected or correctly configured.
+
+---
+
+## Brand Protection
+
+Externally observable brand-abuse and impersonation signals, including:
+
+- lookalike domains
+- typosquatting
+- homoglyphs
+- certificate-related brand observations
+- candidate review
+- classification
+- evidence bundles
+- prepare-and-track takedown workflows
+- recurrence monitoring
+
+CyberMeters does not claim to independently perform or guarantee takedown.
+
+---
+
+## Attack Surface
+
+Externally visible assets and exposure signals, including:
+
+- subdomains
+- DNS
+- takeover risk
+- public admin interfaces
+- development and staging exposure
+- public management surfaces
+- cloud-storage observations
+- externally visible technologies
+- selected vulnerability intelligence
+- historical asset tracking
+
+The platform prioritises evidence quality, false-positive reduction and managed remediation over raw finding volume.
+
+---
+
+## Certificates & Trust
+
+Externally observable certificate and HTTPS posture, including:
+
+- expiry
+- issuer observations
+- subject and SAN observations
+- wildcard use
+- replacement detection
+- Certificate Transparency signals
+- hostname coverage
+- renewal readiness
+- trust-related anomalies
+
+Unsupported trust claims remain explicit.
+
+Unless verified by a supported source, values such as complete chain validity, trusted-root status, OCSP and revocation remain `unknown`.
+
+---
+
+## Cyber Essentials Readiness
+
+Indicative readiness based on:
+
+- externally observable controls
+- scan evidence
+- customer-provided answers
+- gap mapping
+- canonical remediation
+- managed follow-up
+
+CyberMeters does not issue Cyber Essentials certification.
+
+Certification is completed through an appropriate accredited assessment body.
+
+---
+
+## Website Security
+
+Externally observable website posture, including:
+
+- HTTPS availability
+- HTTP-to-HTTPS redirect
+- security headers
+- cookie flags
+- exposed technologies
+- public configuration weaknesses
+- externally visible website-risk indicators
+
+---
+
+## Identity Exposure
+
+Externally observable identity-facing exposure, including:
+
+- public login surfaces
+- identity-provider observations
+- Microsoft 365-related external signals
+- legacy-authentication indicators where supported
+- externally visible identity entry points
+
+CyberMeters does not claim leaked-password, breached-credential, stealer-log or dark-web coverage unless a real approved evidence source is implemented.
+
+---
+
+## Shadow IT & Unmanaged Technology
+
+Managed inventory for externally observed technology and SaaS signals, including:
+
+- SaaS portals
+- vendors
+- third-party scripts
+- provider relationships
+- cloud services
+- identity providers
+- email-service providers
+- customer classification
+- approved inventory
+- business and technical ownership
+- onboarding and removal tracking
+- monitoring and recurrence
+- managed-case linkage
+
+CyberMeters observation and customer classification are separate concepts.
+
+```text
+externally observed
+≠
+customer approved
+```
+
+---
+
+# Core Platform Features
+
+Implemented platform foundations include:
+
+- multi-tenant workspaces
+- workspace domains
+- domain ownership verification
+- email/password authentication
+- Microsoft SSO
+- MFA/TOTP
+- email verification
+- password reset
+- session metadata
+- login history
+- audit logs
+- Stripe billing
+- subscription and entitlement handling
+- scheduled scans
+- historical monitoring
+- asset inventory and asset events
+- reports
+- Executive Reports
+- Executive PDF
+- eight-domain coverage-state model
+- Canonical Remediation Registry
+- Universal Managed-Case Model
+- ASM managed cases
+- Brand managed cases
+- Shadow IT Approved Inventory
+- DMARC sender intelligence
+- Cyber Essentials Readiness
+- certificate intelligence
+- notification infrastructure
+- portfolio and MSP foundations
+
+---
+
+# Architecture
+
+CyberMeters is designed to remain Cloudflare-native.
+
+## Frontend
+
+- React
+- Vite
+- Tailwind CSS
+- Cloudflare Pages
+
+## Backend
+
+- Cloudflare Workers
+- modular route handlers
+- shared engine modules
+- cron-triggered scheduled work
+- inbound email handling
+
+## Data
+
+- Cloudflare D1 for relational state
+- Cloudflare R2 for report objects and PDFs
+- Analytics Engine for selected operational metrics
+
+## External Services
+
+- Stripe for billing
+- Resend for outbound email
+- Microsoft Entra ID for SSO
+- Cloudflare Email Routing for DMARC aggregate reports
+- Cloudflare DNS APIs for approved hosted-DMARC workflows
+
+Do not introduce traditional Node servers, Express.js, dedicated VPS infrastructure or a second authoritative relational database without an approved architecture decision.
 
 ---
 
 # Repository Layout
 
+```text
 CyberMeters-Platform/
 
 frontend/
-workers/scan-api/
-database/schema.sql
+  src/
+    api.js
+    components/
+    data/
+    lib/
+    pages/
+
+workers/
+  scan-api/
+    src/
+      engines/
+      lib/
+      routes/
+      index.js
+
+  email-ingest/
+    wrangler.toml
+
+database/
+  schema.sql
+  migrations/
+
+scripts/
+
 docs/
+
+.github/
+  workflows/
+
+README.md
+AGENTS.md
+CLAUDE.md
+OPERATIONS.md
+CHANGELOG.md
+```
+
+Important paths:
+
+| Path | Purpose |
+| --- | --- |
+| `frontend/src/pages/` | application pages |
+| `frontend/src/components/` | shared UI components |
+| `frontend/src/lib/` | frontend helpers and canonical presentation logic |
+| `workers/scan-api/src/engines/` | domain engines, state machines, correlation, scoring and verification |
+| `workers/scan-api/src/routes/` | workspace-scoped API routes |
+| `database/migrations/` | additive production schema changes |
+| `scripts/` | validators, regression harnesses and operational checks |
+| `docs/` | ADRs, runbooks, product rules and release documentation |
 
 ---
 
-# Commands
+# Requirements
+
+Recommended local environment:
+
+- Node.js 20 or later
+- npm
+- Wrangler 4.x
+- Git
+- Cloudflare account access
+- access to the required D1, R2 and Worker bindings for deployment work
+
+Check versions:
+
+```bash
+node --version
+npm --version
+npx wrangler --version
+git --version
+```
+
+---
+
+# Local Development
 
 ## Frontend
 
+```bash
+cd frontend
+npm install
 npm run dev
+```
+
+Build:
+
+```bash
 npm run build
+```
+
+Preview:
+
+```bash
 npm run preview
+```
+
+Tests:
+
+```bash
+npm run test
+npm run test:coverage
+```
+
+---
 
 ## Worker
 
+```bash
+cd workers/scan-api
+npm install
 npm run dev
-npm run deploy
+```
 
 Syntax check:
 
+```bash
 node --input-type=module --check < src/index.js
+```
+
+Dry-run bundle validation:
+
+```bash
+npx wrangler deploy --dry-run
+```
+
+---
+
+# Environment and Configuration
+
+## Frontend
+
+Frontend build-time variables use the Vite `VITE_*` convention.
+
+Example:
+
+```text
+VITE_API_BASE_URL=https://api.cybermeters.com
+```
+
+Do not place secrets in frontend environment files.
+
+Any `VITE_*` value becomes part of the client bundle.
+
+---
+
+## Worker non-secret configuration
+
+Non-secret production configuration belongs in:
+
+```text
+workers/scan-api/wrangler.toml
+```
+
+Examples may include:
+
+- `ALLOWED_ORIGIN`
+- `FRONTEND_URL`
+- `RUA_INBOUND_DOMAIN`
+- `MICROSOFT_REDIRECT_URI`
+- sender addresses
+
+The current source and Wrangler configuration are authoritative.
+
+---
+
+## Worker secrets
+
+Manage secrets with Wrangler:
+
+```bash
+cd workers/scan-api
+npx wrangler secret list
+npx wrangler secret put <NAME>
+```
+
+Common secrets include:
+
+- `STRIPE_SECRET_KEY`
+- `STRIPE_WEBHOOK_SECRET`
+- `RESEND_API_KEY`
+- `MFA_ENCRYPTION_KEY`
+- `CLOUDFLARE_API_TOKEN`
+- `CLOUDFLARE_ZONE_ID`
+- `AZURE_CLIENT_ID`
+- `AZURE_CLIENT_SECRET`
+- `AZURE_TENANT_ID`
+- `ADMIN_EMAILS`
+- `APP_URL`
+
+Never commit secret values.
+
+---
+
+# Database
+
+The baseline schema is stored in:
+
+```text
+database/schema.sql
+```
+
+Production changes use numbered migrations:
+
+```text
+database/migrations/NNN-description.sql
+```
+
+## Apply a migration
+
+From the repository root:
+
+```bash
+npx wrangler d1 execute cybermeters-db \
+  --remote \
+  --file=database/migrations/<NNN-name>.sql
+```
+
+## Read-only inspection
+
+```bash
+npx wrangler d1 execute cybermeters-db \
+  --remote \
+  --command "SELECT ... LIMIT 100;"
+```
+
+## Database rules
+
+- every production schema change requires a migration;
+- prefer additive migrations;
+- do not apply hidden inline production DDL;
+- do not routinely apply `database/schema.sql` to production;
+- do not perform destructive migrations without explicit approval;
+- preserve historical data;
+- review tenant isolation and purge order.
+
+---
+
+# Validation
+
+Deployment is not validation.
+
+## Repository checks
+
+```bash
+git status --short
+git diff --check
+git log --oneline -5
+```
+
+## Backend checks
+
+```bash
+node --input-type=module --check < workers/scan-api/src/index.js
+node scripts/validate-regression-fixtures.js
+
+cd workers/scan-api
+npx wrangler deploy --dry-run
+cd ../..
+```
+
+Run all focused validators relevant to the change.
+
+## Frontend checks
+
+```bash
+cd frontend
+npm ci
+npm run test
+npm run test:coverage
+npm run build
+cd ..
+```
+
+## Full validation gate
+
+Run the full CI-equivalent gate when changing:
+
+- authentication
+- authorisation
+- tenant isolation
+- managed cases
+- verification
+- canonical remediation
+- scan orchestration
+- scoring
+- reports or PDFs
+- billing
+- scheduled work
+- alerts
+- RUA ingestion
+- deletion or purge
+- core database behaviour
+
+Do not weaken validators merely to make a change pass.
+
+---
+
+# Release and Deployment
+
+## Primary Worker
+
+The primary Worker deploys manually.
+
+Pushing to `main` does not deploy the Worker.
+
+Canonical release flow:
+
+```text
+feature branch
+→ implementation
+→ focused validation
+→ full gate where required
+→ PR
+→ CI green
+→ merge
+→ additive migration if required
+→ manual Worker deploy
+→ Pages verification
+→ release tag
+→ CHANGELOG
+→ production proof
+```
+
+Deploy:
+
+```bash
+cd workers/scan-api
+npx wrangler deploy
+```
+
+Record the live Version ID printed by Wrangler.
+
+## Frontend
+
+Cloudflare Pages auto-deploys from `main`.
+
+After merge, verify:
+
+- expected commit
+- build success
+- production alias
+- API base URL
+- affected pages
+- browser-console errors
+
+## Email-ingest Worker
+
+```bash
+cd workers/scan-api
+npx wrangler deploy --config ../email-ingest/wrangler.toml
+```
+
+## Release tag
+
+```bash
+git tag vYYYY.MM.DD-n
+git push origin vYYYY.MM.DD-n
+```
+
+See `OPERATIONS.md` for the full production procedure.
+
+---
+
+# Rollback
+
+## Worker
+
+```bash
+cd workers/scan-api
+npx wrangler deployments list
+npx wrangler versions list
+npx wrangler rollback --version-id <version-id>
+```
+
+## Frontend
+
+Use Cloudflare Pages deployment rollback or revert the offending commit on `main`.
 
 ## Database
 
-wrangler d1 execute cybermeters-db --remote --file=../../database/schema.sql
+Migrations are forward-only.
+
+For a bad migration:
+
+- roll back code if safe;
+- inspect D1 Time Travel;
+- create a corrective migration or approved restore;
+- do not improvise destructive SQL under incident pressure.
+
+See `OPERATIONS.md`.
 
 ---
 
-# Current Architecture
+# Health and Observability
 
-Frontend:
+## Health endpoints
 
-* React
-* Vite
-* Tailwind CSS
+```text
+GET /health
+GET /ready
+```
 
-Backend:
+- `/health` provides liveness and deployment information.
+- `/ready` checks required dependencies such as D1 and R2.
 
-* Cloudflare Workers
+## Live logs
 
-Storage:
+```bash
+cd workers/scan-api
+npx wrangler tail
+```
 
-* Cloudflare D1
-* Cloudflare R2
+## Operational metrics
 
-Hosting:
+CyberMeters uses the Analytics Engine dataset:
 
-* Cloudflare Pages
+```text
+cybermeters_metrics
+```
 
-Architecture goal:
+Operational metrics must remain fail-open and must not block customer workflows.
 
-Remain fully Cloudflare-native.
+## Audit events
 
-Do not introduce:
+Business and security-relevant actions are recorded in D1 audit and domain-specific event tables.
 
-* Express.js
-* Traditional Node servers
-* Dedicated VPS infrastructure
+Never log:
 
-unless explicitly requested.
-
----
-
-# Current Scan Modules
-
-Implemented:
-
-* DNS Analysis
-* SSL Analysis
-* Security Headers
-* Email Security
-* Subdomain Discovery
-* Subdomain Takeover Detection
-* Asset Exposure Detection
-* Historical Tracking
-* Executive Reporting
+- access tokens
+- reset tokens
+- invitation tokens
+- secrets
+- plaintext MFA material
+- unnecessary customer data
+- raw internal exceptions to customers
 
 ---
 
-# Current Platform Modules
+# Scheduled Work
 
-Implemented:
+Scheduled execution is configured in Wrangler and currently runs hourly.
 
-* Dashboard
-* Portfolio Dashboard
-* Workspace Dashboard
-* Historical Monitoring
-* Reports
-* Workspace Reports
-* Asset Events
-* Scheduled Scans
+Scheduled tasks may include:
 
----
+- scheduled scans
+- scheduled reports
+- user-report processing
+- hosted-DNS verification
+- reconciliation
+- report retention
+- deletion purge
+- lifecycle-email retry
+- alert retry
+- domain-verification retry
+- lifecycle monitoring evaluators
 
-# Known Architectural Notes
+Every scheduled task must be:
 
-Assets Page currently consumes:
-
-modules.subdomains
-
-from report JSON.
-
-There is no dedicated Asset Inventory API yet.
-
-Future asset work should consider:
-
-* Dedicated asset APIs
-* Asset lifecycle tracking
-* Portfolio-level asset intelligence
+- bounded
+- idempotent or safely retryable
+- independently failure-isolated
+- tenant-safe
+- soft-delete aware
+- duplicate-notification safe
+- observable
 
 ---
 
-# Engineering Constitution
+# Multi-Tenant Security
 
-## Rule 1 — Never Rewrite Working Systems
+CyberMeters is already multi-tenant.
 
-If existing functionality works:
+Every workspace-scoped read and write must be:
 
-* Do not redesign it
-* Do not replace it
-* Extend it
+- workspace-scoped
+- permission-checked
+- tenant-isolated
+- non-enumerating where appropriate
+- auditable
 
----
+Foreign and nonexistent resources should return the same safe response when resource enumeration is a risk.
 
-## Rule 2 — Backward Compatibility Is Mandatory
+Soft-deleted workspaces must not receive:
 
-Do not break:
+- new scans
+- observations
+- inventory records
+- managed cases
+- reports
+- scheduled work
+- alerts
+- notifications
 
-* Existing scans
-* Reports
-* Portfolio APIs
-* Frontend pages
-* Scheduled scans
-
----
-
-## Rule 3 — Reuse Before Creating
-
-Before adding:
-
-* Functions
-* APIs
-* Tables
-* Components
-
-Check whether similar functionality already exists.
-
-Avoid duplicate logic.
+New workspace-scoped surfaces require tenant-isolation tests.
 
 ---
 
-## Rule 4 — Productization First
+# Evidence and Product Honesty
 
-Prefer:
+## Coverage-state honesty
 
-* Authentication
-* Domain Verification
-* Notifications
-* RBAC
-* Customer Portal
-* Billing
+Missing, incomplete or unsupported evidence must not appear healthy.
 
-over:
+The frontend must not independently derive security verdicts.
 
-* New scanning engines
+## Remediation
 
----
+Customer-facing remediation meaning must come from the Canonical Remediation Registry.
 
-## Rule 5 — Historical Data Is Sacred
+## Managed cases
 
-Never delete:
+All case transitions use the Universal Managed-Case Model.
 
-* Scans
-* Findings
-* Assets
-* Reports
-* Events
+Base case creation uses:
 
-Prefer:
+```text
+createManagedCase(...)
+```
 
-* archived
-* inactive
-* resolved
+Transitions use:
 
----
+```text
+canTransitionCase(...)
+```
 
-## Rule 6 — Multi-Tenant Design
+## Verification
 
-Assume future support for:
+A completed scan, customer note or bare boolean cannot verify a fix.
 
-* Multiple customers
-* Multiple users
-* Multiple workspaces
-* MSP environments
+Verification requires structured, method-appropriate evidence.
 
-Avoid single-user assumptions.
+Customer assertion and CyberMeters verification are different states.
 
----
+## Historical integrity
 
-## Rule 7 — Security First
+Do not overwrite or erase:
 
-Every feature must consider:
-
-* Authentication
-* Authorization
-* Data isolation
-* Auditability
-* Report access control
+- observations
+- reports
+- case events
+- evidence
+- remediation identities
+- verification history
+- inventory history
+- certificate history
+- replacement relationships
+- recurrence history
+- audit events
 
 ---
 
-## Rule 8 — Cloudflare Native
+# Capacity and Paid Infrastructure
 
-All implementations must remain compatible with:
+CyberMeters currently operates on the Cloudflare Workers Paid plan.
 
-* Workers
-* D1
-* R2
-* Pages
+Do not use the old estimate:
 
----
+```text
+each scan ≈ 50 queries
+```
 
-## Rule 9 — Database Safety
+as a cost or capacity model.
 
-Schema changes require:
+D1 usage should be measured through:
 
-* Migration file
-* Validation commands
-* Rollback strategy
+- rows read
+- rows written
+- query latency
+- index use
+- database size
+- scheduled-cycle amplification
+- report and lifecycle writes
 
-Never silently modify production tables.
+Worker usage should be measured through:
 
----
+- CPU milliseconds
+- duration
+- subrequests
+- outbound fetches
+- D1 operations
+- R2 operations
+- exceptions
+- retries
+- scheduled backlog
 
-## Rule 10 — No N+1 Queries
+Paid limits provide headroom, not permission for unbounded processing.
 
-Use:
-
-* JOIN
-* GROUP BY
-* Aggregation
-* Batch processing
-
-Avoid per-row queries.
-
----
-
-## Rule 11 — Validation Required
-
-Every sprint must include:
-
-npm run build
-
-wrangler deploy
-
-curl validation commands
+See `OPERATIONS.md` for current operational assumptions and monitoring rules.
 
 ---
 
-## Rule 12 — No Placeholder Implementations
+# Contributing and Engineering Workflow
 
-Avoid:
+Before implementation:
 
-* TODOs
-* Fake logic
-* Mock findings
-* Hardcoded scores
+1. identify the active canonical roadmap episode;
+2. inspect repository status;
+3. inspect the active branch;
+4. review recent commits and PRs;
+5. review recent migrations;
+6. inspect the existing architecture;
+7. search for duplicate functionality;
+8. define scope and compatibility risk;
+9. extend canonical systems instead of creating parallel ones.
 
----
+After implementation:
 
-## Rule 13 — Ownership Verification Is Strategic
+1. run focused validators;
+2. run the full gate where required;
+3. review the diff;
+4. open a focused PR;
+5. require CI green;
+6. merge;
+7. apply migration if needed;
+8. deploy manually;
+9. verify Pages;
+10. record live and rollback IDs;
+11. update release documentation;
+12. perform production proof;
+13. stop after the assigned episode.
 
-Future onboarding must support:
+Read:
 
-* DNS TXT verification
-* HTML verification
-* Email verification
-
----
-
-## Rule 14 — Portfolio-Level Thinking
-
-Every feature should consider:
-
-* Domain level
-* Workspace level
-* Customer level
-* Portfolio level
-
----
-
-## Rule 15 — Commercial Readiness
-
-Choose implementations that improve:
-
-* Beta readiness
-* Customer onboarding
-* Revenue generation
-* Operational scalability
+- `AGENTS.md` for permanent engineering rules;
+- `CLAUDE.md` for AI engineering authority and product ownership;
+- `OPERATIONS.md` for production operations;
+- `CHANGELOG.md` for releases.
 
 ---
 
-## Rule 16 — Duplicate Feature Detection
+# Public-Beta Gate
 
-Before implementing:
+Before the first two controlled external invitations:
 
-Check:
+- complete the remaining canonical roadmap;
+- complete debugging and reliability hardening;
+- complete security testing and pentesting;
+- complete founder-controlled acceptance testing;
+- confirm billing and entitlements;
+- confirm all eight domain states;
+- confirm reports and PDFs;
+- confirm managed cases and alerts;
+- rerun tenant-isolation testing;
+- verify rollback;
+- close all P0 and P1 blockers.
 
-* Existing APIs
-* Existing pages
-* Existing tables
-* Existing modules
+The first cohort should remain controlled:
 
-Never build duplicates.
+- one real small business;
+- one small MSP or IT-support provider.
 
----
-
-## Rule 17 — Sprint Awareness
-
-Before proposing work:
-
-Review:
-
-* Current branch
-* Recent commits
-* Latest completed sprint
-
-Avoid re-proposing completed work.
+This is not an unrestricted public launch.
 
 ---
 
-## Rule 18 — Historical Tracking First
+# Documentation Map
 
-Prefer data that supports:
-
-* first_seen
-* last_seen
-* created_at
-* updated_at
-
-Trendable data is preferred.
-
----
-
-## Rule 19 — API Stability
-
-Existing APIs are public contracts.
-
-Do not:
-
-* Rename fields
-* Remove fields
-* Change response structures
-
-without versioning.
-
-Prefer:
-
-/api/v1/
-
-for future evolution.
+| Document | Purpose |
+| --- | --- |
+| `README.md` | product, architecture, setup and development |
+| `AGENTS.md` | permanent engineering constitution and roadmap discipline |
+| `CLAUDE.md` | AI product ownership, implementation and release authority |
+| `OPERATIONS.md` | production deploy, rollback, secrets, observability and incident response |
+| `CHANGELOG.md` | release history |
+| `docs/` | ADRs, runbooks, product rules and release gates |
 
 ---
 
-## Rule 20 — Mandatory Sprint Format
+# Licence and Commercial Status
 
-Every implementation response must contain:
+CyberMeters is a proprietary commercial SaaS platform.
 
-Goal
-
-Current State
-
-Tasks
-
-Validation
-
-Expected Outcome
-
-Suggested Commit
+Do not assume the repository is open source unless an explicit licence file states otherwise.
 
 ---
 
-# Development Workflow
+# Final Principle
 
-Before implementing any feature:
+CyberMeters is not measured by the number of scanners, findings or dashboards it contains.
 
-1. Review current architecture
-2. Review existing APIs
-3. Review database schema
-4. Review active branch
-5. Review latest commits
-6. Review roadmap priority
-7. Check for duplicate functionality
+It is measured by whether a real organisation can:
 
-Only then propose implementation.
-
----
-
-# Final Directive
-
-CyberMeters is no longer in the Scanner Development Phase.
-
-CyberMeters is in the Productization Phase.
-
-When uncertain:
-
-* Prefer stability over complexity
-* Prefer reuse over rewrites
-* Prefer productization over new scanners
-* Prefer commercial value over technical novelty
-
-Act as a Senior Software Engineer maintaining a production SaaS platform.
-
-<!-- deployment-mode verification probe: 2026-07-08T14:2x UTC — manual deploy mode check (docs-only, no code change) -->
+- understand its external exposure;
+- know what matters;
+- assign ownership;
+- act on clear remediation;
+- verify outcomes;
+- monitor recurrence;
+- trust the platform.
