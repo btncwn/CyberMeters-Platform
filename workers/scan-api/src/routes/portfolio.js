@@ -6,6 +6,7 @@
 // matches, or null so the main router continues.
 import { getEffectivePlan, hasFeatureEntitlement } from "../engines/entitlements.js";
 import { assemblePdf, buildPdfStreams } from "../engines/pdf.js";
+import { REPORT_FINDINGS_SQL, REPORT_RECOMMENDATIONS_SQL } from "../engines/report-queries.js";
 import { getEntitlementUsage, getPlanLimits, planLimitExceeded } from "../engines/plan-usage.js";
 import { computePortfolioRisk } from "../engines/portfolio-risk.js";
 import { computePortfolioCustomerRows, buildExecutiveSummary } from "../engines/portfolio-customers.js";
@@ -94,38 +95,19 @@ export async function portfolioRoutes(rctx) {
         domains = dr.results || [];
       } catch { /* tolerate */ }
 
-      // 4. Top findings (ordered by severity then recency)
+      // 4. Top findings — latest completed scan per domain only (REPORT_FINDINGS_SQL),
+      //    so a finding is never listed once per historical scan and resolved issues
+      //    do not resurface. Binds the workspace id twice (outer filter + scope).
       let findings = [];
       try {
-        const fr = await env.cybermeters_db.prepare(
-          `SELECT f.title, f.severity, f.recommendation, s.domain
-           FROM findings f
-           JOIN scans s ON s.id = f.scan_id
-           JOIN domains d ON d.id = s.domain_id
-           JOIN workspace_domains wd ON wd.domain_id = d.id
-           WHERE wd.workspace_id = ?
-           ORDER BY CASE f.severity
-             WHEN 'critical' THEN 1 WHEN 'high' THEN 2
-             WHEN 'medium'   THEN 3                ELSE 4 END,
-             s.created_at DESC
-           LIMIT 30`
-        ).bind(wsId).all();
+        const fr = await env.cybermeters_db.prepare(REPORT_FINDINGS_SQL).bind(wsId, wsId).all();
         findings = fr.results || [];
       } catch { /* tolerate */ }
 
-      // 5. Recommendations
+      // 5. Recommendations — same latest-completed-scan scope (REPORT_RECOMMENDATIONS_SQL).
       let recommendations = [];
       try {
-        const rr = await env.cybermeters_db.prepare(
-          `SELECT r.title, r.priority, r.action, r.reason, s.domain
-           FROM remediation_items r
-           JOIN scans s ON s.id = r.scan_id
-           JOIN domains d ON d.id = s.domain_id
-           JOIN workspace_domains wd ON wd.domain_id = d.id
-           WHERE wd.workspace_id = ?
-           ORDER BY r.priority ASC
-           LIMIT 10`
-        ).bind(wsId).all();
+        const rr = await env.cybermeters_db.prepare(REPORT_RECOMMENDATIONS_SQL).bind(wsId, wsId).all();
         recommendations = rr.results || [];
       } catch { /* tolerate */ }
 

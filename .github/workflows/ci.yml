@@ -80,6 +80,9 @@ jobs:
       - name: Validate MSP portfolio (cross-MSP isolation + change counts + exec summary)
         run: node scripts/validate-portfolio.js
 
+      - name: Validate executive-report scoping (latest-scan findings/recs, no historical pile-up)
+        run: node scripts/validate-report-findings-scoping.js
+
       - name: Validate identity exposure (login surfaces + impersonation + spoofing + isolation)
         run: node scripts/validate-identity-exposure.js
 
