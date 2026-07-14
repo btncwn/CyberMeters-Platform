@@ -61,7 +61,10 @@ function harness(prevReport) {
   db.prepare("INSERT INTO domains (id, user_id, domain) VALUES (?, ?, ?)").run("dom_1", "usr_1", "example.co.uk");
   db.prepare("INSERT INTO workspaces (id, name) VALUES (?, ?)").run("ws_1", "Acme");
   db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES (?, ?)").run("ws_1", "dom_1");
-  db.prepare("INSERT INTO scans (id, domain_id, domain, status, workspace_id, created_at) VALUES (?, ?, ?, ?, ?, ?)").run("scan_prev", "dom_1", "example.co.uk", "completed", "ws_1", "2026-07-01T10:00:00.000Z");
+  // Baseline must be a COMPLETE assessment — the posture-change comparator only
+  // fires against a complete previous scan (partial/degraded baselines are not
+  // authoritative and cannot anchor a change event).
+  db.prepare("INSERT INTO scans (id, domain_id, domain, status, scan_quality, workspace_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)").run("scan_prev", "dom_1", "example.co.uk", "completed", "complete", "ws_1", "2026-07-01T10:00:00.000Z");
   db.prepare("INSERT INTO scans (id, domain_id, domain, status, workspace_id, created_at) VALUES (?, ?, ?, ?, ?, ?)").run("scan_current", "dom_1", "example.co.uk", "completed", "ws_1", "2026-07-02T10:00:00.000Z");
   db.prepare(
     `INSERT INTO workspace_assets
