@@ -7,6 +7,49 @@ import { dnsQuery, dnsQueryDnssec, dnsQueryGoogle, dnsQueryQuad9, buildDnsCrossC
 import { buildDnsOperationalResilience } from "./dns-resilience.js";
 import { customerSafeFailure } from "../lib/errors.js";
 
+// ── CAA parsing (canonical) ──────────────────────────────────────────────────
+// Pure: DoH CAA answers → the caa module shape. Exported so the managed verification
+// profile can re-observe CAA with EXACTLY the parsing the scan used, rather than a
+// second implementation that could disagree with the finding it is verifying.
+export function buildCaaFromAnswers(answers) {
+  const records = (answers || []).map((r) => (r.data || "").trim()).filter(Boolean);
+  const caaEntries = records.map((record) => {
+    const m = record.match(/^(\d+)\s+([A-Za-z0-9_-]+)\s+"?(.+?)"?$/);
+    return m ? { flags: Number(m[1]), tag: m[2].toLowerCase(), value: m[3].replace(/"$/, "").trim() } : null;
+  }).filter(Boolean);
+  const extractCaaTag = (tag) => caaEntries.filter((r) => r.tag === tag).map((r) => r.value).filter(Boolean);
+  const issuers = extractCaaTag("issue");
+  const wildcardIssuers = extractCaaTag("issuewild");
+  const iodef = extractCaaTag("iodef");
+  const uniqueIssuers = new Set([...issuers, ...wildcardIssuers]);
+  const qualityScore =
+    records.length === 0 ? 0 :
+    uniqueIssuers.size === 0 ? 30 :
+    uniqueIssuers.size === 1 && wildcardIssuers.length === 0 && iodef.length > 0 ? 100 :
+    uniqueIssuers.size === 1 ? 85 :
+    wildcardIssuers.length > 0 && iodef.length > 0 ? 75 :
+    wildcardIssuers.length > 0 ? 60 :
+    iodef.length > 0 ? 80 : 70;
+  return {
+    present:          records.length > 0,
+    records,
+    issuers,
+    wildcard_issuers: wildcardIssuers,
+    iodef,
+    quality: {
+      score: qualityScore,
+      status:
+        records.length === 0 ? "no_caa" :
+        uniqueIssuers.size === 0 ? "no_issuers" :
+        uniqueIssuers.size === 1 ? "single_ca" : "multiple_ca",
+      wildcard_issuer_usage: wildcardIssuers.length > 0,
+      iodef_present: iodef.length > 0,
+      issuer_count: uniqueIssuers.size,
+    },
+    error:            null,
+  };
+}
+
 export async function runDnsModule(domain) {
   // CAA and DNSSEC trust evidence run here alongside A/AAAA/NS/MX.
   // Placing CAA in the DNS module avoids adding subrequests to later phases
@@ -54,45 +97,7 @@ export async function runDnsModule(domain) {
   // ── CAA Record Analysis ─────────────────────────────────────────────────
   let caa;
   if (caaRes.status === "fulfilled") {
-    const answers = caaRes.value.Answer || [];
-    const records = answers.map((r) => (r.data || "").trim()).filter(Boolean);
-    const caaEntries = records.map((record) => {
-      const m = record.match(/^(\d+)\s+([A-Za-z0-9_-]+)\s+"?(.+?)"?$/);
-      return m ? { flags: Number(m[1]), tag: m[2].toLowerCase(), value: m[3].replace(/"$/, "").trim() } : null;
-    }).filter(Boolean);
-    function extractCaaTag(tag) {
-      return caaEntries.filter((r) => r.tag === tag).map((r) => r.value).filter(Boolean);
-    }
-    const issuers = extractCaaTag("issue");
-    const wildcardIssuers = extractCaaTag("issuewild");
-    const iodef = extractCaaTag("iodef");
-    const uniqueIssuers = new Set([...issuers, ...wildcardIssuers]);
-    const qualityScore =
-      records.length === 0 ? 0 :
-      uniqueIssuers.size === 0 ? 30 :
-      uniqueIssuers.size === 1 && wildcardIssuers.length === 0 && iodef.length > 0 ? 100 :
-      uniqueIssuers.size === 1 ? 85 :
-      wildcardIssuers.length > 0 && iodef.length > 0 ? 75 :
-      wildcardIssuers.length > 0 ? 60 :
-      iodef.length > 0 ? 80 : 70;
-    caa = {
-      present:          records.length > 0,
-      records,
-      issuers,
-      wildcard_issuers: wildcardIssuers,
-      iodef,
-      quality: {
-        score: qualityScore,
-        status:
-          records.length === 0 ? "no_caa" :
-          uniqueIssuers.size === 0 ? "no_issuers" :
-          uniqueIssuers.size === 1 ? "single_ca" : "multiple_ca",
-        wildcard_issuer_usage: wildcardIssuers.length > 0,
-        iodef_present: iodef.length > 0,
-        issuer_count: uniqueIssuers.size,
-      },
-      error:            null,
-    };
+    caa = buildCaaFromAnswers(caaRes.value.Answer || []);
   } else {
     caa = {
       present: false, records: [], issuers: [],

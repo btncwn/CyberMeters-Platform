@@ -12,6 +12,7 @@ import { processAlertsForWorkspace } from "./alerts.js";
 import { createManagedAsmCasesForScan, verifyManagedAsmCasesForScan } from "./asm-cases.js";
 import { sendAssetChangeAlert } from "./asset-alert-delivery.js";
 import { annotateExposureInfrastructure, deduplicateExposureAssets, runAdminSurfaceModule, runExposureModule, runRemediationModule, runRiskModule } from "./asset-intel.js";
+import { buildDseFindings } from "./dse-findings.js";
 import { upsertAssetInventory } from "./asset-inventory.js";
 import { upsertBrandAssets, upsertIdentityAssets } from "./asset-persistence.js";
 import { runTyposquatModule } from "./brand-typosquat.js";
@@ -504,107 +505,13 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       }
     }
 
-    // Append domain security enrichment findings (score_impact: 0 — no major scoring changes)
-    const enrichMod = modules.domain_security_enrichment;
-    if (enrichMod && !enrichMod.error) {
-      // ── CAA ──────────────────────────────────────────────────────────────
-      if (enrichMod.caa && !enrichMod.caa.error) {
-        if (!enrichMod.caa.present) {
-          findings.push({
-            id:             "dse_missing_caa",
-            module:         "domain_security_enrichment",
-            severity:       "medium",
-            score_impact:   0,
-            title:          "No CAA DNS Record",
-            description:    "This domain has no CAA (Certification Authority Authorization) record. Without CAA, any publicly trusted CA can issue TLS certificates for this domain, increasing the risk of mis-issuance.",
-            recommendation: `Add a DNS CAA record to restrict which CAs may issue certificates. Example: \`0 issue "letsencrypt.org"\`, \`0 issue "pki.goog"\`. Add \`0 iodef "mailto:security@${domain}"\` to receive mis-issuance reports.`,
-          });
-        } else if (enrichMod.caa.issuers.length === 0 && enrichMod.caa.records.length > 0) {
-          findings.push({
-            id:             "dse_caa_no_issuers",
-            module:         "domain_security_enrichment",
-            severity:       "low",
-            score_impact:   0,
-            title:          "CAA Record Present But No Issuers Listed",
-            description:    `A CAA record exists but contains no \`issue\` or \`issuewild\` tags, which effectively blocks all certificate issuance for this domain.`,
-            recommendation: `Add at least one \`0 issue "<ca>"\` tag to allow your CA to issue certificates.`,
-          });
-        }
-      }
+    // Append domain security enrichment findings (score_impact: 0 — no major scoring
+    // changes). The conditions and copy live in dse-findings.js so that the managed
+    // verification profile evaluates the SAME predicates when deciding whether a
+    // customer's fix actually removed the issue.
+    findings.push(...buildDseFindings(modules.domain_security_enrichment, domain));
 
-      // ── HSTS ─────────────────────────────────────────────────────────────
-      if (enrichMod.hsts && !enrichMod.hsts.error && enrichMod.hsts.present) {
-        const h = enrichMod.hsts;
-        if (h.max_age !== null && h.max_age < 31_536_000) {
-          findings.push({
-            id:             "dse_hsts_short_maxage",
-            module:         "domain_security_enrichment",
-            severity:       "low",
-            score_impact:   0,
-            title:          "HSTS max-age Below Recommended Minimum",
-            description:    `The HSTS header specifies max-age=${h.max_age} seconds (${Math.round(h.max_age / 86400)} days). The recommended minimum is 31,536,000 (365 days) to qualify for the HSTS preload list and ensure robust protection.`,
-            recommendation: "Set Strict-Transport-Security: max-age=31536000; includeSubDomains; preload",
-          });
-        }
-        if (!h.preload_eligible && h.present) {
-          const missing = [];
-          if (!h.include_subdomains)   missing.push("includeSubDomains");
-          if (!h.preload_directive)    missing.push("preload directive");
-          if (h.max_age === null || h.max_age < 31_536_000) missing.push("max-age ≥ 31536000");
-          if (missing.length > 0) {
-            findings.push({
-              id:             "dse_hsts_not_preload_eligible",
-              module:         "domain_security_enrichment",
-              severity:       "low",
-              score_impact:   0,
-              title:          "HSTS Not Eligible for Preload List",
-              description:    `This domain's HSTS configuration is missing the following preload requirements: ${missing.join(", ")}. Preloaded HSTS protects users on their very first visit before any HSTS header is seen.`,
-              recommendation: "Update to: Strict-Transport-Security: max-age=31536000; includeSubDomains; preload — then submit to https://hstspreload.org",
-            });
-          }
-        }
-      }
 
-      // ── Cookies ───────────────────────────────────────────────────────────
-      if (enrichMod.cookies && !enrichMod.cookies.error && enrichMod.cookies.found > 0) {
-        const c = enrichMod.cookies;
-        if (c.insecure_count > 0) {
-          findings.push({
-            id:             "dse_cookie_no_secure",
-            module:         "domain_security_enrichment",
-            severity:       "high",
-            score_impact:   0,
-            title:          `${c.insecure_count} Cookie${c.insecure_count > 1 ? "s" : ""} Missing Secure Flag`,
-            description:    `${c.insecure_count} of ${c.found} cookie${c.found > 1 ? "s" : ""} set by ${domain} lack the Secure flag. These cookies may be transmitted over unencrypted HTTP connections, exposing session tokens to network interception.`,
-            recommendation: "Add the Secure attribute to all session and authentication cookies: Set-Cookie: name=value; Secure; HttpOnly; SameSite=Strict",
-          });
-        }
-        if (c.no_httponly > 0) {
-          findings.push({
-            id:             "dse_cookie_no_httponly",
-            module:         "domain_security_enrichment",
-            severity:       "medium",
-            score_impact:   0,
-            title:          `${c.no_httponly} Cookie${c.no_httponly > 1 ? "s" : ""} Missing HttpOnly Flag`,
-            description:    `${c.no_httponly} cookie${c.no_httponly > 1 ? "s are" : " is"} accessible via JavaScript. If an XSS vulnerability exists, these cookies can be exfiltrated by injected scripts.`,
-            recommendation: "Add HttpOnly to all cookies that do not need to be accessed by JavaScript (session tokens, auth cookies).",
-          });
-        }
-        if (c.no_samesite > 0) {
-          findings.push({
-            id:             "dse_cookie_no_samesite",
-            module:         "domain_security_enrichment",
-            severity:       "low",
-            score_impact:   0,
-            title:          `${c.no_samesite} Cookie${c.no_samesite > 1 ? "s" : ""} Missing SameSite Attribute`,
-            description:    `${c.no_samesite} cookie${c.no_samesite > 1 ? "s do" : " does"} not specify a SameSite attribute. Without SameSite, browsers may send these cookies in cross-site requests, enabling CSRF attacks.`,
-            recommendation: "Set SameSite=Strict or SameSite=Lax on all cookies. Use SameSite=None; Secure only for cookies that must be sent in cross-site contexts.",
-          });
-        }
-      }
-    }
-
-    // Phase 4: Historical Change Detection — runs after computeScore so current
     // score and findings are known. Mutates modules in place before R2 write.
     try {
       modules.historical_changes = await runHistoricalModule(

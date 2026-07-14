@@ -248,8 +248,15 @@ const TAKEOVER_FINGERPRINTS = [
  * Requires modules.subdomains.items as input — always runs after subdomain
  * discovery so no extra CT lookups are needed.
  */
-export async function runTakeoverModule(domain, subdomains) {
+// opts.fetcher / opts.dnsQueryImpl are injectable so the managed-verification profile can
+// re-run this EXACT detector for a single host through its SSRF-guarded reserved probe
+// (house pattern, mirrors runExposureModule). Defaults preserve the scan's behaviour
+// unchanged — a null return from an injected fetcher means "refused", handled like a
+// failed fetch (no risk confirmed).
+export async function runTakeoverModule(domain, subdomains, opts = {}) {
   const source = "subdomain_cname_fingerprint";
+  const fetchImpl = typeof opts.fetcher === "function" ? opts.fetcher : null;
+  const dnsImpl = typeof opts.dnsQueryImpl === "function" ? opts.dnsQueryImpl : dnsQuery;
 
   if (!subdomains || subdomains.length === 0) {
     return { checked: 0, potential_risks: 0, risks: [], source, error: null };
@@ -260,7 +267,7 @@ export async function runTakeoverModule(domain, subdomains) {
 
   // Step 1: CNAME lookups for all targets in parallel
   const cnameResults = await Promise.allSettled(
-    targets.map((host) => dnsQuery(host, "CNAME"))
+    targets.map((host) => dnsImpl(host, "CNAME"))
   );
 
   // Step 2: collect candidates whose CNAME resolves to a known vulnerable provider
@@ -288,9 +295,9 @@ export async function runTakeoverModule(domain, subdomains) {
 
   // Step 3: fetch each candidate to confirm takeover via body fingerprint
   const bodyResults = await Promise.allSettled(
-    candidates.map((c) =>
-      safeFetch(`https://${c.host}`, { method: "GET", redirect: "follow" })
-    )
+    candidates.map((c) => (fetchImpl
+      ? fetchImpl(`https://${c.host}`)
+      : safeFetch(`https://${c.host}`, { method: "GET", redirect: "follow" })))
   );
 
   const risks = [];
