@@ -5,6 +5,52 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.14 (v2026.07.14-7 — bounded scheduled report generation) — deployed 2026-07-14
+
+### Fix (architecture audit follow-up — the single launch-adjacent finding)
+- **Bound scheduled executive-report generation** (PR **#65**, merge **4fa09b0**).
+  Source: the Product Capability & Execution Architecture Audit, which flagged
+  `generateScheduledReports` as the only launch-adjacent item — it iterated **every**
+  workspace in one hourly cron invocation (no batch limit, no `deleted_at` filter, no
+  entitlement re-check, status-blind idempotency). **No migration; no Queue/Durable
+  Object; no new Worker/DB; no scan-orchestration or report-content change.**
+  - New `engines/scheduled-reports.js` makes the cron job **bounded** (
+    `SCHEDULED_REPORT_BATCH_LIMIT`, default **25**, env-tunable, clamped [1,100]; the
+    deferred remainder drains across the report-day's later hourly invocations),
+    **deterministic + fair** (never-attempted jobs first so a persistent failure can't
+    starve fresh workspaces, then report_type, then workspace id ascending),
+    **idempotent** (a completed `workspace_reports` row for (workspace, type, period)
+    is the claim; the R2 key is deterministic per that tuple so an overlapping run
+    writes one artifact; dedup is now `status='completed'`-scoped, so a stale
+    pending/failed period is retried not blocked — no migration required),
+    **entitlement-aware** (re-checks workspace-active + effective plan `pdf_reports` +
+    report quota via the canonical helpers; skipped jobs create no report row / R2
+    object / email / usage increment — closes a free-plan auto-PDF gap), and
+    **observable** (one structured summary per invocation + per-failure reason codes).
+  - `index.js` handler is now a thin isolated wrapper; the cron registry, other ~13
+    hourly tasks, and PDF/report builders are untouched.
+  - **Batch-limit rationale:** each executive report is ~a handful of subrequests +
+    one PDF build; 25/invocation is a few hundred subrequests (well within the
+    per-invocation budget, leaving room for the other cron tasks) and, drained across
+    24 hourly invocations, covers hundreds of workspaces per report-day.
+  - **Tests:** `validate-bounded-scheduled-reports.js` (33 assertions — matrix A–L:
+    no-due / below-limit / above-limit / next-invocation / deterministic-tie /
+    failure-isolation / overlap-idempotency / entitlement-change / deleted-workspace /
+    R2-failure / completed-only-dedup / generation-unchanged, plus fairness,
+    observability, batch resolution), wired into CI. Full regression + report scoping +
+    branding + lifecycle email + weekly digest + tenant isolation + migrations +
+    error-contract + wrangler dry-run green.
+  - **Production smoke (side-effect-safe):** batch default 25/max 100 (no override); 7
+    eligible workspaces (all fit one invocation now — the bound activates past 25 at
+    scale); today (Tue) is a confirmed live no-op (due_types `[]`, 0 executive reports
+    created in 2h); next Monday deterministically → `weekly_executive 2026-W30`. No
+    customer reports created during the smoke.
+  - **Deployed Worker Version ID:** `b96353c2-8893-46cd-ad7e-e257daea17e0`.
+  - **Rollback Version ID:** `1763d1d4-5110-4517-9739-58a79c1bf809`.
+  - **Residual (non-blocking):** stale `pending` rows from a crashed generation are
+    left in place (not `completed`, so J-safe and non-blocking); the deeper scan-
+    execution queue/DO separation remains post-launch scaling work (not this episode).
+
 ## 2026.07.14 (v2026.07.14-6 — security invariant stabilization) — deployed 2026-07-14
 
 ### Fix (audit follow-up — close localized invariant gaps before the architecture audit)
