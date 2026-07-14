@@ -5,6 +5,102 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.14 (v2026.07.14-5 — partial-scan score honesty) — deployed 2026-07-14
+
+### Fix (customer trust — a partial assessment could read as a clean "Excellent")
+- **Partial-scan score honesty** (PR **#63**, merge
+  **896d93fb** — `896d93f`; follow-up honesty fixes on main `1e934b5`, `190e6b8`,
+  `2f6dd72`).
+  - **Root cause:** a scan's score was computed purely from findings, so a scan
+    that skipped risk-producing checks (timeout / subrequest budget / dependency
+    degraded) produced *fewer deductions* → a *higher* score, and `scan_quality`
+    was never persisted to D1 or fed into score/rating/trend. A partial scan could
+    therefore score 95/"Excellent" while a complete scan scored 82/"Good", and a
+    workspace whose only scan was partial headlined a clean rating.
+  - **Model (strict):** `scan_quality ∈ complete | partial | degraded | unknown`
+    (NULL = unknown, never complete). Only a **complete** assessment is
+    authoritative, comparable, and may carry an unqualified rating. Partial /
+    degraded / unknown are **provisional**: raw score shown as observed (no
+    dampening/clamping), **no rating**, with a status caveat. Authoritative current
+    posture = latest **complete** scan (tie-break `created_at DESC, id DESC`); a
+    newer partial never replaces it. Trend deltas are **complete-vs-complete only**.
+  - **Canonical seams:** one presentation resolver
+    `resolveAssessmentPresentation({score,scanQuality,status})` and one posture
+    selector `getAuthoritativeCurrentPosture` / `getCurrentPosturePresentation`.
+    Every customer surface delegates to them — scan-detail + report API, executive
+    report, scorecard (API + PDF), executive dashboard, workspace insights,
+    portfolio customer rating, scan-report PDF, executive-workspace PDF, workspace
+    detail, and the main Dashboard. Score-drop alerts fire only on a comparable
+    (complete) delta. Enforced by a static contract test
+    (`validate-canonical-presentation-parity.js`, 32 assertions) that fails CI if a
+    consumer re-introduces a divergent rating.
+  - **Persistence:** migration **080** adds `scan_quality` to `scans` and
+    `historical_scores` (additive `ALTER ADD COLUMN`, no DROP). `finalizeScanResult`
+    and the stuck-scan reconciler both write it. **Migration 080 result (remote
+    D1):** 2 columns added; row counts unchanged (**scans 82 / historical_scores
+    81**); all values initially NULL; **zero** defaulted to complete.
+  - **Controlled new-scan D1/R2 parity proof (2026-07-14):** one authorised scan on
+    the canonical BBB workspace-domain (scan `scan_a10a9af0`) finalized
+    **status=completed, score=87**; **D1 `scans.scan_quality`=complete = R2
+    `report.scan_quality.status`=complete = `historical_scores.scan_quality`=
+    complete**; exactly 1 scan row + 1 historical row (no duplicate scan/report/case
+    side-effects).
+  - **Backfill reconciliation** (one-time auditable script
+    `scripts/backfill-scan-quality.js`, reads canonical R2, never infers complete):
+    80 completed scans inspected · 80 R2 reports found · 0 missing · **2 parse
+    failures left NULL** (legacy reports predating the `scan_quality` report field —
+    the honest "cannot establish" set) · derived 38 complete / 31 partial / 9
+    degraded / 0 explicit-unknown · **77 scans + 77 historical_scores updated** (1
+    already-set: the controlled scan). **Second dry-run: 0 remaining updates.** Final
+    D1: scans 38/31/9 + 2 NULL; historical 38/31/9 + 4 NULL (1 parse-failure
+    completed scan + 3 orphan rows whose `scans` row was purged). No scan inferred
+    complete without R2 evidence. (Note: the pre-merge estimate of "23 missing" was
+    from a stale local run; production R2 actually holds all reports — the real
+    leave-NULL count is 2.)
+  - **Fixture proofs (live, post-backfill):** `scan_5e51158e` → scan_quality=partial,
+    provisional=true, authoritative=false, comparable=false, **no rating**;
+    `scan_50cabd4d` → scan_quality=complete, authoritative-eligible, rating=Good.
+  - **Authoritative posture proofs (live APIs):** BBB workspace — Executive Dashboard
+    + Scorecard both report authoritative **87/Good** from the newest **complete**
+    scan; newer partials present but never chosen (Dashboard first-complete selection
+    == backend selector, MATCH). SSO-test workspace (only a partial-95 scan) —
+    `not_established`, provisional 95, **display_rating null**, "Current posture not
+    yet established." Executive-workspace PDF: BBB "Cyber Posture: 87 / 100 — Good";
+    SSO "Not yet established" (no "Excellent"). Scan-report PDF: partial → "Provisional
+    Score" + caveat, complete → "Good". Workspace-detail API: BBB posture 87/good,
+    SSO not-established/null rating.
+  - **Alert suppression proof:** **0** score-drop `notification_events` since deploy
+    (the only such event, "-25 points" at 2026-07-13 18:48, predates the fix and is
+    itself an artifact of the old bug — a 70-partial following a 95-complete).
+  - **Divergent-consumer audit (during rollout):** two surfaces initially still
+    rendered a partial as a clean rating and were fixed before release — the
+    executive-workspace PDF (`190e6b8`) and the workspace-detail Cyber Score
+    (`2f6dd72`). Audited-clean: scorecard PDF, portfolio customer rating, and
+    workspace-insights are already complete-only; ASM 30-day averages are score-only
+    (no rating).
+  - **Rollout order (race-safe):** migration 080 applied → **Worker deployed** (so
+    the code that writes `scan_quality` was live before any backfill) → controlled
+    scan parity proof → backfill dry-run → apply → second dry-run (0 remaining).
+  - **D1/R2 consistency model:** R2 is the canonical finalized report artifact; D1
+    normally persists the same `scan_quality` during finalization; the two may
+    temporarily diverge after a partial persistence failure; a NULL D1 value is
+    treated as unknown / non-authoritative / non-comparable (fail-safe); the
+    stuck-scan reconciler converges D1 from the canonical R2 report. Divergence is
+    possible, not impossible — the failure-path test asserts a NULL D1 stays
+    non-authoritative and is restored from R2.
+  - **Tests:** `validate-partial-scan-honesty.js` (56, drives real worker.fetch),
+    `validate-canonical-presentation-parity.js` (32, static contract),
+    `validate-posture-events.js` (17, complete baseline), portfolio 39/39, migrations
+    guard 90/90, tenant-isolation, error-contract, regression, frontend
+    typecheck/build, `wrangler --dry-run` — all green. Two new suites added to CI.
+  - **Deployed Worker Version ID:** `7eb57f71-c27a-4f0d-83cb-0983588f8b52`
+    (intermediate release deploys: `10f66998` post-merge, `8d91a9ab` exec-PDF fix).
+  - **Rollback Version ID:** `c1dd9175-150a-40c0-8f1c-06d97c84bde8`.
+  - **Residual:** the portfolio overview "Avg Score" StatCard (`portfolio.js:262`)
+    is a bare number (no rating) computed via the shared latest-scan CTE that also
+    feeds critical-finding counts; left as-is to avoid changing finding aggregation —
+    tightening it to complete-only is a low-priority consistency follow-up.
+
 ## 2026.07.14 (v2026.07.14-4 — workspace-scoped domain verification + scan-start gate) — deployed 2026-07-14
 
 ### Fix (security beta-blocker — scans required workspace-level proof of control)
