@@ -217,19 +217,33 @@ export function providerForInfrastructureHostname(value) {
 }
 
 export function classifyProviderInfrastructure(asset, cname = null) {
+  // Provider ASSET OWNERSHIP requires STRONG corroborating evidence, distinct from mere
+  // edge/CDN technology in the path:
+  //   • a CNAME whose target is a provider suffix, or
+  //   • a redirect whose final host is a provider suffix, or
+  //   • the provider's own DEFAULT/PARKED page served over that provider's edge.
   const cnameMetadata = providerMetadataForHostname(cname);
   const redirectMetadata = providerMetadataForHostname(asset?.url);
-  const cloudflareEdge = (asset?.tech || []).includes("Cloudflare") || /cloudflare/i.test(asset?.server || "");
-  const metadata = cnameMetadata || redirectMetadata || (cloudflareEdge
+
+  // Edge/CDN technology signal (server: cloudflare, cf-ray → tech "Cloudflare") is NOT
+  // proof of provider ownership. A customer's own admin panel is commonly served through
+  // a CDN, and — critically — a Cloudflare Worker's OWN outbound fetch stamps
+  // `server: cloudflare` onto responses from non-Cloudflare origins, so this header from
+  // the scanner's vantage is a fetch-path artifact. It only corroborates provider
+  // ownership when the response is the provider's DEFAULT/PARKED page (not customer content).
+  const edgeCdnTech = (asset?.tech || []).includes("Cloudflare") || /cloudflare/i.test(asset?.server || "");
+  const providerDefaultPage = edgeCdnTech && GENERIC_DEFAULT_PAGE_RE.test(asset?.title || "");
+
+  const metadata = cnameMetadata || redirectMetadata || (providerDefaultPage
     ? { provider: "Cloudflare", service: "Cloudflare Edge", hostname: null }
     : null);
-  if (!metadata) return { provider_owned_infrastructure: false };
+  if (!metadata) return { provider_owned_infrastructure: false, infrastructure_provider: null, infrastructure_evidence: null };
   return {
     provider_owned_infrastructure: true,
     infrastructure_provider: metadata.provider,
     infrastructure_service: metadata.service,
     infrastructure_relationship: "supporting_infrastructure",
-    infrastructure_evidence: cnameMetadata ? "dns_cname" : redirectMetadata ? "http_redirect" : "http_header",
+    infrastructure_evidence: cnameMetadata ? "dns_cname" : redirectMetadata ? "http_redirect" : "provider_default_page",
   };
 }
 

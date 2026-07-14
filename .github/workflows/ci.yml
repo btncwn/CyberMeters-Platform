@@ -35,6 +35,9 @@ jobs:
       - name: Validate scanner regression fixtures
         run: node scripts/validate-regression-fixtures.js
 
+      - name: Validate provider-infra classification (edge/CDN tech ≠ provider ownership)
+        run: node scripts/validate-provider-classification.js
+
       - name: Validate security contracts (auth / MFA / RBAC / billing)
         run: node scripts/validate-security-contracts.js
 
