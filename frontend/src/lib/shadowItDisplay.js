@@ -4,14 +4,21 @@
 // those come from the backend classification service; screens only display the
 // state and POST an action the server validates. No invented states.
 
-// Classification labels (must match backend SHADOW_IT_CLASSIFICATIONS).
+// Classification labels (must match backend SHADOW_IT_CLASSIFICATIONS — the
+// customer decision). Ownership is a SEPARATE server-derived dimension below.
 export const CLASSIFICATION_META = {
   unreviewed:    { label: 'Unreviewed',    tone: 'slate'  },
   approved:      { label: 'Approved',      tone: 'green'  },
   rejected:      { label: 'Rejected',      tone: 'red'    },
   exception:     { label: 'Exception',     tone: 'amber'  },
-  unknown_owner: { label: 'Unknown owner', tone: 'amber'  },
   retired:       { label: 'Retired',       tone: 'slate'  },
+}
+
+// Server-derived ownership status (must match backend SHADOW_IT_OWNERSHIP_STATUSES).
+export const OWNERSHIP_META = {
+  known:   { label: 'Owned',         tone: 'green' },
+  partial: { label: 'Partial owner', tone: 'amber' },
+  missing: { label: 'Owner missing', tone: 'red'   },
 }
 
 // Monitoring status labels (must match backend monitoring_status values).
@@ -36,6 +43,9 @@ export function classificationMeta(c) {
 }
 export function monitoringMeta(s) {
   return MONITORING_META[s] || { label: humanize(s), tone: 'slate' }
+}
+export function ownershipMeta(s) {
+  return OWNERSHIP_META[s] || { label: humanize(s), tone: 'slate' }
 }
 export function toneClass(tone) {
   return TONE_CLASS[tone] || TONE_CLASS.slate

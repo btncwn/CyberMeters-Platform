@@ -59,7 +59,7 @@ function seedVendor(ws, name, category, { conf = "medium", evidence = [], first 
 // ── 1. Canonical identity determinism + product distinctness ─────────────────
 eq("canonical key is deterministic", canonicalTechnologyKey("Microsoft 365"), canonicalTechnologyKey("microsoft 365"));
 ok("unrelated products of one provider get distinct keys", canonicalTechnologyKey("Google Workspace") !== canonicalTechnologyKey("Google Cloud"));
-eq("exactly six classification keys", SHADOW_IT_CLASSIFICATIONS.length, 6);
+eq("exactly five classification keys (ownership is separate)", SHADOW_IT_CLASSIFICATIONS.length, 5);
 eq("twelve workflow actions", SHADOW_IT_WORKFLOW_ACTIONS.length, 12);
 
 // ── 2. Correlation — same tech merges, unrelated products don't ─────────────

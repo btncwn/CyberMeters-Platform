@@ -1,17 +1,28 @@
 import { describe, it, expect } from 'vitest'
 import {
-  CLASSIFICATION_META, MONITORING_META, TONE_CLASS,
-  classificationMeta, monitoringMeta, toneClass, SHADOW_IT_SCOPE_NOTE,
+  CLASSIFICATION_META, MONITORING_META, OWNERSHIP_META, TONE_CLASS,
+  classificationMeta, monitoringMeta, ownershipMeta, toneClass, SHADOW_IT_SCOPE_NOTE,
 } from '../shadowItDisplay'
 
 describe('shadowItDisplay — canonical presentation of server-owned states', () => {
-  it('maps the six backend classifications to labels + tones', () => {
-    for (const c of ['unreviewed', 'approved', 'rejected', 'exception', 'unknown_owner', 'retired']) {
+  it('maps the five backend classifications to labels + tones', () => {
+    for (const c of ['unreviewed', 'approved', 'rejected', 'exception', 'retired']) {
       const meta = classificationMeta(c)
       expect(meta.label).toBeTruthy()
       expect(TONE_CLASS[meta.tone]).toBeTruthy()
       expect(CLASSIFICATION_META[c]).toEqual(meta)
     }
+    expect(Object.keys(CLASSIFICATION_META)).toHaveLength(5)
+  })
+
+  it('maps the three server-derived ownership statuses (separate from classification)', () => {
+    for (const s of ['known', 'partial', 'missing']) {
+      const meta = ownershipMeta(s)
+      expect(meta.label).toBeTruthy()
+      expect(TONE_CLASS[meta.tone]).toBeTruthy()
+      expect(OWNERSHIP_META[s]).toEqual(meta)
+    }
+    expect(ownershipMeta('other').tone).toBe('slate')
   })
 
   it('maps the three monitoring states to labels + tones', () => {

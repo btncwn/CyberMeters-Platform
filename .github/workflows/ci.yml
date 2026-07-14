@@ -119,6 +119,9 @@ jobs:
       - name: Validate Shadow IT approved inventory (identity + correlation + classification + case linkage + isolation)
         run: node scripts/validate-shadow-it-inventory.js
 
+      - name: Validate Shadow IT correlation depth (multi-source + alias + evidence union + ownership + monitoring + removal contradiction + case reopen)
+        run: node scripts/validate-shadow-it-correlation.js
+
       - name: Validate ASM remediation loop (managed cases + verification)
         run: node scripts/validate-asm-remediation-loop.js
 
