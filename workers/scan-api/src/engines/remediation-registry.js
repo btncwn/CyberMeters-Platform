@@ -365,7 +365,7 @@ export const REMEDIATION_REGISTRY = Object.freeze([
   entry({
     remediation_id: "asm.exposure.admin",
     domain_key: "attack_surface",
-    finding_types: ["asset_exposure_admin_interface"],
+    finding_types: ["asset_exposure_admin_interface", "admin_surface_critical", "admin_surface_high", "admin_surface_medium"],
     customer_title: "Restrict administrative interfaces",
     technical_explanation: "Administrative interfaces were reachable directly from the public internet.",
     business_impact: "Publicly reachable admin panels are a primary target for credential attacks and unauthorised access.",
@@ -614,6 +614,35 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     verification_evidence_requirements: "HTTPS coverage is observed on a fresh scan.",
     supporting_evidence_types: ["https_probe", "certificate_transparency_observation"],
   }),
+  entry({
+    remediation_id: "cert.intelligence.review",
+    domain_key: "certificates_trust",
+    finding_types: ["certificate_intelligence_review", "ce_cert_review"],
+    customer_title: "Review certificate intelligence signals",
+    technical_explanation: "Certificate intelligence surfaced an elevated risk signal — for example an approaching expiry, an unexpected issuer, or a suspicious certificate observation.",
+    business_impact: "Unreviewed certificate signals can hide an impending outage or an unauthorised certificate issued for your domain.",
+    recommended_action: "Review certificate expiry, issuer and any suspicious certificate signals; renew or reissue where needed and confirm the change on a fresh scan.",
+    effort: "low",
+    owner_type: "customer_it",
+    verification_method: "rescan",
+    verification_evidence_requirements: "The certificate signal is resolved or confirmed expected on a fresh scan.",
+    supporting_evidence_types: ["certificate_transparency_observation", "https_probe"],
+    limitations: ["Based on Certificate Transparency and HTTP evidence; chain, root trust, OCSP and revocation status are not verified."],
+  }),
+  entry({
+    remediation_id: "cert.caa.configure",
+    domain_key: "certificates_trust",
+    finding_types: ["dse_missing_caa", "dse_caa_no_issuers", "caa_not_configured"],
+    customer_title: "Configure a CAA record",
+    technical_explanation: "No CAA record — or a CAA record with no authorised issuer — was found for the domain. CAA restricts which certificate authorities may issue certificates for your domain.",
+    business_impact: "Without CAA, any certificate authority can be persuaded to issue a certificate for your domain, widening the mis-issuance attack surface.",
+    recommended_action: "Publish a CAA record at the zone apex listing every certificate authority you actually use (0 issue \"<ca>\"), and add an iodef contact to receive mis-issuance reports.",
+    effort: "low",
+    owner_type: "customer_it",
+    verification_method: "dns_recheck",
+    verification_evidence_requirements: "A CAA record with at least one authorised issuer is observed.",
+    supporting_evidence_types: ["dns_lookup"],
+  }),
 
   // ─────────────────────────── WEBSITE SECURITY ──────────────────────────────
   entry({
@@ -633,7 +662,7 @@ export const REMEDIATION_REGISTRY = Object.freeze([
   entry({
     remediation_id: "web.header.hsts",
     domain_key: "website_security",
-    finding_types: ["header_missing_strict_transport_security", "header_weak_hsts", "header_malformed_strict_transport_security", "dse_hsts_short_maxage"],
+    finding_types: ["header_missing_strict_transport_security", "header_weak_hsts", "header_malformed_strict_transport_security", "dse_hsts_short_maxage", "dse_hsts_not_preload_eligible"],
     customer_title: "Add or strengthen HSTS",
     technical_explanation: "The Strict-Transport-Security header is missing, weak or malformed, so browsers are not told to always use HTTPS.",
     business_impact: "Without strong HSTS, users can be downgraded to HTTP by an attacker on the network.",
@@ -717,7 +746,7 @@ export const REMEDIATION_REGISTRY = Object.freeze([
   entry({
     remediation_id: "web.cookie.flags",
     domain_key: "website_security",
-    finding_types: ["dse_cookie_no_secure", "dse_cookie_no_httponly"],
+    finding_types: ["dse_cookie_no_secure", "dse_cookie_no_httponly", "dse_cookie_no_samesite"],
     customer_title: "Set secure cookie flags",
     technical_explanation: "Cookies were set without the Secure and/or HttpOnly flags.",
     business_impact: "Cookies without these flags can be sent over HTTP or read by scripts, increasing session-hijacking risk.",
@@ -758,6 +787,36 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     verification_evidence_requirements: "Certification is confirmed by an IASME-accredited certification body, not by CyberMeters.",
     supporting_evidence_types: ["self_attestation"],
     limitations: ["Readiness is an estimate over observable controls and self-attestation; it is not a Cyber Essentials certification and does not replace assessment."],
+  }),
+  entry({
+    remediation_id: "ce.backlog.remediate",
+    domain_key: "cyber_essentials_readiness",
+    finding_types: ["ce_open_findings_backlog"],
+    customer_title: "Close outstanding critical and high findings",
+    technical_explanation: "Open critical or high external findings remain in the latest scan. Cyber Essentials expects timely remediation of known issues.",
+    business_impact: "Unresolved critical and high findings both raise real risk and weaken a Cyber Essentials assessment.",
+    recommended_action: "Work through the open critical and high findings in the scan, remediate each, and confirm closure on a fresh Cyber MOT.",
+    effort: "medium",
+    owner_type: "customer_it",
+    verification_method: "rescan",
+    verification_evidence_requirements: "The critical and high findings are no longer present on a fresh scan.",
+    supporting_evidence_types: ["scan_findings"],
+    limitations: ["Cyber Essentials certification is issued externally by an IASME-accredited body; this is readiness only."],
+  }),
+  entry({
+    remediation_id: "ce.access.saas_review",
+    domain_key: "cyber_essentials_readiness",
+    finding_types: ["ce_saas_access_review"],
+    customer_title: "Review SSO and MFA on externally reachable services",
+    technical_explanation: "Externally reachable SaaS or identity portals were observed for this domain. Cyber Essentials user-access-control expects strong authentication on such services.",
+    business_impact: "Externally reachable portals without enforced MFA are a common route to account compromise.",
+    recommended_action: "Review each externally reachable service, enforce single sign-on and multi-factor authentication, and remove or restrict any portal that does not need to be public.",
+    effort: "medium",
+    owner_type: "customer_it",
+    verification_method: "manual_attestation",
+    verification_evidence_requirements: "SSO/MFA coverage is confirmed in the relevant service's admin console; it is not externally observable.",
+    supporting_evidence_types: ["saas_exposure", "identity_discovery"],
+    limitations: ["Coverage reflects externally observed services only; internal SSO/MFA configuration cannot be assessed from external ASM data."],
   }),
 
   // ─────────────────────────── IDENTITY EXPOSURE ─────────────────────────────
@@ -1003,6 +1062,20 @@ export function getRemediationById(remediationId) {
   return REGISTRY_BY_ID.get(String(remediationId)) || null;
 }
 
+// Reverse lookup by customer_title. Some persisted surfaces (scorecard
+// top_recommendations read from remediation_items) carry the canonical
+// customer_title but not the finding_type or remediation_id — because scoring.js
+// now writes canonical titles, this reunites them with their full remediation
+// (id + business_impact) so downstream surfaces (PDF) need not fabricate. Returns
+// null for a title that does not match an active entry (fails honestly).
+const BY_CUSTOMER_TITLE = new Map(
+  REMEDIATION_REGISTRY.filter((e) => e.status === "active").map((e) => [e.customer_title, e]),
+);
+export function resolveByCustomerTitle(title) {
+  const e = BY_CUSTOMER_TITLE.get(String(title || "").trim());
+  return e ? entryToResolution(e, { matched_via: "title" }) : null;
+}
+
 // ── The resolver ─────────────────────────────────────────────────────────────
 // resolveRemediation({finding_type, domain_key, evidence, context, surface})
 // returns the SAME canonical meaning for every surface. Behaviour:
@@ -1064,6 +1137,18 @@ export function resolveRemediation(args = {}) {
 export function canonicalRecommendedAction(findingType, opts = {}) {
   const r = resolveRemediation({ finding_type: findingType, ...opts });
   return r.status === "resolved" ? r.recommended_action : null;
+}
+
+// Resolve the canonical remediation for a scan finding object. A finding's
+// stable type is its `id` (e.g. "email_missing_spf"); `finding_type` is only the
+// class ("finding" | "observation"). Returns the customer-safe resolution when a
+// canonical remediation exists, or null (honest) for observations / unmapped
+// types — so a surface never invents advice for a finding with no remediation.
+export function findingRemediation(finding) {
+  const ft = finding?.id ?? finding?.finding_type;
+  if (!ft || ft === "finding" || ft === "observation") return null;
+  const r = resolveRemediation({ finding_type: ft });
+  return r.status === "resolved" ? r : null;
 }
 
 // Enumerate every canonical finding type the registry resolves (primaries +

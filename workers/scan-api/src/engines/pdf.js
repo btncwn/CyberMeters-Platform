@@ -10,6 +10,7 @@ import { buildScorecardData } from "./scorecard.js";
 import { getCurrentPosturePresentation } from "./current-posture.js";
 import { resolveCyberMotDomainStates } from "./cyber-mot-domains.js";
 import { latestScanBusinessRisk } from "./business-risk.js";
+import { resolveByCustomerTitle } from "./remediation-registry.js";
 
 function pdfEsc(v) {
   return String(v == null ? "" : v)
@@ -1207,9 +1208,12 @@ export function buildExecutivePdf(pdfData) {
 
     y = secBar(pg, 'Top 5 Remediation Cards', y); y -= 8;
     const rawActions = plan.length ? plan : (topC ?? []).map(r => ({
+      remediation_id: r.remediation_id ?? null,
       title: r.title,
       action: r.description,
-      impact: 'Reduces likelihood or impact of a security incident.',
+      recommended_action: r.description,
+      impact: r.business_impact || 'Reduces business exposure and improves executive risk posture.',
+      business_impact: r.business_impact || 'Reduces business exposure and improves executive risk posture.',
       effort_estimate: 'Medium',
     }));
     // Dedupe near-identical cards (e.g. two "Strengthen DMARC Policy" entries
@@ -2154,11 +2158,15 @@ export async function collectPdfData(wsId, env) {
 
   for (const r of (sc.top_recommendations ?? []).slice(0, 3))
     priority_actions.push(r.title + (r.description ? ` - ${r.description}` : ''));
+  // Promote a canonical remediation from at-risk posture categories — NEVER the
+  // raw risk reason (which is a diagnosis, not an action). A category with no
+  // canonical remediation (e.g. surface-expansion only) contributes nothing here.
   if (sp2) {
     for (const catKey of ['email_security', 'ssl_certificates', 'admin_exposure']) {
       const cat = sp2[catKey];
-      if ((cat?.status === 'critical' || cat?.status === 'warning') && cat.reasons?.[0] && priority_actions.length < 5)
-        priority_actions.push(`[${POSTURE_WEIGHTS[catKey]?.label ?? catKey}] ${cat.reasons[0]}`);
+      const rem = cat?.remediations?.[0];
+      if ((cat?.status === 'critical' || cat?.status === 'warning') && rem && priority_actions.length < 5)
+        priority_actions.push(`${rem.customer_title} - ${rem.recommended_action}`);
     }
   }
 
@@ -2168,22 +2176,35 @@ export async function collectPdfData(wsId, env) {
     priority_actions: priority_actions.slice(0, 5),
   };
 
-  // Top recommendations
-  const top_recommendations = (sc.top_recommendations ?? []).map(r => ({
-    title:       r.title       ?? '',
-    description: r.description ?? '',
-    priority:    r.priority    ?? 3,
-  }));
+  // Top recommendations. The scorecard rows already carry the canonical
+  // customer_title/action (scoring.js sources them from the registry); reunite
+  // each with its canonical remediation identity + business impact by title.
+  const top_recommendations = (sc.top_recommendations ?? []).map(r => {
+    const canon = resolveByCustomerTitle(r.title);
+    return {
+      title:          r.title       ?? '',
+      description:    r.description ?? '',
+      priority:       r.priority    ?? 3,
+      remediation_id: canon?.remediation_id ?? null,
+      business_impact: canon?.business_impact ?? null,
+    };
+  });
+  // Fill remaining slots from at-risk posture categories using their CANONICAL
+  // remediations — never a fabricated "Improve {category}" title from a raw
+  // reason. Categories whose signals have no canonical remediation add nothing.
   if (sp2 && top_recommendations.length < 10) {
     for (const catKey of Object.keys(POSTURE_WEIGHTS)) {
       const cat = sp2[catKey];
       if (!cat || cat.score === null || (cat.score ?? 100) >= 90) continue;
-      for (const reason of (cat.reasons ?? [])) {
+      for (const rem of (cat.remediations ?? [])) {
         if (top_recommendations.length >= 10) break;
+        if (top_recommendations.some((t) => t.remediation_id === rem.remediation_id)) continue;
         top_recommendations.push({
-          title:       `Improve ${POSTURE_WEIGHTS[catKey].label}`,
-          description: reason,
-          priority:    cat.status === 'critical' ? 1 : cat.status === 'warning' ? 2 : 3,
+          title:          rem.customer_title,
+          description:    rem.recommended_action,
+          priority:       cat.status === 'critical' ? 1 : cat.status === 'warning' ? 2 : 3,
+          remediation_id: rem.remediation_id,
+          business_impact: rem.business_impact ?? null,
         });
       }
       if (top_recommendations.length >= 10) break;
@@ -2303,6 +2324,7 @@ export async function collectPdfData(wsId, env) {
     categories:      ceReadiness.categories || [],
     top_gaps:        ceReadiness.top_gaps || [],
     recommendations: ceReadiness.recommendations || [],
+    canonical_remediations: ceReadiness.canonical_remediations || [],
   } : {
     score:           null,
     grade:           null,
@@ -2311,6 +2333,7 @@ export async function collectPdfData(wsId, env) {
     categories:      [],
     top_gaps:        [],
     recommendations: [],
+    canonical_remediations: [],
   };
 
   const historical_analysis = {
@@ -2340,30 +2363,38 @@ export async function collectPdfData(wsId, env) {
     return 'Medium';
   }
 
+  // The priority action plan is assembled ONLY from canonical remediations —
+  // the enriched top_recommendations (registry-sourced titles/actions, joined to
+  // their remediation identity + business impact) and the Cyber Essentials
+  // canonical remediations. No "Improve {category}" titles and no invented impact
+  // strings when a canonical business impact exists; a generic impact is used
+  // only as an honest fallback where the canonical field is absent.
+  const GENERIC_IMPACT = 'Reduces business exposure and improves executive risk posture.';
+  const ceCanonicalRemediations = Array.isArray(ceReadiness?.canonical_remediations)
+    ? ceReadiness.canonical_remediations : [];
   const priority_action_plan = [
-    ...executive_summary.priority_actions.map((action) => ({
-      title: action.split(' - ')[0] || 'Priority action',
-      action,
-      recommended_action: action,
-      impact: 'Reduces business exposure and improves executive risk posture.',
-      business_impact: 'Reduces business exposure and improves executive risk posture.',
-    })),
     ...top_recommendations.map((r) => ({
-      title: r.title || 'Improve security control',
+      remediation_id: r.remediation_id ?? null,
+      title: r.title || '',
       action: r.description || r.title || '',
       recommended_action: r.description || r.title || '',
-      impact: 'Reduces likelihood or impact of a security incident.',
-      business_impact: 'Reduces likelihood or impact of a security incident.',
+      impact: r.business_impact || GENERIC_IMPACT,
+      business_impact: r.business_impact || GENERIC_IMPACT,
     })),
-    ...cyber_essentials.top_gaps.map((gap) => ({
-      title: 'Improve Cyber Essentials alignment',
-      action: gap,
-      recommended_action: gap,
-      impact: 'Improves indicative alignment against Cyber Essentials control areas.',
-      business_impact: 'Improves indicative alignment against Cyber Essentials control areas.',
+    ...ceCanonicalRemediations.map((rem) => ({
+      remediation_id: rem.remediation_id,
+      title: rem.customer_title,
+      action: rem.recommended_action,
+      recommended_action: rem.recommended_action,
+      impact: rem.business_impact || GENERIC_IMPACT,
+      business_impact: rem.business_impact || GENERIC_IMPACT,
     })),
   ].filter((item) => item.title || item.action)
-    .filter((item, index, arr) => arr.findIndex((x) => x.title === item.title && x.action === item.action) === index)
+    .filter((item, index, arr) => {
+      // Dedupe by canonical remediation identity where present, else title+action.
+      const key = item.remediation_id || `${item.title}|${item.action}`;
+      return arr.findIndex((x) => (x.remediation_id || `${x.title}|${x.action}`) === key) === index;
+    })
     .map((item) => ({
       ...item,
       effort_estimate: item.effort_estimate || estimateRemediationEffort(item),

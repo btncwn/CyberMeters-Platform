@@ -155,6 +155,12 @@ jobs:
       - name: Validate canonical remediation registry (stable ids + resolver + aliases + honesty scope + cross-surface parity)
         run: node scripts/validate-remediation-registry.js
 
+      - name: Validate remediation production-finding coverage (every actionable emitter → one canonical remediation)
+        run: node scripts/validate-remediation-coverage.js
+
+      - name: Validate frontend is not a remediation source (semantics from backend, steps keyed by canonical id)
+        run: node scripts/validate-frontend-remediation-source.js
+
       - name: Validate bounded scheduled-report generation (batch limit + determinism + idempotency + fairness + entitlement)
         run: node scripts/validate-bounded-scheduled-reports.js
 

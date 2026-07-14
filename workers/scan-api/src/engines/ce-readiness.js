@@ -4,6 +4,7 @@
 // index.js (monolith decomposition, Phase 1c). Only buildCyberEssentialsReadiness is public.
 import { clamp } from "./posture-scoring.js";
 import { buildScorecardData } from "./scorecard.js";
+import { resolveRemediation } from "./remediation-registry.js";
 import { CE_QUESTIONS } from "../lib/cyber-essentials.js";
 
 // ── Cyber Essentials Readiness v1 ────────────────────────────────────────────
@@ -26,7 +27,7 @@ function cyberEssentialsStatus(grade) {
   return 'not_ready';
 }
 
-function cyberEssentialsCategory(key, label, score, reasons, gaps, recommendations) {
+function cyberEssentialsCategory(key, label, score, reasons, gaps, recommendations, remediations) {
   return {
     key,
     label,
@@ -35,6 +36,10 @@ function cyberEssentialsCategory(key, label, score, reasons, gaps, recommendatio
     reasons: reasons.length ? reasons : ['No major readiness gaps detected from available signals.'],
     gaps,
     recommendations,
+    // Canonical remediation identities for each gap in this control area, so the
+    // CE surface, Executive Report and PDF resolve the SAME remediation as the
+    // scan surfaces. Readiness framing is separate from external certification.
+    remediations: remediations ?? [],
   };
 }
 
@@ -115,14 +120,36 @@ export async function buildCyberEssentialsReadiness(wsId, env) {
   const categories = [];
   const allGaps = [];
   const allRecommendations = [];
+  const allRemediations = [];
 
-  function addGap(state, amount, reason, recommendation) {
+  // addGap now takes a canonical remediation reference (a registry finding_type)
+  // instead of a hard-coded recommendation string. The recommended ACTION and its
+  // identity resolve from the canonical registry, so CE readiness advice can never
+  // drift from the same advice shown on the scan surfaces. The `reason` remains the
+  // CE-specific RISK interpretation (readiness owns that). Falls back to the reason
+  // text only if the ref does not resolve (should not happen — CI asserts coverage).
+  function addGap(state, amount, reason, remediationRef) {
     state.score -= amount;
     state.reasons.push(reason);
     state.gaps.push(reason);
-    state.recommendations.push(recommendation ?? reason);
+    const r = remediationRef ? resolveRemediation({ finding_type: remediationRef }) : null;
+    const resolved = r && r.status === "resolved";
+    const recommendation = resolved ? r.recommended_action : reason;
+    state.recommendations.push(recommendation);
+    if (resolved) {
+      const rem = {
+        remediation_id: r.remediation_id,
+        customer_title: r.customer_title,
+        recommended_action: r.recommended_action,
+        business_impact: r.business_impact,
+        verification_method: r.verification_method,
+        domain_key: r.domain_key,
+      };
+      state.remediations.push(rem);
+      allRemediations.push(rem);
+    }
     allGaps.push({ reason, impact: amount });
-    allRecommendations.push(recommendation ?? reason);
+    allRecommendations.push(recommendation);
   }
 
   function addReason(state, reason) {
@@ -131,110 +158,110 @@ export async function buildCyberEssentialsReadiness(wsId, env) {
 
   // Boundary Protection: HTTPS, headers, exposed critical assets, takeover risk.
   {
-    const state = { score: 100, reasons: [], gaps: [], recommendations: [] };
+    const state = { score: 100, reasons: [], gaps: [], recommendations: [], remediations: [] };
     if (ssl.https_available === false) {
-      addGap(state, 30, 'HTTPS is not confirmed for the latest scanned domain.', 'Enable HTTPS on all public web services.');
+      addGap(state, 30, 'HTTPS is not confirmed for the latest scanned domain.', 'ssl_not_available');
     } else if (ssl.https_available === true) {
       addReason(state, 'HTTPS is available on the latest scanned domain.');
     }
     if (!hsts && !csp) {
-      addGap(state, 15, 'Core browser boundary headers are missing or not confirmed.', 'Configure HSTS and Content Security Policy where applicable.');
+      addGap(state, 15, 'Core browser boundary headers are missing or not confirmed.', 'header_missing_strict_transport_security');
     }
     if (criticalFindings > 0) {
-      addGap(state, 20, `${criticalFindings} critical finding${criticalFindings !== 1 ? 's' : ''} remain in the latest scan.`, 'Remediate critical external findings before assessment.');
+      addGap(state, 20, `${criticalFindings} critical finding${criticalFindings !== 1 ? 's' : ''} remain in the latest scan.`, 'ce_open_findings_backlog');
     }
     if (adminTotal > 0) {
-      addGap(state, 20, `${adminTotal} exposed admin or management surface${adminTotal !== 1 ? 's' : ''} detected.`, 'Restrict admin and management interfaces from public internet access.');
+      addGap(state, 20, `${adminTotal} exposed admin or management surface${adminTotal !== 1 ? 's' : ''} detected.`, 'asset_exposure_admin_interface');
     }
     if (takeoverCount > 0) {
-      addGap(state, 25, `${takeoverCount} potential subdomain takeover risk${takeoverCount !== 1 ? 's' : ''} detected.`, 'Remove dangling DNS records or reclaim the referenced services.');
+      addGap(state, 25, `${takeoverCount} potential subdomain takeover risk${takeoverCount !== 1 ? 's' : ''} detected.`, 'subdomain_takeover');
     }
-    categories.push(cyberEssentialsCategory('boundary_protection', 'Boundary Protection', state.score, state.reasons, state.gaps, state.recommendations));
+    categories.push(cyberEssentialsCategory('boundary_protection', 'Boundary Protection', state.score, state.reasons, state.gaps, state.recommendations, state.remediations));
   }
 
   // Secure Configuration: HSTS, CSP, TLS posture, certificate health.
   {
-    const state = { score: 100, reasons: [], gaps: [], recommendations: [] };
+    const state = { score: 100, reasons: [], gaps: [], recommendations: [], remediations: [] };
     if (!hsts) {
-      addGap(state, 25, 'HSTS is not present or could not be confirmed.', 'Enable HSTS after validating HTTPS coverage.');
+      addGap(state, 25, 'HSTS is not present or could not be confirmed.', 'header_missing_strict_transport_security');
     } else {
       addReason(state, 'HSTS is present.');
     }
     if (!csp) {
-      addGap(state, 20, 'Content Security Policy is not present or could not be confirmed.', 'Add a Content Security Policy suitable for the application.');
+      addGap(state, 20, 'Content Security Policy is not present or could not be confirmed.', 'header_missing_content_security_policy');
     } else {
       addReason(state, 'Content Security Policy is present.');
     }
     if (ssl.http_redirects_to_https === false) {
-      addGap(state, 15, 'HTTP to HTTPS redirect is not confirmed.', 'Redirect all HTTP traffic to HTTPS.');
+      addGap(state, 15, 'HTTP to HTTPS redirect is not confirmed.', 'ssl_no_http_redirect');
     }
     if (ssl.https_available === false) {
-      addGap(state, 25, 'TLS is not available on the latest scanned domain.', 'Deploy valid TLS certificates for public services.');
+      addGap(state, 25, 'TLS is not available on the latest scanned domain.', 'ssl_not_available');
     }
     if (certRiskLevel === 'critical' || certRiskLevel === 'high') {
-      addGap(state, certRiskLevel === 'critical' ? 25 : 15, `Certificate intelligence risk is ${certRiskLevel}.`, 'Review certificate expiry, issuer, and suspicious certificate signals.');
+      addGap(state, certRiskLevel === 'critical' ? 25 : 15, `Certificate intelligence risk is ${certRiskLevel}.`, 'ce_cert_review');
     }
-    categories.push(cyberEssentialsCategory('secure_configuration', 'Secure Configuration', state.score, state.reasons, state.gaps, state.recommendations));
+    categories.push(cyberEssentialsCategory('secure_configuration', 'Secure Configuration', state.score, state.reasons, state.gaps, state.recommendations, state.remediations));
   }
 
   // Access Control: email authentication plus externally visible admin/SaaS portals.
   {
-    const state = { score: 100, reasons: [], gaps: [], recommendations: [] };
-    if (!email.spf) addGap(state, 15, 'SPF is missing or not confirmed.', 'Publish an SPF record for approved sending services.');
+    const state = { score: 100, reasons: [], gaps: [], recommendations: [], remediations: [] };
+    if (!email.spf) addGap(state, 15, 'SPF is missing or not confirmed.', 'email_missing_spf');
     else addReason(state, 'SPF is present.');
     if (!email.dmarc) {
-      addGap(state, 25, 'DMARC is missing or not confirmed.', 'Publish a DMARC policy for the domain.');
+      addGap(state, 25, 'DMARC is missing or not confirmed.', 'email_missing_dmarc');
     } else if (email.dmarcPolicy === 'none') {
-      addGap(state, 10, 'DMARC is monitor-only (p=none).', 'Move DMARC toward quarantine or reject after monitoring.');
+      addGap(state, 10, 'DMARC is monitor-only (p=none).', 'email_dmarc_policy_none');
     } else {
       addReason(state, 'DMARC is present.');
     }
     if (!email.dkim) addReason(state, 'DKIM could not be verified using common selectors; a custom selector may be in use.');
     else addReason(state, 'DKIM is detected.');
-    if (adminTotal > 0) addGap(state, 25, 'Public admin surfaces increase access-control exposure.', 'Place admin portals behind VPN, SSO, or IP allowlists.');
-    if (saasTotal > 0) addGap(state, 10, `${saasTotal} externally reachable SaaS portal${saasTotal !== 1 ? 's' : ''} detected.`, 'Review SSO and MFA coverage for externally reachable SaaS portals.');
-    categories.push(cyberEssentialsCategory('access_control', 'Access Control', state.score, state.reasons, state.gaps, state.recommendations));
+    if (adminTotal > 0) addGap(state, 25, 'Public admin surfaces increase access-control exposure.', 'asset_exposure_admin_interface');
+    if (saasTotal > 0) addGap(state, 10, `${saasTotal} externally reachable SaaS portal${saasTotal !== 1 ? 's' : ''} detected.`, 'ce_saas_access_review');
+    categories.push(cyberEssentialsCategory('access_control', 'Access Control', state.score, state.reasons, state.gaps, state.recommendations, state.remediations));
   }
 
   // Phishing & Malware Exposure: estimate only, based on proxy domain/email posture.
   {
-    const state = { score: 100, reasons: [], gaps: [], recommendations: [] };
+    const state = { score: 100, reasons: [], gaps: [], recommendations: [], remediations: [] };
     addReason(state, 'Phishing and malware exposure is estimated from available domain, email, and external exposure signals only.');
     if (!email.dmarc || email.dmarcPolicy === 'none') {
-      addGap(state, 25, 'Email anti-spoofing enforcement is weak.', 'Strengthen DMARC enforcement to reduce spoofing and phishing exposure.');
+      addGap(state, 25, 'Email anti-spoofing enforcement is weak.', 'email_dmarc_policy_none');
     }
-    if (!email.spf) addGap(state, 15, 'SPF is missing or not confirmed.', 'Limit authorized mail senders with SPF.');
+    if (!email.spf) addGap(state, 15, 'SPF is missing or not confirmed.', 'email_missing_spf');
     if (!email.dkim) addReason(state, 'DKIM could not be verified using common selectors; a custom selector may be in use.');
     if (criticalFindings + highFindings > 0) {
-      addGap(state, 15, 'High-impact external findings may increase malware delivery risk.', 'Prioritize remediation of critical and high findings.');
+      addGap(state, 15, 'High-impact external findings may increase malware delivery risk.', 'ce_open_findings_backlog');
     }
-    categories.push(cyberEssentialsCategory('malware_protection', 'Phishing & Malware Exposure', state.score, state.reasons, state.gaps, state.recommendations));
+    categories.push(cyberEssentialsCategory('malware_protection', 'Phishing & Malware Exposure', state.score, state.reasons, state.gaps, state.recommendations, state.remediations));
   }
 
   // Patch Management Readiness: certificate expiry, trend, remediation backlog.
   {
-    const state = { score: 100, reasons: [], gaps: [], recommendations: [] };
+    const state = { score: 100, reasons: [], gaps: [], recommendations: [], remediations: [] };
     if (typeof certDaysLeft === 'number') {
       if (certDaysLeft < 0) {
-        addGap(state, 30, 'A certificate is expired.', 'Renew expired certificates immediately.');
+        addGap(state, 30, 'A certificate is expired.', 'ssl_certificate_expired');
       } else if (certDaysLeft < 30) {
-        addGap(state, 15, `A certificate expires in ${certDaysLeft} day${certDaysLeft !== 1 ? 's' : ''}.`, 'Renew certificates before the 30-day window.');
+        addGap(state, 15, `A certificate expires in ${certDaysLeft} day${certDaysLeft !== 1 ? 's' : ''}.`, 'ssl_certificate_expiring_soon');
       } else {
         addReason(state, 'Certificate expiry health is acceptable.');
       }
     }
     if (certRiskLevel === 'critical' || certRiskLevel === 'high') {
-      addGap(state, 15, `Certificate risk level is ${certRiskLevel}.`, 'Investigate certificate intelligence findings.');
+      addGap(state, 15, `Certificate risk level is ${certRiskLevel}.`, 'ce_cert_review');
     }
     if (criticalFindings > 0 || highFindings > 0) {
-      addGap(state, 25, `${criticalFindings + highFindings} critical/high finding${criticalFindings + highFindings !== 1 ? 's' : ''} remain open in the latest scan.`, 'Close critical and high findings as evidence of remediation responsiveness.');
+      addGap(state, 25, `${criticalFindings + highFindings} critical/high finding${criticalFindings + highFindings !== 1 ? 's' : ''} remain open in the latest scan.`, 'ce_open_findings_backlog');
     } else {
       addReason(state, 'No critical or high findings in the latest scan.');
     }
     if ((scorecard.asset_events_30d ?? 0) > 0) {
       addReason(state, `${scorecard.asset_events_30d} asset change event${scorecard.asset_events_30d !== 1 ? 's' : ''} recorded in the last 30 days.`);
     }
-    categories.push(cyberEssentialsCategory('patch_management_readiness', 'Patch Management Readiness', state.score, state.reasons, state.gaps, state.recommendations));
+    categories.push(cyberEssentialsCategory('patch_management_readiness', 'Patch Management Readiness', state.score, state.reasons, state.gaps, state.recommendations, state.remediations));
   }
 
   const score = Math.round(categories.reduce((sum, c) => sum + c.score * (c.weight / 100), 0));
@@ -245,6 +272,12 @@ export async function buildCyberEssentialsReadiness(wsId, env) {
       .map(g => [g.reason, g.reason])
   ).values()].slice(0, 5);
   const recommendations = [...new Set(allRecommendations)].slice(0, 6);
+  // Deduplicated canonical remediation identities across all control areas, so a
+  // consumer (Executive Report, PDF, tests) can join CE readiness to the SAME
+  // remediation shown on scan surfaces. Certification remains external (below).
+  const canonicalRemediations = [...new Map(
+    allRemediations.map((r) => [r.remediation_id, r])
+  ).values()];
 
   return {
     workspace_id: wsId,
@@ -255,6 +288,7 @@ export async function buildCyberEssentialsReadiness(wsId, env) {
     categories,
     top_gaps: topGaps,
     recommendations,
+    canonical_remediations: canonicalRemediations,
     summary: topGaps.length
       ? `Cyber Essentials readiness is ${cyberEssentialsStatus(grade).replace(/_/g, ' ')}. Two areas to address first: ${topGaps.slice(0, 2).map(g => String(g).trim().replace(/\.+$/, '')).join('; ')}.`
       : 'Cyber Essentials readiness looks strong from currently available CyberMeters signals.',
