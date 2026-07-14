@@ -116,6 +116,9 @@ jobs:
       - name: Validate exposure-probe honesty (subrequest exhaustion → not-checked, not clean)
         run: node scripts/validate-exposure-honesty.js
 
+      - name: Validate scan deadline + partial finalization (waitUntil-cancellation guard)
+        run: node scripts/validate-scan-deadline.js
+
       - name: Validate managed brand takedown lifecycle (evidence + approval + verification)
         run: node scripts/validate-brand-takedown-lifecycle.js
 

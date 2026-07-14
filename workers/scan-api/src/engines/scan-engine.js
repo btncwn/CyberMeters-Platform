@@ -33,7 +33,7 @@ import { runHistoricalModule } from "./historical-scan.js";
 import { runIdentityDiscoveryModule } from "./identity-scan.js";
 import { recordPostureEvents } from "./posture-events.js";
 import { runReservedScan } from "./reserved-scan.js";
-import { MODULE_SUBREQUEST_COST, resolveScanCapacity, skippedModuleResult } from "./scan-budget.js";
+import { createScanDeadline, markDeadlineDeferred, MODULE_SUBREQUEST_COST, resolveScanCapacity, skippedModuleResult } from "./scan-budget.js";
 import { computeScore, isEmailApplicable } from "./scoring.js";
 import { runSslModule } from "./ssl-scan.js";
 import { BRUTEFORCE_MAX_NAMES, filterWildcardBruteforceResults, runBruteforceModule, runSubdomainsModule } from "./subdomains-scan.js";
@@ -163,8 +163,43 @@ export function buildScanQuality(modules = {}) {
   };
 }
 
-export async function runScanEngine(scanId, domainId, workspaceId, domain, env) {
+// ── Idempotent, latched scan finalization (Tier 1) ────────────────────────────
+// Writes the final R2 report and flips the D1 scans row to its terminal status
+// EXACTLY ONCE. The latch closes on first write, so nothing can overwrite a
+// finalized result: not a module promise that resolves late, and not a
+// post-completion persistence error routed to the engine's catch block (the
+// pre-fix downgrade hazard where a findings-INSERT failure rewrote a completed
+// scan to 'failed'). R2 first — the stuck-scan reconciler trusts the report — then
+// the D1 status the UI polls. If the D1 write throws after the R2 report is
+// written, the reconciler converges D1 from the completed report.
+export function createFinalizeLatch() { return { closed: false, status: null, at: null }; }
+
+export async function finalizeScanResult(latch, { scanId, report, score = null, rating = null, status, env }) {
+  if (latch.closed) return { written: false, reason: "already_finalized", status: latch.status };
+  latch.closed = true;
+  latch.status = status;
+  latch.at = new Date().toISOString();
+  await env.cybermeters_reports.put(
+    `reports/${scanId}.json`,
+    JSON.stringify(report, null, 2),
+    { httpMetadata: { contentType: "application/json" } }
+  );
+  await env.cybermeters_db
+    .prepare(`UPDATE scans SET status = ?, score = ?, rating = ? WHERE id = ?`)
+    .bind(status, score, rating, scanId)
+    .run();
+  return { written: true, status };
+}
+
+export async function runScanEngine(scanId, domainId, workspaceId, domain, env, opts = {}) {
   const startedAt = new Date().toISOString();
+  // Injectable clock (tests drive it deterministically); production uses Date.now.
+  const now = typeof opts.now === "function" ? opts.now : Date.now;
+  // Wall-clock budget below the ~30s waitUntil-cancellation cliff. Expensive network
+  // phases refuse to launch once spent, reserving headroom to finalize honestly.
+  const deadline = createScanDeadline(env, now);
+  // Finalize-once latch shared by the success and failure paths.
+  const latch = createFinalizeLatch();
 
   try {
     // Mark scan as running in D1
@@ -238,18 +273,31 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env) 
         .filter((h) => h && !ctHostnames.has(h));
       const mergedSubdomainItems = [...subdomainsResult.items, ...bruteNewItems];
 
-      try {
-        takeoverResult = await runTakeoverModule(domain, mergedSubdomainItems);
-      } catch (err) {
-        takeoverResult = { checked: 0, potential_risks: 0, risks: [], source: "subdomain_cname_fingerprint", error: customerSafeFailure("scan/takeover", err, "Takeover module failed") };
+      // Deadline gate: launch takeover only if it can plausibly finish in budget.
+      // Otherwise defer honestly (never a fake clean result) and preserve the scan.
+      if (deadline.canRun(4_000)) {
+        try {
+          takeoverResult = await runTakeoverModule(domain, mergedSubdomainItems);
+        } catch (err) {
+          takeoverResult = { checked: 0, potential_risks: 0, risks: [], source: "subdomain_cname_fingerprint", error: customerSafeFailure("scan/takeover", err, "Takeover module failed") };
+        }
+      } else {
+        takeoverResult = markDeadlineDeferred({ checked: 0, potential_risks: 0, risks: [], cname_observations: [], source: "subdomain_cname_fingerprint" });
       }
 
-      try {
-        assetExposureResult = await runExposureModule(domain, mergedSubdomainItems);
-        assetExposureResult = annotateExposureInfrastructure(assetExposureResult, takeoverResult.cname_observations);
-        assetExposureResult = deduplicateExposureAssets(assetExposureResult, domain);
-      } catch (err) {
-        assetExposureResult = { checked: 0, reachable: 0, assets: [], source: "http_probe", error: customerSafeFailure("scan/asset-exposure", err, "Asset exposure module failed") };
+      // Deadline gate: asset exposure (admin-surface signal) is customer-critical, so
+      // it runs before the cheaper enrichment phases; it defers only when genuinely
+      // out of budget rather than orphaning the whole scan.
+      if (deadline.canRun(6_000)) {
+        try {
+          assetExposureResult = await runExposureModule(domain, mergedSubdomainItems);
+          assetExposureResult = annotateExposureInfrastructure(assetExposureResult, takeoverResult.cname_observations);
+          assetExposureResult = deduplicateExposureAssets(assetExposureResult, domain);
+        } catch (err) {
+          assetExposureResult = { checked: 0, reachable: 0, assets: [], source: "http_probe", error: customerSafeFailure("scan/asset-exposure", err, "Asset exposure module failed") };
+        }
+      } else {
+        assetExposureResult = markDeadlineDeferred({ checked: 0, reachable: 0, assets: [], source: "http_probe" });
       }
     }
 
@@ -463,7 +511,14 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env) 
     // In reserved mode these are budget-permitting enrichment: skipped honestly (no fetch
     // attempted) when the exposure-first budget is already spent.
     const phase5Cost = MODULE_SUBREQUEST_COST.cve + MODULE_SUBREQUEST_COST.kev + 4;
-    if (reservedMode && reservedBudget && reservedBudget.wouldExceed(phase5Cost)) {
+    // Deadline first: if the enrichment trio can't finish in budget, defer it honestly
+    // (partial scan) rather than risk the whole invocation being cancelled mid-write.
+    const phase5DeadlineBlocked = !deadline.canRun(8_000);
+    if (phase5DeadlineBlocked) {
+      modules.cve_intelligence = markDeadlineDeferred({ technologies_checked: [], results: {}, total_cves: 0, critical_count: 0, high_count: 0, source: "nvd_api" });
+      modules.known_exploited_vulnerabilities = markDeadlineDeferred({ matches: [], checked: 0, matched: 0, source: "cisa_kev" });
+      modules.email_security_intelligence = markDeadlineDeferred({ source: "email_intelligence" });
+    } else if (reservedMode && reservedBudget && reservedBudget.wouldExceed(phase5Cost)) {
       modules.cve_intelligence = skippedModuleResult("cve", { technologies_checked: [], results: {}, total_cves: 0, critical_count: 0, high_count: 0 });
       modules.known_exploited_vulnerabilities = skippedModuleResult("kev", { matches: [], checked: 0, matched: 0 });
       modules.email_security_intelligence = skippedModuleResult("email_intelligence");
@@ -513,7 +568,9 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env) 
     // candidates from observed ASM/CNAME/header signals. No guessing or listing
     // enumeration; response bodies are only inspected for listing indicators.
     // Reserved mode: cloud-storage validation is budget-permitting enrichment.
-    if (reservedMode && reservedBudget && reservedBudget.wouldExceed(MODULE_SUBREQUEST_COST.cloud_storage)) {
+    if (!deadline.canRun(4_000)) {
+      modules.cloud_storage_discovery = markDeadlineDeferred({ total: 0, checked: 0, findings: [] });
+    } else if (reservedMode && reservedBudget && reservedBudget.wouldExceed(MODULE_SUBREQUEST_COST.cloud_storage)) {
       modules.cloud_storage_discovery = skippedModuleResult("cloud_storage", { total: 0, checked: 0, findings: [] });
     } else {
       if (reservedMode && reservedBudget) reservedBudget.spend("cloud_storage", MODULE_SUBREQUEST_COST.cloud_storage);
@@ -754,18 +811,14 @@ function buildCanonicalUrlProfile(modules) {
       modules,
     };
 
-    // Write completed report to R2
-    await env.cybermeters_reports.put(
-      `reports/${scanId}.json`,
-      JSON.stringify(report, null, 2),
-      { httpMetadata: { contentType: "application/json" } }
-    );
-
-    // Update D1 scans row
-    await env.cybermeters_db
-      .prepare(`UPDATE scans SET status = 'completed', score = ?, rating = ? WHERE id = ?`)
-      .bind(score, risk_level, scanId)
-      .run();
+    // Finalize once, atomically-latched: write the completed report to R2 and flip
+    // the D1 status. report.status stays "completed"; scan_quality.status carries
+    // "partial" when the deadline deferred any module (honest partial finalization).
+    // The latch guarantees a late promise or a post-completion persistence error can
+    // never overwrite this result.
+    await finalizeScanResult(latch, {
+      scanId, report, score, rating: risk_level, status: "completed", env,
+    });
 
     if (workspaceId) {
       // Compute BRS using scan findings + workspace intelligence data
@@ -993,6 +1046,15 @@ function buildCanonicalUrlProfile(modules) {
     } catch { /* non-fatal */ }
 
   } catch (err) {
+    // If the scan already finalized (completed/partial), a later error — e.g. a
+    // post-completion persistence phase throwing — must NEVER downgrade it to
+    // 'failed'. The latch records that terminal state was already written; refuse
+    // to touch it and let the reconciler converge D1 from the completed report.
+    if (latch.closed) return;
+    // Close the latch to the failed state so nothing else can write after this.
+    latch.closed = true;
+    latch.status = "failed";
+
     // Best-effort: write failure state to R2 and D1.
     // Each write is individually guarded so one failure cannot prevent the other.
     // The D1 status write is the most critical — it stops the UI polling loop.

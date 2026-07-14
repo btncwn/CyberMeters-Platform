@@ -96,6 +96,53 @@ export class SubrequestBudget {
   }
 }
 
+// ── Global scan wall-clock deadline (Tier 1: waitUntil-cancellation guard) ────
+// The scan engine runs inside ctx.waitUntil(); Cloudflare cancels that background
+// promise ~30s after the response is sent, silently (no exception → no catch → no
+// failed report → orphaned "running" row). The deadline gives the engine an
+// explicit wall-clock budget BELOW that cliff: expensive network phases refuse to
+// launch once the budget is spent, leaving headroom to finalize honestly. Proven
+// root cause: an invocation with wallTime 31170ms / cpuTime 40ms / outcome "ok"
+// logged "waitUntil() tasks did not complete ... have been cancelled".
+export const SCAN_DEADLINE_DEFAULTS = Object.freeze({
+  budgetMs:    21_000, // overall engine budget — ~9s under the ~30s waitUntil cliff for finalization
+  minBudgetMs:  5_000,
+  maxBudgetMs: 28_000, // never exceed the cliff; leave finalization headroom
+});
+
+// A monotonic wall-clock deadline. `now` is injectable so tests can drive the clock
+// deterministically (production passes Date.now). exceeded() gates launched phases;
+// canRun(estimateMs) refuses a phase that could not plausibly finish in budget.
+export function createScanDeadline(env = {}, now = Date.now) {
+  const budgetMs = clampInt(env.SCAN_DEADLINE_MS, SCAN_DEADLINE_DEFAULTS.budgetMs,
+    SCAN_DEADLINE_DEFAULTS.minBudgetMs, SCAN_DEADLINE_DEFAULTS.maxBudgetMs);
+  const startedAtMs = now();
+  return {
+    budgetMs,
+    startedAtMs,
+    elapsedMs()   { return now() - startedAtMs; },
+    remainingMs() { return Math.max(0, budgetMs - (now() - startedAtMs)); },
+    exceeded()    { return now() - startedAtMs >= budgetMs; },
+    // A phase launches only if elapsed + its estimate still fits the budget.
+    canRun(estimateMs = 0) { return (now() - startedAtMs) + estimateMs < budgetMs; },
+  };
+}
+
+// Stamp a module's valid-but-empty result as honestly deferred by the deadline —
+// never a fake clean/zero-findings result. `incomplete: true` makes buildScanQuality
+// classify the scan "partial"; executed:false + reason keep the record diagnosable.
+// The caller supplies the module's normal empty shape so downstream scoring/
+// remediation see the same fields they would on a genuine empty run.
+export function markDeadlineDeferred(base = {}) {
+  return {
+    ...base,
+    executed:   false,
+    incomplete: true,
+    outcome:    "deadline_exceeded",
+    reason:     "scan_deadline_exhausted",
+  };
+}
+
 // Per-scan DNS answer cache — resolve each (name,type) exactly once across core DNS,
 // the critical-prefix pass, brute-force and takeover.
 export function makeDnsCache() { return new Map(); }
