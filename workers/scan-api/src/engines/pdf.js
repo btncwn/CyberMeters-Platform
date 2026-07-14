@@ -7,6 +7,8 @@ import { resolveAssessmentPresentation } from "./assessment-presentation.js";
 import { LATEST_COMPLETED_SCAN_SCOPE } from "./report-queries.js";
 import { buildCyberEssentialsReadiness } from "./ce-readiness.js";
 import { buildScorecardData } from "./scorecard.js";
+import { getCurrentPosturePresentation } from "./current-posture.js";
+import { resolveCyberMotDomainStates } from "./cyber-mot-domains.js";
 import { latestScanBusinessRisk } from "./business-risk.js";
 
 function pdfEsc(v) {
@@ -914,7 +916,7 @@ export function buildExecutivePdf(pdfData) {
   const ws   = pdfData.workspace            ?? {};
   const gd   = pdfUtcDate(pdfData.generated_at, true) || pdfUtcDate(new Date().toISOString(), true);
   const reportId = pdfData.report_id ?? pdfData.report?.id ?? null;
-  const reportVersion = pdfData.report_version ?? 'Executive PDF v2.2';
+  const reportVersion = pdfData.report_version ?? 'Executive PDF v2.3';
   const classificationRaw = String(pdfData.report_classification ?? 'Confidential').toLowerCase();
   const classification = classificationRaw === 'public' ? 'Public'
     : classificationRaw === 'internal' ? 'Internal'
@@ -940,7 +942,7 @@ export function buildExecutivePdf(pdfData) {
   const trnd = pdfData.risk_trend           ?? [];
   const ovr  = pdfData.overall_score;
   const rtng = String(pdfData.risk_rating   ?? 'Unknown');
-  const NP   = 11;  // total pages — v2 executive report (Sprint 9F: +1 Top Security Findings page)
+  const NP   = 12;  // total pages (v2.3: +1 Eight-Domain Cyber MOT Coverage Summary)
 
   // ── PAGE 1: COVER ─────────────────────────────────────────────────────────
   {
@@ -1753,6 +1755,46 @@ export function buildExecutivePdf(pdfData) {
     pg.flush();
   }
 
+  // ── PAGE 12: EIGHT-DOMAIN CYBER MOT COVERAGE SUMMARY ─────────────────────
+  // Every one of the eight Cyber MOT domains appears with one explicit honest
+  // state. Missing evidence never renders as healthy; Identity and Shadow IT are
+  // shown within their honest current scopes.
+  {
+    const pg = newPage();
+    pgBanner(pg, 'Cyber MOT');
+    pgFooter(pg, 12, NP);
+    let y = H - 45;
+    y = secBar(pg, 'Eight-Domain Cyber MOT Coverage Summary', y); y -= 6;
+    y = drawWrapped(pg, 'Every domain of your Cyber MOT and its current honest coverage state. "Provisional" or "Evidence insufficient" means this scan could not fully assess the domain — absence of a finding is never presented as healthy.', ML + 2, y, CW - 4, 8, 'R', C.mgray, 2, 11);
+    y -= 8;
+
+    const STATE_LABEL = {
+      assessed_healthy: ['Healthy', C.green], issue_detected: ['Issue detected', C.red],
+      provisional: ['Provisional', C.amber], degraded: ['Degraded', C.amber],
+      unavailable: ['Unavailable', C.mgray], not_configured: ['Not configured', C.mgray],
+      customer_input_required: ['Input required', C.blue], monitoring_only: ['Monitoring', C.blue],
+      not_yet_assessed: ['Not assessed', C.mgray], evidence_insufficient: ['Evidence insufficient', C.amber],
+    };
+    const domains = Array.isArray(pdfData.cyber_mot_domains) ? pdfData.cyber_mot_domains : [];
+    for (const dm of domains) {
+      if (y < 70) break;
+      const [label, col] = STATE_LABEL[dm.state] || [String(dm.state || 'unknown'), C.mgray];
+      pg.text(String(dm.display_name || dm.domain_key || ''), ML, y, 9.5, 'B', C.dkgreen);
+      const chipW = Math.max(52, label.length * 5.2 + 12);
+      pg.fillRect(W - MR - chipW, y - 3, chipW, 13, col);
+      pg.text(label, W - MR - chipW + 6, y, 7.5, 'B', C.white);
+      y -= 15;
+      y = drawWrapped(pg, String(dm.summary || dm.description || ''), ML + 8, y, CW - 16, 7.8, 'R', C.dkgray, 2, 10);
+      // Honesty limitation for the two scope-sensitive domains.
+      if ((dm.domain_key === 'identity_exposure' || dm.domain_key === 'shadow_it_unmanaged_technology') && Array.isArray(dm.limitations) && dm.limitations[0]) {
+        y -= 2;
+        y = drawWrapped(pg, dm.limitations[0], ML + 8, y, CW - 16, 7.2, 'R', C.mgray, 1, 9);
+      }
+      y -= 9;
+    }
+    pg.flush();
+  }
+
   // ── Assemble PDF bytes ────────────────────────────────────────────────────
   const kidsStr = _pageIds.map(id => `${id} 0 R`).join(' ');
   const allObjs = [
@@ -2180,6 +2222,23 @@ export async function collectPdfData(wsId, env) {
   const topVendorRows = topVendorR.status === 'fulfilled' ? (topVendorR.value?.results || []) : [];
   const ceReadiness = cyberEssentialsR.status === 'fulfilled' ? cyberEssentialsR.value : null;
 
+  // Canonical eight-domain Cyber MOT coverage states over the workspace's
+  // AUTHORITATIVE (latest-complete) scan report, so the Executive PDF shows all
+  // eight domains with one honest state each. Missing evidence never renders healthy.
+  let cyberMotDomains;
+  try {
+    const posture   = await getCurrentPosturePresentation(env, { workspaceId: wsId });
+    const authScanId = posture?.authoritative_scan_id ?? null;
+    let authReport = null;
+    if (authScanId) {
+      const rObj = await env.cybermeters_reports.get(`reports/${authScanId}.json`);
+      authReport = rObj ? await rObj.json() : null;
+    }
+    cyberMotDomains = resolveCyberMotDomainStates(authReport, { scanId: authScanId, cyberEssentials: ceReadiness });
+  } catch {
+    cyberMotDomains = resolveCyberMotDomainStates(null, { cyberEssentials: ceReadiness });
+  }
+
   let supplyPayload = {};
   if (supplyRow?.payload_json) {
     try { supplyPayload = JSON.parse(supplyRow.payload_json); } catch { supplyPayload = {}; }
@@ -2346,10 +2405,11 @@ export async function collectPdfData(wsId, env) {
     business_risk,
     supply_chain,
     cyber_essentials,
+    cyber_mot_domains:         cyberMotDomains,
     historical_analysis,
     attack_surface,
     priority_action_plan,
-    report_version:            'Executive PDF v2.2',
+    report_version:            'Executive PDF v2.3',
     report_classification:     'Confidential',
     white_label:               { footer_text: 'CyberMeters Platform' },
     executive_status:         executiveStatus,

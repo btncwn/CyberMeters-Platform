@@ -16,6 +16,7 @@ import StatusBadge from '../components/StatusBadge'
 import Spinner from '../components/Spinner'
 import ErrorAlert from '../components/ErrorAlert'
 import ExecutiveReportV2 from '../components/ExecutiveReportV2'
+import CyberMotDomains from '../components/CyberMotDomains'
 
 const ACTIVE  = new Set(['queued', 'running', 'processing'])
 const POLL_MS = 4000
@@ -1087,7 +1088,7 @@ function BusinessRiskCard({ businessRisk }) {
 // ── Report View ──────────────────────────────────────────────────────────────
 
 function ReportView({ report, waivers = {}, onWaive = null, onUnwaive = null }) {
-  const { cyber_metrics_score: score, risk_level, findings, recommendations, modules, scan_quality } = report
+  const { cyber_metrics_score: score, risk_level, findings, recommendations, modules, scan_quality, cyber_mot_domains } = report
 
   // Sprint 10A: split findings into actionable vs informational.
   // Backward compat: if finding_type absent, fall back to score_impact sign.
@@ -1104,6 +1105,9 @@ function ReportView({ report, waivers = {}, onWaive = null, onUnwaive = null }) 
 
   return (
     <div className="space-y-4">
+
+      {/* Eight-domain Cyber MOT coverage — all eight always shown, server-resolved */}
+      <CyberMotDomains domains={cyber_mot_domains} subtitle="One honest state per domain from this scan." />
 
       {/* Score hero */}
       <div className="card-md overflow-hidden">
