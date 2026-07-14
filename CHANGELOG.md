@@ -34,6 +34,14 @@ release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
   - **Production smoke:** unauth `/api/scan` → 401; SSO test workspace unchanged
     (no new scan); SSO link unverified → gate 403; canonical BBB link verified →
     eligible (side-effect-free); scheduled configs intact (3 total / 2 enabled).
+  - **Authenticated production confirmation (2026-07-14):** a real authenticated
+    SSO-test-session Scan Now against the unverified workspace-domain
+    (workspace_35e25fc5 / domain_3fe1e1a2) returned **HTTP 403
+    `domain_verification_required`** with the exact message "Verify domain ownership
+    before starting a Cyber MOT." Zero side-effects verified against a locked
+    baseline: scans 1→1, telemetry 14→14, managed cases 0→0, workspace reports 0→0;
+    no new scan row, R2 placeholder, report, telemetry or case. Verification
+    remediation episode CLOSED.
   - **Deployed Worker Version ID:** `c1dd9175-150a-40c0-8f1c-06d97c84bde8`.
   - **Rollback Version ID:** `e6604068-837f-47cb-b98b-772c368eaaff`.
 
