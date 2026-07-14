@@ -5,6 +5,20 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.14 (v2026.07.14-13 — universal managed-case model) — deployed 2026-07-14
+
+### Feat (one shared managed-case platform across all eight Cyber MOT domains — platform, not per-domain workflow depth)
+- **Universal Managed-Case Model** (PR **#73**, merge **fa2bfd6**). Extends the existing `managed_cases` table + generic `case-workflow` engine **in place** — no parallel case system. **Additive migration (082) only.**
+  - `engines/managed-case-model.js` — canonical BASE lifecycle with machine-stable keys: `detected → triaged → assigned → approved → action_in_progress → awaiting_verification → verified → monitoring → reopened` + terminal/exceptional `rejected / accepted_risk / false_positive / closed_no_action / superseded`. `CASE_TYPE_REGISTRY` registers all eight domains — `attack_surface` (asm_exposure) and `brand_protection` (brand_abuse) keep their EXISTING machines (full back-compat); the other six use the base machine. `CANONICAL_PHASE_MAP` folds every case_type's states onto one canonical phase for a cross-domain queue. **`canTransitionCase(...)` is the single validator** — enforces machine edges/guards/terminal-immutability, the system-only rule, and the universal invariants: verified needs a **system actor AND verification evidence** (a completed scan alone never verifies); accepted-risk / false-positive are never the verified phase; reopen preserves prior evidence; canonical timestamps stamped; an append-only history event is returned.
+  - **Migration 082 (additive):** `domain_key`, `source_finding_type/scan_id`, `remediation_id`, `title/summary/priority`, `assigned_user_id/business_owner/technical_owner`, and lifecycle phase timestamps on `managed_cases`; back-fills `domain_key` for existing ASM/Brand rows (**4 production asm_exposure cases → attack_surface, verified live**); reuses `managed_case_events` as the append-only history (no duplicate tables).
+  - **Compat + linkage:** ASM + Brand case creation attach `domain_key` + canonical `remediation_id` + `source_finding_type`. ASM scan-driven auto-open now **gates soft-deleted workspaces** (`deleted_at IS NULL`) — closes a rule-13 gap.
+  - **`routes/managed-cases.js`:** universal cross-domain `GET /cases` + `GET /cases/:id` (canonical_phase + append-only history) + `POST /cases/:id/transition` routed **only** through `canTransitionCase` (no bypass), workspace-scoped, soft-delete gated, same 404 for foreign + nonexistent. ASM/Brand keep their bespoke endpoints.
+  - **Frontend:** shared `caseDisplay` descriptor (canonical phase labels — no transition map), `api.getCases/getCase/transitionCase`, minimum cross-domain `CasesQueue` presentation.
+  - **Tests (CI-blocking):** `validate-managed-case-model.js` (75 assertions); universal `/cases` added to `validate-tenant-isolation.js` (83). Full gate green: regression 227, **all 74 CI validators**, frontend build, `wrangler dry-run`, migrations guard.
+  - **Deferred (NOT started):** Shadow IT inventory, certificate renewal workflow, identity domain workflow, all-domain alerts, MSP portfolio, M5.
+  - **Deployed Worker Version ID:** `8403e8c2-0ae6-4fe8-9a44-f0ddbaaaa6a8` (`GET /health` confirms; `/cases` live; migration backfill verified in production D1). Pages redeployed.
+  - **Rollback Version ID:** `10f66998-572c-49e2-a064-ce17f17c21d7`.
+
 ## 2026.07.14 (v2026.07.14-12 — canonical remediation coverage completion) — deployed 2026-07-14
 
 ### Feat (completes the canonical remediation registry — every customer-facing source now resolves canonically)
