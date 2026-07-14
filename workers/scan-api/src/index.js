@@ -1211,28 +1211,31 @@ async function processScheduledReports(now, env) {
         .bind(now, nextRunAt, sr.id)
         .run();
 
-      // Notification
-      try {
-        await createNotificationEvent(env, sr.workspace_id, {
-          type:     "report_schedule_executed",
-          severity: "info",
-          title:    `Scheduled report generated`,
-          message:  `${sr.report_type.replace(/_/g, ' ')} report generated automatically (${sr.frequency})`,
-          metadata: { scheduled_report_id: sr.id, report_id: reportRow?.id, report_type: sr.report_type },
-        });
-      } catch { /* non-fatal */ }
+      // Notification + audit ONLY when THIS invocation actually generated the report.
+      // A concurrent invocation that lost the occurrence claim (reportRow.claimed ===
+      // false) must not emit a duplicate customer notification.
+      if (reportRow?.claimed !== false) {
+        try {
+          await createNotificationEvent(env, sr.workspace_id, {
+            type:     "report_schedule_executed",
+            severity: "info",
+            title:    `Scheduled report generated`,
+            message:  `${sr.report_type.replace(/_/g, ' ')} report generated automatically (${sr.frequency})`,
+            metadata: { scheduled_report_id: sr.id, report_id: reportRow?.id, report_type: sr.report_type },
+          });
+        } catch { /* non-fatal */ }
 
-      // Audit
-      try {
-        await createAuditEvent(env, {
-          workspace_id: sr.workspace_id,
-          event_type:   "scheduled_report_executed",
-          entity_type:  "scheduled_report",
-          entity_id:    sr.id,
-          description:  `Scheduled ${sr.report_type} report generated automatically (${sr.frequency})`,
-          metadata:     { scheduled_report_id: sr.id, report_id: reportRow?.id, report_type: sr.report_type, next_run_at: nextRunAt },
-        });
-      } catch { /* non-fatal */ }
+        try {
+          await createAuditEvent(env, {
+            workspace_id: sr.workspace_id,
+            event_type:   "scheduled_report_executed",
+            entity_type:  "scheduled_report",
+            entity_id:    sr.id,
+            description:  `Scheduled ${sr.report_type} report generated automatically (${sr.frequency})`,
+            metadata:     { scheduled_report_id: sr.id, report_id: reportRow?.id, report_type: sr.report_type, next_run_at: nextRunAt },
+          });
+        } catch { /* non-fatal */ }
+      }
 
     } catch {
       // One workspace failing must not abort others

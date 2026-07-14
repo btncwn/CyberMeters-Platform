@@ -75,8 +75,61 @@ export function normalizeReportScheduleRecipients(value) {
   return recipients;
 }
 
+// A pending report claim older than this is treated as abandoned (the owning
+// invocation died before completing) and may be reclaimed. Report generation takes
+// seconds; 30 minutes is far beyond any real run, so a live claim is never stolen.
+export const STALE_REPORT_CLAIM_MINUTES = 30;
+
+function isStaleReportClaim(createdAt) {
+  if (!createdAt) return false;
+  const iso = String(createdAt).includes("T") ? createdAt : String(createdAt).replace(" ", "T") + "Z";
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return false;
+  return (Date.now() - t) > STALE_REPORT_CLAIM_MINUTES * 60 * 1000;
+}
+
+// claimReportOccurrence — ATOMICALLY acquire the single active claim for a report
+// occurrence (workspace_id, report_type, report_period). Backed by the partial
+// UNIQUE index idx_workspace_reports_active_occurrence (migration 081): the pending
+// INSERT is `INSERT OR IGNORE`, so exactly ONE concurrent caller gets changes=1.
+//   • won:true  → this caller owns `reportId` (a fresh 'pending' row) and must generate.
+//   • won:false → another invocation owns/owned it (existing = the active row). The
+//     caller must NOT generate, write R2, notify, or count usage.
+// A stale 'pending' blocker (owning invocation died) is transitioned to 'failed'
+// (guarded) and the claim retried ONCE, so a crash can never block the occurrence
+// forever. A fresh (< timeout) pending is never stolen.
+export async function claimReportOccurrence(env, { reportId, workspaceId, report_type, report_period, r2Key, retentionPolicy, createdAt }) {
+  const insertClaim = () => env.cybermeters_db.prepare(
+    `INSERT OR IGNORE INTO workspace_reports
+       (id, workspace_id, report_type, report_period, report_key, status, created_at, retention_policy)
+     VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`
+  ).bind(reportId, workspaceId, report_type, report_period, r2Key, createdAt, retentionPolicy).run();
+
+  let res = await insertClaim();
+  if ((res?.meta?.changes ?? 0) === 1) return { won: true };
+
+  const existing = await env.cybermeters_db.prepare(
+    `SELECT id, status, created_at FROM workspace_reports
+     WHERE workspace_id = ? AND report_type = ? AND report_period = ?
+       AND deleted_at IS NULL AND status != 'failed'
+     ORDER BY created_at DESC, id DESC LIMIT 1`
+  ).bind(workspaceId, report_type, report_period).first().catch(() => null);
+
+  if (existing && existing.status === "pending" && isStaleReportClaim(existing.created_at)) {
+    await env.cybermeters_db.prepare(
+      `UPDATE workspace_reports SET status = 'failed', generated_at = ?, metadata_json = ?
+       WHERE id = ? AND status = 'pending'`
+    ).bind(new Date().toISOString(), JSON.stringify({ reason: "stale_claim_reclaimed" }), existing.id).run().catch(() => {});
+    res = await insertClaim();
+    if ((res?.meta?.changes ?? 0) === 1) return { won: true };
+  }
+  return { won: false, existing: existing || null };
+}
+
 // generateWorkspaceExecutiveReport — collect data, build PDF, upload to R2,
-// write a workspace_reports row.  Returns the completed row on success.
+// write a workspace_reports row.  Returns the completed row on success (claimed:true).
+// If a concurrent invocation already holds the occurrence claim it returns that row
+// with claimed:false and performs ZERO generation side effects (dedup).
 // Throws on fatal error (the row is marked failed before throwing).
 
 export async function generateWorkspaceExecutiveReport(workspaceId, env, options = {}) {
@@ -118,12 +171,24 @@ export async function generateWorkspaceExecutiveReport(workspaceId, env, options
   const r2Key     = `reports/executive/${workspaceId}/${report_type}/${period}/executive-report.pdf`;
   const retentionPolicy = await getReportRetentionPolicyForWorkspace(workspaceId, env);
 
-  // Insert a pending row first so we can always flip it to failed on error
-  await env.cybermeters_db.prepare(
-    `INSERT INTO workspace_reports
-       (id, workspace_id, report_type, report_period, report_key, status, created_at, retention_policy)
-     VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`
-  ).bind(reportId, workspaceId, report_type, period, r2Key, createdAt, retentionPolicy).run();
+  // ATOMIC CLAIM: acquire the single active occurrence claim (pending row) before any
+  // generation. Under overlapping execution only ONE caller wins; a loser returns the
+  // existing row and does no PDF build, R2 write, notification or usage-count side
+  // effect (usage = COUNT of completed rows, so a single row = single count).
+  const claim = await claimReportOccurrence(env, {
+    reportId, workspaceId, report_type, report_period: period, r2Key, retentionPolicy, createdAt,
+  });
+  if (!claim.won) {
+    const existingRow = claim.existing?.id
+      ? await env.cybermeters_db.prepare(
+          `SELECT id, workspace_id, report_type, report_period, report_key, status, generated_at, created_at, retention_policy
+           FROM workspace_reports WHERE id = ? LIMIT 1`
+        ).bind(claim.existing.id).first().catch(() => null)
+      : null;
+    return existingRow
+      ? { ...existingRow, claimed: false, deduplicated: true }
+      : { id: null, workspace_id: workspaceId, report_type, report_period: period, report_key: r2Key, status: "skipped", claimed: false, deduplicated: true };
+  }
 
   let pdfData, bytes;
   try {
@@ -192,6 +257,7 @@ export async function generateWorkspaceExecutiveReport(workspaceId, env, options
     generated_at:  generatedAt,
     created_at:    createdAt,
     retention_policy: retentionPolicy,
+    claimed:       true,
   };
 }
 

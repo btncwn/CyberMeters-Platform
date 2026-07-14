@@ -146,6 +146,9 @@ jobs:
       - name: Validate bounded scheduled-report generation (batch limit + determinism + idempotency + fairness + entitlement)
         run: node scripts/validate-bounded-scheduled-reports.js
 
+      - name: Validate scheduled-report occurrence claim atomicity (concurrent overlap → one generation)
+        run: node scripts/validate-report-occurrence-claim.js
+
       - name: Validate KEV catalogue R2 cache (hit/miss/stale/unavailable + honest degrade)
         run: node scripts/validate-kev-cache.js
 

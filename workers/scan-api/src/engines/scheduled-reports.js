@@ -145,7 +145,7 @@ export async function runBoundedScheduledReports(now, env, deps = {}) {
   const jobs = await selectDueReportJobs(env, dueTypes);
   const batch = jobs.slice(0, batchLimit);
 
-  let generated = 0, failures = 0, skippedEntitlement = 0, skippedState = 0;
+  let generated = 0, deduplicated = 0, failures = 0, skippedEntitlement = 0, skippedState = 0;
   for (const job of batch) {
     let elig;
     try {
@@ -160,8 +160,11 @@ export async function runBoundedScheduledReports(now, env, deps = {}) {
       continue; // deferred job: NO report row, NO R2 object, NO email, NO usage increment
     }
     try {
-      await generate(job.workspace_id, env, { report_type: job.report_type, report_period: job.report_period });
-      generated++;
+      const result = await generate(job.workspace_id, env, { report_type: job.report_type, report_period: job.report_period });
+      // A concurrent invocation that lost the atomic occurrence claim returns
+      // claimed:false and generated nothing — count it as deduplicated, not generated.
+      if (result && result.claimed === false) deduplicated++;
+      else generated++;
     } catch (e) {
       failures++;
       // Reason code only — never the error detail/report content (avoid leaking).
@@ -175,6 +178,7 @@ export async function runBoundedScheduledReports(now, env, deps = {}) {
     jobs_due: jobs.length,
     jobs_processed: batch.length,
     reports_generated: generated,
+    jobs_deduplicated: deduplicated,
     jobs_deferred_batch: jobs.length - batch.length,
     jobs_skipped_entitlement: skippedEntitlement,
     jobs_skipped_state: skippedState,
@@ -193,6 +197,7 @@ function emptySummary(batchLimit, endedAtMs, startedAt) {
     jobs_due: 0,
     jobs_processed: 0,
     reports_generated: 0,
+    jobs_deduplicated: 0,
     jobs_deferred_batch: 0,
     jobs_skipped_entitlement: 0,
     jobs_skipped_state: 0,
