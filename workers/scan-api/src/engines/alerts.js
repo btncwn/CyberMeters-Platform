@@ -477,7 +477,12 @@ export async function deliverWorkspaceAlert(env, workspaceId, event, { fetchImpl
   return { attempted: channels.length, delivered };
 }
 
-export function formatAlertEmail({ workspaceName, domain, whatChanged, recommendation, link }) {
+// Monitoring-alert email body. These are NON-PROMOTIONAL service messages about the
+// customer's own security posture: no advertising, no upgrade copy, no discount, no
+// cross-sell. `preferencesLink` points at the monitoring-preference centre — it is
+// deliberately NOT a marketing unsubscribe, and is labelled as such, because turning
+// monitoring off is a product setting the customer controls per channel.
+export function formatAlertEmail({ workspaceName, domain, whatChanged, recommendation, link, preferencesLink = null }) {
   const text = `CyberMeters Alert
 
 Workspace: ${workspaceName}
@@ -494,7 +499,8 @@ ${link || "Open CyberMeters to review this alert."}
 
 --
 CyberMeters — Attack Surface Management
-This is an automated alert from your CyberMeters Platform.`;
+This is an automated security-monitoring alert for your workspace.${preferencesLink ? `
+Manage your monitoring alert preferences: ${preferencesLink}` : ""}`;
 
   const html = `<!DOCTYPE html>
 <html>
@@ -530,7 +536,9 @@ This is an automated alert from your CyberMeters Platform.`;
   <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 30px 0;" />
   <p style="font-size: 12px; color: #9CA3AF; margin: 0;">
     CyberMeters &mdash; Attack Surface Management<br>
-    This alert was sent to workspace owners and admins.
+    This is an automated security-monitoring alert for your workspace, sent to
+    workspace owners and admins.${preferencesLink ? `<br>
+    <a href="${escapeEmailHtml(preferencesLink)}" style="color: #6B7280;">Manage your monitoring alert preferences</a>` : ""}
   </p>
 </body>
 </html>`;
