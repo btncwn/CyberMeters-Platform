@@ -5,6 +5,20 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.14 (v2026.07.14-15 — Shadow IT approved inventory) — deployed 2026-07-14
+
+### Feat (Shadow IT & Unmanaged Technology becomes a managed approved-inventory system — foundation)
+- **Shadow IT approved inventory** (PR **#77**, merge on main). Externally-observed scope only; classification is a customer decision separate from observation; nothing is called unauthorised until the customer classifies it. Uses the Universal Managed-Case Model for follow-up.
+  - **Migration 083 (additive):** `shadow_it_inventory` (canonical, workspace-scoped, one row per correlated technology — full contract incl. `canonical_technology_key`, provider/category/source, observed identifiers/hostnames, first/last/changed seen, confidence, classification + reason, owners, approve/reject/exception/onboarding/removal/monitoring, source_evidence, linked_case_id) + `shadow_it_inventory_events` (append-only history). Both added to `WORKSPACE_PURGE_TABLES`.
+  - **Identity + correlation:** `canonicalTechnologyKey` is a deterministic PRODUCT-level slug (`google_workspace ≠ google_cloud` — never provider-collapsed). `correlateShadowItInventory` **reuses `workspace_vendors`** (source of truth for the raw observation) grouped by that key + ephemeral `saas_exposure` portal URLs; classification/ownership persist across upserts, observation fields refresh; detects material change, disappearance (`no_longer_observed` — never auto verified-removed) and reappearance; soft-deleted workspaces skipped.
+  - **Classification/workflow:** 12 audited customer actions (approve/reject/mark_exception/assign owners/set purpose/onboarding/removal/retire/reopen); exception requires reason + expiry; reject is not removal; mark_removed is a customer assertion. `evaluateShadowItRecurrence` opens a `shadow_it_case` (→ `shadow_it.saas.review`) for rejected-still-observed / retired-reappeared / exception-expired via `createManagedCase`.
+  - **Wiring/API/frontend:** scan-pipeline correlation phase (after supply-chain, soft-delete gated); `routes/shadow-it.js` workspace-scoped GET inventory (+counts/filters), GET item (+history + linked case), POST action (non-enumerating 404); `ShadowItInventoryPage` (server-provided actions only — cannot invent classification states) + shared `shadowItDisplay` descriptor.
+  - **Tests (CI-blocking):** `validate-shadow-it-inventory.js` (34, DB-backed); `shadowItDisplay` Vitest unit test; Shadow IT added to `validate-tenant-isolation.js` (86). Full gate: **all 76 CI validators**, frontend build + coverage, `wrangler dry-run`, migrations guard.
+  - **Deliberately unchanged:** `cyber-mot-domains` shadow_it stays observation-only (coverage-state honesty preserved).
+  - **Deployed Worker Version ID:** `307ada26-e5f8-41dc-9c9d-9c36cb6b4c81` (`GET /health` confirms; `/shadow-it/inventory` live; both tables verified in production D1). Pages redeployed.
+  - **Rollback Version ID:** `7eb57f71-c27a-4f0d-83cb-0983588f8b52`.
+  - **Deferred (NOT started):** Certificates Managed Lifecycle, Identity domain workflow, all-domain alerts, MSP portfolio, M5.
+
 ## 2026.07.14 (v2026.07.14-14 — universal case invariants enforced) — deployed 2026-07-14
 
 ### Feat (completes the Universal Managed-Case Model — transition + creation invariants enforced platform-wide)
