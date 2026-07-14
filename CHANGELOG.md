@@ -5,6 +5,55 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.14 (v2026.07.14-9 — eight-domain Cyber MOT coverage-state honesty) — deployed 2026-07-14
+
+### Feat (first before-public-beta episode of the eight-domain managed Cyber MOT roadmap)
+- **Canonical eight-domain coverage-state honesty** (PR **#67**, merge **2b684cf**).
+  One compute-on-read resolver for the eight customer-facing Cyber MOT domains, wired
+  into the four primary surfaces so every domain is always visible with one explicit
+  honest state and missing evidence can never render as healthy. **No migration, no new
+  storage, no scan-pipeline change.**
+  - `engines/cyber-mot-domains.js` `resolveCyberMotDomainStates(report,{cyberEssentials})`
+    — always returns the eight domains in fixed canonical order (email_protection,
+    brand_protection, attack_surface, certificates_trust, cyber_essentials_readiness,
+    website_security, identity_exposure, shadow_it_unmanaged_technology) with stable
+    keys, a fixed state enum (assessed_healthy | issue_detected | provisional |
+    degraded | unavailable | not_configured | customer_input_required | monitoring_only
+    | not_yet_assessed | evidence_insufficient) and honest metadata (coverage, maturity,
+    managed_status, evidence/finding counts, highest_severity, limitations, source scan).
+    Deterministic precedence: a real finding is never hidden (issue_detected + coverage
+    caveat); anything that is not a COMPLETE scan is provisional; missing/insufficient
+    evidence is never healthy. Reuses the existing canonical scan-quality + findings
+    semantics — no competing quality system.
+  - **Honest scopes preserved:** Identity Exposure covers spoofing / impersonation /
+    exposed-login surfaces only (no breach/credential/dark-web claim); Shadow IT is
+    `monitoring_only` — "observed", never "unauthorised" (approved-inventory comparison
+    is a separate later episode).
+  - **Wiring (frontend renders server states; no resolver logic duplicated):** scan
+    `GET /report` + `/executive-report-v2` responses carry `cyber_mot_domains`;
+    `collectPdfData` computes it over the workspace authoritative (latest-complete)
+    scan; the Executive PDF gains a compact page-12 "Eight-Domain Cyber MOT Coverage
+    Summary" (**v2.2 → v2.3, +1 page, no section removed, white-label preserved**); a
+    shared `<CyberMotDomains>` renders on the Main Dashboard, Scan Detail and Executive
+    Report UI. The Dashboard's default-to-green health fallbacks were removed.
+  - **Explicitly NOT started** (separate later episodes): Shadow IT approved inventory,
+    Certificates managed renewal cases, Identity Exposure cases, eight-domain alerts,
+    MSP per-domain portfolio trends, remediation registry, universal ASM verification,
+    M5 workflows.
+  - **Tests:** `validate-eight-domain-coverage-state.js` (27 — matrix 1–20 incl. no-scan,
+    partial, degraded, unknown, missing-module, DKIM-uncertainty, brand-watchlist,
+    CT-incomplete, HTTPS≠trust, CE-input-required, identity-scope, shadow-monitoring) and
+    `validate-eight-domain-wiring.js` (15 — four-surface wiring + PDF renders all eight +
+    white-label). Full regression + report scoping/branding + parity + tenant isolation +
+    entitlement + migrations + lifecycle + frontend build + wrangler dry-run green.
+  - **Production proof (side-effect-safe, founder BBB workspace):** the authoritative
+    scan `/report` and `/executive-report-v2` both return exactly **8** domains in stable
+    order with the correct source scan; **no missing-evidence domain marked healthy** (CE
+    → customer_input_required, Shadow IT → monitoring_only, real findings → issue_detected);
+    Identity/Shadow-IT wording scope-honest. No customer report or email generated.
+  - **Deployed Worker Version ID:** `d79da556-84d5-44fa-800d-61cf048d461f`.
+  - **Rollback Version ID:** `3fae558d-1196-4198-ab7d-54d7276d9867`.
+
 ## 2026.07.14 (v2026.07.14-8 — atomic scheduled-report occurrence claim) — deployed 2026-07-14
 
 ### Fix (concurrency — close the v2026.07.14-7 overlap gap)
