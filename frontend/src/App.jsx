@@ -69,6 +69,7 @@ const WorkspaceScorecard            = lazy(() => import('./pages/ws/WorkspaceSco
 const VendorsPage                   = lazy(() => import('./pages/ws/VendorsPage'))
 const ThirdPartyPage                = lazy(() => import('./pages/ws/ThirdPartyPage'))
 const SaasExposurePage              = lazy(() => import('./pages/ws/SaasExposurePage'))
+const ShadowItInventoryPage         = lazy(() => import('./pages/ws/ShadowItInventoryPage'))
 const CloudAssetsPage               = lazy(() => import('./pages/ws/CloudAssetsPage'))
 const AdminSurfacesPage             = lazy(() => import('./pages/ws/AdminSurfacesPage'))
 const CertificatesPage              = lazy(() => import('./pages/ws/CertificatesPage'))
@@ -196,6 +197,7 @@ function AppRoutes() {
           <Route path="ws/vendors"          element={<VendorsPage />} />
           <Route path="ws/third-party"      element={<ThirdPartyPage />} />
           <Route path="ws/saas-exposure"    element={<SaasExposurePage />} />
+          <Route path="ws/shadow-it"        element={<ShadowItInventoryPage />} />
           <Route path="ws/cloud-assets"     element={<CloudAssetsPage />} />
           <Route path="ws/admin-surfaces"   element={<AdminSurfacesPage />} />
           <Route path="ws/certificates"     element={<CertificatesPage />} />

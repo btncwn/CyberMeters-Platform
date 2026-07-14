@@ -142,6 +142,7 @@ async function main() {
   tryInsert("INSERT INTO managed_cases (id, workspace_id, case_type, domain, finding_id, asset_ref, severity, status, evidence_json, recommended_actions_json, created_at, updated_at) VALUES ('mc-secret','ws1','asm_exposure','secret1.example','admin_surface_high','case-SECRET.example','high','open','{}','[]',datetime('now'),datetime('now'))");
   tryInsert("INSERT INTO scans (id, domain_id, domain, score, rating, status, created_at) VALUES ('scan_ws1','dom1','secret1.example',80,'good','completed', datetime('now'))");
   tryInsert("INSERT INTO managed_cases (id, workspace_id, case_type, domain, finding_id, asset_ref, severity, status, evidence_json, recommended_actions_json, created_at, updated_at) VALUES ('mc-brand-secret','ws1','brand_abuse','brand-case-SECRET.example','brand-secret','example.com','high','triage','{}','[]',datetime('now'),datetime('now'))");
+  tryInsert("INSERT INTO shadow_it_inventory (id, workspace_id, canonical_technology_key, display_name, category, first_seen_at, last_seen_at, classification, monitoring_status, created_at, updated_at) VALUES ('sii-secret','ws1','shadow_secret','shadow-tech-SECRET','saas',datetime('now'),datetime('now'),'unreviewed','observed',datetime('now'),datetime('now'))");
   tryInsert("INSERT INTO notification_events (id, workspace_id, user_id, type, severity, title, message, status) VALUES ('n1','ws1',NULL,'scan','info','notif-SECRET','m','unread')");
   tryInsert("INSERT INTO workspace_invitations (id, workspace_id, email, role, token_hash, invited_by, status, expires_at, created_at) VALUES ('inv1','ws1','invitee@x.co','viewer', 'invhash1','admin','pending', datetime('now','+7 day'), datetime('now'))");
 
@@ -170,6 +171,7 @@ async function main() {
     { path: "/api/workspaces/ws1/assets",          marker: "asset-SECRET" },
     { path: "/api/workspaces/ws1/managed-cases",   marker: "case-SECRET" },
     { path: "/api/workspaces/ws1/cases",           marker: "case-SECRET" },
+    { path: "/api/workspaces/ws1/shadow-it/inventory", marker: "shadow-tech-SECRET" },
     { path: "/api/workspaces/ws1/brand/cases",     marker: "brand-case-SECRET" },
     { path: "/api/workspaces/ws1/assets/summary",  marker: "asset-SECRET" },
     { path: "/api/workspaces/ws1/domains",         marker: "secret1.example" },
