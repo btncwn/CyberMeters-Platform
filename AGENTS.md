@@ -114,6 +114,8 @@ Current release facts (as of 14 July 2026):
 - latest migration applied to production: `086-identity-exposure.sql` (the ASM Verification episode required no migration);
 - next canonical episode: Alerts Across All Eight Domains (not yet started).
 
+The founder-approved commercial roadmap from product completion to the first paying customer is `docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md`. It is the single authoritative copy of that plan.
+
 Do not use speculative percentage-completion figures unless they come from an approved, current release-readiness assessment.
 
 Use milestone status instead:
