@@ -45,11 +45,13 @@ function serviceMap(adminModule) {
 }
 
 async function loadPreviousReport(scanId, domainId, env) {
+  // Posture-change baseline must be a COMPLETE assessment — a partial/degraded prior
+  // scan (missing modules) would fabricate false new/removed posture events.
   const prev = await env.cybermeters_db
     .prepare(
       `SELECT id FROM scans
-       WHERE domain_id = ? AND status = 'completed' AND id != ?
-       ORDER BY created_at DESC LIMIT 1`
+       WHERE domain_id = ? AND status = 'completed' AND scan_quality = 'complete' AND id != ?
+       ORDER BY created_at DESC, id DESC LIMIT 1`
     )
     .bind(domainId, scanId)
     .first();

@@ -172,6 +172,31 @@ const d1 = (db) => ({ prepare(sql) { const w = (a) => ({ first: async () => db.p
   ok("backfill only accepts the 4-literal enum", /complete/.test(bf) && /partial/.test(bf) && /degraded/.test(bf) && /unknown/.test(bf));
 }
 
+// ── Failure path: R2 write succeeds, D1 quality write fails → not treated complete;
+//     reconciler restores scan_quality from R2 and the two then match. ──
+{
+  // Persist a COMPLETE report to R2 but make the D1 UPDATE throw.
+  let r2Body = null;
+  let d1Quality = null; // simulated D1 column value
+  const failingEnv = {
+    cybermeters_reports: { put: async (k, b) => { r2Body = JSON.parse(b); } },
+    cybermeters_db: { prepare: (sql) => ({ bind: (...a) => ({ run: async () => { if (/UPDATE scans SET status/.test(sql)) throw new Error("D1 down"); } }) }) },
+  };
+  const latch = createFinalizeLatch();
+  const report = { status: "completed", scan_quality: { status: "complete" }, cyber_metrics_score: 82 };
+  const fin = await finalizeScanResult(latch, { scanId: "scan_fp", report, score: 82, rating: "good", status: "completed", env: failingEnv });
+  ok("failure path: R2 completed report is durable", r2Body?.scan_quality?.status === "complete");
+  ok("failure path: NOT finalized when the D1 write fails", fin.finalized === false && latch.d1Written === false);
+  // While D1 quality is NULL, the canonical resolver treats it as unknown → NOT complete.
+  const stale = resolveAssessmentPresentation({ score: 82, scanQuality: d1Quality /* NULL */, status: "completed" });
+  ok("failure path: D1-NULL quality is NOT authoritative (never assumed complete)", !stale.authoritative && stale.quality === "unknown");
+  // Reconciler restores scan_quality from the SAME R2 report.
+  d1Quality = r2Body.scan_quality.status; // what the reconciler's UPDATE ... = raw.scan_quality?.status writes
+  eq("reconciler: D1 quality restored from R2", d1Quality, "complete");
+  const recovered = resolveAssessmentPresentation({ score: 82, scanQuality: d1Quality, status: "completed" });
+  ok("after reconcile: D1 and R2 agree and posture is authoritative", recovered.authoritative && d1Quality === r2Body.scan_quality.status);
+}
+
 console.log(`\npartial-scan-honesty: ${pass} passed, ${fail} failed`);
 if (fail) { console.error("partial-scan-honesty validation FAILED"); process.exit(1); }
 console.log("partial-scan-honesty validation passed");

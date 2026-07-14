@@ -128,6 +128,9 @@ jobs:
       - name: Validate partial-scan honesty (provisional score/rating + current posture + trend gating)
         run: node scripts/validate-partial-scan-honesty.js
 
+      - name: Validate canonical presentation parity (all score/rating consumers delegate to one decision)
+        run: node scripts/validate-canonical-presentation-parity.js
+
       - name: Validate KEV catalogue R2 cache (hit/miss/stale/unavailable + honest degrade)
         run: node scripts/validate-kev-cache.js
 

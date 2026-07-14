@@ -13,7 +13,7 @@
 //   4. Legacy NULL/unknown quality NEVER outranks a known complete assessment
 //      (the authoritative query matches scan_quality='complete' only).
 
-import { normalizeQuality } from "./assessment-presentation.js";
+import { normalizeQuality, resolveAssessmentPresentation, POSTURE_NOT_ESTABLISHED_MESSAGE } from "./assessment-presentation.js";
 
 // scope: { workspaceId } (latest across the workspace's linked domains) or
 // { domainId } (a single domain). Returns:
@@ -59,4 +59,26 @@ export async function getAuthoritativeCurrentPosture(env, { workspaceId = null, 
 // True only when the given scan is comparable for trend deltas (complete only).
 export function isComparableAssessment(scanQuality) {
   return normalizeQuality(scanQuality) === "complete";
+}
+
+// One-call canonical decision for every score/rating/posture API consumer: resolves
+// the authoritative posture AND wraps it in the canonical presentation, plus the
+// latest provisional assessment (if any) and a not-established message. Consumers
+// MUST use this (or getAuthoritativeCurrentPosture) rather than their own
+// latest-completed-scan query + riskLevelForScore, so the whole product renders one
+// completeness-aware decision. Fields carried: raw_score/display_score/display_rating/
+// quality/provisional/authoritative/comparable/message.
+export async function getCurrentPosturePresentation(env, scope) {
+  const posture = await getAuthoritativeCurrentPosture(env, scope);
+  const present = (row) => row
+    ? resolveAssessmentPresentation({ score: row.score, scanQuality: row.scan_quality, status: "completed" })
+    : null;
+  return {
+    state:               posture.state,                    // 'established' | 'not_established'
+    authoritative:       present(posture.authoritative),   // canonical fields or null
+    authoritative_scan_id: posture.authoritative?.scan_id ?? null,
+    latest_provisional:  present(posture.latest_provisional),
+    latest_provisional_scan_id: posture.latest_provisional?.scan_id ?? null,
+    posture_message:     posture.state === "not_established" ? POSTURE_NOT_ESTABLISHED_MESSAGE : null,
+  };
 }

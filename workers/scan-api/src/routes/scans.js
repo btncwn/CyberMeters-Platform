@@ -14,10 +14,10 @@ import { resolveReportBranding } from "../engines/report-branding.js";
 import { prepareLogoXObject } from "../engines/pdf-image.js";
 import { checkScanLimit, checkScheduledScanLimit, getAccountUsage, getEntitlementUsage, getPlanLimits, getWorkspaceBillingUserId, planLimitExceeded } from "../engines/plan-usage.js";
 import { buildScanQuality, runScanEngine } from "../engines/scan-engine.js";
-import { riskLevelForScore } from "../engines/scoring.js";
 import { buildDmarcSenderIntelligenceEvidence } from "../engines/sender-provenance.js";
 import { createAuditEvent } from "../lib/events.js";
 import { DOMAIN_VERIFICATION_REQUIRED, isWorkspaceDomainVerified } from "../lib/domain-verification.js";
+import { resolveAssessmentPresentation } from "../engines/assessment-presentation.js";
 import { createId, isValidDomain, parseBoundedInteger } from "../lib/util.js";
 
 export async function scanRoutes(rctx) {
@@ -559,12 +559,18 @@ export async function scanRoutes(rctx) {
       const businessRisk = deriveScanBusinessRisk(raw);
 
       const canonicalScore = resolveCanonicalScanScore(scan.score, raw.cyber_metrics_score);
-      const canonicalRiskLevel = riskLevelForScore(canonicalScore);
+      // Canonical completeness-aware presentation for THIS scan — a partial/degraded/
+      // unknown scan gets no final rating and no trend delta.
+      const scanQualityStatus = (raw.scan_quality ?? buildScanQuality(normalisedModules))?.status;
+      const assessment = resolveAssessmentPresentation({ score: canonicalScore, scanQuality: scanQualityStatus, status: scan.status });
+      const canonicalRiskLevel = assessment.display_rating;
       const historicalChanges = normalisedModules.historical_changes;
       normalisedModules.historical_changes = {
         ...historicalChanges,
         current_score: canonicalScore,
-        score_change: historicalChanges?.previous_score != null
+        comparable: assessment.comparable,
+        // Only a complete assessment produces a delta — never improved/declined/+N.
+        score_change: (assessment.comparable && historicalChanges?.previous_score != null)
           ? canonicalScore - historicalChanges.previous_score
           : null,
       };
@@ -573,8 +579,9 @@ export async function scanRoutes(rctx) {
         scan_id:             scan.id,
         domain:              scan.domain,
         status:              scan.status,
-        cyber_metrics_score: canonicalScore,
+        cyber_metrics_score: assessment.display_score,
         risk_level:          canonicalRiskLevel,
+        assessment,          // canonical decision: provisional/authoritative/comparable/quality/message
         findings:            reportFindings,
         recommendations:     Array.isArray(raw.recommendations) ? raw.recommendations : [],
         scan_quality:         raw.scan_quality ?? buildScanQuality(normalisedModules),
