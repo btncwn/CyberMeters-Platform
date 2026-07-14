@@ -651,6 +651,29 @@ export const api = {
   /** GET /api/workspaces/:id/certificates/timeline */
   getWorkspaceCertificatesTimeline: (id) => request(`/workspaces/${id}/certificates/timeline`),
 
+  // ── Certificates Managed Lifecycle ────────────────────────────────────────
+  /** GET /api/workspaces/:id/certificates/lifecycle  optional: ?renewal_readiness=&lifecycle_state=&coverage_status= */
+  getCertificateLifecycle: (id, params = {}) => {
+    const q = new URLSearchParams(params).toString()
+    return request(`/workspaces/${id}/certificates/lifecycle${q ? `?${q}` : ''}`)
+  },
+
+  /** GET /api/workspaces/:id/certificates/lifecycle/:recId — record + history + linked case */
+  getCertificateLifecycleRecord: (id, recId) =>
+    request(`/workspaces/${id}/certificates/lifecycle/${encodeURIComponent(recId)}`),
+
+  /** POST /api/workspaces/:id/certificates/lifecycle/:recId/action — ownership/planning/lifecycle */
+  certificateLifecycleAction: (id, recId, body) =>
+    request(`/workspaces/${id}/certificates/lifecycle/${encodeURIComponent(recId)}/action`, {
+      method: 'POST', body: JSON.stringify(body),
+    }),
+
+  /** POST /api/workspaces/:id/certificates/lifecycle/:recId/verify — request external verification */
+  certificateLifecycleVerify: (id, recId) =>
+    request(`/workspaces/${id}/certificates/lifecycle/${encodeURIComponent(recId)}/verify`, {
+      method: 'POST', body: JSON.stringify({}),
+    }),
+
   /** GET /api/workspaces/:id/brand-monitoring  optional: ?status=&risk_level=&variant_type= */
   getWorkspaceBrandMonitoring: (id, params = {}) => {
     const q = new URLSearchParams(params).toString()

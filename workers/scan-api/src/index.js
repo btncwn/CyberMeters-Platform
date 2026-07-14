@@ -84,6 +84,7 @@ import { authRoutes } from "./routes/auth.js";
 import { attackSurfaceRoutes } from "./routes/attack-surface.js";
 import { managedCasesRoutes } from "./routes/managed-cases.js";
 import { shadowItRoutes } from "./routes/shadow-it.js";
+import { certificatesLifecycleRoutes } from "./routes/certificates-lifecycle.js";
 import { workspaceInsightRoutes } from "./routes/workspace-insights.js";
 import { buildCertificateAuthorityConcentrationFromModule, buildScanQuality, computeScanBudget, insertAdminSurfaceEvents, runScanEngine, upsertVendorInventory, upsertVendorRelationships } from "./engines/scan-engine.js";
 import { runBoundedScheduledReports } from "./engines/scheduled-reports.js";
@@ -939,6 +940,7 @@ const WORKSPACE_PURGE_TABLES = [
   "certificate_observations", "identity_assets", "historical_scores",
   "vendor_risk_scores", "vendor_risk_scores_history", "workspace_vendors",
   "shadow_it_inventory_events", "shadow_it_inventory",
+  "certificate_lifecycle_events", "certificate_lifecycle",
   "workspace_brs_scores", "workspace_brs_score_history",
   "workspace_supply_chain_scores", "workspace_supply_chain_history",
   "notification_events", "notification_preferences",
@@ -2010,6 +2012,12 @@ export default {
     {
       const shadowItResponse = await shadowItRoutes(routeCtx);
       if (shadowItResponse) return shadowItResponse;
+    }
+
+    // ── Certificates Managed Lifecycle routes ───────────────────────────────
+    {
+      const certLifecycleResponse = await certificatesLifecycleRoutes(routeCtx);
+      if (certLifecycleResponse) return certLifecycleResponse;
     }
 
     // ── Workspace analytics routes (scorecard, CE readiness, business risk) ──

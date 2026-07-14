@@ -65,6 +65,7 @@ const SERVICES = [
     match: p => p.startsWith('/ws/certificates'),
     items: [
       { to: '/ws/certificates',  label: 'Overview', end: true },
+      { to: '/ws/certificates/lifecycle', label: 'Managed Lifecycle' },
       { hash: '#cert-inventory', label: 'Inventory' },
       { hash: '#cert-expiry',    label: 'Expiry Risk' },
       { hash: '#cert-actions',   label: 'Recommended Actions' },
