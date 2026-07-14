@@ -25,7 +25,7 @@ const reg = await imp("remediation-registry.js");
 const {
   REMEDIATION_REGISTRY, CANONICAL_DOMAIN_KEYS, FINDING_TYPE_ALIASES,
   resolveRemediation, listRegisteredFindingTypes, getRemediationById,
-  canonicalRecommendedAction,
+  canonicalRecommendedAction, resolveByCustomerTitle, findingRemediation,
 } = reg;
 
 let pass = 0, fail = 0;
@@ -180,12 +180,22 @@ ok("certificate unknown entry names chain/OCSP/revocation as unknown",
   certUnknown.limitations.some((l) => /chain|ocsp|revocation/i.test(l)));
 
 // ── 12. Cyber Essentials external-certification wording ──────────────────────
+// Certification stays external, and readiness remediation is a SEPARATE concept:
+// the certification-scope entry states certification is external (IASME), and NO
+// CE entry (scope or control-gap) affirmatively claims CyberMeters issues it.
 const ce = REMEDIATION_REGISTRY.filter((e) => e.domain_key === "cyber_essentials_readiness");
 ok("CE entries exist", ce.length > 0);
-ok("CE entries keep certification external (IASME / not issued by us)",
-  ce.every((e) => /iasme|external/i.test(`${e.recommended_action} ${e.verification_evidence_requirements}`)));
-ok("CE entries never claim to issue certification",
-  ce.every((e) => e.limitations.some((l) => /not a cyber essentials certification|does not.*certification/i.test(l))));
+const ceScope = ce.find((e) => e.remediation_id === "ce.certification.external");
+ok("CE certification-scope entry keeps certification external (IASME)",
+  Boolean(ceScope) && /iasme/i.test(`${ceScope.recommended_action} ${ceScope.verification_evidence_requirements}`)
+    && ceScope.limitations.some((l) => /not a cyber essentials certification|does not.*certification/i.test(l)));
+const claimsToIssueCert = /\b(we|cybermeters)\b[^.]{0,40}(issue|award|grant|certif)[^.]{0,20}(cyber essentials|certification)/i;
+ok("NO CE entry claims CyberMeters issues certification",
+  ce.every((e) => !claimsToIssueCert.test(`${e.customer_title} ${e.technical_explanation} ${e.business_impact} ${e.recommended_action}`)),
+  ce.filter((e) => claimsToIssueCert.test(`${e.customer_title} ${e.technical_explanation} ${e.business_impact} ${e.recommended_action}`)).map((e) => e.remediation_id).join(","));
+// At least one CE control-gap remediation exists (domain is not represented ONLY by the external-certification statement).
+ok("CE domain has readiness control-gap remediations beyond the certification-scope statement",
+  ce.filter((e) => e.remediation_id !== "ce.certification.external").length >= 1);
 
 // ── 13. Deterministic output ─────────────────────────────────────────────────
 const r1 = resolveRemediation({ finding_type: "email_missing_spf", surface: "pdf" });
@@ -213,6 +223,33 @@ const bimiYes = resolveRemediation({ finding_type: "bimi_not_configured", eviden
 eq("BIMI not applicable when DMARC not enforced", bimiNo.applicable, false);
 eq("BIMI applicable when DMARC enforced", bimiYes.applicable, true);
 eq("BIMI still resolves regardless of applicability", bimiNo.status, "resolved");
+
+// ── 16. Cross-surface join parity (scan detail ↔ scorecard/PDF/exec report) ──
+// Scan Detail resolves a finding by its id (findingRemediation); the Scorecard,
+// Executive PDF and Executive Report join by the canonical customer_title
+// (resolveByCustomerTitle). Both joins MUST land on the same remediation_id, or
+// the same remediation would carry two identities across surfaces.
+let titleJoinMismatch = [];
+for (const e of REMEDIATION_REGISTRY.filter((x) => x.status === "active")) {
+  const byTitle = resolveByCustomerTitle(e.customer_title);
+  if (!byTitle || byTitle.remediation_id !== e.remediation_id) titleJoinMismatch.push(e.remediation_id);
+}
+ok("every active remediation round-trips through resolveByCustomerTitle (PDF/exec-report join)",
+  titleJoinMismatch.length === 0, titleJoinMismatch.join(", "));
+eq("resolveByCustomerTitle returns null for an unknown title (fails honestly)",
+  resolveByCustomerTitle("no such remediation title at all"), null);
+
+// findingRemediation (scan-detail enrichment) agrees with resolveRemediation and,
+// via customer_title, with the title-join used by the PDF/exec report.
+for (const ft of ["email_missing_spf", "ssl_certificate_expired", "asset_exposure_admin_interface"]) {
+  const byId = resolveRemediation({ finding_type: ft });
+  const viaFinding = findingRemediation({ id: ft, finding_type: "finding", severity: "high" });
+  const viaTitle = resolveByCustomerTitle(byId.customer_title);
+  ok(`scan-detail id-join and PDF title-join agree for ${ft}`,
+    viaFinding?.remediation_id === byId.remediation_id && viaTitle?.remediation_id === byId.remediation_id);
+}
+eq("findingRemediation returns null for an observation (no invented advice)",
+  findingRemediation({ id: "asset_provider_infrastructure_observed", finding_type: "observation" }), null);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

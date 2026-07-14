@@ -15,6 +15,7 @@ import { prepareLogoXObject } from "../engines/pdf-image.js";
 import { checkScanLimit, checkScheduledScanLimit, getAccountUsage, getEntitlementUsage, getPlanLimits, getWorkspaceBillingUserId, planLimitExceeded } from "../engines/plan-usage.js";
 import { buildScanQuality, runScanEngine } from "../engines/scan-engine.js";
 import { buildDmarcSenderIntelligenceEvidence } from "../engines/sender-provenance.js";
+import { findingRemediation } from "../engines/remediation-registry.js";
 import { createAuditEvent } from "../lib/events.js";
 import { DOMAIN_VERIFICATION_REQUIRED, isWorkspaceDomainVerified } from "../lib/domain-verification.js";
 import { resolveAssessmentPresentation } from "../engines/assessment-presentation.js";
@@ -616,7 +617,11 @@ export async function scanRoutes(rctx) {
         risk_level:          canonicalRiskLevel,
         assessment,          // canonical decision: provisional/authoritative/comparable/quality/message
         cyber_mot_domains:   cyberMotDomains,
-        findings:            reportFindings,
+        // Attach the canonical remediation to each finding (compute-on-read) so
+        // the client renders backend-owned remediation meaning — title, business
+        // impact, recommended action, owner, effort, verification — instead of a
+        // second frontend copy that can drift. Null for observations/unmapped.
+        findings:            reportFindings.map((f) => ({ ...f, remediation: findingRemediation(f) })),
         recommendations:     Array.isArray(raw.recommendations) ? raw.recommendations : [],
         scan_quality:         raw.scan_quality ?? buildScanQuality(normalisedModules),
         modules:             normalisedModules,

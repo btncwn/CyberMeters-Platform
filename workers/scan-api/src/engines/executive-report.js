@@ -5,6 +5,7 @@
 // findRegisteredIntelligenceEngine + buildExecutiveReportV2Remediation are module-internal.
 import { resolveAssessmentPresentation } from "./assessment-presentation.js";
 import { applyEvidenceQuality, isActionableFinding, normalizeFindingSchema } from "./findings.js";
+import { resolveByCustomerTitle } from "./remediation-registry.js";
 
 export function resolveCanonicalScanScore(storedScore, reportScore) {
   const storedValue = storedScore == null || storedScore === "" ? NaN : Number(storedScore);
@@ -78,6 +79,11 @@ function buildExecutiveReportV2Remediation(findings, recommendations, remediatio
     const title = item?.title;
     if (!title || seen.has(title)) return;
     seen.add(title);
+    // Join to the canonical remediation identity by (now canonical) title, so the
+    // Executive Report UI carries the SAME remediation_id + verification_method as
+    // the Executive PDF for the same remediation. Unresolved titles keep a null id
+    // (fails honestly) rather than inventing one.
+    const canon = resolveByCustomerTitle(title);
     output.push({
       priority,
       title,
@@ -85,6 +91,8 @@ function buildExecutiveReportV2Remediation(findings, recommendations, remediatio
       reason: item.reason || null,
       source: item.source || item.module || null,
       due_date: item.due_date || null,
+      remediation_id: canon?.remediation_id ?? null,
+      verification_method: canon?.verification_method ?? null,
     });
   };
 
