@@ -4,6 +4,8 @@
 // Receives the per-request routeCtx from index.js; returns a Response when a
 // route matches, or null so the main router continues.
 import { getCurrentPosturePresentation } from "../engines/current-posture.js";
+import { resolveCyberMotDomainStates } from "../engines/cyber-mot-domains.js";
+import { getCyberEssentialsSnapshot } from "../engines/ce-readiness.js";
 import { LATEST_COMPLETED_SCAN_SCOPE } from "../engines/report-queries.js";
 import { getEffectivePlan, hasFeatureEntitlement } from "../engines/entitlements.js";
 import { getWorkspaceBillingUserId } from "../engines/plan-usage.js";
@@ -12,6 +14,40 @@ import { parseBoundedInteger } from "../lib/util.js";
 export async function executiveDashboardRoutes(rctx) {
   const { request, env, url, json, serverError,
           requireAuth, requireWorkspaceRole } = rctx;
+
+    // ── GET /api/workspaces/:id/cyber-mot-domains ────────────────────────────
+    // Canonical eight-domain Cyber MOT coverage states for a workspace, resolved
+    // server-side from the authoritative (latest-complete) scan — or the canonical
+    // NO-SCAN states when none exists. ALWAYS returns eight domains so the Dashboard
+    // renders all eight even before any scan, and the frontend never invents states.
+    // Core coverage: workspace:read only, NO feature gate. Never fails to fewer than
+    // eight (any error returns the canonical no-scan set).
+    const motMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/cyber-mot-domains$/);
+    if (motMatch && request.method === "GET") {
+      const wsId = motMatch[1];
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, wsId, "workspace:read", env);
+      if (!access) return json({ error: "Forbidden" }, 403);
+      try {
+        const posture = await getCurrentPosturePresentation(env, { workspaceId: wsId });
+        const authScanId = posture?.authoritative_scan_id ?? null;
+        let report = null;
+        if (authScanId) {
+          const obj = await env.cybermeters_reports.get(`reports/${authScanId}.json`);
+          report = obj ? await obj.json() : null;
+        }
+        let ceSnap = null;
+        try { ceSnap = await getCyberEssentialsSnapshot(wsId, env); } catch { ceSnap = null; }
+        return json({
+          workspace_id:   wsId,
+          source_scan_id: authScanId,
+          cyber_mot_domains: resolveCyberMotDomainStates(report, { scanId: authScanId, cyberEssentials: ceSnap }),
+        });
+      } catch (e) {
+        return json({ workspace_id: wsId, source_scan_id: null, cyber_mot_domains: resolveCyberMotDomainStates(null) });
+      }
+    }
 
     // ── GET /api/workspaces/:id/executive-dashboard ──────────────────────────
     // Single-call aggregation for the Executive Risk Intelligence Dashboard.

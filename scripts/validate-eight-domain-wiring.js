@@ -33,9 +33,9 @@ const ok = (n, c, d = "") => { c ? pass++ : fail++; if (!c) console.log(`FAIL ${
 {
   const comp = read("frontend/src/components/CyberMotDomains.jsx");
   ok("shared presentation component exists and does not import/call the resolver", /export default function CyberMotDomains/.test(comp) && !/from ['"].*cyber-mot-domains/.test(comp) && !/resolveCyberMotDomainStates\(/.test(comp));
-  ok("Main Dashboard renders CyberMotDomains", /<CyberMotDomains /.test(read("frontend/src/pages/Dashboard.jsx")));
-  ok("Scan Detail renders CyberMotDomains", /<CyberMotDomains /.test(read("frontend/src/pages/ScanDetail.jsx")));
-  ok("Executive Report UI renders CyberMotDomains", /<CyberMotDomains /.test(read("frontend/src/components/ExecutiveReportV2.jsx")));
+  ok("Main Dashboard renders CyberMotDomains", /<CyberMotDomains[\s>]/.test(read("frontend/src/pages/Dashboard.jsx")));
+  ok("Scan Detail renders CyberMotDomains", /<CyberMotDomains[\s>]/.test(read("frontend/src/pages/ScanDetail.jsx")));
+  ok("Executive Report UI renders CyberMotDomains", /<CyberMotDomains[\s>]/.test(read("frontend/src/components/ExecutiveReportV2.jsx")));
   // Dashboard no longer defaults absent evidence to green.
   ok("Dashboard no longer defaults missing evidence to 'good'",
     !/completed\.length > 0 \? 'good'/.test(read("frontend/src/pages/Dashboard.jsx")));

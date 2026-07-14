@@ -481,6 +481,7 @@ function ServiceKpiCard({ icon: Icon, title, to, cta, accentTone, kpis, fallback
 export default function Dashboard() {
   const [scans,         setScans]         = useState([])
   const [report,        setReport]        = useState(null)
+  const [motDomains,    setMotDomains]    = useState([])   // server-resolved eight-domain states (always 8)
   const [scorecard,     setScorecard]     = useState(null)
   const [loading,       setLoading]       = useState(true)
   const [error,         setError]         = useState(null)
@@ -567,15 +568,18 @@ export default function Dashboard() {
     else setRefreshing(true)
     setError(null)
     try {
-      const [data, domainsData, scorecardData] = await Promise.all([
+      const [data, domainsData, scorecardData, motData] = await Promise.all([
         api.getWorkspaceScans(wsId),
         api.getWorkspaceDomains(wsId).catch(() => ({ domains: [] })),
         api.getWorkspaceScorecard(wsId).catch(() => null), // optional; powers service KPIs
+        api.getCyberMotDomains(wsId).catch(() => null),    // canonical eight-domain states (server-resolved)
       ])
       const list = data.scans || []
       setScans(list)
       setDomainCount((domainsData.domains || []).length)
       setScorecard(scorecardData)
+      // Always eight; the endpoint returns canonical no-scan states when no scan exists.
+      setMotDomains(Array.isArray(motData?.cyber_mot_domains) ? motData.cyber_mot_domains : [])
 
       // Fetch report for the latest completed scan in this workspace
       const latestCompleted = list.find(s => s.status === 'completed')
@@ -703,11 +707,12 @@ export default function Dashboard() {
 
         return (
           <div className="space-y-6">
-            {/* Eight-domain Cyber MOT coverage — all eight always shown with one honest
-                server-resolved state; missing evidence is never shown as healthy. */}
-            {report?.cyber_mot_domains && (
-              <CyberMotDomains domains={report.cyber_mot_domains} subtitle="Your full Cyber MOT coverage from the latest authoritative scan." />
-            )}
+            {/* Eight-domain Cyber MOT coverage — ALWAYS all eight, server-resolved
+                (canonical no-scan states before any scan); missing evidence is never
+                shown as healthy and no domain silently disappears. */}
+            <CyberMotDomains
+              domains={motDomains.length ? motDomains : report?.cyber_mot_domains}
+              subtitle="Your full Cyber MOT coverage — every domain, one honest state." />
 
             {/* Four service KPI cards */}
             <div>

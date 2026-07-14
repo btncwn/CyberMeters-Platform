@@ -19,6 +19,7 @@ import { createAuditEvent } from "../lib/events.js";
 import { DOMAIN_VERIFICATION_REQUIRED, isWorkspaceDomainVerified } from "../lib/domain-verification.js";
 import { resolveAssessmentPresentation } from "../engines/assessment-presentation.js";
 import { resolveCyberMotDomainStates } from "../engines/cyber-mot-domains.js";
+import { getCyberEssentialsSnapshot } from "../engines/ce-readiness.js";
 import { createId, isValidDomain, parseBoundedInteger } from "../lib/util.js";
 
 export async function scanRoutes(rctx) {
@@ -461,7 +462,12 @@ export async function scanRoutes(rctx) {
         // Report UI can show all eight domains with one honest state each (no domain
         // silently disappears; Identity/Shadow-IT stay in their honest scopes).
         try {
-          execReport.cyber_mot_domains = resolveCyberMotDomainStates(rawReport, { scanId: scan.id });
+          let ceSnap = null;
+          try {
+            const ceWsId = access.workspace_id || scan.workspace_id || null;
+            if (ceWsId) ceSnap = await getCyberEssentialsSnapshot(ceWsId, env);
+          } catch { ceSnap = null; }
+          execReport.cyber_mot_domains = resolveCyberMotDomainStates(rawReport, { scanId: scan.id, cyberEssentials: ceSnap });
         } catch { execReport.cyber_mot_domains = resolveCyberMotDomainStates(null); }
         // Additive: attach DMARC sender-intelligence evidence to the Business Email
         // engine when imported report data exists. Never alters existing structure.
@@ -584,9 +590,15 @@ export async function scanRoutes(rctx) {
           : null,
       };
 
-      // Canonical eight-domain Cyber MOT coverage states — computed from THIS
-      // report so every domain is always present with one honest state and missing
-      // evidence never renders as healthy. Compute-on-read; no new storage.
+      // Canonical eight-domain Cyber MOT coverage states — computed from THIS report,
+      // with the SAME canonical Cyber Essentials snapshot every other surface uses, so
+      // the CE state is identical across Dashboard, Scan Detail, Executive Report UI
+      // and PDF. Compute-on-read; no new storage.
+      let ceSnapshot = null;
+      try {
+        const ceWsId = scan.workspace_id || access?.workspace_id || null;
+        if (ceWsId) ceSnapshot = await getCyberEssentialsSnapshot(ceWsId, env);
+      } catch { ceSnapshot = null; }
       const cyberMotDomains = resolveCyberMotDomainStates({
         scan_id:      scan.id,
         completed_at: raw.completed_at,
@@ -594,7 +606,7 @@ export async function scanRoutes(rctx) {
         scan_quality: raw.scan_quality ?? buildScanQuality(normalisedModules),
         modules:      normalisedModules,
         findings:     reportFindings,
-      }, { scanId: scan.id });
+      }, { scanId: scan.id, cyberEssentials: ceSnapshot });
 
       return json({
         scan_id:             scan.id,
