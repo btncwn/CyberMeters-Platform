@@ -39,6 +39,7 @@ import { runSslModule } from "./ssl-scan.js";
 import { BRUTEFORCE_MAX_NAMES, filterWildcardBruteforceResults, runBruteforceModule, runSubdomainsModule } from "./subdomains-scan.js";
 import { computeSupplyChainIntelligence, upsertSupplyChainScore } from "./supply-chain.js";
 import { correlateShadowItInventory } from "./shadow-it-inventory.js";
+import { correlateCertificateLifecycle } from "./certificate-lifecycle.js";
 import { runTakeoverModule } from "./takeover-scan.js";
 import { runTechModule } from "./tech-scan.js";
 import { runVendorRelationshipModule } from "./vendor-relationship.js";
@@ -1174,6 +1175,21 @@ function buildCanonicalUrlProfile(modules) {
         await correlateShadowItInventory(env, workspace_id, { saasExposure: modules.saas_exposure });
       }
     } catch { /* non-fatal — inventory catches up on the next scan */ }
+
+    // Phase 8k: Certificate Managed Lifecycle — correlate the raw certificate
+    // observations (mig 031) into the canonical managed lifecycle record: pick
+    // the current cert per host, detect replacement (old evidence preserved),
+    // assess renewal readiness + coverage, and run the monitoring evaluator.
+    // Soft-deleted workspaces are skipped inside correlateCertificateLifecycle.
+    try {
+      const clWsRows = await env.cybermeters_db
+        .prepare('SELECT workspace_id FROM workspace_domains WHERE domain_id = ?')
+        .bind(domainId)
+        .all();
+      for (const { workspace_id } of (clWsRows.results || [])) {
+        await correlateCertificateLifecycle(env, workspace_id);
+      }
+    } catch { /* non-fatal — lifecycle catches up on the next scan */ }
 
     // Phase 9: Asset Change Alert — one grouped email per workspace per scan.
     // Reads asset_events written by Phase 8, deduped via asset_alert_records.
