@@ -2,7 +2,7 @@
 // Alert-worthiness decision, alert email building/sending, recipient resolution, duplicate
 // suppression, alert-channel (webhook/Slack/etc.) validation + payload signing + delivery, and
 // the per-workspace alert processor. Extracted verbatim from index.js (monolith decomposition,
-// Phase 1c). Internal: shouldSendAlert, buildAlertEmail, getWorkspaceAlertRecipients,
+// Phase 1c). Internal: shouldSendAlert, buildAlertEmail,
 // isAlertDuplicate, ALERT_CHANNEL_TYPES, _alertChannelText.
 import { createId } from "../lib/util.js";
 import { deliverEmail, escapeEmailHtml, getEmailFrontendOrigin, sendCustomerEmail } from "../lib/lifecycle-email.js";
@@ -144,6 +144,16 @@ function buildAlertEmail(domain, scanId, triggers) {
 
 
 
+// ── OPS-ONLY sender ──────────────────────────────────────────────────────────
+// Falls back to env.ALERT_EMAIL_TO — the OPERATOR's inbox — when no recipient is
+// given. That fallback is correct for operational self-monitoring (e.g. the
+// opsHealthHeartbeat threshold breach in index.js), and WRONG for anything a
+// tenant should receive: it silently redirects a customer's alert to the operator
+// and aggregates every tenant's domains into one personal mailbox.
+//
+// NEVER call this for a tenant/customer alert. Use sendTenantAlertEmail below,
+// which resolves the workspace's own verified recipients and refuses to send when
+// there are none. validate-alert-recipients.js enforces this boundary.
 export async function sendAlertEmail(subject, text, html, env, fromKey = "ALERT_EMAIL_FROM", toEmails = null) {
   const to = Array.isArray(toEmails) && toEmails.length > 0
     ? toEmails
@@ -153,43 +163,84 @@ export async function sendAlertEmail(subject, text, html, env, fromKey = "ALERT_
   return deliverEmail(subject, text, html, env, fromKey, to);
 }
 
+// ── Tenant alert sender (never falls back to the operator inbox) ──────────────
+// The ONE way an alert reaches a customer by email. Resolves the workspace's own
+// verified recipients and fails honest when there are none — an alert with no
+// deliverable audience is skipped and recorded, never redirected.
+//
+// Returns the deliverEmail shape ({ sent, reason, provider_id }) so existing
+// callers can record the outcome unchanged, plus `recipients` for auditing.
+export async function sendTenantAlertEmail(env, workspaceId, { subject, text, html, fromKey = "ALERT_EMAIL_FROM" } = {}) {
+  const resolved = await resolveWorkspaceAlertRecipients(env, workspaceId);
+  if (!resolved.ok) {
+    // A lookup failure is NOT evidence that the workspace has no recipients.
+    // Reporting it as "no recipients" would store a transient D1 error as a
+    // permanent fact about the customer.
+    return { sent: false, reason: resolved.reason, recipients: [] };
+  }
+  if (resolved.emails.length === 0) {
+    return { sent: false, reason: resolved.reason || "no_verified_recipient", recipients: [] };
+  }
+  const delivery = await deliverEmail(subject, text, html, env, fromKey, resolved.emails);
+  return { ...delivery, recipients: resolved.emails };
+}
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Dedicated alert functions — each fires via the appropriate sender address
 // and is swallowed on error so the scan pipeline is never interrupted.
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function getWorkspaceAlertRecipients(workspaceId, env) {
+// ── Canonical tenant-alert recipient resolver ────────────────────────────────
+// The ONE place that decides who may receive a workspace's alerts, so every alert
+// path inherits the same three guarantees:
+//
+//   1. TENANT SCOPE — recipients come from THIS workspace's own membership only.
+//      There is no global/operator fallback: a workspace with no audience gets
+//      nothing rather than someone else's mail.
+//   2. VERIFIED ONLY — u.email_verified is required. Security findings must never
+//      be mailed to an unverified, potentially attacker-controlled address. Every
+//      other sender already does this (weekly-digest.js, lifecycle-email.js:253);
+//      this path did not.
+//   3. SOFT-DELETED WORKSPACES ARE NONEXISTENT — a workspace inside its deletion
+//      window receives no alerts.
+//
+// Returns { ok, emails, reason }. `ok:false` means we could not determine the
+// audience (a D1 error) — deliberately distinct from `ok:true, emails:[]` ("this
+// workspace genuinely has no verified recipient"). Collapsing the two would store
+// a transient database failure forever as a fact about the customer.
+export async function resolveWorkspaceAlertRecipients(env, workspaceId) {
   try {
+    // Owners/admins of a LIVE workspace, with a verified address. The workspace
+    // owner is included via the same query (owner_user_id) rather than a second
+    // unguarded lookup, so the verified + soft-delete rules cannot be bypassed.
     const result = await env.cybermeters_db
       .prepare(
-        `SELECT u.email
-         FROM workspace_members wm
-         JOIN users u ON u.id = wm.user_id
-         WHERE wm.workspace_id = ? AND wm.role IN ('owner', 'admin')`
+        `SELECT DISTINCT u.email
+         FROM workspaces w
+         JOIN users u ON u.id IN (
+           SELECT wm.user_id FROM workspace_members wm
+           WHERE wm.workspace_id = w.id AND wm.role IN ('owner', 'admin')
+           UNION
+           SELECT w.owner_user_id
+         )
+         WHERE w.id = ?
+           AND w.deleted_at IS NULL
+           AND u.email_verified = 1
+           AND u.email IS NOT NULL`
       )
       .bind(workspaceId)
       .all();
-    
-    let emails = (result.results || []).map(r => r.email).filter(Boolean);
-    
-    const wsRow = await env.cybermeters_db
-      .prepare("SELECT owner_user_id FROM workspaces WHERE id = ?")
-      .bind(workspaceId)
-      .first();
-    if (wsRow?.owner_user_id) {
-      const ownerUser = await env.cybermeters_db
-        .prepare("SELECT email FROM users WHERE id = ?")
-        .bind(wsRow.owner_user_id)
-        .first();
-      if (ownerUser?.email && !emails.includes(ownerUser.email)) {
-        emails.push(ownerUser.email);
-      }
-    }
-    
-    return emails;
+
+    const emails = [...new Set((result.results || []).map((r) => r.email).filter(Boolean))];
+    return {
+      ok: true,
+      emails,
+      reason: emails.length === 0 ? "no_verified_recipient" : null,
+    };
   } catch (err) {
-    return [];
+    console.error("[alerts] recipient lookup failed", JSON.stringify({ workspace_id: workspaceId, reason: err?.message }));
+    return { ok: false, emails: [], reason: "recipient_lookup_failed" };
   }
 }
 
@@ -489,7 +540,10 @@ This is an automated alert from your CyberMeters Platform.`;
 
 export async function processAlertsForWorkspace(workspaceId, domainId, domain, scanId, currentScore, currentFindings, currentModules, startedAt, env) {
   try {
-    const recipients = await getWorkspaceAlertRecipients(workspaceId, env);
+    // Tenant-scoped, verified-only, soft-delete-gated. `ok:false` is a lookup
+    // failure, not an audience of zero — the two are recorded differently below.
+    const resolved = await resolveWorkspaceAlertRecipients(env, workspaceId);
+    const recipients = resolved.emails;
     const wsRow = await env.cybermeters_db
       .prepare("SELECT name FROM workspaces WHERE id = ?")
       .bind(workspaceId)
@@ -520,7 +574,9 @@ export async function processAlertsForWorkspace(workspaceId, domainId, domain, s
           : { status: "failed", reason: delivery.reason };
         if (delivery.sent) emailSentAt = new Date().toISOString();
       } else {
-        metadata.email_delivery = { status: "skipped", reason: "no_recipients" };
+        // Honest reason: distinguishes "nobody verified to email" from "we could
+        // not look". Never claims delivery, never redirects to an operator inbox.
+        metadata.email_delivery = { status: "skipped", reason: resolved.reason || "no_verified_recipient" };
       }
 
       await env.cybermeters_db

@@ -3019,6 +3019,10 @@ results.push(await asyncSecurityContract("asset_alert_failed_delivery_recorded_f
       async all() {
         if (this._sql.includes("FROM workspace_domains")) return { results: [{ workspace_id: "w1" }] };
         if (this._sql.includes("FROM asset_events")) return { results: [{ workspace_id: "w1", event_type: "new_asset_discovered", hostname: "dev.example.com" }] };
+        // The workspace's own verified recipient. Tenant alerts resolve their
+        // audience from the workspace and never fall back to ALERT_EMAIL_TO, so
+        // this fixture must supply one to reach the delivery path at all.
+        if (this._sql.includes("FROM workspaces")) return { results: [{ email: "owner@w1.example.com" }] };
         return { results: [] };
       },
       async first() { return null },
@@ -3043,11 +3047,17 @@ results.push(await asyncSecurityContract("asset_alert_cron_retry_resends_failed_
   const env = { FRONTEND_URL: ORIGIN, ALERT_EMAIL_FROM: "alerts@cybermeters.com", ALERT_EMAIL_TO: "ops@cybermeters.com", RESEND_API_KEY: "k",
     cybermeters_db: { prepare(sql) { statements.push(sql); return {
       _sql: sql, _b: null, bind(...a) { this._b = a; return this },
-      async all() { return this._sql.includes("FROM asset_alert_records") ? { results: [{
-        id: "aar_1", workspace_id: "w1", scan_id: "scan_1", domain: "example.com",
-        severity: "high", event_counts: JSON.stringify({ new_asset_discovered: 2 }),
-        top_hostnames: JSON.stringify(["dev.example.com"]),
-      }] } : { results: [] } },
+      async all() {
+        if (this._sql.includes("FROM asset_alert_records")) return { results: [{
+          id: "aar_1", workspace_id: "w1", scan_id: "scan_1", domain: "example.com",
+          severity: "high", event_counts: JSON.stringify({ new_asset_discovered: 2 }),
+          top_hostnames: JSON.stringify(["dev.example.com"]),
+        }] };
+        // The retried alert resolves the recording workspace's own verified
+        // recipient — the retry must not resurrect the operator fallback.
+        if (this._sql.includes("FROM workspaces")) return { results: [{ email: "owner@w1.example.com" }] };
+        return { results: [] };
+      },
       async first() { return null },
       async run() {
         if (this._sql.includes("UPDATE asset_alert_records") && !this._sql.includes("'pending'")) updates.push(this._b);
