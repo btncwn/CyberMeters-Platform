@@ -3,6 +3,7 @@
 // scan-report + executive PDF builders, and workspace PDF data collection. Extracted verbatim
 // from index.js (monolith decomposition, Phase 1c). pdfEsc/hexToRgbF/PDF_SERVICE are internal.
 import { POSTURE_WEIGHTS } from "./scoring-config.js";
+import { resolveAssessmentPresentation } from "./assessment-presentation.js";
 import { buildCyberEssentialsReadiness } from "./ce-readiness.js";
 import { buildScorecardData } from "./scorecard.js";
 import { latestScanBusinessRisk } from "./business-risk.js";
@@ -255,7 +256,12 @@ export function buildScanReportPdf(scan, report, branding = null) {
 
   const domain = scan.domain || report.domain || "domain";
   const score = report.cyber_metrics_score ?? scan.score;
-  const rating = report.risk_level || scan.rating || "";
+  // Completeness-aware presentation — a partial/degraded/unknown assessment shows a
+  // provisional score with NO final rating + a coverage caveat (partial-scan honesty).
+  const assessment = resolveAssessmentPresentation({
+    score, scanQuality: report.scan_quality?.status, status: report.status || scan.status,
+  });
+  const rating = assessment.display_rating || "";
   const findings = Array.isArray(report.findings) ? report.findings : [];
   const isObs = (f) => (f.finding_type || (Number(f.score_impact) < 0 ? "finding" : "observation")) === "observation";
   const actionable = findings.filter((f) => !isObs(f));
@@ -286,15 +292,21 @@ export function buildScanReportPdf(scan, report, branding = null) {
   y = 122;
 
   rect(ML, y, CW, 60, BG);
-  txt(ML + 16, y + 24, "Cyber Metrics Score", 1, 9, GRAY);
+  txt(ML + 16, y + 24, assessment.provisional ? "Provisional Score" : "Cyber Metrics Score", 1, 9, GRAY);
   txt(ML + 16, y + 48, `${score ?? "-"} / 100`, 2, 22, DK);
   txt(ML + 170, y + 24, "Security Rating", 1, 9, GRAY);
-  txt(ML + 170, y + 46, rating ? rating.charAt(0).toUpperCase() + rating.slice(1) : "-", 2, 15, BRAND);
+  // A final rating shows only for a complete assessment; otherwise "Provisional".
+  txt(ML + 170, y + 46, rating ? rating.charAt(0).toUpperCase() + rating.slice(1) : (assessment.provisional ? "Provisional" : "-"), 2, 15, BRAND);
   txt(ML + 330, y + 24, "Business Risk", 1, 9, GRAY);
   txt(ML + 330, y + 46, br && br.score != null ? `${br.score} / 100` : "-", 2, 15, DK);
   // band already reads like "Low Business Risk" — show as-is, no suffix
   txt(ML + 330, y + 60, br && br.band ? String(br.band) : "", 1, 8, GRAY);
   y += 78;
+  // Coverage caveat banner — an incomplete assessment is never a final clean result.
+  if (assessment.message) {
+    txt(ML, y, assessment.message, 1, 9, "#B45309");
+    y += 18;
+  }
   txt(ML, y, `${actionable.length} finding${actionable.length === 1 ? "" : "s"} to act on`, 2, 11, DK);
   txt(ML + 200, y, `${observations.length} observation${observations.length === 1 ? "" : "s"}`, 1, 11, GRAY);
   y += 24;

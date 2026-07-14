@@ -307,14 +307,17 @@ export async function scanRoutes(rctx) {
                 raw.status === 'completed' ? 'completed' :
                 raw.status === 'failed'    ? 'failed'    : null;
               if (!correctedStatus) return null;
-              // Correct D1 so future queries also return the right status, score, and rating.
+              // Correct D1 so future queries also return the right status, score,
+              // rating, AND coverage quality — converged from the SAME R2 report, so
+              // D1 and R2 cannot present contradictory quality after reconciliation.
               try {
                 await env.cybermeters_db
-                  .prepare(`UPDATE scans SET status = ?, score = ?, rating = ? WHERE id = ?`)
+                  .prepare(`UPDATE scans SET status = ?, score = ?, rating = ?, scan_quality = ? WHERE id = ?`)
                   .bind(
                     correctedStatus,
                     raw.cyber_metrics_score ?? null,
                     raw.risk_level          ?? null,
+                    raw.scan_quality?.status ?? null,
                     s.id
                   )
                   .run();
