@@ -1,5 +1,10 @@
 # CyberMeters — Public Beta Readiness Backlog
 
+> **Status: Historical / Superseded (15 July 2026).** Retained for historical
+> context; no longer a source of truth. Canonical roadmap:
+> `docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md` · current canonical episode and
+> release facts: `CLAUDE.md` · shipped truth: `CHANGELOG.md`.
+
 **Sprint 11B — Lifecycle Audit Consolidation**
 Date: 2026-06-23
 Source audits: EMAIL_VERIFICATION_AUDIT.md · SESSION_LIFECYCLE_AUDIT.md · NEW_USER_JOURNEY_AUDIT.md · WORKSPACE_LIFECYCLE_AUDIT.md · SUBSCRIPTION_LIFECYCLE_AUDIT.md · SCHEDULED_SCAN_RELIABILITY_AUDIT.md · PUBLIC_BETA_READINESS_REPORT.md

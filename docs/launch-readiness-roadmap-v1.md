@@ -1,6 +1,12 @@
 # CyberMeters — Launch Readiness Roadmap v1
 
-**Version:** 1.0 | **Date:** June 2026 | **Status:** Active Operational Plan  
+> **Status: Historical / Superseded (15 July 2026).** Retained for historical
+> context; no longer a source of truth. Canonical roadmap:
+> `docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md` · current canonical episode and
+> release facts: `CLAUDE.md` · shipped truth: `CHANGELOG.md`.
+
+**Version:** 1.0 | **Date:** June 2026 | **Status:** Superseded (was: Active Operational Plan)
+
 **Scope:** Pre-launch blockers, must-haves, GTM, pricing validation, launch criteria  
 **Core question answered:** *What must happen before CyberMeters can accept its first paying customer?*
 

@@ -1,5 +1,10 @@
 # CyberMeters Product Roadmap
 
+> **Status: Historical / Superseded (15 July 2026).** Retained for historical
+> context; no longer a source of truth. Canonical roadmap:
+> `docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md` · current canonical episode and
+> release facts: `CLAUDE.md` · shipped truth: `CHANGELOG.md`.
+
 ## Purpose
 
 This roadmap defines the staged evolution of CyberMeters.
