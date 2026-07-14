@@ -7,7 +7,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useParams } from 'react-router-dom'
 import { api } from '../../api'
 import {
-  classificationMeta, monitoringMeta, toneClass, SHADOW_IT_SCOPE_NOTE,
+  classificationMeta, monitoringMeta, ownershipMeta, toneClass, SHADOW_IT_SCOPE_NOTE,
 } from '../../lib/shadowItDisplay'
 
 function Pill({ meta }) {
@@ -116,7 +116,11 @@ export default function ShadowItInventoryPage() {
                   </td>
                   <td className="py-2 px-3 text-slate-500 capitalize">{(it.category || '—').replace(/_/g, ' ')}</td>
                   <td className="py-2 px-3"><Pill meta={classificationMeta(it.classification)} /></td>
-                  <td className="py-2 px-3 text-slate-500 text-xs">{it.business_owner || it.technical_owner || <span className="text-amber-600">unassigned</span>}</td>
+                  <td className="py-2 px-3">
+                    <Pill meta={ownershipMeta(it.ownership_status)} />
+                    {(it.business_owner || it.technical_owner) && <div className="text-xs text-slate-400 mt-0.5">{it.business_owner || it.technical_owner}</div>}
+                    {it.recurrence_type && <div className="text-xs text-amber-600 mt-0.5">{it.recurrence_type.replace(/_/g, ' ')}</div>}
+                  </td>
                   <td className="py-2 px-3"><Pill meta={monitoringMeta(it.monitoring_status)} /></td>
                   <td className="py-2 px-3 text-slate-400 text-xs">{it.last_seen_at ? it.last_seen_at.slice(0, 10) : '—'}</td>
                   <td className="py-2 px-3">

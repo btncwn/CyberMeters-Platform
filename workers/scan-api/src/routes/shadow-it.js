@@ -8,7 +8,7 @@
 import {
   listShadowItInventory, getShadowItItem, listShadowItItemEvents,
   countShadowItByClassification, classifyShadowItItem, SHADOW_IT_WORKFLOW_ACTIONS,
-  SHADOW_IT_CLASSIFICATIONS,
+  SHADOW_IT_CLASSIFICATIONS, SHADOW_IT_OWNERSHIP_STATUSES,
 } from "../engines/shadow-it-inventory.js";
 import { parseBoundedInteger } from "../lib/util.js";
 
@@ -39,12 +39,14 @@ export async function shadowItRoutes(rctx) {
       const items = await listShadowItInventory(env, wsId, {
         classification: url.searchParams.get("classification"),
         monitoring_status: url.searchParams.get("monitoring_status"),
+        ownership_status: url.searchParams.get("ownership_status"),
         limit: parseBoundedInteger(url.searchParams.get("limit"), 100, 1, 500),
       });
       const counts = await countShadowItByClassification(env, wsId);
       return json({
         workspace_id: wsId, count: items.length, counts,
-        classifications: SHADOW_IT_CLASSIFICATIONS, actions: SHADOW_IT_WORKFLOW_ACTIONS,
+        classifications: SHADOW_IT_CLASSIFICATIONS, ownership_statuses: SHADOW_IT_OWNERSHIP_STATUSES,
+        actions: SHADOW_IT_WORKFLOW_ACTIONS,
         items,
         scope_note: "Externally observed technology only — no internal-network, endpoint, CASB or EDR visibility.",
       });
