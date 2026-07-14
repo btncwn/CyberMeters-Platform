@@ -9,7 +9,7 @@ import { assemblePdf, buildPdfStreams } from "../engines/pdf.js";
 import { REPORT_FINDINGS_SQL, REPORT_RECOMMENDATIONS_SQL } from "../engines/report-queries.js";
 import { getEntitlementUsage, getPlanLimits, planLimitExceeded } from "../engines/plan-usage.js";
 import { computePortfolioRisk } from "../engines/portfolio-risk.js";
-import { computePortfolioCustomerRows, buildExecutiveSummary } from "../engines/portfolio-customers.js";
+import { computePortfolioCustomerRows, buildExecutiveSummary, LATEST_SCAN_CTE } from "../engines/portfolio-customers.js";
 import { auditApiTokenSessionRouteDenied, createWorkspaceTrialSubscription } from "../engines/subscription-state.js";
 import { createAuditEvent } from "../lib/events.js";
 import { sendLifecycleEmail } from "../lib/lifecycle-email.js";
@@ -18,6 +18,20 @@ import { createId, parseBoundedInteger } from "../lib/util.js";
 export async function portfolioRoutes(rctx) {
   const { request, env, url, json, serverError, corsHeaders,
           requireAuth, requireWorkspaceRole, getAccessibleWorkspaceIds } = rctx;
+
+  // Portfolio (MSP multi-customer view) is a Business+/MSP feature: every
+  // /api/portfolio/* endpoint requires the existing `portfolio_monitoring`
+  // entitlement (Business + Enterprise). Returns a 403 Response — the exact shape
+  // /risk already used — when the caller's effective plan lacks it, else null to
+  // proceed. Reuses getEffectivePlan + hasFeatureEntitlement; no new entitlement,
+  // plan, route or pricing rule. Isolation is still enforced separately per query.
+  const requirePortfolioEntitlement = async (user) => {
+    const plan = await getEffectivePlan(user.id, env);
+    if (!hasFeatureEntitlement(plan, "portfolio_monitoring")) {
+      return json({ error: "plan_feature_required", feature: "portfolio_monitoring", required_plan: "business", upgrade_url: "/billing" }, 403);
+    }
+    return null;
+  };
 
     // ── Workspace Routes ──────────────────────────────────────────────────
 
@@ -180,6 +194,8 @@ export async function portfolioRoutes(rctx) {
     if (request.method === "GET" && url.pathname === "/api/portfolio/overview") {
       const user = await requireAuth(request, env);
       if (!user) return json({ error: "Unauthorized" }, 401);
+      const gate = await requirePortfolioEntitlement(user);
+      if (gate) return gate;
       try {
         const db = env.cybermeters_db;
         const workspaceIds = await getAccessibleWorkspaceIds(user, env);
@@ -207,14 +223,11 @@ export async function portfolioRoutes(rctx) {
           db.prepare(`SELECT COUNT(*) AS count FROM workspace_reports WHERE status='completed' AND deleted_at IS NULL AND workspace_id IN (${wsIn})`).bind(...workspaceIds).first(),
           // Critical + high findings from the latest completed scan per domain
           db.prepare(`
-            WITH lpd AS (
-              SELECT domain_id, MAX(created_at) AS mx
-              FROM scans WHERE status='completed' GROUP BY domain_id
-            )
+            WITH ${LATEST_SCAN_CTE}
             SELECT f.severity, COUNT(*) AS cnt
             FROM findings f
             JOIN scans s ON f.scan_id = s.id
-            JOIN lpd   ON s.domain_id = lpd.domain_id AND s.created_at = lpd.mx
+            JOIN lpd ON lpd.scan_id = s.id
             JOIN workspace_domains wd ON wd.domain_id = s.domain_id
             WHERE f.severity IN ('critical','high')
               AND wd.workspace_id IN (${wsIn})
@@ -228,28 +241,22 @@ export async function portfolioRoutes(rctx) {
           db.prepare(`SELECT COUNT(*) AS count FROM workspace_domains wd JOIN domains d ON d.id = wd.domain_id WHERE wd.workspace_id IN (${wsIn}) AND d.verification_status = 'failed'`).bind(...workspaceIds).first(),
           // Average score across latest scan per domain
           db.prepare(`
-            WITH lpd AS (
-              SELECT domain_id, MAX(created_at) AS mx
-              FROM scans WHERE status='completed' GROUP BY domain_id
-            )
+            WITH ${LATEST_SCAN_CTE}
             SELECT AVG(s.score) AS avg_score
             FROM scans s
-            JOIN lpd ON s.domain_id = lpd.domain_id AND s.created_at = lpd.mx
+            JOIN lpd ON lpd.scan_id = s.id
             JOIN workspace_domains wd ON wd.domain_id = s.domain_id
             WHERE s.score IS NOT NULL
               AND wd.workspace_id IN (${wsIn})
           `).bind(...workspaceIds).first(),
           // Workspace with most critical findings from latest scans
           db.prepare(`
-            WITH lpd AS (
-              SELECT domain_id, MAX(created_at) AS mx
-              FROM scans WHERE status='completed' GROUP BY domain_id
-            ),
+            WITH ${LATEST_SCAN_CTE},
             crit AS (
               SELECT s.domain_id, COUNT(*) AS cnt
               FROM findings f
               JOIN scans s ON f.scan_id = s.id
-              JOIN lpd ON s.domain_id = lpd.domain_id AND s.created_at = lpd.mx
+              JOIN lpd ON lpd.scan_id = s.id
               WHERE f.severity = 'critical'
               GROUP BY s.domain_id
             ),
@@ -302,6 +309,8 @@ export async function portfolioRoutes(rctx) {
     if (request.method === "GET" && url.pathname === "/api/portfolio/workspaces") {
       const user = await requireAuth(request, env);
       if (!user) return json({ error: "Unauthorized" }, 401);
+      const gate = await requirePortfolioEntitlement(user);
+      if (gate) return gate;
       try {
         const workspaceIds = await getAccessibleWorkspaceIds(user, env);
         const rows = await computePortfolioCustomerRows(env.cybermeters_db, workspaceIds);
@@ -318,6 +327,8 @@ export async function portfolioRoutes(rctx) {
     if (request.method === "GET" && url.pathname === "/api/portfolio/executive-summary") {
       const user = await requireAuth(request, env);
       if (!user) return json({ error: "Unauthorized" }, 401);
+      const gate = await requirePortfolioEntitlement(user);
+      if (gate) return gate;
       try {
         const workspaceIds = await getAccessibleWorkspaceIds(user, env);
         const rows = await computePortfolioCustomerRows(env.cybermeters_db, workspaceIds);
@@ -330,6 +341,8 @@ export async function portfolioRoutes(rctx) {
     if (request.method === "GET" && url.pathname === "/api/portfolio/alerts") {
       const user = await requireAuth(request, env);
       if (!user) return json({ error: "Unauthorized" }, 401);
+      const gate = await requirePortfolioEntitlement(user);
+      if (gate) return gate;
       try {
         const db    = env.cybermeters_db;
         const limit = parseBoundedInteger(url.searchParams.get("limit"), 50, 1, 200);
@@ -440,6 +453,8 @@ export async function portfolioRoutes(rctx) {
     if (request.method === "GET" && url.pathname === "/api/portfolio/trends") {
       const user = await requireAuth(request, env);
       if (!user) return json({ error: "Unauthorized" }, 401);
+      const gate = await requirePortfolioEntitlement(user);
+      if (gate) return gate;
       try {
         const db = env.cybermeters_db;
         const workspaceIds = await getAccessibleWorkspaceIds(user, env);
@@ -529,19 +544,14 @@ export async function portfolioRoutes(rctx) {
     if (request.method === 'GET' && url.pathname === '/api/portfolio/risk') {
       const user = await requireAuth(request, env);
       if (!user) return json({ error: 'Unauthorized' }, 401);
-      {
-        const plan = await getEffectivePlan(user.id, env);
-        if (!hasFeatureEntitlement(plan, 'portfolio_monitoring')) {
-          return json({ error: 'plan_feature_required', feature: 'portfolio_monitoring', required_plan: 'business', upgrade_url: '/billing' }, 403);
-        }
-      }
+      const gate = await requirePortfolioEntitlement(user);
+      if (gate) return gate;
       try {
         const workspaceIds = await getAccessibleWorkspaceIds(user, env);
         const result = await computePortfolioRisk(user.id, workspaceIds, env);
         return json(result);
       } catch (err) {
-        console.error('[portfolio/risk] error:', err);
-        return json({ error: 'Internal server error' }, 500);
+        return serverError("api", err);
       }
     }
 

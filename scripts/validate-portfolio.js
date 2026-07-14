@@ -60,6 +60,39 @@ seedEvent("ws_b1", "high", "-1 day");        // B's change — must never appear
 const TOKEN = "tok_msp_a";
 db.prepare("INSERT INTO user_sessions (id, user_id, token_hash, expires_at) VALUES ('s_a','u_a',?, datetime('now','+1 day'))").run(await hashToken(TOKEN));
 
+// ── Entitlement: portfolio is a Business+/MSP feature (portfolio_monitoring). ──
+// MSP A is on Business (entitled → reaches all six endpoints). Everyone else has
+// no subscription row → getUserPlan() = free (NOT entitled → 403 on all six).
+db.prepare("INSERT INTO subscriptions (id, owner_user_id, plan, subscription_status, current_period_end) VALUES ('sub_a','u_a','business','active', datetime('now','+30 days'))").run();
+
+// An ordinary un-entitled (free) customer with their own workspace + session.
+db.prepare("INSERT INTO users (id, email, email_verified) VALUES ('u_free','free@example.co.uk',1)").run();
+db.prepare("INSERT INTO workspaces (id, name, owner_user_id) VALUES ('ws_free','Free Co','u_free')").run();
+db.prepare("INSERT INTO workspace_members (workspace_id, user_id, role) VALUES ('ws_free','u_free','owner')").run();
+const TOKEN_FREE = "tok_free";
+db.prepare("INSERT INTO user_sessions (id, user_id, token_hash, expires_at) VALUES ('s_free','u_free',?, datetime('now','+1 day'))").run(await hashToken(TOKEN_FREE));
+
+// ── Latest-scan determinism fixtures (owner u_c; tested via the unit helper with
+// explicit workspace ids so MSP A's customer count stays 2). ──
+db.prepare("INSERT INTO users (id, email, email_verified) VALUES ('u_c','c@example.co.uk',1)").run();
+// (a) Historical exclusion: an OLDER completed scan carries a critical that a NEWER
+//     completed scan resolved — the old critical must NOT be counted as current.
+db.prepare("INSERT INTO workspaces (id, name, owner_user_id) VALUES ('ws_hist','Hist Co','u_c')").run();
+db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES ('ws_hist','d_hist')").run();
+db.prepare("INSERT INTO scans (id, domain_id, domain, status, score, created_at) VALUES ('sc_hist_old','d_hist','hist.co.uk','completed',40, datetime('now','-10 days'))").run();
+db.prepare("INSERT INTO scans (id, domain_id, domain, status, score, created_at) VALUES ('sc_hist_new','d_hist','hist.co.uk','completed',90, datetime('now','-1 day'))").run();
+db.prepare("INSERT INTO findings (id, scan_id, severity, title) VALUES ('fh_old','sc_hist_old','critical','OLD HTTPS crit (resolved)')").run();
+// (b) Identical-timestamp dedup: TWO completed scans with the SAME created_at, each
+//     carrying a critical — the domain must count ONCE (the deterministic winner),
+//     not twice. Under the old MAX(created_at) join both matched → double count.
+const DUP_TS = "2026-07-14 12:00:00";
+db.prepare("INSERT INTO workspaces (id, name, owner_user_id) VALUES ('ws_dup','Dup Co','u_c')").run();
+db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES ('ws_dup','d_dup')").run();
+db.prepare("INSERT INTO scans (id, domain_id, domain, status, score, created_at) VALUES ('sc_dup_a','d_dup','dup.co.uk','completed',55,?)").run(DUP_TS);
+db.prepare("INSERT INTO scans (id, domain_id, domain, status, score, created_at) VALUES ('sc_dup_b','d_dup','dup.co.uk','completed',55,?)").run(DUP_TS);
+db.prepare("INSERT INTO findings (id, scan_id, severity, title) VALUES ('fd_a','sc_dup_a','critical','dup crit A')").run();
+db.prepare("INSERT INTO findings (id, scan_id, severity, title) VALUES ('fd_b','sc_dup_b','critical','dup crit B')").run();
+
 const env = { cybermeters_db: makeD1(db), cybermeters_reports: { get: async () => null, put: async () => ({}), head: async () => null, delete: async () => ({}), list: async () => ({ objects: [] }) }, ALLOWED_ORIGIN: "https://app.cybermeters.com", APP_VERSION: "test" };
 const ctx = { waitUntil: () => {}, passThroughOnException: () => {} };
 const get = async (p, token) => {
@@ -104,7 +137,37 @@ ok("exec-summary excludes B's high change (2 high, not 3)", execResp.body.portfo
 const ovResp = await get("/api/portfolio/overview", TOKEN);
 ok("overview scoped to MSP A (2 workspaces)", ovResp.body.total_workspaces === 2);
 
-// Unauthenticated is rejected.
+// ── 4. Entitlement gate — Business+/MSP only, on ALL SIX endpoints ────────────
+const PORTFOLIO_ENDPOINTS = [
+  "/api/portfolio/overview", "/api/portfolio/workspaces", "/api/portfolio/alerts",
+  "/api/portfolio/trends", "/api/portfolio/risk", "/api/portfolio/executive-summary",
+];
+// Free/Starter/Growth (here: an un-subscribed → free user) is 403 on every endpoint.
+for (const p of PORTFOLIO_ENDPOINTS) {
+  const r = await get(p, TOKEN_FREE);
+  ok(`un-entitled (free) user is 403 on ${p}`, r.status === 403 && r.body.feature === "portfolio_monitoring");
+}
+// Business/MSP (u_a) reaches every endpoint (never 403).
+for (const p of PORTFOLIO_ENDPOINTS) {
+  const r = await get(p, TOKEN);
+  ok(`entitled MSP (Business) reaches ${p} (200, not 403)`, r.status === 200);
+}
+
+// ── 5. Latest-scan determinism (unit helper, explicit ids) ───────────────────
+const histRows = await computePortfolioCustomerRows(makeD1(db), ["ws_hist"]);
+ok("historical critical from an older scan is NOT counted as current", histRows[0].critical_findings === 0);
+ok("latest completed scan drives the score (90, not the old 40)", histRows[0].latest_score === 90);
+const dupRows = await computePortfolioCustomerRows(makeD1(db), ["ws_dup"]);
+ok("identical created_at scans do NOT duplicate the domain (1 critical, not 2)", dupRows[0].critical_findings === 1);
+
+// ── 6. Honesty: a never-scanned customer is shown, not dropped or faked ───────
+db.prepare("INSERT INTO workspaces (id, name, owner_user_id) VALUES ('ws_ns','NeverScanned Co','u_c')").run();
+const nsRows = await computePortfolioCustomerRows(makeD1(db), ["ws_ns"]);
+ok("never-scanned customer is present (not dropped)", nsRows.length === 1);
+ok("never-scanned → null score (honest, not a fake 0)", nsRows[0].latest_score === null && nsRows[0].risk_rating === null);
+ok("never-scanned → status inactive", nsRows[0].status === "inactive");
+
+// Unauthenticated is rejected (before the entitlement gate).
 ok("portfolio endpoints require auth (401)", (await get("/api/portfolio/workspaces")).status === 401);
 
 console.log(`\nPortfolio: ${pass}/${pass + fail} passed`);
