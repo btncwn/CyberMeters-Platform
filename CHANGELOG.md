@@ -5,6 +5,35 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.14 (v2026.07.14-2 — executive report latest-scan scoping) — deployed 2026-07-14
+
+### Fix (customer trust — executive report no longer piles up historical findings)
+- **Scope executive-report findings + recommendations to the latest completed scan**
+  (PR **#60**, merge **0918275**).
+  - **Root cause:** `GET /api/workspaces/:id/report` (`routes/portfolio.js`) queried
+    findings and recommendations with only `WHERE wd.workspace_id = ?` — no
+    latest-scan scope — so every historical scan's rows piled up. A real Black Bull
+    Barbers PDF rendered one "HTTPS Not Available" finding (from 4 old scans) as
+    **CRITICAL (4)** and one "DMARC p=none" (from 9 scans) as nine MEDIUM rows, and
+    resurfaced an HTTPS issue already resolved by the latest scan. The parallel
+    `collectPdfData` path already scoped correctly (8ccebb2); this route did not.
+  - **Fix:** extracted the proven latest-completed-scan-per-domain scope into
+    `engines/report-queries.js` (`REPORT_FINDINGS_SQL` / `REPORT_RECOMMENDATIONS_SQL`,
+    shared so both PDF paths agree) and used it in `portfolio.js`. Read-only query
+    change — **no schema, no migration, no rendering change.**
+  - **Regression:** `scripts/validate-report-findings-scoping.js` (16 assertions,
+    incl. a negative control reproducing the ×4-HTTPS / ×5-DMARC pile-up).
+  - **Live verification** — regenerated BBB report data from the deployed endpoint
+    queries, every row sourced from scan
+    **`scan_50cabd4d-ee1e-4589-91ee-619935ae346b`**: **0 critical, 3 medium**
+    (DMARC p=none ×1, Sensitive Subdomain ×1, Admin Interface ×1), **0 "HTTPS Not
+    Available"**, **no duplicate recommendations** (Strengthen DMARC / Review
+    Sensitive Subdomains / Restrict Administrative Interfaces). Findings section,
+    severity summary and recommendations all derive from the same canonical set.
+  - **Deployed Worker Version ID:** `1fe26e1b-2f29-420a-971c-97284fc418b3`.
+  - **Rollback Version ID:** `94980ffb-fe4d-4680-bccf-7c6919b65f43`.
+  - **No migration applied.**
+
 ## 2026.07.14 (v2026.07.14-1 — scan waitUntil-cancellation reliability) — deployed 2026-07-14
 
 ### Fix (reliability — orphaned scans from ctx.waitUntil() background cancellation)
