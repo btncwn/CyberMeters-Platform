@@ -1,5 +1,10 @@
 # CyberMeters — Public Beta Sprint Plan (10 sprints)
 
+> **Status: Historical / Superseded (15 July 2026).** Retained for historical
+> context; no longer a source of truth. Canonical roadmap:
+> `docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md` · current canonical episode and
+> release facts: `CLAUDE.md` · shipped truth: `CHANGELOG.md`.
+
 > Sequenced backlog to close the gap between "controlled-beta ready" and
 > "enterprise-credible public beta". Ordered **lowest risk / easiest first →
 > highest risk / most important last**, so early sprints ship fast visible

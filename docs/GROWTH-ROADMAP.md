@@ -1,5 +1,10 @@
 # CyberMeters — Growth Roadmap (private beta → public beta → revenue)
 
+> **Status: Historical / Superseded (15 July 2026).** Retained for historical
+> context; no longer a source of truth. Canonical roadmap:
+> `docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md` · current canonical episode and
+> release facts: `CLAUDE.md` · shipped truth: `CHANGELOG.md`.
+
 > Owner: Turhan. Thesis: the **UK Cyber MOT** — a self-serve, affordable cyber
 > posture platform for UK SMBs and the MSPs who serve them. Two free hooks pull
 > people in; the paid membership is the four core services. Positioned like
