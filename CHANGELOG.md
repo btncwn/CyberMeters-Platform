@@ -5,6 +5,68 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.14 (v2026.07.14-6 — security invariant stabilization) — deployed 2026-07-14
+
+### Fix (audit follow-up — close localized invariant gaps before the architecture audit)
+- **Security Invariant Stabilization** (PR **#64**, merge **fa7d7f4**). Source: the
+  Security Invariant Consolidation audit (no fundamental architectural instability;
+  the core architecture is sound). One focused PR, one guarded release, **no
+  migration** (reuses the deployed `scan_quality` column).
+  - **Ep1 — Scheduled scan eligibility parity.** New canonical
+    `evaluateScheduledScanEligibility()` (engines/plan-usage.js) reuses
+    `isWorkspaceDomainVerified` / `getEffectivePlan` / `hasFeatureEntitlement` /
+    `checkScanLimit` / `consumeApiRateLimit`; `triggerScheduledScan` now gates on it
+    at **run time** (verified link → workspace accessible → scheduled-scans feature →
+    monthly quota → fail-closed scan-start rate limit) before any scan row, with
+    stable reason codes (`domain_verification_required`, `feature_not_entitled`,
+    `scan_limit_exceeded`, `workspace_not_accessible`, `rate_limit_unavailable`) and
+    **zero side effects** on skip. A downgraded/over-quota account can no longer run
+    unlimited scheduled scans.
+  - **Ep2 — Email Protection entitlement.** Hosted-DMARC policy gate resolves the
+    owner's **current effective plan** via `getEffectivePlan` (subscriptions,
+    grace/expiry aware) instead of the stale, never-synced `users.plan` column.
+    **Live proof:** BBB owner (professional/trialing) → `policy_management_available:
+    true` (previously fail-closed-locked to `false`).
+  - **Ep3 — Current-findings de-duplication.** One canonical, exported
+    `LATEST_COMPLETED_SCAN_SCOPE` (deterministic `created_at DESC, id DESC` +
+    complete-only) reused by Executive Dashboard, Workspace Insights, executive
+    report and PDF — replaces a raw 30-day window and tie-prone `MAX(created_at)`
+    joins. **Live proof:** BBB workspace had 4 raw critical findings across all
+    scans; the dashboard and the canonical scope both report **0** current (latest
+    complete scan), no inflation.
+  - **Ep4 — 403/404 existence oracle.** Scan report/detail, schedule delete and
+    workspace restore authorize **before** revealing existence. **Live proof:** a
+    foreign-existing scan id and a nonexistent id return **byte-identical 403** (same
+    status + body) on both report and detail endpoints.
+  - **Ep5 — Finalization/reconciliation parity.** Scheduled-scan catch is
+    downgrade-guarded (`status != 'completed'` + R2 completed-check — never clobbers
+    a completed scan); the scan-detail reconciler converges `scan_quality` from the
+    canonical R2 report, matching the list reconciler and finalizer.
+  - **Ep6 — DMARC ingest rate limit.** Now **fail-closed** (503, before any
+    parse/persistence) when the limiter store is unavailable, so its abuse cap
+    survives the D1 stress an attack would create; dedup unchanged.
+  - **Ep7 — Dead code.** Removed the ungated, zero-caller `sendScoreDropAlert`
+    (proven zero references); the canonical comparable-gated alert path is unchanged.
+  - **Ep8 — Workspace-access predicates.** No change (documented non-blocking debt):
+    `portfolio.js` already delegates to `getAccessibleWorkspaceIds`; the `account.js`
+    GDPR data-export predicate is intentionally broader (includes soft-deleted
+    workspaces, no token boundary), so consolidating would change export semantics.
+  - **Tests (CI-blocking):** new `validate-scheduled-eligibility` (9),
+    `validate-email-entitlement` (9), `validate-current-findings-dedup` (9),
+    `validate-stabilization-contracts` (18); updated report-findings-scoping
+    (complete-quality fixture), canonical-presentation-parity (32),
+    domain-verification-gate (34). Full regression + tenant isolation + migrations
+    guard + frontend typecheck/build + wrangler dry-run all green.
+  - **Production smoke:** /health + /ready = 200 (d1=true, r2=true); secrets intact;
+    no `--var`; oracle/findings/entitlement live proofs above; no unnecessary
+    production scans (scheduled eligibility proven via the side-effect-free
+    behavioural test); all controlled sessions revoked.
+  - **Deployed Worker Version ID:** `1763d1d4-5110-4517-9739-58a79c1bf809`.
+  - **Rollback Version ID:** `7eb57f71-c27a-4f0d-83cb-0983588f8b52`.
+  - **Non-blocking debt (deferred):** Ep8 duplicated predicates; the PDF `info`-count
+    is not latest-scan-scoped (non-threat metric); the portfolio-overview bare "Avg
+    Score" number (shared finding CTE).
+
 ## 2026.07.14 (v2026.07.14-5 — partial-scan score honesty) — deployed 2026-07-14
 
 ### Fix (customer trust — a partial assessment could read as a clean "Excellent")
