@@ -3,15 +3,33 @@
 // channel alerts, records for retry) and the cron retry of previously-failed asset alerts.
 // Extracted verbatim from index.js (monolith decomposition, Phase 1c).
 import { ASSET_ALERT_EVENTS, assetAlertSeverity, assetAlertWorthy, buildAssetAlertEmail } from "./asset-alerts.js";
-import { deliverWorkspaceAlert, sendAlertEmail } from "./alerts.js";
+import { deliverWorkspaceAlert, sendTenantAlertEmail } from "./alerts.js";
 import { createId } from "../lib/util.js";
 import { getEmailFrontendOrigin } from "../lib/lifecycle-email.js";
 
+// Delivery outcome → the row's terminal state. Retry is for TRANSIENT failures:
+// the sweep only picks up 'failed'. A workspace with no verified recipient (or one
+// that is soft-deleted) is not a transient condition — retrying it hourly for three
+// days would never succeed and would bury real failures, so it settles as 'skipped'
+// with an honest reason. A recipient LOOKUP failure is transient, so it stays
+// retryable.
+export function deliveryOutcome(delivery) {
+  if (delivery.sent) return { status: "sent", error: null };
+  if (delivery.reason === "no_verified_recipient") return { status: "skipped", error: "no_verified_recipient" };
+  return { status: "failed", error: delivery.reason || "send_failed" };
+}
+
 export async function sendAssetChangeAlert(domainId, domain, scanId, env) {
   try {
-    // Find all workspaces that own this domain
+    // Find all LIVE workspaces that own this domain. A soft-deleted workspace is
+    // treated as nonexistent: it receives no email, no channel fan-out and no
+    // dedupe/retry row. The join is the gate for BOTH channels and email — the
+    // recipient resolver re-checks deleted_at independently (defence in depth).
     const wsResult = await env.cybermeters_db
-      .prepare(`SELECT workspace_id FROM workspace_domains WHERE domain_id = ?`)
+      .prepare(`SELECT wd.workspace_id
+                FROM workspace_domains wd
+                JOIN workspaces w ON w.id = wd.workspace_id
+                WHERE wd.domain_id = ? AND w.deleted_at IS NULL`)
       .bind(domainId)
       .all();
     const workspaceIds = (wsResult.results || []).map((r) => r.workspace_id);
@@ -119,7 +137,9 @@ export async function sendAssetChangeAlert(domainId, domain, scanId, env) {
           severity,
           frontendOrigin ? `${frontendOrigin}/assets` : null,
         );
-        const delivery = await sendAlertEmail(subject, text, html, env, "ALERT_EMAIL_FROM");
+        // Tenant alert: recipients come from THIS workspace (verified, live) — never
+        // the operator fallback. No verified audience => skipped + recorded, not sent.
+        const delivery = await sendTenantAlertEmail(env, workspace_id, { subject, text, html, fromKey: "ALERT_EMAIL_FROM" });
         // Record the delivery outcome: a 'failed' row is what the hourly retry
         // cron (retryFailedAssetAlerts) picks up — without it the dedupe row
         // permanently swallows the alert. The INSERT above deliberately keeps
@@ -128,12 +148,13 @@ export async function sendAssetChangeAlert(domainId, domain, scanId, env) {
         // to the old fire-and-forget behaviour instead of losing the alert or
         // the channel fan-out below.
         let queuedForRetry = false;
+        const outcome = deliveryOutcome(delivery);
         try {
           await env.cybermeters_db
             .prepare(`UPDATE asset_alert_records SET status = ?, error = ? WHERE id = ?`)
-            .bind(delivery.sent ? "sent" : "failed", delivery.sent ? null : (delivery.reason || "send_failed"), recId)
+            .bind(outcome.status, outcome.error, recId)
             .run();
-          queuedForRetry = !delivery.sent;
+          queuedForRetry = outcome.status === "failed";
         } catch (outcomeErr) {
           console.error("[asset-alert] outcome not recorded", JSON.stringify({ workspace_id, scanId, reason: outcomeErr?.message }));
         }
@@ -225,10 +246,13 @@ export async function retryFailedAssetAlerts(env) {
           row.severity || "info",
           frontendOrigin ? `${frontendOrigin}/assets` : null,
         );
-        const delivery = await sendAlertEmail(subject, text, html, env, "ALERT_EMAIL_FROM");
+        const delivery = await sendTenantAlertEmail(env, row.workspace_id, { subject, text, html, fromKey: "ALERT_EMAIL_FROM" });
+        // A missing verified audience is not a transient failure — retrying it forever
+        // would never succeed, so it settles as 'skipped' (the sweep matches 'failed').
+        const outcome = deliveryOutcome(delivery);
         await env.cybermeters_db
           .prepare(`UPDATE asset_alert_records SET status = ?, error = ? WHERE id = ?`)
-          .bind(delivery.sent ? "sent" : "failed", delivery.sent ? null : (delivery.reason || "send_failed"), row.id)
+          .bind(outcome.status, outcome.error, row.id)
           .run();
         if (delivery.sent) {
           console.log("[asset-alert-retry] delivered", JSON.stringify({ workspace_id: row.workspace_id, scan_id: row.scan_id, provider_id: delivery.provider_id || null }));
