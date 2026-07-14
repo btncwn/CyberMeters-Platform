@@ -5,6 +5,23 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.14 (v2026.07.14-16 — Shadow IT correlation depth) — deployed 2026-07-14
+
+### Feat (completes the Shadow IT approved-inventory foundation — multi-source correlation, ownership, monitoring)
+- **Shadow IT correlation depth** (PR **#79**, merge on main). Builds on v2026.07.14-15, unchanged foundation. **Additive migration 084.**
+  - **Multi-source correlation:** gathers from `workspace_vendors` + `workspace_assets.cloud_provider` + `identity_assets` + `email_sender_sources` (+ ephemeral `saas_exposure`). Each contribution keeps a structured evidence reference (`source_table, source_record_id, source_type, observed_identifier, first/last_seen_at, confidence`). Evidence is UNIONed **non-destructively** (`unionEvidence` — dedup by source_table+record, refresh last_seen, never drop a prior source). Generic CDN/hosting is categorised honestly (cdn/hosting/cloud_storage), never auto-treated as SaaS.
+  - **Alias layer** (`TECHNOLOGY_ALIASES`): M365 variants → `microsoft_365`, G Suite → `google_workspace`, Entra/Azure AD → `microsoft_entra_id` — deterministic; unrelated products of one provider stay separate.
+  - **Ownership:** server-derived `ownership_status` (known/partial/missing), separate from the customer classification (now 5: unreviewed/approved/rejected/exception/retired). Owner assignment recomputes + audits; owner-missing surfaces in API/frontend + opens a case when follow-up is due.
+  - **Monitoring evaluator** (`evaluateShadowItMonitoring`): ONE deterministic pass over 9 conditions with explicit thresholds (`STALE_EVIDENCE_DAYS=45`, `MATERIAL_CHANGE_WINDOW_DAYS=30`); persists `monitoring_status/reason/evidence_age_days/material_change/recurrence_type/required_case_action/evaluated_at`. Approved disappearance stays a monitoring observation (no case); disappearance is never verified removal.
+  - **Removal contradiction:** `removed + still observed` → `removal_verified=contradicted`, assertion preserved, event appended, case opened/reopened. **Linked-case recurrence:** `openOrReopenShadowItCase` reopens a verified/monitoring case **via `canTransitionCase`** (or appends a recurrence event to an active case) — never a bare dedup return, no separate case table.
+  - **Migration 084 (additive):** `ownership_status, monitoring_reason, evidence_age_days, material_change, recurrence_type, required_case_action, evaluated_at, removal_verified` on `shadow_it_inventory`.
+  - **Frontend:** ownership pill + recurrence hint; api `ownership_status` filter; descriptor updated (5 classifications + ownership).
+  - **Tests (CI-blocking):** `validate-shadow-it-correlation.js` (48, DB-backed); existing shadow-it (34) + `shadowItDisplay` Vitest updated. Full gate: **all 77 CI validators**, frontend build + coverage (83%), `wrangler dry-run`, migrations guard.
+  - **Deferred (report-only, not safely persistable this increment):** tech-fingerprints, cert-SANs, SPF provider inference.
+  - **Deployed Worker Version ID:** `e27fca1a-e527-4243-adbe-53d5ffd01849` (`GET /health` confirms; `/shadow-it/inventory` live; 8 new columns verified in production D1). Pages redeployed.
+  - **Rollback Version ID:** `1763d1d4-5110-4517-9739-58a79c1bf809`.
+  - **Deferred (NOT started):** Certificates Managed Lifecycle, Identity workflow, all-domain alerts, MSP portfolio, M5.
+
 ## 2026.07.14 (v2026.07.14-15 — Shadow IT approved inventory) — deployed 2026-07-14
 
 ### Feat (Shadow IT & Unmanaged Technology becomes a managed approved-inventory system — foundation)
