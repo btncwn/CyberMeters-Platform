@@ -105,9 +105,12 @@ export class SubrequestBudget {
 // root cause: an invocation with wallTime 31170ms / cpuTime 40ms / outcome "ok"
 // logged "waitUntil() tasks did not complete ... have been cancelled".
 export const SCAN_DEADLINE_DEFAULTS = Object.freeze({
-  budgetMs:    21_000, // overall engine budget — ~9s under the ~30s waitUntil cliff for finalization
+  budgetMs:    21_000, // network phases stop here — ~9s reserved under the ~30s cliff
   minBudgetMs:  5_000,
-  maxBudgetMs: 28_000, // never exceed the cliff; leave finalization headroom
+  // Hard ceiling on the config override: even at max, ≥6s stays reserved for
+  // finalization (the terminal R2+D1 write runs first in finalization and is fast,
+  // so this comfortably protects the anti-orphan guarantee).
+  maxBudgetMs: 24_000,
 });
 
 // A monotonic wall-clock deadline. `now` is injectable so tests can drive the clock
@@ -126,6 +129,32 @@ export function createScanDeadline(env = {}, now = Date.now) {
     // A phase launches only if elapsed + its estimate still fits the budget.
     canRun(estimateMs = 0) { return (now() - startedAtMs) + estimateMs < budgetMs; },
   };
+}
+
+// Bound a LAUNCHED network phase to the remaining wall-clock budget. canRun() only
+// decides whether a phase may START; this bounds how long it may RUN, so a phase that
+// overruns its estimate (e.g. asset exposure launched with a 6s estimate but whose
+// probes time out at 8-10s each) cannot drag the invocation across the ~30s waitUntil
+// cliff. If the phase does not settle within the cap, resolve to onDeadline() — an
+// honest deferred result — and ABANDON the underlying promise: its late value is
+// discarded and modules perform no persistence, so it cannot mutate finalized state.
+// `setTimer`/`clearTimer` are injectable so tests drive the timeout deterministically.
+export async function raceModuleDeadline(deadline, thunk, onDeadline, { hardMs = null, setTimer = setTimeout, clearTimer = clearTimeout } = {}) {
+  const remaining = deadline.remainingMs();
+  const capMs = hardMs != null ? Math.min(hardMs, remaining) : remaining;
+  if (capMs <= 0) return onDeadline();
+
+  const DEADLINE = Symbol("deadline");
+  let timer = null;
+  const timeout = new Promise((resolve) => { timer = setTimer(() => resolve(DEADLINE), capMs); });
+  // Wrap so the work branch never rejects the race (avoids an unhandled rejection);
+  // the real rejection is re-thrown to the caller below.
+  const work = Promise.resolve().then(thunk).then((v) => ({ v }), (e) => ({ e }));
+  const winner = await Promise.race([work, timeout]);
+  if (timer != null) clearTimer(timer);
+  if (winner === DEADLINE) return onDeadline();
+  if ("e" in winner) throw winner.e;
+  return winner.v;
 }
 
 // Stamp a module's valid-but-empty result as honestly deferred by the deadline —
