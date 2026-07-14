@@ -322,16 +322,13 @@ export default function WorkspaceDetailPage() {
     )
   }
 
-  const avgScore = stats?.cyber_score_average != null
-    ? Math.round(stats.cyber_score_average)
-    : null
-
-  const avgRating =
-    avgScore == null      ? null :
-    avgScore >= 90        ? 'excellent' :
-    avgScore >= 75        ? 'good'      :
-    avgScore >= 50        ? 'moderate'  :
-    avgScore >= 25        ? 'high'      : 'critical'
+  // Authoritative posture (latest COMPLETE scan) from the canonical backend
+  // selector — never a rating derived from a partial-inclusive average, so a
+  // partial-heavy workspace reads as "not yet established" (partial-scan honesty).
+  const postureEstablished = stats?.posture_established === true && stats?.posture_score != null
+  const postureScore = postureEstablished ? Math.round(stats.posture_score) : null
+  const postureRating = postureEstablished && stats?.posture_rating ? stats.posture_rating : null
+  const postureMessage = stats?.posture_message || 'Current posture not yet established'
 
   return (
     <div className="max-w-screen-xl mx-auto px-6 py-8 space-y-6">
@@ -404,9 +401,9 @@ export default function WorkspaceDetailPage() {
         />
         <StatCard
           icon={BarChart2}
-          label="Avg Cyber Score"
-          value={avgScore != null ? avgScore : '—'}
-          sub={avgRating ? avgRating.charAt(0).toUpperCase() + avgRating.slice(1) : 'No completed scans'}
+          label="Cyber Score"
+          value={postureScore != null ? postureScore : '—'}
+          sub={postureRating ? postureRating.charAt(0).toUpperCase() + postureRating.slice(1) : postureMessage}
           iconColor="text-purple-600"
           iconBg="bg-purple-50"
         />

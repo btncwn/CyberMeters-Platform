@@ -5,6 +5,7 @@
 // Receives the per-request routeCtx from index.js; returns a Response when a
 // route matches, or null so the main router continues.
 import { getEffectivePlan } from "../engines/entitlements.js";
+import { getCurrentPosturePresentation } from "../engines/current-posture.js";
 import { getAccountUsage, getEntitlementUsage, getPlanLimits, getWorkspaceBillingUserId, planLimitExceeded } from "../engines/plan-usage.js";
 import { createAuditEvent } from "../lib/events.js";
 import { escapeEmailHtml, sendCustomerEmail, sendLifecycleEmail } from "../lib/lifecycle-email.js";
@@ -73,7 +74,8 @@ export async function workspacesCoreRoutes(rctx) {
               )
               .bind(workspaceId, workspaceId).first(),
 
-            // cyber_score_average — direct attribution + fallback for NULL workspace_id
+            // cyber_score_average — COMPLETE-only: a partial/degraded scan must
+            // never contribute to the averaged headline (partial-scan honesty).
             env.cybermeters_db
               .prepare(
                 `SELECT ROUND(AVG(s.score), 1) AS avg
@@ -85,7 +87,8 @@ export async function workspacesCoreRoutes(rctx) {
                    OR (s.workspace_id IS NULL AND wd.workspace_id = ?)
                  )
                    AND s.status = 'completed'
-                   AND s.score  IS NOT NULL`
+                   AND s.score  IS NOT NULL
+                   AND s.scan_quality = 'complete'`
               )
               .bind(workspaceId, workspaceId).first(),
 
@@ -106,6 +109,13 @@ export async function workspacesCoreRoutes(rctx) {
               .bind(workspaceId, workspaceId).first(),
           ]);
 
+          // Canonical authoritative posture (latest COMPLETE scan) — the client
+          // renders THIS as the Cyber Score KPI + rating, never a rating derived
+          // from the raw average, so a partial-heavy workspace shows
+          // "Current posture not yet established" instead of a clean grade.
+          let posture = null;
+          try { posture = await getCurrentPosturePresentation(env, { workspaceId }); } catch { /* tolerate */ }
+
           return json({
             workspace: {
               id:         workspace.id,
@@ -117,6 +127,11 @@ export async function workspacesCoreRoutes(rctx) {
               total_scans:         scansRow?.n  ?? 0,
               cyber_score_average: avgRow?.avg   ?? null,
               latest_scan:         latestRow     ?? null,
+              // Completeness-aware headline posture.
+              posture_established: posture?.state === "established",
+              posture_score:       posture?.authoritative?.display_score  ?? null,
+              posture_rating:      posture?.authoritative?.display_rating ?? null,
+              posture_message:     posture?.posture_message ?? null,
             },
           });
         } catch {

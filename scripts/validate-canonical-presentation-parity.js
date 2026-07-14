@@ -75,6 +75,20 @@ const files = walk(S);
     ok("buildPdfStreams domain inventory withholds a rating for a non-complete latest scan",
       /latest_quality === "complete"/.test(pdf) && /domComplete \? scoreToRating\(ds\) : "Provisional"/.test(pdf));
   }
+  // workspace detail (GET /api/workspaces/:id) headline delegates to the canonical
+  // selector — the raw average must never drive a rating on the detail page.
+  {
+    const wc = read("routes/workspaces-core.js");
+    ok("workspace-detail delegates to the canonical current-posture helper",
+      /getCurrentPosturePresentation/.test(wc));
+    ok("workspace-detail cyber_score_average is complete-only",
+      /ROUND\(AVG\(s\.score\), 1\)/.test(wc) && /s\.scan_quality = 'complete'/.test(wc));
+    ok("workspace-detail response carries canonical posture fields",
+      /posture_established:/.test(wc) && /posture_rating:/.test(wc));
+    const wdp = fs.readFileSync(path.join(root, "frontend", "src", "pages", "WorkspaceDetailPage.jsx"), "utf8");
+    ok("WorkspaceDetailPage renders posture, not an average-derived rating",
+      /posture_established/.test(wdp) && !/avgRating/.test(wdp));
+  }
   // workspace-insights authoritative aggregate is complete-only.
   ok("workspace-insights latest-posture aggregate is complete-only",
     (read("routes/workspace-insights.js").match(/status = 'completed' AND scan_quality = 'complete'/g) || []).length >= 2);
