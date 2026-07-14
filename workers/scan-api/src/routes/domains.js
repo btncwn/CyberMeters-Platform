@@ -10,6 +10,7 @@ import { getEffectivePlan } from "../engines/entitlements.js";
 import { normalizeHostname } from "../engines/hostnames.js";
 import { getAccountUsage, getEntitlementUsage, getPlanLimits, getWorkspaceBillingUserId, planLimitExceeded } from "../engines/plan-usage.js";
 import { hashToken } from "../lib/auth-crypto.js";
+import { resolveVerificationWorkspace } from "../lib/domain-verification.js";
 import { customerSafeFailure } from "../lib/errors.js";
 import { createAuditEvent, createNotificationEvent } from "../lib/events.js";
 import { createId, isValidDomain } from "../lib/util.js";
@@ -162,23 +163,30 @@ export async function domainRoutes(rctx) {
         if (!dviUser) return json({ error: "Unauthorized" }, 401);
 
         const domRow = await env.cybermeters_db
-          .prepare("SELECT id, domain, verification_status FROM domains WHERE id = ?")
+          .prepare("SELECT id, domain FROM domains WHERE id = ?")
           .bind(domainId)
           .first();
         if (!domRow) return json({ error: "Domain not found" }, 404);
 
-        // RBAC: resolve all linked workspaces for this domain, then check domain:verify permission.
-        // A denied caller gets the SAME 404 as a nonexistent id so an authenticated
-        // user cannot use 403-vs-404 to probe which domain ids exist in other tenants
-        // (opaque ids make this hard, but the oracle is closed regardless).
-        const dviAccess = await requireDomainRole(dviUser, domainId, "domain:verify", env);
-        if (!dviAccess) return json({ error: "Domain not found" }, 404);
+        // Verification is WORKSPACE-scoped: resolve the exact workspace to verify.
+        // Prefer an explicit workspace_id; auto-resolve only when unambiguous. A
+        // denied/absent workspace returns the SAME 404 as a nonexistent domain.
+        let dviBody = {};
+        try { dviBody = await request.json(); } catch { /* optional body */ }
+        const dviWs = await resolveVerificationWorkspace(dviUser, domainId, dviBody?.workspace_id, requireWorkspaceRole, env);
+        if (dviWs.error) return json({ error: dviWs.error, ...(dviWs.code ? { code: dviWs.code } : {}) }, dviWs.status);
+        const dviWorkspaceId = dviWs.workspace_id;
 
-        // Already verified — don't reset
-        if (domRow.verification_status === "verified") {
+        // Already verified for THIS workspace — don't reset it.
+        const dviLink = await env.cybermeters_db
+          .prepare("SELECT verification_status FROM workspace_domains WHERE workspace_id = ? AND domain_id = ?")
+          .bind(dviWorkspaceId, domainId)
+          .first();
+        if (dviLink?.verification_status === "verified") {
           return json({
             already_verified: true,
             domain: domRow.domain,
+            workspace_id: dviWorkspaceId,
             verification_status: "verified",
           });
         }
@@ -188,30 +196,33 @@ export async function domainRoutes(rctx) {
         crypto.getRandomValues(tokenBytes);
         const token = Array.from(tokenBytes).map(b => b.toString(16).padStart(2, "0")).join("");
 
+        // Store the token on the EXACT workspace-domain relationship (not the legacy
+        // global domains row, which is now read-only compatibility data).
         await env.cybermeters_db
-          .prepare(`UPDATE domains
+          .prepare(`UPDATE workspace_domains
                     SET verification_status = 'pending',
                         verification_token  = ?,
                         verification_method = NULL,
                         verified_at         = NULL,
                         verification_initiated_at = datetime('now')
-                    WHERE id = ?`)
-          .bind(token, domainId)
+                    WHERE workspace_id = ? AND domain_id = ?`)
+          .bind(token, dviWorkspaceId, domainId)
           .run();
 
         const domain = domRow.domain;
         await createAuditEvent(env, {
-          workspace_id: dviAccess.workspace_id ?? null,
+          workspace_id: dviWorkspaceId,
           user_id:      dviUser.id,
           event_type:   "domain_verification_token_generated",
           entity_type:  "domain",
           entity_id:    domainId,
           description:  `Verification token generated for ${domain}`,
-          metadata:     { domain, domain_id: domainId, method_options: ["dns_txt", "html_file"] },
+          metadata:     { domain, domain_id: domainId, workspace_id: dviWorkspaceId, method_options: ["dns_txt", "html_file"] },
         });
         return json({
           domain,
           domain_id:          domainId,
+          workspace_id:       dviWorkspaceId,
           verification_status: "pending",
           token,
           dns: {
@@ -254,35 +265,45 @@ export async function domainRoutes(rctx) {
         if (!dvcUser) return json({ error: "Unauthorized" }, 401);
 
         const domRow = await env.cybermeters_db
-          .prepare("SELECT id, domain, verification_status, verification_token FROM domains WHERE id = ?")
+          .prepare("SELECT id, domain FROM domains WHERE id = ?")
           .bind(domainId)
           .first();
         if (!domRow) return json({ error: "Domain not found" }, 404);
 
-        // RBAC: resolve all linked workspaces for this domain, then check domain:verify permission.
-        // Denied → same 404 as nonexistent (see domVerInitMatch above): closes the
-        // authenticated cross-tenant existence oracle.
-        const dvcAccess = await requireDomainRole(dvcUser, domainId, "domain:verify", env);
-        if (!dvcAccess) return json({ error: "Domain not found" }, 404);
+        // Workspace-scoped resolution (explicit workspace_id, or unambiguous
+        // auto-resolve). Denied/absent → same 404 as nonexistent (existence oracle).
+        let dvcBody = {};
+        try { dvcBody = await request.json(); } catch { /* optional body */ }
+        const dvcWs = await resolveVerificationWorkspace(dvcUser, domainId, dvcBody?.workspace_id, requireWorkspaceRole, env);
+        if (dvcWs.error) return json({ error: dvcWs.error, ...(dvcWs.code ? { code: dvcWs.code } : {}) }, dvcWs.status);
+        const dvcWorkspaceId = dvcWs.workspace_id;
 
-        if (domRow.verification_status === "verified") {
+        // Read verification state from the EXACT workspace-domain relationship — the
+        // token was issued per workspace; another workspace's token can never verify this one.
+        const dvcLink = await env.cybermeters_db
+          .prepare("SELECT verification_status, verification_token FROM workspace_domains WHERE workspace_id = ? AND domain_id = ?")
+          .bind(dvcWorkspaceId, domainId)
+          .first();
+
+        if (dvcLink?.verification_status === "verified") {
           return json({
             success: true,
             domain: domRow.domain,
+            workspace_id: dvcWorkspaceId,
             verification_status: "verified",
             verification_method: "already_verified",
             message: "Domain is already verified.",
           });
         }
 
-        if (!domRow.verification_token) {
+        if (!dvcLink?.verification_token) {
           return json({
             error: "No verification token found. Call POST /api/domains/:id/verification first.",
           }, 400);
         }
 
         const domain = domRow.domain;
-        const token  = domRow.verification_token;
+        const token  = dvcLink.verification_token;
         const expectedTxtValue = `cybermeters-verification=${token}`;
         const htmlUrl          = `https://${domain}/cybermeters-verification-${token}.html`;
 
@@ -303,44 +324,41 @@ export async function domainRoutes(rctx) {
         }
 
         if (dnsVerified) {
+          // Update ONLY the exact workspace-domain relationship being verified.
           await env.cybermeters_db
-            .prepare(`UPDATE domains
+            .prepare(`UPDATE workspace_domains
                       SET verification_status = 'verified',
                           verification_method = 'dns_txt',
                           verified_at = datetime('now')
-                      WHERE id = ?`)
-            .bind(domainId)
+                      WHERE workspace_id = ? AND domain_id = ?`)
+            .bind(dvcWorkspaceId, domainId)
             .run();
           // Forward telemetry: fingerprint the exact TXT value we trusted + note
           // the resolver, so a later drift check can prove what was verified.
           const dnsRecordHash = await hashToken(expectedTxtValue);
-          // Notifications + audit — fire-and-forget for all linked workspaces
+          // Notifications + audit — fire-and-forget for THIS workspace only.
           try {
-            const wsR = await env.cybermeters_db
-              .prepare("SELECT workspace_id FROM workspace_domains WHERE domain_id = ?")
-              .bind(domainId).all();
-            for (const { workspace_id } of (wsR.results || [])) {
-              await createNotificationEvent(env, workspace_id, {
-                type: "domain_verified", severity: "info",
-                title: `${domain} ownership verified`,
-                message: `Domain verified via DNS TXT record at _cybermeters.${domain}.`,
-                metadata: { domain, domain_id: domainId, method: "dns_txt" },
-              });
-              await createAuditEvent(env, {
-                workspace_id,
-                user_id:     dvcUser?.id ?? null,
-                event_type:  "domain_verified",
-                entity_type: "domain",
-                entity_id:   domainId,
-                description: `${domain} ownership verified via DNS TXT`,
-                metadata:    { domain, domain_id: domainId, method: "dns_txt",
-                               resolver_used: "cloudflare_doh", dns_record_hash: dnsRecordHash },
-              });
-            }
+            await createNotificationEvent(env, dvcWorkspaceId, {
+              type: "domain_verified", severity: "info",
+              title: `${domain} ownership verified`,
+              message: `Domain verified via DNS TXT record at _cybermeters.${domain}.`,
+              metadata: { domain, domain_id: domainId, workspace_id: dvcWorkspaceId, method: "dns_txt" },
+            });
+            await createAuditEvent(env, {
+              workspace_id: dvcWorkspaceId,
+              user_id:     dvcUser?.id ?? null,
+              event_type:  "domain_verified",
+              entity_type: "domain",
+              entity_id:   domainId,
+              description: `${domain} ownership verified via DNS TXT`,
+              metadata:    { domain, domain_id: domainId, workspace_id: dvcWorkspaceId, method: "dns_txt",
+                             resolver_used: "cloudflare_doh", dns_record_hash: dnsRecordHash },
+            });
           } catch { /* non-fatal */ }
           return json({
             success: true,
             domain,
+            workspace_id: dvcWorkspaceId,
             verification_status: "verified",
             verification_method: "dns_txt",
             message: `DNS TXT record verified at _cybermeters.${domain}.`,
@@ -367,40 +385,37 @@ export async function domainRoutes(rctx) {
         }
 
         if (htmlVerified) {
+          // Update ONLY the exact workspace-domain relationship being verified.
           await env.cybermeters_db
-            .prepare(`UPDATE domains
+            .prepare(`UPDATE workspace_domains
                       SET verification_status = 'verified',
                           verification_method = 'html_file',
                           verified_at = datetime('now')
-                      WHERE id = ?`)
-            .bind(domainId)
+                      WHERE workspace_id = ? AND domain_id = ?`)
+            .bind(dvcWorkspaceId, domainId)
             .run();
-          // Notifications + audit — fire-and-forget for all linked workspaces
+          // Notifications + audit — fire-and-forget for THIS workspace only.
           try {
-            const wsR = await env.cybermeters_db
-              .prepare("SELECT workspace_id FROM workspace_domains WHERE domain_id = ?")
-              .bind(domainId).all();
-            for (const { workspace_id } of (wsR.results || [])) {
-              await createNotificationEvent(env, workspace_id, {
-                type: "domain_verified", severity: "info",
-                title: `${domain} ownership verified`,
-                message: `Domain verified via HTML file at ${htmlUrl}.`,
-                metadata: { domain, domain_id: domainId, method: "html_file" },
-              });
-              await createAuditEvent(env, {
-                workspace_id,
-                user_id:     dvcUser?.id ?? null,
-                event_type:  "domain_verified",
-                entity_type: "domain",
-                entity_id:   domainId,
-                description: `${domain} ownership verified via HTML file`,
-                metadata:    { domain, domain_id: domainId, method: "html_file" },
-              });
-            }
+            await createNotificationEvent(env, dvcWorkspaceId, {
+              type: "domain_verified", severity: "info",
+              title: `${domain} ownership verified`,
+              message: `Domain verified via HTML file at ${htmlUrl}.`,
+              metadata: { domain, domain_id: domainId, workspace_id: dvcWorkspaceId, method: "html_file" },
+            });
+            await createAuditEvent(env, {
+              workspace_id: dvcWorkspaceId,
+              user_id:     dvcUser?.id ?? null,
+              event_type:  "domain_verified",
+              entity_type: "domain",
+              entity_id:   domainId,
+              description: `${domain} ownership verified via HTML file`,
+              metadata:    { domain, domain_id: domainId, workspace_id: dvcWorkspaceId, method: "html_file" },
+            });
           } catch { /* non-fatal */ }
           return json({
             success: true,
             domain,
+            workspace_id: dvcWorkspaceId,
             verification_status: "verified",
             verification_method: "html_file",
             message: `HTML verification file found at ${htmlUrl}.`,
@@ -408,34 +423,30 @@ export async function domainRoutes(rctx) {
         }
 
         // ── Both failed ───────────────────────────────────────────────────
+        // Mark ONLY the exact workspace-domain relationship failed.
         await env.cybermeters_db
-          .prepare(`UPDATE domains SET verification_status = 'failed' WHERE id = ?`)
-          .bind(domainId)
+          .prepare(`UPDATE workspace_domains SET verification_status = 'failed' WHERE workspace_id = ? AND domain_id = ?`)
+          .bind(dvcWorkspaceId, domainId)
           .run();
 
         try {
-          const wsR = await env.cybermeters_db
-            .prepare("SELECT workspace_id FROM workspace_domains WHERE domain_id = ?")
-            .bind(domainId)
-            .all();
-          for (const { workspace_id } of (wsR.results || [])) {
-            await createAuditEvent(env, {
-              workspace_id,
-              user_id:     dvcUser?.id ?? null,
-              event_type:  "domain_verification_failed",
-              entity_type: "domain",
-              entity_id:   domainId,
-              description: `${domain} ownership verification failed`,
-              metadata:    {
-                domain,
-                domain_id: domainId,
-                dns_txt_result: dnsVerified ? "found" : "not_found",
-                html_file_result: htmlVerified ? "found" : "not_found",
-                dns_error: dnsError || null,
-                html_error: htmlError || null,
-              },
-            });
-          }
+          await createAuditEvent(env, {
+            workspace_id: dvcWorkspaceId,
+            user_id:     dvcUser?.id ?? null,
+            event_type:  "domain_verification_failed",
+            entity_type: "domain",
+            entity_id:   domainId,
+            description: `${domain} ownership verification failed`,
+            metadata:    {
+              domain,
+              domain_id: domainId,
+              workspace_id: dvcWorkspaceId,
+              dns_txt_result: dnsVerified ? "found" : "not_found",
+              html_file_result: htmlVerified ? "found" : "not_found",
+              dns_error: dnsError || null,
+              html_error: htmlError || null,
+            },
+          });
         } catch { /* non-fatal */ }
 
         return json({

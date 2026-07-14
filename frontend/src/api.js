@@ -1010,17 +1010,26 @@ export const api = {
 
   /**
    * POST /api/domains/:id/verification
-   * Generate a verification token. Returns DNS + HTML instructions.
+   * Generate a verification token for a specific workspace-domain relationship.
+   * `workspaceId` makes the target explicit; the backend auto-resolves it when the
+   * domain is linked to exactly one of the caller's workspaces.
    */
-  generateDomainVerification: (domainId) =>
-    request(`/domains/${domainId}/verification`, { method: 'POST' }),
+  generateDomainVerification: (domainId, workspaceId) =>
+    request(`/domains/${domainId}/verification`, {
+      method: 'POST',
+      ...(workspaceId ? { body: JSON.stringify({ workspace_id: workspaceId }) } : {}),
+    }),
 
   /**
    * POST /api/domains/:id/verify
-   * Trigger the actual DNS TXT / HTML file check. Returns success/failure detail.
+   * Trigger the actual DNS TXT / HTML file check for a specific workspace-domain
+   * relationship. `workspaceId` optional (see generateDomainVerification).
    */
-  verifyDomain: (domainId) =>
-    request(`/domains/${domainId}/verify`, { method: 'POST' }),
+  verifyDomain: (domainId, workspaceId) =>
+    request(`/domains/${domainId}/verify`, {
+      method: 'POST',
+      ...(workspaceId ? { body: JSON.stringify({ workspace_id: workspaceId }) } : {}),
+    }),
 
   /** GET /api/domains/:id — domain details including verification fields */
   getDomain: (domainId) =>

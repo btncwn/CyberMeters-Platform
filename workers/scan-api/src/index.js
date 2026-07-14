@@ -6,6 +6,7 @@ import { computeOpsHealth, formatOpsHealthEmail } from "./lib/ops-health.js";
 import { CE_QUESTIONS, CE_QUESTION_SET_VERSION, mergeReadiness } from "./lib/cyber-essentials.js";
 import { createId, isValidDomain, isValidEmail, normalizeApiResponseData, pageMeta, paginationParams, parseBoundedInteger } from "./lib/util.js";
 import { createAuditEvent, createNotificationEvent, createNotificationsForDomain, sanitizeAuditMetadata } from "./lib/events.js";
+import { isWorkspaceDomainVerified } from "./lib/domain-verification.js";
 import { RUA_INBOUND_DOMAIN_DEFAULT, ingestDmarcReport, ingestEndpointIsActive, normalizeInboundRecipientDomain, parseEmailAuthHeaders, sha256Hex, updateEmailSenderSources } from "./lib/dmarc-ingest.js";
 import { buildCorsHeaders, buildJsonHeaders, deliverEmail, escapeEmailHtml, getEmailFrontendOrigin, json, retryFailedLifecycleEmails, sendCustomerEmail, sendLifecycleEmail } from "./lib/lifecycle-email.js";
 import { RDAP_UA, safeFetch } from "./lib/http.js";
@@ -761,6 +762,18 @@ async function triggerScheduledScan(schedule, env) {
         )
         .bind(schedule.workspace_id, domainId)
         .run();
+    }
+
+    // ── Domain-ownership verification gate (workspace-scoped) ─────────────────
+    // A scheduled scan runs only on a VERIFIED (workspace_id, domain_id) link. This
+    // PR does not auto-pause or mutate the schedule config — it simply skips
+    // execution and logs the reason (no scan row, no R2 placeholder, no engine).
+    if (!schedule.workspace_id || !(await isWorkspaceDomainVerified(env, schedule.workspace_id, domainId))) {
+      console.log("[scheduled-scan] skipped — domain not verified for workspace", JSON.stringify({
+        schedule_id: schedule.id ?? null, workspace_id: schedule.workspace_id ?? null,
+        domain_id: domainId, domain: schedule.domain, reason: "domain_verification_required",
+      }));
+      return;
     }
 
     // Create scan row

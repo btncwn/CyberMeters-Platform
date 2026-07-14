@@ -163,9 +163,10 @@ export default function DomainVerifyPage() {
 
   async function handleGenerate() {
     const id = domain?.domain_id ?? domain?.id ?? domainId
+    const wsId = location.state?.workspaceId ?? domain?.workspace_id
     setGenerating(true); setGenError(null); setDnsResult(null)
     try {
-      const res = await api.generateDomainVerification(id)
+      const res = await api.generateDomainVerification(id, wsId)
       if (res.already_verified) {
         await load()
         return
@@ -196,9 +197,10 @@ export default function DomainVerifyPage() {
 
   async function handleVerify() {
     const id = domain?.domain_id ?? domain?.id ?? domainId
+    const wsId = location.state?.workspaceId ?? domain?.workspace_id
     setVerifying(true); setVerifyResult(null)
     try {
-      const res = await api.verifyDomain(id)
+      const res = await api.verifyDomain(id, wsId)
       setVerifyResult(res)
       if (res.success) {
         setTimeout(async () => {
