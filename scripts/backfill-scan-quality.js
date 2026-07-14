@@ -261,13 +261,22 @@ async function main() {
   if (!apply && args.apply && forceDry) console.log("Note:        --apply present but overridden by dry-run.");
   console.log("──────────────────────────────────────────────────────────────");
 
-  // 1. Completed scan ids from D1.
+  // 1. Completed scan ids + CURRENT scan_quality from D1. Fetching the current
+  //    value lets us gate the would-update/write on rows that are still NULL, so
+  //    a re-run (or the mandated second dry-run after --apply) honestly reports
+  //    zero remaining updates instead of re-counting already-populated rows.
   let rows;
   try {
-    rows = await d1Json("SELECT id FROM scans WHERE status='completed'");
+    rows = await d1Json("SELECT id, scan_quality FROM scans WHERE status='completed'");
   } catch (e) {
     console.error(`FATAL: could not query completed scans from D1: ${e.message}`);
     process.exit(1);
+  }
+
+  // Map id → current scans.scan_quality (null when unset).
+  const currentQuality = new Map();
+  for (const r of rows) {
+    if (r && r.id != null) currentQuality.set(String(r.id), r.scan_quality ?? null);
   }
 
   let scanIds = rows
@@ -302,7 +311,7 @@ async function main() {
 
   for (let i = 0; i < scanIds.length; i += BATCH_SIZE) {
     const batch = scanIds.slice(i, i + BATCH_SIZE);
-    await Promise.all(batch.map((id) => processScan(id, { apply, tmpDir, stats, rejectedSample })));
+    await Promise.all(batch.map((id) => processScan(id, { apply, tmpDir, stats, rejectedSample, currentQuality })));
     // Light pacing between batches.
     if (i + BATCH_SIZE < scanIds.length) await sleep(50);
   }
@@ -332,8 +341,9 @@ async function main() {
   }
 }
 
-async function processScan(id, { apply, tmpDir, stats, rejectedSample }) {
+async function processScan(id, { apply, tmpDir, stats, rejectedSample, currentQuality }) {
   stats.scans_inspected++;
+  const already = currentQuality ? (currentQuality.get(id) ?? null) : null;
   let report;
   try {
     report = await fetchR2Report(id, tmpDir);
@@ -376,6 +386,14 @@ async function processScan(id, { apply, tmpDir, stats, rejectedSample }) {
   if (!VALID_QUALITY.has(quality)) {
     stats.parse_failures++;
     stats.null_left++;
+    return;
+  }
+
+  // Already populated in D1 → guarded no-op; NOT a pending update. Counting this
+  // separately is what makes a re-run / the post-apply second dry-run honestly
+  // report zero remaining updates (the R2-derived class tally above still stands).
+  if (already != null) {
+    stats.scans_already_set++;
     return;
   }
 
@@ -427,6 +445,7 @@ function printReconciliation(r, apply) {
   console.log(`  unknown (explicit):         ${r.unknown}`);
   console.log(`  left NULL (no valid value): ${r.null_left}`);
   console.log("  ── writes ──");
+  console.log(`  already set (guarded no-op): ${r.scans_already_set}`);
   console.log(`  scans ${verb}:              ${r.scans_updated}` +
     (r.scan_write_errors ? ` (${r.scan_write_errors} errors)` : ""));
   console.log(`  historical_scores ${verb}:  ${r.historical_updated}` +
