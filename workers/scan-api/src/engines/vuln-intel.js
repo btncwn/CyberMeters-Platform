@@ -192,11 +192,78 @@ export async function runCveModule(techModule) {
 const CISA_KEV_URL =
   "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json";
 
+// The KEV catalogue is a multi-MB, DOMAIN-INDEPENDENT feed. Re-downloading it on
+// every scan is the single heaviest external I/O in the pipeline and a prime
+// contributor to the wall-clock that triggers waitUntil cancellation. Cache it in
+// R2 (no KV binding exists) with a TTL so subsequent scans read it from R2 (a fast
+// Cloudflare-internal GET, not an external subrequest) instead of hitting CISA.
+export const KEV_CACHE_KEY    = "cache/cisa-kev.json";
+export const KEV_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h freshness window
+
+/**
+ * Resolve the CISA KEV catalogue, preferring a fresh R2 cache. Honest degradation:
+ * a cache read/write failure never breaks the module — it falls back to a direct
+ * fetch; if the origin also fails, a stale cache is used (flagged stale) and only
+ * when nothing is available does it report unavailable. `fetcher`/`now` are
+ * injectable for deterministic tests.
+ *
+ * Returns { vulnerabilities: Array|null, source, stale, age_ms }.
+ */
+export async function getKevCatalogue(env = null, { fetcher = safeFetch, now = Date.now } = {}) {
+  const nowMs = now();
+  let stale = null;
+
+  // 1. Try the R2 cache.
+  if (env?.cybermeters_reports?.get) {
+    try {
+      const obj = await env.cybermeters_reports.get(KEV_CACHE_KEY);
+      if (obj) {
+        const parsed = JSON.parse(await obj.text());
+        if (parsed && Array.isArray(parsed.vulnerabilities) && typeof parsed.fetched_at_ms === "number") {
+          const ageMs = nowMs - parsed.fetched_at_ms;
+          if (ageMs >= 0 && ageMs < KEV_CACHE_TTL_MS) {
+            return { vulnerabilities: parsed.vulnerabilities, source: "r2_cache", stale: false, age_ms: ageMs };
+          }
+          stale = parsed; // expired — retain as a fallback if the origin fetch fails
+        }
+      }
+    } catch { /* cache read failure — degrade to an origin fetch */ }
+  }
+
+  // 2. Fetch fresh from CISA.
+  try {
+    const res = await fetcher(CISA_KEV_URL, { signal: AbortSignal.timeout(15_000) });
+    if (res && res.status === 200) {
+      const data = await res.json();
+      const vulnerabilities = data.vulnerabilities || [];
+      if (env?.cybermeters_reports?.put) {
+        try {
+          await env.cybermeters_reports.put(
+            KEV_CACHE_KEY,
+            JSON.stringify({ fetched_at_ms: nowMs, vulnerabilities }),
+            { httpMetadata: { contentType: "application/json" } }
+          );
+        } catch { /* cache write failure — non-fatal, we still return the data */ }
+      }
+      return { vulnerabilities, source: "origin", stale: false, age_ms: 0 };
+    }
+  } catch { /* origin fetch failed — fall through to stale/unavailable */ }
+
+  // 3. Origin failed: use a stale cache if we have one, flagged honestly.
+  if (stale) {
+    return { vulnerabilities: stale.vulnerabilities, source: "r2_cache_stale", stale: true, age_ms: nowMs - stale.fetched_at_ms };
+  }
+
+  // 4. Nothing available — honest unavailable (never a fake clean result).
+  return { vulnerabilities: null, source: "unavailable", stale: false, age_ms: null };
+}
+
 /**
  * Fetch CISA KEV catalog and match against detected technologies.
  * Ported from kev_lookup.correlate_kev() with added technology keyword matching.
+ * `env` enables the R2 catalogue cache; `opts` injects fetcher/now for tests.
  */
-export async function runKevModule(techModule) {
+export async function runKevModule(techModule, env = null, opts = {}) {
   const detectedTechs = (techModule?.technologies || []).map(t => t.toLowerCase());
   // Include normalised server/x-powered-by values as additional keyword hints
   for (const h of [techModule?.server, techModule?.x_powered_by]) {
@@ -205,12 +272,11 @@ export async function runKevModule(techModule) {
   }
 
   try {
-    const res = await safeFetch(CISA_KEV_URL, { signal: AbortSignal.timeout(15_000) });
-    if (!res || res.status !== 200) {
-      return { matches: [], checked: 0, matched: 0, source: "cisa_kev", error: "KEV catalog fetch failed" };
+    const catalogue = await getKevCatalogue(env, opts);
+    if (!catalogue.vulnerabilities) {
+      return { matches: [], checked: 0, matched: 0, source: "cisa_kev", catalogue_source: catalogue.source, error: "KEV catalog unavailable" };
     }
-    const data = await res.json();
-    const vulnerabilities = data.vulnerabilities || [];
+    const vulnerabilities = catalogue.vulnerabilities;
     const matches = [];
 
     for (const vuln of vulnerabilities) {
@@ -239,10 +305,12 @@ export async function runKevModule(techModule) {
     const capped = matches.slice(0, 25);
 
     return {
-      matches:    capped,
-      checked:    vulnerabilities.length,
-      matched:    capped.length,
-      source:     "cisa_kev",
+      matches:          capped,
+      checked:          vulnerabilities.length,
+      matched:          capped.length,
+      source:           "cisa_kev",
+      catalogue_source: catalogue.source,   // r2_cache | origin | r2_cache_stale
+      catalogue_stale:  catalogue.stale,
     };
   } catch (err) {
     return {

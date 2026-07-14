@@ -82,11 +82,12 @@ export async function runSubdomainsModule(domain) {
   const SOURCE    = "certificate_transparency_multi_source";
   const PER_CAP   = 200;   // max unique names from each CT source
   const MERGE_CAP = 300;   // cap on the merged deduplicated set
-  // Sprint 10B: increased from 15s → 25s.
-  // crt.sh has a 12s fetch timeout; for large domains (many CT entries) body
-  // parsing + concurrent I/O queuing can push past 15s. 25s gives full headroom
-  // within the Workers waitUntil budget without risking actual Worker timeout.
-  const HARD_CAP_MS = 25_000;
+  // Tier 1 (waitUntil-cancellation guard): reduced 25s → 15s. The inner crt.sh
+  // fetch times out at 12s (CertSpotter 8s in parallel); 15s leaves ~3s for body
+  // parse while reclaiming 10s of worst-case wall-time for the engine deadline, so
+  // CT discovery can no longer alone push the invocation toward the ~30s cliff. On
+  // cap the scan continues with an honest empty CT result (never a fake clean one).
+  const HARD_CAP_MS = 15_000;
 
   // Graceful fallback — returned on hard-cap timeout or unexpected throw
   const emptyResult = (error, wildcardDns = false, wildcardHost = null) => ({
@@ -110,7 +111,7 @@ export async function runSubdomainsModule(domain) {
       _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP),
       new Promise((resolve) =>
         setTimeout(() =>
-          resolve(emptyResult("Subdomain discovery timed out (25s hard cap)")),
+          resolve(emptyResult("Subdomain discovery timed out (15s hard cap)")),
           HARD_CAP_MS
         )
       ),

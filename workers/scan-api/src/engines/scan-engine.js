@@ -33,7 +33,7 @@ import { runHistoricalModule } from "./historical-scan.js";
 import { runIdentityDiscoveryModule } from "./identity-scan.js";
 import { recordPostureEvents } from "./posture-events.js";
 import { runReservedScan } from "./reserved-scan.js";
-import { MODULE_SUBREQUEST_COST, resolveScanCapacity, skippedModuleResult } from "./scan-budget.js";
+import { createModuleTelemetry, createScanDeadline, markDeadlineDeferred, MODULE_SUBREQUEST_COST, raceModuleDeadline, resolveScanCapacity, skippedModuleResult } from "./scan-budget.js";
 import { computeScore, isEmailApplicable } from "./scoring.js";
 import { runSslModule } from "./ssl-scan.js";
 import { BRUTEFORCE_MAX_NAMES, filterWildcardBruteforceResults, runBruteforceModule, runSubdomainsModule } from "./subdomains-scan.js";
@@ -163,8 +163,137 @@ export function buildScanQuality(modules = {}) {
   };
 }
 
-export async function runScanEngine(scanId, domainId, workspaceId, domain, env) {
+// ── Durable, tri-state scan finalization (Tier 1) ─────────────────────────────
+// The latch has three states: "open" → "finalizing" → "finalized". It reaches
+// "finalized" ONLY after BOTH the terminal R2 report and the D1 status are durably
+// written. This is the key correctness property: the latch prevents DUPLICATE
+// terminal writes without SUPPRESSING RECOVERY when a first attempt fails partway.
+//
+//   • Each write is individually guarded, so one failing cannot skip the other, and
+//     finalizeScanResult NEVER throws — the caller inspects `finalized`.
+//   • It is re-entrant: a later call retries only the side(s) not yet durable.
+//   • Downgrade-safe: once a COMPLETED report is durable in R2, a later 'failed'
+//     attempt can never overwrite it — it only (re)writes the D1 completed status.
+//     (Closes both the orphan hazard AND the "downgrade a persisted scan" hazard.)
+//
+// R2 first (the stuck-scan reconciler trusts the report), then the D1 status the UI
+// polls. If R2 is written but the D1 write keeps failing, the scan is left with a
+// durable completed report the reconciler converges D1 from — never a silent orphan.
+export function createFinalizeLatch() {
+  return { state: "open", status: null, at: null, r2Written: false, d1Written: false, score: null, rating: null };
+}
+
+export async function finalizeScanResult(latch, { scanId, report, score = null, rating = null, status, env }) {
+  if (latch.state === "finalized") {
+    return { finalized: true, wrote: false, reason: "already_finalized", status: latch.status };
+  }
+
+  // Downgrade guard: a 'failed' attempt AFTER a completed report is already durable
+  // in R2 must not clobber it — keep the completed intent; only the D1 status is
+  // (re)written, as completed.
+  const guardCompleted = latch.status === "completed" && latch.r2Written && status !== "completed";
+
+  latch.state = "finalizing";
+  if (!guardCompleted) {
+    latch.status = status;
+    latch.score  = score;
+    latch.rating = rating;
+  }
+  const effStatus = latch.status;
+  const effScore  = latch.score;
+  const effRating = latch.rating;
+
+  const errors = {};
+  // Terminal R2 report — skipped when the completed report is already durable
+  // (guardCompleted) so a failed report can never overwrite it.
+  if (!latch.r2Written && !guardCompleted) {
+    try {
+      await env.cybermeters_reports.put(
+        `reports/${scanId}.json`,
+        JSON.stringify(report, null, 2),
+        { httpMetadata: { contentType: "application/json" } }
+      );
+      latch.r2Written = true;
+    } catch (e) { errors.r2 = e?.message || String(e); }
+  }
+  // Terminal D1 status — a 'completed' status is written ONLY once its R2 report is
+  // durable (never claim completed in D1 while R2 still holds the running placeholder;
+  // the reconciler trusts R2). A 'failed' terminal is written regardless, so a scan
+  // whose report could not be persisted still ends 'failed', never silently 'running'.
+  if (!latch.d1Written && (latch.r2Written || effStatus === "failed")) {
+    try {
+      await env.cybermeters_db
+        .prepare(`UPDATE scans SET status = ?, score = ?, rating = ? WHERE id = ?`)
+        .bind(effStatus, effScore, effRating, scanId)
+        .run();
+      latch.d1Written = true;
+    } catch (e) { errors.d1 = e?.message || String(e); }
+  }
+
+  if (latch.r2Written && latch.d1Written) {
+    latch.state = "finalized";
+    latch.at = new Date().toISOString();
+    return { finalized: true, wrote: true, status: effStatus };
+  }
+  // Partial/total failure: stay "finalizing" so the failure path can still recover.
+  return { finalized: false, wrote: latch.r2Written || latch.d1Written, errors, status: effStatus };
+}
+
+// Heartbeat: record how far a scan got and when it was last alive. Purely
+// diagnostic — an orphaned (waitUntil-cancelled) scan's last heartbeat pinpoints
+// the stage it died in. Fully non-fatal; never blocks or fails the scan.
+export async function heartbeatScan(env, scanId, stage, completedModules = null) {
+  try {
+    await env.cybermeters_db
+      .prepare(`UPDATE scans SET last_heartbeat_at = ?, current_stage = ?, completed_modules = ? WHERE id = ?`)
+      .bind(new Date().toISOString(), stage, completedModules, scanId)
+      .run();
+  } catch { /* non-fatal — heartbeat is observability only */ }
+}
+
+// Persist collected per-module telemetry rows. Best-effort, per-row guarded so one
+// bad row cannot abort the rest, and the whole call is non-fatal to the scan.
+export async function persistModuleTelemetry(scanId, telemetry, env) {
+  const rows = telemetry?.rows || [];
+  for (const r of rows) {
+    try {
+      await env.cybermeters_db
+        .prepare(
+          `INSERT INTO scan_module_telemetry
+             (id, scan_id, module, started_at, completed_at, duration_ms, outbound_calls, outcome, timeout, error_class)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .bind(
+          createId("smt"), scanId, r.module,
+          r.started_at ?? null, r.completed_at ?? null, r.duration_ms ?? null,
+          r.outbound_calls ?? null, r.outcome ?? null, r.timeout ? 1 : 0, r.error_class ?? null
+        )
+        .run();
+    } catch { /* non-fatal per row */ }
+  }
+}
+
+// The network/enrichment modules we expect a telemetry row for. Backfilled at
+// finalization from the modules object for any not captured by the live wrapper
+// (reserved-mode results, deferred phases) so both scan modes get full coverage.
+const TELEMETRY_TRACKED_MODULES = Object.freeze([
+  "dns", "ssl", "headers", "email_security", "subdomains", "technology_detection",
+  "whois_intelligence", "dns_bruteforce", "subdomain_takeover", "asset_exposure",
+  "cve_intelligence", "known_exploited_vulnerabilities", "email_security_intelligence",
+  "cloud_storage_discovery",
+]);
+
+export async function runScanEngine(scanId, domainId, workspaceId, domain, env, opts = {}) {
   const startedAt = new Date().toISOString();
+  // Injectable clock (tests drive it deterministically); production uses Date.now.
+  const now = typeof opts.now === "function" ? opts.now : Date.now;
+  // Wall-clock budget below the ~30s waitUntil-cancellation cliff. Expensive network
+  // phases refuse to launch once spent, reserving headroom to finalize honestly.
+  const deadline = createScanDeadline(env, now);
+  // Finalize-once latch shared by the success and failure paths.
+  const latch = createFinalizeLatch();
+  // Per-module telemetry collector (persisted at finalization; non-fatal).
+  const telemetry = createModuleTelemetry(now);
 
   try {
     // Mark scan as running in D1
@@ -202,14 +331,14 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env) 
       // asset exposure over the merged (CT + brute-force) subdomain list. ──
       const [dnsSettled, sslSettled, headersSettled, emailSettled, subdomainsSettled, techSettled, whoisSettled, bruteforceSettled] =
         await Promise.allSettled([
-          runDnsModule(domain),
-          runSslModule(domain),
-          runHeadersModule(domain),
-          runEmailModule(domain),
-          runSubdomainsModule(domain),
-          runTechModule(domain),
-          runWhoisModule(domain),
-          runBruteforceModule(domain),
+          telemetry.run("dns",                  () => runDnsModule(domain)),
+          telemetry.run("ssl",                  () => runSslModule(domain)),
+          telemetry.run("headers",              () => runHeadersModule(domain)),
+          telemetry.run("email_security",       () => runEmailModule(domain)),
+          telemetry.run("subdomains",           () => runSubdomainsModule(domain)),
+          telemetry.run("technology_detection", () => runTechModule(domain)),
+          telemetry.run("whois_intelligence",   () => runWhoisModule(domain)),
+          telemetry.run("dns_bruteforce",       () => runBruteforceModule(domain)),
         ]);
 
       dnsResult = dnsSettled.status === "fulfilled" ? dnsSettled.value : { error: customerSafeFailure("scan/dns", dnsSettled.reason, "DNS module failed") };
@@ -238,19 +367,45 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env) 
         .filter((h) => h && !ctHostnames.has(h));
       const mergedSubdomainItems = [...subdomainsResult.items, ...bruteNewItems];
 
-      try {
-        takeoverResult = await runTakeoverModule(domain, mergedSubdomainItems);
-      } catch (err) {
-        takeoverResult = { checked: 0, potential_risks: 0, risks: [], source: "subdomain_cname_fingerprint", error: customerSafeFailure("scan/takeover", err, "Takeover module failed") };
+      // Takeover: canRun() gates the launch; raceModuleDeadline BOUNDS the run so an
+      // overrun cannot cross the ~30s cliff. On the bound it defers honestly.
+      if (deadline.canRun(4_000)) {
+        try {
+          takeoverResult = await raceModuleDeadline(
+            deadline,
+            () => runTakeoverModule(domain, mergedSubdomainItems),
+            () => markDeadlineDeferred({ checked: 0, potential_risks: 0, risks: [], cname_observations: [], source: "subdomain_cname_fingerprint" }),
+          );
+        } catch (err) {
+          takeoverResult = { checked: 0, potential_risks: 0, risks: [], source: "subdomain_cname_fingerprint", error: customerSafeFailure("scan/takeover", err, "Takeover module failed") };
+        }
+      } else {
+        takeoverResult = markDeadlineDeferred({ checked: 0, potential_risks: 0, risks: [], cname_observations: [], source: "subdomain_cname_fingerprint" });
       }
+      telemetry.record("subdomain_takeover", { outcome: telemetry.outcomeOf(takeoverResult), timeout: takeoverResult?.outcome === "deadline_exceeded" });
 
-      try {
-        assetExposureResult = await runExposureModule(domain, mergedSubdomainItems);
-        assetExposureResult = annotateExposureInfrastructure(assetExposureResult, takeoverResult.cname_observations);
-        assetExposureResult = deduplicateExposureAssets(assetExposureResult, domain);
-      } catch (err) {
-        assetExposureResult = { checked: 0, reachable: 0, assets: [], source: "http_probe", error: customerSafeFailure("scan/asset-exposure", err, "Asset exposure module failed") };
+      // Asset exposure (admin-surface signal): customer-critical, so it runs before the
+      // cheaper enrichment phases — but its probes time out at 8-10s each, exceeding the
+      // 6s launch estimate, so the run is hard-bounded to the remaining budget. On the
+      // bound it defers honestly rather than orphaning the scan.
+      if (deadline.canRun(6_000)) {
+        try {
+          assetExposureResult = await raceModuleDeadline(
+            deadline,
+            () => runExposureModule(domain, mergedSubdomainItems),
+            () => markDeadlineDeferred({ checked: 0, reachable: 0, assets: [], source: "http_probe" }),
+          );
+          if (!assetExposureResult.incomplete) {
+            assetExposureResult = annotateExposureInfrastructure(assetExposureResult, takeoverResult.cname_observations);
+            assetExposureResult = deduplicateExposureAssets(assetExposureResult, domain);
+          }
+        } catch (err) {
+          assetExposureResult = { checked: 0, reachable: 0, assets: [], source: "http_probe", error: customerSafeFailure("scan/asset-exposure", err, "Asset exposure module failed") };
+        }
+      } else {
+        assetExposureResult = markDeadlineDeferred({ checked: 0, reachable: 0, assets: [], source: "http_probe" });
       }
+      telemetry.record("asset_exposure", { outcome: telemetry.outcomeOf(assetExposureResult), timeout: assetExposureResult?.outcome === "deadline_exceeded" });
     }
 
     const modules = {
@@ -270,6 +425,10 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env) 
       // so brand findings are included in the scored findings array.
       brand_monitoring:          runTyposquatModule(domain),
     };
+    // Heartbeat: discovery + exposure done. An orphan cancelled after this point
+    // died in scoring/enrichment/finalization, not discovery.
+    await heartbeatScan(env, scanId, "discovery_complete", telemetry.rows.filter((r) => r.outcome === "ok").length);
+
     const emailApplicability = isEmailApplicable(domain, modules.dns);
     if (!modules.email_security.error) {
       modules.email_security.applicability = emailApplicability;
@@ -463,31 +622,60 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env) 
     // In reserved mode these are budget-permitting enrichment: skipped honestly (no fetch
     // attempted) when the exposure-first budget is already spent.
     const phase5Cost = MODULE_SUBREQUEST_COST.cve + MODULE_SUBREQUEST_COST.kev + 4;
-    if (reservedMode && reservedBudget && reservedBudget.wouldExceed(phase5Cost)) {
+    // Deadline first: if the enrichment trio can't finish in budget, defer it honestly
+    // (partial scan) rather than risk the whole invocation being cancelled mid-write.
+    const phase5DeadlineBlocked = !deadline.canRun(8_000);
+    await heartbeatScan(env, scanId, "phase5_intelligence", telemetry.rows.filter((r) => r.outcome === "ok").length);
+    if (phase5DeadlineBlocked) {
+      modules.cve_intelligence = markDeadlineDeferred({ technologies_checked: [], results: {}, total_cves: 0, critical_count: 0, high_count: 0, source: "nvd_api" });
+      modules.known_exploited_vulnerabilities = markDeadlineDeferred({ matches: [], checked: 0, matched: 0, source: "cisa_kev" });
+      modules.email_security_intelligence = markDeadlineDeferred({ source: "email_intelligence" });
+      telemetry.record("cve_intelligence", { outcome: "deadline_exceeded" });
+      telemetry.record("known_exploited_vulnerabilities", { outcome: "deadline_exceeded" });
+      telemetry.record("email_security_intelligence", { outcome: "deadline_exceeded" });
+    } else if (reservedMode && reservedBudget && reservedBudget.wouldExceed(phase5Cost)) {
       modules.cve_intelligence = skippedModuleResult("cve", { technologies_checked: [], results: {}, total_cves: 0, critical_count: 0, high_count: 0 });
       modules.known_exploited_vulnerabilities = skippedModuleResult("kev", { matches: [], checked: 0, matched: 0 });
       modules.email_security_intelligence = skippedModuleResult("email_intelligence");
     } else {
     if (reservedMode && reservedBudget) reservedBudget.spend("phase5", phase5Cost);
-    const [cveSettled, kevSettled, emailIntelSettled] = await Promise.allSettled([
-      runCveModule(modules.technology_detection),
-      runKevModule(modules.technology_detection),
-      runEmailIntelModule(domain, modules.email_security, modules.dns),
-    ]);
+    // Bound the enrichment trio to the remaining budget — even launched, it cannot
+    // overrun toward the ~30s cliff. On the bound, all three defer honestly. (No
+    // telemetry.run wrapper here: an abandoned late promise must not push a second
+    // row; a single coarse row per module is recorded from the resolved outcome.)
+    const PHASE5_DEADLINE = "__phase5_deadline__";
+    const settled = await raceModuleDeadline(
+      deadline,
+      () => Promise.allSettled([
+        runCveModule(modules.technology_detection),
+        runKevModule(modules.technology_detection, env),
+        runEmailIntelModule(domain, modules.email_security, modules.dns),
+      ]),
+      () => PHASE5_DEADLINE,
+    );
+    if (settled === PHASE5_DEADLINE) {
+      modules.cve_intelligence = markDeadlineDeferred({ technologies_checked: [], results: {}, total_cves: 0, critical_count: 0, high_count: 0, source: "nvd_api" });
+      modules.known_exploited_vulnerabilities = markDeadlineDeferred({ matches: [], checked: 0, matched: 0, source: "cisa_kev" });
+      modules.email_security_intelligence = markDeadlineDeferred({ source: "email_intelligence" });
+    } else {
+      const [cveSettled, kevSettled, emailIntelSettled] = settled;
+      modules.cve_intelligence = cveSettled.status === "fulfilled"
+        ? cveSettled.value
+        : { technologies_checked: [], results: {}, total_cves: 0, critical_count: 0, high_count: 0,
+            source: "nvd_api", error: customerSafeFailure("scan/cve", cveSettled.reason, "CVE module failed") };
 
-    modules.cve_intelligence = cveSettled.status === "fulfilled"
-      ? cveSettled.value
-      : { technologies_checked: [], results: {}, total_cves: 0, critical_count: 0, high_count: 0,
-          source: "nvd_api", error: customerSafeFailure("scan/cve", cveSettled.reason, "CVE module failed") };
+      modules.known_exploited_vulnerabilities = kevSettled.status === "fulfilled"
+        ? kevSettled.value
+        : { matches: [], checked: 0, matched: 0,
+            source: "cisa_kev", error: customerSafeFailure("scan/kev", kevSettled.reason, "KEV module failed") };
 
-    modules.known_exploited_vulnerabilities = kevSettled.status === "fulfilled"
-      ? kevSettled.value
-      : { matches: [], checked: 0, matched: 0,
-          source: "cisa_kev", error: customerSafeFailure("scan/kev", kevSettled.reason, "KEV module failed") };
-
-    modules.email_security_intelligence = emailIntelSettled.status === "fulfilled"
-      ? emailIntelSettled.value
-      : { error: customerSafeFailure("scan/email-intelligence", emailIntelSettled.reason, "Email intelligence module failed") };
+      modules.email_security_intelligence = emailIntelSettled.status === "fulfilled"
+        ? emailIntelSettled.value
+        : { error: customerSafeFailure("scan/email-intelligence", emailIntelSettled.reason, "Email intelligence module failed") };
+    }
+    telemetry.record("cve_intelligence", { outcome: telemetry.outcomeOf(modules.cve_intelligence), timeout: modules.cve_intelligence?.outcome === "deadline_exceeded" });
+    telemetry.record("known_exploited_vulnerabilities", { outcome: telemetry.outcomeOf(modules.known_exploited_vulnerabilities), timeout: modules.known_exploited_vulnerabilities?.outcome === "deadline_exceeded" });
+    telemetry.record("email_security_intelligence", { outcome: telemetry.outcomeOf(modules.email_security_intelligence), timeout: modules.email_security_intelligence?.outcome === "deadline_exceeded" });
     }
     if (!modules.email_security_intelligence.error && !modules.email_security_intelligence.skipped && emailApplicability.applicable) {
       const transportDetails = buildEmailTransportDetails(modules.email_security_intelligence);
@@ -513,11 +701,18 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env) 
     // candidates from observed ASM/CNAME/header signals. No guessing or listing
     // enumeration; response bodies are only inspected for listing indicators.
     // Reserved mode: cloud-storage validation is budget-permitting enrichment.
-    if (reservedMode && reservedBudget && reservedBudget.wouldExceed(MODULE_SUBREQUEST_COST.cloud_storage)) {
+    if (!deadline.canRun(4_000)) {
+      modules.cloud_storage_discovery = markDeadlineDeferred({ total: 0, checked: 0, findings: [] });
+    } else if (reservedMode && reservedBudget && reservedBudget.wouldExceed(MODULE_SUBREQUEST_COST.cloud_storage)) {
       modules.cloud_storage_discovery = skippedModuleResult("cloud_storage", { total: 0, checked: 0, findings: [] });
     } else {
       if (reservedMode && reservedBudget) reservedBudget.spend("cloud_storage", MODULE_SUBREQUEST_COST.cloud_storage);
-      modules.cloud_storage_discovery = await runCloudStorageModule(domain, modules);
+      // Bound the run so a slow validation cannot cross the cliff; defer honestly on the bound.
+      modules.cloud_storage_discovery = await raceModuleDeadline(
+        deadline,
+        () => runCloudStorageModule(domain, modules),
+        () => markDeadlineDeferred({ total: 0, checked: 0, findings: [] }),
+      );
     }
     for (const f of modules.cloud_storage_discovery.findings || []) {
       findings.push(f);
@@ -754,18 +949,36 @@ function buildCanonicalUrlProfile(modules) {
       modules,
     };
 
-    // Write completed report to R2
-    await env.cybermeters_reports.put(
-      `reports/${scanId}.json`,
-      JSON.stringify(report, null, 2),
-      { httpMetadata: { contentType: "application/json" } }
-    );
+    // Backfill telemetry rows for tracked modules not captured by the live wrapper
+    // (reserved-mode results, cloud-storage, deferred phases) so both scan modes get
+    // full per-module coverage; derive a coarse outcome from the final module value.
+    for (const name of TELEMETRY_TRACKED_MODULES) {
+      if (!telemetry.has(name)) telemetry.record(name, { outcome: telemetry.outcomeOf(modules[name]) });
+    }
 
-    // Update D1 scans row
-    await env.cybermeters_db
-      .prepare(`UPDATE scans SET status = 'completed', score = ?, rating = ? WHERE id = ?`)
-      .bind(score, risk_level, scanId)
-      .run();
+    // Heartbeat: entering finalization. A cancellation after this is a finalize-time
+    // failure (the reconciler is the backstop), not a mid-scan orphan.
+    await heartbeatScan(env, scanId, "finalizing", telemetry.rows.filter((r) => r.outcome === "ok").length);
+
+    // Finalize: write the completed report to R2 and flip the D1 status. report.status
+    // stays "completed"; scan_quality.status carries "partial" when the deadline
+    // deferred any module (honest partial finalization). finalizeScanResult never
+    // throws and only reaches "finalized" when BOTH writes are durable.
+    const finalized = await finalizeScanResult(latch, {
+      scanId, report, score, rating: risk_level, status: "completed", env,
+    });
+    if (!finalized.finalized) {
+      // A terminal write did not durably land. Do NOT silently continue with a
+      // half-written state — throw into the failure path, which (downgrade-safe)
+      // preserves a durable completed R2 report and retries the D1 status, or writes
+      // a consistent 'failed' terminal if the report never persisted. Either way the
+      // scan never remains 'running'.
+      throw new Error(`scan finalization incomplete: ${JSON.stringify(finalized.errors || {})}`);
+    }
+
+    // Persist per-module telemetry (non-fatal; after the terminal status is written
+    // so a telemetry failure can never leave the scan 'running').
+    await persistModuleTelemetry(scanId, telemetry, env);
 
     if (workspaceId) {
       // Compute BRS using scan findings + workspace intelligence data
@@ -993,36 +1206,48 @@ function buildCanonicalUrlProfile(modules) {
     } catch { /* non-fatal */ }
 
   } catch (err) {
-    // Best-effort: write failure state to R2 and D1.
-    // Each write is individually guarded so one failure cannot prevent the other.
-    // The D1 status write is the most critical — it stops the UI polling loop.
+    // If a terminal state was already DURABLY finalized (completed or partial), a
+    // later error — e.g. a post-completion persistence phase throwing — must NEVER
+    // downgrade it. Refuse to touch it.
+    if (latch.state === "finalized") return;
+
+    // Otherwise the scan is NOT durably finalized (finalization never started, or a
+    // first attempt failed partway). Route through the same downgrade-safe finalize:
+    //   • if a completed report is already durable in R2, it keeps that report and
+    //     only (re)writes the D1 completed status (recovers the earlier D1 failure);
+    //   • if no completed report is durable, it writes a consistent 'failed' terminal.
+    // finalizeScanResult never throws and never leaves the scan silently 'running'
+    // when D1 is reachable; if D1 itself is down, the durable R2 report (if any) lets
+    // the reconciler converge D1 later. This can no longer be suppressed by the latch.
     const failedAt = new Date().toISOString();
+    const failedReport = {
+      scan_id:             scanId,
+      domain,
+      status:              "failed",
+      cyber_metrics_score: 0,
+      risk_level:          "unknown",
+      findings:            [],
+      recommendations:     [],
+      error:               err?.message ?? "Unknown scan engine error",
+      started_at:          startedAt,
+      failed_at:           failedAt,
+    };
+    await finalizeScanResult(latch, {
+      scanId, report: failedReport, score: 0, rating: "unknown", status: "failed", env,
+    });
 
-    try {
-      await env.cybermeters_reports.put(
-        `reports/${scanId}.json`,
-        JSON.stringify({
-          scan_id:             scanId,
-          domain,
-          status:              "failed",
-          cyber_metrics_score: 0,
-          risk_level:          "unknown",
-          findings:            [],
-          recommendations:     [],
-          error:               err?.message ?? "Unknown scan engine error",
-          started_at:          startedAt,
-          failed_at:           failedAt,
-        }, null, 2),
-        { httpMetadata: { contentType: "application/json" } }
-      );
-    } catch { /* R2 write failure — non-fatal */ }
-
-    try {
-      await env.cybermeters_db
-        .prepare(`UPDATE scans SET status = 'failed' WHERE id = ?`)
-        .bind(scanId)
-        .run();
-    } catch { /* D1 write failure — scan will remain 'running' but we cannot do more */ }
+    // Clean outcome: durably finalized as completed (original or recovered) → no
+    // failure audit needed. Otherwise emit an auditable event for the terminal state:
+    //   • "failed"    — the scan genuinely failed (results could not be persisted);
+    //   • "completed" but not durably finalized — a DEGRADED finalize: the completed
+    //     R2 report is durable, D1 convergence is pending (the reconciler backstops).
+    // Both are recorded so the outcome is never silent.
+    if (latch.state === "finalized" && latch.status === "completed") return;
+    const degraded = latch.status !== "failed";
+    const auditType = degraded ? "scan_finalize_degraded" : "scan_failed";
+    const auditDesc = degraded
+      ? `Scan for ${domain} degraded during finalization — results persisted, status convergence pending`
+      : `Scan failed for ${domain}`;
 
     try {
       let wsRows = [];
@@ -1035,23 +1260,15 @@ function buildCanonicalUrlProfile(modules) {
           .all();
         wsRows = linked.results || [];
       }
-      for (const { workspace_id } of wsRows) {
+      const auditRows = wsRows.length > 0 ? wsRows : [{ workspace_id: null }];
+      for (const { workspace_id } of auditRows) {
         await createAuditEvent(env, {
           workspace_id: workspace_id ?? null,
-          event_type:  "scan_failed",
+          event_type:  auditType,
           entity_type: "scan",
           entity_id:   scanId,
-          description: `Scan failed for ${domain}`,
-          metadata:    { scan_id: scanId, domain, domain_id: domainId, error: err?.message ?? "Unknown scan engine error" },
-        });
-      }
-      if (wsRows.length === 0) {
-        await createAuditEvent(env, {
-          event_type:  "scan_failed",
-          entity_type: "scan",
-          entity_id:   scanId,
-          description: `Scan failed for ${domain}`,
-          metadata:    { scan_id: scanId, domain, domain_id: domainId, error: err?.message ?? "Unknown scan engine error" },
+          description: auditDesc,
+          metadata:    { scan_id: scanId, domain, domain_id: domainId, degraded, error: err?.message ?? "Unknown scan engine error" },
         });
       }
     } catch { /* non-fatal */ }

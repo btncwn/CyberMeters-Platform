@@ -96,6 +96,132 @@ export class SubrequestBudget {
   }
 }
 
+// ── Global scan wall-clock deadline (Tier 1: waitUntil-cancellation guard) ────
+// The scan engine runs inside ctx.waitUntil(); Cloudflare cancels that background
+// promise ~30s after the response is sent, silently (no exception → no catch → no
+// failed report → orphaned "running" row). The deadline gives the engine an
+// explicit wall-clock budget BELOW that cliff: expensive network phases refuse to
+// launch once the budget is spent, leaving headroom to finalize honestly. Proven
+// root cause: an invocation with wallTime 31170ms / cpuTime 40ms / outcome "ok"
+// logged "waitUntil() tasks did not complete ... have been cancelled".
+export const SCAN_DEADLINE_DEFAULTS = Object.freeze({
+  budgetMs:    21_000, // network phases stop here — ~9s reserved under the ~30s cliff
+  minBudgetMs:  5_000,
+  // Hard ceiling on the config override: even at max, ≥6s stays reserved for
+  // finalization (the terminal R2+D1 write runs first in finalization and is fast,
+  // so this comfortably protects the anti-orphan guarantee).
+  maxBudgetMs: 24_000,
+});
+
+// A monotonic wall-clock deadline. `now` is injectable so tests can drive the clock
+// deterministically (production passes Date.now). exceeded() gates launched phases;
+// canRun(estimateMs) refuses a phase that could not plausibly finish in budget.
+export function createScanDeadline(env = {}, now = Date.now) {
+  const budgetMs = clampInt(env.SCAN_DEADLINE_MS, SCAN_DEADLINE_DEFAULTS.budgetMs,
+    SCAN_DEADLINE_DEFAULTS.minBudgetMs, SCAN_DEADLINE_DEFAULTS.maxBudgetMs);
+  const startedAtMs = now();
+  return {
+    budgetMs,
+    startedAtMs,
+    elapsedMs()   { return now() - startedAtMs; },
+    remainingMs() { return Math.max(0, budgetMs - (now() - startedAtMs)); },
+    exceeded()    { return now() - startedAtMs >= budgetMs; },
+    // A phase launches only if elapsed + its estimate still fits the budget.
+    canRun(estimateMs = 0) { return (now() - startedAtMs) + estimateMs < budgetMs; },
+  };
+}
+
+// Bound a LAUNCHED network phase to the remaining wall-clock budget. canRun() only
+// decides whether a phase may START; this bounds how long it may RUN, so a phase that
+// overruns its estimate (e.g. asset exposure launched with a 6s estimate but whose
+// probes time out at 8-10s each) cannot drag the invocation across the ~30s waitUntil
+// cliff. If the phase does not settle within the cap, resolve to onDeadline() — an
+// honest deferred result — and ABANDON the underlying promise: its late value is
+// discarded and modules perform no persistence, so it cannot mutate finalized state.
+// `setTimer`/`clearTimer` are injectable so tests drive the timeout deterministically.
+export async function raceModuleDeadline(deadline, thunk, onDeadline, { hardMs = null, setTimer = setTimeout, clearTimer = clearTimeout } = {}) {
+  const remaining = deadline.remainingMs();
+  const capMs = hardMs != null ? Math.min(hardMs, remaining) : remaining;
+  if (capMs <= 0) return onDeadline();
+
+  const DEADLINE = Symbol("deadline");
+  let timer = null;
+  const timeout = new Promise((resolve) => { timer = setTimer(() => resolve(DEADLINE), capMs); });
+  // Wrap so the work branch never rejects the race (avoids an unhandled rejection);
+  // the real rejection is re-thrown to the caller below.
+  const work = Promise.resolve().then(thunk).then((v) => ({ v }), (e) => ({ e }));
+  const winner = await Promise.race([work, timeout]);
+  if (timer != null) clearTimer(timer);
+  if (winner === DEADLINE) return onDeadline();
+  if ("e" in winner) throw winner.e;
+  return winner.v;
+}
+
+// Stamp a module's valid-but-empty result as honestly deferred by the deadline —
+// never a fake clean/zero-findings result. `incomplete: true` makes buildScanQuality
+// classify the scan "partial"; executed:false + reason keep the record diagnosable.
+// The caller supplies the module's normal empty shape so downstream scoring/
+// remediation see the same fields they would on a genuine empty run.
+export function markDeadlineDeferred(base = {}) {
+  return {
+    ...base,
+    executed:   false,
+    incomplete: true,
+    outcome:    "deadline_exceeded",
+    reason:     "scan_deadline_exhausted",
+  };
+}
+
+// ── Per-module telemetry collector (Tier 1: diagnosability) ───────────────────
+// Times each instrumented module and classifies its outcome so a future orphaned
+// scan is diagnosable from D1 alone (which module, how long, what happened). Purely
+// observational — recording never alters a module's value or throws into the scan
+// flow. `now` is injectable for deterministic tests.
+export function createModuleTelemetry(now = Date.now) {
+  const rows = [];
+  const iso = (ms) => new Date(ms).toISOString();
+
+  // Classify a module's returned result into an outcome label.
+  const outcomeOf = (v) => {
+    if (!v) return "missing";
+    if (v.error) return "error";
+    if (v.incomplete) return v.outcome || "incomplete";
+    if (v.skipped) return "skipped";
+    return "ok";
+  };
+
+  return {
+    rows,
+    outcomeOf,
+    // Wrap a module thunk: time it, classify, record a row — then return the value
+    // (or re-throw the rejection) unchanged, so Promise.allSettled semantics hold.
+    async run(module, thunk) {
+      const startedMs = now();
+      let outcome = "ok", timeout = false, errorClass = null;
+      try {
+        const v = await thunk();
+        outcome = outcomeOf(v);
+        return v;
+      } catch (e) {
+        outcome = "error";
+        errorClass = e?.name || "Error";
+        if (/timed out|timeout|abort/i.test(String(e?.message || ""))) timeout = true;
+        throw e;
+      } finally {
+        const doneMs = now();
+        rows.push({ module, started_at: iso(startedMs), completed_at: iso(doneMs), duration_ms: doneMs - startedMs, outbound_calls: null, outcome, timeout, error_class: errorClass });
+      }
+    },
+    // Record a module that ran outside the wrapper (deferred, reserved-mode, or a
+    // pure-computation phase) — coarse outcome, no duration.
+    record(module, { outcome = "ok", timeout = false, error_class = null, duration_ms = null, outbound_calls = null } = {}) {
+      rows.push({ module, started_at: null, completed_at: null, duration_ms, outbound_calls, outcome, timeout, error_class });
+    },
+    // True if a module already has a telemetry row (avoids double-recording).
+    has(module) { return rows.some((r) => r.module === module); },
+  };
+}
+
 // Per-scan DNS answer cache — resolve each (name,type) exactly once across core DNS,
 // the critical-prefix pass, brute-force and takeover.
 export function makeDnsCache() { return new Map(); }
