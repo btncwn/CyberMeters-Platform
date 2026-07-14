@@ -6,7 +6,6 @@ import { computeOpsHealth, formatOpsHealthEmail } from "./lib/ops-health.js";
 import { CE_QUESTIONS, CE_QUESTION_SET_VERSION, mergeReadiness } from "./lib/cyber-essentials.js";
 import { createId, isValidDomain, isValidEmail, normalizeApiResponseData, pageMeta, paginationParams, parseBoundedInteger } from "./lib/util.js";
 import { createAuditEvent, createNotificationEvent, createNotificationsForDomain, sanitizeAuditMetadata } from "./lib/events.js";
-import { isWorkspaceDomainVerified } from "./lib/domain-verification.js";
 import { RUA_INBOUND_DOMAIN_DEFAULT, ingestDmarcReport, ingestEndpointIsActive, normalizeInboundRecipientDomain, parseEmailAuthHeaders, sha256Hex, updateEmailSenderSources } from "./lib/dmarc-ingest.js";
 import { buildCorsHeaders, buildJsonHeaders, deliverEmail, escapeEmailHtml, getEmailFrontendOrigin, json, retryFailedLifecycleEmails, sendCustomerEmail, sendLifecycleEmail } from "./lib/lifecycle-email.js";
 import { RDAP_UA, safeFetch } from "./lib/http.js";
@@ -64,7 +63,7 @@ import { buildDmarcBusinessRisk, buildDmarcReportRemediationActions, buildDmarcS
 import { retryFailedAssetAlerts, sendAssetChangeAlert } from "./engines/asset-alert-delivery.js";
 import { sendWeeklyDigests } from "./engines/weekly-digest.js";
 import { runBrandTakedownFollowupSweep } from "./engines/brand-cases.js";
-import { calculateNextRun, checkReportLimit, checkScanLimit, checkScheduledScanLimit, computeScheduledReportNextRunAt, countEnabledScheduledScans, countReportsThisMonth, countScansThisMonth, generateWorkspaceExecutiveReport, getAccountUsage, getEntitlementUsage, getMonthResetAt, getMonthStart, getOwnedWorkspaceIds, getPlanContext, getPlanLimits, getPlanRetentionDays, getReportExpiresAt, getReportRetentionPolicyForWorkspace, getRetentionCutoff, getRetentionCutoffForDays, getUpgradeRecommendation, getWorkspaceBillingUserId, getWorkspaceOwnerId, getWorkspaceReportStorageMetrics, getWorkspaceRetentionSettings, normalizeReportScheduleFrequency, normalizeReportScheduleRecipients, planLimitExceeded, retentionDaysToPolicy, retentionPolicyToDays } from "./engines/plan-usage.js";
+import { calculateNextRun, checkReportLimit, checkScanLimit, checkScheduledScanLimit, computeScheduledReportNextRunAt, countEnabledScheduledScans, countReportsThisMonth, countScansThisMonth, evaluateScheduledScanEligibility, generateWorkspaceExecutiveReport, getAccountUsage, getEntitlementUsage, getMonthResetAt, getMonthStart, getOwnedWorkspaceIds, getPlanContext, getPlanLimits, getPlanRetentionDays, getReportExpiresAt, getReportRetentionPolicyForWorkspace, getRetentionCutoff, getRetentionCutoffForDays, getUpgradeRecommendation, getWorkspaceBillingUserId, getWorkspaceOwnerId, getWorkspaceReportStorageMetrics, getWorkspaceRetentionSettings, normalizeReportScheduleFrequency, normalizeReportScheduleRecipients, planLimitExceeded, retentionDaysToPolicy, retentionPolicyToDays } from "./engines/plan-usage.js";
 import { TRIAL_PLAN, TRIAL_DURATION_DAYS, auditApiTokenSessionRouteDenied, createWorkspaceTrialSubscription, getPublicBillingPlans, getTrialRemainingDays, getWorkspaceSubscription, isSubscriptionActive, isTrialActive, parseCheckoutPlan } from "./engines/subscription-state.js";
 import { workspaceAnalyticsRoutes } from "./routes/workspace-analytics.js";
 import { workspaceIntelRoutes } from "./routes/workspace-intel.js";
@@ -372,62 +371,6 @@ function evaluateRegressionFixtures(fixtures = SCANNER_REGRESSION_FIXTURES) {
  * invocation no longer loses the alert.
  * The whole function is non-fatal — any error is swallowed.
  */
-/**
- * sendScoreDropAlert — fires when the Cyber Metrics Score drops ≥ 10 points
- * compared to the previous scan for the same domain.
- * Sender: ALERT_EMAIL_FROM (alerts@cybermeters.com)
- */
-async function sendScoreDropAlert(domain, scanId, scoreDrop, prevScore, currScore, env) {
-  const reportUrl = `https://cybermeters.pages.dev/scans/${scanId}`;
-  const subject   = `⚠ CyberMeters: ${domain} score dropped ${Math.abs(scoreDrop)} points`;
-
-  const text =
-    `Security score drop detected for ${domain}\n\n` +
-    `Previous score : ${prevScore}\n` +
-    `Current score  : ${currScore}\n` +
-    `Change         : ${scoreDrop} points\n\n` +
-    `A score drop of this magnitude typically indicates new critical or high-severity\n` +
-    `findings on your attack surface. Review the full report immediately.\n\n` +
-    `View report: ${reportUrl}`;
-
-  const html = `<!DOCTYPE html>
-<html lang="en">
-<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#111;max-width:600px;margin:0 auto;padding:24px;">
-  <div style="border-left:4px solid #EF4444;padding-left:16px;margin-bottom:20px;">
-    <h2 style="margin:0 0 4px;color:#EF4444;font-size:18px;">Score Drop Detected</h2>
-    <p style="margin:0;color:#555;font-size:14px;">Scheduled scan for <strong>${domain}</strong></p>
-  </div>
-  <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:20px;">
-    <tr>
-      <td style="padding:8px 12px;background:#F9FAFB;border-radius:6px 6px 0 0;color:#555;width:50%;">Previous score</td>
-      <td style="padding:8px 12px;background:#F9FAFB;border-radius:6px 6px 0 0;font-weight:700;">${prevScore}</td>
-    </tr>
-    <tr>
-      <td style="padding:8px 12px;background:#FEF2F2;color:#555;">Current score</td>
-      <td style="padding:8px 12px;background:#FEF2F2;font-weight:700;color:#EF4444;">${currScore}</td>
-    </tr>
-    <tr>
-      <td style="padding:8px 12px;background:#F9FAFB;border-radius:0 0 6px 6px;color:#555;">Change</td>
-      <td style="padding:8px 12px;background:#F9FAFB;border-radius:0 0 6px 6px;font-weight:700;color:#EF4444;">${scoreDrop} points</td>
-    </tr>
-  </table>
-  <p style="font-size:14px;color:#555;line-height:1.6;">
-    A drop of this magnitude typically indicates new critical or high-severity findings
-    on your attack surface. Review the full report immediately.
-  </p>
-  <p style="margin-top:24px;">
-    <a href="${reportUrl}" style="background:#EF4444;color:white;padding:10px 20px;border-radius:8px;text-decoration:none;font-size:14px;font-weight:600;display:inline-block;">
-      View Full Report
-    </a>
-  </p>
-  <hr style="border:none;border-top:1px solid #eee;margin:28px 0;" />
-  <p style="font-size:12px;color:#999;margin:0;">CyberMeters — Attack Surface Management</p>
-</body>
-</html>`;
-
-  await sendAlertEmail(subject, text, html, env, "ALERT_EMAIL_FROM");
-}
-
 /**
  * sendTakeoverAlert — fires when new subdomain takeover risks are detected
  * that were not present in the previous scan.
@@ -764,14 +707,36 @@ async function triggerScheduledScan(schedule, env) {
         .run();
     }
 
-    // ── Domain-ownership verification gate (workspace-scoped) ─────────────────
-    // A scheduled scan runs only on a VERIFIED (workspace_id, domain_id) link. This
-    // PR does not auto-pause or mutate the schedule config — it simply skips
-    // execution and logs the reason (no scan row, no R2 placeholder, no engine).
-    if (!schedule.workspace_id || !(await isWorkspaceDomainVerified(env, schedule.workspace_id, domainId))) {
-      console.log("[scheduled-scan] skipped — domain not verified for workspace", JSON.stringify({
+    // ── Scheduled-scan eligibility gate (canonical, run-time) ─────────────────
+    // A scheduled scan must satisfy the SAME current security/entitlement/quota
+    // rules as a manual scan AT EXECUTION TIME — verified link, workspace still
+    // accessible, scheduled-scans feature entitled, monthly quota available, and
+    // the scan-start rate limit (fail-closed). Reuses the canonical helpers; no
+    // plan rules are copied here. On any failure it skips with a stable reason —
+    // NO scan row, NO R2 placeholder, NO report/case/telemetry side effect — and
+    // never mutates the schedule config (a downgraded account is not charged or
+    // counted for a scan that never started).
+    const eligibility = await evaluateScheduledScanEligibility(env, {
+      workspaceId: schedule.workspace_id,
+      domainId,
+      ownerUserId: userId,
+      consumeRateLimit: ({ billingOwnerId, plan }) => consumeApiRateLimit(
+        env,
+        [
+          { scope: "user", scope_id: billingOwnerId },
+          { scope: "workspace", scope_id: schedule.workspace_id },
+          { scope: "account", scope_id: billingOwnerId },
+        ],
+        "scan_start",
+        getPlanLimits(plan).scan_starts_per_hour,
+        3600,
+        { failClosed: true }
+      ),
+    });
+    if (!eligibility.ok) {
+      console.log("[scheduled-scan] skipped", JSON.stringify({
         schedule_id: schedule.id ?? null, workspace_id: schedule.workspace_id ?? null,
-        domain_id: domainId, domain: schedule.domain, reason: "domain_verification_required",
+        domain_id: domainId, domain: schedule.domain, reason: eligibility.reason,
       }));
       return;
     }
@@ -831,28 +796,40 @@ async function triggerScheduledScan(schedule, env) {
       await runScanEngine(scanId, domainId, schedule.workspace_id ?? null, schedule.domain, env);
     } catch (scanErr) {
       console.error("[scheduled-scan] FAILED", schedule.id, scanErr?.message);
-      // Mark scan as failed in D1
+      // Downgrade-safe: runScanEngine's own catch already routes through the
+      // canonical finalizeScanResult latch (idempotent, never downgrades a durable
+      // 'completed'). This scheduled-path catch is only a redundant safety net, so
+      // it must NEVER clobber a completed scan. Guard the D1 write with
+      // `status != 'completed'` and skip the R2 overwrite if the report already
+      // finalized as completed. scan_quality is never fabricated here.
       await env.cybermeters_db
-        .prepare("UPDATE scans SET status = 'failed' WHERE id = ?")
+        .prepare("UPDATE scans SET status = 'failed' WHERE id = ? AND status != 'completed'")
         .bind(scanId)
         .run()
         .catch(() => {});
-      // Update R2 placeholder to reflect failure
-      await env.cybermeters_reports.put(
-        `reports/${scanId}.json`,
-        JSON.stringify({
-          scan_id:             scanId,
-          domain_id:           domainId,
-          domain:              schedule.domain,
-          status:              "failed",
-          cyber_metrics_score: 0,
-          risk_level:          "unknown",
-          findings:            [],
-          recommendations:     [],
-          message:             "Scheduled scan failed. Please check your domain configuration or contact support.",
-        }, null, 2),
-        { httpMetadata: { contentType: "application/json" } }
-      ).catch(() => {});
+      // Only overwrite the R2 placeholder if it did not already finalize completed.
+      let alreadyCompleted = false;
+      try {
+        const existingReport = await env.cybermeters_reports.get(`reports/${scanId}.json`);
+        if (existingReport) alreadyCompleted = (await existingReport.json())?.status === "completed";
+      } catch { /* treat as not-completed → safe to write failure placeholder */ }
+      if (!alreadyCompleted) {
+        await env.cybermeters_reports.put(
+          `reports/${scanId}.json`,
+          JSON.stringify({
+            scan_id:             scanId,
+            domain_id:           domainId,
+            domain:              schedule.domain,
+            status:              "failed",
+            cyber_metrics_score: 0,
+            risk_level:          "unknown",
+            findings:            [],
+            recommendations:     [],
+            message:             "Scheduled scan failed. Please check your domain configuration or contact support.",
+          }, null, 2),
+          { httpMetadata: { contentType: "application/json" } }
+        ).catch(() => {});
+      }
       // Create in-app notification for workspace owner
       if (schedule.workspace_id) {
         await createNotificationEvent(env, schedule.workspace_id, {

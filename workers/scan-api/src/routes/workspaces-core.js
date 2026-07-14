@@ -450,8 +450,13 @@ export async function workspacesCoreRoutes(rctx) {
           .prepare("SELECT id, name, owner_user_id, deleted_at FROM workspaces WHERE id = ? LIMIT 1")
           .bind(workspaceId)
           .first();
-        if (!ws) return json({ error: "Workspace not found" }, 404);
-        if (ws.owner_user_id !== user.id) return json({ error: "Forbidden — owner role required to restore a workspace" }, 403);
+        // Authorize BEFORE revealing existence: a nonexistent workspace and a
+        // foreign workspace owned by another tenant both return an identical 403,
+        // so a caller cannot probe which soft-deleted workspace ids exist. (Restore
+        // is owner-only; the canonical role helper can't resolve soft-deleted rows,
+        // so the owner check is genuinely route-local — see below.) The remaining
+        // checks run only after ownership is proven, so they are not an oracle.
+        if (!ws || ws.owner_user_id !== user.id) return json({ error: "Forbidden" }, 403);
         if (!ws.deleted_at) return json({ error: "Workspace is not deleted" }, 400);
 
         const delReq = await env.cybermeters_db

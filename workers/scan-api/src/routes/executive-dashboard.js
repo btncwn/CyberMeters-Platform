@@ -4,6 +4,7 @@
 // Receives the per-request routeCtx from index.js; returns a Response when a
 // route matches, or null so the main router continues.
 import { getCurrentPosturePresentation } from "../engines/current-posture.js";
+import { LATEST_COMPLETED_SCAN_SCOPE } from "../engines/report-queries.js";
 import { getEffectivePlan, hasFeatureEntitlement } from "../engines/entitlements.js";
 import { getWorkspaceBillingUserId } from "../engines/plan-usage.js";
 import { parseBoundedInteger } from "../lib/util.js";
@@ -83,8 +84,10 @@ export async function executiveDashboardRoutes(rctx) {
             .prepare(`SELECT COUNT(*) AS n FROM workspace_assets WHERE workspace_id = ? AND status = 'active'`)
             .bind(wsId),
 
-          // 4. Critical findings across the workspace in the last 30 days.
-          // This is a 30-day workspace metric, not latest-scan-only.
+          // 4. Critical CURRENT findings — canonical latest-complete-scan-per-domain
+          // scope (deterministic, complete-only) so the same finding across several
+          // scans is counted once and never inflated. Binds wsId twice (outer filter
+          // + scope's inner sx.workspace_id).
           env.cybermeters_db
             .prepare(
               `SELECT COUNT(f.id) AS n
@@ -92,13 +95,11 @@ export async function executiveDashboardRoutes(rctx) {
                JOIN scans s ON f.scan_id = s.id
                JOIN workspace_domains wd ON s.domain_id = wd.domain_id
                WHERE wd.workspace_id = ? AND f.severity = 'critical'
-                 AND s.status = 'completed'
-                 AND s.created_at >= datetime('now', '-30 days')`
+                 AND ${LATEST_COMPLETED_SCAN_SCOPE}`
             )
-            .bind(wsId),
+            .bind(wsId, wsId),
 
-          // 5. High findings across the workspace in the last 30 days.
-          // This is a 30-day workspace metric, not latest-scan-only.
+          // 5. High CURRENT findings — same canonical scope.
           env.cybermeters_db
             .prepare(
               `SELECT COUNT(f.id) AS n
@@ -106,10 +107,9 @@ export async function executiveDashboardRoutes(rctx) {
                JOIN scans s ON f.scan_id = s.id
                JOIN workspace_domains wd ON s.domain_id = wd.domain_id
                WHERE wd.workspace_id = ? AND f.severity = 'high'
-                 AND s.status = 'completed'
-                 AND s.created_at >= datetime('now', '-30 days')`
+                 AND ${LATEST_COMPLETED_SCAN_SCOPE}`
             )
-            .bind(wsId),
+            .bind(wsId, wsId),
 
           // 6. Score trend — last 30 historical_scores ordered oldest→newest for chart
           env.cybermeters_db
@@ -122,7 +122,7 @@ export async function executiveDashboardRoutes(rctx) {
             )
             .bind(wsId),
 
-          // 7. Risk distribution — severity counts from last 30 days.
+          // 7. Risk distribution — CURRENT severity counts, canonical scope.
           env.cybermeters_db
             .prepare(
               `SELECT f.severity, COUNT(*) AS n
@@ -130,14 +130,13 @@ export async function executiveDashboardRoutes(rctx) {
                JOIN scans s ON f.scan_id = s.id
                JOIN workspace_domains wd ON s.domain_id = wd.domain_id
                WHERE wd.workspace_id = ?
-                 AND s.status = 'completed'
-                 AND s.created_at >= datetime('now', '-30 days')
+                 AND ${LATEST_COMPLETED_SCAN_SCOPE}
                GROUP BY f.severity`
             )
-            .bind(wsId),
+            .bind(wsId, wsId),
 
-          // 8. Top risks — top 10 by severity from last 30 days.
-          // This is finding-based over the 30-day window, not latest-scan-only.
+          // 8. Top risks — CURRENT top 10 by severity, canonical scope (not a 30-day
+          // window, so a finding is never listed once per historical scan).
           env.cybermeters_db
             .prepare(
               `SELECT f.title, f.severity, f.created_at, s.domain
@@ -145,9 +144,8 @@ export async function executiveDashboardRoutes(rctx) {
                JOIN scans s ON f.scan_id = s.id
                JOIN workspace_domains wd ON s.domain_id = wd.domain_id
                WHERE wd.workspace_id = ?
-                 AND s.status = 'completed'
                  AND f.severity IN ('critical', 'high', 'medium')
-                 AND s.created_at >= datetime('now', '-30 days')
+                 AND ${LATEST_COMPLETED_SCAN_SCOPE}
                ORDER BY CASE f.severity
                  WHEN 'critical' THEN 1
                  WHEN 'high'     THEN 2
@@ -156,7 +154,7 @@ export async function executiveDashboardRoutes(rctx) {
                  f.created_at DESC
                LIMIT 10`
             )
-            .bind(wsId),
+            .bind(wsId, wsId),
 
           // 9. Last 2 historical scores for score delta
           env.cybermeters_db

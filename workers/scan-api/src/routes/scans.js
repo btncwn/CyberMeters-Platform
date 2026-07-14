@@ -498,12 +498,13 @@ export async function scanRoutes(rctx) {
         .bind(scanId)
         .first();
 
-      if (!scan) {
-        return json({ error: "Scan not found" }, 404);
-      }
-
+      // Authorize BEFORE revealing existence: requireScanReadAccess returns null for
+      // BOTH a foreign-existing scan and a nonexistent scan, so both yield an
+      // identical 403 — no cross-tenant existence oracle. Mirrors the /report/pdf
+      // sibling. The `!scan` branch is defensive and also returns 403.
       const access = await requireScanReadAccess(user, scanId, env);
       if (!access) return json({ error: "Forbidden" }, 403);
+      if (!scan) return json({ error: "Forbidden" }, 403);
 
       const obj = await env.cybermeters_reports.get(`reports/${scanId}.json`);
       if (!obj) {
@@ -609,18 +610,17 @@ export async function scanRoutes(rctx) {
 
       let scan = await env.cybermeters_db
         .prepare(
-          `SELECT id, domain_id, domain, status, score, rating, created_at
+          `SELECT id, domain_id, domain, status, score, rating, scan_quality, created_at
            FROM scans WHERE id = ?`
         )
         .bind(scanId)
         .first();
 
-      if (!scan) {
-        return json({ error: "Scan not found" }, 404);
-      }
-
+      // Authorize BEFORE revealing existence — foreign-existing and nonexistent
+      // both resolve to no access → identical 403 (no existence oracle).
       const access = await requireScanReadAccess(user, scanId, env);
       if (!access) return json({ error: "Forbidden" }, 403);
+      if (!scan) return json({ error: "Forbidden" }, 403);
 
       // ── Stuck-scan reconciliation ────────────────────────────────────────
       // If D1 still shows 'running' but the scan is older than 2 minutes,
@@ -636,19 +636,25 @@ export async function scanRoutes(rctx) {
             if (obj) {
               const raw = await obj.json();
               if (raw.status === "completed" || raw.status === "failed") {
-                const correctedScore  = raw.cyber_metrics_score ?? null;
-                const correctedRating = raw.risk_level ?? null;
+                const correctedScore   = raw.cyber_metrics_score ?? null;
+                const correctedRating  = raw.risk_level ?? null;
+                // Converge scan_quality from the SAME canonical R2 report, matching
+                // the list reconciler + finalizer, so D1 and R2 cannot present
+                // contradictory quality after reconciliation. Never fabricated:
+                // absent report quality stays NULL (unknown, non-authoritative).
+                const correctedQuality = raw.scan_quality?.status ?? scan.scan_quality ?? null;
                 await env.cybermeters_db
                   .prepare(
-                    `UPDATE scans SET status = ?, score = ?, rating = ? WHERE id = ?`
+                    `UPDATE scans SET status = ?, score = ?, rating = ?, scan_quality = ? WHERE id = ?`
                   )
-                  .bind(raw.status, correctedScore, correctedRating, scanId)
+                  .bind(raw.status, correctedScore, correctedRating, correctedQuality, scanId)
                   .run();
                 scan = {
                   ...scan,
-                  status: raw.status,
-                  score:  correctedScore,
-                  rating: correctedRating,
+                  status:       raw.status,
+                  score:        correctedScore,
+                  rating:       correctedRating,
+                  scan_quality: correctedQuality,
                 };
               }
             }
@@ -843,10 +849,14 @@ export async function scanRoutes(rctx) {
           .prepare("SELECT id, workspace_id FROM scheduled_scans WHERE id = ?")
           .bind(schedId)
           .first();
-        if (!schedule) return json({ error: "Schedule not found" }, 404);
-        if (!schedule.workspace_id) return json({ error: "Forbidden" }, 403);
-        const scheduleAccess = await requireWorkspaceRole(user, schedule.workspace_id, "scan:create", env);
-        if (!scheduleAccess) return json({ error: "Forbidden — analyst role required to manage scheduled scans" }, 403);
+        // Authorize BEFORE revealing existence: a nonexistent schedule, a foreign
+        // schedule owned by another tenant, and a schedule the caller cannot manage
+        // must all produce the SAME 403 — a non-member can no longer distinguish a
+        // foreign schedule's existence from a nonexistent id.
+        const scheduleAccess = schedule?.workspace_id
+          ? await requireWorkspaceRole(user, schedule.workspace_id, "scan:create", env)
+          : null;
+        if (!schedule || !scheduleAccess) return json({ error: "Forbidden" }, 403);
 
         const result = await env.cybermeters_db
           .prepare(`DELETE FROM scheduled_scans WHERE id = ?`)

@@ -4,6 +4,7 @@
 // from index.js (monolith decomposition, Phase 1c). pdfEsc/hexToRgbF/PDF_SERVICE are internal.
 import { POSTURE_WEIGHTS } from "./scoring-config.js";
 import { resolveAssessmentPresentation } from "./assessment-presentation.js";
+import { LATEST_COMPLETED_SCAN_SCOPE } from "./report-queries.js";
 import { buildCyberEssentialsReadiness } from "./ce-readiness.js";
 import { buildScorecardData } from "./scorecard.js";
 import { latestScanBusinessRisk } from "./business-risk.js";
@@ -1832,17 +1833,10 @@ export async function collectPdfData(wsId, env) {
        JOIN domains d ON d.id = s.domain_id
        JOIN workspace_domains wd ON wd.domain_id = d.id
        WHERE wd.workspace_id = ?
-         -- Only the latest completed scan per domain, so findings resolved by a
-         -- newer scan (e.g. a DMARC record added since) never linger as active.
-         AND s.id IN (
-           SELECT sx.id FROM scans sx
-           WHERE sx.workspace_id = ? AND sx.status = 'completed'
-             AND sx.created_at = (
-               SELECT MAX(sy.created_at) FROM scans sy
-               WHERE sy.workspace_id = sx.workspace_id AND sy.domain = sx.domain
-                 AND sy.status = 'completed'
-             )
-         )
+         -- Only the latest COMPLETE scan per domain (canonical shared scope), so
+         -- findings resolved by a newer scan never linger and a partial scan never
+         -- fabricates current findings. Same constant the report/dashboard/insights use.
+         AND ${LATEST_COMPLETED_SCAN_SCOPE}
        ORDER BY CASE f.severity
          WHEN 'critical' THEN 1 WHEN 'high' THEN 2
          WHEN 'medium'   THEN 3 WHEN 'low'  THEN 4 ELSE 5 END,

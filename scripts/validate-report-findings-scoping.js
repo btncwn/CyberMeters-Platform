@@ -33,7 +33,7 @@ const db = new DatabaseSync(":memory:");
 db.exec(`
   CREATE TABLE domains (id TEXT PRIMARY KEY, domain TEXT);
   CREATE TABLE workspace_domains (workspace_id TEXT, domain_id TEXT);
-  CREATE TABLE scans (id TEXT PRIMARY KEY, domain_id TEXT, domain TEXT, status TEXT, score INTEGER, created_at TEXT, workspace_id TEXT);
+  CREATE TABLE scans (id TEXT PRIMARY KEY, domain_id TEXT, domain TEXT, status TEXT, score INTEGER, created_at TEXT, workspace_id TEXT, scan_quality TEXT);
   CREATE TABLE findings (id TEXT PRIMARY KEY, scan_id TEXT, severity TEXT, title TEXT, recommendation TEXT, created_at TEXT);
   CREATE TABLE remediation_items (id TEXT PRIMARY KEY, scan_id TEXT, priority TEXT, title TEXT, reason TEXT, action TEXT);
 `);
@@ -44,8 +44,8 @@ db.exec(`
   INSERT INTO workspace_domains VALUES ('${W1}','${dom1}'),('${W1}','${dom2}'),('${W2}','${domX}');
 `);
 let sc = 0, fi = 0, re = 0;
-const scan = (id, domId, dom, status, created, ws = W1) =>
-  db.prepare(`INSERT INTO scans VALUES (?,?,?,?,?,?,?)`).run(id, domId, dom, status, 80, created, ws);
+const scan = (id, domId, dom, status, created, ws = W1, quality = "complete") =>
+  db.prepare(`INSERT INTO scans VALUES (?,?,?,?,?,?,?,?)`).run(id, domId, dom, status, 80, created, ws, quality);
 const finding = (scanId, sev, title) =>
   db.prepare(`INSERT INTO findings VALUES (?,?,?,?,?,?)`).run(`f${fi++}`, scanId, sev, title, "fix it", "2026-07-14");
 const rec = (scanId, prio, title) =>

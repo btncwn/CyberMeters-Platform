@@ -169,11 +169,19 @@ const scanCount = (wsId) => db.prepare("SELECT COUNT(*) n FROM scans WHERE works
   ok("helper: missing args → false", (await isWorkspaceDomainVerified(env, null, null)) === false);
 }
 
-// ── 9. Scheduled-scan path gates on the same helper (source wiring) ──────────
+// ── 9. Scheduled-scan path enforces the SAME verification via the canonical
+// run-time eligibility gate (evaluateScheduledScanEligibility) before any scan
+// row is created. Verification now lives inside that shared evaluator (which the
+// manual path's rules mirror), not as an inline copy in the cron handler. The
+// behavioural proof (unverified → skip, zero side effects) is in
+// validate-scheduled-eligibility.js. ─────────────────────────────────────────
 {
   const src = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "index.js"), "utf8");
-  ok("scheduled scan imports the gate helper", /isWorkspaceDomainVerified/.test(src));
-  ok("scheduled scan skips unverified before creating a scan row", /isWorkspaceDomainVerified\(env, schedule\.workspace_id, domainId\)/.test(src) && /\[scheduled-scan\] skipped/.test(src));
+  const gate = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "engines", "plan-usage.js"), "utf8");
+  ok("scheduled scan delegates to the canonical eligibility gate before creating a scan row",
+    /evaluateScheduledScanEligibility\(env, \{/.test(src) && /\[scheduled-scan\] skipped/.test(src));
+  ok("the canonical eligibility gate enforces workspace-domain verification",
+    /isWorkspaceDomainVerified\(env, workspaceId, domainId\)/.test(gate) && /domain_verification_required/.test(gate));
 }
 
 // ── 10. Auth still required before the gate (no oracle regression) ───────────

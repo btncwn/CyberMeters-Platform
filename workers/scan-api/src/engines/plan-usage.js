@@ -6,7 +6,8 @@
 import { buildExecutivePdf, collectPdfData } from "./pdf.js";
 import { createAuditEvent, createNotificationEvent } from "../lib/events.js";
 import { createId } from "../lib/util.js";
-import { getEffectivePlan, normalizePlan, PLAN_LIMITS } from "./entitlements.js";
+import { getEffectivePlan, hasFeatureEntitlement, normalizePlan, PLAN_LIMITS } from "./entitlements.js";
+import { isWorkspaceDomainVerified } from "../lib/domain-verification.js";
 
 /**
  * Compute next_run_at for a scheduled_reports row.
@@ -685,5 +686,57 @@ export async function checkScheduledScanLimit(user, workspaceId, env) {
   } catch {
     return null; // fail-open
   }
+}
+
+/**
+ * evaluateScheduledScanEligibility — canonical run-time gate for a scheduled scan.
+ *
+ * A scheduled scan must satisfy the SAME current security/entitlement/quota rules
+ * as a manual scan at EXECUTION time — never only the checks made when the schedule
+ * was created. This reuses the canonical helpers (no plan rules are copied here) and
+ * returns a stable reason code so the caller can skip with zero side effects.
+ *
+ * Order matters: cheap security/entitlement checks first; the rate limiter (which
+ * CONSUMES a token) runs last, only once we would actually start.
+ *
+ * @param {object} params.consumeRateLimit optional async ({billingOwnerId, plan}) =>
+ *        null (allowed) | {status} (blocked/fail-closed). Injected so this module
+ *        stays free of the index.js rate limiter (avoids a circular import).
+ * @returns {{ok: true} | {ok: false, reason: string}}
+ *   reasons: workspace_not_accessible | domain_verification_required |
+ *            feature_not_entitled | scan_limit_exceeded | rate_limit_unavailable
+ */
+export async function evaluateScheduledScanEligibility(env, { workspaceId, domainId, ownerUserId, consumeRateLimit } = {}) {
+  // 1 + 3 + 6. Workspace must exist, not be soft-deleted, and be resolvable.
+  if (!workspaceId || !domainId) return { ok: false, reason: "workspace_not_accessible" };
+  const ws = await env.cybermeters_db
+    .prepare("SELECT owner_user_id FROM workspaces WHERE id = ? AND deleted_at IS NULL LIMIT 1")
+    .bind(workspaceId).first().catch(() => null);
+  if (!ws) return { ok: false, reason: "workspace_not_accessible" };
+
+  // 1 + 2. Exact (workspace_id, domain_id) link must exist AND be verified.
+  const verified = await isWorkspaceDomainVerified(env, workspaceId, domainId).catch(() => false);
+  if (!verified) return { ok: false, reason: "domain_verification_required" };
+
+  // Resolve the billing owner + current effective plan (subscriptions-based,
+  // grace/expiry aware) once, for the feature/quota/rate checks below.
+  const billingOwnerId = await getWorkspaceBillingUserId(workspaceId, ownerUserId, env).catch(() => ownerUserId);
+  const plan = await getEffectivePlan(billingOwnerId, env);
+
+  // 4. Scheduled-scans feature must be entitled on the CURRENT effective plan.
+  if (!hasFeatureEntitlement(plan, "scheduled_scans")) return { ok: false, reason: "feature_not_entitled" };
+
+  // 5. Monthly scan quota must allow another scan (canonical checker; fail-open on
+  // counting errors, exactly like the manual path).
+  const quota = await checkScanLimit({ id: ownerUserId }, workspaceId, env);
+  if (quota) return { ok: false, reason: "scan_limit_exceeded" };
+
+  // 7. Scan-start rate limit — fail CLOSED (expensive action). Consumes a token, so last.
+  if (typeof consumeRateLimit === "function") {
+    const rl = await consumeRateLimit({ billingOwnerId, plan });
+    if (rl) return { ok: false, reason: "rate_limit_unavailable" };
+  }
+
+  return { ok: true };
 }
 
