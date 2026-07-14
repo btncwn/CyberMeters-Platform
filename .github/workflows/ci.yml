@@ -152,6 +152,9 @@ jobs:
       - name: Validate eight-domain parity (CE cross-surface + no-scan visibility + healthy-eligibility)
         run: node scripts/validate-eight-domain-parity.js
 
+      - name: Validate canonical remediation registry (stable ids + resolver + aliases + honesty scope + cross-surface parity)
+        run: node scripts/validate-remediation-registry.js
+
       - name: Validate bounded scheduled-report generation (batch limit + determinism + idempotency + fairness + entitlement)
         run: node scripts/validate-bounded-scheduled-reports.js
 

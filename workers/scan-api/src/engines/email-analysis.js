@@ -2,8 +2,10 @@
 // Pure parsers + builders for the Email Protection wedge: SPF/DMARC/BIMI/DKIM parsing,
 // provider inference, DMARC policy journey, transport (TLS-RPT/MTA-STS) detail, and
 // remediation-action assembly, plus the DKIM provider lookup tables. Extracted verbatim
-// from index.js (monolith decomposition, Phase 1c). Self-contained — no imports. Heavily
-// covered by the accuracy + pipeline regression harnesses.
+// from index.js (monolith decomposition, Phase 1c). Imports only the canonical
+// remediation registry (a leaf module) so guided email advice matches every other
+// surface. Heavily covered by the accuracy + pipeline regression harnesses.
+import { resolveRemediation } from "./remediation-registry.js";
 
 export const DKIM_SELECTORS = [
   "default", "mail", "google", "k1", "selector1", "selector2",
@@ -457,6 +459,15 @@ export function buildEmailRemediationActions(domain, details, emailIntel = {}) {
     "No TLS-RPT record was confirmed.", "Email administrators may have less visibility into SMTP TLS delivery failures.",
     `Publish v=TLSRPTv1; rua=mailto:tls-reports@${domain} at _smtp._tls.${domain}.`,
     { suggested_dns_record: `v=TLSRPTv1; rua=mailto:tls-reports@${domain}` }));
+
+  // Canonicalise the recommended action through the shared registry so the guided
+  // email action cards agree with every other surface (no SPF ~all/-all or DMARC
+  // policy conflicts). The concrete suggested_dns_record and copyable_value are
+  // preserved; only the recommended_action sentence is unified.
+  for (const a of actions) {
+    const r = resolveRemediation({ finding_type: a.id });
+    if (r.status === "resolved") a.recommended_action = r.recommended_action;
+  }
 
   return actions;
 }
