@@ -5,6 +5,35 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.14 (v2026.07.14-3 — portfolio entitlement consistency + deterministic latest-scan) — deployed 2026-07-14
+
+### Fix (packaging + correctness — MSP Portfolio hardening)
+- **Gate all six /api/portfolio/* endpoints on the existing portfolio_monitoring
+  entitlement + deterministic latest-scan selection** (PR **#61**, merge
+  **cc5119cf141865806928d5fea803c4764f530b40**).
+  - **Entitlement consistency:** Portfolio is a Business+/MSP feature, but only
+    `/risk` enforced `portfolio_monitoring`; `/overview`, `/workspaces`, `/alerts`,
+    `/trends`, `/executive-summary` were reachable by any authenticated Free/Starter/
+    Growth user. All six now apply the SAME gate (shared helper reusing
+    `getEffectivePlan` + `hasFeatureEntitlement`, identical 403 shape). No new
+    entitlement/plan/route/pricing rule. Self-scoping + cross-MSP isolation unchanged.
+  - **Deterministic latest-scan tie-break:** shared `LATEST_SCAN_CTE` ranks completed
+    scans by `(created_at DESC, id DESC)` and takes `rn=1`, so two completed scans
+    sharing an identical `created_at` can no longer both match and double-count a
+    domain. Applied to all 5 CTEs across `routes/portfolio.js` + `engines/portfolio-customers.js`.
+  - **Sanitized /risk error handling:** replaced the raw `{ error:'Internal server
+    error' }` 500 with the shared `serverError("api", err)` path used by the other five.
+  - **Tests:** `validate-portfolio.js` **39/39** (was 21) — Free→403 on all six,
+    Business/MSP→200 on all six, historical critical from an older scan excluded,
+    identical-timestamp scans don't duplicate a domain, cross-MSP isolation passes,
+    never-scanned customer honest (null score, not fake 0).
+  - **Live verification:** all six endpoints 401 unauthenticated; live BBB data
+    (10 completed scans) surfaces only the latest scan `scan_50cabd4d`; 0 identical-
+    timestamp collisions in production.
+  - **Deployed Worker Version ID:** `41da2a9d-402a-4de1-b2e6-90496ac1b122`.
+  - **Rollback Version ID:** `1fe26e1b-2f29-420a-971c-97284fc418b3`.
+  - **No migration / schema / DDL change** — code + query + test only.
+
 ## 2026.07.14 (v2026.07.14-2 — executive report latest-scan scoping) — deployed 2026-07-14
 
 ### Fix (customer trust — executive report no longer piles up historical findings)
