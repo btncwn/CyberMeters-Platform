@@ -5,6 +5,27 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.14 (v2026.07.14-17 — Certificates Managed Lifecycle) — deployed 2026-07-14
+
+- **Live Worker Version ID:** `62a197de-639f-4123-91d0-b64fbf81ba5b`
+- **Rollback Worker Version ID:** `3fae558d-1196-4198-ab7d-54d7276d9867`
+- **Remote D1 migration applied:** `085-certificate-lifecycle.sql` (additive; `changed_db: true`, both tables verified present).
+
+### Feat (Certificates & Trust becomes a managed certificate lifecycle)
+- **Certificates Managed Lifecycle** (PR **#81**, squash-merged to main). **Additive migration 085.** Extends the existing certificate-observation architecture — no second scanner, no duplicate source of truth.
+  - **Source-of-truth split:** `certificate_observations` (mig 031) stays the raw externally-observed evidence + history (referenced, never copied; a replacement never overwrites the old certificate's evidence). New `certificate_lifecycle` (mig 085) owns ownership, renewal planning, verification state and monitoring; `certificate_lifecycle_events` is append-only. Both added to `WORKSPACE_PURGE_TABLES`.
+  - **Canonical renewal policy** (`certificate-policy.js`): ONE threshold source — bands 90+/60–89/30–59/14–29/1–13/expired → `readiness` + `risk_status`, plus `renewal_start_by = not_after − 30d`. Replaces the four scattered per-engine cut-offs (ssl-scan/cert-intel/cert-trust-l2/alerts). `days_remaining` from observed expiry only; `null` expiry → `unknown` (never assumed safe).
+  - **Identity + replacement** (`certificate-lifecycle.js`): deterministic identity via the existing `certificate_key` surrogate; current cert = furthest-future expiry per host; a replacement is a NEW identity → `previous_certificate_observation_id` preserved, `replacement_detected_at` set, old observation never overwritten.
+  - **Coverage model:** expected (customer-declared) vs observed SANs kept separate → complete/partial/missing/unexpected/unknown. Wildcard matches a single label only — never auto-covers apex or nested depth, never makes coverage "complete" for undeclared hosts.
+  - **Ownership:** three-role (business/technical/renewal) → server-derived `ownership_status` (known/partial/missing), distinct from renewal/verification/monitoring status.
+  - **Verification contract (external-observation only):** a customer "recorded renewal" moves to `awaiting_verification` and stays **not verified**. Positive verification requires a genuinely distinct new certificate observed on the expected hostname(s) with acceptable coverage AND a later expiry; incomplete coverage / no-new-cert → `inconclusive`; expiry-not-advanced → `failed`. Structured evidence keeps chain/root/OCSP/revocation/private-key/fingerprint/serial explicitly **unknown** (no live TLS).
+  - **Monitoring evaluator:** ONE deterministic pass with explicit precedence (exception window → expired → recorded-not-observed contradiction → verification failed → replacement unverified → renewal-overdue(critical/expired) → coverage regression → unexpected SAN → owner-missing → stale). Opens/reopens `certificate_case` **via `createManagedCase`/`canTransitionCase`** → `cert.*` canonical remediation (never a separate case table, never a bare dedup).
+  - **APIs:** `/api/workspaces/:id/certificates/lifecycle[/:id[/action|/verify]]` — workspace-scoped, non-enumerating (foreign/nonexistent → same 404), soft-delete-gated. Wired as scan **Phase 8k**.
+  - **Frontend:** focused Certificate Lifecycle page (`/ws/certificates/lifecycle`, nav sub-item) + `certificateLifecycleDisplay.js` (co-located Vitest) — draws a hard line between **customer-recorded** and **externally-verified**; server-provided actions only.
+  - **Honesty preserved:** `cyber-mot-domains.js` certificates_trust (M2/recommendations, chain/root/OCSP/revocation unknown) unchanged.
+  - **Tests (CI-blocking):** `validate-certificate-lifecycle.js` (**71**, DB-backed). Full gate: migrations **95/95**, purge **10/10**, regression **227/227**, cert-trust-l2 **17/17**, tenant **86/86**, error-contract **116/116**, openapi ok, `wrangler --dry-run` clean, frontend build + Vitest **97/97** (coverage 84.85%).
+  - **Not included:** unrelated `AGENTS.md` + `CLAUDE.md` documentation rewrites deliberately kept out of this PR (reviewed, held separate per instruction).
+
 ## 2026.07.14 (v2026.07.14-16 — Shadow IT correlation depth) — deployed 2026-07-14
 
 ### Feat (completes the Shadow IT approved-inventory foundation — multi-source correlation, ownership, monitoring)
