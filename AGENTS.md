@@ -4,7 +4,7 @@
 
 Version: July 2026
 
-Last updated: 14 July 2026 (release v2026.07.14-17; next canonical episode: Identity Exposure Managed Workflow)
+Last updated: 14 July 2026 (release v2026.07.14-20; next canonical episode: Alerts Across All Eight Domains)
 
 ---
 
@@ -101,18 +101,18 @@ CyberMeters manages and verifies the lifecycle where externally observable evide
 | Universal Managed-Case Model (incl. enforced invariants) | Live |
 | Shadow IT Approved Inventory + Correlation Depth | Live |
 | Certificates Managed Lifecycle | Live |
-| Identity Exposure Managed Workflow | Next canonical episode |
-| Complete ASM Verification | Planned |
-| Alerts Across All Eight Domains | Planned |
+| Identity Exposure Managed Workflow | Live |
+| Complete ASM Verification | Live |
+| Alerts Across All Eight Domains | Next canonical episode |
 | MSP Portfolio Per-Domain State and Trend | Planned |
 | M5 Completion Across All Eight Domains | Planned |
 | Final Public-Beta Gate | Planned after managed-platform completion |
 
 Current release facts (as of 14 July 2026):
 
-- latest release tag: `v2026.07.14-17` (Certificates Managed Lifecycle, PR #81 — deployed);
-- latest migration applied to production: `085-certificate-lifecycle.sql`;
-- next canonical episode: Identity Exposure Managed Workflow (not yet started).
+- latest release tag: `v2026.07.14-20` (Complete ASM Verification — part 2, PR #84 — deployed);
+- latest migration applied to production: `086-identity-exposure.sql` (the ASM Verification episode required no migration);
+- next canonical episode: Alerts Across All Eight Domains (not yet started).
 
 Do not use speculative percentage-completion figures unless they come from an approved, current release-readiness assessment.
 
@@ -133,9 +133,9 @@ Use milestone status instead:
 Priority order:
 
 1. Certificates Managed Lifecycle (complete — Live)
-2. Identity Exposure Managed Workflow (next canonical episode)
-3. Complete ASM Verification
-4. Alerts Across All Eight Domains
+2. Identity Exposure Managed Workflow (complete — Live)
+3. Complete ASM Verification (complete — Live)
+4. Alerts Across All Eight Domains (next canonical episode)
 5. MSP Portfolio Per-Domain State and Trend
 6. M5 Completion Across All Eight Domains
 7. Systematic debugging and reliability hardening
