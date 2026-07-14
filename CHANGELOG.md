@@ -5,6 +5,38 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.14 (v2026.07.14-1 — scan waitUntil-cancellation reliability) — deployed 2026-07-14
+
+### Fix (reliability — orphaned scans from ctx.waitUntil() background cancellation)
+- **Global scan deadline + durable finalization + honest partial** (PR **#59**,
+  merge **7ff3fbafcd** — commits `fd8c13d`, `19d6e1d`, `73f23d5`, `990df1b`).
+  - **Root cause (proven, not CPU):** the scan engine runs inside `ctx.waitUntil()`,
+    which Cloudflare cancels ~30s after the response is sent. Invocation record:
+    `wallTime 31170ms / cpuTime 40ms / outcome "ok"` + log *"waitUntil() tasks did not
+    complete within the allowed time after invocation end and have been cancelled."*
+    Silent (no exception → no catch → no failed report) → scan stuck `status='running'`.
+  - **Fix (additive/reversible; mode stays legacy, reserved off):**
+    - **Deadline** (`createScanDeadline`, default **21000ms**, clamped 5000–24000):
+      network phases stop launching before the ~30s cliff, reserving ≥6s for finalization.
+    - **Bounded execution** (`raceModuleDeadline`): takeover, asset exposure, the Phase‑5
+      trio and cloud-storage are hard-bounded to the remaining budget (canRun only gated
+      the *start*); on the bound they defer honestly and the late promise is abandoned
+      (no persistence, cannot mutate finalized state).
+    - **Durable tri-state finalize** (`open→finalizing→finalized`): terminal only after
+      both R2 report + D1 status are durable; individually guarded, never throws,
+      re-entrant, downgrade-safe. A completed D1 status is never written over the running
+      placeholder; a failed terminal is always written → a scan is never silently running.
+      Closes the pre-fix orphan/downgrade hazard.
+    - **Honest partial:** deadline-deferred modules `incomplete:true` → `scan_quality:partial`.
+    - **KEV cache:** CISA catalogue cached in R2 (24h TTL, honest degrade); CT hard cap 25s→15s.
+    - **Diagnosability:** heartbeat (`scans.last_heartbeat_at/current_stage/completed_modules`)
+      + `scan_module_telemetry` (migration **078**, additive; purge-covered).
+  - **Tests:** `validate-scan-deadline.js` (90, incl. failure-injection),
+    `validate-kev-cache.js` (31), `validate-scan-telemetry.js` (36); full suite green.
+  - **Migration 078** applied to remote D1 and verified (3 nullable columns + telemetry table + index).
+  - **Deployed Worker Version ID:** `94980ffb-fe4d-4680-bccf-7c6919b65f43`.
+  - **Rollback Version ID:** `a4f6fc4a-571b-4130-93c2-8424152b1c82` (prior live).
+
 ## 2026.07.13 (v2026.07.13-17 — exposure probe honesty: not-checked ≠ clean) — deployed 2026-07-13
 
 ### Fix (customer trust — unchecked exposure never presented as a clean result)
