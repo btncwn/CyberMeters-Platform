@@ -33,7 +33,7 @@ import { runHistoricalModule } from "./historical-scan.js";
 import { runIdentityDiscoveryModule } from "./identity-scan.js";
 import { recordPostureEvents } from "./posture-events.js";
 import { runReservedScan } from "./reserved-scan.js";
-import { createScanDeadline, markDeadlineDeferred, MODULE_SUBREQUEST_COST, resolveScanCapacity, skippedModuleResult } from "./scan-budget.js";
+import { createModuleTelemetry, createScanDeadline, markDeadlineDeferred, MODULE_SUBREQUEST_COST, resolveScanCapacity, skippedModuleResult } from "./scan-budget.js";
 import { computeScore, isEmailApplicable } from "./scoring.js";
 import { runSslModule } from "./ssl-scan.js";
 import { BRUTEFORCE_MAX_NAMES, filterWildcardBruteforceResults, runBruteforceModule, runSubdomainsModule } from "./subdomains-scan.js";
@@ -191,6 +191,50 @@ export async function finalizeScanResult(latch, { scanId, report, score = null, 
   return { written: true, status };
 }
 
+// Heartbeat: record how far a scan got and when it was last alive. Purely
+// diagnostic — an orphaned (waitUntil-cancelled) scan's last heartbeat pinpoints
+// the stage it died in. Fully non-fatal; never blocks or fails the scan.
+export async function heartbeatScan(env, scanId, stage, completedModules = null) {
+  try {
+    await env.cybermeters_db
+      .prepare(`UPDATE scans SET last_heartbeat_at = ?, current_stage = ?, completed_modules = ? WHERE id = ?`)
+      .bind(new Date().toISOString(), stage, completedModules, scanId)
+      .run();
+  } catch { /* non-fatal — heartbeat is observability only */ }
+}
+
+// Persist collected per-module telemetry rows. Best-effort, per-row guarded so one
+// bad row cannot abort the rest, and the whole call is non-fatal to the scan.
+export async function persistModuleTelemetry(scanId, telemetry, env) {
+  const rows = telemetry?.rows || [];
+  for (const r of rows) {
+    try {
+      await env.cybermeters_db
+        .prepare(
+          `INSERT INTO scan_module_telemetry
+             (id, scan_id, module, started_at, completed_at, duration_ms, outbound_calls, outcome, timeout, error_class)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .bind(
+          createId("smt"), scanId, r.module,
+          r.started_at ?? null, r.completed_at ?? null, r.duration_ms ?? null,
+          r.outbound_calls ?? null, r.outcome ?? null, r.timeout ? 1 : 0, r.error_class ?? null
+        )
+        .run();
+    } catch { /* non-fatal per row */ }
+  }
+}
+
+// The network/enrichment modules we expect a telemetry row for. Backfilled at
+// finalization from the modules object for any not captured by the live wrapper
+// (reserved-mode results, deferred phases) so both scan modes get full coverage.
+const TELEMETRY_TRACKED_MODULES = Object.freeze([
+  "dns", "ssl", "headers", "email_security", "subdomains", "technology_detection",
+  "whois_intelligence", "dns_bruteforce", "subdomain_takeover", "asset_exposure",
+  "cve_intelligence", "known_exploited_vulnerabilities", "email_security_intelligence",
+  "cloud_storage_discovery",
+]);
+
 export async function runScanEngine(scanId, domainId, workspaceId, domain, env, opts = {}) {
   const startedAt = new Date().toISOString();
   // Injectable clock (tests drive it deterministically); production uses Date.now.
@@ -200,6 +244,8 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
   const deadline = createScanDeadline(env, now);
   // Finalize-once latch shared by the success and failure paths.
   const latch = createFinalizeLatch();
+  // Per-module telemetry collector (persisted at finalization; non-fatal).
+  const telemetry = createModuleTelemetry(now);
 
   try {
     // Mark scan as running in D1
@@ -237,14 +283,14 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       // asset exposure over the merged (CT + brute-force) subdomain list. ──
       const [dnsSettled, sslSettled, headersSettled, emailSettled, subdomainsSettled, techSettled, whoisSettled, bruteforceSettled] =
         await Promise.allSettled([
-          runDnsModule(domain),
-          runSslModule(domain),
-          runHeadersModule(domain),
-          runEmailModule(domain),
-          runSubdomainsModule(domain),
-          runTechModule(domain),
-          runWhoisModule(domain),
-          runBruteforceModule(domain),
+          telemetry.run("dns",                  () => runDnsModule(domain)),
+          telemetry.run("ssl",                  () => runSslModule(domain)),
+          telemetry.run("headers",              () => runHeadersModule(domain)),
+          telemetry.run("email_security",       () => runEmailModule(domain)),
+          telemetry.run("subdomains",           () => runSubdomainsModule(domain)),
+          telemetry.run("technology_detection", () => runTechModule(domain)),
+          telemetry.run("whois_intelligence",   () => runWhoisModule(domain)),
+          telemetry.run("dns_bruteforce",       () => runBruteforceModule(domain)),
         ]);
 
       dnsResult = dnsSettled.status === "fulfilled" ? dnsSettled.value : { error: customerSafeFailure("scan/dns", dnsSettled.reason, "DNS module failed") };
@@ -277,12 +323,13 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       // Otherwise defer honestly (never a fake clean result) and preserve the scan.
       if (deadline.canRun(4_000)) {
         try {
-          takeoverResult = await runTakeoverModule(domain, mergedSubdomainItems);
+          takeoverResult = await telemetry.run("subdomain_takeover", () => runTakeoverModule(domain, mergedSubdomainItems));
         } catch (err) {
           takeoverResult = { checked: 0, potential_risks: 0, risks: [], source: "subdomain_cname_fingerprint", error: customerSafeFailure("scan/takeover", err, "Takeover module failed") };
         }
       } else {
         takeoverResult = markDeadlineDeferred({ checked: 0, potential_risks: 0, risks: [], cname_observations: [], source: "subdomain_cname_fingerprint" });
+        telemetry.record("subdomain_takeover", { outcome: "deadline_exceeded" });
       }
 
       // Deadline gate: asset exposure (admin-surface signal) is customer-critical, so
@@ -290,7 +337,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       // out of budget rather than orphaning the whole scan.
       if (deadline.canRun(6_000)) {
         try {
-          assetExposureResult = await runExposureModule(domain, mergedSubdomainItems);
+          assetExposureResult = await telemetry.run("asset_exposure", () => runExposureModule(domain, mergedSubdomainItems));
           assetExposureResult = annotateExposureInfrastructure(assetExposureResult, takeoverResult.cname_observations);
           assetExposureResult = deduplicateExposureAssets(assetExposureResult, domain);
         } catch (err) {
@@ -298,6 +345,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
         }
       } else {
         assetExposureResult = markDeadlineDeferred({ checked: 0, reachable: 0, assets: [], source: "http_probe" });
+        telemetry.record("asset_exposure", { outcome: "deadline_exceeded" });
       }
     }
 
@@ -318,6 +366,10 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       // so brand findings are included in the scored findings array.
       brand_monitoring:          runTyposquatModule(domain),
     };
+    // Heartbeat: discovery + exposure done. An orphan cancelled after this point
+    // died in scoring/enrichment/finalization, not discovery.
+    await heartbeatScan(env, scanId, "discovery_complete", telemetry.rows.filter((r) => r.outcome === "ok").length);
+
     const emailApplicability = isEmailApplicable(domain, modules.dns);
     if (!modules.email_security.error) {
       modules.email_security.applicability = emailApplicability;
@@ -514,10 +566,14 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     // Deadline first: if the enrichment trio can't finish in budget, defer it honestly
     // (partial scan) rather than risk the whole invocation being cancelled mid-write.
     const phase5DeadlineBlocked = !deadline.canRun(8_000);
+    await heartbeatScan(env, scanId, "phase5_intelligence", telemetry.rows.filter((r) => r.outcome === "ok").length);
     if (phase5DeadlineBlocked) {
       modules.cve_intelligence = markDeadlineDeferred({ technologies_checked: [], results: {}, total_cves: 0, critical_count: 0, high_count: 0, source: "nvd_api" });
       modules.known_exploited_vulnerabilities = markDeadlineDeferred({ matches: [], checked: 0, matched: 0, source: "cisa_kev" });
       modules.email_security_intelligence = markDeadlineDeferred({ source: "email_intelligence" });
+      telemetry.record("cve_intelligence", { outcome: "deadline_exceeded" });
+      telemetry.record("known_exploited_vulnerabilities", { outcome: "deadline_exceeded" });
+      telemetry.record("email_security_intelligence", { outcome: "deadline_exceeded" });
     } else if (reservedMode && reservedBudget && reservedBudget.wouldExceed(phase5Cost)) {
       modules.cve_intelligence = skippedModuleResult("cve", { technologies_checked: [], results: {}, total_cves: 0, critical_count: 0, high_count: 0 });
       modules.known_exploited_vulnerabilities = skippedModuleResult("kev", { matches: [], checked: 0, matched: 0 });
@@ -525,9 +581,9 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     } else {
     if (reservedMode && reservedBudget) reservedBudget.spend("phase5", phase5Cost);
     const [cveSettled, kevSettled, emailIntelSettled] = await Promise.allSettled([
-      runCveModule(modules.technology_detection),
-      runKevModule(modules.technology_detection, env),
-      runEmailIntelModule(domain, modules.email_security, modules.dns),
+      telemetry.run("cve_intelligence",              () => runCveModule(modules.technology_detection)),
+      telemetry.run("known_exploited_vulnerabilities", () => runKevModule(modules.technology_detection, env)),
+      telemetry.run("email_security_intelligence",   () => runEmailIntelModule(domain, modules.email_security, modules.dns)),
     ]);
 
     modules.cve_intelligence = cveSettled.status === "fulfilled"
@@ -811,6 +867,17 @@ function buildCanonicalUrlProfile(modules) {
       modules,
     };
 
+    // Backfill telemetry rows for tracked modules not captured by the live wrapper
+    // (reserved-mode results, cloud-storage, deferred phases) so both scan modes get
+    // full per-module coverage; derive a coarse outcome from the final module value.
+    for (const name of TELEMETRY_TRACKED_MODULES) {
+      if (!telemetry.has(name)) telemetry.record(name, { outcome: telemetry.outcomeOf(modules[name]) });
+    }
+
+    // Heartbeat: entering finalization. A cancellation after this is a finalize-time
+    // failure (the reconciler is the backstop), not a mid-scan orphan.
+    await heartbeatScan(env, scanId, "finalizing", telemetry.rows.filter((r) => r.outcome === "ok").length);
+
     // Finalize once, atomically-latched: write the completed report to R2 and flip
     // the D1 status. report.status stays "completed"; scan_quality.status carries
     // "partial" when the deadline deferred any module (honest partial finalization).
@@ -819,6 +886,10 @@ function buildCanonicalUrlProfile(modules) {
     await finalizeScanResult(latch, {
       scanId, report, score, rating: risk_level, status: "completed", env,
     });
+
+    // Persist per-module telemetry (non-fatal; after the terminal status is written
+    // so a telemetry failure can never leave the scan 'running').
+    await persistModuleTelemetry(scanId, telemetry, env);
 
     if (workspaceId) {
       // Compute BRS using scan findings + workspace intelligence data

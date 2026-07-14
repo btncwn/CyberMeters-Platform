@@ -143,6 +143,56 @@ export function markDeadlineDeferred(base = {}) {
   };
 }
 
+// ── Per-module telemetry collector (Tier 1: diagnosability) ───────────────────
+// Times each instrumented module and classifies its outcome so a future orphaned
+// scan is diagnosable from D1 alone (which module, how long, what happened). Purely
+// observational — recording never alters a module's value or throws into the scan
+// flow. `now` is injectable for deterministic tests.
+export function createModuleTelemetry(now = Date.now) {
+  const rows = [];
+  const iso = (ms) => new Date(ms).toISOString();
+
+  // Classify a module's returned result into an outcome label.
+  const outcomeOf = (v) => {
+    if (!v) return "missing";
+    if (v.error) return "error";
+    if (v.incomplete) return v.outcome || "incomplete";
+    if (v.skipped) return "skipped";
+    return "ok";
+  };
+
+  return {
+    rows,
+    outcomeOf,
+    // Wrap a module thunk: time it, classify, record a row — then return the value
+    // (or re-throw the rejection) unchanged, so Promise.allSettled semantics hold.
+    async run(module, thunk) {
+      const startedMs = now();
+      let outcome = "ok", timeout = false, errorClass = null;
+      try {
+        const v = await thunk();
+        outcome = outcomeOf(v);
+        return v;
+      } catch (e) {
+        outcome = "error";
+        errorClass = e?.name || "Error";
+        if (/timed out|timeout|abort/i.test(String(e?.message || ""))) timeout = true;
+        throw e;
+      } finally {
+        const doneMs = now();
+        rows.push({ module, started_at: iso(startedMs), completed_at: iso(doneMs), duration_ms: doneMs - startedMs, outbound_calls: null, outcome, timeout, error_class: errorClass });
+      }
+    },
+    // Record a module that ran outside the wrapper (deferred, reserved-mode, or a
+    // pure-computation phase) — coarse outcome, no duration.
+    record(module, { outcome = "ok", timeout = false, error_class = null, duration_ms = null, outbound_calls = null } = {}) {
+      rows.push({ module, started_at: null, completed_at: null, duration_ms, outbound_calls, outcome, timeout, error_class });
+    },
+    // True if a module already has a telemetry row (avoids double-recording).
+    has(module) { return rows.some((r) => r.module === module); },
+  };
+}
+
 // Per-scan DNS answer cache — resolve each (name,type) exactly once across core DNS,
 // the critical-prefix pass, brute-force and takeover.
 export function makeDnsCache() { return new Map(); }

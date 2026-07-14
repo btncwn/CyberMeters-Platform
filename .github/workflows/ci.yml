@@ -122,6 +122,9 @@ jobs:
       - name: Validate KEV catalogue R2 cache (hit/miss/stale/unavailable + honest degrade)
         run: node scripts/validate-kev-cache.js
 
+      - name: Validate scan observability (heartbeat + module telemetry, non-fatal)
+        run: node scripts/validate-scan-telemetry.js
+
       - name: Validate managed brand takedown lifecycle (evidence + approval + verification)
         run: node scripts/validate-brand-takedown-lifecycle.js
 
