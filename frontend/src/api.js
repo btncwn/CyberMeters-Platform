@@ -738,6 +738,29 @@ export const api = {
    *  (exposed login surfaces + active impersonation infra + email spoofing) */
   getIdentityExposure: (id) => request(`/workspaces/${id}/identity-exposure`),
 
+  // ── Identity Exposure Managed Workflow (managed identity surfaces) ─────────
+  /** GET /api/workspaces/:id/identity-surfaces  optional: ?customer_classification=&risk_status=&monitoring_status=&surface_type= */
+  getIdentitySurfaces: (id, params = {}) => {
+    const q = new URLSearchParams(params).toString()
+    return request(`/workspaces/${id}/identity-surfaces${q ? `?${q}` : ''}`)
+  },
+
+  /** GET /api/workspaces/:id/identity-surfaces/:recId — record + history + linked case */
+  getIdentitySurface: (id, recId) =>
+    request(`/workspaces/${id}/identity-surfaces/${encodeURIComponent(recId)}`),
+
+  /** POST /api/workspaces/:id/identity-surfaces/:recId/action — classify/assign/remediate */
+  identitySurfaceAction: (id, recId, body) =>
+    request(`/workspaces/${id}/identity-surfaces/${encodeURIComponent(recId)}/action`, {
+      method: 'POST', body: JSON.stringify(body),
+    }),
+
+  /** POST /api/workspaces/:id/identity-surfaces/:recId/verify — request external verification */
+  identitySurfaceVerify: (id, recId) =>
+    request(`/workspaces/${id}/identity-surfaces/${encodeURIComponent(recId)}/verify`, {
+      method: 'POST', body: JSON.stringify({}),
+    }),
+
   /** GET /api/workspaces/:id/vendor-relationships */
   getVendorRelationships: (id, params = {}) => {
     const q = new URLSearchParams(params).toString()
