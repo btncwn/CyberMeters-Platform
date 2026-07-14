@@ -158,9 +158,17 @@ const cleanComplete = () => ({
 {
   const r = resolveCyberMotDomainStates(cleanComplete()); // no cyberEssentials passed
   ok("16: no CE answers → customer_input_required", byKey(r, "cyber_essentials_readiness").state === CYBER_MOT_STATES.CUSTOMER_INPUT_REQUIRED);
-  // With CE data + gaps → issue_detected.
-  const r2 = resolveCyberMotDomainStates(cleanComplete(), { cyberEssentials: { status: "not_ready", top_gaps: [{},{}] } });
-  ok("16: CE with gaps → issue_detected", byKey(r2, "cyber_essentials_readiness").state === CYBER_MOT_STATES.ISSUE_DETECTED);
+  // A CE snapshot WITHOUT answers → still customer_input_required (external signals alone never assess CE).
+  const rNoAns = resolveCyberMotDomainStates(cleanComplete(), { cyberEssentials: { has_answers: false, complete: false, status: "likely_ready", top_gaps: [] } });
+  ok("16: CE snapshot with no answers → customer_input_required", byKey(rNoAns, "cyber_essentials_readiness").state === CYBER_MOT_STATES.CUSTOMER_INPUT_REQUIRED);
+  // PARTIAL answers (has_answers but not complete) → customer_input_required, never healthy.
+  const rPartial = resolveCyberMotDomainStates(cleanComplete(), { cyberEssentials: { has_answers: true, complete: false, status: "likely_ready", top_gaps: [] } });
+  ok("16: CE with PARTIAL answers → customer_input_required (never healthy)", byKey(rPartial, "cyber_essentials_readiness").state === CYBER_MOT_STATES.CUSTOMER_INPUT_REQUIRED);
+  // COMPLETE questionnaire + gaps → issue_detected; complete + ready → healthy.
+  const r2 = resolveCyberMotDomainStates(cleanComplete(), { cyberEssentials: { has_answers: true, complete: true, status: "not_ready", top_gaps: [{},{}] } });
+  ok("16: CE complete + gaps → issue_detected", byKey(r2, "cyber_essentials_readiness").state === CYBER_MOT_STATES.ISSUE_DETECTED);
+  const r3 = resolveCyberMotDomainStates(cleanComplete(), { cyberEssentials: { has_answers: true, complete: true, status: "likely_ready", top_gaps: [] } });
+  ok("16: CE complete + ready → assessed_healthy", byKey(r3, "cyber_essentials_readiness").state === CYBER_MOT_STATES.ASSESSED_HEALTHY);
 }
 
 // 17. Website Security — no web evidence does not produce healthy.

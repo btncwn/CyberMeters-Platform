@@ -549,6 +549,10 @@ export const api = {
   /** GET /api/workspaces/:id/executive-dashboard */
   getExecutiveDashboard: (id) => request(`/workspaces/${id}/executive-dashboard`),
 
+  // Canonical eight-domain Cyber MOT coverage states (always returns eight, even
+  // with no scan). Server-resolved; the frontend never derives domain states.
+  getCyberMotDomains: (id) => request(`/workspaces/${id}/cyber-mot-domains`),
+
   /** GET /api/workspaces/:id/scorecard */
   getWorkspaceScorecard: (id) => request(`/workspaces/${id}/scorecard`),
 

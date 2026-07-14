@@ -4,6 +4,7 @@
 // canonical states to customer-friendly labels/colours and always shows all eight
 // domains so no domain silently disappears and missing evidence never looks healthy.
 import React from 'react'
+import { resolveDisplayDomains } from '../lib/cyberMotDisplay'
 
 // Canonical state → { label, tone }. Tones map to Tailwind colour sets below.
 const STATE_META = {
@@ -48,10 +49,11 @@ function DomainRow({ d }) {
   )
 }
 
-// domains: the server-resolved array. compact: tighter rows for the dashboard.
+// domains: the server-resolved array. Always renders exactly eight domains — if the
+// server data is absent/malformed/failed, resolveDisplayDomains returns the eight
+// canonical domains in a non-healthy "unavailable" state (no domain ever disappears).
 export default function CyberMotDomains({ domains, title = 'Cyber MOT — Eight-Domain Coverage', subtitle = null }) {
-  const list = Array.isArray(domains) ? domains : []
-  if (list.length === 0) return null
+  const list = resolveDisplayDomains(domains)
   return (
     <div className="card p-5">
       <div className="mb-2">

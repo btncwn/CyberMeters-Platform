@@ -5,7 +5,7 @@
 import { POSTURE_WEIGHTS } from "./scoring-config.js";
 import { resolveAssessmentPresentation } from "./assessment-presentation.js";
 import { LATEST_COMPLETED_SCAN_SCOPE } from "./report-queries.js";
-import { buildCyberEssentialsReadiness } from "./ce-readiness.js";
+import { buildCyberEssentialsReadiness, getCyberEssentialsSnapshot } from "./ce-readiness.js";
 import { buildScorecardData } from "./scorecard.js";
 import { getCurrentPosturePresentation } from "./current-posture.js";
 import { resolveCyberMotDomainStates } from "./cyber-mot-domains.js";
@@ -2234,9 +2234,12 @@ export async function collectPdfData(wsId, env) {
       const rObj = await env.cybermeters_reports.get(`reports/${authScanId}.json`);
       authReport = rObj ? await rObj.json() : null;
     }
-    cyberMotDomains = resolveCyberMotDomainStates(authReport, { scanId: authScanId, cyberEssentials: ceReadiness });
+    // Same canonical CE snapshot (answer-presence gated) every surface uses, so the
+    // PDF's CE state matches the Dashboard / Scan Detail / Executive Report UI.
+    const ceSnap = await getCyberEssentialsSnapshot(wsId, env).catch(() => null);
+    cyberMotDomains = resolveCyberMotDomainStates(authReport, { scanId: authScanId, cyberEssentials: ceSnap });
   } catch {
-    cyberMotDomains = resolveCyberMotDomainStates(null, { cyberEssentials: ceReadiness });
+    cyberMotDomains = resolveCyberMotDomainStates(null);
   }
 
   let supplyPayload = {};

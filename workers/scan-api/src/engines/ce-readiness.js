@@ -4,6 +4,7 @@
 // index.js (monolith decomposition, Phase 1c). Only buildCyberEssentialsReadiness is public.
 import { clamp } from "./posture-scoring.js";
 import { buildScorecardData } from "./scorecard.js";
+import { CE_QUESTIONS } from "../lib/cyber-essentials.js";
 
 // ── Cyber Essentials Readiness v1 ────────────────────────────────────────────
 //
@@ -269,5 +270,59 @@ export async function buildCyberEssentialsReadiness(wsId, env) {
       'This readiness estimate uses externally observable CyberMeters signals only.',
       'Endpoint protection, internal device configuration, and user access policies cannot be fully assessed from external ASM data.',
     ],
+  };
+}
+
+// isCyberEssentialsQuestionnaireComplete — the canonical completeness contract:
+// every question of every control has a non-"unknown" answer (mirrors mergeReadiness'
+// `answered` predicate in lib/cyber-essentials.js). A single or partial answer set is
+// NOT complete, so it can never permit an authoritative readiness verdict.
+export function isCyberEssentialsQuestionnaireComplete(answersMap = {}) {
+  return CE_QUESTIONS.every((ctrl) => {
+    const ans = answersMap[ctrl.control_key] || {};
+    const answered = ctrl.questions.filter((q) => ans[q.key] && ans[q.key] !== "unknown");
+    return answered.length === ctrl.questions.length;
+  });
+}
+
+// getCyberEssentialsSnapshot — the ONE canonical Cyber Essentials snapshot used by
+// every surface's eight-domain resolver, so a workspace shows the SAME CE state on
+// the Dashboard, Scan Detail, Executive Report UI and Executive PDF.
+//
+// Cyber Essentials readiness is only meaningful once the customer has COMPLETED the
+// self-attestation questionnaire — external signals alone (and a partial answer set)
+// are indicative, not a readiness verdict. So the snapshot carries both flags:
+//   • no answers            → { has_answers:false, complete:false } → customer_input_required;
+//   • partial answers       → { has_answers:true,  complete:false } → customer_input_required;
+//   • complete questionnaire → { has_answers:true,  complete:true, status } → readiness verdict.
+// The readiness (heavier) computation only runs once the questionnaire is complete.
+export async function getCyberEssentialsSnapshot(wsId, env) {
+  let rows = [];
+  try {
+    const r = await env.cybermeters_db
+      .prepare('SELECT control_key, question_key, answer FROM cyber_essentials_answers WHERE workspace_id = ?')
+      .bind(wsId).all();
+    rows = r?.results || [];
+  } catch { rows = []; }
+
+  const has_answers = rows.length > 0;
+  if (!has_answers) return { has_answers: false, complete: false, status: null, top_gaps: [] };
+
+  const answersMap = {};
+  for (const r of rows) {
+    if (!answersMap[r.control_key]) answersMap[r.control_key] = {};
+    answersMap[r.control_key][r.question_key] = r.answer;
+  }
+  const complete = isCyberEssentialsQuestionnaireComplete(answersMap);
+
+  let readiness = null;
+  if (complete) {
+    try { readiness = await buildCyberEssentialsReadiness(wsId, env); } catch { readiness = null; }
+  }
+  return {
+    has_answers: true,
+    complete,
+    status: readiness?.status ?? null,
+    top_gaps: Array.isArray(readiness?.top_gaps) ? readiness.top_gaps : [],
   };
 }

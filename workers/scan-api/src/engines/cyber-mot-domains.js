@@ -42,6 +42,7 @@ export const CYBER_MOT_DOMAINS = Object.freeze([
     display_name: "Email Protection",
     description: "SPF, DKIM, DMARC, MX and transport-security posture, plus who is sending email as you.",
     modules: ["email_security", "email_security_intelligence"],
+    required: ["email_security"],
     match: (f) => /^(email_|dmarc_|spf_|dkim_|mta_|bimi_|tlsrpt_)/.test(f.id || "") || f.module === "email_security",
     maturity: "M5", managed_status: "verification_monitoring",
     limitations: ["DKIM is checked against common selectors only; a non-match is informational, not proof DKIM is absent."],
@@ -51,6 +52,7 @@ export const CYBER_MOT_DOMAINS = Object.freeze([
     display_name: "Brand Protection",
     description: "Lookalike and typosquat domains that could impersonate your brand.",
     modules: ["brand_monitoring"],
+    required: ["brand_monitoring"],
     match: (f) => /^brand_/.test(f.id || "") || f.module === "brand_monitoring",
     maturity: "M3", managed_status: "managed_case",
     limitations: ["Unregistered permutations are watchlist-only, not active abuse. CyberMeters prepares and tracks takedowns; it does not perform them."],
@@ -60,6 +62,7 @@ export const CYBER_MOT_DOMAINS = Object.freeze([
     display_name: "Attack Surface",
     description: "Internet-facing subdomains, exposed admin surfaces, takeover risk and cloud exposure.",
     modules: ["subdomains", "admin_surface_detection", "cloud_storage_discovery", "dns"],
+    required: ["subdomains", "dns"],
     match: (f) => /^(asset_|subdomain_|admin_|takeover_|exposure_|dse_|cve_|kev_|cloud_|dns_)/.test(f.id || ""),
     maturity: "M3", managed_status: "managed_case",
     limitations: ["External observation only — no internal-network discovery. Subdomain coverage depends on public Certificate Transparency logs."],
@@ -69,6 +72,7 @@ export const CYBER_MOT_DOMAINS = Object.freeze([
     display_name: "Certificates & Trust",
     description: "Certificate expiry, issuer, hostname coverage and anomalies from Certificate Transparency logs.",
     modules: ["certificate_intelligence"],
+    required: ["certificate_intelligence"],
     match: (f) => /^(cert_|certificate_)/.test(f.id || "") || f.module === "certificate_intelligence",
     maturity: "M2", managed_status: "recommendations",
     limitations: ["Analysis is based on Certificate Transparency logs. Chain validity, root trust, OCSP and revocation status are not checked and remain unknown."],
@@ -87,6 +91,7 @@ export const CYBER_MOT_DOMAINS = Object.freeze([
     display_name: "Website Security",
     description: "Passive external website health — HTTPS, redirects, security headers and DNS availability.",
     modules: ["headers", "ssl", "dns"],
+    required: ["headers", "ssl"],
     match: (f) => /^(header_|https_|redirect_|canonical_|ssl_|tech_)/.test(f.id || ""),
     maturity: "M2", managed_status: "recommendations",
     limitations: ["Passive external check only — no active, authenticated or intrusive testing."],
@@ -96,6 +101,7 @@ export const CYBER_MOT_DOMAINS = Object.freeze([
     display_name: "Identity Exposure",
     description: "Externally observable spoofing, impersonation and exposed authentication-surface risks.",
     modules: ["identity_discovery"],
+    required: ["identity_discovery"],
     match: (f) => /^identity_/.test(f.id || "") || f.module === "identity_discovery",
     maturity: "M1", managed_status: "monitoring",
     limitations: ["Covers spoofing, impersonation and exposed login/identity-provider surfaces. It does not include leaked-credential, breached-password or dark-web monitoring."],
@@ -174,9 +180,14 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
       return base;
     }
 
-    // ── Cyber Essentials (5) — always needs customer input; separate surface ──
+    // ── Cyber Essentials (5) — readiness needs a COMPLETE questionnaire ───────
+    // A readiness verdict (and therefore assessed_healthy) requires the customer to
+    // have COMPLETED the questionnaire (snapshot.complete). No answers OR a partial
+    // answer set → customer_input_required. External signals alone are indicative,
+    // never a readiness verdict, so they never produce a healthy CE. Every surface
+    // passes the same snapshot, so the state is identical everywhere.
     if (d.domain_key === "cyber_essentials_readiness") {
-      if (cyberEssentials && cyberEssentials.status) {
+      if (cyberEssentials && cyberEssentials.has_answers === true && cyberEssentials.complete === true) {
         const ready = cyberEssentials.status === "likely_ready";
         base.finding_count = (cyberEssentials.top_gaps || []).length;
         base.recommendation_count = base.finding_count;
@@ -187,7 +198,9 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
           : `Indicative readiness gaps identified (${base.finding_count}).`;
       } else {
         base.state = CYBER_MOT_STATES.CUSTOMER_INPUT_REQUIRED;
-        base.summary = "Complete the Cyber Essentials questionnaire to assess readiness.";
+        base.summary = (cyberEssentials && cyberEssentials.has_answers === true)
+          ? "Cyber Essentials questionnaire is in progress — complete it to assess readiness."
+          : "Complete the Cyber Essentials questionnaire to assess readiness.";
       }
       return base;
     }
@@ -210,9 +223,18 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
     }
 
     // ── Scan-evidenced domains (1,2,3,4,6,7) ──────────────────────────────────
+    // `required` = the module(s) that MUST have been assessed for a healthy verdict.
+    // A globally-complete scan with no mapped finding is NOT enough — the domain's own
+    // required evidence has to have actually been collected (this closes the CT/
+    // subdomain "healthy off missing evidence" hole for Attack Surface, and stops
+    // Website/Identity/Certs/Brand from reading healthy when their evidence is absent).
     const relevant = d.modules;
+    const required = Array.isArray(d.required) && d.required.length ? d.required : relevant;
     const assessed = relevant.filter((n) => moduleAssessed(report, n, skippedSet));
-    const attemptedInsufficient = relevant.filter((n) => moduleAttempted(report, n, skippedSet));
+    const requiredAssessedAll = required.length > 0 && required.every((n) => moduleAssessed(report, n, skippedSet));
+    const requiredInsufficient = required.filter((n) => moduleAttempted(report, n, skippedSet));
+    const anyRequiredInsufficient = requiredInsufficient.length > 0;
+
     const domainFindings = findings.filter((f) => materialSeverity(f.severity) && d.match(f));
     base.finding_count = domainFindings.length;
     base.evidence_count = assessed.length;
@@ -223,19 +245,14 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
       base.recommendation_count = domainFindings.filter((f) => f.recommendation).length;
     }
 
-    // Domain-relevant coverage: if a required module was attempted-but-insufficient
-    // it lowers THIS domain's coverage even when the overall scan is complete
-    // (honest for the CT/subdomain hole in Attack Surface).
-    const domainDegraded = attemptedInsufficient.length > 0 && assessed.length === 0;
-    const domainPartial = attemptedInsufficient.length > 0 && assessed.length > 0;
-
     // ── Precedence (findings are never hidden; coverage carries the caveat) ──
     if (domainFindings.length > 0) {
       // A real finding always surfaces as issue_detected; coverage metadata tells the
-      // UI whether the evidence is provisional.
+      // UI whether the evidence behind it was provisional.
+      const caveat = anyRequiredInsufficient || provisional;
       base.state = CYBER_MOT_STATES.ISSUE_DETECTED;
-      base.coverage = domainPartial || provisional ? "partial" : (quality || "complete");
-      base.summary = `${domainFindings.length} issue${domainFindings.length === 1 ? "" : "s"} detected${(domainPartial || provisional) ? " (provisional evidence)" : ""}.`;
+      base.coverage = caveat ? "partial" : (quality || "complete");
+      base.summary = `${domainFindings.length} issue${domainFindings.length === 1 ? "" : "s"} detected${caveat ? " (provisional evidence)" : ""}.`;
       return base;
     }
     if (relevant.length === 0) {
@@ -243,28 +260,31 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
       base.summary = "Not yet assessed.";
       return base;
     }
-    if (domainDegraded) {
-      // Every required module errored/was skipped → evidence attempted but insufficient.
+    if (anyRequiredInsufficient) {
+      // A REQUIRED module errored / was skipped / reported incomplete → the evidence
+      // needed to assess this domain was attempted but not obtained. Never healthy.
       base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;
       base.coverage = "degraded";
-      base.summary = "Evidence could not be collected this scan — not enough to assess.";
+      base.summary = `Required evidence (${requiredInsufficient.join(", ")}) could not be collected this scan — not enough to assess.`;
       return base;
     }
-    if (assessed.length === 0) {
-      // Modules simply absent (never ran) → not assessed, never healthy.
+    if (!requiredAssessedAll) {
+      // A required module simply never ran (absent) → not assessed, never healthy.
       base.state = CYBER_MOT_STATES.NOT_YET_ASSESSED;
-      base.summary = "Not yet assessed for this domain.";
+      base.summary = "Not yet assessed for this domain — required checks did not run.";
       return base;
     }
-    if (provisional || domainPartial) {
-      // Assessed, no material finding, but the scan/domain evidence is provisional →
-      // do NOT assert healthy off incomplete evidence.
+    if (provisional) {
+      // All required evidence assessed, no material finding, BUT the overall scan is
+      // provisional (partial/degraded/unknown) → do not assert an authoritative healthy.
       base.state = CYBER_MOT_STATES.PROVISIONAL;
-      base.coverage = domainPartial ? "partial" : quality;
-      base.summary = "No material issue observed, but coverage this scan was provisional.";
+      base.coverage = quality;
+      base.summary = "No material issue observed, but this scan's coverage was provisional.";
       return base;
     }
-    // Assessed on complete evidence with no material finding → genuinely healthy.
+    // All required evidence assessed on a COMPLETE scan with no material finding →
+    // genuinely healthy (domain-specific limitations, e.g. unknown certificate trust,
+    // remain attached and are never turned into a positive trust claim).
     base.state = CYBER_MOT_STATES.ASSESSED_HEALTHY;
     base.coverage = "complete";
     base.summary = "Assessed — no material issue observed.";
