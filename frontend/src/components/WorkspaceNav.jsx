@@ -47,6 +47,7 @@ const SERVICES = [
     key: 'surface', title: 'Attack Surface', icon: Server, to: '/assets',
     match: p => p.startsWith('/assets') || p.startsWith('/exposure') || p.startsWith('/ws/admin-surfaces')
       || p.startsWith('/ws/cloud-assets') || p.startsWith('/ws/saas-exposure')
+      || p.startsWith('/ws/identity-exposure')
       || p.startsWith('/ws/third-party') || p.startsWith('/scans') || p.startsWith('/schedules'),
     items: [
       { to: '/assets',            label: 'Overview', end: true },
@@ -55,6 +56,7 @@ const SERVICES = [
       { to: '/scans',             label: 'Scans' },
       { to: '/schedules',         label: 'Schedules' },
       { to: '/ws/admin-surfaces', label: 'Admin Surfaces' },
+      { to: '/ws/identity-exposure', label: 'Identity Exposure' },
       { to: '/ws/cloud-assets',   label: 'Cloud Assets' },
       { to: '/ws/saas-exposure',  label: 'SaaS Exposure' },
       { to: '/ws/third-party',    label: 'Third-Party' },

@@ -85,6 +85,7 @@ import { attackSurfaceRoutes } from "./routes/attack-surface.js";
 import { managedCasesRoutes } from "./routes/managed-cases.js";
 import { shadowItRoutes } from "./routes/shadow-it.js";
 import { certificatesLifecycleRoutes } from "./routes/certificates-lifecycle.js";
+import { identityExposureRoutes } from "./routes/identity-exposure.js";
 import { workspaceInsightRoutes } from "./routes/workspace-insights.js";
 import { buildCertificateAuthorityConcentrationFromModule, buildScanQuality, computeScanBudget, insertAdminSurfaceEvents, runScanEngine, upsertVendorInventory, upsertVendorRelationships } from "./engines/scan-engine.js";
 import { runBoundedScheduledReports } from "./engines/scheduled-reports.js";
@@ -941,6 +942,7 @@ const WORKSPACE_PURGE_TABLES = [
   "vendor_risk_scores", "vendor_risk_scores_history", "workspace_vendors",
   "shadow_it_inventory_events", "shadow_it_inventory",
   "certificate_lifecycle_events", "certificate_lifecycle",
+  "identity_exposure_events", "identity_exposure",
   "workspace_brs_scores", "workspace_brs_score_history",
   "workspace_supply_chain_scores", "workspace_supply_chain_history",
   "notification_events", "notification_preferences",
@@ -2018,6 +2020,12 @@ export default {
     {
       const certLifecycleResponse = await certificatesLifecycleRoutes(routeCtx);
       if (certLifecycleResponse) return certLifecycleResponse;
+    }
+
+    // ── Identity Exposure Managed Workflow routes ───────────────────────────
+    {
+      const identityExposureResponse = await identityExposureRoutes(routeCtx);
+      if (identityExposureResponse) return identityExposureResponse;
     }
 
     // ── Workspace analytics routes (scorecard, CE readiness, business risk) ──

@@ -40,6 +40,7 @@ import { BRUTEFORCE_MAX_NAMES, filterWildcardBruteforceResults, runBruteforceMod
 import { computeSupplyChainIntelligence, upsertSupplyChainScore } from "./supply-chain.js";
 import { correlateShadowItInventory } from "./shadow-it-inventory.js";
 import { correlateCertificateLifecycle } from "./certificate-lifecycle.js";
+import { correlateIdentityExposure } from "./identity-lifecycle.js";
 import { runTakeoverModule } from "./takeover-scan.js";
 import { runTechModule } from "./tech-scan.js";
 import { runVendorRelationshipModule } from "./vendor-relationship.js";
@@ -1188,6 +1189,22 @@ function buildCanonicalUrlProfile(modules) {
         .all();
       for (const { workspace_id } of (clWsRows.results || [])) {
         await correlateCertificateLifecycle(env, workspace_id);
+      }
+    } catch { /* non-fatal — lifecycle catches up on the next scan */ }
+
+    // Phase 8l: Identity Exposure Managed Workflow — correlate the raw
+    // identity_assets (mig 030) into the canonical managed identity-exposure
+    // record: one record per external identity surface, provider/endpoint change
+    // detection (old evidence preserved), externally-observable risk + the
+    // monitoring evaluator. Soft-deleted workspaces are skipped inside
+    // correlateIdentityExposure. Non-fatal.
+    try {
+      const ieWsRows = await env.cybermeters_db
+        .prepare('SELECT workspace_id FROM workspace_domains WHERE domain_id = ?')
+        .bind(domainId)
+        .all();
+      for (const { workspace_id } of (ieWsRows.results || [])) {
+        await correlateIdentityExposure(env, workspace_id);
       }
     } catch { /* non-fatal — lifecycle catches up on the next scan */ }
 
