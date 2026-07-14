@@ -17,6 +17,7 @@ import { buildScanQuality, runScanEngine } from "../engines/scan-engine.js";
 import { riskLevelForScore } from "../engines/scoring.js";
 import { buildDmarcSenderIntelligenceEvidence } from "../engines/sender-provenance.js";
 import { createAuditEvent } from "../lib/events.js";
+import { DOMAIN_VERIFICATION_REQUIRED, isWorkspaceDomainVerified } from "../lib/domain-verification.js";
 import { createId, isValidDomain, parseBoundedInteger } from "../lib/util.js";
 
 export async function scanRoutes(rctx) {
@@ -155,6 +156,16 @@ export async function scanRoutes(rctx) {
         )
         .bind(workspaceId, resolvedDomainId)
         .run();
+
+      // ── Domain-ownership verification gate (workspace-scoped) ──────────────
+      // The auto-register/link above is a compatibility convenience, NOT proof of
+      // control — it must never become an implicit verification bypass. The scan
+      // stops here unless THIS exact (workspace_id, domain_id) relationship is
+      // verified. No scan row, R2 placeholder, telemetry, managed case or report is
+      // created past this point on rejection.
+      if (!(await isWorkspaceDomainVerified(env, workspaceId, resolvedDomainId))) {
+        return json(DOMAIN_VERIFICATION_REQUIRED, 403);
+      }
 
       // Create scan row — status 'running' (engine starts immediately)
       await env.cybermeters_db
