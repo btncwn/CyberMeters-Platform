@@ -11,6 +11,7 @@ import { applyEvidenceQuality } from "./findings.js";
 import { classifyHeaderStrength } from "./headers-scan.js";
 import { ENTERPRISE_BENCHMARK, ENTERPRISE_DOMAINS } from "./scoring-config.js";
 import { SECURITY_HEADERS } from "./security-headers-config.js";
+import { resolveRemediation } from "./remediation-registry.js";
 
 // ── Email Security Applicability ─────────────────────────────────────────────
 //
@@ -54,6 +55,22 @@ export function computeScore(modules, domain) {
     findings.push({ ...f, finding_type: "finding" });
   }
 
+  // Canonical remediation copy comes from the shared registry so every surface
+  // that reads remediation_items (scan detail, scorecard, executive report, PDF)
+  // shows the SAME honest, non-conflicting advice. `detail` carries the concrete,
+  // domain- or host-specific text (record to publish, affected hosts) — that is
+  // surface formatting, not semantic drift. Falls back to the provided literals
+  // if the registry ever lacks the finding type (CI asserts every wired type
+  // resolves, so this path is a safety net, not the norm).
+  function canonicalRec(findingType, { priority, module, detail = "", title, description } = {}) {
+    const r = resolveRemediation({ finding_type: findingType });
+    const resolved = r.status === "resolved";
+    const recTitle = resolved ? r.customer_title : title;
+    const baseAction = resolved ? r.recommended_action : description;
+    const recDescription = detail ? `${baseAction} ${detail}`.trim() : baseAction;
+    return { priority, module, title: recTitle, description: recDescription };
+  }
+
   // ── DNS ────────────────────────────────────────────────────────────────
   if (!modules.dns?.resolves) {
     finding({
@@ -82,12 +99,11 @@ export function computeScore(modules, domain) {
         cross_checked_at:            modules.dns?.cross_checks?.cross_checked_at ?? null,
       },
     });
-    recommendations.push({
-      priority:    1,
-      module:      "dns",
-      title:       "Fix DNS Configuration",
+    recommendations.push(canonicalRec("dns_no_resolution", {
+      priority: 1, module: "dns",
+      title: "Fix DNS Configuration",
       description: "Ensure A records are published for your domain pointing to your server's IP address.",
-    });
+    }));
   }
 
   // ── DNS Resolver Disagreement ─────────────────────────────────────────
@@ -206,12 +222,11 @@ export function computeScore(modules, domain) {
         manual_verification_command: `curl -sI https://${domain} | head -3`,
       },
     });
-    recommendations.push({
-      priority:    1,
-      module:      "ssl",
-      title:       "Install a TLS Certificate",
+    recommendations.push(canonicalRec("ssl_not_available", {
+      priority: 1, module: "ssl",
+      title: "Install a TLS Certificate",
       description: "Enable HTTPS using a free certificate from Let's Encrypt via Certbot, or through your hosting provider.",
-    });
+    }));
   } else if (!modules.ssl?.http_redirects_to_https) {
     // Two situations suppress the scored finding:
     //
@@ -281,12 +296,11 @@ export function computeScore(modules, domain) {
           manual_verification_command: `curl -sI http://${domain} | head -5`,
         },
       });
-      recommendations.push({
-        priority:    2,
-        module:      "ssl",
-        title:       "Enforce HTTPS Redirect",
+      recommendations.push(canonicalRec("ssl_no_http_redirect", {
+        priority: 2, module: "ssl",
+        title: "Enforce HTTPS Redirect",
         description: "Configure your web server or CDN to issue a 301 redirect from http:// to https:// for all requests.",
-      });
+      }));
     }
   }
 
@@ -431,12 +445,11 @@ export function computeScore(modules, domain) {
             observed_value: `Header absent from confirmed HTTPS 200 response at ${headerProbeUrl}`,
           },
         });
-        recommendations.push({
-          priority:    2,
-          module:      "headers",
-          title:       `Add ${h.label} Header`,
+        recommendations.push(canonicalRec(`header_missing_${h.name.replace(/-/g, "_")}`, {
+          priority: 2, module: "headers",
+          title: `Add ${h.label} Header`,
           description: h.recommendation,
-        });
+        }));
       }
     }
 
@@ -605,12 +618,12 @@ export function computeScore(modules, domain) {
           cross_checked_at:            modules.dns?.cross_checks?.cross_checked_at ?? null,
         },
       });
-      recommendations.push({
-        priority:    1,
-        module:      "email_security",
-        title:       "Implement DMARC",
-        description: `Create a TXT record at _dmarc.${domain}: v=DMARC1; p=quarantine; rua=mailto:dmarc-reports@${domain}`,
-      });
+      recommendations.push(canonicalRec("email_missing_dmarc", {
+        priority: 1, module: "email_security",
+        detail: `Example starting record for _dmarc.${domain}: v=DMARC1; p=none; rua=mailto:dmarc-reports@${domain}`,
+        title: "Implement DMARC",
+        description: `Create a TXT record at _dmarc.${domain}: v=DMARC1; p=none; rua=mailto:dmarc-reports@${domain}`,
+      }));
     } else if (modules.email_security.dmarc.policy === "none") {
       finding({
         id:           "email_dmarc_policy_none",
@@ -633,12 +646,11 @@ export function computeScore(modules, domain) {
           cross_checked_at:            modules.dns?.cross_checks?.cross_checked_at ?? null,
         },
       });
-      recommendations.push({
-        priority:    2,
-        module:      "email_security",
-        title:       "Strengthen DMARC Policy",
+      recommendations.push(canonicalRec("email_dmarc_policy_none", {
+        priority: 2, module: "email_security",
+        title: "Strengthen DMARC Policy",
         description: "Change DMARC policy from p=none to p=quarantine or p=reject to actively block spoofed emails.",
-      });
+      }));
     }
 
     if (!modules.email_security?.spf?.present) {
@@ -663,12 +675,12 @@ export function computeScore(modules, domain) {
           cross_checked_at:            modules.dns?.cross_checks?.cross_checked_at ?? null,
         },
       });
-      recommendations.push({
-        priority:    1,
-        module:      "email_security",
-        title:       "Add SPF Record",
+      recommendations.push(canonicalRec("email_missing_spf", {
+        priority: 1, module: "email_security",
+        detail: `Example starting record on ${domain}: v=spf1 include:your-mail-provider.com ~all`,
+        title: "Add SPF Record",
         description: `Create a TXT record on ${domain}: v=spf1 include:your-mail-provider.com ~all`,
-      });
+      }));
     }
 
     if (!modules.email_security?.dkim?.present) {
@@ -817,12 +829,12 @@ export function computeScore(modules, domain) {
       }
     }
     if (confirmedSensitiveCount > 0) {
-      recommendations.push({
+      recommendations.push(canonicalRec("subdomain_sensitive", {
         priority:    2,
         module:      "subdomains",
         title:       "Review Sensitive Subdomains",
         description: `${confirmedSensitiveCount} subdomain${confirmedSensitiveCount !== 1 ? "s" : ""} with names suggesting development or administrative use responded to HTTP probes. Confirm that public access is intentional and appropriately protected.`,
-      });
+      }));
     }
 
     // Large attack surface
@@ -865,12 +877,12 @@ export function computeScore(modules, domain) {
       description:  `${riskCount} subdomain${riskCount > 1 ? "s" : ""} with dangling CNAME records pointing to unclaimed services ${riskCount > 1 ? "were" : "was"} found: ${takeoverMod.risks.map((r) => r.host).join(", ")}. These may be vulnerable to hijacking by a third party.`,
       score_impact: impact,
     });
-    recommendations.push({
-      priority:    1,
-      module:      "subdomain_takeover",
-      title:       "Fix Dangling DNS Records",
+    recommendations.push(canonicalRec("subdomain_takeover", {
+      priority: 1, module: "subdomain_takeover",
+      detail: `Affected records: ${takeoverMod.risks.map((r) => `${r.host} → ${r.cname}`).join("; ")}.`,
+      title: "Fix Dangling DNS Records",
       description: `Remove or update the CNAME records for: ${takeoverMod.risks.map((r) => `${r.host} → ${r.cname}`).join("; ")}. Either reclaim the service, point the CNAME to a valid endpoint, or delete the DNS record entirely.`,
-    });
+    }));
   }
 
   // ── Asset Exposure ─────────────────────────────────────────────────────
@@ -894,12 +906,12 @@ export function computeScore(modules, domain) {
         description:  `${toolAssets.length} management or monitoring tool${toolAssets.length > 1 ? "s are" : " is"} publicly reachable: ${toolAssets.map((a) => a.host).join(", ")}. These provide privileged access and should not be internet-facing.`,
         score_impact: -10,
       });
-      recommendations.push({
-        priority:    1,
-        module:      "asset_exposure",
-        title:       "Restrict Access to Management Tools",
+      recommendations.push(canonicalRec("asset_exposure_sensitive_tool", {
+        priority: 1, module: "asset_exposure",
+        detail: `Affected interfaces: ${toolAssets.map((a) => `${a.host}${a.title ? ` (${a.title})` : ""}`).join(", ")}.`,
+        title: "Restrict Access to Management Tools",
         description: `Firewall or VPN-protect the following interfaces and allow only trusted IP ranges: ${toolAssets.map((a) => `${a.host}${a.title ? ` (${a.title})` : ""}`).join(", ")}.`,
-      });
+      }));
     }
 
     // Generic admin/login terms require corroboration from both hostname and title.
@@ -925,12 +937,12 @@ export function computeScore(modules, domain) {
         description:  `${adminAssets.length} administrative or login interface${adminAssets.length > 1 ? "s are" : " is"} publicly accessible: ${adminAssets.map((a) => a.host).join(", ")}. Restrict access to authorised IP ranges or enforce MFA.`,
         score_impact: -8,
       });
-      recommendations.push({
-        priority:    2,
-        module:      "asset_exposure",
-        title:       "Restrict Administrative Interfaces",
+      recommendations.push(canonicalRec("asset_exposure_admin_interface", {
+        priority: 2, module: "asset_exposure",
+        detail: `Affected interfaces: ${adminAssets.map((a) => a.host).join(", ")}.`,
+        title: "Restrict Administrative Interfaces",
         description: `Limit the following admin interfaces to trusted IP ranges or protect with a VPN or MFA: ${adminAssets.map((a) => a.host).join(", ")}.`,
-      });
+      }));
     }
 
     // Development/staging names also require a corroborating page title.
@@ -956,12 +968,12 @@ export function computeScore(modules, domain) {
         description:  `${devAssets.length} development or staging environment${devAssets.length > 1 ? "s are" : " is"} publicly accessible: ${devAssets.map((a) => a.host).join(", ")}. These often contain debug endpoints, test credentials, or reduced security controls.`,
         score_impact: -5,
       });
-      recommendations.push({
-        priority:    2,
-        module:      "asset_exposure",
-        title:       "Restrict Development Environments",
+      recommendations.push(canonicalRec("asset_exposure_dev_env", {
+        priority: 2, module: "asset_exposure",
+        detail: `Affected environments: ${devAssets.map((a) => a.host).join(", ")}.`,
+        title: "Restrict Development Environments",
         description: `Development and staging environments should not be publicly accessible. Firewall or add authentication to: ${devAssets.map((a) => a.host).join(", ")}.`,
-      });
+      }));
     }
 
     const weakHeuristicAssets = [...new Set([...adminCandidates, ...devCandidates])]

@@ -9,6 +9,7 @@ import { runDnsModule } from "./dns-scan.js";
 import { dnsQuery } from "./dns.js";
 import { buildDkimDetail, parseDmarcRecord, parseSpfRecord } from "./email-analysis.js";
 import { runEmailModule } from "./email-scan.js";
+import { resolveRemediation } from "./remediation-registry.js";
 import { computeScore } from "./scoring.js";
 
 /**
@@ -434,6 +435,15 @@ function buildEmailIntelFindings(spf, dmarc, dkim, mtaSts, tlsRpt) {
       recommendation: "Add a TLS-RPT TXT record at _smtp._tls.<domain>: v=TLSRPTv1; rua=mailto:<address>",
       score_impact:   0,
     });
+  }
+
+  // Canonicalise the recommended action through the shared registry so email
+  // advice is identical across every surface (no SPF ~all/-all or DMARC policy
+  // conflicts). The module-specific title/description are preserved; only the
+  // remediation action is unified.
+  for (const f of findings) {
+    const r = resolveRemediation({ finding_type: f.id });
+    if (r.status === "resolved") f.recommendation = r.recommended_action;
   }
 
   return findings;

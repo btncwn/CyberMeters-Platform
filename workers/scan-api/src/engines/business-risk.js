@@ -3,6 +3,7 @@
 // bands, finding-id expansion, scan-report BRS derivation, latest-scan BRS lookup, and the
 // core BRS computation. Extracted verbatim from index.js (monolith decomposition, Phase 1c).
 import { applyEvidenceQuality, isActionableFinding, normalizeFindingSchema } from "./findings.js";
+import { resolveRemediation } from "./remediation-registry.js";
 
 // ── Business Risk Score (BRS) v1 ─────────────────────────────────────────────
 //
@@ -333,7 +334,13 @@ export function computeBusinessRiskScore(findingIds, workspaceData = {}) {
   const topRisks = [];
   for (const risk of IMPACT_MAP) {
     if (findingIds.has(risk.id)) {
-      topRisks.push({ title: risk.title, impact: risk.impact, recommendation: risk.recommendation, severity: risk.severity });
+      // The executive title/impact framing is BRS-specific, but the recommended
+      // ACTION resolves through the canonical registry so it never conflicts with
+      // the same advice shown elsewhere (e.g. DMARC ramp guidance, SPF -all).
+      const canonical = resolveRemediation({ finding_type: risk.id });
+      const recommendation = canonical.status === "resolved"
+        ? canonical.recommended_action : risk.recommendation;
+      topRisks.push({ title: risk.title, impact: risk.impact, recommendation, severity: risk.severity });
     }
   }
   // Sort: critical > high > medium > low
