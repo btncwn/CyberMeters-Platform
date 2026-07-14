@@ -873,6 +873,9 @@ export function computeScore(modules, domain) {
       module:       "subdomain_takeover",
       severity:     "high",
       confidence:   "high",
+      // Machine-readable affected hosts. Managed cases derive their verification
+      // target from this — never from the prose description below.
+      affected_hosts: takeoverMod.risks.map((r) => r.host).filter(Boolean),
       title:        `Subdomain Takeover Risk${riskCount > 1 ? "s" : ""} Detected`,
       description:  `${riskCount} subdomain${riskCount > 1 ? "s" : ""} with dangling CNAME records pointing to unclaimed services ${riskCount > 1 ? "were" : "was"} found: ${takeoverMod.risks.map((r) => r.host).join(", ")}. These may be vulnerable to hijacking by a third party.`,
       score_impact: impact,
@@ -902,6 +905,7 @@ export function computeScore(modules, domain) {
         module:       "asset_exposure",
         severity:     "high",
         confidence:   90,
+        affected_hosts: toolAssets.map((a) => a.host).filter(Boolean),
         title:        `Sensitive Management Tool${toolAssets.length > 1 ? "s" : ""} Exposed`,
         description:  `${toolAssets.length} management or monitoring tool${toolAssets.length > 1 ? "s are" : " is"} publicly reachable: ${toolAssets.map((a) => a.host).join(", ")}. These provide privileged access and should not be internet-facing.`,
         score_impact: -10,
@@ -933,6 +937,7 @@ export function computeScore(modules, domain) {
         module:       "asset_exposure",
         severity:     "medium",
         confidence:   80,
+        affected_hosts: adminAssets.map((a) => a.host).filter(Boolean),
         title:        `Administrative Interface${adminAssets.length > 1 ? "s" : ""} Publicly Reachable`,
         description:  `${adminAssets.length} administrative or login interface${adminAssets.length > 1 ? "s are" : " is"} publicly accessible: ${adminAssets.map((a) => a.host).join(", ")}. Restrict access to authorised IP ranges or enforce MFA.`,
         score_impact: -8,
@@ -964,6 +969,7 @@ export function computeScore(modules, domain) {
         module:       "asset_exposure",
         severity:     "medium",
         confidence:   80,
+        affected_hosts: devAssets.map((a) => a.host).filter(Boolean),
         title:        `Development Environment${devAssets.length > 1 ? "s" : ""} Publicly Reachable`,
         description:  `${devAssets.length} development or staging environment${devAssets.length > 1 ? "s are" : " is"} publicly accessible: ${devAssets.map((a) => a.host).join(", ")}. These often contain debug endpoints, test credentials, or reduced security controls.`,
         score_impact: -5,

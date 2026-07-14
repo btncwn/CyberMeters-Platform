@@ -304,6 +304,12 @@ export async function runCloudStorageModule(domain, modules) {
         id: findingBase.id,
         module: "cloud_storage_discovery",
         severity: findingBase.severity,
+        // The customer-side DNS name that references the storage endpoint — the host
+        // they would actually change. Recorded so a managed case carries an accurate
+        // affected host instead of falling back to the apex domain. The storage
+        // endpoint itself is third-party infrastructure and is NOT a probe target:
+        // cloud_storage_* is deliberately absent from the verification dispatch.
+        affected_hosts: [enriched.source_hostname].filter(Boolean),
         confidence:         csConf,
         validation_quality: csVQ,
         score_impact: 0,
