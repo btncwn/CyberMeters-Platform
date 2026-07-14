@@ -147,6 +147,27 @@ export function classifyHeaderStrength(name, value) {
   return { status: "unknown", details: `Header "${name}" strength classification not implemented` };
 }
 
+// ── Canonical response-header capture (detector + verifier share this) ────────
+// The managed-verification profile must read HSTS and Set-Cookie from a re-observed
+// response EXACTLY as the scan did, or a dse_hsts_* / dse_cookie_* case could be
+// judged against different inputs than the finding was raised from. Both callers use
+// these two helpers; neither re-implements the parsing.
+export function securityHeaderValuesFrom(headers) {
+  const values = {};
+  for (const h of SECURITY_HEADERS) values[h.name] = headers.get(h.name) || null;
+  return values;
+}
+
+// Workers supports getAll() because multiple Set-Cookie values can't be safely
+// comma-joined; fall back to a newline split elsewhere.
+export function captureSetCookieRaw(headers) {
+  try {
+    return typeof headers.getAll === "function"
+      ? headers.getAll("set-cookie")
+      : (headers.get("set-cookie") || "").split(/\r?\n/).filter(Boolean);
+  } catch { return []; }
+}
+
 export async function runHeadersModule(domain) {
   let headerValues         = {};
   let accessible           = false;
@@ -165,11 +186,7 @@ export async function runHeadersModule(domain) {
     return out;
   };
 
-  const securityHeaderValues = (headers) => {
-    const values = {};
-    for (const h of SECURITY_HEADERS) values[h.name] = headers.get(h.name) || null;
-    return values;
-  };
+  const securityHeaderValues = (headers) => securityHeaderValuesFrom(headers);
 
   const recordHeaderCheck = (label, requestedUrl, res, method = "GET") => {
     if (!res) {
@@ -238,11 +255,7 @@ export async function runHeadersModule(domain) {
 
     // Set-Cookie capture — Workers supports getAll() because multiple values
     // can't be safely comma-joined.
-    try {
-      setCookieRaw = typeof getRes.headers.getAll === "function"
-        ? getRes.headers.getAll("set-cookie")
-        : (getRes.headers.get("set-cookie") || "").split(/\r?\n/).filter(Boolean);
-    } catch { setCookieRaw = []; }
+    setCookieRaw = captureSetCookieRaw(getRes.headers);
 
     // ── Step 2: Bot protection detection ─────────────────────────────────
     botProtectionSignals = detectBotProtection(statusCode, responseUrl, rawHeaderSnapshot);

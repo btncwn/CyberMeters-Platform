@@ -229,23 +229,42 @@ async function scenario(status, fetchOpts, { workspaceId = "ws_1", caseId = "cas
 
 // ── 8. Dispatch coverage is an explicit, honest allowlist ────────────────────
 {
-  const { isSupportedVerification, supportedVerificationTypes, runManagedVerificationProbe } =
+  const { ASM_VERIFICATION_SUPPORT, isSupportedVerification, supportedVerificationTypes,
+          runManagedVerificationProbe, verificationSupportFor } =
     await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "managed-verification.js")).href);
 
   const supported = supportedVerificationTypes();
   for (const id of ["asset_exposure_admin_interface", "asset_exposure_sensitive_tool", "asset_exposure_dev_env",
-                    "admin_surface_critical", "admin_surface_high", "admin_surface_medium"]) {
+                    "admin_surface_critical", "admin_surface_high", "admin_surface_medium",
+                    "subdomain_takeover", "dse_missing_caa", "dse_caa_no_issuers",
+                    "dse_hsts_short_maxage", "dse_hsts_not_preload_eligible",
+                    "dse_cookie_no_secure", "dse_cookie_no_httponly", "dse_cookie_no_samesite"]) {
     ok(`dispatch: ${id} is verifiable`, supported.includes(id) && isSupportedVerification({ id }));
   }
-  // Types that must NOT claim verification support. Each fails closed.
+  // Types that must NOT claim verification support. Each fails closed with a reason.
   for (const id of ["cloud_storage_public_listing", "cloud_storage_takeover_risk", "cloud_storage_exposure_observed",
-                    "asset_exposure_interface_observed", "asset_provider_infrastructure_observed",
-                    "subdomain_takeover", "dse_missing_caa", "dse_cookie_no_secure"]) {
+                    "asset_exposure_interface_observed", "asset_provider_infrastructure_observed"]) {
     ok(`dispatch: ${id} is NOT claimed as verifiable`, !supported.includes(id) && !isSupportedVerification({ id }));
     const probe = await runManagedVerificationProbe({ id }, "admin.example.com");
     ok(`dispatch: ${id} fails closed (deferred, never fixed)`,
        probe.decision === "deferred" && probe.completeness === "unsupported_finding_type");
+    ok(`dispatch: ${id} states WHY it is unsupported`, typeof probe.support_reason === "string" && probe.support_reason.length > 10);
   }
+  // cloud_storage_* stays a deliberate scope boundary, not an oversight.
+  eq("matrix: cloud_storage_public_listing is intentionally unsupported", ASM_VERIFICATION_SUPPORT.cloud_storage_public_listing.support, "unsupported");
+  eq("matrix: cloud_storage_takeover_risk is intentionally unsupported", ASM_VERIFICATION_SUPPORT.cloud_storage_takeover_risk.support, "unsupported");
+  eq("matrix: observed findings are verification-not-applicable", ASM_VERIFICATION_SUPPORT.asset_exposure_interface_observed.support, "not_applicable");
+
+  // The matrix and the dispatch must never disagree — the matrix is what the product
+  // claims, the dispatch is what it can actually do.
+  const automated = Object.entries(ASM_VERIFICATION_SUPPORT).filter(([, v]) => v.support === "automated").map(([k]) => k).sort();
+  eq("matrix: automated entries exactly match the dispatch", JSON.stringify(automated), JSON.stringify(supported));
+  ok("matrix: every non-automated entry gives a reason",
+     Object.values(ASM_VERIFICATION_SUPPORT).filter((v) => v.support !== "automated").every((v) => typeof v.reason === "string" && v.reason.length > 10));
+  ok("matrix: every automated entry names a technique",
+     Object.values(ASM_VERIFICATION_SUPPORT).filter((v) => v.support === "automated").every((v) => typeof v.technique === "string"));
+  eq("matrix: an unknown finding type is unsupported by default", verificationSupportFor("totally_unknown").support, "unsupported");
+
   // A client-supplied value can never select a verifier.
   const injected = await runManagedVerificationProbe({ id: "constructor" }, "admin.example.com");
   eq("dispatch: prototype key cannot select a verifier", injected.decision, "deferred");
@@ -347,6 +366,142 @@ async function scenario(status, fetchOpts, { workspaceId = "ws_1", caseId = "cas
   ok("legacy prose asset_ref → deferral is audited",
      db._events.some((binds) => binds.includes("verification_deferred")
        && binds.some((b) => typeof b === "string" && b.includes("no_affected_host_in_scope"))));
+}
+
+// ── 12. subdomain_takeover: risks=[] is NOT remediation ──────────────────────
+// The whole point of this section: runTakeoverModule returns risks=[] both when a
+// CNAME is genuinely no longer dangling AND when we simply could not look. Only the
+// first may resolve a case.
+{
+  const { runManagedVerificationProbe } =
+    await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "managed-verification.js")).href);
+  const finding = { id: "subdomain_takeover" };
+  const HOST = "old.example.com";
+
+  // cname → answers; body → response text. dnsQueryImpl is injected so DNS is scripted.
+  const run = ({ cname = null, dnsThrows = false, body = null, bodyRefused = false, bodyThrows = false }) => {
+    const dnsQueryImpl = async () => {
+      if (dnsThrows) throw new Error("DoH 502 for CNAME");
+      return { Answer: cname ? [{ data: cname }] : [] };
+    };
+    globalThis.fetch = async (url) => {
+      const s = String(url);
+      if (classifyRequest(s) === "doh") {
+        // The reserved probe resolves the target itself. Pointing it at a reserved IP
+        // makes the real SSRF guard refuse — that is what "refused" must look like.
+        const type = new URL(s).searchParams.get("type");
+        if (type === "A") {
+          return new Response(JSON.stringify({ Answer: [{ data: bodyRefused ? "127.0.0.1" : "93.184.216.34" }] }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ Answer: [] }), { status: 200 });
+      }
+      if (bodyThrows) throw new Error("network down");
+      return new Response(body ?? "", { status: 200 });
+    };
+    return runManagedVerificationProbe(finding, HOST, { dnsQueryImpl });
+  };
+
+  const lookupFailed = await run({ dnsThrows: true });
+  eq("takeover: CNAME lookup failure → deferred (never fixed)", lookupFailed.decision, "deferred");
+  eq("takeover: CNAME lookup failure reason", lookupFailed.reason, "dns_indeterminate");
+
+  const noCname = await run({ cname: null });
+  eq("takeover: no CNAME → fixed (nothing dangles)", noCname.decision, "fixed");
+
+  const harmlessCname = await run({ cname: "myapp.herokudns-not-a-fingerprint.example" });
+  eq("takeover: CNAME to a non-vulnerable target → fixed", harmlessCname.decision, "fixed");
+
+  // THE TRAP: the CNAME still points at a takeover-prone provider, but the body probe
+  // was refused. Pre-fix this fell through to risks=[] and looked exactly like a fix.
+  const refused = await run({ cname: "victim.github.io", bodyRefused: true });
+  eq("takeover: vulnerable CNAME + refused probe → deferred (NOT fixed)", refused.decision, "deferred");
+  eq("takeover: refused probe reason", refused.reason, "probe_refused");
+
+  const fetchFailed = await run({ cname: "victim.github.io", bodyThrows: true });
+  eq("takeover: vulnerable CNAME + failed fetch → deferred (NOT fixed)", fetchFailed.decision, "deferred");
+  eq("takeover: failed fetch reason", fetchFailed.reason, "fetch_failed");
+
+  const stillPresent = await run({ cname: "victim.github.io", body: "There isn't a GitHub Pages site here." });
+  eq("takeover: vulnerable CNAME + takeover fingerprint → still_present", stillPresent.decision, "still_present");
+
+  const claimed = await run({ cname: "victim.github.io", body: "<h1>Our real site</h1>" });
+  eq("takeover: vulnerable CNAME + service claimed → fixed (conclusive)", claimed.decision, "fixed");
+  globalThis.fetch = realFetch;
+}
+
+// ── 13. dse_* CAA: a DNS failure is not a fix ────────────────────────────────
+{
+  const { runManagedVerificationProbe } =
+    await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "managed-verification.js")).href);
+  const HOST = "example.com";
+  const run = (id, { records = [], throws = false }) => {
+    const dnsQueryImpl = async () => {
+      if (throws) throw new Error("DoH 502 for CAA");
+      return { Answer: records.map((data) => ({ data })) };
+    };
+    return runManagedVerificationProbe({ id }, HOST, { dnsQueryImpl });
+  };
+
+  eq("dse_missing_caa: CAA lookup failure → deferred", (await run("dse_missing_caa", { throws: true })).decision, "deferred");
+  eq("dse_missing_caa: still no CAA record → still_present", (await run("dse_missing_caa", { records: [] })).decision, "still_present");
+  eq("dse_missing_caa: CAA now published → fixed", (await run("dse_missing_caa", { records: ['0 issue "letsencrypt.org"'] })).decision, "fixed");
+
+  eq("dse_caa_no_issuers: records but no issuers → still_present",
+     (await run("dse_caa_no_issuers", { records: ['0 iodef "mailto:security@example.com"'] })).decision, "still_present");
+  eq("dse_caa_no_issuers: issuer added → fixed",
+     (await run("dse_caa_no_issuers", { records: ['0 issue "letsencrypt.org"'] })).decision, "fixed");
+  eq("dse_caa_no_issuers: no CAA at all → fixed (this finding no longer applies)",
+     (await run("dse_caa_no_issuers", { records: [] })).decision, "fixed");
+}
+
+// ── 14. dse_* headers: an unread response is not a fix ───────────────────────
+{
+  const { runManagedVerificationProbe } =
+    await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "managed-verification.js")).href);
+  const HOST = "example.com";
+  const run = (id, { headers = {}, refused = false, throws = false }) => {
+    globalThis.fetch = async (url) => {
+      const s = String(url);
+      if (classifyRequest(s) === "doh") {
+        const name = new URL(s).searchParams.get("name");
+        const type = new URL(s).searchParams.get("type");
+        return new Response(JSON.stringify({ Answer: type === "A" && name === HOST ? [{ data: "93.184.216.34" }] : [] }), { status: 200 });
+      }
+      if (refused) return new Response("blocked", { status: 403 }); // reachable but not our target shape
+      if (throws) throw new Error("network down");
+      return new Response("<html></html>", { status: 200, headers });
+    };
+    return runManagedVerificationProbe({ id }, HOST);
+  };
+
+  eq("dse_hsts_short_maxage: unreachable host → deferred",
+     (await run("dse_hsts_short_maxage", { throws: true })).decision, "deferred");
+  eq("dse_hsts_short_maxage: max-age still short → still_present",
+     (await run("dse_hsts_short_maxage", { headers: { "strict-transport-security": "max-age=86400" } })).decision, "still_present");
+  eq("dse_hsts_short_maxage: max-age raised to a year → fixed",
+     (await run("dse_hsts_short_maxage", { headers: { "strict-transport-security": "max-age=31536000; includeSubDomains; preload" } })).decision, "fixed");
+  eq("dse_hsts_not_preload_eligible: missing directives → still_present",
+     (await run("dse_hsts_not_preload_eligible", { headers: { "strict-transport-security": "max-age=31536000" } })).decision, "still_present");
+  eq("dse_hsts_not_preload_eligible: fully preload-eligible → fixed",
+     (await run("dse_hsts_not_preload_eligible", { headers: { "strict-transport-security": "max-age=31536000; includeSubDomains; preload" } })).decision, "fixed");
+
+  // THE COOKIE TRAP: a response that sets no cookies cannot distinguish "flags fixed"
+  // from "this request just set no cookies". It must never read as remediation.
+  eq("dse_cookie_no_secure: no cookies observed → deferred (NOT fixed)",
+     (await run("dse_cookie_no_secure", { headers: {} })).decision, "deferred");
+  eq("dse_cookie_no_secure: no-cookies deferral reason",
+     (await run("dse_cookie_no_secure", { headers: {} })).reason, "no_cookies_observed");
+  eq("dse_cookie_no_secure: insecure cookie still set → still_present",
+     (await run("dse_cookie_no_secure", { headers: { "set-cookie": "sid=1; HttpOnly; SameSite=Lax" } })).decision, "still_present");
+  eq("dse_cookie_no_secure: Secure flag added → fixed",
+     (await run("dse_cookie_no_secure", { headers: { "set-cookie": "sid=1; Secure; HttpOnly; SameSite=Lax" } })).decision, "fixed");
+  eq("dse_cookie_no_httponly: HttpOnly missing → still_present",
+     (await run("dse_cookie_no_httponly", { headers: { "set-cookie": "sid=1; Secure; SameSite=Lax" } })).decision, "still_present");
+  eq("dse_cookie_no_samesite: SameSite missing → still_present",
+     (await run("dse_cookie_no_samesite", { headers: { "set-cookie": "sid=1; Secure; HttpOnly" } })).decision, "still_present");
+  eq("dse_cookie_no_samesite: SameSite set → fixed",
+     (await run("dse_cookie_no_samesite", { headers: { "set-cookie": "sid=1; Secure; HttpOnly; SameSite=Strict" } })).decision, "fixed");
+  globalThis.fetch = realFetch;
 }
 
 console.log(`\nmanaged-verification: ${pass} passed, ${fail} failed`);

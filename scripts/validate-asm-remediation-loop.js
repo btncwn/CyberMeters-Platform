@@ -272,6 +272,56 @@ await createManagedAsmCasesForScan("scan_h2", "dom_case", "case-example.com", [{
 const caaCase = (await listManagedCases(env, "ws_case")).find((c) => c.finding_id === "dse_missing_caa");
 eq("host-less finding falls back to the domain", (await getManagedCase(env, "ws_case", caaCase.id)).asset_ref, "case-example.com");
 
+// ── Legacy prose asset_ref is healed by a later observation, never by parsing ──
+// Simulate a case opened before affected_hosts existed: prose in asset_ref, no
+// structured hosts in the evidence snapshot.
+{
+  const legacyDesc = "1 administrative or login interface is publicly accessible: legacy.case-example.com. Restrict access.";
+  const legacyEvidence = JSON.stringify({
+    scan_id: "scan_old", domain_id: "dom_case",
+    finding: { id: "asset_exposure_dev_env", module: "asset_exposure", severity: "medium", title: "Dev env exposed", description: legacyDesc },
+  });
+  db.prepare(`INSERT INTO managed_cases (id, workspace_id, case_type, domain_key, domain, finding_id,
+      source_finding_type, source_scan_id, asset_ref, severity, status, evidence_json, created_by, created_at, updated_at)
+    VALUES ('case_legacy','ws_case','asm_exposure','attack_surface','case-example.com','asset_exposure_dev_env',
+      'asset_exposure_dev_env','scan_old',?, 'medium','open',?, 'system', datetime('now'), datetime('now'))`)
+    .run(legacyDesc, legacyEvidence);
+
+  const before = await getManagedCase(env, "ws_case", "case_legacy");
+  ok("legacy case starts with prose in asset_ref", /publicly accessible/.test(before.asset_ref));
+
+  // The SAME finding is observed again, this time carrying structured hosts.
+  await createManagedAsmCasesForScan("scan_heal", "dom_case", "case-example.com", [{
+    id: "asset_exposure_dev_env", module: "asset_exposure", severity: "medium",
+    title: "Dev env exposed", description: legacyDesc,
+    affected_hosts: ["legacy.case-example.com", "staging.case-example.com"],
+  }], [], env);
+
+  const after = await getManagedCase(env, "ws_case", "case_legacy");
+  eq("legacy asset_ref healed to a real host on re-observation", after.asset_ref, "legacy.case-example.com");
+  const ev = JSON.parse(after.evidence_json);
+  eq("enriched hosts appended to evidence", JSON.stringify(ev.affected_hosts), JSON.stringify(["legacy.case-example.com", "staging.case-example.com"]));
+  ok("enrichment records the observing scan", ev.affected_hosts_scan_id === "scan_heal" && Boolean(ev.affected_hosts_observed_at));
+  eq("original finding snapshot preserved byte-for-byte", ev.finding.description, legacyDesc);
+  ok("original finding snapshot gains no invented hosts", ev.finding.affected_hosts === undefined);
+  ok("prose is never parsed into a host", !/publicly accessible/.test(after.asset_ref));
+  const healEvents = await listManagedCaseEvents(env, "ws_case", "case_legacy");
+  ok("enrichment is audited as an append-only event",
+     healEvents.some((e) => e.action === "affected_hosts_enriched" && e.detail?.asset_ref_replaced === true
+       && e.detail?.reason === "legacy_asset_ref_not_a_host"));
+  ok("no duplicate case was opened for the healed finding",
+     (await listManagedCases(env, "ws_case")).filter((c) => c.finding_id === "asset_exposure_dev_env").length === 1);
+
+  // Idempotent: re-observing the same hosts again must not append a second event.
+  const eventsBefore = (await listManagedCaseEvents(env, "ws_case", "case_legacy")).length;
+  await createManagedAsmCasesForScan("scan_heal2", "dom_case", "case-example.com", [{
+    id: "asset_exposure_dev_env", module: "asset_exposure", severity: "medium", title: "Dev env exposed",
+    affected_hosts: ["legacy.case-example.com", "staging.case-example.com"],
+  }], [], env);
+  eq("re-observing identical hosts is idempotent (no event churn)",
+     (await listManagedCaseEvents(env, "ws_case", "case_legacy")).length, eventsBefore);
+}
+
 console.log(`\nASM remediation loop: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("asm-remediation-loop validation FAILED"); process.exit(1); }
 console.log("asm-remediation-loop validation passed");
