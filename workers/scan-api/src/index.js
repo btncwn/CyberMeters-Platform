@@ -59,6 +59,7 @@ import { computePortfolioRisk } from "./engines/portfolio-risk.js";
 import { _cloudflareEmailRoutingRequest, _cloudflareRouteFailure, auditDmarcRouteResult, buildDmarcEnforcementReadiness, buildEnforcementReadinessChecks, classifyHostedCfError, configureDmarcEndpointRoute, dmarcSenderRiskLevel, emailSenderToApi, ensureCloudflareEmailRoute, extractIngestToken, generateInboundLocalpart, generateIngestToken, hashIngestToken, ingestEndpointToApi, loadEmailSenderSources, persistDmarcRouteResult, resolveWorkspaceDomain, revokeCloudflareEmailRoute, safelyEnsureCloudflareEmailRoute, safelyRevokeCloudflareEmailRoute, summarizeEmailSenders } from "./engines/rua-routing.js";
 import { DMARC_RAMP_LADDER, HOSTED_DNS_REMOVAL_GRACE_DAYS, REMEDIATION_REGISTRY, analyzeSpfChain, applyHostedDmarcChange, buildDmarcDnsRecommendedValue, buildDmarcPolicyValue, cfCreateHostedTxt, dmarcRampStepIndex, dmarcTagDiff, evaluateRampReadiness, getHostedDmarcPassRate, getRemediation, hostedDmarcSubdomain, hostedDnsRecordToApi, newHostedDnsRecordId, nextHostedDnsStatus, parseServerMsHosted, planAllowsHostedPolicyManagement, reconcileHostedIntent, remediationToApi, resolveRampThresholds, rollbackHostedDmarc, runHostedDnsVerificationSweep, shouldAutoRollback, verifyDmarcDnsSetup, verifyHostedDmarcRecord } from "./engines/hosted-dmarc.js";
 import { runDmarcAlertsSweep } from "./engines/dmarc-alerts.js";
+import { retryFailedAlertDeliveries } from "./engines/managed-alerts.js";
 import { buildDmarcBusinessRisk, buildDmarcReportRemediationActions, buildDmarcSenderIntelligenceEvidence, cybermetersRuaPresentInDmarcRecord, loadBecExposureEvidence } from "./engines/sender-provenance.js";
 import { retryFailedAssetAlerts, sendAssetChangeAlert } from "./engines/asset-alert-delivery.js";
 import { sendWeeklyDigests } from "./engines/weekly-digest.js";
@@ -945,7 +946,7 @@ const WORKSPACE_PURGE_TABLES = [
   "identity_exposure_events", "identity_exposure",
   "workspace_brs_scores", "workspace_brs_score_history",
   "workspace_supply_chain_scores", "workspace_supply_chain_history",
-  "notification_events", "notification_preferences",
+  "alert_deliveries", "alert_activation", "notification_events", "notification_preferences",
   "report_schedule_runs", "report_schedules", "scheduled_reports",
   "workspace_invitations", "workspace_members", "workspace_retention_settings",
   "lifecycle_email_events", "scheduled_scans", "workspace_domains",
@@ -2147,6 +2148,7 @@ export default {
     retryPendingDomainVerifications,
     runHostedDnsVerificationSweep,
     runDmarcAlertsSweep,
+   retryFailedAlertDeliveries,
     runBrandTakedownFollowupSweep,
     triggerScheduledScan,
   }),

@@ -22,6 +22,7 @@
 // externally re-observed. Follow-up uses the Universal Managed-Case Model
 // (identity_case → identity.* canonical remediation).
 
+import { emitLifecycleAlert } from "./alert-consumers.js";
 import { createManagedCase, canTransitionCase, canonicalPhaseFor } from "./managed-case-model.js";
 import { newCaseEventId } from "./case-workflow.js";
 import {
@@ -367,6 +368,18 @@ export async function evaluateIdentityExposureMonitoring(env, workspaceId, { see
 
     if (required_case_action === "open_or_reopen" || required_case_action === "assign_owner") {
       const acted = await openOrReopenIdentityCase(env, { ...rec, monitoring_status, ownership_status }, { recurrence: recurrence_type, now });
+      // Tell the customer — through the ONE canonical pipeline, from the same
+      // deterministic decision that just opened/reopened the case. Detection is not
+      // repeated here. The condition-start and occurrence identity come from the
+      // append-only monitoring_changed event, so hourly re-evaluation of the same
+      // occurrence dedupes and pre-existing state stays silent. Never sends directly.
+      await emitLifecycleAlert(env, {
+        workspace_id: workspaceId, domain_key: "identity_exposure",
+        record_id: rec.id, entity: rec.canonical_identity_key, hostname: rec.primary_hostname || null,
+        recurrence: recurrence_type,
+        finding_type: (RECURRENCE_CASE[recurrence_type] || {}).finding_type || null,
+        case_id: rec.linked_case_id || null,
+      }).catch(() => { /* alerting must never break the evaluator */ });
       if (acted?.ok) cases++;
     }
   }
