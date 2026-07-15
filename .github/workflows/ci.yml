@@ -107,6 +107,9 @@ jobs:
       - name: Validate evaluator/resolver parity (each engine emits a resolvable occurrence)
         run: node scripts/validate-alert-evaluator-parity.js
 
+      - name: Validate CI governance (every branch gets the same gate)
+        run: node scripts/validate-ci-governance.js
+
       - name: Validate hosted DMARC lifecycle (pass-rate + readiness + auto-rollback runtime)
         run: node scripts/validate-hosted-dmarc-lifecycle.js
 
