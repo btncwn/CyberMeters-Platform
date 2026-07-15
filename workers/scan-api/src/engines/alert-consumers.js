@@ -192,6 +192,32 @@ const RECURRENCE_SEVERITY = Object.freeze({
     browser_protection_missing:    INHERIT_SEVERITY,
     browser_protection_malformed:  INHERIT_SEVERITY,
   }),
+  // ── Cyber Essentials Readiness (corrective phase) ─────────────────────────
+  // FIXED at medium, and deliberately NOT inherited — the opposite reasoning to
+  // every other domain here, for a reason worth stating.
+  //
+  // CE detects nothing of its own. Each control theme re-interprets evidence another
+  // domain already owns AND ALREADY ALERTS ON at that evidence's own grade: a missing
+  // DMARC record is Email Protection's alert, an expired certificate is Certificates
+  // & Trust's. If CE inherited those grades it would re-raise the same urgency a
+  // second time under a different name — the duplicate-detection this domain's
+  // ownership decision exists to prevent.
+  //
+  // What CE adds is a different, quieter question: "are you still on track for
+  // certification?" That is a review item, not an incident, so it is graded as one.
+  // The technical domain keeps the urgent grade; CE keeps the readiness framing. A
+  // customer on `critical_only` therefore hears the technical alert and is not
+  // interrupted twice.
+  //
+  // Only the two externally evidenced transitions appear. Recovery and unknown are
+  // absent: they append history and are structurally unable to alert (their
+  // event_type is not `monitoring_changed`), and absence here is the second stop.
+  // access_control and malware_protection can never reach this map at all — the
+  // evaluator refuses them upstream on external_coverage: "none".
+  cyber_essentials_readiness: Object.freeze({
+    externally_observed_control_not_ready: "medium",
+    externally_observed_control_worsened:  "medium",
+  }),
 });
 
 // Severity for a recurrence, or null when the recurrence is not mapped.

@@ -910,6 +910,35 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     limitations: ["Readiness is an estimate over observable controls and self-attestation; it is not a Cyber Essentials certification and does not replace assessment."],
   }),
   entry({
+    // The customer-facing meaning of a CE readiness TRANSITION. Without it,
+    // emitLifecycleAlert falls back to "<entity>: review required" / "Review this
+    // item in CyberMeters." — a content-free email, which is the one thing a
+    // readiness alert must never be: its whole value is naming which evidence moved.
+    //
+    // Deliberately framed as REVIEW, not as a defect. The defect already has its own
+    // alert in the domain that owns it (Email Protection, Website Security,
+    // Certificates & Trust). This says only that the theme's externally evidenced
+    // readiness changed, and points at the evidence.
+    remediation_id: "ce.readiness.control_review",
+    domain_key: "cyber_essentials_readiness",
+    finding_types: ["ce_control_not_ready", "ce_control_worsened"],
+    customer_title: "Review a Cyber Essentials control area whose external evidence changed",
+    technical_explanation: "The externally observable evidence for this Cyber Essentials control area no longer supports readiness. CyberMeters assesses this control from outside only — from HTTPS, security headers, certificate and email-authentication evidence — and the specific gaps are listed with the alert.",
+    business_impact: "Cyber Essentials certification is assessed against these control areas. An externally visible gap is likely to be raised during certification, and is usually cheaper to fix before the assessment than during it.",
+    recommended_action: "Open the Cyber Essentials page, review the named external evidence for this control area, and resolve the underlying findings through their own remediation. Re-run a scan to confirm the evidence has changed.",
+    effort: "medium",
+    owner_type: "customer_it",
+    verification_method: "rescan",
+    verification_evidence_requirements: "A completed scan observes the control area's external evidence supporting readiness again. This is an indicative external readiness signal — it is not a certification outcome and is not assessed by a certification body.",
+    supporting_evidence_types: ["https_probe", "http_header_probe", "certificate_transparency_observation", "dns_lookup"],
+    applicability: "Applies only to control areas CyberMeters can observe externally (Firewalls & Boundary Protection, Secure Configuration, Security Update Management).",
+    limitations: [
+      "CyberMeters does not certify Cyber Essentials. This is an indicative readiness signal from externally observable evidence only.",
+      "User Access Control and Malware Protection cannot be assessed externally, so they never raise this alert. MFA, admin account separation, endpoint protection and device patching are not visible from outside.",
+      "Readiness is assessed from the latest completed scan of this workspace's own domains. It is not an assessment of internal networks, devices or policies.",
+    ],
+  }),
+  entry({
     remediation_id: "ce.backlog.remediate",
     domain_key: "cyber_essentials_readiness",
     finding_types: ["ce_open_findings_backlog"],

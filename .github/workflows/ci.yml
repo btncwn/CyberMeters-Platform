@@ -162,6 +162,17 @@ jobs:
       - name: Validate Website Security lifecycle (flood guard / unknown≠recovery / band escalation / reappearance, mutation-tested)
         run: node scripts/validate-website-security-lifecycle.js
 
+      # Cyber Essentials is the 8th and last canonical alerting domain, and the one
+      # with the most ways to be dishonest. It detects nothing of its own, so it owns
+      # only control-theme READINESS transitions — never a second "we found X" for a
+      # condition another domain already alerts. Mutation-tested on both guards:
+      # removing the external-coverage gate lets access_control/malware_protection
+      # alert from email-auth proxies (the unsupported claim), and removing the
+      # no-evidence guard turns an unexecuted probe into `control_recovered` — a
+      # fabricated recovery.
+      - name: Validate Cyber Essentials lifecycle (external evidence only / no questionnaire / no score alerts, mutation-tested)
+        run: node scripts/validate-ce-lifecycle.js
+
       - name: Validate evaluator/resolver parity (each engine emits a resolvable occurrence)
         run: node scripts/validate-alert-evaluator-parity.js
 

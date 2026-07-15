@@ -92,6 +92,7 @@ db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES ('ws1
     // helpers, so the assertions below hold for both.
     email_protection: "email-protection-lifecycle.js",
     website_security: "website-security-lifecycle.js",
+    cyber_essentials_readiness: "ce-lifecycle.js",
   };
   // MANAGED-CASE engines (PR-B1) have no monitoring_status column — their transition
   // guard is the case state machine (canTransitionCase rejects a repeat), and they
