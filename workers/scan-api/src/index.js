@@ -820,9 +820,27 @@ const SCAN_CHILD_TABLES = [
   "scan_module_telemetry",
 ];
 
-// Tables hard-deleted by workspace_id, children before parents. audit_events,
-// subscriptions and deletion_requests are intentionally NOT here (retained /
-// tracking). Kept in sync by `purge_covers_all_workspace_fk_tables`.
+// Tables hard-deleted by workspace_id, children before parents.
+//
+// INTENTIONALLY NOT HERE, and each for a stated reason — anything else that is
+// absent is a bug, not a decision:
+//   • audit_events, subscriptions, deletion_requests — retained (audit/accounting/
+//     tracking); see DELETION_PURGE_WINDOW_DAYS above.
+//   • scans, workspace_reports — purged by purgeWorkspaceData itself, ahead of this
+//     list, because their R2 objects must go first.
+//
+// This list is now enforced STRUCTURALLY, not by hand: validate-purge-completeness
+// derives every workspace_id-bearing table from the real schema and fails if one is
+// neither purged here nor in its explicit exception allowlist.
+//
+// It previously claimed to be "kept in sync by `purge_covers_all_workspace_fk_tables`".
+// That test did not exist — the name appears nowhere in the repository, and neither
+// does `purge_covers_all_scan_fk_tables` below. The suite that did exist seeded rows
+// only for tables ALREADY in this list, so it could only ever confirm the list purges
+// itself; a forgotten table was never seeded and never checked. That is exactly how
+// cyber_essentials_answers came to survive a purge the product calls permanent, for
+// as long as the table has existed. A comment asserting a guard nobody wrote is worse
+// than no comment: it stops the next person looking.
 const WORKSPACE_PURGE_TABLES = [
   // email_protection_events holds no FK to either record family it describes
   // (hosted_dns_entries is hard-deleted on removal, and one column carries ids
@@ -838,6 +856,13 @@ const WORKSPACE_PURGE_TABLES = [
   "shadow_it_inventory_events", "shadow_it_inventory",
   "certificate_lifecycle_events", "certificate_lifecycle",
   "identity_exposure_events", "identity_exposure",
+  // Cyber Essentials questionnaire answers. Customer-entered content — including
+  // `note` (free text) and `answered_by` (a user id) — so it is customer data by
+  // any reading, and the deletion email tells the owner it has been "permanently
+  // removed". It was absent from this list for the table's entire life: it carries
+  // no FK to workspaces(id), so D1 could not block the parent delete either, and
+  // every row simply outlived the workspace it belonged to.
+  "cyber_essentials_answers",
   "workspace_brs_scores", "workspace_brs_score_history",
   "workspace_supply_chain_scores", "workspace_supply_chain_history",
   "alert_deliveries", "alert_activation", "notification_events", "notification_preferences",

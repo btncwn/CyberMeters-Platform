@@ -118,18 +118,40 @@ function emailSignals(modules) {
   };
 }
 
+// ── CE evidence is THIS workspace's own scan. Never another tenant's. ────────
+// The predicate was `(s.workspace_id = ? OR wd.workspace_id = ?)` with a LEFT JOIN
+// onto workspace_domains — and workspace_domains is PRIMARY KEY (workspace_id,
+// domain_id), so ONE DOMAIN MAY BELONG TO SEVERAL WORKSPACES by design.
+//
+// The `OR` arm matched whenever the target workspace merely LINKED the domain,
+// regardless of who ran the scan. Concretely: an MSP workspace and its client
+// workspace both link acme.com; the MSP scans hourly, the client weekly;
+// `ORDER BY s.created_at DESC LIMIT 1` therefore resolved the MSP's scan, and the
+// client's Cyber Essentials readiness was graded from a scan the client never ran
+// and cannot see. Today that is a stale computed view. The moment CE evidence is
+// persisted as lifecycle history and mailed as an alert, it becomes a durable,
+// audited, emailed cross-tenant evidence attribution — so it is fixed before that
+// lifecycle is built, not after.
+//
+// `s.workspace_id = ?` only. Legacy scans with a NULL workspace_id are evidence for
+// NOBODY: they cannot be attributed to a tenant, so the honest result is no
+// evidence, which buildCyberEssentialsReadiness renders as `not_assessed` rather
+// than as a grade. No fallback: a fallback is how the OR arm got here.
+//
+// This also removes the foreign scan id from the readiness path entirely — the
+// report object key is derived from a scan this workspace owns, so a foreign
+// reports/<scan_id>.json can no longer be read on a tenant's behalf.
 async function getLatestWorkspaceScanReport(wsId, env) {
   try {
     const scan = await env.cybermeters_db
       .prepare(
         `SELECT s.id
          FROM scans s
-         LEFT JOIN workspace_domains wd ON wd.domain_id = s.domain_id
          WHERE s.status = 'completed'
-           AND (s.workspace_id = ? OR wd.workspace_id = ?)
+           AND s.workspace_id = ?
          ORDER BY s.created_at DESC LIMIT 1`
       )
-      .bind(wsId, wsId)
+      .bind(wsId)
       .first();
     if (!scan?.id) return null;
 
@@ -143,7 +165,13 @@ async function getLatestWorkspaceScanReport(wsId, env) {
 
 export async function buildCyberEssentialsReadiness(wsId, env) {
   const [scorecard, report] = await Promise.all([
-    buildScorecardData(wsId, env),
+    // scanScope "workspace": CE's counts (critical_findings, admin_surfaces,
+    // certificate_risks, saas_exposures) are EVIDENCE for a readiness verdict, and
+    // this verdict is about to become persisted lifecycle state and an alert. The
+    // default scope would let a co-owning workspace's newer scan supply them, so
+    // fixing getLatestWorkspaceScanReport alone would have left CE grading a client
+    // from its MSP's scan through the scorecard's back door.
+    buildScorecardData(wsId, env, { scanScope: "workspace" }),
     getLatestWorkspaceScanReport(wsId, env),
   ]);
   if (!scorecard) return null;
