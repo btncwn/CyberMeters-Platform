@@ -116,6 +116,12 @@ CREATE TABLE IF NOT EXISTS alert_deliveries (
 
     -- Provider's id for the accepted message, when there is one.
     provider_id       TEXT,
+    -- Normalized provider diagnostics. Deliberately three narrow, safe fields:
+    -- a raw provider body can echo the recipient address or message content, and
+    -- the ledger is an audit trail, not a second copy of customer PII.
+    provider_status_code  INTEGER,
+    provider_error_class  TEXT,
+    provider_message_code TEXT,
     -- How many verified recipients this attempt targeted (never the addresses:
     -- the ledger must not become a second copy of customer PII).
     recipient_count   INTEGER NOT NULL DEFAULT 0,

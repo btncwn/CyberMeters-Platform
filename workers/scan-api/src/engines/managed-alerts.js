@@ -43,6 +43,7 @@ import { deliverWorkspaceAlert, formatAlertEmail, resolveWorkspaceAlertRecipient
 import { getEmailFrontendOrigin } from "../lib/lifecycle-email.js";
 import { getEffectivePlan, hasFeatureEntitlement } from "./entitlements.js";
 import { getWorkspaceBillingUserId } from "./plan-usage.js";
+import { isInCooldown, normalizeProviderOutcome, PROVIDER_OUTCOMES } from "./alert-outcomes.js";
 
 // The entitlement key is canonical and already declared in PLAN_FEATURES. Never
 // inline a plan name here.
@@ -71,6 +72,8 @@ export const TERMINAL_REASONS = Object.freeze(new Set([
   "missing_api_key",
   "invalid_content",
   "no_valid_recipients",
+  // Permanent provider outcomes, from the same canonical vocabulary.
+  ...Object.entries(PROVIDER_OUTCOMES).filter(([, v]) => v.terminal).map(([k]) => k),
 ]));
 
 // Retryable: we tried (or could not determine) and it may yet succeed. A hard
@@ -81,8 +84,8 @@ export const TERMINAL_REASONS = Object.freeze(new Set([
 // still bounded by RETRY_MAX_ATTEMPTS + RETRY_MAX_AGE_HOURS, so even a permanent 4xx
 // hiding in this bucket stops quickly and visibly rather than retrying forever.
 export const RETRYABLE_REASONS = Object.freeze(new Set([
-  "provider_rejected",
-  "provider_unavailable",
+  // Derived from the canonical provider vocabulary so the two can never disagree.
+  ...Object.entries(PROVIDER_OUTCOMES).filter(([, v]) => !v.terminal).map(([k]) => k),
   "recipient_lookup_failed",
   "send_failed",
 ]));
@@ -123,16 +126,19 @@ async function recordDelivery(env, {
   workspace_id, notification_id = null, domain_key = null, alert_kind, dedupe_key = null,
   severity = null, channel, channel_id = null, outcome, reason = null,
   provider_id = null, recipient_count = 0, attempt = 1,
+  provider_status_code = null, provider_error_class = null, provider_message_code = null,
 }) {
   const terminal = outcome === "suppressed" || isTerminalReason(reason) ? 1 : 0;
   try {
     await env.cybermeters_db
       .prepare(`INSERT INTO alert_deliveries
           (id, workspace_id, notification_id, domain_key, alert_kind, dedupe_key, severity,
-           channel, channel_id, outcome, reason, terminal, provider_id, recipient_count, attempt, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`)
+           channel, channel_id, outcome, reason, terminal, provider_id, recipient_count, attempt,
+           provider_status_code, provider_error_class, provider_message_code, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`)
       .bind(`ad_${createId()}`, workspace_id, notification_id, domain_key, alert_kind, dedupe_key,
-        severity, channel, channel_id, outcome, reason, terminal, provider_id, recipient_count, attempt)
+        severity, channel, channel_id, outcome, reason, terminal, provider_id, recipient_count, attempt,
+        provider_status_code, provider_error_class, provider_message_code)
       .run();
   } catch (err) {
     console.error("[managed-alert] ledger write failed", JSON.stringify({ workspace_id, alert_kind, channel, reason: err?.message }));
@@ -254,7 +260,10 @@ export async function emitManagedAlert(env, {
   workspace_id, domain_key, kind, severity = "info",
   title, message, dedupe_key = null, link = null,
   case_id = null, remediation_id = null, metadata = {},
-  cooldownActive = false,
+  // Canonical cooldown is resolved INSIDE the pipeline (see alert-outcomes.js).
+  // Kept only as a test/override seam; callers do not decide cooldown policy.
+  cooldownActive = null,
+  cooldown_entity = null,
   // When the underlying CONDITION was observed — not when it was evaluated.
   //
   // This distinction is the whole flood guard. The lifecycle evaluators refresh
@@ -291,7 +300,10 @@ export async function emitManagedAlert(env, {
     // IGNORE against the partial UNIQUE index makes duplicate suppression a
     // database guarantee — two concurrent scans cannot both win.
     const notifId = `notif_${createId()}`;
-    const meta = { ...metadata, domain_key, kind, case_id, remediation_id, link };
+    // cooldown_entity is persisted on the event so the cooldown window can be
+    // resolved per (kind, entity) from the ledger join without a second table.
+    const cooldownEntity = String(cooldown_entity || metadata.hostname || dedupe_key || "").trim().toLowerCase();
+    const meta = { ...metadata, domain_key, kind, case_id, remediation_id, link, cooldown_entity: cooldownEntity };
     const insert = await env.cybermeters_db
       .prepare(`INSERT OR IGNORE INTO notification_events
           (id, workspace_id, type, severity, title, message, metadata_json, status, created_at, domain_key, dedupe_key)
@@ -306,9 +318,13 @@ export async function emitManagedAlert(env, {
     }
     deliveries.push(await recordDelivery(env, { ...base, notification_id: notifId, channel: "in_app", outcome: "delivered" }));
 
-    // 4. Cooldown — damps the intrusive channels; the canonical event above is
-    //    already recorded, so history stays complete.
-    if (cooldownActive) {
+    // 4. Cooldown — ONE canonical policy (alert-outcomes.js), resolved here rather
+    //    than trusted from the caller. Outbound only: the canonical event above is
+    //    already recorded, so the bell and history stay complete.
+    const inCooldown = cooldownActive === null
+      ? await isInCooldown(env, { workspace_id, domain_key, kind, entity: cooldownEntity, severity })
+      : Boolean(cooldownActive);
+    if (inCooldown) {
       for (const channel of MONITORING_CHANNELS) {
         deliveries.push(await recordDelivery(env, { ...base, notification_id: notifId, channel, outcome: "suppressed", reason: "cooldown_active" }));
       }
@@ -351,12 +367,18 @@ export async function emitManagedAlert(env, {
         const sent = await sendTenantAlertEmail(env, workspace_id, {
           subject: title, text, html, fromKey: "ALERT_EMAIL_FROM",
         });
+        // Normalize the transport's coarse outcome into the closed vocabulary so
+        // the retry sweep can tell a 429 from a 403. Unknown => terminal.
+        const norm = sent.sent ? null : normalizeProviderOutcome({ reason: sent.reason, status: sent.status });
         deliveries.push(await recordDelivery(env, {
           ...base, notification_id: notifId, channel: "email",
           outcome: sent.sent ? "delivered" : "failed",
-          reason: sent.sent ? null : (sent.reason || "send_failed"),
+          reason: sent.sent ? null : norm.reason,
           provider_id: sent.provider_id || null,
           recipient_count: (sent.recipients || []).length,
+          provider_status_code: norm?.provider_status_code ?? null,
+          provider_error_class: norm?.provider_error_class ?? null,
+          provider_message_code: norm?.provider_message_code ?? null,
         }));
       }
     }
@@ -500,12 +522,16 @@ export async function retryFailedAlertDeliveries(env, { now = new Date().toISOSt
         subject: notif.title, text: notif.message, html: `<p>${String(notif.message || "")}</p>`,
         fromKey: "ALERT_EMAIL_FROM",
       });
+      const rnorm = sent.sent ? null : normalizeProviderOutcome({ reason: sent.reason, status: sent.status });
       await recordDelivery(env, {
         ...row, outcome: sent.sent ? "delivered" : "failed",
-        reason: sent.sent ? null : (sent.reason || "send_failed"),
+        reason: sent.sent ? null : rnorm.reason,
         provider_id: sent.provider_id || null,
         recipient_count: (sent.recipients || []).length,
         attempt: Number(row.attempt) + 1,
+        provider_status_code: rnorm?.provider_status_code ?? null,
+        provider_error_class: rnorm?.provider_error_class ?? null,
+        provider_message_code: rnorm?.provider_message_code ?? null,
       });
       stats.retried++;
       if (sent.sent) stats.delivered++;

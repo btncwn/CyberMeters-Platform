@@ -226,8 +226,11 @@ await preActivate("ws_dead");
                    "workspace_deleted", "deduplicated", "cooldown_active", "recipient_undeliverable"]) {
     ok(`${r} is terminal`, isTerminalReason(r) && !reasonIsRetryable(r));
   }
-  for (const r of ["provider_rejected", "provider_unavailable", "recipient_lookup_failed"]) {
+  for (const r of ["provider_rate_limited", "provider_unavailable", "provider_temporary_rejection", "recipient_lookup_failed"]) {
     ok(`${r} is retryable`, reasonIsRetryable(r) && !isTerminalReason(r));
+  }
+  for (const r of ["provider_permanent_rejection", "provider_authentication_failed", "recipient_invalid"]) {
+    ok(`${r} is terminal`, isTerminalReason(r) && !reasonIsRetryable(r));
   }
   ok("a hard/undeliverable recipient does NOT retry forever",
      isTerminalReason("recipient_undeliverable") && !reasonIsRetryable("recipient_undeliverable"));
@@ -393,12 +396,13 @@ await preActivate("ws_dead");
   eq("inside backoff waits", retryEligible(mk({ created_at: "2026-08-01T11:30:00Z" }), { now: NOW }).reason, "backoff");
 
   // Which provider outcomes may retry
-  for (const r of ["provider_rejected", "provider_unavailable", "recipient_lookup_failed"]) {
+  for (const r of ["provider_rate_limited", "provider_unavailable", "provider_temporary_rejection", "recipient_lookup_failed"]) {
     ok(`${r} may retry`, retryEligible(mk({ reason: r }), { now: NOW }).ok);
   }
   // Permanent recipient / sender / configuration outcomes must not retry forever.
   for (const r of ["no_verified_recipient", "invalid_sender", "missing_api_key", "invalid_content",
-                   "recipient_undeliverable", "feature_not_entitled", "channel_disabled"]) {
+                   "recipient_undeliverable", "feature_not_entitled", "channel_disabled",
+                   "provider_permanent_rejection", "provider_authentication_failed", "recipient_invalid"]) {
     ok(`${r} must not retry forever`, !retryEligible(mk({ reason: r }), { now: NOW }).ok && isTerminalReason(r));
   }
 
@@ -454,6 +458,130 @@ await preActivate("ws_dead");
   ok("ledger rows are never updated in place",
      !fs.readFileSync(path.join(root, "workers", "scan-api", "src", "engines", "managed-alerts.js"), "utf8")
        .split("\n").filter((l) => !l.trim().startsWith("//")).join("\n").includes("UPDATE alert_deliveries"));
+}
+
+// ── 15. NORMALIZED PROVIDER OUTCOMES (review item 1) ────────────────────────
+{
+  const { normalizeProviderOutcome, PROVIDER_OUTCOMES,
+          buildCooldownKey, cooldownHoursFor, COOLDOWN_HOURS_BY_SEVERITY } =
+    await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "alert-outcomes.js")).href);
+  const n = (reason, status) => normalizeProviderOutcome({ reason, status });
+
+  eq("429 → rate limited (retryable)", n("provider_rejected", 429).reason, "provider_rate_limited");
+  ok("429 retries", !n("provider_rejected", 429).terminal && reasonIsRetryable(n("provider_rejected", 429).reason));
+  eq("provider 5xx → unavailable (retryable)", n("provider_rejected", 503).reason, "provider_unavailable");
+  ok("provider 5xx retries", reasonIsRetryable(n("provider_rejected", 503).reason));
+  eq("timeout → unavailable (retryable)", n("timeout", null).reason, "provider_unavailable");
+  eq("network failure → unavailable (retryable)", n("network_error", null).reason, "provider_unavailable");
+  ok("timeout/network retry", reasonIsRetryable(n("timeout").reason) && reasonIsRetryable(n("network_error").reason));
+
+  eq("permanent 4xx → permanent rejection", n("provider_rejected", 400).reason, "provider_permanent_rejection");
+  ok("permanent 4xx does NOT retry", n("provider_rejected", 400).terminal && !reasonIsRetryable("provider_permanent_rejection"));
+  eq("401 → authentication failed", n("provider_rejected", 401).reason, "provider_authentication_failed");
+  eq("403 → authentication failed", n("provider_rejected", 403).reason, "provider_authentication_failed");
+  ok("authentication/sender configuration failure does NOT retry",
+     n("provider_rejected", 403).terminal && !reasonIsRetryable("provider_authentication_failed"));
+  eq("422 → recipient invalid", n("provider_rejected", 422).reason, "recipient_invalid");
+  ok("invalid recipient does NOT retry", n("provider_rejected", 422).terminal);
+
+  ok("unknown provider outcome fails closed", n("something_new", null).terminal === true);
+  ok("provider_rejected with no status fails closed", n("provider_rejected", null).terminal === true);
+  eq("unknown outcome is classed, not guessed", n("something_new").provider_error_class, "unknown");
+
+  // Safe diagnostics only.
+  const d = n("provider_rejected", 429);
+  eq("status code persisted", d.provider_status_code, 429);
+  eq("error class persisted", d.provider_error_class, "rate_limited");
+  eq("message code persisted", d.provider_message_code, "http_429");
+  eq("no other diagnostic fields leak", Object.keys(d).sort(),
+     ["provider_error_class", "provider_message_code", "provider_status_code", "reason", "terminal"]);
+  ok("normalizer never returns a raw body or recipient",
+     !JSON.stringify(d).toLowerCase().includes("@") && !("body" in d) && !("response" in d));
+
+  // The ledger stores the diagnostics and no PII.
+  const rows = db.prepare("SELECT * FROM alert_deliveries WHERE provider_status_code IS NOT NULL").all();
+  ok("ledger has the diagnostic columns", db.prepare("PRAGMA table_info(alert_deliveries)").all()
+     .some((c) => c.name === "provider_error_class"));
+  ok("ledger never stores an email address",
+     db.prepare("SELECT * FROM alert_deliveries").all().every((r) => !JSON.stringify(r).includes("@example.com")));
+
+  // ── 16. CANONICAL COOLDOWN (review item 2) ────────────────────────────────
+  eq("cooldown key is per workspace|domain|kind|entity",
+     buildCooldownKey({ workspace_id: "ws", domain_key: "d", kind: "k", entity: "E.Example.com" }), "ws|d|k|e.example.com");
+  ok("cooldown key is case-stable",
+     buildCooldownKey({ workspace_id: "ws", domain_key: "d", kind: "k", entity: "E.COM" }) ===
+     buildCooldownKey({ workspace_id: "ws", domain_key: "d", kind: "k", entity: "e.com" }));
+  ok("a different entity has a different cooldown key",
+     buildCooldownKey({ workspace_id: "ws", domain_key: "d", kind: "k", entity: "a" }) !==
+     buildCooldownKey({ workspace_id: "ws", domain_key: "d", kind: "k", entity: "b" }));
+  eq("duration is by severity", [cooldownHoursFor("critical"), cooldownHoursFor("high"), cooldownHoursFor("medium"), cooldownHoursFor("low")], [1, 4, 12, 24]);
+  ok("critical is damped too, just shorter — never exempt", cooldownHoursFor("critical") > 0);
+  eq("unknown severity falls back to the medium window", cooldownHoursFor("nonsense"), COOLDOWN_HOURS_BY_SEVERITY.medium);
+
+  // Cooldown suppresses OUTBOUND ONLY; the canonical event survives.
+  const before = notifs("ws_paid").length;
+  const cd = await emitManagedAlert(env, alert({ kind: "cd_kind", dedupe_key: "cd|1", cooldownActive: true, cooldown_entity: "cd.example.com" }));
+  ok("cooldown: canonical in-app event is still created", cd.emitted === true && notifs("ws_paid").length === before + 1);
+  const cdl = ledger("ws_paid").filter((d2) => d2.dedupe_key === "cd|1");
+  ok("cooldown: outbound suppressed", cdl.some((d2) => d2.channel === "email" && d2.reason === "cooldown_active"));
+  ok("cooldown: in_app is NOT suppressed", cdl.some((d2) => d2.channel === "in_app" && d2.outcome === "delivered"));
+
+  // Lookup failure fails OPEN — a damping feature must never silence a real alert.
+  const { isInCooldown } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "alert-outcomes.js")).href);
+  const brokenEnv = { cybermeters_db: { prepare() { throw new Error("D1 down"); } } };
+  eq("cooldown lookup failure fails OPEN (never silences an alert)",
+     await isInCooldown(brokenEnv, { workspace_id: "w", domain_key: "d", kind: "k", entity: "e", severity: "high" }), false);
+}
+
+// ── 17. RECURRENCE COVERAGE (review item 3) ─────────────────────────────────
+{
+  const { severityForRecurrence, isMappedRecurrence, alertKindFor } =
+    await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "alert-consumers.js")).href);
+  const { resolveRemediation } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "remediation-registry.js")).href);
+
+  // Every recurrence each shipped evaluator can emit must have an explicit severity.
+  const EVALUATOR_RECURRENCES = {
+    "certificate-lifecycle.js": ["expired", "renewal_overdue", "replacement_contradicted", "verification_failed",
+      "replacement_unverified", "coverage_regression", "unexpected_san", "exception_expired", "owner_missing", "evidence_stale"],
+    "identity-lifecycle.js": ["public_admin_surface", "removal_contradicted", "unexpected_surface", "retired_reappeared",
+      "investigate_unresolved", "provider_change", "verification_failed", "exception_expired", "owner_missing", "evidence_stale"],
+    "shadow-it-inventory.js": ["approved_disappeared", "evidence_stale", "exception_expired", "material_change",
+      "owner_missing", "rejected_reappeared", "removal_contradicted", "removal_incomplete", "retired_reappeared"],
+  };
+  for (const [file, list] of Object.entries(EVALUATOR_RECURRENCES)) {
+    const unmapped = list.filter((r) => !isMappedRecurrence(r));
+    eq(`${file}: every recurrence has an explicit severity`, unmapped, []);
+  }
+  // The mapping must be derived from the real source, not a stale copy.
+  for (const [file, list] of Object.entries(EVALUATOR_RECURRENCES)) {
+    const src = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "engines", file), "utf8");
+    const actual = [...new Set([...src.matchAll(/recurrence_type\s*=\s*"([a-z_]+)"/g)].map((m) => m[1]))]
+      .filter((r) => r !== "none");
+    const missing = actual.filter((r) => !list.includes(r));
+    eq(`${file}: test list matches the evaluator's real recurrence set`, missing, []);
+  }
+
+  ok("an unknown recurrence gets NO arbitrary default severity", severityForRecurrence("brand_new_thing") === null);
+  ok("an unknown recurrence is not mapped", !isMappedRecurrence("brand_new_thing"));
+  const skipped = await emitLifecycleAlertProbe();
+  eq("an unmapped recurrence is skipped, not graded", skipped, "unmapped_recurrence");
+
+  // saas_exposure must resolve in the canonical registry (shadow IT's case type).
+  const r = resolveRemediation({ finding_type: "saas_exposure" });
+  eq("saas_exposure resolves in the Canonical Remediation Registry", r.status, "resolved");
+  ok("saas_exposure has a customer title", typeof r.customer_title === "string" && r.customer_title.length > 0);
+  eq("saas_exposure belongs to the shadow IT domain", r.domain_key, "shadow_it_unmanaged_technology");
+
+  eq("alert kind is deterministic", alertKindFor("certificates_trust", "expired"), "certificates_trust.expired");
+}
+
+async function emitLifecycleAlertProbe() {
+  const { emitLifecycleAlert } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "alert-consumers.js")).href);
+  const r = await emitLifecycleAlert(env, {
+    workspace_id: "ws_paid", domain_key: "certificates_trust", record_id: "rec_x",
+    entity: "x.example.com", recurrence: "totally_unknown_recurrence",
+  });
+  return r.skipped;
 }
 
 globalThis.fetch = realFetch;
