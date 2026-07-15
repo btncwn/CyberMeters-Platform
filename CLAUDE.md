@@ -2,7 +2,7 @@
 
 Version: July 2026
 
-Last updated: 15 July 2026 (release v2026.07.15-2; next canonical episode: MSP Portfolio Per-Domain State and Trend)
+Last updated: 16 July 2026 (release v2026.07.16-1; next canonical episode: MSP Portfolio Per-Domain State and Trend)
 
 ---
 
@@ -239,7 +239,7 @@ Do not claim that CyberMeters performs a customer, provider, registrar, certific
 | Certificates Managed Lifecycle | Live |
 | Identity Exposure Managed Workflow | Live |
 | Complete ASM Verification | Live |
-| Alerts Across All Eight Domains | Foundation live — completion increment planned (6 of 8 domains alert canonically; Website Security and Cyber Essentials Readiness deferred — `docs/alerts-eight-domain-coverage.md`) |
+| Alerts Across All Eight Domains | Live — 8 of 8 domains alert canonically (`docs/alerts-eight-domain-coverage.md`). Engineering closed; genuine live-event acceptance outstanding. |
 | MSP Portfolio Per-Domain State and Trend | Planned |
 | M5 Completion Across All Eight Domains | Planned |
 | Debugging and Reliability Hardening | Planned after managed lifecycle completion |
@@ -248,21 +248,25 @@ Do not claim that CyberMeters performs a customer, provider, registrar, certific
 | Final Public-Beta Gate | Planned |
 | First Two Controlled Invitations | After final gate |
 
-Current release facts (as of 15 July 2026):
+Current release facts (as of 16 July 2026):
 
-- latest release tag: `v2026.07.15-2` (Alerts episode close — PRs #97–#103 — deployed);
-- live Worker Version ID: `d633118f-64f4-4baf-8d5b-cc486b8cf210`;
-- rollback Worker Version ID: `d5bdcd8d-10b8-4b6f-b132-b8c39ddf2a11`;
-- latest migration applied to production: `088-email-protection-lifecycle.sql` (PRs #102 and #103 required no migration);
+- latest release tag: `v2026.07.16-1` (Alerts corrective phase — 8/8 canonical coverage — deployed);
+- live Worker Version ID: `e0ce455f-034b-41e4-aad6-d546170b9ec7`;
+- rollback Worker Version ID: `ccfe0cd5-3d75-4acc-9057-32354954533c`;
+- latest migration applied to production: `090-cyber-essentials-lifecycle.sql`;
 - next canonical episode: MSP Portfolio Per-Domain State and Trend (not yet started).
 
-The Alerts episode is **engineering-closed, not production-proven**. Six of the eight
-canonical domains alert through the canonical pipeline; **Website Security and Cyber
-Essentials Readiness do not alert at all** and must never be counted as canonical alert
-coverage — both lack a persisted entity identity and an append-only occurrence source,
-and Cyber Essentials additionally needs a product definition of what a "recurrence"
-means before it can be built. The honest matrix, the deferred foundations and the
-suppressed legacy paths are recorded in `docs/alerts-eight-domain-coverage.md`.
+**All eight canonical domains alert through the canonical pipeline.** The earlier
+six-of-eight closure (`v2026.07.15-2`) was premature and is superseded — it deferred
+Website Security and Cyber Essentials on reasoning that turned out to be wrong (CE's
+readiness never read the questionnaire; Website Security's findings were persisted all
+along). Both were buildable. `docs/alerts-eight-domain-coverage.md` is the
+authoritative matrix and records why the original audit was wrong.
+
+Two live P1s had to ship first, neither about alerting: a probe that never executed
+reported `scan_quality: complete` and rendered Website Security **assessed_healthy**
+for a site nobody could reach (#105), and `cyber_essentials_answers` survived every
+workspace purge while the deletion email said "permanently removed" (#106).
 
 Genuine live occurrence proof is outstanding for **every** domain: alerting is proven
 by CI and no-op deployment only. Controlled, founder-led acceptance with real events
@@ -297,7 +301,7 @@ Unless the founder explicitly changes the roadmap:
 1. Certificates Managed Lifecycle (complete — Live)
 2. Identity Exposure Managed Workflow (complete — Live)
 3. Complete ASM Verification (complete — Live)
-4. Alerts Across All Eight Domains (engineering-closed — 6 of 8 domains; 2 deferred, see `docs/alerts-eight-domain-coverage.md`)
+4. Alerts Across All Eight Domains (complete — Live, 8 of 8; genuine live-event acceptance outstanding)
 5. MSP Portfolio Per-Domain State and Trend (next canonical episode)
 6. M5 Completion Across All Eight Domains
 7. Systematic debugging and reliability engineering
