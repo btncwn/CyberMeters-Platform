@@ -63,7 +63,6 @@ import { upsertAssetInventory } from "./engines/asset-inventory.js";
 import { computePortfolioRisk } from "./engines/portfolio-risk.js";
 import { _cloudflareEmailRoutingRequest, _cloudflareRouteFailure, auditDmarcRouteResult, buildDmarcEnforcementReadiness, buildEnforcementReadinessChecks, classifyHostedCfError, configureDmarcEndpointRoute, dmarcSenderRiskLevel, emailSenderToApi, ensureCloudflareEmailRoute, extractIngestToken, generateInboundLocalpart, generateIngestToken, hashIngestToken, ingestEndpointToApi, loadEmailSenderSources, persistDmarcRouteResult, resolveWorkspaceDomain, revokeCloudflareEmailRoute, safelyEnsureCloudflareEmailRoute, safelyRevokeCloudflareEmailRoute, summarizeEmailSenders } from "./engines/rua-routing.js";
 import { DMARC_RAMP_LADDER, HOSTED_DNS_REMOVAL_GRACE_DAYS, REMEDIATION_REGISTRY, analyzeSpfChain, applyHostedDmarcChange, buildDmarcDnsRecommendedValue, buildDmarcPolicyValue, cfCreateHostedTxt, dmarcRampStepIndex, dmarcTagDiff, evaluateRampReadiness, getHostedDmarcPassRate, getRemediation, hostedDmarcSubdomain, hostedDnsRecordToApi, newHostedDnsRecordId, nextHostedDnsStatus, parseServerMsHosted, planAllowsHostedPolicyManagement, reconcileHostedIntent, remediationToApi, resolveRampThresholds, rollbackHostedDmarc, runHostedDnsVerificationSweep, shouldAutoRollback, verifyDmarcDnsSetup, verifyHostedDmarcRecord } from "./engines/hosted-dmarc.js";
-import { runDmarcAlertsSweep } from "./engines/dmarc-alerts.js";
 import { retryFailedAlertDeliveries } from "./engines/managed-alerts.js";
 import { buildDmarcBusinessRisk, buildDmarcReportRemediationActions, buildDmarcSenderIntelligenceEvidence, cybermetersRuaPresentInDmarcRecord, loadBecExposureEvidence } from "./engines/sender-provenance.js";
 import { retryFailedAssetAlerts, sendAssetChangeAlert } from "./engines/asset-alert-delivery.js";
@@ -939,6 +938,10 @@ const SCAN_CHILD_TABLES = [
 // subscriptions and deletion_requests are intentionally NOT here (retained /
 // tracking). Kept in sync by `purge_covers_all_workspace_fk_tables`.
 const WORKSPACE_PURGE_TABLES = [
+  // email_protection_events holds no FK to either record family it describes
+  // (hosted_dns_entries is hard-deleted on removal, and one column carries ids
+  // from both), so it is purged on its own workspace_id ahead of them.
+  "email_protection_events",
   "dmarc_aggregate_records", "dmarc_aggregate_reports", "email_sender_sources",
   "brand_abuse_campaigns",
   "dmarc_ingest_endpoints", "workspace_brand_assets", "workspace_brand_profiles",
@@ -2262,7 +2265,6 @@ export default {
     retryFailedLifecycleEmails,
     retryPendingDomainVerifications,
     runHostedDnsVerificationSweep,
-    runDmarcAlertsSweep,
    retryFailedAlertDeliveries,
     runBrandTakedownFollowupSweep,
     triggerScheduledScan,
@@ -2395,7 +2397,6 @@ export {
   runAdminSurfaceModule,
   runCertificateIntelligenceModule,
   runHostedDnsVerificationSweep,
-  runDmarcAlertsSweep,
   runSaasExposureModule,
   sanitizeInfraErrorMessage,
   scoreBrandCandidateRisk,

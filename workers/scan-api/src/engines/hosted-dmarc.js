@@ -7,7 +7,13 @@
 // are module-internal.
 import { RUA_INBOUND_DOMAIN_DEFAULT, normalizeInboundRecipientDomain } from "../lib/dmarc-ingest.js";
 import { createAuditEvent } from "../lib/events.js";
-import { deliverWorkspaceAlert } from "./alerts.js";
+// PR-B3: this engine no longer holds a sender. Every alert it used to deliver
+// directly — bypassing occurrence identity, the activation watermark, dedupe and
+// the delivery ledger — now goes through the canonical lifecycle engine.
+import {
+  EMAIL_EVENT_HOSTED_POLICY_CHANGED, EMAIL_EVENT_HOSTED_RECONNECTED,
+  EMAIL_EVENT_HOSTED_ROLLED_BACK_MANUAL, recordHostedTransition,
+} from "./email-protection-lifecycle.js";
 import { assessImpactRollback, comparePolicyImpact } from "./dmarc-impact.js";
 import { dnsQuery } from "./dns.js";
 import { normalizeDnsTxtValue, parseDmarcRecord, parseSpfRecord } from "./email-analysis.js";
@@ -523,15 +529,26 @@ export async function runHostedDnsVerificationSweep(env, {
         await env.cybermeters_db
           .prepare(`UPDATE hosted_dns_entries SET verification_state = ?, verified_at = ?, updated_at = ? WHERE id = ?`)
           .bind(next, nowIso, nowIso, row.id).run();
+        // PR-B3: the state machine above IS the transition guard — we only get
+        // here when `next !== row.status` — so this is a genuine edge, exactly
+        // like a managed-case transition. The lifecycle engine owns the append
+        // and the alert; this engine no longer holds a sender.
         if (next === "disconnected" && row.status === "connected") {
-          try {
-            await deliverWorkspaceAlert(env, row.workspace_id, {
-              kind: "hosted_dmarc_disconnected", severity: "high",
-              title: `Hosted DMARC disconnected for ${row.domain}`,
-              summary: `The CNAME at _dmarc.${row.domain} no longer points at CyberMeters, so your DMARC policy may not be published. Restore the CNAME or review your DNS.`,
-              domain: row.domain,
-            });
-          } catch { /* alerting is best-effort */ }
+          await recordHostedTransition(env, row, {
+            recurrence: "hosted_record_disconnected",
+            from_status: row.status, to_status: next,
+            reason: "cname_no_longer_points_at_hosted_target",
+          }).catch(() => { /* alerting must never break the sweep */ });
+        }
+        // Recovery. Non-alertable by founder decision: history and state
+        // integrity only, and structurally unable to alert (its event_type is
+        // not `monitoring_changed`, so no occurrence can resolve from it).
+        if (next === "connected" && row.status === "disconnected") {
+          await recordHostedTransition(env, row, {
+            event_type: EMAIL_EVENT_HOSTED_RECONNECTED,
+            from_status: row.status, to_status: next,
+            reason: "cname_restored",
+          }).catch(() => {});
         }
       } else {
         await env.cybermeters_db
@@ -550,28 +567,35 @@ export async function runHostedDnsVerificationSweep(env, {
             const comparison = await comparePolicyImpact(env, row.workspace_id, row.domain, { changeAt: row.last_change_at, now });
             impactAssessment = assessImpactRollback(comparison);
             if (impactAssessment.rollbackRecommended) {
-              const recent = await env.cybermeters_db
-                .prepare(`SELECT id FROM audit_events
-                          WHERE workspace_id = ? AND entity_id = ?
-                            AND event_type = 'hosted_dmarc_impact_regression'
-                            AND created_at >= datetime('now', '-1 day')
-                          LIMIT 1`)
-                .bind(row.workspace_id, row.id).first();
-              if (!recent) {
+              // PR-B3. The old guard was an audit_events lookup with a 1-day
+              // window, so an unchanged regression RE-ALERTED EVERY DAY for as
+              // long as it persisted. audit_events is now audit history only and
+              // is never consulted for identity (founder decision).
+              //
+              // The transition guard is the policy change this regression is
+              // about: `last_change_at` is the band (PR-B2's third dimension).
+              // The same regression against the same change is not a transition,
+              // so no event is appended, the occurrence id is unchanged, the
+              // dedupe key is unchanged, and the database silences the repeat.
+              // A regression after a NEW policy change is a new band, so a new
+              // occurrence, so it correctly alerts again.
+              const outcome = await recordHostedTransition(env, row, {
+                recurrence: "hosted_impact_regression",
+                from_status: row.status, to_status: next,
+                band: row.last_change_at || null,
+                record_severity: impactAssessment.severity || "medium",
+                reason: impactAssessment.triggers?.[0] || "legitimate_mail_failures_after_policy_change",
+                detail: { assessment: impactAssessment },
+              }).catch(() => null);
+              // Audit records the transition, not every sweep that re-observed
+              // the same unchanged condition.
+              if (outcome && outcome.reason !== "unchanged" && !outcome.skipped) {
                 await createAuditEvent(env, {
                   workspace_id: row.workspace_id,
                   event_type: "hosted_dmarc_impact_regression", entity_type: "hosted_dns_record", entity_id: row.id,
                   description: `Hosted DMARC impact monitor recommends review for ${row.domain}`,
                   metadata: { domain: row.domain, assessment: impactAssessment },
                 });
-                try {
-                  await deliverWorkspaceAlert(env, row.workspace_id, {
-                    kind: "hosted_dmarc_impact_regression", severity: impactAssessment.severity || "medium",
-                    title: `DMARC impact review recommended for ${row.domain}`,
-                    summary: impactAssessment.triggers?.[0] || "Legitimate mail failures increased after a managed DMARC policy change.",
-                    domain: row.domain,
-                  });
-                } catch { /* alerting is best-effort */ }
               }
             }
           } catch { impactAssessment = null; }
@@ -878,14 +902,16 @@ export async function applyHostedDmarcChange(env, row, {
     description: `Hosted DMARC policy for ${row.domain} set to p=${policy}${pct < 100 ? ` pct=${pct}` : ""} (${source})`,
     metadata: { from: row.current_value, to: built.value, source },
   });
-  try {
-    await deliverWorkspaceAlert(env, row.workspace_id, {
-      kind: "hosted_dmarc_policy_changed", severity: "info",
-      title: `DMARC policy updated for ${row.domain}`,
-      summary: `The managed DMARC policy moved to p=${policy}${pct < 100 ? ` (pct=${pct})` : ""}${source === "autopilot" ? " — advanced automatically because compliance stayed healthy." : "."}`,
-      domain: row.domain,
-    });
-  } catch { /* best-effort */ }
+  // PR-B3: non-alertable by founder decision. A policy change is a confirmation
+  // of an action (the customer's, or autopilot's on their standing instruction),
+  // not a risk condition. It stays in history — and is structurally unable to
+  // alert, because its event_type is not `monitoring_changed`.
+  await recordHostedTransition(env, row, {
+    event_type: EMAIL_EVENT_HOSTED_POLICY_CHANGED,
+    actor_type: userId ? "customer" : "system", actor_id: userId,
+    reason: `policy_${source}`,
+    detail: { from: row.current_value, to: built.value, policy, pct, source },
+  }).catch(() => {});
   return { ok: true, value: built.value };
 }
 
@@ -932,16 +958,33 @@ export async function rollbackHostedDmarc(env, row, { userId = null, source = "m
     description: `Hosted DMARC for ${row.domain} rolled back (${source})`,
     metadata: { restored: row.previous_value, source },
   });
-  try {
-    await deliverWorkspaceAlert(env, row.workspace_id, {
-      kind: "hosted_dmarc_rolled_back", severity: source === "auto" ? "high" : "medium",
-      title: `DMARC policy rolled back for ${row.domain}`,
-      summary: source === "auto"
-        ? `Compliance dropped after the last policy change, so the previous policy was restored automatically. Review your sender inventory before tightening again.`
-        : `The managed DMARC policy was rolled back to its previous value.`,
-      domain: row.domain,
-    });
-  } catch { /* best-effort */ }
+  // PR-B3. The legacy path graded this inline (`source === "auto" ? "high" :
+  // "medium"`) and alerted on both. The two halves are different facts and are
+  // now split, so severity stays an ASSERTED lookup rather than a computed one:
+  //
+  //   auto   — CyberMeters intervened without being asked because compliance
+  //            dropped. The customer did not do this and needs to know: actionable.
+  //   manual — the customer rolled their own policy back. Alerting them about
+  //            their own action is not a risk alert (founder decision), so it is
+  //            history only.
+  //
+  // The COMMIT above nulls previous_value, so a second rollback returns
+  // `nothing_to_roll_back` — the write itself is the transition guard and this
+  // cannot fire twice for one rollback.
+  if (source === "auto") {
+    await recordHostedTransition(env, row, {
+      recurrence: "hosted_rolled_back_auto",
+      band: nowIso, reason: "compliance_dropped_after_policy_change",
+      detail: { restored: row.previous_value, source },
+    }).catch(() => {});
+  } else {
+    await recordHostedTransition(env, row, {
+      event_type: EMAIL_EVENT_HOSTED_ROLLED_BACK_MANUAL,
+      actor_type: userId ? "customer" : "system", actor_id: userId,
+      reason: "customer_rolled_back",
+      detail: { restored: row.previous_value, source },
+    }).catch(() => {});
+  }
   return { ok: true, value: row.previous_value };
 }
 

@@ -92,8 +92,11 @@ jobs:
       - name: Validate hosted DNS v2 migration (backfill 1:1 + no-CHECK + idempotent)
         run: node scripts/validate-hosted-dns-v2.js
 
-      - name: Validate DMARC operational alerts (new sender / spoofing + dedup + isolation)
-        run: node scripts/validate-dmarc-alerts.js
+      - name: Validate Email Protection canonical lifecycle (windowed evidence / baseline / recovery / re-entry)
+        run: node scripts/validate-alert-b3-email-protection.js
+
+      - name: Validate Email Protection alert honesty (no posture alerts / no cumulative thresholds / no invented claims)
+        run: node scripts/validate-alert-b3-email-honesty.js
 
       - name: Validate tenant alert recipients (no operator fallback / verified-only / soft-delete)
         run: node scripts/validate-alert-recipients.js
