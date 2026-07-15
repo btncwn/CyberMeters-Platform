@@ -222,6 +222,15 @@ async function request(path, options = {}) {
     // string-matching on messages.
     if (err.code) httpError.code = err.code
     if (err.readiness) httpError.readiness = err.readiness
+    // Domain-ownership gate: carry the EXACT record the server gated on, so the
+    // caller can start verification for that record rather than guessing between
+    // duplicate workspace/domain links. Machine-readable context only — the
+    // message itself is untouched.
+    if (err.error === 'domain_verification_required') {
+      httpError.code = 'domain_verification_required'
+      httpError.domain_id = err.domain_id
+      httpError.workspace_id = err.workspace_id
+    }
     throw httpError
   }
   return res.json()
