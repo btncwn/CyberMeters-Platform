@@ -26,9 +26,33 @@
 //   verified        — ownership proven; the scan may start
 //   scanning        — the scan was accepted
 export const SCAN_STATES = Object.freeze([
-  'idle', 'ready', 'starting', 'needs_setup', 'instructions',
-  'checking', 'check_failed', 'verified', 'scanning',
+  'idle', 'resolving', 'valid_unverified', 'initiating_verification', 'instructions',
+  'checking', 'check_failed', 'verified', 'starting', 'scanning',
 ]);
+
+// States where ownership is not proven but the domain IS actionable. Every one of
+// these MUST render a visible verification CTA — see requiresVerificationCta.
+//
+// This list exists because of a production deadlock: the verification panel was
+// only reachable from the createScan error path, while Start Scan was disabled
+// until verified. The customer could not submit, so the 403 never fired, so the
+// panel never appeared: a valid domain with no way forward and no explanation.
+// A state that needs verification but shows no CTA is a dead end by definition.
+const CTA_STATES = new Set([
+  'valid_unverified', 'initiating_verification', 'instructions', 'checking', 'check_failed',
+]);
+
+// True when the page owes the customer a route to verification.
+export function requiresVerificationCta(state) {
+  return CTA_STATES.has(state);
+}
+
+// The deadlock invariant, stated positively: no state may need verification and
+// simultaneously offer nothing. Asserted over EVERY state in the test suite.
+export function isDeadEnd(state) {
+  const needsVerification = !canStartScan(state) && state !== 'idle' && state !== 'starting' && state !== 'scanning' && state !== 'resolving';
+  return needsVerification && !requiresVerificationCta(state);
+}
 
 // Ownership is a backend fact. The page may never infer it from a regex, a previous
 // visit, or the absence of an error — only these states mean "proven".
@@ -51,8 +75,10 @@ export function domainHintFor(state, value) {
   if (!String(value || '').trim()) return null;
   if (!isValidDomainSyntax(value)) return { tone: 'error', text: 'Enter a domain like example.com' };
   if (VERIFIED_STATES.has(state)) return { tone: 'success', text: 'Domain ownership verified — ready to scan' };
-  // Deliberately not "ready to scan": we do not know that yet.
-  return { tone: 'neutral', text: 'Valid domain format. Ownership is checked before scanning.' };
+  if (state === 'resolving') return { tone: 'neutral', text: 'Checking domain ownership…' };
+  // Deliberately not "ready to scan": we do not know that yet. The verification CTA
+  // below tells the customer what to do about it.
+  return { tone: 'neutral', text: 'Valid domain format. Verify ownership to enable scanning.' };
 }
 
 // ── Customer-safe copy ───────────────────────────────────────────────────────

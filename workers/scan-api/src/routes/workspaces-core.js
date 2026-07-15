@@ -239,11 +239,19 @@ export async function workspacesCoreRoutes(rctx) {
               `SELECT
                  d.id                        AS domain_id,
                  d.domain,
-                 d.verification_status,
-                 d.verification_method,
-                 d.verification_token,
-                 d.verified_at,
-                 d.verification_initiated_at,
+                 -- Verification state comes from the workspace_domains LINK, which
+                 -- migration 079 made authoritative and which the scan gate reads
+                 -- (isWorkspaceDomainVerified). The legacy domains.verification_*
+                 -- columns are read-only compatibility data and are per-USER, not
+                 -- per-workspace — reading them here made this list report a
+                 -- verification state the scan gate does not honour, so a domain
+                 -- could show "verified" while every scan was refused (and the
+                 -- reverse). Same column names, authoritative source.
+                 wd.verification_status,
+                 wd.verification_method,
+                 wd.verification_token,
+                 wd.verified_at,
+                 wd.verification_initiated_at,
                  s.id                        AS last_scan_id,
                  s.score                     AS latest_score,
                  s.status                    AS latest_status,
