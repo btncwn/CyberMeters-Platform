@@ -101,6 +101,9 @@ jobs:
       - name: Validate canonical managed-alert pipeline (entitlement / preferences / dedupe / ledger)
         run: node scripts/validate-managed-alerts.js
 
+      - name: Validate alert trust foundation (free-plan blocked on every path / per-user preferences / no legacy bypass)
+        run: node scripts/validate-alert-trust-foundation.js
+
       - name: Validate alert occurrence identity (append-only event = condition start)
         run: node scripts/validate-alert-occurrence.js
 

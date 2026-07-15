@@ -3,6 +3,7 @@
 // endpoints. Extracted near-verbatim from index.js (router split, Phase 2 PR #6).
 // Receives the per-request routeCtx from index.js; returns a Response when a
 // route matches, or null so the main router continues.
+import { alertEmailFrequencyForUser, ALERT_EMAIL_FREQUENCIES, ALERT_PREF_CRITICAL_ONLY, ALERT_PREF_EVENT } from "../engines/alert-gate.js";
 import { getEffectivePlan, hasFeatureEntitlement } from "../engines/entitlements.js";
 import { getWorkspaceBillingUserId } from "../engines/plan-usage.js";
 import { createAuditEvent, sanitizeAuditMetadata } from "../lib/events.js";
@@ -406,18 +407,22 @@ export async function workspaceActivityRoutes(rctx) {
 
     // ── GET /api/workspaces/:id/notification-preferences ────────────────────
     // Returns the current user's notification preferences for this workspace.
-    // Defaults (no rows) are treated as "all_alerts" enabled.
+    // Defaults (no rows) are treated as "all_alerts" — absence of a preference is
+    // not a preference, and silently defaulting monitoring off would be its own
+    // dishonesty.
     //
     // Response: {
     //   workspace_id, user_id,
-    //   email_frequency: 'all_alerts' | 'critical_only' | 'daily_digest' | 'disabled'
+    //   email_frequency: 'all_alerts' | 'critical_only' | 'disabled',
+    //   supported: string[]   // the canonical list, so a client cannot offer a
+    //                         // choice this endpoint will reject
     // }
     //
-    // email_frequency is derived from notification_preferences rows:
-    //   all_alerts    — no rows, or critical_finding + high_finding both enabled
-    //   critical_only — critical_finding enabled, high_finding disabled
-    //   daily_digest  — daily_digest enabled, critical_finding disabled
-    //   disabled      — all channels disabled
+    // Resolved by alertEmailFrequencyForUser (engines/alert-gate.js) — the SAME
+    // function the alert pipeline calls, so what this endpoint reports is by
+    // construction what will actually happen. It previously derived the value from
+    // a private vocabulary {critical_finding, high_finding, daily_digest,
+    // email_alerts} that no engine ever read.
     const notifPrefsGetMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/notification-preferences$/);
     if (notifPrefsGetMatch && request.method === "GET") {
       const workspaceId = notifPrefsGetMatch[1];
@@ -426,43 +431,24 @@ export async function workspaceActivityRoutes(rctx) {
       const prefAccess = await requireWorkspaceRole(prefUser, workspaceId, "workspace:read", env);
       if (!prefAccess) return json({ error: "Forbidden" }, 403);
       try {
-        const rows = await env.cybermeters_db
-          .prepare(
-            `SELECT event_type, enabled, channel
-             FROM notification_preferences
-             WHERE workspace_id = ? AND (user_id = ? OR user_id IS NULL)
-             ORDER BY user_id DESC` // user-level rows win over workspace-level
-          )
-          .bind(workspaceId, prefUser.id)
-          .all();
-
-        // Derive email_frequency from stored rows
-        const byType = {};
-        for (const row of (rows.results || [])) {
-          byType[`${row.event_type}:${row.channel}`] = row.enabled;
-        }
-
-        let email_frequency = "all_alerts"; // default — no preferences stored
-        const criticalEmail  = byType["critical_finding:email"];
-        const highEmail      = byType["high_finding:email"];
-        const digestEmail    = byType["daily_digest:email"];
-        const disabledEmail  = byType["email_alerts:email"];
-
-        if (disabledEmail === 0) {
-          email_frequency = "disabled";
-        } else if (digestEmail === 1 && criticalEmail !== 1) {
-          email_frequency = "daily_digest";
-        } else if (criticalEmail === 1 && highEmail === 0) {
-          email_frequency = "critical_only";
-        } else if (criticalEmail !== undefined || highEmail !== undefined || digestEmail !== undefined) {
-          // Explicitly stored — determine from stored values
-          email_frequency = (criticalEmail === 1 && highEmail === 1) ? "all_alerts" : "all_alerts";
-        }
+        // Read through the SAME resolver the alert pipeline uses, so what the
+        // customer is shown here is by construction what will actually happen.
+        //
+        // The old derivation read a private vocabulary
+        // {critical_finding, high_finding, daily_digest, email_alerts} that no
+        // engine ever consulted — the page reported a setting the pipeline had
+        // never heard of. It also had a dead branch: both arms of its final
+        // ternary returned "all_alerts".
+        const pref = await alertEmailFrequencyForUser(env, workspaceId, prefUser.id);
+        if (!pref.ok) return serverError("api", new Error("preference lookup failed"));
 
         return json({
           workspace_id:    workspaceId,
           user_id:         prefUser.id,
-          email_frequency,
+          email_frequency: pref.frequency,
+          // The supported set, so the client cannot offer a choice the backend
+          // will reject. `daily_digest` is deliberately absent — see alert-gate.js.
+          supported:       ALERT_EMAIL_FREQUENCIES,
         });
       } catch (e) {
         return serverError("api", e);
@@ -472,9 +458,10 @@ export async function workspaceActivityRoutes(rctx) {
     // ── PUT /api/workspaces/:id/notification-preferences ────────────────────
     // Updates the current user's notification email frequency preference.
     //
-    // Body: { email_frequency: 'all_alerts' | 'critical_only' | 'daily_digest' | 'disabled' }
+    // Body: { email_frequency: 'all_alerts' | 'critical_only' | 'disabled' }
     //
-    // Upserts rows into notification_preferences — one per tracked event_type.
+    // Upserts the canonical per-user rows into notification_preferences. Anything
+    // outside the supported set is rejected, never coerced.
     if (notifPrefsGetMatch && request.method === "PUT") {
       const workspaceId = notifPrefsGetMatch[1];
       const prefPutUser = await requireAuth(request, env);
@@ -485,19 +472,27 @@ export async function workspaceActivityRoutes(rctx) {
         let body;
         try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
 
-        const VALID_FREQUENCIES = ["all_alerts", "critical_only", "daily_digest", "disabled"];
+        // Closed set, shared with the alert gate and echoed by the GET. Anything
+        // else — including the removed `daily_digest` — is rejected outright and
+        // never coerced into a neighbouring behaviour: silently treating an
+        // unsupported choice as "send" is how a preference control starts lying.
         const { email_frequency } = body;
-        if (!VALID_FREQUENCIES.includes(email_frequency)) {
-          return json({ error: `email_frequency must be one of: ${VALID_FREQUENCIES.join(", ")}` }, 400);
+        if (!ALERT_EMAIL_FREQUENCIES.includes(email_frequency)) {
+          return json({
+            error: `email_frequency must be one of: ${ALERT_EMAIL_FREQUENCIES.join(", ")}`,
+            code: "unsupported_email_frequency",
+          }, 400);
         }
 
-        // Map frequency choice to per-event-type enabled values
-        // critical_finding:email, high_finding:email, daily_digest:email, email_alerts:email
+        // Write the CANONICAL vocabulary — the exact rows the pipeline reads.
+        // Two booleans encode the three states (see alert-gate.js); the table
+        // stores no value column and this episode ships no migration.
+        //
+        // These rows are per-user (user_id = the caller): one member silencing
+        // their own email must not silence a colleague's.
         const prefs = {
-          critical_finding: email_frequency !== "disabled" ? 1 : 0,
-          high_finding:     email_frequency === "all_alerts" ? 1 : 0,
-          daily_digest:     email_frequency === "daily_digest" ? 1 : 0,
-          email_alerts:     email_frequency !== "disabled" ? 1 : 0,
+          [ALERT_PREF_EVENT]:         email_frequency !== "disabled" ? 1 : 0,
+          [ALERT_PREF_CRITICAL_ONLY]: email_frequency === "critical_only" ? 1 : 0,
         };
 
         const now = new Date().toISOString();

@@ -1,148 +1,34 @@
 // ── Email + webhook alert engine ──
-// Alert-worthiness decision, alert email building/sending, recipient resolution, duplicate
-// suppression, alert-channel (webhook/Slack/etc.) validation + payload signing + delivery, and
-// the per-workspace alert processor. Extracted verbatim from index.js (monolith decomposition,
-// Phase 1c). Internal: shouldSendAlert, buildAlertEmail,
-// isAlertDuplicate, ALERT_CHANNEL_TYPES, _alertChannelText.
+// Alert email building/sending, recipient resolution, duplicate suppression,
+// alert-channel (webhook/Slack/etc.) validation + payload signing + delivery, and
+// the per-workspace alert processor. Extracted verbatim from index.js (monolith
+// decomposition, Phase 1c). Internal: isAlertDuplicate, ALERT_CHANNEL_TYPES,
+// _alertChannelText.
+//
+// Two chokepoints live here, and every rule about whether a customer may be told
+// something is enforced inside them rather than by their callers:
+//   • sendTenantAlertEmail   — the ONLY way an alert reaches a customer by email.
+//   • deliverWorkspaceAlert  — the ONLY way one reaches Slack/Teams/webhook.
+// The decisions themselves (entitlement, preference, severity) are in alert-gate.js
+// so this module and managed-alerts.js can share them without a circular import.
+//
+// shouldSendAlert/buildAlertEmail were removed here: they were dead code — defined,
+// exported to nothing, called by nothing, while processAlertsForWorkspace
+// re-implemented five triggers inline. Two drifting copies of "is this alert-worthy"
+// is one more than the product can defend.
 import { createId } from "../lib/util.js";
-import { deliverEmail, escapeEmailHtml, getEmailFrontendOrigin, sendCustomerEmail } from "../lib/lifecycle-email.js";
+import { deliverEmail, escapeEmailHtml, getEmailFrontendOrigin } from "../lib/lifecycle-email.js";
+import { alertEmailFrequencyForUser, channelEnabledForWorkspace, resolveAlertEntitlement, severityAllowedByFrequency, workspaceAlertsEntitled } from "./alert-gate.js";
 
-// ── Email Alert Engine ────────────────────────────────────────────────────────
-
-/**
- * Inspect historical_changes and findings from a completed scheduled scan.
- * Returns an array of trigger objects when an alert is warranted, or null
- * when nothing notable changed (or when there is no previous scan to compare).
- *
- * Alert conditions:
- *   • Score dropped by 10+ points
- *   • One or more new subdomain takeover risks
- *   • One or more new reachable exposed assets
- *   • One or more new findings with severity 'high' or 'critical'
- */
-function shouldSendAlert(historicalChanges) {
-  if (!historicalChanges || !historicalChanges.has_previous) return null;
-
-  const triggers = [];
-
-  // Only a comparable (complete-vs-complete) delta may alert — a partial/degraded
-  // scan never emits a "score dropped" alert (its score_change is already nulled by
-  // the central gate; this is the explicit belt-and-braces).
-  if (historicalChanges.comparable !== false && historicalChanges.score_change != null && historicalChanges.score_change <= -10) {
-    triggers.push({
-      type:   "score_drop",
-      detail: `Score dropped ${historicalChanges.score_change} points ` +
-              `(${historicalChanges.previous_score} → ${historicalChanges.current_score})`,
-    });
-  }
-
-  if (historicalChanges.new_takeover_risks?.length > 0) {
-    triggers.push({
-      type:  "takeover_risk",
-      count: historicalChanges.new_takeover_risks.length,
-      hosts: historicalChanges.new_takeover_risks.map((r) => r.host),
-    });
-  }
-
-  if (historicalChanges.new_exposed_assets?.length > 0) {
-    triggers.push({
-      type:  "exposed_asset",
-      count: historicalChanges.new_exposed_assets.length,
-      hosts: historicalChanges.new_exposed_assets.map((a) => a.host),
-    });
-  }
-
-  const criticalNew = (historicalChanges.new_findings || []).filter(
-    (f) => f.severity === "high" || f.severity === "critical"
-  );
-  if (criticalNew.length > 0) {
-    triggers.push({
-      type:     "new_finding",
-      findings: criticalNew.map((f) => ({ title: f.title, severity: f.severity })),
-    });
-  }
-
-  return triggers.length > 0 ? triggers : null;
-}
-
-/**
- * Build a plain-text and HTML email body for a set of alert triggers.
- */
-function buildAlertEmail(domain, scanId, triggers) {
-  const count   = triggers.length;
-  const subject = `⚠ CyberMeters Alert: ${domain} — ` +
-                  `${count} issue${count !== 1 ? "s" : ""} detected`;
-
-  // Plain-text summary lines
-  const lines = [];
-  for (const t of triggers) {
-    if (t.type === "score_drop") {
-      lines.push(`Score drop: ${t.detail}`);
-    } else if (t.type === "takeover_risk") {
-      lines.push(
-        `${t.count} new subdomain takeover risk${t.count !== 1 ? "s" : ""}: ` +
-        t.hosts.join(", ")
-      );
-    } else if (t.type === "exposed_asset") {
-      lines.push(
-        `${t.count} new exposed asset${t.count !== 1 ? "s" : ""}: ` +
-        t.hosts.join(", ")
-      );
-    } else if (t.type === "new_finding") {
-      const titles = t.findings.map((f) => `${f.severity}: ${f.title}`).join("; ");
-      lines.push(
-        `${t.findings.length} new high/critical finding${t.findings.length !== 1 ? "s" : ""}: ` +
-        titles
-      );
-    }
-  }
-
-  const reportUrl = `https://cybermeters.pages.dev/scans/${scanId}`;
-
-  const text =
-    `CyberMeters scheduled scan alert for ${domain}\n\n` +
-    lines.map((l) => `• ${l}`).join("\n") +
-    `\n\nView full report: ${reportUrl}`;
-
-  const listItems = lines
-    .map((l) => `<li style="margin-bottom:8px">${l}</li>`)
-    .join("\n      ");
-
-  const html = `<!DOCTYPE html>
-<html lang="en">
-<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#111;max-width:600px;margin:0 auto;padding:24px;">
-  <div style="border-left:4px solid #00876A;padding-left:16px;margin-bottom:20px;">
-    <h2 style="margin:0 0 4px;color:#00876A;font-size:18px;">CyberMeters Alert</h2>
-    <p style="margin:0;color:#555;font-size:14px;">
-      Scheduled scan completed for <strong>${domain}</strong>
-    </p>
-  </div>
-  <ul style="padding-left:20px;line-height:1.7;font-size:14px;color:#333;">
-      ${listItems}
-  </ul>
-  <p style="margin-top:24px;">
-    <a href="${reportUrl}"
-       style="background:#00876A;color:white;padding:10px 20px;border-radius:8px;
-              text-decoration:none;font-size:14px;font-weight:600;display:inline-block;">
-      View Full Report
-    </a>
-  </p>
-  <hr style="border:none;border-top:1px solid #eee;margin:28px 0;" />
-  <p style="font-size:12px;color:#999;margin:0;">
-    CyberMeters &mdash; Attack Surface Management<br>
-    This alert fired because a scheduled scan detected security-relevant changes.
-  </p>
-</body>
-</html>`;
-
-  return { subject, text, html };
-}
-
-
-
-
-
-
+// Reasons that mean "we deliberately did not send", as opposed to "the send broke".
+// Recorded as `skipped`, never `failed`: a deliberate rule is not a transient error,
+// must not be retried, and must not be shown to a customer as a delivery problem.
+const SUPPRESSION_REASONS = new Set([
+  "feature_not_entitled",
+  "channel_disabled",
+  "preference_filtered",
+  "no_verified_recipient",
+]);
 
 // ── OPS-ONLY sender ──────────────────────────────────────────────────────────
 // Falls back to env.ALERT_EMAIL_TO — the OPERATOR's inbox — when no recipient is
@@ -164,13 +50,36 @@ export async function sendAlertEmail(subject, text, html, env, fromKey = "ALERT_
 }
 
 // ── Tenant alert sender (never falls back to the operator inbox) ──────────────
-// The ONE way an alert reaches a customer by email. Resolves the workspace's own
-// verified recipients and fails honest when there are none — an alert with no
-// deliverable audience is skipped and recorded, never redirected.
+// The ONE way an alert reaches a customer by email, and therefore the right place
+// for every rule that decides whether it may. Four gates, in order:
+//
+//   1. ENTITLEMENT — proactive delivery is the paid feature. Fails closed.
+//   2. AUDIENCE    — this workspace's own verified recipients, never an operator.
+//   3. PREFERENCE  — per-recipient, per-workspace. One member's opt-out silences
+//                    only their own address.
+//   4. SEVERITY    — `critical_only` means exactly critical.
+//
+// The gates live HERE rather than at call sites deliberately. Before this, the
+// legacy scan-alert path resolved recipients and called deliverEmail directly,
+// bypassing every rule — so free workspaces got paid alerts. A caller that forgets
+// a gate is a bug waiting to be written; a chokepoint cannot be forgotten.
+//
+// `severity` is required to honour `critical_only`. It defaults to null, which a
+// `critical_only` recipient will (correctly) filter out — fail closed: an unlabelled
+// alert is not provably critical, so a customer who asked for critical-only does not
+// get it. Pass the real severity.
 //
 // Returns the deliverEmail shape ({ sent, reason, provider_id }) so existing
-// callers can record the outcome unchanged, plus `recipients` for auditing.
-export async function sendTenantAlertEmail(env, workspaceId, { subject, text, html, fromKey = "ALERT_EMAIL_FROM" } = {}) {
+// callers record the outcome unchanged, plus `recipients` (the addresses actually
+// mailed, post-filter) for auditing.
+export async function sendTenantAlertEmail(env, workspaceId, { subject, text, html, fromKey = "ALERT_EMAIL_FROM", severity = null } = {}) {
+  // 1. Entitlement. "Not entitled" and "could not check" are different facts and
+  //    get different reasons — one is terminal, the other must be retried.
+  const ent = await resolveAlertEntitlement(env, workspaceId);
+  if (!ent.ok)       return { sent: false, reason: "entitlement_lookup_failed", recipients: [] };
+  if (!ent.entitled) return { sent: false, reason: "feature_not_entitled", recipients: [] };
+
+  // 2. Audience.
   const resolved = await resolveWorkspaceAlertRecipients(env, workspaceId);
   if (!resolved.ok) {
     // A lookup failure is NOT evidence that the workspace has no recipients.
@@ -178,11 +87,35 @@ export async function sendTenantAlertEmail(env, workspaceId, { subject, text, ht
     // permanent fact about the customer.
     return { sent: false, reason: resolved.reason, recipients: [] };
   }
-  if (resolved.emails.length === 0) {
+  if (resolved.recipients.length === 0) {
     return { sent: false, reason: resolved.reason || "no_verified_recipient", recipients: [] };
   }
-  const delivery = await deliverEmail(subject, text, html, env, fromKey, resolved.emails);
-  return { ...delivery, recipients: resolved.emails };
+
+  // 3 + 4. Preference and severity, per recipient.
+  const allowed = [];
+  let optedOut = false, severityFiltered = false, prefLookupFailed = false;
+  for (const r of resolved.recipients) {
+    const pref = await alertEmailFrequencyForUser(env, workspaceId, r.user_id);
+    if (!pref.ok) { prefLookupFailed = true; continue; }        // fail closed for this address
+    if (pref.frequency === "disabled") { optedOut = true; continue; }
+    if (!severityAllowedByFrequency(pref.frequency, severity)) { severityFiltered = true; continue; }
+    allowed.push(r.email);
+  }
+
+  if (allowed.length === 0) {
+    // Distinguish the three silences — they are different facts about the
+    // customer and the retry sweep treats them differently.
+    if (prefLookupFailed && !optedOut && !severityFiltered) {
+      return { sent: false, reason: "recipient_lookup_failed", recipients: [] }; // retryable
+    }
+    if (severityFiltered && !optedOut) {
+      return { sent: false, reason: "preference_filtered", recipients: [] };     // severity below their threshold
+    }
+    return { sent: false, reason: "channel_disabled", recipients: [] };          // they opted out
+  }
+
+  const delivery = await deliverEmail(subject, text, html, env, fromKey, allowed);
+  return { ...delivery, recipients: allowed };
 }
 
 
@@ -214,9 +147,12 @@ export async function resolveWorkspaceAlertRecipients(env, workspaceId) {
     // Owners/admins of a LIVE workspace, with a verified address. The workspace
     // owner is included via the same query (owner_user_id) rather than a second
     // unguarded lookup, so the verified + soft-delete rules cannot be bypassed.
+    // u.id travels with the address: alert preferences are per-user-per-workspace,
+    // so a caller that only knows the email literally cannot honour an opt-out.
+    // `emails` is retained for existing consumers; `recipients` is the richer shape.
     const result = await env.cybermeters_db
       .prepare(
-        `SELECT DISTINCT u.email
+        `SELECT DISTINCT u.id AS user_id, u.email
          FROM workspaces w
          JOIN users u ON u.id IN (
            SELECT wm.user_id FROM workspace_members wm
@@ -232,15 +168,23 @@ export async function resolveWorkspaceAlertRecipients(env, workspaceId) {
       .bind(workspaceId)
       .all();
 
-    const emails = [...new Set((result.results || []).map((r) => r.email).filter(Boolean))];
+    const seen = new Set();
+    const recipients = [];
+    for (const r of (result.results || [])) {
+      if (!r.email || seen.has(r.email)) continue;
+      seen.add(r.email);
+      recipients.push({ user_id: r.user_id, email: r.email });
+    }
+    const emails = recipients.map((r) => r.email);
     return {
       ok: true,
+      recipients,
       emails,
       reason: emails.length === 0 ? "no_verified_recipient" : null,
     };
   } catch (err) {
     console.error("[alerts] recipient lookup failed", JSON.stringify({ workspace_id: workspaceId, reason: err?.message }));
-    return { ok: false, emails: [], reason: "recipient_lookup_failed" };
+    return { ok: false, recipients: [], emails: [], reason: "recipient_lookup_failed" };
   }
 }
 
@@ -429,6 +373,25 @@ export function alertChannelToApi(row) {
 // throws; delivery state is recorded per channel with customer-safe status
 // strings. fetchImpl is injectable for tests (house pattern: dnsQueryImpl).
 export async function deliverWorkspaceAlert(env, workspaceId, event, { fetchImpl = fetch, channelId = null } = {}) {
+  // ── The channel gate ───────────────────────────────────────────────────────
+  // This function is the shared trunk for every Slack/Teams/webhook alert:
+  // emitManagedAlert, the legacy scan alerts, dmarc-alerts, the four inline
+  // hosted-dmarc sites, notifyCase and notifyBrandCase all end up here. It had no
+  // gate of its own and trusted callers to check — and most did not, so free
+  // workspaces received paid channel deliveries.
+  //
+  // Gating the trunk covers all of them at once, including the channel TEST
+  // endpoint: a test send is a delivery, so an unentitled workspace cannot use it
+  // as a side door. Fails closed.
+  if (!(await workspaceAlertsEntitled(env, workspaceId))) {
+    return { attempted: 0, delivered: 0, suppressed_reason: "feature_not_entitled" };
+  }
+  // One preference gate for the whole channel family — these endpoints are
+  // workspace-owned, so the toggle is workspace-wide (see alert-gate.js).
+  if (!(await channelEnabledForWorkspace(env, workspaceId, { channel: "webhook" }))) {
+    return { attempted: 0, delivered: 0, suppressed_reason: "channel_disabled" };
+  }
+
   let channels = [];
   try {
     const r = channelId
@@ -548,10 +511,6 @@ Manage your monitoring alert preferences: ${preferencesLink}` : ""}`;
 
 export async function processAlertsForWorkspace(workspaceId, domainId, domain, scanId, currentScore, currentFindings, currentModules, startedAt, env) {
   try {
-    // Tenant-scoped, verified-only, soft-delete-gated. `ok:false` is a lookup
-    // failure, not an audience of zero — the two are recorded differently below.
-    const resolved = await resolveWorkspaceAlertRecipients(env, workspaceId);
-    const recipients = resolved.emails;
     const wsRow = await env.cybermeters_db
       .prepare("SELECT name FROM workspaces WHERE id = ?")
       .bind(workspaceId)
@@ -564,27 +523,38 @@ export async function processAlertsForWorkspace(workspaceId, domainId, domain, s
       if (threshold !== null) {
         metadata.threshold = threshold;
       }
-      
-      let emailSentAt = null;
-      if (recipients.length > 0) {
-        const frontendOrigin = getEmailFrontendOrigin(env);
-        const { text, html } = formatAlertEmail({
-          workspaceName,
-          domain,
-          whatChanged,
-          recommendation,
-          link: frontendOrigin ? `${frontendOrigin}/scans/${encodeURIComponent(scanId)}` : null,
-        });
 
-        const delivery = await sendCustomerEmail(title, text, html, env, fromKey, recipients);
-        metadata.email_delivery = delivery.sent
-          ? { status: "accepted", provider_id: delivery.provider_id || null }
-          : { status: "failed", reason: delivery.reason };
-        if (delivery.sent) emailSentAt = new Date().toISOString();
+      // Email goes through the canonical chokepoint — entitlement, audience,
+      // per-user preference and severity are all decided there.
+      //
+      // This path used to resolve recipients itself and call sendCustomerEmail
+      // directly, which bypassed every rule: no entitlement check meant free
+      // workspaces received these alerts by email on every scan, and no
+      // preference check meant an opt-out was ignored. It now cannot bypass them
+      // because it no longer holds the recipients.
+      let emailSentAt = null;
+      const frontendOrigin = getEmailFrontendOrigin(env);
+      const { text, html } = formatAlertEmail({
+        workspaceName,
+        domain,
+        whatChanged,
+        recommendation,
+        link: frontendOrigin ? `${frontendOrigin}/scans/${encodeURIComponent(scanId)}` : null,
+        preferencesLink: frontendOrigin ? `${frontendOrigin}/settings` : null,
+      });
+      const delivery = await sendTenantAlertEmail(env, workspaceId, {
+        subject: title, text, html, fromKey, severity,
+      });
+      if (delivery.sent) {
+        metadata.email_delivery = { status: "accepted", provider_id: delivery.provider_id || null };
+        emailSentAt = new Date().toISOString();
+      } else if (SUPPRESSION_REASONS.has(delivery.reason)) {
+        // A deliberate decision (not entitled / opted out / below their severity
+        // threshold / nobody verified), not a failure. Recorded as skipped so it
+        // is not retried and not reported to the customer as a broken send.
+        metadata.email_delivery = { status: "skipped", reason: delivery.reason };
       } else {
-        // Honest reason: distinguishes "nobody verified to email" from "we could
-        // not look". Never claims delivery, never redirects to an operator inbox.
-        metadata.email_delivery = { status: "skipped", reason: resolved.reason || "no_verified_recipient" };
+        metadata.email_delivery = { status: "failed", reason: delivery.reason };
       }
 
       await env.cybermeters_db

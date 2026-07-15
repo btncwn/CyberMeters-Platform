@@ -198,8 +198,12 @@ await preActivate("ws_dead");
 
 // ── 7. THE PREFERENCE RULE: severity never overrides a disabled channel ──────
 {
+  // Canonical preference vocabulary (engines/alert-gate.js). This fixture used to
+  // seed event_type='all' — a wildcard the pipeline read but which NO product code
+  // ever wrote, so the gate worked here and never in production. Same intent
+  // (workspace-wide email off), now in the vocabulary Settings actually writes.
   db.prepare(`INSERT INTO notification_preferences (id, workspace_id, user_id, event_type, enabled, channel, created_at)
-              VALUES ('np1', 'ws_paid', NULL, 'all', 0, 'email', datetime('now'))`).run();
+              VALUES ('np1', 'ws_paid', NULL, 'managed_alert', 0, 'email', datetime('now'))`).run();
 
   const r = await emitManagedAlert(env, alert({ severity: "critical", kind: "cert_expired", dedupe_key: "pref|crit|1" }));
   ok("disabled channel: canonical event still written", r.emitted === true);

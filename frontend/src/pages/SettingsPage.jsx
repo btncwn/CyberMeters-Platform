@@ -72,26 +72,30 @@ function UsageLine({ label, used, limit }) {
 
 // ── Notification Preferences Card ─────────────────────────────────────────────
 
+// These MUST stay in step with ALERT_EMAIL_FREQUENCIES in the Worker
+// (engines/alert-gate.js) — the backend rejects anything outside that set, and the
+// GET echoes the supported list so a drift here surfaces immediately.
+//
+// "Daily digest — One summary email per day. No immediate alerts." was removed:
+// no daily digest sender has ever existed. The option was inert while preferences
+// were ignored entirely; once they govern delivery, keeping it would either strand
+// the customer in silence or make the label a lie. Do not re-add it without a real
+// digest sender behind it.
 const EMAIL_FREQUENCY_OPTIONS = [
   {
     value: 'all_alerts',
     label: 'All alerts',
-    description: 'Email me for every critical and high severity finding.',
+    description: 'Email me about every alert for this workspace.',
   },
   {
     value: 'critical_only',
     label: 'Critical only',
-    description: 'Email me only for critical severity findings.',
-  },
-  {
-    value: 'daily_digest',
-    label: 'Daily digest',
-    description: 'One summary email per day. No immediate alerts.',
+    description: 'Email me only about critical alerts. Everything else stays in-app.',
   },
   {
     value: 'disabled',
     label: 'Disabled',
-    description: 'No notification emails. In-app notifications still appear.',
+    description: 'No alert emails. In-app notifications still appear.',
   },
 ]
 
