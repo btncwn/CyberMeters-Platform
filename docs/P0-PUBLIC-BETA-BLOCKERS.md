@@ -78,6 +78,12 @@ list so no effort is wasted.
 
 ---
 
+## P2 — non-blocking cleanups
+
+- **Cron verification attempts are labelled `actor_type='anonymous'`** (added 15 July 2026, from the domain-verification incident). `recordVerificationAttempt` (`lib/domain-verification.js`) derives `actor_type` as `user_id ? "customer" : "anonymous"`, and the hourly recheck has no `user_id` — so its `domain_verification_attempted` rows claim an anonymous external caller for what is a scheduled system task. The `domain_verified` audit written beside it in the same tick correctly says `system`, so one tick labels itself two ways. **Impact:** observability only — an operator filtering `actor_type='anonymous'` sees cron work mixed in with unauthenticated 401 probes. **Fix:** thread an explicit `actor_type` through the recorder (do not re-derive it from the absence of a user); cron passes `"system"`, the route passes `"customer"`/`"anonymous"` as today. Not a security or data-integrity issue; no customer impact.
+
+---
+
 ## Do NOT re-do — already handled (verified)
 
 Auth: per-IP throttles on signup/login/forgot/resend + MFA (all fail-closed);
