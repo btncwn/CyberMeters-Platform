@@ -13,6 +13,7 @@ import {
   canStartScan, isValidDomainSyntax, domainHintFor, safeErrorMessage,
   isVerificationRequired, dnsInstructionFrom, checkFailureMessage,
   requiresVerificationCta, verifyFailureNote,
+  isAuthoritativeVerified, verifyResponseClaimsSuccess, VERIFY_UNCONFIRMED_MESSAGE,
 } from '../lib/newScanVerification'
 
 // Framed as Intelligence Engines (business capabilities), not internal detectors.
@@ -89,7 +90,10 @@ export default function NewScan() {
         if (!record) { setGated(null); setState('valid_unverified'); return }
         setGated({ domain_id: record.domain_id, workspace_id: wsId })
         // verification_status is the authoritative workspace-scoped link status.
-        setState(record.verification_status === 'verified' ? 'verified' : 'valid_unverified')
+        // Same contract as every other path: status alone is not proof. A row
+        // marked verified with no verified_at, or for a different record, must not
+        // unlock scanning. isAuthoritativeVerified enforces all of it.
+        setState(isAuthoritativeVerified(record, { domain_id: record.domain_id }) ? 'verified' : 'valid_unverified')
       } catch {
         if (!cancelled) setState('valid_unverified')   // fail closed: never claim verified
       }
@@ -126,13 +130,56 @@ export default function NewScan() {
         setGated(record)
       }
       const res = await api.generateDomainVerification(record.domain_id, record.workspace_id)
-      if (res?.already_verified) { setState('verified'); return }
+      if (res?.already_verified) {
+        // Even the server saying "already verified" is a claim about a record we
+        // must re-read: it is the same class of trust as the verify response.
+        await confirmVerifiedOrExplain(record)
+        return
+      }
       const instruction = dnsInstructionFrom(res)
       if (!instruction) { setError(safeErrorMessage({})); setState('valid_unverified'); return }
       setDns(instruction); setState('instructions')
     } catch (e) {
       setError(safeErrorMessage(e)); setState('valid_unverified')
     }
+  }
+
+  // Read the EXACT workspace-domain row from the server and decide, from persisted
+  // state alone, whether it is verified. This is the ONLY thing allowed to produce a
+  // customer-visible "verified" claim.
+  //
+  // It returns the row so the caller can distinguish "server says pending" from "we
+  // could not read it" — those need different messages, and neither is success.
+  async function rereadAuthoritativeRow(record) {
+    if (!wsId || !record?.domain_id) return { ok: false, row: null }
+    try {
+      const fresh = await api.getWorkspaceDomains(wsId)
+      const row = (fresh?.domains || []).find((d) => d.domain_id === record.domain_id) || null
+      return { ok: true, row }
+    } catch {
+      return { ok: false, row: null }
+    }
+  }
+
+  // Confirm through the authoritative record, or refuse to claim verification.
+  // Used by BOTH the verify click and the initiation `already_verified` path, so
+  // neither can shortcut the contract.
+  async function confirmVerifiedOrExplain(record) {
+    const { ok, row } = await rereadAuthoritativeRow(record)
+    if (ok && isAuthoritativeVerified(row, record)) {
+      setState('verified'); setCheckNote(null)
+      return true
+    }
+    // The server's response and its persisted state disagree, or we could not read
+    // it. Either way we have NOT been shown proof — so we do not claim it.
+    console.warn('[new-scan] verification not confirmed by authoritative reread', {
+      domain_id: record?.domain_id,
+      reread_ok: ok,
+      status: row?.verification_status ?? null,
+      verified_at_present: Boolean(row?.verified_at),
+    })
+    setState('check_failed'); setCheckNote(VERIFY_UNCONFIRMED_MESSAGE)
+    return false
   }
 
   // Resolve the authoritative workspace-domain record. Shared by the CTA and the
@@ -157,42 +204,29 @@ export default function NewScan() {
   // correct TXT record published and a dead button.
   //
   // Every path below now ends in exactly one visible state. There is no early return.
+  // "I've added the DNS record — Verify domain".
+  //
+  // No early return: every path ends in exactly one visible state. And no path may
+  // claim verification from the response alone — see confirmVerifiedOrExplain.
   async function handleVerify() {
     setState('checking'); setCheckNote(null); setError(null)
     try {
-      // Re-resolve rather than give up: a missing record is recoverable, and
-      // silence is not an acceptable outcome of a click.
       const record = await resolveGatedRecord()
       if (!record?.domain_id) {
         setState('check_failed')
         setCheckNote('We could not identify this domain in your workspace. Reload the page and try again — your DNS record is unaffected.')
         return
       }
-      // Uses the record's EXISTING token: this only re-checks DNS. It never mints a
-      // new token, so a published TXT record stays valid across retries.
+      // Re-checks DNS against the record's EXISTING token. Never mints a new one, so
+      // a published TXT record stays valid across retries.
       const res = await api.verifyDomain(record.domain_id, record.workspace_id)
-      if (res?.verified || res?.success === true || res?.verification_status === 'verified') {
-        setState('verified'); setCheckNote(null)
-        // Refresh the authoritative workspace-domain state so the rest of the page
-        // (and a later revisit) reads the confirmed row.
-        //
-        // It deliberately CANNOT downgrade the result. The verify response is the
-        // server confirming a write it just made in that same request; a refresh
-        // that reads a stale replica would otherwise flip a genuine success back to
-        // "failed" and tell the customer their correct DNS record did not work. A
-        // disagreement here is a server-side concern, not something to surface as
-        // the customer's failure.
-        try {
-          const fresh = await api.getWorkspaceDomains(wsId)
-          const row = (fresh?.domains || []).find((d) => d.domain_id === record.domain_id)
-          if (row && row.verification_status !== 'verified') {
-            console.warn('[new-scan] verify succeeded but the refreshed link is not yet verified', row.verification_status)
-          }
-        } catch { /* a refresh failure must never undo a confirmed verification */ }
+
+      if (verifyResponseClaimsSuccess(res)) {
+        // A claim, not proof. Confirm against persisted state or refuse to show it.
+        await confirmVerifiedOrExplain(record)
         return
       }
-      // Not verified. Use the server's own per-method result so the customer is told
-      // which check failed, not a generic shrug.
+      // Not verified: report which check failed, using the server's own breakdown.
       setState('check_failed'); setCheckNote(verifyFailureNote(res))
     } catch (e) {
       // A rejected promise must NEVER leave the UI unchanged.
@@ -342,6 +376,11 @@ export default function NewScan() {
                             </p>
                           </div>
                         </div>
+                        {checkNote && (
+                          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 leading-relaxed">
+                            {checkNote}
+                          </p>
+                        )}
                         <button
                           type="button"
                           onClick={handleStartVerification}
