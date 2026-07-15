@@ -14,6 +14,7 @@
 // (shadow_it_case → shadow_it.saas.review remediation).
 
 import { emitLifecycleAlert } from "./alert-consumers.js";
+import { buildMonitoringTransitionDetail, isMonitoringTransition } from "./alert-occurrence.js";
 import { createManagedCase, canTransitionCase, canonicalPhaseFor } from "./managed-case-model.js";
 import { newCaseEventId } from "./case-workflow.js";
 
@@ -352,6 +353,37 @@ export async function evaluateShadowItMonitoring(env, workspaceId, { seenKeys = 
       contradictions++;
     }
 
+    // ── Monitoring transition (append-only) ──────────────────────────────────
+    // The canonical occurrence record: findConditionOccurrence reads this event's
+    // created_at as the condition-start and its id as the occurrence identity.
+    // Without it the consumer resolves nothing and every condition here is treated
+    // as pre-existing — i.e. this domain would be silently unable to alert.
+    //
+    // The OTHER monitoring_changed sites in this file ("reappeared",
+    // "no_longer_observed", case-linkage) are different facts and carry different
+    // payloads; only this one records a recurrence transition, so only this one
+    // carries to_recurrence_type.
+    //
+    // Only a real CHANGE is appended: re-observing the same condition next hour is
+    // not a new occurrence, and appending one would mint a fresh occurrence id and
+    // re-alert the same unchanged item every hour.
+    const nextShadowMonitoring = { monitoring_status, recurrence_type: recurrence_type === "none" ? null : recurrence_type };
+    if (isMonitoringTransition({ monitoring_status: it.monitoring_status, recurrence_type: it.recurrence_type }, nextShadowMonitoring)) {
+      await appendEvent(env, it, {
+        event_type: "monitoring_changed",
+        detail: buildMonitoringTransitionDetail({
+          from_monitoring_status: it.monitoring_status ?? null,
+          to_monitoring_status: nextShadowMonitoring.monitoring_status ?? null,
+          from_recurrence_type: it.recurrence_type ?? null,
+          to_recurrence_type: nextShadowMonitoring.recurrence_type,
+          required_case_action, reason: monitoring_reason,
+          // The stable technology identity, not the row surrogate: the dedupe and
+        // cooldown keys are built from this.
+        entity: it.canonical_technology_key,
+        }),
+      }).catch(() => { /* history is best-effort; it must not break the evaluator */ });
+    }
+
     await env.cybermeters_db
       .prepare(`UPDATE shadow_it_inventory SET monitoring_status = ?, monitoring_reason = ?, evidence_age_days = ?,
                   material_change = ?, recurrence_type = ?, required_case_action = ?, ownership_status = ?,
@@ -369,7 +401,7 @@ export async function evaluateShadowItMonitoring(env, workspaceId, { seenKeys = 
       // occurrence dedupes and pre-existing state stays silent. Never sends directly.
       await emitLifecycleAlert(env, {
         workspace_id: workspaceId, domain_key: "shadow_it_unmanaged_technology",
-        record_id: it.id, entity: it.technology_key || it.vendor_key || it.id,
+        record_id: it.id, entity: it.canonical_technology_key,
         hostname: it.primary_hostname || null,
         recurrence: recurrence_type,
         // Same finding type the linked case is opened under (linkShadowItCase),
