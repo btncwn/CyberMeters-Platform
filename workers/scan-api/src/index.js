@@ -13,7 +13,12 @@ import { generateTotpSecret, verifyTotp } from "./lib/totp.js";
 import { hashPassword, verifyPassword } from "./lib/password.js";
 import { validateMicrosoftIdToken, validateMicrosoftIdTokenClaims } from "./lib/microsoft-jwt.js";
 import { generateSessionToken, generateApiToken, generateInviteToken, generateEmailVerificationToken, getEmailVerificationTokenStatus, isEmailVerificationResendCoolingDown, generatePasswordResetToken, generateMfaChallengeToken, encryptTotpSecret, decryptTotpSecret, generateRecoveryCodes, verifyRecoveryCode, hashToken } from "./lib/auth-crypto.js";
-import { dnsQuery, dnsQueryDnssec, dnsQueryGoogle, dnsQueryQuad9, dnsAnswerValues, computeResolverAgreementScore, buildDnsCrossCheck } from "./engines/dns.js";
+import { checkDnsTxtProof, outcomeForDnsCategory, persistVerification, recordVerificationAttempt,
+         VERIFICATION_OUTCOMES, VERIFICATION_RECHECK_BATCH, VERIFICATION_WINDOW_HOURS } from "./lib/domain-verification.js";
+// dnsQuery is deliberately absent: the only caller left in this file was the
+// domain-verification cron, which now shares the canonical proof in
+// lib/domain-verification.js rather than carrying its own copy of the lookup.
+import { dnsQueryDnssec, dnsQueryGoogle, dnsQueryQuad9, dnsAnswerValues, computeResolverAgreementScore, buildDnsCrossCheck } from "./engines/dns.js";
 import { buildDnsOperationalResilience } from "./engines/dns-resilience.js";
 import { SCANNER_REGRESSION_FIXTURES } from "./engines/regression-fixtures.js";
 import { ENTERPRISE_BENCHMARK, ENTERPRISE_DOMAINS, POSTURE_WEIGHTS } from "./engines/scoring-config.js";
@@ -1645,68 +1650,178 @@ async function requireScanReadAccess(user, scanId, env) {
 // A manual verify often fails only because the DNS TXT record hasn't
 // propagated yet (some registrars — GoDaddy notably — take hours). Rather than
 // making the customer poll the Verify button, the hourly cron re-checks the
-// DNS TXT method for up to 48h after verification was initiated and completes
-// it automatically. Only DNS TXT is retried: it is the propagation-bound
-// method; the HTML-file method is instant and gains nothing from retrying.
-// Bounded to 10 domains per run; each check is a single DoH subrequest.
+// DNS TXT method for VERIFICATION_WINDOW_HOURS after verification was initiated
+// and completes it automatically. Only DNS TXT is retried: it is the
+// propagation-bound method; the HTML-file method is instant and gains nothing
+// from retrying. Bounded per run; each check is a single DoH subrequest.
+//
+// ── Why this was rewritten (PR #96) ──────────────────────────────────────────
+// This task was dead code, and its deadness was invisible. It selected on
+// `domains.verification_token` / `domains.verification_initiated_at`, but since
+// migration 079 NOTHING writes those columns: verification initiation moved to the
+// workspace_domains link, and the legacy domains.verification_* columns became
+// read-only compatibility data. So the WHERE clause matched nothing, forever, and
+// the customer-facing promise ("we re-check automatically every hour for 48
+// hours") was false for every domain initiated after 079.
+//
+// Worse, had it matched a pre-079 row it would have written ONLY the legacy
+// `domains` table — never the authoritative workspace_domains link the scan gate
+// reads — while notifying every linked workspace "ownership verified". The
+// customer would have been told they were verified and still been unable to scan.
+//
+// This is the same class of defect as the manual route's (PR #95): a claim made
+// from state that was never proven. It is fixed the same way — the authoritative
+// link is the only source and the only target, and persistVerification() is the
+// only writer, so the automatic path is held to exactly the proof the manual path
+// is: one changed row, confirmed by re-read.
 async function retryPendingDomainVerifications(env) {
   try {
-    const pending = await env.cybermeters_db
+    // Candidates come from the AUTHORITATIVE link, never the legacy domains row.
+    //
+    // Status covers 'pending' AND 'failed': the manual route writes 'failed' when a
+    // check does not find the record, which is precisely the customer this task
+    // exists for (clicked Verify before propagation). A pending-only filter would
+    // skip exactly the rows it is meant to rescue. Matches the pre-079 intent.
+    //
+    // Soft-deleted workspaces are excluded — they must not receive new scheduled
+    // work or notifications. The domains join supplies the hostname; it is NOT
+    // consulted for verification state.
+    const candidates = await env.cybermeters_db
       .prepare(
-        `SELECT id, domain, verification_token
-         FROM domains
-         WHERE verification_status IN ('pending', 'failed')
-           AND verification_token IS NOT NULL
-           AND verification_initiated_at >= datetime('now', '-48 hours')
-         ORDER BY verification_initiated_at ASC
-         LIMIT 10`
+        `SELECT wd.workspace_id, wd.domain_id, wd.verification_token, wd.verification_initiated_at,
+                d.domain AS domain
+         FROM workspace_domains wd
+         JOIN domains d    ON d.id = wd.domain_id
+         JOIN workspaces w ON w.id = wd.workspace_id AND w.deleted_at IS NULL
+         WHERE wd.verification_status IN ('pending', 'failed')
+           AND wd.verification_token IS NOT NULL
+           AND wd.verification_initiated_at IS NOT NULL
+           AND wd.verification_initiated_at >= datetime('now', ?)
+         ORDER BY wd.verification_initiated_at ASC, wd.workspace_id ASC, wd.domain_id ASC
+         LIMIT ?`
       )
+      .bind(`-${VERIFICATION_WINDOW_HOURS} hours`, VERIFICATION_RECHECK_BATCH)
       .all();
 
-    for (const row of (pending?.results || [])) {
-      let verified = false;
-      try {
-        const expected = `cybermeters-verification=${row.verification_token}`;
-        const dnsResult = await dnsQuery(`_cybermeters.${row.domain}`, "TXT");
-        verified = (dnsResult.Answer || []).some(a =>
-          String(a.data || "").replace(/^"|"$/g, "").trim() === expected
-        );
-      } catch { /* resolver hiccup — the next hourly run retries */ }
-      if (!verified) continue;
+    for (const row of (candidates?.results || [])) {
+      const domain = normalizeHostname(row.domain) || row.domain;
+      // One terminal record per candidate, whatever happens to it.
+      const record = (outcome, extra = {}) => recordVerificationAttempt(env, {
+        request_id:   `cron:domain_verify_retry`,
+        workspace_id: row.workspace_id,
+        domain_id:    row.domain_id,
+        domain,
+        user_id:      null,
+        method:       "dns_txt",
+        ...extra,
+        outcome,
+      });
 
-      await env.cybermeters_db
-        .prepare(`UPDATE domains
-                  SET verification_status = 'verified',
-                      verification_method = 'dns_txt',
-                      verified_at = datetime('now')
-                  WHERE id = ? AND verification_status != 'verified'`)
-        .bind(row.id)
-        .run();
-
-      // Mirror the manual-verify success path: notify + audit every linked workspace.
-      // Forward telemetry: fingerprint the verified record + record the resolver
-      // so a future drift check can prove which record we trusted, and when.
       try {
+        // The SAME proof the manual route uses — one definition of "proven".
+        const proof = await checkDnsTxtProof(domain, row.verification_token);
+        if (!proof.verified) {
+          // No mutation on failure. The row keeps its current status and stays
+          // eligible for the next hourly run until the window closes.
+          await record(outcomeForDnsCategory(proof.category), {
+            dns_result: proof.category, dns_error: proof.error || null,
+            resolver_used: "cloudflare_doh",
+          });
+          continue;
+        }
+
+        // Proven. Persist through the SAME gate as the manual route: exactly one
+        // changed row, confirmed by a re-read that echoes back the ids and a
+        // non-null verified_at. An unconfirmable write is never a verification.
+        const persisted = await persistVerification(env, row.workspace_id, row.domain_id, "dns_txt");
         const dnsRecordHash = await hashToken(`cybermeters-verification=${row.verification_token}`);
-        const wsR = await env.cybermeters_db
-          .prepare("SELECT workspace_id FROM workspace_domains WHERE domain_id = ?")
-          .bind(row.id).all();
-        for (const { workspace_id } of (wsR.results || [])) {
-          await createNotificationEvent(env, workspace_id, {
+
+        if (!persisted.ok) {
+          await record(persisted.outcome, {
+            dns_result: "found",
+            affected_row_count:    persisted.affected_row_count,
+            persisted_status:      persisted.persisted_status,
+            persisted_verified_at: persisted.persisted_verified_at,
+            dns_record_hash: dnsRecordHash, resolver_used: "cloudflare_doh",
+          });
+          continue;
+        }
+
+        // Notify + audit THIS workspace only — the link we just proved, not every
+        // workspace that happens to share the domain. Each workspace must prove
+        // control independently, so each gets its own candidate row and its own
+        // notification when its own proof lands.
+        //
+        // Idempotency rests on the status transition, not on a dedup check: the
+        // candidate query only selects 'pending'/'failed', and persistVerification
+        // has just moved this row to 'verified', so no later run can select it
+        // again. A repeat run is a no-op. (A notification lost to a failed insert
+        // is not retried — it is best-effort telemetry, not the verification.)
+        try {
+          await createNotificationEvent(env, row.workspace_id, {
             type: "domain_verified", severity: "info",
-            title: `${row.domain} ownership verified`,
-            message: `The DNS TXT record at _cybermeters.${row.domain} has propagated — verification completed automatically.`,
-            metadata: { domain: row.domain, domain_id: row.id, method: "dns_txt", auto_retry: true },
+            title: `${domain} ownership verified`,
+            message: `The DNS TXT record at _cybermeters.${domain} has propagated — verification completed automatically.`,
+            metadata: { domain, domain_id: row.domain_id, workspace_id: row.workspace_id,
+                        method: "dns_txt", auto_retry: true },
           });
           await createAuditEvent(env, {
-            workspace_id, user_id: null,
-            event_type: "domain_verified", entity_type: "domain", entity_id: row.id,
-            description: `${row.domain} ownership verified via DNS TXT (automatic re-check)`,
-            metadata: { domain: row.domain, domain_id: row.id, method: "dns_txt", auto_retry: true,
+            workspace_id: row.workspace_id, user_id: null, actor_type: "system",
+            event_type: "domain_verified", entity_type: "domain", entity_id: row.domain_id,
+            description: `${domain} ownership verified via DNS TXT (automatic re-check)`,
+            metadata: { domain, domain_id: row.domain_id, workspace_id: row.workspace_id,
+                        method: "dns_txt", auto_retry: true,
                         resolver_used: "cloudflare_doh", dns_record_hash: dnsRecordHash },
           });
-        }
-      } catch { /* non-fatal */ }
+        } catch { /* non-fatal */ }
+
+        await record(VERIFICATION_OUTCOMES.VERIFIED_DNS_TXT, {
+          dns_result: "found",
+          affected_row_count:    persisted.affected_row_count,
+          persisted_status:      persisted.persisted_status,
+          persisted_verified_at: persisted.persisted_verified_at,
+          dns_record_hash: dnsRecordHash, resolver_used: "cloudflare_doh",
+        });
+      } catch {
+        // One bad candidate must not stop the batch.
+        try { await record(VERIFICATION_OUTCOMES.INTERNAL_ERROR); } catch { /* never throw */ }
+      }
+    }
+
+    // ── The end of the promise, observed once ────────────────────────────────
+    // Rows that crossed the window boundary during THIS hour. Scoped to a single
+    // interval rather than "everything older than the window" so each row's expiry
+    // is recorded exactly once — an unbounded `< now-48h` would re-log every dead
+    // row on every run, forever. Telemetry only: no mutation, no notification. The
+    // customer was promised a 48-hour recheck and this is where it honestly stops.
+    const expired = await env.cybermeters_db
+      .prepare(
+        `SELECT wd.workspace_id, wd.domain_id, wd.verification_status, d.domain AS domain
+         FROM workspace_domains wd
+         JOIN domains d    ON d.id = wd.domain_id
+         JOIN workspaces w ON w.id = wd.workspace_id AND w.deleted_at IS NULL
+         WHERE wd.verification_status IN ('pending', 'failed')
+           AND wd.verification_token IS NOT NULL
+           AND wd.verification_initiated_at IS NOT NULL
+           AND wd.verification_initiated_at <  datetime('now', ?)
+           AND wd.verification_initiated_at >= datetime('now', ?)
+         ORDER BY wd.verification_initiated_at ASC, wd.workspace_id ASC, wd.domain_id ASC
+         LIMIT ?`
+      )
+      .bind(`-${VERIFICATION_WINDOW_HOURS} hours`, `-${VERIFICATION_WINDOW_HOURS + 1} hours`, VERIFICATION_RECHECK_BATCH)
+      .all();
+
+    for (const row of (expired?.results || [])) {
+      await recordVerificationAttempt(env, {
+        request_id:   `cron:domain_verify_retry`,
+        workspace_id: row.workspace_id,
+        domain_id:    row.domain_id,
+        domain:       normalizeHostname(row.domain) || row.domain,
+        user_id:      null,
+        method:       "dns_txt",
+        persisted_status: row.verification_status,
+        outcome: VERIFICATION_OUTCOMES.RECHECK_WINDOW_EXPIRED,
+      });
     }
   } catch { /* cron task must never throw */ }
 }
@@ -2170,6 +2285,10 @@ export {
   REMEDIATION_REGISTRY,
   SCAN_CHILD_TABLES,
   WORKSPACE_PURGE_TABLES,
+  // Exported for validate-domain-verification-recheck.js: the cron task bodies are
+  // injected into runScheduled rather than exported, so the only other way to reach
+  // this one is to drive the whole hourly tick and every unrelated task with it.
+  retryPendingDomainVerifications,
   purgeWorkspaceData,
   isMaintenanceMode,
   isMaintenanceBypass,

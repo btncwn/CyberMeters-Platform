@@ -161,6 +161,9 @@ jobs:
       - name: Validate domain-verification integrity (persistence proof + terminal observability + no token in telemetry)
         run: node scripts/validate-domain-verification-integrity.js
 
+      - name: Validate domain-verification auto-recheck cron (authoritative link + shared proof + idempotent + 48h window)
+        run: node scripts/validate-domain-verification-recheck.js
+
       - name: Validate partial-scan honesty (provisional score/rating + current posture + trend gating)
         run: node scripts/validate-partial-scan-honesty.js
 

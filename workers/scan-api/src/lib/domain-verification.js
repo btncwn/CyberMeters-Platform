@@ -4,6 +4,8 @@
 // link (migration 079). The legacy domains.verification_* columns are read-only
 // compatibility data and are NEVER consulted for scan authorization.
 
+import { dnsQuery } from "../engines/dns.js";
+import { customerSafeFailure } from "./errors.js";
 import { createAuditEvent } from "./events.js";
 import { redactedJson } from "./redact.js";
 
@@ -25,6 +27,64 @@ export async function isWorkspaceDomainVerified(env, workspaceId, domainId) {
     return row?.verification_status === "verified";
   } catch {
     return false;
+  }
+}
+
+// ── The 48-hour auto-recheck promise ─────────────────────────────────────────
+// The failure response tells the customer: "We re-check automatically every hour
+// for 48 hours from when you generated this verification code." These constants
+// are what makes that sentence true — the cron's eligibility window and cadence
+// are derived from them, so the copy and the behaviour cannot drift apart.
+//
+// If you change these, change the customer copy in the same commit.
+export const VERIFICATION_WINDOW_HOURS = 48;
+export const VERIFICATION_RECHECK_INTERVAL = "hourly";
+// Bounded per cron run: each candidate costs one DoH subrequest, and the Worker
+// has a hard subrequest ceiling shared with every other task on the same tick.
+export const VERIFICATION_RECHECK_BATCH = 10;
+
+// ── The canonical DNS TXT ownership proof ────────────────────────────────────
+// ONE implementation of "does this domain publish our token?", shared by the
+// manual route and the hourly cron. Previously the cron carried its own copy of
+// the lookup, the quote-stripping and the comparison; two copies of a proof is
+// two places for them to disagree about what counts as proven.
+//
+// Returns a category, not a boolean, because the three failures are different
+// customer actions: publish the record / fix a wrong value / wait for a resolver.
+// A lookup error is NEVER reported as "not found" — it proves nothing either way.
+//
+//   { verified: boolean, category: "found"|"dns_not_found"|"dns_mismatch"|"dns_lookup_error", error }
+export async function checkDnsTxtProof(domain, token) {
+  const expected = `cybermeters-verification=${token}`;
+  try {
+    const result  = await dnsQuery(`_cybermeters.${domain}`, "TXT");
+    const answers = result?.Answer || [];
+    const verified = answers.some((a) => {
+      // RFC 1035: TXT data arrives with surrounding quotes stripped by DoH JSON
+      const val = String(a.data || "").replace(/^"|"$/g, "").trim();
+      return val === expected;
+    });
+    return {
+      verified,
+      category: verified ? "found" : (answers.length === 0 ? "dns_not_found" : "dns_mismatch"),
+      error: null,
+    };
+  } catch (e) {
+    return {
+      verified: false,
+      category: "dns_lookup_error",
+      error: customerSafeFailure("domain-verification/dns", e, "DNS lookup could not be completed"),
+    };
+  }
+}
+
+// Maps a proof category onto the canonical terminal outcome. Shared so the manual
+// route and the cron cannot label the same observation differently.
+export function outcomeForDnsCategory(category) {
+  switch (category) {
+    case "dns_mismatch":     return VERIFICATION_OUTCOMES.DNS_MISMATCH;
+    case "dns_lookup_error": return VERIFICATION_OUTCOMES.DNS_LOOKUP_ERROR;
+    default:                 return VERIFICATION_OUTCOMES.DNS_NOT_FOUND;
   }
 }
 
@@ -57,6 +117,10 @@ export const VERIFICATION_OUTCOMES = Object.freeze({
   PERSISTENCE_CONFIRMATION_FAILED: "persistence_confirmation_failed",
   // Terminal fault
   INTERNAL_ERROR: "internal_error",
+  // The hourly auto-recheck stopped trying. Emitted ONCE, in the hour the row
+  // crosses the 48h boundary — not on every subsequent run, which would log the
+  // same dead row forever. This is the honest end of the 48-hour promise.
+  RECHECK_WINDOW_EXPIRED: "recheck_window_expired",
 });
 
 const OUTCOME_VALUES = Object.freeze(Object.values(VERIFICATION_OUTCOMES));

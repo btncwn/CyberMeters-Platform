@@ -10,7 +10,9 @@ import { getEffectivePlan } from "../engines/entitlements.js";
 import { normalizeHostname } from "../engines/hostnames.js";
 import { getAccountUsage, getEntitlementUsage, getPlanLimits, getWorkspaceBillingUserId, planLimitExceeded } from "../engines/plan-usage.js";
 import { hashToken } from "../lib/auth-crypto.js";
-import { persistVerification, recordVerificationAttempt, resolveVerificationWorkspace, VERIFICATION_OUTCOMES } from "../lib/domain-verification.js";
+import { checkDnsTxtProof, outcomeForDnsCategory, persistVerification, recordVerificationAttempt,
+         resolveVerificationWorkspace, VERIFICATION_OUTCOMES, VERIFICATION_RECHECK_INTERVAL,
+         VERIFICATION_WINDOW_HOURS } from "../lib/domain-verification.js";
 import { customerSafeFailure } from "../lib/errors.js";
 import { createAuditEvent, createNotificationEvent } from "../lib/events.js";
 import { createId, isValidDomain } from "../lib/util.js";
@@ -369,27 +371,16 @@ export async function domainRoutes(rctx) {
         const htmlUrl          = `https://${domain}/cybermeters-verification-${token}.html`;
 
         // ── Method 1: DNS TXT ─────────────────────────────────────────────
-        // Three distinguishable results, not two. "No TXT at the host" and "a TXT
+        // The proof itself lives in lib/domain-verification.js and is shared with
+        // the hourly cron — one definition of what counts as proven ownership.
+        // Three distinguishable results, not two: "no TXT at the host" and "a TXT
         // is there but its value is wrong" need different actions from the
         // customer (publish it vs fix it), and a resolver failure is neither —
         // it proves nothing either way and must never be reported as "not found".
-        let dnsVerified = false;
-        let dnsError    = null;
-        let dnsCategory = null;   // dns_not_found | dns_mismatch | dns_lookup_error | found
-        try {
-          const txtHost = `_cybermeters.${domain}`;
-          const dnsResult = await dnsQuery(txtHost, "TXT");
-          const answers = dnsResult.Answer || [];
-          dnsVerified = answers.some(a => {
-            // RFC 1035: TXT data arrives with surrounding quotes stripped by DoH JSON
-            const val = String(a.data || "").replace(/^"|"$/g, "").trim();
-            return val === expectedTxtValue;
-          });
-          dnsCategory = dnsVerified ? "found" : (answers.length === 0 ? "dns_not_found" : "dns_mismatch");
-        } catch (e) {
-          dnsError    = customerSafeFailure("domain-verification/dns", e, "DNS lookup could not be completed");
-          dnsCategory = "dns_lookup_error";
-        }
+        const dnsProof    = await checkDnsTxtProof(domain, token);
+        const dnsVerified = dnsProof.verified;
+        const dnsError    = dnsProof.error;
+        const dnsCategory = dnsProof.category;
 
         if (dnsVerified) {
           // Update ONLY the exact workspace-domain relationship being verified —
@@ -564,12 +555,9 @@ export async function domainRoutes(rctx) {
           .run();
 
         // The check-level outcome. dnsCategory carries the distinction the customer
-        // needs; HTML is the fallback method and only refines it when DNS is absent.
-        const failureOutcome = dnsCategory === "dns_mismatch"
-          ? VERIFICATION_OUTCOMES.DNS_MISMATCH
-          : dnsCategory === "dns_lookup_error"
-            ? VERIFICATION_OUTCOMES.DNS_LOOKUP_ERROR
-            : VERIFICATION_OUTCOMES.DNS_NOT_FOUND;
+        // needs; the mapping is shared with the cron so the same observation can
+        // never be labelled two different ways.
+        const failureOutcome = outcomeForDnsCategory(dnsCategory);
 
         try {
           await createAuditEvent(env, {
@@ -630,8 +618,14 @@ export async function domainRoutes(rctx) {
               error:  htmlError || null,
             },
           },
-          message: "Verification not confirmed yet — DNS changes can take a while to propagate. We re-check automatically every hour for 48 hours from when you generated this verification code, and will notify you when it succeeds.",
-          auto_recheck: { enabled: true, method: "dns_txt", interval: "hourly", window_hours: 48 },
+          // This sentence is a promise about background behaviour, so it is built
+          // from the SAME constants the cron's eligibility window uses rather than
+          // hardcoded here. It was false for ~5 days (see PR #96): the cron read
+          // the legacy domains.verification_token, which nothing has written since
+          // migration 079, so no recheck ever ran. Never restate the cadence as a
+          // literal — a promise that can drift from the scheduler is one that will.
+          message: `Verification not confirmed yet — DNS changes can take a while to propagate. We re-check automatically every ${VERIFICATION_RECHECK_INTERVAL.replace(/ly$/, "")} for ${VERIFICATION_WINDOW_HOURS} hours from when you generated this verification code, and will notify you when it succeeds.`,
+          auto_recheck: { enabled: true, method: "dns_txt", interval: VERIFICATION_RECHECK_INTERVAL, window_hours: VERIFICATION_WINDOW_HOURS },
         }, 200);
       } catch (e) {
         // The last terminal branch. Every other outcome records before returning;
