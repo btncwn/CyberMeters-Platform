@@ -369,7 +369,7 @@ export async function emitManagedAlert(env, {
         });
         // Normalize the transport's coarse outcome into the closed vocabulary so
         // the retry sweep can tell a 429 from a 403. Unknown => terminal.
-        const norm = sent.sent ? null : normalizeProviderOutcome({ reason: sent.reason, status: sent.status });
+        const norm = sent.sent ? null : normalizeProviderOutcome({ reason: sent.reason, status: sent.status, provider_code: sent.provider_code });
         deliveries.push(await recordDelivery(env, {
           ...base, notification_id: notifId, channel: "email",
           outcome: sent.sent ? "delivered" : "failed",
@@ -522,7 +522,7 @@ export async function retryFailedAlertDeliveries(env, { now = new Date().toISOSt
         subject: notif.title, text: notif.message, html: `<p>${String(notif.message || "")}</p>`,
         fromKey: "ALERT_EMAIL_FROM",
       });
-      const rnorm = sent.sent ? null : normalizeProviderOutcome({ reason: sent.reason, status: sent.status });
+      const rnorm = sent.sent ? null : normalizeProviderOutcome({ reason: sent.reason, status: sent.status, provider_code: sent.provider_code });
       await recordDelivery(env, {
         ...row, outcome: sent.sent ? "delivered" : "failed",
         reason: sent.sent ? null : rnorm.reason,

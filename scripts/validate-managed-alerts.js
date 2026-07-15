@@ -481,8 +481,27 @@ await preActivate("ws_dead");
   eq("403 → authentication failed", n("provider_rejected", 403).reason, "provider_authentication_failed");
   ok("authentication/sender configuration failure does NOT retry",
      n("provider_rejected", 403).terminal && !reasonIsRetryable("provider_authentication_failed"));
-  eq("422 → recipient invalid", n("provider_rejected", 422).reason, "recipient_invalid");
-  ok("invalid recipient does NOT retry", n("provider_rejected", 422).terminal);
+  // ── 422 is classified by the provider's OWN trusted code — never by status ──
+  // A 422 means "permanent validation failure" and nothing more specific. Inferring
+  // "invalid recipient" from the status alone would write a fabricated fact about the
+  // customer's address into the audit trail.
+  const n422 = (providerCode) => normalizeProviderOutcome({ reason: "provider_rejected", status: 422, provider_code: providerCode });
+  eq("bare 422 → provider_permanent_rejection (never recipient)", n422(null).reason, "provider_permanent_rejection");
+  eq("bare 422 message code names the status, claims nothing", n422(null).provider_message_code, "http_422");
+  eq("422 + trusted recipient code → recipient_invalid", n422("invalid_to_address").reason, "recipient_invalid");
+  eq("422 + trusted sender code → invalid_sender", n422("domain_not_verified").reason, "invalid_sender");
+  eq("422 + trusted content code → invalid_content", n422("invalid_template").reason, "invalid_content");
+  eq("422 + unknown code → provider_permanent_rejection (fails closed)", n422("some_new_code").reason, "provider_permanent_rejection");
+  ok("422 + unknown code records the code without trusting it",
+     n422("some_new_code").provider_message_code === "unclassified:some_new_code");
+  ok("all 422 outcomes stay terminal (this is diagnostics, not retry policy)",
+     [null, "invalid_to_address", "domain_not_verified", "invalid_template", "some_new_code"]
+       .every((c) => n422(c).terminal === true && !reasonIsRetryable(n422(c).reason)));
+  eq("422 recipient classification carries the recipient error class", n422("invalid_recipient").provider_error_class, "recipient");
+  eq("422 sender classification carries the sender error class", n422("invalid_from_address").provider_error_class, "sender");
+  eq("422 content classification carries the content error class", n422("missing_required_field").provider_error_class, "content");
+  ok("a provider cannot inject prose into the ledger via a code",
+     n422("Invalid To Address: user@example.com").reason === "provider_permanent_rejection");
 
   ok("unknown provider outcome fails closed", n("something_new", null).terminal === true);
   ok("provider_rejected with no status fails closed", n("provider_rejected", null).terminal === true);
@@ -498,6 +517,11 @@ await preActivate("ws_dead");
   ok("normalizer never returns a raw body or recipient",
      !JSON.stringify(d).toLowerCase().includes("@") && !("body" in d) && !("response" in d));
 
+
+  // The transport itself must never hand us a body or an address.
+  const emailSrc = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "lib", "lifecycle-email.js"), "utf8");
+  ok("transport extracts only the provider's code slug, never the message",
+     emailSrc.includes("^[a-z0-9_]{1,64}$") && !/provider_message:\s*body\?\.message/.test(emailSrc));
   // The ledger stores the diagnostics and no PII.
   const rows = db.prepare("SELECT * FROM alert_deliveries WHERE provider_status_code IS NOT NULL").all();
   ok("ledger has the diagnostic columns", db.prepare("PRAGMA table_info(alert_deliveries)").all()
@@ -582,6 +606,41 @@ async function emitLifecycleAlertProbe() {
     entity: "x.example.com", recurrence: "totally_unknown_recurrence",
   });
   return r.skipped;
+}
+
+// ── 18. BASELINE SMOKE CONTRACT (what production must show on first evaluation) ─
+// These are the exact assertions the post-deploy smoke will make, encoded so they
+// are proven before deploy rather than eyeballed after it.
+{
+  user("u_smoke", "smoke@example.com", "professional"); subscribe("u_smoke", "professional");
+  workspace("ws_smoke", "u_smoke");
+
+  const notifsBefore = notifs("ws_smoke").length;
+  let providerCalls = 0;
+  const prevFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    if (String(url).includes("resend.com")) providerCalls++;
+    return prevFetch(url, init);
+  };
+
+  // First evaluation over pre-existing state, exactly as production will do.
+  for (const host of ["s1.example.com", "s2.example.com", "s3.example.com"]) {
+    await emitManagedAlert(env, {
+      workspace_id: "ws_smoke", domain_key: "certificates_trust", kind: "cert_expiring",
+      severity: "critical", title: `Cert ${host}`, message: "Pre-existing.",
+      dedupe_key: `smoke|${host}`, observed_at: "2026-01-01T00:00:00Z",
+    });
+  }
+  globalThis.fetch = prevFetch;
+
+  const act = db.prepare("SELECT * FROM alert_activation WHERE workspace_id = 'ws_smoke'").all();
+  ok("SMOKE: alert_activation rows are created", act.length === 1);
+  eq("SMOKE: notification_events does not increase for baseline state", notifs("ws_smoke").length, notifsBefore);
+  eq("SMOKE: no outbound provider call occurs", providerCalls, 0);
+  const l = ledger("ws_smoke");
+  ok("SMOKE: alert_deliveries records only baseline audit outcomes",
+     l.length > 0 && l.every((d) => d.reason === "alert_baseline_established" && d.outcome === "suppressed" && d.terminal === 1));
+  ok("SMOKE: no delivered row exists", !l.some((d) => d.outcome === "delivered"));
 }
 
 globalThis.fetch = realFetch;

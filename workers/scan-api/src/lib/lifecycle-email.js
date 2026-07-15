@@ -75,8 +75,19 @@ async function deliverEmail(subject, text, html, env, fromKey, toEmails) {
       signal: AbortSignal.timeout(10_000),
     });
     if (!response.ok) {
-      emailDeliveryLog("error", { ...context, outcome: "failed", reason: "provider_rejected", status: response.status });
-      return { sent: false, reason: "provider_rejected", status: response.status };
+      // Extract ONLY the provider's machine-readable error code — never the body.
+      // Resend's error payload is {name, message, statusCode}; `message` routinely
+      // echoes the recipient address, so it is deliberately discarded. `name` is a
+      // short slug, and it is length-capped and shape-restricted before it travels
+      // any further, so a provider cannot inject prose or PII into our ledger.
+      let providerCode = null;
+      try {
+        const body = await response.json();
+        const raw = String(body?.name || "").trim().toLowerCase();
+        if (/^[a-z0-9_]{1,64}$/.test(raw)) providerCode = raw;
+      } catch { /* non-JSON or empty error body — stay unclassified */ }
+      emailDeliveryLog("error", { ...context, outcome: "failed", reason: "provider_rejected", status: response.status, provider_code: providerCode });
+      return { sent: false, reason: "provider_rejected", status: response.status, provider_code: providerCode };
     }
     let providerId = null;
     try { providerId = (await response.json())?.id || null; } catch { /* response ID is optional */ }

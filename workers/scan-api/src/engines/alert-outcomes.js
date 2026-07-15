@@ -30,10 +30,42 @@ export const PROVIDER_OUTCOMES = Object.freeze({
   recipient_invalid:              { terminal: true,  error_class: "recipient" },
 });
 
-// Resend returns 422 for an unroutable/invalid recipient payload; 401/403 for a bad
-// key or an unverified sender domain. Both are configuration/recipient facts, not
-// weather.
-export function normalizeProviderOutcome({ reason = null, status = null } = {}) {
+// ── Trusted 422 classification ───────────────────────────────────────────────
+// A 422 is "permanent validation failure" and NOTHING more specific. It may be the
+// recipient, the sender, the content, a template, or a field we have never seen.
+// Inferring "invalid recipient" from the status alone would put a fabricated fact
+// about the CUSTOMER's address into the audit trail — an operator reading the ledger
+// would go and "fix" a recipient that was never the problem.
+//
+// So a 422 is only specialised when the provider itself says which thing failed, via
+// a machine-readable code we recognise. The code is allowlisted, not pattern-matched:
+// an unrecognised code is not evidence, and a provider must never be able to steer
+// our classification with a new string.
+//
+// Unknown/absent code => provider_permanent_rejection. All four outcomes are terminal
+// either way — this is about diagnostic honesty, not retry behaviour.
+const PROVIDER_CODE_CLASS = Object.freeze({
+  // Recipient
+  invalid_to_address: "recipient_invalid",
+  invalid_recipient: "recipient_invalid",
+  // Sender / sending domain
+  invalid_from_address: "invalid_sender",
+  invalid_sender: "invalid_sender",
+  domain_not_verified: "invalid_sender",
+  not_authorized_to_send: "invalid_sender",
+  // Content / template
+  invalid_template: "invalid_content",
+  invalid_content: "invalid_content",
+  invalid_subject: "invalid_content",
+  missing_required_field: "invalid_content",
+});
+
+export function classifyProviderCode(code) {
+  const c = String(code || "").trim().toLowerCase();
+  return PROVIDER_CODE_CLASS[c] || null;   // null = not trusted / not specific
+}
+
+export function normalizeProviderOutcome({ reason = null, status = null, provider_code = null } = {}) {
   const code = Number(status) || null;
   const mk = (r, message_code) => ({
     reason: r,
@@ -41,6 +73,15 @@ export function normalizeProviderOutcome({ reason = null, status = null } = {}) 
     provider_status_code: code,
     provider_error_class: PROVIDER_OUTCOMES[r].error_class,
     provider_message_code: message_code,
+  });
+  // invalid_sender / invalid_content are pre-existing configuration reasons (already
+  // terminal) rather than members of the provider vocabulary, so they carry their own
+  // error class instead of borrowing one.
+  const sk = (r, error_class, message_code, statusCode) => ({
+    reason: r, terminal: true,
+    provider_status_code: statusCode ?? code,
+    provider_error_class: error_class,
+    provider_message_code: message_code || null,
   });
 
   // Transport-level failures never reached the provider.
@@ -52,7 +93,14 @@ export function normalizeProviderOutcome({ reason = null, status = null } = {}) 
     if (code >= 500) return mk("provider_unavailable", `http_${code}`);
     if (code === 408) return mk("provider_temporary_rejection", "http_408");
     if (code === 401 || code === 403) return mk("provider_authentication_failed", `http_${code}`);
-    if (code === 422) return mk("recipient_invalid", "http_422");
+    if (code === 422) {
+      // Only the provider's own trusted code may specialise a 422. Never the status.
+      const classed = classifyProviderCode(provider_code);
+      if (classed === "recipient_invalid") return mk("recipient_invalid", provider_code);
+      if (classed === "invalid_sender") return sk("invalid_sender", "sender", provider_code, code);
+      if (classed === "invalid_content") return sk("invalid_content", "content", provider_code, code);
+      return mk("provider_permanent_rejection", provider_code ? `unclassified:${provider_code}` : "http_422");
+    }
     if (code >= 400) return mk("provider_permanent_rejection", `http_${code}`);
   }
 
