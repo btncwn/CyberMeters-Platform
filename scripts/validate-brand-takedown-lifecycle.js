@@ -62,6 +62,14 @@ async function seed(db) {
   db.prepare("INSERT INTO users (id, email, password_hash, name, plan, status, email_verified, mfa_enabled) VALUES ('foreign','foreign@example.com',?,'Foreign','free','active',1,0)").run(pw);
   db.prepare("INSERT INTO workspaces (id, name, owner_user_id, created_at, updated_at) VALUES ('ws1','Alpha','admin',datetime('now'),datetime('now'))").run();
   db.prepare("INSERT INTO workspaces (id, name, owner_user_id, created_at, updated_at) VALUES ('ws2','Beta','foreign',datetime('now'),datetime('now'))").run();
+  // PR-B1: ws1 has been alerting on Brand Protection for a while — the steady state.
+  // Without this, the first emitManagedAlert would establish the activation watermark
+  // and suppress its own pass (by design: pre-existing state must never become a bell
+  // notification), and this suite would be asserting the baseline rather than the
+  // reappearance behaviour it is about. Backdated so a transition observed now is
+  // genuinely after the watermark.
+  db.prepare(`INSERT INTO alert_activation (id, workspace_id, domain_key, activated_at, created_at)
+              VALUES ('act_ws1_brand','ws1','brand_protection', datetime('now','-30 days'), datetime('now','-30 days'))`).run();
   db.prepare("INSERT INTO workspace_members (id, workspace_id, user_id, role, created_at) VALUES ('wm-admin','ws1','admin','admin',datetime('now'))").run();
   db.prepare("INSERT INTO workspace_members (id, workspace_id, user_id, role, created_at) VALUES ('wm-foreign','ws2','foreign','owner',datetime('now'))").run();
   db.prepare("INSERT INTO user_sessions (id, user_id, token_hash, expires_at, created_at) VALUES ('s-admin','admin',?,datetime('now','+1 day'),datetime('now'))").run(await hashToken("tok_admin"));
@@ -212,8 +220,19 @@ row = await brandCases.getBrandCase(env, "ws1", opened.case.id);
 ok("reappeared candidate links a campaign and reopens confirmed-abuse workflow", reopened.opened === false && row.status === "confirmed_abuse" && row.reopened_count >= 1);
 const campaignCount = db.prepare("SELECT COUNT(*) AS n FROM brand_abuse_campaigns WHERE workspace_id='ws1'").get().n;
 ok("reappearance creates campaign linkage", campaignCount === 1);
-const reappearanceNotif = db.prepare("SELECT COUNT(*) AS n FROM notification_events WHERE workspace_id='ws1' AND type='brand_case_reappeared'").get().n;
+// PR-B1: Brand alerts now go through the canonical pipeline, so the kind is the
+// namespaced `brand_protection.case_reappeared` (alertKindFor) rather than the old
+// hand-rolled `brand_case_reappeared`, and notification_events.type carries it.
+//
+// The workspace is seeded as ALREADY ACTIVE for this domain above: the first
+// emitManagedAlert per (workspace, domain_key) establishes the activation watermark
+// and deliberately suppresses that pass, so pre-existing state can never become a
+// bell notification. A workspace that has been alerting for a while — the steady
+// state this assertion is about — has the watermark already set.
+const reappearanceNotif = db.prepare("SELECT COUNT(*) AS n FROM notification_events WHERE workspace_id='ws1' AND type='brand_protection.case_reappeared'").get().n;
 ok("reappearance creates a customer-visible notification", reappearanceNotif === 1);
+const legacyKind = db.prepare("SELECT COUNT(*) AS n FROM notification_events WHERE type='brand_case_reappeared'").get().n;
+ok("the legacy hand-rolled kind is no longer written", legacyKind === 0);
 
 const cases = await brandCases.listBrandCases(env, "ws1");
 ok("case list is tenant scoped to ws1", cases.length === 1 && cases[0].workspace_id === "ws1");

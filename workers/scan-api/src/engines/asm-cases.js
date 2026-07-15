@@ -1,13 +1,17 @@
 // ── Managed ASM remediation cases ──────────────────────────────────────────
 // Case creation and verification loop for externally visible Attack Surface
 // exposures. Reuses scan evidence; never performs a parallel probe.
-import { deliverWorkspaceAlert } from "./alerts.js";
+// No direct outbound sender here: ASM alerts go through emitCaseLifecycleAlert,
+// which persists the occurrence first and routes delivery through the canonical
+// pipeline (entitlement, preference, dedupe, ledger). notifyCase and its Brand
+// twin were near-identical hand-rolled senders that drifted apart.
+import { emitCaseLifecycleAlert } from "./alert-consumers.js";
 import {
   buildCaseQueue,
   newCaseEventId,
   newManagedCaseId,
 } from "./case-workflow.js";
-import { createAuditEvent, createNotificationEvent } from "../lib/events.js";
+import { createAuditEvent } from "../lib/events.js";
 import { normalizeDiscoveredHostname } from "./hostnames.js";
 import { MANAGED_VERIFICATION_PROFILE, findingTypeOf, isSupportedVerification, runManagedVerificationProbe } from "./managed-verification.js";
 import { findingRemediation } from "./remediation-registry.js";
@@ -218,25 +222,6 @@ async function writeCaseEvent(env, caseRow, { actor_type = "system", actor_id = 
   });
 }
 
-async function notifyCase(env, caseRow, { type, title, message, severity = "info", metadata = {} } = {}) {
-  await createNotificationEvent(env, caseRow.workspace_id, {
-    type,
-    severity,
-    title,
-    message,
-    metadata: { case_id: caseRow.id, domain: caseRow.domain, finding_id: caseRow.finding_id, ...metadata },
-  });
-  try {
-    await deliverWorkspaceAlert(env, caseRow.workspace_id, {
-      kind: type,
-      severity,
-      title,
-      summary: message,
-      domain: caseRow.domain,
-    });
-  } catch { /* best-effort */ }
-}
-
 async function updateCaseStatus(env, caseRow, to, ctx = {}) {
   // Route ASM status changes through the UNIVERSAL validator (no bypass). It
   // dispatches to the same ASM machine + enforces the universal invariants
@@ -377,11 +362,12 @@ async function openCaseForFinding(env, { workspaceId, domainId, scanId, domain, 
           action: "transition",
           detail: { scan_id: scanId, observed: "finding_present" },
         });
-        await notifyCase(env, reopened.case, {
-          type: "managed_case_reopened",
-          severity: finding.severity || "high",
-          title: `Managed case reopened for ${domain}`,
-          message: `${finding.title || finding.id} was detected again and needs review.`,
+        await emitCaseLifecycleAlert(env, reopened.case, {
+          domain_key: "attack_surface",
+          recurrence: "case_reopened",
+          from_recurrence_type: "case_resolved",
+          finding_type: finding.id,
+          detail: { scan_id: scanId, observed: "finding_present" },
         });
       }
     }
@@ -424,11 +410,11 @@ async function openCaseForFinding(env, { workspaceId, domainId, scanId, domain, 
     action: "opened",
     detail: { scan_id: scanId, domain_id: domainId, finding_id: finding.id },
   });
-  await notifyCase(env, row, {
-    type: "managed_case_opened",
-    severity: row.severity,
-    title: `Managed case opened for ${domain}`,
-    message: `${finding.title || finding.id} needs an owner and remediation.`,
+  await emitCaseLifecycleAlert(env, row, {
+    domain_key: "attack_surface",
+    recurrence: "case_opened",
+    finding_type: finding.id,
+    detail: { scan_id: scanId, domain_id: domainId, finding_id: finding.id },
   });
   return { opened: true, case: row };
 }
@@ -567,11 +553,10 @@ export async function verifyManagedAsmCasesForScan(scanId, domainId, domain, fin
         });
         if (failure.ok) {
           failed++;
-          await notifyCase(env, failure.case, {
-            type: "managed_case_verification_failed",
-            severity: failure.case.severity || "high",
-            title: `Fix not verified for ${cleanDomain}`,
-            message: "CyberMeters still observed the exposure in the latest Cyber MOT.",
+          await emitCaseLifecycleAlert(env, failure.case, {
+            domain_key: "attack_surface",
+            recurrence: "case_verification_failed",
+            detail: { observed: "still_present", source: "cyber_mot" },
           });
         }
       } else {
@@ -591,11 +576,10 @@ export async function verifyManagedAsmCasesForScan(scanId, domainId, domain, fin
         });
         if (ok.ok) {
           resolved++;
-          await notifyCase(env, ok.case, {
-            type: "managed_case_resolved",
-            severity: "info",
-            title: `Managed case resolved for ${cleanDomain}`,
-            message: "CyberMeters no longer observed the exposure in the latest Cyber MOT.",
+          await emitCaseLifecycleAlert(env, ok.case, {
+            domain_key: "attack_surface",
+            recurrence: "case_resolved",
+            detail: { observed: "absent", source: "cyber_mot" },
           });
         }
       }
@@ -723,7 +707,7 @@ export async function verifyManagedCaseById(env, { workspaceId, caseId, actorId 
   if (probe.decision === "still_present") {
     if (working.status === "verifying") {
       const r = await updateCaseStatus(env, working, "verification_failed", { actor_type: "system", action: "verification_failed", reason: "CyberMeters still observed this exposure.", detail: audit });
-      if (r.ok) await notifyCase(env, r.case, { type: "managed_case_verification_failed", severity: r.case.severity || "high", title: `Fix not verified for ${domain}`, message: "CyberMeters still observed the exposure on the affected host." });
+      if (r.ok) await emitCaseLifecycleAlert(env, r.case, { domain_key: "attack_surface", recurrence: "case_verification_failed", detail: audit });
     } else if (working.status === "resolved") {
       // Reappearance: claim resolved → reopened exactly once (CAS), then remediation.
       const won = await casCaseStatus(env, caseRow, "resolved", "reopened", ", reopened_count = COALESCE(reopened_count, 0) + 1");
@@ -732,7 +716,7 @@ export async function verifyManagedCaseById(env, { workspaceId, caseId, actorId 
         const fresh = await getManagedCase(env, workspaceId, caseId);
         if (fresh) {
           await updateCaseStatus(env, fresh, "remediation_in_progress", { actor_type: "system", action: "transition", detail: audit });
-          await notifyCase(env, fresh, { type: "managed_case_reopened", severity: fresh.severity || "high", title: `Managed case reopened for ${domain}`, message: `${finding.title || caseRow.finding_id} was detected again on ${hosts.join(", ")}.` });
+          await emitCaseLifecycleAlert(env, fresh, { domain_key: "attack_surface", recurrence: "case_reopened", from_recurrence_type: "case_resolved", finding_type: caseRow.finding_id, detail: audit });
         }
       }
     }
@@ -749,7 +733,7 @@ export async function verifyManagedCaseById(env, { workspaceId, caseId, actorId 
           observed_at: audit.completed_at,
           observation: audit.evidence || { host: audit.host, decision: audit.decision, completeness: audit.completeness },
         } });
-      if (r.ok) await notifyCase(env, r.case, { type: "managed_case_resolved", severity: "info", title: `Managed case resolved for ${domain}`, message: "CyberMeters no longer observed the exposure on the affected host." });
+      if (r.ok) await emitCaseLifecycleAlert(env, r.case, { domain_key: "attack_surface", recurrence: "case_resolved", detail: audit });
     }
     // A 'resolved' case that is still fixed → no-op (idempotent).
     return { ok: true, code: "fixed", decision: "fixed", outbound_calls: outbound };

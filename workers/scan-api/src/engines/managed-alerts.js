@@ -212,8 +212,20 @@ export async function ensureAlertActivation(env, workspaceId, domainKey, { now =
 //   • observed at/before the mark → never (pre-existing state, not news)
 //   • no observed_at supplied     → allowed: the caller is asserting "this just
 //     happened". Consumers of pre-existing state MUST pass observed_at.
+// FAILS CLOSED on a missing observed_at (founder mandate, 15 July 2026).
+//
+// This used to `return true` when observed_at was absent, on the reasoning that a
+// caller with no timestamp was asserting "this just happened". That was a hole, not
+// a convenience: it meant any caller reaching emitManagedAlert WITHOUT a resolvable
+// occurrence bypassed the first-run flood guard entirely and could tell a customer
+// something was "new" with no persisted event to prove when it began. The whole
+// point of the watermark is that a pre-existing condition cannot masquerade as new.
+//
+// No timestamp => we cannot show the condition started after we began watching =>
+// it does not alert. Callers must go through emitLifecycleAlert, which resolves a
+// real occurrence and passes that event's own created_at.
 export function observationIsAfterWatermark(observedAt, activatedAt) {
-  if (!observedAt) return true;
+  if (!observedAt) return false;
   const o = Date.parse(observedAt), a = Date.parse(activatedAt);
   if (!Number.isFinite(o) || !Number.isFinite(a)) return false; // unparseable → fail closed
   return o > a;

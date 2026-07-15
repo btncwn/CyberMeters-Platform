@@ -31,11 +31,32 @@
 // Per-domain wiring for the three managed lifecycle event tables. The foreign-key
 // column differs per table (a historical quirk), so it is named explicitly rather
 // than guessed.
+// Each domain's append-only source of "when did this condition begin?".
+//
+// `type_column` exists because the managed-case history table names its vocabulary
+// column `action`, while the three lifecycle tables call it `event_type`. Before
+// this, the column name was hardcoded to `event_type` — so a managed-case lookup
+// raised "no such column: event_type", was swallowed by the catch below, and
+// returned null forever. Brand Protection and Attack Surface could therefore never
+// resolve an occurrence, which is precisely why they were still on hand-rolled
+// notification paths. Naming the column per source is the whole adapter.
+//
+// The values here are interpolated into SQL, so they are a FROZEN internal
+// allowlist and are asserted against the real schema in CI — never derived from a
+// request, a row, or anything a customer can influence.
 export const LIFECYCLE_EVENT_SOURCES = Object.freeze({
-  certificates_trust: { table: "certificate_lifecycle_events", fk: "lifecycle_id" },
-  identity_exposure: { table: "identity_exposure_events", fk: "record_id" },
-  shadow_it_unmanaged_technology: { table: "shadow_it_inventory_events", fk: "item_id" },
+  certificates_trust:             { table: "certificate_lifecycle_events", fk: "lifecycle_id", type_column: "event_type" },
+  identity_exposure:              { table: "identity_exposure_events",     fk: "record_id",    type_column: "event_type" },
+  shadow_it_unmanaged_technology: { table: "shadow_it_inventory_events",   fk: "item_id",      type_column: "event_type" },
+  // Managed cases: one append-only history table, two domains, disambiguated by the
+  // case's own domain_key upstream — a case_id belongs to exactly one domain, so the
+  // fk cannot collide across them.
+  brand_protection:               { table: "managed_case_events",          fk: "case_id",      type_column: "action" },
+  attack_surface:                 { table: "managed_case_events",          fk: "case_id",      type_column: "action" },
 });
+
+// The one vocabulary value that marks a condition transition, in every source.
+export const MONITORING_CHANGED = "monitoring_changed";
 
 function parseJson(raw, fallback = null) {
   if (!raw) return fallback;
@@ -60,10 +81,10 @@ export async function findConditionOccurrence(env, {
     const rows = await env.cybermeters_db
       .prepare(`SELECT id, created_at, detail_json
                 FROM ${source.table}
-                WHERE workspace_id = ? AND ${source.fk} = ? AND event_type = 'monitoring_changed'
+                WHERE workspace_id = ? AND ${source.fk} = ? AND ${source.type_column} = ?
                 ORDER BY created_at DESC, id DESC
                 LIMIT 25`)
-      .bind(workspace_id, record_id)
+      .bind(workspace_id, record_id, MONITORING_CHANGED)
       .all();
 
     for (const row of (rows.results || [])) {

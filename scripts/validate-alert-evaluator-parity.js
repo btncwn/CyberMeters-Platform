@@ -77,12 +77,27 @@ db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES ('ws1
 // so an evaluator that never writes that key can never be resolved. Parse each
 // engine and require it builds the canonical detail via the shared helper.
 {
+  // Two shapes of evaluator, both of which must end up with a resolvable occurrence.
+  //
+  // LIFECYCLE engines own a record with a monitoring_status column and append their
+  // own event, so they must use the shared helpers directly.
   const ENGINES = {
     certificates_trust: "certificate-lifecycle.js",
     identity_exposure: "identity-lifecycle.js",
     shadow_it_unmanaged_technology: "shadow-it-inventory.js",
   };
-  eq("every wired domain has an event source", Object.keys(ENGINES).sort(), Object.keys(LIFECYCLE_EVENT_SOURCES).sort());
+  // MANAGED-CASE engines (PR-B1) have no monitoring_status column — their transition
+  // guard is the case state machine (canTransitionCase rejects a repeat), and they
+  // delegate the append + emit to the shared bridge. Requiring them to call
+  // buildMonitoringTransitionDetail directly would force back the per-domain
+  // duplication this episode exists to remove.
+  const CASE_ENGINES = {
+    brand_protection: "brand-cases.js",
+    attack_surface: "asm-cases.js",
+  };
+  eq("every wired domain has an event source",
+     [...Object.keys(ENGINES), ...Object.keys(CASE_ENGINES)].sort(),
+     Object.keys(LIFECYCLE_EVENT_SOURCES).sort());
 
   for (const [domain_key, file] of Object.entries(ENGINES)) {
     const src = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "engines", file), "utf8")
@@ -93,6 +108,31 @@ db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES ('ws1
        "unguarded appends mint a new occurrence every hour and re-alert forever");
     ok(`${file}: the transition carries to_recurrence_type`, /to_recurrence_type/.test(src),
        "the resolver matches on this key; without it the domain is silently unalertable");
+  }
+
+  // The bridge builds the canonical detail ONCE, on behalf of both case engines.
+  const readEngine = (file) => fs.readFileSync(path.join(root, "workers", "scan-api", "src", "engines", file), "utf8")
+    .split("\n").filter((l) => !l.trim().startsWith("//")).join("\n");
+  const bridge = readEngine("alert-consumers.js");
+  ok("the managed-case bridge builds the canonical transition detail",
+     bridge.includes("buildMonitoringTransitionDetail("));
+  ok("the managed-case bridge appends the monitoring_changed event itself",
+     /INSERT INTO managed_case_events/.test(bridge) && /MONITORING_CHANGED/.test(bridge));
+
+  for (const file of Object.values(CASE_ENGINES)) {
+    const src = readEngine(file);
+    ok(`${file}: alerts only through the shared case bridge`, src.includes("emitCaseLifecycleAlert("),
+       "a case engine that sends directly bypasses occurrence, baseline, dedupe and the ledger");
+    ok(`${file}: no hand-rolled notification write`, !/createNotificationEvent\(/.test(src),
+       "writing notification_events directly is the defect PR-B1 removes");
+    ok(`${file}: no direct outbound channel send`, !/deliverWorkspaceAlert\(/.test(src),
+       "a domain engine must not hold a sender");
+    ok(`${file}: does not call emitManagedAlert directly`, !/emitManagedAlert\(/.test(src),
+       "a direct emit with no occurrence bypasses the watermark");
+    ok(`${file}: does not hand-roll a monitoring_changed append`, !/monitoring_changed/.test(src),
+       "the bridge owns the append so the detail shape cannot drift per domain");
+    ok(`${file}: the legacy hand-rolled notifier is gone`,
+       !/function notifyCase\(|function notifyBrandCase\(/.test(src));
   }
 }
 

@@ -64,6 +64,25 @@ function makeDb({ cases, links }) {
   });
   return { prepare: q, batch: async () => [], _events: events, _notifications: notifications };
 }
+
+// PR-B1: ASM alerts now route through emitCaseLifecycleAlert, which persists an
+// append-only managed_case_events row (action='monitoring_changed') and then emits
+// through the canonical pipeline. This suite's D1 stub models managed_cases and
+// captures event INSERTs, but its all() returns [] — it deliberately does not model
+// occurrence lookup, activation watermarks or the delivery ledger, because its
+// subject is probe verification, not alerting.
+//
+// So the no-duplicate invariant is asserted where this stub genuinely knows the
+// answer: exactly one PERSISTED monitoring_changed event per real transition. That
+// is the same guarantee the old notification count stood for — the event IS the
+// occurrence, and one occurrence is one alert — and it is now the honest layer to
+// assert it at. End-to-end delivery is proven against a real database in
+// validate-alert-b1-canonical-cases.js.
+const monitoringEvents = (db, recurrence) => db._events.filter((args) => {
+  const action = args[7], detail = args[8];
+  if (action !== "monitoring_changed") return false;
+  try { return JSON.parse(detail || "{}").to_recurrence_type === recurrence; } catch { return false; }
+}).length;
 const r2 = { put: async () => ({}), get: async () => null, delete: async () => ({}) };
 
 function mkCase(status) {
@@ -206,8 +225,8 @@ async function scenario(status, fetchOpts, { workspaceId = "ws_1", caseId = "cas
   const inProgress = [a, b].filter((r) => r.code === "in_progress" && r.idempotent).length;
   ok("concurrent verification_requested: exactly ONE probe (CAS deduped)", probes === 1, `probes ${probes}`);
   eq("concurrent verification_requested: one call reports in_progress", inProgress, 1);
-  const failNotifs = db._notifications.filter((n) => n.type === "managed_case_verification_failed").length;
-  ok("concurrent verification: no duplicate verification_failed notification", failNotifs <= 1, `notifs ${failNotifs}`);
+  const failEvents = monitoringEvents(db, "case_verification_failed");
+  ok("concurrent verification: no duplicate verification_failed occurrence", failEvents <= 1, `events ${failEvents}`);
 }
 
 // ── 7b. two SIMULTANEOUS reappearance checks → reopen ONCE + one notification ──
@@ -223,8 +242,8 @@ async function scenario(status, fetchOpts, { workspaceId = "ws_1", caseId = "cas
   ]);
   globalThis.fetch = realFetch;
   eq("concurrent reappearance: reopened exactly once", cases.get("case_1").reopened_count, 1);
-  const reopenNotifs = db._notifications.filter((n) => n.type === "managed_case_reopened").length;
-  eq("concurrent reappearance: exactly one reopen notification", reopenNotifs, 1);
+  const reopenEvents = monitoringEvents(db, "case_reopened");
+  eq("concurrent reappearance: exactly ONE reopen occurrence (one event = one alert)", reopenEvents, 1);
 }
 
 // ── 8. Dispatch coverage is an explicit, honest allowlist ────────────────────

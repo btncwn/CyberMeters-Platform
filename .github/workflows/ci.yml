@@ -104,6 +104,9 @@ jobs:
       - name: Validate alert trust foundation (free-plan blocked on every path / per-user preferences / no legacy bypass)
         run: node scripts/validate-alert-trust-foundation.js
 
+      - name: Validate canonical managed-case alerts (Brand + ASM occurrence / watermark / namespaced severity)
+        run: node scripts/validate-alert-b1-canonical-cases.js
+
       - name: Validate alert occurrence identity (append-only event = condition start)
         run: node scripts/validate-alert-occurrence.js
 
