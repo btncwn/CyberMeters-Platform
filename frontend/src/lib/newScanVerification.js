@@ -138,6 +138,32 @@ export function checkFailureMessage(err) {
   return 'We could not check the DNS record just now. The record details below are still valid — please try again shortly.';
 }
 
+
+// The backend returns a per-method breakdown on a failed check:
+//   { success:false, verification_status:'failed',
+//     checks:{ dns_txt:{result:'found'|'not_found', error}, html_file:{...} } }
+// at HTTP 200 — so it is a normal response, not an exception.
+//
+// Distinguish the outcomes rather than showing one shrug for all of them: "record
+// not published yet" and "record present but wrong value" need different actions
+// from the customer, and a lookup error is neither of those.
+export function verifyFailureNote(res) {
+  const dns = res?.checks?.dns_txt;
+  if (dns?.error) {
+    return 'We could not complete the DNS lookup just now. Your record below is unaffected — please try again shortly.';
+  }
+  if (dns?.result === 'not_found') {
+    // The server re-checks hourly for 48h, so this is a wait, not a failure.
+    return 'That TXT record is not visible yet. DNS can take a few minutes to propagate — check the record below matches exactly, then try again. We also re-check automatically every hour for 48 hours.';
+  }
+  if (dns?.result === 'found') {
+    // Present but not accepted => the published value is not the expected one.
+    return 'A TXT record was found at that host, but its value does not match the one below. Check for a stray quote, space, or an older record still present, then try again.';
+  }
+  // Unknown shape — never echo it. Fall back to the safe generic.
+  return checkFailureMessage(res || {});
+}
+
 // Instructions survive every non-success outcome. Losing them on an error is how a
 // customer ends up unable to finish, with no way back to the token.
 export function shouldKeepInstructions(state) {
