@@ -179,13 +179,21 @@ export function verifyFailureNote(res) {
 // possible failure for a trust boundary: the product told the customer it had
 // proven something it had not.
 //
-// Note the verify endpoint's success responses do NOT carry verified_at at all, so
-// the contract below is unsatisfiable from the response alone by construction. That
-// is intentional: it forces the reread.
-//
 // AUTHORITATIVE means the row returned by GET /api/workspaces/:id/domains, which
 // reads wd.* — the workspace_domains link that migration 079 made authoritative and
 // that the scan gate itself honours.
+//
+// This contract used to rest on a structural accident: the verify endpoint's
+// success responses carried no verified_at, so they could not satisfy the check
+// even if someone passed one in. That is NO LONGER TRUE — as of the verification
+// integrity hotfix (15 July 2026) the endpoint returns verified_at, domain_id and
+// workspace_id, each re-read from the persisted row after the write is proven.
+//
+// So the rule is now a discipline rather than an impossibility: pass the row from
+// GET /api/workspaces/:id/domains, never a verify response. The backend's fields
+// are honest — they are persisted state, not a claim — but they describe the moment
+// of the write, and this function's job is to check the record as it stands now.
+// See verifyResponseClaimsSuccess below, which stays exactly as explicit.
 export function isAuthoritativeVerified(row, expected) {
   if (!row || !expected) return false;
   // Every clause is required. Any one missing means we have not been shown proof.

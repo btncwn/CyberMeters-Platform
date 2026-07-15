@@ -10,13 +10,13 @@ import { getEffectivePlan } from "../engines/entitlements.js";
 import { normalizeHostname } from "../engines/hostnames.js";
 import { getAccountUsage, getEntitlementUsage, getPlanLimits, getWorkspaceBillingUserId, planLimitExceeded } from "../engines/plan-usage.js";
 import { hashToken } from "../lib/auth-crypto.js";
-import { resolveVerificationWorkspace } from "../lib/domain-verification.js";
+import { persistVerification, recordVerificationAttempt, resolveVerificationWorkspace, VERIFICATION_OUTCOMES } from "../lib/domain-verification.js";
 import { customerSafeFailure } from "../lib/errors.js";
 import { createAuditEvent, createNotificationEvent } from "../lib/events.js";
 import { createId, isValidDomain } from "../lib/util.js";
 
 export async function domainRoutes(rctx) {
-  const { request, env, url, json, serverError,
+  const { request, env, url, json, serverError, requestId,
           requireAuth, requireWorkspaceRole, requireDomainRole } = rctx;
 
     // ── POST /api/workspaces/:id/domains/import ───────────────────────────────
@@ -259,46 +259,107 @@ export async function domainRoutes(rctx) {
     const domVerCheckMatch = url.pathname.match(/^\/api\/domains\/([^/]+)\/verify$/);
     if (domVerCheckMatch && request.method === "POST") {
       const domainId = domVerCheckMatch[1];
+      // Correlates every record this attempt emits with the X-Request-ID the caller
+      // already received on the response. Not a secret; returned so a customer
+      // report can be traced to the exact attempt without DevTools.
+      let dvcUser = null;
+      let attemptDomain = null;
+
+      // One terminal record per attempt, always. Bound here so no branch below can
+      // return without an outcome — see the catch, which covers the ones that throw.
+      const recordAttempt = (outcome, extra = {}) => recordVerificationAttempt(env, {
+        request_id: requestId,
+        domain_id:  domainId,
+        domain:     attemptDomain,
+        user_id:    dvcUser?.id ?? null,
+        outcome,
+        ...extra,
+      });
+
       try {
         // Auth BEFORE any lookup — see domVerInitMatch above (existence oracle).
-        const dvcUser = await requireAuth(request, env);
-        if (!dvcUser) return json({ error: "Unauthorized" }, 401);
+        dvcUser = await requireAuth(request, env);
+        if (!dvcUser) {
+          await recordAttempt(VERIFICATION_OUTCOMES.UNAUTHORIZED);
+          return json({ error: "Unauthorized" }, 401);
+        }
 
         const domRow = await env.cybermeters_db
           .prepare("SELECT id, domain FROM domains WHERE id = ?")
           .bind(domainId)
           .first();
-        if (!domRow) return json({ error: "Domain not found" }, 404);
+        // Same outcome as a denied/foreign workspace below: the caller must not be
+        // able to tell "no such domain" from "not yours" (existence oracle).
+        if (!domRow) {
+          await recordAttempt(VERIFICATION_OUTCOMES.DOMAIN_LINK_NOT_FOUND, { resolution_code: "domain_absent" });
+          return json({ error: "Domain not found" }, 404);
+        }
+        // The stored value is already normalised at insert; normalising again makes
+        // the recorded identity independent of how the row was written.
+        attemptDomain = normalizeHostname(domRow.domain) || domRow.domain;
 
         // Workspace-scoped resolution (explicit workspace_id, or unambiguous
         // auto-resolve). Denied/absent → same 404 as nonexistent (existence oracle).
         let dvcBody = {};
         try { dvcBody = await request.json(); } catch { /* optional body */ }
         const dvcWs = await resolveVerificationWorkspace(dvcUser, domainId, dvcBody?.workspace_id, requireWorkspaceRole, env);
-        if (dvcWs.error) return json({ error: dvcWs.error, ...(dvcWs.code ? { code: dvcWs.code } : {}) }, dvcWs.status);
+        if (dvcWs.error) {
+          // workspace_id is NOT recorded here: resolution failed, so the caller's
+          // claim to it is unproven and must not be written as tenant context.
+          const unresolvedOutcome = dvcWs.code === "workspace_id_required"
+            ? VERIFICATION_OUTCOMES.WORKSPACE_AMBIGUOUS
+            : VERIFICATION_OUTCOMES.DOMAIN_LINK_NOT_FOUND;
+          await recordAttempt(unresolvedOutcome, { resolution_code: dvcWs.code || `http_${dvcWs.status}` });
+          return json({ error: dvcWs.error, ...(dvcWs.code ? { code: dvcWs.code } : {}) }, dvcWs.status);
+        }
         const dvcWorkspaceId = dvcWs.workspace_id;
 
         // Read verification state from the EXACT workspace-domain relationship — the
         // token was issued per workspace; another workspace's token can never verify this one.
         const dvcLink = await env.cybermeters_db
-          .prepare("SELECT verification_status, verification_token FROM workspace_domains WHERE workspace_id = ? AND domain_id = ?")
+          .prepare("SELECT verification_status, verification_token, verification_method, verified_at FROM workspace_domains WHERE workspace_id = ? AND domain_id = ?")
           .bind(dvcWorkspaceId, domainId)
           .first();
 
-        if (dvcLink?.verification_status === "verified") {
+        // Already verified is reported from the PERSISTED row, and only when that
+        // row carries the timestamp too. A row that says 'verified' with a null
+        // verified_at is not evidence of anything — fall through and re-check
+        // rather than echo a half-written state back as proof.
+        if (dvcLink?.verification_status === "verified" && dvcLink?.verified_at) {
+          await recordAttempt(VERIFICATION_OUTCOMES.ALREADY_VERIFIED, {
+            workspace_id: dvcWorkspaceId,
+            method: dvcLink.verification_method ?? null,
+            persisted_status: dvcLink.verification_status,
+            persisted_verified_at: dvcLink.verified_at,
+          });
           return json({
             success: true,
-            domain: domRow.domain,
+            domain: attemptDomain,
+            domain_id: domainId,
             workspace_id: dvcWorkspaceId,
             verification_status: "verified",
-            verification_method: "already_verified",
+            method: dvcLink.verification_method ?? null,
+            // Retained for the existing consumer contract; `method` is canonical.
+            verification_method: dvcLink.verification_method ?? null,
+            verified_at: dvcLink.verified_at,
+            outcome: VERIFICATION_OUTCOMES.ALREADY_VERIFIED,
+            request_id: requestId,
             message: "Domain is already verified.",
           });
         }
 
         if (!dvcLink?.verification_token) {
+          await recordAttempt(VERIFICATION_OUTCOMES.NO_TOKEN, {
+            workspace_id: dvcWorkspaceId,
+            persisted_status: dvcLink?.verification_status ?? null,
+          });
           return json({
+            success: false,
+            verification_status: "failed",
+            outcome: VERIFICATION_OUTCOMES.NO_TOKEN,
+            request_id: requestId,
             error: "No verification token found. Call POST /api/domains/:id/verification first.",
+            message: "Start verification for this domain to get its DNS record, then try again.",
           }, 400);
         }
 
@@ -308,8 +369,13 @@ export async function domainRoutes(rctx) {
         const htmlUrl          = `https://${domain}/cybermeters-verification-${token}.html`;
 
         // ── Method 1: DNS TXT ─────────────────────────────────────────────
+        // Three distinguishable results, not two. "No TXT at the host" and "a TXT
+        // is there but its value is wrong" need different actions from the
+        // customer (publish it vs fix it), and a resolver failure is neither —
+        // it proves nothing either way and must never be reported as "not found".
         let dnsVerified = false;
         let dnsError    = null;
+        let dnsCategory = null;   // dns_not_found | dns_mismatch | dns_lookup_error | found
         try {
           const txtHost = `_cybermeters.${domain}`;
           const dnsResult = await dnsQuery(txtHost, "TXT");
@@ -319,23 +385,43 @@ export async function domainRoutes(rctx) {
             const val = String(a.data || "").replace(/^"|"$/g, "").trim();
             return val === expectedTxtValue;
           });
+          dnsCategory = dnsVerified ? "found" : (answers.length === 0 ? "dns_not_found" : "dns_mismatch");
         } catch (e) {
-          dnsError = customerSafeFailure("domain-verification/dns", e, "DNS lookup could not be completed");
+          dnsError    = customerSafeFailure("domain-verification/dns", e, "DNS lookup could not be completed");
+          dnsCategory = "dns_lookup_error";
         }
 
         if (dnsVerified) {
-          // Update ONLY the exact workspace-domain relationship being verified.
-          await env.cybermeters_db
-            .prepare(`UPDATE workspace_domains
-                      SET verification_status = 'verified',
-                          verification_method = 'dns_txt',
-                          verified_at = datetime('now')
-                      WHERE workspace_id = ? AND domain_id = ?`)
-            .bind(dvcWorkspaceId, domainId)
-            .run();
+          // Update ONLY the exact workspace-domain relationship being verified —
+          // and prove it landed. A zero-row UPDATE is a successful statement that
+          // changed nothing; returning "verified" on that basis is how the product
+          // told a customer it had proven something it had not.
+          const dnsPersist = await persistVerification(env, dvcWorkspaceId, domainId, "dns_txt");
           // Forward telemetry: fingerprint the exact TXT value we trusted + note
-          // the resolver, so a later drift check can prove what was verified.
+          // the resolver, so a later drift check can prove what was verified. This
+          // is a SHA-256 of a 192-bit random token, so it identifies the value
+          // without being reversible to it.
           const dnsRecordHash = await hashToken(expectedTxtValue);
+          if (!dnsPersist.ok) {
+            await recordAttempt(dnsPersist.outcome, {
+              workspace_id: dvcWorkspaceId, method: "dns_txt",
+              dns_result: "found",
+              affected_row_count: dnsPersist.affected_row_count,
+              persisted_status: dnsPersist.persisted_status,
+              persisted_verified_at: dnsPersist.persisted_verified_at,
+              dns_record_hash: dnsRecordHash, resolver_used: "cloudflare_doh",
+            });
+            // The DNS proof was real but the record did not persist. Say so honestly
+            // rather than claiming verification we cannot stand behind.
+            return json({
+              success: false,
+              verification_status: "failed",
+              outcome: dnsPersist.outcome,
+              request_id: requestId,
+              error: "verification_not_persisted",
+              message: "We confirmed your DNS record but could not save the result. Please try again.",
+            }, 500);
+          }
           // Notifications + audit — fire-and-forget for THIS workspace only.
           try {
             await createNotificationEvent(env, dvcWorkspaceId, {
@@ -352,15 +438,33 @@ export async function domainRoutes(rctx) {
               entity_id:   domainId,
               description: `${domain} ownership verified via DNS TXT`,
               metadata:    { domain, domain_id: domainId, workspace_id: dvcWorkspaceId, method: "dns_txt",
+                             request_id: requestId,
                              resolver_used: "cloudflare_doh", dns_record_hash: dnsRecordHash },
             });
           } catch { /* non-fatal */ }
+          await recordAttempt(VERIFICATION_OUTCOMES.VERIFIED_DNS_TXT, {
+            workspace_id: dvcWorkspaceId, method: "dns_txt",
+            dns_result: "found",
+            affected_row_count: dnsPersist.affected_row_count,
+            persisted_status: dnsPersist.persisted_status,
+            persisted_verified_at: dnsPersist.persisted_verified_at,
+            dns_record_hash: dnsRecordHash, resolver_used: "cloudflare_doh",
+          });
           return json({
             success: true,
             domain,
-            workspace_id: dvcWorkspaceId,
+            // Every identity field below is the value RE-READ from the persisted
+            // row, never the request's copy — so the payload cannot describe a
+            // record that does not exist in the state the scan gate reads.
+            domain_id: dnsPersist.persisted_domain_id,
+            workspace_id: dnsPersist.persisted_workspace_id,
             verification_status: "verified",
+            method: "dns_txt",
+            // Retained for the existing consumer contract; `method` is canonical.
             verification_method: "dns_txt",
+            verified_at: dnsPersist.persisted_verified_at,
+            outcome: VERIFICATION_OUTCOMES.VERIFIED_DNS_TXT,
+            request_id: requestId,
             message: `DNS TXT record verified at _cybermeters.${domain}.`,
           });
         }
@@ -385,15 +489,26 @@ export async function domainRoutes(rctx) {
         }
 
         if (htmlVerified) {
-          // Update ONLY the exact workspace-domain relationship being verified.
-          await env.cybermeters_db
-            .prepare(`UPDATE workspace_domains
-                      SET verification_status = 'verified',
-                          verification_method = 'html_file',
-                          verified_at = datetime('now')
-                      WHERE workspace_id = ? AND domain_id = ?`)
-            .bind(dvcWorkspaceId, domainId)
-            .run();
+          // Update ONLY the exact workspace-domain relationship being verified,
+          // and prove it landed — see the DNS branch above.
+          const htmlPersist = await persistVerification(env, dvcWorkspaceId, domainId, "html_file");
+          if (!htmlPersist.ok) {
+            await recordAttempt(htmlPersist.outcome, {
+              workspace_id: dvcWorkspaceId, method: "html_file",
+              html_result: "found",
+              affected_row_count: htmlPersist.affected_row_count,
+              persisted_status: htmlPersist.persisted_status,
+              persisted_verified_at: htmlPersist.persisted_verified_at,
+            });
+            return json({
+              success: false,
+              verification_status: "failed",
+              outcome: htmlPersist.outcome,
+              request_id: requestId,
+              error: "verification_not_persisted",
+              message: "We confirmed your verification file but could not save the result. Please try again.",
+            }, 500);
+          }
           // Notifications + audit — fire-and-forget for THIS workspace only.
           try {
             await createNotificationEvent(env, dvcWorkspaceId, {
@@ -409,25 +524,52 @@ export async function domainRoutes(rctx) {
               entity_type: "domain",
               entity_id:   domainId,
               description: `${domain} ownership verified via HTML file`,
-              metadata:    { domain, domain_id: domainId, workspace_id: dvcWorkspaceId, method: "html_file" },
+              metadata:    { domain, domain_id: domainId, workspace_id: dvcWorkspaceId, method: "html_file",
+                             request_id: requestId },
             });
           } catch { /* non-fatal */ }
+          await recordAttempt(VERIFICATION_OUTCOMES.VERIFIED_HTML_FILE, {
+            workspace_id: dvcWorkspaceId, method: "html_file",
+            html_result: "found",
+            affected_row_count: htmlPersist.affected_row_count,
+            persisted_status: htmlPersist.persisted_status,
+            persisted_verified_at: htmlPersist.persisted_verified_at,
+          });
           return json({
             success: true,
             domain,
-            workspace_id: dvcWorkspaceId,
+            // Re-read from the persisted row — see the DNS branch above.
+            domain_id: htmlPersist.persisted_domain_id,
+            workspace_id: htmlPersist.persisted_workspace_id,
             verification_status: "verified",
+            method: "html_file",
+            // Retained for the existing consumer contract; `method` is canonical.
             verification_method: "html_file",
+            verified_at: htmlPersist.persisted_verified_at,
+            outcome: VERIFICATION_OUTCOMES.VERIFIED_HTML_FILE,
+            request_id: requestId,
             message: `HTML verification file found at ${htmlUrl}.`,
           });
         }
 
         // ── Both failed ───────────────────────────────────────────────────
-        // Mark ONLY the exact workspace-domain relationship failed.
-        await env.cybermeters_db
+        // Mark ONLY the exact workspace-domain relationship failed. This write is
+        // NOT persistence-proofed the way the verified write is, deliberately: it
+        // moves the row AWAY from a trust claim, so a lost update leaves the link
+        // unverified — the safe direction. Only 'verified' needs proof to be
+        // reported, and the response below reports the check result, not the row.
+        const failUpd = await env.cybermeters_db
           .prepare(`UPDATE workspace_domains SET verification_status = 'failed' WHERE workspace_id = ? AND domain_id = ?`)
           .bind(dvcWorkspaceId, domainId)
           .run();
+
+        // The check-level outcome. dnsCategory carries the distinction the customer
+        // needs; HTML is the fallback method and only refines it when DNS is absent.
+        const failureOutcome = dnsCategory === "dns_mismatch"
+          ? VERIFICATION_OUTCOMES.DNS_MISMATCH
+          : dnsCategory === "dns_lookup_error"
+            ? VERIFICATION_OUTCOMES.DNS_LOOKUP_ERROR
+            : VERIFICATION_OUTCOMES.DNS_NOT_FOUND;
 
         try {
           await createAuditEvent(env, {
@@ -441,6 +583,8 @@ export async function domainRoutes(rctx) {
               domain,
               domain_id: domainId,
               workspace_id: dvcWorkspaceId,
+              request_id: requestId,
+              outcome: failureOutcome,
               dns_txt_result: dnsVerified ? "found" : "not_found",
               html_file_result: htmlVerified ? "found" : "not_found",
               dns_error: dnsError || null,
@@ -449,16 +593,33 @@ export async function domainRoutes(rctx) {
           });
         } catch { /* non-fatal */ }
 
+        await recordAttempt(failureOutcome, {
+          workspace_id: dvcWorkspaceId,
+          dns_result:  dnsCategory,
+          html_result: htmlVerified ? "found" : "not_found",
+          dns_error:   dnsError || null,
+          html_error:  htmlError || null,
+          affected_row_count: failUpd?.meta?.changes ?? 0,
+          persisted_status: "failed",
+          resolver_used: "cloudflare_doh",
+        });
+
         return json({
           success: false,
           domain,
+          domain_id: domainId,
+          workspace_id: dvcWorkspaceId,
           verification_status: "failed",
-          token,
+          outcome: failureOutcome,
+          request_id: requestId,
           checks: {
+            // `token` and the raw `expected` TXT value are deliberately absent:
+            // a failure response has no need of token material, and nothing reads
+            // it. The customer's record is served by GET /api/domains/:id and the
+            // /verification init response, which are the token's proper homes.
             dns_txt: {
               checked: true,
               host:    `_cybermeters.${domain}`,
-              expected: expectedTxtValue,
               result: dnsVerified ? "found" : "not_found",
               error:  dnsError || null,
             },
@@ -473,6 +634,11 @@ export async function domainRoutes(rctx) {
           auto_recheck: { enabled: true, method: "dns_txt", interval: "hourly", window_hours: 48 },
         }, 200);
       } catch (e) {
+        // The last terminal branch. Every other outcome records before returning;
+        // this one exists so a throw cannot be the one path that leaves no trace —
+        // which is exactly the blind spot that made the original incident
+        // undiagnosable. Best-effort, and never allowed to mask the 500.
+        try { await recordAttempt(VERIFICATION_OUTCOMES.INTERNAL_ERROR); } catch { /* never mask */ }
         return serverError("api", e);
       }
     }
