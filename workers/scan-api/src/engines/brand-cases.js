@@ -1,7 +1,11 @@
 // ── Managed Brand Protection cases ─────────────────────────────────────────
 // Brand abuse takedown lifecycle on the shared managed-case platform. Human
 // actions prepare and track takedowns; CyberMeters alone verifies removal.
-import { deliverWorkspaceAlert } from "./alerts.js";
+// No direct outbound sender here: Brand alerts go through emitCaseLifecycleAlert,
+// which persists the occurrence first and routes delivery through the canonical
+// pipeline (entitlement, preference, dedupe, ledger). A domain engine holding a
+// sender is how notifyBrandCase drifted from its ASM twin.
+import { emitCaseLifecycleAlert } from "./alert-consumers.js";
 import { brandCandidateToApi, loadWorkspaceBrandProfile } from "./brand-protection.js";
 import {
   buildCaseQueue,
@@ -10,7 +14,7 @@ import {
 } from "./case-workflow.js";
 import { dnsQuery } from "./dns.js";
 import { safeFetch } from "../lib/http.js";
-import { createAuditEvent, createNotificationEvent } from "../lib/events.js";
+import { createAuditEvent } from "../lib/events.js";
 import { findingRemediation } from "./remediation-registry.js";
 import { BRAND_CASE_TYPE, BRAND_CASE_MACHINE, BRAND_CASE_STATES, BRAND_SYSTEM_ONLY_STATES } from "./brand-case-machine.js";
 import { canTransitionCase } from "./managed-case-model.js";
@@ -126,18 +130,6 @@ async function writeBrandCaseEvent(env, caseRow, { actor_type = "system", actor_
     description: `Brand takedown case ${action.replace(/_/g, " ")} for ${caseRow.domain}`,
     metadata: { case_id: caseRow.id, domain: caseRow.domain, finding_id: caseRow.finding_id, from_status, to_status, detail },
   });
-}
-
-async function notifyBrandCase(env, caseRow, { type, title, message, severity = "info", metadata = {} } = {}) {
-  await createNotificationEvent(env, caseRow.workspace_id, {
-    type, severity, title, message,
-    metadata: { case_id: caseRow.id, domain: caseRow.domain, finding_id: caseRow.finding_id, ...metadata },
-  });
-  try {
-    await deliverWorkspaceAlert(env, caseRow.workspace_id, {
-      kind: type, severity, title, summary: message, domain: caseRow.domain,
-    });
-  } catch { /* best-effort */ }
 }
 
 function mergeEvidence(row, patch) {
@@ -462,12 +454,11 @@ export async function createBrandCaseForCandidate(env, workspaceId, candidateRow
           detail: { campaign_id: linked.campaign_id },
         });
         if (confirmed.ok) {
-          await notifyBrandCase(env, confirmed.case, {
-            type: "brand_case_reappeared",
-            severity: "high",
-            title: `Brand abuse case reappeared for ${confirmed.case.domain}`,
-            message: "A previously resolved brand abuse candidate is technically present again and has been linked to its campaign.",
-            metadata: { campaign_id: linked.campaign_id },
+          await emitCaseLifecycleAlert(env, confirmed.case, {
+            domain_key: "brand_protection",
+            recurrence: "case_reappeared",
+            from_recurrence_type: "case_resolved",
+            detail: { campaign_id: linked.campaign_id },
           });
           return { opened: false, case: confirmed.case, reappeared: true };
         }
@@ -504,11 +495,10 @@ export async function createBrandCaseForCandidate(env, workspaceId, candidateRow
     action: "opened",
     detail: { candidate_id: candidateRow.id, candidate_domain: candidateRow.candidate_domain },
   });
-  await notifyBrandCase(env, row, {
-    type: "brand_case_opened",
-    severity: row.severity,
-    title: `Brand takedown case opened for ${row.domain}`,
-    message: "A registered high-risk brand candidate needs review.",
+  await emitCaseLifecycleAlert(env, row, {
+    domain_key: "brand_protection",
+    recurrence: "case_opened",
+    detail: { candidate_id: candidateRow.id, candidate_domain: candidateRow.candidate_domain },
   });
   return { opened: true, case: row, candidate: gate.candidate };
 }
@@ -698,11 +688,9 @@ export async function runBrandTakedownFollowupSweep(env, { verifier = null, now 
       });
       if (done.ok) {
         resolved++;
-        await notifyBrandCase(env, done.case, {
-          type: "brand_case_resolved",
-          severity: "info",
-          title: `Brand case resolved for ${done.case.domain}`,
-          message: "CyberMeters no longer observes the abusive domain as technically present.",
+        await emitCaseLifecycleAlert(env, done.case, {
+          domain_key: "brand_protection",
+          recurrence: "case_resolved",
         });
       }
     } else {

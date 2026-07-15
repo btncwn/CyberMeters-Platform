@@ -43,6 +43,8 @@ import { deliverWorkspaceAlert, formatAlertEmail, sendTenantAlertEmail } from ".
 import { getEmailFrontendOrigin } from "../lib/lifecycle-email.js";
 import { isInCooldown, normalizeProviderOutcome, PROVIDER_OUTCOMES } from "./alert-outcomes.js";
 import { ALERTS_FEATURE_KEY, channelEnabledForWorkspace, GATED_CHANNELS, workspaceAlertsEntitled } from "./alert-gate.js";
+// alert-occurrence.js has no imports of its own, so this cannot cycle.
+import { LIFECYCLE_EVENT_SOURCES, MONITORING_CHANGED, parseUtcMs } from "./alert-occurrence.js";
 
 // The entitlement and preference decisions now live in alert-gate.js so the legacy
 // senders in alerts.js can share them without a circular import (managed-alerts.js
@@ -188,22 +190,96 @@ async function recordDelivery(env, {
 // Returns { activated_at, established_now }. On any DB error it fails CLOSED
 // (treated as just-established), because alerting a backlog is worse than a
 // delayed alert.
-export async function ensureAlertActivation(env, workspaceId, domainKey, { now = new Date().toISOString() } = {}) {
+// How many conditions ALREADY existed for this workspace+domain before the one we
+// are activating on? This is the number the baseline guard actually cares about.
+//
+// Counted from the domain's own append-only event source, strictly BEFORE the
+// occurrence under evaluation — never from current-state SQL, and never including
+// the occurrence itself. Returns null when it cannot be established (unknown domain
+// or a DB error), which the caller treats as "assume there was pre-existing state"
+// and suppresses. Fail closed: over-suppressing is recoverable, flooding is not.
+async function countPriorOccurrences(env, workspaceId, domainKey, before) {
+  const source = LIFECYCLE_EVENT_SOURCES[domainKey];
+  if (!source || !before) return null;
+  try {
+    const row = await env.cybermeters_db
+      .prepare(`SELECT COUNT(*) AS c FROM ${source.table}
+                 WHERE workspace_id = ? AND ${source.type_column} = ? AND created_at < ?`)
+      .bind(workspaceId, MONITORING_CHANGED, before)
+      .first();
+    return Number(row?.c ?? 0);
+  } catch {
+    return null;
+  }
+}
+
+// Establishes (or reads) the moment this workspace+domain's alert consumer became
+// active, and records how much pre-existing state it saw.
+//
+// ── Why baseline_count is now written ────────────────────────────────────────
+// It has existed since migration 087, documented as "how many records the baseline
+// pass saw", and NOTHING ever wrote it — it sat at its DEFAULT 0 forever. Writing
+// it is what lets the guard tell apart the only two cases that matter:
+//
+//   • baseline_count > 0 — the workspace already had conditions when we started
+//     watching. We cannot tell which are new, so this pass is baseline: suppress.
+//   • baseline_count = 0 — there was NOTHING to be pre-existing. The occurrence we
+//     are looking at is the first this workspace+domain has ever had, so it is
+//     genuinely new by construction and MUST alert. Suppressing it would swallow a
+//     real customer's first-ever case for no benefit: an empty baseline cannot
+//     flood anyone.
+//
+// The watermark is still the activation instant (never the occurrence's timestamp),
+// and a workspace WITH pre-existing state still baselines exactly as before — the
+// global guard is unchanged for every case it was written to cover.
+// `now` defaults to null so the watermark is stamped by SQLite's datetime('now') —
+// the SAME clock and the SAME second-precision as the event timestamps it will be
+// compared against. Passing new Date().toISOString() (millisecond precision) made a
+// just-written event appear ~100ms BEFORE its own activation, because the event's
+// second-truncated time necessarily rounds down. Callers may still pass an explicit
+// `now` (the tests do); it is parsed by the same canonical parser either way.
+export async function ensureAlertActivation(env, workspaceId, domainKey, { now = null, observed_at = null } = {}) {
   try {
     const insert = await env.cybermeters_db
-      .prepare(`INSERT OR IGNORE INTO alert_activation (id, workspace_id, domain_key, activated_at, created_at)
-                VALUES (?, ?, ?, ?, datetime('now'))`)
-      .bind(`aa_${createId()}`, workspaceId, domainKey, now)
+      .prepare(`INSERT OR IGNORE INTO alert_activation (id, workspace_id, domain_key, activated_at, baseline_count, created_at)
+                VALUES (?, ?, ?, COALESCE(?, datetime('now')), ?, datetime('now'))`)
+      .bind(`aa_${createId()}`, workspaceId, domainKey, now, 0)
       .run();
-    if ((insert.meta?.changes ?? 0) === 1) return { activated_at: now, established_now: true };
 
+    // Always read the watermark back rather than reporting what we hoped we wrote:
+    // when `now` is null the value was stamped by the database, and on a lost race
+    // the winning row's timestamp is the one that counts. Same rule as everywhere
+    // else in this episode — a write is not proof until it is read back.
     const row = await env.cybermeters_db
-      .prepare(`SELECT activated_at FROM alert_activation WHERE workspace_id = ? AND domain_key = ?`)
+      .prepare(`SELECT activated_at, baseline_count FROM alert_activation WHERE workspace_id = ? AND domain_key = ?`)
       .bind(workspaceId, domainKey).first();
-    return { activated_at: row?.activated_at || now, established_now: false };
+
+    if ((insert.meta?.changes ?? 0) === 1) {
+      // We just started watching. Count what was already here, excluding the
+      // occurrence under evaluation, and record it as the baseline's size.
+      const prior = await countPriorOccurrences(env, workspaceId, domainKey, observed_at);
+      const baseline_count = prior ?? 1;   // unknown => assume pre-existing => suppress
+      await env.cybermeters_db
+        .prepare(`UPDATE alert_activation SET baseline_count = ? WHERE workspace_id = ? AND domain_key = ?`)
+        .bind(baseline_count, workspaceId, domainKey).run().catch(() => {});
+      return {
+        activated_at: row?.activated_at ?? now,
+        established_now: true,
+        baseline_count,
+        baseline_empty: baseline_count === 0,
+      };
+    }
+
+    // The row already existed: a retry or a concurrent pass. INSERT OR IGNORE means
+    // activation is never recreated or overwritten — the original watermark stands.
+    return {
+      activated_at: row?.activated_at ?? now,
+      established_now: false,
+      baseline_count: Number(row?.baseline_count ?? 0),
+    };
   } catch (err) {
     console.error("[managed-alert] activation check failed", JSON.stringify({ workspace_id: workspaceId, domain_key: domainKey, reason: err?.message }));
-    return { activated_at: now, established_now: true, error: true };
+    return { activated_at: now, established_now: true, baseline_count: 1, baseline_empty: false, error: true };
   }
 }
 
@@ -212,10 +288,33 @@ export async function ensureAlertActivation(env, workspaceId, domainKey, { now =
 //   • observed at/before the mark → never (pre-existing state, not news)
 //   • no observed_at supplied     → allowed: the caller is asserting "this just
 //     happened". Consumers of pre-existing state MUST pass observed_at.
+// FAILS CLOSED on a missing observed_at (founder mandate, 15 July 2026).
+//
+// This used to `return true` when observed_at was absent, on the reasoning that a
+// caller with no timestamp was asserting "this just happened". That was a hole, not
+// a convenience: it meant any caller reaching emitManagedAlert WITHOUT a resolvable
+// occurrence bypassed the first-run flood guard entirely and could tell a customer
+// something was "new" with no persisted event to prove when it began. The whole
+// point of the watermark is that a pre-existing condition cannot masquerade as new.
+//
+// No timestamp => we cannot show the condition started after we began watching =>
+// it does not alert. Callers must go through emitLifecycleAlert, which resolves a
+// real occurrence and passes that event's own created_at.
+// Both sides go through the canonical UTC parser (alert-occurrence.js). It used to
+// call Date.parse directly on each raw value, which compared an ISO UTC
+// activated_at against a timezone-implicit SQLite created_at — a comparison that
+// silently shifted by the machine's UTC offset. It is now explicit: epoch
+// milliseconds on both sides, or nothing.
+//
+// Fails closed on missing, malformed, ambiguous or unrecognised input — including a
+// missing observed_at. No timestamp => we cannot show the condition began after we
+// started watching => it does not alert. The whole point of the watermark is that a
+// pre-existing condition cannot masquerade as new; a caller with no timestamp is
+// not evidence, it is an assertion.
 export function observationIsAfterWatermark(observedAt, activatedAt) {
-  if (!observedAt) return true;
-  const o = Date.parse(observedAt), a = Date.parse(activatedAt);
-  if (!Number.isFinite(o) || !Number.isFinite(a)) return false; // unparseable → fail closed
+  const o = parseUtcMs(observedAt);
+  const a = parseUtcMs(activatedAt);
+  if (o === null || a === null) return false;
   return o > a;
 }
 
@@ -275,8 +374,43 @@ export async function emitManagedAlert(env, {
 
     // 2. Activation watermark — BEFORE event creation and dedupe, so pre-existing
     //    state never becomes a bell notification and is never enqueued for retry.
-    const activation = await ensureAlertActivation(env, workspace_id, domain_key);
-    if (activation.established_now || !observationIsAfterWatermark(observed_at, activation.activated_at)) {
+    const activation = await ensureAlertActivation(env, workspace_id, domain_key, { observed_at });
+
+    // The activating pass is the baseline ONLY if there was something to baseline.
+    // With an empty baseline (baseline_count === 0) nothing pre-existing can be
+    // flooded, so the occurrence in hand is the workspace's first for this domain
+    // and is genuinely new by construction — it alerts. Previously this branch
+    // suppressed unconditionally, which swallowed a customer's first-ever Brand or
+    // ASM case for no benefit, because activation is created lazily BY that very
+    // alert attempt.
+    //
+    // A workspace WITH pre-existing state still baselines exactly as before.
+    //
+    // This case must bypass the watermark comparison too, not just the
+    // established_now branch: the occurrence's event is persisted BEFORE this
+    // function runs, so observed_at is necessarily <= the activation instant we
+    // just wrote, and a strict `observed_at > activated_at` would suppress it
+    // anyway. It is still gated on a real observed_at — a first-ever condition with
+    // no persisted timestamp fails closed exactly like any other.
+    // It is NOT enough that the baseline is empty. baseline_count is read from the
+    // domain's event source, and a caller that supplies observed_at WITHOUT a
+    // persisted event (a direct emitManagedAlert caller) counts zero — so an empty
+    // count alone would let a backlog of genuinely old conditions through as
+    // "first-ever", which is the exact flood the guard exists to stop.
+    //
+    // So the occurrence must ALSO be contemporaneous with activation: not provably
+    // older than the watermark. `>=` rather than `>` because the two timestamps are
+    // written by the same clock at the same second — the event is persisted moments
+    // before activation, so a strict `>` would reject the very case this exists for,
+    // while anything genuinely pre-existing is seconds-to-months earlier and is
+    // still excluded.
+    const observedMs = parseUtcMs(observed_at);
+    const activatedMs = parseUtcMs(activation.activated_at);
+    const contemporaneous = observedMs !== null && activatedMs !== null && observedMs >= activatedMs;
+    const firstEverCondition = activation.established_now && activation.baseline_empty && contemporaneous;
+
+    if (!firstEverCondition
+        && (activation.established_now || !observationIsAfterWatermark(observed_at, activation.activated_at))) {
       deliveries.push(await recordDelivery(env, {
         ...base, channel: "in_app", outcome: "suppressed", reason: "alert_baseline_established",
       }));

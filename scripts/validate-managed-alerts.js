@@ -346,7 +346,13 @@ await preActivate("ws_dead");
   ok("watermark: exactly at the mark → blocked (pre-existing, not news)",
      !observationIsAfterWatermark("2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"));
   ok("watermark: unparseable timestamp fails closed", !observationIsAfterWatermark("not-a-date", "2026-01-01T00:00:00Z"));
-  ok("watermark: no observed_at → caller asserts it just happened", observationIsAfterWatermark(null, "2026-01-01T00:00:00Z"));
+  // FLIPPED (founder mandate, 15 July 2026). This used to assert that a missing
+  // observed_at meant "the caller says it just happened". That was a hole: any path
+  // reaching emitManagedAlert without a resolvable occurrence bypassed the flood
+  // guard and could call a pre-existing condition "new" with nothing persisted to
+  // prove when it began. No timestamp => no proof => no alert.
+  ok("watermark: no observed_at fails CLOSED (cannot prove it is new)", !observationIsAfterWatermark(null, "2026-01-01T00:00:00Z"));
+  ok("watermark: empty observed_at fails closed", !observationIsAfterWatermark("", "2026-01-01T00:00:00Z"));
 
 
   // ── The second-run flood ───────────────────────────────────────────────────
@@ -568,20 +574,27 @@ await preActivate("ws_dead");
   const { resolveRemediation } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "remediation-registry.js")).href);
 
   // Every recurrence each shipped evaluator can emit must have an explicit severity.
+  // Keyed by domain now, not just by file: the severity map is namespaced, so a
+  // recurrence must be mapped UNDER ITS OWN DOMAIN. This is what proves
+  // identity-lifecycle's `verification_failed` is graded by Identity Exposure and
+  // not silently borrowed from the Certificates block, as the flat map allowed.
   const EVALUATOR_RECURRENCES = {
-    "certificate-lifecycle.js": ["expired", "renewal_overdue", "replacement_contradicted", "verification_failed",
-      "replacement_unverified", "coverage_regression", "unexpected_san", "exception_expired", "owner_missing", "evidence_stale"],
-    "identity-lifecycle.js": ["public_admin_surface", "removal_contradicted", "unexpected_surface", "retired_reappeared",
-      "investigate_unresolved", "provider_change", "verification_failed", "exception_expired", "owner_missing", "evidence_stale"],
-    "shadow-it-inventory.js": ["approved_disappeared", "evidence_stale", "exception_expired", "material_change",
-      "owner_missing", "rejected_reappeared", "removal_contradicted", "removal_incomplete", "retired_reappeared"],
+    "certificate-lifecycle.js": { domain_key: "certificates_trust", recurrences:
+      ["expired", "renewal_overdue", "replacement_contradicted", "verification_failed",
+       "replacement_unverified", "coverage_regression", "unexpected_san", "exception_expired", "owner_missing", "evidence_stale"] },
+    "identity-lifecycle.js": { domain_key: "identity_exposure", recurrences:
+      ["public_admin_surface", "removal_contradicted", "unexpected_surface", "retired_reappeared",
+       "investigate_unresolved", "provider_change", "verification_failed", "exception_expired", "owner_missing", "evidence_stale"] },
+    "shadow-it-inventory.js": { domain_key: "shadow_it_unmanaged_technology", recurrences:
+      ["approved_disappeared", "evidence_stale", "exception_expired", "material_change",
+       "owner_missing", "rejected_reappeared", "removal_contradicted", "removal_incomplete", "retired_reappeared"] },
   };
-  for (const [file, list] of Object.entries(EVALUATOR_RECURRENCES)) {
-    const unmapped = list.filter((r) => !isMappedRecurrence(r));
-    eq(`${file}: every recurrence has an explicit severity`, unmapped, []);
+  for (const [file, { domain_key, recurrences }] of Object.entries(EVALUATOR_RECURRENCES)) {
+    const unmapped = recurrences.filter((r) => !isMappedRecurrence(domain_key, r));
+    eq(`${file}: every recurrence has an explicit severity under its OWN domain`, unmapped, []);
   }
   // The mapping must be derived from the real source, not a stale copy.
-  for (const [file, list] of Object.entries(EVALUATOR_RECURRENCES)) {
+  for (const [file, { recurrences: list }] of Object.entries(EVALUATOR_RECURRENCES)) {
     const src = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "engines", file), "utf8");
     const actual = [...new Set([...src.matchAll(/recurrence_type\s*=\s*"([a-z_]+)"/g)].map((m) => m[1]))]
       .filter((r) => r !== "none");
@@ -589,8 +602,15 @@ await preActivate("ws_dead");
     eq(`${file}: test list matches the evaluator's real recurrence set`, missing, []);
   }
 
-  ok("an unknown recurrence gets NO arbitrary default severity", severityForRecurrence("brand_new_thing") === null);
-  ok("an unknown recurrence is not mapped", !isMappedRecurrence("brand_new_thing"));
+  ok("an unknown recurrence gets NO arbitrary default severity", severityForRecurrence("certificates_trust", "brand_new_thing") === null);
+  ok("an unknown recurrence is not mapped", !isMappedRecurrence("certificates_trust", "brand_new_thing"));
+  ok("an unknown DOMAIN gets no severity", severityForRecurrence("not_a_domain", "expired") === null);
+  // The severity map is namespaced: a recurrence name cannot leak its grade across
+  // domains. `expired` is critical for certificates and MEANINGLESS for brand.
+  ok("brand cannot inherit the certificate `expired` grade", severityForRecurrence("brand_protection", "expired") === null);
+  ok("attack surface cannot inherit the certificate `expired` grade", severityForRecurrence("attack_surface", "expired") === null);
+  ok("the same recurrence name may exist in two domains independently",
+     severityForRecurrence("brand_protection", "case_opened") !== null && severityForRecurrence("attack_surface", "case_opened") !== null);
   const skipped = await emitLifecycleAlertProbe();
   eq("an unmapped recurrence is skipped, not graded", skipped, "unmapped_recurrence");
 

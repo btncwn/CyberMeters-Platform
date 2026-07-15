@@ -108,8 +108,26 @@ async function consume(ws, recordId, recurrence, { domain_key = "certificates_tr
      isMonitoringTransition({ monitoring_status: "ok", recurrence_type: null }, { monitoring_status: "at_risk", recurrence_type: "renewal_overdue" }));
   ok("an unchanged condition is NOT a transition (no new occurrence each hour)",
      !isMonitoringTransition({ monitoring_status: "at_risk", recurrence_type: "renewal_overdue" }, { monitoring_status: "at_risk", recurrence_type: "renewal_overdue" }));
-  eq("all three managed domains have an event source", Object.keys(LIFECYCLE_EVENT_SOURCES).sort(),
-     ["certificates_trust", "identity_exposure", "shadow_it_unmanaged_technology"]);
+  // Five domains now: the three lifecycle domains plus the two managed-case domains
+  // (PR-B1). Brand Protection and Attack Surface share managed_case_events, keyed by
+  // case_id — a case belongs to exactly one domain, so the fk cannot collide.
+  eq("every canonical alerting domain has an event source", Object.keys(LIFECYCLE_EVENT_SOURCES).sort(),
+     ["attack_surface", "brand_protection", "certificates_trust", "identity_exposure", "shadow_it_unmanaged_technology"]);
+
+  // The type column is per-source because managed_case_events names its vocabulary
+  // column `action`, not `event_type`. Hardcoding `event_type` is what made the
+  // managed-case lookup raise "no such column", fail closed, and silently return
+  // null forever — so those domains could never resolve an occurrence at all.
+  for (const [domain_key, src] of Object.entries(LIFECYCLE_EVENT_SOURCES)) {
+    ok(`${domain_key}: declares a type column`, typeof src.type_column === "string" && src.type_column.length > 0);
+    ok(`${domain_key}: declares a table and fk`, Boolean(src.table) && Boolean(src.fk));
+    // These are interpolated into SQL — they must be plain identifiers, never
+    // anything a request or a row could influence.
+    ok(`${domain_key}: source identifiers are safe SQL identifiers`,
+       /^[a-z_]+$/.test(src.table) && /^[a-z_]+$/.test(src.fk) && /^[a-z_]+$/.test(src.type_column));
+  }
+  eq("managed_case_events is keyed on `action`", LIFECYCLE_EVENT_SOURCES.brand_protection.type_column, "action");
+  eq("lifecycle tables are keyed on `event_type`", LIFECYCLE_EVENT_SOURCES.certificates_trust.type_column, "event_type");
 }
 
 // ── 2. No historical event → baseline only, no invented timestamp ────────────

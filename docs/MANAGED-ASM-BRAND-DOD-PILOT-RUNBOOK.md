@@ -61,7 +61,20 @@ resolve, and re-addable to prove reopen.
 - **Tenant isolation:** a foreign-workspace token GET `/managed-cases` and POST `/…/assign` on this
   case → **403** (already CI-proven; spot-check live).
 - **Notifications:** `SELECT type FROM notification_events WHERE metadata_json LIKE '%<case_id>%';`
-  → `managed_case_opened`, `managed_case_resolved`, `managed_case_reopened`.
+  → `attack_surface.case_opened`, `attack_surface.case_resolved`, `attack_surface.case_reopened`
+  (Brand: `brand_protection.case_opened` / `.case_reappeared` / `.case_resolved`).
+
+  The kind is namespaced `<domain_key>.<recurrence>` since PR-B1 — the old
+  `managed_case_opened` / `brand_case_*` strings were written by the hand-rolled
+  notifiers that PR-B1 deleted, and a query for them now returns nothing. Rows
+  created before that release keep their original type; history is append-only.
+
+- **First alert per workspace+domain:** if the workspace had **pre-existing** cases
+  when alerting activated, the activating pass is suppressed as
+  `alert_baseline_established` and writes no notification — by design, so existing
+  state cannot masquerade as new. A workspace with an **empty** baseline
+  (`alert_activation.baseline_count = 0`) alerts on its first case. Check with
+  `SELECT domain_key, activated_at, baseline_count FROM alert_activation WHERE workspace_id='<ws>';`
 
 ### Pass criteria (all)
 Case opened under the correct `workspace_id`; `finding_id` stable across open→verify→reopen;
