@@ -162,7 +162,19 @@ export function buildMonitoringTransitionDetail({
 // Only a CHANGE is an occurrence: re-observing the same condition on the next hourly
 // pass is not a new event, and must not append one — otherwise every pass would mint
 // a fresh occurrence id and re-alert forever.
+// `recurrence_band` is an OPTIONAL third dimension (PR-B2).
+//
+// Some conditions worsen without changing their recurrence type. A certificate at
+// 30 days and the same certificate at 7 days are both `renewal_overdue`, so on
+// status+type alone no transition is seen: no event is appended, the occurrence id
+// stays the same, the dedupe key stays the same, and the customer is never told it
+// became urgent. The band makes "it got worse" a transition in its own right.
+//
+// Absent on BOTH sides (Identity Exposure, Shadow IT, managed cases) the comparison
+// is "" !== "", which is false — so those domains behave exactly as before. This is
+// additive by construction, and validate-alert-b2-cert-expiry-bands.js asserts it.
 export function isMonitoringTransition(prev, next) {
   return String(prev?.monitoring_status ?? "") !== String(next?.monitoring_status ?? "")
-    || String(prev?.recurrence_type ?? "") !== String(next?.recurrence_type ?? "");
+    || String(prev?.recurrence_type ?? "") !== String(next?.recurrence_type ?? "")
+    || String(prev?.recurrence_band ?? "") !== String(next?.recurrence_band ?? "");
 }

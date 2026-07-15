@@ -110,6 +110,9 @@ jobs:
       - name: Validate unattributable-claim email suppression (new_vendor / supply_chain_risk_increase)
         run: node scripts/validate-alert-b4a-suppression.js
 
+      - name: Validate certificate expiry bands (canonical renewal_overdue escalation / no legacy cert_expiry)
+        run: node scripts/validate-alert-b2-cert-expiry-bands.js
+
       # The watermark compares an ISO-UTC activated_at against a timezone-implicit
       # SQLite created_at. Date.parse reads the second as LOCAL time, so the old
       # comparison was correct ONLY on a UTC runner — i.e. green here and wrong

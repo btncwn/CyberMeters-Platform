@@ -700,33 +700,24 @@ export async function processAlertsForWorkspace(workspaceId, domainId, domain, s
       }
     }
 
-    // ── 3. Certificate Expiry Alert ──
-    if (ssl?.cert_expiry_days != null && ssl.cert_expiry_days <= 14) {
-      const currentThreshold = ssl.cert_expiry_days <= 7 ? 7 : 14;
-      const isDuplicate = await isAlertDuplicate(env, workspaceId, "cert_expiry", domain, (meta) => {
-        return (meta.threshold || 14) <= currentThreshold;
-      });
-      
-      if (!isDuplicate) {
-        const urgency = ssl.cert_expiry_days <= 7 ? "CRITICAL" : "URGENT";
-        const barColor = ssl.cert_expiry_days <= 7 ? "critical" : "high";
-        const expiryDateStr = ssl.cert_not_after 
-          ? new Date(ssl.cert_not_after).toUTCString().slice(0, 22) + " UTC"
-          : "unknown";
-        
-        await triggerAlert({
-          type: "cert_expiry",
-          severity: barColor,
-          title: `[${urgency}] SSL certificate for ${domain} expires in ${ssl.cert_expiry_days} days`,
-          message: `SSL certificate expires on ${expiryDateStr} (${ssl.cert_expiry_days} days remaining).`,
-          relatedEntity: domain,
-          whatChanged: `The SSL certificate for ${domain} is expiring in ${ssl.cert_expiry_days} days (Expiry: ${expiryDateStr}).`,
-          recommendation: "An expired SSL certificate will cause browsers to block visitors to your site. Renew the certificate immediately.",
-          fromKey: ssl.cert_expiry_days <= 14 ? "ALERT_EMAIL_FROM" : "SAFE_EMAIL_FROM",
-          threshold: currentThreshold
-        });
-      }
-    }
+    // ── 3. Certificate expiry — REMOVED (PR-B2) ──
+    // The legacy cert_expiry trigger lived here. It fired at 14 days (critical at
+    // 7) by recomputing ssl.cert_expiry_days on every scan, persisted nothing, and
+    // deduped with the racy read-then-write isAlertDuplicate that migration 087
+    // exists to replace — no occurrence, no domain_key, no dedupe_key, no
+    // activation watermark, no delivery ledger.
+    //
+    // Certificates & Trust already alerts on this condition canonically and
+    // EARLIER: certificate-lifecycle.js emits `renewal_overdue` from 30 days
+    // (RENEWAL_START_BY_DAYS) and `expired` at 0, off the persisted
+    // certificate_lifecycle record, with a stable occurrence id and DB-guaranteed
+    // dedupe. The 7-day escalation is preserved as the band-driven severity on
+    // that same recurrence (renewalAlertBand: 30-8 high, 7-1 critical), so nothing
+    // was lost by deleting this — the customer is told sooner, once, and with
+    // evidence behind it.
+    //
+    // Do not re-add a second expiry alert here. Two alerts for one expiring
+    // certificate is the duplication this episode exists to remove.
 
     // ── 4. New Vendor Discovered Alert ──
     if (currentModules.vendor_risk?.detected && currentModules.vendor_risk.vendors?.length) {

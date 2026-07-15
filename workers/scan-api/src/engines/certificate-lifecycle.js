@@ -24,7 +24,7 @@
 import { emitLifecycleAlert } from "./alert-consumers.js";
 import { createManagedCase, canTransitionCase, canonicalPhaseFor } from "./managed-case-model.js";
 import { newCaseEventId } from "./case-workflow.js";
-import { assessRenewal, renewalRequiresCase } from "./certificate-policy.js";
+import { assessRenewal, renewalAlertBand, renewalRequiresCase } from "./certificate-policy.js";
 import { buildMonitoringTransitionDetail, isMonitoringTransition } from "./alert-occurrence.js";
 
 function newId(prefix) {
@@ -382,8 +382,28 @@ export async function evaluateCertificateLifecycleMonitoring(env, workspaceId, {
     //
     // The detail carries enough structured state for a consumer to match the
     // current condition deterministically (see findConditionOccurrence).
-    const nextMonitoring = { monitoring_status: rec.monitoring_status, recurrence_type: recurrence_type === "none" ? null : recurrence_type };
-    if (isMonitoringTransition({ monitoring_status: rec.monitoring_status, recurrence_type: rec.recurrence_type }, nextMonitoring)) {
+    // The alert band is the third transition dimension (PR-B2). A certificate at 30
+    // days and the same one at 7 days are BOTH `renewal_overdue`, so on
+    // status+recurrence alone nothing changes: no event, same occurrence id, same
+    // dedupe key — and the customer is never told it became urgent. Crossing a band
+    // is a real worsening and mints exactly one new occurrence; staying inside a
+    // band does not, so hourly re-evaluation stays silent.
+    //
+    // `rec.days_remaining` is the PREVIOUS pass's persisted value: recs are SELECTed
+    // at the top of this function and the UPDATE below runs after this check, so the
+    // comparison is genuinely previous-vs-next rather than next-vs-itself.
+    const prevBand = renewalAlertBand(rec.days_remaining);
+    const nextBand = renewalAlertBand(renewal.days_remaining);
+
+    const nextMonitoring = {
+      monitoring_status: rec.monitoring_status,
+      recurrence_type: recurrence_type === "none" ? null : recurrence_type,
+      recurrence_band: nextBand,
+    };
+    if (isMonitoringTransition(
+      { monitoring_status: rec.monitoring_status, recurrence_type: rec.recurrence_type, recurrence_band: prevBand },
+      nextMonitoring,
+    )) {
       await appendEvent(env, rec, {
         event_type: "monitoring_changed",
         detail: buildMonitoringTransitionDetail({
@@ -419,6 +439,11 @@ export async function evaluateCertificateLifecycleMonitoring(env, workspaceId, {
         workspace_id: workspaceId, domain_key: "certificates_trust",
         record_id: rec.id, entity: rec.primary_hostname, hostname: rec.primary_hostname,
         recurrence: recurrence_type,
+        // renewal_overdue INHERITS its grade from the band: 30-8 => high, 7-1 =>
+        // critical. Every other certificate recurrence has a static severity and
+        // ignores this. A null band on an inherit recurrence fails closed in
+        // emitLifecycleAlert rather than alerting at an invented grade.
+        record_severity: nextBand,
         finding_type: (RECURRENCE_CASE[recurrence_type] || {}).finding_type || null,
         case_id: rec.linked_case_id || null,
       }).catch(() => { /* alerting must never break the evaluator */ });

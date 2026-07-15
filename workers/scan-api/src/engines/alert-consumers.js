@@ -51,7 +51,14 @@ export const INHERIT_SEVERITY = "__inherit_record_severity__";
 const RECURRENCE_SEVERITY = Object.freeze({
   certificates_trust: Object.freeze({
     expired: "critical",
-    renewal_overdue: "high",
+    // INHERIT (PR-B2): a renewal-overdue certificate gets louder as it approaches
+    // expiry — 30-8 days is `high`, 7-1 days is `critical` (renewalAlertBand in
+    // certificate-policy.js). A static grade would have meant a customer on
+    // `critical_only` never hearing that a certificate expires in three days,
+    // which is the alert that matters most. The evaluator supplies the band as
+    // record_severity; absent or unrecognised fails closed like any unmapped
+    // recurrence, so an unbanded certificate cannot alert at an invented grade.
+    renewal_overdue: INHERIT_SEVERITY,
     replacement_contradicted: "high",
     verification_failed: "high",
     replacement_unverified: "medium",

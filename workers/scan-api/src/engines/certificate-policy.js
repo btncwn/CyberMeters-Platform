@@ -23,6 +23,34 @@ export const CERT_RENEWAL_BANDS = Object.freeze([
 // Latest safe point (days before expiry) by which renewal work should START.
 // A certificate whose renewal has not started by this point is renewal-overdue.
 export const RENEWAL_START_BY_DAYS = 30;
+
+// ── How loudly a renewal-overdue certificate alerts (PR-B2) ──────────────────
+// Founder-specified: 30–8 days => high, 7–1 days => critical, 0 or below is the
+// `expired` recurrence (critical) and is NOT this function's business.
+//
+// Deliberately NOT reusing CERT_RENEWAL_BANDS.readiness, whose boundary is 14/13.
+// Those bands drive the customer-facing renewal GUIDANCE ladder ("Renew soon" /
+// "Renew now"); this drives ALERT severity. They are different questions with
+// different thresholds, and folding them together would mean re-tuning one by
+// editing the other — silently, since nothing would fail.
+//
+// The band doubles as the severity: both values are already valid severities, so
+// there is no second mapping to drift.
+//
+// Returns null when the certificate is not renewal-overdue (>30 days) or is
+// expired/unknown (<=0 / unparseable) — the caller must not alert `renewal_overdue`
+// in either case.
+export const RENEWAL_ALERT_CRITICAL_DAYS = 7;
+
+export function renewalAlertBand(daysRemaining) {
+  if (daysRemaining === null || daysRemaining === undefined) return null;
+  const d = Number(daysRemaining);
+  if (!Number.isFinite(d)) return null;
+  if (d <= 0) return null;                                  // expired owns this
+  if (d <= RENEWAL_ALERT_CRITICAL_DAYS) return "critical";  // 7..1
+  if (d <= RENEWAL_START_BY_DAYS) return "high";            // 30..8
+  return null;                                              // not overdue yet
+}
 // A domain with no observed certificate evidence at all cannot be assessed.
 export const RENEWAL_READINESS_UNKNOWN = "unknown";
 
