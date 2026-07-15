@@ -302,6 +302,15 @@ jobs:
       - name: Validate purge completeness (no orphaned tenant rows / R2 objects)
         run: node scripts/validate-purge-completeness.js
 
+      # Two live P1s found while re-auditing CE for canonical alerting, neither of
+      # them about alerting: cyber_essentials_answers survived every workspace purge
+      # for the life of the table (customer notes + answered_by, no FK to
+      # workspaces), and CE graded a client workspace from its MSP's scan because
+      # both the readiness query and the scorecard resolved evidence via
+      # workspace_domains — one domain, many workspaces, by design.
+      - name: Validate Cyber Essentials data integrity (purge completeness + workspace-scoped evidence, mutation-tested)
+        run: node scripts/validate-ce-data-integrity.js
+
       - name: Validate migrations (additive-only + fresh-apply convergence)
         run: node scripts/validate-migrations.js
 

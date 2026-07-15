@@ -74,6 +74,61 @@ let pass = 0, fail = 0;
 const ok = (name, cond) => { cond ? pass++ : fail++; if (!cond) console.log("FAIL " + name); };
 const countWs = (table, ws) => { try { return db.prepare(`SELECT COUNT(*) c FROM ${table} WHERE workspace_id = ?`).get(ws).c; } catch { return -1; } };
 
+// ── The list must be derived from the SCHEMA, not from itself ───────────────
+// Everything below this block seeds rows by iterating WORKSPACE_PURGE_TABLES —
+// so it can only ever prove that the list purges the tables on the list. A table
+// forgotten from the list was never seeded and never counted, and the suite
+// stayed green. That is not a hypothetical: `cyber_essentials_answers` survived
+// every workspace purge for the whole life of the table while this file reported
+// 10/10, and index.js carried a comment claiming a test named
+// `purge_covers_all_workspace_fk_tables` kept the list in sync. That test never
+// existed — the name appeared nowhere in the repository.
+//
+// So: ask the real schema which tables hold a workspace_id, and require each one
+// to be either purged or EXPLICITLY excepted with a reason. A new tenant-scoped
+// table now fails CI until someone decides which it is.
+const EXPECTED_NOT_PURGED = {
+  // Purged by purgeWorkspaceData itself, ahead of the table loop, because their
+  // R2 objects must be deleted first.
+  scans: "purged directly by purgeWorkspaceData (with its R2 report objects)",
+  workspace_reports: "purged directly by purgeWorkspaceData (with its R2 objects)",
+  // Deliberately retained — see DELETION_PURGE_WINDOW_DAYS in index.js.
+  audit_events: "retained: audit history",
+  subscriptions: "retained: accounting",
+  deletion_requests: "retained: the record of the deletion request itself",
+};
+{
+  const allTables = db.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
+  ).all().map((r) => r.name);
+  const tenantScoped = allTables.filter((t) => {
+    try { return db.prepare(`PRAGMA table_info(${t})`).all().some((c) => c.name === "workspace_id"); }
+    catch { return false; }
+  });
+  ok("the schema really does expose tenant-scoped tables (the discovery is not vacuous)",
+     tenantScoped.length >= 40);
+
+  const listed = new Set(WORKSPACE_PURGE_TABLES);
+  const unaccounted = tenantScoped.filter((t) => !listed.has(t) && !(t in EXPECTED_NOT_PURGED));
+  ok("every workspace_id-bearing table is either purged or explicitly excepted",
+     unaccounted.length === 0);
+  if (unaccounted.length) {
+    console.log("  NOT PURGED and NOT excepted (tenant data would outlive the workspace):");
+    for (const t of unaccounted) console.log(`    ✗ ${t}`);
+  }
+
+  // The exception list must not rot into a dumping ground: every entry has to name
+  // a table that still exists and still carries workspace_id.
+  for (const [t, why] of Object.entries(EXPECTED_NOT_PURGED)) {
+    ok(`exception '${t}' still refers to a real tenant-scoped table (${why})`, tenantScoped.includes(t));
+  }
+
+  // The specific regression. Named, so a future rewrite of the loop above cannot
+  // quietly drop it.
+  ok("cyber_essentials_answers is purged (customer notes + answered_by are customer data)",
+     listed.has("cyber_essentials_answers"));
+}
+
 // Seed two workspaces with a row in every purge table + reports + a scan (+child).
 const seeded = [];
 // A few tables have CHECK constraints on a column — give them a valid value.
