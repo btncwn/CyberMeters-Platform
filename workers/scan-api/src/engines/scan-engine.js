@@ -42,6 +42,7 @@ import { computeSupplyChainIntelligence, upsertSupplyChainScore } from "./supply
 import { correlateShadowItInventory } from "./shadow-it-inventory.js";
 import { correlateCertificateLifecycle } from "./certificate-lifecycle.js";
 import { correlateIdentityExposure } from "./identity-lifecycle.js";
+import { evaluateWebsiteSecurityForScan } from "./website-security-lifecycle.js";
 import { runTakeoverModule } from "./takeover-scan.js";
 import { runTechModule } from "./tech-scan.js";
 import { runVendorRelationshipModule } from "./vendor-relationship.js";
@@ -1117,6 +1118,33 @@ function buildCanonicalUrlProfile(modules) {
         .all();
       for (const { workspace_id } of (ieWsRows.results || [])) {
         await correlateIdentityExposure(env, workspace_id);
+      }
+    } catch { /* non-fatal — lifecycle catches up on the next scan */ }
+
+    // Phase 8m: Website Security Managed Lifecycle — correlate THIS scan's website
+    // findings into the canonical per-condition record + append-only history, and
+    // alert on genuine transitions.
+    //
+    // It takes `normalizedFindings` rather than re-reading D1 deliberately: the
+    // findings INSERT above binds createId("finding") and DROPS the canonical slug
+    // (`header_missing_strict_transport_security`), so D1 cannot answer "is this the
+    // same condition as last scan?" at all. The in-memory findings still carry it —
+    // the same reason createManagedAsmCasesForScan is handed them.
+    //
+    // `modules` + `scanQuality` are passed because absence only means "fixed" when
+    // the detecting module provably ran; without them a timed-out probe would read
+    // as the customer fixing it. Soft-deleted workspaces are skipped inside the
+    // evaluator. Non-fatal.
+    try {
+      const wsWsRows = await env.cybermeters_db
+        .prepare('SELECT workspace_id FROM workspace_domains WHERE domain_id = ?')
+        .bind(domainId)
+        .all();
+      for (const { workspace_id } of (wsWsRows.results || [])) {
+        await evaluateWebsiteSecurityForScan(env, {
+          workspace_id, domain_id: domainId, domain, scan_id: scanId,
+          findings: normalizedFindings, modules, scanQuality,
+        });
       }
     } catch { /* non-fatal — lifecycle catches up on the next scan */ }
 

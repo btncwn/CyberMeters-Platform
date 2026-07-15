@@ -797,7 +797,7 @@ export const REMEDIATION_REGISTRY = Object.freeze([
   entry({
     remediation_id: "web.header.csp",
     domain_key: "website_security",
-    finding_types: ["header_missing_content_security_policy", "csp_weak_policy"],
+    finding_types: ["header_missing_content_security_policy", "csp_weak_policy", "header_malformed_content_security_policy"],
     customer_title: "Add a Content Security Policy",
     technical_explanation: "No Content-Security-Policy header — or only a weak one — was observed, so the browser is not restricted in what it may load.",
     business_impact: "A missing or weak CSP makes cross-site scripting and content-injection attacks easier to exploit.",
@@ -811,7 +811,7 @@ export const REMEDIATION_REGISTRY = Object.freeze([
   entry({
     remediation_id: "web.header.xfo",
     domain_key: "website_security",
-    finding_types: ["header_missing_x_frame_options"],
+    finding_types: ["header_missing_x_frame_options", "header_malformed_x_frame_options"],
     customer_title: "Add clickjacking protection",
     technical_explanation: "The X-Frame-Options header (or a framing directive in CSP) is missing.",
     business_impact: "Without framing protection, your site can be embedded in an attacker's page for clickjacking.",
@@ -825,7 +825,7 @@ export const REMEDIATION_REGISTRY = Object.freeze([
   entry({
     remediation_id: "web.header.xcto",
     domain_key: "website_security",
-    finding_types: ["header_missing_x_content_type_options"],
+    finding_types: ["header_missing_x_content_type_options", "header_malformed_x_content_type_options"],
     customer_title: "Prevent MIME-type sniffing",
     technical_explanation: "The X-Content-Type-Options header is missing.",
     business_impact: "Without it, browsers may interpret files as a different type, enabling some content-based attacks.",
@@ -839,7 +839,7 @@ export const REMEDIATION_REGISTRY = Object.freeze([
   entry({
     remediation_id: "web.header.referrer",
     domain_key: "website_security",
-    finding_types: ["header_missing_referrer_policy"],
+    finding_types: ["header_missing_referrer_policy", "header_malformed_referrer_policy"],
     customer_title: "Set a Referrer-Policy",
     technical_explanation: "No Referrer-Policy header was observed.",
     business_impact: "Without a referrer policy, full URLs may leak to third-party sites, potentially exposing sensitive parameters.",
@@ -853,7 +853,7 @@ export const REMEDIATION_REGISTRY = Object.freeze([
   entry({
     remediation_id: "web.header.permissions",
     domain_key: "website_security",
-    finding_types: ["header_missing_permissions_policy"],
+    finding_types: ["header_missing_permissions_policy", "header_malformed_permissions_policy"],
     customer_title: "Set a Permissions-Policy",
     technical_explanation: "No Permissions-Policy header was observed.",
     business_impact: "Without it, embedded content has broader access to browser features than necessary.",

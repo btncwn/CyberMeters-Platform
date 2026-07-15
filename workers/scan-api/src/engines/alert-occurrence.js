@@ -64,6 +64,12 @@ export const LIFECYCLE_EVENT_SOURCES = Object.freeze({
   // occurrence. The database cannot express that invariant across two unrelated
   // parents, so CI asserts it instead.
   email_protection:               { table: "email_protection_events",      fk: "record_id",    type_column: "event_type" },
+  // Website Security (corrective phase): one record family — a condition is
+  // (workspace, domain, canonical finding id). The fk carries condition-row ids
+  // ('wsc-…') and, for the domain-level baseline marker only, a domain_id. Those
+  // cannot collide (the engine mints the 'wsc-' prefix) and the marker is not a
+  // `monitoring_changed` row, so the resolver cannot match it regardless.
+  website_security:               { table: "website_security_events",       fk: "record_id",    type_column: "event_type" },
 });
 
 // The one vocabulary value that marks a condition transition, in every source.
