@@ -21,6 +21,7 @@
 // cannot verify. Follow-up uses the Universal Managed-Case Model
 // (certificate_case → cert.* canonical remediation).
 
+import { emitLifecycleAlert } from "./alert-consumers.js";
 import { createManagedCase, canTransitionCase, canonicalPhaseFor } from "./managed-case-model.js";
 import { newCaseEventId } from "./case-workflow.js";
 import { assessRenewal, renewalRequiresCase } from "./certificate-policy.js";
@@ -409,6 +410,18 @@ export async function evaluateCertificateLifecycleMonitoring(env, workspaceId, {
 
     if (required_case_action !== "none") {
       const acted = await openOrReopenCertificateCase(env, { ...rec, ownership_status, days_remaining: renewal.days_remaining }, { recurrence: recurrence_type, action: required_case_action, now });
+      // Tell the customer — through the ONE canonical pipeline, from the same
+      // deterministic decision that just opened/reopened the case. Detection is not
+      // repeated here. The condition-start and occurrence identity come from the
+      // append-only monitoring_changed event, so hourly re-evaluation of the same
+      // occurrence dedupes and pre-existing state stays silent. Never sends directly.
+      await emitLifecycleAlert(env, {
+        workspace_id: workspaceId, domain_key: "certificates_trust",
+        record_id: rec.id, entity: rec.primary_hostname, hostname: rec.primary_hostname,
+        recurrence: recurrence_type,
+        finding_type: (RECURRENCE_CASE[recurrence_type] || {}).finding_type || null,
+        case_id: rec.linked_case_id || null,
+      }).catch(() => { /* alerting must never break the evaluator */ });
       if (acted?.ok) cases++;
     }
   }

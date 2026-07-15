@@ -98,6 +98,15 @@ export async function runScheduled(event, env, ctx, tasks) {
 	      ctx.waitUntil(runCronTask(env, "dmarc_alerts_sweep", () => tasks.runDmarcAlertsSweep(env)));
 	    }
 
+	    // ── Managed-alert delivery retry (bounded) ──────────────────────────
+	    // Re-attempts ONLY transient email failures from the append-only ledger:
+	    // bounded LIMIT, max attempts, max age and deterministic backoff, and it
+	    // re-checks workspace/entitlement/preference/recipients before resending.
+	    // Terminal suppressions are never revisited.
+	    if (tasks.retryFailedAlertDeliveries) {
+	      ctx.waitUntil(runCronTask(env, "alert_delivery_retry", () => tasks.retryFailedAlertDeliveries(env)));
+	    }
+
 	    // ── Managed Brand Protection follow-up ───────────────────────────────
 	    // Advances takedown submissions through provider follow-up and performs
 	    // CyberMeters-only technical verification of resolved/reappeared cases.

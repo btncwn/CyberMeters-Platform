@@ -64,17 +64,26 @@ export const TERMINAL_REASONS = Object.freeze(new Set([
   "cooldown_active",
   "recipient_undeliverable",
   "alert_baseline_established",
+  // Configuration failures. Retrying cannot succeed until a deploy changes the
+  // config, so a bounded retry would just burn attempts and bury real failures.
+  // Terminal + visible in the ledger is the honest outcome.
+  "invalid_sender",
+  "missing_api_key",
+  "invalid_content",
+  "no_valid_recipients",
 ]));
 
 // Retryable: we tried (or could not determine) and it may yet succeed. A hard
 // bounce is NOT here — it belongs to recipient_undeliverable above, so an
 // permanently invalid address terminates instead of retrying forever.
+// Retryable: transient. provider_rejected covers the provider's non-2xx responses,
+// which include 429 and 5xx — the cases the founder explicitly allows to retry. It is
+// still bounded by RETRY_MAX_ATTEMPTS + RETRY_MAX_AGE_HOURS, so even a permanent 4xx
+// hiding in this bucket stops quickly and visibly rather than retrying forever.
 export const RETRYABLE_REASONS = Object.freeze(new Set([
   "provider_rejected",
   "provider_unavailable",
   "recipient_lookup_failed",
-  "missing_api_key",
-  "invalid_sender",
   "send_failed",
 ]));
 
@@ -372,5 +381,138 @@ export async function emitManagedAlert(env, {
     // pipeline is exactly the failure mode this module replaces.
     console.error("[managed-alert] emit failed", JSON.stringify({ workspace_id, kind, domain_key, reason: err?.message }));
     return { emitted: false, notification_id: null, reason: "emit_failed", deliveries };
+  }
+}
+
+// ── Bounded retry sweep ──────────────────────────────────────────────────────
+// Re-attempts deliveries that failed for a TRANSIENT reason. Everything about this
+// is bounded, because an unbounded retry loop against a provider is how a
+// monitoring product turns one outage into a sending-reputation incident.
+//
+//   • only outcome='failed' AND terminal=0 — a terminal row is a decision, not a
+//     failure, and must never be revisited;
+//   • deterministic ordering + LIMIT — one bounded slice per tick;
+//   • max attempts / max age — a permanently broken target stops, visibly;
+//   • deterministic backoff — attempt N waits 2^N hours, so a struggling provider
+//     is not hammered;
+//   • append-only — every attempt INSERTs a new ledger row; nothing is overwritten,
+//     so the full attempt history stays reconstructable;
+//   • re-checks workspace live state, entitlement, preferences and recipients
+//     BEFORE resending — a customer who disabled the channel, lost entitlement or
+//     deleted the workspace between the failure and the retry must not receive it;
+//   • never resends after a success for the same alert.
+export const RETRY_MAX_ATTEMPTS = 4;
+export const RETRY_MAX_AGE_HOURS = 72;
+export const RETRY_BATCH_LIMIT = 10;
+
+// Deterministic backoff: attempt 1 → 2h, 2 → 4h, 3 → 8h. Not random: a fixed
+// schedule is reproducible in tests and predictable in an incident.
+export function retryBackoffHours(attempt) {
+  return Math.pow(2, Math.max(1, Number(attempt) || 1));
+}
+
+export function retryDue(row, { now = new Date().toISOString() } = {}) {
+  const last = Date.parse(row.created_at);
+  const t = Date.parse(now);
+  if (!Number.isFinite(last) || !Number.isFinite(t)) return false;   // unparseable → fail closed
+  return (t - last) >= retryBackoffHours(row.attempt) * 3_600_000;
+}
+
+// Should this failure ever be retried again?
+// Fails CLOSED: an unrecognised reason is treated as permanent. A wrong "stop" is
+// visible in the ledger; a wrong "retry forever" is a silent outbound loop.
+export function retryEligible(row, { now = new Date().toISOString() } = {}) {
+  if (row.outcome !== "failed" || Number(row.terminal) === 1) return { ok: false, reason: "terminal" };
+  if (!reasonIsRetryable(row.reason)) return { ok: false, reason: "permanent_reason" };
+  if (Number(row.attempt) >= RETRY_MAX_ATTEMPTS) return { ok: false, reason: "max_attempts" };
+  const age = Date.parse(now) - Date.parse(row.created_at);
+  if (!Number.isFinite(age) || age > RETRY_MAX_AGE_HOURS * 3_600_000) return { ok: false, reason: "max_age" };
+  if (!retryDue(row, { now })) return { ok: false, reason: "backoff" };
+  return { ok: true, reason: null };
+}
+
+// Has this alert already been delivered on this channel? Success is final — a retry
+// after a success would double-send the same alert.
+async function alreadyDelivered(env, notificationId, channel) {
+  const row = await env.cybermeters_db
+    .prepare(`SELECT id FROM alert_deliveries
+              WHERE notification_id = ? AND channel = ? AND outcome = 'delivered' LIMIT 1`)
+    .bind(notificationId, channel).first().catch(() => null);
+  return Boolean(row);
+}
+
+export async function retryFailedAlertDeliveries(env, { now = new Date().toISOString(), limit = RETRY_BATCH_LIMIT } = {}) {
+  const stats = { examined: 0, retried: 0, delivered: 0, skipped: 0, terminated: 0 };
+  try {
+    const rows = await env.cybermeters_db
+      .prepare(`SELECT * FROM alert_deliveries
+                WHERE outcome = 'failed' AND terminal = 0 AND channel = 'email'
+                  AND created_at > datetime(?, '-${RETRY_MAX_AGE_HOURS} hours')
+                ORDER BY created_at ASC, id ASC
+                LIMIT ?`)
+      .bind(now, Math.max(1, Math.min(50, limit)))
+      .all().catch(() => null);
+
+    for (const row of (rows?.results || [])) {
+      stats.examined++;
+
+      const eligible = retryEligible(row, { now });
+      if (!eligible.ok) {
+        if (eligible.reason === "backoff") { stats.skipped++; continue; }   // not yet due — leave it
+        // Out of attempts / too old / permanent: stop, and say so in the ledger.
+        await recordDelivery(env, { ...row, notification_id: row.notification_id, alert_kind: row.alert_kind,
+          outcome: "suppressed", reason: eligible.reason === "permanent_reason" ? row.reason : eligible.reason,
+          attempt: Number(row.attempt) + 1 });
+        stats.terminated++;
+        continue;
+      }
+
+      // Never resend after a success.
+      if (row.notification_id && await alreadyDelivered(env, row.notification_id, row.channel)) {
+        stats.skipped++;
+        continue;
+      }
+
+      // Re-check the decision gates: the world may have changed since the failure.
+      if (!(await workspaceIsLive(env, row.workspace_id))) {
+        await recordDelivery(env, { ...row, outcome: "suppressed", reason: "workspace_deleted", attempt: Number(row.attempt) + 1 });
+        stats.terminated++; continue;
+      }
+      if (!(await workspaceAlertsEntitled(env, row.workspace_id))) {
+        await recordDelivery(env, { ...row, outcome: "suppressed", reason: "feature_not_entitled", attempt: Number(row.attempt) + 1 });
+        stats.terminated++; continue;
+      }
+      if (!(await channelEnabledForWorkspace(env, row.workspace_id, { channel: row.channel, event_type: row.alert_kind }))) {
+        await recordDelivery(env, { ...row, outcome: "suppressed", reason: "channel_disabled", attempt: Number(row.attempt) + 1 });
+        stats.terminated++; continue;
+      }
+
+      // Rebuild from the canonical event — never from a cached copy of the copy.
+      const notif = row.notification_id ? await env.cybermeters_db
+        .prepare(`SELECT title, message FROM notification_events WHERE id = ? AND workspace_id = ?`)
+        .bind(row.notification_id, row.workspace_id).first().catch(() => null) : null;
+      if (!notif) {
+        await recordDelivery(env, { ...row, outcome: "suppressed", reason: "recipient_undeliverable", attempt: Number(row.attempt) + 1 });
+        stats.terminated++; continue;
+      }
+
+      const sent = await sendTenantAlertEmail(env, row.workspace_id, {
+        subject: notif.title, text: notif.message, html: `<p>${String(notif.message || "")}</p>`,
+        fromKey: "ALERT_EMAIL_FROM",
+      });
+      await recordDelivery(env, {
+        ...row, outcome: sent.sent ? "delivered" : "failed",
+        reason: sent.sent ? null : (sent.reason || "send_failed"),
+        provider_id: sent.provider_id || null,
+        recipient_count: (sent.recipients || []).length,
+        attempt: Number(row.attempt) + 1,
+      });
+      stats.retried++;
+      if (sent.sent) stats.delivered++;
+    }
+    return stats;
+  } catch (err) {
+    console.error("[managed-alert] retry sweep failed", JSON.stringify({ reason: err?.message }));
+    return stats;
   }
 }

@@ -13,6 +13,7 @@
 // policy) classifies it that way. Follow-up uses the Universal Managed-Case Model
 // (shadow_it_case → shadow_it.saas.review remediation).
 
+import { emitLifecycleAlert } from "./alert-consumers.js";
 import { createManagedCase, canTransitionCase, canonicalPhaseFor } from "./managed-case-model.js";
 import { newCaseEventId } from "./case-workflow.js";
 
@@ -361,6 +362,21 @@ export async function evaluateShadowItMonitoring(env, workspaceId, { seenKeys = 
 
     if (required_case_action === "open_or_reopen" || required_case_action === "assign_owner") {
       const acted = await openOrReopenShadowItCase(env, { ...it, monitoring_status, ownership_status }, { reason: recurrence_type, now });
+      // Tell the customer — through the ONE canonical pipeline, from the same
+      // deterministic decision that just opened/reopened the case. Detection is not
+      // repeated here. The condition-start and occurrence identity come from the
+      // append-only monitoring_changed event, so hourly re-evaluation of the same
+      // occurrence dedupes and pre-existing state stays silent. Never sends directly.
+      await emitLifecycleAlert(env, {
+        workspace_id: workspaceId, domain_key: "shadow_it_unmanaged_technology",
+        record_id: it.id, entity: it.technology_key || it.vendor_key || it.id,
+        hostname: it.primary_hostname || null,
+        recurrence: recurrence_type,
+        // Same finding type the linked case is opened under (linkShadowItCase),
+        // so the alert and the case resolve to the SAME canonical remediation.
+        finding_type: "saas_exposure",
+        case_id: it.linked_case_id || null,
+      }).catch(() => { /* alerting must never break the evaluator */ });
       if (acted?.ok) cases++;
     }
   }

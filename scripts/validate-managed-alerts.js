@@ -22,6 +22,8 @@ const eng = (f) => pathToFileURL(path.join(root, "workers", "scan-api", "src", "
 const {
   emitManagedAlert, buildAlertDedupeKey, isTerminalReason, reasonIsRetryable,
   ensureAlertActivation, observationIsAfterWatermark,
+  retryFailedAlertDeliveries, retryEligible, retryBackoffHours,
+  RETRY_MAX_ATTEMPTS, RETRY_MAX_AGE_HOURS,
   TERMINAL_REASONS, RETRYABLE_REASONS, MONITORING_CHANNELS, ALERTS_FEATURE_KEY,
 } = await import(eng("managed-alerts.js"));
 const { PLAN_FEATURES } = await import(eng("entitlements.js"));
@@ -369,6 +371,89 @@ await preActivate("ws_dead");
   ok("another tenant's activation does not baseline this one",
      db.prepare("SELECT COUNT(*) c FROM alert_activation WHERE workspace_id = 'ws_paid'").get().c >= 1);
   ok("ws_fresh ledger contains only ws_fresh rows", ledger("ws_fresh").every((d) => d.workspace_id === "ws_fresh"));
+}
+
+// ── 14. BOUNDED RETRY SWEEP ─────────────────────────────────────────────────
+{
+  const NOW = "2026-08-01T12:00:00Z";
+  const mk = (over = {}) => ({
+    id: "ad_x", workspace_id: "ws_paid", notification_id: "notif_x", channel: "email",
+    alert_kind: "cert_expiring", outcome: "failed", reason: "provider_unavailable",
+    terminal: 0, attempt: 1, created_at: "2026-08-01T00:00:00Z", ...over,
+  });
+
+  // Eligibility gates
+  ok("terminal rows are never retried", !retryEligible(mk({ terminal: 1 }), { now: NOW }).ok);
+  ok("delivered rows are never retried", !retryEligible(mk({ outcome: "delivered" }), { now: NOW }).ok);
+  eq("permanent reason stops", retryEligible(mk({ reason: "no_verified_recipient" }), { now: NOW }).reason, "permanent_reason");
+  eq("unknown reason fails closed", retryEligible(mk({ reason: "who_knows" }), { now: NOW }).reason, "permanent_reason");
+  eq("max attempts stops", retryEligible(mk({ attempt: RETRY_MAX_ATTEMPTS }), { now: NOW }).reason, "max_attempts");
+  eq("max age stops", retryEligible(mk({ created_at: "2026-01-01T00:00:00Z" }), { now: NOW }).reason, "max_age");
+  ok("a transient failure past backoff is eligible", retryEligible(mk(), { now: NOW }).ok);
+  eq("inside backoff waits", retryEligible(mk({ created_at: "2026-08-01T11:30:00Z" }), { now: NOW }).reason, "backoff");
+
+  // Which provider outcomes may retry
+  for (const r of ["provider_rejected", "provider_unavailable", "recipient_lookup_failed"]) {
+    ok(`${r} may retry`, retryEligible(mk({ reason: r }), { now: NOW }).ok);
+  }
+  // Permanent recipient / sender / configuration outcomes must not retry forever.
+  for (const r of ["no_verified_recipient", "invalid_sender", "missing_api_key", "invalid_content",
+                   "recipient_undeliverable", "feature_not_entitled", "channel_disabled"]) {
+    ok(`${r} must not retry forever`, !retryEligible(mk({ reason: r }), { now: NOW }).ok && isTerminalReason(r));
+  }
+
+  // Deterministic backoff
+  eq("backoff is deterministic 2^n hours", [1, 2, 3].map(retryBackoffHours), [2, 4, 8]);
+
+  // A real sweep, append-only.
+  db.prepare(`INSERT INTO notification_events (id, workspace_id, type, severity, title, message, status, created_at)
+              VALUES ('notif_retry','ws_paid','cert_expiring','high','Retry me','Body','unread', datetime('now'))`).run();
+  const seedFailed = (over = {}) => {
+    const id = `ad_${Math.random().toString(36).slice(2, 9)}`;
+    db.prepare(`INSERT INTO alert_deliveries (id, workspace_id, notification_id, domain_key, alert_kind, channel, outcome, reason, terminal, attempt, created_at)
+                VALUES (?, 'ws_paid', 'notif_retry', 'certificates_trust', 'cert_expiring', 'email', 'failed', ?, 0, ?, ?)`)
+      .run(id, over.reason || "provider_unavailable", over.attempt || 1, over.created_at || "2026-08-01T00:00:00Z");
+    return id;
+  };
+
+  // Preference is currently DISABLED for email on ws_paid (set in section 7):
+  // a retry must respect that rather than resurrect a suppressed alert.
+  seedFailed();
+  const before = db.prepare("SELECT COUNT(*) c FROM alert_deliveries").get().c;
+  const r1 = await retryFailedAlertDeliveries(env, { now: NOW });
+  const after = db.prepare("SELECT COUNT(*) c FROM alert_deliveries").get().c;
+  ok("retry re-checks preferences and suppresses safely", r1.terminated >= 1 && r1.delivered === 0);
+  ok("retry appends attempts (never updates in place)", after > before);
+  ok("suppressed retry is recorded terminal",
+     db.prepare("SELECT * FROM alert_deliveries WHERE reason='channel_disabled' AND attempt > 1").all().length >= 1);
+
+  // Re-enable email, then a retry may deliver — once.
+  db.prepare("UPDATE notification_preferences SET enabled = 1 WHERE workspace_id='ws_paid' AND channel='email'").run();
+  seedFailed();
+  const r2 = await retryFailedAlertDeliveries(env, { now: NOW });
+  ok("an eligible retry delivers once preferences allow", r2.delivered >= 1);
+
+  // Never resend after success: the delivered row above must stop further retries.
+  const r3 = await retryFailedAlertDeliveries(env, { now: NOW });
+  ok("a delivered alert is never resent", r3.delivered === 0);
+
+  // Entitlement lost between failure and retry.
+  db.prepare("UPDATE subscriptions SET subscription_status='canceled', status='canceled' WHERE owner_user_id='u_paid'").run();
+  // A DISTINCT notification: the one above is already delivered, so it would
+  // short-circuit at the never-resend guard before reaching the entitlement gate.
+  db.prepare(`INSERT INTO notification_events (id, workspace_id, type, severity, title, message, status, created_at)
+              VALUES ('notif_ent','ws_paid','cert_expiring','high','Ent','Body','unread', datetime('now'))`).run();
+  db.prepare(`INSERT INTO alert_deliveries (id, workspace_id, notification_id, domain_key, alert_kind, channel, outcome, reason, terminal, attempt, created_at)
+              VALUES ('ad_ent','ws_paid','notif_ent','certificates_trust','cert_expiring','email','failed','provider_unavailable',0,1,'2026-08-01T01:00:00Z')`).run();
+  const r4 = await retryFailedAlertDeliveries(env, { now: NOW });
+  ok("entitlement lost before retry suppresses safely",
+     db.prepare("SELECT * FROM alert_deliveries WHERE reason='feature_not_entitled' AND attempt > 1").all().length >= 1 || r4.terminated >= 1);
+
+  // Bounded batch.
+  ok("sweep is bounded by LIMIT", (await retryFailedAlertDeliveries(env, { now: NOW, limit: 1 })).examined <= 1);
+  ok("ledger rows are never updated in place",
+     !fs.readFileSync(path.join(root, "workers", "scan-api", "src", "engines", "managed-alerts.js"), "utf8")
+       .split("\n").filter((l) => !l.trim().startsWith("//")).join("\n").includes("UPDATE alert_deliveries"));
 }
 
 globalThis.fetch = realFetch;
