@@ -135,6 +135,28 @@ Create one canonical, reliable, deduplicated alert lifecycle across all eight do
 - no customer receives a test alert;
 - alert copy reviewed for evidence honesty.
 
+### PR sequence (founder-approved 15 July 2026)
+
+- **PR-A — Alert Trust Foundation.** Shipped: PR #97, merged `24dfc85`, Worker `fce2a66f-d1c4-4690-839f-079fe0ce1374`. No migration.
+- **PR-B — canonicalise the existing six domains** onto `emitManagedAlert`.
+- **PR-C — minimum upstream for CE Readiness and Website Security** (they have no case creation or occurrence source today). Minimum for alerts only; NOT the full M5 lifecycle.
+- **PR-D — production acceptance and cleanup**, including the authenticated acceptance deferred from PR-A.
+
+### PR-D authenticated production acceptance (deferred from PR-A)
+
+PR-A's contract is covered by 108 CI-blocking, mutation-tested assertions against the real engine, and its deploy was verified not to silence any live workspace. The authenticated checks below were **deferred, not skipped**: production has **no free-plan workspace, no enabled alert channel, no preference row and no alert_deliveries row**, and the canonical pipeline has never emitted in production — so there was nothing to observe, and manufacturing it would have meant fabricating production data. Founder decision, 15 July 2026.
+
+Run these at PR-D, once all eight domains are connected, founder-controlled occurrences exist, a controlled delivery workspace/channel is available, and the two-pass baseline proof can be performed:
+
+1. Founder-controlled **free-plan entitlement suppression** proof — no email, Slack, Teams or webhook.
+2. Founder-controlled **paid delivery** proof.
+3. **Per-user `disabled`** preference proof (suppresses only that user, in that workspace).
+4. **`critical_only`** proof — `critical` delivered; `high`/`medium`/`low` suppressed.
+5. **Slack/Teams/webhook workspace-level gate** proof, including that the channel test endpoint cannot bypass entitlement or preferences.
+6. **Terminal `alert_deliveries` outcome** proof for every suppression reason.
+7. **No retry loop** for a terminal suppression.
+8. **No alert reaches another customer or workspace.**
+
 ## A3. MSP Portfolio Per-Domain State and Trend
 
 ### Objective
@@ -492,6 +514,17 @@ Before any commercial asset, page, or conversation quotes a price:
 - verify upgrade and downgrade paths and plan limits against the new plans;
 - confirm no existing workspace loses entitlements it currently holds;
 - founder deploy approval is required.
+
+**Precondition — resolve duplicate subscription rows** (found 15 July 2026 while proving PR-A's entitlement gate against production; **not** an Alerts blocker):
+
+`getUserPlan` (`engines/entitlements.js:205`) selects `ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 1` — the effective plan is simply the newest row. Three live owners hold **two** subscription rows each (`professional`/`trialing` **and** `starter`/`active`); every live workspace also has `current_period_end = NULL`, which `isExpiredDate` correctly treats as "not expired". Today both rows grant `alerts`, so entitlement is identical either way and nothing is broken — which is exactly why it is invisible. Under the new tiers the two rows would grant **different** entitlements, and which one wins would depend on row ordering rather than on a decision.
+
+Before pricing lockstep:
+
+- define the canonical active subscription row per owner (and what supersedes what);
+- remove or supersede duplicate historical rows safely — append-only/superseded, never destructive (historical billing evidence is not disposable);
+- ensure `getUserPlan` cannot depend on ambiguous newest-row ordering — resolve by an explicit canonical marker, not `ORDER BY ... LIMIT 1`;
+- decide the meaning of a NULL `current_period_end` on a `trialing` row explicitly, rather than inheriting it from `isExpiredDate`'s null-check.
 
 The first paying customer must be acquired on the adopted pricing. Do not change pricing mid-pilot for an active prospect.
 
