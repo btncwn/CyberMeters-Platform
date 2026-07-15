@@ -310,8 +310,41 @@ export async function runHeadersModule(domain) {
   const present = SECURITY_HEADERS.filter((h) => !!headerValues[h.name]).map((h) => h.name);
   const missing = SECURITY_HEADERS.filter((h) => !headerValues[h.name]).map((h) => h.name);
 
+  // ── Probe execution is EVIDENCE, and its absence must say so ────────────────
+  // `accessible` is false when the loop above never got a response on EITHER
+  // protocol — safeFetch returns null on a 10s timeout, a redirect loop, more than
+  // MAX_REDIRECT_HOPS, a blocked target or any thrown error. None of those is an
+  // observation about the customer's headers: we did not look.
+  //
+  // Before this, the module returned that state as an ordinary success — no error,
+  // no incomplete, no skipped — so buildScanQuality graded the scan `complete`,
+  // moduleAssessed() said headers were assessed, no header finding was emitted
+  // (scoring gates on `accessible`), and the eight-domain resolver concluded
+  // Website Security was **assessed_healthy — "no material issue observed"**. A
+  // site nobody could reach was reported as healthy. That is the exact failure the
+  // platform's first rule forbids, and the exact failure probeAsset already fixed
+  // for exposure evidence (`reachable: null` + `probe_status: "not_executed"`,
+  // never `reachable: false`).
+  //
+  // `incomplete` is the canonical way to say "this module did not truly run".
+  // buildScanQuality turns it into scan_quality `partial`, moduleAssessed() turns
+  // it into evidence_insufficient, and moduleCompletionGate.canVerify("headers")
+  // turns it into "cannot verify" — so an unexecuted probe can never resolve a
+  // condition either. One flag, and every gate downstream fails closed.
+  //
+  // `present`/`missing` are deliberately left as they are. They are diagnostics,
+  // and every backend consumer now defers on `incomplete`; emptying `missing`
+  // would make a caller that reads its length conclude "0 missing headers = good",
+  // which is the falsely-clean result being removed here, not a fix for it.
+  const probeExecuted = accessible === true;
+
   return {
     accessible,
+    ...(probeExecuted ? {} : {
+      incomplete: true,
+      incomplete_reason: "probe_not_executed",
+    }),
+    headers_assessed:       probeExecuted,
     status_code:            statusCode,
     original_url:           originalUrl,
     response_url:           responseUrl,

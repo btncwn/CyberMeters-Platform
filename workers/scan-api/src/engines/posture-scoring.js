@@ -105,7 +105,11 @@ export function computeSecurityPosture(sc, report) {
     sslScore = null;
   } else {
     if (ssl !== null) {
-      if (!ssl.https_available) {
+      // `=== false`, not `!https_available`: tri-state (ssl-scan.js). null means the
+      // probe never executed, and deducting 40 points while telling the customer
+      // "all traffic is unencrypted" on the strength of a timed-out fetch is a
+      // claim from absent evidence. Same guard as the scoring engine.
+      if (ssl.https_available === false) {
         sslScore -= 40;
         sslReasons.push('HTTPS is not available — all traffic is unencrypted');
         pushRem(sslRem, 'ssl_not_available');
