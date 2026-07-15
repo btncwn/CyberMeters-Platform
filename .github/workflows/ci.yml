@@ -104,6 +104,9 @@ jobs:
       - name: Validate alert occurrence identity (append-only event = condition start)
         run: node scripts/validate-alert-occurrence.js
 
+      - name: Validate evaluator/resolver parity (each engine emits a resolvable occurrence)
+        run: node scripts/validate-alert-evaluator-parity.js
+
       - name: Validate hosted DMARC lifecycle (pass-rate + readiness + auto-rollback runtime)
         run: node scripts/validate-hosted-dmarc-lifecycle.js
 

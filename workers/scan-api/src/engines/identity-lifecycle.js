@@ -23,6 +23,7 @@
 // (identity_case → identity.* canonical remediation).
 
 import { emitLifecycleAlert } from "./alert-consumers.js";
+import { buildMonitoringTransitionDetail, isMonitoringTransition } from "./alert-occurrence.js";
 import { createManagedCase, canTransitionCase, canonicalPhaseFor } from "./managed-case-model.js";
 import { newCaseEventId } from "./case-workflow.js";
 import {
@@ -356,6 +357,35 @@ export async function evaluateIdentityExposureMonitoring(env, workspaceId, { see
 
     if (ownership_status === "missing" && rec.ownership_status && rec.ownership_status !== "missing") {
       await appendEvent(env, rec, { event_type: "owner_missing", detail: { classification: cls } });
+    }
+
+    // ── Monitoring transition (append-only) ──────────────────────────────────
+    // The canonical occurrence record: findConditionOccurrence reads this event's
+    // created_at as the condition-start and its id as the occurrence identity.
+    // Without it the consumer resolves nothing and every condition here is treated
+    // as pre-existing — i.e. this domain would be silently unable to alert.
+    //
+    // The OTHER monitoring_changed sites in this file ("reappeared",
+    // "no_longer_observed", case-linkage) are different facts and carry different
+    // payloads; only this one records a recurrence transition, so only this one
+    // carries to_recurrence_type.
+    //
+    // Only a real CHANGE is appended: re-observing the same condition next hour is
+    // not a new occurrence, and appending one would mint a fresh occurrence id and
+    // re-alert the same unchanged item every hour.
+    const nextIdentityMonitoring = { monitoring_status, recurrence_type: recurrence_type === "none" ? null : recurrence_type };
+    if (isMonitoringTransition({ monitoring_status: rec.monitoring_status, recurrence_type: rec.recurrence_type }, nextIdentityMonitoring)) {
+      await appendEvent(env, rec, {
+        event_type: "monitoring_changed",
+        detail: buildMonitoringTransitionDetail({
+          from_monitoring_status: rec.monitoring_status ?? null,
+          to_monitoring_status: nextIdentityMonitoring.monitoring_status ?? null,
+          from_recurrence_type: rec.recurrence_type ?? null,
+          to_recurrence_type: nextIdentityMonitoring.recurrence_type,
+          required_case_action, reason: monitoring_reason,
+          entity: rec.canonical_identity_key,
+        }),
+      }).catch(() => { /* history is best-effort; it must not break the evaluator */ });
     }
 
     await env.cybermeters_db
