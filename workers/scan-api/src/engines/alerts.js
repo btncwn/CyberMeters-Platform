@@ -30,8 +30,13 @@ const SUPPRESSION_REASONS = new Set([
   "no_verified_recipient",
 ]);
 
-// ── Legacy alert types whose outbound customer EMAIL is disabled ─────────────
+// ── Legacy alert types with NO outbound customer delivery ────────────────────
 // (PR-B4a, founder decision 15 July 2026.)
+//
+// EVERY outbound path — email, Slack, Teams, webhook. The evidence standard is a
+// property of the claim, not of the transport: an assertion the platform cannot
+// evidence is no more defensible in a Slack message than in an email, and gating
+// only email would leave the claim one channel configuration away from returning.
 //
 // These two conditions email a customer a claim the platform cannot evidence.
 // They are NOT canonical alerts: they never reach emitManagedAlert, so they carry
@@ -58,15 +63,15 @@ const SUPPRESSION_REASONS = new Set([
 //     concentration change, one fewer vendor observed this pass, or a scoring
 //     formula change — and the email asserts "risk increased" for all three.
 //
-// This suppresses the EMAIL only. Everything else is deliberately untouched:
-// workspace_vendors and workspace_supply_chain_history keep being written, the
-// notification_events row is still created so the condition stays visible in-app
-// and in the dashboard's history, and every other alert type (score_drop,
-// new_finding, cert_expiry) still emails exactly as before.
+// This suppresses OUTBOUND DELIVERY only. Everything else is deliberately
+// untouched: workspace_vendors and workspace_supply_chain_history keep being
+// written, the notification_events row is still created so the condition stays
+// visible in-app and in the dashboard's history, and every other alert type
+// (score_drop, new_finding, cert_expiry) emails and fans out exactly as before.
 //
 // Removing an entry here requires the matching occurrence model to exist first —
 // see the two follow-up design items in docs/P0-PUBLIC-BETA-BLOCKERS.md.
-export const EMAIL_SUPPRESSED_LEGACY_TYPES = Object.freeze(new Set([
+export const OUTBOUND_SUPPRESSED_LEGACY_TYPES = Object.freeze(new Set([
   "new_vendor",
   "supply_chain_risk_increase",
 ]));
@@ -579,7 +584,7 @@ export async function processAlertsForWorkspace(workspaceId, domainId, domain, s
       // preference check meant an opt-out was ignored. It now cannot bypass them
       // because it no longer holds the recipients.
       let emailSentAt = null;
-      if (EMAIL_SUPPRESSED_LEGACY_TYPES.has(type)) {
+      if (OUTBOUND_SUPPRESSED_LEGACY_TYPES.has(type)) {
         // The condition stays observable — the notification_events row below is
         // still written, so the bell and the dashboard history are unchanged. We
         // simply do not assert it to the customer by email until the underlying
@@ -623,18 +628,26 @@ export async function processAlertsForWorkspace(workspaceId, domainId, domain, s
 
       // Fan the same event out to Slack/Teams/webhook channels. Channel
       // delivery must never break scan-alert processing.
-      try {
-        const alertOrigin = getEmailFrontendOrigin(env);
-        await deliverWorkspaceAlert(env, workspaceId, {
-          kind: type,
-          severity,
-          title,
-          summary: whatChanged || message || "",
-          domain,
-          workspace_name: workspaceName,
-          link: alertOrigin ? `${alertOrigin}/scans/${encodeURIComponent(scanId)}` : null,
-        });
-      } catch { /* never block on channel fan-out */ }
+      //
+      // Suppressed types stop here too: the evidence standard is a property of the
+      // CLAIM, not of the transport. An unevidenced assertion is no more defensible
+      // in a Slack message than in an email, and gating only email would leave the
+      // claim one channel configuration away from returning. No channels are
+      // enabled in production today — this is the guard for when one is.
+      if (!OUTBOUND_SUPPRESSED_LEGACY_TYPES.has(type)) {
+        try {
+          const alertOrigin = getEmailFrontendOrigin(env);
+          await deliverWorkspaceAlert(env, workspaceId, {
+            kind: type,
+            severity,
+            title,
+            summary: whatChanged || message || "",
+            domain,
+            workspace_name: workspaceName,
+            link: alertOrigin ? `${alertOrigin}/scans/${encodeURIComponent(scanId)}` : null,
+          });
+        } catch { /* never block on channel fan-out */ }
+      }
     };
 
     const hist = currentModules.historical_changes;

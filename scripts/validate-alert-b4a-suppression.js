@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 //
-// PR-B4a: suppress the outbound EMAIL for two legacy alert types that assert a
-// claim the platform cannot evidence. CI-blocking.
+// PR-B4a: suppress EVERY outbound customer channel for two legacy alert types that
+// assert a claim the platform cannot evidence. CI-blocking.
 //
 // Proven in production on 15 July 2026 by one controlled scan of cybermeters.com:
 // the customer received two alert emails, both from the legacy
@@ -24,9 +24,15 @@
 //     concentration change, by one fewer vendor being observed, and by a scoring
 //     formula change.
 //
-// This suite proves the email stops and NOTHING ELSE does. It is a suppression, not
-// a canonicalisation: no occurrence is invented, no domain_key or dedupe_key is
-// fabricated, and neither condition is routed through emitManagedAlert.
+// Every outbound path stops — email, Slack, Teams, webhook. The evidence standard
+// is a property of the CLAIM, not of the transport, and gating only email would
+// leave the claim one channel configuration away from returning. Production has
+// zero enabled channels today; this is the guard for when one is added.
+//
+// This suite proves outbound delivery stops and NOTHING ELSE does. It is a
+// suppression, not a canonicalisation: no occurrence is invented, no domain_key or
+// dedupe_key is fabricated, and neither condition is routed through
+// emitManagedAlert.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -39,19 +45,20 @@ let pass = 0, fail = 0;
 const ok = (n, c) => { c ? pass++ : fail++; if (!c) report("FAIL " + n); };
 const eq = (n, g, w) => ok(`${n} (got ${JSON.stringify(g)}, want ${JSON.stringify(w)})`, g === w);
 
-const { EMAIL_SUPPRESSED_LEGACY_TYPES } = await import(eng("alerts.js"));
+const { OUTBOUND_SUPPRESSED_LEGACY_TYPES } = await import(eng("alerts.js"));
 
 // ── 1. The policy set is exactly the two proven-unattributable types ────────
 {
-  ok("new_vendor email is suppressed", EMAIL_SUPPRESSED_LEGACY_TYPES.has("new_vendor"));
-  ok("supply_chain_risk_increase email is suppressed", EMAIL_SUPPRESSED_LEGACY_TYPES.has("supply_chain_risk_increase"));
-  eq("exactly two types are suppressed", EMAIL_SUPPRESSED_LEGACY_TYPES.size, 2);
-  ok("the set is frozen", Object.isFrozen(EMAIL_SUPPRESSED_LEGACY_TYPES));
+  ok("new_vendor outbound delivery is suppressed", OUTBOUND_SUPPRESSED_LEGACY_TYPES.has("new_vendor"));
+  ok("supply_chain_risk_increase outbound delivery is suppressed", OUTBOUND_SUPPRESSED_LEGACY_TYPES.has("supply_chain_risk_increase"));
+  eq("exactly two types are suppressed", OUTBOUND_SUPPRESSED_LEGACY_TYPES.size, 2);
+  ok("the set is frozen", Object.isFrozen(OUTBOUND_SUPPRESSED_LEGACY_TYPES));
 
-  // Unrelated alert types MUST keep emailing. Suppressing these would be a silent
-  // loss of real security signal — the opposite failure to the one being fixed.
+  // Unrelated alert types MUST keep emailing AND fanning out. Suppressing these
+  // would be a silent loss of real security signal — the opposite failure to the
+  // one being fixed.
   for (const t of ["score_drop", "new_finding", "cert_expiry", "domain_verified", "critical_finding"]) {
-    ok(`${t} is NOT suppressed (unrelated signal must survive)`, !EMAIL_SUPPRESSED_LEGACY_TYPES.has(t));
+    ok(`${t} is NOT suppressed on any channel (unrelated signal must survive)`, !OUTBOUND_SUPPRESSED_LEGACY_TYPES.has(t));
   }
 }
 
@@ -61,11 +68,11 @@ const { EMAIL_SUPPRESSED_LEGACY_TYPES } = await import(eng("alerts.js"));
   const fn = src.slice(src.indexOf("export async function processAlertsForWorkspace"));
   const stripped = fn.replace(/\/\/[^\n]*/g, "");
 
-  ok("triggerAlert gates on the suppressed-type policy", /EMAIL_SUPPRESSED_LEGACY_TYPES\.has\(type\)/.test(stripped));
+  ok("triggerAlert gates on the suppressed-type policy", /OUTBOUND_SUPPRESSED_LEGACY_TYPES\.has\(type\)/.test(stripped));
 
   // The gate must sit ABOVE sendTenantAlertEmail and BELOW nothing else: the
   // notification INSERT and the channel fan-out must remain reachable.
-  const gateAt   = stripped.indexOf("EMAIL_SUPPRESSED_LEGACY_TYPES.has(type)");
+  const gateAt   = stripped.indexOf("OUTBOUND_SUPPRESSED_LEGACY_TYPES.has(type)");
   const sendAt   = stripped.indexOf("sendTenantAlertEmail(env, workspaceId");
   const insertAt = stripped.indexOf("INSERT INTO notification_events");
   ok("the gate precedes the email send", gateAt > 0 && sendAt > gateAt);
@@ -83,6 +90,55 @@ const { EMAIL_SUPPRESSED_LEGACY_TYPES } = await import(eng("alerts.js"));
   ok("neither condition is routed through emitManagedAlert", !/emitManagedAlert\(/.test(fn));
   ok("no domain_key is fabricated on the legacy insert", !/domain_key/.test(fn));
   ok("no dedupe_key is fabricated on the legacy insert", !/dedupe_key/.test(fn));
+
+  // ── EVERY outbound channel, not just email ───────────────────────────────
+  // deliverWorkspaceAlert is the single trunk for Slack, Teams AND webhook, so one
+  // gate above it covers all three. Gating only email would leave the unevidenced
+  // claim one channel configuration away from returning.
+  const fanoutAt = stripped.indexOf("deliverWorkspaceAlert(env, workspaceId");
+  ok("the channel fan-out is gated by the same policy",
+     /if \(!OUTBOUND_SUPPRESSED_LEGACY_TYPES\.has\(type\)\) \{[\s\S]{0,400}?deliverWorkspaceAlert\(env, workspaceId/.test(stripped),
+     "Slack/Teams/webhook would still carry the claim");
+  ok("the fan-out gate sits AFTER the notification INSERT (the record survives)",
+     fanoutAt > insertAt);
+
+  // The gate must be the ONLY thing standing between a suppressed type and every
+  // sender: exactly two guarded call sites, one per outbound trunk.
+  const guards = (stripped.match(/OUTBOUND_SUPPRESSED_LEGACY_TYPES\.has\(type\)/g) || []).length;
+  eq("both outbound trunks (email + channels) are guarded", guards, 2);
+
+  // No retryable delivery may be created for a suppressed type: `skipped` is what
+  // keeps it out of every retry sweep. Asserted structurally above; asserted here
+  // as the negative — the suppression branch must never reach a sender at all.
+  const suppressedBranch = stripped.slice(gateAt, stripped.indexOf("} else {", gateAt));
+  ok("the suppression branch calls no sender", !/sendTenantAlertEmail|deliverWorkspaceAlert|deliverEmail/.test(suppressedBranch));
+  ok("the suppression branch enqueues no retry", !/retry|asset_alert_records|alert_deliveries/i.test(suppressedBranch));
+}
+
+// ── 2b. Every named channel is covered by the one trunk ───────────────────
+// Slack, Teams and webhook all go through deliverWorkspaceAlert — there is no
+// fourth sender that could bypass the gate.
+{
+  const src = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "engines", "alerts.js"), "utf8");
+
+  // deliverWorkspaceAlert dispatches on ch.channel_type read from
+  // workspace_alert_channels, so the channel names live in the canonical
+  // declaration rather than in the sender's body. Assert against that — it is what
+  // bounds the set of channels a workspace can even configure.
+  const declared = /const ALERT_CHANNEL_TYPES = \[([^\]]+)\]/.exec(src)?.[1] || "";
+  for (const ch of ["slack", "teams", "webhook"]) {
+    ok(`${ch} is a declared channel, therefore covered by the one gated trunk`,
+       new RegExp(`"${ch}"`).test(declared));
+  }
+  eq("there are exactly three outbound channel types (no ungated fourth)",
+     declared.split(",").filter((x) => x.trim()).length, 3);
+  ok("every declared channel is delivered by deliverWorkspaceAlert (the gated trunk)",
+     /SELECT id, channel_type, webhook_url, secret FROM workspace_alert_channels/.test(src));
+  // And the legacy processor holds no private sender of its own.
+  const fn = src.slice(src.indexOf("export async function processAlertsForWorkspace"));
+  const stripped = fn.replace(/\/\/[^\n]*/g, "");
+  ok("the legacy processor has no private email sender", !/deliverEmail\(|sendCustomerEmail\(|sendAlertEmail\(/.test(stripped));
+  eq("the legacy processor reaches exactly one channel sender", (stripped.match(/deliverWorkspaceAlert\(/g) || []).length, 1);
 }
 
 // ── 3. The underlying evidence keeps being collected ───────────────────────
@@ -114,5 +170,5 @@ const { EMAIL_SUPPRESSED_LEGACY_TYPES } = await import(eng("alerts.js"));
      /sendTenantAlertEmail\(env, workspaceId, \{/.test(src));
 }
 
-report(`\nAlert B4a (unattributable-claim email suppression): ${pass}/${pass + fail} passed`);
+report(`\nAlert B4a (unattributable-claim outbound suppression): ${pass}/${pass + fail} passed`);
 if (fail > 0) process.exit(1);
