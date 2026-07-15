@@ -2,8 +2,7 @@
 // Alert email building/sending, recipient resolution, duplicate suppression,
 // alert-channel (webhook/Slack/etc.) validation + payload signing + delivery, and
 // the per-workspace alert processor. Extracted verbatim from index.js (monolith
-// decomposition, Phase 1c). Internal: isAlertDuplicate, ALERT_CHANNEL_TYPES,
-// _alertChannelText.
+// decomposition, Phase 1c). Internal: ALERT_CHANNEL_TYPES, _alertChannelText.
 //
 // Two chokepoints live here, and every rule about whether a customer may be told
 // something is enforced inside them rather than by their callers:
@@ -63,17 +62,57 @@ const SUPPRESSION_REASONS = new Set([
 //     concentration change, one fewer vendor observed this pass, or a scoring
 //     formula change — and the email asserts "risk increased" for all three.
 //
+//   score_drop (PR-B4b) — fires on `hist.score_change <= -10`, the delta between
+//     two persisted scan scores. Both scores ARE persisted and attributable to
+//     specific scan ids, so this is a weaker claim than new_vendor's — but it fails
+//     for the same reason supply_chain_risk_increase does: a score is a
+//     RECOMPUTATION, not an observation. The row records that the score is now 62,
+//     never which evidence moved. 77 -> 62 is equally new findings, a module that
+//     returned less evidence this pass, or a scoring-formula change shipped by us —
+//     and a formula change would mail EVERY customer at once. The email does not
+//     hedge: it states "A drop of this magnitude indicates new critical or
+//     high-severity findings", a cause the code never checks. When new
+//     critical/high findings genuinely exist, new_finding is the finding-level
+//     claim; score_drop adds a cause it has not established.
+//
+//   new_finding (PR-B4b) — the closest call here, and it turns on the baseline.
+//     The claim needs a prior state that is BOTH persisted and attributable to THIS
+//     customer. It is persisted (the previous complete scan's R2 report, diffed on
+//     stable canonical finding-type ids — not random ids). It is not reliably
+//     attributable: runHistoricalModule (historical-scan.js) selects the baseline
+//     `WHERE domain = ?` with NO workspace_id, and workspace_domains is keyed
+//     (workspace_id, domain_id) — so one domain may belong to several workspaces,
+//     and another tenant's scan of the same domain can be the baseline. "New since
+//     your last scan" then silently means "new since SOMEONE's last scan", on a
+//     clock this customer does not control: if an MSP scans hourly and the client
+//     weekly, the client is told "new" for what the MSP saw an hour ago, and never
+//     told about the week it was actually introduced. The platform cannot tell
+//     which case it is in, so it cannot honestly make the claim. (No cross-tenant
+//     DATA is exposed — requireScanReadAccess scopes every scan read, and both
+//     workspaces are verified owners of that domain. The defect is the CLAIM, not a
+//     leak.) Two smaller gaps compound it: ids are finding TYPES, so the same
+//     finding on a second host is not "new"; and a new detection rule or an id
+//     rename would read as new for every customer at once.
+//
 // This suppresses OUTBOUND DELIVERY only. Everything else is deliberately
-// untouched: workspace_vendors and workspace_supply_chain_history keep being
-// written, the notification_events row is still created so the condition stays
-// visible in-app and in the dashboard's history, and every other alert type
-// (score_drop, new_finding, cert_expiry) emails and fans out exactly as before.
+// untouched: workspace_vendors, workspace_supply_chain_history and the scan
+// findings keep being written, and the notification_events row is still created so
+// each condition stays visible in-app and in the dashboard's history.
+//
+// The set is now EXHAUSTIVE — every type the legacy processor can raise is in it,
+// so the legacy path can no longer make an outbound customer claim at all. That is
+// asserted in CI (validate-alert-b4b-legacy-cleanup.js) rather than left to
+// reading: the gate is opt-in by construction, so an unlisted type would silently
+// send, and this set is the only thing standing between the legacy engine and a
+// customer's inbox.
 //
 // Removing an entry here requires the matching occurrence model to exist first —
-// see the two follow-up design items in docs/P0-PUBLIC-BETA-BLOCKERS.md.
+// see the follow-up design items in docs/P0-PUBLIC-BETA-BLOCKERS.md.
 export const OUTBOUND_SUPPRESSED_LEGACY_TYPES = Object.freeze(new Set([
   "new_vendor",
   "supply_chain_risk_increase",
+  "score_drop",
+  "new_finding",
 ]));
 
 // Recorded on the notification instead of a delivery outcome. Honest and specific:
@@ -239,51 +278,33 @@ export async function resolveWorkspaceAlertRecipients(env, workspaceId) {
   }
 }
 
-async function isAlertDuplicate(env, workspaceId, alertType, relatedEntity, checkThresholdFn = null) {
-  try {
-    const query = await env.cybermeters_db
-      .prepare(
-        `SELECT metadata_json, created_at FROM notification_events
-         WHERE workspace_id = ? AND type = ?
-         ORDER BY created_at DESC`
-      )
-      .bind(workspaceId, alertType)
-      .all();
-    
-    const rows = query.results || [];
-    const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
-    
-    for (const row of rows) {
-      let meta = {};
-      try {
-        meta = JSON.parse(row.metadata_json || '{}');
-      } catch (e) {
-        continue;
-      }
-      
-      if (meta.related_entity === relatedEntity) {
-        const rowDateStr = row.created_at.includes('Z') || row.created_at.includes('+')
-          ? row.created_at
-          : row.created_at.replace(' ', 'T') + 'Z';
-        const createdAtTime = new Date(rowDateStr).getTime();
-        
-        if (createdAtTime >= oneDayAgo) {
-          return true;
-        }
-        
-        if (checkThresholdFn) {
-          const thresholdDup = checkThresholdFn(meta);
-          if (thresholdDup) {
-            return true;
-          }
-        }
-      }
-    }
-    return false;
-  } catch (err) {
-    return false;
-  }
-}
+// ── isAlertDuplicate — REMOVED (PR-B4b) ──────────────────────────────────────
+// The legacy advisory dedupe. It SELECTed every notification_events row for the
+// workspace and type, JSON-parsed each one, and looked for a 24h-old row whose
+// metadata.related_entity matched — then the caller decided whether to send.
+//
+// Read-then-write with no lock, so two concurrent scans both read "not a duplicate"
+// and both send. It also swallowed every error and returned false, i.e. it FAILED
+// OPEN into a duplicate send: the one direction a dedupe must never fail. Its
+// unbounded, un-LIMITed scan grew with the tenant's whole notification history, and
+// its 5th parameter (checkThresholdFn) had no caller left once PR-B2 removed
+// cert_expiry.
+//
+// Its four callers (score_drop, new_finding, new_vendor, supply_chain_risk_increase)
+// no longer need it, and this is the part worth keeping in mind: it was never the
+// real dedupe. Every one of those conditions is a DELTA against the immediately
+// previous persisted state — a score change vs the previous scan, findings vs the
+// previous complete scan's report, workspace_vendors.first_seen vs the scan start,
+// two supply-chain history rows. A condition that persists therefore stops being a
+// delta on the very next scan and goes quiet on its own, from persisted evidence
+// rather than from a timer. The 24h window only ever suppressed genuine
+// re-observations inside it, which is a decision about what is worth telling a
+// customer — not a duplicate.
+//
+// The canonical replacement for that decision is the migration-087 partial UNIQUE
+// index behind emitManagedAlert's INSERT OR IGNORE: the DATABASE refuses the
+// duplicate, so there is no window to race. Do not reintroduce an advisory dedupe
+// here. validate-alert-b4b-legacy-cleanup.js asserts it stays gone.
 
 
 
@@ -653,46 +674,45 @@ export async function processAlertsForWorkspace(workspaceId, domainId, domain, s
     const hist = currentModules.historical_changes;
     const ssl = currentModules.ssl;
 
-    // ── 1. Score Drop Alert ── (comparable/complete assessments only)
+    // ── 1. Score Drop ── (comparable/complete assessments only)
+    // In-app only since PR-B4b — see OUTBOUND_SUPPRESSED_LEGACY_TYPES above.
     if (hist?.has_previous && hist.comparable !== false && hist.score_change != null && hist.score_change <= -10) {
-      const isDuplicate = await isAlertDuplicate(env, workspaceId, "score_drop", domain);
-      if (!isDuplicate) {
-        const scoreDiff = Math.abs(hist.score_change);
-        await triggerAlert({
-          type: "score_drop",
-          severity: "high",
-          title: `⚠ CyberMeters: ${domain} score dropped ${scoreDiff} points`,
-          message: `Security score dropped from ${hist.previous_score} to ${hist.current_score} (-${scoreDiff} points).`,
-          relatedEntity: domain,
-          whatChanged: `The security score for ${domain} dropped by ${scoreDiff} points (${hist.previous_score} → ${hist.current_score}).`,
-          recommendation: "A drop of this magnitude indicates new critical or high-severity findings. Review the full report immediately to resolve these issues.",
-          fromKey: "ALERT_EMAIL_FROM"
-        });
-      }
+      const scoreDiff = Math.abs(hist.score_change);
+      await triggerAlert({
+        type: "score_drop",
+        severity: "high",
+        title: `⚠ CyberMeters: ${domain} score dropped ${scoreDiff} points`,
+        message: `Security score dropped from ${hist.previous_score} to ${hist.current_score} (-${scoreDiff} points).`,
+        relatedEntity: domain,
+        whatChanged: `The security score for ${domain} dropped by ${scoreDiff} points (${hist.previous_score} → ${hist.current_score}).`,
+        recommendation: "A drop of this magnitude indicates new critical or high-severity findings. Review the full report immediately to resolve these issues.",
+        fromKey: "ALERT_EMAIL_FROM"
+      });
     }
 
-    // ── 2. New Critical/High Finding Alert ──
+    // ── 2. New Critical/High Finding ──
+    // In-app only since PR-B4b — see OUTBOUND_SUPPRESSED_LEGACY_TYPES above.
+    //
+    // The per-finding isAlertDuplicate loop is gone with it. It was also quietly
+    // broken: it deduped each finding individually but recorded only
+    // `nonDupNew[0].id` as the batch's related_entity, so findings 2..n of any batch
+    // had no record to match against and could never dedupe. The scan-to-scan diff
+    // is the real guard — a finding present in the previous complete scan is not in
+    // new_findings at all, so a persisting finding goes quiet without a timer.
     if (hist?.has_previous && Array.isArray(hist.new_findings)) {
       const newCritHigh = hist.new_findings.filter(f => f.severity === "critical" || f.severity === "high");
-      const nonDupNew = [];
-      for (const f of newCritHigh) {
-        const isDuplicate = await isAlertDuplicate(env, workspaceId, "new_finding", f.id);
-        if (!isDuplicate) {
-          nonDupNew.push(f);
-        }
-      }
-      
-      if (nonDupNew.length > 0) {
-        const count = nonDupNew.length;
-        const highestSeverity = nonDupNew.some(f => f.severity === "critical") ? "critical" : "high";
-        const findingsListStr = nonDupNew.map(f => `• [${f.severity.toUpperCase()}] ${f.title}`).join("\n");
-        
+
+      if (newCritHigh.length > 0) {
+        const count = newCritHigh.length;
+        const highestSeverity = newCritHigh.some(f => f.severity === "critical") ? "critical" : "high";
+        const findingsListStr = newCritHigh.map(f => `• [${f.severity.toUpperCase()}] ${f.title}`).join("\n");
+
         await triggerAlert({
           type: "new_finding",
           severity: highestSeverity,
           title: `🚨 CyberMeters: ${count} new finding${count !== 1 ? "s" : ""} on ${domain}`,
           message: `Detected ${count} new high/critical severity finding${count !== 1 ? "s" : ""} requiring attention.`,
-          relatedEntity: nonDupNew[0].id,
+          relatedEntity: newCritHigh[0].id,
           whatChanged: `New high/critical security findings were discovered:\n${findingsListStr}`,
           recommendation: "Review the recommended remediation actions in the report and apply patches or configuration fixes.",
           fromKey: "ALERT_EMAIL_FROM"
@@ -731,23 +751,18 @@ export async function processAlertsForWorkspace(workspaceId, domainId, domain, s
         .all();
       const newVendors = newVendorsQuery.results || [];
       
-      const nonDupVendors = [];
-      for (const v of newVendors) {
-        const isDuplicate = await isAlertDuplicate(env, workspaceId, "new_vendor", v.vendor_name);
-        if (!isDuplicate) {
-          nonDupVendors.push(v);
-        }
-      }
-      
-      if (nonDupVendors.length > 0) {
-        const count = nonDupVendors.length;
-        const vendorListStr = nonDupVendors.map(v => `• ${v.vendor_name} (${v.category || "General"})`).join("\n");
+      // No advisory dedupe (PR-B4b): `first_seen >= startedAt` is already a delta
+      // against persisted state, and the writers use INSERT OR IGNORE, so first_seen
+      // is stamped once and the vendor stops matching on the next scan by itself.
+      if (newVendors.length > 0) {
+        const count = newVendors.length;
+        const vendorListStr = newVendors.map(v => `• ${v.vendor_name} (${v.category || "General"})`).join("\n");
         await triggerAlert({
           type: "new_vendor",
           severity: "info",
           title: `🔍 CyberMeters: ${count} new vendor${count !== 1 ? "s" : ""} discovered for ${domain}`,
-          message: `Discovered new active vendor${count !== 1 ? "s" : ""}: ${nonDupVendors.map(v => v.vendor_name).join(", ")}.`,
-          relatedEntity: nonDupVendors[0].vendor_name,
+          message: `Discovered new active vendor${count !== 1 ? "s" : ""}: ${newVendors.map(v => v.vendor_name).join(", ")}.`,
+          relatedEntity: newVendors[0].vendor_name,
           whatChanged: `New active vendor(s) detected on your attack surface:\n${vendorListStr}`,
           recommendation: "Review the vendor's security posture and ensure their compliance with security policies.",
           fromKey: "ALERT_EMAIL_FROM"
@@ -775,29 +790,29 @@ export async function processAlertsForWorkspace(workspaceId, domainId, domain, s
       const levels = { 'low': 1, 'medium': 2, 'high': 3, 'critical': 4 };
       const conWorsened = (levels[curr.concentration_level] || 0) > (levels[prev.concentration_level] || 0);
       
+      // No advisory dedupe (PR-B4b): this already fires only on a DELTA between the
+      // two most recent persisted history rows, so an unchanged posture compares
+      // equal on the next scan and stops firing without a timer.
       if (resDropped || conWorsened) {
-        const isDuplicate = await isAlertDuplicate(env, workspaceId, "supply_chain_risk_increase", "supply_chain");
-        if (!isDuplicate) {
-          let changeDesc = "";
-          if (resDropped) {
-            changeDesc += `• Operational resilience score dropped from ${prev.resilience_score} to ${curr.resilience_score} (score drop: ${prev.resilience_score - curr.resilience_score} points)\n`;
-          }
-          if (conWorsened) {
-            changeDesc += `• Third-party concentration risk level worsened from "${prev.concentration_level}" to "${curr.concentration_level}"\n`;
-          }
-          
-          await triggerAlert({
-            type: "supply_chain_risk_increase",
-            severity: "high",
-            title: `⚠️ CyberMeters Alert: Supply chain risk increased for workspace`,
-            message: `Supply chain risk increase detected in workspace: ` +
-              (resDropped ? `Resilience score dropped. ` : '') + (conWorsened ? `Concentration level worsened.` : ''),
-            relatedEntity: "supply_chain",
-            whatChanged: `Workspace supply chain security indicators have worsened:\n${changeDesc}`,
-            recommendation: "Review your third-party vendor concentration and redundancy plans on the Supply Chain dashboard to mitigate systemic dependencies.",
-            fromKey: "ALERT_EMAIL_FROM"
-          });
+        let changeDesc = "";
+        if (resDropped) {
+          changeDesc += `• Operational resilience score dropped from ${prev.resilience_score} to ${curr.resilience_score} (score drop: ${prev.resilience_score - curr.resilience_score} points)\n`;
         }
+        if (conWorsened) {
+          changeDesc += `• Third-party concentration risk level worsened from "${prev.concentration_level}" to "${curr.concentration_level}"\n`;
+        }
+
+        await triggerAlert({
+          type: "supply_chain_risk_increase",
+          severity: "high",
+          title: `⚠️ CyberMeters Alert: Supply chain risk increased for workspace`,
+          message: `Supply chain risk increase detected in workspace: ` +
+            (resDropped ? `Resilience score dropped. ` : '') + (conWorsened ? `Concentration level worsened.` : ''),
+          relatedEntity: "supply_chain",
+          whatChanged: `Workspace supply chain security indicators have worsened:\n${changeDesc}`,
+          recommendation: "Review your third-party vendor concentration and redundancy plans on the Supply Chain dashboard to mitigate systemic dependencies.",
+          fromKey: "ALERT_EMAIL_FROM"
+        });
       }
     }
 

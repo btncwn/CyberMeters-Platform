@@ -47,18 +47,28 @@ const eq = (n, g, w) => ok(`${n} (got ${JSON.stringify(g)}, want ${JSON.stringif
 
 const { OUTBOUND_SUPPRESSED_LEGACY_TYPES } = await import(eng("alerts.js"));
 
-// ── 1. The policy set is exactly the two proven-unattributable types ────────
+// ── 1. The policy set ───────────────────────────────────────────────────────
+// B4a suppressed the two types whose claims are not attributable at all. B4b then
+// assessed the two B4a deliberately left sending — and suppressed them too, for
+// reasons of the same class (see OUTBOUND_SUPPRESSED_LEGACY_TYPES in alerts.js).
+// The set is therefore now EXHAUSTIVE over the legacy processor; that stronger
+// property is asserted against the real source in
+// validate-alert-b4b-legacy-cleanup.js, which is where a new type would be caught.
 {
   ok("new_vendor outbound delivery is suppressed", OUTBOUND_SUPPRESSED_LEGACY_TYPES.has("new_vendor"));
   ok("supply_chain_risk_increase outbound delivery is suppressed", OUTBOUND_SUPPRESSED_LEGACY_TYPES.has("supply_chain_risk_increase"));
-  eq("exactly two types are suppressed", OUTBOUND_SUPPRESSED_LEGACY_TYPES.size, 2);
+  ok("score_drop outbound delivery is suppressed (PR-B4b)", OUTBOUND_SUPPRESSED_LEGACY_TYPES.has("score_drop"));
+  ok("new_finding outbound delivery is suppressed (PR-B4b)", OUTBOUND_SUPPRESSED_LEGACY_TYPES.has("new_finding"));
+  eq("exactly four legacy types are suppressed", OUTBOUND_SUPPRESSED_LEGACY_TYPES.size, 4);
   ok("the set is frozen", Object.isFrozen(OUTBOUND_SUPPRESSED_LEGACY_TYPES));
 
-  // Unrelated alert types MUST keep emailing AND fanning out. Suppressing these
-  // would be a silent loss of real security signal — the opposite failure to the
-  // one being fixed.
-  for (const t of ["score_drop", "new_finding", "cert_expiry", "domain_verified", "critical_finding"]) {
-    ok(`${t} is NOT suppressed on any channel (unrelated signal must survive)`, !OUTBOUND_SUPPRESSED_LEGACY_TYPES.has(t));
+  // The policy must stay scoped to the LEGACY processor. Suppressing a canonical
+  // kind here would be a silent loss of real security signal — the opposite failure
+  // to the one being fixed — and cert_expiry is now owned by certificates_trust.
+  for (const t of ["cert_expiry", "domain_verified", "critical_finding", "asset_change",
+                   "certificates_trust.renewal_overdue", "email_protection.hosted_record_disconnected"]) {
+    ok(`${t} is NOT suppressed on any channel (canonical/unrelated signal must survive)`,
+       !OUTBOUND_SUPPRESSED_LEGACY_TYPES.has(t));
   }
 }
 

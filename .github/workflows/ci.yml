@@ -113,6 +113,16 @@ jobs:
       - name: Validate unattributable-claim email suppression (new_vendor / supply_chain_risk_increase)
         run: node scripts/validate-alert-b4a-suppression.js
 
+      # B4b finishes the legacy engine: suppression is now EXHAUSTIVE over every type
+      # the legacy processor can raise (the gate is opt-in, so an unlisted type would
+      # silently send — the suite extracts the types from the source rather than
+      # trusting a list), the advisory read-then-write dedupe is gone, and the two
+      # dead tenant senders that fell back to the OPERATOR's inbox are deleted.
+      # Mutation-tested: it empties the policy set and asserts the legacy path emails
+      # the customer again, so "nothing was sent" is a proven result, not an artefact.
+      - name: Validate B4b legacy alert cleanup (exhaustive suppression / no advisory dedupe / no ungated sender, mutation-tested)
+        run: node scripts/validate-alert-b4b-legacy-cleanup.js
+
       - name: Validate certificate expiry bands (canonical renewal_overdue escalation / no legacy cert_expiry)
         run: node scripts/validate-alert-b2-cert-expiry-bands.js
 
