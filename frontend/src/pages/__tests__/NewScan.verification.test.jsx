@@ -46,15 +46,21 @@ const startScanBtn = () => screen.getByRole('button', { name: /Start Scan/i })
 
 beforeEach(() => {
   vi.restoreAllMocks()
-  // The domain is linked to this workspace but NOT verified — the live state.
-  vi.spyOn(api, 'getWorkspaceDomains').mockResolvedValue({
-    workspace_id: 'ws_turhan',
-    domains: [{ domain_id: DOMAIN_ID, domain: DOMAIN, verification_status: 'unverified' }],
-  })
+  const unverifiedRow = { domain_id: DOMAIN_ID, domain: DOMAIN, verification_status: 'unverified', verified_at: null }
+  const verifiedRow   = { domain_id: DOMAIN_ID, domain: DOMAIN, verification_status: 'verified', verified_at: '2026-07-15T10:50:00Z' }
+
+  vi.spyOn(api, 'getWorkspaceDomains').mockResolvedValue({ workspace_id: 'ws_turhan', domains: [unverifiedRow] })
   vi.spyOn(api, 'generateDomainVerification').mockResolvedValue(dnsResponse)
-  vi.spyOn(api, 'verifyDomain').mockResolvedValue({ verified: true, verification_status: 'verified' })
   vi.spyOn(api, 'createScan').mockResolvedValue({ scan: { id: 'scan_1' } })
   vi.spyOn(api, 'addDomainToWorkspace').mockResolvedValue({ domain: { id: DOMAIN_ID } })
+
+  // Model production: verifyDomain PERSISTS the row, so the authoritative reread
+  // that follows sees verified + verified_at. A verify that does NOT persist is the
+  // false-success case — covered explicitly in the TRUST suite below.
+  vi.spyOn(api, 'verifyDomain').mockImplementation(async () => {
+    api.getWorkspaceDomains.mockResolvedValue({ workspace_id: 'ws_turhan', domains: [verifiedRow] })
+    return { success: true, verification_status: 'verified', verification_method: 'dns_txt' }
+  })
 })
 
 describe('REGRESSION: the production deadlock state', () => {
@@ -132,7 +138,7 @@ describe('already-verified domains skip setup', () => {
   it('enables Start Scan with no CTA', async () => {
     api.getWorkspaceDomains.mockResolvedValue({
       workspace_id: 'ws_turhan',
-      domains: [{ domain_id: DOMAIN_ID, domain: DOMAIN, verification_status: 'verified' }],
+      domains: [{ domain_id: DOMAIN_ID, domain: DOMAIN, verification_status: 'verified', verified_at: '2026-07-15T10:50:00Z' }],
     })
     const u = userEvent.setup()
     renderPage()
@@ -263,8 +269,8 @@ describe('REGRESSION: Verify must never be inert', () => {
     api.getWorkspaceDomains.mockResolvedValue({
       workspace_id: 'ws_turhan',
       domains: [
-        { domain_id: DOMAIN_ID, domain: DOMAIN, verification_status: 'verified' },
-        { domain_id: 'domain_www', domain: `www.${DOMAIN}`, verification_status: 'unverified' },
+        { domain_id: DOMAIN_ID, domain: DOMAIN, verification_status: 'verified', verified_at: '2026-07-15T10:50:00Z' },
+        { domain_id: 'domain_www', domain: `www.${DOMAIN}`, verification_status: 'unverified', verified_at: null },
       ],
     })
     const u = userEvent.setup()
@@ -307,5 +313,176 @@ describe('STRUCTURAL: the defect shapes cannot return', () => {
     // The branch must call setGated — assigning only a local `record` is the bug.
     const branch = startFn.slice(startFn.indexOf('if (existing)'), startFn.indexOf('if (!record?.domain_id)', startFn.indexOf('if (existing)')))
     expect(branch).toContain('setGated(')
+  })
+})
+
+// ── P1 TRUST BUG: verified shown while the record was pending ───────────────
+// Production: the UI reported "Domain ownership verified" and enabled Start Scan
+// while workspace_domains was verification_status='pending', verified_at=NULL, with
+// no domain_verified notification and no audit event. The UI trusted the verify
+// response's own success field, then refreshed authoritative state but was barred
+// from downgrading — so a false success became permanent on screen.
+//
+// A "verified" claim must come from persisted server state for the EXACT record.
+describe('TRUST: verified is only ever derived from authoritative persisted state', () => {
+  it('a verify response claiming success CANNOT show verified when the record stays pending', async () => {
+    // Server says success; the persisted row disagrees. The row wins.
+    api.verifyDomain.mockResolvedValue({ success: true, verification_status: 'verified' })
+    api.getWorkspaceDomains.mockResolvedValue({
+      workspace_id: 'ws_turhan',
+      domains: [{ domain_id: DOMAIN_ID, domain: DOMAIN, verification_status: 'pending', verified_at: null }],
+    })
+    const u = userEvent.setup()
+    renderPage()
+    await typeDomain(u)
+    await u.click(await screen.findByRole('button', { name: /Verify domain ownership/i }))
+    await u.click(await screen.findByRole('button', { name: /added the DNS record/i }))
+    await waitFor(() => expect(screen.getByText(/could not be confirmed/i)).toBeInTheDocument())
+    expect(screen.queryByText('Domain ownership verified')).toBeNull()
+    expect(startScanBtn()).toBeDisabled()          // the exact production bug
+  })
+
+  it('generic success:true alone cannot set verified', async () => {
+    api.verifyDomain.mockResolvedValue({ success: true })   // no status, no verified_at
+    api.getWorkspaceDomains.mockResolvedValue({
+      workspace_id: 'ws_turhan',
+      domains: [{ domain_id: DOMAIN_ID, domain: DOMAIN, verification_status: 'pending', verified_at: null }],
+    })
+    const u = userEvent.setup()
+    renderPage()
+    await typeDomain(u)
+    await u.click(await screen.findByRole('button', { name: /Verify domain ownership/i }))
+    await u.click(await screen.findByRole('button', { name: /added the DNS record/i }))
+    await waitFor(() => expect(screen.getByText(/could not be confirmed/i)).toBeInTheDocument())
+    expect(startScanBtn()).toBeDisabled()
+  })
+
+  it('verified WITHOUT verified_at cannot set verified', async () => {
+    api.verifyDomain.mockResolvedValue({ success: true, verification_status: 'verified' })
+    api.getWorkspaceDomains.mockResolvedValue({
+      workspace_id: 'ws_turhan',
+      domains: [{ domain_id: DOMAIN_ID, domain: DOMAIN, verification_status: 'verified', verified_at: null }],
+    })
+    const u = userEvent.setup()
+    renderPage()
+    await typeDomain(u)
+    await u.click(await screen.findByRole('button', { name: /Verify domain ownership/i }))
+    await u.click(await screen.findByRole('button', { name: /added the DNS record/i }))
+    await waitFor(() => expect(screen.getByText(/could not be confirmed/i)).toBeInTheDocument())
+    expect(startScanBtn()).toBeDisabled()
+  })
+
+  it('a verified row for a DIFFERENT domain_id cannot set verified', async () => {
+    api.verifyDomain.mockResolvedValue({ success: true, verification_status: 'verified' })
+    api.getWorkspaceDomains.mockResolvedValue({
+      workspace_id: 'ws_turhan',
+      domains: [
+        { domain_id: DOMAIN_ID, domain: DOMAIN, verification_status: 'pending', verified_at: null },
+        { domain_id: 'domain_other', domain: 'other.com', verification_status: 'verified', verified_at: '2026-07-15T00:00:00Z' },
+      ],
+    })
+    const u = userEvent.setup()
+    renderPage()
+    await typeDomain(u)
+    await u.click(await screen.findByRole('button', { name: /Verify domain ownership/i }))
+    await u.click(await screen.findByRole('button', { name: /added the DNS record/i }))
+    await waitFor(() => expect(screen.getByText(/could not be confirmed/i)).toBeInTheDocument())
+    expect(startScanBtn()).toBeDisabled()
+  })
+
+  it('an unreadable reread cannot set verified', async () => {
+    api.verifyDomain.mockResolvedValue({ success: true, verification_status: 'verified' })
+    let calls = 0
+    api.getWorkspaceDomains.mockImplementation(async () => {
+      calls += 1
+      if (calls === 1) return { workspace_id: 'ws_turhan', domains: [{ domain_id: DOMAIN_ID, domain: DOMAIN, verification_status: 'pending', verified_at: null }] }
+      throw new Error('network')   // the reread fails
+    })
+    const u = userEvent.setup()
+    renderPage()
+    await typeDomain(u)
+    await u.click(await screen.findByRole('button', { name: /Verify domain ownership/i }))
+    await u.click(await screen.findByRole('button', { name: /added the DNS record/i }))
+    await waitFor(() => expect(screen.getByText(/could not be confirmed/i)).toBeInTheDocument())
+    expect(startScanBtn()).toBeDisabled()
+  })
+
+  it('the initiation response cannot set verified on its own', async () => {
+    // already_verified is a claim about a record we must still re-read.
+    api.generateDomainVerification.mockResolvedValue({ already_verified: true, verification_status: 'verified' })
+    api.getWorkspaceDomains.mockResolvedValue({
+      workspace_id: 'ws_turhan',
+      domains: [{ domain_id: DOMAIN_ID, domain: DOMAIN, verification_status: 'pending', verified_at: null }],
+    })
+    const u = userEvent.setup()
+    renderPage()
+    await typeDomain(u)
+    await u.click(await screen.findByRole('button', { name: /Verify domain ownership/i }))
+    await waitFor(() => expect(screen.getByText(/could not be confirmed/i)).toBeInTheDocument())
+    expect(startScanBtn()).toBeDisabled()
+  })
+
+  it('ONLY an authoritative verified reread enables Start Scan', async () => {
+    api.verifyDomain.mockResolvedValue({ success: true, verification_status: 'verified' })
+    let calls = 0
+    api.getWorkspaceDomains.mockImplementation(async () => {
+      calls += 1
+      const status = calls === 1 ? { verification_status: 'pending', verified_at: null }
+                                 : { verification_status: 'verified', verified_at: '2026-07-15T10:50:00Z' }
+      return { workspace_id: 'ws_turhan', domains: [{ domain_id: DOMAIN_ID, domain: DOMAIN, ...status }] }
+    })
+    const u = userEvent.setup()
+    renderPage()
+    await typeDomain(u)
+    await u.click(await screen.findByRole('button', { name: /Verify domain ownership/i }))
+    await u.click(await screen.findByRole('button', { name: /added the DNS record/i }))
+    await waitFor(() => expect(screen.getByText('Domain ownership verified')).toBeInTheDocument())
+    expect(startScanBtn()).toBeEnabled()
+  })
+
+  it('stale verified state cannot leak to another domain', async () => {
+    api.getWorkspaceDomains.mockResolvedValue({
+      workspace_id: 'ws_turhan',
+      domains: [
+        { domain_id: DOMAIN_ID, domain: DOMAIN, verification_status: 'verified', verified_at: '2026-07-15T00:00:00Z' },
+        { domain_id: 'domain_www', domain: `www.${DOMAIN}`, verification_status: 'pending', verified_at: null },
+      ],
+    })
+    const u = userEvent.setup()
+    renderPage()
+    const input = screen.getByRole('textbox')
+    await u.type(input, DOMAIN)
+    await waitFor(() => expect(startScanBtn()).toBeEnabled())
+    await u.clear(input)
+    await u.type(input, `www.${DOMAIN}`)
+    await waitFor(() => expect(startScanBtn()).toBeDisabled())
+    expect(screen.queryByText('Domain ownership verified')).toBeNull()
+  })
+})
+
+// ── Structural trust guard ──────────────────────────────────────────────────
+describe('STRUCTURAL: no optimistic verified state may exist', () => {
+  const src = readFileSync(resolve(process.cwd(), 'src/pages/NewScan.jsx'), 'utf8')
+  const code = src.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n')
+
+  it("setState('verified') exists in exactly one place — the authoritative confirmer", () => {
+    const hits = code.match(/setState\('verified'\)/g) || []
+    expect(hits.length).toBe(1)
+    const confirm = code.slice(code.indexOf('async function confirmVerifiedOrExplain'), code.indexOf('async function resolveGatedRecord'))
+    expect(confirm).toMatch(/setState\('verified'\)/)
+    expect(confirm).toMatch(/isAuthoritativeVerified\(/)
+  })
+
+  it('every verified transition is gated by isAuthoritativeVerified', () => {
+    // Any ternary/assignment producing 'verified' must sit behind the contract.
+    const ternary = code.match(/setState\([^)]*\?\s*'verified'/g) || []
+    for (const t of ternary) expect(t).toMatch(/isAuthoritativeVerified/)
+  })
+
+  it('the verify response fields are never trusted directly for a verified transition', () => {
+    const handler = code.slice(code.indexOf('async function handleVerify'), code.indexOf('async function handleSubmit'))
+    // It may CALL verifyResponseClaimsSuccess, but must not setState('verified') itself.
+    expect(handler).not.toMatch(/setState\('verified'\)/)
+    expect(handler).toMatch(/confirmVerifiedOrExplain\(/)
   })
 })

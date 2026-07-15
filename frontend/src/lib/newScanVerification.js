@@ -164,6 +164,50 @@ export function verifyFailureNote(res) {
   return checkFailureMessage(res || {});
 }
 
+
+// ── The verification trust contract ─────────────────────────────────────────
+// A customer-visible "verified" claim may ONLY be derived from persisted server
+// state for the EXACT workspace-domain record — never from a response field, never
+// from local state.
+//
+// Why this exists: New Scan showed "Domain ownership verified" and enabled Start
+// Scan while the authoritative workspace_domains row was still `pending`,
+// verified_at NULL, with no domain_verified notification and no audit event. The UI
+// accepted the verify response's own word (`success === true` / a truthy
+// `verified`), then refreshed authoritative state but was deliberately barred from
+// downgrading — so a false success became permanent on screen. That is the worst
+// possible failure for a trust boundary: the product told the customer it had
+// proven something it had not.
+//
+// Note the verify endpoint's success responses do NOT carry verified_at at all, so
+// the contract below is unsatisfiable from the response alone by construction. That
+// is intentional: it forces the reread.
+//
+// AUTHORITATIVE means the row returned by GET /api/workspaces/:id/domains, which
+// reads wd.* — the workspace_domains link that migration 079 made authoritative and
+// that the scan gate itself honours.
+export function isAuthoritativeVerified(row, expected) {
+  if (!row || !expected) return false;
+  // Every clause is required. Any one missing means we have not been shown proof.
+  if (row.verification_status !== 'verified') return false;   // exact string, not truthy
+  if (!row.verified_at) return false;                          // persisted timestamp
+  if (row.domain_id !== expected.domain_id) return false;      // the EXACT record
+  return true;
+}
+
+// Explicitly NOT a success signal. Kept as a named predicate so the intent is
+// reviewable: these are the fields the UI used to trust and must never trust again.
+// A verify response is a request to go and check — it is not itself proof.
+export function verifyResponseClaimsSuccess(res) {
+  return Boolean(res?.verified || res?.success === true || res?.verification_status === 'verified');
+}
+
+// Shown when the response claims success but the authoritative record disagrees.
+// Deliberately operational and non-blaming: the customer's DNS may be perfect and
+// the fault entirely ours.
+export const VERIFY_UNCONFIRMED_MESSAGE =
+  'Verification could not be confirmed. Please try again.';
+
 // Instructions survive every non-success outcome. Losing them on an error is how a
 // customer ends up unable to finish, with no way back to the token.
 export function shouldKeepInstructions(state) {
