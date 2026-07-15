@@ -123,6 +123,34 @@ function parseJson(raw, fallback = null) {
 //
 // Tenant-scoped by construction: workspace_id is always in the predicate, so an
 // occurrence can never be resolved from another tenant's history.
+//
+// ── Why the tie-break is `rowid DESC` and not `id DESC` ──────────────────────
+// created_at is stamped by SQLite `datetime('now')` — SECOND precision. Two
+// occurrences of the same recurrence on the same record inside one second tie on
+// created_at and fall through to the tie-break. `id DESC` tie-breaks on random hex
+// (`cle-`/`iee-`/`sie-`/`epe-`/`case_`…), so it can return the OLDER event as the
+// newest occurrence. That is fail-SILENT, not fail-loud: the older event's
+// dedupe_key already exists, so `INSERT OR IGNORE` swallows the newer, real alert
+// as a duplicate and the customer is never told.
+//
+// rowid is the insertion order the table already maintains, so it answers the
+// question actually being asked — which of these two appends happened last. It is
+// legal here because every source is a physical rowid table (no WITHOUT ROWID, no
+// view); validate-alert-occurrence-ordering.js asserts that against the real
+// schema rather than trusting this comment. Rowid reuse after a purge cannot
+// invert the order: SQLite assigns max(rowid)+1 over the rows that REMAIN, so a
+// new append always sorts above every surviving row.
+//
+// This is deliberately NOT fixed by giving created_at sub-second precision.
+// observationIsAfterWatermark compares this event's created_at against a
+// second-truncated alert_activation.activated_at with a strict `>`, so added
+// precision would flip same-second events from "at the watermark" to "after it"
+// and could release a backlog of pre-existing conditions as if they were new.
+// The rowid tie-break cannot: it only ever re-selects among rows whose created_at
+// are IDENTICAL, so observed_at — and therefore every watermark decision — is
+// bit-for-bit unchanged. PR-B3 already reached the same conclusion for its own
+// lastGradedCondition read (engines/email-protection-lifecycle.js); this is the
+// same fix applied to the resolver all six domains share.
 export async function findConditionOccurrence(env, {
   workspace_id, domain_key, record_id, recurrence_type,
 } = {}) {
@@ -133,7 +161,7 @@ export async function findConditionOccurrence(env, {
       .prepare(`SELECT id, created_at, detail_json
                 FROM ${source.table}
                 WHERE workspace_id = ? AND ${source.fk} = ? AND ${source.type_column} = ?
-                ORDER BY created_at DESC, id DESC
+                ORDER BY created_at DESC, rowid DESC
                 LIMIT 25`)
       .bind(workspace_id, record_id, MONITORING_CHANGED)
       .all();

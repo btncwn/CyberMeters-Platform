@@ -131,6 +131,16 @@ jobs:
       - name: Validate alert occurrence identity (append-only event = condition start)
         run: node scripts/validate-alert-occurrence.js
 
+      # created_at is second-precision, so two appends for one record inside one
+      # second tie and fall through to the tie-break. On a random-id tie-break the
+      # resolver can return the OLDER event, whose dedupe key already exists — so a
+      # real alert is swallowed as a duplicate. Fail-SILENT, and shared by all six
+      # domains. This suite mutation-tests the rowid tie-break: it reverts the fix
+      # in memory and asserts the defect reproduces, so a green run means the suite
+      # can actually catch the regression rather than merely agreeing with the code.
+      - name: Validate alert occurrence ordering (same-second tie-break = insertion order, mutation-tested)
+        run: node scripts/validate-alert-occurrence-ordering.js
+
       - name: Validate evaluator/resolver parity (each engine emits a resolvable occurrence)
         run: node scripts/validate-alert-evaluator-parity.js
 
