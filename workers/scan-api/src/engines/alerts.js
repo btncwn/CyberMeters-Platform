@@ -30,6 +30,57 @@ const SUPPRESSION_REASONS = new Set([
   "no_verified_recipient",
 ]);
 
+// ── Legacy alert types with NO outbound customer delivery ────────────────────
+// (PR-B4a, founder decision 15 July 2026.)
+//
+// EVERY outbound path — email, Slack, Teams, webhook. The evidence standard is a
+// property of the claim, not of the transport: an assertion the platform cannot
+// evidence is no more defensible in a Slack message than in an email, and gating
+// only email would leave the claim one channel configuration away from returning.
+//
+// These two conditions email a customer a claim the platform cannot evidence.
+// They are NOT canonical alerts: they never reach emitManagedAlert, so they carry
+// no occurrence, no domain_key, no dedupe_key, no activation watermark and no
+// delivery ledger. Until each has an attributable, append-only occurrence source,
+// the honest thing is to stop asserting them to the customer — not to invent one.
+//
+//   new_vendor — "new" means only `workspace_vendors.first_seen >= scan_start`.
+//     first_seen IS stable (the writers use INSERT OR IGNORE), but vendor identity
+//     is a free-text vendor_name on a mutable, shared table, so a rename or a
+//     normalisation change mints a fresh row and reads as "new". It also cannot
+//     distinguish a genuinely new vendor from a reactivation, a rediscovery, or
+//     transient scan/provider variance. Proven in production on 15 July: a
+//     CERTIFICATE observation (cert-events.js:332) inserted "Google Trust Services"
+//     as a vendor row, and the customer was emailed that their long-standing CA was
+//     a NEW vendor on their attack surface. It was newly RECORDED, not new — and it
+//     is not an attack-surface vendor event at all.
+//
+//   supply_chain_risk_increase — fires on a delta between the two most recent
+//     workspace_supply_chain_history rows (resilience score dropped >=10, or
+//     concentration worsened). The scores are persisted, but a score is a
+//     RECOMPUTATION, not an observation: the row records that the score is now 20,
+//     never which underlying evidence moved. 32 -> 20 is equally a real
+//     concentration change, one fewer vendor observed this pass, or a scoring
+//     formula change — and the email asserts "risk increased" for all three.
+//
+// This suppresses OUTBOUND DELIVERY only. Everything else is deliberately
+// untouched: workspace_vendors and workspace_supply_chain_history keep being
+// written, the notification_events row is still created so the condition stays
+// visible in-app and in the dashboard's history, and every other alert type
+// (score_drop, new_finding, cert_expiry) emails and fans out exactly as before.
+//
+// Removing an entry here requires the matching occurrence model to exist first —
+// see the two follow-up design items in docs/P0-PUBLIC-BETA-BLOCKERS.md.
+export const OUTBOUND_SUPPRESSED_LEGACY_TYPES = Object.freeze(new Set([
+  "new_vendor",
+  "supply_chain_risk_increase",
+]));
+
+// Recorded on the notification instead of a delivery outcome. Honest and specific:
+// we did not fail to send and the customer did not opt out — the platform declined
+// to make a claim it cannot evidence.
+const EVIDENCE_NOT_ATTRIBUTABLE = "evidence_not_attributable";
+
 // ── OPS-ONLY sender ──────────────────────────────────────────────────────────
 // Falls back to env.ALERT_EMAIL_TO — the OPERATOR's inbox — when no recipient is
 // given. That fallback is correct for operational self-monitoring (e.g. the
@@ -533,28 +584,37 @@ export async function processAlertsForWorkspace(workspaceId, domainId, domain, s
       // preference check meant an opt-out was ignored. It now cannot bypass them
       // because it no longer holds the recipients.
       let emailSentAt = null;
-      const frontendOrigin = getEmailFrontendOrigin(env);
-      const { text, html } = formatAlertEmail({
-        workspaceName,
-        domain,
-        whatChanged,
-        recommendation,
-        link: frontendOrigin ? `${frontendOrigin}/scans/${encodeURIComponent(scanId)}` : null,
-        preferencesLink: frontendOrigin ? `${frontendOrigin}/settings` : null,
-      });
-      const delivery = await sendTenantAlertEmail(env, workspaceId, {
-        subject: title, text, html, fromKey, severity,
-      });
-      if (delivery.sent) {
-        metadata.email_delivery = { status: "accepted", provider_id: delivery.provider_id || null };
-        emailSentAt = new Date().toISOString();
-      } else if (SUPPRESSION_REASONS.has(delivery.reason)) {
-        // A deliberate decision (not entitled / opted out / below their severity
-        // threshold / nobody verified), not a failure. Recorded as skipped so it
-        // is not retried and not reported to the customer as a broken send.
-        metadata.email_delivery = { status: "skipped", reason: delivery.reason };
+      if (OUTBOUND_SUPPRESSED_LEGACY_TYPES.has(type)) {
+        // The condition stays observable — the notification_events row below is
+        // still written, so the bell and the dashboard history are unchanged. We
+        // simply do not assert it to the customer by email until the underlying
+        // evidence is attributable. Recorded as `skipped`, never `failed`: nothing
+        // broke, and this must never be retried into a send.
+        metadata.email_delivery = { status: "skipped", reason: EVIDENCE_NOT_ATTRIBUTABLE };
       } else {
-        metadata.email_delivery = { status: "failed", reason: delivery.reason };
+        const frontendOrigin = getEmailFrontendOrigin(env);
+        const { text, html } = formatAlertEmail({
+          workspaceName,
+          domain,
+          whatChanged,
+          recommendation,
+          link: frontendOrigin ? `${frontendOrigin}/scans/${encodeURIComponent(scanId)}` : null,
+          preferencesLink: frontendOrigin ? `${frontendOrigin}/settings` : null,
+        });
+        const delivery = await sendTenantAlertEmail(env, workspaceId, {
+          subject: title, text, html, fromKey, severity,
+        });
+        if (delivery.sent) {
+          metadata.email_delivery = { status: "accepted", provider_id: delivery.provider_id || null };
+          emailSentAt = new Date().toISOString();
+        } else if (SUPPRESSION_REASONS.has(delivery.reason)) {
+          // A deliberate decision (not entitled / opted out / below their severity
+          // threshold / nobody verified), not a failure. Recorded as skipped so it
+          // is not retried and not reported to the customer as a broken send.
+          metadata.email_delivery = { status: "skipped", reason: delivery.reason };
+        } else {
+          metadata.email_delivery = { status: "failed", reason: delivery.reason };
+        }
       }
 
       await env.cybermeters_db
@@ -568,18 +628,26 @@ export async function processAlertsForWorkspace(workspaceId, domainId, domain, s
 
       // Fan the same event out to Slack/Teams/webhook channels. Channel
       // delivery must never break scan-alert processing.
-      try {
-        const alertOrigin = getEmailFrontendOrigin(env);
-        await deliverWorkspaceAlert(env, workspaceId, {
-          kind: type,
-          severity,
-          title,
-          summary: whatChanged || message || "",
-          domain,
-          workspace_name: workspaceName,
-          link: alertOrigin ? `${alertOrigin}/scans/${encodeURIComponent(scanId)}` : null,
-        });
-      } catch { /* never block on channel fan-out */ }
+      //
+      // Suppressed types stop here too: the evidence standard is a property of the
+      // CLAIM, not of the transport. An unevidenced assertion is no more defensible
+      // in a Slack message than in an email, and gating only email would leave the
+      // claim one channel configuration away from returning. No channels are
+      // enabled in production today — this is the guard for when one is.
+      if (!OUTBOUND_SUPPRESSED_LEGACY_TYPES.has(type)) {
+        try {
+          const alertOrigin = getEmailFrontendOrigin(env);
+          await deliverWorkspaceAlert(env, workspaceId, {
+            kind: type,
+            severity,
+            title,
+            summary: whatChanged || message || "",
+            domain,
+            workspace_name: workspaceName,
+            link: alertOrigin ? `${alertOrigin}/scans/${encodeURIComponent(scanId)}` : null,
+          });
+        } catch { /* never block on channel fan-out */ }
+      }
     };
 
     const hist = currentModules.historical_changes;

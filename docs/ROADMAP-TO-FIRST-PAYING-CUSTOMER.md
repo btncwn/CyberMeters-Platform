@@ -167,6 +167,25 @@ Findings recorded:
 
 **A second scan was deliberately NOT run**: an unchanged re-scan exercises only the legacy 24-hour `isAlertDuplicate` window and would not prove canonical occurrence idempotency. Canonical acceptance closes only on a genuine Brand/ASM case open/reopen.
 
+### PR-B4a follow-up design items (required before either email may return)
+
+PR-B4a suppressed the outbound email for `new_vendor` and `supply_chain_risk_increase` because neither can evidence its claim. **Removing a type from `EMAIL_SUPPRESSED_LEGACY_TYPES` requires the matching model below to exist first.** Neither is a wire-up; both are design work.
+
+**A. Vendor occurrence model** (blocks `new_vendor`)
+
+- **Stable vendor identity** — not the free-text `vendor_name`. Today a rename or a normalisation change mints a fresh `workspace_vendors` row with a fresh `first_seen`, which reads as "new".
+- **Source/domain attribution** — the alert claims "on your attack surface", but `workspace_vendors` is shared and has no `domain_key`. A *certificate* observation (`cert-events.js:332`) inserts CA vendor rows; that is Certificates & Trust evidence, not Attack Surface.
+- **First-ever vs reactivation/rename** — `first_seen` is stable (writers use `INSERT OR IGNORE`), but `asset-persistence.js` flips `status` back to `'active'`, and nothing distinguishes rediscovery, reactivation, rename or transient scan/provider variance from a genuinely new vendor.
+- **Append-only evidence** — an observation log, not a mutable inventory row.
+- **Recurrence vocabulary** — namespaced under its true domain, with severities the platform has actually decided.
+
+**B. Supply-chain evidence-change model** (blocks `supply_chain_risk_increase`)
+
+- **Persisted underlying dependency/vendor changes** — `workspace_supply_chain_history` stores the score, never which evidence moved.
+- **Attributable score explanation** — a delta alone cannot say *why*; the alert must cite the change, not the number.
+- **Formula-version awareness** — a scoring-model change currently produces an identical delta to a real risk increase, and the customer is told "risk increased" either way.
+- **No alert directly from an unexplained score delta.** A derived score is not an occurrence.
+
 ### PR-D authenticated production acceptance (deferred from PR-A)
 
 PR-A's contract is covered by 108 CI-blocking, mutation-tested assertions against the real engine, and its deploy was verified not to silence any live workspace. The authenticated checks below were **deferred, not skipped**: production has **no free-plan workspace, no enabled alert channel, no preference row and no alert_deliveries row**, and the canonical pipeline has never emitted in production — so there was nothing to observe, and manufacturing it would have meant fabricating production data. Founder decision, 15 July 2026.
