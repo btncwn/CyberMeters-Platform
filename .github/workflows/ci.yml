@@ -107,6 +107,18 @@ jobs:
       - name: Validate canonical managed-case alerts (Brand + ASM occurrence / watermark / namespaced severity)
         run: node scripts/validate-alert-b1-canonical-cases.js
 
+      # The watermark compares an ISO-UTC activated_at against a timezone-implicit
+      # SQLite created_at. Date.parse reads the second as LOCAL time, so the old
+      # comparison was correct ONLY on a UTC runner — i.e. green here and wrong
+      # everywhere else. Re-run the suite under non-UTC zones (including a
+      # half-hour offset) so that class of bug can never pass CI again.
+      - name: Validate alert watermark is timezone-independent (non-UTC runners)
+        run: |
+          for tz in Europe/London America/Los_Angeles Asia/Kolkata; do
+            echo "── TZ=$tz ──"
+            TZ=$tz node scripts/validate-alert-b1-canonical-cases.js
+          done
+
       - name: Validate alert occurrence identity (append-only event = condition start)
         run: node scripts/validate-alert-occurrence.js
 

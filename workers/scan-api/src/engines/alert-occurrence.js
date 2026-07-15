@@ -58,6 +58,46 @@ export const LIFECYCLE_EVENT_SOURCES = Object.freeze({
 // The one vocabulary value that marks a condition transition, in every source.
 export const MONITORING_CHANGED = "monitoring_changed";
 
+// ── Canonical UTC timestamp parsing (alert watermark read boundary) ──────────
+// The platform persists timestamps in TWO shapes, and they are not comparable by
+// Date.parse:
+//
+//   • ISO 8601, UTC-explicit — `2026-07-15T15:30:00.123Z`
+//     (new Date().toISOString(), e.g. alert_activation.activated_at)
+//   • SQLite UTC text, timezone-IMPLICIT — `2026-07-15 15:30:00`
+//     (datetime('now'), e.g. managed_case_events.created_at)
+//
+// Date.parse treats the first as UTC and the space-separated second as LOCAL time
+// (ECMA-262 leaves non-ISO formats implementation-defined; V8 reads it as local).
+// So on a machine at UTC+1 the SQLite value parses one hour EARLY, and a watermark
+// comparison between the two silently shifts by the machine's offset. Workers run
+// in UTC, which masks it in production and surfaces it anywhere else — a defect
+// that only appears off-production is worse than one that always fails.
+//
+// This is a READ-boundary normaliser by design: it does not rewrite stored data,
+// so no migration and no backfill. Both shapes stay valid on disk; only the
+// comparison is made explicit.
+//
+// Contract: return epoch milliseconds, or null for anything missing, malformed,
+// ambiguous or unrecognised. Never guess. Callers MUST treat null as fail-closed.
+const UTC_TIMESTAMP = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2}(?:\.\d+)?)(Z|[+-]\d{2}:?\d{2})?$/i;
+
+export function parseUtcMs(value) {
+  if (value === null || value === undefined) return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+
+  const m = UTC_TIMESTAMP.exec(raw);
+  if (!m) return null;                       // unrecognised shape → caller fails closed
+
+  const [, date, time, tz] = m;
+  // Append Z ONLY when the value carries no timezone of its own. A value that
+  // already states its offset keeps it — we must not relabel +02:00 as UTC.
+  const suffix = tz ? (tz.toUpperCase() === "Z" ? "Z" : tz) : "Z";
+  const ms = Date.parse(`${date}T${time}${suffix}`);
+  return Number.isFinite(ms) ? ms : null;
+}
+
 function parseJson(raw, fallback = null) {
   if (!raw) return fallback;
   try { return typeof raw === "string" ? JSON.parse(raw) : raw; } catch { return fallback; }
