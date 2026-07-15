@@ -86,10 +86,13 @@ const { OUTBOUND_SUPPRESSED_LEGACY_TYPES } = await import(eng("alerts.js"));
   ok("the reason names the actual problem", /const EVIDENCE_NOT_ATTRIBUTABLE = "evidence_not_attributable"/.test(src));
 
   // This is a suppression PR. It must not quietly canonicalise either condition.
-  ok("no occurrence is invented for the suppressed types", !/monitoring_changed/.test(fn));
-  ok("neither condition is routed through emitManagedAlert", !/emitManagedAlert\(/.test(fn));
-  ok("no domain_key is fabricated on the legacy insert", !/domain_key/.test(fn));
-  ok("no dedupe_key is fabricated on the legacy insert", !/dedupe_key/.test(fn));
+  // Comments are stripped: the comment explaining PR-B2's cert_expiry deletion
+  // necessarily NAMES domain_key/dedupe_key when saying the legacy path had none.
+  // A rule that forbids explaining a decision would delete its own rationale.
+  ok("no occurrence is invented for the suppressed types", !/monitoring_changed/.test(stripped));
+  ok("neither condition is routed through emitManagedAlert", !/emitManagedAlert\(/.test(stripped));
+  ok("no domain_key is fabricated on the legacy insert", !/domain_key/.test(stripped));
+  ok("no dedupe_key is fabricated on the legacy insert", !/dedupe_key/.test(stripped));
 
   // ── EVERY outbound channel, not just email ───────────────────────────────
   // deliverWorkspaceAlert is the single trunk for Slack, Teams AND webhook, so one
