@@ -145,7 +145,11 @@ const files = walk(S);
   // nothing) and was removed in the Alert Trust Foundation. Counting guards in dead
   // code proves nothing, so this now asserts the guard on the path that actually
   // fires: every LIVE score-drop trigger must gate on comparability.
-  const al = read("engines/alerts.js");
+  // Count TRIGGERS, not mentions: comments are stripped first. Without this, a
+  // comment that merely quotes the threshold (PR-B4b's suppression rationale does)
+  // reads as a second implementation and fails a correct codebase — the assertion is
+  // about what the code DOES, so it must only look at code.
+  const al = read("engines/alerts.js").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
   const liveScoreDrop = al.slice(al.indexOf("export async function processAlertsForWorkspace"));
   ok("the live score-drop trigger is gated on comparability",
      /score_change <= -10/.test(liveScoreDrop) && /comparable !== false/.test(liveScoreDrop));

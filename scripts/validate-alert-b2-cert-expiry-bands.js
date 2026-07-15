@@ -147,9 +147,11 @@ const { severityForRecurrence, INHERIT_SEVERITY, isMappedRecurrence } = await im
   ok("the legacy cert_expiry trigger is GONE", !/type:\s*"cert_expiry"/.test(stripped));
   ok("the legacy cert_expiry dedupe is gone", !/isAlertDuplicate\([^)]*"cert_expiry"/.test(stripped));
   ok("the legacy path no longer reads ssl.cert_expiry_days", !/ssl\?\.cert_expiry_days|ssl\.cert_expiry_days/.test(stripped));
-  // isAlertDuplicate must survive for its OTHER callers — it dies with B4b, not here.
-  ok("isAlertDuplicate still serves its remaining callers", /function isAlertDuplicate/.test(alerts));
-  ok("...and still has live callers", (stripped.match(/isAlertDuplicate\(/g) || []).length >= 2);
+  // B2 left isAlertDuplicate alive for its other callers and said it dies with B4b.
+  // B4b removed its last caller, so it is now gone entirely — the assertion flips
+  // from "still serves its remaining callers" to "has no callers to serve".
+  ok("isAlertDuplicate is gone (its last caller died with PR-B4b)", !/function isAlertDuplicate/.test(alerts));
+  ok("nothing calls isAlertDuplicate", (stripped.match(/isAlertDuplicate\(/g) || []).length === 0);
 
   const lifecycle = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "engines", "certificate-lifecycle.js"), "utf8");
   ok("the evaluator derives the previous band from the persisted record",

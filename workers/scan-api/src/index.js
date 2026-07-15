@@ -381,137 +381,23 @@ function evaluateRegressionFixtures(fixtures = SCANNER_REGRESSION_FIXTURES) {
  * invocation no longer loses the alert.
  * The whole function is non-fatal — any error is swallowed.
  */
-/**
- * sendTakeoverAlert — fires when new subdomain takeover risks are detected
- * that were not present in the previous scan.
- * Sender: SAFE_EMAIL_FROM (safe@cybermeters.com)
- */
-async function sendTakeoverAlert(domain, scanId, risks, env) {
-  const reportUrl = `https://cybermeters.pages.dev/scans/${scanId}`;
-  const count     = risks.length;
-  const subject   = `🚨 CyberMeters: ${count} new takeover risk${count !== 1 ? "s" : ""} on ${domain}`;
-
-  const riskLines = risks.map(r => `• ${r.host} (${r.provider || "unknown provider"})`).join("\n");
-  const text =
-    `Subdomain takeover risk detected for ${domain}\n\n` +
-    `${count} new takeover risk${count !== 1 ? "s" : ""} found:\n` +
-    riskLines + "\n\n" +
-    `These subdomains have dangling CNAME records pointing to unclaimed cloud\n` +
-    `resources. An attacker could claim the target and serve malicious content\n` +
-    `on your domain.\n\n` +
-    `View report: ${reportUrl}`;
-
-  const riskRows = risks
-    .map(r => `<tr>
-      <td style="padding:8px 12px;font-family:monospace;font-size:13px;">${r.host}</td>
-      <td style="padding:8px 12px;color:#555;font-size:13px;">${r.provider || "—"}</td>
-    </tr>`)
-    .join("\n");
-
-  const html = `<!DOCTYPE html>
-<html lang="en">
-<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#111;max-width:600px;margin:0 auto;padding:24px;">
-  <div style="border-left:4px solid #F97316;padding-left:16px;margin-bottom:20px;">
-    <h2 style="margin:0 0 4px;color:#F97316;font-size:18px;">Subdomain Takeover Risk</h2>
-    <p style="margin:0;color:#555;font-size:14px;">
-      ${count} new risk${count !== 1 ? "s" : ""} detected on <strong>${domain}</strong>
-    </p>
-  </div>
-  <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:20px;">
-    <thead>
-      <tr style="background:#FFF7ED;">
-        <th style="padding:8px 12px;text-align:left;color:#555;font-weight:600;">Subdomain</th>
-        <th style="padding:8px 12px;text-align:left;color:#555;font-weight:600;">Provider</th>
-      </tr>
-    </thead>
-    <tbody>${riskRows}</tbody>
-  </table>
-  <p style="font-size:14px;color:#555;line-height:1.6;">
-    These subdomains have dangling CNAME records pointing to unclaimed cloud resources.
-    An attacker could claim the target and serve malicious content on your domain.
-    Remove or update the DNS records immediately.
-  </p>
-  <p style="margin-top:24px;">
-    <a href="${reportUrl}" style="background:#F97316;color:white;padding:10px 20px;border-radius:8px;text-decoration:none;font-size:14px;font-weight:600;display:inline-block;">
-      View Full Report
-    </a>
-  </p>
-  <hr style="border:none;border-top:1px solid #eee;margin:28px 0;" />
-  <p style="font-size:12px;color:#999;margin:0;">CyberMeters — Attack Surface Management</p>
-</body>
-</html>`;
-
-  await sendAlertEmail(subject, text, html, env, "SAFE_EMAIL_FROM");
-}
-
-/**
- * sendSslExpiryAlert — fires when the SSL certificate for a domain expires
- * within 30 days (cert_expiry_days from runSslModule).
- *
- * Sender selection:
- *   ≤ 14 days  → ALERT_EMAIL_FROM (alerts@)   — urgent security alert
- *   15–30 days → SAFE_EMAIL_FROM  (safe@)      — advance security warning
- *   HELLO_EMAIL_FROM is reserved for welcome/contact emails only.
- */
-async function sendSslExpiryAlert(domain, scanId, daysUntilExpiry, certNotAfter, env) {
-  const reportUrl = `https://cybermeters.pages.dev/scans/${scanId}`;
-  const urgency   = daysUntilExpiry <= 7  ? "CRITICAL"
-                  : daysUntilExpiry <= 14 ? "URGENT"
-                  : "WARNING";
-  // Route to appropriate sender based on urgency window
-  const fromKey   = daysUntilExpiry <= 14 ? "ALERT_EMAIL_FROM" : "SAFE_EMAIL_FROM";
-  const subject   = `[${urgency}] SSL certificate for ${domain} expires in ${daysUntilExpiry} day${daysUntilExpiry !== 1 ? "s" : ""}`;
-
-  const expiryStr = certNotAfter
-    ? new Date(certNotAfter).toUTCString().slice(0, 22) + " UTC"
-    : "unknown";
-
-  const text =
-    `SSL certificate expiry warning for ${domain}\n\n` +
-    `Days until expiry : ${daysUntilExpiry}\n` +
-    `Certificate expires: ${expiryStr}\n\n` +
-    `An expired SSL certificate will cause browsers to show security warnings\n` +
-    `to all visitors, effectively taking your site offline. Renew immediately.\n\n` +
-    `View report: ${reportUrl}`;
-
-  const barColor  = daysUntilExpiry <= 7  ? "#EF4444"
-                  : daysUntilExpiry <= 14 ? "#F97316"
-                  : "#F59E0B";
-
-  const html = `<!DOCTYPE html>
-<html lang="en">
-<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#111;max-width:600px;margin:0 auto;padding:24px;">
-  <div style="border-left:4px solid ${barColor};padding-left:16px;margin-bottom:20px;">
-    <h2 style="margin:0 0 4px;color:${barColor};font-size:18px;">SSL Certificate Expiry — ${urgency}</h2>
-    <p style="margin:0;color:#555;font-size:14px;"><strong>${domain}</strong></p>
-  </div>
-  <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:20px;">
-    <tr>
-      <td style="padding:8px 12px;background:#FFFBEB;color:#555;border-radius:6px 6px 0 0;width:50%;">Days remaining</td>
-      <td style="padding:8px 12px;background:#FFFBEB;font-weight:700;color:${barColor};font-size:20px;">${daysUntilExpiry}</td>
-    </tr>
-    <tr>
-      <td style="padding:8px 12px;background:#F9FAFB;color:#555;border-radius:0 0 6px 6px;">Expiry date</td>
-      <td style="padding:8px 12px;background:#F9FAFB;font-weight:600;">${expiryStr}</td>
-    </tr>
-  </table>
-  <p style="font-size:14px;color:#555;line-height:1.6;">
-    An expired SSL certificate causes browsers to show security warnings to all visitors,
-    effectively taking your site offline. Renew the certificate immediately via your
-    hosting provider, Let's Encrypt, or your certificate authority.
-  </p>
-  <p style="margin-top:24px;">
-    <a href="${reportUrl}" style="background:${barColor};color:white;padding:10px 20px;border-radius:8px;text-decoration:none;font-size:14px;font-weight:600;display:inline-block;">
-      View Full Report
-    </a>
-  </p>
-  <hr style="border:none;border-top:1px solid #eee;margin:28px 0;" />
-  <p style="font-size:12px;color:#999;margin:0;">CyberMeters — Attack Surface Management</p>
-</body>
-</html>`;
-
-  await sendAlertEmail(subject, text, html, env, fromKey);
-}
+// ── sendTakeoverAlert / sendSslExpiryAlert — REMOVED (PR-B4b) ────────────────
+// Two tenant-facing alert senders that were dead code and unsafe if ever revived.
+// Both called sendAlertEmail — the OPS-ONLY sender, which falls back to
+// env.ALERT_EMAIL_TO when given no recipient. So a single future caller would have
+// emailed one tenant's takeover risks or certificate expiry to the OPERATOR's inbox,
+// with no entitlement check, no per-user preference, no severity gate, no verified
+// recipient resolution, no dedupe key and no delivery ledger — every rule the
+// canonical pipeline exists to enforce, bypassed at once.
+//
+// They had no callers, which is the only reason they never did any of that. Deleting
+// them removes the possibility rather than the current symptom. Certificate expiry is
+// already owned canonically by certificates_trust.renewal_overdue/.expired
+// (certificate-lifecycle.js, PR-B2) and takeover risk by the asset-change path, so
+// nothing here is lost — this is a second, ungated copy of alerts the platform
+// already sends properly. Do not re-add a tenant sender here: use emitLifecycleAlert
+// (engines/alert-consumers.js). validate-alert-recipients.js and
+// validate-alert-b4b-legacy-cleanup.js both enforce that boundary.
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Executive PDF Report Generator
