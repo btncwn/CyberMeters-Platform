@@ -53,6 +53,17 @@ export const LIFECYCLE_EVENT_SOURCES = Object.freeze({
   // fk cannot collide across them.
   brand_protection:               { table: "managed_case_events",          fk: "case_id",      type_column: "action" },
   attack_surface:                 { table: "managed_case_events",          fk: "case_id",      type_column: "action" },
+  // Email Protection (PR-B3): the mirror image of the case pair above — ONE domain
+  // spanning TWO record families (hosted_dns_entries + email_sender_sources) in one
+  // table. Sharing is forced, not chosen: this map allows exactly one source per
+  // domain_key, so a second table would leave one family permanently unresolvable —
+  // the very defect the type_column adapter above exists to fix.
+  //
+  // The fk is therefore generic. Safety rests on the two id namespaces ('hd-' and
+  // 'esender_') being disjoint, so a record_id cannot resolve the other family's
+  // occurrence. The database cannot express that invariant across two unrelated
+  // parents, so CI asserts it instead.
+  email_protection:               { table: "email_protection_events",      fk: "record_id",    type_column: "event_type" },
 });
 
 // The one vocabulary value that marks a condition transition, in every source.

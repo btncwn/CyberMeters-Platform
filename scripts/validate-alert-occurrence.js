@@ -108,11 +108,18 @@ async function consume(ws, recordId, recurrence, { domain_key = "certificates_tr
      isMonitoringTransition({ monitoring_status: "ok", recurrence_type: null }, { monitoring_status: "at_risk", recurrence_type: "renewal_overdue" }));
   ok("an unchanged condition is NOT a transition (no new occurrence each hour)",
      !isMonitoringTransition({ monitoring_status: "at_risk", recurrence_type: "renewal_overdue" }, { monitoring_status: "at_risk", recurrence_type: "renewal_overdue" }));
-  // Five domains now: the three lifecycle domains plus the two managed-case domains
-  // (PR-B1). Brand Protection and Attack Surface share managed_case_events, keyed by
-  // case_id — a case belongs to exactly one domain, so the fk cannot collide.
+  // Six domains now: three lifecycle domains, two managed-case domains (PR-B1) and
+  // Email Protection (PR-B3). Two shapes of sharing appear here, and both are safe
+  // for the same underlying reason — the fk cannot collide:
+  //   • Brand Protection and Attack Surface share managed_case_events keyed by
+  //     case_id, and a case belongs to exactly one domain.
+  //   • Email Protection is ONE domain over TWO record families (hosted records +
+  //     sender sources) in email_protection_events keyed by a generic record_id,
+  //     whose 'hd-' and 'esender_' namespaces are disjoint (asserted in
+  //     validate-alert-b3-email-protection.js, since no FK can express it).
   eq("every canonical alerting domain has an event source", Object.keys(LIFECYCLE_EVENT_SOURCES).sort(),
-     ["attack_surface", "brand_protection", "certificates_trust", "identity_exposure", "shadow_it_unmanaged_technology"]);
+     ["attack_surface", "brand_protection", "certificates_trust", "email_protection",
+      "identity_exposure", "shadow_it_unmanaged_technology"]);
 
   // The type column is per-source because managed_case_events names its vocabulary
   // column `action`, not `event_type`. Hardcoding `event_type` is what made the

@@ -117,6 +117,48 @@ const RECURRENCE_SEVERITY = Object.freeze({
     case_verification_failed: INHERIT_SEVERITY,
     case_resolved: "info",
   }),
+  // ── Email Protection (PR-B3) ──────────────────────────────────────────────
+  // Every grade below is CARRIED from behaviour already shipped on the legacy
+  // paths this episode deletes — none is invented, and no customer-visible grade
+  // changes.
+  //
+  // Only ACTIONABLE conditions appear here (founder decision, 15 July 2026).
+  // Confirmations — reconnected, policy_changed, manual rollback, sender recovery
+  // — are deliberately ABSENT. They append lifecycle events for history and are
+  // structurally unable to alert: their event_type is not `monitoring_changed`,
+  // so findConditionOccurrence cannot match them. Absence here is a second,
+  // independent stop: even a future caller that hand-rolled a monitoring_changed
+  // row for one of them would be refused as an unmapped recurrence.
+  //
+  // NOT PRESENT, and must never be: SPF/DKIM/DMARC/BIMI/MTA-STS posture. It has
+  // no persisted identity — per-scan `findings` rows take a fresh random id every
+  // scan — so no occurrence can be attributed to it. See email-protection-lifecycle.js.
+  email_protection: Object.freeze({
+    // INHERIT: the band comes from senderAlertBand(classification) — the B2
+    // pattern. An `unauthorised` sender is `high` and a `suspicious`/`unknown`
+    // one is `medium`, exactly as the legacy sweep graded them
+    // (dmarc-alerts.js:101). A static grade would flatten those into one, and
+    // with `critical_only` live, flattening is how a customer stops hearing the
+    // thing that mattered.
+    sender_unrecognised: INHERIT_SEVERITY,
+    // Same ladder: worsening exists to ESCALATE medium→high, so its severity must
+    // follow the new band rather than a fixed grade.
+    sender_classification_worsened: INHERIT_SEVERITY,
+    // Fixed: an unauthorised source failing authentication at volume is `high`
+    // regardless of anything else about it (legacy dmarc-alerts.js:86).
+    sender_unauthorised_failures_active: "high",
+    // Fixed: our hosted link is gone (legacy hosted-dmarc.js:529).
+    hosted_record_disconnected: "high",
+    // INHERIT: the grade is already decided by assessImpactRollback and supplied
+    // as record_severity (legacy hosted-dmarc.js:569 used the same value).
+    hosted_impact_regression: INHERIT_SEVERITY,
+    // Fixed, and deliberately split from the manual rollback. The legacy path
+    // computed `source === "auto" ? "high" : "medium"` inline; splitting the
+    // recurrence keeps severity an ASSERTED lookup instead of a computed one,
+    // with no change to the grade a customer sees. The manual half is not here at
+    // all — a customer's own rollback is not a risk alert.
+    hosted_rolled_back_auto: "high",
+  }),
 });
 
 // Severity for a recurrence, or null when the recurrence is not mapped.

@@ -53,6 +53,7 @@ export const VERIFICATION_METHOD = Object.freeze([
   "https_recheck",     // re-fetch the HTTPS endpoint / headers
   "certificate_recheck", // re-observe the certificate via CT / probe
   "rescan",            // a fresh Cyber MOT confirms the evidence
+  "receiver_reports",  // subsequent DMARC aggregate reports from receiving providers
   "manual_attestation",// customer confirms; product cannot observe it
   "external",          // confirmed by an external body / provider console
   "unsupported",       // product cannot verify this signal (kept explicit)
@@ -294,6 +295,126 @@ export const REMEDIATION_REGISTRY = Object.freeze([
       if (evidence.dmarc_enforced === undefined) return true;
       return Boolean(evidence.dmarc_enforced);
     },
+  }),
+
+  // ── Email Protection — MANAGED LIFECYCLE conditions (PR-B3) ────────────────
+  // The entries above describe POSTURE observed by a scan. These five describe
+  // conditions of the two managed EMAIL record families, and their evidence is
+  // fundamentally different: DMARC aggregate reports are what RECEIVING mail
+  // providers tell us they saw, and hosted-record state is our own persisted
+  // saga. Neither depends on our scanner at all.
+  //
+  // These finding types are raised by email-protection-lifecycle.js, never by a
+  // scan module, so they are deliberately absent from the scan-emitter sweep in
+  // validate-remediation-coverage.js. The `email_` prefix is load-bearing: the
+  // email_protection domain matcher in cyber-mot-domains.js tests
+  // /^(email_|dmarc_|spf_|dkim_|mta_|bimi_|tlsrpt_)/, so a `hosted_dmarc_*` slug
+  // would match NO domain and the finding would belong nowhere.
+  entry({
+    remediation_id: "email.hosted_dmarc.reconnect",
+    domain_key: "email_protection",
+    finding_types: ["email_hosted_dmarc_disconnected"],
+    customer_title: "Reconnect your hosted DMARC record",
+    technical_explanation: "The CNAME at _dmarc.<domain> no longer points at the CyberMeters-managed record, so the DMARC policy CyberMeters hosts for you is no longer being served to receiving mail providers.",
+    business_impact: "If no other DMARC record is published in its place, receiving providers have no instruction for messages that fail authentication, and impersonation of your domain can reach recipients again.",
+    recommended_action: "Restore the CNAME at _dmarc.<domain> to the CyberMeters target shown on the Email Protection page, or, if you have deliberately moved to a self-managed DMARC record, remove the hosted record so it stops being monitored.",
+    effort: "low",
+    owner_type: "customer_it",
+    verification_method: "dns_recheck",
+    verification_evidence_requirements: "The CNAME at _dmarc.<domain> is observed pointing at the CyberMeters hosted target.",
+    supporting_evidence_types: ["dns_txt_lookup"],
+    managed_workflow_compatible: true,
+    applicability: "Applies only to domains using a CyberMeters-hosted DMARC record.",
+    // The honesty boundary. We observed that OUR link is absent, from OUR
+    // resolver, at one moment. That is not the same claim as "this domain has no
+    // DMARC policy" — the customer may have published their own record directly,
+    // which is a legitimate outcome and not a finding.
+    limitations: [
+      "CyberMeters observes that its own hosted record is no longer linked. It does not claim the domain has no DMARC policy — a self-managed record published directly would not be part of this check.",
+    ],
+  }),
+  entry({
+    remediation_id: "email.hosted_dmarc.impact_review",
+    domain_key: "email_protection",
+    finding_types: ["email_hosted_dmarc_impact_regression"],
+    customer_title: "Review the impact of your last DMARC policy change",
+    technical_explanation: "After the managed DMARC policy last changed, aggregate reports from receiving providers show a higher proportion of your legitimate mail failing authentication than before the change.",
+    business_impact: "A DMARC policy tightened ahead of your senders can cause real business mail to be quarantined or rejected. This is the failure mode that makes enforcement risky, and it is why the ramp exists.",
+    recommended_action: "Review the sender inventory on the Email Protection page and confirm every legitimate source aligns on SPF or DKIM before tightening further. Roll the policy back if legitimate mail is being affected.",
+    effort: "medium",
+    owner_type: "customer_it",
+    verification_method: "receiver_reports",
+    verification_evidence_requirements: "Subsequent aggregate reports show legitimate senders aligning at the pre-change rate or better.",
+    supporting_evidence_types: ["dmarc_aggregate_report"],
+    managed_workflow_compatible: true,
+    applicability: "Applies only to domains using a CyberMeters-hosted DMARC record, after a policy change.",
+    limitations: [
+      "This is a correlation between a policy change and reported authentication failures, not proof the change caused them. Aggregate reports are sampled and delayed by receiving providers.",
+    ],
+  }),
+  entry({
+    remediation_id: "email.hosted_dmarc.auto_rollback_review",
+    domain_key: "email_protection",
+    finding_types: ["email_hosted_dmarc_auto_rollback"],
+    customer_title: "Validate your senders — the DMARC policy was rolled back automatically",
+    technical_explanation: "Authentication compliance dropped after the last managed DMARC policy change, so CyberMeters automatically restored the previous policy to protect your legitimate mail.",
+    business_impact: "The rollback protected delivery, but the underlying problem remains: at least one legitimate sending source is not aligned, and enforcement cannot progress until it is.",
+    recommended_action: "Review the sender inventory, identify which legitimate sources are failing SPF and DKIM alignment, correct their authentication with the relevant provider, and only then resume the enforcement ramp.",
+    effort: "medium",
+    owner_type: "customer_it",
+    verification_method: "manual_attestation",
+    verification_evidence_requirements: "The customer confirms each legitimate sender has been corrected. CyberMeters can observe alignment recover in later aggregate reports, but cannot itself confirm which senders are legitimate.",
+    supporting_evidence_types: ["dmarc_aggregate_report"],
+    managed_workflow_compatible: true,
+    applicability: "Applies only to domains using a CyberMeters-hosted DMARC record with automatic rollback.",
+    limitations: [
+      "CyberMeters restored its own hosted record. It cannot confirm receiving providers have picked the previous policy back up, and DNS propagation is not verified.",
+    ],
+  }),
+  entry({
+    remediation_id: "email.sender.review_unrecognised",
+    domain_key: "email_protection",
+    finding_types: ["email_sender_unrecognised"],
+    customer_title: "Review a sending source using your domain",
+    technical_explanation: "Receiving mail providers reported a source sending mail that claims your domain, and it is not yet recognised as one of your legitimate senders. It may be a service you use, a forwarder, or someone impersonating you.",
+    business_impact: "Until each sending source is classified, you cannot safely enforce DMARC: tightening the policy with an unclassified legitimate sender still unaligned would block your own business mail.",
+    recommended_action: "Open the sender inventory on the Email Protection page and classify this source. If it is a service you use, authorise it and correct its SPF or DKIM alignment. If you do not recognise it, mark it unauthorised and continue the enforcement ramp.",
+    effort: "low",
+    owner_type: "customer",
+    verification_method: "manual_attestation",
+    verification_evidence_requirements: "The customer classifies the source. This records a customer decision — it is not a CyberMeters verification that the sender is legitimate.",
+    supporting_evidence_types: ["dmarc_aggregate_report"],
+    managed_workflow_compatible: true,
+    applicability: "Applies when DMARC aggregate reporting is delivering reports for the domain.",
+    limitations: [
+      "Only sources that receiving providers reported are visible. A sender whose mail no receiver reported on will not appear, so this is not a complete inventory of who sends as you.",
+      "Whether a sender is legitimate is a customer decision. CyberMeters classifies from authentication evidence and cannot know which third-party services you have authorised.",
+    ],
+  }),
+  entry({
+    remediation_id: "email.sender.unauthorised_failures_active",
+    domain_key: "email_protection",
+    finding_types: ["email_sender_unauthorised_failures"],
+    customer_title: "An unauthorised source is failing authentication using your domain",
+    technical_explanation: "Within the last 7 days, receiving mail providers reported at least 50 messages from a source classified as unauthorised that claimed your domain and failed both SPF and DKIM alignment.",
+    business_impact: "Mail claiming your domain is failing authentication at volume. If your DMARC policy is enforced, receivers are rejecting or quarantining it. If it is not enforced, some of it may be reaching recipients.",
+    recommended_action: "Confirm this source is not a legitimate service of yours that has been misconfigured. If it is not yours, no action can stop it sending — the defence is DMARC enforcement, so complete the ramp to p=reject to ensure receivers discard it.",
+    effort: "medium",
+    owner_type: "customer_it",
+    verification_method: "receiver_reports",
+    verification_evidence_requirements: "Subsequent aggregate reports show no failing messages from this source across a complete 7-day window.",
+    supporting_evidence_types: ["dmarc_aggregate_report"],
+    managed_workflow_compatible: true,
+    applicability: "Applies when DMARC aggregate reporting is delivering reports for the domain.",
+    // The claim boundary, enforced in copy and in the recurrence name. We hold no
+    // prior-period baseline, so we cannot say this is a spike, an increase or an
+    // attack. We can say how many failing messages receivers reported in a fixed
+    // window, and nothing more.
+    limitations: [
+      "This is an absolute count of failing messages reported inside a rolling 7-day window. CyberMeters does not compare it against a previous period, so it is not evidence of a spike, an increase, or a targeted attack.",
+      "Failed authentication is not proof of spoofing: a misconfigured legitimate sender produces the same evidence, which is why the source should be confirmed before it is treated as hostile.",
+      "A failing message is not a delivered message. Aggregate reports describe what receivers saw, not what reached an inbox.",
+    ],
   }),
 
   // ─────────────────────────── BRAND PROTECTION ──────────────────────────────

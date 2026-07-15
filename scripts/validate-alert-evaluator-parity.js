@@ -85,6 +85,12 @@ db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES ('ws1
     certificates_trust: "certificate-lifecycle.js",
     identity_exposure: "identity-lifecycle.js",
     shadow_it_unmanaged_technology: "shadow-it-inventory.js",
+    // PR-B3. Email Protection owns TWO record families in one engine, so this is
+    // the lifecycle shape for the sender family (which has monitoring_status) and
+    // the case shape for the hosted family (whose guard is the shipped
+    // hosted_dns_entries state machine upstream). Both go through the same
+    // helpers, so the assertions below hold for both.
+    email_protection: "email-protection-lifecycle.js",
   };
   // MANAGED-CASE engines (PR-B1) have no monitoring_status column — their transition
   // guard is the case state machine (canTransitionCase rejects a repeat), and they

@@ -353,7 +353,7 @@ const send = (ws, severity = "high") => sendTenantAlertEmail(env, ws, { subject:
   eq(`no engine uses the operator-fallback sender (offenders: ${offenders.join(", ") || "none"})`, offenders.length, 0);
 
   // And the alert engines specifically must not hand-roll a send.
-  const alertEngines = ["managed-alerts.js", "asset-alert-delivery.js", "dmarc-alerts.js", "asm-cases.js", "brand-cases.js"];
+  const alertEngines = ["managed-alerts.js", "asset-alert-delivery.js", "email-protection-lifecycle.js", "asm-cases.js", "brand-cases.js"];
   const handRolled = alertEngines.filter((f) => {
     const p = path.join(root, "workers", "scan-api", "src", "engines", f);
     if (!fs.existsSync(p)) return false;

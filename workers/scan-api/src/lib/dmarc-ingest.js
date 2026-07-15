@@ -5,6 +5,7 @@
 import { createId } from "./util.js";
 import { createAuditEvent } from "./events.js";
 import { PROVIDER_MAP_VERSION, classifyWorkspaceDomainSenders } from "../engines/sender-classification.js";
+import { evaluateEmailSenderMonitoring } from "../engines/email-protection-lifecycle.js";
 
 const DMARC_XML_MAX_BYTES = 2 * 1024 * 1024; // 2 MB hard cap
 
@@ -366,6 +367,18 @@ async function ingestDmarcReport(env, opts = {}) {
 
   const rollup = await updateEmailSenderSources(env, workspaceId, domain, parsed);
   try { await classifyWorkspaceDomainSenders(env, workspaceId, domain); } catch { /* auto-classification is best-effort */ }
+  // PR-B3: evaluate the sender lifecycle HERE, because ingesting a new report is
+  // the only moment the receiver-reported evidence can have changed. This is
+  // deliberately not a cron sweep: the legacy hourly sweep re-read cumulative
+  // counters on a fixed schedule and re-alerted every 24h forever, whereas an
+  // evaluation tied to new evidence cannot fire without new evidence.
+  //
+  // Runs AFTER auto-classification so the grading sees this report's verdict
+  // rather than the previous one. Best-effort: alerting must never fail an
+  // ingest, or a delivery problem would start losing customer evidence.
+  try {
+    await evaluateEmailSenderMonitoring(env, workspaceId, domain);
+  } catch { /* alerting must never break evidence ingestion */ }
   await createAuditEvent(env, {
     workspace_id: workspaceId, user_id: actorUserId, event_type: "dmarc_report_ingested",
     entity_type: "domain", entity_id: domainId,

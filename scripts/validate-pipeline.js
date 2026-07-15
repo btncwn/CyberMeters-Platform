@@ -334,8 +334,14 @@ async function main() {
   const cronPoints = datapoints.filter((d) => d.blobs?.[0] === "cron_task");
   // Exact NAME-SET match, not just a count: a renamed/typo'd registry entry
   // with a compensating extra would pass a count but not this.
+  // `dmarc_alerts_sweep` was REMOVED in PR-B3 and must not return. It graded
+  // senders from cumulative lifetime counters that never decrease, so its
+  // threshold latched true forever and re-alerted on a 24h cycle for the life of
+  // the sender. Its canonical replacement is deliberately not a scheduled task:
+  // sender evaluation runs in dmarc-ingest.js when new receiver evidence arrives,
+  // so it cannot fire without new evidence and has nothing to schedule.
   const expectedTasks = ["scheduled_reports", "user_scheduled_reports", "hosted_dns_sweep",
-    "dmarc_alerts_sweep", "alert_delivery_retry", "brand_takedown_followup",
+    "alert_delivery_retry", "brand_takedown_followup",
     "deletion_purge", "lifecycle_email_retry", "asset_alert_retry", "domain_verify_retry"];
   // Time-gated tasks must mirror src/cron/scheduled.js exactly, or this exact
   // name-set match fails whenever CI happens to run in the relevant window

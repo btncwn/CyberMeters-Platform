@@ -91,12 +91,17 @@ export async function runScheduled(event, env, ctx, tasks) {
 	    // hosted DMARC record, alerts on disconnection, completes safe removals.
 	    ctx.waitUntil(runCronTask(env, "hosted_dns_sweep", () => tasks.runHostedDnsVerificationSweep(env)));
 
-	    // ── DMARC operational alerts (new sender / spoofing spike) ───────────
-	    // Turns classified sender data into actionable alerts through the
-	    // notification pipeline; deduped, tenant-scoped, read-only.
-	    if (tasks.runDmarcAlertsSweep) {
-	      ctx.waitUntil(runCronTask(env, "dmarc_alerts_sweep", () => tasks.runDmarcAlertsSweep(env)));
-	    }
+	    // ── DMARC sender alerts: REMOVED in PR-B3, deliberately not replaced ──
+	    // `dmarc_alerts_sweep` ran hourly and graded senders from the CUMULATIVE
+	    // email_sender_sources counters, which never decrease. Its threshold
+	    // therefore latched true forever once crossed, and only a 24h dedupe
+	    // stopped it re-alerting every single day for the life of the sender.
+	    // Recovery was not merely missing — it was inexpressible.
+	    //
+	    // The canonical replacement is NOT a sweep. Sender evaluation runs in
+	    // dmarc-ingest.js when a new aggregate report lands, because that is the
+	    // only moment receiver-reported evidence can change. Nothing to schedule:
+	    // no new evidence, no evaluation, no alert. Do not re-add a sweep here.
 
 	    // ── Managed-alert delivery retry (bounded) ──────────────────────────
 	    // Re-attempts ONLY transient email failures from the append-only ledger:
