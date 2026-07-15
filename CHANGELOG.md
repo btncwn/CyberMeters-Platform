@@ -5,7 +5,78 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
-## 2026.07.15-2 (Alerts episode — ENGINEERING-CLOSED, not production-proven) — deployed 2026-07-15
+## 2026.07.16-1 (Alerts corrective phase — 8/8 canonical coverage) — deployed 2026-07-16
+
+- **Live Worker Version ID:** `e0ce455f-034b-41e4-aad6-d546170b9ec7` (PR #108)
+- **Rollback Worker Version ID:** `ccfe0cd5-3d75-4acc-9057-32354954533c` (PR #107)
+- **Rollback chain:** `40f5e1f6` (#106) → `d1dcba4a` (#105) → `d633118f` (pre-phase, `v2026.07.15-2`)
+- **Remote D1 migrations applied:** `089-website-security-lifecycle.sql`, `090-cyber-essentials-lifecycle.sql` — both additive, both applied exactly once, both verified idempotent on re-run (78 → 80 tables).
+- **PRs:** #105 (probe evidence honesty, P1) · #106 (CE data integrity, 2× P1) · #107 (Website Security lifecycle) · #108 (Cyber Essentials lifecycle)
+
+> **`v2026.07.15-2` is superseded.** It recorded a six-of-eight closure that was
+> premature: it deferred Website Security and Cyber Essentials on reasoning that was
+> wrong. The tag is preserved as the historical record; `docs/alerts-eight-domain-coverage.md`
+> is now authoritative and explains why the original audit was wrong, because the
+> failure mode is more useful than the conclusion.
+>
+> **All eight canonical domains now alert.** **No genuine live occurrence proof exists
+> for any of them** — CI and no-op deployment only. Controlled, founder-led acceptance
+> with real events remains a release-gate activity.
+
+### Fix (P1 — a probe that never executed was reported as healthy)
+
+- **Unavailable evidence is unknown: never healthy, never a finding, never a recovery** (PR **#105**, squash-merged as `b72b0ed`, Worker `d1dcba4a`).
+  - **Reproduced end-to-end.** `safeFetch` returns null on a 10s timeout, a redirect loop, more than `MAX_REDIRECT_HOPS`, a blocked target, or any throw. `runHeadersModule` returned that as an ordinary success — `accessible:false` with no `error`, no `incomplete`, no `skipped`. So `buildScanQuality` graded the scan **`complete`**, `moduleAssessed` said the module ran, scoring emitted nothing (it gates on `accessible`), and the eight-domain resolver concluded **Website Security = `assessed_healthy`, "Assessed — no material issue observed", coverage `complete`** — for a site nobody could reach. That inverts the platform's first permanent rule, and it is the same defect `probeAsset` already fixed for exposure evidence (`reachable: null` + `probe_status: "not_executed"`) and never applied to headers/ssl.
+  - **`ssl-scan` had the mirror defect:** a timed-out HTTPS probe collapsed into `https_available:false`, which scoring turned into a **critical** finding asserting *"TLS handshake failed or connection refused on port 443"* — a claim about the customer's server that an incomplete fetch cannot make. A timeout is not a refusal. The module already drew this distinction one field below (`http_redirect_validated` stays false on a null response); reachability never got the same discipline.
+  - **Fixes, all in the direction of less claim:** headers/ssl declare `incomplete` when the probe did not execute (one flag → `scan_quality` partial, `moduleAssessed` false, `canVerify` false — every gate fails closed); `https_available` is **tri-state** (`null` = we did not look); scoring + posture-scoring claim unavailability only on an observed `=== false`; CE's signals are tri-state; CE returns `not_assessed` with no scan; the resolver renders that as `evidence_insufficient`; the Dashboard shows `unknown` rather than reading `missing.length` raw.
+  - **The subtle one:** the `not_assessed` guard is mandatory *because of* the tri-state fix. Removing the fabricated deductions alone would have flipped a no-evidence workspace from 72/C/`partially_ready` to **100/A/`likely_ready`** — trading a fabricated failure for a fabricated pass. Absent evidence is neither.
+  - **Not a silencer:** an observed absent HSTS still produces its gap, an observed `https_available:false` still emits the critical finding, and a reachable clean site is still `assessed_healthy` / `complete`.
+  - **Proof:** `validate-probe-evidence-honesty.js` (68 assertions). The fixtures **are** the real modules' output — global `fetch` is made to time out, refuse and redirect-loop, and `runHeadersModule`/`runSslModule` are executed for real. Mutation-tested: removing the guard reproduces `assessed_healthy` + `canVerify: true`.
+
+### Fix (P1 ×2 — Cyber Essentials data integrity)
+
+- **Purge the answers customers were told were deleted, and grade only their own evidence** (PR **#106**, squash-merged as `724e3eb`, Worker `40f5e1f6`).
+  - **`cyber_essentials_answers` survived every workspace purge**, for the entire life of the table. It holds `note` (free customer text) and `answered_by`, and carries **no FK to `workspaces(id)`** so D1 could not block the parent delete either — while the deletion email tells the owner the workspace *"and all of its data have now been permanently removed"*.
+  - **Why it was invisible, which matters more:** `validate-purge-completeness` seeded rows by iterating `WORKSPACE_PURGE_TABLES`, so it could only ever prove the list purges the tables **on the list**. A forgotten table was never seeded and never counted — and the suite reported a confident 10/10. `index.js` further claimed the list was *"kept in sync by `purge_covers_all_workspace_fk_tables`"*. **That test did not exist** — the name appears nowhere in the repository, and neither does `purge_covers_all_scan_fk_tables` cited beside it. A comment asserting a guard nobody wrote is worse than no comment: it stops the next person looking. The guard is now **derived from the schema** — all 57 `workspace_id`-bearing tables must be purged or explicitly excepted with a reason.
+  - **CE graded one workspace from another's scan.** `workspace_domains` is PK `(workspace_id, domain_id)` — one domain, many workspaces, by design. The `OR wd.workspace_id = ?` arm matched on merely *linking* the domain, so an MSP scanning hourly deterministically supplied its client's readiness baseline. Fixing the readiness query alone was **not enough** and the validator caught it: CE's counts come from `buildScorecardData`, which resolved the newest scan of any linked domain — the same leak through a back door. It gains an explicit `scanScope`; CE passes `"workspace"`. The **default is unchanged**, so the PDF and scorecard route keep today's behaviour (logged P2 — a product call, not made silently).
+
+### Feature (Website Security — the 7th canonical alerting domain)
+
+- **The managed lifecycle that lets this domain alert honestly** (PR **#107**, squash-merged as `5029377`, migration **089**, Worker `ccfe0cd5`).
+  - **What was missing was continuity, not evidence.** The D1 `findings` INSERT binds `createId("finding")` and **drops** the canonical slug, so the same condition carried a different id every scan and nothing could answer *"is HSTS still missing, and since when?"*. The evaluator (scan-engine **Phase 8m**) reads the slug from the in-memory findings, as `createManagedAsmCasesForScan` already does.
+  - **Identity `(workspace_id, domain_id, condition_key)` — an honesty decision.** No Website Security finding carries a host or path; the per-path evidence that exists is consumed only as a boolean. A per-hostname key would **invent** the attribution, and its obvious source (`evidence.final_url`) is the redirect target — so a customer fixing their canonical redirect would "resolve" one record and "create" another, **alerting twice for an improvement**.
+  - **The flood guard is per-DOMAIN, and B3's per-record birth guard does not transfer** — B3's records pre-existed with their own `created_at`, whereas a website condition record is *born* at first evaluation, after the watermark. A `domain_baseline_established` marker is written once per (workspace, domain); its absence defines the seeding pass, and it is written even when that pass finds nothing so a clean first scan still baselines the domain.
+  - **Unknown is never recovery.** Absence means "fixed" only when the detecting module provably ran — knowable at all only because #105 shipped first. A downgrade to a non-material grade (a CDN challenge makes scoring emit the same condition at `info`) is recorded as `evidence_uncertain`, not a fix.
+  - Only **material (medium+)** conditions are actionable; the info/low grades have no mapping at all, so a new info/low detection rule cannot alert anyone. Severity **inherits** from `scoring.js`; `recurrence_band` carries the grade so worsening escalates (PR-B2 pattern).
+  - **Registry fix found by the suite:** only `header_malformed_strict_transport_security` had ever been added — the other five malformed variants resolved `unknown` and would have emitted the *"review required"* fallback, a content-free email.
+  - **Proof:** `validate-website-security-lifecycle.js` (127 assertions). Mutations: removing the flood guard alerts a 14-month backlog (4 alerts); removing the completeness gate writes `condition_resolved` from a timed-out probe.
+
+### Feature (Cyber Essentials Readiness — the 8th and last canonical alerting domain)
+
+- **Readiness alerts from external evidence only** (PR **#108**, squash-merged as `3253670`, migration **090**, Worker `e0ce455f`).
+  - **The ownership decision.** CE detects nothing of its own (`modules: []`, `match: () => false`), so every control re-interprets evidence another domain already owns **and already alerts**. It therefore never raises a second "we found X" — it owns only **control-theme readiness transitions**, at a **fixed `medium`**. Inheriting the technical grade would re-raise the same urgency under a second name; a customer on `critical_only` hears the technical alert and is not interrupted twice.
+  - **Only externally supportable controls alert.** `access_control` and `malware_protection` declare `external_coverage: "none"` in the repo's own metadata — they are scored from email-auth proxies that measure anti-spoofing, not user access control or endpoint AV. They stay **visible** and are persisted as `not_externally_assessable`; they can never contribute an occurrence. Read from `lib/cyber-essentials.js` at runtime rather than restated, so it cannot drift.
+  - **The questionnaire is not security truth.** The evaluator calls `buildCyberEssentialsReadiness` **directly** — never `getCyberEssentialsSnapshot`, where answers gate display and through which flipping one answer to `"unknown"` would mint an occurrence from a form edit. Proven behaviourally.
+  - **A score moving is not an event.** State comes from the sorted **set of failing canonical remediation ids** — stable against count churn and scoring-weight changes.
+  - **A real design flaw the suite caught:** `ready` and `unknown` both carry `recurrence_type: null`, so comparing recurrences alone made `ready`↔`unknown` invisible and a genuine recovery out of an evidence outage was never recorded. The readiness state is now the monitoring dimension.
+  - CE also had **no evaluator anywhere** — no cron task, no scan hook — which is why its verdict was compute-on-read only. It now runs as scan-engine **Phase 8n**.
+  - **Proof:** `validate-ce-lifecycle.js` (113 assertions). Mutations: removing the coverage gate makes `access_control` an alertable `not_ready` from a DMARC proxy; removing the no-evidence guard turns an unexecuted probe into `control_recovered` — a fabricated recovery.
+
+### Production verification
+
+- **Zero flood, zero drift** across both deploys: `notification_events` 222 → 222, `alert_deliveries` 0 → 0, and all four new tables empty. Newest notification `2026-07-15 17:23:32` — hours older than every deploy. No alert was manufactured.
+
+## 2026.07.15-2 (Alerts episode — SUPERSEDED: premature six-of-eight closure) — deployed 2026-07-15
+
+> **Superseded by `v2026.07.16-1`.** This tag closed the Alerts episode at 6 of 8
+> domains, deferring Website Security and Cyber Essentials as "outcome B — lifecycle
+> foundation missing". **That conclusion was wrong, and so were its stated reasons:**
+> CE's readiness computation never read the questionnaire (it was already 100%
+> externally observed), and Website Security's findings were persisted all along —
+> immutably in R2 with stable canonical ids. The gap was *continuity*, not
+> persistence. Both domains were buildable. The re-audit that corrected it also found
+> two live P1s the original audit had missed. Retained as the historical record; see
+> `docs/alerts-eight-domain-coverage.md`.
 
 - **Live Worker Version ID:** `d633118f-64f4-4baf-8d5b-cc486b8cf210` (PR #103)
 - **Intermediate Worker Version ID:** `d5bdcd8d-10b8-4b6f-b132-b8c39ddf2a11` (PR #102 — rollback target for #103)

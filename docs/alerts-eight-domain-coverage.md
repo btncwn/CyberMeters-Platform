@@ -1,16 +1,15 @@
-# Alerts — eight-domain canonical coverage (episode close)
+# Alerts — eight-domain canonical coverage
 
-**Status as of 15 July 2026.** Engineering closed at `45a327b`, release tag
-`v2026.07.15-2`, live Worker `d633118f-64f4-4baf-8d5b-cc486b8cf210`.
+**Authoritative as of 16 July 2026.** Engineering closed at `<FINAL_COMMIT>`, release
+tag `v2026.07.16-1`, live Worker `e0ce455f-034b-41e4-aad6-d546170b9ec7`.
 
-This is the authoritative, honest record of what alerts CyberMeters can and cannot
-raise. It exists because the episode's title — *Alerts Across All Eight Domains* —
-is **not** what shipped, and the gap must be written down rather than implied.
+> **All eight canonical domains alert through the canonical pipeline.**
+> Engineering is closed at 8/8. **Genuine live occurrence proof remains outstanding
+> for every domain** — see *Honest limitations*.
 
-> **Six of eight canonical domains alert through the canonical pipeline.**
-> **Two (Website Security, Cyber Essentials Readiness) are deferred**, because
-> neither has the lifecycle foundation an honest alert requires. They are **not**
-> counted as canonical alert coverage anywhere.
+This document **replaces** the six-of-eight record of `v2026.07.15-2`. That tag is
+preserved as an intermediate, premature closure; the section at the end explains why
+it was wrong, because the reason is more useful than the conclusion.
 
 ---
 
@@ -18,145 +17,186 @@ is **not** what shipped, and the gap must be written down rather than implied.
 
 An alert is canonical only when every one of these is true. They are not
 aspirational — `findConditionOccurrence` fails **closed** without them, so a domain
-missing any one of them raises nothing at all:
+missing any one raises nothing at all, silently.
 
 | Requirement | Where it lives |
 | --- | --- |
-| A stable persisted entity identity that survives rescans | the domain's own record table |
-| An **append-only** events table with `monitoring_changed` carrying `detail.to_recurrence_type` | `LIFECYCLE_EVENT_SOURCES` (`engines/alert-occurrence.js`) |
-| `monitoring_status` / `recurrence_type` transition semantics | `isMonitoringTransition` |
-| A severity mapping for the recurrence vocabulary | `RECURRENCE_SEVERITY` (`engines/alert-consumers.js`) |
+| Stable persisted entity identity, surviving rescans | the domain's own record table |
+| **Append-only** events table with `monitoring_changed` carrying `detail.to_recurrence_type` | `LIFECYCLE_EVENT_SOURCES` (`engines/alert-occurrence.js`) |
+| Transition semantics — only a real change appends | `isMonitoringTransition` |
+| A severity for every recurrence, namespaced by domain | `RECURRENCE_SEVERITY` (`engines/alert-consumers.js`) |
 | An activation watermark, so pre-existing conditions cannot masquerade as new | `alert_activation(workspace_id, domain_key)` |
-| Database-enforced dedupe (never an advisory read-then-write) | migration 087 partial UNIQUE index + `INSERT OR IGNORE` |
+| Database-enforced dedupe — never an advisory read-then-write | migration 087 partial UNIQUE index + `INSERT OR IGNORE` |
+| Customer-facing meaning from the canonical registry | `resolveRemediation` |
 
 The occurrence **is** the persisted lifecycle event row: its `created_at` is when the
-condition began, and its `id` is the occurrence identity. Nothing is denormalised.
+condition began, its `id` is the occurrence identity. Nothing is denormalised.
 
 ---
 
 ## The eight domains
 
-| # | Domain | Canonical alerts | Evidence source | Deployed | Genuine live occurrence proof |
+| # | Domain | Canonical | Evidence source | Migration | Live occurrence proof |
 | --- | --- | --- | --- | --- | --- |
-| 1 | Email Protection | ✅ | `email_protection_events` | ✅ | ❌ outstanding |
-| 2 | Brand Protection | ✅ | `managed_case_events` | ✅ | ❌ outstanding |
-| 3 | Attack Surface | ✅ | `managed_case_events` | ✅ | ❌ outstanding |
-| 4 | Certificates & Trust | ✅ | `certificate_lifecycle_events` | ✅ | ❌ outstanding |
-| 5 | **Cyber Essentials Readiness** | ❌ **deferred** | — none — | n/a | n/a |
-| 6 | **Website Security** | ❌ **deferred** | — none — | n/a | n/a |
-| 7 | Identity Exposure | ✅ | `identity_exposure_events` | ✅ | ❌ outstanding |
-| 8 | Shadow IT & Unmanaged Technology | ✅ | `shadow_it_inventory_events` | ✅ | ❌ outstanding |
+| 1 | Email Protection | ✅ | `email_protection_events` | 088 | ❌ outstanding |
+| 2 | Brand Protection | ✅ | `managed_case_events` | 076 | ❌ outstanding |
+| 3 | Attack Surface | ✅ | `managed_case_events` | 076 | ❌ outstanding |
+| 4 | Certificates & Trust | ✅ | `certificate_lifecycle_events` | 085 | ❌ outstanding |
+| 5 | **Cyber Essentials Readiness** | ✅ **new** | `cyber_essentials_events` | **090** | ❌ outstanding |
+| 6 | **Website Security** | ✅ **new** | `website_security_events` | **089** | ❌ outstanding |
+| 7 | Identity Exposure | ✅ | `identity_exposure_events` | 086 | ❌ outstanding |
+| 8 | Shadow IT & Unmanaged Technology | ✅ | `shadow_it_inventory_events` | 083 | ❌ outstanding |
 
-### Per-domain detail (the six that alert)
+`scripts/validate-alert-occurrence.js` asserts this exact set. **That assertion is the
+8/8 claim** — if a domain is absent from `LIFECYCLE_EVENT_SOURCES` it cannot alert,
+whatever this document says.
 
-| Domain | Entity identity | Actionable recurrences | Activation | Dedupe / ledger | Recovery & re-entry |
-| --- | --- | --- | --- | --- | --- |
-| `certificates_trust` | `certificate_lifecycle.id` | `expired`, `renewal_overdue` (+7-day band escalation), `replacement_contradicted`, `verification_failed`, `replacement_unverified`, `coverage_regression`, `unexpected_san`, `exception_expired`, `owner_missing`, `evidence_stale` | per-domain watermark | 087 index + `alert_deliveries` | ✅ new event = new occurrence |
-| `identity_exposure` | `identity_exposure_records.id` | `public_admin_surface`, `removal_contradicted`, `verification_failed`, `unexpected_surface`, `retired_reappeared`, `investigate_unresolved`, `exception_expired`, `provider_change`, `owner_missing`, `evidence_stale` | ✅ | ✅ | ✅ |
-| `shadow_it_unmanaged_technology` | `shadow_it_inventory.id` | `removal_incomplete`, `rejected_reappeared`, `removal_contradicted`, `retired_reappeared`, `exception_expired`, `approved_disappeared`, `material_change`, `owner_missing`, `evidence_stale` | ✅ | ✅ | ✅ |
-| `brand_protection` | `managed_cases.id` | `case_opened`, `case_reappeared`, `case_resolved` | ✅ | ✅ | ✅ |
-| `attack_surface` | `managed_cases.id` | `case_opened`, `case_reopened`, `case_verification_failed`, `case_resolved` | ✅ | ✅ | ✅ |
-| `email_protection` | `hosted_dns_entries.id` (`hd-`) / `email_sender_sources.id` (`esender_`) | `sender_unrecognised`, `sender_classification_worsened`, `sender_unauthorised_failures_active`, `hosted_record_disconnected`, `hosted_impact_regression`, `hosted_rolled_back_auto` | ✅ | ✅ | ✅ windowed evidence can empty and refill |
+### Per-domain detail
 
-All six share one preferences/entitlement path (`engines/alert-gate.js`), one email
-chokepoint (`sendTenantAlertEmail`), one channel trunk (`deliverWorkspaceAlert`),
-one append-only ledger (`alert_deliveries`) and one retry sweep
-(`retryFailedAlertDeliveries`).
+| Domain | Entity identity | Actionable recurrences | Severity provenance | Recovery / re-entry |
+| --- | --- | --- | --- | --- |
+| `certificates_trust` | `certificate_lifecycle.id` | `expired`, `renewal_overdue` (+7-day band), `replacement_contradicted`, `verification_failed`, `replacement_unverified`, `coverage_regression`, `unexpected_san`, `exception_expired`, `owner_missing`, `evidence_stale` | fixed + INHERIT band | ✅ |
+| `identity_exposure` | `identity_exposure.canonical_identity_key` | `public_admin_surface`, `removal_contradicted`, `verification_failed`, `unexpected_surface`, `retired_reappeared`, `investigate_unresolved`, `exception_expired`, `provider_change`, `owner_missing`, `evidence_stale` | fixed | ✅ |
+| `shadow_it_unmanaged_technology` | `canonical_technology_key` | `removal_incomplete`, `rejected_reappeared`, `removal_contradicted`, `retired_reappeared`, `exception_expired`, `approved_disappeared`, `material_change`, `owner_missing`, `evidence_stale` | fixed | ✅ |
+| `brand_protection` | `managed_cases.id` | `case_opened`, `case_reappeared`, `case_resolved` | INHERIT | ✅ |
+| `attack_surface` | `managed_cases.id` | `case_opened`, `case_reopened`, `case_verification_failed`, `case_resolved` | INHERIT | ✅ |
+| `email_protection` | `hosted_dns_entries.id` / `email_sender_sources.id` | `sender_unrecognised`, `sender_classification_worsened`, `sender_unauthorised_failures_active`, `hosted_record_disconnected`, `hosted_impact_regression`, `hosted_rolled_back_auto` | INHERIT band | ✅ windowed evidence |
+| **`website_security`** | **(workspace, domain_id, canonical finding id)** | `transport_not_available`, `insecure_redirect`, `browser_protection_missing`, `browser_protection_malformed` | **INHERIT** from `scoring.js` | ✅ + `unknown` ≠ recovery |
+| **`cyber_essentials_readiness`** | **(workspace, control_key)** | `externally_observed_control_not_ready`, `externally_observed_control_worsened` | **fixed `medium`** | ✅ + `unknown` ≠ recovery |
+
+All eight share one preferences/entitlement path (`engines/alert-gate.js`), one email
+chokepoint (`sendTenantAlertEmail`), one channel trunk (`deliverWorkspaceAlert`), one
+append-only ledger (`alert_deliveries`) and one retry sweep. **No domain engine holds
+a sender** — asserted in CI for all six lifecycle engines.
 
 ---
 
-## The two deferred domains — exactly what is missing
+## Website Security — what was actually missing
 
-Assessed independently against primary code and schema on 15 July 2026. Both are
-**outcome B: the lifecycle foundation is missing.** Neither is outcome C — neither
-has an unevidenced outbound path left to retract.
+Not evidence. `headers-scan`/`ssl-scan`/`tech-scan` collect it every scan, `scoring.js`
+turns it into findings with **stable canonical ids**, the module output and those ids
+are persisted immutably in the R2 report, and nine canonical remediations key on those
+exact slugs.
 
-Both already have the *presentation* layer (a resolver entry in
-`engines/cyber-mot-domains.js`, display names, canonical remediation entries, a
-registered `case_type`) and the *watermark* layer (`alert_activation` is
-domain-agnostic and would accept either key unchanged). **What both lack is the
-entire middle**: persisted entity identity → monitoring/recurrence semantics →
-append-only `monitoring_changed` evidence.
+What was missing was **continuity**: the D1 `findings` INSERT binds
+`createId("finding")` and **drops** the canonical slug, so the same condition carries a
+different id every scan. No row recorded when a condition began. Migration 089 is that
+row. The evaluator reads the slug from the in-memory findings at scan time (Phase 8m),
+as `createManagedAsmCasesForScan` already does.
 
-This is why the presence of a registry entry must not be mistaken for readiness.
+**Identity granularity is an honesty decision.** `(workspace, domain_id, condition_key)`
+— *not* per-hostname. No Website Security finding carries `affected_hosts`, a hostname
+or a path; the per-path evidence that exists is consumed only as a boolean. A
+per-hostname key would have to **invent** the attribution, and its obvious source
+(`evidence.final_url`) is the redirect target — so a customer fixing their canonical
+redirect would "resolve" one record and "create" another, **alerting twice for an
+improvement**. Hostname travels in event detail as observed context.
 
-### 6. Website Security (`website_security`)
-
-Findings come from `headers-scan.js`, `ssl-scan.js`, `dns-scan.js` and
-`tech-scan.js`. **None of them writes to D1.** Domain state is recomputed from
-scratch on every scan and lives only in the R2 report; the nearest thing to an
-identity is a finding *type* slug (`header_weak_hsts`), re-derived each pass.
-
-Missing, in dependency order:
-
-1. A durable per-entity record table with a `record_id` that survives rescans.
-2. `monitoring_status` + `recurrence_type` on that record, driven through `isMonitoringTransition`.
-3. An append-only `website_security_events` table writing `monitoring_changed` with `to_recurrence_type`.
-4. A `LIFECYCLE_EVENT_SOURCES.website_security` entry.
-5. A `RECURRENCE_SEVERITY.website_security` block — **the recurrence vocabulary does not exist yet**.
-
-Has: 9 canonical remediation entries (`web.header.*`, `web.https.redirect`,
-`web.cookie.flags`, `web.tech.version_disclosure`), each with
-`verification_method: "https_recheck"`. A `website_case` case_type is registered but
-has **zero production call sites**.
-
-### 5. Cyber Essentials Readiness (`cyber_essentials_readiness`)
-
-Blocked more fundamentally. The readiness verdict (`status`, `top_gaps`) is
-**compute-on-read and persisted nowhere** — `getCyberEssentialsSnapshot` recomputes
-it on every call, so there is no row to attach an occurrence to. The one durable
-table, `cyber_essentials_answers` (migration 068), is **mutable by upsert**
-(`ON CONFLICT … DO UPDATE SET answer = excluded.answer, updated_at = datetime('now')`):
-a changed answer overwrites its predecessor irrecoverably, and its `updated_at`
-drifts forward on every write — precisely the drift-forward failure the occurrence
-module exists to prevent. It can therefore never serve as an occurrence source.
-
-Missing: everything Website Security is missing, **plus** any persisted readiness
-state at all, **plus** a stable per-gap identity (gaps are ephemeral array members).
-
-**And a product-semantics blocker, not just an engineering one:** the domain's
-evidence is largely the customer's own self-attestation. A CE alert would be
-alerting on *a customer's answer changing*, which is not an externally observed
-condition. Defining what a CE "recurrence" even means (`gap_opened`?
-`answer_contradicted_by_measurement`?) is a **product decision that does not exist
-yet** — and inventing one was explicitly out of scope for this episode.
-
-> Neither domain may be described as having canonical alert coverage, in the
-> product, in commercial material, or in the roadmap, until the foundations above
-> are built and shipped in their own scoped episode.
+**Only material (medium+) conditions are actionable.** The info/low grades this domain
+also emits (`security_headers_not_observed`, `header_weak_hsts`,
+`canonical_url_uncertain`, `tech_*`) have **no mapping at all** — so a new info/low
+detection rule cannot mint a record, an occurrence or an alert for anyone.
 
 ---
 
-## Legacy paths — final state
+## Cyber Essentials — the ownership decision
 
-| Path | Outbound | Reason |
+CE **detects nothing of its own** (`modules: []`, `match: () => false`). Every control
+re-interprets evidence another domain already owns **and already alerts**. So:
+
+- **Technical domains own evidence-level alerts.** DMARC → Email Protection. HSTS/CSP
+  → Website Security. Certificate expiry → Certificates & Trust. Exposed admin surface
+  → Attack Surface.
+- **CE owns control-theme readiness transitions only** — a claim no other domain
+  makes, at a **fixed `medium`**, because the technical domain already carries the
+  urgent grade. Inheriting it would re-raise the same urgency under a second name.
+
+### Which controls may alert, and which never can
+
+| Control | `external_coverage` | Canonical alerts |
 | --- | --- | --- |
-| `score_drop` | ❌ suppressed | `evidence_not_attributable` — a score is a recomputation; the row never records *which* evidence moved, and the email asserts a cause the code never checks |
-| `new_finding` | ❌ suppressed | `evidence_not_attributable` — the baseline is selected `WHERE domain = ?` with no `workspace_id`, so "new since your last scan" may mean another tenant's scan of the same domain |
-| `new_vendor` | ❌ suppressed (B4a) | `evidence_not_attributable` — vendor identity is free-text on a mutable shared table |
-| `supply_chain_risk_increase` | ❌ suppressed (B4a) | `evidence_not_attributable` — a score delta, not an observation |
-| `asset_change` | ✅ **retained** | append-only `asset_events` evidence + DB-backed `INSERT OR IGNORE` dedupe on `asset_alert_records` |
-| weekly digest | ✅ retained | DB-backed per-ISO-week dedupe; a summary, not an occurrence claim. **Not entitlement- or preference-gated — see P2** |
-| `isAlertDuplicate` | **deleted** | advisory read-then-write; failed *open* into duplicate sends |
-| `sendTakeoverAlert`, `sendSslExpiryAlert` | **deleted** | dead code that fell back to the **operator's** inbox with every gate bypassed |
-| `runDmarcAlertsSweep` | **deleted** (B3) | latched forever on cumulative counters; recovery was inexpressible |
+| Firewalls & Boundary Protection | `partial` | ✅ |
+| Secure Configuration | `partial` | ✅ |
+| Security Update Management | `partial` | ✅ |
+| **User Access Control** | **`none`** | ❌ **never** |
+| **Malware Protection** | **`none`** | ❌ **never** |
 
-Suppressed does **not** mean erased: every suppressed condition still writes its
-`notification_events` row, so the bell and dashboard history are unchanged. The
-claim stops leaving the platform; the observation is kept.
+The last two are scored from **email-auth proxies** (SPF/DMARC) that measure
+anti-spoofing — not user access control or endpoint AV. MFA, admin separation,
+joiner/leaver and device patching are not observable from outside. They remain
+**visible** in the readiness product and are persisted as `not_externally_assessable`.
+This is the repo's own honesty metadata (`lib/cyber-essentials.js`), read at runtime
+rather than restated, so it cannot drift.
+
+**The questionnaire is not security truth.** `buildCyberEssentialsReadiness` never
+reads `cyber_essentials_answers`; the evaluator calls it **directly** and never
+`getCyberEssentialsSnapshot`, where answers gate *display*. Through the snapshot a
+customer flipping one answer to `"unknown"` would mint a security occurrence from a
+form edit.
+
+**A score moving is not an event.** State comes from the sorted **set of failing
+canonical remediation ids**, never the percentage.
+
+CE may state that a control theme's externally evidenced readiness moved, naming the
+evidence. It must never state: certified, compliant, audit passed/failed, formal
+Cyber Essentials status, that an attack occurred, or that an answer changed.
+
+---
+
+## The prerequisites that had to ship first
+
+Neither lifecycle was buildable on the foundations that existed. Both P1s were live in
+production and neither was about alerting:
+
+1. **A probe that never executed reported healthy** (#105). `safeFetch` returns null on
+   a 10s timeout, a redirect loop, `>MAX_REDIRECT_HOPS` or any error;
+   `runHeadersModule` reported that as an ordinary success, so `scan_quality` graded
+   `complete` and **Website Security rendered `assessed_healthy` — "no material issue
+   observed" — for a site nobody could reach.** Without the fix, the lifecycle's
+   recovery gate would have told customers they fixed a defect because a fetch timed
+   out. `ssl-scan` had the mirror defect: a timed-out probe became a **critical**
+   "HTTPS Not Available".
+2. **CE data integrity** (#106). `cyber_essentials_answers` survived every workspace
+   purge for the life of the table, while the deletion email said "permanently
+   removed" — and the purge suite only ever seeded tables *already on the list*, so it
+   could not catch it. CE also graded a client workspace from its **MSP's** scan
+   (`OR wd.workspace_id`, plus the same leak through `buildScorecardData`).
 
 ---
 
 ## Honest limitations
 
-- **No genuine live occurrence proof exists for any domain.** Every domain is
-  proven by CI (DB-backed, mutation-tested) and by no-op production deployment.
-  Nothing here has been demonstrated end-to-end by a real production alert firing to
-  a real recipient. **Controlled, founder-led acceptance with genuine events across
-  all six wired domains remains outstanding** and is a release-gate activity. Do not
-  describe alerting as production-proven until it is done.
-- Alerts were deliberately **not** manufactured in production to prove delivery.
-- Two of eight canonical domains do not alert at all (above).
-- `new_finding`'s suppression removed the platform's only cross-domain "something
-  new appeared" outbound alert. That is the honest position on today's evidence, and
-  the fix is a workspace-scoped finding-occurrence source — not re-enabling the claim.
+- **No genuine live occurrence proof exists for any of the eight domains.** Every
+  domain is proven by CI (DB-backed, mutation-tested against the real engines) and by
+  no-op production deployment. **Nothing here has been demonstrated end-to-end by a
+  real production alert firing to a real recipient.** Controlled, founder-led
+  acceptance with genuine events remains a release-gate activity. **Do not describe
+  alerting as production-proven until it is done.**
+- No alerts were manufactured in production to prove delivery.
+- Website Security identity is domain-level because the evidence is. Per-hostname or
+  per-path identity awaits a scan change that attributes a host to a website finding.
+- CE covers 3 of 5 control themes for alerting; the other 2 are not externally
+  assessable and say so.
+- Website Security's `ssl_not_available` resolves `cert.tls.install`
+  (`domain_key: certificates_trust`) — a pre-existing registry/resolver split. The
+  alert copy is correct; the attribution is inconsistent. P2.
+
+---
+
+## Why the six-of-eight closure was wrong
+
+`v2026.07.15-2` closed this episode at 6/8, deferring both domains as "outcome B —
+lifecycle foundation missing". **The conclusion was wrong and the stated reasons were
+wrong.** Preserved here because the failure mode is reusable:
+
+| Claim made then | Reality |
+| --- | --- |
+| "CE would alert on a customer's self-attestation changing" | **False.** `buildCyberEssentialsReadiness` never reads the questionnaire. Every control was already 100% externally observed. |
+| "Website Security engines write nothing to D1, so there is no persistence" | **Misleading.** Findings *are* persisted — immutably in R2, with stable canonical ids. The gap was continuity, not persistence. |
+| "Both are outcome B — defer" | **Wrong.** Both were buildable. |
+
+The method error was stopping at the engine file and concluding from the absence of an
+`INSERT` there, instead of following the evidence through scan orchestration →
+scoring → findings → R2 → historical comparison. The re-audit that corrected it also
+found the two P1s above — which the original audit, looking for reasons to defer, had
+missed entirely.
