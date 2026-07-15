@@ -199,6 +199,16 @@ jobs:
       - name: Validate exposure-probe honesty (subrequest exhaustion → not-checked, not clean)
         run: node scripts/validate-exposure-honesty.js
 
+      # The same class of defect as exposure-honesty above, in the modules where it
+      # was never fixed. A headers/HTTPS probe that times out, loops on redirects or
+      # is refused returns via safeFetch → null; the modules reported that as an
+      # ordinary success, so scan_quality graded `complete` and Website Security
+      # rendered ASSESSED_HEALTHY — "no material issue observed" — for a site nobody
+      # could reach. Drives the REAL modules against a genuinely failing fetch, and
+      # mutation-tests itself by removing the guard and asserting the defect returns.
+      - name: Validate passive-probe evidence honesty (timeout/redirect-loop/refused → unknown, never healthy)
+        run: node scripts/validate-probe-evidence-honesty.js
+
       - name: Validate scan deadline + partial finalization (waitUntil-cancellation guard)
         run: node scripts/validate-scan-deadline.js
 

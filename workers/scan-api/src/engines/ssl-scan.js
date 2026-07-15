@@ -17,13 +17,37 @@ export async function runSslModule(domain) {
 
   // Try www. fallback if bare domain HTTPS fails
   let wwwHttpsOk = false;
+  let wwwRes = null;
   if (!httpsOk && !domain.startsWith("www.")) {
-    const wwwRes = await safeFetch(`https://www.${domain}`, {
+    wwwRes = await safeFetch(`https://www.${domain}`, {
       method: "HEAD",
       redirect: "manual",
     });
     wwwHttpsOk = wwwRes !== null && wwwRes.status < 500;
   }
+
+  // ── Did we actually LOOK? ───────────────────────────────────────────────────
+  // safeFetch returns null for a 10s timeout, a redirect loop, a blocked target or
+  // any thrown error. None of those observed anything about port 443.
+  //
+  // This distinction already existed one field below — `http_redirect_validated`
+  // stays false on a null response precisely so the scoring engine will not claim
+  // a redirect verdict it never saw. The same discipline was never applied to
+  // reachability, so a timed-out probe collapsed into `https_available: false`,
+  // and scoring turned that into a CRITICAL finding asserting "TLS handshake
+  // failed or connection refused on port 443" — a claim about the customer's
+  // server that safeFetch cannot make, because a timeout is not a refusal.
+  //
+  // https_available is therefore TRI-STATE, matching the platform's existing
+  // unknown vocabulary (probeAsset's `reachable: null`):
+  //   true  — a response was observed over HTTPS
+  //   false — a response was observed and HTTPS is genuinely not serving (>=500)
+  //   null  — WE DID NOT LOOK. Never a security claim.
+  // Consumers that already test `=== true` / `=== false` are unaffected by null;
+  // the two that tested truthiness (`!ssl.https_available`) are corrected in this
+  // same change, because to them null previously meant "not available".
+  const httpsProbeExecuted = httpsRes !== null || wwwRes !== null;
+  const httpsAvailable = httpsProbeExecuted ? (httpsOk || wwwHttpsOk) : null;
 
   // Check whether plain HTTP redirects to HTTPS.
   // Follow up to 2 hops to handle intermediate http→http→https chains
@@ -185,7 +209,22 @@ export async function runSslModule(domain) {
   }
 
   return {
-    https_available:          httpsOk || wwwHttpsOk,
+    https_available:          httpsAvailable,
+    https_probe_executed:     httpsProbeExecuted,
+    // The module did not truly run its reachability check. buildScanQuality reads
+    // this into scan_quality `partial`, moduleAssessed() into evidence_insufficient
+    // and moduleCompletionGate into "cannot verify" — so an unexecuted probe can
+    // never present as healthy and can never resolve an existing condition.
+    //
+    // Scoped to the HTTPS probe deliberately: Certificate Transparency data below
+    // comes from crt.sh/certspotter and is independent of reaching the origin, so
+    // it stays valid and is not discarded. What is unknown is whether the site
+    // serves HTTPS — which is exactly what `required: ["headers","ssl"]` on the
+    // Website Security domain is asking.
+    ...(httpsProbeExecuted ? {} : {
+      incomplete: true,
+      incomplete_reason: "https_probe_not_executed",
+    }),
     http_redirects_to_https:  httpRedirectsToHttps,
     http_redirect_chain,
     www_fallback_used:        !httpsOk && wwwHttpsOk,

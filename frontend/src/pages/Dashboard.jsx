@@ -77,10 +77,15 @@ function deriveInsights(scans, report) {
         : (failed > 0 ? 'warning' : 'unknown'),
     },
     {
+      // `accessible` first: when the header probe never executed (timeout, redirect
+      // loop, blocked), the module still reports every header as missing — that is
+      // a diagnostic default, not an observation. Reading its length graded an
+      // unreachable site 'danger' off evidence nobody collected. The backend marks
+      // the module `incomplete` for exactly this case; honour either signal.
       label:  'Security Headers',
-      status: mods.headers
-        ? (mods.headers.missing?.length > 3 ? 'danger' : mods.headers.missing?.length > 1 ? 'warning' : 'good')
-        : 'unknown',
+      status: (!mods.headers || mods.headers.error || mods.headers.accessible === false || mods.headers.incomplete === true)
+        ? 'unknown'
+        : (mods.headers.missing?.length > 3 ? 'danger' : mods.headers.missing?.length > 1 ? 'warning' : 'good'),
     },
     {
       label:  'IPv6',

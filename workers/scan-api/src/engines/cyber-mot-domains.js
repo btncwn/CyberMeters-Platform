@@ -187,6 +187,18 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
     // never a readiness verdict, so they never produce a healthy CE. Every surface
     // passes the same snapshot, so the state is identical everywhere.
     if (d.domain_key === "cyber_essentials_readiness") {
+      // No external evidence => not assessed, and NOT an issue. ce-readiness.js
+      // returns status 'not_assessed' when there is no completed scan report to
+      // grade (no scan, missing R2 object, or a failed read). Without this branch
+      // that status falls through to `ready === false` and renders ISSUE_DETECTED —
+      // announcing readiness gaps the platform never observed. Evidence we do not
+      // have is evidence_insufficient, in either direction.
+      if (cyberEssentials && cyberEssentials.status === "not_assessed") {
+        base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;
+        base.coverage = quality;
+        base.summary = "Readiness could not be assessed — no completed external scan evidence is available yet.";
+        return base;
+      }
       if (cyberEssentials && cyberEssentials.has_answers === true && cyberEssentials.complete === true) {
         const ready = cyberEssentials.status === "likely_ready";
         base.finding_count = (cyberEssentials.top_gaps || []).length;

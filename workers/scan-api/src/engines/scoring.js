@@ -203,7 +203,13 @@ export function computeScore(modules, domain) {
   }
 
   // ── SSL ────────────────────────────────────────────────────────────────
-  if (!modules.ssl?.https_available) {
+  // `=== false` and not `!https_available`: the field is TRI-STATE (ssl-scan.js).
+  // null means the HTTPS probe never executed — a timeout, a redirect loop, a
+  // blocked target — and this finding asserts "TLS handshake failed or connection
+  // refused on port 443", which is a claim about the customer's server that a
+  // fetch we never completed cannot support. Absent evidence is not a critical
+  // finding; it surfaces as scan_quality `partial` + evidence_insufficient instead.
+  if (modules.ssl?.https_available === false) {
     finding({
       id:           "ssl_not_available",
       module:       "ssl",
