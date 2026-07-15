@@ -1,6 +1,6 @@
 # Alerts — eight-domain canonical coverage
 
-**Authoritative as of 16 July 2026.** Engineering closed at `<FINAL_COMMIT>`, release
+**Authoritative as of 16 July 2026.** Engineering closed at `510d240`, release
 tag `v2026.07.16-1`, live Worker `e0ce455f-034b-41e4-aad6-d546170b9ec7`.
 
 > **All eight canonical domains alert through the canonical pipeline.**
