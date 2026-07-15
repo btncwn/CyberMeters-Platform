@@ -167,7 +167,15 @@ export async function scanRoutes(rctx) {
       // verified. No scan row, R2 placeholder, telemetry, managed case or report is
       // created past this point on rejection.
       if (!(await isWorkspaceDomainVerified(env, workspaceId, resolvedDomainId))) {
-        return json(DOMAIN_VERIFICATION_REQUIRED, 403);
+        // Name the EXACT record we gated on. The caller cannot start verification
+        // without it, and a domain can legitimately be linked to several of the
+        // caller's workspaces (and exist under several domain ids) — so a client
+        // left to resolve it itself would guess, and could initiate verification
+        // against a different record than the one that just blocked the scan.
+        // Both ids are the caller's own, already-authorised context: workspaceId
+        // came from their session and the link was resolved above, so this is not
+        // an enumeration oracle.
+        return json({ ...DOMAIN_VERIFICATION_REQUIRED, domain_id: resolvedDomainId, workspace_id: workspaceId }, 403);
       }
 
       // Create scan row — status 'running' (engine starts immediately)

@@ -2,11 +2,16 @@ import { useState, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import {
   ScanLine, Globe, ArrowLeft, CheckCircle,
-  Shield, Mail, FileText, Info,
+  Shield, Mail, FileText, Info, ShieldCheck,
 } from 'lucide-react'
 import { api } from '../api'
 import ErrorAlert from '../components/ErrorAlert'
 import Spinner from '../components/Spinner'
+import DomainVerificationPanel from '../components/DomainVerificationPanel'
+import {
+  canStartScan, isValidDomainSyntax, domainHintFor, safeErrorMessage,
+  isVerificationRequired, dnsInstructionFrom, checkFailureMessage,
+} from '../lib/newScanVerification'
 
 // Framed as Intelligence Engines (business capabilities), not internal detectors.
 const CHECKS = [
@@ -16,15 +21,20 @@ const CHECKS = [
   { icon: FileText, label: 'Executive Intelligence',       desc: 'A scored Executive Report with prioritized next steps'    },
 ]
 
-function isValidDomain(v) {
-  return /^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/.test(v.trim())
-}
 
 export default function NewScan() {
   const [domain, setDomain]   = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError]     = useState(null)
   const [success, setSuccess] = useState(null)
+  // Ownership state — the single source of truth for what the page may claim and
+  // whether Start Scan is enabled. Syntax alone never unlocks it.
+  const [state, setState]     = useState('idle')
+  // The EXACT workspace-domain record the backend gated on. A domain can be linked
+  // to several of the caller's workspaces, so we must never choose one ourselves.
+  const [gated, setGated]     = useState(null)
+  const [dns, setDns]         = useState(null)
+  const [checkNote, setCheckNote] = useState(null)
   const navigate = useNavigate()
 
   // Clicking "New Scan" in the header while already on this page resets the form
@@ -32,19 +42,62 @@ export default function NewScan() {
   useEffect(() => {
     const reset = () => {
       setDomain(''); setError(null); setSuccess(null); setLoading(false)
+      setState('idle'); setGated(null); setDns(null); setCheckNote(null)
       window.scrollTo({ top: 0, behavior: 'smooth' })
     }
     window.addEventListener('cybermeters:new-scan-reset', reset)
     return () => window.removeEventListener('cybermeters:new-scan-reset', reset)
   }, [])
 
-  const valid = isValidDomain(domain)
+  const valid = isValidDomainSyntax(domain)
+  const hint  = domainHintFor(state, domain)
+
+  // Typing a different domain invalidates ownership proven for the previous one —
+  // otherwise a verified domain would silently authorise scanning a different,
+  // unverified one.
+  function onDomainChange(next) {
+    setDomain(next)
+    setState(isValidDomainSyntax(next) ? 'ready' : 'idle')
+    setGated(null); setDns(null); setCheckNote(null); setError(null)
+  }
+
+  // Start verification for the exact record the backend named. Token, host and
+  // value all come from the server — nothing is constructed here.
+  async function startVerification(record) {
+    try {
+      const res = await api.generateDomainVerification(record.domain_id, record.workspace_id)
+      if (res?.already_verified) { setState('verified'); return }
+      const instruction = dnsInstructionFrom(res)
+      if (!instruction) { setError(safeErrorMessage({})); return }
+      setDns(instruction); setState('instructions')
+    } catch (e) {
+      setError(safeErrorMessage(e))
+    }
+  }
+
+  async function handleVerify() {
+    if (!gated) return
+    setState('checking'); setCheckNote(null); setError(null)
+    try {
+      const res = await api.verifyDomain(gated.domain_id, gated.workspace_id)
+      if (res?.verified || res?.verification_status === 'verified') {
+        setState('verified'); setCheckNote(null)
+      } else {
+        // Not found yet — keep the instructions on screen. Clearing them would
+        // strand the customer with no route back to the token.
+        setState('check_failed'); setCheckNote(checkFailureMessage(res || {}))
+      }
+    } catch (e) {
+      setState('check_failed'); setCheckNote(checkFailureMessage(e))
+    }
+  }
 
   async function handleSubmit(e) {
     e.preventDefault()
     if (!valid) return
     setLoading(true)
     setError(null)
+    setState((prev) => (prev === 'verified' ? 'scanning' : 'starting'))
     try {
       const data = await api.createScan(domain.trim().toLowerCase())
       setSuccess(data)
@@ -56,8 +109,17 @@ export default function NewScan() {
       // Plan-limit and rate-limit errors are handled by the global UpgradePromptModal
       // (fired via the cybermeters:plan-limit event in api.js). Suppress the inline
       // ErrorAlert so the user sees one clear message, not two conflicting ones.
-      if (e.code !== 'plan_limit_exceeded' && e.code !== 'rate_limit_exceeded') {
-        setError(e.message)
+      if (isVerificationRequired(e)) {
+        // Not a failure the customer caused — it is the next step. Show the setup
+        // flow rather than an error, and never surface the raw code.
+        const record = { domain_id: e.domain_id, workspace_id: e.workspace_id }
+        setGated(record); setState('needs_setup'); setError(null)
+        if (record.domain_id) await startVerification(record)
+      } else if (e.code !== 'plan_limit_exceeded' && e.code !== 'rate_limit_exceeded') {
+        // safeErrorMessage guarantees a machine code never reaches the customer.
+        setError(safeErrorMessage(e)); setState(valid ? 'ready' : 'idle')
+      } else {
+        setState(valid ? 'ready' : 'idle')
       }
     } finally {
       setLoading(false)
@@ -104,7 +166,7 @@ export default function NewScan() {
                     <input
                       type="text"
                       value={domain}
-                      onChange={e => setDomain(e.target.value)}
+                      onChange={e => onDomainChange(e.target.value)}
                       placeholder="example.com"
                       className="input pl-11 py-3.5 text-base"
                       autoFocus
@@ -120,12 +182,19 @@ export default function NewScan() {
                         <Info className="w-3 h-3" />
                         Enter the root domain only — no https://, paths, or ports
                       </p>
-                    ) : !valid ? (
-                      <p className="text-amber-600 text-xs font-medium">⚠ Please enter a valid domain (e.g. example.com)</p>
-                    ) : (
+                    ) : hint?.tone === 'error' ? (
+                      <p className="text-amber-600 text-xs font-medium">⚠ {hint.text}</p>
+                    ) : hint?.tone === 'success' ? (
                       <p className="text-brand-600 text-xs font-semibold flex items-center gap-1">
-                        <CheckCircle className="w-3 h-3" />
-                        Valid domain — ready to scan
+                        <ShieldCheck className="w-3 h-3" />
+                        {hint.text}
+                      </p>
+                    ) : (
+                      /* Format only. Saying "ready to scan" here would assert
+                         ownership we have not established. */
+                      <p className="text-gray-500 text-xs flex items-center gap-1">
+                        <Info className="w-3 h-3" />
+                        {hint?.text}
                       </p>
                     )}
                   </div>
@@ -133,15 +202,32 @@ export default function NewScan() {
 
                 {error && <ErrorAlert message={error} onRetry={() => setError(null)} />}
 
+                {/* Ownership setup. Rendered instead of an error: an unverified
+                    domain is a next step, not a fault. */}
+                {(state === 'needs_setup' || dns) && (
+                  <DomainVerificationPanel
+                    domain={domain.trim().toLowerCase()}
+                    dns={dns}
+                    state={state}
+                    note={checkNote}
+                    onVerify={handleVerify}
+                  />
+                )}
+
                 <button
                   type="submit"
-                  disabled={!valid || loading}
+                  disabled={!canStartScan(state) || loading}
                   className="btn-primary w-full justify-center py-3.5 text-base disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {loading
                     ? <><Spinner size="sm" /><span>Starting scan…</span></>
                     : <><ScanLine className="w-5 h-5" /><span>Start Scan</span></>}
                 </button>
+                {valid && !canStartScan(state) && state !== 'starting' && (
+                  <p className="text-center text-xs text-gray-400 -mt-1">
+                    Verify domain ownership to enable scanning.
+                  </p>
+                )}
 
                 <p className="text-center text-xs text-gray-400 leading-relaxed">
                   Scans are non-intrusive and read-only — we only inspect publicly available data
