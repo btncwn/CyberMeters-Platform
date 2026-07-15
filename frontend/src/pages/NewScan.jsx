@@ -12,7 +12,7 @@ import { useWorkspace } from '../hooks/useWorkspace'
 import {
   canStartScan, isValidDomainSyntax, domainHintFor, safeErrorMessage,
   isVerificationRequired, dnsInstructionFrom, checkFailureMessage,
-  requiresVerificationCta,
+  requiresVerificationCta, verifyFailureNote,
 } from '../lib/newScanVerification'
 
 // Framed as Intelligence Engines (business capabilities), not internal detectors.
@@ -112,7 +112,11 @@ export default function NewScan() {
         const wanted = domain.trim().toLowerCase()
         const res = await api.getWorkspaceDomains(wsId).catch(() => null)
         const existing = (res?.domains || []).find((d) => String(d.domain || '').toLowerCase() === wanted)
-        if (existing) record = { domain_id: existing.domain_id, workspace_id: wsId }
+        // setGated on EVERY resolution path, not just the add-domain branch below.
+        // Assigning only the local `record` left component state null for an
+        // already-linked domain, so initiation worked (it uses `record`) while the
+        // later Verify click had no record to act on — an inert button.
+        if (existing) { record = { domain_id: existing.domain_id, workspace_id: wsId }; setGated(record) }
       }
       if (!record?.domain_id) {
         const added = await api.addDomainToWorkspace(wsId, domain.trim().toLowerCase())
@@ -131,19 +135,67 @@ export default function NewScan() {
     }
   }
 
+  // Resolve the authoritative workspace-domain record. Shared by the CTA and the
+  // Verify click so neither can act on a record the other resolved locally.
+  async function resolveGatedRecord() {
+    if (gated?.domain_id) return gated
+    if (!wsId) return null
+    const wanted = domain.trim().toLowerCase()
+    const res = await api.getWorkspaceDomains(wsId).catch(() => null)
+    const existing = (res?.domains || []).find((d) => String(d.domain || '').toLowerCase() === wanted)
+    if (!existing) return null
+    const record = { domain_id: existing.domain_id, workspace_id: wsId }
+    setGated(record)
+    return record
+  }
+
+  // "I've added the DNS record — Verify domain".
+  //
+  // This previously opened with `if (!gated) return` — a SILENT no-op. For an
+  // already-linked domain `gated` was never set (see handleStartVerification), so the
+  // button did nothing at all: no request, no spinner, no error. The customer had a
+  // correct TXT record published and a dead button.
+  //
+  // Every path below now ends in exactly one visible state. There is no early return.
   async function handleVerify() {
-    if (!gated) return
     setState('checking'); setCheckNote(null); setError(null)
     try {
-      const res = await api.verifyDomain(gated.domain_id, gated.workspace_id)
-      if (res?.verified || res?.verification_status === 'verified') {
-        setState('verified'); setCheckNote(null)
-      } else {
-        // Not found yet — keep the instructions on screen. Clearing them would
-        // strand the customer with no route back to the token.
-        setState('check_failed'); setCheckNote(checkFailureMessage(res || {}))
+      // Re-resolve rather than give up: a missing record is recoverable, and
+      // silence is not an acceptable outcome of a click.
+      const record = await resolveGatedRecord()
+      if (!record?.domain_id) {
+        setState('check_failed')
+        setCheckNote('We could not identify this domain in your workspace. Reload the page and try again — your DNS record is unaffected.')
+        return
       }
+      // Uses the record's EXISTING token: this only re-checks DNS. It never mints a
+      // new token, so a published TXT record stays valid across retries.
+      const res = await api.verifyDomain(record.domain_id, record.workspace_id)
+      if (res?.verified || res?.success === true || res?.verification_status === 'verified') {
+        setState('verified'); setCheckNote(null)
+        // Refresh the authoritative workspace-domain state so the rest of the page
+        // (and a later revisit) reads the confirmed row.
+        //
+        // It deliberately CANNOT downgrade the result. The verify response is the
+        // server confirming a write it just made in that same request; a refresh
+        // that reads a stale replica would otherwise flip a genuine success back to
+        // "failed" and tell the customer their correct DNS record did not work. A
+        // disagreement here is a server-side concern, not something to surface as
+        // the customer's failure.
+        try {
+          const fresh = await api.getWorkspaceDomains(wsId)
+          const row = (fresh?.domains || []).find((d) => d.domain_id === record.domain_id)
+          if (row && row.verification_status !== 'verified') {
+            console.warn('[new-scan] verify succeeded but the refreshed link is not yet verified', row.verification_status)
+          }
+        } catch { /* a refresh failure must never undo a confirmed verification */ }
+        return
+      }
+      // Not verified. Use the server's own per-method result so the customer is told
+      // which check failed, not a generic shrug.
+      setState('check_failed'); setCheckNote(verifyFailureNote(res))
     } catch (e) {
+      // A rejected promise must NEVER leave the UI unchanged.
       setState('check_failed'); setCheckNote(checkFailureMessage(e))
     }
   }
