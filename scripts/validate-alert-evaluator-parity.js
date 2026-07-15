@@ -91,6 +91,7 @@ db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES ('ws1
     // hosted_dns_entries state machine upstream). Both go through the same
     // helpers, so the assertions below hold for both.
     email_protection: "email-protection-lifecycle.js",
+    website_security: "website-security-lifecycle.js",
   };
   // MANAGED-CASE engines (PR-B1) have no monitoring_status column — their transition
   // guard is the case state machine (canTransitionCase rejects a repeat), and they

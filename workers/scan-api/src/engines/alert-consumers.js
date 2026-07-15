@@ -159,6 +159,39 @@ const RECURRENCE_SEVERITY = Object.freeze({
     // all — a customer's own rollback is not a risk alert.
     hosted_rolled_back_auto: "high",
   }),
+  // ── Website Security (corrective phase) ───────────────────────────────────
+  // Every grade INHERITS, and that is the honest choice rather than a shortcut.
+  // Severity for this domain is already decided by scoring.js and is a property of
+  // the CONDITION, not of the transition: `ssl_not_available` is critical,
+  // `header_missing_strict_transport_security` is high, `header_malformed_*` and the
+  // validated `ssl_no_http_redirect` are medium. A fixed grade here would OVERWRITE
+  // the platform's own decision and flatten a critical transport failure into the
+  // same alert as a malformed header — and with `critical_only` live, flattening is
+  // how a customer stops hearing the thing that mattered.
+  //
+  // The evaluator supplies the scan's own severity as record_severity and as the
+  // recurrence_band, so a condition that WORSENS (medium → high on the same
+  // recurrence_type) is a transition in its own right and escalates — the PR-B2
+  // pattern. Absent or unrecognised fails closed like any unmapped recurrence, so an
+  // ungraded condition cannot alert at an invented grade.
+  //
+  // ONLY actionable conditions appear here. Recovery, baseline and unknown are
+  // deliberately ABSENT: they append lifecycle events for history and are
+  // structurally unable to alert (their event_type is not `monitoring_changed`, so
+  // findConditionOccurrence cannot match them). Absence here is the second,
+  // independent stop.
+  //
+  // NOT PRESENT, and must never be: the info/low grades this domain also emits —
+  // `security_headers_not_observed`, `header_weak_hsts`, `canonical_url_uncertain`,
+  // `tech_*`. They are evidence-quality signals, not customer events, and a
+  // downgrade to one of them means our evidence got weaker, not that anything
+  // was fixed. website-security-lifecycle.js records that as `unknown`.
+  website_security: Object.freeze({
+    transport_not_available:       INHERIT_SEVERITY,
+    insecure_redirect:             INHERIT_SEVERITY,
+    browser_protection_missing:    INHERIT_SEVERITY,
+    browser_protection_malformed:  INHERIT_SEVERITY,
+  }),
 });
 
 // Severity for a recurrence, or null when the recurrence is not mapped.

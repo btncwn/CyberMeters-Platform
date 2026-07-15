@@ -151,6 +151,17 @@ jobs:
       - name: Validate alert occurrence ordering (same-second tie-break = insertion order, mutation-tested)
         run: node scripts/validate-alert-occurrence-ordering.js
 
+      # Website Security is the 7th canonical alerting domain. Its events table is
+      # BRAND NEW, so alert_activation's baseline_count is 0 for every workspace and
+      # emitManagedAlert's firstEverCondition hatch would make an entire pre-existing
+      # backlog look "genuinely new by construction" — the per-domain baseline marker
+      # is the only thing stopping a tenant-wide false-alert incident on deploy day.
+      # Mutation-tested on both load-bearing guards: removing the flood guard alerts
+      # a 14-month backlog, and removing the module-completeness gate turns a
+      # timed-out probe into "the customer fixed it".
+      - name: Validate Website Security lifecycle (flood guard / unknown≠recovery / band escalation / reappearance, mutation-tested)
+        run: node scripts/validate-website-security-lifecycle.js
+
       - name: Validate evaluator/resolver parity (each engine emits a resolvable occurrence)
         run: node scripts/validate-alert-evaluator-parity.js
 
