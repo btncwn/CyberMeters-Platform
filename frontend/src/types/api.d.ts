@@ -206,3 +206,56 @@ export interface DomainVerification {
   txt_record?: string;
   verified?: boolean;
 }
+
+// The closed set of terminal outcomes from POST /api/domains/:id/verify. Every
+// response carries exactly one. Mirrors VERIFICATION_OUTCOMES in the Worker
+// (workers/scan-api/src/lib/domain-verification.js) — keep the two in step.
+export type DomainVerifyOutcome =
+  | 'already_verified'
+  | 'verified_dns_txt'
+  | 'verified_html_file'
+  | 'dns_not_found'
+  | 'dns_mismatch'
+  | 'dns_lookup_error'
+  | 'unauthorized'
+  | 'domain_link_not_found'
+  | 'workspace_ambiguous'
+  | 'no_token'
+  | 'persistence_zero_rows'
+  | 'persistence_unexpected_rows'
+  | 'persistence_confirmation_failed'
+  | 'internal_error';
+
+// Response of POST /api/domains/:id/verify.
+//
+// IMPORTANT: `verification_status: 'verified'` here is NOT a licence to show the
+// customer a verified state. It reports what the backend proved at the moment of
+// the write; the UI's trust contract requires a reread of the authoritative row
+// from GET /api/workspaces/:id/domains. See isAuthoritativeVerified() and
+// verifyResponseClaimsSuccess() in src/lib/newScanVerification.js.
+//
+// The identity fields on a success are re-read from the persisted workspace_domains
+// row, so they cannot describe a record that was not written. No token material is
+// returned on failure — the customer's record comes from the /verification init
+// response or GET /api/domains/:id.
+export interface DomainVerifyResult {
+  success: boolean;
+  verification_status?: 'verified' | 'failed';
+  outcome?: DomainVerifyOutcome;
+  request_id?: string;
+  domain?: string;
+  domain_id?: string;
+  workspace_id?: string;
+  /** Canonical method field. `verification_method` is the legacy alias. */
+  method?: string | null;
+  verification_method?: string | null;
+  /** Persisted timestamp, re-read from the row. Absent on every failure. */
+  verified_at?: string | null;
+  message?: string;
+  error?: string;
+  checks?: {
+    dns_txt?: { checked: boolean; host?: string; result?: string; error?: string | null };
+    html_file?: { checked: boolean; url?: string; result?: string; error?: string | null };
+  };
+  auto_recheck?: { enabled: boolean; method: string; interval: string; window_hours: number };
+}

@@ -158,6 +158,9 @@ jobs:
       - name: Validate workspace-scoped domain verification gate (scan-start + verification lifecycle)
         run: node scripts/validate-domain-verification-gate.js
 
+      - name: Validate domain-verification integrity (persistence proof + terminal observability + no token in telemetry)
+        run: node scripts/validate-domain-verification-integrity.js
+
       - name: Validate partial-scan honesty (provisional score/rating + current posture + trend gating)
         run: node scripts/validate-partial-scan-honesty.js
 
