@@ -43,6 +43,7 @@ import { correlateShadowItInventory } from "./shadow-it-inventory.js";
 import { correlateCertificateLifecycle } from "./certificate-lifecycle.js";
 import { correlateIdentityExposure } from "./identity-lifecycle.js";
 import { evaluateWebsiteSecurityForScan } from "./website-security-lifecycle.js";
+import { evaluateCyberEssentialsLifecycle } from "./ce-lifecycle.js";
 import { runTakeoverModule } from "./takeover-scan.js";
 import { runTechModule } from "./tech-scan.js";
 import { runVendorRelationshipModule } from "./vendor-relationship.js";
@@ -1147,6 +1148,26 @@ function buildCanonicalUrlProfile(modules) {
         });
       }
     } catch { /* non-fatal — lifecycle catches up on the next scan */ }
+
+    // Phase 8n: Cyber Essentials external-evidence lifecycle — re-assess the
+    // workspace's externally evidenced control-theme readiness now that a new scan
+    // has landed, and alert on genuine readiness transitions.
+    //
+    // Runs AFTER 8m so the scan's own evidence is in place. It reads the workspace's
+    // latest completed scan itself (buildCyberEssentialsReadiness), so it needs no
+    // findings passed in. CE had no evaluator anywhere before this — no cron task and
+    // no scan hook — which is why its verdict was compute-on-read only.
+    //
+    // Non-fatal.
+    try {
+      const ceWsRows = await env.cybermeters_db
+        .prepare('SELECT workspace_id FROM workspace_domains WHERE domain_id = ?')
+        .bind(domainId)
+        .all();
+      for (const { workspace_id } of (ceWsRows.results || [])) {
+        await evaluateCyberEssentialsLifecycle(env, workspace_id, { scanId });
+      }
+    } catch { /* non-fatal — readiness catches up on the next scan */ }
 
     // Phase 9: Asset Change Alert — one grouped email per workspace per scan.
     // Reads asset_events written by Phase 8, deduped via asset_alert_records.

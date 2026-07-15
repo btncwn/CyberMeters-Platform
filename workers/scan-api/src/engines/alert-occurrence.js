@@ -70,6 +70,11 @@ export const LIFECYCLE_EVENT_SOURCES = Object.freeze({
   // cannot collide (the engine mints the 'wsc-' prefix) and the marker is not a
   // `monitoring_changed` row, so the resolver cannot match it regardless.
   website_security:               { table: "website_security_events",       fk: "record_id",    type_column: "event_type" },
+  // Cyber Essentials (corrective phase): one record per (workspace, control theme).
+  // The fk carries control-record ids ('cec-…') and, for the workspace-level baseline
+  // marker only, a workspace_id — disjoint by the 'cec-' prefix, and the marker is not
+  // a `monitoring_changed` row in any case.
+  cyber_essentials_readiness:     { table: "cyber_essentials_events",        fk: "record_id",    type_column: "event_type" },
 });
 
 // The one vocabulary value that marks a condition transition, in every source.

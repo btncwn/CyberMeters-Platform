@@ -860,6 +860,8 @@ const WORKSPACE_PURGE_TABLES = [
   // conditions table (history must outlive the record it describes), so they are
   // purged on their own workspace_id ahead of it.
   "website_security_events", "website_security_conditions",
+  // Cyber Essentials lifecycle (mig 090). Events first: no FK to the records table.
+  "cyber_essentials_events", "cyber_essentials_control_records",
   // Cyber Essentials questionnaire answers. Customer-entered content — including
   // `note` (free text) and `answered_by` (a user id) — so it is customer data by
   // any reading, and the deletion email tells the owner it has been "permanently
