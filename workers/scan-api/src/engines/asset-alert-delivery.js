@@ -13,9 +13,23 @@ import { getEmailFrontendOrigin } from "../lib/lifecycle-email.js";
 // days would never succeed and would bury real failures, so it settles as 'skipped'
 // with an honest reason. A recipient LOOKUP failure is transient, so it stays
 // retryable.
+// Reasons that are a DECISION, not a transient failure. Recorded as `skipped` so
+// the hourly retry sweep (which matches `failed`) leaves them alone: retrying an
+// entitlement or an opt-out could never succeed, and would burn attempts hourly
+// while burying real failures. `feature_not_entitled` / `channel_disabled` /
+// `preference_filtered` joined this set when the alert gate moved into
+// sendTenantAlertEmail — without them a free workspace's suppressed alert would
+// have been retried forever.
+const SUPPRESSED_DELIVERY_REASONS = new Set([
+  "no_verified_recipient",
+  "feature_not_entitled",
+  "channel_disabled",
+  "preference_filtered",
+]);
+
 export function deliveryOutcome(delivery) {
   if (delivery.sent) return { status: "sent", error: null };
-  if (delivery.reason === "no_verified_recipient") return { status: "skipped", error: "no_verified_recipient" };
+  if (SUPPRESSED_DELIVERY_REASONS.has(delivery.reason)) return { status: "skipped", error: delivery.reason };
   return { status: "failed", error: delivery.reason || "send_failed" };
 }
 
@@ -139,7 +153,7 @@ export async function sendAssetChangeAlert(domainId, domain, scanId, env) {
         );
         // Tenant alert: recipients come from THIS workspace (verified, live) — never
         // the operator fallback. No verified audience => skipped + recorded, not sent.
-        const delivery = await sendTenantAlertEmail(env, workspace_id, { subject, text, html, fromKey: "ALERT_EMAIL_FROM" });
+        const delivery = await sendTenantAlertEmail(env, workspace_id, { subject, text, html, fromKey: "ALERT_EMAIL_FROM", severity });
         // Record the delivery outcome: a 'failed' row is what the hourly retry
         // cron (retryFailedAssetAlerts) picks up — without it the dedupe row
         // permanently swallows the alert. The INSERT above deliberately keeps
@@ -246,7 +260,7 @@ export async function retryFailedAssetAlerts(env) {
           row.severity || "info",
           frontendOrigin ? `${frontendOrigin}/assets` : null,
         );
-        const delivery = await sendTenantAlertEmail(env, row.workspace_id, { subject, text, html, fromKey: "ALERT_EMAIL_FROM" });
+        const delivery = await sendTenantAlertEmail(env, row.workspace_id, { subject, text, html, fromKey: "ALERT_EMAIL_FROM", severity: row.severity || "info" });
         // A missing verified audience is not a transient failure — retrying it forever
         // would never succeed, so it settles as 'skipped' (the sweep matches 'failed').
         const outcome = deliveryOutcome(delivery);

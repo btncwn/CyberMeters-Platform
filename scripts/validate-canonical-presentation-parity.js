@@ -138,8 +138,19 @@ const files = walk(S);
   ok("executive report V2 delegates to resolveAssessmentPresentation", /resolveAssessmentPresentation/.test(read("engines/executive-report.js")));
   ok("scan-report PDF delegates to resolveAssessmentPresentation", /resolveAssessmentPresentation/.test(read("engines/pdf.js")));
   // Score-drop alerts/emails only fire on a comparable (complete) delta.
+  //
+  // This counted TWO occurrences of the guard, because alerts.js held two
+  // score-drop implementations: the live one in processAlertsForWorkspace and a
+  // copy in shouldSendAlert — which was dead code (exported to nothing, called by
+  // nothing) and was removed in the Alert Trust Foundation. Counting guards in dead
+  // code proves nothing, so this now asserts the guard on the path that actually
+  // fires: every LIVE score-drop trigger must gate on comparability.
   const al = read("engines/alerts.js");
-  ok("score-drop alert is gated on comparability", (al.match(/comparable !== false/g) || []).length >= 2);
+  const liveScoreDrop = al.slice(al.indexOf("export async function processAlertsForWorkspace"));
+  ok("the live score-drop trigger is gated on comparability",
+     /score_change <= -10/.test(liveScoreDrop) && /comparable !== false/.test(liveScoreDrop));
+  ok("no score-drop trigger exists outside the live processor",
+     (al.match(/score_change <= -10/g) || []).length === 1);
 }
 
 // ── 6. Persistence: finalize + reconciler write scan_quality (D1↔R2 convergence) ─

@@ -39,26 +39,43 @@
 //     (getWorkspaceBillingUserId → getEffectivePlan → hasFeatureEntitlement) so
 //     Pricing Lockstep can rename or re-tier plans without touching alert logic.
 import { createId } from "../lib/util.js";
-import { deliverWorkspaceAlert, formatAlertEmail, resolveWorkspaceAlertRecipients, sendTenantAlertEmail } from "./alerts.js";
+import { deliverWorkspaceAlert, formatAlertEmail, sendTenantAlertEmail } from "./alerts.js";
 import { getEmailFrontendOrigin } from "../lib/lifecycle-email.js";
-import { getEffectivePlan, hasFeatureEntitlement } from "./entitlements.js";
-import { getWorkspaceBillingUserId } from "./plan-usage.js";
 import { isInCooldown, normalizeProviderOutcome, PROVIDER_OUTCOMES } from "./alert-outcomes.js";
+import { ALERTS_FEATURE_KEY, channelEnabledForWorkspace, GATED_CHANNELS, workspaceAlertsEntitled } from "./alert-gate.js";
 
-// The entitlement key is canonical and already declared in PLAN_FEATURES. Never
-// inline a plan name here.
-export const ALERTS_FEATURE_KEY = "alerts";
+// The entitlement and preference decisions now live in alert-gate.js so the legacy
+// senders in alerts.js can share them without a circular import (managed-alerts.js
+// already imports alerts.js). Re-exported here so existing importers and the
+// validators keep working against the same single definition.
+export { ALERTS_FEATURE_KEY, channelEnabledForWorkspace, workspaceAlertsEntitled };
 
 // Outbound channels this pipeline governs. `in_app` is deliberately absent: the
 // bell is the canonical record, not an outbound channel, and is never suppressed
 // by a preference or an entitlement.
-export const MONITORING_CHANNELS = Object.freeze(["email", "webhook", "slack", "teams"]);
+export const MONITORING_CHANNELS = GATED_CHANNELS;
+
+// Reasons the email chokepoint returns that are a DECISION, not a transport
+// failure: recorded as `suppressed` + terminal, never retried. Anything else that
+// comes back unsent is a real failure and goes through provider normalisation.
+const EMAIL_SUPPRESSION_REASONS = new Set([
+  "feature_not_entitled",
+  "channel_disabled",
+  "preference_filtered",
+  "no_verified_recipient",
+]);
 
 // Terminal: a decision, not a transient error. Retrying any of these would either
 // waste budget or override a deliberate rule (entitlement/preference).
 export const TERMINAL_REASONS = Object.freeze(new Set([
   "feature_not_entitled",
   "channel_disabled",
+  // The alert was real and the customer is entitled, but its severity is below the
+  // threshold they chose (`critical_only`). Distinct from channel_disabled — they
+  // did not silence the channel, they narrowed it — and terminal, because retrying
+  // would override a deliberate choice. `reason` is TEXT with no CHECK constraint,
+  // so adding it needed no migration; the vocabulary is enforced in code.
+  "preference_filtered",
   "no_verified_recipient",
   "workspace_deleted",
   "deduplicated",
@@ -87,6 +104,11 @@ export const RETRYABLE_REASONS = Object.freeze(new Set([
   // Derived from the canonical provider vocabulary so the two can never disagree.
   ...Object.entries(PROVIDER_OUTCOMES).filter(([, v]) => !v.terminal).map(([k]) => k),
   "recipient_lookup_failed",
+  // We could not establish the plan (a D1 error), which is NOT the same fact as
+  // "this workspace is not entitled". Recording the latter would assert something
+  // about the customer's billing we never checked, and would terminate an alert
+  // that deserves a retry. Retryable and distinct on purpose.
+  "entitlement_lookup_failed",
   "send_failed",
 ]));
 
@@ -206,50 +228,15 @@ async function workspaceIsLive(env, workspaceId) {
   return Boolean(row);
 }
 
-// Entitlement via the canonical chain — no plan names in this module.
-export async function workspaceAlertsEntitled(env, workspaceId) {
-  try {
-    const billingUserId = await getWorkspaceBillingUserId(workspaceId, null, env);
-    if (!billingUserId) return false;
-    const plan = await getEffectivePlan(billingUserId, env);
-    return hasFeatureEntitlement(plan, ALERTS_FEATURE_KEY);
-  } catch (err) {
-    // Fail CLOSED: if entitlement cannot be established we do not push. The
-    // canonical in-app event is already recorded, so the customer still sees the
-    // finding — they simply are not emailed off an unverified entitlement.
-    console.error("[managed-alert] entitlement check failed", JSON.stringify({ workspace_id: workspaceId, reason: err?.message }));
-    return false;
-  }
-}
-
-// Is this outbound channel enabled for this workspace?
+// Entitlement and channel-preference decisions live in alert-gate.js (imported and
+// re-exported above). They used to be defined here, which meant the legacy senders
+// in alerts.js could not reach them without a circular import — and so they simply
+// did not check, and free workspaces received paid alerts. One definition, shared.
 //
-// notification_preferences (mig 014) already has the right grain
-// (workspace_id, user_id, event_type, channel) and was fully built, routed and
-// surfaced in Settings — but no engine ever read it, so the UI's "Disabled" was a
-// lie. This is the read that makes it real.
-//
-// Default ON when no row exists: absence of a preference is not a preference, and
-// silently defaulting monitoring off would be its own dishonesty. A workspace-wide
-// row (user_id IS NULL) is the workspace default; a per-user row overrides it.
-export async function channelEnabledForWorkspace(env, workspaceId, { channel, event_type }) {
-  try {
-    const row = await env.cybermeters_db
-      .prepare(`SELECT enabled FROM notification_preferences
-                WHERE workspace_id = ? AND channel = ? AND user_id IS NULL
-                  AND event_type IN (?, 'all')
-                ORDER BY CASE WHEN event_type = ? THEN 0 ELSE 1 END
-                LIMIT 1`)
-      .bind(workspaceId, channel, event_type, event_type)
-      .first().catch(() => null);
-    if (!row) return true;
-    return Number(row.enabled) === 1;
-  } catch {
-    // A preference lookup failure must not silently push to a channel the
-    // customer may have disabled. Fail closed.
-    return false;
-  }
-}
+// The channel-preference read in particular was subtly broken here: it looked for
+// `event_type IN (<domain_key>.<recurrence>, 'all')`, a vocabulary nothing ever
+// wrote, so it always missed and defaulted ON — silently overriding an explicit
+// customer opt-out stored under the Settings vocabulary. See alert-gate.js.
 
 // ── The emitter ──────────────────────────────────────────────────────────────
 //
@@ -341,32 +328,35 @@ export async function emitManagedAlert(env, {
     }
 
     // 6 + 7 + 8. Email.
-    if (!(await channelEnabledForWorkspace(env, workspace_id, { channel: "email", event_type: kind }))) {
-      deliveries.push(await recordDelivery(env, { ...base, notification_id: notifId, channel: "email", outcome: "suppressed", reason: "channel_disabled" }));
-    } else {
-      const recipients = await resolveWorkspaceAlertRecipients(env, workspace_id);
-      if (!recipients.ok) {
+    //
+    // Audience, per-user preference and severity are ALL decided inside
+    // sendTenantAlertEmail — it is the one chokepoint, so this branch no longer
+    // pre-resolves recipients or second-guesses the preference. It maps the
+    // chokepoint's honest reason onto the ledger's closed vocabulary.
+    {
+      // Reuse the canonical escaped template — one alert-email body for every
+      // domain — and carry the monitoring-preference-centre link (a product
+      // setting, NOT a marketing unsubscribe).
+      const origin = getEmailFrontendOrigin(env);
+      const { text, html } = formatAlertEmail({
+        workspaceName: workspace_id,
+        domain: metadata.hostname || null,
+        whatChanged: message,
+        recommendation: metadata.recommended_action || "Review this alert in CyberMeters.",
+        link: link || (origin ? `${origin}/notifications` : null),
+        preferencesLink: origin ? `${origin}/settings` : null,
+      });
+      const sent = await sendTenantAlertEmail(env, workspace_id, {
+        subject: title, text, html, fromKey: "ALERT_EMAIL_FROM", severity,
+      });
+      if (!sent.sent && EMAIL_SUPPRESSION_REASONS.has(sent.reason)) {
+        // A deliberate rule decided this, not a transport failure. Terminal.
+        deliveries.push(await recordDelivery(env, { ...base, notification_id: notifId, channel: "email", outcome: "suppressed", reason: sent.reason }));
+      } else if (!sent.sent && sent.reason === "recipient_lookup_failed") {
         // Could not determine the audience — retryable, and explicitly NOT
         // "this workspace has nobody".
         deliveries.push(await recordDelivery(env, { ...base, notification_id: notifId, channel: "email", outcome: "failed", reason: "recipient_lookup_failed" }));
-      } else if (recipients.emails.length === 0) {
-        deliveries.push(await recordDelivery(env, { ...base, notification_id: notifId, channel: "email", outcome: "suppressed", reason: "no_verified_recipient" }));
       } else {
-        // Reuse the canonical escaped template — one alert-email body for every
-        // domain — and carry the monitoring-preference-centre link (a product
-        // setting, NOT a marketing unsubscribe).
-        const origin = getEmailFrontendOrigin(env);
-        const { text, html } = formatAlertEmail({
-          workspaceName: workspace_id,
-          domain: metadata.hostname || null,
-          whatChanged: message,
-          recommendation: metadata.recommended_action || "Review this alert in CyberMeters.",
-          link: link || (origin ? `${origin}/notifications` : null),
-          preferencesLink: origin ? `${origin}/settings` : null,
-        });
-        const sent = await sendTenantAlertEmail(env, workspace_id, {
-          subject: title, text, html, fromKey: "ALERT_EMAIL_FROM",
-        });
         // Normalize the transport's coarse outcome into the closed vocabulary so
         // the retry sweep can tell a 429 from a 403. Unknown => terminal.
         const norm = sent.sent ? null : normalizeProviderOutcome({ reason: sent.reason, status: sent.status, provider_code: sent.provider_code });
@@ -386,7 +376,12 @@ export async function emitManagedAlert(env, {
     // Channel fan-out (Slack/Teams/webhook) — one preference gate for the family,
     // then the existing signed/SSRF-validated sender. Best-effort by contract:
     // notification_events is the source of truth, channels are a convenience.
-    if (!(await channelEnabledForWorkspace(env, workspace_id, { channel: "webhook", event_type: kind }))) {
+    //
+    // The gate is read here to record the ledger reason, and enforced AGAIN inside
+    // deliverWorkspaceAlert (which every legacy path also goes through). The double
+    // check is deliberate: this one exists to explain the suppression, that one
+    // exists so no caller can skip it.
+    if (!(await channelEnabledForWorkspace(env, workspace_id, { channel: "webhook" }))) {
       deliveries.push(await recordDelivery(env, { ...base, notification_id: notifId, channel: "webhook", outcome: "suppressed", reason: "channel_disabled" }));
     } else {
       try {
@@ -504,7 +499,12 @@ export async function retryFailedAlertDeliveries(env, { now = new Date().toISOSt
         await recordDelivery(env, { ...row, outcome: "suppressed", reason: "feature_not_entitled", attempt: Number(row.attempt) + 1 });
         stats.terminated++; continue;
       }
-      if (!(await channelEnabledForWorkspace(env, row.workspace_id, { channel: row.channel, event_type: row.alert_kind }))) {
+      // Channel-family preference. Email is NOT gated here: it is per-recipient,
+      // and sendTenantAlertEmail below re-applies the preference and severity for
+      // every address at send time — re-checking a workspace-wide row for it would
+      // be the wrong grain and could contradict the chokepoint.
+      if (row.channel !== "email"
+          && !(await channelEnabledForWorkspace(env, row.workspace_id, { channel: row.channel }))) {
         await recordDelivery(env, { ...row, outcome: "suppressed", reason: "channel_disabled", attempt: Number(row.attempt) + 1 });
         stats.terminated++; continue;
       }
@@ -521,7 +521,23 @@ export async function retryFailedAlertDeliveries(env, { now = new Date().toISOSt
       const sent = await sendTenantAlertEmail(env, row.workspace_id, {
         subject: notif.title, text: notif.message, html: `<p>${String(notif.message || "")}</p>`,
         fromKey: "ALERT_EMAIL_FROM",
+        // From the ledger row, so a retry is filtered by the same severity rule
+        // the original send was. Omitting it would make every retry look
+        // unlabelled and silently drop `critical_only` recipients.
+        severity: row.severity,
       });
+      // A suppression from the chokepoint is a DECISION (not entitled / opted out /
+      // below their severity threshold / no verified audience). It must settle as
+      // terminal `suppressed`, never `failed` — a failed row is what this very
+      // sweep re-picks up, so recording a deliberate rule as a failure would retry
+      // it hourly until the attempt cap, burning budget and burying real failures.
+      if (!sent.sent && EMAIL_SUPPRESSION_REASONS.has(sent.reason)) {
+        await recordDelivery(env, {
+          ...row, outcome: "suppressed", reason: sent.reason, attempt: Number(row.attempt) + 1,
+        });
+        stats.terminated++;
+        continue;
+      }
       const rnorm = sent.sent ? null : normalizeProviderOutcome({ reason: sent.reason, status: sent.status, provider_code: sent.provider_code });
       await recordDelivery(env, {
         ...row, outcome: sent.sent ? "delivered" : "failed",

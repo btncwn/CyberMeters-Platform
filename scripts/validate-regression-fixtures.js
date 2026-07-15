@@ -2330,7 +2330,17 @@ results.push(await asyncSecurityContract("alert_delivery_signs_and_records_statu
     _sql: sql, bind(...args) { this._args = args; return this; },
     async all() { return { results: rows }; },
     async run() { if (this._sql.includes("UPDATE workspace_alert_channels")) updates.push(this._args); return { meta: { changes: 1 } }; },
-    async first() { return null; },
+    // deliverWorkspaceAlert is now entitlement-gated (the channel chokepoint —
+    // free plans get no Slack/Teams/webhook delivery), so this stub must present
+    // an entitled workspace to reach the signing/status behaviour under test.
+    // Entitlement resolves owner → subscription; users.plan is NOT consulted.
+    async first() {
+      if (this._sql.includes("FROM workspaces")) return { owner_user_id: "u1" };
+      if (this._sql.includes("FROM subscriptions")) {
+        return { plan: "professional", subscription_status: "active", current_period_end: "2099-01-01T00:00:00.000Z", payment_failed_at: null };
+      }
+      return null;
+    },
   }; } } };
   const fetchImpl = async (url, opts) => { calls.push({ url, opts }); return { ok: url.includes("slack") ? false : true, status: url.includes("slack") ? 500 : 200 }; };
   const res = await scanner.deliverWorkspaceAlert(env, "ws1", { kind: "test", title: "T", summary: "S" }, { fetchImpl });
@@ -3022,10 +3032,19 @@ results.push(await asyncSecurityContract("asset_alert_failed_delivery_recorded_f
         // The workspace's own verified recipient. Tenant alerts resolve their
         // audience from the workspace and never fall back to ALERT_EMAIL_TO, so
         // this fixture must supply one to reach the delivery path at all.
-        if (this._sql.includes("FROM workspaces")) return { results: [{ email: "owner@w1.example.com" }] };
+        if (this._sql.includes("FROM workspaces")) return { results: [{ user_id: "u1", email: "owner@w1.example.com" }] };
         return { results: [] };
       },
-      async first() { return null },
+      // Asset alerts now pass through the entitlement gate inside
+      // sendTenantAlertEmail, so an unentitled stub would short-circuit before
+      // the delivery path this contract is about. Present an entitled workspace.
+      async first() {
+        if (this._sql.includes("FROM workspaces")) return { owner_user_id: "u1" };
+        if (this._sql.includes("FROM subscriptions")) {
+          return { plan: "professional", subscription_status: "active", current_period_end: "2099-01-01T00:00:00.000Z", payment_failed_at: null };
+        }
+        return null;
+      },
       async run() {
         if (this._sql.includes("UPDATE asset_alert_records")) updates.push(this._b);
         return { meta: { changes: 1 } };
@@ -3055,10 +3074,19 @@ results.push(await asyncSecurityContract("asset_alert_cron_retry_resends_failed_
         }] };
         // The retried alert resolves the recording workspace's own verified
         // recipient — the retry must not resurrect the operator fallback.
-        if (this._sql.includes("FROM workspaces")) return { results: [{ email: "owner@w1.example.com" }] };
+        if (this._sql.includes("FROM workspaces")) return { results: [{ user_id: "u1", email: "owner@w1.example.com" }] };
         return { results: [] };
       },
-      async first() { return null },
+      // The retry re-applies the entitlement gate (it must not resend to a
+      // workspace that has since lost the feature), so an entitled stub is now a
+      // precondition for reaching the resend behaviour this contract asserts.
+      async first() {
+        if (this._sql.includes("FROM workspaces")) return { owner_user_id: "u1" };
+        if (this._sql.includes("FROM subscriptions")) {
+          return { plan: "professional", subscription_status: "active", current_period_end: "2099-01-01T00:00:00.000Z", payment_failed_at: null };
+        }
+        return null;
+      },
       async run() {
         if (this._sql.includes("UPDATE asset_alert_records") && !this._sql.includes("'pending'")) updates.push(this._b);
         return { meta: { changes: 1 } };

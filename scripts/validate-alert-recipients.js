@@ -25,6 +25,9 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const eng = (f) => pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", f)).href;
 const { resolveWorkspaceAlertRecipients, sendTenantAlertEmail, sendAlertEmail } = await import(eng("alerts.js"));
 const { deliveryOutcome } = await import(eng("asset-alert-delivery.js"));
+// The canonical retry vocabulary — asserted against rather than restated, so this
+// file cannot drift from the engine's own definition of what may be retried.
+const { RETRYABLE_REASONS } = await import(eng("managed-alerts.js"));
 
 let pass = 0, fail = 0;
 const ok = (n, c, d = "") => { c ? pass++ : fail++; if (!c) console.log(`FAIL ${n}${d ? " — " + d : ""}`); };
@@ -54,9 +57,28 @@ function makeD1(db) {
 const db = buildDb();
 
 // ── Seed: two live tenants + one soft-deleted + one with no verified audience ──
+// This file tests WHO may receive an alert (tenant scope, verification,
+// soft-delete). Entitlement is validate-alert-trust-foundation.js's job — but it
+// is now a precondition here, because sendTenantAlertEmail refuses an unentitled
+// workspace before it ever resolves recipients.
+//
+// Every workspace below is therefore entitled via a `subscriptions` row: that is
+// what getUserPlan actually reads. `users.plan` is stale compatibility data and is
+// deliberately NOT the source of truth (see validate-email-entitlement.js).
+//
+// Worth recording: this fixture seeded plan 'free' and every assertion still
+// passed, because sendTenantAlertEmail had no entitlement check at all. The suite
+// was quietly encoding the bypass — a free workspace being emailed was the
+// expected result.
 function user(id, email, verified) {
   db.prepare("INSERT INTO users (id, email, name, plan, created_at) VALUES (?, ?, ?, 'free', datetime('now'))").run(id, email, id);
   db.prepare("UPDATE users SET email_verified = ? WHERE id = ?").run(verified ? 1 : 0, id);
+  // Mirrors what the Stripe webhook writes; getUserPlan reads subscriptions by
+  // owner_user_id and treats a missing/non-active row as free.
+  db.prepare(`INSERT INTO subscriptions
+      (id, owner_user_id, plan, subscription_status, status, current_period_end, created_at, updated_at)
+    VALUES (?, ?, 'professional', 'active', 'active', datetime('now', '+30 days'), datetime('now'), datetime('now'))`)
+    .run(`sub_${id}`, id);
 }
 function workspace(ws, ownerId, { deleted = false } = {}) {
   db.prepare("INSERT INTO workspaces (id, owner_user_id, name) VALUES (?, ?, ?)").run(ws, ownerId, ws);
@@ -189,7 +211,16 @@ const withKey = { ...env, RESEND_API_KEY: "re_test" };
   globalThis.fetch = realFetch;
   ok("D1 error: nothing sent", r.sent === false);
   eq("D1 error: no operator fallback", sent.length, 0);
-  eq("D1 error: retryable reason surfaced", r.reason, "recipient_lookup_failed");
+  // The reason is now `entitlement_lookup_failed` rather than
+  // `recipient_lookup_failed`: with D1 down, the FIRST thing sendTenantAlertEmail
+  // cannot establish is the plan, and it says so precisely instead of blaming the
+  // recipient lookup it never reached. The assertion this test exists for is
+  // unchanged and is checked explicitly below — the reason must be RETRYABLE and
+  // must never be a permanent fact about the customer.
+  eq("D1 error: retryable reason surfaced", r.reason, "entitlement_lookup_failed");
+  ok("D1 error: the reason is retryable, not terminal", RETRYABLE_REASONS.has(r.reason));
+  ok("D1 error: never recorded as a permanent fact about the customer",
+     r.reason !== "feature_not_entitled" && r.reason !== "no_verified_recipient");
 }
 
 // ── 7. Delivery outcome mapping (retry only for transient failures) ──────────
