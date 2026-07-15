@@ -142,6 +142,31 @@ Create one canonical, reliable, deduplicated alert lifecycle across all eight do
 - **PR-C — minimum upstream for CE Readiness and Website Security** (they have no case creation or occurrence source today). Minimum for alerts only; NOT the full M5 lifecycle.
 - **PR-D — production acceptance and cleanup**, including the authenticated acceptance deferred from PR-A.
 
+### PR-B1 production safety result — PASS (15 July 2026, controlled scan)
+
+One founder-authorised scan of `cybermeters.com` in Turhan Workspace, on Worker `49c973a1-61a7-4039-acc8-51ae8cebbe8e`.
+
+**PR #98 production safety: PASS. No rollback.**
+
+Two alert emails were received (`new_vendor`, `supply_chain_risk_increase`). **Both were emitted by the legacy `processAlertsForWorkspace` path in `alerts.js`, NOT by the canonical managed-alert pipeline.** Evidence:
+
+- `domain_key` **NULL** on both (the canonical pipeline always sets it);
+- `dedupe_key` **NULL** on both (canonical dedupe is a DB guarantee);
+- `alert_activation` unchanged at **0**;
+- `alert_deliveries` unchanged at **0** (no ledger row = the canonical emitter never ran);
+- no `managed_case_events` `monitoring_changed` occurrence;
+- no canonical notification emitted.
+
+Findings recorded:
+
+1. **PR #98 caused no backlog flood and no unintended canonical alert.**
+2. **Email entitlement, recipient resolution and provider delivery worked end to end** — both emails `email_delivery: accepted` to the founder's verified address for an entitled workspace. This is PR-A's gate chain proven in production.
+3. **Canonical first-new-alert production acceptance remains OPEN**: the scan returned Attack Surface / Certificates / Brand all *Healthy*, so no case opened or transitioned, so no qualifying occurrence was minted and the canonical pipeline correctly stayed silent.
+4. **`new_vendor` and `supply_chain_risk_increase` remain legacy alert paths** and must be migrated to: append-only occurrence → stable occurrence id → activation/watermark → canonical ledger → delivery.
+5. **Raw current-state SQL must not invent canonical alerts.** `supply_chain_risk_increase` ("resilience score dropped from 32 to 20") is a score diff with no persisted occurrence — the exact shape this rule forbids.
+
+**A second scan was deliberately NOT run**: an unchanged re-scan exercises only the legacy 24-hour `isAlertDuplicate` window and would not prove canonical occurrence idempotency. Canonical acceptance closes only on a genuine Brand/ASM case open/reopen.
+
 ### PR-D authenticated production acceptance (deferred from PR-A)
 
 PR-A's contract is covered by 108 CI-blocking, mutation-tested assertions against the real engine, and its deploy was verified not to silence any live workspace. The authenticated checks below were **deferred, not skipped**: production has **no free-plan workspace, no enabled alert channel, no preference row and no alert_deliveries row**, and the canonical pipeline has never emitted in production — so there was nothing to observe, and manufacturing it would have meant fabricating production data. Founder decision, 15 July 2026.
