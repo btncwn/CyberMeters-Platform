@@ -24,6 +24,7 @@
 import { createManagedCase, canTransitionCase, canonicalPhaseFor } from "./managed-case-model.js";
 import { newCaseEventId } from "./case-workflow.js";
 import { assessRenewal, renewalRequiresCase } from "./certificate-policy.js";
+import { buildMonitoringTransitionDetail, isMonitoringTransition } from "./alert-occurrence.js";
 
 function newId(prefix) {
   const uuid = (globalThis.crypto?.randomUUID?.() || "").replace(/-/g, "");
@@ -366,6 +367,34 @@ export async function evaluateCertificateLifecycleMonitoring(env, workspaceId, {
     // Owner-missing transition event.
     if (ownership_status === "missing" && rec.ownership_status && rec.ownership_status !== "missing") {
       await appendEvent(env, rec, { event_type: "owner_missing", detail: { readiness: renewal.readiness } });
+    }
+
+    // ── Monitoring transition (append-only) ──────────────────────────────────
+    // Certificates was the one managed domain that persisted its monitoring
+    // decision without ever RECORDING the transition, so there was no stable
+    // answer to "when did this condition begin?" — only evaluated_at, which moves
+    // every hour. This appends that missing history.
+    //
+    // Only a real CHANGE is recorded: re-observing the same condition on the next
+    // hourly pass is not a new occurrence, and appending one would mint a fresh
+    // occurrence id and re-alert the same unchanged certificate every hour.
+    //
+    // The detail carries enough structured state for a consumer to match the
+    // current condition deterministically (see findConditionOccurrence).
+    const nextMonitoring = { monitoring_status: rec.monitoring_status, recurrence_type: recurrence_type === "none" ? null : recurrence_type };
+    if (isMonitoringTransition({ monitoring_status: rec.monitoring_status, recurrence_type: rec.recurrence_type }, nextMonitoring)) {
+      await appendEvent(env, rec, {
+        event_type: "monitoring_changed",
+        detail: buildMonitoringTransitionDetail({
+          from_monitoring_status: rec.monitoring_status ?? null,
+          to_monitoring_status: nextMonitoring.monitoring_status ?? null,
+          from_recurrence_type: rec.recurrence_type ?? null,
+          to_recurrence_type: nextMonitoring.recurrence_type,
+          required_case_action,
+          reason: monitoring_reason,
+          entity: rec.primary_hostname,
+        }),
+      }).catch(() => { /* history is best-effort; it must not break the evaluator */ });
     }
 
     await env.cybermeters_db

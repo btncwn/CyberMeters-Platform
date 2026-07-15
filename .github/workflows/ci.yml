@@ -101,6 +101,9 @@ jobs:
       - name: Validate canonical managed-alert pipeline (entitlement / preferences / dedupe / ledger)
         run: node scripts/validate-managed-alerts.js
 
+      - name: Validate alert occurrence identity (append-only event = condition start)
+        run: node scripts/validate-alert-occurrence.js
+
       - name: Validate hosted DMARC lifecycle (pass-rate + readiness + auto-rollback runtime)
         run: node scripts/validate-hosted-dmarc-lifecycle.js
 
