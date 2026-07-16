@@ -1493,6 +1493,21 @@ export const api = {
   /** GET /api/portfolio/executive-summary — portfolio-level exec summary */
   getPortfolioExecutiveSummary: () => request('/portfolio/executive-summary'),
 
+  /**
+   * GET /api/portfolio/domains — per-domain state + trend across all eight Cyber MOT
+   * domains. params: { limit, offset, sort, filter, domain_key, state }
+   */
+  getPortfolioDomains: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== ''),
+    ).toString()
+    return request(`/portfolio/domains${q ? `?${q}` : ''}`)
+  },
+
+  /** GET /api/portfolio/domains/:workspaceId/:domainId — detail + history series */
+  getPortfolioDomainDetail: (workspaceId, domainId) =>
+    request(`/portfolio/domains/${encodeURIComponent(workspaceId)}/${encodeURIComponent(domainId)}`),
+
   // ── Account Security ──────────────────────────────────────────────────────
 
   /** GET /api/account/login-history */

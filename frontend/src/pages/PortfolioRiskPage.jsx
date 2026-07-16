@@ -1,6 +1,6 @@
 import { parseServerDate } from '../utils/dates'
 import { useCallback, useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import {
   AlertTriangle, ArrowRight, CheckCircle2, GitBranch,
   RefreshCw, Shield, TrendingDown, TrendingUp, Users,
@@ -340,9 +340,17 @@ export default function PortfolioRiskPage() {
             Multi-customer risk intelligence for MSPs and security teams.
           </p>
         </div>
-        <button onClick={load} className="btn-ghost flex items-center gap-1.5">
-          <RefreshCw className="w-4 h-4" /> Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Reachability, not a navigation redesign: neither portfolio page is in the
+              sidebar today, so without this link the per-domain view exists only at a URL
+              nobody is given. The broader eight-domain navigation work is M5's. */}
+          <Link to="/portfolio/domains" className="btn-secondary text-xs">
+            Domain state &amp; trend →
+          </Link>
+          <button onClick={load} className="btn-ghost flex items-center gap-1.5">
+            <RefreshCw className="w-4 h-4" /> Refresh
+          </button>
+        </div>
       </div>
 
       {data && (
