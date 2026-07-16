@@ -208,6 +208,13 @@ jobs:
       - name: Validate portfolio read purity (GET /api/portfolio/risk performs no domain write)
         run: node scripts/validate-portfolio-read-purity.js
 
+      # A null portfolio score failed every `>=` in the summary's band ladder and fell
+      # through to 'serious', publishing "serious overall risk (portfolio score:
+      # null/100)" for a portfolio with no assessments. Absent evidence is not a verdict
+      # — in either direction.
+      - name: Validate portfolio score honesty (absent evidence never becomes a risk verdict)
+        run: node scripts/validate-portfolio-score-honesty.js
+
       - name: Validate hosted DMARC lifecycle (pass-rate + readiness + auto-rollback runtime)
         run: node scripts/validate-hosted-dmarc-lifecycle.js
 

@@ -9,23 +9,25 @@ import { api } from '../api'
 import StatCard from '../components/StatCard'
 import RiskBadge from '../components/RiskBadge'
 import { PlanGate } from '../components/PlanUsageCard'
+import {
+  scoreBandMeta, scoreStateMeta, toneClass, hasRenderableScore, scoreOutOfHundred,
+} from '../lib/portfolioScoreDisplay'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+// Colours a score. The `== null` guard let NaN through — NaN fails every `>=`, so a
+// non-finite score was painted red, the most alarming colour on the page, purely by
+// falling off the end of a ternary chain. `hasRenderableScore` is finite-checked.
 function scoreColor(score) {
-  if (score == null) return '#9CA3AF'
+  if (!hasRenderableScore(score)) return '#9CA3AF'
   if (score >= 75) return '#00876A'
   if (score >= 55) return '#22C55E'
   if (score >= 35) return '#F59E0B'
   return '#EF4444'
 }
 
-function riskBandLabel(band) {
-  return { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low', unknown: '—' }[band] ?? band ?? '—'
-}
-
 function ScoreBar({ score, max = 100 }) {
-  const pct = score == null ? 0 : Math.max(0, Math.min(100, (score / max) * 100))
+  const pct = !hasRenderableScore(score) ? 0 : Math.max(0, Math.min(100, (score / max) * 100))
   return (
     <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden w-full">
       <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: scoreColor(score) }} />
@@ -65,7 +67,9 @@ function PortfolioScoreRing({ score }) {
   const size = 100
   const r = (size - 12) / 2
   const circ = 2 * Math.PI * r
-  const dash = score == null ? 0 : circ * (score / 100)
+  // NaN would produce strokeDasharray="NaN NaN" (invalid, silently ignored) over a red
+  // stroke — an empty ring that still reads as alarm.
+  const dash = !hasRenderableScore(score) ? 0 : circ * (score / 100)
   const color = scoreColor(score)
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
@@ -78,7 +82,7 @@ function PortfolioScoreRing({ score }) {
         transform={`rotate(-90 ${size / 2} ${size / 2})`}
       />
       <text x={size / 2} y={size / 2 + 5} textAnchor="middle" fontSize={18} fontWeight="700" fill="#111827">
-        {score ?? '—'}
+        {hasRenderableScore(score) ? score : '—'}
       </text>
     </svg>
   )
@@ -115,8 +119,18 @@ function RiskRankingsTable({ rankings, onWorkspaceClick }) {
                 <ScoreBar score={r.brs_score} />
               </td>
               <td className="py-2.5 pr-4">
-                <span className="font-bold text-gray-900">{r.brs_score ?? '—'}</span>
-                <span className="text-gray-400 text-xs">/100</span>
+                {/* `/100` was unconditional beside a `?? '—'`, rendering "—/100" — a
+                    denominator for a numerator that does not exist. No score, no fraction. */}
+                {hasRenderableScore(r.brs_score) ? (
+                  <>
+                    <span className="font-bold text-gray-900">{r.brs_score}</span>
+                    <span className="text-gray-400 text-xs">/100</span>
+                  </>
+                ) : (
+                  <span className="text-gray-400 text-sm" title="No completed assessment for this customer environment yet">
+                    Not assessed
+                  </span>
+                )}
               </td>
               <td className="py-2.5 pr-4">
                 <RiskBadge level={r.risk_band} />
@@ -344,7 +358,11 @@ export default function PortfolioRiskPage() {
           {/* KPI row */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
             <StatCard icon={Users}         label="Customers Monitored" value={data.workspace_count ?? 0} />
-            <StatCard icon={Shield}        label="Portfolio Score"      value={data.portfolio_score ?? '—'} />
+            <StatCard
+              icon={Shield}
+              label="Portfolio Score"
+              value={hasRenderableScore(data.portfolio_score) ? data.portfolio_score : '—'}
+            />
             <StatCard
               icon={AlertTriangle}
               label="High Risk"
@@ -369,15 +387,37 @@ export default function PortfolioRiskPage() {
                 <p className="font-semibold text-gray-900">Portfolio Score</p>
                 <p className="text-xs text-gray-400 mt-0.5">Average BRS across all customers</p>
               </div>
-              {data.portfolio_score != null && (
-                <span className={`text-xs font-semibold px-3 py-1 rounded-full capitalize ${
-                  data.portfolio_score >= 75 ? 'bg-brand-50 text-brand-700' :
-                  data.portfolio_score >= 55 ? 'bg-amber-50 text-amber-700' :
-                  data.portfolio_score >= 35 ? 'bg-orange-50 text-orange-700' :
-                  'bg-red-50 text-red-700'
-                }`}>
-                  {data.portfolio_score >= 75 ? 'Healthy' : data.portfolio_score >= 55 ? 'Moderate' : data.portfolio_score >= 35 ? 'Elevated' : 'Serious'}
-                </span>
+              {/* The band is the BACKEND's verdict, not a second ladder derived here.
+                  This block used to re-implement `>= 75 / >= 55 / >= 35` locally; when
+                  no score exists the backend sends band `null` and there is simply
+                  nothing to render — the state chip below carries the explanation. */}
+              {(() => {
+                const band = scoreBandMeta(data.portfolio_score_band)
+                if (!band) return null
+                return (
+                  <span className={`text-xs font-semibold px-3 py-1 rounded-full ${toneClass(band.tone)}`}>
+                    {band.label}
+                  </span>
+                )
+              })()}
+
+              {/* Why the score is what it is — or why there isn't one. An empty ring with
+                  no explanation is a shrug; `portfolio_score_reason` is the backend's
+                  attributable answer and is always rendered, including for `partial`,
+                  where a real score speaks for only part of the portfolio. */}
+              {data.portfolio_score_state && (
+                <div className="flex flex-col items-center gap-1.5 mt-1">
+                  <span
+                    className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full ${toneClass(scoreStateMeta(data.portfolio_score_state).tone)}`}
+                  >
+                    {scoreStateMeta(data.portfolio_score_state).label}
+                  </span>
+                  {data.portfolio_score_reason && (
+                    <p className="text-[11px] text-gray-500 text-center leading-snug max-w-[15rem]">
+                      {data.portfolio_score_reason}
+                    </p>
+                  )}
+                </div>
               )}
             </div>
 
