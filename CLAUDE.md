@@ -2,7 +2,7 @@
 
 Version: July 2026
 
-Last updated: 16 July 2026 (release v2026.07.16-15; active canonical episode: M5 Completion Across All Eight Domains — in progress)
+Last updated: 16 July 2026 (release v2026.07.16-16; active canonical episode: M5 Completion Across All Eight Domains — in progress)
 
 ---
 
@@ -250,9 +250,9 @@ Do not claim that CyberMeters performs a customer, provider, registrar, certific
 
 Current release facts (as of 16 July 2026):
 
-- latest release tag: `v2026.07.16-15` (CE Questionnaire Hygiene — one shared set, versioned answers — deployed);
-- live Worker Version ID: `da576ff2-b8d6-47cf-a342-42a83ea750d9` (built from `4e6f2ee`);
-- rollback Worker Version ID: `1ebf34f0-7576-4a1b-9324-fe78750c0904` (v2026.07.16-14);
+- latest release tag: `v2026.07.16-16` (M5.b — Certificates verify by observation — deployed);
+- live Worker Version ID: `366bd540-f819-4814-84c7-5458186c1106` (built from `a845a84`);
+- rollback Worker Version ID: `da576ff2-b8d6-47cf-a342-42a83ea750d9` (v2026.07.16-15);
 - latest migration applied to production: `092-ce-answer-question-set-version.sql` (applied 16 July 2026; `v2026.07.16-6` through `-14` carried no migration);
 - active canonical episode: M5 Completion Across All Eight Domains (in progress).
 

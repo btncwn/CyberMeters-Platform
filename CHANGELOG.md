@@ -5,6 +5,53 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.16-16 (M5.b — Certificates verify by observation, never by assertion) — deployed 2026-07-16
+
+- **Live Worker Version ID:** `366bd540-f819-4814-84c7-5458186c1106` (main `a845a84`)
+- **Rollback Worker Version ID:** `da576ff2-b8d6-47cf-a342-42a83ea750d9` (v2026.07.16-15)
+- **Remote D1 migrations applied:** none — no schema change (latest remains `092`).
+- **Pages:** unaffected (no frontend change).
+- **PR:** #141
+
+Two live defects, reproduced before any edit:
+
+- a customer could **attest an EXPIRED certificate "verified"**, though the registry says
+  `certificate_recheck` and CyberMeters re-observes certificates on every scan;
+- a customer could **attest a Certificate Transparency BLACKOUT resolved**, though the
+  registry says `unsupported` — nothing can verify it. The product accepted an attestation
+  for something it had explicitly declared unverifiable. `v2026.07.16-6` fixed a CT blackout
+  being READ as healthy; the CASE stayed attestable.
+
+`certificate_case` carried a blanket `manual`, but Certificates & Trust holds SIX
+verification methods across ten remediations — the most diverse domain on the platform — so
+the blanket was wrong in both directions at once.
+
+An honest verifier already existed and was never connected: `buildVerificationEvidence`
+requires a NEW, distinct, expiry-advanced certificate on the expected hostnames with
+acceptable coverage, and wrote `certificate_lifecycle.verification_status` while never
+touching the case. The record said "not verified"; the case said "verified"; both were live.
+That is the reconciliation M5.b names.
+
+Support is now derived per finding (the `v2026.07.16-10` contract extended, not a new
+semantic): seven observable findings are `automated` and refuse a customer attestation;
+`cert.ct_incomplete` is `unsupported` and nobody verifies it, not even CyberMeters; and
+`cert.ca_concentration` / `cert.anomaly.review` stay `manual`, where attestation is the
+honest ceiling. Because `automated` would otherwise leave the seven unverifiable forever,
+the system verifier is wired: a genuine observed replacement verifies the linked case as the
+SYSTEM actor, carrying the lifecycle's own evidence unchanged. The customer asking us to
+look is not the customer verifying.
+
+`identity_case` and `shadow_it_case` are deliberately NOT registry-derived, and that was
+checked rather than assumed: every one of their findings is `manual_attestation`, so the
+blanket already agrees with the registry. A CI guard fails if either ever gains an
+observable finding.
+
+**Production proof:** `/health` polled to 6 consecutive reads of `366bd540` (it flapped
+across PoPs for several reads before settling); `/ready` d1+r2 true; the certificate
+lifecycle route returns a customer-safe `401` unauthenticated — live and auth-gated, which
+is NOT proof of the authenticated workflow. No customer case, alert or email was
+manufactured.
+
 ## 2026.07.16-15 (CE Questionnaire Hygiene — one shared set, versioned answers) — deployed 2026-07-16
 
 - **Live Worker Version ID:** `da576ff2-b8d6-47cf-a342-42a83ea750d9` (main `4e6f2ee`)
