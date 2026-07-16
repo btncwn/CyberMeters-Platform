@@ -1676,7 +1676,12 @@ export function buildExecutivePdf(pdfData) {
     for (const [catLabel, catKey] of catDisplay) {
       if (y < 90) break;
       const catData  = ceCategories.find(c => c.key === catKey) ?? null;
-      const catScore = catData?.score ?? null;
+      // A control area the product cannot observe from outside publishes NO number and NO
+      // band. It is still printed — hiding it would be its own dishonesty — but it says what
+      // it is. This page used to print "Access Control 100/100" in green off the back of an
+      // SPF record, which is a claim about a control CyberMeters has never seen.
+      const catAssessable = catData ? catData.assessable !== false : true;
+      const catScore = catAssessable ? (catData?.score ?? null) : null;
       // Derive status from score: >=80 good, >=60 fair, >=40 warning, else critical
       const catStatus= catScore == null ? 'unknown'
                      : catScore >= 80 ? 'good' : catScore >= 60 ? 'fair'
@@ -1691,12 +1696,20 @@ export function buildExecutivePdf(pdfData) {
       if (catScore != null) {
         pg.fillRect(ML + 192, y - 20, Math.max(2, Math.round(barW * catScore / 100)), 8, catColor);
         pg.text(`${catScore}/100`, ML + 192 + barW + 6, y - 14, 8, 'B', catColor);
+      } else if (!catAssessable) {
+        // The honest ceiling, in words, with no bar and no colour to read a verdict off.
+        pg.text('Not externally assessable — self-attestation only', ML + 192, y - 14, 7.5, 'R', C.mgray);
       } else {
         pg.text('No data', ML + CW - 55, y - 14, 8, 'R', C.mgray);
       }
       y -= 28;
     }
     y -= 8;
+    // The denominator, printed next to the breakdown it qualifies.
+    if (ce.external_coverage_statement && y > 80) {
+      y = drawWrapped(pg, ce.external_coverage_statement, ML, y, CW, 7.5, 'R', C.mgray, 3, 10);
+      y -= 4;
+    }
 
     // Top gaps
     const topGaps = Array.isArray(ce.top_gaps) ? ce.top_gaps : [];

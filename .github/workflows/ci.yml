@@ -132,6 +132,14 @@ jobs:
       - name: Validate M5.a Cyber Essentials managed cases (final M5.a vertical)
         run: node scripts/validate-m5a-ce-cases.js
 
+      # CE readiness honesty. access_control and malware_protection declare
+      # external_coverage: none, and were scored/banded/flagged externally_assessed from
+      # SPF/DKIM/DMARC — email authentication is not evidence of user access control, and not
+      # evidence of endpoint malware protection. Mutation-tested end to end (builder, PDF,
+      # frontend) plus the arithmetic denominator.
+      - name: Validate Cyber Essentials readiness honesty (no proxy scoring)
+        run: node scripts/validate-ce-readiness-honesty.js
+
       # Mutation proof for the 2026-07-16 alerting repair. Two guards in this repo were
       # named for coverage they never executed, so the suites above are themselves proved
       # load-bearing here: each defect is reintroduced and must reappear.
