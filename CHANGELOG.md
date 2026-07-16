@@ -5,6 +5,86 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.16-9 (M5 read surfaces — mig 088/089/090 were write-only) — deployed 2026-07-16
+
+- **Live Worker Version ID:** `3ad513ee-bec5-4634-963f-eb08c57d7a43` (main `62b7272`)
+- **Rollback Worker Version ID:** `db190243-5f44-4f70-ab4f-ecfe0427b8b7` (v2026.07.16-8)
+- **Pages deployment:** `5d56ebe7-3502-434f-ad7e-dfca05ca8b27` (Production, from `62b7272`)
+- **Remote D1 migrations applied:** none — no schema change.
+- **PRs:** #127 (read APIs) · #128 (surfaces + alert deep links)
+
+Mapping confirmed **from the repo**, not the migration names: 088 = Email Protection
+(`email_protection_events`, events only — no state table), 089 = Website Security
+(`website_security_conditions` + `_events`), 090 = Cyber Essentials
+(`cyber_essentials_control_records` + `_events`).
+
+**All three shipped a lifecycle that WRITES records and ALERTS on them, with no way for a
+customer to read them.** 089 had zero routes, both engine read helpers at zero callers, no
+page, no nav entry and no api.js method. 090's `listCeControlRecords` had zero callers
+repo-wide. 088 had no read helper at all, and the four lifecycle columns it added to
+`email_sender_sources` are stripped before they leave the API. A record is not
+customer-visible merely because it exists in D1.
+
+**The alert symptom, located exactly:** 0 of 6 `emitLifecycleAlert` calls passed a `link`,
+so `managed-alerts.js` fell back to `${origin}/notifications` — a customer told their
+hosted DMARC record had disconnected, at `high`, landed on a generic list. The in-app card
+was worse: `NotificationsPage` derived a destination only from `metadata.scan_id`/
+`report_id` and never read `metadata.link`, so lifecycle alerts rendered `cursor-default`
+and went nowhere while the same alert's email carried a link.
+
+**Read APIs** (one style, matching `routes/certificates-lifecycle.js` — auth → role →
+workspace gate → record; foreign ≡ nonexistent; `scope_note` on every response):
+`GET /website-security/conditions[/:id]`, `GET /cyber-essentials/controls[/:id]`,
+`GET /email-protection/lifecycle`. Email is shaped differently because mig 088 is — it
+created no state table, so the resource is the history itself.
+
+**Reuse meant fixing first.** The zero-caller helpers could not simply be called: `SELECT *`
+(would have served `evaluated_at`, documented diagnostic-only), no `LIMIT` (unbounded), and
+`ORDER BY last_seen_at DESC` alone (ties on every condition seen in the same scan). Each
+now has a serializer deciding once what a customer may see, a bound, and a deterministic
+order. Pagination uses the shared `lib/util.js` contract, which util.js documents as "every
+list endpoint" and only 2 of 14 routes honoured.
+
+**Alert deep links** are built in ONE place (`lifecycleRecordLink`), not at six call sites,
+and every target is asserted to be a route `App.jsx` actually declares. Domains with no
+read surface resolve to null — honest, since the notifications list is where the customer
+would have gone anyway.
+
+**Honesty is rendered, not asserted.** `unknown` is styled neutral and captioned "This is
+not a fix", never green. CE coverage shows on every control because two of the five are
+permanently `not_externally_assessable`; no CE control can render "verified" — there is no
+such state in the vocabulary. The CE external-evidence section is a separate block with a
+separate vocabulary from the self-assessment: merging them is how a self-attested answer
+starts looking verified.
+
+**A locked product model the tests defended.** Website Security was first added as a FIFTH
+sidebar service; `WorkspaceNav.test.jsx` asserts "exactly the four services" and
+`SERVICE_COLORS` has four keys. A fifth service is a founder-level product decision, not
+something to slip in behind a read surface. Reverted to a sub-item of Attack Surface,
+following the precedent already set for Identity Exposure.
+
+**Three decorative guards of my own, caught by mutation and fixed:** the deep-link guard
+checked a hardcoded path rather than the one the link points at (so a link to a nonexistent
+route passed); the metadata guard matched the top-level `link:` argument too (so deleting
+the metadata field left it green and the card dark); and a soft-delete test asserted 404
+when the real behaviour is 403 (`requireWorkspaceRole` gets there first — the route gate
+only closes the delete-between-checks window).
+
+**Validation:** 103/103 CI validators · new `validate-m5-read-surfaces.js` (100 assertions,
+CI-blocking) drives the REAL Worker over the real schema · frontend 261 tests + build +
+playwright · regression 227/227 · tenant isolation green · exact-HEAD CI confirmed on
+`324b059` (#127) and `4b3d6a1` (#128).
+
+**Production proof:** propagation flapped across edge PoPs, so the version was polled until
+6 consecutive reads served `3ad513ee`. `/ready` d1+r2 true. All three new routes return
+`401` (mounted and auth-gated, nothing enumerated). `app.cybermeters.com/ws/website-security`
+200. No customer alert was manufactured: every test ran against in-memory SQLite with
+`fetch` stubbed, and the smoke is unauthenticated and observation-only.
+
+**Not closed by this increment:** case creation for Email/Website/CE (so `linked_case_id`
+is still always null for 089/090 and the API must not imply a case exists), ownership and
+verification workflows beyond honest read display, and the maturity ledger.
+
 ## 2026.07.16-8 (Occurrence resolver — correct at any lifecycle age) — deployed 2026-07-16
 
 - **Live Worker Version ID:** `db190243-5f44-4f70-ab4f-ecfe0427b8b7` (main `d63f422`)

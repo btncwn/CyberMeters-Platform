@@ -2,7 +2,7 @@
 
 Version: July 2026
 
-Last updated: 16 July 2026 (release v2026.07.16-8; active canonical episode: M5 Completion Across All Eight Domains — in progress)
+Last updated: 16 July 2026 (release v2026.07.16-9; active canonical episode: M5 Completion Across All Eight Domains — in progress)
 
 ---
 
@@ -250,10 +250,10 @@ Do not claim that CyberMeters performs a customer, provider, registrar, certific
 
 Current release facts (as of 16 July 2026):
 
-- latest release tag: `v2026.07.16-8` (occurrence resolver — correct at any lifecycle age — deployed);
-- live Worker Version ID: `db190243-5f44-4f70-ab4f-ecfe0427b8b7` (built from `d63f422`);
-- rollback Worker Version ID: `029ee0b9-15e3-4761-84e6-9b7e28743842` (v2026.07.16-7);
-- latest migration applied to production: `091-cyber-mot-domain-states.sql` (unchanged — none of `v2026.07.16-6`, `-7` or `-8` carried a migration);
+- latest release tag: `v2026.07.16-9` (M5 read surfaces for mig 088/089/090 — deployed);
+- live Worker Version ID: `3ad513ee-bec5-4634-963f-eb08c57d7a43` (built from `62b7272`);
+- rollback Worker Version ID: `db190243-5f44-4f70-ab4f-ecfe0427b8b7` (v2026.07.16-8);
+- latest migration applied to production: `091-cyber-mot-domain-states.sql` (unchanged — none of `v2026.07.16-6` through `-9` carried a migration);
 - active canonical episode: M5 Completion Across All Eight Domains (in progress).
 
 **M5 is under way.** Its pre-change parity audit across all eight domains found four false
@@ -283,11 +283,18 @@ exact but the harm was not — dedupe masked it and genuine recurrences still al
 than on lifecycle state. Still outstanding there: the per-pass case-linkage row is written
 once per evaluation and records no new fact (~8,760 rows/item/year).
 
-The remaining M5 increments are **planned, not started**: the read surfaces for migrations
-088/089/090, case creation for Email Protection / Website Security / Cyber Essentials, and
-the per-domain maturity ledger. The ledger is corrected **last**: it is wrong in every row today and most rows
-*under*-claim, so raising it before the underlying gaps close would make the declaration
-lie in the opposite direction.
+The **read surfaces are also delivered** (`v2026.07.16-9`): migrations 088, 089 and 090 each
+wrote durable records and alerted on them with no way for a customer to read them — 089 had
+no page, route or API method at all, and 0 of 6 lifecycle alerts carried a deep link. All
+three now have a canonical read API, a customer surface, and an alert link that resolves to
+a route that exists.
+
+The remaining M5 increments are **planned, not started**: case creation for Email
+Protection / Website Security / Cyber Essentials (so `linked_case_id` is still always null
+for 089/090 and no surface may imply a case exists), ownership and verification workflows
+beyond honest read display, and the per-domain maturity ledger. The ledger is corrected
+**last**: it is wrong in every row today and most rows *under*-claim, so raising it before
+the underlying gaps close would make the declaration lie in the opposite direction.
 
 **All eight canonical domains alert through the canonical pipeline.** The earlier
 six-of-eight closure (`v2026.07.15-2`) was premature and is superseded — it deferred

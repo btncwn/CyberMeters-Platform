@@ -4,7 +4,7 @@
 
 Version: July 2026
 
-Last updated: 16 July 2026 (release v2026.07.16-8; active canonical episode: M5 Completion Across All Eight Domains — in progress)
+Last updated: 16 July 2026 (release v2026.07.16-9; active canonical episode: M5 Completion Across All Eight Domains — in progress)
 
 ---
 
@@ -110,10 +110,10 @@ CyberMeters manages and verifies the lifecycle where externally observable evide
 
 Current release facts (as of 16 July 2026):
 
-- latest release tag: `v2026.07.16-8` (occurrence resolver — correct at any lifecycle age — deployed);
-- live Worker Version ID: `db190243-5f44-4f70-ab4f-ecfe0427b8b7` (built from `d63f422`);
-- rollback Worker Version ID: `029ee0b9-15e3-4761-84e6-9b7e28743842` (v2026.07.16-7);
-- latest migration applied to production: `091-cyber-mot-domain-states.sql` (unchanged — none of `v2026.07.16-6`, `-7` or `-8` carried a migration);
+- latest release tag: `v2026.07.16-9` (M5 read surfaces for mig 088/089/090 — deployed);
+- live Worker Version ID: `3ad513ee-bec5-4634-963f-eb08c57d7a43` (built from `62b7272`);
+- rollback Worker Version ID: `db190243-5f44-4f70-ab4f-ecfe0427b8b7` (v2026.07.16-8);
+- latest migration applied to production: `091-cyber-mot-domain-states.sql` (unchanged — none of `v2026.07.16-6` through `-9` carried a migration);
 - active canonical episode: M5 Completion Across All Eight Domains (in progress).
 
 **All eight canonical domains alert through the canonical pipeline.** The earlier
