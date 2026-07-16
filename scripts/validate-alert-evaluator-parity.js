@@ -52,12 +52,17 @@ function makeD1(db) {
 }
 
 const db = buildDb();
-// Occurrence-shaped events ONLY. `monitoring_changed` is deliberately overloaded in
-// these engines: it also records "reappeared", "no_longer_observed" and case-linkage
-// ({case_id, recurrence, updated_case}). Only an event carrying to_recurrence_type is
-// an OCCURRENCE. Counting the raw event_type conflates facts and would mis-read the
-// case-linkage row as a second occurrence — which is precisely why the resolver
-// matches on the payload, not the type.
+// Occurrence-shaped events ONLY. `monitoring_changed` is still overloaded in these
+// engines: it also records "reappeared" and "no_longer_observed" (shadow-it-inventory.js,
+// identity-lifecycle.js). Only an event carrying to_recurrence_type is an OCCURRENCE, so
+// counting the raw event_type conflates facts — which is why the resolver matches on the
+// payload, not the type alone.
+//
+// The case-linkage row ({case_id, recurrence, updated_case}) used to be in that list too,
+// under `monitoring_changed`, appended once per evaluation pass for as long as a condition
+// persisted. It is now `case_recurrence_noted` in all three domains that wrote it. This
+// filter is unchanged by that — the row never carried to_recurrence_type, so it was never
+// counted here — but the reason it exists is now narrower than it was.
 function occurrenceEvents(table, fk, id) {
   return db.prepare(`SELECT * FROM ${table} WHERE ${fk}=? AND event_type='monitoring_changed'`).all(id)
     .filter((e) => { try { return JSON.parse(e.detail_json || "{}").to_recurrence_type != null; } catch { return false; } });

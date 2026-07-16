@@ -231,6 +231,218 @@ async function consume(ws, recordId, recurrence, { domain_key = "certificates_tr
   ok("occurrence resolution only reads the append-only events table", src.includes("monitoring_changed"));
 }
 
+// ── 8. CORRECT AT ANY LIFECYCLE AGE — an event window is not lifecycle state ──
+// THE DEFECT THIS EXISTS TO PREVENT (reproduced 2026-07-16): this resolver read
+// `LIMIT 25` of monitoring_changed rows and filtered `to_recurrence_type` in JS. But
+// `monitoring_changed` is OVERLOADED — the same event_type also records "reappeared",
+// "no_longer_observed" and case-linkage ({case_id, recurrence, updated_case}) — and
+// Shadow IT appended one case-linkage row per evaluation pass for as long as a condition
+// persisted. Measured against the real engine: the resolver returned the occurrence on
+// passes 1-25 and NULL from pass 26 onward, forever, for a single item that had
+// accumulated 148 monitoring_changed rows of which 4 were real occurrences.
+//
+// Measured customer impact was narrower than that sounds — those alerts deduped anyway
+// (the dedupe key IS the occurrence id), and a genuine recurrence still alerted because
+// its transition is appended immediately before the read. The bug was that correctness
+// RESTED ON THAT ORDERING. 25 is not a semantic bound; it is a number. These assertions
+// pin the property that matters: the answer must not depend on lifecycle age.
+{
+  const REC = "renewal_overdue_age";
+  const REC_ID = "cert_age_1";
+  // The real transition FIRST, so every noise row lands above it.
+  const realId = appendTransition("ws1", REC_ID, { to_recurrence_type: REC, created_at: "2026-06-02T00:00:00Z" });
+
+  const noise = (n, at) => {
+    for (let i = 0; i < n; i++) {
+      db.prepare(`INSERT INTO certificate_lifecycle_events (id, lifecycle_id, workspace_id, actor_type, event_type, detail_json, created_at)
+                  VALUES (?, ?, 'ws1', 'system', 'monitoring_changed', ?, ?)`)
+        .run(`noise_${REC_ID}_${i}_${at}`, REC_ID, JSON.stringify({ case_id: "c1", recurrence: REC, updated_case: true }), at);
+    }
+  };
+  const resolve = () => findConditionOccurrence(env, {
+    workspace_id: "ws1", domain_key: "certificates_trust", record_id: REC_ID, recurrence_type: REC,
+  });
+
+  ok("age 0: the occurrence resolves", (await resolve())?.occurrence_id === realId);
+  noise(25, "2026-06-03T00:00:00Z");
+  ok("after 25 intervening events: STILL resolves, and to the same occurrence",
+     (await resolve())?.occurrence_id === realId);
+  noise(25, "2026-06-04T00:00:00Z");
+  ok("after 50 intervening events: STILL resolves", (await resolve())?.occurrence_id === realId);
+  noise(50, "2026-06-05T00:00:00Z");
+  ok("after 100 intervening events: STILL resolves", (await resolve())?.occurrence_id === realId);
+  noise(400, "2026-06-06T00:00:00Z");
+  ok("after 500 intervening events: STILL resolves — no window, no cliff",
+     (await resolve())?.occurrence_id === realId);
+  eq("and the observed_at is the REAL transition's own timestamp, not a noise row's",
+     (await resolve())?.observed_at, "2026-06-02T00:00:00Z");
+
+  // Irrelevant event types must not evict, or even be considered.
+  for (const t of ["observed", "case_linked", "owner_missing", "case_recurrence_noted"]) {
+    db.prepare(`INSERT INTO certificate_lifecycle_events (id, lifecycle_id, workspace_id, actor_type, event_type, detail_json, created_at)
+                VALUES (?, ?, 'ws1', 'system', ?, ?, '2026-06-07T00:00:00Z')`)
+      .run(`other_${t}`, REC_ID, t, JSON.stringify({ to_recurrence_type: REC }));
+  }
+  ok("events of another TYPE never become the occurrence, even carrying the same payload",
+     (await resolve())?.occurrence_id === realId);
+}
+
+// ── 9. A malformed detail_json must not poison the read ──────────────────────
+// The JS reader this replaced tolerated a bad row by returning {}. A bare json_extract()
+// THROWS on malformed JSON and would take the whole query — and therefore EVERY alert for
+// that record — down with it, which would trade a bounded-window bug for a poison pill.
+{
+  const REC = "renewal_overdue_poison";
+  const REC_ID = "cert_poison_1";
+  const realId = appendTransition("ws1", REC_ID, { to_recurrence_type: REC, created_at: "2026-06-02T00:00:00Z" });
+  db.prepare(`INSERT INTO certificate_lifecycle_events (id, lifecycle_id, workspace_id, actor_type, event_type, detail_json, created_at)
+              VALUES ('poison_1', ?, 'ws1', 'system', 'monitoring_changed', '{not valid json', '2026-06-08T00:00:00Z')`).run(REC_ID);
+  db.prepare(`INSERT INTO certificate_lifecycle_events (id, lifecycle_id, workspace_id, actor_type, event_type, detail_json, created_at)
+              VALUES ('poison_2', ?, 'ws1', 'system', 'monitoring_changed', NULL, '2026-06-09T00:00:00Z')`).run(REC_ID);
+  const occ = await findConditionOccurrence(env, {
+    workspace_id: "ws1", domain_key: "certificates_trust", record_id: REC_ID, recurrence_type: REC,
+  });
+  ok("a malformed detail_json row does NOT break the read", occ?.occurrence_id === realId);
+}
+
+// ── 10. Determinism: the NEWEST matching occurrence, with a stable tie-break ──
+{
+  const REC = "renewal_overdue_order";
+  const REC_ID = "cert_order_1";
+  const older = appendTransition("ws1", REC_ID, { to_recurrence_type: REC, created_at: "2026-06-02T00:00:00Z" });
+  for (let i = 0; i < 30; i++) {
+    db.prepare(`INSERT INTO certificate_lifecycle_events (id, lifecycle_id, workspace_id, actor_type, event_type, detail_json, created_at)
+                VALUES (?, ?, 'ws1', 'system', 'monitoring_changed', ?, '2026-06-03T00:00:00Z')`)
+      .run(`ord_noise_${i}`, REC_ID, JSON.stringify({ case_id: "c1" }));
+  }
+  const newer = appendTransition("ws1", REC_ID, { to_recurrence_type: REC, created_at: "2026-06-04T00:00:00Z" });
+  const occ = await findConditionOccurrence(env, {
+    workspace_id: "ws1", domain_key: "certificates_trust", record_id: REC_ID, recurrence_type: REC,
+  });
+  eq("with two occurrences of one condition, the NEWEST wins", occ?.occurrence_id, newer);
+  ok("and never the older one — which would reuse its dedupe key and silence the recurrence",
+     occ?.occurrence_id !== older);
+
+  // Same-second tie: rowid (insertion order) decides, not the random hex id.
+  const REC2 = "renewal_overdue_tie";
+  const REC_ID2 = "cert_tie_1";
+  const SEC = "2026-06-05T00:00:00Z";
+  db.prepare(`INSERT INTO certificate_lifecycle_events (id, lifecycle_id, workspace_id, actor_type, event_type, detail_json, created_at)
+              VALUES ('zzz_first', ?, 'ws1', 'system', 'monitoring_changed', ?, ?)`)
+    .run(REC_ID2, JSON.stringify({ to_recurrence_type: REC2 }), SEC);
+  db.prepare(`INSERT INTO certificate_lifecycle_events (id, lifecycle_id, workspace_id, actor_type, event_type, detail_json, created_at)
+              VALUES ('aaa_second', ?, 'ws1', 'system', 'monitoring_changed', ?, ?)`)
+    .run(REC_ID2, JSON.stringify({ to_recurrence_type: REC2 }), SEC);
+  const tie = await findConditionOccurrence(env, {
+    workspace_id: "ws1", domain_key: "certificates_trust", record_id: REC_ID2, recurrence_type: REC2,
+  });
+  eq("a same-second tie resolves to the LAST INSERTED row (rowid), not the lowest id",
+     tie?.occurrence_id, "aaa_second");
+}
+
+// ── 11. Scope: another record's history cannot leak in; the tenant gate holds ──
+// Note on what is NOT asserted here, and why. A fixture with the SAME record id in two
+// workspaces would be physically impossible data: every lifecycle fk is the TEXT PRIMARY
+// KEY of one global table with a crypto-random id (certificate_lifecycle 085:21,
+// shadow_it_inventory 083:13, identity_exposure 086:21, hosted_dns_entries 071:17), and
+// every writer stamps the event's workspace_id from the owning record. So no consistent
+// database can hold a row that matches the fk but a different tenant, and staging one to
+// claim a "cross-tenant leak" would be theatre. The workspace predicate is asserted for
+// what it genuinely defends: a CALLER that arrives with someone else's record id.
+{
+  const REC = "renewal_overdue_scope";
+  const mine = appendTransition("ws1", "cert_scope_a", { to_recurrence_type: REC, created_at: "2026-06-10T00:00:00Z" });
+
+  // Another record in the SAME tenant, same recurrence, NEWER — routine, reachable state.
+  appendTransition("ws1", "cert_scope_b", { to_recurrence_type: REC, created_at: "2026-06-25T00:00:00Z" });
+  const occ = await findConditionOccurrence(env, {
+    workspace_id: "ws1", domain_key: "certificates_trust", record_id: "cert_scope_a", recurrence_type: REC,
+  });
+  eq("a NEWER matching event on ANOTHER record is never returned", occ?.occurrence_id, mine);
+
+  // The confused-deputy case: a caller asks for ws1's record while scoped to ws2.
+  const foreign = await findConditionOccurrence(env, {
+    workspace_id: "ws2", domain_key: "certificates_trust", record_id: "cert_scope_a", recurrence_type: REC,
+  });
+  eq("a caller scoped to another workspace resolves NOTHING for this record", foreign, null);
+}
+
+// ── 11b. Payload equivalence with the JS filter this replaced ────────────────
+// The old predicate coerced both sides (`String(detail.to_recurrence_type || "") ===
+// String(rec)`); SQL compares typed values. These pin the REACHABLE shapes as identical,
+// and pin the unreachable ones as failing CLOSED — so a future writer that starts
+// emitting a non-string recurrence type fails here instead of silently losing alerts.
+{
+  const REC_ID = "cert_equiv_1";
+  const put = (id, detail) =>
+    db.prepare(`INSERT INTO certificate_lifecycle_events (id, lifecycle_id, workspace_id, actor_type, event_type, detail_json, created_at)
+                VALUES (?, ?, 'ws1', 'system', 'monitoring_changed', ?, '2026-06-02T00:00:00Z')`)
+      .run(id, REC_ID, JSON.stringify(detail));
+  const resolve = (rec) => findConditionOccurrence(env, {
+    workspace_id: "ws1", domain_key: "certificates_trust", record_id: REC_ID, recurrence_type: rec,
+  });
+
+  put("eq_match", { to_recurrence_type: "EQ_A" });
+  ok("a string payload matches its condition", (await resolve("EQ_A"))?.occurrence_id === "eq_match");
+  eq("a different condition does not match", await resolve("EQ_B"), null);
+
+  const REC_ID2 = "cert_equiv_2";
+  db.prepare(`INSERT INTO certificate_lifecycle_events (id, lifecycle_id, workspace_id, actor_type, event_type, detail_json, created_at)
+              VALUES ('eq_null', ?, 'ws1', 'system', 'monitoring_changed', ?, '2026-06-02T00:00:00Z')`)
+    .run(REC_ID2, JSON.stringify({ to_recurrence_type: null, case_id: "c" }));
+  db.prepare(`INSERT INTO certificate_lifecycle_events (id, lifecycle_id, workspace_id, actor_type, event_type, detail_json, created_at)
+              VALUES ('eq_absent', ?, 'ws1', 'system', 'monitoring_changed', ?, '2026-06-02T00:00:00Z')`)
+    .run(REC_ID2, JSON.stringify({ case_id: "c", recurrence: "EQ_A" }));
+  eq("a null to_recurrence_type is not an occurrence", await findConditionOccurrence(env, {
+    workspace_id: "ws1", domain_key: "certificates_trust", record_id: REC_ID2, recurrence_type: "EQ_A",
+  }), null);
+
+  // An empty condition never reaches the query — the falsy guard returns first. This is
+  // what makes the one divergence that would otherwise flip (null payload vs "" query)
+  // unreachable rather than merely unlikely.
+  eq("an empty recurrence_type resolves nothing, before any query", await resolve(""), null);
+
+  // Fail-closed, documented: a non-string payload is NOT matched by its stringification.
+  // No writer emits this today (every recurrence comes from a frozen string enum); if one
+  // ever does, this is the assertion that says so out loud.
+  const REC_ID3 = "cert_equiv_3";
+  db.prepare(`INSERT INTO certificate_lifecycle_events (id, lifecycle_id, workspace_id, actor_type, event_type, detail_json, created_at)
+              VALUES ('eq_num', ?, 'ws1', 'system', 'monitoring_changed', ?, '2026-06-02T00:00:00Z')`)
+    .run(REC_ID3, JSON.stringify({ to_recurrence_type: 5 }));
+  eq("a NUMERIC payload fails closed rather than matching its own stringification",
+     await findConditionOccurrence(env, {
+       workspace_id: "ws1", domain_key: "certificates_trust", record_id: REC_ID3, recurrence_type: "5",
+     }), null);
+}
+
+// ── 12. The read is bounded and precise — asserted at source ─────────────────
+{
+  const src = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "engines", "alert-occurrence.js"), "utf8");
+  // Slice from this function to the next top-level `export`, NOT to the first `\n}`:
+  // the signature destructures across lines and closes with `\n} = {}) {`, so a lazy
+  // match to `\n}` captures the signature alone and every assertion below it silently
+  // passes against an empty body. An earlier draft of this section did exactly that.
+  const start = src.indexOf("export async function findConditionOccurrence");
+  const after = src.indexOf("\nexport ", start + 1);
+  const fn = start === -1 ? "" : src.slice(start, after === -1 ? undefined : after);
+  ok("findConditionOccurrence is where this suite thinks it is", fn.length > 0);
+  ok("the extracted body is the real function, not just its signature", fn.includes("LIFECYCLE_EVENT_SOURCES[domain_key]") && fn.length > 500);
+  ok("it asks SQL for the condition, rather than paging and filtering in JS",
+     /json_extract\(detail_json, '\$\.to_recurrence_type'\)/.test(fn));
+  ok("it guards against a malformed row poisoning the query", /json_valid\(detail_json\)/.test(fn));
+  ok("it takes exactly ONE row — a semantic bound, not an arbitrary page", /LIMIT 1/.test(fn));
+  // Asserted on CODE, with comments stripped. The body documents the `LIMIT 25` defect it
+  // replaced, and prose explaining a removed bug must stay legal — an earlier draft of
+  // this line matched its own explanation and failed against correct code.
+  const code = fn.replace(/^\s*\/\/.*$/gm, "");
+  ok("no arbitrary event window survives in the code", !/LIMIT\s+25/.test(code));
+  ok("...and the explanation of the old window is still allowed in prose", /LIMIT 25/.test(fn));
+  ok("it stays tenant-scoped", /WHERE workspace_id = \?/.test(fn));
+  ok("it stays record-scoped", /\$\{source\.fk\} = \?/.test(fn));
+  ok("it keeps the deterministic ordering + rowid tie-break", /ORDER BY created_at DESC, rowid DESC/.test(fn));
+  ok("it does not read the whole table", !/SELECT \* FROM/.test(fn));
+}
+
 globalThis.fetch = realFetch;
 console.log(`\nalert-occurrence: ${pass} passed, ${fail} failed`);
 if (fail > 0) { console.error("alert-occurrence validation FAILED"); process.exit(1); }

@@ -108,6 +108,10 @@ export const CERT_EVENT_TYPES = Object.freeze([
   "renewal_planned", "renewal_started", "replacement_expected", "replacement_recorded",
   "verification_requested", "verified_replaced", "verification_failed", "exception_set",
   "exception_cleared", "retired", "reopened", "monitoring_changed", "case_linked",
+  // "the already-open case was touched again for the same recurrence" — its own type
+  // BECAUSE it is not a monitoring change: it records no transition and carries no
+  // to_recurrence_type. See the append site below, and shadow-it-inventory.js.
+  "case_recurrence_noted",
 ]);
 
 async function appendEvent(env, rec, { actor_type = "system", actor_id = null, event_type, detail = null }) {
@@ -492,7 +496,12 @@ export async function openOrReopenCertificateCase(env, rec, { recurrence, action
     .prepare(`INSERT INTO managed_case_events (id, case_id, workspace_id, actor_type, actor_id, from_status, to_status, action, detail_json, created_at)
               VALUES (?, ?, ?, 'system', NULL, ?, ?, 'certificate_recurrence', ?, datetime('now'))`)
     .bind(newCaseEventId(), kase.id, kase.workspace_id, kase.status, kase.status, safeJson({ recurrence, lifecycle: rec.id })).run();
-  await appendEvent(env, rec, { event_type: "monitoring_changed", detail: { case_id: kase.id, recurrence, updated_case: true } });
+  // NOT `monitoring_changed`: no monitoring state changed here. This records "the
+  // already-open case was touched again for the same recurrence", on every evaluation
+  // pass for as long as the condition persists. See shadow-it-inventory.js — the three
+  // domains carried the identical row, and all three are corrected together rather than
+  // fixing the one that was reported and leaving its siblings to be found later.
+  await appendEvent(env, rec, { event_type: "case_recurrence_noted", detail: { case_id: kase.id, recurrence, updated_case: true } });
   return { ok: true, updated: true };
 }
 

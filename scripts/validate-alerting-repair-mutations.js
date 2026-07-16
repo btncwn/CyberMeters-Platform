@@ -284,6 +284,238 @@ for (const file of CANONICAL_ALERT_CALLERS) {
     /import \{ emitLifecycleAlert \} from "\.\/alert-consumers\.js";/.test(src));
 }
 
+// ════ MUTATIONS 8-13 — the occurrence resolver must not depend on a window ═══
+// DEFECT (reproduced 2026-07-16 against the real Shadow IT engine): findConditionOccurrence
+// read `LIMIT 25` of monitoring_changed rows and filtered to_recurrence_type in JS. Shadow
+// IT appended one non-matching case-linkage row per evaluation pass, so the window filled
+// and from pass 26 the resolver returned NULL forever — measured 148 monitoring_changed
+// rows for ONE item, of which 4 were real occurrences.
+//
+// Each mutation below is driven against a REAL seeded lifecycle, not a source regex, so it
+// proves behaviour rather than spelling.
+function occDb() {
+  const db = buildDb();
+  db.prepare("INSERT INTO users (id,email,name,plan,created_at) VALUES ('u1','o@e.com','o','business',datetime('now'))").run();
+  db.prepare("INSERT INTO workspaces (id,owner_user_id,name) VALUES ('ws1','u1','ws1')").run();
+  db.prepare("INSERT INTO workspaces (id,owner_user_id,name) VALUES ('ws2','u1','ws2')").run();
+  const ins = (id, rec, ws, type, detail, at) =>
+    db.prepare(`INSERT INTO certificate_lifecycle_events (id, lifecycle_id, workspace_id, actor_type, event_type, detail_json, created_at)
+                VALUES (?,?,?,'system',?,?,?)`).run(id, rec, ws, type, JSON.stringify(detail), at);
+
+  // The real occurrence, OLDEST, then 60 non-matching rows above it.
+  ins("real", "rec1", "ws1", "monitoring_changed", { to_recurrence_type: "COND" }, "2026-06-02T00:00:00Z");
+  for (let i = 0; i < 60; i++) ins(`noise${i}`, "rec1", "ws1", "monitoring_changed", { case_id: "c1", recurrence: "COND" }, "2026-06-03T00:00:00Z");
+  // A NEWER match on ANOTHER record in the SAME tenant: fk-predicate bait. Reachable —
+  // two overdue certificates in one workspace is routine.
+  ins("other_rec", "rec2", "ws1", "monitoring_changed", { to_recurrence_type: "COND" }, "2026-06-21T00:00:00Z");
+  // A NEWER row of a DIFFERENT event_type echoing the same payload: type-predicate bait.
+  // SYNTHETIC — no engine writes to_recurrence_type under any type but monitoring_changed
+  // today, so dropping the type predicate is behaviour-preserving on real data. This row
+  // exists to keep it that way when a future writer starts echoing the field, and the
+  // guard is honest about being future-proofing rather than a live defect.
+  ins("wrong_type", "rec1", "ws1", "case_recurrence_noted", { to_recurrence_type: "COND" }, "2026-06-22T00:00:00Z");
+  return { db, env: { cybermeters_db: makeD1(db) } };
+}
+const resolveWith = (mod, env) => mod.findConditionOccurrence(env, {
+  workspace_id: "ws1", domain_key: "certificates_trust", record_id: "rec1", recurrence_type: "COND",
+});
+
+// 8 — the precise event-type filter removed.
+await withMutant("alert-occurrence.js",
+  (s) => s.replace("WHERE workspace_id = ? AND ${source.fk} = ? AND ${source.type_column} = ?",
+                   "WHERE workspace_id = ? AND ${source.fk} = ?")
+          .replace(".bind(workspace_id, record_id, MONITORING_CHANGED, String(recurrence_type))",
+                   ".bind(workspace_id, record_id, String(recurrence_type))"),
+  async (mut) => {
+    const { env } = occDb();
+    const occ = await resolveWith(mut, env);
+    eq("MUTANT-8: without the type filter, a non-occurrence event_type becomes the occurrence",
+      occ?.occurrence_id, "wrong_type");
+  });
+
+// 9 — workspace_id removed.
+// Asserted as a CONFUSED-DEPUTY guard, not as a cross-tenant row leak, because the leak
+// is unreachable: every lifecycle fk is the TEXT PRIMARY KEY of one global table with a
+// crypto-random id, and every writer stamps the event's workspace_id from the owning
+// record — so no consistent database holds a row matching the fk under a different
+// tenant. Seeding one to claim a leak would be staging impossible data. What the
+// predicate genuinely defends is a CALLER arriving with someone else's record id, and
+// that is exactly what this drives.
+await withMutant("alert-occurrence.js",
+  (s) => s.replace("WHERE workspace_id = ? AND ${source.fk} = ? AND ${source.type_column} = ?",
+                   "WHERE ${source.fk} = ? AND ${source.type_column} = ?")
+          .replace(".bind(workspace_id, record_id, MONITORING_CHANGED, String(recurrence_type))",
+                   ".bind(record_id, MONITORING_CHANGED, String(recurrence_type))"),
+  async (mut) => {
+    const { env } = occDb();
+    const leaked = await mut.findConditionOccurrence(env, {
+      workspace_id: "ws2", domain_key: "certificates_trust", record_id: "rec1", recurrence_type: "COND",
+    });
+    eq("MUTANT-9: without workspace_id, a caller scoped to ws2 resolves ws1's occurrence",
+      leaked?.occurrence_id, "real");
+  });
+
+// 9b — the REAL module refuses that same call.
+{
+  const { env } = occDb();
+  const mod = await import(pathToFileURL(srcPath("engines", "alert-occurrence.js")).href);
+  const denied = await mod.findConditionOccurrence(env, {
+    workspace_id: "ws2", domain_key: "certificates_trust", record_id: "rec1", recurrence_type: "COND",
+  });
+  eq("REAL: a caller scoped to ws2 resolves NOTHING for a ws1 record", denied, null);
+}
+
+// 10 — the record/entity identity removed.
+await withMutant("alert-occurrence.js",
+  (s) => s.replace("WHERE workspace_id = ? AND ${source.fk} = ? AND ${source.type_column} = ?",
+                   "WHERE workspace_id = ? AND ${source.type_column} = ?")
+          .replace(".bind(workspace_id, record_id, MONITORING_CHANGED, String(recurrence_type))",
+                   ".bind(workspace_id, MONITORING_CHANGED, String(recurrence_type))"),
+  async (mut) => {
+    const { env } = occDb();
+    const occ = await resolveWith(mut, env);
+    eq("MUTANT-10: without the record id, ANOTHER RECORD's newer event is returned",
+      occ?.occurrence_id, "other_rec");
+  });
+
+// 11 — deterministic ordering removed.
+//
+// HONEST LIMIT: without ORDER BY, SQLite's row order is UNSPECIFIED, not random. Today's
+// planner walks the (fk, created_at) index ascending, so the mutant returns the OLDEST
+// match and is caught. A future planner could legally return the newest first and this
+// mutant would survive — the assertion would then pass against a genuinely broken query.
+// It is written to fail only on the WRONG answer, never to fail correct code, so a planner
+// change makes it weaker rather than flaky. The property itself is pinned unconditionally
+// by validate-alert-occurrence.js §10 (which asserts the newest wins WITH the ORDER BY)
+// and by MUTANT-11b below, which does not depend on planner order at all.
+await withMutant("alert-occurrence.js",
+  (s) => s.replace(/\n\s*ORDER BY created_at DESC, rowid DESC\n(\s*)LIMIT 1`\)/, "\n$1LIMIT 1`)"),
+  async (mut) => {
+    const { db, env } = occDb();
+    // A SECOND, newer occurrence: with ORDER BY, this must win.
+    db.prepare(`INSERT INTO certificate_lifecycle_events (id, lifecycle_id, workspace_id, actor_type, event_type, detail_json, created_at)
+                VALUES ('newest','rec1','ws1','system','monitoring_changed',?,'2026-06-25T00:00:00Z')`)
+      .run(JSON.stringify({ to_recurrence_type: "COND" }));
+    const occ = await resolveWith(mut, env);
+    ok("MUTANT-11: without ORDER BY the resolver stops returning the newest occurrence (planner-dependent)",
+      occ?.occurrence_id !== "newest");
+  });
+
+// 11b — the tie-break specifically: rowid DESC -> id DESC.
+// Planner-independent: both rows tie on created_at, so ONLY the tie-break decides. The ids
+// are chosen so lexicographic order inverts insertion order.
+await withMutant("alert-occurrence.js",
+  (s) => s.replace("ORDER BY created_at DESC, rowid DESC", "ORDER BY created_at DESC, id DESC"),
+  async (mut) => {
+    const { db, env } = occDb();
+    const SEC = "2026-06-30T00:00:00Z";
+    for (const id of ["zzz_first", "aaa_second"]) {
+      db.prepare(`INSERT INTO certificate_lifecycle_events (id, lifecycle_id, workspace_id, actor_type, event_type, detail_json, created_at)
+                  VALUES (?, 'rec1','ws1','system','monitoring_changed',?,?)`)
+        .run(id, JSON.stringify({ to_recurrence_type: "COND" }), SEC);
+    }
+    const occ = await resolveWith(mut, env);
+    eq("MUTANT-11b: an `id DESC` tie-break returns the EARLIER append — reusing its dedupe key and silencing the recurrence",
+      occ?.occurrence_id, "zzz_first");
+  });
+
+// 12 — reverted to LIMIT 25 + JavaScript filtering (the original code).
+await withMutant("alert-occurrence.js",
+  (s) => {
+    const a = s.indexOf("    const row = await env.cybermeters_db");
+    const b = s.indexOf("    return null;   // pre-existing condition");
+    if (a === -1 || b === -1) return s;
+    return s.slice(0, a) + `    const rows = await env.cybermeters_db
+      .prepare(\`SELECT id, created_at, detail_json
+                FROM \${source.table}
+                WHERE workspace_id = ? AND \${source.fk} = ? AND \${source.type_column} = ?
+                ORDER BY created_at DESC, rowid DESC
+                LIMIT 25\`)
+      .bind(workspace_id, record_id, MONITORING_CHANGED)
+      .all();
+
+    for (const row of (rows.results || [])) {
+      const detail = parseJson(row.detail_json, {}) || {};
+      if (String(detail.to_recurrence_type || "") === String(recurrence_type)) {
+        return { occurrence_id: row.id, observed_at: row.created_at, detail };
+      }
+    }
+` + s.slice(b);
+  },
+  async (mut) => {
+    const { env } = occDb();
+    const occ = await resolveWith(mut, env);
+    eq("MUTANT-12: LIMIT 25 + JS filtering loses the occurrence behind 60 noise rows — the defect, reproduced",
+      occ, null);
+  });
+
+// 13 — the json_valid guard dropped: one malformed row poisons every alert for the record.
+await withMutant("alert-occurrence.js",
+  (s) => s.replace(/\(CASE WHEN json_valid\(detail_json\)\n\s*THEN json_extract\(detail_json, '\$\.to_recurrence_type'\) END\)/,
+                   "json_extract(detail_json, '$.to_recurrence_type')"),
+  async (mut) => {
+    const { db, env } = occDb();
+    db.prepare(`INSERT INTO certificate_lifecycle_events (id, lifecycle_id, workspace_id, actor_type, event_type, detail_json, created_at)
+                VALUES ('poison','rec1','ws1','system','monitoring_changed','{not json','2026-06-24T00:00:00Z')`).run();
+    const occ = await resolveWith(mut, env);
+    eq("MUTANT-13: one malformed row takes the whole read down — fails closed, alert lost", occ, null);
+  });
+
+// ════ 14 — the case-linkage row is not typed as a monitoring change ══════════
+// It records "the already-open case was touched again for the same recurrence" and is
+// appended on EVERY evaluation pass while a condition persists. Typed `monitoring_changed`
+// it was eviction fuel: measured 148 monitoring_changed rows for ONE shadow-IT item, of
+// which 4 were real occurrences.
+//
+// This is NOT what makes the resolver correct (the window is gone), and it does NOT make
+// it faster: every index on these tables is (fk, created_at), so event_type is a residual
+// filter and the walk visits every row for the record either way. It is for honest typing
+// — the log should not call a case touch a monitoring change, and the occurrence namespace
+// should mean one thing.
+//
+// Asserted for ALL THREE domains that carried the identical row. Fixing only the one that
+// was reported is how #105 left the same defect live in another module.
+for (const file of ["shadow-it-inventory.js", "identity-lifecycle.js", "certificate-lifecycle.js"]) {
+  const src = fs.readFileSync(srcPath("engines", file), "utf8");
+  const code = src.replace(/^\s*\/\/.*$/gm, "");
+  ok(`${file}: the case-linkage row is typed case_recurrence_noted`,
+    /event_type: "case_recurrence_noted", detail: \{ case_id/.test(code));
+  ok(`${file}: no case-linkage row is typed monitoring_changed any more`,
+    !/event_type: "monitoring_changed", detail: \{ case_id/.test(code));
+  // It must carry no occurrence payload, or it would become an occurrence itself.
+  ok(`${file}: the case-linkage row carries no to_recurrence_type`,
+    !/case_recurrence_noted[\s\S]{0,160}to_recurrence_type/.test(code));
+  // A domain must DECLARE every event type it writes. These vocabularies are exported and
+  // currently read by nothing, which is exactly how a declaration goes stale unnoticed —
+  // the engine writes one word and its own published list says another.
+  // `[^\]]*` — NOT `[\s\S]*?`. A lazy any-char match walks straight out of the array
+  // literal and finds the string in the appendEvent call further down the file, so it
+  // passes with the declaration deleted. This assertion did exactly that until its own
+  // mutation caught it: excluding `]` is what keeps the match inside the array.
+  ok(`${file}: declares case_recurrence_noted in its own event vocabulary`,
+    /EVENT_TYPES = Object\.freeze\(\[[^\]]*"case_recurrence_noted"[^\]]*\]\)/.test(code));
+}
+{
+  // And the resolver ignores it end-to-end, even carrying a matching payload.
+  const { env } = occDb();
+  const mod = await import(pathToFileURL(srcPath("engines", "alert-occurrence.js")).href);
+  const occ = await resolveWith(mod, env);
+  ok("a case_recurrence_noted row is never resolved as the occurrence, even echoing the payload",
+    occ?.occurrence_id === "real");
+}
+
+// The REAL module survives every fixture above.
+{
+  const { db, env } = occDb();
+  const mod = await import(pathToFileURL(srcPath("engines", "alert-occurrence.js")).href);
+  db.prepare(`INSERT INTO certificate_lifecycle_events (id, lifecycle_id, workspace_id, actor_type, event_type, detail_json, created_at)
+              VALUES ('poison','rec1','ws1','system','monitoring_changed','{not json','2026-06-24T00:00:00Z')`).run();
+  const occ = await resolveWith(mod, env);
+  eq("REAL: resolves the true occurrence past 60 noise rows, a foreign tenant, another record, a wrong type and a malformed row",
+    occ?.occurrence_id, "real");
+  eq("REAL: and carries the transition's OWN timestamp", occ?.observed_at, "2026-06-02T00:00:00Z");
+}
+
 globalThis.fetch = realFetch;
 console.log(`\nalerting-repair-mutations: ${pass} passed, ${fail} failed`);
 if (fail > 0) { console.error("alerting-repair-mutations validation FAILED"); process.exit(1); }

@@ -153,6 +153,12 @@ export const SHADOW_IT_EVENT_TYPES = Object.freeze([
   "observed", "material_change", "monitoring_changed", "classified",
   "owner_assigned", "owner_missing", "purpose_set", "onboarding_changed",
   "removal_changed", "removal_contradicted", "retired", "reopened", "case_linked",
+  // "we touched the already-open case for the same recurrence again". Its own type
+  // BECAUSE it is not a monitoring change: it records no transition and carries no
+  // to_recurrence_type. It used to be written as `monitoring_changed`, which put one
+  // row per evaluation pass into the namespace the occurrence resolver searches —
+  // measured at 148 rows for a single item, of which 4 were real occurrences.
+  "case_recurrence_noted",
 ]);
 // Customer classification actions and the classification they set.
 export const SHADOW_IT_ACTIONS = Object.freeze({
@@ -470,7 +476,31 @@ async function openOrReopenShadowItCase(env, item, { reason, now = new Date().to
     .prepare(`INSERT INTO managed_case_events (id, case_id, workspace_id, actor_type, actor_id, from_status, to_status, action, detail_json, created_at)
               VALUES (?, ?, ?, 'system', NULL, ?, ?, 'shadow_it_recurrence', ?, datetime('now'))`)
     .bind(newCaseEventId(), kase.id, kase.workspace_id, kase.status, kase.status, safeJson({ reason, inventory_item: item.id })).run();
-  await appendEvent(env, item, { event_type: "monitoring_changed", detail: { case_id: kase.id, recurrence: reason, updated_case: true } });
+  // NOT `monitoring_changed`: nothing about the monitoring state changed here. This says
+  // "the already-open case was touched again for the same recurrence", which is a
+  // case-linkage fact, and it is appended on EVERY evaluation pass for as long as the
+  // condition persists. Typing it as `monitoring_changed` put an ever-growing pile of
+  // rows into the namespace findConditionOccurrence searches — one per hour, per item,
+  // forever — and pushed the real occurrence out of its (then bounded) window at pass 26.
+  //
+  // The resolver no longer depends on a window, so this is NOT what makes it correct, and
+  // it does not make the resolver faster either: the only index here is
+  // (item_id, created_at) (083:75-76), so `event_type` is a residual filter applied to
+  // each visited row and the walk still steps over every event for this item. An earlier
+  // version of this comment claimed the retype shortened that walk. It does not — the row
+  // is merely rejected on a string compare instead of after a JSON parse. If walk length
+  // ever matters, the answer is an index on (item_id, event_type, created_at), not this.
+  //
+  // What it IS for: the log should not call a case touch a monitoring change, and the
+  // occurrence namespace should mean one thing, so a future reader counting
+  // `monitoring_changed` gets real transitions rather than an hourly heartbeat.
+  //
+  // The growth itself is NOT fixed here — this row, and the managed_case_events row
+  // above it, are still written once per pass and still record no new fact. That is a
+  // storage/history concern with its own semantics (does a still-open case want an
+  // hourly heartbeat at all?) and it is recorded as outstanding rather than decided as a
+  // side effect of an alerting fix.
+  await appendEvent(env, item, { event_type: "case_recurrence_noted", detail: { case_id: kase.id, recurrence: reason, updated_case: true } });
   return { ok: true, updated: true };
 }
 export { openOrReopenShadowItCase };

@@ -168,20 +168,68 @@ export async function findConditionOccurrence(env, {
   const source = LIFECYCLE_EVENT_SOURCES[domain_key];
   if (!source || !workspace_id || !record_id || !recurrence_type) return null;
   try {
-    const rows = await env.cybermeters_db
+    // Ask the database for the EXACT row we need, not for a page of recent rows we then
+    // sift in JavaScript.
+    //
+    // THE DEFECT THIS REPLACED (reproduced 2026-07-16): this read `LIMIT 25` of
+    // monitoring_changed rows and filtered `to_recurrence_type` in JS. But
+    // `monitoring_changed` is overloaded — the same event_type also records
+    // "reappeared", "no_longer_observed" and case-linkage ({case_id, recurrence,
+    // updated_case}) — and Shadow IT appends one case-linkage row per evaluation pass
+    // for as long as a condition persists. So the window filled with rows that can never
+    // match, and from pass 26 the real occurrence was pushed out of it: measured, the
+    // resolver returned the occurrence on passes 1-25 and NULL from 26 onward, forever.
+    //
+    // Measured impact was narrower than the window suggests — the alert on those passes
+    // deduped anyway (the dedupe key IS the occurrence id), and a genuine recurrence
+    // still alerted because its transition is appended immediately before this read. But
+    // that is luck of ordering, not a guarantee: correctness rested on the real event
+    // happening to be within the last 25 rows. An arbitrary event window is not lifecycle
+    // state, and 25 is not a semantic bound — it is a number.
+    //
+    // LIMIT 1 here IS semantic: exactly one row can be the latest transition into this
+    // condition. The index on (fk, created_at) makes this an ordered index walk that
+    // stops at the first match rather than a table scan, and it is correct at any
+    // lifecycle age — 25, 500 or a million events.
+    //
+    // json_valid() is load-bearing, not defensive noise: a bare json_extract() THROWS on
+    // one malformed row and would take the whole query — and therefore every alert for
+    // that record — down with it. The JS reader it replaced tolerated a bad row by
+    // returning {}, so without this guard the fix would trade a bounded-window bug for a
+    // poison-pill bug. CASE is used rather than `json_valid(x) AND json_extract(x)`
+    // because CASE's short-circuit is guaranteed by SQL semantics; AND's is an artefact
+    // of the current evaluation order.
+    //
+    // ── Where this differs from the JS filter it replaced ─────────────────────
+    // The old predicate was `String(detail.to_recurrence_type || "") === String(rec)`,
+    // which COERCED both sides. SQL compares typed values, so a to_recurrence_type
+    // stored as 5 no longer matches the string "5" (SQLite does not coerce across
+    // storage classes here). Measured divergences: number, boolean and object payloads,
+    // plus `null` payload vs an empty-string query.
+    //
+    // All four are unreachable, and the check is the reachability, not the hope: every
+    // writer passes a value from a frozen STRING enum (EMAIL_RECURRENCES and its peers),
+    // and an empty `recurrence_type` never reaches here — the falsy guard above returns
+    // null first. Every divergence also fails CLOSED (a stricter match => no occurrence
+    // => no alert), which is the direction this codebase already chooses everywhere else.
+    // validate-alert-occurrence.js §11b pins the reachable shapes (string match, mismatch,
+    // null payload, absent key, empty query) as identical, and pins the NUMERIC payload as
+    // failing closed. Boolean and object payloads are described above but not seeded —
+    // they diverge for the same storage-class reason as the numeric case, and a writer
+    // emitting one would fail its own domain's alerting suite rather than this file.
+    const row = await env.cybermeters_db
       .prepare(`SELECT id, created_at, detail_json
                 FROM ${source.table}
                 WHERE workspace_id = ? AND ${source.fk} = ? AND ${source.type_column} = ?
+                  AND (CASE WHEN json_valid(detail_json)
+                            THEN json_extract(detail_json, '$.to_recurrence_type') END) = ?
                 ORDER BY created_at DESC, rowid DESC
-                LIMIT 25`)
-      .bind(workspace_id, record_id, MONITORING_CHANGED)
-      .all();
+                LIMIT 1`)
+      .bind(workspace_id, record_id, MONITORING_CHANGED, String(recurrence_type))
+      .first();
 
-    for (const row of (rows.results || [])) {
-      const detail = parseJson(row.detail_json, {}) || {};
-      if (String(detail.to_recurrence_type || "") === String(recurrence_type)) {
-        return { occurrence_id: row.id, observed_at: row.created_at, detail };
-      }
+    if (row) {
+      return { occurrence_id: row.id, observed_at: row.created_at, detail: parseJson(row.detail_json, {}) || {} };
     }
     return null;   // pre-existing condition: no transition was ever recorded
   } catch (err) {

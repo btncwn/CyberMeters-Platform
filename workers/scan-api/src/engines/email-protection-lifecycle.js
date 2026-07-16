@@ -295,11 +295,17 @@ export async function appendEmailProtectionEvent(env, {
 // to be read for closure too — that asymmetry is the whole defect.
 //
 // Fixed by correcting the READER, deliberately not by appending a clearing
-// `monitoring_changed` on recovery. findConditionOccurrence (alert-occurrence.js)
-// reads `LIMIT 25` monitoring_changed rows and filters them in JS, so every extra
-// monitoring_changed row narrows the window in which a real transition can still be
-// found — the exact eviction defect the audit found in Shadow IT. Adding rows to fix
-// a read is how that domain's alerting dies after 25 passes.
+// `monitoring_changed` on recovery.
+//
+// (When this was written the reason was that findConditionOccurrence read a bounded
+// `LIMIT 25` page of monitoring_changed rows and filtered them in JS, so every extra row
+// narrowed the window a real transition could still be found in. That resolver has since
+// been fixed to ask SQL for the exact row it needs, so extra rows no longer threaten
+// correctness — the original rationale no longer holds and is recorded here as history,
+// not as a live reason.) The decision stands on its own merits: the reader was the thing
+// that was wrong, and a recovery is already recorded once, honestly, under its own event
+// type. Writing a second row to make a broken read work is how a log stops meaning
+// anything.
 //
 // The list is EXPLICIT, and short, for a reason. Every non-alertable hosted event
 // carries `to_recurrence_type: null` (buildMonitoringTransitionDetail always sets
