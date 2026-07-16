@@ -1,5 +1,16 @@
 # CyberMeters — Entitlement & Plan Enforcement Audit v1
 
+> **Status: Historical (16 July 2026).** A point-in-time audit of the June 2026
+> state, retained as the historical record. Canonical pricing and packaging:
+> `docs/PRICING-POLICY.md` (DECIDED 2026-07-09) · implemented limits and
+> entitlements: `PLAN_LIMITS` / `PLAN_FEATURES` in
+> `workers/scan-api/src/engines/entitlements.js`, which is the ground truth.
+>
+> Its prices are the legacy set, and the mismatches it reports (Starter "5
+> workspaces" vs 3, "25 domains" vs 10) describe June 2026 values that no longer
+> exist on either side — `PLAN_LIMITS` now enforces domains 1 / 1 / 5 / 20 /
+> unlimited. Do not use its tables as a current reference.
+
 **Sprint:** Entitlement & Plan Enforcement Audit  
 **Date:** June 2026  
 **Type:** Audit only — no code changes  

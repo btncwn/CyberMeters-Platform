@@ -1,10 +1,38 @@
 # CyberMeters — Final Commercial Packaging v1
 
-**Version:** 1.0 | **Date:** June 2026 | **Status:** Approved — Active Commercial Direction  
+> **Status: Historical / Superseded (16 July 2026).** Retained for historical
+> context; no longer a source of truth and no longer an instruction to engineering,
+> product or marketing. Canonical pricing, packaging and plan limits:
+> `docs/PRICING-POLICY.md` (DECIDED 2026-07-09) · canonical roadmap:
+> `docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md` · current canonical episode and
+> release facts: `CLAUDE.md` · shipped truth: `CHANGELOG.md`.
+>
+> **Why superseded.** This document's own authority clause held it authoritative
+> "until a subsequent commercial review is completed and approved". That review is
+> the founder decision of 2026-07-09 recorded in `docs/PRICING-POLICY.md`, which
+> adopts different prices, different plan labels and a different Business
+> workspace rule. Every price, annual figure, plan label and workspace claim below
+> is therefore legacy. The £29 / £149 / £399 prices it records do remain the
+> **currently live** prices — but as a fact about production, documented in
+> `docs/PRICING-POLICY.md` §5, not as the adopted direction.
+>
+> Its feature matrix predates the eight-domain product model and is organised by
+> internal scanner-module names; it does not represent the eight canonical domains
+> in `CLAUDE.md`. Portfolio and MSP rows describe **entitlement placement**, not
+> shipped capability — MSP Portfolio Per-Domain State and Trend is a planned
+> episode that has not started.
+
+**Version:** 1.0 | **Date:** June 2026 | **Status:** Superseded (was: Approved — Active Commercial Direction)
+
 **Scope:** Plan structure, feature placement, upgrade paths, revenue rationale, commercial milestones  
 **Market:** UK SMBs, MSPs, vCISOs, security consultants
 
 > This document records approved commercial decisions. The plan structure, feature placement, pricing, and upgrade path defined here are the authoritative reference for all product, engineering, and marketing work until a subsequent commercial review is completed and approved.
+
+> **(16 July 2026) That condition has been met.** The subsequent commercial review
+> was completed and approved on 2026-07-09 and is recorded in
+> `docs/PRICING-POLICY.md`. The clause above is preserved as written, but it no
+> longer confers authority on this document.
 
 ---
 
@@ -570,3 +598,5 @@ At the approved pricing: Starter annual = £276 upfront. Professional annual = �
 
 *CyberMeters Platform — Final Commercial Packaging v1 — Approved — June 2026*  
 *This document supersedes all previous packaging proposals. Do not reference prior pricing recommendations without noting this document as the current approved baseline.*
+
+*(16 July 2026) The two lines above describe this document's standing in June 2026 and are preserved as the historical record. This document is itself now superseded by `docs/PRICING-POLICY.md` (DECIDED 2026-07-09). It is no longer the approved baseline, and its prices, plan labels and limits must not be implemented.*

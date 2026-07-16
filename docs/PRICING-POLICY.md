@@ -5,6 +5,30 @@
 > **Competitor research is CLOSED.** Act from this file — do not re-run pricing analysis.
 > The prices actually charged today are still the OLD ones (see [Currently live](#currently-live-until-the-launch-cutover)).
 
+> **This file is the single canonical pricing and packaging authority (recorded
+> 16 July 2026).** It supersedes every earlier pricing, packaging and commercial
+> direction document. The following are Historical / Superseded and must not be
+> implemented or quoted:
+>
+> - `docs/final-commercial-packaging-v1.md` — was "Approved — Active Commercial
+>   Direction"; legacy £29 / £149 / £399, Business as multi-workspace.
+> - `docs/cyber-essentials-commercial-strategy-v1.md` — was "Active Commercial
+>   Direction"; legacy prices and CE claims that exceed external evidence.
+> - `docs/pricing-strategy-v1.md` — was "Current strategy"; legacy prices and
+>   workspace/domain limits that were never enforced.
+> - `docs/pricing-page-copy-v1.md` — was "Ready for implementation"; legacy prices,
+>   banned "Save 20%" annual copy, workspaces shown on cards.
+> - `docs/commercial-packaging-strategy-v1.md` — analysis only; rejected £9.90/£49.
+> - `docs/stripe-billing-architecture-v1.md` — a third, never-live £49 price set.
+> - `docs/pricing-audit-current-state-v1.md`, `docs/entitlement-audit-v1.md`,
+>   `docs/PHASE-0-AUDIT.md`, `docs/strategic-review-board-level-june2026.md` —
+>   point-in-time audits/reviews; historical only.
+>
+> `docs/stripe-env-setup-v1.md` remains accurate **for the currently-live legacy
+> prices** and is the runbook for today's Stripe setup — not for the adopted
+> tiers, which cut over per §6. Canonical competitive positioning:
+> `docs/competitive-battlecard-v2.md`.
+
 ---
 
 ## 1. The thesis — why we can be genuinely "unbeatable"
@@ -15,9 +39,10 @@ all-in** (incl. Stripe fees; compute alone ≈ £0.002–0.01). So we keep **85 
 even at these prices.** No competitor's cost base can follow us down.
 
 **Honest definition of "unbeatable" (never overclaim):** cheapest per-domain for the
-**full external-security posture** — Email Protection · Website Security · Attack
-Surface · Certificates & Trust · Brand Protection · Cyber MOT · Cyber Essentials
-Readiness — i.e. **bundle economics**, NOT "cheaper than every single-purpose tool
+**full external-security posture** — the eight canonical domains: Email Protection ·
+Brand Protection · Attack Surface · Certificates & Trust · Cyber Essentials
+Readiness · Website Security · Identity Exposure · Shadow IT & Unmanaged
+Technology — i.e. **bundle economics**, NOT "cheaper than every single-purpose tool
 on its one job." A UK SMB otherwise stacks OnDMARC + an ASM tool (£89) + a cert
 monitor = £150–250/mo; we give all of it for a fraction.
 

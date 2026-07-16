@@ -1,6 +1,24 @@
 # CyberMeters — Commercial Packaging & Pricing Strategy
 
-**Version:** 1.0 | **Date:** June 2026 | **Status:** Internal Review  
+> **Status: Historical / Analysis only — non-canonical (16 July 2026).** Retained
+> for historical context. This document was never an approved direction; it is the
+> June 2026 *analysis* that preceded one. Canonical pricing and packaging:
+> `docs/PRICING-POLICY.md` (DECIDED 2026-07-09) · canonical competitive
+> positioning: `docs/competitive-battlecard-v2.md` · current canonical episode and
+> release facts: `CLAUDE.md`.
+>
+> **Why non-canonical.** It explores candidate prices (£9.90, then £49 Starter)
+> that were rejected at the time and are not the adopted policy either. Its
+> competitor set is enterprise-band (UpGuard, SecurityScorecard, Qualys, RiskXchange)
+> and is not the SME comparison CyberMeters actually competes in — see the canonical
+> battlecard. Its feature matrix predates the eight-domain product model. Its
+> portfolio and MSP lines describe intent, not shipped capability: MSP Portfolio
+> Per-Domain State and Trend is a planned episode that has not started.
+>
+> Treat every figure here as analysis, never as a pricing reference.
+
+**Version:** 1.0 | **Date:** June 2026 | **Status:** Historical — analysis only, never an approved direction (was: Internal Review)
+
 **Scope:** Plan packaging, feature placement, pricing, upgrade incentives, customer personas  
 **Market:** UK SMBs, MSPs, vCISO services, security consultants
 

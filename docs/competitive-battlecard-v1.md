@@ -1,5 +1,19 @@
 # CyberMeters — Competitive Battlecard v1
 
+> **Status: Historical / Superseded (16 July 2026).** Retained for historical
+> context; **not** the battlecard. The single canonical battlecard is
+> `docs/competitive-battlecard-v2.md` — use that one. Canonical pricing:
+> `docs/PRICING-POLICY.md` · current canonical episode and release facts:
+> `CLAUDE.md`.
+>
+> **Why superseded.** Its verified competitor research (Red Sift/Hardenize,
+> Cloudflare, Intruder) was sound and is carried forward into v2 — but the framing
+> was wrong in four ways: it benchmarked outside our SME price band, treated our
+> narrow scope as an apology rather than the product, never mentioned the managed
+> lifecycle (our strongest commercial difference), and gave the MSP channel a
+> single line. It also describes **four services**; CyberMeters has **eight
+> canonical domains** — this document predates domains 5–8. Do not quote it.
+
 **Audience:** internal — founder, sales conversations, investor/grant Q&A. Not a public document.
 **Rule of use:** every claim here is either independently verified (method noted) or clearly marked as our positioning. Never present the unverified parts as fact. Accuracy is our brand; the battlecard must live by it.
 **Last verified:** 7 July 2026 (Intruder added; Red Sift/Cloudflare 6 July). Re-verify the landscape quarterly (competitors ship and acquire fast).

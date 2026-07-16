@@ -1,4 +1,17 @@
 # CyberMeters — Independent Strategic Review
+
+> **Status: Historical (16 July 2026).** An independent point-in-time review dated
+> June 2026, retained in full as the historical record — its assessment is
+> deliberately preserved unedited. Canonical pricing: `docs/PRICING-POLICY.md`
+> (DECIDED 2026-07-09) · canonical roadmap:
+> `docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md` · current canonical episode and
+> release facts: `CLAUDE.md`.
+>
+> Where it calls "£29–£399/month" the current pricing and judges it appropriate,
+> that was the June 2026 position. Those prices remain **live** but are no longer
+> the **adopted** direction, and the review's pricing commentary predates the
+> 2026-07-09 decision. Its commercial figures are not a pricing reference.
+
 **Classification:** Board-Level | **Date:** June 2026 | **Reviewer:** Independent (CTO / CISO / Product Strategist / Investor)
 
 > This document is an unfiltered assessment. It does not protect the work already done. It does not defer to internal assumptions. Where the evidence supports optimism, it says so. Where the evidence demands a hard conversation, it has one.

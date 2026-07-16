@@ -1,8 +1,21 @@
 # CyberMeters — Pricing Strategy v1
 
+> **Status: Historical / Superseded (16 July 2026).** Retained for historical
+> context; no longer a source of truth. Canonical pricing, packaging and plan
+> limits: `docs/PRICING-POLICY.md` (DECIDED 2026-07-09) · current canonical
+> episode and release facts: `CLAUDE.md` · shipped truth: `CHANGELOG.md`.
+>
+> **Why superseded.** Its prices (£29 / £149 / £399) are the legacy set, and its
+> **workspace and domain limits were never accurate** — it states Free 1 workspace
+> / 3 domains, Starter 3 workspaces / 10 domains, Professional 10 / 100, Business
+> 50 / 1,000. The limits actually enforced in `PLAN_LIMITS` are domains 1 / 1 / 5 /
+> 20 / unlimited and workspaces 1 / 1 / 1 / 50 / unlimited. Its "approximately
+> 20–22% savings" annual model is superseded by the adopted "pay 9, get 12".
+> Nothing in this document may be implemented or quoted.
+
 **Sprint 14 — Phase 1**
 **Date:** June 2026
-**Status:** Current strategy — based on features already implemented
+**Status:** Superseded (was: Current strategy — based on features already implemented)
 
 ---
 

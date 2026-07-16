@@ -1,5 +1,15 @@
 # CyberMeters — Pricing Audit: Current State
 
+> **Status: Historical (16 July 2026).** A point-in-time audit of the June 2026
+> state, retained as the historical record of how the pricing drift arose. Its
+> title says "Current State" — that means current *as at June 2026*, not today.
+> Canonical pricing and packaging: `docs/PRICING-POLICY.md` (DECIDED 2026-07-09).
+>
+> Where it calls £29 the "approved" Starter price, that was true in June 2026 and
+> is still the **live** price today, but it is no longer the **adopted** one. Its
+> workspace figures (1 / 3 / 10 / 50) describe the code as it then was; `PLAN_LIMITS`
+> now enforces 1 / 1 / 1 / 50 / unlimited. Read it as history, not as a reference.
+
 **Date:** June 2026  
 **Type:** Read-only audit — no code, Stripe, or documentation was modified  
 **Sources read:** `workers/scan-api/src/index.js` (PLAN_LIMITS, PLAN_FEATURES, BILLING_PLAN_METADATA), `frontend/src/pages/SubscriptionPage.jsx`, `frontend/src/pages/PricingPage.jsx`, `docs/pricing-strategy-v1.md`, `docs/commercial-packaging-strategy-v1.md`, `docs/final-commercial-packaging-v1.md`, `docs/feature-entitlements-v1.md`, `docs/billing-implementation-map.md`, `docs/stripe-billing-architecture-v1.md`, `docs/stripe-checkout-audit-v1.md`, `docs/stripe-env-setup-v1.md`, `docs/pricing-page-copy-v1.md`

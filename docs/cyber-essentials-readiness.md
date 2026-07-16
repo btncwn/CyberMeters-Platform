@@ -3,6 +3,32 @@
 CyberMeters provides Cyber Essentials readiness guidance for UK SMB customers.
 It does not certify Cyber Essentials, replace an assessor, or prove compliance.
 
+## Evidence boundary (canonical)
+
+Two rules govern every customer-facing statement about Cyber Essentials. Both are
+enforced in code and in CI (`scripts/validate-ce-lifecycle.js`,
+`scripts/validate-ce-data-integrity.js`).
+
+**1. Readiness is computed from externally observable evidence only.** The
+questionnaire is *not* an input. `buildCyberEssentialsReadiness()` never reads
+`cyber_essentials_answers` — a customer's self-attestation cannot move the
+readiness score, and no answer is treated as security truth. The questionnaire is
+a separate surface with its own completeness status; the two must not be conflated.
+
+**2. Two of the five controls cannot be observed externally at all.** `access_control`
+(User Access Control) and `malware_protection` (Malware Protection) carry
+`external_coverage: none` in `workers/scan-api/src/lib/cyber-essentials.js`. Their
+readiness categories are driven by proxy signals and explicit unknowns, and they
+never alert. The remaining three (`boundary_protection`, `secure_configuration`,
+`patch_management_readiness`) are `external_coverage: partial` — partial, not complete.
+
+It follows that CyberMeters **cannot** predict a certification outcome. Never claim,
+in product or in marketing, that a customer "would pass" or "would fail" Cyber
+Essentials, that a report is one an auditor can rely on, that the platform replaces a
+consultant's gap assessment, that all five controls are continuously checked, or that
+a customer is "compliant". Readiness is guidance for preparing for certification —
+nothing more. See `docs/alerts-eight-domain-coverage.md` for the alerting boundary.
+
 The v1 assessment is intentionally lightweight. It uses only data CyberMeters
 already collects through external attack surface monitoring and workspace
 intelligence. It does not introduce new probes, evidence uploads, policy
