@@ -1141,6 +1141,80 @@ function SenderRow({ sender, onClassify, classifying }) {
 
 const SENDER_FILTERS = ['All', 'Unknown', 'Trusted', 'Suspicious', 'Threat', 'Ignored', 'Failing']
 
+// ── Email Protection change history (migration 088) ──────────────────────────
+// The read surface 088 never had. Its events were read only by the alert pipeline, and
+// the lifecycle columns it added to email_sender_sources are stripped before they leave
+// the API — so a customer alerted that their hosted DMARC record had disconnected could
+// not see when it began, how often it had happened, or whether it had reconnected.
+//
+// The event vocabulary is server-owned and shown as-is. A customer's own classification
+// appears as a customer action, never as something CyberMeters observed.
+const EMAIL_EVENT_LABEL = {
+  monitoring_changed:            'Condition changed',
+  hosted_record_reconnected:     'Hosted record reconnected',
+  hosted_policy_changed:         'Hosted policy changed',
+  hosted_rolled_back_manual:     'Rolled back by you',
+  sender_failures_recovered:     'Sender failures recovered',
+  sender_manual_classification:  'Classified by you',
+  baseline_established:          'Pre-existing at activation',
+}
+const EMAIL_RECORD_TYPE_LABEL = {
+  hosted_dns_entry:    'Hosted record',
+  email_sender_source: 'Sender',
+}
+
+function EmailLifecycleHistory({ data, error }) {
+  const items = data?.items || []
+  return (
+    <div className="card p-5">
+      <h2 className="text-base font-bold text-gray-900">What changed, and when</h2>
+      <p className="mt-1 text-sm leading-relaxed text-gray-500">
+        The record behind your email alerts: when a condition began, recovered, or came back.
+      </p>
+
+      {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+      {!data && !error && <p className="mt-3 text-sm text-gray-400">Loading…</p>}
+      {data && items.length === 0 && (
+        <p className="mt-3 text-sm text-gray-500">
+          No changes recorded yet. Entries appear here when a hosted record or sender condition changes.
+        </p>
+      )}
+
+      {items.length > 0 && (
+        <ul className="mt-4 divide-y divide-gray-100">
+          {items.map((e) => (
+            <li key={e.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-2">
+              <span className="font-mono text-xs text-gray-400">{e.created_at?.slice(0, 16).replace('T', ' ')}</span>
+              <span className="text-sm text-gray-800">{EMAIL_EVENT_LABEL[e.event_type] || String(e.event_type).replace(/_/g, ' ')}</span>
+              {e.recurrence_type && (
+                <span className="rounded-full border border-amber-100 bg-amber-50 px-2 py-0.5 text-xs text-amber-700">
+                  {String(e.recurrence_type).replace(/_/g, ' ')}
+                </span>
+              )}
+              <span className="text-xs text-gray-500">
+                {EMAIL_RECORD_TYPE_LABEL[e.record_type] || e.record_type}{e.entity ? ` · ${e.entity}` : ''}
+              </span>
+              {/* The customer's own action is labelled as theirs, never as an observation. */}
+              {e.actor_type === 'customer' && (
+                <span className="rounded-full border border-gray-200 bg-gray-100 px-2 py-0.5 text-xs text-gray-600">your action</span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {data?.pagination?.total > items.length && (
+        <p className="mt-3 text-xs text-gray-400">
+          Showing the {items.length} most recent of {data.pagination.total} recorded changes.
+        </p>
+      )}
+      {data?.scope_note && (
+        <p className="mt-4 rounded border border-gray-200 bg-gray-50 px-3 py-2 text-xs leading-relaxed text-gray-600">{data.scope_note}</p>
+      )}
+    </div>
+  )
+}
+
 function SenderInventory({ data, onClassify, classifyingId, loading }) {
   const [filter, setFilter] = useState('All')
   const senders = data?.senders || []
@@ -3329,6 +3403,10 @@ export default function WorkspaceEmailProtectionPage() {
   const [dmarc, setDmarc]         = useState(null)   // dmarc-summary response
   const [senderData, setSenderData] = useState(null) // email-senders response
   const [siLoading, setSiLoading] = useState(false)
+  // Migration 088's append-only history. Loaded independently so this additive section can
+  // never break the page a customer came here to use.
+  const [lifecycle, setLifecycle] = useState(null)
+  const [lifecycleError, setLifecycleError] = useState(null)
   const [classifyingId, setClassifyingId] = useState(null)
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState(null)
@@ -3488,6 +3566,26 @@ export default function WorkspaceEmailProtectionPage() {
   const gotoSetup   = () => document.getElementById('dmarc-setup')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   const gotoSenders = () => document.getElementById('sender-inventory')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 
+  // Migration 088's history (mig 088). Workspace-scoped, not per-domain: a hosted record
+  // and a sender both live under the workspace, and the server owns the filtering.
+  useEffect(() => {
+    if (!wsId) return
+    let cancelled = false
+    api.getEmailProtectionLifecycle(wsId)
+      .then((res) => { if (!cancelled) { setLifecycle(res); setLifecycleError(null) } })
+      .catch(() => { if (!cancelled) setLifecycleError('Could not load the change history.') })
+    return () => { cancelled = true }
+  }, [wsId])
+
+  // Alert deep link: /ws/email-protection?lifecycle=<record_id> scrolls the history into
+  // view. The history is the record for this domain — mig 088 created no state row — so
+  // the section itself is the destination, and a stale id still lands somewhere useful.
+  useEffect(() => {
+    if (!lifecycle?.items?.length) return
+    if (!new URLSearchParams(window.location.search).get('lifecycle')) return
+    document.getElementById('lifecycle-history')?.scrollIntoView({ block: 'start' })
+  }, [lifecycle])
+
   const header = (
     <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4 mb-6">
       <div className="min-w-0">
@@ -3613,6 +3711,13 @@ export default function WorkspaceEmailProtectionPage() {
           {/* 2b. Sender inventory + classification */}
           <div id="sender-inventory" className="scroll-mt-20">
             <SenderInventory data={senderData} onClassify={handleClassify} classifyingId={classifyingId} loading={siLoading} />
+          </div>
+
+          {/* 2b-ii. What changed and when — migration 088's history, which had no read
+              surface at all: customers were alerted that a hosted record disconnected and
+              could not see when it started or whether it came back. */}
+          <div id="lifecycle-history" className="scroll-mt-20">
+            <EmailLifecycleHistory data={lifecycle} error={lifecycleError} />
           </div>
 
           {/* 2c. PRIMARY PATH — guided DMARC setup wizard */}

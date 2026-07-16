@@ -753,6 +753,37 @@ export const api = {
 
   // ── Identity Exposure Managed Workflow (managed identity surfaces) ─────────
   /** GET /api/workspaces/:id/identity-surfaces  optional: ?customer_classification=&risk_status=&monitoring_status=&surface_type= */
+  // ── M5 read surfaces (migrations 088/089/090) ──────────────────────────────
+  // These lifecycles wrote records and alerted on them long before anything could
+  // read them. Every response carries a server-owned `scope_note`; screens render it
+  // rather than writing their own, so the honesty boundary cannot drift per page.
+
+  /** GET /api/workspaces/:id/website-security/conditions — list (mig 089) */
+  getWebsiteSecurityConditions: (id, params = {}) => {
+    const q = new URLSearchParams(params).toString()
+    return request(`/workspaces/${id}/website-security/conditions${q ? `?${q}` : ''}`)
+  },
+
+  /** GET /api/workspaces/:id/website-security/conditions/:recId — record + history */
+  getWebsiteSecurityCondition: (id, recId) =>
+    request(`/workspaces/${id}/website-security/conditions/${encodeURIComponent(recId)}`),
+
+  /** GET /api/workspaces/:id/cyber-essentials/controls — list (mig 090) */
+  getCyberEssentialsControls: (id, params = {}) => {
+    const q = new URLSearchParams(params).toString()
+    return request(`/workspaces/${id}/cyber-essentials/controls${q ? `?${q}` : ''}`)
+  },
+
+  /** GET /api/workspaces/:id/cyber-essentials/controls/:recId — record + history */
+  getCyberEssentialsControl: (id, recId) =>
+    request(`/workspaces/${id}/cyber-essentials/controls/${encodeURIComponent(recId)}`),
+
+  /** GET /api/workspaces/:id/email-protection/lifecycle — history (mig 088) */
+  getEmailProtectionLifecycle: (id, params = {}) => {
+    const q = new URLSearchParams(params).toString()
+    return request(`/workspaces/${id}/email-protection/lifecycle${q ? `?${q}` : ''}`)
+  },
+
   getIdentitySurfaces: (id, params = {}) => {
     const q = new URLSearchParams(params).toString()
     return request(`/workspaces/${id}/identity-surfaces${q ? `?${q}` : ''}`)

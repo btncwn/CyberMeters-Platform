@@ -75,6 +75,7 @@ const CloudAssetsPage               = lazy(() => import('./pages/ws/CloudAssetsP
 const AdminSurfacesPage             = lazy(() => import('./pages/ws/AdminSurfacesPage'))
 const CertificatesPage              = lazy(() => import('./pages/ws/CertificatesPage'))
 const CertificateLifecyclePage      = lazy(() => import('./pages/ws/CertificateLifecyclePage'))
+const WebsiteSecurityPage           = lazy(() => import('./pages/ws/WebsiteSecurityPage'))
 const IdentityExposurePage          = lazy(() => import('./pages/ws/IdentityExposurePage'))
 const BrandMonitoringPage           = lazy(() => import('./pages/ws/BrandMonitoringPage'))
 const WorkspaceIdentityPage         = lazy(() => import('./pages/ws/WorkspaceIdentityPage'))
@@ -206,6 +207,10 @@ function AppRoutes() {
           <Route path="ws/admin-surfaces"   element={<AdminSurfacesPage />} />
           <Route path="ws/certificates"     element={<CertificatesPage />} />
           <Route path="ws/certificates/lifecycle" element={<CertificateLifecyclePage />} />
+          {/* Website Security had no route at all until now — mig 089's records were
+              written, alerted on, and unreachable. Alert deep links land here as
+              /ws/website-security?condition=<id>. */}
+          <Route path="ws/website-security" element={<WebsiteSecurityPage />} />
           <Route path="ws/identity-exposure" element={<IdentityExposurePage />} />
           <Route path="ws/brand-monitoring" element={<BrandMonitoringPage />} />
           <Route path="ws/identity-assets"  element={<WorkspaceIdentityPage />} />

@@ -17,6 +17,7 @@
 //   • customer-facing meaning comes from the Canonical Remediation Registry;
 //   • delivery decisions belong to emitManagedAlert. Nothing here sends.
 import { createId } from "../lib/util.js";
+import { getEmailFrontendOrigin } from "../lib/lifecycle-email.js";
 import { buildMonitoringTransitionDetail, findConditionOccurrence, MONITORING_CHANGED } from "./alert-occurrence.js";
 import { emitManagedAlert, buildAlertDedupeKey } from "./managed-alerts.js";
 import { resolveRemediation } from "./remediation-registry.js";
@@ -244,6 +245,43 @@ export const isValidSeverity = (s) => VALID_SEVERITIES.has(String(s || ""));
 
 // Deterministic alert kind: <domain>.<recurrence>. Stable, machine-readable, and
 // derived — never free text, so a reworded title can never mint a "new" alert.
+// ── Where a lifecycle alert points ──────────────────────────────────────────
+// THE DEFECT THIS EXISTS TO FIX (traced 2026-07-16): not one of the lifecycle emit sites
+// passed a `link`. managed-alerts.js fell back to `${origin}/notifications`, so a customer
+// told their DMARC record had disconnected — at `high` — landed on a generic alert list
+// with no way to reach the record. An alert is not actionable if the customer cannot open
+// what it references.
+//
+// ONE mapping, here, rather than a URL built at each of the six emit sites: the deep link
+// is part of the alert contract, and six copies of it is six chances to point somewhere
+// that does not exist. Every target below is a route that exists in App.jsx — a link to a
+// route that does not is a different broken promise, not a fix.
+//
+// The identifiers are the records' own stable ids (`wsc-`, `cec-`, `hd-`/`snd-`), which
+// are opaque per-tenant surrogates, not enumerable integers, and the page they land on is
+// workspace-scoped and auth-gated: a customer without access gets the same nothing they
+// would get by typing the URL.
+const LIFECYCLE_LINK_BUILDERS = Object.freeze({
+  website_security: (origin, recordId) =>
+    `${origin}/ws/website-security?condition=${encodeURIComponent(recordId)}`,
+  cyber_essentials_readiness: (origin, recordId) =>
+    `${origin}/ws/cyber-essentials?control=${encodeURIComponent(recordId)}`,
+  email_protection: (origin, recordId) =>
+    `${origin}/ws/email-protection?lifecycle=${encodeURIComponent(recordId)}`,
+});
+
+/**
+ * The customer-facing URL for a lifecycle record, or null when this domain has no read
+ * surface yet. Null is honest: managed-alerts falls back to the notifications list, which
+ * is where the customer would otherwise have been sent anyway.
+ */
+export function lifecycleRecordLink(env, domain_key, record_id) {
+  const build = LIFECYCLE_LINK_BUILDERS[domain_key];
+  if (!build || !record_id) return null;
+  const origin = getEmailFrontendOrigin(env);
+  return origin ? build(origin, record_id) : null;
+}
+
 export function alertKindFor(domain_key, recurrence) {
   return `${domain_key}.${recurrence}`;
 }
@@ -384,6 +422,14 @@ export async function emitLifecycleAlert(env, {
       subject: entity || record_id, period: occurrence.occurrence_id,
     });
 
+    // 4. Where the customer can open this. An explicit `link` from the caller still wins
+    //    — a domain that knows a better destination than "its own record" should say so —
+    //    but no caller passing one is why every lifecycle alert dead-ended at the generic
+    //    notifications list until now. Falls back to null (and thence to that same list)
+    //    for domains with no read surface: pointing at a page that does not exist would
+    //    be worse than pointing at a general one.
+    const record_link = link || lifecycleRecordLink(env, domain_key, record_id);
+
     return await emitManagedAlert(env, {
       workspace_id, domain_key,
       kind: alertKindFor(domain_key, recurrence),
@@ -391,7 +437,7 @@ export async function emitLifecycleAlert(env, {
       title: resolved?.customer_title || `${entity || record_id}: review required`,
       message: resolved?.recommended_action || "Review this item in CyberMeters.",
       dedupe_key,
-      link,
+      link: record_link,
       case_id,
       remediation_id: resolved?.remediation_id || null,
       observed_at: occurrence.observed_at,   // the event's OWN timestamp
@@ -403,6 +449,11 @@ export async function emitLifecycleAlert(env, {
         occurrence_id: occurrence.occurrence_id,
         required_case_action: occurrence.detail?.required_case_action || null,
         recommended_action: resolved?.recommended_action || null,
+        // The in-app card reads its destination from metadata, not from the row's `link`
+        // column (NotificationsPage.jsx). Without this the email would deep-link and the
+        // card next to it would not — the same alert, two different answers to "where do
+        // I go".
+        link: record_link,
       },
     });
   } catch (err) {
