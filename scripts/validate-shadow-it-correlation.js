@@ -52,6 +52,7 @@ const NOW = "2026-07-20T00:00:00Z";
 
 db.prepare("INSERT INTO users (id, email, name) VALUES ('u1','owner@example.com','Owner')").run();
 db.prepare("INSERT INTO workspaces (id, name, owner_user_id, created_at, updated_at) VALUES ('ws1','Alpha','u1',datetime('now'),datetime('now'))").run();
+db.prepare("INSERT INTO workspaces (id, name, owner_user_id, created_at, updated_at) VALUES ('ws2','Beta','u1',datetime('now'),datetime('now'))").run();
 db.prepare("INSERT INTO workspaces (id, name, owner_user_id, created_at, updated_at, deleted_at) VALUES ('wsDead','Dead','u1',datetime('now'),datetime('now'),datetime('now'))").run();
 db.prepare("INSERT INTO domains (id, user_id, domain) VALUES ('d1','u1','example.com')").run();
 db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES ('ws1','d1')").run();
@@ -279,6 +280,48 @@ eq("no inventory rows created for a soft-deleted workspace",
 // ── 14. Deterministic list output ────────────────────────────────────────────
 ok("list API output is deterministic",
   JSON.stringify(await listShadowItInventory(env, "ws1")) === JSON.stringify(await listShadowItInventory(env, "ws1")));
+
+// ── 15. The SAME technology in another tenant is a separate lifecycle ─────────
+// canonical_technology_key is a PRODUCT slug — "dropbox" is "dropbox" in every workspace
+// — so it is the one identifier that genuinely collides across tenants. (The row id does
+// not: it is a random global primary key.) Two customers both running Dropbox must get
+// two independent lifecycles: one tenant's condition, case and history must never grade,
+// silence or alert the other's.
+{
+  seedVendor("ws2", "Dropbox", "storage", { evidence: [{ type: "cname", value: "ws2.dropbox.com" }] });
+  await correlateShadowItInventory(env, "ws2", { now: NOW });
+  const ws2Items = await listShadowItInventory(env, "ws2");
+  const ws2Dropbox = byKey(ws2Items, "dropbox")[0];
+  ok("ws2 has its own Dropbox item", Boolean(ws2Dropbox));
+
+  const ws1Dropbox = byKey(await listShadowItInventory(env, "ws1"), "dropbox")[0];
+  ok("the two tenants share the technology KEY", ws1Dropbox && ws2Dropbox
+     && db.prepare("SELECT canonical_technology_key k FROM shadow_it_inventory WHERE id=?").get(ws1Dropbox.inventory_item_id).k
+     === db.prepare("SELECT canonical_technology_key k FROM shadow_it_inventory WHERE id=?").get(ws2Dropbox.inventory_item_id).k);
+  ok("but NOT the record identity", ws1Dropbox.inventory_item_id !== ws2Dropbox.inventory_item_id);
+
+  // ws1's Dropbox is deep in a contradicted-removal condition with a long history by now.
+  // ws2's is untouched: its own state must be graded from its own evidence alone.
+  await evaluateShadowItMonitoring(env, "ws2", { now: NOW, seenKeys: new Set(["dropbox"]) });
+  const ws2Row = db.prepare("SELECT * FROM shadow_it_inventory WHERE id=?").get(ws2Dropbox.inventory_item_id);
+  const ws1Row = db.prepare("SELECT * FROM shadow_it_inventory WHERE id=?").get(ws1Dropbox.inventory_item_id);
+  ok("ws2's condition is its own, not ws1's", ws2Row.recurrence_type !== "removal_contradicted");
+  eq("ws2 inherits no removal assertion from ws1", ws2Row.removal_status, null);
+  eq("ws2 inherits no verification verdict from ws1", ws2Row.removal_verified, null);
+  ok("ws1 keeps its own contradicted state", ws1Row.removal_status === "removed");
+
+  // Every event of ws2's item is stamped ws2, and ws1's history is not visible to it.
+  const ws2Events = await listShadowItItemEvents(env, "ws2", ws2Dropbox.inventory_item_id);
+  ok("every ws2 event is workspace-stamped", ws2Events.every((e) => e.workspace_id === "ws2" || e.workspace_id === undefined));
+  ok("ws2's item has its own short history, not ws1's long one",
+     db.prepare("SELECT COUNT(*) c FROM shadow_it_inventory_events WHERE item_id=? AND workspace_id='ws2'").get(ws2Dropbox.inventory_item_id).c > 0);
+  eq("no ws1 event leaked onto ws2's item",
+     db.prepare("SELECT COUNT(*) c FROM shadow_it_inventory_events WHERE item_id=? AND workspace_id!='ws2'").get(ws2Dropbox.inventory_item_id).c, 0);
+
+  // A ws2-scoped read must never see ws1's item at all.
+  ok("ws2's inventory does not contain ws1's Dropbox record",
+     !ws2Items.some((i) => i.inventory_item_id === ws1Dropbox.inventory_item_id));
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

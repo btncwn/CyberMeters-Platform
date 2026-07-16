@@ -54,6 +54,10 @@ export const IDENTITY_EVENT_TYPES = Object.freeze([
   "purpose_set", "remediation_started", "customer_action_recorded", "verification_requested",
   "verified", "verification_failed", "exception_set", "exception_cleared", "retired",
   "reopened", "monitoring_changed", "case_linked",
+  // "the already-open case was touched again for the same recurrence" — its own type
+  // BECAUSE it is not a monitoring change: it records no transition and carries no
+  // to_recurrence_type. See the append site below, and shadow-it-inventory.js.
+  "case_recurrence_noted",
 ]);
 
 // ── Ownership (three roles, server-derived) ──────────────────────────────────
@@ -501,7 +505,16 @@ export async function openOrReopenIdentityCase(env, rec, { recurrence, now = new
     .prepare(`INSERT INTO managed_case_events (id, case_id, workspace_id, actor_type, actor_id, from_status, to_status, action, detail_json, created_at)
               VALUES (?, ?, ?, 'system', NULL, ?, ?, 'identity_recurrence', ?, datetime('now'))`)
     .bind(newCaseEventId(), kase.id, kase.workspace_id, kase.status, kase.status, safeJson({ recurrence, record: rec.id })).run();
-  await appendEvent(env, rec, { event_type: "monitoring_changed", detail: { case_id: kase.id, recurrence, updated_case: true } });
+  // NOT `monitoring_changed`: no monitoring state changed here. This records "the
+  // already-open case was touched again for the same recurrence", on every evaluation
+  // pass for as long as the condition persists. Typed as `monitoring_changed` it put an
+  // ever-growing pile of rows into the namespace findConditionOccurrence searches. The
+  // resolver no longer depends on a window, so this is not what makes it correct — it
+  // keeps the resolver's index walk short and stops the log calling a case touch a
+  // monitoring change. Same fix as shadow-it-inventory.js and certificate-lifecycle.js:
+  // the three domains carried the identical row, so all three are corrected together
+  // rather than leaving two siblings to be found later.
+  await appendEvent(env, rec, { event_type: "case_recurrence_noted", detail: { case_id: kase.id, recurrence, updated_case: true } });
   return { ok: true, updated: true };
 }
 
