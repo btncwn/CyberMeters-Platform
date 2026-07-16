@@ -1,6 +1,24 @@
 # CyberMeters — Stripe Billing Foundation Architecture
 
-**Version:** 1.0 | **Date:** June 2026 | **Status:** Draft — Pending Engineering Review  
+> **Status: Historical / Superseded (16 July 2026).** Retained for historical
+> context; no longer a source of truth for prices, products or price IDs.
+> Canonical pricing and the go-live cutover sequence: `docs/PRICING-POLICY.md`
+> (DECIDED 2026-07-09) · the Stripe products/prices as configured today:
+> `docs/stripe-env-setup-v1.md` · implemented behaviour: `BILLING_PLAN_METADATA`
+> in `workers/scan-api/src/engines/entitlements.js` and
+> `workers/scan-api/src/engines/stripe.js`.
+>
+> **Why superseded.** Its price table is a **third, never-live set** — Starter
+> **£49**, annuals £470 / £1,430 / £3,830. That set was never charged, never
+> deployed and never approved: it is neither the legacy live prices (£29 / £149 /
+> £399) nor the adopted policy. Its `price_starter_monthly`-style identifiers and
+> its `prod_msp` six-product catalogue do not match the implemented resolver,
+> which reads price IDs from `STRIPE_*_PRICE_ID` environment variables or
+> `STRIPE_PRICE_MAP` and hardcodes none. Do not implement anything in this
+> document; the architecture narrative is historical background only.
+
+**Version:** 1.0 | **Date:** June 2026 | **Status:** Superseded (was: Draft — Pending Engineering Review)
+
 **Scope:** Stripe Checkout, Webhooks, Subscription Lifecycle  
 **Next Migration:** 028 (`subscription_accounts` extension)  
 **Stripe Mode:** Test mode first; production gate after Phase 2 QA

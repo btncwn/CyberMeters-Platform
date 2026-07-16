@@ -1,5 +1,18 @@
 # Phase 0 — Public-readiness audit (2026-07-08)
 
+> **Status: Historical (16 July 2026).** A point-in-time audit dated 2026-07-08,
+> retained as the historical record. Canonical pricing: `docs/PRICING-POLICY.md`
+> (DECIDED 2026-07-09, i.e. the day after this audit) · canonical roadmap:
+> `docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md` · current canonical episode and
+> release facts: `CLAUDE.md`.
+>
+> Two things in it are now wrong. Its work-list quotes a tier ladder
+> ("Free/Starter ~£29·1 / Pro ~£79·5 / Business ~£199·20 / MSP ~£399·20-100+")
+> that was never adopted and is superseded by the next day's decision — and the
+> canonical policy explicitly bans fixed MSP bands of the "20–100+" shape. It also
+> describes "4 core services"; the product has **eight** canonical domains
+> (`CLAUDE.md`). Read it as history, not as a work-list.
+
 > Goal: before building growth features, establish what ALREADY exists so Codex
 > doesn't rebuild it. Verified against the actual code + live production.
 > **Headline: the growth infrastructure is ~80% already built.** The roadmap is

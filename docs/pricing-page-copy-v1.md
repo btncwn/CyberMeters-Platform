@@ -1,7 +1,30 @@
 # CyberMeters — Pricing Page Copy v1
 
-**Version:** 1.0 | **Date:** June 2026 | **Status:** Ready for implementation  
-**Approved pricing:** Free / Starter £29/mo / Professional £149/mo / Business £399/mo / Enterprise Custom  
+> **Status: Historical / Superseded (16 July 2026).** Retained for historical
+> context; **not** ready for implementation and **not** approved copy. Canonical
+> pricing and card rules: `docs/PRICING-POLICY.md` (DECIDED 2026-07-09) · current
+> canonical episode and release facts: `CLAUDE.md`.
+>
+> **Why superseded.** Three reasons, any one of which is disqualifying:
+>
+> 1. Its prices are the legacy set (£29 / £149 / £399), not the adopted tiers.
+> 2. Its annual claim — *"Save 20% with annual billing — that's up to £960 off per
+>    year on the Business plan"* — is banned copy. The canonical policy permits a
+>    plain discount statement **only** because the adopted Stripe annual prices are
+>    exactly 9× monthly; against the legacy ~20% annuals the only permitted card
+>    copy is "Save with annual billing."
+> 3. Its cards show **workspaces** and an **MSP dashboard row**. The canonical
+>    permanent rule is that the public value metric is **monitored domains** and
+>    that workspaces, users, scans/month and reports/month must never appear on a
+>    pricing card.
+>
+> A card that states a price Stripe does not charge is, in the canonical policy's
+> words, "a trust catastrophe". Do not implement any copy in this document.
+
+**Version:** 1.0 | **Date:** June 2026 | **Status:** Superseded (was: Ready for implementation)
+
+**Legacy pricing recorded below (NOT canonical):** Free / Starter £29/mo / Professional £149/mo / Business £399/mo / Enterprise Custom
+
 **Scope:** Pricing page hero, plan cards, comparison table, FAQ, upgrade CTAs, BRS messaging, CE messaging
 
 > All copy below is ready to paste into the frontend. Section headings indicate the UI component. Bracketed notes are implementation hints, not copy.

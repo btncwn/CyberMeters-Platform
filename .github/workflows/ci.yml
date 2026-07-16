@@ -179,6 +179,18 @@ jobs:
       - name: Validate CI governance (every branch gets the same gate)
         run: node scripts/validate-ci-governance.js
 
+      # An audit found FIVE June-2026 commercial documents still carrying live
+      # authority markers ("Approved — Active Commercial Direction", "Ready for
+      # implementation") months after the 2026-07-09 founder decision superseded
+      # them — PR #87's governance pass marked six ROADMAP docs and touched no
+      # pricing doc, so the commercial drift survived it. That left four mutually
+      # incompatible price ladders in the repo, any of which could be implemented
+      # by someone reading the newest-looking file. This asserts document status
+      # and honesty only — never a price. If the founder changes pricing, this
+      # suite must still pass untouched.
+      - name: Validate commercial canonicalisation (one direction / no stale price ladder / CE + MSP honesty)
+        run: node scripts/validate-commercial-canonicalisation.js
+
       - name: Validate hosted DMARC lifecycle (pass-rate + readiness + auto-rollback runtime)
         run: node scripts/validate-hosted-dmarc-lifecycle.js
 

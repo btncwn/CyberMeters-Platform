@@ -1,6 +1,56 @@
 # CyberMeters — Cyber Essentials Commercialisation Strategy v1
 
-**Version:** 1.0 | **Date:** June 2026 | **Status:** Active Commercial Direction  
+> **Status: Historical / Superseded (16 July 2026).** Retained for historical
+> context — the market analysis and buyer personas are still useful background —
+> but this is **not** a source of truth, not current messaging, and not an
+> instruction to engineering, product or marketing. Canonical pricing and
+> packaging: `docs/PRICING-POLICY.md` (DECIDED 2026-07-09) · canonical Cyber
+> Essentials product boundary: `docs/cyber-essentials-readiness.md` and
+> `docs/alerts-eight-domain-coverage.md` · canonical competitive positioning:
+> `docs/competitive-battlecard-v2.md` · current canonical episode and release
+> facts: `CLAUDE.md`.
+>
+> **Why superseded — pricing.** Every price below (Professional £149, Business
+> £399, annual £1,428 / £3,828, and the ARR arithmetic built on them) is legacy.
+> The adopted policy of 2026-07-09 relabels `professional` to "Growth" and
+> `enterprise` to "MSP / Partner" and adopts different prices. Do not quote any
+> figure in this document.
+>
+> **Why superseded — Cyber Essentials honesty.** This document was written before
+> the CE evidence boundary was settled, and several of its messaging lines now
+> exceed what CyberMeters can evidence. **Do not reuse them.** Specifically:
+>
+> - **"Find out if you'd pass Cyber Essentials" / "would we pass today"** — CE has
+>   five controls. Two of them, **User Access Control** and **Malware Protection**,
+>   are `external_coverage: none`: CyberMeters cannot observe them at all and
+>   persists them as `not_externally_assessable`. A pass/fail prediction cannot be
+>   supported by external evidence and must never be claimed.
+> - **"a report your auditor can rely on" / "be audit-ready, always"** — CyberMeters
+>   is not a certification body, produces no audit-grade artefact, and cannot
+>   guarantee compliance. Readiness is guidance, not assurance.
+> - **"the consultant replacement argument"** — a consultant assesses all five
+>   controls, including the two CyberMeters cannot see. CyberMeters does not
+>   replace that assessment.
+> - **"the 5 Cyber Essentials controls and how to check them continuously"** — the
+>   platform cannot continuously check two of the five.
+> - **"am I cyber essentials compliant"** (SEO target) — the product cannot answer
+>   this question and must not be marketed as if it can.
+> - **"Join UK businesses ... who use CyberMeters"** — CyberMeters has no
+>   customers yet; this is an unevidenced social-proof claim.
+>
+> The honest boundary, which this document states correctly at §3 and which
+> remains canonical: **readiness is estimated from externally observable evidence
+> only; CyberMeters prepares customers for certification and does not certify,
+> assess or guarantee compliance.** Since PR #106 the questionnaire is excluded
+> from readiness entirely — no customer answer is treated as security truth.
+>
+> **Portfolio claims.** Lines describing portfolio-level CE monitoring, a portfolio
+> view, or a Business-trial portfolio evaluation describe **entitlement placement
+> and intent**, not shipped capability. MSP Portfolio Per-Domain State and Trend is
+> a planned canonical episode that has not started.
+
+**Version:** 1.0 | **Date:** June 2026 | **Status:** Superseded (was: Active Commercial Direction)
+
 **Scope:** Market opportunity, buyer personas, positioning, messaging, conversion funnel, GTM  
 **Classification:** Internal commercial strategy — not for external distribution
 

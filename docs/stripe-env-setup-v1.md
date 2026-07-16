@@ -1,5 +1,18 @@
 # CyberMeters — Stripe Environment Setup v1
 
+> **Status: Current for the live (legacy) prices — not the adopted pricing
+> (16 July 2026).** This runbook is **accurate**: the £29 / £276 · £149 / £1,428 ·
+> £399 / £3,828 products it configures are the prices Stripe carries today, and the
+> `STRIPE_*_PRICE_ID` variable names it sets match the implemented resolver in
+> `workers/scan-api/src/engines/stripe.js`. Keep using it for the current setup.
+>
+> It is **not** the adopted pricing. The canonical policy `docs/PRICING-POLICY.md`
+> (DECIDED 2026-07-09) adopts different tiers, to be cut over **once**, in lockstep
+> (Stripe prices + `BILLING_PLAN_METADATA` + pricing cards together), at public-beta
+> launch and on founder approval. That cutover — including the test→live mode
+> change — is specified in `docs/PRICING-POLICY.md` §6, not here. Do not change
+> live prices from this document.
+
 **Sprint 14B — Phase 2**
 **Date:** June 2026
 
