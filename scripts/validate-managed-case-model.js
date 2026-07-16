@@ -64,7 +64,14 @@ eq("assigned requires an owner (guard)", canTransitionCase({ case: mkCase({ stat
 // ── 5/6. Verified requires STRUCTURED evidence; scan/note alone cannot verify ─
 // Base (manual) domains verify via a structured attestation from an identified
 // actor. A bare flag / scan / note never verifies.
-const av = mkCase({ status: "awaiting_verification" }); // email_case = base (manual)
+//
+// The vehicle is `identity_case`, not `email_case`. email/website/cyber_essentials now
+// derive their verification support from each case's own canonical remediation (see
+// verificationSupportForCase), so they are no longer examples of "base manual" — their
+// answer depends on what the registry says about the finding. identity_case still is one:
+// nothing external can confirm an identity fix, so attestation remains its honest ceiling.
+// The contract below is unchanged; only the case type that demonstrates it moved.
+const av = mkCase({ status: "awaiting_verification", case_type: "identity_case" });
 const attn = { verification_method: "manual_attestation", verification_result: "verified", evidence_type: "attestation", observed_at: "2026-07-14T00:00:00Z", attestation: { by: "u1", statement: "fixed" } };
 eq("verified with NO evidence is refused", canTransitionCase({ case: av, target_status: "verified", actor: { actor_type: "customer", actor_id: "u1" } }).code, "verify_requires_evidence");
 eq("verified from a bare scan completion is refused", canTransitionCase({ case: av, target_status: "verified", actor: { actor_type: "customer", actor_id: "u1" }, evidence: { scan_completed_only: true } }).code, "verify_requires_evidence");
@@ -180,6 +187,68 @@ for (const col of ["domain_key","source_finding_type","source_scan_id","remediat
 ok("migration is additive (no destructive statement)", !/\b(DROP\s+TABLE|DROP\s+COLUMN|DELETE\s+FROM|TRUNCATE)\b/i.test(migSrc.replace(/--[^\n]*/g, "")));
 ok("migration back-fills domain_key for existing ASM + Brand rows",
   /UPDATE managed_cases SET domain_key = 'attack_surface'/.test(migSrc) && /UPDATE managed_cases SET domain_key = 'brand_protection'/.test(migSrc));
+
+// ── 13. Verification support is derived from the REGISTRY, per case ──────────
+// THE DEFECT THIS EXISTS TO PREVENT: verification support used to be a property of the
+// case_type, and a case_type is the wrong grain. Email Protection holds BOTH a hosted DMARC
+// record CyberMeters re-observes by DNS and a sender review the registry says the product
+// cannot observe at all. Under a per-type answer, one of those is always wrong:
+//   • blanket `manual`    → a customer's assertion concludes verification for a DNS record
+//                           we check ourselves (the rule this increment must preserve);
+//   • blanket `automated` → the attestation-only findings become unverifiable FOREVER,
+//                           because no system verifier can exist for them.
+// The Canonical Remediation Registry already decided this per finding, and CLAUDE.md makes
+// it the source of truth for verification method. So the model asks it.
+{
+  const { verificationSupportForCase } = mcm;
+  const c = (case_type, remediation_id, over = {}) =>
+    ({ id: "mc-v", workspace_id: "ws1", case_type, remediation_id, status: "awaiting_verification", ...over });
+
+  // Observable findings → only CyberMeters verifies.
+  eq("website https_recheck → automated", verificationSupportForCase(c("website_case", "web.https.redirect")), "automated");
+  eq("email dns_recheck → automated", verificationSupportForCase(c("email_case", "email.dmarc.publish")), "automated");
+  eq("CE rescan → automated", verificationSupportForCase(c("cyber_essentials_case", "ce.readiness.control_review")), "automated");
+
+  // The registry says the product cannot observe these → attestation is the honest ceiling.
+  eq("email manual_attestation → manual", verificationSupportForCase(c("email_case", "email.dkim.verify")), "manual");
+  eq("CE manual_attestation → manual", verificationSupportForCase(c("cyber_essentials_case", "ce.access.saas_review")), "manual");
+
+  // Fail closed: an unresolvable or absent remediation is not an invitation to self-certify.
+  eq("a case with NO remediation is unsupported, not manual", verificationSupportForCase(c("website_case", null)), "unsupported");
+  eq("a case with an unknown remediation is unsupported", verificationSupportForCase(c("website_case", "web.does.not.exist")), "unsupported");
+
+  // Closed increments keep their own per-type answer — this derivation is opt-in.
+  eq("identity_case still answers from its case_type", verificationSupportForCase(c("identity_case", "web.https.redirect")), "manual");
+  eq("shadow_it_case still answers from its case_type", verificationSupportForCase(c("shadow_it_case", "web.https.redirect")), "manual");
+  eq("asm keeps automated", verificationSupportForCase(c("asm_exposure", null)), "automated");
+
+  // ── The rule this increment exists to preserve, end to end ────────────────
+  const obs = c("website_case", "web.https.redirect");
+  const attestation = {
+    verification_method: "manual_attestation", verification_result: "verified",
+    evidence_type: "attestation", observed_at: "2026-07-16T00:00:00Z",
+    attestation: { by: "u1", statement: "I fixed it" },
+  };
+  const byCustomer = canTransitionCase({ case: obs, target_status: "verified", actor: { actor_type: "customer", actor_id: "u1" }, evidence: attestation });
+  ok("a CUSTOMER cannot verify an observable website condition, even with a structured attestation",
+    byCustomer.ok === false);
+  eq("and is told why", byCustomer.code, "verify_requires_system");
+
+  const bySystem = canTransitionCase({
+    case: obs, target_status: "verified", actor: { actor_type: "system" },
+    evidence: { verification_method: "https_recheck", verification_result: "fixed", evidence_type: "http_probe", observed_at: "2026-07-16T00:00:00Z", observation: { status: 200 } },
+  });
+  ok("CyberMeters' own re-observation DOES verify it", bySystem.ok === true);
+
+  // …while the attestation-only finding keeps the path the registry endorses.
+  const att = c("email_case", "email.dkim.verify");
+  ok("a customer CAN attest the finding the product genuinely cannot observe",
+    canTransitionCase({ case: att, target_status: "verified", actor: { actor_type: "customer", actor_id: "u1" }, evidence: attestation }).ok === true);
+  // But never on a bare note — the evidence contract still applies.
+  eq("and a bare note still does not verify it",
+    canTransitionCase({ case: att, target_status: "verified", actor: { actor_type: "customer", actor_id: "u1" }, evidence: { note_only: true } }).code,
+    "verify_requires_evidence");
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

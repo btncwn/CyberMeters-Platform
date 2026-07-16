@@ -24,7 +24,7 @@ import { applyCaseTransition, createCaseMachine, isTerminal, canTransition,
 import { ASM_CASE_TYPE, ASM_CASE_MACHINE, ASM_CASE_STATES, SYSTEM_ONLY_CASE_STATES } from "./asm-case-machine.js";
 import { BRAND_CASE_TYPE, BRAND_CASE_MACHINE, BRAND_CASE_STATES, BRAND_SYSTEM_ONLY_STATES } from "./brand-case-machine.js";
 import { CYBER_MOT_DOMAINS } from "./cyber-mot-domains.js";
-import { findingRemediation } from "./remediation-registry.js";
+import { findingRemediation, getRemediationById } from "./remediation-registry.js";
 
 // The eight canonical domain keys are DERIVED from the Cyber MOT model so they
 // can never drift from it.
@@ -129,9 +129,65 @@ function baseEntry(domain_key, case_type) {
     phase: BASE_PHASE,
     system_only: BASE_SYSTEM_ONLY_STATES,
     verified_states: new Set(["verified"]),
-    verification_support: "manual", // no automated verifier wired this episode
+    verification_support: "manual", // no automated verifier wired for this domain
     base: true,
   };
+}
+
+// ── Registry-derived verification support ───────────────────────────────────
+// A case_type is the WRONG grain for "how is this verified", and assuming otherwise gets
+// both possible answers wrong for Email Protection:
+//
+//   hosted_record_disconnected → email.hosted_dmarc.reconnect      → dns_recheck
+//   hosted_rolled_back_auto    → email.hosted_dmarc.auto_rollback_review → manual_attestation
+//   sender_unrecognised        → email.sender.review_unrecognised   → manual_attestation
+//
+// Blanket `automated` would make three of Email's six case-producing conditions
+// UNVERIFIABLE FOREVER — no system verifier can exist for a thing the registry says the
+// product cannot observe. Blanket `manual` lets a customer's assertion conclude
+// verification for a DNS record CyberMeters re-observes itself, which is the rule this
+// increment exists to preserve.
+//
+// The Canonical Remediation Registry has ALREADY decided this, per finding. CLAUDE.md
+// makes it the source of truth for remediation meaning "including ... verification
+// method", and its vocabulary is explicit: `manual_attestation // customer confirms;
+// product cannot observe it`. So the case model asks the registry rather than guessing per
+// domain:
+//
+//   verification_method === "manual_attestation"  → the product cannot observe this;
+//                                                   a structured attestation from an
+//                                                   identified actor is the honest ceiling
+//   anything else (dns_recheck, https_recheck,     → the product CAN observe this, so only
+//   certificate_recheck, rescan, receiver_reports,   CyberMeters' own observation verifies
+//   external)                                        and the customer cannot conclude it
+//   unsupported                                    → nothing verifies it
+//
+// This is not a new product semantic. It is CLAUDE.md's existing rule — "Verification
+// requires structured, METHOD-APPROPRIATE evidence" — read literally: attestation is
+// method-appropriate exactly where the registry says observation is impossible.
+//
+// Scoped to the three case types this increment wires. certificate_case, identity_case and
+// shadow_it_case are closed increments with their own verification stories, and deriving
+// theirs from here would silently restate contracts this episode was told not to reopen.
+const REGISTRY_DERIVED_VERIFICATION = new Set(["email_case", "website_case", "cyber_essentials_case"]);
+
+/**
+ * How may THIS case be verified? Derived from its own canonical remediation where the
+ * case_type opts in; otherwise the case_type's declared support.
+ *
+ * Fails CLOSED: a case whose remediation cannot be resolved gets "unsupported" rather than
+ * the more permissive "manual" — an unknown finding is not an invitation to self-certify.
+ */
+export function verificationSupportForCase(caseRecord = {}) {
+  const entry = caseTypeEntry(caseRecord.case_type);
+  if (!entry) return "unsupported";
+  if (!REGISTRY_DERIVED_VERIFICATION.has(entry.case_type)) return entry.verification_support;
+
+  const rem = caseRecord.remediation_id ? getRemediationById(caseRecord.remediation_id) : null;
+  const method = rem?.verification_method ?? null;
+  if (!method) return "unsupported";
+  if (method === "unsupported") return "unsupported";
+  return method === "manual_attestation" ? "manual" : "automated";
 }
 
 export const CASE_TYPE_REGISTRY = Object.freeze({
@@ -147,10 +203,14 @@ export const CASE_TYPE_REGISTRY = Object.freeze({
     system_only: BRAND_SYSTEM_ONLY_STATES, verified_states: new Set(["resolved"]),
     verification_support: "automated", base: false,
   },
+  // These three derive verification support from each case's own canonical remediation —
+  // see verificationSupportForCase. The `manual` below is only the fallback for a case
+  // whose remediation cannot be resolved; the registry decides the real answer.
   email_case:          baseEntry("email_protection", "email_case"),
-  certificate_case:    baseEntry("certificates_trust", "certificate_case"),
   cyber_essentials_case: baseEntry("cyber_essentials_readiness", "cyber_essentials_case"),
   website_case:        baseEntry("website_security", "website_case"),
+  // Unchanged — closed increments with their own verification stories.
+  certificate_case:    baseEntry("certificates_trust", "certificate_case"),
   identity_case:       baseEntry("identity_exposure", "identity_case"),
   shadow_it_case:      baseEntry("shadow_it_unmanaged_technology", "shadow_it_case"),
 });
@@ -281,7 +341,13 @@ export function canTransitionCase(opts = {}) {
   //    structured attestation from an identified actor. Both go through the
   //    verification-evidence contract; failed/inconclusive never verifies.
   if (isVerifiedTarget(entry, target)) {
-    const support = entry.verification_support;
+    // Per-CASE, not per-case_type: the registry already says how each finding is verified,
+    // and the same domain can hold both an observable condition and one the product
+    // genuinely cannot see. See verificationSupportForCase.
+    const support = verificationSupportForCase(caseRecord);
+    if (support === "unsupported") {
+      return { ok: false, code: "verify_unsupported", error: "CyberMeters cannot verify this finding, so this case cannot be marked verified." };
+    }
     if (support === "automated" && actorType !== "system") {
       return { ok: false, code: "verify_requires_system", error: "Only CyberMeters verification can mark this case verified." };
     }
