@@ -483,11 +483,17 @@ async function openOrReopenShadowItCase(env, item, { reason, now = new Date().to
   // rows into the namespace findConditionOccurrence searches — one per hour, per item,
   // forever — and pushed the real occurrence out of its (then bounded) window at pass 26.
   //
-  // The resolver no longer depends on a window, so this is not what makes it correct.
-  // It matters because the resolver's index walk still has to step over every
-  // `monitoring_changed` row for this item to reach the transition it wants: with this
-  // typed honestly, that walk steps over the handful of real transitions instead of a
-  // year of hourly noise.
+  // The resolver no longer depends on a window, so this is NOT what makes it correct, and
+  // it does not make the resolver faster either: the only index here is
+  // (item_id, created_at) (083:75-76), so `event_type` is a residual filter applied to
+  // each visited row and the walk still steps over every event for this item. An earlier
+  // version of this comment claimed the retype shortened that walk. It does not — the row
+  // is merely rejected on a string compare instead of after a JSON parse. If walk length
+  // ever matters, the answer is an index on (item_id, event_type, created_at), not this.
+  //
+  // What it IS for: the log should not call a case touch a monitoring change, and the
+  // occurrence namespace should mean one thing, so a future reader counting
+  // `monitoring_changed` gets real transitions rather than an hourly heartbeat.
   //
   // The growth itself is NOT fixed here — this row, and the managed_case_events row
   // above it, are still written once per pass and still record no new fact. That is a

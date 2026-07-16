@@ -311,8 +311,15 @@ ok("list API output is deterministic",
   ok("ws1 keeps its own contradicted state", ws1Row.removal_status === "removed");
 
   // Every event of ws2's item is stamped ws2, and ws1's history is not visible to it.
+  //
+  // Asserted against the DB row and via a cross-tenant READ, not against the API payload:
+  // listShadowItItemEvents does not SELECT workspace_id (shadow-it-inventory.js:688), so
+  // `e.workspace_id === "ws2" || e.workspace_id === undefined` — which an earlier draft of
+  // this line used — is true for every possible engine behaviour and proves nothing.
   const ws2Events = await listShadowItItemEvents(env, "ws2", ws2Dropbox.inventory_item_id);
-  ok("every ws2 event is workspace-stamped", ws2Events.every((e) => e.workspace_id === "ws2" || e.workspace_id === undefined));
+  ok("ws2's own history is readable when scoped to ws2", ws2Events.length > 0);
+  eq("the SAME item read while scoped to ws1 yields nothing — the read is tenant-gated",
+     (await listShadowItItemEvents(env, "ws1", ws2Dropbox.inventory_item_id)).length, 0);
   ok("ws2's item has its own short history, not ws1's long one",
      db.prepare("SELECT COUNT(*) c FROM shadow_it_inventory_events WHERE item_id=? AND workspace_id='ws2'").get(ws2Dropbox.inventory_item_id).c > 0);
   eq("no ws1 event leaked onto ws2's item",

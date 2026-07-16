@@ -212,9 +212,11 @@ export async function findConditionOccurrence(env, {
     // and an empty `recurrence_type` never reaches here — the falsy guard above returns
     // null first. Every divergence also fails CLOSED (a stricter match => no occurrence
     // => no alert), which is the direction this codebase already chooses everywhere else.
-    // validate-alert-occurrence.js pins the reachable shapes AND the fail-closed
-    // behaviour, so a future writer that starts emitting a non-string recurrence type
-    // fails a test rather than silently losing alerts.
+    // validate-alert-occurrence.js §11b pins the reachable shapes (string match, mismatch,
+    // null payload, absent key, empty query) as identical, and pins the NUMERIC payload as
+    // failing closed. Boolean and object payloads are described above but not seeded —
+    // they diverge for the same storage-class reason as the numeric case, and a writer
+    // emitting one would fail its own domain's alerting suite rather than this file.
     const row = await env.cybermeters_db
       .prepare(`SELECT id, created_at, detail_json
                 FROM ${source.table}

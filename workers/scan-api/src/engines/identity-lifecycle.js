@@ -509,9 +509,11 @@ export async function openOrReopenIdentityCase(env, rec, { recurrence, now = new
   // already-open case was touched again for the same recurrence", on every evaluation
   // pass for as long as the condition persists. Typed as `monitoring_changed` it put an
   // ever-growing pile of rows into the namespace findConditionOccurrence searches. The
-  // resolver no longer depends on a window, so this is not what makes it correct — it
-  // keeps the resolver's index walk short and stops the log calling a case touch a
-  // monitoring change. Same fix as shadow-it-inventory.js and certificate-lifecycle.js:
+  // resolver no longer depends on a window, so this is not what makes it correct — and it
+  // does not shorten the resolver's walk either (the only index is (record_id, created_at),
+  // 086:120, so event_type is a residual filter). It is for honest typing: the log should
+  // not call a case touch a monitoring change. Same fix as shadow-it-inventory.js and
+  // certificate-lifecycle.js:
   // the three domains carried the identical row, so all three are corrected together
   // rather than leaving two siblings to be found later.
   await appendEvent(env, rec, { event_type: "case_recurrence_noted", detail: { case_id: kase.id, recurrence, updated_case: true } });

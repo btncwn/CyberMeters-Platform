@@ -379,6 +379,15 @@ await withMutant("alert-occurrence.js",
   });
 
 // 11 — deterministic ordering removed.
+//
+// HONEST LIMIT: without ORDER BY, SQLite's row order is UNSPECIFIED, not random. Today's
+// planner walks the (fk, created_at) index ascending, so the mutant returns the OLDEST
+// match and is caught. A future planner could legally return the newest first and this
+// mutant would survive — the assertion would then pass against a genuinely broken query.
+// It is written to fail only on the WRONG answer, never to fail correct code, so a planner
+// change makes it weaker rather than flaky. The property itself is pinned unconditionally
+// by validate-alert-occurrence.js §10 (which asserts the newest wins WITH the ORDER BY)
+// and by MUTANT-11b below, which does not depend on planner order at all.
 await withMutant("alert-occurrence.js",
   (s) => s.replace(/\n\s*ORDER BY created_at DESC, rowid DESC\n(\s*)LIMIT 1`\)/, "\n$1LIMIT 1`)"),
   async (mut) => {
@@ -388,8 +397,26 @@ await withMutant("alert-occurrence.js",
                 VALUES ('newest','rec1','ws1','system','monitoring_changed',?,'2026-06-25T00:00:00Z')`)
       .run(JSON.stringify({ to_recurrence_type: "COND" }));
     const occ = await resolveWith(mut, env);
-    ok("MUTANT-11: without ORDER BY the resolver stops returning the newest occurrence",
+    ok("MUTANT-11: without ORDER BY the resolver stops returning the newest occurrence (planner-dependent)",
       occ?.occurrence_id !== "newest");
+  });
+
+// 11b — the tie-break specifically: rowid DESC -> id DESC.
+// Planner-independent: both rows tie on created_at, so ONLY the tie-break decides. The ids
+// are chosen so lexicographic order inverts insertion order.
+await withMutant("alert-occurrence.js",
+  (s) => s.replace("ORDER BY created_at DESC, rowid DESC", "ORDER BY created_at DESC, id DESC"),
+  async (mut) => {
+    const { db, env } = occDb();
+    const SEC = "2026-06-30T00:00:00Z";
+    for (const id of ["zzz_first", "aaa_second"]) {
+      db.prepare(`INSERT INTO certificate_lifecycle_events (id, lifecycle_id, workspace_id, actor_type, event_type, detail_json, created_at)
+                  VALUES (?, 'rec1','ws1','system','monitoring_changed',?,?)`)
+        .run(id, JSON.stringify({ to_recurrence_type: "COND" }), SEC);
+    }
+    const occ = await resolveWith(mut, env);
+    eq("MUTANT-11b: an `id DESC` tie-break returns the EARLIER append — reusing its dedupe key and silencing the recurrence",
+      occ?.occurrence_id, "zzz_first");
   });
 
 // 12 — reverted to LIMIT 25 + JavaScript filtering (the original code).
@@ -438,9 +465,13 @@ await withMutant("alert-occurrence.js",
 // It records "the already-open case was touched again for the same recurrence" and is
 // appended on EVERY evaluation pass while a condition persists. Typed `monitoring_changed`
 // it was eviction fuel: measured 148 monitoring_changed rows for ONE shadow-IT item, of
-// which 4 were real occurrences. The resolver no longer depends on a window, so this is
-// not what makes it correct — it keeps the resolver's index walk short and stops the log
-// calling a case touch a monitoring change.
+// which 4 were real occurrences.
+//
+// This is NOT what makes the resolver correct (the window is gone), and it does NOT make
+// it faster: every index on these tables is (fk, created_at), so event_type is a residual
+// filter and the walk visits every row for the record either way. It is for honest typing
+// — the log should not call a case touch a monitoring change, and the occurrence namespace
+// should mean one thing.
 //
 // Asserted for ALL THREE domains that carried the identical row. Fixing only the one that
 // was reported is how #105 left the same defect live in another module.
