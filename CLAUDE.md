@@ -2,7 +2,7 @@
 
 Version: July 2026
 
-Last updated: 16 July 2026 (release v2026.07.16-14; active canonical episode: M5 Completion Across All Eight Domains — in progress)
+Last updated: 16 July 2026 (release v2026.07.16-15; active canonical episode: M5 Completion Across All Eight Domains — in progress)
 
 ---
 
@@ -250,10 +250,10 @@ Do not claim that CyberMeters performs a customer, provider, registrar, certific
 
 Current release facts (as of 16 July 2026):
 
-- latest release tag: `v2026.07.16-14` (Cyber Essentials readiness honesty — no proxy scoring — deployed);
-- live Worker Version ID: `1ebf34f0-7576-4a1b-9324-fe78750c0904` (built from `72b5265`);
-- rollback Worker Version ID: `82de6cfa-86cf-4488-8730-43eff9cc35b8` (v2026.07.16-13);
-- latest migration applied to production: `091-cyber-mot-domain-states.sql` (unchanged — none of `v2026.07.16-6` through `-14` carried a migration);
+- latest release tag: `v2026.07.16-15` (CE Questionnaire Hygiene — one shared set, versioned answers — deployed);
+- live Worker Version ID: `da576ff2-b8d6-47cf-a342-42a83ea750d9` (built from `4e6f2ee`);
+- rollback Worker Version ID: `1ebf34f0-7576-4a1b-9324-fe78750c0904` (v2026.07.16-14);
+- latest migration applied to production: `092-ce-answer-question-set-version.sql` (applied 16 July 2026; `v2026.07.16-6` through `-14` carried no migration);
 - active canonical episode: M5 Completion Across All Eight Domains (in progress).
 
 **M5 is under way.** Its pre-change parity audit across all eight domains found four false
@@ -347,6 +347,20 @@ protection. Both controls now publish no number, no band and no health; they sta
 "Not externally assessable — self-attestation only", and the indicator is the mean of the
 three assessable areas and states its denominator. Both paths now read one source of truth
 (`CE_QUESTIONS.external_coverage`). Mutation-tested across builder, PDF and frontend.
+
+**CE Questionnaire Hygiene is closed** (`v2026.07.16-15`, migration 092). The public
+self-check and the authenticated set were two independently-maintained copies that had
+drifted — 14 of 20 questions carried a different KEY on each side, and 4 of the 6 shared keys
+were worded differently — so a visitor who answered the public check and then subscribed was
+answering a different questionnaire. Both surfaces now consume one build-time module
+(`shared/cyber-essentials-questions.js`); `question_key` is persisted, so the canonical keys
+are the ones already in D1 and the key list is CI-pinned. Answers persist the question-set
+version they were given under and KEEP it: the version moves only when the answer itself
+changes, enforced in SQL because the client submits the full questionnaire on every save. The
+version format is canonical ISO 8601 `YYYY-MM-DD` and is a CyberMeters product version, never
+an IASME or NCSC identifier. The 20-question readiness model is unchanged; answers still
+never touch the Cyber Metrics Score or the Business Risk Indicator, and still never
+auto-create a case.
 
 The per-domain maturity ledger remains untouched. The ledger is corrected
 **last**: it is wrong in every row today and most rows *under*-claim, so raising it before
