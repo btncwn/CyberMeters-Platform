@@ -21,6 +21,8 @@ import {
 } from "./alert-occurrence.js";
 import { emitLifecycleAlert } from "./alert-consumers.js";
 import { moduleCompletionGate } from "./asm-cases.js";
+// One direction only: this module calls into the case layer, which imports nothing back.
+import { openOrReopenWebsiteCase, verifyWebsiteCaseFromResolution } from "./website-security-cases.js";
 
 export const WEBSITE_SECURITY_DOMAIN_KEY = "website_security";
 
@@ -165,6 +167,40 @@ function gradeFindings(findings) {
  *
  * Never throws: a lifecycle or alerting failure must not break the scan.
  */
+// Open/reopen the canonical case for a condition and record the linkage in THIS domain's
+// append-only log. The case layer owns the case and the column; the lifecycle owns its own
+// events, so the `case_linked` event mig 089 reserved is written here.
+//
+// Never throws: a case-layer failure must not take down the evaluation pass or suppress the
+// alert. The alert then carries no case_id and the customer still hears about the condition
+// — strictly better than silence.
+async function openWebsiteCase(env, {
+  workspace_id, record_id, entity, domain, recurrence, condition_key, severity, scan_id,
+}) {
+  try {
+    const res = await openOrReopenWebsiteCase(env, {
+      workspace_id, record_id, entity, domain, recurrence, condition_key,
+      severity: severity || "medium",
+    });
+    if (!res?.ok || !res.case?.id) return null;
+    // Only a genuine open/reopen is worth a linkage event; an unchanged pass that found the
+    // same open case must add nothing, or the log grows a row per evaluation forever (the
+    // per-pass-row defect noted in v2026.07.16-8).
+    if (res.created || res.reopened) {
+      await appendEvent(env, {
+        workspace_id, record_id, event_type: WS_EVENT_CASE_LINKED,
+        detail: {
+          case_id: res.case.id, condition_key, recurrence, entity, scan_id,
+          action: res.created ? "case_opened" : "case_reopened",
+        },
+      }).catch(() => {});
+    }
+    return { case_id: res.case.id, created: Boolean(res.created), reopened: Boolean(res.reopened) };
+  } catch {
+    return null;
+  }
+}
+
 export async function evaluateWebsiteSecurityForScan(env, {
   workspace_id, domain_id, domain, scan_id,
   findings = [], modules = null, scanQuality = null, now = null,
@@ -269,10 +305,17 @@ export async function evaluateWebsiteSecurityForScan(env, {
             },
           }).catch(() => {});
           transitions++;
+          // The case BEFORE the alert: an alert that names a case must be able to link to
+          // one, so the case has to exist by the time the alert is built.
+          const opened = await openWebsiteCase(env, {
+            workspace_id, record_id: id, entity: `${domain}:${key}`, domain,
+            recurrence, condition_key: key, severity: obs.severity, scan_id,
+          });
           const r = await emitLifecycleAlert(env, {
             workspace_id, domain_key: WEBSITE_SECURITY_DOMAIN_KEY,
             record_id: id, entity: `${domain}:${key}`, hostname: domain,
             recurrence, record_severity: obs.severity, finding_type: key,
+            case_id: opened?.case_id || null,
           }).catch(() => null);
           if (r?.emitted) alerts++;
         }
@@ -322,6 +365,14 @@ export async function evaluateWebsiteSecurityForScan(env, {
           workspace_id, record_id: rec.id, event_type: WS_EVENT_RESOLVED,
           detail: { reason, condition_key: key, from_recurrence_type: rec.recurrence_type, entity: domain, scan_id, verified_by_module: spec.module },
         }).catch(() => {});
+        // The ONE system verifier for this domain. `module_assessed` is passed explicitly
+        // rather than inferred: this branch is reachable only through gate.canVerify(), and
+        // saying so out loud is what lets the case layer refuse on its own evidence instead
+        // of trusting the branch it was called from.
+        await verifyWebsiteCaseFromResolution(env, {
+          workspace_id, record_id: rec.id, recovery_event_type: WS_EVENT_RESOLVED,
+          module_assessed: gate.canVerify(spec.module), detecting_module: spec.module, scan_id,
+        }).catch(() => {});
         resolved++;
         continue;
       }
@@ -352,11 +403,18 @@ export async function evaluateWebsiteSecurityForScan(env, {
         },
       }).catch(() => {});
       transitions++;
+      // Reappearance after a recovery reopens the canonical case; a worsened grade notes the
+      // recurrence on the open one. Either way the case is resolved BEFORE the alert, so the
+      // link is the case that exists now — not the stale pointer on the row we read.
+      const opened = await openWebsiteCase(env, {
+        workspace_id, record_id: rec.id, entity: `${domain}:${key}`, domain,
+        recurrence, condition_key: key, severity: obs.severity, scan_id,
+      });
       const r = await emitLifecycleAlert(env, {
         workspace_id, domain_key: WEBSITE_SECURITY_DOMAIN_KEY,
         record_id: rec.id, entity: `${domain}:${key}`, hostname: domain,
         recurrence, record_severity: obs.severity, finding_type: key,
-        case_id: rec.linked_case_id || null,
+        case_id: opened?.case_id || rec.linked_case_id || null,
       }).catch(() => null);
       if (r?.emitted) alerts++;
     }

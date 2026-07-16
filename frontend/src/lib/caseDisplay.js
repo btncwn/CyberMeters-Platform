@@ -6,6 +6,27 @@
 // (canTransitionCase); screens only display the phase and send a target status
 // the server validates.
 
+// ── The verification vocabulary rule (canonical, cross-domain) ───────────────
+// `verified` is ONE canonical phase but TWO different customer facts, and calling both
+// "Verified" is the difference between a claim we can stand behind and one we cannot:
+//
+//   verification_support 'automated' → CyberMeters re-observed the fix itself
+//                                      (registry method dns_recheck / https_recheck /
+//                                      receiver_reports / …). "Verified by CyberMeters".
+//   verification_support 'manual'    → the registry says the product CANNOT observe this
+//                                      fix, so the case rests on the customer's word.
+//                                      NEVER "Verified", NEVER "Confirmed".
+//
+// The words "Verified" and "Confirmed" are reserved for what CyberMeters itself observed.
+// This is CLAUDE.md's standing rule read literally — "Customer assertion and CyberMeters
+// external verification are different states", and "Do not mark states 'Verified' … unless
+// evidence supports the exact label". The tone matters as much as the word: green reads as
+// "settled" at a glance, so an attestation is deliberately not green.
+//
+// The frontend does not DERIVE this — `verification_support` is computed by the backend
+// from the canonical remediation registry and arrives on the case.
+export const ATTESTED_LABEL = 'Attested by customer — not externally verifiable';
+
 // Canonical phases (must match managed-case-model.js CANONICAL_CASE_STATES +
 // CANONICAL_TERMINAL_STATES). Labels are presentation only.
 export const CANONICAL_PHASE_META = {
@@ -15,7 +36,10 @@ export const CANONICAL_PHASE_META = {
   approved:              { label: 'Approved',              tone: 'indigo' },
   action_in_progress:    { label: 'Action in progress',    tone: 'amber'  },
   awaiting_verification: { label: 'Awaiting verification', tone: 'amber'  },
-  verified:              { label: 'Verified',              tone: 'green'  },
+  // NOT a usable label on its own — `verified` is support-dependent, so this entry is the
+  // honest floor (the weaker of the two claims) for any consumer that reads the map
+  // directly. Go through phaseMeta(phase, verification_support) to get the real one.
+  verified:              { label: ATTESTED_LABEL,          tone: 'blue'   },
   monitoring:            { label: 'Monitoring',            tone: 'green'  },
   reopened:              { label: 'Reopened',              tone: 'red'    },
   // Terminal / exceptional — none of these is "Verified".
@@ -37,14 +61,25 @@ export const TONE_CLASS = {
 
 // Present a canonical phase. Unknown/missing phase falls back to a neutral label
 // derived from the raw string — never a fabricated status.
-export function phaseMeta(phase) {
+//
+// `verificationSupport` is the case's backend-computed support. It only ever changes the
+// `verified` phase, and it FAILS CLOSED: a case that reaches `verified` without telling us
+// how it may be verified is presented as an attestation, never as CyberMeters' own
+// observation. Guessing "automated" from silence is exactly the optimistic-healthy default
+// the platform forbids; the honest fallback is the weaker claim.
+export function phaseMeta(phase, verificationSupport = null) {
+  if (phase === 'verified') {
+    return verificationSupport === 'automated'
+      ? { label: 'Verified by CyberMeters', tone: 'green' }
+      : { label: ATTESTED_LABEL, tone: 'blue' };
+  }
   if (phase && CANONICAL_PHASE_META[phase]) return CANONICAL_PHASE_META[phase];
   const label = phase ? String(phase).replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : 'Unknown';
   return { label, tone: 'slate' };
 }
 
-export function phaseClass(phase) {
-  return TONE_CLASS[phaseMeta(phase).tone] || TONE_CLASS.slate;
+export function phaseClass(phase, verificationSupport = null) {
+  return TONE_CLASS[phaseMeta(phase, verificationSupport).tone] || TONE_CLASS.slate;
 }
 
 // The eight canonical domain-key display names (for grouping the cross-domain

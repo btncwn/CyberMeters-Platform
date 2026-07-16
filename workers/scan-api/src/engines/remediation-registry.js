@@ -1316,7 +1316,35 @@ export function resolveByCustomerTitle(title) {
 //   • remediation unavailable → treated as unknown (honest)
 //   • verification unsupported→ verification_method "unsupported", kept explicit
 // Pure and deterministic: the same inputs always produce the same output.
+// The resolver's ONLY legal arguments. Anything else is a programming error, and the
+// destructure below would swallow it silently — which is not hypothetical: passing
+// `{remediation_id}` here returned an unknownResolution whose verification_method is null,
+// and a case-verification path then refused its own evidence and left every case in that
+// domain permanently unverifiable. It failed SILENTLY, in the honest-looking direction, on
+// the one path where being wrong is invisible.
+//
+// So the resolver now refuses to be misused rather than answering "unknown" to a question it
+// was never asked. It THROWS, deliberately:
+//   • the arguments are written by us, never by a customer, so this can only fire on a
+//     developer error — there is no input a request can carry that reaches it;
+//   • CI runs every caller, so the throw surfaces at test time, not in production;
+//   • the alternative is the silent null that caused the defect. An unknown finding type
+//     still returns unknownResolution — that is real data and stays honest.
+// `remediation_id` is named explicitly because it is the near-miss: it is a real field on a
+// case row and reads as if it should work.
+const RESOLVER_ARGS = new Set(["finding_type", "domain_key", "evidence", "context", "surface"]);
+function assertResolverArgs(args) {
+  for (const k of Object.keys(args || {})) {
+    if (RESOLVER_ARGS.has(k)) continue;
+    const hint = k === "remediation_id"
+      ? " — resolveRemediation resolves by FINDING TYPE; use getRemediationById(id) to look up a remediation by its id"
+      : "";
+    throw new TypeError(`resolveRemediation: unknown argument '${k}'${hint}`);
+  }
+}
+
 export function resolveRemediation(args = {}) {
+  assertResolverArgs(args);
   const { finding_type: findingType, domain_key: domainKey, evidence, surface } = args;
   if (!findingType) return unknownResolution(null, domainKey);
 
