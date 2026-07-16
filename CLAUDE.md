@@ -2,7 +2,7 @@
 
 Version: July 2026
 
-Last updated: 16 July 2026 (release v2026.07.16-12; active canonical episode: M5 Completion Across All Eight Domains — in progress)
+Last updated: 16 July 2026 (release v2026.07.16-13; active canonical episode: M5 Completion Across All Eight Domains — in progress)
 
 ---
 
@@ -250,10 +250,10 @@ Do not claim that CyberMeters performs a customer, provider, registrar, certific
 
 Current release facts (as of 16 July 2026):
 
-- latest release tag: `v2026.07.16-12` (M5.a PR2 — Website Security managed cases + verification vocabulary — deployed);
-- live Worker Version ID: `6d1aaaa7-f283-4ae8-af3b-c2a3d2b2130f` (built from `54d08e7`);
-- rollback Worker Version ID: `33069515-d515-4093-91c2-0aea2331dca5` (v2026.07.16-11);
-- latest migration applied to production: `091-cyber-mot-domain-states.sql` (unchanged — none of `v2026.07.16-6` through `-12` carried a migration);
+- latest release tag: `v2026.07.16-13` (M5.a PR3 — Cyber Essentials managed cases; M5.a CLOSED — deployed);
+- live Worker Version ID: `82de6cfa-86cf-4488-8730-43eff9cc35b8` (built from `dd83daf`);
+- rollback Worker Version ID: `6d1aaaa7-f283-4ae8-af3b-c2a3d2b2130f` (v2026.07.16-12);
+- latest migration applied to production: `091-cyber-mot-domain-states.sql` (unchanged — none of `v2026.07.16-6` through `-13` carried a migration);
 - active canonical episode: M5 Completion Across All Eight Domains (in progress).
 
 **M5 is under way.** Its pre-change parity audit across all eight domains found four false
@@ -325,11 +325,19 @@ The **verification vocabulary** is now canonical (`docs/verification-vocabulary.
 green. `verification_support` is exposed on the case API because the backend owns that
 decision. The rule is carried into the M5.e parity matrix and the Unified Reporting snapshot.
 
-The managed-case increment is otherwise **OPEN**: case creation for Cyber Essentials is not
-built, so `linked_case_id` is still always null for 090 and no surface may imply a case
-exists; its verifier is not wired; and ownership/assignment is not exposed for that domain.
-M5.a is not closed until all three domains reach production. The per-domain maturity ledger
-remains untouched. The ledger is corrected
+**Cyber Essentials managed cases are live** (`v2026.07.16-13`), and with them **M5.a is
+CLOSED** — Email Protection, Website Security and Cyber Essentials each have creation,
+linkage, case-level ownership, honest verification and recurrence in production. Only three
+of the five CE controls are externally assessable, and only ever partially; `access_control`
+and `malware_protection` are `external_coverage: none` and can never open a case, because
+there is no external observation to base one on and no verifier could ever close it. What a
+CE case verifies is the externally observable *evidence*, never the control — the claim is
+scoped in the title, the summary and the verification evidence itself.
+
+Genuine live-event acceptance is outstanding for all three verticals: they are proven by CI
+and by auth-gated route checks only.
+
+The per-domain maturity ledger remains untouched. The ledger is corrected
 **last**: it is wrong in every row today and most rows *under*-claim, so raising it before
 the underlying gaps close would make the declaration lie in the opposite direction.
 

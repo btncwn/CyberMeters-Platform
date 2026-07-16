@@ -5,6 +5,64 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.16-13 (M5.a PR3 — Cyber Essentials managed cases; M5.a CLOSED) — deployed 2026-07-16
+
+- **Live Worker Version ID:** `82de6cfa-86cf-4488-8730-43eff9cc35b8` (main `dd83daf`)
+- **Rollback Worker Version ID:** `6d1aaaa7-f283-4ae8-af3b-c2a3d2b2130f` (v2026.07.16-12)
+- **Remote D1 migrations applied:** none — no schema change (latest remains `091`).
+- **Pages:** unaffected (no frontend change).
+- **PR:** #134
+
+The third and final M5.a vertical. **M5.a is closed**: Email Protection, Website Security
+and Cyber Essentials each now have creation, linkage, case-level ownership, honest
+verification and recurrence in production.
+
+Migration 090 reserved `cyber_essentials_control_records.linked_case_id` and a `case_linked`
+event type and both had been dead since. They now mean something.
+
+**The authority map.** Of the five canonical CE controls the repo's own honesty metadata
+declares only THREE externally assessable, and only ever PARTIALLY — `boundary_protection`,
+`secure_configuration` and `patch_management_readiness` are `external_coverage: partial`;
+`access_control` and `malware_protection` are `none`, scored from email-auth proxies that
+measure anti-spoofing, not user access control or endpoint AV. `gradeCeControl` returns
+`not_externally_assessable` for those two, which is never actionable, so they carry no
+recurrence and can NEVER open a case. That is the honest answer rather than an omission:
+there is no external observation to base a case on and no verifier could ever close one.
+
+**The partial ceiling.** The three assessable controls are partial, not full, so a case must
+never imply the CONTROL is compliant. The case title, summary and the verification evidence
+itself (`verification_scope: externally_observable_evidence_only`, `external_coverage:
+partial`) all scope the claim to the externally observable evidence. This is the
+`v2026.07.16-6` "fully validated" defect class: a partial check must not be reported as a
+complete one.
+
+Both CE recurrences resolve to `ce.readiness.control_review` → `rescan` → automated, so a
+customer attestation can never conclude a CE case. That falls out of the registry, not a
+special case here.
+
+Verification has four stops, each mutation-proven: CE's own `control_recovered`
+(`condition_resolved` is Website Security's vocabulary and concludes nothing here); evidence
+completeness, re-checked INSIDE the verifier and defaulting to refuse; the registry per
+finding; and the case machine.
+
+The suite drives the REAL evaluator end to end through six passes — baseline, deterioration,
+unchanged repeat, dead probe, recovery, re-deterioration — and that end-to-end pass is what
+proves the lifecycle actually calls the case layer. It also caught a wrong assumption in the
+test itself: removing HSTS+CSP makes TWO controls not-ready, and the engine correctly opens
+one case per control record.
+
+Purge is proven rather than assumed: a workspace with linked CE cases purges to nothing
+(records, events, cases, case events, questionnaire answers), leaves no `linked_case_id`
+orphan, and does not touch the other tenant. Mutations reintroduce both the `#106` defect
+(answers dropped from purge) and a broken purge order.
+
+**Production proof:** `/health` polled to 6 consecutive reads of `82de6cfa` (it flapped
+across PoPs before settling); `/ready` d1+r2 true; `/api/workspaces/:id/cyber-essentials/
+controls`, its detail route and `/managed-cases` each return a customer-safe `401`
+unauthenticated — live and auth-gated, which is NOT proof of the authenticated workflow.
+No customer case, alert or email was manufactured. Authenticated customer acceptance with
+real CE lifecycle events remains a release-gate activity.
+
 ## 2026.07.16-12 (M5.a PR2 — Website Security managed cases + verification vocabulary) — deployed 2026-07-16
 
 - **Live Worker Version ID:** `6d1aaaa7-f283-4ae8-af3b-c2a3d2b2130f` (main `54d08e7`)
