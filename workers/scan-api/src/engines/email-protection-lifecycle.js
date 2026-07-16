@@ -53,6 +53,10 @@
 // findConditionOccurrence cannot match them and no alert path exists at all.
 import { emitLifecycleAlert } from "./alert-consumers.js";
 import {
+  assertedClassification, isCustomerDisposition, isObservedClassification,
+  resolveEffectiveClassification,
+} from "./sender-classification.js";
+import {
   MONITORING_CHANGED, buildMonitoringTransitionDetail, isMonitoringTransition, parseUtcMs,
 } from "./alert-occurrence.js";
 import { ensureAlertActivation } from "./managed-alerts.js";
@@ -156,11 +160,98 @@ export function senderAlertBand(classification) {
   return null;   // authorised / likely_authorised / mailing_list / forwarder
 }
 
-// Manual customer classification WINS over auto, preserved verbatim from
-// dmarc-alerts.js:28-31. `classified_at` is the marker the customer decided.
+// The effective classification, ALWAYS in the observed vocabulary. Delegates to the
+// single canonical resolver so this engine, dmarc-impact and rua-routing cannot drift
+// apart again.
+//
+// It used to return the customer's word verbatim — `trusted` / `threat` / `ignored`
+// went straight to senderAlertBand(), which speaks only the observed vocabulary, so all
+// three banded null. Marking a sender a THREAT turned its own high alert off.
+// See sender-classification.js for the vocabulary and why there is only one now.
 export function effectiveClassification(row) {
-  if (row?.classified_at) return row.classification || "unknown";
-  return row?.auto_classification || row?.classification || "unknown";
+  return resolveEffectiveClassification(row || {});
+}
+
+// ── The canonical customer-classification policy ────────────────────────────
+// ONE documented rule for what a customer decision may do to severity. The whole
+// policy is here, in the module that owns the bands and the failure trigger.
+//
+//   1. The floor is the EVIDENCE. observedBand is computed from what we actually
+//      saw and is never lowered by anything the customer says.
+//   2. The customer may ESCALATE. `threat` claims `unauthorised` (band high), so it
+//      can only ever raise the band. It can never reduce or nullify one — that was
+//      the defect.
+//   3. The customer may SUPPRESS — `trusted` / `ignored` — but ONLY when the evidence
+//      does not contradict them.
+//   4. When a suppressing decision meets contradicting evidence, the result is an
+//      explicit CONFLICT, not silence: the alert stands at the observed band and the
+//      disagreement is named. A customer calling a sender trusted does not stop it
+//      failing authentication 80 times, and we do not pretend otherwise.
+//   5. Anything unrecognised FAILS CLOSED to medium with a conflict, never to null.
+//      An unknown word must not be a silent all-clear.
+//
+// Contradiction is deliberately evidence-side only: either the observed verdict is
+// itself high, or receiver-reported failures crossed the same trigger the alerting
+// rule uses. It is not an opinion about the customer.
+export const SENDER_BAND_RANK = Object.freeze({ low: 1, medium: 2, high: 3 });
+const bandRank = (b) => (b == null ? 0 : (SENDER_BAND_RANK[String(b).toLowerCase()] ?? 0));
+const higherBand = (a, b) => (bandRank(a) >= bandRank(b) ? a : b);
+
+// Dispositions that ask to be left alone. `ignored` claims nothing about the sender;
+// `trusted` claims it is authorised. Both request suppression, and both lose to
+// contradicting evidence.
+const SUPPRESSING_DISPOSITIONS = new Set(["trusted", "ignored"]);
+
+/**
+ * resolveSenderPolicy — pure and total, so CI can drive every branch directly.
+ * @returns {{band: string|null, suppressed: boolean, conflict: string|null,
+ *            observed_band: string|null, asserted_band: string|null}}
+ */
+export function resolveSenderPolicy({
+  observed = null, disposition = null, has_customer_decision = false, window_failed = 0,
+} = {}) {
+  const obs = String(observed || "").toLowerCase();
+  const observedKnown = isObservedClassification(obs);
+  const observed_band = observedKnown ? senderAlertBand(obs) : "medium"; // unknown evidence fails closed
+  const observedConflict = observedKnown ? null : "unsupported_observed_classification";
+
+  if (!has_customer_decision) {
+    return { band: observed_band, suppressed: false, conflict: observedConflict, observed_band, asserted_band: null };
+  }
+
+  const disp = String(disposition || "").toLowerCase();
+  if (!isCustomerDisposition(disp)) {
+    // Fail closed. The route rejects these, so reaching here means a value was written
+    // by something that bypassed it — which is exactly when we must not go quiet.
+    return {
+      band: higherBand(observed_band, "medium"), suppressed: false,
+      conflict: "unsupported_customer_disposition", observed_band, asserted_band: null,
+    };
+  }
+
+  const claim = assertedClassification(disp);           // null for `ignored`
+  const asserted_band = claim ? senderAlertBand(claim) : null;
+
+  // The evidence contradicts a suppression when it is independently serious.
+  const contradicted = bandRank(observed_band) >= bandRank("high")
+    || Number(window_failed || 0) >= SENDER_FAILURE_TRIGGER;
+
+  if (SUPPRESSING_DISPOSITIONS.has(disp)) {
+    if (contradicted) {
+      return {
+        band: observed_band, suppressed: false,
+        conflict: `customer_${disp}_but_observed_${observedKnown ? obs : "unsupported"}`,
+        observed_band, asserted_band,
+      };
+    }
+    return { band: null, suppressed: true, conflict: observedConflict, observed_band, asserted_band };
+  }
+
+  // Escalation-only: the customer's claim can raise the band, never lower it.
+  return {
+    band: higherBand(observed_band, asserted_band), suppressed: false,
+    conflict: observedConflict, observed_band, asserted_band,
+  };
 }
 
 function newId(prefix) {
@@ -188,11 +279,42 @@ export async function appendEmailProtectionEvent(env, {
   return id;
 }
 
+// ── Recovery closure: which events CLOSE a graded condition ─────────────────
+// THE DEFECT THIS EXISTS TO PREVENT (reproduced live, 2026-07-16):
+//   disconnect → alert → reconnect → disconnect again → **SILENCE, FOREVER**.
+// Recovery is appended as `hosted_record_reconnected`, a different event_type, and
+// this reader only looked at `monitoring_changed`. So the last graded condition
+// stayed `hosted_record_disconnected` across the recovery; the second disconnect
+// compared equal to it, isMonitoringTransition said "unchanged", no event was
+// appended, no occurrence was minted, and the customer was never told their DMARC
+// record had dropped out a second time. A hosted record could alert on
+// disconnection exactly ONCE in its lifetime.
+//
+// The sender family never had this bug because its condition lives on the row and
+// is nulled on recovery. The hosted family's state IS the event log, so the log has
+// to be read for closure too — that asymmetry is the whole defect.
+//
+// Fixed by correcting the READER, deliberately not by appending a clearing
+// `monitoring_changed` on recovery. findConditionOccurrence (alert-occurrence.js)
+// reads `LIMIT 25` monitoring_changed rows and filters them in JS, so every extra
+// monitoring_changed row narrows the window in which a real transition can still be
+// found — the exact eviction defect the audit found in Shadow IT. Adding rows to fix
+// a read is how that domain's alerting dies after 25 passes.
+//
+// The list is EXPLICIT, and short, for a reason. Every non-alertable hosted event
+// carries `to_recurrence_type: null` (buildMonitoringTransitionDetail always sets
+// the key), so "any event that carries the key" would let `hosted_policy_changed` or
+// `hosted_rolled_back_manual` close a LIVE disconnection — and the next sweep would
+// re-alert an outage that never went away. Only a genuine return to a healthy state
+// is recovery. A policy change is not recovery; a rollback is not recovery.
+const CONDITION_CLOSING_EVENT_TYPES = Object.freeze([EMAIL_EVENT_HOSTED_RECONNECTED]);
+
 // The record's current graded condition, read from the append-only history.
 //
 // The events table IS the state for the hosted family, which is why B3 needs no
 // new column on hosted_dns_entries: the last monitoring_changed row already says
-// what condition we last graded this record with.
+// what condition we last graded this record with — or, since the recovery fix
+// above, the last reconnection says the condition closed.
 // Ordering is `created_at DESC, rowid DESC`, and the rowid tie-break is
 // load-bearing rather than cosmetic. created_at comes from SQLite `datetime('now')`,
 // which is SECOND-precision, and the hosted sweep assesses impact and then
@@ -207,9 +329,9 @@ async function lastGradedCondition(env, workspaceId, recordId) {
   try {
     const row = await env.cybermeters_db
       .prepare(`SELECT detail_json FROM email_protection_events
-                WHERE workspace_id = ? AND record_id = ? AND event_type = ?
+                WHERE workspace_id = ? AND record_id = ? AND event_type IN (?, ?)
                 ORDER BY created_at DESC, rowid DESC LIMIT 1`)
-      .bind(workspaceId, recordId, MONITORING_CHANGED)
+      .bind(workspaceId, recordId, MONITORING_CHANGED, ...CONDITION_CLOSING_EVENT_TYPES)
       .first();
     const detail = parseJson(row?.detail_json, {}) || {};
     return {
@@ -387,24 +509,50 @@ export async function senderWindowVolumes(env, workspaceId, domain, { now = new 
   return out;
 }
 
-// The condition a sender is in, from windowed evidence + classification ONLY.
+// The condition a sender is in, from windowed evidence + the canonical policy.
 // Pure and total, so CI can drive it directly.
-export function gradeSenderCondition({ classification, window_total, window_failed, is_new }) {
-  const band = senderAlertBand(classification);
+//
+// `observed` is the EVIDENCE (auto_classification) and is what the conditions below
+// are graded on. `disposition` is the customer's decision and reaches the band only
+// through resolveSenderPolicy, which may escalate it but never silently lower it.
+//
+// The legacy single-`classification` form is still accepted: with no customer
+// decision it means "observed", which is exactly what it meant before.
+export function gradeSenderCondition({
+  observed, disposition = null, has_customer_decision = false,
+  window_total, window_failed, is_new, classification,
+}) {
+  const obs = String(observed ?? classification ?? "").toLowerCase();
+  const policy = resolveSenderPolicy({
+    observed: obs, disposition, has_customer_decision, window_failed,
+  });
+  const band = policy.band;
   const failed = Number(window_failed || 0);
   const total = Number(window_total || 0);
 
   // Active unauthorised authentication failures. NOT a spike and never described
   // as one: we hold no prior-period baseline, so we can only state an absolute
   // count inside the window.
-  if (String(classification || "").toLowerCase() === "unauthorised" && failed >= SENDER_FAILURE_TRIGGER) {
-    return { recurrence: "sender_unauthorised_failures_active", band: "high" };
+  //
+  // Graded on the OBSERVED verdict, never on what the customer called it. This used
+  // to read the customer's word, so `trusted` or `threat` erased the condition
+  // outright — 80 receiver-reported failures stopped existing because someone
+  // clicked a label. The customer's decision is expressed in `band` (policy), not by
+  // deleting the evidence. `suppressed` can silence a sender, but resolveSenderPolicy
+  // refuses to suppress once the failures cross this very trigger, so this condition
+  // cannot be clicked away.
+  if (obs === "unauthorised" && failed >= SENDER_FAILURE_TRIGGER) {
+    return {
+      recurrence: "sender_unauthorised_failures_active",
+      band: band ?? "high",
+      conflict: policy.conflict,
+    };
   }
   // A new, high-volume, not-yet-recognised source.
   if (is_new && band !== null && total >= SENDER_NEW_MIN_VOLUME) {
-    return { recurrence: "sender_unrecognised", band };
+    return { recurrence: "sender_unrecognised", band, conflict: policy.conflict };
   }
-  return { recurrence: null, band };
+  return { recurrence: null, band, conflict: policy.conflict };
 }
 
 /**
@@ -442,10 +590,15 @@ export async function evaluateEmailSenderMonitoring(env, workspaceId, domain, { 
     checked += 1;
     try {
       const vol = volumes.get(String(row.source_ip || "")) || { window_total: 0, window_failed: 0 };
-      const cls = effectiveClassification(row);
+      // The two axes stay SEPARATE all the way to the policy. Collapsing them into one
+      // value here — which is what effectiveClassification used to do for grading — is
+      // what let a customer's word overwrite the evidence.
+      const cls = effectiveClassification(row);          // observed vocabulary, for history/detail
       const preExisting = isPreExistingRecord(row.first_seen, activatedAt);
       const graded = gradeSenderCondition({
-        classification: cls,
+        observed: row.auto_classification ?? row.classification,
+        disposition: row.classified_at ? row.classification : null,
+        has_customer_decision: Boolean(row.classified_at),
         window_total: vol.window_total,
         window_failed: vol.window_failed,
         is_new: !preExisting,
@@ -483,13 +636,31 @@ export async function evaluateEmailSenderMonitoring(env, workspaceId, domain, { 
       // A manual reclassification is recorded as history and stops there.
       // Alerting someone about their own click is noise, and a customer
       // assertion is not a CyberMeters observation.
+      //
+      // This branch can no longer erase a live condition. It only runs when the
+      // customer's decision actually MOVED the band, and resolveSenderPolicy refuses to
+      // move it down past contradicting evidence — so a sender failing authentication
+      // above the trigger keeps its band, this test is false, and the condition falls
+      // through to the normal path untouched. Previously the band collapsed to null
+      // here (the customer's word went straight to senderAlertBand) and the live
+      // `sender_unauthorised_failures_active` condition was wiped by a click.
+      //
+      // The event records the disposition and any conflict, so history says what the
+      // customer claimed AND what we still observe — never just the claim. `conflict`
+      // is recomputable from the persisted row + window at any time, so it needs no
+      // column of its own.
       if (row.classified_at && prev.recurrence_band !== graded.band && row.monitoring_status) {
         await appendEmailProtectionEvent(env, {
           workspace_id: workspaceId, record_id: row.id, record_type: SENDER_RECORD_TYPE,
           event_type: EMAIL_EVENT_SENDER_MANUAL_CLASS, actor_type: "customer",
           detail: {
-            to_recurrence_type: null, reason: "customer_classified",
-            entity: row.source_ip, classification: cls,
+            to_recurrence_type: null,
+            reason: graded.conflict ? "customer_classified_conflicts_with_evidence" : "customer_classified",
+            entity: row.source_ip,
+            classification: cls,                       // observed vocabulary
+            disposition: row.classification ?? null,   // the customer's own word
+            observed_classification: row.auto_classification ?? null,
+            conflict: graded.conflict ?? null,
           },
         }).catch(() => {});
         await persistSenderState(env, row, { status: row.monitoring_status || "observed", graded, now });
@@ -597,11 +768,12 @@ export async function evaluateEmailSenderMonitoring(env, workspaceId, domain, { 
   return { checked, alerts };
 }
 
-function rankOf(band) {
-  if (band === "high") return 2;
-  if (band === "medium") return 1;
-  return 0;
-}
+// The band ladder, from the ONE definition. This was a second, private ladder
+// (high=2/medium=1/else=0) sitting beside the policy's — two ranked scales over the same
+// three values, which is the drift this episode exists to remove. Only the ORDER is ever
+// used (worsening is `prev < next`), so both agreed by luck; a `low` band would have
+// exposed them, since this one ranked it equal to "no band at all".
+const rankOf = (band) => bandRank(band);
 
 // recurrence_type/band/status are the guard's memory. evaluated_at is diagnostic
 // ONLY and is never read back as a condition-start.

@@ -12,6 +12,7 @@ import { applyChangeTransition, buildChangeReviewQueue, changeRequestToApi, newC
 import { dnsQuery } from "../engines/dns.js";
 import { normalizeDnsTxtValue, parseDmarcRecord } from "../engines/email-analysis.js";
 import { getEffectivePlan } from "../engines/entitlements.js";
+import { CUSTOMER_SENDER_DISPOSITIONS, isCustomerDisposition } from "../engines/sender-classification.js";
 import { DMARC_RAMP_LADDER, HOSTED_DNS_ENTRY_SELECT, HOSTED_DNS_REMOVAL_GRACE_DAYS, REMEDIATION_REGISTRY, analyzeSpfChain, applyHostedDmarcChange, buildDmarcDnsRecommendedValue, buildMtaStsPolicy, buildMtaStsTxtValue, buildTlsRptValue, cfCreateHostedTxt, dmarcRampStepIndex, evaluateRampReadiness, getHostedDmarcPassRate, getRemediation, hostedCustomerRecordName, hostedDmarcSubdomain, hostedDnsRecordToApi, mxHostsFromDnsResponse, newHostedDnsRecordId, nextHostedDnsStatus, parseServerMsHosted, planAllowsHostedPolicyManagement, remediationToApi, resolveRampThresholds, rollbackHostedDmarc, verifyDmarcDnsSetup, verifyHostedDmarcRecord, verifyMtaStsHttpsPolicy } from "../engines/hosted-dmarc.js";
 import { auditDmarcRouteResult, buildDmarcEnforcementReadiness, configureDmarcEndpointRoute, emailSenderToApi, generateInboundLocalpart, generateIngestToken, hashIngestToken, ingestEndpointToApi, loadEmailSenderSources, persistDmarcRouteResult, resolveWorkspaceDomain, safelyEnsureCloudflareEmailRoute, safelyRevokeCloudflareEmailRoute, summarizeEmailSenders } from "../engines/rua-routing.js";
 import { buildDmarcBusinessRisk, buildDmarcReportRemediationActions, loadBecExposureEvidence } from "../engines/sender-provenance.js";
@@ -1142,9 +1143,14 @@ export async function emailProtectionRoutes(rctx) {
 
         const body = await request.json().catch(() => null);
         const classification = body?.classification;
-        const ALLOWED = ["trusted", "suspicious", "threat", "ignored", "unknown"];
-        if (!ALLOWED.includes(classification)) {
-          return json({ error: `classification must be one of: ${ALLOWED.join(", ")}` }, 400);
+        // The canonical customer vocabulary, imported — not a private list. This route's
+        // own copy is how the two taxonomies drifted: it accepted `threat`/`trusted`/
+        // `ignored`, none of which the alert engine understood, so all three banded null
+        // and marking a sender a THREAT silenced its alert. The engine now translates
+        // this vocabulary through DISPOSITION_ASSERTS; the route's job is only to refuse
+        // anything outside it, so unsupported values can never reach persistence.
+        if (!isCustomerDisposition(classification)) {
+          return json({ error: `classification must be one of: ${CUSTOMER_SENDER_DISPOSITIONS.join(", ")}` }, 400);
         }
         const notes = typeof body?.notes === "string" ? body.notes.slice(0, 1000) : null;
 
