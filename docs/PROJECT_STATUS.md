@@ -10,7 +10,7 @@ Scan Engine v1 + Asset Intelligence v1 + Subdomain Takeover Detection v1 + Asset
 
 | Component | Status | Detail |
 |---|---|---|
-| Cloudflare Worker | ✅ Live | `cybermeters-platform.ttrnn47.workers.dev` |
+| Cloudflare Worker | ✅ Live | `api.cybermeters.com` |
 | Cloudflare D1 | ✅ Connected | `cybermeters-db` |
 | Cloudflare R2 | ✅ Connected | `cybermeters-reports` |
 | Cloudflare Pages | ✅ Live | Frontend deployed |

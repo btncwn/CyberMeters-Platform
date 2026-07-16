@@ -171,6 +171,116 @@ ok("openapi's server has no /api suffix (the segment comes from VITE_API_BASE_UR
    (openapi.servers || []).every((s) => !/\/api\/?$/.test(s.url)),
    "a server ending in /api would double the prefix");
 
+// ── 4c. The canonical API HOST — documented host == deployed host ────────────
+// Everything above asserts the base's SHAPE and never once asked whether the host
+// EXISTS. It didn't: `api.cybermeters.com` was NXDOMAIN while README,
+// frontend/.env.example, OPERATIONS.md and openapi.json all published it as the API
+// base, and production served only from workers.dev. CI was green the whole time,
+// because a contract that only checks the trailing /api cannot see a dead hostname.
+// A developer copying the documented value got a host that does not resolve, and
+// OPERATIONS.md told an operator to health-check production at an address that
+// answers nothing — during an incident that reads as an outage.
+//
+// The fix is not to hardcode the right string here; that is the same fiction with a
+// test in front of it. The canonical host is DERIVED from the deployment itself —
+// `wrangler.toml`'s `custom_domain` route is the only thing that actually causes a
+// hostname to serve the Worker. So the assertion is: **every document must name the
+// host the deployment binds.** Docs cannot drift from reality without the config
+// drifting first, and the config is what makes reality.
+//
+// Deliberately NO DNS lookup: resolution depends on the network, so it would make
+// every CI run flaky and offline work impossible. The config IS the deterministic
+// proof — if the route is declared, `wrangler deploy` creates the DNS record and the
+// certificate, and a real resolve is proven once at release time by the runbook's
+// /health smoke test, not on every push.
+const wranglerToml = fs.readFileSync(
+  path.join(root, "workers", "scan-api", "wrangler.toml"), "utf8");
+
+const customDomains = [];
+for (const m of wranglerToml.matchAll(/\[\[routes\]\]([\s\S]*?)(?=\n\s*\[|$)/g)) {
+  const block = m[1];
+  const pat = block.match(/^\s*pattern\s*=\s*"([^"]+)"/m);
+  const cd = /^\s*custom_domain\s*=\s*true/m.test(block);
+  if (pat && cd) customDomains.push(pat[1]);
+}
+
+ok("wrangler.toml declares a custom_domain route (the thing that makes a hostname real)",
+   customDomains.length > 0,
+   "no [[routes]] with custom_domain=true — then no hostname serves the Worker and " +
+   "every documented base below is fiction, exactly as it was before this suite");
+ok("wrangler.toml declares exactly one canonical API host",
+   customDomains.length <= 1,
+   `multiple custom domains: ${customDomains.join(", ")} — which one do the docs mean?`);
+
+if (customDomains.length === 1) {
+  const CANONICAL = customDomains[0];
+  const hostOf = (u) => { try { return new URL(u).host; } catch { return null; } };
+
+  ok("the canonical host is a bare hostname (no scheme, no path, no trailing slash)",
+     /^[a-z0-9.-]+$/.test(CANONICAL) && !CANONICAL.includes("/"), CANONICAL);
+
+  // Each entry: what a human reads, and where. If any names a different host than the
+  // deployment binds, that document sends someone to an address the Worker never answers.
+  const surfaces = [];
+  const add = (file, label, url) => url && surfaces.push({ file, label, url });
+
+  add("frontend/.env.example", "VITE_API_BASE_URL", base);
+
+  const rmMatch = readme.match(/VITE_API_BASE_URL=(https:\/\/[^\s`'"]+)/);
+  add("README.md", "VITE_API_BASE_URL example", rmMatch && rmMatch[1]);
+
+  const apiRef = fs.readFileSync(path.join(root, "docs", "API_REFERENCE.md"), "utf8");
+  const arMatch = apiRef.match(/\*\*Base URL:\*\*\s*`(https:\/\/[^`]+)`/);
+  add("docs/API_REFERENCE.md", "Base URL", arMatch && arMatch[1]);
+
+  // openapi's FIRST server is the canonical one; later entries may legitimately list
+  // the workers.dev origin as a documented fallback.
+  const primaryServer = (openapi.servers || [])[0];
+  add("docs/openapi.json", "servers[0]", primaryServer && primaryServer.url);
+
+  for (const s of surfaces) {
+    ok(`${s.file}: ${s.label} names the host the deployment actually binds`,
+       hostOf(s.url) === CANONICAL,
+       `names ${JSON.stringify(hostOf(s.url))}, deployment binds ${JSON.stringify(CANONICAL)}`);
+  }
+
+  // The runbook is the sharpest edge: its health check is what an operator runs to
+  // decide whether production is down. Pointed at a host that does not serve, a
+  // healthy platform looks dead.
+  const operations = fs.readFileSync(path.join(root, "OPERATIONS.md"), "utf8");
+  const runbookHosts = [...operations.matchAll(/curl[^\n]*?(https:\/\/[a-z0-9.-]+)(?:\/\S*)?/g)]
+    .map((m) => hostOf(m[1]))
+    .filter((h) => h && (h === CANONICAL || /workers\.dev$/.test(h)));
+  const runbookWrong = runbookHosts.filter((h) => h !== CANONICAL);
+  ok("OPERATIONS.md health/smoke curls target the canonical host",
+     runbookWrong.length === 0,
+     `runbook curls ${runbookWrong.join(", ")} — an operator would read a live platform as an outage`);
+  ok("OPERATIONS.md actually contains a curl against the canonical host",
+     runbookHosts.includes(CANONICAL),
+     "the runbook no longer smoke-tests the canonical host at all");
+
+  // The frontend's own hints and fallbacks (§4b proved their /api; this proves their host).
+  const wrongHostExamples = srcExamples.filter((e) => hostOf(e.url) !== CANONICAL);
+  ok("every VITE_API_BASE_URL example in frontend source names the canonical host",
+     wrongHostExamples.length === 0,
+     wrongHostExamples.map((e) => `${e.file}: ${e.url}`).join(" | "));
+
+  const wrongHostFallbacks = fallbacks.filter((f) => f.url !== "" && hostOf(f.url) !== CANONICAL);
+  ok("every BASE fallback in frontend source names the canonical host (customers copy these)",
+     wrongHostFallbacks.length === 0,
+     wrongHostFallbacks.map((f) => `${f.file}: ${f.url}`).join(" | "));
+
+  // The CSP is the one place BOTH hosts must appear: the canonical host is what the app
+  // calls, and workers.dev must stay reachable as the rollback path. A CSP missing the
+  // canonical host blocks every API call in the browser while curl keeps working —
+  // which is the hardest version of this bug to diagnose.
+  const headers = fs.readFileSync(path.join(root, "frontend", "public", "_headers"), "utf8");
+  const csp = (headers.match(/Content-Security-Policy:[^\n]*/) || [""])[0];
+  ok("the CSP connect-src allows the canonical API host",
+     csp.includes(`https://${CANONICAL}`),
+     "the browser would block every API call to the documented base");
+}
+
 // ── 5. No secret may enter the template ──────────────────────────────────────
 // Every VITE_* value is inlined into the public client bundle, so a secret here is
 // a published secret. Cheap check, catastrophic miss.
