@@ -83,12 +83,20 @@ function generatePortfolioExecutiveSummary(stats) {
 }
 
 /**
- * computePortfolioRisk(userId, workspaceIds, env)
+ * computePortfolioRisk(workspaceIds, env)
  *
- * Core portfolio intelligence function. Reads from D1 only — zero network I/O.
- * Returns the full portfolio risk payload.
+ * Core portfolio intelligence function. Reads from D1 only — zero network I/O, and
+ * now zero writes: the docstring claimed "reads from D1 only" while the body appended
+ * a snapshot row on every call.
+ *
+ * `userId` was the third parameter and is gone. It fed exactly one thing — the
+ * per-request `portfolio_risk_snapshots` write keyed by `users.id` — so keeping it
+ * would leave a user identity threaded into a function that no longer has any business
+ * knowing who is asking. The portfolio's scope is `workspaceIds`, which the caller has
+ * already resolved through `getAccessibleWorkspaceIds()`; that is the tenant boundary,
+ * and it is the only one this engine needs.
  */
-export async function computePortfolioRisk(userId, workspaceIds, env) {
+export async function computePortfolioRisk(workspaceIds, env) {
   const db = env.cybermeters_db;
   const now = new Date().toISOString();
 
@@ -293,18 +301,13 @@ export async function computePortfolioRisk(userId, workspaceIds, env) {
   const sevOrder = { critical: 0, high: 1, medium: 2, low: 3 };
   portfolioAlerts.sort((a, b) => (sevOrder[a.severity] ?? 9) - (sevOrder[b.severity] ?? 9));
 
-  // ── Persist snapshot ────────────────────────────────────────────────────────
-  if (portfolioScore != null) {
-    try {
-      await upsertPortfolioRiskSnapshot(userId, {
-        portfolio_score:  portfolioScore,
-        workspace_count:  workspaceIds.length,
-        high_risk_count:  highRiskWorkspaces,
-        critical_count:   criticalWorkspaces,
-        calculated_at:    now,
-      }, env);
-    } catch { /* non-fatal */ }
-  }
+  // This function is a pure read, and must stay one. It used to append a
+  // `portfolio_risk_snapshots` row here on every call — and its only caller is
+  // `GET /api/portfolio/risk`, so opening a page wrote to the database. Removed rather
+  // than moved to a cron because nothing reads that table: there is no SELECT against
+  // it anywhere, and the 30-day trend returned below comes from
+  // `workspace_brs_score_history`. Table and rows are kept; the write is gone.
+  // Guarded by `scripts/validate-portfolio-read-purity.js`, which explains the rest.
 
   // ── Executive summary ───────────────────────────────────────────────────────
   const executiveSummary = generatePortfolioExecutiveSummary({
@@ -331,27 +334,6 @@ export async function computePortfolioRisk(userId, workspaceIds, env) {
   };
 }
 
-/**
- * upsertPortfolioRiskSnapshot(userId, data, env)
- *
- * Appends a portfolio risk snapshot row for historical trend tracking.
- */
-async function upsertPortfolioRiskSnapshot(userId, data, env) {
-  const id = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2);
-  await env.cybermeters_db
-    .prepare(`
-      INSERT INTO portfolio_risk_snapshots
-        (id, owner_id, portfolio_score, workspace_count, high_risk_count, critical_count, calculated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `)
-    .bind(
-      id,
-      userId,
-      data.portfolio_score,
-      data.workspace_count,
-      data.high_risk_count,
-      data.critical_count,
-      data.calculated_at,
-    )
-    .run();
-}
+// `upsertPortfolioRiskSnapshot()` lived here. It is deleted rather than left unused:
+// a private writer nobody calls is an invitation to reconnect it, and its docstring
+// claimed "for historical trend tracking" for a table no reader has ever queried.

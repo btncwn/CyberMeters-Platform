@@ -202,6 +202,12 @@ jobs:
       - name: Validate frontend env contract (.env.example ⟷ import.meta.env / /api shape / no secret)
         run: node scripts/validate-frontend-env-contract.js
 
+      # GET /api/portfolio/risk appended a portfolio_risk_snapshots row on every call —
+      # one per page load, unbounded, to a table nothing has ever read. Drives the real
+      # fetch() handler against the real schema and counts rows before/after.
+      - name: Validate portfolio read purity (GET /api/portfolio/risk performs no domain write)
+        run: node scripts/validate-portfolio-read-purity.js
+
       - name: Validate hosted DMARC lifecycle (pass-rate + readiness + auto-rollback runtime)
         run: node scripts/validate-hosted-dmarc-lifecycle.js
 

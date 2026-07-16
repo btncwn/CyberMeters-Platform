@@ -557,7 +557,9 @@ export async function portfolioRoutes(rctx) {
     //   Aggregates BRS, supply chain, and vendor intelligence across all workspaces
     //   accessible to the authenticated user. Returns ranked workspace list,
     //   portfolio-level alerts, shared vendor dependencies, and executive summary.
-    //   Persists a snapshot to portfolio_risk_snapshots (append-only).
+    //   Pure read: performs no domain write. It used to append a
+    //   portfolio_risk_snapshots row per request — see portfolio-risk.js and
+    //   scripts/validate-portfolio-read-purity.js.
     if (request.method === 'GET' && url.pathname === '/api/portfolio/risk') {
       const user = await requireAuth(request, env);
       if (!user) return json({ error: 'Unauthorized' }, 401);
@@ -565,7 +567,7 @@ export async function portfolioRoutes(rctx) {
       if (gate) return gate;
       try {
         const workspaceIds = await getAccessibleWorkspaceIds(user, env);
-        const result = await computePortfolioRisk(user.id, workspaceIds, env);
+        const result = await computePortfolioRisk(workspaceIds, env);
         return json(result);
       } catch (err) {
         return serverError("api", err);
