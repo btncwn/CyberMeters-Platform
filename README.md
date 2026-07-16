@@ -432,13 +432,22 @@ npx wrangler deploy --dry-run
 
 ## Frontend
 
-Frontend build-time variables use the Vite `VITE_*` convention.
+Frontend build-time variables use the Vite `VITE_*` convention. The committed
+template is `frontend/.env.example`; copy it to `frontend/.env` and set the value.
 
-Example:
+The frontend reads exactly one variable, and it is required:
 
 ```text
-VITE_API_BASE_URL=https://api.cybermeters.com
+VITE_API_BASE_URL=https://api.cybermeters.com/api
 ```
+
+The trailing `/api` segment is part of the value. Requests are built as
+`${BASE}${path}` with a bare path (e.g. `/auth/login`), so the API resolves to
+`https://api.cybermeters.com/api/auth/login`. Omitting `/api` here — or adding it to
+the request paths as well — breaks every call.
+
+In production the value comes from the Cloudflare Pages build-environment settings,
+not from a file in the repository.
 
 Do not place secrets in frontend environment files.
 
