@@ -21,11 +21,15 @@ import { friendlyHttpError } from './lib/httpErrors'
  * @typedef {import('./types/api').DomainVerification} DomainVerification
  */
 
+// The value MUST end in /api: requests below interpolate BASE and a BARE path
+// (`${BASE}${path}`), and the API serves /api/* — so the prefix comes from here.
+// The hint printed below is the one a developer copies; without /api it 404s.
 export const BASE = import.meta.env.VITE_API_BASE_URL
 if (!BASE) {
   console.error(
     '[CyberMeters] VITE_API_BASE_URL is not set. ' +
-    'Add it to your .env file, e.g. VITE_API_BASE_URL=https://api.cybermeters.com'
+    'Copy frontend/.env.example to frontend/.env — the value must include the ' +
+    'trailing /api, e.g. VITE_API_BASE_URL=https://api.cybermeters.com/api'
   )
 }
 
