@@ -5,6 +5,63 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.16-10 (Case verification contract — registry-derived, per finding) — deployed 2026-07-16
+
+- **Live Worker Version ID:** `8a34ea0a-b728-48ff-b412-e1b9546d0d73` (main `8001496`)
+- **Rollback Worker Version ID:** `3ad513ee-bec5-4634-963f-eb08c57d7a43` (v2026.07.16-9)
+- **Remote D1 migrations applied:** none — no schema change.
+- **Pages:** unaffected (no frontend change).
+- **PR:** #129
+
+The foundation for managed cases on Email Protection / Website Security / Cyber Essentials,
+landed FIRST and deliberately: creating those cases under the previous contract would have
+shipped cases a CUSTOMER COULD MARK VERIFIED BY ASSERTING.
+
+`verification_support` was a property of the case_type (`baseEntry` → `"manual"`, so a
+structured attestation reached `verified`). A case_type is the WRONG GRAIN, and both blanket
+answers are wrong for Email, whose case-producing conditions the registry already grades
+differently — `hosted_record_disconnected` → `dns_recheck` (observable), while
+`hosted_rolled_back_auto` and `sender_unrecognised` → `manual_attestation`. Blanket `manual`
+lets a customer self-certify a DNS record CyberMeters re-observes; blanket `automated` makes
+three of Email's six conditions unverifiable forever. **The blanket answer was tried first
+and the tests caught it.**
+
+The Canonical Remediation Registry had already decided this per finding, and CLAUDE.md makes
+it the source of truth for remediation meaning "including ... verification method". Its
+vocabulary is explicit: `manual_attestation // customer confirms; product cannot observe it`.
+So the model asks it: `manual_attestation` → attestation is the honest ceiling; any
+observable method (`dns_recheck` / `https_recheck` / `rescan` / `certificate_recheck` /
+`receiver_reports` / `external`) → only CyberMeters' own observation verifies and the
+customer cannot conclude it; unresolvable or absent → **fails closed** to unsupported, because
+an unknown finding is not an invitation to self-certify.
+
+Not a new product semantic — CLAUDE.md's existing rule read literally: "Verification requires
+structured, METHOD-APPROPRIATE evidence", where attestation is method-appropriate exactly, and
+only, where observation is impossible. Measured today: Website Security 9/9 observable, CE's
+case-producing findings `rescan`/`external`, Email mixed.
+
+Scoped to `email_case` / `website_case` / `cyber_essentials_case`. `certificate_case`,
+`identity_case` and `shadow_it_case` are closed increments and keep their per-type answer.
+
+`validate-managed-case-model` used `email_case` as its example of "base manual"; it is no
+longer one, so the vehicle moved to `identity_case`, which still is. **The base-manual
+contract itself is unchanged and still asserted** — only the case type demonstrating it moved.
+92 → 107 assertions.
+
+**INERT IN PRODUCTION:** no Email/Website/CE case exists yet, so this changes no live
+behaviour. It defines the rule before the cases arrive. Deployed to keep main and production
+aligned rather than to change anything.
+
+**Validation:** 104/104 CI validators · regression 227/227 · wrangler dry-run clean ·
+exact-HEAD CI confirmed on `9cc2fbe`.
+
+**Production proof:** `/health` polled to 6 consecutive reads of `8a34ea0a`; `/ready` d1+r2
+true; read surfaces still `401` (unchanged, as expected for an inert contract).
+
+**NOT delivered by this increment — the managed-case increment is OPEN:** case creation for
+the three domains, `linked_case_id` population, the verifiers that consume the existing
+recovery evidence, and ownership/assignment. See the founder report.
+
 ## 2026.07.16-9 (M5 read surfaces — mig 088/089/090 were write-only) — deployed 2026-07-16
 
 - **Live Worker Version ID:** `3ad513ee-bec5-4634-963f-eb08c57d7a43` (main `62b7272`)

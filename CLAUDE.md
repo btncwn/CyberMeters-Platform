@@ -2,7 +2,7 @@
 
 Version: July 2026
 
-Last updated: 16 July 2026 (release v2026.07.16-9; active canonical episode: M5 Completion Across All Eight Domains — in progress)
+Last updated: 16 July 2026 (release v2026.07.16-10; active canonical episode: M5 Completion Across All Eight Domains — in progress)
 
 ---
 
@@ -250,10 +250,10 @@ Do not claim that CyberMeters performs a customer, provider, registrar, certific
 
 Current release facts (as of 16 July 2026):
 
-- latest release tag: `v2026.07.16-9` (M5 read surfaces for mig 088/089/090 — deployed);
-- live Worker Version ID: `3ad513ee-bec5-4634-963f-eb08c57d7a43` (built from `62b7272`);
-- rollback Worker Version ID: `db190243-5f44-4f70-ab4f-ecfe0427b8b7` (v2026.07.16-8);
-- latest migration applied to production: `091-cyber-mot-domain-states.sql` (unchanged — none of `v2026.07.16-6` through `-9` carried a migration);
+- latest release tag: `v2026.07.16-10` (case verification contract — registry-derived — deployed);
+- live Worker Version ID: `8a34ea0a-b728-48ff-b412-e1b9546d0d73` (built from `8001496`);
+- rollback Worker Version ID: `3ad513ee-bec5-4634-963f-eb08c57d7a43` (v2026.07.16-9);
+- latest migration applied to production: `091-cyber-mot-domain-states.sql` (unchanged — none of `v2026.07.16-6` through `-10` carried a migration);
 - active canonical episode: M5 Completion Across All Eight Domains (in progress).
 
 **M5 is under way.** Its pre-change parity audit across all eight domains found four false
@@ -289,10 +289,18 @@ no page, route or API method at all, and 0 of 6 lifecycle alerts carried a deep 
 three now have a canonical read API, a customer surface, and an alert link that resolves to
 a route that exists.
 
-The remaining M5 increments are **planned, not started**: case creation for Email
-Protection / Website Security / Cyber Essentials (so `linked_case_id` is still always null
-for 089/090 and no surface may imply a case exists), ownership and verification workflows
-beyond honest read display, and the per-domain maturity ledger. The ledger is corrected
+The **case verification contract** is defined (`v2026.07.16-10`), and deliberately landed
+before any case exists: verification support is now derived from each case's own canonical
+remediation rather than from its domain, because the registry already declares
+`verification_method` per finding and a domain can hold both an observable condition and one
+the product genuinely cannot see. A customer can never conclude verification for something
+CyberMeters re-observes itself.
+
+The managed-case increment is otherwise **OPEN**: case creation for Email Protection /
+Website Security / Cyber Essentials is not built, so `linked_case_id` is still always null
+for 089/090 and no surface may imply a case exists; the verifiers that consume the existing
+recovery evidence are not wired; and ownership/assignment is not exposed for these domains.
+The per-domain maturity ledger remains untouched. The ledger is corrected
 **last**: it is wrong in every row today and most rows *under*-claim, so raising it before
 the underlying gaps close would make the declaration lie in the opposite direction.
 
