@@ -4,7 +4,7 @@
 // Receives the per-request routeCtx from index.js; returns a Response when a
 // route matches, or null so the main router continues.
 import { buildCyberEssentialsReadiness } from "../engines/ce-readiness.js";
-import { CE_QUESTIONS, CE_QUESTION_SET_VERSION, mergeReadiness } from "../lib/cyber-essentials.js";
+import { CE_QUESTIONS, CE_QUESTION_SET_VERSION, CE_QUESTION_SET_PROVENANCE, mergeReadiness } from "../lib/cyber-essentials.js";
 import { buildExecutivePdf, collectPdfData } from "../engines/pdf.js";
 import { buildScorecardData } from "../engines/scorecard.js";
 import { computeBusinessRiskScore, expandFindingIds } from "../engines/business-risk.js";
@@ -120,12 +120,17 @@ export async function workspaceAnalyticsRoutes(rctx) {
           // Ignore unknown control/question/answer keys — never trust client input.
           if (!validKeys.has(ck) || !validKeys.get(ck).has(qk) || !validAnswers.has(ans)) continue;
           try {
+            // question_set_version is stamped from the set THIS answer was given under (mig
+            // 092). On update it moves with the answer — the customer is answering the
+            // wording live right now. It is never backfilled onto rows that did not move:
+            // an untouched answer keeps the version of the question it actually answered.
             await env.cybermeters_db
-              .prepare(`INSERT INTO cyber_essentials_answers (id, workspace_id, control_key, question_key, answer, note, answered_by, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+              .prepare(`INSERT INTO cyber_essentials_answers (id, workspace_id, control_key, question_key, answer, note, answered_by, question_set_version, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
                         ON CONFLICT(workspace_id, control_key, question_key)
-                        DO UPDATE SET answer = excluded.answer, note = excluded.note, answered_by = excluded.answered_by, updated_at = datetime('now')`)
-              .bind(createId(), wsId, ck, qk, ans, it?.note ? String(it.note).slice(0, 500) : null, user.id)
+                        DO UPDATE SET answer = excluded.answer, note = excluded.note, answered_by = excluded.answered_by,
+                                      question_set_version = excluded.question_set_version, updated_at = datetime('now')`)
+              .bind(createId(), wsId, ck, qk, ans, it?.note ? String(it.note).slice(0, 500) : null, user.id, CE_QUESTION_SET_VERSION)
               .run();
           } catch { /* skip a bad row, keep going — never surface raw DB errors */ }
         }
@@ -134,15 +139,27 @@ export async function workspaceAnalyticsRoutes(rctx) {
       let answerRows = { results: [] };
       try {
         answerRows = await env.cybermeters_db
-          .prepare(`SELECT control_key, question_key, answer, note, updated_at FROM cyber_essentials_answers WHERE workspace_id = ?`)
+          .prepare(`SELECT control_key, question_key, answer, note, question_set_version, updated_at FROM cyber_essentials_answers WHERE workspace_id = ?`)
           .bind(wsId).all();
       } catch { /* empty answer set */ }
       const answers = {};
+      // Which question was this actually an answer TO? Additive and kept SEPARATE from
+      // `answers` so the existing response shape is untouched. A NULL version means the row
+      // predates mig 092's backfill; it is reported as null rather than guessed at.
+      const answer_versions = {};
       for (const r of (answerRows.results || [])) {
         if (!answers[r.control_key]) answers[r.control_key] = {};
         answers[r.control_key][r.question_key] = r.answer;
+        if (!answer_versions[r.control_key]) answer_versions[r.control_key] = {};
+        answer_versions[r.control_key][r.question_key] = r.question_set_version ?? null;
       }
-      return json({ question_set_version: CE_QUESTION_SET_VERSION, questions: CE_QUESTIONS, answers });
+      return json({
+        question_set_version: CE_QUESTION_SET_VERSION,
+        question_set_provenance: CE_QUESTION_SET_PROVENANCE,
+        questions: CE_QUESTIONS,
+        answers,
+        answer_versions,
+      });
     }
 
     // ── GET /api/workspaces/:id/cyber-essentials-readiness ───────────────────

@@ -14,6 +14,7 @@ import {
   UserCheck,
 } from 'lucide-react'
 import CyberMetersLogo from '../components/CyberMetersLogo'
+import { CE_QUESTIONS } from '../../../shared/cyber-essentials-questions.js'
 
 const ANSWER_OPTIONS = [
   { value: 'yes', label: 'Yes', helper: 'Yes — this is in place across the business.' },
@@ -85,163 +86,38 @@ const GAP_COPY = {
   },
 }
 
-const CONTROLS = [
-  {
-    id: 'boundary_protection',
-    title: 'Boundary protection',
-    icon: ShieldCheck,
-    externalEvidenceCapable: true,
-    description: 'Checks whether your business has basic protection between your devices, services and the internet.',
-    why: 'Firewalls and boundary controls help block unwanted access to business devices, admin pages and services.',
-    recommendedAction: 'Confirm your router, firewall and admin access settings with your IT provider. Remove or restrict any access that is not required.',
-    questions: [
-      {
-        id: 'default_inbound_block',
-        question: 'Do all business devices connect to the internet through a router, firewall or built-in security control that blocks unwanted inbound access by default?',
-        why: 'Firewalls create a security filter between your business and the internet.',
-      },
-      {
-        id: 'documented_inbound_services',
-        question: 'Are any open inbound services documented with a clear business reason?',
-        why: 'Unnecessary open access increases risk and should not exist unless the business genuinely needs it.',
-      },
-      {
-        id: 'network_default_passwords_changed',
-        question: 'Have default admin passwords been changed on routers, firewalls and internet-facing services?',
-        why: 'Default passwords are one of the easiest ways for attackers to gain access.',
-      },
-      {
-        id: 'admin_pages_protected',
-        question: 'Are firewall or router admin pages protected from public internet access unless there is a clear, controlled business need?',
-        why: 'Management pages should not be casually reachable from outside the business.',
-      },
-    ],
-  },
-  {
-    id: 'secure_configuration',
-    title: 'Secure configuration',
-    icon: Lock,
-    externalEvidenceCapable: true,
-    description: 'Checks whether devices, accounts and services are set up safely rather than left in risky default settings.',
-    why: 'Poor default settings, unused services and weak configurations make avoidable cyber incidents more likely.',
-    recommendedAction: 'Review default settings, remove unused services and confirm that business devices follow a standard secure setup.',
-    questions: [
-      {
-        id: 'all_default_passwords_changed',
-        question: 'Have default passwords been changed on laptops, routers, cloud services and business applications?',
-        why: 'Secure configuration means systems are set up safely rather than left in risky default states.',
-      },
-      {
-        id: 'unused_items_removed',
-        question: 'Are unused apps, services, browser extensions and accounts removed when they are no longer needed?',
-        why: 'The fewer unnecessary parts you run, the fewer opportunities there are for mistakes or compromise.',
-      },
-      {
-        id: 'device_security_settings',
-        question: 'Are staff devices configured with screen lock, encryption where available and automatic security updates?',
-        why: 'Basic device settings reduce the chance that a lost or unattended device becomes a business incident.',
-      },
-      {
-        id: 'asset_list',
-        question: 'Do you keep a basic list of business devices and important cloud services?',
-        why: 'You cannot secure what you do not know you use.',
-      },
-    ],
-  },
-  {
-    id: 'access_control',
-    title: 'Access control',
-    icon: UserCheck,
-    externalEvidenceCapable: false,
-    description: 'Checks whether users only have the access they need and whether important accounts are protected with MFA.',
-    why: 'Strong access control reduces the damage caused by stolen passwords, compromised accounts or unnecessary admin access.',
-    recommendedAction: 'Enable MFA for important services, separate admin accounts from daily accounts and review user access regularly.',
-    questions: [
-      {
-        id: 'mfa_enabled',
-        question: 'Is multi-factor authentication enabled for important cloud services such as Microsoft 365, Google Workspace, accounting tools, CRM and admin portals?',
-        why: 'MFA reduces the risk of password-only compromise.',
-      },
-      {
-        id: 'separate_admin_accounts',
-        question: 'Do admin users have separate admin accounts rather than using admin privileges for everyday email and web browsing?',
-        why: 'Separating admin activity reduces the damage if a normal working account is compromised.',
-      },
-      {
-        id: 'joiners_movers_leavers',
-        question: 'Are new starters, leavers and role changes handled with a clear access process?',
-        why: 'Old or excessive access creates avoidable risk.',
-      },
-      {
-        id: 'least_privilege',
-        question: 'Are staff only given access to the systems and data they need for their role?',
-        why: 'Least-privilege access limits mistakes, misuse and the impact of account compromise.',
-      },
-    ],
-  },
-  {
-    id: 'malware_protection',
-    title: 'Malware protection',
-    icon: ShieldAlert,
-    externalEvidenceCapable: false,
-    description: 'Checks whether business devices have suitable protection against malicious software.',
-    why: 'Malware protection helps reduce the risk of malicious software affecting business devices, data and operations.',
-    recommendedAction: 'Confirm anti-malware or built-in device protection is enabled and kept up to date across all business devices.',
-    questions: [
-      {
-        id: 'endpoint_protection_enabled',
-        question: 'Do all laptops and desktops used for business have malware protection enabled?',
-        why: 'Malware protection helps stop malicious software before it causes harm.',
-      },
-      {
-        id: 'endpoint_protection_updated',
-        question: 'Is malware protection kept up to date automatically?',
-        why: 'Outdated protection may miss newer threats.',
-      },
-      {
-        id: 'approved_software_controls',
-        question: 'Are users prevented from installing unapproved software where practical?',
-        why: 'Limiting unapproved software reduces the chance of risky apps or malicious tools being installed.',
-      },
-      {
-        id: 'mobile_device_protection',
-        question: 'Are mobile devices protected through approved app stores, device settings or management controls?',
-        why: 'Phones and tablets often hold business email and customer data, so they need basic protection too.',
-      },
-    ],
-  },
-  {
-    id: 'patch_management_readiness',
-    title: 'Patch management readiness',
-    icon: RefreshCw,
-    externalEvidenceCapable: false,
-    description: 'Checks whether software, browsers, operating systems and services are kept up to date.',
-    why: 'Known software issues are often exploited because updates are available but have not been applied.',
-    recommendedAction: 'Turn on automatic updates where possible and remove unsupported software or devices from business use.',
-    questions: [
-      {
-        id: 'automatic_updates',
-        question: 'Are operating systems, browsers and business applications set to update automatically where possible?',
-        why: 'Security updates help prevent criminals using known software issues as an access point.',
-      },
-      {
-        id: 'unsupported_items_removed',
-        question: 'Do you remove or replace software and devices that no longer receive security updates?',
-        why: 'Unsupported systems become harder to defend because known issues may never be fixed.',
-      },
-      {
-        id: 'regular_update_review',
-        question: 'Do you have a regular process to check whether important business software is up to date?',
-        why: 'Automatic updates are helpful, but someone still needs to confirm important systems are not being missed.',
-      },
-      {
-        id: 'urgent_updates_applied',
-        question: 'Are urgent security updates applied quickly when vendors or IT providers flag them as important?',
-        why: 'Known high-risk issues are often used because fixes exist but have not been applied.',
-      },
-    ],
-  },
-]
+// ── The questions come from the ONE shared build-time module ─────────────────
+// They used to be a second, independently-maintained copy on this page, and the two had
+// drifted: 14 of the 20 questions carried a DIFFERENT KEY here than the authenticated set
+// stored, and 4 of the 6 shared keys were worded differently. A visitor who answered this
+// check and then subscribed was answering a different questionnaire.
+//
+// Only the icons stay local — they are React components and cannot live in pure data. Every
+// word a visitor reads now comes from the shared set, so this page and the paid product
+// cannot drift again (scripts/validate-ce-question-drift.js blocks it in CI).
+//
+// No API call and no anonymous endpoint: the questions ship in the bundle.
+const CONTROL_ICONS = {
+  boundary_protection: ShieldCheck,
+  secure_configuration: Lock,
+  access_control: UserCheck,
+  malware_protection: ShieldAlert,
+  patch_management_readiness: RefreshCw,
+}
+
+const CONTROLS = CE_QUESTIONS.map(control => ({
+  id: control.control_key,
+  title: control.public_title,
+  icon: CONTROL_ICONS[control.control_key],
+  // Honesty metadata, from the same place the backend reads it: `partial` means CyberMeters
+  // can corroborate SOME of this control from outside; `none` means it cannot see it at all
+  // and the answer is self-attestation, labelled as such.
+  externalEvidenceCapable: control.external_coverage === 'partial',
+  description: control.description,
+  why: control.why,
+  recommendedAction: control.recommended_action,
+  questions: control.questions.map(q => ({ id: q.key, question: q.text, why: q.why })),
+}))
 
 function answerKey(controlId, questionId) {
   return `${controlId}.${questionId}`

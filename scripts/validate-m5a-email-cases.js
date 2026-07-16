@@ -258,8 +258,27 @@ const hd1 = hostedRow("hd-1", "ws1", "shared.example.com");
   ok("the module imports nothing from the lifecycle (no cycle)",
     !/^import .* from "\.\/email-protection-lifecycle\.js"/m.test(code));
   // Migration 088's parents are untouched: the linkage is finding_id, not a new column.
-  const migs = fs.readdirSync(path.join(root, "database", "migrations")).sort();
-  eq("no migration was added for this increment", migs[migs.length - 1], "091-cyber-mot-domain-states.sql");
+  //
+  // This used to pin the LATEST migration filename to 091, which asserted something else
+  // entirely — "no migration has landed anywhere in the repo since" — and so it broke the
+  // moment an unrelated increment (092, CE question-set versioning) added one. The real
+  // claim is scoped to THIS increment: Email managed cases needed no schema, because the
+  // pointer already existed. Assert that, not the global tip.
+  const migSrc = fs.readdirSync(path.join(root, "database", "migrations"))
+    .filter((f) => f.endsWith(".sql"))
+    .map((f) => fs.readFileSync(path.join(root, "database", "migrations", f), "utf8"))
+    .join("\n")
+    .replace(/^\s*--.*$/gm, "");   // intent lives in comments; only DDL counts
+  for (const parent of ["hosted_dns_entries", "email_sender_sources"]) {
+    ok(`no migration adds a case-linkage column to ${parent} (the pointer is managed_cases.finding_id)`,
+      !new RegExp(`ALTER TABLE ${parent} ADD COLUMN (linked_case_id|case_id)`, "i").test(migSrc));
+  }
+  // Table NAMES only. Matching across a whole CREATE TABLE body is meaningless: `[^;]*`
+  // happily spans an unrelated table's columns and finds "email" and "case" in different
+  // tables, which is how this first "failed" against shadow_it_inventory.
+  const tableNames = [...migSrc.matchAll(/CREATE TABLE (?:IF NOT EXISTS )?([a-z_]+)/gi)].map((m) => m[1]);
+  ok("no migration creates an email-specific case table",
+    !tableNames.some((t) => /email/i.test(t) && /case/i.test(t)), tableNames.filter((t) => /email/i.test(t)).join(", "));
 }
 
 // ════ 10. MUTATION PROOF — every guard above must be load-bearing ══════════

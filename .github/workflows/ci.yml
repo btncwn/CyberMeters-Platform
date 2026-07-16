@@ -140,6 +140,14 @@ jobs:
       - name: Validate Cyber Essentials readiness honesty (no proxy scoring)
         run: node scripts/validate-ce-readiness-honesty.js
 
+      # CE questionnaire hygiene. The public self-check and the authenticated set were two
+      # independently-maintained copies and had drifted: 14 of 20 questions carried a
+      # different KEY on each side, and 4 of the 6 shared keys were worded differently. Both
+      # now consume one build-time module. question_key is PERSISTED, so a rename orphans
+      # stored answers; wording changes require a version bump (fingerprint-pinned).
+      - name: Validate CE questionnaire drift, versioning and scope
+        run: node scripts/validate-ce-question-drift.js
+
       # Mutation proof for the 2026-07-16 alerting repair. Two guards in this repo were
       # named for coverage they never executed, so the suites above are themselves proved
       # load-bearing here: each defect is reintroduced and must reappear.
