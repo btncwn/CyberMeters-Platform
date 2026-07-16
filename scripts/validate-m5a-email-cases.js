@@ -321,10 +321,12 @@ await withMutant("managed-case-model.js",
       mut.canTransitionCase({ case: observable, target_status: "verified", actor: { actor_type: "customer", actor_id: "u1" }, evidence: attestation }).ok === true);
   });
 
-// M2 — the registry method is ignored.
+// M2 — the registry method is ignored. (M5.c extracted the method→support mapping
+// into verificationSupportForMethod; the mutant's INTENT is unchanged: skip the
+// registry lookup entirely and hand every registry-derived case to the customer.)
 await withMutant("managed-case-model.js",
-  (x) => x.replace("  const rem = caseRecord.remediation_id ? getRemediationById(caseRecord.remediation_id) : null;\n  const method = rem?.verification_method ?? null;",
-                   "  const method = \"manual_attestation\";"),
+  (x) => x.replace("  const rem = caseRecord.remediation_id ? getRemediationById(caseRecord.remediation_id) : null;\n  return verificationSupportForMethod(rem?.verification_method ?? null);",
+                   "  return \"manual\";"),
   async (mut) => {
     const observable = { id: "mc-2", workspace_id: "ws1", case_type: "email_case", remediation_id: "email.hosted_dmarc.reconnect", status: "awaiting_verification" };
     eq("MUTANT-2: ignoring the registry makes an observable finding customer-verifiable",

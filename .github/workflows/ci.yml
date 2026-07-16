@@ -172,6 +172,17 @@ jobs:
       - name: Validate M5.b remaining reconciliation (CE patch readiness, external, blankets)
         run: node scripts/validate-m5b-remaining-reconciliation.js
 
+      # M5.c — canonical reporting snapshot (mig 093). Five render paths with three
+      # calculation brains could show different score/risk/state/remediation truth to the
+      # same customer, and every one recalculated history on read. One completed Cyber MOT
+      # now produces ONE immutable eight-domain snapshot (R2 JSON + D1 index): built once
+      # (081 claim), completed only over a durable R2 object, never overwritten, superseded
+      # append-only, methodology-stamped so a methodology change can never read as posture
+      # movement. Mutation-tested: 13 defects incl. a ninth domain, five-pillar revival,
+      # answers→score leakage, attestation relabelled Verified, and purge dropping R2.
+      - name: Validate M5.c canonical reporting snapshot (immutability / idempotency / honesty / purge)
+        run: node scripts/validate-m5c-reporting-snapshot.js
+
       # Mutation proof for the 2026-07-16 alerting repair. Two guards in this repo were
       # named for coverage they never executed, so the suites above are themselves proved
       # load-bearing here: each defect is reintroduced and must reappear.

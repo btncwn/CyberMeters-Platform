@@ -829,8 +829,8 @@ const SCAN_CHILD_TABLES = [
 // absent is a bug, not a decision:
 //   • audit_events, subscriptions, deletion_requests — retained (audit/accounting/
 //     tracking); see DELETION_PURGE_WINDOW_DAYS above.
-//   • scans, workspace_reports — purged by purgeWorkspaceData itself, ahead of this
-//     list, because their R2 objects must go first.
+//   • scans, workspace_reports, scan_report_snapshots — purged by purgeWorkspaceData
+//     itself, ahead of this list, because their R2 objects must go first.
 //
 // This list is now enforced STRUCTURALLY, not by hand: validate-purge-completeness
 // derives every workspace_id-bearing table from the real schema and fails if one is
@@ -906,6 +906,22 @@ async function purgeWorkspaceData(env, workspaceId) {
       if (r.report_key) await env.cybermeters_reports.delete(r.report_key).catch(() => {});
       await env.cybermeters_db
         .prepare("DELETE FROM workspace_reports WHERE id = ?").bind(r.id).run().catch(() => {});
+    }
+    return { done: false }; // more may remain — continue next run
+  }
+
+  // 1b. Canonical reporting snapshots (mig 093): R2 JSON objects
+  // (scan_report_snapshots.r2_key), then their D1 pointer rows — the same
+  // R2-before-pointer ordering as workspace_reports above. No FK to scans, so
+  // these rows are pointer-purged here and never appear in SCAN_CHILD_TABLES.
+  const snaps = await env.cybermeters_db
+    .prepare("SELECT id, r2_key FROM scan_report_snapshots WHERE workspace_id = ? LIMIT ?")
+    .bind(workspaceId, PURGE_R2_BATCH).all().catch(() => null);
+  if ((snaps?.results || []).length > 0) {
+    for (const s of snaps.results) {
+      if (s.r2_key) await env.cybermeters_reports.delete(s.r2_key).catch(() => {});
+      await env.cybermeters_db
+        .prepare("DELETE FROM scan_report_snapshots WHERE id = ?").bind(s.id).run().catch(() => {});
     }
     return { done: false }; // more may remain — continue next run
   }

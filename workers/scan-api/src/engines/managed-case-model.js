@@ -210,7 +210,16 @@ export function verificationSupportForCase(caseRecord = {}) {
   if (!REGISTRY_DERIVED_VERIFICATION.has(entry.case_type)) return entry.verification_support;
 
   const rem = caseRecord.remediation_id ? getRemediationById(caseRecord.remediation_id) : null;
-  const method = rem?.verification_method ?? null;
+  return verificationSupportForMethod(rem?.verification_method ?? null);
+}
+
+/**
+ * The ONE method→support mapping. Extracted (M5.c) so the reporting snapshot can
+ * derive per-finding verification support from the registry's verification_method
+ * without growing a second copy of this table — the "two vocabularies, one slot"
+ * class of defect started exactly that way.
+ */
+export function verificationSupportForMethod(method) {
   if (!method) return "unsupported";
   if (method === "unsupported") return "unsupported";
   if (method === "manual_attestation") return "manual";

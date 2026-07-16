@@ -1098,3 +1098,9 @@ export function riskLevelForScore(score) {
     score >= 50 ? "moderate" :
     score >= 25 ? "high" : "critical";
 }
+
+// First methodology stamp for the Cyber Metrics Score (M5.c). The value dates the
+// CURRENT deduction weights + band cutoffs; bump it whenever either changes, so a
+// persisted snapshot can refuse to present a methodology change as posture movement
+// (the CYBER_MOT_RESOLVER_VERSION / CE_READINESS_METHODOLOGY_VERSION precedent).
+export const CYBER_METRICS_SCORE_METHODOLOGY_VERSION = "2026-07-16.1";

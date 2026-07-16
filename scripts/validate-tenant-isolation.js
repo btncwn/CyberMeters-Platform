@@ -140,11 +140,22 @@ async function main() {
   tryInsert("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES ('ws1','dom1')");
   tryInsert("INSERT INTO workspace_assets (id, workspace_id, domain_id, hostname, asset_type, source, first_seen, last_seen, status, created_at, updated_at) VALUES ('a1','ws1','dom1','asset-SECRET.example','subdomain','ct', datetime('now'), datetime('now'), 'active', datetime('now'), datetime('now'))");
   tryInsert("INSERT INTO managed_cases (id, workspace_id, case_type, domain, finding_id, asset_ref, severity, status, evidence_json, recommended_actions_json, created_at, updated_at) VALUES ('mc-secret','ws1','asm_exposure','secret1.example','admin_surface_high','case-SECRET.example','high','open','{}','[]',datetime('now'),datetime('now'))");
-  tryInsert("INSERT INTO scans (id, domain_id, domain, score, rating, status, created_at) VALUES ('scan_ws1','dom1','secret1.example',80,'good','completed', datetime('now'))");
+  // workspace_id present so requireScanReadAccess exercises the PRIMARY branch
+  // (production M5.c scans always carry it), not only the legacy domain-link path.
+  tryInsert("INSERT INTO scans (id, workspace_id, domain_id, domain, score, rating, status, created_at) VALUES ('scan_ws1','ws1','dom1','secret1.example',80,'good','completed', datetime('now'))");
   tryInsert("INSERT INTO managed_cases (id, workspace_id, case_type, domain, finding_id, asset_ref, severity, status, evidence_json, recommended_actions_json, created_at, updated_at) VALUES ('mc-brand-secret','ws1','brand_abuse','brand-case-SECRET.example','brand-secret','example.com','high','triage','{}','[]',datetime('now'),datetime('now'))");
   tryInsert("INSERT INTO shadow_it_inventory (id, workspace_id, canonical_technology_key, display_name, category, first_seen_at, last_seen_at, classification, monitoring_status, created_at, updated_at) VALUES ('sii-secret','ws1','shadow_secret','shadow-tech-SECRET','saas',datetime('now'),datetime('now'),'unreviewed','observed',datetime('now'),datetime('now'))");
   tryInsert("INSERT INTO notification_events (id, workspace_id, user_id, type, severity, title, message, status) VALUES ('n1','ws1',NULL,'scan','info','notif-SECRET','m','unread')");
   tryInsert("INSERT INTO workspace_invitations (id, workspace_id, email, role, token_hash, invited_by, status, expires_at, created_at) VALUES ('inv1','ws1','invitee@x.co','viewer', 'invhash1','admin','pending', datetime('now','+7 day'), datetime('now'))");
+  // A completed ws1 reporting snapshot (mig 093). Its R2 key contains "scan_ws1"
+  // so the marker-carrying stub serves it; checksum matches the stub body so the
+  // route's integrity gate passes for the OWNER (positive control below).
+  {
+    const snapBody = await ws1ReportObject.text();
+    const snapDigest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(snapBody));
+    const snapChecksum = [...new Uint8Array(snapDigest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+    tryInsert(`INSERT INTO scan_report_snapshots (id, workspace_id, domain_id, scan_id, status, r2_key, checksum_sha256, snapshot_schema_version, resolver_version, assessed_at) VALUES ('snap-tenant-ws1','ws1','dom1','scan_ws1','completed','reports/snapshots/ws1/scan_ws1/snap-tenant-ws1.json','${snapChecksum}','1','test','2026-07-16T10:00:00.000Z')`);
+  }
 
   const call = async (method, pathname, token, body) => {
     const headers = {};
@@ -180,6 +191,7 @@ async function main() {
     { path: "/api/workspaces/ws1/members",         marker: "admin@a.co" },
     { path: "/api/workspaces/ws1/invitations",     marker: "invitee@x.co" },
     { path: "/api/workspaces/ws1/reports",         marker: "Alpha-SECRET" },
+    { path: "/api/workspaces/ws1/report-snapshots", marker: "snap-tenant-ws1" },
     { path: "/api/workspaces/ws1/subscription",    marker: "Alpha-SECRET" },
     { path: "/api/workspaces/ws1/brand/profile",   marker: "Alpha-SECRET" },
     { path: "/api/workspaces/ws1/scorecard",       marker: "Alpha-SECRET" },
@@ -213,6 +225,7 @@ async function main() {
     "/api/scans/scan_ws1/report",
     "/api/scans/scan_ws1/report/pdf",
     "/api/scans/scan_ws1/executive-report-v2",
+    "/api/scans/scan_ws1/snapshot",
   ];
   for (const p of SCAN_REPORT_ENDPOINTS) {
     ok(`foreign cannot read ${p}`,     denied(await call("GET", p, T.foreign), REPORT_MARKER));
@@ -224,6 +237,8 @@ async function main() {
   // checks, not just "report not found".
   ok("owner CAN read the scan report (foreign denials above are ownership-based)",
      leaks(await call("GET", "/api/scans/scan_ws1/report", T.admin), REPORT_MARKER));
+  ok("owner CAN read the reporting snapshot (mig 093 route serves real data, so denials are ownership-based)",
+     leaks(await call("GET", "/api/scans/scan_ws1/snapshot", T.admin), REPORT_MARKER));
 
   // ── Invariant 2 & 3: foreign cannot MODIFY / DELETE ws1 resources ──
   section("Invariant 2+3 — foreign cannot modify / delete ws1 resources");

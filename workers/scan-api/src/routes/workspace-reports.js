@@ -206,6 +206,50 @@ export async function workspaceReportsRoutes(rctx) {
       }
     }
 
+    // ── GET /api/workspaces/:id/report-snapshots ─────────────────────────────
+    // History of canonical M5.c reporting snapshots (D1 metadata only — the
+    // snapshot body is served by GET /api/scans/:id/snapshot). Completed rows
+    // by default; ?status= widens to building/failed for operational visibility.
+    // superseded_by is DERIVED on read from the append-only supersession chain —
+    // historical rows are never edited.
+    const snapListMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/report-snapshots$/);
+    if (snapListMatch && request.method === 'GET') {
+      const wsId = snapListMatch[1];
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, wsId, "workspace:read", env);
+      if (!access) return json({ error: "Forbidden" }, 403);
+      const statusFilter = url.searchParams.get('status');
+      try {
+        const { limit, offset } = paginationParams(url, { defaultLimit: 100, maxLimit: 100 });
+        // Scalar subquery, not a JOIN: if the supersession chain ever forks
+        // (two concurrent same-domain builds sharing a predecessor), a JOIN
+        // would fan the superseded row out into duplicate list entries and
+        // break pagination. The subquery keeps one row per snapshot and picks
+        // the earliest completed successor deterministically.
+        let sql = `SELECT s.id, s.workspace_id, s.domain_id, s.scan_id, s.status,
+                          s.snapshot_schema_version, s.resolver_version, s.scan_quality,
+                          s.assessed_at, s.supersedes_snapshot_id, s.created_at, s.completed_at,
+                          (SELECT n.id FROM scan_report_snapshots n
+                            WHERE n.supersedes_snapshot_id = s.id
+                              AND n.status = 'completed'
+                              AND n.workspace_id = s.workspace_id
+                            ORDER BY n.assessed_at ASC LIMIT 1) AS superseded_by
+                   FROM scan_report_snapshots s
+                   WHERE s.workspace_id = ?`;
+        const params = [wsId];
+        if (statusFilter) { sql += ' AND s.status = ?'; params.push(statusFilter); }
+        else              { sql += ` AND s.status = 'completed'`; }
+        sql += ' ORDER BY s.assessed_at DESC LIMIT ? OFFSET ?';
+        params.push(limit, offset);
+        const { results } = await env.cybermeters_db.prepare(sql).bind(...params).all();
+        const snapshots = results ?? [];
+        return json({ snapshots, pagination: pageMeta({ items: snapshots, limit, offset }) });
+      } catch (err) {
+        return serverError("api", err);
+      }
+    }
+
     // ── DELETE /api/workspaces/:id/reports/:reportId ─────────────────────────
     // Permanently deletes the archived PDF from R2 and soft-deletes the D1 row.
     const rptDeleteMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/reports\/([^/]+)$/);
