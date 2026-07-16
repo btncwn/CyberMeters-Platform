@@ -2,7 +2,7 @@
 
 Version: July 2026
 
-Last updated: 16 July 2026 (release v2026.07.16-1; next canonical episode: MSP Portfolio Per-Domain State and Trend)
+Last updated: 16 July 2026 (release v2026.07.16-5; next canonical episode: M5 Completion Across All Eight Domains)
 
 ---
 
@@ -240,7 +240,7 @@ Do not claim that CyberMeters performs a customer, provider, registrar, certific
 | Identity Exposure Managed Workflow | Live |
 | Complete ASM Verification | Live |
 | Alerts Across All Eight Domains | Live — 8 of 8 domains alert canonically (`docs/alerts-eight-domain-coverage.md`). Engineering closed; genuine live-event acceptance outstanding. |
-| MSP Portfolio Per-Domain State and Trend | Planned |
+| MSP Portfolio Per-Domain State and Trend | Live — persisted per-domain state + honest trend across all 8 domains (mig 091). Engineering closed; authenticated customer acceptance outstanding (no entitled account exists in production). |
 | M5 Completion Across All Eight Domains | Planned |
 | Debugging and Reliability Hardening | Planned after managed lifecycle completion |
 | Pentesting and Security Assurance | Planned after managed lifecycle completion |
@@ -250,11 +250,11 @@ Do not claim that CyberMeters performs a customer, provider, registrar, certific
 
 Current release facts (as of 16 July 2026):
 
-- latest release tag: `v2026.07.16-4` (Portfolio null-score honesty — absent evidence is not a verdict — deployed);
-- live Worker Version ID: `f06f3c43-5c32-413d-a93e-5eb7e5808c9a`;
-- rollback Worker Version ID: `6dc509c8-226e-4e17-ae66-d7770b865b71`;
-- latest migration applied to production: `090-cyber-essentials-lifecycle.sql`;
-- next canonical episode: MSP Portfolio Per-Domain State and Trend (not yet started).
+- latest release tag: `v2026.07.16-5` (MSP Portfolio Per-Domain State and Trend — deployed);
+- live Worker Version ID: `18c075a7-92bf-41f2-a06b-38a17929b687`;
+- rollback Worker Version ID: `f06f3c43-5c32-413d-a93e-5eb7e5808c9a`;
+- latest migration applied to production: `091-cyber-mot-domain-states.sql`;
+- next canonical episode: M5 Completion Across All Eight Domains (not yet started).
 
 **All eight canonical domains alert through the canonical pipeline.** The earlier
 six-of-eight closure (`v2026.07.15-2`) was premature and is superseded — it deferred
@@ -302,8 +302,8 @@ Unless the founder explicitly changes the roadmap:
 2. Identity Exposure Managed Workflow (complete — Live)
 3. Complete ASM Verification (complete — Live)
 4. Alerts Across All Eight Domains (complete — Live, 8 of 8; genuine live-event acceptance outstanding)
-5. MSP Portfolio Per-Domain State and Trend (next canonical episode)
-6. M5 Completion Across All Eight Domains
+5. MSP Portfolio Per-Domain State and Trend (complete — Live)
+6. M5 Completion Across All Eight Domains (next canonical episode)
 7. Systematic debugging and reliability engineering
 8. Security testing and pentesting
 9. Founder-controlled acceptance testing

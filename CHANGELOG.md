@@ -5,6 +5,66 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.16-5 (MSP Portfolio Per-Domain State and Trend) — deployed 2026-07-16
+
+- **Live Worker Version ID:** `18c075a7-92bf-41f2-a06b-38a17929b687` (main `d97625b`)
+- **Rollback Worker Version ID:** `f06f3c43-5c32-413d-a93e-5eb7e5808c9a` (v2026.07.16-4)
+- **Remote D1 migrations applied:** `091-cyber-mot-domain-states.sql` — additive; table + 2 named indexes verified present, 16 columns, 0 rows.
+- **Pages:** auto-deployed from `main`; `app.cybermeters.com/portfolio/domains` 200.
+- **PRs:** #119 (exec-summary all-clear) · #120 (per-domain state + trend backend, mig 091) · #121 (per-domain UI)
+
+The portfolio could say which **customer** was worst. It could not say which **domain**,
+which of the eight Cyber MOT domains inside it, or **what changed**. The per-domain data
+was already computed and thrown away — `LATEST_SCAN_CTE` partitions by `domain_id`, then
+collapses it with `GROUP BY wd.workspace_id`.
+
+**Why a table, when the resolver's own header says "no new storage".** Compute-on-read
+from R2 is right for one workspace and wrong for a portfolio, twice over: R2 has no
+multi-get, so 50 customers = 50 R2 reads + ~100 D1 reads + 50 full report parses per page
+load; and re-deriving history through today's resolver rewrites what the customer saw
+last month. So the canonical resolver's own output is persisted at scan finalize from the
+report already in memory, and the portfolio reads D1 only — four queries for the whole
+portfolio, independent of domain count. One place still decides what state a domain is
+in; this is a record of what it decided.
+
+**`resolver_version` is the first algorithm version stamped on a state a customer sees.**
+The repo had none (`PROVIDER_MAP_VERSION` was the only persisted stamp, on one column).
+Adding a `required` module or tightening a `match()` regex silently shifted every
+historical state, with nothing recording that the ruler moved rather than the thing
+measured. The trend now refuses to compare across a version boundary — a change we made
+is never rendered as a change the customer caused.
+
+**No blended portfolio score. Deliberately.** A customer at 86 with one critical domain
+and nine healthy ones is not "Low risk", and a mean is how that gets said out loud.
+
+Three findings recorded, not actioned (they are M5's, and acting on them here would have
+been a different episode):
+
+- `resolveCyberMotDomainStates` has **no staleness gate at all** — a `complete` scan from
+  2019 still resolves `assessed_healthy` with full confidence on the Dashboard, Scan
+  Detail, Executive Report and PDF. The portfolio adds freshness as its own axis rather
+  than changing the resolver under four surfaces. **P1, open.**
+- **Six divergent score-band ladders** exist against a module that says every rating
+  surface "MUST delegate here" (the audit found six, not the three previously recorded).
+  **P2, open.**
+- Four of eight domains are unreachable from `WorkspaceNav`; `website_security` has no
+  page; three managed pages read a `useParams` id their routes never declare and issue
+  `GET /api/workspaces/undefined/...`. **P1, open — M5.**
+
+> **Reachability, stated plainly.** `/api/portfolio/*` is gated on `portfolio_monitoring`
+> (business+) and production has **0 business/enterprise subscriptions**, so no account
+> can reach this feature. `cyber_mot_domain_states` holds **0 rows** and will stay empty
+> until the next scan finalizes — the writer fires only at scan completion, and no scan
+> was triggered to populate it (that would manufacture production lifecycle transitions
+> and risk minting alerts). Behavioural proof is by harness against the exact deployed
+> code path; authenticated customer acceptance is a release-gate action and remains
+> outstanding.
+
+> **Rollback is clean.** `f06f3c43` predates the table and never reads it. Migration 091
+> is additive and its rollback is code-only: with no writer the table simply stops
+> receiving rows and the portfolio degrades to "not yet assessed", which is honest rather
+> than wrong.
+
 ## 2026.07.16-4 (Portfolio null-score honesty — absent evidence is not a verdict) — deployed 2026-07-16
 
 - **Live Worker Version ID:** `f06f3c43-5c32-413d-a93e-5eb7e5808c9a` (PR #118, squash-merged as `e5b7e00`)
