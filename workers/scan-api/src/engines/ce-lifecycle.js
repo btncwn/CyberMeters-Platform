@@ -28,6 +28,8 @@
 //      not user access control or endpoint AV. They stay visible and are persisted as
 //      `not_externally_assessable`; they can never alert.
 import { CE_QUESTIONS } from "../lib/cyber-essentials.js";
+// One direction only: this module calls into the case layer, which imports nothing back.
+import { openOrReopenCeCase, verifyCeCaseFromRecovery } from "./cyber-essentials-cases.js";
 import { buildCyberEssentialsReadiness } from "./ce-readiness.js";
 import {
   MONITORING_CHANGED, buildMonitoringTransitionDetail, isMonitoringTransition,
@@ -149,6 +151,34 @@ export function gradeCeControl(category) {
   };
 }
 
+// Open/reopen the canonical case for a control record and record the linkage in THIS
+// domain's append-only log. The case layer owns the case and the column; the lifecycle owns
+// its own events, so the `case_linked` event mig 090 reserved is written here.
+//
+// Never throws: a case-layer failure must not take down the evaluation pass or suppress the
+// alert. The alert then carries no case_id and the customer still hears about the gap.
+async function openCeCase(env, { workspace_id, record_id, control_key, control_label, recurrence, scanId }) {
+  try {
+    const res = await openOrReopenCeCase(env, {
+      workspace_id, record_id, control_key, control_label, recurrence,
+      finding_type: CE_RECURRENCE_FINDING_TYPE[recurrence] || null,
+    });
+    if (!res?.ok || !res.case?.id) return null;
+    // Only a genuine open/reopen earns a linkage event; an unchanged pass that found the
+    // same open case must add nothing, or the log grows a row per evaluation forever.
+    if (res.created || res.reopened) {
+      await appendEvent(env, {
+        workspace_id, record_id, event_type: CE_EVENT_CASE_LINKED,
+        detail: {
+          case_id: res.case.id, control_key, recurrence, scan_id: scanId,
+          action: res.created ? "case_opened" : "case_reopened",
+        },
+      }).catch(() => {});
+    }
+    return { case_id: res.case.id };
+  } catch { return null; }
+}
+
 /**
  * evaluateCyberEssentialsLifecycle — correlate the workspace's externally evidenced
  * CE readiness into durable per-control records + append-only history, and alert on
@@ -229,10 +259,17 @@ export async function evaluateCyberEssentialsLifecycle(env, workspaceId, { scanI
             detail: ceTransitionDetail({ g, from: null, recurrence, band, scanId, reason: "control_first_observed_not_ready" }),
           }).catch(() => {});
           transitions++;
+          // The case BEFORE the alert: an alert that names a case must be able to link to
+          // one, so the case has to exist by the time the alert is built.
+          const opened = await openCeCase(env, {
+            workspace_id: workspaceId, record_id: id, control_key: g.control_key,
+            control_label: g.label, recurrence, scanId,
+          });
           const r = await emitLifecycleAlert(env, {
             workspace_id: workspaceId, domain_key: CE_DOMAIN_KEY,
             record_id: id, entity: g.control_key, recurrence,
             finding_type: CE_RECURRENCE_FINDING_TYPE[recurrence] || null,
+            case_id: opened?.case_id || null,
           }).catch(() => null);
           if (r?.emitted) alerts++;
         }
@@ -283,6 +320,15 @@ export async function evaluateCyberEssentialsLifecycle(env, workspaceId, { scanI
             control_label: g.label, from_evidence_fingerprint: rec.evidence_fingerprint, scan_id: scanId,
           },
         }).catch(() => {});
+        // The ONE system verifier for this domain. `evidence_complete` is passed
+        // explicitly rather than inferred: gradeCeControl only reaches `ready` with zero
+        // unknown signals, and saying so out loud is what lets the case layer refuse on its
+        // own evidence instead of trusting the branch it was called from.
+        await verifyCeCaseFromRecovery(env, {
+          workspace_id: workspaceId, record_id: rec.id, recovery_event_type: CE_EVENT_RECOVERED,
+          evidence_complete: (g.unknown?.length ?? 0) === 0,
+          control_key: g.control_key, scan_id: scanId,
+        }).catch(() => {});
         recovered++;
         continue;
       }
@@ -311,11 +357,19 @@ export async function evaluateCyberEssentialsLifecycle(env, workspaceId, { scanI
         }),
       }).catch(() => {});
       transitions++;
+      // Deterioration after a recovery reopens the canonical case; a NEW gap on an
+      // already-not-ready control notes the recurrence on the open one. Either way the case
+      // is resolved BEFORE the alert, so the link is the case that exists now — not the
+      // stale pointer on the row we read.
+      const opened = await openCeCase(env, {
+        workspace_id: workspaceId, record_id: rec.id, control_key: g.control_key,
+        control_label: g.label, recurrence: rec2, scanId,
+      });
       const r = await emitLifecycleAlert(env, {
         workspace_id: workspaceId, domain_key: CE_DOMAIN_KEY,
         record_id: rec.id, entity: g.control_key, recurrence: rec2,
         finding_type: CE_RECURRENCE_FINDING_TYPE[rec2] || null,
-        case_id: rec.linked_case_id || null,
+        case_id: opened?.case_id || rec.linked_case_id || null,
       }).catch(() => null);
       if (r?.emitted) alerts++;
     }
