@@ -2,7 +2,7 @@
 
 Version: July 2026
 
-Last updated: 16 July 2026 (release v2026.07.16-13; active canonical episode: M5 Completion Across All Eight Domains — in progress)
+Last updated: 16 July 2026 (release v2026.07.16-14; active canonical episode: M5 Completion Across All Eight Domains — in progress)
 
 ---
 
@@ -250,10 +250,10 @@ Do not claim that CyberMeters performs a customer, provider, registrar, certific
 
 Current release facts (as of 16 July 2026):
 
-- latest release tag: `v2026.07.16-13` (M5.a PR3 — Cyber Essentials managed cases; M5.a CLOSED — deployed);
-- live Worker Version ID: `82de6cfa-86cf-4488-8730-43eff9cc35b8` (built from `dd83daf`);
-- rollback Worker Version ID: `6d1aaaa7-f283-4ae8-af3b-c2a3d2b2130f` (v2026.07.16-12);
-- latest migration applied to production: `091-cyber-mot-domain-states.sql` (unchanged — none of `v2026.07.16-6` through `-13` carried a migration);
+- latest release tag: `v2026.07.16-14` (Cyber Essentials readiness honesty — no proxy scoring — deployed);
+- live Worker Version ID: `1ebf34f0-7576-4a1b-9324-fe78750c0904` (built from `72b5265`);
+- rollback Worker Version ID: `82de6cfa-86cf-4488-8730-43eff9cc35b8` (v2026.07.16-13);
+- latest migration applied to production: `091-cyber-mot-domain-states.sql` (unchanged — none of `v2026.07.16-6` through `-14` carried a migration);
 - active canonical episode: M5 Completion Across All Eight Domains (in progress).
 
 **M5 is under way.** Its pre-change parity audit across all eight domains found four false
@@ -336,6 +336,17 @@ scoped in the title, the summary and the verification evidence itself.
 
 Genuine live-event acceptance is outstanding for all three verticals: they are proven by CI
 and by auth-gated route checks only.
+
+The **CE readiness honesty corrective is closed** (`v2026.07.16-14`). CE's *scoring* path
+contradicted its own *case* path: `access_control` and `malware_protection` declare
+`external_coverage: none`, yet were scored from SPF/DKIM/DMARC, banded, flagged
+`externally_assessed: true`, and each carried 20% of the indicator — so perfect MFA scored
+60/100 for a missing SPF record, and no MFA at all scored 100/100 in green. Email
+authentication is not evidence of user access control and not evidence of endpoint malware
+protection. Both controls now publish no number, no band and no health; they stay visible as
+"Not externally assessable — self-attestation only", and the indicator is the mean of the
+three assessable areas and states its denominator. Both paths now read one source of truth
+(`CE_QUESTIONS.external_coverage`). Mutation-tested across builder, PDF and frontend.
 
 The per-domain maturity ledger remains untouched. The ledger is corrected
 **last**: it is wrong in every row today and most rows *under*-claim, so raising it before

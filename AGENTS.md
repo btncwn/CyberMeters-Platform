@@ -4,7 +4,7 @@
 
 Version: July 2026
 
-Last updated: 16 July 2026 (release v2026.07.16-13; active canonical episode: M5 Completion Across All Eight Domains — in progress)
+Last updated: 16 July 2026 (release v2026.07.16-14; active canonical episode: M5 Completion Across All Eight Domains — in progress)
 
 ---
 
@@ -105,15 +105,15 @@ CyberMeters manages and verifies the lifecycle where externally observable evide
 | Complete ASM Verification | Live |
 | Alerts Across All Eight Domains | Live — 8 of 8 domains alert canonically (`docs/alerts-eight-domain-coverage.md`). Engineering closed; genuine live-event acceptance outstanding. |
 | MSP Portfolio Per-Domain State and Trend | Live — built, NOT customer-accepted. Persisted per-domain state + honest trend across all 8 domains (mig 091). Engineering closed; authenticated customer acceptance outstanding (no entitled account exists in production), so it is not sellable and must not be demoed. |
-| M5 Completion Across All Eight Domains | In progress — evidence-honesty corrective (`v2026.07.16-6`), alerting repair (`v2026.07.16-7`), occurrence resolver (`-8`), read surfaces (`-9`), and the case verification contract (`-10`) all closed. **M5.a is CLOSED** (`-11` Email, `-12` Website Security + verification vocabulary, `-13` Cyber Essentials): all three domains have creation, linkage, case-level ownership, honest verification and recurrence in production; live-event acceptance outstanding. Next: CE Questionnaire Hygiene, then M5.b Certificates. |
+| M5 Completion Across All Eight Domains | In progress — evidence-honesty corrective (`v2026.07.16-6`), alerting repair (`v2026.07.16-7`), occurrence resolver (`-8`), read surfaces (`-9`), and the case verification contract (`-10`) all closed. **M5.a is CLOSED** (`-11` Email, `-12` Website Security + verification vocabulary, `-13` Cyber Essentials): all three domains have creation, linkage, case-level ownership, honest verification and recurrence in production; live-event acceptance outstanding. CE readiness honesty corrective closed (`-14`): access_control/malware_protection no longer scored from email-auth proxies; indicator is 3 of 5 assessable areas. Next: CE Questionnaire Hygiene, then M5.b Certificates. |
 | Final Public-Beta Gate | Planned after managed-platform completion |
 
 Current release facts (as of 16 July 2026):
 
-- latest release tag: `v2026.07.16-13` (M5.a PR3 — Cyber Essentials managed cases; M5.a CLOSED — deployed);
-- live Worker Version ID: `82de6cfa-86cf-4488-8730-43eff9cc35b8` (built from `dd83daf`);
-- rollback Worker Version ID: `6d1aaaa7-f283-4ae8-af3b-c2a3d2b2130f` (v2026.07.16-12);
-- latest migration applied to production: `091-cyber-mot-domain-states.sql` (unchanged — none of `v2026.07.16-6` through `-13` carried a migration);
+- latest release tag: `v2026.07.16-14` (Cyber Essentials readiness honesty — no proxy scoring — deployed);
+- live Worker Version ID: `1ebf34f0-7576-4a1b-9324-fe78750c0904` (built from `72b5265`);
+- rollback Worker Version ID: `82de6cfa-86cf-4488-8730-43eff9cc35b8` (v2026.07.16-13);
+- latest migration applied to production: `091-cyber-mot-domain-states.sql` (unchanged — none of `v2026.07.16-6` through `-14` carried a migration);
 - active canonical episode: M5 Completion Across All Eight Domains (in progress).
 
 **All eight canonical domains alert through the canonical pipeline.** The earlier

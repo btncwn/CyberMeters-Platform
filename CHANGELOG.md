@@ -5,6 +5,62 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.16-14 (Cyber Essentials readiness honesty — no proxy scoring) — deployed 2026-07-16
+
+- **Live Worker Version ID:** `1ebf34f0-7576-4a1b-9324-fe78750c0904` (main `72b5265`)
+- **Rollback Worker Version ID:** `82de6cfa-86cf-4488-8730-43eff9cc35b8` (v2026.07.16-13)
+- **Remote D1 migrations applied:** none — no schema change (latest remains `091`).
+- **Pages:** auto-deploys from main (CE page changed).
+- **PR:** #136
+
+A live grading and reporting defect, reproduced before any edit. Same site — same HTTPS,
+HSTS, CSP, zero findings — with ONLY the email records removed: Access Control 100 -> 60,
+Phishing & Malware Exposure 100 -> 60, overall CE readiness 100 -> 84.
+
+Both controls declare `external_coverage: none` in the repo's own honesty metadata, yet both
+were scored 0-100 from SPF/DKIM/DMARC, given colour bands, flagged `externally_assessed:
+true`, and each carried 20% of the indicator. A business with perfect MFA and least
+privilege scored 60/100 on "Access Control" for a missing SPF record; one with no MFA at all
+scored 100/100 in green, with "SPF is present." offered as the reason.
+
+Email authentication tells you whether someone can spoof your domain. It says nothing about
+whether staff use MFA, whether admin rights are separated, or whether leavers are
+deprovisioned, and it cannot tell you whether AV is installed on a single device. The proxy
+was not weak evidence — it was evidence of a different thing. The malware copy admitted it
+was "estimated from available signals only" and printed 100/100 in green anyway; the
+admission did not undo the claim.
+
+It also contradicted the platform's OWN case path, which has always treated both controls as
+`not_externally_assessable` (`v2026.07.16-13`). The scoring path and the case path now read
+one source of truth: `CE_QUESTIONS.external_coverage`.
+
+Both controls stay VISIBLE — hiding them would be its own dishonesty — with `score: null`
+(not 0, not 100), `weight: 0`, no band, `externally_assessed: false`, and one reason:
+"Not externally assessable — self-attestation only". The indicator is now the mean of the
+three assessable areas and states its denominator: "External readiness indicator based on
+3 of 5 Cyber Essentials control areas. Access Control and Phishing & Malware Exposure
+require customer attestation." That statement rides on the readiness object, the Executive
+PDF and the authenticated page.
+
+Deliberate consequences, recorded rather than discovered later:
+- CE external readiness no longer moves on email posture at all. That evidence lives in
+  Email Protection, and still does (asserted).
+- `ce_saas_access_review` was attributed ONLY to access_control and is gone from CE. SaaS
+  exposure remains visible in Shadow IT; admin surfaces already drive `boundary_protection`
+  (an assessable control) and Attack Surface, so nothing observable is lost.
+- `validate-probe-evidence-honesty` asserted the old attribution. Corrected rather than
+  weakened: CE must NOT attribute DMARC, AND the gap must still live in Email Protection —
+  both asserted, so this change cannot become a silencer.
+
+Also corrected: the Executive PDF printed "No data" for a control it cannot see (wrong
+wording) and now prints the honest label with no bar and no colour; the authenticated page's
+`score ?? 0` painted "not assessed" RED, and an absent indicator is now neutral.
+
+**Production proof:** `/health` polled to 6 consecutive reads of `1ebf34f0` (it flapped
+across PoPs before settling); `/ready` d1+r2 true; the CE readiness route returns a
+customer-safe `401` unauthenticated — live and auth-gated, which is NOT proof of the
+authenticated workflow. No customer case, alert or email was manufactured.
+
 ## 2026.07.16-13 (M5.a PR3 — Cyber Essentials managed cases; M5.a CLOSED) — deployed 2026-07-16
 
 - **Live Worker Version ID:** `82de6cfa-86cf-4488-8730-43eff9cc35b8` (main `dd83daf`)
