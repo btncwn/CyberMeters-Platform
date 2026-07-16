@@ -1521,7 +1521,9 @@ function ConnectDmarcReporting({ wsId, domain, dmarcDetail }) {
   const dnsVerified = _inboundMailto ? _ruaList.includes(_inboundMailto) : false
   const reportsReceived = Boolean(lastInbound)
   const fullyConnected = dnsVerified && reportsReceived
-  const curl = `curl -X POST ${BASE || 'https://api.cybermeters.com'}/dmarc-ingest \\
+  // The fallback stands in for BASE, so it carries BASE's trailing /api — the route
+  // is /api/dmarc-ingest. Without it the customer copies a curl that 404s.
+  const curl = `curl -X POST ${BASE || 'https://api.cybermeters.com/api'}/dmarc-ingest \\
   -H "Authorization: Bearer YOUR_UPLOAD_TOKEN" \\
   -H "Content-Type: application/xml" \\
   --data-binary @report.xml`

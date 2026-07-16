@@ -10,10 +10,23 @@
 //
 // That omission is not cosmetic. Requests are built as `${BASE}${path}` with a bare
 // path, and the API serves `/api/...` (openapi.json: server `https://api.cybermeters.com`,
-// path `/api/auth/login`). A developer following the README got a 404 on every call.
-// The inverse mistake — adding `/api` to the paths as well — is the double-/api bug
-// that silently broke the free-scan lead magnet and the GDPR export, and is guarded by
-// `frontend/src/__tests__/api-base.test.js`. This suite guards the other half.
+// path `/api/auth/login`; only /health and /ready sit outside /api). A developer
+// following the README got a 404 on every call. The inverse mistake — adding `/api` to
+// the paths as well — is the double-/api bug that silently broke the free-scan lead
+// magnet and the GDPR export, and is guarded by `frontend/src/__tests__/api-base.test.js`.
+// This suite guards the other half.
+//
+// The template fix alone was not enough, because the SOURCE carried the same wrong
+// value in two more places (fixed together with this suite's §4b):
+//   • api.js printed `e.g. VITE_API_BASE_URL=https://api.cybermeters.com` on the
+//     failure path — the console told a developer to configure the value that 404s.
+//   • WorkspaceEmailProtectionPage built a curl command the CUSTOMER copies from a
+//     `BASE || 'https://api.cybermeters.com'` fallback, resolving to /dmarc-ingest
+//     when the real route is /api/dmarc-ingest.
+// A hint is documentation that happens to live in a .js file, and it drifts the same
+// way. StatusPage.jsx corroborates the contract independently: it does
+// `(BASE || '').replace(/\/api\/?$/, '')` to recover the origin for /health + /ready —
+// which is only meaningful if BASE ends in /api.
 //
 // The template is documentation, so nothing enforces it at runtime — which is exactly
 // why it needs a test. This asserts the CONTRACT, not any value.
@@ -100,6 +113,63 @@ ok("README documents VITE_API_BASE_URL with the /api segment",
    /VITE_API_BASE_URL=https:\/\/[a-z0-9.-]+\/api\b/.test(readme),
    "README shows a base URL without /api — following it 404s every call");
 ok("README points at the committed template", /frontend\/\.env\.example/.test(readme));
+
+// ── 4b. The same contract, in the SOURCE a developer actually reads ──────────
+// The template and README were only ever half the story: api.js printed its own
+// `e.g. VITE_API_BASE_URL=...` hint on the failure path, and it omitted /api — so the
+// console told a developer to configure the exact value that 404s. A hint is
+// documentation that happens to live in a .js file, and it drifts the same way.
+const jsFiles = [];
+const collect = (dir) => {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, entry.name);
+    if (entry.isDirectory()) { collect(p); continue; }
+    if (/\.(jsx?|tsx?)$/.test(entry.name)) jsFiles.push(p);
+  }
+};
+collect(srcRoot);
+
+// Every `VITE_API_BASE_URL=<url>` example anywhere in the frontend source.
+const srcExamples = [];
+for (const f of jsFiles) {
+  const src = fs.readFileSync(f, "utf8");
+  for (const m of src.matchAll(/VITE_API_BASE_URL=(https?:\/\/[^\s'"`]+)/g)) {
+    srcExamples.push({ file: path.relative(root, f), url: m[1] });
+  }
+}
+const badSrcExamples = srcExamples.filter((e) => !/\/api$/.test(e.url));
+ok("every VITE_API_BASE_URL example in frontend source ends in /api",
+   badSrcExamples.length === 0,
+   badSrcExamples.map((e) => `${e.file}: ${e.url}`).join(" | "));
+
+// A `BASE || '<url>'` fallback stands in for BASE, so it must have BASE's shape.
+// WorkspaceEmailProtectionPage builds a curl command the CUSTOMER copies from this
+// fallback; an /api-less origin there hands them a request that 404s.
+const fallbacks = [];
+for (const f of jsFiles) {
+  const src = fs.readFileSync(f, "utf8");
+  for (const m of src.matchAll(/\b(?:BASE|apiBase)\s*\|\|\s*['"`]([^'"`]*)['"`]/g)) {
+    fallbacks.push({ file: path.relative(root, f), url: m[1] });
+  }
+}
+// An empty-string fallback ('') is a deliberate "no base" sentinel, not a base URL.
+const badFallbacks = fallbacks.filter((f) => f.url !== "" && !/\/api$/.test(f.url));
+ok("every BASE fallback URL in frontend source carries BASE's trailing /api",
+   badFallbacks.length === 0,
+   badFallbacks.map((f) => `${f.file}: ${JSON.stringify(f.url)}`).join(" | "));
+
+// Anchor the contract to the ROUTES, not to a belief about them. If the API ever
+// stopped serving under /api, every assertion above would be wrong together — this
+// makes that contradiction fail loudly here rather than silently mislead.
+const openapi = JSON.parse(fs.readFileSync(path.join(root, "docs", "openapi.json"), "utf8"));
+const apiPaths = Object.keys(openapi.paths || {});
+const underApi = apiPaths.filter((p) => p.startsWith("/api/"));
+ok("openapi still serves the API under /api (the reason BASE ends in /api)",
+   underApi.length > 0 && underApi.length >= apiPaths.length - 2,
+   `only ${underApi.length}/${apiPaths.length} paths under /api — if the API moved, this contract changed`);
+ok("openapi's server has no /api suffix (the segment comes from VITE_API_BASE_URL)",
+   (openapi.servers || []).every((s) => !/\/api\/?$/.test(s.url)),
+   "a server ending in /api would double the prefix");
 
 // ── 5. No secret may enter the template ──────────────────────────────────────
 // Every VITE_* value is inlined into the public client bundle, so a secret here is
