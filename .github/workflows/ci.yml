@@ -191,6 +191,17 @@ jobs:
       - name: Validate commercial canonicalisation (one direction / no stale price ladder / CE + MSP honesty)
         run: node scripts/validate-commercial-canonicalisation.js
 
+      # frontend/.env.example never existed, while api.js and SettingsPage both told
+      # developers to "add it to your .env file" with nothing to copy — and the only
+      # guidance, README.md, was wrong: it omitted the trailing /api, so a developer
+      # following it 404'd every call (openapi.json: server api.cybermeters.com, path
+      # /api/auth/login; requests are ${BASE} + a bare path). The inverse mistake is
+      # the double-/api bug that silently broke the free-scan lead magnet and the GDPR
+      # export. api-base.test.js guards that half; this guards the template, the README
+      # and the "no secret in a value that ships inside the public bundle" rule.
+      - name: Validate frontend env contract (.env.example ⟷ import.meta.env / /api shape / no secret)
+        run: node scripts/validate-frontend-env-contract.js
+
       - name: Validate hosted DMARC lifecycle (pass-rate + readiness + auto-rollback runtime)
         run: node scripts/validate-hosted-dmarc-lifecycle.js
 
