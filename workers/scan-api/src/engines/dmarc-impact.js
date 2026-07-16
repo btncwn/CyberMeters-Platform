@@ -1,7 +1,9 @@
 // ── DMARC policy impact forecast + post-change monitor ─────────────────────
 // Read-only, deterministic impact calculations over DMARC aggregate records.
 // Windows use dmarc_aggregate_reports.date_range_begin (mail period), not record
-// ingest time. Manual sender classification wins when classified_at is set.
+// ingest time. Manual sender classification is translated into the observed
+// vocabulary by the canonical resolver when classified_at is set.
+import { resolveEffectiveClassification } from "./sender-classification.js";
 
 export const IMPACT_MIN_MESSAGES = 50;
 export const IMPACT_WINDOW_DAYS = 7;
@@ -27,15 +29,16 @@ function round1(value) {
   return Math.round(Number(value || 0) * 10) / 10;
 }
 
-function effectiveClassification(row = {}) {
-  if (row.classified_at) {
-    if (row.classification === "trusted") return "authorised";
-    if (row.classification === "suspicious") return "suspicious";
-    if (row.classification === "threat") return "unauthorised";
-    return row.classification || "unknown";
-  }
-  return row.auto_classification || row.classification || "unknown";
-}
+// This module used to carry its own private copy of this mapping — and it was the
+// only one of the three that had it RIGHT. It is now imported from the single
+// authority (sender-classification.js) so the lifecycle engine, rua-routing and this
+// module can never disagree about what a customer's word means again.
+//
+// Behaviour here is unchanged: trusted→authorised, suspicious→suspicious,
+// threat→unauthorised. The shared resolver additionally refuses to pass an
+// unrecognised value straight through as if it were evidence, and treats `ignored`
+// as claiming nothing rather than as a verdict.
+const effectiveClassification = (row = {}) => resolveEffectiveClassification(row);
 
 function isLegitimateClassification(classification) {
   return LEGIT_CLASSES.has(classification);

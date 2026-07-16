@@ -31,9 +31,13 @@ const {
   NON_ALERTABLE_EVENT_TYPES, SENDER_FAILURE_TRIGGER, SENDER_WINDOW_DAYS,
   evaluateEmailSenderMonitoring, recordHostedTransition,
   gradeSenderCondition, senderAlertBand, classificationRank,
-  effectiveClassification, isPreExistingRecord,
+  effectiveClassification, isPreExistingRecord, resolveSenderPolicy,
 } = await import(eng("email-protection-lifecycle.js"));
 const { resolveRemediation } = await import(eng("remediation-registry.js"));
+const {
+  CUSTOMER_SENDER_DISPOSITIONS, DISPOSITION_ASSERTS, OBSERVED_SENDER_CLASSIFICATIONS,
+  assertedClassification, isCustomerDisposition, resolveEffectiveClassification,
+} = await import(eng("sender-classification.js"));
 
 let pass = 0, fail = 0;
 const ok = (n, c, d = "") => { c ? pass++ : fail++; if (!c) console.log(`FAIL ${n}${d ? " — " + d : ""}`); };
@@ -177,8 +181,26 @@ function activate(ws, at) {
   eq("a new low-volume source is not a condition",
      gradeSenderCondition({ classification: "unknown", window_total: 3, window_failed: 0, is_new: true }).recurrence, null);
 
-  // Manual customer classification wins — preserved from the legacy engine.
-  eq("manual classification beats auto", effectiveClassification({ classification: "authorised", auto_classification: "unauthorised", classified_at: "2026-07-15 10:00:00" }), "authorised");
+  // Manual customer classification wins — preserved from the legacy engine, but the
+  // customer's word is TRANSLATED into the observed vocabulary rather than returned raw.
+  //
+  // The fixture this replaces was unreachable: it put `classification: "authorised"` in
+  // the CUSTOMER slot, and the classify route has only ever accepted
+  // trusted/suspicious/threat/ignored/unknown (since 27f655f) — it would 400 that value.
+  // Migration 074 states the split: the customer's decision lives in `classification`,
+  // engine evidence in `auto_*`. So the test asserted a state the product cannot be in,
+  // and in doing so it pinned the very collapse that let `threat` band null.
+  eq("manual classification beats auto, in the observed vocabulary",
+     effectiveClassification({ classification: "trusted", auto_classification: "unauthorised", classified_at: "2026-07-15 10:00:00" }), "authorised");
+  eq("a manual THREAT is unauthorised, never passed through raw",
+     effectiveClassification({ classification: "threat", auto_classification: "authorised", classified_at: "2026-07-15 10:00:00" }), "unauthorised");
+  // `ignored` asks not to be told; it does not claim the sender is safe. The evidence stands.
+  eq("ignored claims nothing, so the evidence stands",
+     effectiveClassification({ classification: "ignored", auto_classification: "unauthorised", classified_at: "2026-07-15 10:00:00" }), "unauthorised");
+  // An unrecognised value in the customer slot must fail closed to the evidence, never
+  // masquerade as a verdict of its own.
+  eq("an unsupported customer value falls back to the evidence",
+     effectiveClassification({ classification: "authorised", auto_classification: "unauthorised", classified_at: "2026-07-15 10:00:00" }), "unauthorised");
   eq("without a manual decision, auto is effective", effectiveClassification({ classification: "unknown", auto_classification: "unauthorised", classified_at: null }), "unauthorised");
 
   // Fail closed: an unknown watermark or birth cannot be shown to be new.
@@ -400,13 +422,50 @@ function activate(ws, at) {
   ok("reconnection is recorded as history", allEvents("hd-000000000001").some((e) => e.event_type === "hosted_record_reconnected"));
   eq("reconnection minted no occurrence", occurrenceEvents("hd-000000000001").length, 1);
 
+  // ── THE RE-DISCONNECT. This section has been titled
+  // "disconnect → reconnect → re-disconnect" since it was written, and it never
+  // performed the re-disconnect: it stopped at the reconnect and moved on to rollbacks.
+  // The defect it was named after was live the whole time — a hosted record could alert
+  // on disconnection exactly ONCE in its lifetime, because `hosted_record_reconnected`
+  // is not `monitoring_changed` and the graded condition never closed.
+  //
+  // A recovered condition that RETURNS is a recurrence, not an unchanged duplicate.
+  await tick();
+  await recordHostedTransition(env, row, { recurrence: "hosted_record_disconnected", from_status: "connected", to_status: "disconnected" });
+  eq("a SECOND disconnect after recovery ALERTS AGAIN", notifications("ws1").length, before + 2);
+  eq("the re-entry is the same canonical condition, not a new incident kind",
+     notifications("ws1").at(-1).type, "email_protection.hosted_record_disconnected");
+  eq("the re-entry carries the same canonical remediation",
+     JSON.parse(notifications("ws1").at(-1).metadata_json).remediation_id, "email.hosted_dmarc.reconnect");
+  eq("the re-entry minted a NEW occurrence on the canonical lifecycle",
+     occurrenceEvents("hd-000000000001").length, 2);
+  {
+    const occ = occurrenceEvents("hd-000000000001");
+    ok("the re-entry's occurrence identity is NEW", occ[0].id !== occ[1].id);
+    // Scoped to the alerts THIS block raised — ws1 carries alerts from earlier sections,
+    // so a set over the whole workspace would count them and prove nothing about the
+    // re-entry.
+    const keys = new Set(notifications("ws1").slice(before).map((r) => r.dedupe_key));
+    eq("and its dedupe key is distinct — dedupe never swallows a genuine recurrence", keys.size, 2);
+  }
+
+  // Still deduped: the SECOND disconnect, re-processed unchanged, is not a third alert.
+  // Recovery closure must not turn every repeat sweep into news.
+  await recordHostedTransition(env, row, { recurrence: "hosted_record_disconnected", from_status: "connected", to_status: "disconnected" });
+  eq("the re-entered condition, unchanged, does NOT alert a third time", notifications("ws1").length, before + 2);
+
+  // Recovery again, so the rollback assertions below start from a closed condition.
+  await tick();
+  await recordHostedTransition(env, row, { event_type: "hosted_record_reconnected", from_status: "disconnected", to_status: "connected" });
+  eq("second reconnection still raises no alert", notifications("ws1").length, before + 2);
+
   // A manual rollback is the customer's own action: history only.
   await recordHostedTransition(env, row, { event_type: "hosted_rolled_back_manual", actor_type: "customer", actor_id: "u1" });
-  eq("a manual rollback raises NO alert", notifications("ws1").length, before + 1);
+  eq("a manual rollback raises NO alert", notifications("ws1").length, before + 2);
 
   // An AUTOMATIC rollback is CyberMeters intervening: actionable.
   await recordHostedTransition(env, row, { recurrence: "hosted_rolled_back_auto", band: "2026-07-17 10:00:00" });
-  eq("an automatic rollback alerts", notifications("ws1").length, before + 2);
+  eq("an automatic rollback alerts", notifications("ws1").length, before + 3);
   eq("automatic rollback is high", notifications("ws1").at(-1).severity, "high");
 }
 
@@ -469,6 +528,124 @@ function activate(ws, at) {
 {
   const src = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "index.js"), "utf8");
   ok("email_protection_events is in the workspace purge order", /"email_protection_events"/.test(src));
+}
+
+// ── 12. THE CANONICAL CUSTOMER-CLASSIFICATION POLICY ─────────────────────────
+// THE DEFECT THIS EXISTS TO PREVENT (reproduced live, 2026-07-16): the product carried
+// TWO sender vocabularies and pushed both through ONE slot. The classify route accepted
+// trusted/suspicious/threat/ignored/unknown; senderAlertBand spoke
+// authorised…unauthorised. `threat`, `trusted` and `ignored` were in NEITHER map, so all
+// three banded null — and effectiveClassification handed the customer's word straight to
+// it. **Marking a sender a THREAT turned its own high alert off.** The correct mapping
+// already existed as a private copy in dmarc-impact.js, while the lifecycle engine and
+// rua-routing each had their own copy without it: three implementations, two wrong.
+{
+  // The vocabularies are now declared in ONE place and every disposition has a defined
+  // meaning. A new disposition that nobody maps is the bug, restated.
+  eq("every customer disposition has a canonical mapping",
+     CUSTOMER_SENDER_DISPOSITIONS.filter((d) => !(d in DISPOSITION_ASSERTS)).length, 0);
+  ok("every mapped claim is in the observed vocabulary (or is `ignored`, which claims nothing)",
+     Object.entries(DISPOSITION_ASSERTS).every(([d, c]) => c === null ? d === "ignored" : OBSERVED_SENDER_CLASSIFICATIONS.includes(c)));
+  eq("threat claims unauthorised", assertedClassification("threat"), "unauthorised");
+  eq("trusted claims authorised", assertedClassification("trusted"), "authorised");
+  eq("ignored claims nothing", assertedClassification("ignored"), null);
+
+  // ── THE INVARIANT: threat must never reduce or nullify severity ────────────
+  const threatOnClean = resolveSenderPolicy({ observed: "authorised", disposition: "threat", has_customer_decision: true, window_failed: 0 });
+  eq("THREAT on a clean sender bands HIGH — it escalates", threatOnClean.band, "high");
+  ok("THREAT never bands null", threatOnClean.band !== null);
+  const threatOnFailing = resolveSenderPolicy({ observed: "unauthorised", disposition: "threat", has_customer_decision: true, window_failed: SENDER_FAILURE_TRIGGER });
+  eq("THREAT on a failing sender stays HIGH", threatOnFailing.band, "high");
+  eq("a THREAT'd failing sender keeps its condition — it is not clicked away",
+     gradeSenderCondition({ observed: "unauthorised", disposition: "threat", has_customer_decision: true,
+                            window_total: 120, window_failed: SENDER_FAILURE_TRIGGER, is_new: false }).recurrence,
+     "sender_unauthorised_failures_active");
+
+  // ── THE POLICY: trusted/ignored suppress ONLY when evidence does not contradict ──
+  for (const disp of ["trusted", "ignored"]) {
+    const quiet = resolveSenderPolicy({ observed: "unknown", disposition: disp, has_customer_decision: true, window_failed: 0 });
+    ok(`${disp} suppresses a sender the evidence does not contradict`, quiet.suppressed === true && quiet.band === null);
+    eq(`${disp} on an uncontradicted sender records no conflict`, quiet.conflict, null);
+
+    // Contradicted by the observed verdict.
+    const loud = resolveSenderPolicy({ observed: "unauthorised", disposition: disp, has_customer_decision: true, window_failed: 0 });
+    ok(`${disp} does NOT suppress a sender observed unauthorised`, loud.suppressed === false);
+    eq(`${disp} keeps the observed band when contradicted`, loud.band, "high");
+    eq(`${disp} names the conflict explicitly`, loud.conflict, `customer_${disp}_but_observed_unauthorised`);
+
+    // Contradicted by the failure evidence alone, even where the verdict is milder.
+    const failing = resolveSenderPolicy({ observed: "suspicious", disposition: disp, has_customer_decision: true, window_failed: SENDER_FAILURE_TRIGGER });
+    ok(`${disp} does NOT suppress a sender failing above the trigger`, failing.suppressed === false);
+    ok(`${disp} names that conflict too`, failing.conflict === `customer_${disp}_but_observed_suspicious`);
+
+    // The condition itself survives: a customer cannot erase receiver-reported failures.
+    eq(`${disp} cannot erase an active unauthorised-failures condition`,
+       gradeSenderCondition({ observed: "unauthorised", disposition: disp, has_customer_decision: true,
+                              window_total: 120, window_failed: SENDER_FAILURE_TRIGGER, is_new: false }).recurrence,
+       "sender_unauthorised_failures_active");
+  }
+
+  // ── FAIL CLOSED on anything unrecognised ──────────────────────────────────
+  const bogus = resolveSenderPolicy({ observed: "unauthorised", disposition: "definitely_fine", has_customer_decision: true, window_failed: 0 });
+  ok("an unsupported disposition never suppresses", bogus.suppressed === false);
+  eq("an unsupported disposition fails closed to the observed band", bogus.band, "high");
+  eq("and names itself unsupported", bogus.conflict, "unsupported_customer_disposition");
+  const bogusObserved = resolveSenderPolicy({ observed: "totally_new_verdict", disposition: null, has_customer_decision: false, window_failed: 0 });
+  eq("an unsupported OBSERVED value fails closed to medium, never null", bogusObserved.band, "medium");
+  eq("and names itself unsupported", bogusObserved.conflict, "unsupported_observed_classification");
+  ok("the route's vocabulary gate rejects it", !isCustomerDisposition("definitely_fine"));
+
+  // ── The two axes stay distinct ─────────────────────────────────────────────
+  eq("a customer decision is translated, never returned raw",
+     resolveEffectiveClassification({ classification: "threat", auto_classification: "authorised", classified_at: "x" }), "unauthorised");
+  ok("no observed classification is also a customer disposition (the slots cannot be confused)",
+     OBSERVED_SENDER_CLASSIFICATIONS.filter((c) => CUSTOMER_SENDER_DISPOSITIONS.includes(c)).sort().join(",") === "suspicious,unknown");
+}
+
+// ── 13. Recovery closure is EXPLICIT — not "any non-alertable event" ──────────
+// Every non-alertable hosted event carries `to_recurrence_type: null`
+// (buildMonitoringTransitionDetail always sets the key), so a reader that closed a
+// condition on "any event carrying the key" would let a POLICY CHANGE or a MANUAL
+// ROLLBACK close a LIVE disconnection — and the next sweep would re-alert an outage that
+// never went away. Only a genuine return to a healthy state is recovery.
+{
+  db.prepare(`INSERT INTO hosted_dns_entries
+    (id, workspace_id, domain, record_kind, customer_name, target_name, target_value,
+     verification_state, created_at, updated_at)
+    VALUES ('hd-000000000002','ws2','ex2.com','dmarc','_dmarc.ex2.com','hd2.dmarc.cybermeters.com','v=DMARC1; p=none',
+            'connected','2026-07-16 09:00:00','2026-07-16 09:00:00')`).run();
+  const row2 = { id: "hd-000000000002", workspace_id: "ws2", domain: "ex2.com", created_at: "2026-07-16 09:00:00", status: "connected" };
+  const base = notifications("ws2").length;
+
+  await recordHostedTransition(env, row2, { recurrence: "hosted_record_disconnected", from_status: "connected", to_status: "disconnected" });
+  eq("ws2 disconnect alerts once", notifications("ws2").length, base + 1);
+
+  // A policy change while still disconnected is history — and must NOT close the condition.
+  await tick();
+  await recordHostedTransition(env, row2, { event_type: "hosted_policy_changed", from_status: "disconnected", to_status: "disconnected" });
+  await recordHostedTransition(env, row2, { recurrence: "hosted_record_disconnected", from_status: "connected", to_status: "disconnected" });
+  eq("a POLICY CHANGE does not close a live disconnection (no spurious re-alert)",
+     notifications("ws2").length, base + 1);
+
+  // A manual rollback while still disconnected: same rule.
+  await tick();
+  await recordHostedTransition(env, row2, { event_type: "hosted_rolled_back_manual", actor_type: "customer", actor_id: "u2" });
+  await recordHostedTransition(env, row2, { recurrence: "hosted_record_disconnected", from_status: "connected", to_status: "disconnected" });
+  eq("a MANUAL ROLLBACK does not close a live disconnection either",
+     notifications("ws2").length, base + 1);
+
+  // Only reconnection closes it — and then the condition can legitimately return.
+  await tick();
+  await recordHostedTransition(env, row2, { event_type: "hosted_record_reconnected", from_status: "disconnected", to_status: "connected" });
+  await tick();
+  await recordHostedTransition(env, row2, { recurrence: "hosted_record_disconnected", from_status: "connected", to_status: "disconnected" });
+  eq("RECONNECTION closes it, so the returning condition alerts again",
+     notifications("ws2").length, base + 2);
+
+  // Tenant isolation: ws1's history for a same-named condition cannot close or open ws2's.
+  const ws2Events = allEvents("hd-000000000002");
+  ok("every ws2 lifecycle event is workspace-scoped", ws2Events.every((e) => e.workspace_id === "ws2"));
+  ok("ws2's occurrences are its own", occurrenceEvents("hd-000000000002").length >= 2);
 }
 
 globalThis.fetch = realFetch;

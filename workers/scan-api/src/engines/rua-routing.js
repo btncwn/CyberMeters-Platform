@@ -6,6 +6,7 @@
 // CF payload/rule helpers and _ingestTokenB64Url are module-internal.
 import { RUA_INBOUND_DOMAIN_DEFAULT, ingestDmarcReport, normalizeInboundRecipientDomain, sha256Hex } from "../lib/dmarc-ingest.js";
 import { createAuditEvent } from "../lib/events.js";
+import { resolveEffectiveClassification } from "./sender-classification.js";
 
 // ── DMARC Aggregate Report Ingestion & Sender Intelligence v1 ────────────────
 //
@@ -208,7 +209,13 @@ export function emailSenderToApi(x) {
   const spfRate = total > 0 ? Math.round((spfAligned / total) * 1000) / 10 : 0;
   const dkimRate = total > 0 ? Math.round((dkimAligned / total) * 1000) / 10 : 0;
   const manual = Boolean(x.classified_at);
-  const effective = manual ? (x.classification || "unknown") : (x.auto_classification || x.classification || "unknown");
+  // `effective_classification` is served to the UI and must always be in the OBSERVED
+  // vocabulary. This used to return the customer's word verbatim, so the API reported
+  // `effective_classification: "threat"` — a value no consumer that reasons about
+  // evidence (senderAlertBand, LEGIT_CLASSES, impact maths) understands. One resolver
+  // now answers this everywhere; `classification` below still carries the customer's
+  // own word, unchanged, for display.
+  const effective = resolveEffectiveClassification(x);
   const enriched = { ...x, effective_classification: effective };
   return {
     id: x.id, source_ip: x.source_ip,

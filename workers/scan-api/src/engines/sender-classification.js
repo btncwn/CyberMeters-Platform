@@ -5,6 +5,94 @@
 
 export const PROVIDER_MAP_VERSION = "2026-07-13.1";
 
+// ── The canonical sender vocabulary — ONE authority ─────────────────────────
+// This module is a leaf (it imports nothing), so every consumer can reach it:
+// the lifecycle engine, dmarc-impact, rua-routing and the classify route.
+//
+// THE DEFECT THIS EXISTS TO PREVENT (reproduced live, 2026-07-16): the product
+// carried TWO vocabularies for senders and pushed both through ONE slot.
+//   • OBSERVED  — what CyberMeters saw, from receiver-reported evidence
+//                 (authorised … unauthorised). Produced by classifySender().
+//   • DISPOSITION — what the CUSTOMER decided (trusted / suspicious / threat /
+//                 ignored / unknown). Accepted by the classify route.
+// They overlap on only `suspicious` and `unknown`. `effectiveClassification`
+// returned the customer's word verbatim and handed it to senderAlertBand(), which
+// speaks OBSERVED — so `threat`, `trusted` and `ignored` all fell through to
+// band = null. **Marking a sender a THREAT turned its own high alert off.**
+//
+// The mapping below already existed, correctly, as a PRIVATE copy inside
+// dmarc-impact.js, while email-protection-lifecycle.js and rua-routing.js each
+// carried their own copy WITHOUT it. Three implementations, two wrong: that is the
+// two-taxonomy problem, and it is why aliasing one function would have fixed
+// nothing. There is now one mapping, here, and the duplicates import it.
+//
+// A disposition is a CLAIM in the observed vocabulary, never an alert verdict.
+// What it is allowed to do to severity is policy, and policy lives with the bands
+// and thresholds in email-protection-lifecycle.js (resolveSenderPolicy).
+
+// AXIS 1 — evidence. The vocabulary classifySender() emits.
+export const OBSERVED_SENDER_CLASSIFICATIONS = Object.freeze([
+  "authorised", "likely_authorised", "mailing_list", "forwarder",
+  "unknown", "misconfigured", "suspicious", "unauthorised",
+]);
+
+// AXIS 2 — the customer's decision. The vocabulary the classify route accepts and
+// email_sender_sources.classification stores. The UI renders exactly these.
+export const CUSTOMER_SENDER_DISPOSITIONS = Object.freeze([
+  "trusted", "suspicious", "threat", "ignored", "unknown",
+]);
+
+// The ONE mapping: what each disposition CLAIMS in the observed vocabulary.
+// `ignored` deliberately claims nothing — it is a request not to be told about a
+// sender, not an assertion about what the sender is. Conflating "don't tell me"
+// with "it is safe" is how a suppression silently became a clean bill of health.
+export const DISPOSITION_ASSERTS = Object.freeze({
+  trusted:    "authorised",
+  suspicious: "suspicious",
+  threat:     "unauthorised",
+  ignored:    null,
+  unknown:    "unknown",
+});
+
+export const isObservedClassification = (c) => OBSERVED_SENDER_CLASSIFICATIONS.includes(String(c || "").toLowerCase());
+export const isCustomerDisposition   = (d) => CUSTOMER_SENDER_DISPOSITIONS.includes(String(d || "").toLowerCase());
+
+/**
+ * The observed classification a customer decision CLAIMS, or null when it claims
+ * nothing (`ignored`) or is not a disposition we recognise.
+ */
+export function assertedClassification(disposition) {
+  const d = String(disposition || "").toLowerCase();
+  return isCustomerDisposition(d) ? (DISPOSITION_ASSERTS[d] ?? null) : null;
+}
+
+/**
+ * resolveEffectiveClassification — the single implementation that replaced three.
+ *
+ * Returns a value in the OBSERVED vocabulary, ALWAYS, so no caller can hand a
+ * customer's word to something that speaks evidence. A customer decision is
+ * translated through DISPOSITION_ASSERTS; `ignored` claims nothing, so the
+ * observed evidence stands.
+ *
+ * This answers "what is this sender, all things considered" for reporting and
+ * impact maths. It does NOT decide severity — see resolveSenderPolicy, which is
+ * where "the customer may escalate but never silently de-escalate" is enforced.
+ */
+export function resolveEffectiveClassification(row = {}) {
+  const observed = String(row.auto_classification || "").toLowerCase();
+  const observedSafe = isObservedClassification(observed) ? observed : null;
+
+  if (row.classified_at) {
+    const claim = assertedClassification(row.classification);
+    if (claim) return claim;
+    // `ignored`, or a value we do not recognise: the customer asserted nothing we
+    // can express as evidence, so the evidence stands. Fail closed to "unknown"
+    // rather than to a clean verdict.
+    return observedSafe || "unknown";
+  }
+  return observedSafe || "unknown";
+}
+
 export const SENDER_CLASSIFICATION_THRESHOLDS = {
   MIN_VOLUME: 5,
   MEANINGFUL_VOLUME: 20,

@@ -138,7 +138,17 @@ const manual = await call("POST", `/api/workspaces/ws_a/domains/acme.co.uk/email
 });
 ok("manual override endpoint succeeds", manual.status === 200);
 ok("manual override stamps classified_at", manual.body.sender?.classified_at != null);
-ok("manual override wins effective classification", manual.body.sender?.classification_source === "manual" && manual.body.sender?.effective_classification === "trusted");
+// The customer's decision wins, and BOTH axes stay visible on the API:
+//   • classification            — the customer's own word, verbatim, for display
+//   • effective_classification  — that decision translated into the OBSERVED vocabulary
+// This used to serve `effective_classification: "trusted"` — a value no consumer that
+// reasons about evidence understands (senderAlertBand, LEGIT_CLASSES, impact maths all
+// speak authorised…unauthorised). Serving the customer's word in an evidence-shaped
+// field is the same collapse that let `threat` silence its own alert.
+ok("manual override wins, and the customer's own word is preserved",
+   manual.body.sender?.classification_source === "manual" && manual.body.sender?.classification === "trusted");
+ok("effective classification is the OBSERVED translation of the decision, not the raw word",
+   manual.body.sender?.effective_classification === "authorised");
 
 const reimported = await ingestDmarcReport(env, {
   workspaceId: "ws_a",
@@ -161,7 +171,9 @@ ok("manual classification preserved across re-ingest", sender.classification ===
 ok("auto fields still recompute after re-ingest", sender.auto_classification && sender.auto_reasons);
 ok("per-method counts increment across re-ingest", sender.total_messages === 30 && sender.spf_aligned_messages === 10 && sender.dkim_aligned_messages === 0);
 listed = await call("GET", "/api/workspaces/ws_a/domains/acme.co.uk/email-senders", "tok_a");
-ok("manual still wins API after auto recompute", listed.body.senders?.[0]?.classification_source === "manual" && listed.body.senders?.[0]?.effective_classification === "trusted");
+ok("manual still wins API after auto recompute", listed.body.senders?.[0]?.classification_source === "manual"
+   && listed.body.senders?.[0]?.classification === "trusted"
+   && listed.body.senders?.[0]?.effective_classification === "authorised");
 
 await ingestDmarcReport(env, {
   workspaceId: "ws_b",
