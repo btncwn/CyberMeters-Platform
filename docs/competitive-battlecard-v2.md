@@ -282,17 +282,38 @@ leverage per client-hour. Value:
 | Canonical remediation across all eight domains | **Live** | Yes |
 | Eight-domain coverage-state honesty | **Live** | Yes |
 | Alerting across all eight domains | **Live** (engineering closed) | Yes — but **never** as live-event-proven (§4 guardrail) |
-| **MSP Portfolio Per-Domain State and Trend** | **PLANNED — NOT STARTED** | **No.** Roadmap only, explicitly future |
+| **MSP Portfolio Per-Domain State and Trend** | **BUILT — NOT CUSTOMER-ACCEPTED** (v2026.07.16-5) | **No.** Unreachable in production and unproven with a real account — see below |
 | M5 completion across all eight domains | **Planned** | No |
 | SOC 2 / ISO 27001 / independent pen-test | **Not started** | No |
 
 **This is the discipline that matters most in this section.** MSP Portfolio Per-Domain
-State and Trend is the **next canonical episode and has not been started**. Several
-superseded commercial documents describe a portfolio view, portfolio trend reports and
-portfolio alerts as delivered `✓`. They are wrong; that is one reason they were
-superseded. Do not demo, promise a trial of, or imply the existence of a portfolio
-per-domain state/trend surface. If an MSP prospect asks: *"That's on the roadmap as our
-next build — here's what exists today."*
+State and Trend **shipped as engineering on 2026-07-16 (v2026.07.16-5)** and is still
+**PLANNED — NOT STARTED** as far as anything a prospect may be told is concerned. Those
+are not in tension; they are the distinction this whole section exists to hold.
+
+What is true: the backend, API and UI are built, merged and deployed; migration 091 is
+applied; 114 backend and 14 frontend assertions guard it, mutation-proved 18× and 4×.
+
+What is equally true, and is what governs the sales conversation:
+
+- `/api/portfolio/*` is gated on `portfolio_monitoring` (business+) and production has
+  **zero business or enterprise subscriptions**. **No account can reach this feature.**
+- `cyber_mot_domain_states` holds **zero rows** and stays empty until a scan finalizes,
+  so even an entitled account would currently see "not yet assessed" on every domain.
+- **No authenticated customer acceptance has been performed.** Proof to date is a test
+  harness driving the deployed code path — that is not a customer using the product.
+
+So the guardrail is unchanged, and the reason has merely moved from "it does not exist"
+to "it exists and nobody has ever used it".
+**Do not demo, promise a trial of, or imply the existence of a portfolio
+per-domain state/trend surface.** Several superseded
+commercial documents describe a portfolio view, portfolio trend reports and portfolio
+alerts as delivered `✓` — they were wrong when written, and being right by accident later
+does not make them safe to sell from.
+
+If an MSP prospect asks: *"It's built and in final testing — here's what exists today."*
+It becomes sellable when it is reachable by a real account and a founder has driven it
+end to end, not before.
 
 ---
 

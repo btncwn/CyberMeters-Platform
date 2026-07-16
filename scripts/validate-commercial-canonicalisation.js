@@ -144,24 +144,51 @@ ok("exactly one battlecard is marked canonical",
 ok("the superseded battlecard points at the canonical one",
    /competitive-battlecard-v2\.md/.test(head("competitive-battlecard-v1.md")));
 
-// ── 5. Implemented vs planned MSP capability must stay distinguishable ───────
-// MSP Portfolio Per-Domain State and Trend is the NEXT episode and has NOT started.
-// Superseded packaging docs show portfolio trend reports as a delivered ✓; the
-// canonical battlecard is the surface a founder actually sells from, so it carries
-// the burden of saying what does not exist yet.
+// ── 5. Implemented vs SELLABLE MSP capability must stay distinguishable ──────
+// This block used to assert "MSP Portfolio has NOT started", coupled to CLAUDE.md, with
+// the note: "If MSP Portfolio ships, this test fails loudly and the battlecard gets
+// updated — which is the point." It shipped (v2026.07.16-5), the test fired, and this is
+// that update.
+//
+// The invariant was never really "not started" — it was that the battlecard must not
+// promise a portfolio surface a prospect cannot be shown. Shipping the code did not
+// satisfy that; it only changed the REASON it is unsellable, from "it does not exist" to
+// "it exists and nobody has ever used it":
+//
+//   • /api/portfolio/* is gated on portfolio_monitoring (business+) and production has
+//     ZERO business/enterprise subscriptions — no account can reach it;
+//   • cyber_mot_domain_states holds zero rows until a scan finalizes;
+//   • no authenticated customer acceptance has been performed — the proof is a harness
+//     driving the deployed code path, which is not a customer using the product.
+//
+// So the assertion now pins the thing that actually protects the founder — the sell
+// verdict and the demo guardrail — instead of a roadmap word that was always going to
+// go stale. It is deliberately NOT coupled to CLAUDE.md's roadmap row any more: the code
+// being Live and the capability being unsellable are both true at once, and a guard that
+// cannot express that forces one of them to be written down wrong.
 const bc = read(CANONICAL_BATTLECARD);
-ok("the battlecard marks MSP Portfolio as planned / not started",
-   /MSP Portfolio Per-Domain State and Trend\*\*\s*\|\s*\*\*PLANNED — NOT STARTED\*\*/.test(bc) ||
-   /PLANNED — NOT STARTED/.test(bc));
-ok("the battlecard forbids selling the unbuilt portfolio surface",
+ok("the battlecard does not present MSP Portfolio as sellable",
+   /\*\*MSP Portfolio Per-Domain State and Trend\*\*\s*\|[^|]*\|\s*\*\*No\.\*\*/.test(bc),
+   "the sell verdict for MSP Portfolio must remain **No.** until it is customer-accepted");
+ok("the battlecard forbids demoing the unaccepted portfolio surface",
    /Do not demo, promise a trial of, or imply the existence of a portfolio/.test(bc));
 ok("the battlecard separates shipped from planned in a table", /May we sell it\?/.test(bc));
+// Built is not accepted. The battlecard must say why it is unsellable, not merely that
+// it is — a bare "No" invites the next reader to overturn it from vibes.
+ok("the battlecard names the reason MSP Portfolio is not sellable",
+   /zero business or enterprise subscriptions/i.test(bc) &&
+   /No authenticated customer acceptance has been performed/i.test(bc));
+ok("the battlecard does not claim MSP Portfolio is customer-proven",
+   !/portfolio[^.]*\b(proven with|validated by|in use by)\b/i.test(bc));
 
-// The roadmap state this depends on must actually still be true. If MSP Portfolio
-// ships, this test fails loudly and the battlecard gets updated — which is the point.
+// The roadmap row and the sell verdict are now independently true, so assert the
+// direction that can actually harm someone: if a future episode marks the portfolio
+// sellable, it must ALSO have removed the demo guardrail deliberately, not by accident.
 const claudeMd = fs.readFileSync(path.join(root, "CLAUDE.md"), "utf8");
-ok("CLAUDE.md still records MSP Portfolio as Planned (else update the battlecard)",
-   /MSP Portfolio Per-Domain State and Trend \| Planned/.test(claudeMd));
+ok("CLAUDE.md records MSP Portfolio's acceptance as outstanding while the battlecard says No",
+   /MSP Portfolio Per-Domain State and Trend \| Live[^|]*acceptance outstanding/i.test(claudeMd) ||
+   /MSP Portfolio Per-Domain State and Trend \| Planned/.test(claudeMd),
+   "CLAUDE.md must either still be Planned, or record that customer acceptance is outstanding");
 
 // ── 6. No live-event alerting proof may be claimed ───────────────────────────
 ok("the battlecard carries the live-event alerting guardrail",
