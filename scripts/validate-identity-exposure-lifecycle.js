@@ -31,7 +31,7 @@ const ip = await eng("identity-policy.js");
 const {
   correlateIdentityExposure, evaluateIdentityExposureMonitoring, identityExposureAction,
   listIdentityExposure, getIdentityExposureRecord, listIdentityExposureEvents,
-  deriveIdentityOwnershipStatus, unionIdentityEvidence, buildIdentityVerification,
+  deriveIdentityOwnershipStatus, unionIdentityEvidence, buildIdentityVerification, parseInstant,
   IDENTITY_UNKNOWN_SIGNALS, IDENTITY_STALE_EVIDENCE_DAYS,
 } = il;
 const { providerKey, deriveSurfaceType, canonicalIdentityKey, assessIdentityRisk } = ip;
@@ -224,6 +224,85 @@ eq("config change with no observed change → inconclusive",
   buildIdentityVerification({ customer_action_status: "configuration_changed", monitoring_status: "observed", material_change: 0, last_changed_at: null }, { now: NOW }).verification_result, "inconclusive");
 eq("surface_removed absent but within window → inconclusive",
   buildIdentityVerification({ customer_action_status: "surface_removed", monitoring_status: "no_longer_observed", evidence_age_days: 3 }, { now: NOW }).verification_result, "inconclusive");
+
+// ── 11b. A configuration change must POST-DATE the customer's assertion ──────
+// The defect this exists to prevent (live until 2026-07-16): the contract read
+//   if (rec.material_change || rec.last_changed_at) -> "verified"
+// i.e. ANY change we had ever recorded verified an assertion made today, so a provider
+// change from two years ago produced "Verified by CyberMeters" in the UI. That is the
+// product asserting verification from evidence that predates the thing it verifies —
+// the precise failure the platform's verification-honesty rule exists to stop.
+// `material_change` cannot carry this: it is a rolling 30-days-from-NOW flag, not an
+// ordering against the assertion.
+{
+  const ACTED   = "2026-07-10T00:00:00Z";
+  const BEFORE  = "2024-01-01T00:00:00Z"; // the stale change that used to "verify"
+  const AFTER   = "2026-07-11T00:00:00Z";
+  const cfg = (last_changed_at, customer_action_at, material_change = 1) =>
+    buildIdentityVerification(
+      { customer_action_status: "configuration_changed", monitoring_status: "observed", material_change, last_changed_at },
+      { now: NOW, customer_action_at },
+    );
+
+  const stale = cfg(BEFORE, ACTED);
+  eq("a change PREDATING the customer's action does NOT verify it", stale.verification_result, "inconclusive");
+  eq("and says why", stale.actual_outcome, "no_change_observed_since_action");
+
+  // Direction check: verification must remain REACHABLE, or this guard would pass by
+  // simply never verifying anything — which is its own dishonesty.
+  eq("a change AFTER the customer's action DOES verify it", cfg(AFTER, ACTED).verification_result, "verified");
+  eq("and says why", cfg(AFTER, ACTED).actual_outcome, "material_change_observed_after_action");
+
+  // Fail closed: unknown ordering is never a verification.
+  const unknown = cfg(AFTER, null);
+  eq("no recorded action time → inconclusive, never verified", unknown.verification_result, "inconclusive");
+  eq("and names the unknown", unknown.actual_outcome, "customer_action_time_unknown");
+
+  // material_change alone must no longer be able to carry a verification.
+  eq("material_change alone cannot verify without an ordered observation",
+    cfg(null, ACTED, 1).verification_result, "inconclusive");
+
+  ok("the evidence record carries the action time it was judged against",
+    cfg(AFTER, ACTED).previous_observation.customer_action_at === ACTED);
+
+  // MIXED TIMESTAMP FORMATS — the two sides of this comparison are written differently:
+  // last_changed_at is an ISO string ("…T…Z"); customer_action_at is
+  // identity_exposure_events.created_at, written by SQLite datetime('now') as
+  // "YYYY-MM-DD HH:MM:SS" — UTC but with NO zone marker, which Date.parse reads as LOCAL.
+  // Under a non-UTC TZ (the founder's machine is Europe/London) an unnormalised compare
+  // puts the same instant an hour out and verifies an assertion it should not. These
+  // assertions are TZ-independent by construction: they must hold in UTC and in BST.
+  const SQLITE_ACTED = "2026-07-10 00:00:00";          // as datetime('now') writes it
+  const sameInstantIso = "2026-07-10T00:00:00.000Z";   // the identical moment, ISO
+
+  // The TZ is PINNED for these assertions, and that pinning is the whole point. CI runs
+  // UTC, where local == UTC, the skew is zero and the defect genuinely does not exist —
+  // so every assertion here passes with the normalisation deleted, and the guard would be
+  // decorative. Forcing a non-UTC zone (Europe/London is BST/+1 in July) reproduces the
+  // founder's machine on CI's, so a regression fails where it will actually be seen.
+  // Node re-reads process.env.TZ on the next Date operation, so this is honoured.
+  const originalTZ = process.env.TZ;
+  try {
+    process.env.TZ = "Europe/London";
+    ok("the pinned zone is really non-UTC (else the assertions below prove nothing)",
+      Date.parse(SQLITE_ACTED) !== Date.parse(sameInstantIso));
+    eq("a bare SQLite datetime is read as UTC, not local time",
+      parseInstant(SQLITE_ACTED), Date.parse(sameInstantIso));
+    eq("an ISO instant is unchanged", parseInstant(sameInstantIso), Date.parse(sameInstantIso));
+    ok("a missing timestamp is not an instant", Number.isNaN(parseInstant(null)));
+    eq("and the contract itself refuses the same-instant case under a non-UTC zone",
+      cfg(sameInstantIso, SQLITE_ACTED).verification_result, "inconclusive");
+  } finally {
+    if (originalTZ === undefined) delete process.env.TZ; else process.env.TZ = originalTZ;
+  }
+
+  eq("a change at the SAME instant as the action does not verify it (no strict after)",
+    cfg(sameInstantIso, SQLITE_ACTED).verification_result, "inconclusive");
+  eq("a SQLite-format action time still verifies a genuinely later change",
+    cfg("2026-07-11T00:00:00.000Z", SQLITE_ACTED).verification_result, "verified");
+  eq("a SQLite-format action time still refuses an earlier change",
+    cfg("2024-01-01T00:00:00.000Z", SQLITE_ACTED).verification_result, "inconclusive");
+}
 
 // ── 12. Exception requires reason + expiry; expiry lapses to exception_expired
 seedIdentity("ws1", "d7", { hostname: "ext.corp7.com", identity_type: "login_portal" });

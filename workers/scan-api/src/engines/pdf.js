@@ -2134,8 +2134,14 @@ export async function collectPdfData(wsId, env) {
     strengths.push('No exposed admin or management interfaces found.');
   if (sp2?.email_security?.status === 'good')
     strengths.push('Email security posture is strong - SPF, DMARC, and DKIM are in place.');
+  // "fully validated" was a claim this product cannot support. sslScore (posture-scoring.js)
+  // starts at 100 and only ever deducts for HTTPS availability, HTTP→HTTPS redirect and
+  // expiry, so `good` means exactly those three things were observed — chain validity, root
+  // trust, OCSP and revocation are NEVER checked and the Certificates & Trust domain already
+  // declares them "unknown" (cyber-mot-domains.js). The old copy contradicted our own
+  // limitation on the one artifact customers forward to insurers and boards.
   if (sp2?.ssl_certificates?.status === 'good')
-    strengths.push('SSL and certificate configuration is fully validated.');
+    strengths.push('HTTPS is enabled and the certificate is in date. Chain validity, root trust, OCSP and revocation are not checked.');
   if ((sc.vendors_detected ?? 0) > 0 && (sc.vendor_risk?.high ?? 0) === 0)
     strengths.push(`${sc.vendors_detected} third-party vendors detected - none rated high-risk.`);
   if (strengths.length === 0)

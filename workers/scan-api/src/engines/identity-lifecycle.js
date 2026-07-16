@@ -244,7 +244,33 @@ export async function correlateIdentityExposure(env, workspaceId, { now = new Da
 // evidence record for every result.
 export const IDENTITY_DISAPPEARANCE_WINDOW_DAYS = 14;
 
-export function buildIdentityVerification(rec, { now = new Date().toISOString() } = {}) {
+// The two timestamps this contract compares are written in DIFFERENT formats, and
+// comparing them raw is a real defect, not a theoretical one:
+//   • last_changed_at  — bound from `now`, an ISO string ("2026-07-16T11:00:00.000Z")
+//   • customer_action_at — identity_exposure_events.created_at, written by SQLite's
+//     datetime('now') as "2026-07-16 11:00:00" — UTC, but carrying NO zone marker.
+// Date.parse() reads the second as LOCAL time. Workers run UTC so the skew is zero in
+// production, but under Europe/London (BST) the SAME instant parses an hour apart and
+// `iso > sqlite` returns true — i.e. a change recorded at the very moment of the
+// assertion would read as "after" it and falsely verify. Normalising is what makes this
+// comparison mean what it says wherever it runs.
+// Exported for direct assertion: CI runs UTC, where the skew this guards against is zero,
+// so a behavioural test alone would pass with the normalisation deleted. Testing the
+// helper itself is what makes the regression catchable on the machine CI actually uses.
+export function parseInstant(ts) {
+  if (!ts) return NaN;
+  const s = String(ts);
+  // Bare SQLite datetime (no zone, no 'T'): it is UTC — say so explicitly.
+  const utc = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s) ? s.replace(" ", "T") + "Z" : s;
+  return Date.parse(utc);
+}
+
+// `customer_action_at` is the created_at of the record's most recent
+// `customer_action_recorded` event — the moment the customer told us they acted. It is
+// passed IN so this function stays pure and directly testable; the caller resolves it
+// from the append-only event log (there is no column for it on identity_exposure, and
+// the event log already holds the fact, so no migration is needed to know it).
+export function buildIdentityVerification(rec, { now = new Date().toISOString(), customer_action_at = null } = {}) {
   const action = rec.customer_action_status || null;
   const observedNow = rec.monitoring_status === "observed" || rec.monitoring_status === "reappeared";
   const age = rec.evidence_age_days;
@@ -258,9 +284,29 @@ export function buildIdentityVerification(rec, { now = new Date().toISOString() 
     else if (age != null && age >= IDENTITY_DISAPPEARANCE_WINDOW_DAYS) { verification_result = "verified"; actual_outcome = "absent_across_window"; }
     else { verification_result = "inconclusive"; actual_outcome = "absent_but_within_window"; }
   } else if (action === "configuration_changed") {
-    expected_outcome = "identity_configuration_change_observed";
-    if (rec.material_change || rec.last_changed_at) { verification_result = "verified"; actual_outcome = "material_change_observed"; }
-    else { verification_result = "inconclusive"; actual_outcome = "no_change_observed"; }
+    // The change must be observed AFTER the customer said they made it. This previously
+    // accepted `rec.material_change || rec.last_changed_at` — ANY change we had ever
+    // recorded, at any time — so a provider change from two years ago verified an
+    // assertion made today, and the UI then told the customer "Verified by CyberMeters".
+    // That is a product assertion of verification built from evidence that predates the
+    // thing it claims to verify.
+    //
+    // `material_change` cannot stand in for this: it is a rolling "within the last 30
+    // days of NOW" flag (see the evaluator), not an ordering against the assertion.
+    //
+    // Fail CLOSED when the ordering cannot be established (no recorded action time — e.g.
+    // a legacy row whose event predates this contract): unknown ordering is inconclusive,
+    // never verified. Inconclusive is honest and recoverable; a false "verified" is not.
+    expected_outcome = "identity_configuration_change_observed_after_customer_action";
+    const changedAfterAction = !!(rec.last_changed_at && customer_action_at)
+      && parseInstant(rec.last_changed_at) > parseInstant(customer_action_at);
+    if (changedAfterAction) {
+      verification_result = "verified"; actual_outcome = "material_change_observed_after_action";
+    } else if (!customer_action_at) {
+      verification_result = "inconclusive"; actual_outcome = "customer_action_time_unknown";
+    } else {
+      verification_result = "inconclusive"; actual_outcome = "no_change_observed_since_action";
+    }
   } else {
     verification_result = "unsupported"; expected_outcome = "unsupported"; actual_outcome = "unsupported";
   }
@@ -270,7 +316,7 @@ export function buildIdentityVerification(rec, { now = new Date().toISOString() 
     verification_result,
     evidence_type: "identity_observation",
     observed_at: now,
-    previous_observation: { last_changed_at: rec.last_changed_at || null, provider_key: rec.provider_key || null },
+    previous_observation: { last_changed_at: rec.last_changed_at || null, provider_key: rec.provider_key || null, customer_action_at },
     current_observation: { monitoring_status: rec.monitoring_status, exposure_status: rec.exposure_status, evidence_age_days: age ?? null },
     expected_outcome, actual_outcome,
     confidence: rec.confidence || "low",
@@ -492,6 +538,26 @@ export const IDENTITY_WORKFLOW_ACTIONS = Object.freeze([
   "retire", "reopen",
 ]);
 
+// The moment the customer last told us they acted, read from the append-only event log
+// (identity_exposure has no column for it). `rowid DESC` is the same tie-break the
+// occurrence resolver uses: several events can share a created_at to the second, and
+// insertion order is the only thing that answers "which did we record most recently".
+// Returns null when no action was ever recorded — the caller MUST treat that as
+// unknown ordering and fail closed, never as a verification.
+async function lastCustomerActionAt(env, workspaceId, recordId) {
+  try {
+    const row = await env.cybermeters_db
+      .prepare(`SELECT created_at FROM identity_exposure_events
+                WHERE workspace_id = ? AND record_id = ? AND event_type = 'customer_action_recorded'
+                ORDER BY created_at DESC, rowid DESC LIMIT 1`)
+      .bind(workspaceId, recordId)
+      .first();
+    return row?.created_at ?? null;
+  } catch {
+    return null; // unreadable history => unknown ordering => inconclusive, never verified
+  }
+}
+
 async function loadRecord(env, workspaceId, id) {
   return env.cybermeters_db
     .prepare(`SELECT * FROM identity_exposure WHERE id = ? AND workspace_id = ?`)
@@ -568,7 +634,8 @@ export async function identityExposureAction(env, workspaceId, id, action, opts 
       eventType = "customer_action_recorded"; detail = { action_type: "surface_removed", note: "customer_asserted_not_verified" };
       break;
     case "request_verification": {
-      const evidence = buildIdentityVerification(rec, { now });
+      const customer_action_at = await lastCustomerActionAt(env, workspaceId, rec.id);
+      const evidence = buildIdentityVerification(rec, { now, customer_action_at });
       set.verification_detail_json = safeJson(evidence); set.verification_method = "external_observation";
       if (evidence.verification_result === "verified") {
         set.verification_status = "verified"; set.verified_at = now; set.remediation_status = "verified";

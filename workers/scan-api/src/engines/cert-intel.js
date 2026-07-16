@@ -130,6 +130,21 @@ export function runCertificateIntelligenceModule(modules, domain) {
     const crtShError    = subMod.sources?.crt_sh?.error     ?? null;
     const certSpotError = subMod.sources?.certspotter?.error ?? null;
 
+    // Certificate Transparency is this module's ONLY evidence source. When BOTH logs
+    // are unavailable the module observed nothing at all — it did not observe "no
+    // problems". Recording that as an `info` signal (which is all this used to do) left
+    // `error: null` and no `incomplete`, so `moduleAssessed` (cyber-mot-domains.js)
+    // counted a zero-evidence module as materially assessed and Certificates & Trust —
+    // whose `required` list is exactly ["certificate_intelligence"] — resolved
+    // ASSESSED_HEALTHY off a total blackout.
+    //
+    // This is the same defect class as the unexecuted-probe P1 (#105), fixed there by
+    // headers-scan.js with this identical flag. It was fixed per-domain rather than as a
+    // class, so certificate intelligence kept the bug. `incomplete` is the canonical
+    // signal: buildScanQuality (scan-engine.js) sweeps it into modules_skipped and forces
+    // scan_quality "partial", so absence of evidence defers instead of reading clean.
+    const ctBlackout = !!(crtShError && certSpotError);
+
     // ── Suspicious signal detection ───────────────────────────────────────
     const suspicious_certificate_signals = [];
 
@@ -198,11 +213,11 @@ export function runCertificateIntelligenceModule(modules, domain) {
           description: `CT sources returned different hostname counts — crt.sh: ${crtShCount}, CertSpotter: ${certSpotCount}. Some hostnames may only appear in one log.`,
         });
       }
-    } else if (crtShError && certSpotError) {
+    } else if (ctBlackout) {
       suspicious_certificate_signals.push({
         signal:      "ct_sources_unavailable",
         severity:    "info",
-        description: "Both Certificate Transparency sources were unavailable during this scan. CT hostname inventory may be incomplete.",
+        description: "Both Certificate Transparency sources were unavailable during this scan. No certificate evidence was collected, so this domain could not be assessed.",
       });
     }
 
@@ -274,6 +289,9 @@ export function runCertificateIntelligenceModule(modules, domain) {
       suspicious_certificate_signals,
       certificate_risk_level,
       source:                "ssl_ct_correlation",
+      // Absence of CT evidence is not evidence of a healthy certificate estate. See
+      // ctBlackout above: this defers the domain instead of letting it read clean.
+      ...(ctBlackout ? { incomplete: true, incomplete_reason: "ct_sources_unavailable" } : {}),
       error:                 null,
     };
   } catch (err) {

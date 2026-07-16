@@ -327,8 +327,24 @@ export async function evaluateShadowItMonitoring(env, workspaceId, { seenKeys = 
 
     // Removal verification: a customer "removed" that is still observed is
     // CONTRADICTED (assertion preserved, never overwritten).
+    //
+    // A customer "removed" that is NO LONGER OBSERVED stays UNVERIFIED. This used to
+    // resolve to "verified", which laundered two different facts into one word: the
+    // customer's assertion, and our failure to see the thing. Disappearance is absence of
+    // evidence — the technology may have moved, been renamed, stopped serving a public
+    // signal, or simply not been re-observed this pass. This file's own header states the
+    // rule ("disappearance != verified removal"), the disappearance event above records
+    // `note: "not_verified_removed"`, and migration 084 calls removal_status "customer-
+    // asserted, NOT verified-gone" — the engine was the only thing that disagreed.
+    //
+    // "verified" is therefore unreachable here BY DESIGN and that is correct, not a hole:
+    // Shadow IT is external-observation-only, its canonical remediation is
+    // `manual_attestation` (remediation-registry.js), and nothing external can prove an
+    // internal removal. Asymmetry is intended — we CAN externally disprove ("contradicted"
+    // is a real observation of the thing still being there); we cannot externally confirm.
+    // The column keeps the value in its domain for a future verification-grade signal.
     let removal_verified = it.removal_verified || null;
-    if (it.removal_status === "removed") removal_verified = stillObserved ? "contradicted" : "verified";
+    if (it.removal_status === "removed") removal_verified = stillObserved ? "contradicted" : "unverified";
     else if (it.removal_status === "in_progress" && stillObserved) removal_verified = "unverified";
 
     // Deterministic priority: contradictions/recurrence first, then owner/stale/change.
