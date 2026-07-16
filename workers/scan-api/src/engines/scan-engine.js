@@ -17,7 +17,9 @@ import { upsertAssetInventory } from "./asset-inventory.js";
 import { upsertBrandAssets, upsertIdentityAssets } from "./asset-persistence.js";
 import { runTyposquatModule } from "./brand-typosquat.js";
 import { computeBusinessRiskScore, expandFindingIds } from "./business-risk.js";
+import { getCyberEssentialsSnapshot } from "./ce-readiness.js";
 import { buildCaConcentrationAnalytics } from "./cert-analysis.js";
+import { persistCyberMotDomainStates } from "./cyber-mot-state-history.js";
 import { insertCertificateEvents, upsertCertificateObservation } from "./cert-events.js";
 import { runCertificateIntelligenceModule } from "./cert-intel.js";
 import { runCloudStorageModule } from "./cloud-storage-scan.js";
@@ -952,6 +954,26 @@ function buildCanonicalUrlProfile(modules) {
           .bind(createId("hscore"), workspaceId, domainId, scanId, domain, score, risk_level, brsScore, scanQuality?.status ?? null, completedAt)
           .run();
       } catch { /* non-fatal — scan completion remains source of truth */ }
+
+      // Canonical eight-domain state history (mig 091). Resolved from the report ALREADY
+      // in memory, so this costs zero R2 reads here and zero R2 reads on every portfolio
+      // page load forever after — the whole reason the table exists.
+      //
+      // After the terminal status write and non-fatal by construction: this is a record
+      // of a decision, and a scan that completed must never be reported as failed because
+      // recording it did not. A missing row reads as not_yet_assessed, which is honest;
+      // a scan stuck at 'running' is not.
+      //
+      // The CE snapshot is one D1 query in the common case — getCyberEssentialsSnapshot
+      // short-circuits on a workspace with no questionnaire answers and only runs the
+      // heavier readiness build once the questionnaire is COMPLETE.
+      try {
+        let ceSnap = null;
+        try { ceSnap = await getCyberEssentialsSnapshot(workspaceId, env); } catch { ceSnap = null; }
+        await persistCyberMotDomainStates(env, {
+          workspaceId, domainId, scanId, report, cyberEssentials: ceSnap, assessedAt: completedAt,
+        });
+      } catch { /* non-fatal — see above */ }
     }
 
     // Persist findings to D1

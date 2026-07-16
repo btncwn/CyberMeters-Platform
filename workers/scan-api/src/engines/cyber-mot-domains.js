@@ -15,6 +15,28 @@
 // say "observed / unknown", never "unauthorised", because no approved inventory
 // exists yet — a separate later episode).
 
+// ── Resolver version — bump this whenever a state could change for UNCHANGED input ──
+// The states below are a pure function of the R2 report, so every consumer that only
+// computes on read silently rewrites the past when this file changes: the same
+// historical report re-resolves to a different state today than it did yesterday, with
+// nothing recording that the ruler moved and not the thing being measured.
+//
+// That is tolerable while every consumer is "what is true right now" (Dashboard, Scan
+// Detail, Executive Report, PDF). It is NOT tolerable for a trend, which subtracts two
+// states and calls the difference the customer's doing. MSP Portfolio persists each
+// resolved state with this version stamp and REFUSES to compare across a version
+// boundary — a resolver change reads as `insufficient_history`, never as deterioration
+// the customer caused.
+//
+// Bump on any change to: CYBER_MOT_STATES, a domain's `modules` or `required` list, a
+// `match()` regex, the severity gate, or the precedence ladder in the resolver. Do NOT
+// bump for display copy (`description`, `summary` prose, `limitations`) — those do not
+// change which state is resolved.
+//
+// Precedent: PROVIDER_MAP_VERSION (engines/sender-classification.js), the only other
+// algorithm version stamped onto a persisted row.
+export const CYBER_MOT_RESOLVER_VERSION = "2026-07-16.1";
+
 // Fixed canonical enum — the resolver contract layer. UI maps these to friendly
 // labels; the source state stays stable.
 export const CYBER_MOT_STATES = Object.freeze({
@@ -171,6 +193,16 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
       last_assessed_at: lastAssessedAt,
       limitations: [...d.limitations],
       source_scan_id: sourceScanId,
+      // The SET of canonical finding ids behind this state, sorted and de-duplicated.
+      // Additive and presentation-neutral — no existing surface reads it, and it never
+      // participates in resolving `state`.
+      //
+      // It exists so a trend can say WHICH evidence changed rather than that a number
+      // moved. Migration 090 established the rule: "A readiness percentage moving is not
+      // an event: the score is a recomputation, and 72→68 says nothing about which
+      // evidence changed." A set difference does say it, and — unlike a score — it is
+      // stable against scoring-weight churn.
+      finding_ids: [],
     };
 
     // No scan at all → honest not-yet-assessed for every domain.
@@ -250,6 +282,7 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
     const domainFindings = findings.filter((f) => materialSeverity(f.severity) && d.match(f));
     base.finding_count = domainFindings.length;
     base.evidence_count = assessed.length;
+    base.finding_ids = [...new Set(domainFindings.map((f) => f.id).filter(Boolean))].sort();
     if (domainFindings.length) {
       base.highest_severity = domainFindings
         .map((f) => String(f.severity || "").toLowerCase())
