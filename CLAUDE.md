@@ -250,9 +250,9 @@ Do not claim that CyberMeters performs a customer, provider, registrar, certific
 
 Current release facts (as of 16 July 2026):
 
-- latest release tag: `v2026.07.16-3` (Portfolio read purity — a GET no longer writes — deployed);
-- live Worker Version ID: `4ad06deb-efe3-4db1-abc1-7b495c1bae99`;
-- rollback Worker Version ID: `98cb2131-1817-4a35-a142-5dc952297fb2`;
+- latest release tag: `v2026.07.16-4` (Portfolio null-score honesty — absent evidence is not a verdict — deployed);
+- live Worker Version ID: `f06f3c43-5c32-413d-a93e-5eb7e5808c9a`;
+- rollback Worker Version ID: `6dc509c8-226e-4e17-ae66-d7770b865b71`;
 - latest migration applied to production: `090-cyber-essentials-lifecycle.sql`;
 - next canonical episode: MSP Portfolio Per-Domain State and Trend (not yet started).
 

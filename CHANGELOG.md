@@ -5,6 +5,42 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.16-4 (Portfolio null-score honesty — absent evidence is not a verdict) — deployed 2026-07-16
+
+- **Live Worker Version ID:** `f06f3c43-5c32-413d-a93e-5eb7e5808c9a` (PR #118, squash-merged as `e5b7e00`)
+- **Rollback Worker Version ID:** `6dc509c8-226e-4e17-ae66-d7770b865b71` (PR #117, squash-merged as `027fab8`)
+- **Remote D1 migrations applied:** none. `git diff ba6cbe4..e5b7e00 -- database/` is empty.
+- **Pages:** auto-deployed from `main`; `app.cybermeters.com` 200.
+- **PRs:** #117 (null-score honesty contract) · #118 (the all-clear said about nothing)
+
+> **Rollback carries a known defect.** `6dc509c8` is #117 without #118 — it fixes the
+> fabricated *score* but still tells an MSP with zero assessments that "No customer
+> environments are currently in critical or high risk states." The pre-Gate-1 version
+> is `4ad06deb`, which carries the original null→serious defect. Neither prior version
+> is clean; prefer forward-fix. No migration means either rollback is schema-safe.
+
+### Fix (a portfolio with no evidence was reported as serious risk)
+
+- **`null` fell through the band ladder to 'serious'** (PR **#117**).
+  - `generatePortfolioExecutiveSummary` classified with an inline `>= 75 / >= 55 / >= 35`, else `'serious'`. `null` fails all three, so a portfolio with no completed assessment published: *"Your portfolio of 2 customer environments is showing **serious** overall risk (portfolio score: **null/100**)."* An MSP that had onboarded customers but not yet scanned them was told they were in serious danger, with a `null` shown as the evidence. The inverse of healthy-washing, and the same sin — the alerts post-mortem already recorded that removing fabricated deductions alone would trade *"a fabricated failure for a fabricated pass"*. Absent evidence is neither.
+  - **Contract (additive; `portfolio_score` keeps its meaning and value):** `portfolio_score_state` (`no_workspaces` | `evidence_insufficient` | `partial` | `available`), `portfolio_score_reason` (customer-safe prose — every non-available state says why), `portfolio_score_basis` (`{scored_workspaces,total_workspaces}`), `portfolio_score_band` (`healthy|moderate|elevated|serious`, or **null** when unsayable). `resolvePortfolioScoreState()` is the single source of truth; the API publishes it verbatim and the frontend renders a decision it did not make.
+  - **Three further findings the work turned up.** `RiskBadge` fell back to `?? 'badge-low'`, so the backend's *honest* `'unknown'` rendered in low-risk blue on **15 surfaces** — a customer we knew nothing about looked identical to one verified fine; unrecognised now renders slate. **`partial` did not exist**: `portfolio_score` is the mean of the *scored* workspaces, so one 90 among five customers published a portfolio score of 90 — missing evidence silently flattering the verdict; the basis is now disclosed in the summary sentence itself. And `PortfolioRiskPage` carried a byte-identical 75/55/35 ladder plus a second copy in `scoreColor()`, both guarding `!= null` — which **NaN passes**, landing in the final else and painting the page red.
+  - **Boundaries deliberately unchanged (75/55/35).** They do **not** match `portfolioRiskBand`'s 25/50/75 partition, and a third ladder exists at `portfolio-customers.js:92` (40/60/80). Reconciling them would silently restate real customers' scores — a product decision, not an honesty fix. Recorded, not actioned.
+
+### Fix (the all-clear that was said about nothing)
+
+- **"No customer environments are currently in critical or high risk states"** (PR **#118**).
+  - Found by reading #117's own production-proof **output** rather than its assertions. `critical_workspaces`/`high_risk_workspaces` count bands equal to `'critical'`/`'high'`; an unassessed environment's band is `'unknown'`, so it counts toward neither and both read zero — not because the customers are safe but because nobody looked. The unconditional `else` then handed an MSP an all-clear about a portfolio it had no evidence for. **It survived #117 because it prints no number** — those guards hunted for `'serious'` and `null/100`, and this sentence contains neither.
+  - The all-clear is now withheld entirely for `evidence_insufficient`/`no_workspaces`, and for `partial` it is scoped to the assessed subset and names its own blind spot. `available` is unchanged.
+
+### Production proof and its limits
+
+Both hosts serve `f06f3c43`; `/ready` d1+r2 true on both; unauthenticated `/api/portfolio/risk` → 401; across live traffic `portfolio_risk_snapshots` held **0 → 0** while `api_rate_limits` advanced **1801 → 1803**. `app.cybermeters.com` 200.
+
+> **Latent, not customer-visible — and unexercisable in production.** `/api/portfolio/risk` is gated on `portfolio_monitoring` (business+) and production has **no business or enterprise subscription**, so no account could reach the defect or can now reach the fix. The entitled 200 path is proven against the **exact deployed code path** instead: all four states return honest output with no `null/100` and no verdict without a score. **This is harness proof, not customer acceptance.** Authenticated UI smoke on a real entitled account remains a release-gate action.
+
+- **Tests:** `validate-portfolio-score-honesty.js` 73 assertions (real `fetch()` handler, real schema; every band boundary and either side, 0, 100, null, undefined, NaN, ±Infinity) · frontend 247/247 across 28 files, up from 170 — `PortfolioRiskPage` had **zero** coverage before. Mutation-proved **19×**; each fails the relevant guard.
+
 ## 2026.07.16-3 (Portfolio read purity — a GET no longer writes) — deployed 2026-07-16
 
 - **Live Worker Version ID:** `4ad06deb-efe3-4db1-abc1-7b495c1bae99` (PR #116, squash-merged as `f28d2ac`)
