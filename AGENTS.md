@@ -110,9 +110,9 @@ CyberMeters manages and verifies the lifecycle where externally observable evide
 
 Current release facts (as of 16 July 2026):
 
-- latest release tag: `v2026.07.16-1` (Alerts corrective phase — 8/8 canonical coverage — deployed);
-- live Worker Version ID: `e0ce455f-034b-41e4-aad6-d546170b9ec7`;
-- rollback Worker Version ID: `ccfe0cd5-3d75-4acc-9057-32354954533c`;
+- latest release tag: `v2026.07.16-2` (API host corrective — `api.cybermeters.com` custom domain live — deployed);
+- live Worker Version ID: `98cb2131-1817-4a35-a142-5dc952297fb2`;
+- rollback Worker Version ID: `e0ce455f-034b-41e4-aad6-d546170b9ec7`;
 - latest migration applied to production: `090-cyber-essentials-lifecycle.sql`;
 - next canonical episode: MSP Portfolio Per-Domain State and Trend (not yet started).
 

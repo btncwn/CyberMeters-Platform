@@ -5,6 +5,47 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.16-2 (API host corrective — `api.cybermeters.com` exists now) — deployed 2026-07-16
+
+- **Live Worker Version ID:** `98cb2131-1817-4a35-a142-5dc952297fb2` (PR #114)
+- **Rollback Worker Version ID:** `e0ce455f-034b-41e4-aad6-d546170b9ec7` (the pre-episode version)
+- **PRs:** #113 (canonical API host + derived-host contract) · #114 (keep workers.dev enabled)
+- **Remote D1 migrations applied:** none. **No `src/` changed in either PR** — `git diff b0b4364..HEAD -- workers/scan-api/src frontend/src` is empty. Zero customer, billing, tenant, alert or notification behaviour change.
+- **Custom domain:** `api.cybermeters.com` → `cybermeters-platform` (production), id `08217538ba5bbe103d882b7450db1ec0d154ee57`, zone `602ec345a439a5bbb091b1af360d31b0`, cert `97f26548-cb86-4501-b7e5-66b40d1c26a1`. Cloudflare-managed DNS + TLS, proxied, no CNAME chain.
+
+> **Do not roll back to `451c3c33-6a1f-4db1-b852-0687c12b02ad`.** That version was
+> deployed with workers.dev disabled (see below) and exists only as the 96-second
+> window between the two PRs. Roll back to `e0ce455f` or forward-fix.
+>
+> **The surgical rollback for this release is not a version rollback at all.** No code
+> changed, so reverting a version reverts nothing. To undo, delete the custom domain:
+> `DELETE /accounts/{account}/workers/domains/08217538ba5bbe103d882b7450db1ec0d154ee57`.
+> workers.dev keeps serving throughout, and the live frontend is still pointed at it,
+> so customer impact of that undo is zero.
+
+### Fix (the API host every document named did not exist)
+
+- **`api.cybermeters.com` was NXDOMAIN** (PR **#113**, squash-merged as `e5fb8d0`).
+  - `README.md`, `frontend/.env.example`, `OPERATIONS.md` and `docs/openapi.json` all published it as the production API base. There was **no DNS record, no route, no custom domain** — `[[routes]]`/`custom_domain` appear in no `.toml` in this repository's history. Production served only from `cybermeters-platform.ttrnn47.workers.dev`.
+  - So a developer copying `.env.example` configured a host that cannot resolve; a customer copying the DMARC curl got the same; and **`OPERATIONS.md` told an operator to health-check production at an address that answers nothing** — during an incident, that reads as an outage. #111/#112 fixed the *path* half of this hint hours earlier and never questioned the host.
+  - **Why CI was green, which matters more than the bug.** `validate-frontend-env-contract.js:31`, verbatim: *"This asserts the CONTRACT, not any value."* It proved the base ends in `/api`. Nothing anywhere proved the host existed. Same shape as the alerts audit, and as the purge suite that seeded only the tables already on its own list — confidently green because it was never looking.
+  - **The fix is not a corrected string.** Hardcoding `api.cybermeters.com` in a test is the same fiction with a test in front of it. The validator now **derives** the canonical host from the `custom_domain` route — the only thing that actually causes a hostname to serve the Worker — and asserts every surface names the host the deployment binds: `.env.example`, README, API_REFERENCE, `openapi.servers[0]`, the OPERATIONS runbook curls, the frontend's hints and `BASE` fallbacks, and the CSP `connect-src`. Docs cannot drift without the config drifting first, and the config is what makes reality. **Deleting the route — the world as it stood that morning — now fails CI.**
+  - **No DNS lookup in CI:** resolution is a network fact and would make every run flaky. A real resolve is proven once per release by the runbook smoke test.
+  - Deliberately untouched: `MICROSOFT_REDIRECT_URI` (Azure-registered against workers.dev), the `billing.js` origin fallback (dead code — `FRONTEND_URL` is set), and the Stripe webhook docs (they describe the URL actually registered with Stripe).
+
+### Fix (self-inflicted, 96 seconds — the custom domain disabled workers.dev)
+
+- **Declaring any route flips wrangler's `workers_dev` default to false** (PR **#114**, squash-merged as `de2440c`).
+  - #113's deploy silently 404'd `cybermeters-platform.ttrnn47.workers.dev`. Wrangler said so in its output — *"Because your 'workers.dev' route is disabled"* — and the post-deploy smoke test caught it 96 seconds later.
+  - **That hostname is not a spare URL.** `MICROSOFT_REDIRECT_URI` is registered against it in Azure AD, so **Microsoft SSO sign-in was broken** for that window. It is also the rollback path, and the only way to tell a hostname fault from a bad deployment — the exact diagnostic #113 had just added to the release checklist. #113's own comment said "workers.dev deliberately stays enabled", and the config it added turned it off.
+  - `workers_dev = true` is now explicit. **The default was the trap.** Two CI guards, both mutation-proved: any `[[routes]]` ⇒ `workers_dev = true` explicit; and any wrangler.toml *value* pointing at workers.dev ⇒ workers.dev stays enabled. The second is the real invariant — a config value may not target a hostname the same file disables.
+
+### Production proof
+
+Both hosts serve `98cb2131`. `api.cybermeters.com`: DNS → zone proxy IPs; TLS strict-verified (zone cert SAN `*.cybermeters.com`); `/health` returns the live deployment id; `/ready` d1+r2 true; unauth `/api/scans` 401; `/api/api/scans` 404 (no double-`/api`); bare `/scans` 404; `POST /api/dmarc-ingest` 401 (exists, gated); CORS returns a **static** `https://app.cybermeters.com` and never echoes `evil.example.com` or the lookalike `app.cybermeters.com.evil.com`. Microsoft SSO `/api/auth/microsoft/login` 302s to `login.microsoftonline.com` on **both** hosts with the Azure-registered `redirect_uri` unchanged. Hourly cron trigger intact.
+
+**Not yet done:** the live frontend's `VITE_API_BASE_URL` is a Cloudflare Pages *dashboard* build variable (not in the repo, not in CI) and still points at workers.dev. The app therefore works and is unaffected, but the canonical host has no browser traffic proving it stays healthy. Repointing it is a founder decision, deliberately not taken here.
+
 ## 2026.07.16-1 (Alerts corrective phase — 8/8 canonical coverage) — deployed 2026-07-16
 
 - **Live Worker Version ID:** `e0ce455f-034b-41e4-aad6-d546170b9ec7` (PR #108)
