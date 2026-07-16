@@ -4,7 +4,7 @@
 
 Version: July 2026
 
-Last updated: 16 July 2026 (release v2026.07.16-11; active canonical episode: M5 Completion Across All Eight Domains — in progress)
+Last updated: 16 July 2026 (release v2026.07.16-12; active canonical episode: M5 Completion Across All Eight Domains — in progress)
 
 ---
 
@@ -105,15 +105,15 @@ CyberMeters manages and verifies the lifecycle where externally observable evide
 | Complete ASM Verification | Live |
 | Alerts Across All Eight Domains | Live — 8 of 8 domains alert canonically (`docs/alerts-eight-domain-coverage.md`). Engineering closed; genuine live-event acceptance outstanding. |
 | MSP Portfolio Per-Domain State and Trend | Live — built, NOT customer-accepted. Persisted per-domain state + honest trend across all 8 domains (mig 091). Engineering closed; authenticated customer acceptance outstanding (no entitled account exists in production), so it is not sellable and must not be demoed. |
-| M5 Completion Across All Eight Domains | In progress — evidence-honesty corrective (`v2026.07.16-6`), alerting repair (`v2026.07.16-7`), occurrence resolver (`-8`), read surfaces (`-9`), case verification contract (`-10`) and M5.a PR1 Email Protection managed cases (`-11`) closed. M5.a remains OPEN: Website Security and Cyber Essentials cases not built. |
+| M5 Completion Across All Eight Domains | In progress — evidence-honesty corrective (`v2026.07.16-6`), alerting repair (`v2026.07.16-7`), occurrence resolver (`-8`), read surfaces (`-9`), case verification contract (`-10`) M5.a PR1 Email Protection (`-11`) and PR2 Website Security + verification vocabulary (`-12`) closed. M5.a remains OPEN: Cyber Essentials cases not built. |
 | Final Public-Beta Gate | Planned after managed-platform completion |
 
 Current release facts (as of 16 July 2026):
 
-- latest release tag: `v2026.07.16-11` (M5.a PR1 — Email Protection managed cases — deployed);
-- live Worker Version ID: `33069515-d515-4093-91c2-0aea2331dca5` (built from `7344c59`);
-- rollback Worker Version ID: `8a34ea0a-b728-48ff-b412-e1b9546d0d73` (v2026.07.16-10);
-- latest migration applied to production: `091-cyber-mot-domain-states.sql` (unchanged — none of `v2026.07.16-6` through `-11` carried a migration);
+- latest release tag: `v2026.07.16-12` (M5.a PR2 — Website Security managed cases + verification vocabulary — deployed);
+- live Worker Version ID: `6d1aaaa7-f283-4ae8-af3b-c2a3d2b2130f` (built from `54d08e7`);
+- rollback Worker Version ID: `33069515-d515-4093-91c2-0aea2331dca5` (v2026.07.16-11);
+- latest migration applied to production: `091-cyber-mot-domain-states.sql` (unchanged — none of `v2026.07.16-6` through `-12` carried a migration);
 - active canonical episode: M5 Completion Across All Eight Domains (in progress).
 
 **All eight canonical domains alert through the canonical pipeline.** The earlier
