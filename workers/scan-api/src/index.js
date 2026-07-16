@@ -91,6 +91,9 @@ import { managedCasesRoutes } from "./routes/managed-cases.js";
 import { shadowItRoutes } from "./routes/shadow-it.js";
 import { certificatesLifecycleRoutes } from "./routes/certificates-lifecycle.js";
 import { identityExposureRoutes } from "./routes/identity-exposure.js";
+import { websiteSecurityRoutes } from "./routes/website-security.js";
+import { cyberEssentialsControlsRoutes } from "./routes/cyber-essentials-controls.js";
+import { emailProtectionLifecycleRoutes } from "./routes/email-protection-lifecycle.js";
 import { workspaceInsightRoutes } from "./routes/workspace-insights.js";
 import { buildCertificateAuthorityConcentrationFromModule, buildScanQuality, computeScanBudget, insertAdminSurfaceEvents, runScanEngine, upsertVendorInventory, upsertVendorRelationships } from "./engines/scan-engine.js";
 import { runBoundedScheduledReports } from "./engines/scheduled-reports.js";
@@ -2067,6 +2070,28 @@ export default {
     {
       const identityExposureResponse = await identityExposureRoutes(routeCtx);
       if (identityExposureResponse) return identityExposureResponse;
+    }
+
+    // ── Website Security lifecycle read routes (mig 089) ────────────────────
+    {
+      const websiteSecurityResponse = await websiteSecurityRoutes(routeCtx);
+      if (websiteSecurityResponse) return websiteSecurityResponse;
+    }
+
+    // ── Cyber Essentials external-evidence control routes (mig 090) ─────────
+    // Mounted BEFORE workspace-analytics: that module owns
+    // /cyber-essentials/answers and /cyber-essentials-readiness, and this one owns
+    // /cyber-essentials/controls. The paths do not overlap, but the ordering makes the
+    // ownership explicit rather than incidental.
+    {
+      const ceControlsResponse = await cyberEssentialsControlsRoutes(routeCtx);
+      if (ceControlsResponse) return ceControlsResponse;
+    }
+
+    // ── Email Protection lifecycle history routes (mig 088) ─────────────────
+    {
+      const emailLifecycleResponse = await emailProtectionLifecycleRoutes(routeCtx);
+      if (emailLifecycleResponse) return emailLifecycleResponse;
     }
 
     // ── Workspace analytics routes (scorecard, CE readiness, business risk) ──

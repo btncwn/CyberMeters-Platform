@@ -279,6 +279,74 @@ export async function appendEmailProtectionEvent(env, {
   return id;
 }
 
+// ── Read accessors — the customer-facing shape ──────────────────────────────
+// Mig 088 had NO read helper of any kind: `email_protection_events` was read only by the
+// alert pipeline (findConditionOccurrence) and the private lastGradedCondition, and the
+// four lifecycle-state columns it added to `email_sender_sources` are stripped by
+// emailSenderToApi before they leave the API. So a customer could be told a hosted DMARC
+// record had disconnected and had no way to see when, how often, or whether it came back.
+//
+// `record_type` (hosted_dns_entry | email_sender_source) is what makes this readable: it
+// is deliberately NOT part of the occurrence lookup (mig 088:63-67) but it is exactly the
+// filter a customer-facing history needs.
+//
+// `detail_json` is NOT passed through raw. It carries the evaluator's internal grading
+// vocabulary (from/to monitoring status, recurrence bands, reasons); a customer-facing
+// history exposes the transition it describes, not the machinery. `evaluated_at` never
+// appears at all — mig 088:126 calls it diagnostic.
+export function emailProtectionEventToApi(row = {}) {
+  let detail = null;
+  try { detail = row.detail_json ? JSON.parse(row.detail_json) : null; } catch { detail = null; }
+  return {
+    id: row.id,
+    record_id: row.record_id,
+    record_type: row.record_type,
+    event_type: row.event_type,
+    actor_type: row.actor_type ?? null,
+    created_at: row.created_at,
+    // The transition, in the terms the customer was alerted in.
+    entity: detail?.entity ?? null,
+    recurrence_type: detail?.to_recurrence_type ?? null,
+    reason: detail?.reason ?? null,
+  };
+}
+
+// Tenant-scoped, BOUNDED and deterministic. `created_at` is second-precision so it ties
+// routinely (the hosted sweep can append twice inside one second); `rowid` is the
+// insertion order the table already maintains and is the same tie-break the occurrence
+// resolver uses, so a page of history cannot reorder under the customer.
+export async function listEmailProtectionEvents(env, workspaceId, {
+  record_id = null, record_type = null, limit = 50, offset = 0,
+} = {}) {
+  const where = ["workspace_id = ?"];
+  const binds = [workspaceId];
+  if (record_id) { where.push("record_id = ?"); binds.push(String(record_id)); }
+  if (record_type) { where.push("record_type = ?"); binds.push(String(record_type)); }
+  const rows = await env.cybermeters_db
+    .prepare(`SELECT id, record_id, record_type, actor_type, event_type, detail_json, created_at
+              FROM email_protection_events
+              WHERE ${where.join(" AND ")}
+              ORDER BY created_at DESC, rowid DESC
+              LIMIT ? OFFSET ?`)
+    .bind(...binds, Number(limit), Number(offset)).all().catch(() => ({ results: [] }));
+  return (rows.results || []).map(emailProtectionEventToApi);
+}
+
+// This history is the one in scope that grows without bound — an hourly evaluator across
+// every sender and hosted record — so `total` is worth the second query: a customer
+// paging back through months of it needs to know there IS a back, and the has_more
+// heuristic (count >= limit) guesses wrong on an exact-multiple final page.
+export async function countEmailProtectionEvents(env, workspaceId, { record_id = null, record_type = null } = {}) {
+  const where = ["workspace_id = ?"];
+  const binds = [workspaceId];
+  if (record_id) { where.push("record_id = ?"); binds.push(String(record_id)); }
+  if (record_type) { where.push("record_type = ?"); binds.push(String(record_type)); }
+  const row = await env.cybermeters_db
+    .prepare(`SELECT COUNT(*) AS n FROM email_protection_events WHERE ${where.join(" AND ")}`)
+    .bind(...binds).first().catch(() => null);
+  return Number(row?.n ?? 0);
+}
+
 // ── Recovery closure: which events CLOSE a graded condition ─────────────────
 // THE DEFECT THIS EXISTS TO PREVENT (reproduced live, 2026-07-16):
 //   disconnect → alert → reconnect → disconnect again → **SILENCE, FOREVER**.

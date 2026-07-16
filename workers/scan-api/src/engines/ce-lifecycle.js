@@ -365,9 +365,96 @@ function ceTransitionDetail({ g, from, recurrence, band, scanId, reason }) {
   };
 }
 
-export async function listCeControlRecords(env, workspaceId) {
+// ── Read accessors — the customer-facing shape ──────────────────────────────
+// This helper had ZERO callers repo-wide: mig 090 persisted per-control readiness,
+// evidence and recovery history that no route or page ever read, so customers received
+// CE alerts about controls they could not open. Wiring it up meant fixing it first —
+// `SELECT *` leaked internal fields and there was no bound.
+//
+// The honesty boundary is enforced HERE, not in the UI. There is no "verified" value in
+// this domain's vocabulary and there must never be one: `readiness_state` is
+// ready|not_ready|unknown|not_externally_assessable, and even `ready` means "the
+// externally observable part of this control looks aligned", never that CyberMeters
+// certified anything. `external_coverage` ships alongside it precisely so `ready` can
+// never be read as a full pass — two of the five controls are permanently
+// `not_externally_assessable` because nothing external can see them.
+export function ceControlRecordToApi(row = {}) {
+  const parse = (raw, fb) => { try { return raw ? JSON.parse(raw) : fb; } catch { return fb; } };
+  return {
+    id: row.id,
+    control_key: row.control_key,
+    control_label: row.control_label ?? null,
+    // The verdict, and the reason it is only ever indicative.
+    readiness_state: row.readiness_state ?? null,
+    readiness_reason: row.readiness_reason ?? null,
+    external_coverage: row.external_coverage ?? null,   // partial | none
+    // WHICH evidence moved, and what we could not see. Both customer-facing: a gap the
+    // product cannot observe must be visible as unobserved, not absent.
+    evidence: parse(row.evidence_json, []),
+    unknown_signals: parse(row.unknown_json, []),
+    last_scan_id: row.last_scan_id ?? null,
+    last_assessed_at: row.last_assessed_at ?? null,
+    first_seen_at: row.first_seen_at ?? null,
+    last_seen_at: row.last_seen_at ?? null,
+    last_changed_at: row.last_changed_at ?? null,
+    linked_case_id: row.linked_case_id ?? null,
+  };
+}
+
+export function ceEventToApi(row = {}) {
+  let detail = null;
+  try { detail = row.detail_json ? JSON.parse(row.detail_json) : null; } catch { detail = null; }
+  return {
+    id: row.id,
+    event_type: row.event_type,
+    actor_type: row.actor_type ?? null,
+    created_at: row.created_at,
+    detail,
+  };
+}
+
+// `control_key` is UNIQUE per workspace (mig 090:124), so ordering by it is already
+// deterministic and needs no tie-break. Bounded anyway: the bound is the contract, not
+// an assumption about how many controls exist today.
+export async function listCeControlRecords(env, workspaceId, { readiness_state = null, limit = 50, offset = 0 } = {}) {
+  const where = ["workspace_id = ?"];
+  const binds = [workspaceId];
+  if (readiness_state) { where.push("readiness_state = ?"); binds.push(String(readiness_state)); }
   const rows = await env.cybermeters_db
-    .prepare(`SELECT * FROM cyber_essentials_control_records WHERE workspace_id = ? ORDER BY control_key`)
-    .bind(workspaceId).all().catch(() => ({ results: [] }));
-  return rows.results || [];
+    .prepare(`SELECT * FROM cyber_essentials_control_records
+              WHERE ${where.join(" AND ")}
+              ORDER BY control_key ASC
+              LIMIT ? OFFSET ?`)
+    .bind(...binds, Number(limit), Number(offset)).all().catch(() => ({ results: [] }));
+  return (rows.results || []).map(ceControlRecordToApi);
+}
+
+// Bounded by the CE model itself — five controls, one row each per workspace — but the
+// count is still queried rather than assumed: a bound that comes from a constant in
+// another file is a comment, not a contract.
+export async function countCeControlRecords(env, workspaceId, { readiness_state = null } = {}) {
+  const where = ["workspace_id = ?"];
+  const binds = [workspaceId];
+  if (readiness_state) { where.push("readiness_state = ?"); binds.push(String(readiness_state)); }
+  const row = await env.cybermeters_db
+    .prepare(`SELECT COUNT(*) AS n FROM cyber_essentials_control_records WHERE ${where.join(" AND ")}`)
+    .bind(...binds).first().catch(() => null);
+  return Number(row?.n ?? 0);
+}
+
+export async function getCeControlRecord(env, workspaceId, recordId) {
+  const row = await env.cybermeters_db
+    .prepare(`SELECT * FROM cyber_essentials_control_records WHERE workspace_id = ? AND id = ?`)
+    .bind(workspaceId, recordId).first().catch(() => null);
+  return row ? ceControlRecordToApi(row) : null;
+}
+
+export async function listCeControlEvents(env, workspaceId, recordId, { limit = 200 } = {}) {
+  const rows = await env.cybermeters_db
+    .prepare(`SELECT * FROM cyber_essentials_events
+              WHERE workspace_id = ? AND record_id = ?
+              ORDER BY created_at DESC, rowid DESC
+              LIMIT ?`)
+    .bind(workspaceId, recordId, Number(limit)).all().catch(() => ({ results: [] }));
+  return (rows.results || []).map(ceEventToApi);
 }
