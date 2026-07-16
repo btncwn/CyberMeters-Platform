@@ -2,6 +2,27 @@ name = "cybermeters-platform"
 main = "src/index.js"
 compatibility_date = "2026-06-18"
 
+# Canonical production API host. This is the ONE place the deployment declares
+# where the API lives, and `validate-frontend-env-contract.js` derives the host
+# every document must use from THIS value — not from a hardcoded string.
+#
+# Why it exists: README, frontend/.env.example, OPERATIONS.md and openapi.json all
+# documented `api.cybermeters.com` while no such DNS record existed (NXDOMAIN) and
+# no route or custom domain had ever been configured. Production served only from
+# `cybermeters-platform.ttrnn47.workers.dev`, so a developer copying the documented
+# base got a host that does not resolve, and the incident runbook's health check
+# read as an outage. The env-contract validator was green throughout because it
+# asserted the base's SHAPE (ends in /api) and never that the host existed.
+#
+# `custom_domain = true` makes Cloudflare own the DNS record and the certificate
+# for this hostname — no CNAME chain, no second proxy hop, no manual TLS.
+#
+# workers.dev deliberately stays enabled: it is the immediate rollback path, and
+# MICROSOFT_REDIRECT_URI below is registered against it in Azure AD.
+[[routes]]
+pattern = "api.cybermeters.com"
+custom_domain = true
+
 [[d1_databases]]
 binding = "cybermeters_db"
 database_name = "cybermeters-db"

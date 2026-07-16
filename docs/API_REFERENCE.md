@@ -1,6 +1,6 @@
 # CyberMeters API Reference
 
-**Base URL:** `https://cybermeters-platform.ttrnn47.workers.dev`
+**Base URL:** `https://api.cybermeters.com`
 
 ---
 
@@ -20,7 +20,7 @@ GET /health
 
 **curl**
 ```bash
-curl https://cybermeters-platform.ttrnn47.workers.dev/health
+curl https://api.cybermeters.com/health
 ```
 
 ---
@@ -54,7 +54,7 @@ The scan engine runs asynchronously via `ctx.waitUntil()`. The API returns `202 
 
 **curl**
 ```bash
-curl -X POST https://cybermeters-platform.ttrnn47.workers.dev/api/scan \
+curl -X POST https://api.cybermeters.com/api/scan \
   -H "Content-Type: application/json" \
   -d '{"domain": "example.com"}'
 ```
@@ -85,7 +85,7 @@ Returns the 20 most recent scans across all domains.
 
 **curl**
 ```bash
-curl https://cybermeters-platform.ttrnn47.workers.dev/api/scans
+curl https://api.cybermeters.com/api/scans
 ```
 
 ---
@@ -112,7 +112,7 @@ GET /api/scans/:id
 
 **curl**
 ```bash
-curl https://cybermeters-platform.ttrnn47.workers.dev/api/scans/scan_abc123
+curl https://api.cybermeters.com/api/scans/scan_abc123
 ```
 
 ---
@@ -351,18 +351,18 @@ Labels matched against each dot-separated part of the subdomain: `dev`, `develop
 
 **curl**
 ```bash
-curl https://cybermeters-platform.ttrnn47.workers.dev/api/scans/scan_abc123/report
+curl https://api.cybermeters.com/api/scans/scan_abc123/report
 ```
 
 **curl — with real scan ID**
 ```bash
 # 1. Submit a scan and capture the ID
-SCAN_ID=$(curl -s -X POST https://cybermeters-platform.ttrnn47.workers.dev/api/scan \
+SCAN_ID=$(curl -s -X POST https://api.cybermeters.com/api/scan \
   -H "Content-Type: application/json" \
   -d '{"domain": "example.com"}' | jq -r '.scan_id')
 
 # 2. Fetch the report
-curl https://cybermeters-platform.ttrnn47.workers.dev/api/scans/$SCAN_ID/report
+curl https://api.cybermeters.com/api/scans/$SCAN_ID/report
 ```
 
 ---
@@ -393,7 +393,7 @@ Returns all scans for a given domain, newest first.
 
 **curl**
 ```bash
-curl https://cybermeters-platform.ttrnn47.workers.dev/api/domain/example.com/history
+curl https://api.cybermeters.com/api/domain/example.com/history
 ```
 
 ---
@@ -438,7 +438,7 @@ POST /api/schedules
 
 **curl**
 ```bash
-curl -X POST https://cybermeters-platform.ttrnn47.workers.dev/api/schedules \
+curl -X POST https://api.cybermeters.com/api/schedules \
   -H "Content-Type: application/json" \
   -d '{"domain": "example.com", "frequency": "daily"}'
 ```
@@ -472,7 +472,7 @@ Returns `{ "schedules": [] }` if no schedules have been created yet.
 
 **curl**
 ```bash
-curl https://cybermeters-platform.ttrnn47.workers.dev/api/schedules
+curl https://api.cybermeters.com/api/schedules
 ```
 
 ---
@@ -495,7 +495,7 @@ DELETE /api/schedules/:id
 
 **curl**
 ```bash
-curl -X DELETE https://cybermeters-platform.ttrnn47.workers.dev/api/schedules/sched_abc123
+curl -X DELETE https://api.cybermeters.com/api/schedules/sched_abc123
 ```
 
 ---

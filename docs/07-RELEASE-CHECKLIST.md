@@ -88,7 +88,7 @@ npx wrangler deploy
 ## 5. Post-deploy smoke test (live)
 
 ```bash
-BASE=https://cybermeters-platform.ttrnn47.workers.dev
+BASE=https://api.cybermeters.com
 curl -s $BASE/health        # version + deployment_id == what you just deployed
 curl -s $BASE/ready         # {"status":"ready","checks":{"d1":true,"r2":true}}
 curl -s -o /dev/null -w "%{http_code}\n" $BASE/api/workspaces   # 401 (auth enforced)
@@ -98,6 +98,11 @@ curl -s -o /dev/null -w "%{http_code}\n" $BASE/api/workspaces   # 401 (auth enfo
 - [ ] `/ready` is `ready` (d1 + r2 true).
 - [ ] Anonymous protected endpoint returns 401 (auth still enforced).
 - [ ] If frontend changed: load `app.cybermeters.com`, confirm it renders + a login works (CSP didn't break anything).
+
+> **If `api.cybermeters.com` itself is the suspect** — DNS, the custom domain
+> binding or the zone cert — the same Worker answers directly on
+> `https://cybermeters-platform.ttrnn47.workers.dev`. A healthy workers.dev and an
+> unhealthy `api.` isolates the fault to the hostname rather than the deployment.
 
 ## 6. Record the release
 
@@ -120,7 +125,7 @@ Fast path — no rebuild needed (full detail in [INCIDENT-RESPONSE-PLAN §4](INC
 cd workers/scan-api
 npx wrangler deployments list                    # confirm the last good Version ID
 npx wrangler rollback --version-id <PREVIOUS_ID>  # or: wrangler versions deploy <ID>
-curl -s https://cybermeters-platform.ttrnn47.workers.dev/health   # confirm reverted
+curl -s https://api.cybermeters.com/health   # confirm reverted on the host customers hit
 ```
 
 - If the release included a migration, additive migrations are safe to leave in

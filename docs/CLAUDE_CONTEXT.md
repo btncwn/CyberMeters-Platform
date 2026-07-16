@@ -15,7 +15,12 @@ CyberMeters is a cloud-native Cyber MOT and Attack Surface Management (ASM) plat
 
 ## Infrastructure
 
-Cloudflare Worker:
+Cloudflare Worker (canonical API host):
+
+https://api.cybermeters.com
+
+Same Worker, direct workers.dev origin — rollback path and hostname-fault isolation
+only, never the documented base:
 
 https://cybermeters-platform.ttrnn47.workers.dev
 
