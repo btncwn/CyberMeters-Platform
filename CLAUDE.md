@@ -2,7 +2,7 @@
 
 Version: July 2026
 
-Last updated: 16 July 2026 (release v2026.07.16-6; active canonical episode: M5 Completion Across All Eight Domains — in progress)
+Last updated: 16 July 2026 (release v2026.07.16-7; active canonical episode: M5 Completion Across All Eight Domains — in progress)
 
 ---
 
@@ -241,7 +241,7 @@ Do not claim that CyberMeters performs a customer, provider, registrar, certific
 | Complete ASM Verification | Live |
 | Alerts Across All Eight Domains | Live — 8 of 8 domains alert canonically (`docs/alerts-eight-domain-coverage.md`). Engineering closed; genuine live-event acceptance outstanding. |
 | MSP Portfolio Per-Domain State and Trend | Live — built, NOT customer-accepted. Persisted per-domain state + honest trend across all 8 domains (mig 091). Engineering closed; authenticated customer acceptance outstanding (no entitled account exists in production), so it is not sellable and must not be demoed. |
-| M5 Completion Across All Eight Domains | In progress — evidence-honesty corrective closed (`v2026.07.16-6`); remaining increments planned. |
+| M5 Completion Across All Eight Domains | In progress — evidence-honesty corrective (`v2026.07.16-6`) and alerting repair (`v2026.07.16-7`) closed; remaining increments planned. |
 | Debugging and Reliability Hardening | Planned after managed lifecycle completion |
 | Pentesting and Security Assurance | Planned after managed lifecycle completion |
 | Founder-Controlled Acceptance Testing | Planned |
@@ -250,10 +250,10 @@ Do not claim that CyberMeters performs a customer, provider, registrar, certific
 
 Current release facts (as of 16 July 2026):
 
-- latest release tag: `v2026.07.16-6` (evidence-honesty class fix — deployed);
-- live Worker Version ID: `6b310472-702c-4e7a-bafd-92cbc4a1b83d` (built from `7119c63`);
-- rollback Worker Version ID: `18c075a7-92bf-41f2-a06b-38a17929b687` (v2026.07.16-5);
-- latest migration applied to production: `091-cyber-mot-domain-states.sql` (unchanged — `v2026.07.16-6` carried no migration);
+- latest release tag: `v2026.07.16-7` (M5 alerting repair — deployed);
+- live Worker Version ID: `029ee0b9-15e3-4761-84e6-9b7e28743842` (built from `325e09b`);
+- rollback Worker Version ID: `6b310472-702c-4e7a-bafd-92cbc4a1b83d` (v2026.07.16-6);
+- latest migration applied to production: `091-cyber-mot-domain-states.sql` (unchanged — neither `v2026.07.16-6` nor `-7` carried a migration);
 - active canonical episode: M5 Completion Across All Eight Domains (in progress).
 
 **M5 is under way.** Its pre-change parity audit across all eight domains found four false
@@ -266,11 +266,21 @@ per-class); Shadow IT no longer records disappearance as "verified" removal; and
 longer verifies from a change that predates the customer's assertion. All four are
 mutation-tested — each guard reintroduces its defect and requires the suite to fail.
 
-The remaining M5 increments are **planned, not started**: alerting repair, the read surfaces
-for migrations 088/089/090, case creation for Email Protection / Website Security / Cyber
-Essentials, and the per-domain maturity ledger. The ledger is corrected **last**: it is
-wrong in every row today and most rows *under*-claim, so raising it before the underlying
-gaps close would make the declaration lie in the opposite direction.
+The **alerting repair is also closed** (`v2026.07.16-7`): marking a sender a THREAT used to
+turn its own high alert off (two vocabularies pushed through one slot — the customer's word
+reached a function that speaks evidence, so `threat`/`trusted`/`ignored` all banded null),
+and a hosted DMARC record could alert on disconnection exactly ONCE, because recovery is a
+different event type than the reader looked at. Both were reproduced end-to-end before any
+change and are mutation-tested. The canonical policy: evidence is the floor, the customer
+may escalate but never silently de-escalate, a suppression meeting contradicting evidence
+is an explicit conflict rather than silence, and unrecognised values fail closed.
+
+The remaining M5 increments are **planned, not started**: Shadow IT's alerting
+self-destruct after 25 passes, the read surfaces for migrations 088/089/090, case creation
+for Email Protection / Website Security / Cyber Essentials, and the per-domain maturity
+ledger. The ledger is corrected **last**: it is wrong in every row today and most rows
+*under*-claim, so raising it before the underlying gaps close would make the declaration
+lie in the opposite direction.
 
 **All eight canonical domains alert through the canonical pipeline.** The earlier
 six-of-eight closure (`v2026.07.15-2`) was premature and is superseded — it deferred

@@ -5,6 +5,98 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.16-7 (M5 alerting repair — threat suppression + hosted re-alert) — deployed 2026-07-16
+
+- **Live Worker Version ID:** `029ee0b9-15e3-4761-84e6-9b7e28743842` (main `325e09b`)
+- **Rollback Worker Version ID:** `6b310472-702c-4e7a-bafd-92cbc4a1b83d` (v2026.07.16-6)
+- **Remote D1 migrations applied:** none — no schema change.
+- **Pages:** unaffected (no frontend change).
+- **PR:** #125
+
+Both defects were reproduced end-to-end against the real engines and the real schema
+before a line was changed, and both were live on Worker `6b310472`.
+
+**1. Marking a sender a THREAT turned its own high alert off.** The product carried TWO
+sender vocabularies and pushed both through ONE slot: OBSERVED (`authorised …
+unauthorised`, from `classifySender()`) and the customer's DISPOSITION
+(`trusted/suspicious/threat/ignored/unknown`). They overlap on only `suspicious` and
+`unknown`. `effectiveClassification` returned the customer's word verbatim and handed it
+to `senderAlertBand()`, which speaks OBSERVED — so `threat`, `trusted` and `ignored` all
+banded **null**. Reproduced: a sender with 80 receiver-reported failures held
+`sender_unauthorised_failures_active` at band high with an alert delivered; the customer
+marked it THREAT; condition and band both went to null. The customer's strongest signal
+of danger deleted the evidence.
+
+The correct mapping already existed as a PRIVATE copy inside `dmarc-impact.js`, while
+`email-protection-lifecycle.js` and `rua-routing.js` each carried their own copy WITHOUT
+it — three implementations, two wrong, which is why aliasing one function would have
+fixed nothing. There is now ONE vocabulary and ONE mapping in the leaf authority
+(`sender-classification.js`); the duplicates import it.
+
+**The canonical customer-classification policy** (`resolveSenderPolicy`, beside the bands
+and the trigger): the floor is the EVIDENCE and nothing the customer says lowers it; the
+customer may ESCALATE (`threat` claims `unauthorised`, so it can only raise);
+`trusted`/`ignored` may SUPPRESS but only where the evidence does not contradict; a
+suppression meeting contradicting evidence is an explicit CONFLICT, not silence — the
+alert stands at the observed band and the disagreement is named in history; anything
+unrecognised FAILS CLOSED to medium. `ignored` now claims nothing rather than passing
+through as a verdict — "don't tell me" is not "it is safe".
+
+**2. A hosted DMARC record could alert on disconnection exactly ONCE.** Recovery is
+appended as `hosted_record_reconnected`; `lastGradedCondition` read only
+`monitoring_changed`, so the graded condition stayed `hosted_record_disconnected` across
+the recovery, the second disconnect compared equal, and no event, occurrence or alert was
+produced — forever. Fixed by correcting the READER, deliberately not by appending a
+clearing `monitoring_changed`: `findConditionOccurrence` reads `LIMIT 25` of those rows
+and filters in JS, so extra rows narrow the window a real transition can be found in —
+the eviction defect the audit found in Shadow IT. Closure is an EXPLICIT, short list:
+every non-alertable hosted event carries `to_recurrence_type: null`, so "any event
+carrying the key" would let a POLICY CHANGE or MANUAL ROLLBACK close a live disconnection
+and re-alert an outage that never went away. Only a genuine return to health is recovery.
+
+**Canonical contract:** a recovered condition that RETURNS is a recurrence/re-entry on the
+existing lifecycle — same condition, same canonical remediation, NEW occurrence, NEW
+dedupe key — never an unchanged duplicate and never a new incident kind.
+
+**Guards.** `validate-alert-b3-email-protection`'s hosted section had been titled
+"disconnect → reconnect → re-disconnect" since it was written and never performed the
+re-disconnect — the defect it was named after was live the whole time. It now drives the
+full sequence (145 → 187 assertions). New CI-blocking
+`validate-alerting-repair-mutations.js` (27 assertions) proves every guard load-bearing
+across the seven required mutations. Reverting either fix fails the guards, verified.
+
+**Honest limits, recorded rather than papered over:** mutation 6 (drop `workspace_id` from
+the lifecycle lookup) is asserted STRUCTURALLY — a cross-tenant leak could not be
+reproduced because the scenario cannot exist (`hosted_dns_entries.id` is the PRIMARY KEY,
+so one record id cannot span two tenants and the events never collide). The predicate is
+defence in depth, and the suite says so rather than staging an unreachable fixture and
+calling it a leak. Two suites asserted the OLD collapsed contract and were corrected, not
+weakened: b3 seeded `classification: "authorised"` in the CUSTOMER slot (a state the
+classify route has rejected since `27f655f` and migration 074 forbids by design), and
+`validate-sender-classification` asserted `effective_classification: "trusted"` — the
+customer's word in an evidence-shaped field. `effective_classification` has no other
+consumer, frontend or backend, so no shipped surface changed. One audit lead did not
+survive checking: `sender_classification_worsened` was never gated on
+`classificationRank` — it uses band ranks via `rankOf`, which is now unified onto the one
+band ladder.
+
+**Validation:** 103/103 CI validators · regression 227/227 · tenant isolation 86/86 ·
+purge + migration validators green · wrangler dry-run clean · exact-HEAD CI confirmed on
+`c9ab823`.
+
+**Production proof:** both hosts serve `029ee0b9` (`api.cybermeters.com` and
+`workers.dev`; the first read raced propagation and was re-checked until stable across 4
+consecutive reads). `/ready` d1+r2 true. The touched surfaces return `401` — live and
+auth-gated ahead of body parsing, so the smoke classified no sender and sent no alert. No
+real customer alert was manufactured: every reproduction ran against in-memory SQLite
+with `fetch` stubbed. Genuine live-event acceptance across all eight domains remains
+outstanding and is a release-gate activity.
+
+**Not started (M5 scope):** Shadow IT's 25-pass alerting self-destruct, the read surfaces
+for migrations 088/089/090, case creation for Email Protection / Website Security / Cyber
+Essentials, and the maturity ledger (corrected LAST). No pricing review, pentest,
+controlled acceptance or customer invitations.
+
 ## 2026.07.16-6 (Evidence-honesty class fix — four false claims) — deployed 2026-07-16
 
 - **Live Worker Version ID:** `6b310472-702c-4e7a-bafd-92cbc4a1b83d` (main `7119c63`)

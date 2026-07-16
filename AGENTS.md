@@ -4,7 +4,7 @@
 
 Version: July 2026
 
-Last updated: 16 July 2026 (release v2026.07.16-6; active canonical episode: M5 Completion Across All Eight Domains — in progress)
+Last updated: 16 July 2026 (release v2026.07.16-7; active canonical episode: M5 Completion Across All Eight Domains — in progress)
 
 ---
 
@@ -105,15 +105,15 @@ CyberMeters manages and verifies the lifecycle where externally observable evide
 | Complete ASM Verification | Live |
 | Alerts Across All Eight Domains | Live — 8 of 8 domains alert canonically (`docs/alerts-eight-domain-coverage.md`). Engineering closed; genuine live-event acceptance outstanding. |
 | MSP Portfolio Per-Domain State and Trend | Live — built, NOT customer-accepted. Persisted per-domain state + honest trend across all 8 domains (mig 091). Engineering closed; authenticated customer acceptance outstanding (no entitled account exists in production), so it is not sellable and must not be demoed. |
-| M5 Completion Across All Eight Domains | In progress — evidence-honesty corrective closed (`v2026.07.16-6`); remaining increments planned. |
+| M5 Completion Across All Eight Domains | In progress — evidence-honesty corrective (`v2026.07.16-6`) and alerting repair (`v2026.07.16-7`) closed; remaining increments planned. |
 | Final Public-Beta Gate | Planned after managed-platform completion |
 
 Current release facts (as of 16 July 2026):
 
-- latest release tag: `v2026.07.16-6` (evidence-honesty class fix — deployed);
-- live Worker Version ID: `6b310472-702c-4e7a-bafd-92cbc4a1b83d` (built from `7119c63`);
-- rollback Worker Version ID: `18c075a7-92bf-41f2-a06b-38a17929b687` (v2026.07.16-5);
-- latest migration applied to production: `091-cyber-mot-domain-states.sql` (unchanged — `v2026.07.16-6` carried no migration);
+- latest release tag: `v2026.07.16-7` (M5 alerting repair — deployed);
+- live Worker Version ID: `029ee0b9-15e3-4761-84e6-9b7e28743842` (built from `325e09b`);
+- rollback Worker Version ID: `6b310472-702c-4e7a-bafd-92cbc4a1b83d` (v2026.07.16-6);
+- latest migration applied to production: `091-cyber-mot-domain-states.sql` (unchanged — neither `v2026.07.16-6` nor `-7` carried a migration);
 - active canonical episode: M5 Completion Across All Eight Domains (in progress).
 
 **All eight canonical domains alert through the canonical pipeline.** The earlier
