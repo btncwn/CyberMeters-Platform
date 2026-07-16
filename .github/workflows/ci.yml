@@ -148,6 +148,14 @@ jobs:
       - name: Validate CE questionnaire drift, versioning and scope
         run: node scripts/validate-ce-question-drift.js
 
+      # CE answer re-versioning contract + question-set version FORMAT. The client submits the
+      # FULL questionnaire on every save, so an unconditional re-stamp silently relabels
+      # untouched historical answers as answers to reworded questions the customer never saw.
+      # Enforced in SQL against the REAL route (a crafted client must not bypass it), and the
+      # version format is pinned to ISO 8601 YYYY-MM-DD. Mutation-tested.
+      - name: Validate CE answer re-versioning contract + version format
+        run: node scripts/validate-ce-answer-versioning.js
+
       # Mutation proof for the 2026-07-16 alerting repair. Two guards in this repo were
       # named for coverage they never executed, so the suites above are themselves proved
       # load-bearing here: each defect is reintroduced and must reappear.
