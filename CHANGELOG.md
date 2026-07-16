@@ -5,6 +5,35 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.16-3 (Portfolio read purity — a GET no longer writes) — deployed 2026-07-16
+
+- **Live Worker Version ID:** `4ad06deb-efe3-4db1-abc1-7b495c1bae99` (PR #116, squash-merged as `f28d2ac`)
+- **Rollback Worker Version ID:** `98cb2131-1817-4a35-a142-5dc952297fb2`
+- **Remote D1 migrations applied:** none. `git diff febadd4..f28d2ac -- database/` is empty.
+- **Files:** `engines/portfolio-risk.js`, `routes/portfolio.js`, `scripts/validate-portfolio-read-purity.js` (new, CI-blocking), `ci.yml`.
+
+### Fix (a GET mutated production state)
+
+- **Opening the Portfolio Risk page wrote to the database** (PR **#116**).
+  - `computePortfolioRisk()` appended a `portfolio_risk_snapshots` row on every call, and its only caller is `GET /api/portfolio/risk`. One row per page load, per refresh, unbounded — no dedupe, no rate limit, no retention — with `catch { /* non-fatal */ }` swallowing anything it broke. Any prefetch, retry, double-click or uptime check wrote a row.
+  - **Removed, not moved to a cron**, because writing the proof settled it: **nothing reads the table** — no `SELECT` against `portfolio_risk_snapshots` exists anywhere in the repository, and the 30-day trend the page renders comes from `workspace_brs_score_history`. Migration `036`'s header calls the write *"typically post-scan or on-demand"*; there is no post-scan path and never was, and no cron writes it. The rows were not a record of the portfolio over time — they were a record of **when someone opened a page**. A cron would have preserved a cadence nobody consumes, for a table that cannot express what MSP Portfolio needs anyway (four scalars keyed by `users.id`, no domain dimension).
+  - **The table and its rows are kept.** Unevenly sampled observations are still real observations; dropping them would be a destructive migration.
+  - `userId` is gone from `computePortfolioRisk()`'s signature — it fed only the write. The tenant boundary is `workspaceIds`, already resolved by `getAccessibleWorkspaceIds()`. `upsertPortfolioRiskSnapshot()` is deleted rather than left unused, and the route comment claiming *"Persists a snapshot"* is corrected — this repository has been bitten before by a comment asserting behaviour nobody wrote.
+  - **Legitimate writes preserved and asserted.** `api_rate_limits` and `user_sessions.last_seen_at` fire on every authenticated request before any handler runs; removing them would be a security regression, not a cleanup. The first draft of the suite asserted "no write of any kind" and caught them — it now names and excuses exactly those two, treats anything else as a finding, and separately asserts the rate-limit write still happens.
+  - **Proof, not assertion:** `validate-portfolio-read-purity.js` drives the real `fetch()` handler against the real schema and counts rows. Against the unfixed engine: `rows went 0 -> 1 — a GET mutated production state`, and six requests produced six rows. Mutation-proved ×5 — re-introducing the exact write, a write to a *different* table, nulling the returned score, dropping a workspace from the rankings, and removing the entitlement gate each fail the suite.
+
+### Production proof
+
+Both hosts serve `4ad06deb`; `/ready` d1+r2 true on both. `GET /api/portfolio/risk` unauthenticated → 401. Across live traffic against the route, `portfolio_risk_snapshots` held at **0 → 0** while `api_rate_limits` advanced **1795 → 1796** — the read is inert, the rate limiter is not.
+
+> **The defect was real but latent in production.** `portfolio_risk_snapshots` contains **0 rows** and always has: `portfolio_monitoring` is a business+ entitlement and **no business or enterprise subscription exists** (production has only free/starter/professional). So no account could reach the write path. Nothing was cleaned up, because nothing had accumulated.
+>
+> **The authenticated 200 path therefore cannot be exercised in production** without creating a business subscription — a billing change, out of scope. It is proven instead against the deployed code path with a real session and a business entitlement: status **200**, writes issued were `api_rate_limits` ×2 and `UPDATE user_sessions SET last_seen_at` only, `portfolio_risk_snapshots` **0**, and `last_seen_at` advanced `2020-01-01T00:00:00Z → 2026-07-16 01:29:57`. Authenticated UI smoke on a real entitled account remains a release-gate action.
+
+### Known defect, not fixed here
+
+`portfolio-risk.js:52-54` ladders `>= 75 / >= 55 / >= 35` and falls through to `'serious'`. **`null` fails every comparison**, so a portfolio with no BRS evidence renders as *"showing serious overall risk (portfolio score: null/100)"* — a new MSP with workspaces but no scans is told its portfolio is serious. The inverse of healthy-washing, and the same sin: a verdict fabricated from absent evidence. Corrective queued next.
+
 ## 2026.07.16-2 (API host corrective — `api.cybermeters.com` exists now) — deployed 2026-07-16
 
 - **Live Worker Version ID:** `98cb2131-1817-4a35-a142-5dc952297fb2` (PR #114)
