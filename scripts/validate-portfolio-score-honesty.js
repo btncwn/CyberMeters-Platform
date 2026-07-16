@@ -191,6 +191,20 @@ async function main() {
      (noScan.data?.risk_rankings || []).every((r) => r.risk_band === "unknown"),
      JSON.stringify((noScan.data?.risk_rankings || []).map((r) => r.risk_band)));
 
+  // The quiet half of the same defect. `critical_workspaces`/`high_risk_workspaces`
+  // count bands equal to 'critical'/'high'; an unassessed environment's band is
+  // 'unknown', so it counts toward neither, and the summary's unconditional else then
+  // told an MSP we knew nothing about that "No customer environments are currently in
+  // critical or high risk states." True of the data, false as an impression: zero
+  // findings out of zero assessments is silence, not an all-clear. This one does not
+  // print a number, which is exactly why it survived the first pass.
+  ok("NO-SCAN: THE ALL-CLEAR IS WITHHELD ENTIRELY WHEN NOTHING WAS ASSESSED",
+     !/no customer environments are currently in critical or high risk/i.test(noScan.data?.executive_summary || ""),
+     noScan.data?.executive_summary);
+  ok("no-scan: nothing in the summary implies the portfolio is safe",
+     !/\b(no (customer )?environments? (are|is)|all clear|none .* at risk)\b/i.test(noScan.data?.executive_summary || ""),
+     noScan.data?.executive_summary);
+
   // ── CASE 3: partial data ───────────────────────────────────────────────────
   // One of two scored, and scored HIGH. The average is 90 — presenting that as the
   // portfolio score lets the unassessed customer silently flatter the verdict.
@@ -206,6 +220,14 @@ async function main() {
      /1 of 2/.test(partial.data?.executive_summary || ""), partial.data?.executive_summary);
   ok("partial: the summary does not claim the whole portfolio is healthy without qualification",
      /not represented|no completed assessment/i.test(partial.data?.executive_summary || ""), partial.data?.executive_summary);
+  // A clean bill of health for the assessed subset must not be stated for the portfolio.
+  ok("PARTIAL: THE ALL-CLEAR IS SCOPED TO THE ASSESSED SUBSET, NOT THE PORTFOLIO",
+     !/^(?!.*assessed).*no customer environments are currently in critical or high risk/i.test(partial.data?.executive_summary || ""),
+     partial.data?.executive_summary);
+  ok("partial: the all-clear explicitly excludes the unassessed environments",
+     !/critical or high risk/i.test(partial.data?.executive_summary || "") ||
+     /not covered by this statement/i.test(partial.data?.executive_summary || ""),
+     partial.data?.executive_summary);
 
   // ── CASE 4: full data ──────────────────────────────────────────────────────
   db.prepare("INSERT INTO workspace_brs_scores (workspace_id,score,risk_band,calculated_at) VALUES ('w2',30,'high',datetime('now'))").run();

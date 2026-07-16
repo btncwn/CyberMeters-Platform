@@ -172,14 +172,29 @@ function generatePortfolioExecutiveSummary(stats) {
     }
   }
 
-  // Critical / high risk callout
+  // Critical / high risk callout.
+  //
+  // The `else` here is the quiet one. `critical_workspaces` and `high_risk_workspaces`
+  // count rows whose band is 'critical' or 'high' — and an UNASSESSED environment's band
+  // is 'unknown', so it counts toward neither. With no assessments at all both counters
+  // are zero, and the old unconditional else then said "No customer environments are
+  // currently in critical or high risk states." to an MSP we knew literally nothing
+  // about. Every word of it was technically true and the impression was false: silence
+  // read as an all-clear. Absence of a finding is not a finding of absence.
+  //
+  // So the reassurance is scoped to what was actually assessed, and withheld entirely
+  // when nothing was.
   if (critical_workspaces > 0) {
     parts.push(`${critical_workspaces} customer environment${critical_workspaces !== 1 ? 's require' : ' requires'} immediate attention due to critically elevated risk levels.`);
   } else if (high_risk_workspaces > 0) {
     parts.push(`${high_risk_workspaces} customer environment${high_risk_workspaces !== 1 ? 's have' : ' has'} high risk levels and should be reviewed this week.`);
-  } else {
+  } else if (score_state === PORTFOLIO_SCORE_STATES.AVAILABLE) {
     parts.push('No customer environments are currently in critical or high risk states.');
+  } else if (score_state === PORTFOLIO_SCORE_STATES.PARTIAL) {
+    // A clean bill of health for the assessed subset only — never for the portfolio.
+    parts.push('None of the assessed customer environments are currently in critical or high risk states; the unassessed environments above are not covered by this statement.');
   }
+  // no_workspaces / evidence_insufficient: say nothing. There is nothing to say.
 
   // Trend
   if (deteriorating.length > 0 && improving.length > 0) {
