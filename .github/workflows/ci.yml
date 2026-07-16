@@ -156,6 +156,14 @@ jobs:
       - name: Validate CE answer re-versioning contract + version format
         run: node scripts/validate-ce-answer-versioning.js
 
+      # M5.b — Certificates & Trust verification reconciliation. certificate_case carried a
+      # blanket `manual` across a domain holding SIX verification methods, so a customer could
+      # attest an EXPIRED certificate verified, and could attest a CT blackout resolved even
+      # though the registry says nothing can verify it. Support is now derived per finding and
+      # the honest system verifier closes the case from CyberMeters' own re-observation.
+      - name: Validate M5.b Certificates verification reconciliation
+        run: node scripts/validate-m5b-certificate-verification.js
+
       # Mutation proof for the 2026-07-16 alerting repair. Two guards in this repo were
       # named for coverage they never executed, so the suites above are themselves proved
       # load-bearing here: each defect is reintroduced and must reappear.

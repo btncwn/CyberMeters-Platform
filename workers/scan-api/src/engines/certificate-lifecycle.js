@@ -22,7 +22,7 @@
 // (certificate_case → cert.* canonical remediation).
 
 import { emitLifecycleAlert } from "./alert-consumers.js";
-import { createManagedCase, canTransitionCase, canonicalPhaseFor } from "./managed-case-model.js";
+import { createManagedCase, canTransitionCase, canonicalPhaseFor, verificationSupportForCase } from "./managed-case-model.js";
 import { newCaseEventId } from "./case-workflow.js";
 import { assessRenewal, renewalAlertBand, renewalRequiresCase } from "./certificate-policy.js";
 import { buildMonitoringTransitionDetail, isMonitoringTransition } from "./alert-occurrence.js";
@@ -551,6 +551,10 @@ export async function certificateLifecycleAction(env, workspaceId, id, action, o
   const now = new Date().toISOString();
   const set = { updated_at: now };
   let eventType = "monitoring_changed", detail = { action };
+  // Set by verify_replacement when — and only when — a real external observation verified
+  // the replacement. Applied after the record is written, so the case can never be verified
+  // ahead of the evidence it rests on.
+  let verifyCaseFromObservation = null;
 
   switch (action) {
     case "assign_business_owner":
@@ -616,6 +620,20 @@ export async function certificateLifecycleAction(env, workspaceId, id, action, o
       if (evidence.verification_result === "verified") {
         set.verification_status = "verified_replaced"; set.verified_at = now; set.renewal_status = "verified";
         eventType = "verified_replaced"; detail = evidence;
+        // The LINKED CASE follows the observation — M5.b.
+        //
+        // Until now these were two verification stories that never spoke. The lifecycle
+        // record was honest (a new, distinct, expiry-advanced certificate on the expected
+        // hostname, or nothing), while the certificate_case sat on a blanket `manual`, so a
+        // customer could drive the same case to `verified` through the generic
+        // /managed-cases transition by simply asserting it. The record said "not verified";
+        // the case said "verified"; both were live.
+        //
+        // Now that certificate_case derives its support per finding, an observable finding is
+        // `automated` and canTransitionCase refuses any non-system actor — which would leave
+        // the case unverifiable forever if nothing here closed it. This is that closer, and
+        // it runs ONLY on a real external observation, as the system.
+        verifyCaseFromObservation = { evidence };
       } else if (evidence.verification_result === "failed") {
         set.verification_status = "failed"; eventType = "verification_failed"; detail = evidence;
       } else {
@@ -651,8 +669,96 @@ export async function certificateLifecycleAction(env, workspaceId, id, action, o
     .bind(...cols.map((c) => set[c]), id, workspaceId).run();
   const updated = { ...rec, ...set };
   await appendEvent(env, updated, { actor_type: "customer", actor_id: actor.actor_id, event_type: eventType, detail });
+  if (verifyCaseFromObservation) {
+    await verifyCertificateCaseFromObservation(env, updated, verifyCaseFromObservation.evidence, now).catch(() => {});
+  }
   const fresh = await loadRecord(env, workspaceId, id);
   return { ok: true, item: certificateLifecycleToApi(fresh) };
+}
+
+/**
+ * Verify the linked certificate_case from CyberMeters' OWN observation — M5.b.
+ *
+ * The customer requested the check; the EVIDENCE is ours. So the case transition is made as
+ * the SYSTEM actor, which is what canTransitionCase requires once a finding is `automated`.
+ * The customer asking us to look is not the customer verifying: they cannot reach this by
+ * asserting anything, only by there genuinely being a new certificate to observe.
+ *
+ * Three refusals, all deliberate:
+ *   • no linked case                       → nothing to verify.
+ *   • the registry says manual/unsupported → NOT ours to conclude. `cert.ct_incomplete` is
+ *     `unsupported` (a CT blackout means we cannot see), and `cert.ca_concentration` /
+ *     `cert.anomaly.review` are `manual_attestation` — observing a new certificate says
+ *     nothing about either, so the observation is recorded as history and the case waits.
+ *   • the case is not awaiting verification → real, and history; not a completed remediation.
+ *
+ * Never throws: a case-layer failure must not undo the record's own honest verification.
+ */
+async function verifyCertificateCaseFromObservation(env, rec, evidence, now) {
+  if (!rec.linked_case_id) return { skipped: "no_linked_case" };
+  const kase = await env.cybermeters_db
+    .prepare(`SELECT * FROM managed_cases WHERE id = ? AND workspace_id = ?`)
+    .bind(rec.linked_case_id, rec.workspace_id).first().catch(() => null);
+  if (!kase) return { skipped: "no_linked_case" };
+
+  const noteOnCase = async (action, detail) => {
+    await env.cybermeters_db
+      .prepare(`INSERT INTO managed_case_events (id, case_id, workspace_id, actor_type, actor_id, from_status, to_status, action, detail_json, created_at)
+                VALUES (?, ?, ?, 'system', NULL, ?, ?, ?, ?, datetime('now'))`)
+      .bind(newCaseEventId(), kase.id, rec.workspace_id, kase.status, kase.status, action, safeJson(detail))
+      .run().catch(() => {});
+  };
+
+  // The registry decides, per finding — not this function, and not the domain.
+  const support = verificationSupportForCase(kase);
+  if (support !== "automated") {
+    await noteOnCase("replacement_observed_not_verifying", {
+      support, remediation_id: kase.remediation_id,
+      reason: "registry_method_is_not_externally_observable_for_this_finding",
+      verification_state: support === "unsupported" ? "unsupported" : "unknown",
+    });
+    return { skipped: "verification_not_automated_for_this_finding", support };
+  }
+
+  const phase = canonicalPhaseFor(kase.case_type, kase.status);
+  if (phase !== "awaiting_verification") {
+    await noteOnCase("replacement_observed", { phase, reason: "case_not_awaiting_verification" });
+    return { skipped: "case_not_awaiting_verification", phase };
+  }
+
+  // The lifecycle's evidence, carried onto the case unchanged, plus the structured
+  // `observation` the universal contract requires for an automated verification. Nothing is
+  // invented: every field below already came from buildVerificationEvidence.
+  const caseEvidence = {
+    ...evidence,
+    observation: {
+      previous_identity: evidence.previous_identity,
+      new_identity: evidence.new_identity,
+      distinct_certificate: evidence.distinct_certificate,
+      expiry_advanced: evidence.expiry_advanced,
+      coverage_status: evidence.coverage_status,
+      primary_hostname: rec.primary_hostname || null,
+      certificate_lifecycle_id: rec.id,
+    },
+  };
+  const decision = canTransitionCase({
+    case: kase, target_status: "verified",
+    actor: { actor_type: "system", actor_id: null }, evidence: caseEvidence, now,
+  });
+  if (!decision.ok) {
+    await noteOnCase("replacement_observed_not_verifying", { code: decision.code, reason: decision.reason || decision.error });
+    return { skipped: "transition_refused", code: decision.code };
+  }
+
+  const n = decision.case;
+  await env.cybermeters_db
+    .prepare(`UPDATE managed_cases SET status = ?, verified_at = ?, last_verified_at = ?, updated_at = ? WHERE id = ? AND workspace_id = ?`)
+    .bind(n.status, n.verified_at || now, now, n.updated_at, kase.id, rec.workspace_id).run();
+  await env.cybermeters_db
+    .prepare(`INSERT INTO managed_case_events (id, case_id, workspace_id, actor_type, actor_id, from_status, to_status, action, detail_json, created_at)
+              VALUES (?, ?, ?, 'system', NULL, ?, ?, ?, ?, datetime('now'))`)
+    .bind(newCaseEventId(), kase.id, rec.workspace_id, kase.status, n.status, decision.event.action, safeJson(caseEvidence)).run();
+  return { ok: true, verified: true, case_id: kase.id };
 }
 
 // ── API serializer ──────────────────────────────────────────────────────────
