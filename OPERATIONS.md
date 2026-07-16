@@ -62,6 +62,54 @@ Paid capacity provides additional headroom, but it does not remove:
 
 # 3. Release Model
 
+## Branch protection — solo-founder policy (canonical)
+
+`main` is protected. The policy below is DELIBERATE and is not a temporary exception.
+
+| Setting | Value |
+| --- | --- |
+| `required_status_checks` | **`validate`, `sast`** (strict: false) |
+| `required_approving_review_count` | **0** |
+| `dismiss_stale_reviews` | true |
+| `required_conversation_resolution` | true |
+| `enforce_admins` | true |
+| `allow_force_pushes` | false |
+| `allow_deletions` | false |
+
+**Why approvals are 0.** This repository has exactly ONE human GitHub account, and GitHub
+refuses self-approval ("Can not approve your own pull request"). A required approval count of
+1 therefore made every PR unmergeable and forced repeated temporary protection windows —
+weakening the branch on a schedule is worse governance than a policy that tells the truth
+about who is here.
+
+> **Raise `required_approving_review_count` to 1 the moment a genuine independent
+> collaborator or reviewer joins the repository.** It is 0 because there is nobody to review,
+> not because review is unwanted. This is the one line to change.
+
+**What actually gates a merge now: CI, not a rubber stamp.** `validate` and `sast` are
+REQUIRED contexts, so a PR with failing or missing mandatory CI cannot merge — including for
+admins (`enforce_admins: true`). `--admin` is not needed in normal operation and must not be
+used to bypass a red check.
+
+**Why only `validate` and `sast` are required** — read from the actual check contexts of the
+last seven PRs, not invented:
+
+- `validate` — 7/7 PRs. Runs the repository validators, frontend type-check, Vitest coverage
+  and `npm run build`. The build IS covered here.
+- `sast` — 7/7 PRs. Security analysis.
+- `playwright` — 2/7. It lives in `frontend-e2e.yml`, which is path-filtered to `frontend/**`,
+  so it does not run for backend- or docs-only PRs. A required context that never reports
+  stays pending forever, so requiring it would permanently block every non-frontend PR — the
+  exact deadlock this policy exists to remove. It still runs and still blocks frontend PRs
+  through the PR UI; it is simply not a merge gate for changes it never examines.
+- `Cloudflare Pages` — 7/7, but it is a third-party deployment preview, not a correctness
+  gate, and `validate` already builds the frontend. Requiring it would make every merge
+  depend on Cloudflare's availability and would reintroduce the need for `--admin` during an
+  incident, contradicting the requirement that no bypass is needed in normal operation.
+
+If a new mandatory job is added to `ci.yml`, add its job name to the required contexts. The
+context name IS the job key in the workflow.
+
 ## Primary Worker
 
 The primary Worker deploys manually only.
