@@ -183,6 +183,30 @@ async function main() {
   ok("route keeps chain/root/ocsp unknown", routeCert?.trust_path?.chain_valid === "unknown" && routeCert?.trust_path?.root_trusted === "unknown" && routeCert?.trust_path?.ocsp === "unknown");
   ok("route emits evidence-backed unexpected issuer finding", routeCert?.findings?.some((f) => f.type === "unexpected_issuer" && f.evidence?.length > 0));
 
+  // ── The PDF must not out-claim the engine ─────────────────────────────────
+  // The defect this exists to prevent (live until 2026-07-16): the Executive PDF pushed
+  // the strength 'SSL and certificate configuration is fully validated.' whenever
+  // ssl_certificates.status === 'good'. sslScore (posture-scoring.js) starts at 100 and
+  // only ever deducts for HTTPS availability, HTTP→HTTPS redirect and expiry, so `good`
+  // meant those three things — while chain validity, root trust, OCSP and revocation were
+  // never checked and are asserted "unknown" three lines above this comment.
+  //
+  // The PDF is the artifact customers forward to insurers and boards, so it was the one
+  // surface where the product contradicted its own declared limitation. Asserted at source
+  // level because the claim is a literal string, and a string is what regressed.
+  // Only the customer-facing COPY is asserted — the literals actually pushed into the
+  // executive summary — not the whole file. A prose comment explaining the removed claim
+  // is documentation and must stay legal; an earlier draft of this guard matched its own
+  // explanatory comment, which is precisely the kind of assertion-that-tests-nothing this
+  // suite exists to avoid.
+  const pdfSrc = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "engines", "pdf.js"), "utf8");
+  const pdfCopy = [...pdfSrc.matchAll(/strengths\.push\(\s*'((?:[^'\\]|\\.)*)'/g)].map((m) => m[1]);
+  ok("the PDF executive summary has certificate copy to assert on", pdfCopy.length > 0);
+  ok("no PDF strength claims certificates are 'fully validated'",
+    !pdfCopy.some((s) => /fully\s+(?:validated|verified)/i.test(s)));
+  ok("the PDF's certificate strength names what is NOT checked (chain/root/OCSP/revocation)",
+    pdfCopy.some((s) => /Chain validity, root trust, OCSP and revocation are not checked\./.test(s)));
+
   console.log(`\nCertificate Trust L2: ${pass}/${pass + fail} passed`);
   if (fail) { console.error("cert-trust-l2 validation FAILED"); process.exit(1); }
   console.log("cert-trust-l2 validation passed");

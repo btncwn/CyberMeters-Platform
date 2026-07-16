@@ -218,6 +218,49 @@ ok("a removal_contradicted event was appended",
 ok("contradiction opens a linked case", Boolean(dropbox1.linked_case_id));
 eq("the customer assertion is preserved (removal_status stays removed)", dropbox1.removal_status, "removed");
 
+// ── 11b. DISAPPEARANCE IS NOT VERIFIED REMOVAL ──────────────────────────────
+// The defect this exists to prevent (live until 2026-07-16): the evaluator read
+//   removal_verified = stillObserved ? "contradicted" : "verified"
+// so a customer's "I removed it" plus our failure to see the thing was laundered into
+// "verified" and served by the API — while this same engine's header states
+// "disappearance != verified removal", its own disappearance event records
+// `note: "not_verified_removed"`, and CLAUDE.md forbids exactly this inference.
+// Absence of evidence is not evidence of removal: the technology may have been renamed,
+// moved, stopped serving a public signal, or simply not been re-observed this pass.
+//
+// Suite 11 above only ever exercised the CONTRADICTED branch, so the `verified` branch
+// shipped untested. That is why this section seeds the ABSENCE case explicitly.
+{
+  // Everything EXCEPT dropbox is still observed — otherwise this pass would mark the
+  // whole inventory missing and later sections would be asserting against a fiction.
+  const dropboxKey = db.prepare("SELECT canonical_technology_key FROM shadow_it_inventory WHERE id = ?")
+    .get(dropbox0.inventory_item_id).canonical_technology_key;
+  const stillSeen = new Set(
+    db.prepare("SELECT canonical_technology_key FROM shadow_it_inventory WHERE workspace_id = 'ws1'")
+      .all().map((r) => r.canonical_technology_key).filter((k) => k !== dropboxKey),
+  );
+
+  await evaluateShadowItMonitoring(env, "ws1", { now: NOW, seenKeys: stillSeen });
+  const gone = await getShadowItItem(env, "ws1", dropbox0.inventory_item_id);
+
+  eq("a removed item that disappeared is no_longer_observed", gone.monitoring_status, "no_longer_observed");
+  ok("disappearance NEVER yields verified removal", gone.removal_verified !== "verified");
+  eq("it stays UNVERIFIED — a customer assertion we could not confirm", gone.removal_verified, "unverified");
+  eq("the customer assertion itself is preserved", gone.removal_status, "removed");
+  ok("and the disappearance is recorded as not-verified-removed history",
+    (await listShadowItItemEvents(env, "ws1", dropbox0.inventory_item_id))
+      .some((e) => e.event_type === "monitoring_changed" && /not_verified_removed/.test(e.detail_json || "")));
+
+  // Direction check: `contradicted` must remain REACHABLE. A guard that returned
+  // "unverified" unconditionally would satisfy every assertion above while destroying the
+  // one externally-grounded verdict this domain genuinely has.
+  db.prepare("UPDATE shadow_it_inventory SET monitoring_status = 'observed' WHERE id = ?").run(dropbox0.inventory_item_id);
+  await evaluateShadowItMonitoring(env, "ws1", { now: NOW });
+  const backAgain = await getShadowItItem(env, "ws1", dropbox0.inventory_item_id);
+  eq("a removed item observed AGAIN is still contradicted (we saw it — that IS evidence)",
+    backAgain.removal_verified, "contradicted");
+}
+
 // ── 12. Existing case is REOPENED via canTransitionCase, never duplicated ───
 db.prepare("UPDATE managed_cases SET status = 'verified' WHERE id = ?").run(rejected.item.linked_case_id);
 await evaluateShadowItMonitoring(env, "ws1", { now: NOW }); // Notion still rejected + observed
