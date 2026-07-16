@@ -112,6 +112,12 @@ jobs:
       - name: Validate M5 read surfaces (mig 088/089/090 — tenancy, pagination, evidence honesty)
         run: node scripts/validate-m5-read-surfaces.js
 
+      # M5.a Email Protection vertical: creation + linkage + ownership + verification +
+      # recurrence. The boundary it defends: a customer's assertion cannot conclude
+      # verification for anything CyberMeters can observe itself. Mutation-tested.
+      - name: Validate M5.a Email Protection managed cases (creation/linkage/ownership/verification/recurrence)
+        run: node scripts/validate-m5a-email-cases.js
+
       # Mutation proof for the 2026-07-16 alerting repair. Two guards in this repo were
       # named for coverage they never executed, so the suites above are themselves proved
       # load-bearing here: each defect is reintroduced and must reappear.
