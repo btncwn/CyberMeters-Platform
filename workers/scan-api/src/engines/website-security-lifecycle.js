@@ -381,20 +381,111 @@ export async function evaluateWebsiteSecurityForScan(env, {
   }
 }
 
-// Read-only accessors for the API/tests. Tenant-scoped by construction.
-export async function listWebsiteSecurityConditions(env, workspaceId, { domainId = null } = {}) {
-  const rows = domainId
-    ? await env.cybermeters_db.prepare(
-        `SELECT * FROM website_security_conditions WHERE workspace_id = ? AND domain_id = ? ORDER BY last_seen_at DESC`,
-      ).bind(workspaceId, domainId).all().catch(() => ({ results: [] }))
-    : await env.cybermeters_db.prepare(
-        `SELECT * FROM website_security_conditions WHERE workspace_id = ? ORDER BY last_seen_at DESC`,
-      ).bind(workspaceId).all().catch(() => ({ results: [] }));
-  return rows.results || [];
+// ── Read accessors — the customer-facing shape ──────────────────────────────
+// These existed with ZERO callers: mig 089 persisted durable identity and history that
+// no route, page or API method ever read, so a customer could be alerted about a
+// condition they had no way to open. Wiring them up meant fixing them first — as
+// written they were `SELECT *` with no bound and a non-deterministic order.
+//
+// What a customer is allowed to see is decided HERE, once, rather than in each route:
+//   • internal-only stays internal — `evaluated_at` is diagnostic (mig 089:123-126),
+//     `domain_id` is a surrogate the customer never types, `lifecycle_state` is
+//     vestigial (written at INSERT, never updated), and `recurrence_type`/`_band` are
+//     alert plumbing;
+//   • the honesty fields DO ship — monitoring_status, unknown_reason, last_scan_quality
+//     and detecting_module are the difference between "we fixed it" and "we did not
+//     look", and a surface without them would be free to imply the former.
+//
+// `linked_case_id` is exposed but is ALWAYS null today: nothing writes it (the INSERT
+// omits it and the UPDATE set-list omits it), and no case is created for this domain.
+// It is serialised so the shape does not change when case creation lands, and the API
+// must not imply a case exists because the field is present.
+export function websiteSecurityConditionToApi(row = {}) {
+  return {
+    id: row.id,
+    domain: row.domain,
+    condition_key: row.condition_key,
+    title: row.observed_title ?? null,
+    severity: row.observed_severity ?? null,
+    // State + why. `unknown` is NOT recovery (mig 089:98-106) and the reason says which
+    // kind of not-knowing it is.
+    monitoring_status: row.monitoring_status ?? null,
+    monitoring_reason: row.monitoring_reason ?? null,
+    unknown_reason: row.unknown_reason ?? null,
+    // Evidence provenance + completeness. A condition graded off a partial scan must
+    // never read as settled.
+    detecting_module: row.detecting_module ?? null,
+    last_scan_id: row.last_scan_id ?? null,
+    last_scan_quality: row.last_scan_quality ?? null,
+    first_seen_at: row.first_seen_at ?? null,
+    last_seen_at: row.last_seen_at ?? null,
+    last_changed_at: row.last_changed_at ?? null,
+    linked_case_id: row.linked_case_id ?? null,
+  };
 }
-export async function listWebsiteSecurityEvents(env, workspaceId, recordId) {
+
+export function websiteSecurityEventToApi(row = {}) {
+  let detail = null;
+  try { detail = row.detail_json ? JSON.parse(row.detail_json) : null; } catch { detail = null; }
+  return {
+    id: row.id,
+    event_type: row.event_type,
+    actor_type: row.actor_type ?? null,
+    created_at: row.created_at,
+    detail,
+  };
+}
+
+// Tenant-scoped by construction. BOUNDED: an unbounded read is a promise that a
+// workspace never accumulates conditions, and this table grows with every domain ×
+// every header. DETERMINISTIC: `last_seen_at DESC` alone ties on every condition seen
+// in the same scan — which is all of them — so the tie-break is what makes a list
+// stable enough to paginate.
+export async function listWebsiteSecurityConditions(env, workspaceId, {
+  domainId = null, monitoring_status = null, severity = null, limit = 50, offset = 0,
+} = {}) {
+  const where = ["workspace_id = ?"];
+  const binds = [workspaceId];
+  if (domainId) { where.push("domain_id = ?"); binds.push(domainId); }
+  if (monitoring_status) { where.push("monitoring_status = ?"); binds.push(String(monitoring_status)); }
+  if (severity) { where.push("observed_severity = ?"); binds.push(String(severity)); }
   const rows = await env.cybermeters_db
-    .prepare(`SELECT * FROM website_security_events WHERE workspace_id = ? AND record_id = ? ORDER BY created_at DESC, rowid DESC`)
-    .bind(workspaceId, recordId).all().catch(() => ({ results: [] }));
-  return rows.results || [];
+    .prepare(`SELECT * FROM website_security_conditions
+              WHERE ${where.join(" AND ")}
+              ORDER BY last_seen_at DESC, id ASC
+              LIMIT ? OFFSET ?`)
+    .bind(...binds, Number(limit), Number(offset))
+    .all().catch(() => ({ results: [] }));
+  return (rows.results || []).map(websiteSecurityConditionToApi);
+}
+
+export async function countWebsiteSecurityConditions(env, workspaceId, {
+  domainId = null, monitoring_status = null, severity = null,
+} = {}) {
+  const where = ["workspace_id = ?"];
+  const binds = [workspaceId];
+  if (domainId) { where.push("domain_id = ?"); binds.push(domainId); }
+  if (monitoring_status) { where.push("monitoring_status = ?"); binds.push(String(monitoring_status)); }
+  if (severity) { where.push("observed_severity = ?"); binds.push(String(severity)); }
+  const row = await env.cybermeters_db
+    .prepare(`SELECT COUNT(*) AS n FROM website_security_conditions WHERE ${where.join(" AND ")}`)
+    .bind(...binds).first().catch(() => null);
+  return Number(row?.n ?? 0);
+}
+
+export async function getWebsiteSecurityCondition(env, workspaceId, recordId) {
+  const row = await env.cybermeters_db
+    .prepare(`SELECT * FROM website_security_conditions WHERE workspace_id = ? AND id = ?`)
+    .bind(workspaceId, recordId).first().catch(() => null);
+  return row ? websiteSecurityConditionToApi(row) : null;
+}
+
+export async function listWebsiteSecurityEvents(env, workspaceId, recordId, { limit = 200 } = {}) {
+  const rows = await env.cybermeters_db
+    .prepare(`SELECT * FROM website_security_events
+              WHERE workspace_id = ? AND record_id = ?
+              ORDER BY created_at DESC, rowid DESC
+              LIMIT ?`)
+    .bind(workspaceId, recordId, Number(limit)).all().catch(() => ({ results: [] }));
+  return (rows.results || []).map(websiteSecurityEventToApi);
 }

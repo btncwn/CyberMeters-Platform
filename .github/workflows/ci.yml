@@ -106,6 +106,12 @@ jobs:
       - name: Validate Email Protection alert honesty (no posture alerts / no cumulative thresholds / no invented claims)
         run: node scripts/validate-alert-b3-email-honesty.js
 
+      # Migrations 088/089/090 each shipped a lifecycle that WRITES records and ALERTS on
+      # them with no way for a customer to read them. Drives the real Worker: a route that
+      # is unmounted, unscoped, unbounded or that leaks an internal field fails here.
+      - name: Validate M5 read surfaces (mig 088/089/090 — tenancy, pagination, evidence honesty)
+        run: node scripts/validate-m5-read-surfaces.js
+
       # Mutation proof for the 2026-07-16 alerting repair. Two guards in this repo were
       # named for coverage they never executed, so the suites above are themselves proved
       # load-bearing here: each defect is reintroduced and must reappear.
