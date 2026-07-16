@@ -4,6 +4,10 @@
 // posture, standing findings, AND this week's Exposure-Timeline change counts,
 // sorted so the customer that needs attention floats to the top. Shared by
 // GET /portfolio/workspaces and /portfolio/executive-summary; unit-testable.
+//
+// Imports the canonical score-sayability resolver from portfolio-risk.js rather than
+// re-deriving one. portfolio-risk.js imports nothing, so this is a one-way edge.
+import { PORTFOLIO_SCORE_STATES, resolvePortfolioScoreState } from "./portfolio-risk.js";
 
 // Deterministic "latest completed scan per domain" CTE body. Selecting on
 // MAX(created_at) alone double-counts a domain when two completed scans share the
@@ -118,10 +122,39 @@ export async function computePortfolioCustomerRows(db, workspaceIds) {
 
 // Pure: aggregate the customer rows into a portfolio-level executive summary the
 // MSP can review or share. No DB access.
+//
+// ── Why this function imports the score-state resolver ────────────────────────
+// #117/#118 fixed exactly these two defects in the SIBLING engine (portfolio-risk.js,
+// GET /api/portfolio/risk) and never touched this one, which serves GET
+// /api/portfolio/executive-summary. Both were still here, verbatim:
+//
+//   1. The all-clear by absence. `attention` filters on `latest_score != null &&
+//      latest_score < 60`, so a never-scanned customer (score null) is excluded from
+//      it. With N unassessed customers `attention.length === 0` and the else branch
+//      said "No customers currently need urgent attention." — an all-clear about a
+//      portfolio nobody had looked at. Zero findings out of zero assessments is
+//      silence, not an all-clear.
+//   2. The undisclosed partial mean. `avg_score` is the mean of the SCORED rows only,
+//      so one 90 among five customers published "average posture is 90/100" and the
+//      missing evidence silently flattered the verdict.
+//
+// resolvePortfolioScoreState() is the canonical authority for whether a portfolio
+// score is sayable at all. It is imported rather than re-derived so this surface can
+// never disagree with /api/portfolio/risk about the same portfolio — a second ladder
+// here is how the two would drift apart again.
 export function buildExecutiveSummary(rows) {
   const customers = rows.length;
-  const scored = rows.filter((r) => r.latest_score != null);
-  const avg_score = scored.length ? Math.round(scored.reduce((s, r) => s + r.latest_score, 0) / scored.length) : null;
+  const scored = rows.filter((r) => Number.isFinite(r.latest_score));
+  const avg_score = scored.length
+    ? Math.round(scored.reduce((s, r) => s + r.latest_score, 0) / scored.length)
+    : null;
+  // The single source of truth for sayability. Basis is disclosed to the caller so the
+  // frontend renders a decision it did not make.
+  const scoreState = resolvePortfolioScoreState({
+    workspaceCount: customers,
+    scoredCount:    scored.length,
+    score:          avg_score,
+  });
   const distribution = { Low: 0, Medium: 0, High: 0, Critical: 0 };
   for (const r of rows) if (r.risk_rating) distribution[r.risk_rating]++;
   const total_changes_7d = rows.reduce((s, r) => s + (r.changes_7d || 0), 0);
@@ -144,16 +177,58 @@ export function buildExecutiveSummary(rows) {
         : lead.changes_7d_high ? ` (${lead.changes_7d_high} new high-severity change${lead.changes_7d_high === 1 ? "" : "s"} this week)`
         : "")
       : "";
-    executive_summary =
-      `Across your ${customers} customer${customers === 1 ? "" : "s"}, average posture is ${avg_score ?? "—"}/100. ` +
-      (attention.length
-        ? `${attention.length} need${attention.length === 1 ? "s" : ""} attention, starting with ${lead.workspace_name}${why}.`
-        : "No customers currently need urgent attention.") +
-      (high_changes_7d ? ` ${high_changes_7d} high-severity change${high_changes_7d === 1 ? "" : "s"} across the portfolio this week.` : "");
+
+    const parts = [];
+
+    // Lead sentence — only claim an average when there is one. `${avg_score ?? "—"}/100`
+    // printed an em-dash where the number goes but kept the sentence's claim ("average
+    // posture is") intact, which reads as a measurement that happens to be missing
+    // rather than a measurement that was never taken. Say why instead.
+    if (scoreState.state === PORTFOLIO_SCORE_STATES.AVAILABLE) {
+      parts.push(`Across your ${customers} customer${customers === 1 ? "" : "s"}, average posture is ${avg_score}/100.`);
+    } else if (scoreState.state === PORTFOLIO_SCORE_STATES.PARTIAL) {
+      // A real mean, but of a subset — disclose the basis in the sentence that gets read.
+      parts.push(`Across your ${customers} customer${customers === 1 ? "" : "s"}, average posture is ${avg_score}/100. ${scoreState.reason}`);
+    } else {
+      parts.push(`An average posture score is not available for your ${customers} customer${customers === 1 ? "" : "s"} yet. ${scoreState.reason}`);
+    }
+
+    // Attention callout. `attention` is evidence-driven (standing criticals, new
+    // high-severity changes, a low score), so when it is non-empty it is always
+    // sayable regardless of score state — those are real observations.
+    if (attention.length) {
+      parts.push(`${attention.length} need${attention.length === 1 ? "s" : ""} attention, starting with ${lead.workspace_name}${why}.`);
+    } else if (scoreState.state === PORTFOLIO_SCORE_STATES.AVAILABLE) {
+      parts.push("No customers currently need urgent attention.");
+    } else if (scoreState.state === PORTFOLIO_SCORE_STATES.PARTIAL) {
+      // Clean bill of health for the assessed subset only — never for the portfolio.
+      parts.push("None of the assessed customers currently need urgent attention; the customers without a completed assessment are not covered by this statement.");
+    }
+    // no_workspaces / evidence_insufficient: withhold the all-clear entirely. An
+    // unassessed customer cannot need attention because nothing has looked at it, and
+    // saying so out loud turns that silence into reassurance.
+
+    if (high_changes_7d) {
+      parts.push(`${high_changes_7d} high-severity change${high_changes_7d === 1 ? "" : "s"} across the portfolio this week.`);
+    }
+
+    executive_summary = parts.join(" ");
   }
 
   return {
-    portfolio: { customers, avg_score, distribution, total_changes_7d, high_changes_7d, customers_needing_attention: attention.length },
+    portfolio: {
+      customers,
+      avg_score,
+      distribution,
+      total_changes_7d,
+      high_changes_7d,
+      customers_needing_attention: attention.length,
+      // Additive: avg_score keeps its meaning and value; these say whether it may be
+      // spoken and what it is drawn from.
+      avg_score_state:  scoreState.state,
+      avg_score_reason: scoreState.reason,
+      avg_score_basis:  { scored_customers: scoreState.basis.scored_workspaces, total_customers: scoreState.basis.total_workspaces },
+    },
     top_attention,
     executive_summary,
   };

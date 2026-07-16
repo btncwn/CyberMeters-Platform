@@ -93,6 +93,34 @@ db.prepare("INSERT INTO scans (id, domain_id, domain, status, score, scan_qualit
 db.prepare("INSERT INTO findings (id, scan_id, severity, title) VALUES ('fd_a','sc_dup_a','critical','dup crit A')").run();
 db.prepare("INSERT INTO findings (id, scan_id, severity, title) VALUES ('fd_b','sc_dup_b','critical','dup crit B')").run();
 
+// ── MSP D: entitled, 2 customers onboarded, ZERO assessments ─────────────────
+// The fixture #117/#118 never had on this engine. Everything above is seeded WITH a
+// score, so every assertion here passed against code that fabricated an all-clear
+// from an empty portfolio. An unassessed customer is the whole defect: it is the
+// state an MSP is in on day one, and it is the state the old summary called safe.
+db.prepare("INSERT INTO users (id, email, email_verified) VALUES ('u_d','d@example.co.uk',1)").run();
+db.prepare("INSERT INTO subscriptions (id, owner_user_id, plan, subscription_status, current_period_end) VALUES ('sub_d','u_d','business','active', datetime('now','+30 days'))").run();
+for (const [ws, name, domId] of [["ws_d1", "Unseen Ltd", "d_d1"], ["ws_d2", "Unlooked Co", "d_d2"]]) {
+  db.prepare("INSERT INTO workspaces (id, name, owner_user_id) VALUES (?,?, 'u_d')").run(ws, name);
+  db.prepare("INSERT INTO workspace_members (workspace_id, user_id, role) VALUES (?, 'u_d', 'owner')").run(ws);
+  db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES (?,?)").run(ws, domId);
+}
+const TOKEN_D = "tok_msp_d";
+db.prepare("INSERT INTO user_sessions (id, user_id, token_hash, expires_at) VALUES ('s_d','u_d',?, datetime('now','+1 day'))").run(await hashToken(TOKEN_D));
+
+// MSP E: entitled, 2 customers, only ONE assessed → the partial mean.
+db.prepare("INSERT INTO users (id, email, email_verified) VALUES ('u_e','e@example.co.uk',1)").run();
+db.prepare("INSERT INTO subscriptions (id, owner_user_id, plan, subscription_status, current_period_end) VALUES ('sub_e','u_e','business','active', datetime('now','+30 days'))").run();
+for (const [ws, name, domId] of [["ws_e1", "Scanned Ltd", "d_e1"], ["ws_e2", "Unscanned Co", "d_e2"]]) {
+  db.prepare("INSERT INTO workspaces (id, name, owner_user_id) VALUES (?,?, 'u_e')").run(ws, name);
+  db.prepare("INSERT INTO workspace_members (workspace_id, user_id, role) VALUES (?, 'u_e', 'owner')").run(ws);
+  db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES (?,?)").run(ws, domId);
+}
+// Only ws_e1 has a completed assessment, and it is a flattering 90.
+db.prepare("INSERT INTO scans (id, domain_id, domain, status, score, scan_quality, created_at) VALUES ('sc_e1','d_e1','scanned.co.uk','completed',90,'complete', datetime('now','-1 day'))").run();
+const TOKEN_E = "tok_msp_e";
+db.prepare("INSERT INTO user_sessions (id, user_id, token_hash, expires_at) VALUES ('s_e','u_e',?, datetime('now','+1 day'))").run(await hashToken(TOKEN_E));
+
 const env = { cybermeters_db: makeD1(db), cybermeters_reports: { get: async () => null, put: async () => ({}), head: async () => null, delete: async () => ({}), list: async () => ({ objects: [] }) }, ALLOWED_ORIGIN: "https://app.cybermeters.com", APP_VERSION: "test" };
 const ctx = { waitUntil: () => {}, passThroughOnException: () => {} };
 const get = async (p, token) => {
@@ -166,6 +194,51 @@ const nsRows = await computePortfolioCustomerRows(makeD1(db), ["ws_ns"]);
 ok("never-scanned customer is present (not dropped)", nsRows.length === 1);
 ok("never-scanned → null score (honest, not a fake 0)", nsRows[0].latest_score === null && nsRows[0].risk_rating === null);
 ok("never-scanned → status inactive", nsRows[0].status === "inactive");
+
+// ── 7. Score honesty on /executive-summary (the #117/#118 contract) ───────────
+// #117 and #118 fixed portfolio-risk.js (GET /api/portfolio/risk) and never touched
+// portfolio-customers.js, which serves THIS route — so both defects were still live
+// here, unguarded, because every fixture above happens to have a score. These drive
+// the real endpoint: the bug only exists once something renders.
+//
+// Words that assert a risk verdict, and the all-clear itself. Deliberately matched as
+// a CLASS, not as the one sentence that was there: the wording is not the invariant,
+// the silence is. Re-phrasing the all-clear must not slip past this.
+const VERDICT_WORDS = /\b(healthy|moderate|elevated|serious)\b/i;
+const ALL_CLEAR = /\b(no customers? (currently )?need|none .* need urgent|all clear|no (customer )?(environments?|customers?) (are|is))\b/i;
+
+const noEv = await get("/api/portfolio/executive-summary", TOKEN_D);
+const noEvSummary = noEv.body.executive_summary || "";
+ok("no-evidence: endpoint authorised (200)", noEv.status === 200);
+ok("no-evidence: both customers are counted, not dropped", noEv.body.portfolio?.customers === 2);
+ok("no-evidence: avg_score stays null (never a fabricated 0 or 100)", noEv.body.portfolio?.avg_score === null);
+ok("no-evidence: state is evidence_insufficient", noEv.body.portfolio?.avg_score_state === "evidence_insufficient");
+ok("no-evidence: basis discloses 0 of 2 scored", noEv.body.portfolio?.avg_score_basis?.scored_customers === 0 && noEv.body.portfolio?.avg_score_basis?.total_customers === 2);
+ok("no-evidence: a reason says WHY (an unknown without a reason is a shrug)", /not available|cannot be calculated|no completed/i.test(noEv.body.portfolio?.avg_score_reason || ""));
+// The two defects, asserted directly.
+ok("NO-EVIDENCE NEVER YIELDS AN ALL-CLEAR (#118)", !ALL_CLEAR.test(noEvSummary));
+ok("no-evidence: summary asserts no risk verdict (#117)", !VERDICT_WORDS.test(noEvSummary));
+ok("no-evidence: NEVER prints —/100, null/100, undefined/100 or NaN/100", !/(—|null|undefined|NaN)\/100/.test(noEvSummary));
+ok("no-evidence: summary still says why there is no score", /not available/i.test(noEvSummary));
+
+const partial = await get("/api/portfolio/executive-summary", TOKEN_E);
+const partialSummary = partial.body.executive_summary || "";
+ok("partial: state is partial", partial.body.portfolio?.avg_score_state === "partial");
+ok("partial: the mean is real and keeps its value (90)", partial.body.portfolio?.avg_score === 90);
+ok("partial: basis discloses 1 of 2 scored", partial.body.portfolio?.avg_score_basis?.scored_customers === 1 && partial.body.portfolio?.avg_score_basis?.total_customers === 2);
+// The partial mean flattering the verdict — 90 drawn from 1 of 2 customers is not a
+// portfolio score, and the sentence that gets read has to say so.
+ok("PARTIAL DISCLOSES ITS BASIS INLINE (#117)", /1 of 2/.test(partialSummary) && /not represented|no completed assessment/i.test(partialSummary));
+// An all-clear is permitted here ONLY if it names its own blind spot.
+ok("partial: any all-clear is scoped to the assessed subset",
+   !ALL_CLEAR.test(partialSummary) || /not covered by this statement/i.test(partialSummary));
+
+// Positive control: a fully-assessed portfolio MUST still be able to speak. Without
+// this, withholding everything unconditionally would pass every assertion above.
+const fullSummary = execResp.body.executive_summary || "";
+ok("available: a fully-assessed portfolio still prints its real score", /\d+\/100/.test(fullSummary));
+ok("available: state is available", execResp.body.portfolio?.avg_score_state === "available");
+ok("available: does not claim a partial basis it does not have", !/not represented/i.test(fullSummary));
 
 // Unauthenticated is rejected (before the entitlement gate).
 ok("portfolio endpoints require auth (401)", (await get("/api/portfolio/workspaces")).status === 401);
