@@ -5,9 +5,13 @@ Version: July 2026 (r2 — founder-approved revision)
 
 Canonical location: `docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md`. This file is the single authoritative copy. Do not maintain parallel copies outside the repository.
 
-Current release baseline: `v2026.07.14-20`
+Current canonical episode: **M5 Completion Across All Eight Domains — in progress.**
 
-Current canonical episode: `Alerts Across All Eight Domains` (not yet started). `Complete ASM Verification` closed with part 1 in `v2026.07.14-19` (PR #83) and part 2 in `v2026.07.14-20` (PR #84).
+- **M5.a** — managed-case verticals (Email Protection, Website Security, Cyber Essentials Readiness), plus the CE readiness honesty corrective and CE questionnaire hygiene — **CLOSED**.
+- **M5.b** — Certificates & Trust verify-by-observation and the remaining verification reconciliation across all eight domains (CE patch readiness reclassified not-externally-assessable; `external` ≠ `automated`; per-finding blanket guards) — **CLOSED**.
+- **M5.c** — Unified Reporting Snapshot — **CURRENT ACTIVE PHASE** (see the Pre-Public-Beta Gate Sequence below).
+
+Earlier canonical episodes — Alerts Across All Eight Domains and MSP Portfolio Per-Domain State and Trend — are Live. Engineering is closed on the shipped items, but genuine authenticated live-event acceptance remains outstanding for every managed vertical (gate 9 below). This roadmap uses milestone language; for exact release tags, migrations, and deployment IDs see `CHANGELOG.md` and `CLAUDE.md` — they are the source of truth for fast-aging release facts, which are deliberately not duplicated here.
 
 ## Mission
 
@@ -71,6 +75,44 @@ Complete final canonical phases
 
 ---
 
+# Pre-Public-Beta Gate Sequence
+
+Founder-approved (16 July 2026). This is the canonical, ordered spine from the current M5 position to public beta. **The order must not be reordered, collapsed, or skipped.** It is the operational expression of the phases below; where a gate and a phase overlap, the phase text is the detail and this list is the sequence.
+
+| # | Gate | Status |
+| --- | --- | --- |
+| 1 | M5.b Certificates & Trust | CLOSED |
+| 2 | M5.c Unified Reporting Snapshot | **CURRENT ACTIVE PHASE** |
+| 3 | M5.d Online/PDF Unified Reporting | Planned |
+| 4 | M5.e Eight-domain Parity | Planned |
+| 5 | M5.f Maturity Ledger | Planned |
+| 6 | M5.g Final CI Closure | Planned |
+| 7 | Pricing + Billing Alignment | Planned |
+| 8 | Final Beta Hardening | Planned |
+| 9 | Controlled Authenticated / Live Acceptance | Planned |
+| 10 | Independent Pentest + Remediation Retest | Planned |
+| 11 | Legal & Data-Protection Foundation | Planned |
+| 12 | Formal Release-Candidate Gate (`-rc1`) | Planned |
+| 13 | Final Website Design & Conversion | Planned |
+| 14 | Invitations / Controlled Private Beta | Planned |
+| 15 | Private-Beta Acceptance & Fix Cycle | Planned |
+| 16 | Public Beta Gate & Launch | Planned |
+
+(M5.a is CLOSED and precedes gate 1.)
+
+**Gate specifics that are not obvious from the phase text:**
+
+- **7 — Pricing + Billing Alignment.** Design may be two tasks, but the production deploy is **one lockstep release** (Stripe products/prices + backend entitlements + pricing cards together); founder deploy approval is mandatory; the first customer is acquired on the adopted pricing, never the legacy pricing.
+- **8 — Final Beta Hardening.** Auth/session/tenant isolation; rate limits and failure honesty; per-pass row growth and operational scale. Recovery must be **demonstrated, not described**: a tested D1 restore, an R2 object-loss recovery, and a Worker/Pages rollback drill, each with evidence and timings recorded. Includes verifying that CyberMeters' own alert/verification/report email lands in the inbox (our outbound SPF/DKIM/DMARC posture) — ironic to fail this as an email-security product.
+- **9 — Controlled Authenticated / Live Acceptance.** A real production session exercising the full lifecycle across Email, Website Security, Cyber Essentials, Certificates, and every eight-domain path. This clears the accumulated M5.a/M5.b acceptance debt. CI green and a `401` route check do **not** substitute for it.
+- **11 — Legal & Data-Protection Foundation.** A distinct pre-invitations blocker, not website copy. Complete the ICO data-protection-fee self-assessment and pay the applicable fee unless a valid exemption applies — for CyberMeters' business model a fee is **likely**, but this must be confirmed via the self-assessment rather than assumed. Publish a Privacy Notice (controller identity, data types, purpose and lawful basis, retention, sharing and subprocessors, data-subject rights, complaint and contact route), Terms, a DPA, a processor/subprocessor record, a retention/deletion statement, a DSAR process, a responsible-disclosure/security contact, and cookie/analytics control.
+- **12 — Formal Release-Candidate Gate.** `-rc1` is tagged only when every prior gate is green: M5 complete, pricing/billing deployed, hardening complete, live acceptance complete, pentest/retest complete, legal foundation complete, recovery drills complete. If private beta surfaces a blocker: `rc1 → fix → rc2`; public beta opens from the last accepted RC.
+- **14–16.** An invitation is not a public launch. Gate 15 (private-beta acceptance and fix cycle) sits deliberately between invitations and the public beta gate.
+
+**SEO parallel lane** (low-intensity through M5; never displaces the active canonical episode — see Phase G). Do now: honest eight-domain Academy content, glossary and educational pages, canonical/meta/schema checks, internal linking, crawl/index hygiene, and removal of stale Vendor Risk / Supply Chain claims. Do not yet: fixed pricing pages, any pentest or certification implication, presenting incomplete workflows as live features, or unproven ransomware-prevention rates.
+
+---
+
 # Timeboxes and gate discipline
 
 The largest internal risk to this roadmap is not external; it is unbounded hardening. Phases B and C will expand to fill all available time unless bounded.
@@ -94,7 +136,7 @@ Closed in two releases:
 
 Exit gate satisfied: focused validators and managed-case/tenant-isolation tests green; deployment and rollback Worker version ids recorded in the CHANGELOG; founder authenticated UI smoke remains queued as a final release-gate action (Phase D3); no Alerts, MSP, or M5 work was started inside the episode.
 
-## A2. Alerts Across All Eight Domains — **current canonical episode**
+## A2. Alerts Across All Eight Domains — **closed (Live)**
 
 ### Objective
 
@@ -945,25 +987,23 @@ Eligible calls, applications, requested amount, match, status, funded milestones
 
 # Official next actions
 
-1. Complete Alerts Across All Eight Domains (current canonical episode).
-2. Complete MSP Portfolio Per-Domain State and Trend.
-3. Complete M5 Across All Eight Domains.
-4. Run Systematic Debugging and Reliability Hardening (2-week timebox).
-5. Run Internal Security Review and Pentest (2-week timebox, C1–C3).
-6. Complete Founder-Controlled Acceptance.
-7. Produce and approve `rc1` (including ICO registration, legal drafts, VAT/Stripe Tax, tested restore and rollback drills).
-8. Ship the pricing lockstep (Stripe + entitlements + pricing page, founder-approved).
-9. Finalise commercial assets and analytics.
-10. Start founder-led outreach (SEO lane already running).
-11. Onboard the first controlled small business.
-12. Onboard the first controlled MSP.
-13. Close P0/P1 friction.
-14. Convert the first paying customer.
-15. Document the case study.
-16. Start tightly measured paid acquisition (Google Search + LinkedIn only).
-17. Submit strong-fit UK/Scotland funding applications.
-18. Commission the full external security review before expanding beyond 5 users.
-19. Expand cohorts gradually; open wider public beta after operational stability.
+The canonical order is the Pre-Public-Beta Gate Sequence above. Alerts, MSP Portfolio, M5.a, and M5.b are closed; the active phase is M5.c. The immediate sequence:
+
+1. Complete M5.c Unified Reporting Snapshot (current active phase).
+2. Complete M5.d Online/PDF Unified Reporting.
+3. Complete M5.e Eight-domain Parity, M5.f Maturity Ledger, and M5.g Final CI Closure.
+4. Ship the Pricing + Billing lockstep (Stripe + entitlements + pricing cards, one release, founder-approved).
+5. Run Final Beta Hardening, with demonstrated restore/recovery/rollback drills and outbound email-deliverability verification.
+6. Complete Controlled Authenticated / Live Acceptance across every managed vertical.
+7. Complete Independent Pentest + Remediation Retest.
+8. Complete the Legal & Data-Protection Foundation (ICO fee self-assessment, Privacy Notice, Terms, DPA, retention/DSAR).
+9. Produce and approve `-rc1` once every prior gate is green.
+10. Complete Final Website Design & Conversion.
+11. Send controlled private-beta invitations, then run the private-beta acceptance and fix cycle.
+12. Open the Public Beta Gate only from the last accepted RC.
+13. Convert the first paying customer; document the case study.
+14. Submit strong-fit UK/Scotland funding applications after first paid evidence.
+15. Expand cohorts gradually; commission the full external security review before expanding beyond five users.
 
 # Final directive
 
