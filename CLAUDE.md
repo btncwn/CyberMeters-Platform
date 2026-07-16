@@ -2,7 +2,7 @@
 
 Version: July 2026
 
-Last updated: 16 July 2026 (release v2026.07.16-16; active canonical episode: M5 Completion Across All Eight Domains — in progress)
+Last updated: 16 July 2026 (release v2026.07.16-17; active canonical episode: M5 Completion Across All Eight Domains — in progress)
 
 ---
 
@@ -250,9 +250,9 @@ Do not claim that CyberMeters performs a customer, provider, registrar, certific
 
 Current release facts (as of 16 July 2026):
 
-- latest release tag: `v2026.07.16-16` (M5.b — Certificates verify by observation — deployed);
-- live Worker Version ID: `366bd540-f819-4814-84c7-5458186c1106` (built from `a845a84`);
-- rollback Worker Version ID: `da576ff2-b8d6-47cf-a342-42a83ea750d9` (v2026.07.16-15);
+- latest release tag: `v2026.07.16-17` (M5.b remaining reconciliation — CE patch readiness, `external`, blanket guards — deployed);
+- live Worker Version ID: `da31fe33-b072-44f7-a1ba-7b933cea72af` (built from `e2c2725`);
+- rollback Worker Version ID: `366bd540-f819-4814-84c7-5458186c1106` (v2026.07.16-16);
 - latest migration applied to production: `092-ce-answer-question-set-version.sql` (applied 16 July 2026; `v2026.07.16-6` through `-14` carried no migration);
 - active canonical episode: M5 Completion Across All Eight Domains (in progress).
 
@@ -347,6 +347,21 @@ protection. Both controls now publish no number, no band and no health; they sta
 "Not externally assessable — self-attestation only", and the indicator is the mean of the
 three assessable areas and states its denominator. Both paths now read one source of truth
 (`CE_QUESTIONS.external_coverage`). Mutation-tested across builder, PDF and frontend.
+
+**M5.b is engineering-closed** (`v2026.07.16-16` certificates, `v2026.07.16-17` remaining
+reconciliation). Certificates: `certificate_case` derives verification support per finding,
+so a customer can no longer attest an expired certificate — or a Certificate Transparency
+blackout the registry says nothing can verify — as verified; the honest system verifier now
+closes the case from CyberMeters' own re-observation. Remaining reconciliation: Cyber
+Essentials **Security Update Management** was scored from certificate expiry, certificate
+risk and the ASM backlog — none of which measures any question it asks — and is now not
+externally assessable, taking the external readiness indicator to **2 of 5** with an explicit
+methodology version/revision so a denominator change can never read as a posture change
+(`CYBER_MOT_RESOLVER_VERSION` bumped for the same reason). `external` is now its own
+verification support — an independent third party certifies it, which is neither CyberMeters'
+observation nor the customer's word. ASM/Brand/Identity/Shadow IT keep their blankets, now
+CI-guarded against drift; deriving them per finding was tried and rejected because every real
+ASM case-creating finding resolves to no remediation and would fail closed to unsupported.
 
 **CE Questionnaire Hygiene is closed** (`v2026.07.16-15`, migration 092). The public
 self-check and the authenticated set were two independently-maintained copies that had

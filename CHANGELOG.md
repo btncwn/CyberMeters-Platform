@@ -5,6 +5,91 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.16-17 (M5.b remaining reconciliation — CE patch readiness, `external`, blanket guards) — deployed 2026-07-16
+
+- **Live Worker Version ID:** `da31fe33-b072-44f7-a1ba-7b933cea72af` (main `e2c2725`)
+- **Rollback Worker Version ID:** `366bd540-f819-4814-84c7-5458186c1106` (v2026.07.16-16)
+- **No-op intermediate redeploy:** `0532c4a6-25e3-4ccc-864c-d7da4905ef27` — built from `fb47bc2`,
+  the SAME commit `366bd540` was built from, so it is byte-identical code and carries no
+  behaviour change. It exists because a Worker deploy was chained behind a merge that had
+  been REJECTED by branch protection; the deploy ran, the merge did not. It supersedes
+  `366bd540` as the live id for v2026.07.16-16, and `366bd540` remains a valid rollback
+  target because the code is the same.
+- **Remote D1 migrations applied:** none — no schema change (latest remains `092`).
+- **Pages:** auto-deploys from main (`caseDisplay.js` changed).
+- **PR:** #143
+
+### D1 — Cyber Essentials Security Update Management is not externally assessable
+Proved on a LIVE production row, not a hypothesis:
+
+    patch_management_readiness  cov=partial  state=not_ready
+                                evidence_fingerprint=cert.intelligence.review
+
+A real workspace's "Security Update Management" was graded not-ready by a CERTIFICATE
+finding. The control was scored from certificate expiry, certificate risk, open
+critical/high ASM findings and asset-change events. None of those measures ANY of the four
+questions it asks: automatic updates, unsupported-software removal, an update-review
+process, or 14-day critical patching. It published "No critical or high findings in the
+latest scan." as a POSITIVE reason for patch readiness — the same shape as "SPF is present."
+→ Access Control 100/100, which `v2026.07.16-14` removed from the other two controls. Unlike
+those, this one still published a NUMBER and a BAND and carried a third of the indicator.
+
+Reclassified to `external_coverage: none`: score null, weight 0, no band, never externally
+assessed, renders "Not externally assessable — self-attestation only", and stays VISIBLE.
+No replacement proxy was introduced. The evidence itself is untouched and still surfaces
+where it legitimately lives — certificate expiry/risk in Certificates & Trust, the
+critical/high backlog in Attack Surface, version disclosure in Website Security.
+
+**The indicator is now 2 of 5**, and says so: "External readiness indicator based on 2 of 5
+Cyber Essentials control areas. User Access Control, Malware Protection and Security Update
+Management require customer attestation."
+
+### Readiness methodology versioning (a separate contract from the question set)
+`readiness_methodology_version` (ISO `YYYY-MM-DD`), `readiness_methodology_revision`
+(integer, now **2**) and `readiness_as_of` ship on the readiness output.
+`methodologyComparable()` gates any trend: comparable only when BOTH match, and BOTH-missing
+is NOT comparable — two silent legacy values are not two matching ones.
+
+`CYBER_MOT_RESOLVER_VERSION` bumped `2026-07-16.1` → `.2`: the CE domain STATE derives from
+status → grade → score, whose denominator moved, and the portfolio trend gates on that
+version. Without the bump every customer's Cyber Essentials would have "improved" or
+"deteriorated" on the day we deployed a definition change.
+
+### D2 — `external` is not `automated`
+An independent third party certifies it; a CyberMeters scan cannot, and a customer
+attestation is not third-party evidence either. It is now its own support state, refused by
+`canTransitionCase` with `verify_requires_external_evidence` for BOTH customer and system
+actors, and rendered "Requires independent third-party evidence" — borrowing neither claim.
+`ce.certification.external` remains unreachable as a case (proven).
+
+### D3 — blanket support drift is CI-blocked
+Attack Surface, Brand, Identity and Shadow IT keep their case-type blankets, now guarded: a
+future `manual_attestation`, `external` or `unsupported` remediation in any of them fails
+CI rather than silently inheriting `automated`. Deriving per finding was tried and REJECTED
+with evidence: every real ASM case-creating finding shape resolves to NO remediation, so a
+derived asm_exposure case would carry `remediation_id: null` and fail closed to
+`unsupported` — every ASM case would become unverifiable.
+
+### Stale rows, no migration
+Production holds 5 CE control rows and 0 CE cases. Stale rows are reinterpreted at read
+time (the authoritative coverage wins immediately; the row's own value is preserved as
+`recorded_external_coverage` rather than overwritten) and the evaluator self-corrects on the
+next pass. No migration was required.
+
+### Branch protection
+`main` requires 1 approving review with `enforce_admins: true`, and the PR author and
+repository owner are the same GitHub account, so PR #143 could not receive one. Under
+explicit founder authorisation for this PR only, the required approving-review count was
+temporarily set 1 → 0 for **22 seconds** (20:04:29Z → 20:04:51Z), the PR was merged normally
+(no `--admin`, so CI was never bypassed), and the count was restored to 1. The full ruleset
+was captured before and after and proven identical; no other setting was touched.
+
+**Production proof:** `/health` polled to 6 consecutive reads of `da31fe33` (it flapped
+across PoPs before settling); the deployment was created at 20:05:37Z, after the `e2c2725`
+merge at 20:04:39Z; `/ready` d1+r2 true; the CE answers, CE controls and managed-cases routes
+each return a customer-safe `401` unauthenticated — live and auth-gated, which is NOT proof
+of the authenticated workflow. No customer answer, case, alert or email was manufactured.
+
 ## 2026.07.16-16 (M5.b — Certificates verify by observation, never by assertion) — deployed 2026-07-16
 
 - **Live Worker Version ID:** `366bd540-f819-4814-84c7-5458186c1106` (main `a845a84`)
