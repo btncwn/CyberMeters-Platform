@@ -5,6 +5,81 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.16-15 (CE Questionnaire Hygiene — one shared set, versioned answers) — deployed 2026-07-16
+
+- **Live Worker Version ID:** `da576ff2-b8d6-47cf-a342-42a83ea750d9` (main `4e6f2ee`)
+- **Rollback Worker Version ID:** `1ebf34f0-7576-4a1b-9324-fe78750c0904` (v2026.07.16-14)
+- **Superseded intermediate deployment:** `a08285e4-7593-472c-a2a2-871ac3536256` (PR #138 only).
+  It carried the re-versioning defect described below and was live for the duration of the
+  corrective. It is NOT a rollback target.
+- **Remote D1 migrations applied:** `092-ce-answer-question-set-version.sql` (additive,
+  nullable, idempotent backfill). Latest applied moves `091` → `092`.
+- **Pages:** auto-deploys from main (the public CE page changed in #138).
+- **PRs:** #138 (question set + versioning), #139 (re-versioning + format corrective)
+
+### One question set
+The public self-check page and the authenticated set were two independently-maintained
+copies, and they had drifted — measured, not assumed: **14 of the 20 questions carried a
+DIFFERENT KEY on each side** for the same question (`open_services_documented` vs
+`documented_inbound_services`, `endpoint_av_enabled` vs `endpoint_protection_enabled`, and 12
+more), and **4 of the 6 shared keys were worded differently**. A visitor who answered the
+public check and then subscribed was answering a different questionnaire, and nothing in the
+repo could have told us.
+
+`shared/cyber-essentials-questions.js` is now the only source. The Worker lib re-exports it,
+so all six existing Worker import paths are untouched; the public page imports it and keeps
+only its icons. No anonymous public API was added — the questions ship in the bundle.
+
+`question_key` is PERSISTED, so a rename orphans every stored answer. The canonical keys are
+therefore the paid keys (already in D1) and the public page was the side that moved. The key
+list is pinned in CI.
+
+### Wording, reconciled question by question
+"router, firewall or **built-in security control**" — a business on a consumer ISP router, or
+relying on the firewall built into Windows or macOS, still HAS this control; "router/firewall"
+invited a false "no". And urgent patches now ask the actual Cyber Essentials expectation —
+"applied **within 14 days** of release" — rather than "applied quickly when flagged as
+important", which is not a standard anyone can answer honestly.
+
+### Versioning
+`2026-07` → `2026-07-16`. The version is a FUNCTION of the wording: CI pins a fingerprint of
+every question's text, so changing any word without bumping the version fails.
+
+**The format is canonical: ISO 8601 `YYYY-MM-DD`.** Month-only (`2026-08`) is rejected because
+a set can be revised twice in one month and the version would stop identifying the wording —
+its whole purpose. `DD-MM-YYYY`/`MM-DD-YYYY` are rejected as ambiguous and unsortable. It is a
+**CyberMeters product version** identifying our own wording; it is **not** an IASME or NCSC
+release identifier, and provenance carries that as an explicit field.
+
+### The re-versioning defect (introduced by #138, live in a08285e4, fixed by #139)
+The authenticated page submits the FULL questionnaire on every save, not a delta
+(`saveAnswers()` → `flattenAnswers(answers)` → all 20 answers, untouched ones included).
+#138's writer re-stamped `question_set_version` unconditionally, so ONE edit relabelled the
+other 19 answers as answers to the CURRENT wording — including the patch question reworded to
+"within 14 days", which those customers never saw. A no-op save did the same. That is exactly
+what the column exists to prevent.
+
+Fixed at the BACKEND contract, because a client-side delta would be bypassed by any crafted or
+future payload. One rule: **the answer is the attestation — the version moves only when the
+answer does.** A note-only edit keeps the version (a note is context ABOUT an attestation);
+a true no-op writes nothing at all, so `updated_at`, `answered_by` and the version are
+preserved exactly.
+
+**Blast radius: none.** Production holds 0 CE answers, verified before and after the
+migration, so no customer answer was ever mis-versioned. The defect was real and live; it
+simply had no data to damage.
+
+### Scope, proven behaviourally
+Same external evidence with all-YES, all-NO and no answers produces an IDENTICAL external
+readiness indicator. Answers still never reach the Cyber Metrics Score or the Business Risk
+Indicator, and still never auto-create a case.
+
+**Production proof:** `/health` polled to 6 consecutive reads of `da576ff2`, no flapping;
+`/ready` d1+r2 true; `question_set_version` confirmed present on
+`cyber_essentials_answers` in production D1; the CE answers route returns a customer-safe
+`401` unauthenticated — live and auth-gated, which is NOT proof of the authenticated
+workflow. No customer answer, case, alert or email was manufactured.
+
 ## 2026.07.16-14 (Cyber Essentials readiness honesty — no proxy scoring) — deployed 2026-07-16
 
 - **Live Worker Version ID:** `1ebf34f0-7576-4a1b-9324-fe78750c0904` (main `72b5265`)
