@@ -171,7 +171,10 @@ const run = (ws, scanId = "scan_1") => evaluateCyberEssentialsLifecycle(env, ws,
   eq("malware_protection declares NO external coverage", coverage.malware_protection, "none");
   eq("boundary_protection is externally observable (partial)", coverage.boundary_protection, "partial");
   eq("secure_configuration is externally observable (partial)", coverage.secure_configuration, "partial");
-  eq("patch_management_readiness is externally observable (partial)", coverage.patch_management_readiness, "partial");
+  // Reclassified in readiness methodology revision 2: it was scored from certificate expiry,
+  // certificate risk and the ASM backlog, none of which measures automatic updates,
+  // unsupported-software removal, a review process or 14-day patching.
+  eq("patch_management_readiness declares NO external coverage", coverage.patch_management_readiness, "none");
 
   ok("access_control is refused as an alert source", !ceControlIsExternallyAssessable("access_control"));
   ok("malware_protection is refused as an alert source", !ceControlIsExternallyAssessable("malware_protection"));

@@ -28,8 +28,11 @@ let pass = 0, fail = 0;
 const ok = (n, c, d = "") => { c ? pass++ : fail++; if (!c) console.log(`FAIL ${n}${d ? " — " + d : ""}`); };
 const eq = (n, g, w) => ok(n, JSON.stringify(g) === JSON.stringify(w), `got ${JSON.stringify(g)} want ${JSON.stringify(w)}`);
 
-const NON_ASSESSABLE = ["access_control", "malware_protection"];
-const ASSESSABLE = ["boundary_protection", "secure_configuration", "patch_management_readiness"];
+// Revision 2: patch_management_readiness joined the non-assessable set. Its evidence
+// (certificate expiry, certificate risk, ASM backlog, asset events) measured none of the four
+// questions it asks, exactly as SPF/DKIM/DMARC measured none of Access Control's.
+const NON_ASSESSABLE = ["access_control", "malware_protection", "patch_management_readiness"];
+const ASSESSABLE = ["boundary_protection", "secure_configuration"];
 
 function buildDb() {
   const db = new DatabaseSync(":memory:");
@@ -153,7 +156,7 @@ const cat = (r, k) => r.categories.find((c) => c.key === k);
 // ════ 3. THE ARITHMETIC AND THE DENOMINATOR ═════════════════════════════════
 {
   const r = await readiness("perfect");
-  eq("exactly 3 assessable control areas", r.assessable_control_count, 3);
+  eq("exactly 2 assessable control areas", r.assessable_control_count, 2);
   eq("out of 5 total", r.total_control_count, 5);
   eq("only assessable areas carry weight",
     r.categories.filter((c) => c.weight > 0).map((c) => c.key).sort(), [...ASSESSABLE].sort());
@@ -172,12 +175,12 @@ const cat = (r, k) => r.categories.find((c) => c.key === k);
 
   // The coverage statement is present, accurate and names both controls.
   ok("a coverage statement is published", Boolean(r.external_coverage_statement));
-  ok("it states the real denominator (3 of 5)", /3 of 5/.test(r.external_coverage_statement), r.external_coverage_statement);
+  ok("it states the real denominator (2 of 5)", /2 of 5/.test(r.external_coverage_statement), r.external_coverage_statement);
   ok("it names Access Control", /Access Control/.test(r.external_coverage_statement));
   ok("it names the malware control", /Malware/i.test(r.external_coverage_statement));
   ok("it says they need attestation", /attestation/i.test(r.external_coverage_statement));
   eq("non_assessable_controls lists exactly the two", r.non_assessable_controls.map((c) => c.key).sort(), [...NON_ASSESSABLE].sort());
-  ok("the coverage statement rides in limitations too", r.limitations.some((l) => /3 of 5/.test(l)));
+  ok("the coverage statement rides in limitations too", r.limitations.some((l) => /2 of 5/.test(l)));
   // Never imply certification.
   ok("nothing claims certification or compliance",
     !/certified|compliant|certification achieved/i.test(JSON.stringify({ s: r.summary, st: r.status, l: r.limitations })));
@@ -305,10 +308,10 @@ if (!process.argv.includes("--no-mutate")) {
     { file: CE, name: "the coverage disclaimer is removed",
       from: "    external_coverage_statement: coverageStatement,", to: "" },
     { file: CE, name: "email-auth reasons are re-attributed to Access Control",
-      from: "  categories.push(cyberEssentialsCategory('access_control', 'Access Control', 0, [], [], [], [], []));",
+      from: "  categories.push(cyberEssentialsCategory('access_control', LABEL_FOR('access_control'), 0, [], [], [], [], []));",
       to: "  categories.push({ key: 'access_control', label: 'Access Control', score: 100, weight: 20, assessable: true, externally_assessed: true, reasons: ['SPF is present.'], gaps: [], unknown: [], recommendations: [], remediations: [] });" },
     { file: CE, name: "email-auth reasons are re-attributed to Malware Protection",
-      from: "  categories.push(cyberEssentialsCategory('malware_protection', 'Phishing & Malware Exposure', 0, [], [], [], [], []));",
+      from: "  categories.push(cyberEssentialsCategory('malware_protection', LABEL_FOR('malware_protection'), 0, [], [], [], [], []));",
       to: "  categories.push({ key: 'malware_protection', label: 'Phishing & Malware Exposure', score: 100, weight: 20, assessable: true, externally_assessed: true, reasons: ['DMARC is present.'], gaps: [], unknown: [], recommendations: [], remediations: [] });" },
     { file: CE, name: "the coverage gate is bypassed so proxies score the control again",
       from: "  if (!ceControlIsExternallyAssessable(key)) return cyberEssentialsNonAssessableCategory(key, label);",

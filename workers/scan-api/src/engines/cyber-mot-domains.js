@@ -35,7 +35,18 @@
 //
 // Precedent: PROVIDER_MAP_VERSION (engines/sender-classification.js), the only other
 // algorithm version stamped onto a persisted row.
-export const CYBER_MOT_RESOLVER_VERSION = "2026-07-16.1";
+//
+// ── ALSO bump when an INPUT the resolver reads changes what it resolves ──
+// `.2` (16 July 2026): the Cyber Essentials domain state is derived from
+// `cyberEssentials.status`, which comes from the readiness GRADE, which comes from the
+// readiness SCORE. That score's denominator changed from 3 of 5 control areas to 2 of 5 when
+// `patch_management_readiness` was reclassified as not externally assessable (readiness
+// methodology revision 2). Nothing in THIS file changed — but the state it resolves for a
+// workspace can now differ with no change in the customer's security posture, and the trend
+// gate below compares resolver_version to decide whether two assessments describe the same
+// measurement. Without this bump, the portfolio would tell customers their Cyber Essentials
+// posture improved or deteriorated on the day we deployed a definition change.
+export const CYBER_MOT_RESOLVER_VERSION = "2026-07-16.2";
 
 // Fixed canonical enum — the resolver contract layer. UI maps these to friendly
 // labels; the source state stays stable.

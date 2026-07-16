@@ -154,8 +154,24 @@ export const CE_QUESTIONS = [
     ],
   },
   {
+    // NOT externally assessable — founder decision, 16 July 2026 (readiness methodology
+    // revision 2). This control was `partial` and scored from certificate expiry,
+    // certificate risk, open critical/high ASM findings and asset-change events. None of
+    // those measures ANY of the four questions below: automatic updates, unsupported
+    // software removal, an update-review process, or 14-day critical patching. A certificate
+    // expiring is not a software patch, and an open attack-surface finding is not patch
+    // status. It even published "No critical or high findings in the latest scan." as a
+    // POSITIVE reason for patch readiness — the same shape as "SPF is present." → Access
+    // Control 100/100, which `v2026.07.16-14` removed from the other two controls.
+    //
+    // The externally visible software-version and vulnerability signals still exist and are
+    // still surfaced — in Attack Surface, Website Security and Certificates & Trust, where
+    // the evidence legitimately lives. They are simply no longer re-attributed as proof of
+    // internal patch management. No replacement proxy was introduced: a genuine externally
+    // observable patch signal, if one is ever found, is a separate evidence-governed
+    // detection increment.
     control_key: "patch_management_readiness",
-    external_coverage: "partial",
+    external_coverage: "none",
     label: "Security Update Management",
     public_title: "Security update management",
     description: "Checks whether software and devices receive security updates promptly and whether unsupported items are removed.",
