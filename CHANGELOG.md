@@ -5,6 +5,86 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.16-8 (Occurrence resolver — correct at any lifecycle age) — deployed 2026-07-16
+
+- **Live Worker Version ID:** `db190243-5f44-4f70-ab4f-ecfe0427b8b7` (main `d63f422`)
+- **Rollback Worker Version ID:** `029ee0b9-15e3-4761-84e6-9b7e28743842` (v2026.07.16-7)
+- **Remote D1 migrations applied:** none — no schema change.
+- **Pages:** unaffected (no frontend change).
+- **PR:** #126
+
+**What the audit claimed, and what actually happens.** The audit reported that Shadow IT
+alerting self-destructs after ~25 passes. Reproduced against the real engine, the mechanism
+is exactly right and lands at **pass 26** — but the customer-visible harm did **not**
+reproduce, and this entry says so rather than repeating the headline.
+
+`findConditionOccurrence` read `LIMIT 25` `monitoring_changed` rows and filtered
+`to_recurrence_type` in JavaScript. That event type is overloaded — it also records
+`reappeared`, `no_longer_observed` and case-linkage — and Shadow IT appended one
+case-linkage row per evaluation pass while a condition persisted. Measured on one item:
+**148 `monitoring_changed` rows, 4 of them real occurrences**; the resolver returned the
+occurrence on passes 1-25 and NULL from 26 onward, forever.
+
+But alerts stayed correctly at **1** across 40 passes — the dedupe key IS the occurrence
+id, so those passes would have deduped anyway; eviction and dedupe produce identical
+silence. And a genuine recurrence still alerted: driven through recovery → re-entry after
+**143 intervening events**, the occurrence resolved and the customer was told. The defect
+was that **correctness rested on the ordering** — the real transition happened to be
+written immediately before the read, so it happened to still be inside the window. An
+arbitrary event window is not lifecycle state, and 25 is not a bound; it is a number.
+
+**The fix.** The resolver now asks SQL for the exact row: the `to_recurrence_type` filter
+is pushed into the query (guarded by `CASE WHEN json_valid(...)`), ordered
+`created_at DESC, rowid DESC`, `LIMIT 1`. `LIMIT 1` is semantic — exactly one row can be
+the latest transition into a condition — and it is an ordered index walk that stops at the
+first match, measured correct past **25, 50, 100 and 500** intervening events. Not a bigger
+magic number, not an unbounded scan, no parallel state machine, no deleted history, no new
+state record. It is the SHARED resolver, so the fix lands for all eight domains.
+`json_valid()` is load-bearing: a bare `json_extract()` throws on one malformed row and
+would take the whole read — and every alert for that record — down with it.
+
+**Root cause, fixed as a class.** The per-pass case-linkage row is not a monitoring change
+and is now `case_recurrence_noted` in all three domains that wrote the identical row
+(shadow-it, identity, certificates), declared in each domain's own event vocabulary.
+Measured: 148 rows → 7. Fixing only the reported domain is how `#105` left the same defect
+live elsewhere.
+
+**Behavioural change:** strictly widening and fail-closed. The new read returns the same
+row wherever the old one returned anything; it only recovers occurrences the window had
+orphaned. Legacy production rows still carry the old event type and behave identically —
+the case-linkage row never carried `to_recurrence_type`, so no reader's answer changes.
+History now records the same fact under two types (old `monitoring_changed`, new
+`case_recurrence_noted`); any future by-type timeline must handle both.
+
+**Four defects an independent review found in this change — all mine, all corrected before
+merge:** (1) a **false** claim, shipped in three comments, that the retype shortens the
+resolver's index walk — every index is `(fk, created_at)` with no `event_type`, so the walk
+is unchanged and the honest rationale is typing, not performance; (2) a **vacuous** tenant
+assertion that was true for every possible engine behaviour because the API does not select
+`workspace_id`; (3) a planner-dependent ORDER BY mutant, now stated as such and joined by a
+planner-independent tie-break mutant; (4) a comment overclaiming which payload shapes are
+pinned. Also recorded: `LIMIT 1 → LIMIT 25` with the filter intact is an **equivalent
+mutant** — undetectable, so deliberately not guarded rather than faked.
+
+**Validation:** 103/103 CI validators · regression 227/227 · tenant isolation green ·
+purge + migration validators green · wrangler dry-run clean · exact-HEAD CI confirmed on
+`5d220db`. validate-alert-occurrence 88, validate-alerting-repair-mutations 57,
+validate-shadow-it-correlation 66. Reverting the resolver fails 8 assertions.
+
+**Production proof:** the first deploy attempt FAILED (`fetch failed`, transient Cloudflare
+API error) and was verified to have shipped nothing — `/health` still served the previous
+version — then retried successfully. Propagation flapped across edge PoPs (reads alternated
+between old and new), so the version was polled until **6 consecutive reads** served
+`db190243` before it was called live. `/ready` d1+r2 true. Shadow IT returns `404`
+(non-enumerating); identity and certificates `401` (auth-gated). No real customer alert was
+manufactured: every reproduction ran against in-memory SQLite with `fetch` stubbed.
+
+**Outstanding, reported not fixed:** the case-linkage row and its `managed_case_events`
+sibling are still written once per pass and still record no new fact — roughly 8,760
+rows/item/year at hourly cadence. That is a storage/history concern with its own semantics
+(does a still-open case want an hourly heartbeat at all?) and was not decided as a side
+effect of an alerting fix.
+
 ## 2026.07.16-7 (M5 alerting repair — threat suppression + hosted re-alert) — deployed 2026-07-16
 
 - **Live Worker Version ID:** `029ee0b9-15e3-4761-84e6-9b7e28743842` (main `325e09b`)

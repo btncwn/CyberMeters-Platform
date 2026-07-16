@@ -2,7 +2,7 @@
 
 Version: July 2026
 
-Last updated: 16 July 2026 (release v2026.07.16-7; active canonical episode: M5 Completion Across All Eight Domains — in progress)
+Last updated: 16 July 2026 (release v2026.07.16-8; active canonical episode: M5 Completion Across All Eight Domains — in progress)
 
 ---
 
@@ -250,10 +250,10 @@ Do not claim that CyberMeters performs a customer, provider, registrar, certific
 
 Current release facts (as of 16 July 2026):
 
-- latest release tag: `v2026.07.16-7` (M5 alerting repair — deployed);
-- live Worker Version ID: `029ee0b9-15e3-4761-84e6-9b7e28743842` (built from `325e09b`);
-- rollback Worker Version ID: `6b310472-702c-4e7a-bafd-92cbc4a1b83d` (v2026.07.16-6);
-- latest migration applied to production: `091-cyber-mot-domain-states.sql` (unchanged — neither `v2026.07.16-6` nor `-7` carried a migration);
+- latest release tag: `v2026.07.16-8` (occurrence resolver — correct at any lifecycle age — deployed);
+- live Worker Version ID: `db190243-5f44-4f70-ab4f-ecfe0427b8b7` (built from `d63f422`);
+- rollback Worker Version ID: `029ee0b9-15e3-4761-84e6-9b7e28743842` (v2026.07.16-7);
+- latest migration applied to production: `091-cyber-mot-domain-states.sql` (unchanged — none of `v2026.07.16-6`, `-7` or `-8` carried a migration);
 - active canonical episode: M5 Completion Across All Eight Domains (in progress).
 
 **M5 is under way.** Its pre-change parity audit across all eight domains found four false
@@ -275,10 +275,17 @@ change and are mutation-tested. The canonical policy: evidence is the floor, the
 may escalate but never silently de-escalate, a suppression meeting contradicting evidence
 is an explicit conflict rather than silence, and unrecognised values fail closed.
 
-The remaining M5 increments are **planned, not started**: Shadow IT's alerting
-self-destruct after 25 passes, the read surfaces for migrations 088/089/090, case creation
-for Email Protection / Website Security / Cyber Essentials, and the per-domain maturity
-ledger. The ledger is corrected **last**: it is wrong in every row today and most rows
+The **occurrence resolver** is also fixed (`v2026.07.16-8`): it read a bounded 25-row
+window and filtered in JS, so a persisting condition's occurrence stopped resolving at pass
+26. The audit called this "alerting dies after 25 passes"; reproduced, the mechanism was
+exact but the harm was not — dedupe masked it and genuine recurrences still alerted after
+143 events. It was fixed anyway because correctness rested on an arbitrary window rather
+than on lifecycle state. Still outstanding there: the per-pass case-linkage row is written
+once per evaluation and records no new fact (~8,760 rows/item/year).
+
+The remaining M5 increments are **planned, not started**: the read surfaces for migrations
+088/089/090, case creation for Email Protection / Website Security / Cyber Essentials, and
+the per-domain maturity ledger. The ledger is corrected **last**: it is wrong in every row today and most rows
 *under*-claim, so raising it before the underlying gaps close would make the declaration
 lie in the opposite direction.
 
