@@ -121,7 +121,10 @@ function readinessBadgeClass(readiness) {
 }
 
 function overallTone(readiness) {
-  const score = readiness?.score ?? 0
+  const score = readiness?.score
+  // No indicator is NOT a bad indicator. `?? 0` painted "not assessed" red, which reads as
+  // critical — a verdict the evidence does not support. Absent stays neutral.
+  if (typeof score !== 'number') return 'border-gray-200 bg-gray-50 text-gray-700'
   if (score >= 80) return 'border-brand-100 bg-brand-50 text-brand-800'
   if (score >= 55) return 'border-amber-100 bg-amber-50 text-amber-800'
   return 'border-red-100 bg-red-50 text-red-800'
@@ -448,12 +451,17 @@ function ResultSummary({ readiness }) {
         <div className="flex items-start gap-3">
           <ShieldCheck className="mt-0.5 h-7 w-7 flex-shrink-0" />
           <div>
-            <p className="text-sm font-bold uppercase tracking-wide opacity-70">Overall readiness status</p>
+            <p className="text-sm font-bold uppercase tracking-wide opacity-70">External readiness indicator</p>
             <h2 className="mt-1 text-2xl font-bold">
-              {readiness?.score ?? '—'}<span className="text-base opacity-70">/100</span>
+              {typeof readiness?.score === 'number' ? readiness.score : '—'}<span className="text-base opacity-70">/100</span>
               {readiness?.grade ? <span className="ml-3">Grade {readiness.grade}</span> : null}
             </h2>
             <p className="mt-2 max-w-3xl text-sm leading-relaxed">{readiness?.summary || 'Complete the questionnaire to improve the readiness view for this workspace.'}</p>
+            {/* The denominator, next to the number it qualifies. Backend-owned: a screen that
+                worked out its own coverage would be a second source of truth. */}
+            {readiness?.external_coverage_statement ? (
+              <p className="mt-2 max-w-3xl text-xs leading-relaxed opacity-80">{readiness.external_coverage_statement}</p>
+            ) : null}
           </div>
         </div>
         <span className="rounded-full border border-current/20 px-3 py-1 text-sm font-bold capitalize">

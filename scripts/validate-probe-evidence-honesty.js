@@ -44,6 +44,7 @@ const { buildScanQuality } = await import(eng("scan-engine.js"));
 const { runHeadersModule } = await import(eng("headers-scan.js"));
 const { runSslModule } = await import(eng("ssl-scan.js"));
 const { resolveCyberMotDomainStates, CYBER_MOT_STATES } = await import(eng("cyber-mot-domains.js"));
+const { resolveRemediation } = await import(eng("remediation-registry.js"));
 const { runCertificateIntelligenceModule } = await import(eng("cert-intel.js"));
 const { computeScore } = await import(eng("scoring.js"));
 const { moduleCompletionGate } = await import(eng("asm-cases.js"));
@@ -305,7 +306,19 @@ const sslHealthy         = () => ({ ...sslOk, https_available: true, https_probe
     const r = await buildCyberEssentialsReadiness("ws1", envFor(report));
     const gapText = JSON.stringify(r?.top_gaps || []);
     ok("OBSERVED absent HSTS still produces a gap (the fix is not a silencer)", /HSTS is not present/i.test(gapText), gapText);
-    ok("OBSERVED absent DMARC still produces a gap", /DMARC is missing/i.test(gapText), gapText);
+    // DMARC deliberately no longer appears in CE readiness. It used to, via `access_control`
+    // and `malware_protection` — controls that declare `external_coverage: none`. Email
+    // authentication is not evidence of user access control or endpoint malware protection,
+    // so scoring those controls from SPF/DKIM/DMARC was a false attribution, and it is gone.
+    //
+    // This is NOT a silencer either, which is the point of the second assertion: the DMARC
+    // gap still exists in Email Protection, the domain the evidence actually belongs to.
+    ok("CE no longer attributes DMARC to a control it cannot externally observe",
+      !/DMARC is missing/i.test(gapText), gapText);
+    const dmarcRem = resolveRemediation({ finding_type: "email_missing_dmarc" });
+    ok("the DMARC gap still lives in Email Protection (moved, not silenced)",
+      dmarcRem.status === "resolved" && dmarcRem.domain_key === "email_protection",
+      JSON.stringify({ status: dmarcRem.status, domain: dmarcRem.domain_key }));
     eq("an assessed workspace is assessable", r?.assessable, true);
     ok("an assessed workspace still gets a grade", typeof r?.score === "number");
   }

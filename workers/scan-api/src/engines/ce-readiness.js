@@ -27,13 +27,61 @@ function cyberEssentialsStatus(grade) {
   return 'not_ready';
 }
 
+// ── External coverage is the repo's own honesty metadata, and it is AUTHORITATIVE ──
+// Read from the same CE_QUESTIONS the managed lifecycle reads (ce-lifecycle.js), so there is
+// exactly one answer to "can CyberMeters see this control?" and it cannot drift between the
+// scoring path and the case path.
+//
+// Only `partial` is externally assessable. `access_control` and `malware_protection` declare
+// `none`: they were SCORED from SPF/DKIM/DMARC, which measure anti-spoofing — not user
+// access control, and not endpoint malware protection. Email authentication is not evidence
+// of either. A workspace with perfect MFA and least privilege was scored 60/100 on "Access
+// Control" for a missing SPF record; one with no MFA at all was scored 100/100 and flagged
+// `externally_assessed: true`. Both claims were false, and the second is the dangerous one.
+const CE_EXTERNAL_COVERAGE = Object.freeze(Object.fromEntries(
+  CE_QUESTIONS.map((c) => [c.control_key, c.external_coverage || "none"]),
+));
+export function ceControlIsExternallyAssessable(controlKey) {
+  return CE_EXTERNAL_COVERAGE[controlKey] === "partial";
+}
+// The one customer-facing sentence for a control the product cannot see from outside.
+export const CE_NOT_ASSESSABLE_LABEL = "Not externally assessable — self-attestation only";
+
+// A control area CyberMeters cannot observe from outside. It stays VISIBLE — hiding it would
+// be its own dishonesty — but it publishes no number, no band, no health, and no reason
+// derived from a proxy. Its weight is 0, so it cannot enter the readiness arithmetic.
+function cyberEssentialsNonAssessableCategory(key, label) {
+  return {
+    key,
+    label,
+    score: null,            // NOT 0 and NOT 100: there is no number to publish.
+    weight: 0,              // Cannot influence the external-readiness indicator.
+    band: null,
+    reasons: [CE_NOT_ASSESSABLE_LABEL],
+    gaps: [],
+    unknown: [],
+    externally_assessed: false,
+    external_coverage: "none",
+    assessable: false,
+    attestation_only: true,
+    recommendations: [],
+    remediations: [],
+  };
+}
+
 function cyberEssentialsCategory(key, label, score, reasons, gaps, recommendations, remediations, unknown) {
+  if (!ceControlIsExternallyAssessable(key)) return cyberEssentialsNonAssessableCategory(key, label);
   const unknownSignals = unknown ?? [];
   return {
     key,
     label,
     score: clamp(Math.round(score)),
+    // Recomputed below across the assessable controls only. A fixed 20 across five controls
+    // is what let two unobservable areas carry 40% of the indicator.
     weight: 20,
+    external_coverage: CE_EXTERNAL_COVERAGE[key] || "none",
+    assessable: true,
+    attestation_only: false,
     // "No major readiness gaps detected" is a CLAIM. It may only be made when
     // something was actually observed — otherwise the honest line is that the
     // control could not be assessed, which is what `unknown` records.
@@ -337,46 +385,29 @@ export async function buildCyberEssentialsReadiness(wsId, env) {
     categories.push(cyberEssentialsCategory('secure_configuration', 'Secure Configuration', state.score, state.reasons, state.gaps, state.recommendations, state.remediations, state.unknown));
   }
 
-  // Access Control: email authentication plus externally visible admin/SaaS portals.
-  {
-    const state = { score: 100, reasons: [], gaps: [], recommendations: [], remediations: [], unknown: [] };
-    if (email.spf === false) addGap(state, 15, 'SPF is missing or not confirmed.', 'email_missing_spf');
-    else if (email.spf === true) addReason(state, 'SPF is present.');
-    else addUnknown(state, 'spf', 'SPF could not be assessed — email evidence was not collected.');
-    if (email.dmarc === false) {
-      addGap(state, 25, 'DMARC is missing or not confirmed.', 'email_missing_dmarc');
-    } else if (email.dmarc === true && email.dmarcPolicy === 'none') {
-      addGap(state, 10, 'DMARC is monitor-only (p=none).', 'email_dmarc_policy_none');
-    } else if (email.dmarc === true) {
-      addReason(state, 'DMARC is present.');
-    } else {
-      addUnknown(state, 'dmarc', 'DMARC could not be assessed — email evidence was not collected.');
-    }
-    if (email.dkim === true) addReason(state, 'DKIM is detected.');
-    else if (email.dkim === false) addReason(state, 'DKIM could not be verified using common selectors; a custom selector may be in use.');
-    else addUnknown(state, 'dkim', 'DKIM could not be assessed — email evidence was not collected.');
-    if (adminTotal > 0) addGap(state, 25, 'Public admin surfaces increase access-control exposure.', 'asset_exposure_admin_interface');
-    if (saasTotal > 0) addGap(state, 10, `${saasTotal} externally reachable SaaS portal${saasTotal !== 1 ? 's' : ''} detected.`, 'ce_saas_access_review');
-    categories.push(cyberEssentialsCategory('access_control', 'Access Control', state.score, state.reasons, state.gaps, state.recommendations, state.remediations, state.unknown));
-  }
+  // ── Access Control — NOT externally assessable ────────────────────────────
+  // Previously scored from SPF/DMARC/DKIM (plus admin/SaaS exposure) and published as a
+  // number with a colour band and `externally_assessed: true`. Email authentication tells
+  // you whether someone can spoof your domain. It says NOTHING about whether your staff use
+  // MFA, whether admin rights are separated, or whether leavers are deprovisioned — which is
+  // what this control actually asks. The proxy is not weak evidence here; it is evidence of
+  // a different thing.
+  //
+  // Nothing observable is lost by removing it: exposed admin surfaces already drive
+  // `boundary_protection` above (the assessable control they belong to) and the Attack
+  // Surface domain. The SaaS-portal signal (`ce_saas_access_review`) was attributed ONLY
+  // here; SaaS exposure remains visible in Shadow IT & Unmanaged Technology, where the
+  // evidence legitimately lives. It is deliberately not re-attributed to a control the
+  // product cannot see.
+  categories.push(cyberEssentialsCategory('access_control', 'Access Control', 0, [], [], [], [], []));
 
-  // Phishing & Malware Exposure: estimate only, based on proxy domain/email posture.
-  {
-    const state = { score: 100, reasons: [], gaps: [], recommendations: [], remediations: [], unknown: [] };
-    addReason(state, 'Phishing and malware exposure is estimated from available domain, email, and external exposure signals only.');
-    if (email.dmarc === false || (email.dmarc === true && email.dmarcPolicy === 'none')) {
-      addGap(state, 25, 'Email anti-spoofing enforcement is weak.', 'email_dmarc_policy_none');
-    } else if (email.dmarc === null) {
-      addUnknown(state, 'dmarc', 'Email anti-spoofing enforcement could not be assessed — email evidence was not collected.');
-    }
-    if (email.spf === false) addGap(state, 15, 'SPF is missing or not confirmed.', 'email_missing_spf');
-    else if (email.spf === null) addUnknown(state, 'spf', 'SPF could not be assessed — email evidence was not collected.');
-    if (email.dkim === false) addReason(state, 'DKIM could not be verified using common selectors; a custom selector may be in use.');
-    if (criticalFindings + highFindings > 0) {
-      addGap(state, 15, 'High-impact external findings may increase malware delivery risk.', 'ce_open_findings_backlog');
-    }
-    categories.push(cyberEssentialsCategory('malware_protection', 'Phishing & Malware Exposure', state.score, state.reasons, state.gaps, state.recommendations, state.remediations, state.unknown));
-  }
+  // ── Phishing & Malware Exposure — NOT externally assessable ───────────────
+  // Previously an "estimate" from the same email-auth proxies. Anti-spoofing enforcement is
+  // not endpoint malware protection: it cannot tell you whether AV is installed, updated or
+  // enabled on a single device. The old copy admitted it was "estimated from available
+  // signals only" and then published 100/100 in green anyway — the admission did not undo
+  // the claim.
+  categories.push(cyberEssentialsCategory('malware_protection', 'Phishing & Malware Exposure', 0, [], [], [], [], []));
 
   // Patch Management Readiness: certificate expiry, trend, remediation backlog.
   {
@@ -404,8 +435,34 @@ export async function buildCyberEssentialsReadiness(wsId, env) {
     categories.push(cyberEssentialsCategory('patch_management_readiness', 'Patch Management Readiness', state.score, state.reasons, state.gaps, state.recommendations, state.remediations, state.unknown));
   }
 
-  const score = Math.round(categories.reduce((sum, c) => sum + c.score * (c.weight / 100), 0));
-  const grade = cyberEssentialsGrade(score);
+  // ── The external-readiness indicator: assessable control areas ONLY ───────
+  // The old arithmetic gave all five a fixed weight of 20, so two control areas the product
+  // cannot observe carried 40% of the number. Weight is now shared across the assessable
+  // areas only, and the non-assessable ones hold weight 0 — they cannot move it at all.
+  const assessableCategories = categories.filter((c) => c.assessable);
+  const nonAssessable = categories.filter((c) => !c.assessable);
+  // Weight is presentation only — the indicator below is the plain mean of the assessable
+  // areas — but it must still sum to exactly 100, so the remainder from an uneven split
+  // (3 areas → 33.33 × 3 = 99.99) goes to the first rather than quietly going missing.
+  if (assessableCategories.length) {
+    const per = Math.round((100 / assessableCategories.length) * 100) / 100;
+    for (const c of assessableCategories) c.weight = per;
+    const drift = Math.round((100 - per * assessableCategories.length) * 100) / 100;
+    assessableCategories[0].weight = Math.round((per + drift) * 100) / 100;
+  }
+  const score = assessableCategories.length
+    ? Math.round(assessableCategories.reduce((sum, c) => sum + c.score, 0) / assessableCategories.length)
+    : null;
+  const grade = score == null ? null : cyberEssentialsGrade(score);
+  // Say the coverage out loud, on the object every surface reads. A number whose denominator
+  // is invisible invites the reader to assume it covers everything.
+  const nonAssessableLabels = nonAssessable.map((c) => c.label);
+  const coverageStatement =
+    `External readiness indicator based on ${assessableCategories.length} of ${categories.length} `
+    + `Cyber Essentials control areas.`
+    + (nonAssessableLabels.length
+        ? ` ${nonAssessableLabels.join(' and ')} require customer attestation.`
+        : '');
   const topGaps = [...new Map(
     allGaps
       .sort((a, b) => b.impact - a.impact)
@@ -429,6 +486,11 @@ export async function buildCyberEssentialsReadiness(wsId, env) {
     grade,
     status: cyberEssentialsStatus(grade),
     categories,
+    // The denominator, stated. Additive: every existing field keeps its meaning.
+    external_coverage_statement: coverageStatement,
+    assessable_control_count: assessableCategories.length,
+    total_control_count: categories.length,
+    non_assessable_controls: nonAssessable.map((c) => ({ key: c.key, label: c.label, reason: CE_NOT_ASSESSABLE_LABEL })),
     top_gaps: topGaps,
     recommendations,
     canonical_remediations: canonicalRemediations,
@@ -445,6 +507,8 @@ export async function buildCyberEssentialsReadiness(wsId, env) {
     limitations: [
       'CyberMeters does not certify Cyber Essentials.',
       'This readiness estimate uses externally observable CyberMeters signals only.',
+      coverageStatement,
+      'Access Control and Phishing & Malware Exposure cannot be observed from outside at all. They are not scored, and their state comes from your own attestation.',
       'Endpoint protection, internal device configuration, and user access policies cannot be fully assessed from external ASM data.',
     ],
   };
