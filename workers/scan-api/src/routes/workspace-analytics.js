@@ -120,16 +120,54 @@ export async function workspaceAnalyticsRoutes(rctx) {
           // Ignore unknown control/question/answer keys — never trust client input.
           if (!validKeys.has(ck) || !validKeys.get(ck).has(qk) || !validAnswers.has(ans)) continue;
           try {
-            // question_set_version is stamped from the set THIS answer was given under (mig
-            // 092). On update it moves with the answer — the customer is answering the
-            // wording live right now. It is never backfilled onto rows that did not move:
-            // an untouched answer keeps the version of the question it actually answered.
+            // ── THE RE-VERSIONING CONTRACT — enforced in SQL, not in the client ──
+            //
+            // The client submits the FULL questionnaire on every save, not a delta:
+            // saveAnswers() → flattenAnswers(answers) (WorkspaceCyberEssentialsPage.jsx)
+            // flattens all 20 answers the page holds, untouched ones included. So an
+            // unconditional `question_set_version = excluded.question_set_version` re-stamps
+            // EVERY row on EVERY save — a customer editing one question would silently
+            // relabel the other 19 as answers to the CURRENT wording, including questions
+            // reworded since that they never saw. That is precisely the defect this column
+            // exists to prevent.
+            //
+            // It cannot be fixed by making the client send a delta: a crafted or future
+            // client would bypass that. The rule therefore lives here, and it is ONE rule:
+            //
+            //   THE ANSWER IS THE ATTESTATION. The version moves only when the answer does.
+            //
+            //   • new row                        → active version (they are answering it now)
+            //   • answer VALUE changed           → active version (a genuine re-attestation)
+            //   • answer same, note changed      → KEEP the stored version. A note is context
+            //                                      ABOUT an attestation, not the attestation:
+            //                                      "yes, via Intune" is the same yes. Only
+            //                                      updated_at moves.
+            //   • answer same, note same         → a NO-OP. The WHERE below means SQLite
+            //                                      writes nothing at all, so updated_at,
+            //                                      answered_by and the version are all
+            //                                      preserved byte-for-byte. Loading the page
+            //                                      and pressing Save changes nothing, and a
+            //                                      crafted client resubmitting identical
+            //                                      values cannot force a re-version.
+            //
+            // `IS NOT` is SQLite's null-safe comparison, so a stored NULL note or version
+            // cannot make either branch silently misfire.
             await env.cybermeters_db
               .prepare(`INSERT INTO cyber_essentials_answers (id, workspace_id, control_key, question_key, answer, note, answered_by, question_set_version, updated_at)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
                         ON CONFLICT(workspace_id, control_key, question_key)
-                        DO UPDATE SET answer = excluded.answer, note = excluded.note, answered_by = excluded.answered_by,
-                                      question_set_version = excluded.question_set_version, updated_at = datetime('now')`)
+                        DO UPDATE SET
+                          answer = excluded.answer,
+                          note = excluded.note,
+                          answered_by = excluded.answered_by,
+                          question_set_version = CASE
+                            WHEN cyber_essentials_answers.answer IS NOT excluded.answer
+                              THEN excluded.question_set_version
+                            ELSE cyber_essentials_answers.question_set_version
+                          END,
+                          updated_at = datetime('now')
+                        WHERE cyber_essentials_answers.answer IS NOT excluded.answer
+                           OR cyber_essentials_answers.note IS NOT excluded.note`)
               .bind(createId(), wsId, ck, qk, ans, it?.note ? String(it.note).slice(0, 500) : null, user.id, CE_QUESTION_SET_VERSION)
               .run();
           } catch { /* skip a bad row, keep going — never surface raw DB errors */ }

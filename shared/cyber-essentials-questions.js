@@ -35,7 +35,30 @@
 // the version they were given under (`cyber_essentials_answers.question_set_version`, mig
 // 092) and KEEP it — an answer to an older wording is evidence about the question that was
 // actually asked, and rewriting it would be rewriting history.
+//
+// ── THE VERSION FORMAT — canonical, founder-set ──
+// Exactly ISO 8601 `YYYY-MM-DD`. Nothing else is valid:
+//   • NOT month-only (`2026-08`). A questionnaire can be revised twice in one month, and a
+//     month-only version cannot tell those two revisions apart — so an answer could not be
+//     traced to the wording that produced it, which is the whole reason the version exists.
+//   • NOT `DD-MM-YYYY`, `MM-DD-YYYY`, or any partial/locale form. `05-06-2026` is ambiguous
+//     to a reader and unsortable to a machine; ISO is both unambiguous and lexicographically
+//     sortable, so string ordering IS chronological ordering.
+//
+// THIS IS A CYBERMETERS PRODUCT VERSION. It identifies the wording of OUR readiness
+// questions and nothing else. It is NOT an IASME release identifier, NOT an NCSC one, and
+// NOT a Cyber Essentials scheme version. It must never be read as tracking either body's
+// publications: the date is when CyberMeters changed its own words. When IASME revises the
+// scheme, that is recorded separately in CE_QUESTION_SET_PROVENANCE.official_set_aligned_on.
+//
+// Enforced by scripts/validate-ce-question-set-version.js (CI-blocking), which also checks
+// that every other place the version appears uses the same format.
 export const CE_QUESTION_SET_VERSION = "2026-07-16";
+
+// The one regex. Exported so every consumer and validator tests the SAME rule rather than
+// re-deriving a slightly different one. Anchored, and it rejects impossible dates by shape
+// (month 00-19 / day 00-39 are still checked as a real date by the validator).
+export const CE_QUESTION_SET_VERSION_FORMAT = /^\d{4}-\d{2}-\d{2}$/;
 
 // Provenance for the readiness set. Reviewed against the published IASME control areas on
 // the date below; this records WHEN we last looked and WHEN we look again, so "is this still
@@ -44,12 +67,20 @@ export const CE_QUESTION_SET_PROVENANCE = Object.freeze({
   authored_by: "CyberMeters",
   set_type: "readiness_self_check",
   is_official_application_form: false,
+  // The version above is OURS. These two are about IASME's scheme, and they are deliberately
+  // separate fields: conflating "when we last reworded our questions" with "when the scheme
+  // last changed" is how a product version starts being read as a compliance claim.
+  version_scheme: "iso_8601_date",
+  version_owner: "cybermeters_product",
+  version_is_iasme_or_ncsc_identifier: false,
   official_set_aligned_on: "2026-07-16",
   review_cadence_months: 6,
   next_review_due: "2027-01-16",
   note: "CyberMeters-authored readiness questions covering the five Cyber Essentials control "
       + "areas in plain English. Not the official IASME application form, and not a "
-      + "certification assessment.",
+      + "certification assessment. The question-set version is a CyberMeters product version "
+      + "(ISO 8601 YYYY-MM-DD) identifying our own wording — it is not an IASME or NCSC "
+      + "release identifier.",
 });
 
 // `external_coverage` is the platform's honesty metadata and is AUTHORITATIVE — it is read by
