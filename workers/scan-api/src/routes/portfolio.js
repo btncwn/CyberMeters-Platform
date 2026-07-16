@@ -10,6 +10,11 @@ import { REPORT_FINDINGS_SQL, REPORT_RECOMMENDATIONS_SQL } from "../engines/repo
 import { getEntitlementUsage, getPlanLimits, planLimitExceeded } from "../engines/plan-usage.js";
 import { computePortfolioRisk } from "../engines/portfolio-risk.js";
 import { computePortfolioCustomerRows, buildExecutiveSummary, LATEST_SCAN_CTE } from "../engines/portfolio-customers.js";
+import {
+  applyPortfolioView, buildPortfolioDomainSummary, computePortfolioDomainRows,
+  PORTFOLIO_FILTERS, PORTFOLIO_SORTS,
+} from "../engines/portfolio-domains.js";
+import { CYBER_MOT_DOMAIN_KEYS, readDomainStateHistory } from "../engines/cyber-mot-state-history.js";
 import { getCurrentPosturePresentation } from "../engines/current-posture.js";
 import { auditApiTokenSessionRouteDenied, createWorkspaceTrialSubscription } from "../engines/subscription-state.js";
 import { createAuditEvent } from "../lib/events.js";
@@ -571,6 +576,110 @@ export async function portfolioRoutes(rctx) {
         return json(result);
       } catch (err) {
         return serverError("api", err);
+      }
+    }
+
+    // ── GET /api/portfolio/domains ───────────────────────────────────────────
+    // MSP Portfolio Per-Domain State and Trend: one row per authorised (workspace,
+    // domain) carrying all EIGHT canonical Cyber MOT states, each with its own trend,
+    // freshness and attributable reasons.
+    //
+    // Reads persisted resolver output (cyber_mot_domain_states, mig 091) — four D1
+    // queries for the whole portfolio, no R2, no per-domain query, no write. The eight
+    // states are the canonical resolver's own verdict, recorded at scan finalize; this
+    // route never re-derives one.
+    //
+    // Pure read: the only writes on this path are the platform's own (api_rate_limits,
+    // user_sessions.last_seen_at), which fire before any handler runs. See
+    // scripts/validate-portfolio-read-purity.js.
+    if (request.method === "GET" && url.pathname === "/api/portfolio/domains") {
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const gate = await requirePortfolioEntitlement(user);
+      if (gate) return gate;
+      try {
+        const workspaceIds = await getAccessibleWorkspaceIds(user, env);
+        const limit  = parseBoundedInteger(url.searchParams.get("limit"), 25, 1, 100);
+        const offset = parseBoundedInteger(url.searchParams.get("offset"), 0, 0, 100000);
+        const sort   = url.searchParams.get("sort") || "priority";
+        const filter = url.searchParams.get("filter") || null;
+        const domainKey = url.searchParams.get("domain_key") || null;
+        const state  = url.searchParams.get("state") || null;
+
+        // No accessible workspace is NOT an empty portfolio with a clean bill of health
+        // — it is a portfolio with nothing in it, and it says so.
+        if (workspaceIds.length === 0) {
+          return json({
+            domains: [],
+            summary: buildPortfolioDomainSummary([]),
+            portfolio_state: "no_workspaces",
+            portfolio_state_reason: "No customer environments are being monitored yet.",
+            pagination: { limit, offset, total: 0 },
+            available_filters: PORTFOLIO_FILTERS, available_sorts: PORTFOLIO_SORTS,
+            domain_keys: CYBER_MOT_DOMAIN_KEYS,
+            generated_at: new Date().toISOString(),
+          });
+        }
+
+        const all = await computePortfolioDomainRows(env.cybermeters_db, workspaceIds);
+        // The summary folds the SAME array the caller pages through, so totals can never
+        // disagree with the rows, and a filtered view cannot leak the unfiltered count.
+        const summary = buildPortfolioDomainSummary(all);
+        const view = applyPortfolioView(all, { filter, domainKey, state, sort, limit, offset });
+
+        const assessed = summary.assessed_domains;
+        const portfolioState =
+          all.length === 0        ? "no_domains" :
+          assessed === 0          ? "evidence_insufficient" :
+          assessed < all.length   ? "partial" : "available";
+
+        return json({
+          domains: view.rows,
+          summary,
+          portfolio_state: portfolioState,
+          portfolio_state_reason:
+            portfolioState === "no_domains"            ? "No domains are being monitored in your portfolio yet."
+            : portfolioState === "evidence_insufficient" ? `None of the ${all.length} monitored domain${all.length === 1 ? " has" : "s have"} a completed assessment yet, so no state can be reported for them.`
+            : portfolioState === "partial"               ? summary.coverage_note
+            : `Based on all ${all.length} monitored domain${all.length === 1 ? "" : "s"}.`,
+          pagination: { limit, offset, total: view.total },
+          available_filters: PORTFOLIO_FILTERS, available_sorts: PORTFOLIO_SORTS,
+          domain_keys: CYBER_MOT_DOMAIN_KEYS,
+          generated_at: new Date().toISOString(),
+        });
+      } catch (err) {
+        return serverError("api", err);
+      }
+    }
+
+    // ── GET /api/portfolio/domains/:workspaceId/:domainId ────────────────────
+    // Per-domain detail + the eight-domain history series behind its trend.
+    // Non-enumerating: a domain in a workspace the caller cannot reach returns the SAME
+    // 404 as one that does not exist, and the workspace check runs before the lookup so
+    // the two cannot be told apart by timing either.
+    {
+      const m = url.pathname.match(/^\/api\/portfolio\/domains\/([^/]+)\/([^/]+)$/);
+      if (m && request.method === "GET") {
+        const [, wsId, domainId] = m;
+        const user = await requireAuth(request, env);
+        if (!user) return json({ error: "Unauthorized" }, 401);
+        const gate = await requirePortfolioEntitlement(user);
+        if (gate) return gate;
+        try {
+          const access = await requireWorkspaceRole(user, wsId, "workspace:read", env);
+          if (!access) return json({ error: "Not found" }, 404);
+
+          const rows = await computePortfolioDomainRows(env.cybermeters_db, [wsId]);
+          const row = rows.find((r) => r.domain_id === domainId);
+          if (!row) return json({ error: "Not found" }, 404);
+
+          const history = await readDomainStateHistory(env.cybermeters_db, wsId, domainId, {
+            limit: parseBoundedInteger(url.searchParams.get("history_limit"), 20, 1, 100),
+          });
+          return json({ ...row, history, generated_at: new Date().toISOString() });
+        } catch (err) {
+          return serverError("api", err);
+        }
       }
     }
 

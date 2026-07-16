@@ -80,6 +80,14 @@ jobs:
       - name: Validate MSP portfolio (cross-MSP isolation + change counts + exec summary)
         run: node scripts/validate-portfolio.js
 
+      # MSP Portfolio Per-Domain State and Trend. The portfolio decides who an MSP helps
+      # FIRST, so absent evidence is more dangerous here than anywhere else: a domain
+      # nobody scanned must never sort below one verified healthy, a rule that stopped
+      # running must never read as a fix, and a resolver change must never read as every
+      # customer deteriorating on deploy day. Mutation-proved 18x.
+      - name: Validate MSP portfolio per-domain state + trend (isolation / same-hostname / green-by-absence / resolver-version gate / append-only / no alert engine)
+        run: node scripts/validate-msp-portfolio-domains.js
+
       - name: Validate executive-report scoping (latest-scan findings/recs, no historical pile-up)
         run: node scripts/validate-report-findings-scoping.js
 

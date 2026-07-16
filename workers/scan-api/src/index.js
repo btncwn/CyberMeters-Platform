@@ -862,6 +862,11 @@ const WORKSPACE_PURGE_TABLES = [
   "website_security_events", "website_security_conditions",
   // Cyber Essentials lifecycle (mig 090). Events first: no FK to the records table.
   "cyber_essentials_events", "cyber_essentials_control_records",
+  // Canonical per-domain Cyber MOT state history (mig 091). Append-only, one row per
+  // (workspace, domain, scan, domain_key). Holds no FK to scans — history outlives the
+  // scan it describes — so it is purged on its own workspace_id here and never appears
+  // in SCAN_CHILD_TABLES.
+  "cyber_mot_domain_states",
   // Cyber Essentials questionnaire answers. Customer-entered content — including
   // `note` (free text) and `answered_by` (a user id) — so it is customer data by
   // any reading, and the deletion email tells the owner it has been "permanently
