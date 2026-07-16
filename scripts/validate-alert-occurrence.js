@@ -367,6 +367,54 @@ async function consume(ws, recordId, recurrence, { domain_key = "certificates_tr
   eq("a caller scoped to another workspace resolves NOTHING for this record", foreign, null);
 }
 
+// ── 11b. Payload equivalence with the JS filter this replaced ────────────────
+// The old predicate coerced both sides (`String(detail.to_recurrence_type || "") ===
+// String(rec)`); SQL compares typed values. These pin the REACHABLE shapes as identical,
+// and pin the unreachable ones as failing CLOSED — so a future writer that starts
+// emitting a non-string recurrence type fails here instead of silently losing alerts.
+{
+  const REC_ID = "cert_equiv_1";
+  const put = (id, detail) =>
+    db.prepare(`INSERT INTO certificate_lifecycle_events (id, lifecycle_id, workspace_id, actor_type, event_type, detail_json, created_at)
+                VALUES (?, ?, 'ws1', 'system', 'monitoring_changed', ?, '2026-06-02T00:00:00Z')`)
+      .run(id, REC_ID, JSON.stringify(detail));
+  const resolve = (rec) => findConditionOccurrence(env, {
+    workspace_id: "ws1", domain_key: "certificates_trust", record_id: REC_ID, recurrence_type: rec,
+  });
+
+  put("eq_match", { to_recurrence_type: "EQ_A" });
+  ok("a string payload matches its condition", (await resolve("EQ_A"))?.occurrence_id === "eq_match");
+  eq("a different condition does not match", await resolve("EQ_B"), null);
+
+  const REC_ID2 = "cert_equiv_2";
+  db.prepare(`INSERT INTO certificate_lifecycle_events (id, lifecycle_id, workspace_id, actor_type, event_type, detail_json, created_at)
+              VALUES ('eq_null', ?, 'ws1', 'system', 'monitoring_changed', ?, '2026-06-02T00:00:00Z')`)
+    .run(REC_ID2, JSON.stringify({ to_recurrence_type: null, case_id: "c" }));
+  db.prepare(`INSERT INTO certificate_lifecycle_events (id, lifecycle_id, workspace_id, actor_type, event_type, detail_json, created_at)
+              VALUES ('eq_absent', ?, 'ws1', 'system', 'monitoring_changed', ?, '2026-06-02T00:00:00Z')`)
+    .run(REC_ID2, JSON.stringify({ case_id: "c", recurrence: "EQ_A" }));
+  eq("a null to_recurrence_type is not an occurrence", await findConditionOccurrence(env, {
+    workspace_id: "ws1", domain_key: "certificates_trust", record_id: REC_ID2, recurrence_type: "EQ_A",
+  }), null);
+
+  // An empty condition never reaches the query — the falsy guard returns first. This is
+  // what makes the one divergence that would otherwise flip (null payload vs "" query)
+  // unreachable rather than merely unlikely.
+  eq("an empty recurrence_type resolves nothing, before any query", await resolve(""), null);
+
+  // Fail-closed, documented: a non-string payload is NOT matched by its stringification.
+  // No writer emits this today (every recurrence comes from a frozen string enum); if one
+  // ever does, this is the assertion that says so out loud.
+  const REC_ID3 = "cert_equiv_3";
+  db.prepare(`INSERT INTO certificate_lifecycle_events (id, lifecycle_id, workspace_id, actor_type, event_type, detail_json, created_at)
+              VALUES ('eq_num', ?, 'ws1', 'system', 'monitoring_changed', ?, '2026-06-02T00:00:00Z')`)
+    .run(REC_ID3, JSON.stringify({ to_recurrence_type: 5 }));
+  eq("a NUMERIC payload fails closed rather than matching its own stringification",
+     await findConditionOccurrence(env, {
+       workspace_id: "ws1", domain_key: "certificates_trust", record_id: REC_ID3, recurrence_type: "5",
+     }), null);
+}
+
 // ── 12. The read is bounded and precise — asserted at source ─────────────────
 {
   const src = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "engines", "alert-occurrence.js"), "utf8");

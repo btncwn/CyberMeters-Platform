@@ -199,6 +199,22 @@ export async function findConditionOccurrence(env, {
     // poison-pill bug. CASE is used rather than `json_valid(x) AND json_extract(x)`
     // because CASE's short-circuit is guaranteed by SQL semantics; AND's is an artefact
     // of the current evaluation order.
+    //
+    // ── Where this differs from the JS filter it replaced ─────────────────────
+    // The old predicate was `String(detail.to_recurrence_type || "") === String(rec)`,
+    // which COERCED both sides. SQL compares typed values, so a to_recurrence_type
+    // stored as 5 no longer matches the string "5" (SQLite does not coerce across
+    // storage classes here). Measured divergences: number, boolean and object payloads,
+    // plus `null` payload vs an empty-string query.
+    //
+    // All four are unreachable, and the check is the reachability, not the hope: every
+    // writer passes a value from a frozen STRING enum (EMAIL_RECURRENCES and its peers),
+    // and an empty `recurrence_type` never reaches here — the falsy guard above returns
+    // null first. Every divergence also fails CLOSED (a stricter match => no occurrence
+    // => no alert), which is the direction this codebase already chooses everywhere else.
+    // validate-alert-occurrence.js pins the reachable shapes AND the fail-closed
+    // behaviour, so a future writer that starts emitting a non-string recurrence type
+    // fails a test rather than silently losing alerts.
     const row = await env.cybermeters_db
       .prepare(`SELECT id, created_at, detail_json
                 FROM ${source.table}
