@@ -5,6 +5,56 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.16-11 (M5.a PR1 — Email Protection managed cases) — deployed 2026-07-16
+
+- **Live Worker Version ID:** `33069515-d515-4093-91c2-0aea2331dca5` (main `7344c59`)
+- **Rollback Worker Version ID:** `8a34ea0a-b728-48ff-b412-e1b9546d0d73` (v2026.07.16-10)
+- **Remote D1 migrations applied:** none — no schema change (latest remains `091`).
+- **Pages:** unaffected (no frontend change).
+- **PR:** #130
+
+The first of three vertical M5.a domain increments. Email Protection now ships case
+creation, linkage, case-level ownership, honest verification and recurrence **together** —
+the founder's vertical rule forbids a production state holding cases with no honest
+verifier, or a verifier with no customer-visible linkage.
+
+Five of Email's six recurrences open a canonical case via `createManagedCase`;
+`hosted_impact_regression` deliberately opens **none**. Its registry method is
+`receiver_reports`, so the product genuinely can observe it — but the engine emits the
+regression and never an "impact recovered" signal, so no verifier exists. Declaring it
+`unsupported` would contradict the registry; opening a case anyway would create one that
+can never honestly close. It continues to alert exactly as before, and the missing
+impact-recovery verifier is recorded as a gap rather than guessed at.
+
+Verification support comes from `v2026.07.16-10`'s per-finding contract, so it splits
+within the domain: `hosted_record_disconnected` (`dns_recheck`) and
+`sender_unauthorised_failures_active` (`receiver_reports`) are **automated** — a customer
+cannot self-certify what CyberMeters re-observes, and only a real recovery observation
+(`hosted_record_reconnected` / `sender_failures_recovered`) verifies them. The three
+`manual_attestation` conditions accept a structured attestation as their ceiling.
+Attestation-only non-verification is asserted in CI.
+
+No migration was needed: `managed_cases.finding_id` already carries the lifecycle record
+id and `createManagedCase` already dedupes on (workspace_id, case_type, finding_id) among
+non-terminal cases, so an unchanged pass creates nothing and the reverse lookup is a query.
+Ownership uses universal case-level assignment per the founder's M5.a decision; the absence
+of business/technical/remediation-owner fields is an intentional parity difference recorded
+for M5.e.
+
+`scripts/validate-m5a-email-cases.js` (89 assertions, CI-blocking) covers the six-recurrence
+map, creation/linkage/dedupe, tenancy, ownership, the verification boundary, system
+verification, attestation-only non-verification, recurrence reopen, and no-parallel-model —
+including 9 mutations, each proven to apply and reproduce its defect.
+
+One bug this caught before production: case verification resolved remediation via
+`resolveRemediation({remediation_id})`, which resolves by finding_type only and returned an
+unknown resolution — `verification_method: undefined` would have made **every** email case
+unverifiable. Now `getRemediationById`.
+
+**Production proof:** `/health` polled to 6 consecutive reads of `33069515`, no flapping.
+Behavioural contract proof is CI-side; authenticated customer acceptance with real Email
+lifecycle events remains a release-gate activity.
+
 ## 2026.07.16-10 (Case verification contract — registry-derived, per finding) — deployed 2026-07-16
 
 - **Live Worker Version ID:** `8a34ea0a-b728-48ff-b412-e1b9546d0d73` (main `8001496`)

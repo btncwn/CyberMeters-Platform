@@ -2,7 +2,7 @@
 
 Version: July 2026
 
-Last updated: 16 July 2026 (release v2026.07.16-10; active canonical episode: M5 Completion Across All Eight Domains — in progress)
+Last updated: 16 July 2026 (release v2026.07.16-11; active canonical episode: M5 Completion Across All Eight Domains — in progress)
 
 ---
 
@@ -250,10 +250,10 @@ Do not claim that CyberMeters performs a customer, provider, registrar, certific
 
 Current release facts (as of 16 July 2026):
 
-- latest release tag: `v2026.07.16-10` (case verification contract — registry-derived — deployed);
-- live Worker Version ID: `8a34ea0a-b728-48ff-b412-e1b9546d0d73` (built from `8001496`);
-- rollback Worker Version ID: `3ad513ee-bec5-4634-963f-eb08c57d7a43` (v2026.07.16-9);
-- latest migration applied to production: `091-cyber-mot-domain-states.sql` (unchanged — none of `v2026.07.16-6` through `-10` carried a migration);
+- latest release tag: `v2026.07.16-11` (M5.a PR1 — Email Protection managed cases — deployed);
+- live Worker Version ID: `33069515-d515-4093-91c2-0aea2331dca5` (built from `7344c59`);
+- rollback Worker Version ID: `8a34ea0a-b728-48ff-b412-e1b9546d0d73` (v2026.07.16-10);
+- latest migration applied to production: `091-cyber-mot-domain-states.sql` (unchanged — none of `v2026.07.16-6` through `-11` carried a migration);
 - active canonical episode: M5 Completion Across All Eight Domains (in progress).
 
 **M5 is under way.** Its pre-change parity audit across all eight domains found four false
@@ -296,11 +296,20 @@ remediation rather than from its domain, because the registry already declares
 the product genuinely cannot see. A customer can never conclude verification for something
 CyberMeters re-observes itself.
 
-The managed-case increment is otherwise **OPEN**: case creation for Email Protection /
-Website Security / Cyber Essentials is not built, so `linked_case_id` is still always null
-for 089/090 and no surface may imply a case exists; the verifiers that consume the existing
-recovery evidence are not wired; and ownership/assignment is not exposed for these domains.
-The per-domain maturity ledger remains untouched. The ledger is corrected
+**Email Protection managed cases are live** (`v2026.07.16-11`) — the first of three vertical
+M5.a domain increments, each shipping creation, linkage, case-level ownership, honest
+verification and recurrence together. Five of Email's six recurrences open a canonical case;
+`hosted_impact_regression` deliberately opens none, because the registry says the product can
+observe it but no recovery signal exists, so the case could never honestly close. It still
+alerts, and the missing verifier is recorded as a gap rather than guessed at. Ownership uses
+universal case-level assignment per the founder's M5.a decision; the absence of
+business/technical/remediation-owner fields is an intentional parity difference for M5.e.
+
+The managed-case increment is otherwise **OPEN**: case creation for Website Security and
+Cyber Essentials is not built, so `linked_case_id` is still always null for 089/090 and no
+surface may imply a case exists; their verifiers are not wired; and ownership/assignment is
+not exposed for those two domains. M5.a is not closed until all three domains reach
+production. The per-domain maturity ledger remains untouched. The ledger is corrected
 **last**: it is wrong in every row today and most rows *under*-claim, so raising it before
 the underlying gaps close would make the declaration lie in the opposite direction.
 
