@@ -54,6 +54,7 @@ const IntelligencePage          = lazy(() => import('./pages/IntelligencePage'))
 const ServiceLauncher           = lazy(() => import('./components/ServiceLauncher'))
 const PortfolioPage             = lazy(() => import('./pages/PortfolioPage'))
 const PortfolioRiskPage         = lazy(() => import('./pages/PortfolioRiskPage'))
+const PortfolioDomainsPage      = lazy(() => import('./pages/PortfolioDomainsPage'))
 const AccountPage               = lazy(() => import('./pages/AccountPage'))
 const AccountPrivacyPage        = lazy(() => import('./pages/AccountPrivacyPage'))
 const SecurityPage              = lazy(() => import('./pages/SecurityPage'))
@@ -174,6 +175,7 @@ function AppRoutes() {
           <Route path="onboarding"              element={<OnboardingPage />} />
           <Route path="portfolio"               element={<PortfolioPage />} />
           <Route path="portfolio/risk"          element={<PortfolioRiskPage />} />
+          <Route path="portfolio/domains"       element={<PortfolioDomainsPage />} />
           <Route path="workspaces"              element={<WorkspacesPage />} />
           <Route path="workspaces/:id"          element={<WorkspaceDetailPage />} />
           <Route path="intelligence"            element={<IntelligencePage />} />
