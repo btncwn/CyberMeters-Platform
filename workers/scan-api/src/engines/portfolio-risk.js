@@ -22,11 +22,116 @@
  * riskBand(score) — maps BRS score (0-100, higher=safer) to a risk label.
  */
 function portfolioRiskBand(score) {
-  if (score == null) return 'unknown';
+  if (!Number.isFinite(score)) return 'unknown';
   if (score < 25)   return 'critical';
   if (score < 50)   return 'high';
   if (score < 75)   return 'medium';
   return 'low';
+}
+
+/**
+ * Portfolio score states — the ONE contract for "is this score sayable?".
+ *
+ * `portfolio_score` is the mean BRS of the customer environments that HAVE a BRS.
+ * That single number cannot answer the only question that matters when evidence is
+ * thin: how much of the portfolio is it actually speaking for? Consumers were left to
+ * infer that from `null`, and the executive summary inferred it wrong — a null score
+ * failed `>= 75`, `>= 55` and `>= 35` alike and fell through to "serious", so a
+ * portfolio with no assessments at all was reported as *"showing serious overall risk
+ * (portfolio score: null/100)"*. Absent evidence became a verdict, and a fabricated
+ * failure is exactly as dishonest as a fabricated pass.
+ *
+ * The states are additive fields, not a replacement: `portfolio_score` keeps its
+ * existing meaning and value for every consumer that already reads it.
+ *
+ *   no_workspaces         — nothing is monitored. Not healthy, not at risk.
+ *   evidence_insufficient — environments are monitored, none has a completed
+ *                           assessment yet. There is no score to say.
+ *   partial               — some environments are assessed, some are not. The score is
+ *                           real but speaks only for the assessed ones. Disclosed,
+ *                           because a 90 drawn from 1 of 5 customers is not a 90.
+ *   available             — every monitored environment is assessed.
+ */
+export const PORTFOLIO_SCORE_STATES = Object.freeze({
+  NO_WORKSPACES:         'no_workspaces',
+  EVIDENCE_INSUFFICIENT: 'evidence_insufficient',
+  PARTIAL:               'partial',
+  AVAILABLE:             'available',
+});
+
+/**
+ * resolvePortfolioScoreState({ workspaceCount, scoredCount, score })
+ *
+ * The single source of truth for portfolio score sayability. The API returns its
+ * output verbatim so the frontend renders a decision it did not make — no second
+ * ladder, no `null` interpreted twice, no way for the two to disagree.
+ *
+ * Returns { state, reason, basis: { scored_workspaces, total_workspaces } }.
+ * `reason` is customer-safe prose: every non-available state must say WHY, or an
+ * unknown is just a shrug.
+ */
+export function resolvePortfolioScoreState({ workspaceCount, scoredCount, score }) {
+  const total  = Number.isFinite(workspaceCount) ? workspaceCount : 0;
+  const scored = Number.isFinite(scoredCount) ? scoredCount : 0;
+  const basis  = { scored_workspaces: scored, total_workspaces: total };
+  const plural = (n) => (n === 1 ? 'environment' : 'environments');
+
+  if (total === 0) {
+    return {
+      state:  PORTFOLIO_SCORE_STATES.NO_WORKSPACES,
+      reason: 'No customer environments are being monitored yet.',
+      basis,
+    };
+  }
+  // Guards the score itself, not just the count: a non-finite score with a positive
+  // scored count would otherwise be published as a number. Belt and braces, because
+  // the cost of being wrong here is a fabricated verdict.
+  if (scored === 0 || !Number.isFinite(score)) {
+    return {
+      state:  PORTFOLIO_SCORE_STATES.EVIDENCE_INSUFFICIENT,
+      reason: `No completed business risk assessment exists for any of the ${total} monitored customer ${plural(total)} yet, so a portfolio score cannot be calculated.`,
+      basis,
+    };
+  }
+  if (scored < total) {
+    const missing = total - scored;
+    return {
+      state:  PORTFOLIO_SCORE_STATES.PARTIAL,
+      reason: `Based on ${scored} of ${total} monitored customer ${plural(total)}; ${missing} ${plural(missing)} ${missing === 1 ? 'has' : 'have'} no completed assessment and ${missing === 1 ? 'is' : 'are'} not represented in this score.`,
+      basis,
+    };
+  }
+  return {
+    state:  PORTFOLIO_SCORE_STATES.AVAILABLE,
+    reason: `Based on all ${total} monitored customer ${plural(total)}.`,
+    basis,
+  };
+}
+
+/**
+ * portfolioScoreBand(score) — the narrative word for a portfolio score.
+ *
+ * Extracted from the executive summary, where it was an inline ternary chain that
+ * `null` silently fell through: `null >= 75`, `null >= 55` and `null >= 35` are all
+ * false, so no-evidence produced 'serious'. Returning **null** for anything
+ * non-finite is the whole point — there is no word for a score that does not exist,
+ * and inventing one is how absent evidence became a verdict.
+ *
+ * The API now publishes this so the frontend renders the band rather than deriving
+ * it from the number a second time. `PortfolioRiskPage` carried a byte-identical
+ * 75/55/35 ladder, which is duplicated backend logic that had already drifted from
+ * `portfolioRiskBand`'s 25/50/75 partition.
+ *
+ * Boundaries are unchanged from the code this replaces: 75 / 55 / 35. They are
+ * deliberately NOT reconciled with `portfolioRiskBand` here — that would silently
+ * restate real customers' scores, which is a product decision, not an honesty fix.
+ */
+function portfolioScoreBand(score) {
+  if (!Number.isFinite(score)) return null;
+  if (score >= 75) return 'healthy';
+  if (score >= 55) return 'moderate';
+  if (score >= 35) return 'elevated';
+  return 'serious';
 }
 
 /**
@@ -39,6 +144,7 @@ function generatePortfolioExecutiveSummary(stats) {
   const {
     workspace_count, portfolio_score, critical_workspaces,
     high_risk_workspaces, improving, deteriorating, shared_dependencies,
+    score_state, score_reason,
   } = stats;
 
   if (workspace_count === 0) {
@@ -47,12 +153,24 @@ function generatePortfolioExecutiveSummary(stats) {
 
   const parts = [];
 
-  // Lead with overall health
-  const healthWord =
-    portfolio_score >= 75 ? 'healthy' :
-    portfolio_score >= 55 ? 'moderate' :
-    portfolio_score >= 35 ? 'elevated' : 'serious';
-  parts.push(`Your portfolio of ${workspace_count} customer environment${workspace_count !== 1 ? 's' : ''} is showing ${healthWord} overall risk (portfolio score: ${portfolio_score}/100).`);
+  // Lead with overall health — but only when there IS a score to lead with.
+  const healthWord = portfolioScoreBand(portfolio_score);
+  if (healthWord === null) {
+    // No score. Say so, say why, and stop — do not reach for the risk vocabulary at
+    // all. This sentence replaces "showing serious overall risk (portfolio score:
+    // null/100)", which told an MSP with no assessments yet that its customers were
+    // in serious danger. The rest of the summary still runs: findings-based callouts
+    // below are real evidence and do not depend on a score existing.
+    parts.push(`A portfolio risk score is not available for your ${workspace_count} customer environment${workspace_count !== 1 ? 's' : ''} yet. ${score_reason}`);
+  } else {
+    parts.push(`Your portfolio of ${workspace_count} customer environment${workspace_count !== 1 ? 's' : ''} is showing ${healthWord} overall risk (portfolio score: ${portfolio_score}/100).`);
+    // A score drawn from 1 of 5 customers is not a portfolio score, and presenting it
+    // as one lets missing evidence flatter the verdict. Disclose the basis inline —
+    // the sentence above is the one that gets read.
+    if (score_state === PORTFOLIO_SCORE_STATES.PARTIAL) {
+      parts.push(score_reason);
+    }
+  }
 
   // Critical / high risk callout
   if (critical_workspaces > 0) {
@@ -101,8 +219,13 @@ export async function computePortfolioRisk(workspaceIds, env) {
   const now = new Date().toISOString();
 
   if (workspaceIds.length === 0) {
+    const empty = resolvePortfolioScoreState({ workspaceCount: 0, scoredCount: 0, score: null });
     return {
-      portfolio_score:      null,
+      portfolio_score:        null,
+      portfolio_score_band:   null,
+      portfolio_score_state:  empty.state,
+      portfolio_score_reason: empty.reason,
+      portfolio_score_basis:  empty.basis,
       workspace_count:      0,
       high_risk_workspaces: 0,
       critical_workspaces:  0,
@@ -309,6 +432,15 @@ export async function computePortfolioRisk(workspaceIds, env) {
   // `workspace_brs_score_history`. Table and rows are kept; the write is gone.
   // Guarded by `scripts/validate-portfolio-read-purity.js`, which explains the rest.
 
+  // ── Score sayability ────────────────────────────────────────────────────────
+  // Resolved once, published, and reused by the summary — so the prose, the API
+  // fields and the frontend badge cannot disagree about whether a score exists.
+  const scoreState = resolvePortfolioScoreState({
+    workspaceCount: workspaceIds.length,
+    scoredCount:    scored.length,
+    score:          portfolioScore,
+  });
+
   // ── Executive summary ───────────────────────────────────────────────────────
   const executiveSummary = generatePortfolioExecutiveSummary({
     workspace_count:      workspaceIds.length,
@@ -318,10 +450,16 @@ export async function computePortfolioRisk(workspaceIds, env) {
     improving,
     deteriorating,
     shared_dependencies:  sharedVendors,
+    score_state:          scoreState.state,
+    score_reason:         scoreState.reason,
   });
 
   return {
-    portfolio_score:      portfolioScore,
+    portfolio_score:        portfolioScore,
+    portfolio_score_band:   portfolioScoreBand(portfolioScore),
+    portfolio_score_state:  scoreState.state,
+    portfolio_score_reason: scoreState.reason,
+    portfolio_score_basis:  scoreState.basis,
     workspace_count:      workspaceIds.length,
     high_risk_workspaces: highRiskWorkspaces,
     critical_workspaces:  criticalWorkspaces,
