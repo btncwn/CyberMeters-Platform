@@ -5,6 +5,89 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.16-6 (Evidence-honesty class fix — four false claims) — deployed 2026-07-16
+
+- **Live Worker Version ID:** `6b310472-702c-4e7a-bafd-92cbc4a1b83d` (main `7119c63`)
+- **Rollback Worker Version ID:** `18c075a7-92bf-41f2-a06b-38a17929b687` (v2026.07.16-5)
+- **Remote D1 migrations applied:** none — no schema change.
+- **Pages:** unaffected (no frontend change).
+- **PR:** #123
+
+The M5 pre-change parity audit across all eight domains found the platform asserting four
+things the evidence does not support. Each breaches a permanent rule in `CLAUDE.md`. Each
+shipped with a **passing** suite — that the suites could not see any of them is the finding.
+
+1. **The Executive PDF told boards "SSL and certificate configuration is fully validated."**
+   `sslScore` starts at 100 and only ever deducts for HTTPS availability, HTTP→HTTPS
+   redirect and expiry, so `good` meant those three things. Chain validity, root trust,
+   OCSP and revocation are never checked — Certificates & Trust already declares them
+   `unknown`. The PDF contradicted our own limitation on the artifact customers forward to
+   insurers and boards.
+
+2. **Certificates & Trust rendered `assessed_healthy` off a total Certificate Transparency
+   blackout.** CT is that module's only evidence source; with both logs down it recorded an
+   `info` signal, returned `error: null` and no `incomplete`, so `moduleAssessed()` counted
+   a zero-evidence module as materially assessed — and `certificates_trust` has
+   `required: ["certificate_intelligence"]`, so that module *is* the verdict. This is the
+   **same defect class as #105** (unexecuted probe → healthy), which was fixed in
+   `headers-scan`/`ssl-scan` **only** — per module, not per class — so certificate
+   intelligence kept the bug. Fixed with the identical canonical `incomplete` flag.
+
+3. **Shadow IT laundered disappearance into "verified" removal** —
+   `removal_verified = stillObserved ? "contradicted" : "verified"`. A customer assertion
+   plus our failure to observe became "verified" and was served by the API, while the same
+   file's header states *"disappearance != verified removal"* and its own event records
+   `note: "not_verified_removed"`. Now **unverified**. `verified` is unreachable here by
+   design: Shadow IT is external-observation-only and nothing external can prove an internal
+   removal. The asymmetry is intended — we can disprove; we cannot confirm.
+
+4. **Identity verification fabricated "Verified by CyberMeters"** — the contract accepted
+   `material_change || last_changed_at`, i.e. ANY change ever recorded, so a provider change
+   from two years ago verified an assertion made today. The change must now post-date the
+   customer's action, anchored to the `customer_action_recorded` event. No migration: the
+   append-only log already held the fact. Fails closed when the ordering is unknown.
+
+**Behavioural change:** strictly in the honest direction. A CT blackout now degrades the
+scan to `partial` (so other domains read *provisional*, not healthy) instead of reading
+clean. This uses the pre-existing `buildScanQuality` contract — any `incomplete` module
+degrades the scan, established by `565fccc` — not a new rule.
+
+**Guards — mutation-tested, extended in the suites that own each class:**
+`validate-probe-evidence-honesty` 68→81 (§5 CT blackout + its mutation) ·
+`validate-cert-trust-l2` 20/20 · `validate-shadow-it-correlation` 48→54 ·
+`validate-identity-exposure-lifecycle` 78→94. Each reintroduces its defect and requires the
+suite to fail; each asserts **direction**, so a guard cannot pass by refusing to verify
+anything. Two pre-existing guards were fake: shadow-it suite 11 only exercised the
+CONTRADICTED branch (the `verified` branch shipped untested), and
+`validate-alert-b3-email-protection.js:375` is titled "disconnect → reconnect →
+re-disconnect" and never performs the re-disconnect (**recorded, not fixed — alerting is a
+later M5 increment**).
+
+**Timestamp normalisation:** the identity comparison reads `last_changed_at` (ISO, `Z`)
+against `customer_action_at` (SQLite `datetime('now')` — UTC but no zone marker, which
+`Date.parse` reads as LOCAL). Workers run UTC so production skew is zero, but under
+Europe/London the same instant parses an hour apart and would falsely verify.
+`parseInstant()` normalises; its guard **pins a non-UTC zone**, because on CI's UTC machine
+the defect does not exist and the test would be decorative (verified by mutation under
+`TZ=UTC`; green under UTC, Europe/London, America/Los_Angeles, Asia/Tokyo).
+
+**Validation:** 102/102 CI validators · frontend 261 tests + build · regression fixtures
+227/227 · `wrangler deploy --dry-run` clean.
+
+**Production proof:** `GET /health` returns the new deployment id; certificates and
+identity-exposure routes return `401` (live and auth-gated), shadow-it `404`
+(non-enumerating). The CT-blackout path cannot be forced in production without a genuine
+dual-CT outage, so its proof is the mutation-tested contract, not a live occurrence.
+Authenticated UI smoke remains a final release-gate action.
+
+**Not started (M5 scope, founder-sequenced):** alerting repair (hosted DMARC can never
+re-alert after recovery; marking a sender **"threat" silences its own alert**; Shadow IT
+alerting self-destructs after 25 passes), the missing read surfaces for migrations
+088/089/090 (`listCeControlRecords` has **zero callers repo-wide**), case creation for
+email/website/CE, and the **maturity ledger — wrong in all eight rows**, to be corrected
+LAST once it can certify reality rather than aspiration. No pricing review, pentest,
+controlled acceptance or customer invitations.
+
 ## 2026.07.16-5 (MSP Portfolio Per-Domain State and Trend) — deployed 2026-07-16
 
 - **Live Worker Version ID:** `18c075a7-92bf-41f2-a06b-38a17929b687` (main `d97625b`)
