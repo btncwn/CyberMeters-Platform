@@ -17,8 +17,15 @@ compatibility_date = "2026-06-18"
 # `custom_domain = true` makes Cloudflare own the DNS record and the certificate
 # for this hostname — no CNAME chain, no second proxy hop, no manual TLS.
 #
-# workers.dev deliberately stays enabled: it is the immediate rollback path, and
-# MICROSOFT_REDIRECT_URI below is registered against it in Azure AD.
+# workers.dev MUST stay enabled, and this line is what keeps it. Declaring any
+# route flips wrangler's `workers_dev` default to FALSE, which silently 404s
+# `cybermeters-platform.ttrnn47.workers.dev` on the next deploy. That is not
+# cosmetic: MICROSOFT_REDIRECT_URI below is registered against that hostname in
+# Azure AD, so losing it breaks Microsoft SSO sign-in outright, and it is also the
+# rollback path and the only way to tell a hostname fault from a bad deployment.
+# Adding the custom domain without this line took workers.dev down for 96 seconds.
+workers_dev = true
+
 [[routes]]
 pattern = "api.cybermeters.com"
 custom_domain = true
