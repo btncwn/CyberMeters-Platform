@@ -5,6 +5,64 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.16-12 (M5.a PR2 — Website Security managed cases + verification vocabulary) — deployed 2026-07-16
+
+- **Live Worker Version ID:** `6d1aaaa7-f283-4ae8-af3b-c2a3d2b2130f` (main `54d08e7`)
+- **Rollback Worker Version ID:** `33069515-d515-4093-91c2-0aea2331dca5` (v2026.07.16-11)
+- **Remote D1 migrations applied:** none — no schema change (latest remains `091`).
+- **Pages:** auto-deploys from main (case display + queue changed).
+- **PR:** #132
+
+The second of three vertical M5.a domain increments. Website Security ships creation,
+linkage, case-level ownership, honest verification and recurrence together. Migration 089
+reserved `website_security_conditions.linked_case_id` and a `case_linked` event type and
+both had been dead since — the column was always null and the route's linked_case lookup
+could never return anything. They now mean something.
+
+Every Website Security recurrence opens a case, unlike Email which had to exclude
+`hosted_impact_regression`. All 14 condition keys (2 ssl_* + 6 headers x missing/malformed)
+resolve to `https_recheck`, and ONE recovery event — `condition_resolved` — covers every one
+of them, so no condition here can be opened but never honestly closed. `control_recovered`
+is Cyber Essentials' vocabulary and verifies nothing in this domain.
+
+Verification has three independent stops, each mutation-proven: the detecting module must
+provably have run (re-checked INSIDE the verifier rather than trusted from the caller's
+branch — the #105 defect class, and "the caller was in the right branch" is not a contract);
+the registry decides per finding; and the case machine still governs the path. Incomplete,
+partial or never-executed evidence produces a deferred history row, never a verification.
+
+**Two live defects found and fixed.**
+
+**P1 — the managed lifecycle dead-ended at `assigned`.** `approved: [requireActor]` was
+registered bare, but guards are invoked `guard(caseRecord, ctx)` and `requireActor` takes the
+ctx as its ONLY argument. It received the case row, found no `actor_id`, and refused EVERY
+approval — making `approved` unreachable for all six base domains, and with it
+`awaiting_verification` and `verified`. The Email cases shipped in `v2026.07.16-11` could
+never have been verified in production. `brand-case-machine.js` had always wrapped it
+correctly; this line never did. PR #130's suite missed it by jumping straight to
+`awaiting_verification` instead of walking the path a customer walks; the new suite walks the
+whole path for every base case type.
+
+**Verification vocabulary.** Case phase `verified` rendered "Verified" in green for every
+case — including Email's `manual_attestation` cases, where the registry says the product
+CANNOT observe the fix. `verification_support` is now exposed on the case API (the backend
+owns it; a screen inferring it would be deriving a verification verdict) and the display
+splits "Verified by CyberMeters" from "Attested by customer — not externally verifiable",
+failing closed to the weaker claim. `docs/verification-vocabulary.md` is the canonical record
+and carries the rule into the M5.e parity matrix and the Unified Reporting snapshot.
+
+`resolveRemediation` now REFUSES unknown arguments instead of silently returning an unknown
+resolution. Passing `{remediation_id}` yielded `verification_method: null` and would have
+made every case in a domain permanently unverifiable — it failed silently, in the
+honest-looking direction, on the one path where being wrong is invisible. A repository-wide
+audit found no live misuse remains: every call site passes `{finding_type}`. An unknown
+finding type still fails honestly rather than throwing.
+
+**Production proof:** `/health` polled to 6 consecutive reads of `6d1aaaa7` (it flapped
+across PoPs for the first three reads before settling); `/ready` d1+r2 true. Behavioural
+contract proof is CI-side; authenticated customer acceptance with real Website Security
+lifecycle events remains a release-gate activity.
+
 ## 2026.07.16-11 (M5.a PR1 — Email Protection managed cases) — deployed 2026-07-16
 
 - **Live Worker Version ID:** `33069515-d515-4093-91c2-0aea2331dca5` (main `7344c59`)

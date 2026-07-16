@@ -2,7 +2,7 @@
 
 Version: July 2026
 
-Last updated: 16 July 2026 (release v2026.07.16-11; active canonical episode: M5 Completion Across All Eight Domains — in progress)
+Last updated: 16 July 2026 (release v2026.07.16-12; active canonical episode: M5 Completion Across All Eight Domains — in progress)
 
 ---
 
@@ -250,10 +250,10 @@ Do not claim that CyberMeters performs a customer, provider, registrar, certific
 
 Current release facts (as of 16 July 2026):
 
-- latest release tag: `v2026.07.16-11` (M5.a PR1 — Email Protection managed cases — deployed);
-- live Worker Version ID: `33069515-d515-4093-91c2-0aea2331dca5` (built from `7344c59`);
-- rollback Worker Version ID: `8a34ea0a-b728-48ff-b412-e1b9546d0d73` (v2026.07.16-10);
-- latest migration applied to production: `091-cyber-mot-domain-states.sql` (unchanged — none of `v2026.07.16-6` through `-11` carried a migration);
+- latest release tag: `v2026.07.16-12` (M5.a PR2 — Website Security managed cases + verification vocabulary — deployed);
+- live Worker Version ID: `6d1aaaa7-f283-4ae8-af3b-c2a3d2b2130f` (built from `54d08e7`);
+- rollback Worker Version ID: `33069515-d515-4093-91c2-0aea2331dca5` (v2026.07.16-11);
+- latest migration applied to production: `091-cyber-mot-domain-states.sql` (unchanged — none of `v2026.07.16-6` through `-12` carried a migration);
 - active canonical episode: M5 Completion Across All Eight Domains (in progress).
 
 **M5 is under way.** Its pre-change parity audit across all eight domains found four false
@@ -305,11 +305,31 @@ alerts, and the missing verifier is recorded as a gap rather than guessed at. Ow
 universal case-level assignment per the founder's M5.a decision; the absence of
 business/technical/remediation-owner fields is an intentional parity difference for M5.e.
 
-The managed-case increment is otherwise **OPEN**: case creation for Website Security and
-Cyber Essentials is not built, so `linked_case_id` is still always null for 089/090 and no
-surface may imply a case exists; their verifiers are not wired; and ownership/assignment is
-not exposed for those two domains. M5.a is not closed until all three domains reach
-production. The per-domain maturity ledger remains untouched. The ledger is corrected
+**Website Security managed cases are live** (`v2026.07.16-12`) — the second vertical. Every
+recurrence opens a case here, unlike Email: all 14 condition keys resolve to `https_recheck`
+and one recovery event (`condition_resolved`) covers every one, so nothing can be opened but
+never honestly closed. Verification re-checks module completeness inside the verifier rather
+than trusting the branch it was called from.
+
+That increment found a **live P1**: `approved: [requireActor]` was registered bare, but
+guards are invoked `guard(caseRecord, ctx)` and `requireActor` takes the ctx as its only
+argument — so it read the case row, found no actor, and refused **every** approval.
+`approved` was unreachable for all six base domains, and with it `awaiting_verification` and
+`verified`: the managed lifecycle dead-ended at `assigned`, and the Email cases shipped in
+`-11` could never have been verified in production. Fixed, and the suite now walks the whole
+customer path for every base case type rather than jumping to the end of it.
+
+The **verification vocabulary** is now canonical (`docs/verification-vocabulary.md`):
+"Verified" and "Confirmed" are reserved for what CyberMeters itself observed. A
+`manual_attestation` outcome reads "Attested by customer — not externally verifiable", never
+green. `verification_support` is exposed on the case API because the backend owns that
+decision. The rule is carried into the M5.e parity matrix and the Unified Reporting snapshot.
+
+The managed-case increment is otherwise **OPEN**: case creation for Cyber Essentials is not
+built, so `linked_case_id` is still always null for 090 and no surface may imply a case
+exists; its verifier is not wired; and ownership/assignment is not exposed for that domain.
+M5.a is not closed until all three domains reach production. The per-domain maturity ledger
+remains untouched. The ledger is corrected
 **last**: it is wrong in every row today and most rows *under*-claim, so raising it before
 the underlying gaps close would make the declaration lie in the opposite direction.
 
