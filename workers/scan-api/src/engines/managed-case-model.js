@@ -172,10 +172,30 @@ function baseEntry(domain_key, case_type) {
 // requires structured, METHOD-APPROPRIATE evidence" — read literally: attestation is
 // method-appropriate exactly where the registry says observation is impossible.
 //
-// Scoped to the three case types this increment wires. certificate_case, identity_case and
-// shadow_it_case are closed increments with their own verification stories, and deriving
-// theirs from here would silently restate contracts this episode was told not to reopen.
-const REGISTRY_DERIVED_VERIFICATION = new Set(["email_case", "website_case", "cyber_essentials_case"]);
+// ── Which case types derive their support from the registry ─────────────────
+// M5.b adds certificate_case, and the audit that added it is the reason to state WHY the
+// other two are still absent rather than leaving it to inference:
+//
+//   certificate_case  → DERIVED. Certificates & Trust holds SIX different verification
+//     methods across ten remediations — the most diverse domain on the platform — so a
+//     blanket answer is wrong in both directions at once. Under the old blanket `manual`,
+//     a customer could attest an EXPIRED certificate "verified" (registry:
+//     `certificate_recheck` — CyberMeters re-observes certificates on every scan), and
+//     could attest a Certificate Transparency blackout resolved (registry: `unsupported`
+//     — nothing can verify it). Both were reproduced before this change.
+//
+//   identity_case     → NOT derived, and correctly so: all eight identity_* remediations
+//     are `manual_attestation`, so the blanket and the registry already agree. Deriving
+//     would add indirection and change nothing.
+//   shadow_it_case    → NOT derived, same reason: its one remediation is
+//     `manual_attestation`.
+//
+// Both were checked against the registry, not assumed. If either ever gains an observable
+// finding, it belongs in this set and the guard in validate-m5b-certificate-verification.js
+// will fail until it is added.
+const REGISTRY_DERIVED_VERIFICATION = new Set([
+  "email_case", "website_case", "cyber_essentials_case", "certificate_case",
+]);
 
 /**
  * How may THIS case be verified? Derived from its own canonical remediation where the
