@@ -2,7 +2,7 @@
 
 Version: July 2026
 
-Last updated: 16 July 2026 (release v2026.07.16-5; next canonical episode: M5 Completion Across All Eight Domains)
+Last updated: 16 July 2026 (release v2026.07.16-6; active canonical episode: M5 Completion Across All Eight Domains — in progress)
 
 ---
 
@@ -240,8 +240,8 @@ Do not claim that CyberMeters performs a customer, provider, registrar, certific
 | Identity Exposure Managed Workflow | Live |
 | Complete ASM Verification | Live |
 | Alerts Across All Eight Domains | Live — 8 of 8 domains alert canonically (`docs/alerts-eight-domain-coverage.md`). Engineering closed; genuine live-event acceptance outstanding. |
-| MSP Portfolio Per-Domain State and Trend | Live — persisted per-domain state + honest trend across all 8 domains (mig 091). Engineering closed; authenticated customer acceptance outstanding (no entitled account exists in production). |
-| M5 Completion Across All Eight Domains | Planned |
+| MSP Portfolio Per-Domain State and Trend | Live — built, NOT customer-accepted. Persisted per-domain state + honest trend across all 8 domains (mig 091). Engineering closed; authenticated customer acceptance outstanding (no entitled account exists in production), so it is not sellable and must not be demoed. |
+| M5 Completion Across All Eight Domains | In progress — evidence-honesty corrective closed (`v2026.07.16-6`); remaining increments planned. |
 | Debugging and Reliability Hardening | Planned after managed lifecycle completion |
 | Pentesting and Security Assurance | Planned after managed lifecycle completion |
 | Founder-Controlled Acceptance Testing | Planned |
@@ -250,11 +250,27 @@ Do not claim that CyberMeters performs a customer, provider, registrar, certific
 
 Current release facts (as of 16 July 2026):
 
-- latest release tag: `v2026.07.16-5` (MSP Portfolio Per-Domain State and Trend — deployed);
-- live Worker Version ID: `18c075a7-92bf-41f2-a06b-38a17929b687`;
-- rollback Worker Version ID: `f06f3c43-5c32-413d-a93e-5eb7e5808c9a`;
-- latest migration applied to production: `091-cyber-mot-domain-states.sql`;
-- next canonical episode: M5 Completion Across All Eight Domains (not yet started).
+- latest release tag: `v2026.07.16-6` (evidence-honesty class fix — deployed);
+- live Worker Version ID: `6b310472-702c-4e7a-bafd-92cbc4a1b83d` (built from `7119c63`);
+- rollback Worker Version ID: `18c075a7-92bf-41f2-a06b-38a17929b687` (v2026.07.16-5);
+- latest migration applied to production: `091-cyber-mot-domain-states.sql` (unchanged — `v2026.07.16-6` carried no migration);
+- active canonical episode: M5 Completion Across All Eight Domains (in progress).
+
+**M5 is under way.** Its pre-change parity audit across all eight domains found four false
+evidence claims live in production, and the founder sequenced them first as data-integrity
+defects. That corrective is **closed** (`v2026.07.16-6`): the Executive PDF no longer calls
+certificates "fully validated" when only HTTPS/redirect/expiry were checked; Certificates &
+Trust can no longer read healthy off a total Certificate Transparency blackout (the same
+defect class as the `#105` unexecuted-probe P1, which had been fixed per-module rather than
+per-class); Shadow IT no longer records disappearance as "verified" removal; and Identity no
+longer verifies from a change that predates the customer's assertion. All four are
+mutation-tested — each guard reintroduces its defect and requires the suite to fail.
+
+The remaining M5 increments are **planned, not started**: alerting repair, the read surfaces
+for migrations 088/089/090, case creation for Email Protection / Website Security / Cyber
+Essentials, and the per-domain maturity ledger. The ledger is corrected **last**: it is
+wrong in every row today and most rows *under*-claim, so raising it before the underlying
+gaps close would make the declaration lie in the opposite direction.
 
 **All eight canonical domains alert through the canonical pipeline.** The earlier
 six-of-eight closure (`v2026.07.15-2`) was premature and is superseded — it deferred
@@ -302,8 +318,8 @@ Unless the founder explicitly changes the roadmap:
 2. Identity Exposure Managed Workflow (complete — Live)
 3. Complete ASM Verification (complete — Live)
 4. Alerts Across All Eight Domains (complete — Live, 8 of 8; genuine live-event acceptance outstanding)
-5. MSP Portfolio Per-Domain State and Trend (complete — Live)
-6. M5 Completion Across All Eight Domains (next canonical episode)
+5. MSP Portfolio Per-Domain State and Trend (Live — built, NOT customer-accepted; acceptance outstanding)
+6. M5 Completion Across All Eight Domains (ACTIVE — in progress; evidence-honesty corrective closed, remaining increments planned)
 7. Systematic debugging and reliability engineering
 8. Security testing and pentesting
 9. Founder-controlled acceptance testing
