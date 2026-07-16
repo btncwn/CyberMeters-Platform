@@ -76,7 +76,13 @@ export const BASE_CASE_MACHINE = createCaseMachine({
   terminals: ["rejected", "false_positive", "closed_no_action", "superseded"],
   guards: {
     assigned:         [requireField("owner_ref")],
-    approved:         [requireActor],
+    // Guards are invoked as guard(caseRecord, ctx). requireActor takes the CTX as its only
+    // argument, so it must be wrapped — passed bare it received the case record, looked for
+    // an actor_id that is never on a case row, and refused EVERY approval. That made
+    // `approved` unreachable for all six base domains, and with it awaiting_verification and
+    // verified: the whole managed lifecycle dead-ended at `assigned`. brand-case-machine.js
+    // has always wrapped it correctly; this line did not.
+    approved:         [(_row, ctx) => requireActor(ctx)],
     action_in_progress: [],
     accepted_risk:    [requireReason, requireExpiry],
     rejected:         [requireReason],

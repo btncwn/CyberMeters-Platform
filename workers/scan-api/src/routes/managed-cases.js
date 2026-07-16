@@ -10,6 +10,7 @@
 import {
   canTransitionCase, canonicalPhaseFor, caseTypeEntry, CASE_TYPE_REGISTRY,
   CANONICAL_DOMAIN_KEYS, isValidDomainKey, createManagedCase,
+  verificationSupportForCase,
 } from "../engines/managed-case-model.js";
 import { newCaseEventId } from "../engines/case-workflow.js";
 import { parseBoundedInteger } from "../lib/util.js";
@@ -23,6 +24,12 @@ function caseToUniversalApi(row) {
     case_type: row.case_type,
     status: row.status,
     canonical_phase: canonicalPhaseFor(row.case_type, row.status),
+    // How this case may EVER be concluded, from its own canonical remediation (PR #129).
+    // The frontend needs it because "verified" means two different things to a customer:
+    // CyberMeters re-observed the fix, or the customer said so and we cannot see it. Only
+    // the backend may decide which — a screen that inferred it would be deriving a
+    // verification verdict, and coverage-state semantics belong to the resolver.
+    verification_support: verificationSupportForCase(row),
     status_reason: row.reason ?? null,
     title: row.title ?? null,
     summary: row.summary ?? null,

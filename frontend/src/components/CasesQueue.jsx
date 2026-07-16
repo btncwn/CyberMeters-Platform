@@ -63,7 +63,7 @@ export default function CasesQueue({ workspaceId }) {
             </thead>
             <tbody>
               {cases.map((c) => {
-                const meta = phaseMeta(c.canonical_phase)
+                const meta = phaseMeta(c.canonical_phase, c.verification_support)
                 return (
                   <tr key={c.case_id} className="border-b border-slate-50">
                     <td className="py-2 pr-3 text-slate-600">{domainKeyLabel(c.domain_key)}</td>
@@ -72,7 +72,7 @@ export default function CasesQueue({ workspaceId }) {
                       {c.domain ? <span className="text-slate-400"> · {c.domain}</span> : null}
                     </td>
                     <td className="py-2 pr-3">
-                      <span className={`inline-block rounded-full border px-2 py-0.5 text-xs ${phaseClass(c.canonical_phase)}`}>
+                      <span className={`inline-block rounded-full border px-2 py-0.5 text-xs ${phaseClass(c.canonical_phase, c.verification_support)}`}>
                         {meta.label}
                       </span>
                     </td>
