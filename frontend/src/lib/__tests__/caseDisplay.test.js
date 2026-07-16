@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { phaseMeta, phaseClass, CANONICAL_PHASE_META, ATTESTED_LABEL, domainKeyLabel } from '../caseDisplay'
+import { phaseMeta, phaseClass, CANONICAL_PHASE_META, ATTESTED_LABEL, EXTERNAL_EVIDENCE_LABEL, domainKeyLabel } from '../caseDisplay'
 
 // The verification vocabulary rule (docs/verification-vocabulary.md).
 // "Verified"/"Confirmed" are reserved for what CyberMeters itself observed. A
@@ -29,6 +29,18 @@ describe('verification vocabulary', () => {
     'support=%s does not claim CyberMeters verified it', (support) => {
       expect(phaseMeta('verified', support).label).not.toMatch(/verified by cybermeters/i)
     })
+
+  // `external` is a THIRD state: an independent body certifies it — not CyberMeters, and not
+  // the customer. Neither reserved word applies, and neither party may be credited.
+  it('an EXTERNAL outcome borrows neither claim', () => {
+    const m = phaseMeta('verified', 'external')
+    expect(m.label).toBe(EXTERNAL_EVIDENCE_LABEL)
+    expect(m.label).toBe('Requires independent third-party evidence')
+    expect(m.label).not.toMatch(/verified/i)
+    expect(m.label).not.toMatch(/confirmed/i)
+    expect(m.label).not.toMatch(/attested by customer/i)
+    expect(m.tone).not.toBe('green')
+  })
 
   it('reading the phase map directly still cannot yield a bare "Verified"', () => {
     expect(CANONICAL_PHASE_META.verified.label).not.toBe('Verified')

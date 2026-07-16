@@ -41,11 +41,57 @@ function cyberEssentialsStatus(grade) {
 const CE_EXTERNAL_COVERAGE = Object.freeze(Object.fromEntries(
   CE_QUESTIONS.map((c) => [c.control_key, c.external_coverage || "none"]),
 ));
+// The customer-facing control names come from the shared set too. They were hardcoded here
+// and had drifted from it ("Phishing & Malware Exposure" vs the set's "Malware Protection"),
+// so the coverage sentence named a control the questionnaire calls something else.
+const CE_CONTROL_LABELS = Object.freeze(Object.fromEntries(CE_QUESTIONS.map((c) => [c.control_key, c.label])));
+const LABEL_FOR = (k) => CE_CONTROL_LABELS[k] || k;
 export function ceControlIsExternallyAssessable(controlKey) {
   return CE_EXTERNAL_COVERAGE[controlKey] === "partial";
 }
 // The one customer-facing sentence for a control the product cannot see from outside.
 export const CE_NOT_ASSESSABLE_LABEL = "Not externally assessable — self-attestation only";
+
+// ── Readiness METHODOLOGY version — a DIFFERENT contract from the questionnaire ─────
+// This versions HOW the external readiness indicator is computed: which controls are
+// assessable, what evidence each one may use, and therefore what the number means. The
+// questionnaire's CE_QUESTION_SET_VERSION versions the WORDS a customer is asked. They move
+// independently and must never be conflated — a reworded question does not change the
+// methodology, and a changed denominator does not change the questions.
+//
+// Same format convention as the question set (founder-set): ISO 8601 `YYYY-MM-DD`, and it is
+// a CyberMeters PRODUCT version, never an IASME or NCSC identifier. `revision` is a positive
+// integer that increments on every material methodology change, so two outputs are
+// comparable ONLY when BOTH version and revision match.
+//
+//   revision 1 (2026-07-16, v2026.07.16-14) — access_control and malware_protection stopped
+//     being scored from SPF/DKIM/DMARC proxies. Indicator became 3 of 5.
+//   revision 2 (2026-07-16, this increment)  — patch_management_readiness stopped being
+//     scored from certificate expiry / certificate risk / ASM backlog / asset events.
+//     Indicator became 2 of 5.
+//
+// THE TREND RULE: the indicator's DENOMINATOR changed at each revision, so a number from
+// revision 1 and a number from revision 2 are not the same measurement. Comparing them would
+// report a methodology change as a posture change — telling a customer they got worse when
+// nothing about their security moved. Any consumer that compares two readiness values MUST
+// check methodologyComparable() first.
+export const CE_READINESS_METHODOLOGY_VERSION = "2026-07-16";
+export const CE_READINESS_METHODOLOGY_REVISION = 2;
+
+/**
+ * May these two readiness outputs be compared as a genuine trend?
+ * Only when BOTH the methodology version AND revision match. Missing metadata means the
+ * value predates methodology versioning entirely, so it is NOT comparable — absent evidence
+ * of comparability is not evidence of comparability.
+ */
+export function methodologyComparable(a, b) {
+  const v = (x) => (x && typeof x === "object"
+    ? { ver: x.readiness_methodology_version ?? null, rev: x.readiness_methodology_revision ?? null }
+    : { ver: null, rev: null });
+  const A = v(a), B = v(b);
+  if (A.ver == null || B.ver == null || A.rev == null || B.rev == null) return false;
+  return A.ver === B.ver && A.rev === B.rev;
+}
 
 // A control area CyberMeters cannot observe from outside. It stays VISIBLE — hiding it would
 // be its own dishonesty — but it publishes no number, no band, no health, and no reason
@@ -268,7 +314,6 @@ export async function buildCyberEssentialsReadiness(wsId, env) {
   const email = emailSignals(modules);
   const certRisk = scorecard.certificate_risks ?? {};
   const certRiskLevel = certRisk.risk_level ?? null;
-  const certDaysLeft = certRisk.days_until_expiry;
   const adminTotal = scorecard.admin_surfaces ?? 0;
   const saasTotal = scorecard.saas_exposures ?? 0;
   const criticalFindings = scorecard.critical_findings ?? 0;
@@ -399,7 +444,7 @@ export async function buildCyberEssentialsReadiness(wsId, env) {
   // here; SaaS exposure remains visible in Shadow IT & Unmanaged Technology, where the
   // evidence legitimately lives. It is deliberately not re-attributed to a control the
   // product cannot see.
-  categories.push(cyberEssentialsCategory('access_control', 'Access Control', 0, [], [], [], [], []));
+  categories.push(cyberEssentialsCategory('access_control', LABEL_FOR('access_control'), 0, [], [], [], [], []));
 
   // ── Phishing & Malware Exposure — NOT externally assessable ───────────────
   // Previously an "estimate" from the same email-auth proxies. Anti-spoofing enforcement is
@@ -407,33 +452,24 @@ export async function buildCyberEssentialsReadiness(wsId, env) {
   // enabled on a single device. The old copy admitted it was "estimated from available
   // signals only" and then published 100/100 in green anyway — the admission did not undo
   // the claim.
-  categories.push(cyberEssentialsCategory('malware_protection', 'Phishing & Malware Exposure', 0, [], [], [], [], []));
+  categories.push(cyberEssentialsCategory('malware_protection', LABEL_FOR('malware_protection'), 0, [], [], [], [], []));
 
-  // Patch Management Readiness: certificate expiry, trend, remediation backlog.
-  {
-    const state = { score: 100, reasons: [], gaps: [], recommendations: [], remediations: [], unknown: [] };
-    if (typeof certDaysLeft === 'number') {
-      if (certDaysLeft < 0) {
-        addGap(state, 30, 'A certificate is expired.', 'ssl_certificate_expired');
-      } else if (certDaysLeft < 30) {
-        addGap(state, 15, `A certificate expires in ${certDaysLeft} day${certDaysLeft !== 1 ? 's' : ''}.`, 'ssl_certificate_expiring_soon');
-      } else {
-        addReason(state, 'Certificate expiry health is acceptable.');
-      }
-    }
-    if (certRiskLevel === 'critical' || certRiskLevel === 'high') {
-      addGap(state, 15, `Certificate risk level is ${certRiskLevel}.`, 'ce_cert_review');
-    }
-    if (criticalFindings > 0 || highFindings > 0) {
-      addGap(state, 25, `${criticalFindings + highFindings} critical/high finding${criticalFindings + highFindings !== 1 ? 's' : ''} remain open in the latest scan.`, 'ce_open_findings_backlog');
-    } else {
-      addReason(state, 'No critical or high findings in the latest scan.');
-    }
-    if ((scorecard.asset_events_30d ?? 0) > 0) {
-      addReason(state, `${scorecard.asset_events_30d} asset change event${scorecard.asset_events_30d !== 1 ? 's' : ''} recorded in the last 30 days.`);
-    }
-    categories.push(cyberEssentialsCategory('patch_management_readiness', 'Patch Management Readiness', state.score, state.reasons, state.gaps, state.recommendations, state.remediations, state.unknown));
-  }
+  // ── Security Update Management — NOT externally assessable ────────────────
+  // Previously `partial`, and scored from certificate expiry, certificate risk, open
+  // critical/high ASM findings and asset-change events. None of those measures ANY of the
+  // four questions this control asks: automatic updates, unsupported software removal, an
+  // update-review process, or 14-day critical patching. A certificate expiring is not a
+  // software patch. An open attack-surface finding is not patch status. And
+  // "No critical or high findings in the latest scan." was published as a POSITIVE reason
+  // for patch readiness — the same shape as "SPF is present." → Access Control 100/100.
+  //
+  // Nothing observable is lost. Certificate expiry/risk still drive Certificates & Trust
+  // (cert.expiry.*, cert.intelligence.review); the critical/high backlog still drives Attack
+  // Surface and the scan findings; software-version disclosure still drives Website Security
+  // and Attack Surface. They are simply no longer re-attributed to a control they do not
+  // measure. No replacement proxy: a real external patch signal would be its own
+  // evidence-governed detection increment.
+  categories.push(cyberEssentialsCategory('patch_management_readiness', LABEL_FOR('patch_management_readiness'), 0, [], [], [], [], []));
 
   // ── The external-readiness indicator: assessable control areas ONLY ───────
   // The old arithmetic gave all five a fixed weight of 20, so two control areas the product
@@ -457,11 +493,15 @@ export async function buildCyberEssentialsReadiness(wsId, env) {
   // Say the coverage out loud, on the object every surface reads. A number whose denominator
   // is invisible invites the reader to assume it covers everything.
   const nonAssessableLabels = nonAssessable.map((c) => c.label);
+  // "A and B and C" is not a sentence. With three non-assessable controls the list needs a
+  // real conjunction, and the verb has to agree with the count.
+  const listOf = (xs) => (xs.length <= 1 ? (xs[0] || '')
+    : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
   const coverageStatement =
     `External readiness indicator based on ${assessableCategories.length} of ${categories.length} `
     + `Cyber Essentials control areas.`
     + (nonAssessableLabels.length
-        ? ` ${nonAssessableLabels.join(' and ')} require customer attestation.`
+        ? ` ${listOf(nonAssessableLabels)} require${nonAssessableLabels.length === 1 ? 's' : ''} customer attestation.`
         : '');
   const topGaps = [...new Map(
     allGaps
@@ -488,6 +528,12 @@ export async function buildCyberEssentialsReadiness(wsId, env) {
     categories,
     // The denominator, stated. Additive: every existing field keeps its meaning.
     external_coverage_statement: coverageStatement,
+    // HOW this number was computed. A consumer comparing two readiness values must check
+    // these first — see methodologyComparable(). Without them a denominator change reads as
+    // a posture change.
+    readiness_methodology_version: CE_READINESS_METHODOLOGY_VERSION,
+    readiness_methodology_revision: CE_READINESS_METHODOLOGY_REVISION,
+    readiness_as_of: new Date().toISOString(),
     assessable_control_count: assessableCategories.length,
     total_control_count: categories.length,
     non_assessable_controls: nonAssessable.map((c) => ({ key: c.key, label: c.label, reason: CE_NOT_ASSESSABLE_LABEL })),
@@ -508,7 +554,11 @@ export async function buildCyberEssentialsReadiness(wsId, env) {
       'CyberMeters does not certify Cyber Essentials.',
       'This readiness estimate uses externally observable CyberMeters signals only.',
       coverageStatement,
-      'Access Control and Phishing & Malware Exposure cannot be observed from outside at all. They are not scored, and their state comes from your own attestation.',
+      // Derived, not hardcoded: this line named two controls by hand and used a label
+      // ("Phishing & Malware Exposure") the questionnaire does not use. It is now built from
+      // the same non-assessable set as the coverage sentence, so it cannot go stale again.
+      `${listOf(nonAssessableLabels)} cannot be observed from outside at all. `
+        + `They are not scored, and their state comes from your own attestation.`,
       'Endpoint protection, internal device configuration, and user access policies cannot be fully assessed from external ASM data.',
     ],
   };

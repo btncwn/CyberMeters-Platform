@@ -26,6 +26,9 @@
 // The frontend does not DERIVE this — `verification_support` is computed by the backend
 // from the canonical remediation registry and arrives on the case.
 export const ATTESTED_LABEL = 'Attested by customer — not externally verifiable';
+// A third support state: `external` means an independent third party confirms it — not
+// CyberMeters, and not the customer. Neither reserved word applies.
+export const EXTERNAL_EVIDENCE_LABEL = 'Requires independent third-party evidence';
 
 // Canonical phases (must match managed-case-model.js CANONICAL_CASE_STATES +
 // CANONICAL_TERMINAL_STATES). Labels are presentation only.
@@ -69,9 +72,14 @@ export const TONE_CLASS = {
 // the platform forbids; the honest fallback is the weaker claim.
 export function phaseMeta(phase, verificationSupport = null) {
   if (phase === 'verified') {
-    return verificationSupport === 'automated'
-      ? { label: 'Verified by CyberMeters', tone: 'green' }
-      : { label: ATTESTED_LABEL, tone: 'blue' };
+    if (verificationSupport === 'automated') return { label: 'Verified by CyberMeters', tone: 'green' };
+    // `external` is NEITHER. It needs an independent third party (a certification body, an
+    // auditor): calling it an attestation would credit the customer with someone else's
+    // confirmation, and calling it verified would credit CyberMeters with it. No case can
+    // reach `verified` with external support today (canTransitionCase refuses it), so this is
+    // defence in depth — if one ever does, it must not borrow either claim.
+    if (verificationSupport === 'external') return { label: EXTERNAL_EVIDENCE_LABEL, tone: 'blue' };
+    return { label: ATTESTED_LABEL, tone: 'blue' };
   }
   if (phase && CANONICAL_PHASE_META[phase]) return CANONICAL_PHASE_META[phase];
   const label = phase ? String(phase).replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : 'Unknown';

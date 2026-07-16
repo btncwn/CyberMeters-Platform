@@ -593,11 +593,12 @@ if (!process.argv.includes("--no-mutate")) {
       from: "  assertResolverArgs(args);\n", to: "" },
     { file: path.join(root, "frontend", "src", "lib", "caseDisplay.js"),
       name: "an attestation is labelled 'Verified'",
-      from: "      : { label: ATTESTED_LABEL, tone: 'blue' };",
-      to: "      : { label: 'Verified', tone: 'green' };" },
+      from: "    return { label: ATTESTED_LABEL, tone: 'blue' };",
+      to: "    return { label: 'Verified', tone: 'green' };" },
     { file: path.join(root, "frontend", "src", "lib", "caseDisplay.js"),
       name: "unknown support optimistically claims CyberMeters verified it",
-      from: "    return verificationSupport === 'automated'", to: "    return verificationSupport !== 'manual'" },
+      from: "    if (verificationSupport === 'automated') return { label: 'Verified by CyberMeters', tone: 'green' };",
+      to: "    if (verificationSupport !== 'manual') return { label: 'Verified by CyberMeters', tone: 'green' };" },
   ];
   const self = fileURLToPath(import.meta.url);
   const { execFileSync } = await import("node:child_process");

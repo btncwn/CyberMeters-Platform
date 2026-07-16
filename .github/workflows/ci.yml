@@ -164,6 +164,14 @@ jobs:
       - name: Validate M5.b Certificates verification reconciliation
         run: node scripts/validate-m5b-certificate-verification.js
 
+      # M5.b remaining reconciliation. D1: patch_management_readiness was scored from
+      # certificate expiry / cert risk / ASM backlog / asset events — none of which measures
+      # any question it asks; the indicator is now 2 of 5 and methodology-versioned so a
+      # denominator change cannot read as a posture change. D2: `external` is not `automated`
+      # (a third party certifies, not our scan). D3: ASM/Brand blanket drift is CI-blocked.
+      - name: Validate M5.b remaining reconciliation (CE patch readiness, external, blankets)
+        run: node scripts/validate-m5b-remaining-reconciliation.js
+
       # Mutation proof for the 2026-07-16 alerting repair. Two guards in this repo were
       # named for coverage they never executed, so the suites above are themselves proved
       # load-bearing here: each defect is reintroduced and must reappear.

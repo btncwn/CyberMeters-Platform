@@ -213,7 +213,19 @@ export function verificationSupportForCase(caseRecord = {}) {
   const method = rem?.verification_method ?? null;
   if (!method) return "unsupported";
   if (method === "unsupported") return "unsupported";
-  return method === "manual_attestation" ? "manual" : "automated";
+  if (method === "manual_attestation") return "manual";
+  // `external` is NOT automated. "Automated" means a reachable CyberMeters system verifier
+  // concluded it from our own observation; `external` means an INDEPENDENT THIRD PARTY must
+  // — a certification body, an auditor. CyberMeters cannot conclude it from a scan, and the
+  // customer cannot attest it either: the whole point is that someone else says so.
+  //
+  // Mapping it to "automated" (which the old `? "manual" : "automated"` did) made it
+  // system-only against a system verifier that does not exist, so such a case would have been
+  // unverifiable forever while LOOKING like ordinary automated verification. Its own state
+  // says the true thing: no verification path exists on this platform today. If a real
+  // third-party evidence workflow is ever built, THAT increment gives this a verifier.
+  if (method === "external") return "external";
+  return "automated";
 }
 
 export const CASE_TYPE_REGISTRY = Object.freeze({
@@ -373,6 +385,13 @@ export function canTransitionCase(opts = {}) {
     const support = verificationSupportForCase(caseRecord);
     if (support === "unsupported") {
       return { ok: false, code: "verify_unsupported", error: "CyberMeters cannot verify this finding, so this case cannot be marked verified." };
+    }
+    // `external` needs independent third-party evidence (a certification body, an auditor).
+    // CyberMeters cannot conclude it from its own scan, and a customer attestation is not
+    // third-party evidence either. No workflow for accepting such evidence exists yet, so the
+    // honest answer is that this cannot be concluded here at all — by anyone.
+    if (support === "external") {
+      return { ok: false, code: "verify_requires_external_evidence", error: "This is confirmed by an independent third party, not by a CyberMeters scan or by your own confirmation." };
     }
     if (support === "automated" && actorType !== "system") {
       return { ok: false, code: "verify_requires_system", error: "Only CyberMeters verification can mark this case verified." };

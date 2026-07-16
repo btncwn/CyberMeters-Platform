@@ -311,7 +311,10 @@ const attestation = {
 
 // M1 — customer attestation verifies externally observable remediation.
 await withMutant("managed-case-model.js",
-  (x) => x.replace('return method === "manual_attestation" ? "manual" : "automated";', 'return "manual";'),
+  // The support derivation was a single ternary when this was written; it is now an explicit
+  // chain (manual / external / automated). The mutant's INTENT is unchanged: force every
+  // finding to "manual" so a customer can attest something CyberMeters re-observes.
+  (x) => x.replace('if (method === "manual_attestation") return "manual";', 'if (method) return "manual";'),
   async (mut) => {
     const observable = { id: "mc-1", workspace_id: "ws1", case_type: "email_case", remediation_id: "email.hosted_dmarc.reconnect", status: "awaiting_verification" };
     ok("MUTANT-1: a customer's attestation verifies a DNS-observable condition — the defect, reproduced",

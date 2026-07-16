@@ -71,6 +71,9 @@ const COVERAGE = Object.freeze(Object.fromEntries(
 ));
 const LABEL = Object.freeze(Object.fromEntries(CE_QUESTIONS.map((c) => [c.control_key, c.label])));
 
+// Same predicate, used by the API serialiser below to reinterpret a stale stored row.
+const assessableNow = (k) => COVERAGE[k] === "partial";
+
 export function ceControlIsExternallyAssessable(controlKey) {
   return COVERAGE[String(controlKey || "")] === "partial";
 }
@@ -439,9 +442,20 @@ export function ceControlRecordToApi(row = {}) {
     control_key: row.control_key,
     control_label: row.control_label ?? null,
     // The verdict, and the reason it is only ever indicative.
-    readiness_state: row.readiness_state ?? null,
-    readiness_reason: row.readiness_reason ?? null,
-    external_coverage: row.external_coverage ?? null,   // partial | none
+    // ── Coverage is read from the AUTHORITATIVE set, not the stored row ──
+    // The row records what we believed when it was written. When a control is reclassified
+    // — `patch_management_readiness` went `partial` → `none` in readiness methodology
+    // revision 2 — every stored row still says `partial` until the next evaluation pass
+    // rewrites it. Serving that would tell a customer we can partially observe a control we
+    // have just declared unobservable. The declaration wins immediately; the stored value is
+    // preserved below as history rather than overwritten.
+    readiness_state: assessableNow(row.control_key) ? (row.readiness_state ?? null) : "not_externally_assessable",
+    readiness_reason: assessableNow(row.control_key) ? (row.readiness_reason ?? null) : "control_not_externally_observable",
+    external_coverage: COVERAGE[row.control_key] ?? row.external_coverage ?? null,   // partial | none
+    // What the row itself recorded at write time. Kept so a stale row is visible AS stale
+    // rather than silently rewritten — historical integrity, and the two disagreeing is a
+    // fact worth being able to see.
+    recorded_external_coverage: row.external_coverage ?? null,
     // WHICH evidence moved, and what we could not see. Both customer-facing: a gap the
     // product cannot observe must be visible as unobserved, not absent.
     evidence: parse(row.evidence_json, []),

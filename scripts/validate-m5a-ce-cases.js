@@ -92,7 +92,7 @@ const { CE_QUESTIONS } = await import(pathToFileURL(srcPath("lib", "cyber-essent
   const EXPECTED = {
     boundary_protection:        { coverage: "partial", assessable: true },
     secure_configuration:       { coverage: "partial", assessable: true },
-    patch_management_readiness: { coverage: "partial", assessable: true },
+    patch_management_readiness: { coverage: "none",    assessable: false },
     access_control:             { coverage: "none",    assessable: false },
     malware_protection:         { coverage: "none",    assessable: false },
   };
@@ -716,9 +716,10 @@ if (!process.argv.includes("--no-mutate")) {
       from: "if (!CE_CASE_RECURRENCES.has(recurrence)) return { ok: false, code: \"recurrence_does_not_open_a_case\" };",
       to: "if (false) return { ok: false, code: \"recurrence_does_not_open_a_case\" };" },
     { file: DISP, name: "attestation painted green / labelled Verified",
-      from: "      : { label: ATTESTED_LABEL, tone: 'blue' };", to: "      : { label: 'Verified', tone: 'green' };" },
+      from: "    return { label: ATTESTED_LABEL, tone: 'blue' };", to: "    return { label: 'Verified', tone: 'green' };" },
     { file: DISP, name: "unknown support optimistically claims CyberMeters verified it",
-      from: "    return verificationSupport === 'automated'", to: "    return verificationSupport !== 'manual'" },
+      from: "    if (verificationSupport === 'automated') return { label: 'Verified by CyberMeters', tone: 'green' };",
+      to: "    if (verificationSupport !== 'manual') return { label: 'Verified by CyberMeters', tone: 'green' };" },
     { file: srcPath("routes", "managed-cases.js"), name: "verification_support deleted from the API contract",
       from: "    verification_support: verificationSupportForCase(row),", to: "" },
     { file: srcPath("engines", "managed-case-model.js"), name: "the approved-guard P1 reintroduced",

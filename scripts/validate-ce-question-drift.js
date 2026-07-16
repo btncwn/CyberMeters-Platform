@@ -138,9 +138,9 @@ const pageSrc = fs.readFileSync(PAGE, "utf8");
   eq("public question ids are the canonical (persisted) question keys",
     derived.flatMap((d) => d.questions.map((q) => q.id)),
     CE_QUESTIONS.flatMap((c) => c.questions.map((q) => q.key)));
-  eq("the two non-assessable controls are marked as such on the public page",
+  eq("the three non-assessable controls are marked as such on the public page",
     derived.filter((d) => !d.externalEvidenceCapable).map((d) => d.id),
-    ["access_control", "malware_protection"]);
+    ["access_control", "malware_protection", "patch_management_readiness"]);
 }
 
 // ════ 5. THE RECONCILED WORDING — the founder's two named changes ═══════════
