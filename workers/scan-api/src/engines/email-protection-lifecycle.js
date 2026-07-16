@@ -60,6 +60,12 @@ import {
   MONITORING_CHANGED, buildMonitoringTransitionDetail, isMonitoringTransition, parseUtcMs,
 } from "./alert-occurrence.js";
 import { ensureAlertActivation } from "./managed-alerts.js";
+// One direction only: this module calls INTO the case layer. email-protection-cases.js
+// imports nothing back, so there is no cycle to reason about at init time.
+import {
+  EMAIL_CASE_RECURRENCES, EMAIL_RECOVERY_VERIFIES,
+  openOrReopenEmailCase, verifyEmailCaseFromRecovery,
+} from "./email-protection-cases.js";
 
 export const EMAIL_PROTECTION_DOMAIN_KEY = "email_protection";
 
@@ -76,6 +82,10 @@ export const EMAIL_EVENT_HOSTED_POLICY_CHANGED  = "hosted_policy_changed";
 export const EMAIL_EVENT_HOSTED_ROLLED_BACK_MANUAL = "hosted_rolled_back_manual";
 export const EMAIL_EVENT_SENDER_RECOVERED       = "sender_failures_recovered";
 export const EMAIL_EVENT_SENDER_MANUAL_CLASS    = "sender_manual_classification";
+// Case linkage. History only — never `monitoring_changed`, so the occurrence resolver
+// cannot see them and they can never become an alert.
+export const EMAIL_EVENT_CASE_LINKED           = "case_linked";
+export const EMAIL_EVENT_CASE_REOPENED         = "case_reopened";
 
 export const NON_ALERTABLE_EVENT_TYPES = Object.freeze([
   EMAIL_EVENT_BASELINE,
@@ -84,6 +94,8 @@ export const NON_ALERTABLE_EVENT_TYPES = Object.freeze([
   EMAIL_EVENT_HOSTED_ROLLED_BACK_MANUAL,
   EMAIL_EVENT_SENDER_RECOVERED,
   EMAIL_EVENT_SENDER_MANUAL_CLASS,
+  EMAIL_EVENT_CASE_LINKED,
+  EMAIL_EVENT_CASE_REOPENED,
 ]);
 
 // The six actionable recurrences. Their severities live in RECURRENCE_SEVERITY
@@ -472,6 +484,17 @@ export async function recordHostedTransition(env, row, {
   // event_type is not `monitoring_changed`, so the resolver cannot see it.
   if (!recurrence) {
     if (!event_type) return { skipped: "incomplete_record" };
+    // A RECOVERY observation is history AND, for a case the customer has already driven to
+    // awaiting_verification, the evidence that closes it. `hosted_record_reconnected` is a
+    // real DNS re-observation of the record — CyberMeters seeing the fix, not being told
+    // about it. The case layer re-checks the registry itself and refuses to verify a
+    // finding the registry says we cannot observe, so this call cannot launder an
+    // attestation-only condition into a verification.
+    if (EMAIL_RECOVERY_VERIFIES[event_type]) {
+      await verifyEmailCaseFromRecovery(env, {
+        workspace_id: row.workspace_id, record_id: row.id, recovery_event_type: event_type,
+      }).catch(() => {});
+    }
     await appendEmailProtectionEvent(env, {
       workspace_id: row.workspace_id, record_id: row.id, record_type: HOSTED_RECORD_TYPE,
       event_type, actor_type, actor_id,
@@ -531,6 +554,33 @@ export async function recordHostedTransition(env, row, {
   // event rather than trusting this id (the PR-B1 bridge rule).
   if (!occurrenceId) return { skipped: "monitoring_event_not_persisted" };
 
+  // The case, BEFORE the alert: an alert that references a case is only honest once the
+  // case exists. Idempotent — createManagedCase dedupes on finding_id, so an unchanged
+  // condition re-graded later reuses the same case rather than minting a second.
+  const findingType = EMAIL_RECURRENCE_FINDING_TYPE[recurrence] || null;
+  let caseId = null;
+  if (EMAIL_CASE_RECURRENCES.has(recurrence)) {
+    const linked = await openOrReopenEmailCase(env, {
+      workspace_id: row.workspace_id,
+      record_id: row.id,
+      entity: row.domain,
+      domain: row.domain,          // hosted records ARE a workspace domain; senders are not
+      recurrence,
+      finding_type: findingType,
+      severity: record_severity || band || "medium",
+    }).catch(() => null);
+    if (linked?.ok && linked.case?.id) {
+      caseId = linked.case.id;
+      if (linked.created || linked.reopened) {
+        await appendEmailProtectionEvent(env, {
+          workspace_id: row.workspace_id, record_id: row.id, record_type: HOSTED_RECORD_TYPE,
+          event_type: linked.reopened ? EMAIL_EVENT_CASE_REOPENED : EMAIL_EVENT_CASE_LINKED,
+          detail: { case_id: caseId, recurrence, remediation_id: linked.case.remediation_id ?? null },
+        }).catch(() => {});
+      }
+    }
+  }
+
   return await emitLifecycleAlert(env, {
     workspace_id: row.workspace_id,
     domain_key: EMAIL_PROTECTION_DOMAIN_KEY,
@@ -539,7 +589,8 @@ export async function recordHostedTransition(env, row, {
     hostname: row.domain,
     recurrence,
     record_severity,
-    finding_type: EMAIL_RECURRENCE_FINDING_TYPE[recurrence] || null,
+    case_id: caseId,
+    finding_type: findingType,
   });
 }
 
@@ -756,6 +807,14 @@ export async function evaluateEmailSenderMonitoring(env, workspaceId, domain, { 
             entity: row.source_ip, window_days: SENDER_WINDOW_DAYS,
           },
         }).catch(() => {});
+        // The same observation that clears the condition closes the case — zero
+        // receiver-reported failures across a COMPLETE window is CyberMeters reading the
+        // receivers' own reports, not the customer telling us they fixed it. The case layer
+        // re-checks the registry and refuses to verify anything it says we cannot observe.
+        await verifyEmailCaseFromRecovery(env, {
+          workspace_id: workspaceId, record_id: row.id,
+          recovery_event_type: EMAIL_EVENT_SENDER_RECOVERED,
+        }).catch(() => {});
         await persistSenderState(env, row, { status: "recovered", graded, now });
         continue;
       }
@@ -824,6 +883,34 @@ export async function evaluateEmailSenderMonitoring(env, workspaceId, domain, { 
       }).catch(() => null);
       if (!occurrenceId) continue;
 
+      // The case, BEFORE the alert. `domain` is deliberately NOT passed: a sender's entity
+      // is a source IP, and createManagedCase validates any domain it is given against
+      // workspace_domains — handing it the header-from domain would be asserting the
+      // sender IS that domain's asset, which is the opposite of what an unrecognised
+      // sender means.
+      const senderFindingType = EMAIL_RECURRENCE_FINDING_TYPE[recurrence] || null;
+      let senderCaseId = null;
+      if (EMAIL_CASE_RECURRENCES.has(recurrence)) {
+        const linked = await openOrReopenEmailCase(env, {
+          workspace_id: workspaceId,
+          record_id: row.id,
+          entity: row.source_ip,
+          recurrence,
+          finding_type: senderFindingType,
+          severity: graded.band || "medium",
+        }).catch(() => null);
+        if (linked?.ok && linked.case?.id) {
+          senderCaseId = linked.case.id;
+          if (linked.created || linked.reopened) {
+            await appendEmailProtectionEvent(env, {
+              workspace_id: workspaceId, record_id: row.id, record_type: SENDER_RECORD_TYPE,
+              event_type: linked.reopened ? EMAIL_EVENT_CASE_REOPENED : EMAIL_EVENT_CASE_LINKED,
+              detail: { case_id: senderCaseId, recurrence, remediation_id: linked.case.remediation_id ?? null },
+            }).catch(() => {});
+          }
+        }
+      }
+
       const res = await emitLifecycleAlert(env, {
         workspace_id: workspaceId,
         domain_key: EMAIL_PROTECTION_DOMAIN_KEY,
@@ -832,7 +919,8 @@ export async function evaluateEmailSenderMonitoring(env, workspaceId, domain, { 
         hostname: row.domain,
         recurrence,
         record_severity: graded.band,
-        finding_type: EMAIL_RECURRENCE_FINDING_TYPE[recurrence] || null,
+        case_id: senderCaseId,
+        finding_type: senderFindingType,
       });
       if (res?.emitted) alerts += 1;
     } catch {
