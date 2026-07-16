@@ -127,8 +127,28 @@ function NotificationCard({ n, onMarkRead }) {
   const scanId    = meta?.scan_id ?? null
   const reportId  = meta?.report_id ?? null
   const domain    = meta?.domain ?? null
-  const link      = scanId ? `/scans/${scanId}` : reportId ? '/reports' : null
-  const linkLabel = scanId ? 'View scan →' : reportId ? 'View report →' : null
+
+  // `metadata.link` is the lifecycle deep link — the alert's own record. It was ignored
+  // here entirely: this card derived a destination ONLY from scan_id/report_id, so every
+  // Email/Website/CE lifecycle alert rendered `cursor-default` and went nowhere, while the
+  // same alert's EMAIL carried a link. Same alert, two answers to "where do I go".
+  //
+  // Only same-origin app paths are followed. The backend builds these from the configured
+  // frontend origin, but a card that will `navigate()` anywhere a metadata field tells it
+  // to is a redirect waiting to happen, so an absolute URL is reduced to its path and
+  // anything that is not a rooted app path is refused.
+  const recordHref = (() => {
+    const raw = meta?.link
+    if (typeof raw !== 'string' || !raw) return null
+    if (raw.startsWith('/')) return raw
+    try {
+      const u = new URL(raw)
+      return u.origin === window.location.origin ? `${u.pathname}${u.search}${u.hash}` : null
+    } catch { return null }
+  })()
+
+  const link      = scanId ? `/scans/${scanId}` : reportId ? '/reports' : recordHref
+  const linkLabel = scanId ? 'View scan →' : reportId ? 'View report →' : recordHref ? 'View record →' : null
 
   function handleClick() {
     if (isUnread) onMarkRead(n.id)

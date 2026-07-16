@@ -337,6 +337,73 @@ for (const [label, p] of [
   }
 }
 
+// ════ 10. ALERT DEEP LINKS point at routes that EXIST ═══════════════════════
+// THE DEFECT THIS EXISTS TO PREVENT: 0 of 6 emitLifecycleAlert calls passed a `link`, so
+// managed-alerts fell back to `${origin}/notifications` and a customer told their DMARC
+// record had disconnected landed on a generic list. An alert is not actionable if the
+// customer cannot open what it references.
+//
+// The link is now built in ONE place (lifecycleRecordLink) rather than at six call sites,
+// and every target is asserted to be a route this frontend actually declares. A link to a
+// route that does not exist is not a fix — it is a different broken promise.
+{
+  const { lifecycleRecordLink } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "alert-consumers.js")).href);
+  const linkEnv = { FRONTEND_URL: "https://app.cybermeters.com" };
+  const appJsx = fs.readFileSync(path.join(root, "frontend", "src", "App.jsx"), "utf8");
+
+  // The route is derived FROM THE LINK, never from a constant repeated here. An earlier
+  // draft asserted `App.jsx contains "ws/website-security"` while the link was free to
+  // point anywhere — so a link aimed at a nonexistent route passed. The only assertion
+  // worth making is: parse what the link actually says, and require THAT path to be a
+  // declared route.
+  const declaredRoutes = new Set(
+    [...appJsx.matchAll(/<Route\s+path="([^"]+)"/g)].map((m) => `/${m[1].replace(/^\//, "")}`),
+  );
+  ok("App.jsx route table was parsed (not an empty set that would pass anything)", declaredRoutes.size > 5);
+
+  const cases = [
+    ["website_security", "wsc-1", "condition=wsc-1"],
+    ["cyber_essentials_readiness", "cec-1", "control=cec-1"],
+    ["email_protection", "hd-1", "lifecycle=hd-1"],
+  ];
+  for (const [domain, recId, query] of cases) {
+    const link = lifecycleRecordLink(linkEnv, domain, recId);
+    ok(`${domain}: an alert now carries a deep link`, typeof link === "string" && link.length > 0);
+    ok(`${domain}: it points at the record`, String(link).includes(query));
+    let pathname = null;
+    try { pathname = new URL(link).pathname; } catch { pathname = null; }
+    ok(`${domain}: the link is a real absolute URL`, Boolean(pathname));
+    ok(`${domain}: the route it points at is DECLARED in App.jsx (${pathname})`,
+      Boolean(pathname) && declaredRoutes.has(pathname));
+  }
+
+  // Unknown domains get null, and null is honest: managed-alerts falls back to the
+  // notifications list, which is where the customer would have gone anyway.
+  eq("a domain with no read surface links nowhere rather than somewhere wrong",
+    lifecycleRecordLink(linkEnv, "brand_protection", "x"), null);
+  eq("a missing record id links nowhere", lifecycleRecordLink(linkEnv, "website_security", null), null);
+  // No origin configured => no link, never a relative string that resolves against an
+  // email client's own host.
+  eq("no configured frontend origin yields no link", lifecycleRecordLink({}, "website_security", "wsc-1"), null);
+
+  // The in-app card reads metadata.link. Without this the email would deep-link and the
+  // card beside it would not — the same alert, two answers to "where do I go".
+  const notif = fs.readFileSync(path.join(root, "frontend", "src", "pages", "NotificationsPage.jsx"), "utf8");
+  ok("the in-app notification card reads metadata.link", /meta\?\.link/.test(notif));
+  ok("and refuses a cross-origin destination rather than navigating anywhere it is told",
+    /window\.location\.origin/.test(notif));
+
+  // And the emit path actually attaches it.
+  const consumers = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "engines", "alert-consumers.js"), "utf8");
+  ok("emitLifecycleAlert resolves a record link", /const record_link = link \|\| lifecycleRecordLink\(/.test(consumers));
+  // Scoped to the METADATA block. `/link: record_link,/` alone also matches the top-level
+  // emitManagedAlert argument, so it passed with the metadata field deleted — the card
+  // would have gone dark while the assertion stayed green.
+  const metaBlock = consumers.match(/metadata: \{[\s\S]*?\n      \},/)?.[0] ?? "";
+  ok("the metadata block was located", metaBlock.includes("occurrence_id"));
+  ok("and it carries the link for the in-app card", /link: record_link,/.test(metaBlock));
+}
+
 console.log(`\nm5-read-surfaces: ${pass} passed, ${fail} failed`);
 if (fail > 0) { console.error("m5-read-surfaces validation FAILED"); process.exit(1); }
 console.log("m5-read-surfaces validation passed");

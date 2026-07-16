@@ -11,6 +11,10 @@ import {
   ShieldCheck,
 } from 'lucide-react'
 import { api } from '../../api'
+import {
+  readinessMeta as ceReadinessMeta, coverageMeta as ceCoverageMeta,
+  toneClass as ceToneClass, controlLabel as ceControlLabel, EXTERNAL_SECTION_NOTE,
+} from '../../lib/ceControlDisplay'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { PlanGate } from '../../components/PlanUsageCard'
@@ -347,6 +351,96 @@ function Recommendations({ readiness }) {
   )
 }
 
+// ── Externally observed controls (migration 090) ─────────────────────────────
+// The read surface mig 090 never had: these records were written on every scan and
+// alerted on, while this page showed only the questionnaire. They are rendered as their
+// OWN section, with their own vocabulary, precisely so they cannot be read as the
+// self-assessment above — one is what the customer told us, the other is what we could see
+// without asking. Merging them is how self-attestation starts looking verified.
+function ExternallyObservedControls({ data, error }) {
+  if (error) {
+    return (
+      <div className="rounded-2xl border border-gray-200 bg-white p-5">
+        <h2 className="text-base font-bold text-gray-900">Externally observed controls</h2>
+        <p className="mt-2 text-sm text-red-600">{error}</p>
+      </div>
+    )
+  }
+  if (!data) {
+    return (
+      <div className="rounded-2xl border border-gray-200 bg-white p-5">
+        <h2 className="text-base font-bold text-gray-900">Externally observed controls</h2>
+        <p className="mt-2 text-sm text-gray-400">Loading…</p>
+      </div>
+    )
+  }
+  const items = data.items || []
+  return (
+    <div className="rounded-2xl border border-gray-200 bg-white p-5">
+      <h2 className="text-base font-bold text-gray-900">Externally observed controls</h2>
+      <p className="mt-1 text-sm leading-relaxed text-gray-500">{EXTERNAL_SECTION_NOTE}</p>
+
+      {items.length === 0 && (
+        <p className="mt-4 text-sm text-gray-500">
+          Nothing observed for these controls yet. Records appear here after a scan assesses them.
+        </p>
+      )}
+
+      <div className="mt-4 space-y-3">
+        {items.map((c) => {
+          const state = ceReadinessMeta(c.readiness_state)
+          const cov = ceCoverageMeta(c.external_coverage)
+          return (
+            // `id` is the alert deep-link anchor (/ws/cyber-essentials?control=<id>).
+            <div key={c.id} id={c.id} className="rounded-xl border border-gray-100 bg-gray-50/60 p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-medium text-gray-800">{ceControlLabel(c)}</span>
+                <span className={`inline-block rounded-full border px-2 py-0.5 text-xs ${ceToneClass(state.tone)}`}>{state.label}</span>
+                {/* Coverage is always shown, never only when it is bad: "Externally
+                    aligned" without it would read as a pass. */}
+                <span className={`inline-block rounded-full border px-2 py-0.5 text-xs ${ceToneClass(cov.tone)}`}>{cov.label}</span>
+              </div>
+              <p className="mt-1 text-xs leading-relaxed text-gray-500">{state.hint}</p>
+
+              {c.evidence?.length > 0 && (
+                <div className="mt-2">
+                  <p className="text-xs font-medium text-gray-600">What we observed</p>
+                  <ul className="mt-1 space-y-0.5">
+                    {c.evidence.map((e, i) => (
+                      <li key={i} className="font-mono text-xs text-gray-600">{e.remediation_id}{e.reason ? ` — ${e.reason}` : ''}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* What we could NOT see is shown, not omitted: an unobserved signal that
+                  silently vanished would make partial coverage look complete. */}
+              {c.unknown_signals?.length > 0 && (
+                <div className="mt-2">
+                  <p className="text-xs font-medium text-gray-600">Not observable from outside</p>
+                  <ul className="mt-1 space-y-0.5">
+                    {c.unknown_signals.map((s, i) => (
+                      <li key={i} className="text-xs text-gray-500">{String(s).replace(/_/g, ' ')}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              <p className="mt-2 text-xs text-gray-400">
+                First seen {c.first_seen_at?.slice(0, 10) || '—'} · last assessed {c.last_assessed_at?.slice(0, 10) || '—'}
+              </p>
+            </div>
+          )
+        })}
+      </div>
+
+      {data.scope_note && (
+        <p className="mt-4 rounded border border-gray-200 bg-gray-50 px-3 py-2 text-xs leading-relaxed text-gray-600">{data.scope_note}</p>
+      )}
+    </div>
+  )
+}
+
 function ResultSummary({ readiness }) {
   return (
     <section className={`rounded-2xl border p-5 ${overallTone(readiness)}`}>
@@ -380,6 +474,11 @@ export default function WorkspaceCyberEssentialsPage() {
   const [error, setError] = useState(null)
   const [saveError, setSaveError] = useState(null)
   const [savedAt, setSavedAt] = useState(null)
+  // Migration 090's records. Loaded separately and failing separately: this section is
+  // additive, and a customer must still be able to fill in their questionnaire if the
+  // external-evidence read is unavailable.
+  const [controls, setControls] = useState(null)
+  const [controlsError, setControlsError] = useState(null)
 
   const progress = useMemo(() => {
     const answered = answeredCount(questionSet, answers)
@@ -407,6 +506,28 @@ export default function WorkspaceCyberEssentialsPage() {
   }, [wsId])
 
   useEffect(() => { load() }, [load])
+
+  // Migration 090's control records (mig 090), loaded independently of the questionnaire.
+  // Kept out of `load`'s Promise.all deliberately: this section is additive and must never
+  // be able to break the page a customer came here to fill in.
+  useEffect(() => {
+    if (!wsId) return
+    let cancelled = false
+    api.getCyberEssentialsControls(wsId)
+      .then((res) => { if (!cancelled) { setControls(res); setControlsError(null) } })
+      .catch(() => { if (!cancelled) setControlsError('Could not load externally observed controls.') })
+    return () => { cancelled = true }
+  }, [wsId])
+
+  // Alert deep link: /ws/cyber-essentials?control=<id> scrolls that control into view. A
+  // stale id simply does not scroll — the page is still the right place to have landed.
+  useEffect(() => {
+    if (!controls?.items?.length) return
+    const target = new URLSearchParams(window.location.search).get('control')
+    if (!target) return
+    const el = document.getElementById(target)
+    if (el) el.scrollIntoView({ block: 'center' })
+  }, [controls])
 
   function updateAnswer(controlKey, questionKey, answer) {
     setAnswers(current => ({
@@ -524,6 +645,8 @@ export default function WorkspaceCyberEssentialsPage() {
 
           <section className="space-y-6">
             <ResultSummary readiness={readiness} />
+
+            <ExternallyObservedControls data={controls} error={controlsError} />
 
             {selfControls.length > 0 ? (
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">

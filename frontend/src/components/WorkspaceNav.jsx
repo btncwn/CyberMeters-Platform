@@ -47,7 +47,7 @@ const SERVICES = [
     key: 'surface', title: 'Attack Surface', icon: Server, to: '/assets',
     match: p => p.startsWith('/assets') || p.startsWith('/exposure') || p.startsWith('/ws/admin-surfaces')
       || p.startsWith('/ws/cloud-assets') || p.startsWith('/ws/saas-exposure')
-      || p.startsWith('/ws/identity-exposure')
+      || p.startsWith('/ws/identity-exposure') || p.startsWith('/ws/website-security')
       || p.startsWith('/ws/third-party') || p.startsWith('/scans') || p.startsWith('/schedules'),
     items: [
       { to: '/assets',            label: 'Overview', end: true },
@@ -57,6 +57,15 @@ const SERVICES = [
       { to: '/schedules',         label: 'Schedules' },
       { to: '/ws/admin-surfaces', label: 'Admin Surfaces' },
       { to: '/ws/identity-exposure', label: 'Identity Exposure' },
+      // Website Security is a canonical Cyber MOT domain with no service of its own. It
+      // is surfaced here rather than as a fifth service BECAUSE the sidebar's four
+      // services are a locked product model, not an accident — WorkspaceNav.test.jsx
+      // asserts "exactly the four services", and SERVICE_COLORS has no fifth entry. This
+      // follows the precedent already set for Identity Exposure directly above: a
+      // canonical domain that is not a service is reachable as a sub-item of the service
+      // whose evidence it shares. Externally observed website posture belongs with
+      // externally observed exposure.
+      { to: '/ws/website-security', label: 'Website Security' },
       { to: '/ws/cloud-assets',   label: 'Cloud Assets' },
       { to: '/ws/saas-exposure',  label: 'SaaS Exposure' },
       { to: '/ws/third-party',    label: 'Third-Party' },
