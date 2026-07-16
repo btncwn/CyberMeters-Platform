@@ -52,9 +52,9 @@ Current roadmap state:
 | Certificates Managed Lifecycle | Live |
 | Identity Exposure Managed Workflow | Live |
 | Complete ASM Verification | Live |
-| Alerts Across All Eight Domains | Next canonical episode |
-| MSP Portfolio Per-Domain State and Trend | Planned |
-| M5 Completion Across All Eight Domains | Planned |
+| Alerts Across All Eight Domains | Live — 8 of 8 domains alert canonically. Engineering closed; genuine live-event acceptance outstanding. |
+| MSP Portfolio Per-Domain State and Trend | Live — built, NOT customer-accepted. Engineering closed; authenticated customer acceptance outstanding. |
+| M5 Completion Across All Eight Domains | In progress — evidence-honesty corrective closed (`v2026.07.16-6`); remaining increments planned. |
 | Debugging and Reliability Hardening | Planned after managed lifecycle completion |
 | Pentesting and Security Assurance | Planned after managed lifecycle completion |
 | Founder-Controlled Acceptance Testing | Planned |
