@@ -58,8 +58,8 @@ Current roadmap state (verified against git tags, deployed releases and applied 
 | M5.d Renderer Migration (every renderer consumes the snapshot) | Production complete — deployed `v2026.07.17-2` |
 | Brand DNS Enrichment lifecycle | Production complete — deployed `v2026.07.17-3` |
 | M5.e Eight-Domain Parity Reconciliation | Production deployed — engineering closed; authenticated customer acceptance pending. Deployed `v2026.07.17-4` (SHA `a33975f`, Worker `2beda497`, migration `094` applied) |
-| M5.f Maturity Ledger | Next |
-| M5.g Final CI, idempotency, cost & proof-of-production closure | Next |
+| M5.f Maturity Ledger | Production complete — deployed `v2026.07.17-5` (SHA `5d85620`, Worker `9d2f96b1`, migration `095` applied); founder-controlled complete-scan acceptance passed (8 append-only maturity rows across all eight domains) |
+| M5.g Final CI, idempotency, cost & proof-of-production closure | CI-closed — `validate-m5-closure.js` locks the full M5 gate + append-only idempotency (no deploy). Residual tracked: the Phase 8o CE double-build (a deploy-gated scan-finalize cost optimization); a–e authenticated acceptance is the public-beta gate |
 | Authenticated founder/customer acceptance (across all deployed increments) | Later — public-beta gate |
 | Final pricing decision (after MSP + M5) | Later — public-beta gate |
 | Security / pentest review | Later — public-beta gate |

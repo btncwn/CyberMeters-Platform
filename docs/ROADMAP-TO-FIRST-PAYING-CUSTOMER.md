@@ -82,11 +82,11 @@ Founder-approved (16 July 2026). This is the canonical, ordered spine from the c
 | # | Gate | Status |
 | --- | --- | --- |
 | 1 | M5.b Certificates & Trust | CLOSED |
-| 2 | M5.c Unified Reporting Snapshot | **CURRENT ACTIVE PHASE** |
-| 3 | M5.d Online/PDF Unified Reporting | Planned |
-| 4 | M5.e Eight-domain Parity | Planned |
-| 5 | M5.f Maturity Ledger | Planned |
-| 6 | M5.g Final CI Closure | Planned |
+| 2 | M5.c Unified Reporting Snapshot | CLOSED — deployed `v2026.07.17-1` (migration `093`) |
+| 3 | M5.d Online/PDF Unified Reporting | CLOSED — deployed `v2026.07.17-2` |
+| 4 | M5.e Eight-domain Parity | CLOSED — deployed `v2026.07.17-4` (migration `094`) |
+| 5 | M5.f Maturity Ledger | CLOSED — deployed `v2026.07.17-5` (migration `095`); founder-controlled complete-scan acceptance passed |
+| 6 | M5.g Final CI Closure | CLOSED — `validate-m5-closure.js` locks the full M5 gate + append-only idempotency (CI-only, no deploy); CE double-build cost is a tracked deploy-gated residual |
 | 7 | Pricing + Billing Alignment | Planned |
 | 8 | Final Beta Hardening | Planned |
 | 9 | Controlled Authenticated / Live Acceptance | Planned |
