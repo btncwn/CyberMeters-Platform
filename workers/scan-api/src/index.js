@@ -551,8 +551,10 @@ async function triggerScheduledScan(schedule, env) {
   const scanId = createId("scan");
   const now    = new Date().toISOString();
 
-  // Resolve workspace owner — fall back to user_demo only if workspace has no owner
-  let userId = "user_demo";
+  // Resolve workspace owner. A schedule whose workspace has no live owner is
+  // SKIPPED honestly (M5.e) — a fabricated demo identity must never own real
+  // customer scans or domains.
+  let userId = null;
   if (schedule.workspace_id) {
     const ownerRow = await env.cybermeters_db
       .prepare("SELECT owner_user_id FROM workspaces WHERE id = ? AND deleted_at IS NULL LIMIT 1")
@@ -563,19 +565,12 @@ async function triggerScheduledScan(schedule, env) {
       userId = ownerRow.owner_user_id;
     }
   }
+  if (!userId) {
+    console.log(JSON.stringify({ event: "scheduled_scan_skipped", reason: "no_workspace_owner", schedule_id: schedule.id ?? null, workspace_id: schedule.workspace_id ?? null }));
+    return;
+  }
 
   try {
-    // Ensure fallback demo user exists only when needed
-    if (userId === "user_demo") {
-      await env.cybermeters_db
-        .prepare(
-          `INSERT INTO users (id, email, name, plan)
-           VALUES (?, ?, ?, ?)
-           ON CONFLICT(id) DO NOTHING`
-        )
-        .bind("user_demo", "demo@cybermeters.com", "Demo User", "free")
-        .run();
-    }
 
     // ── Reuse existing domain row so inventory stays on one domain_id ─────────
     // Creating a new row on every run fragments history and breaks workspace links.

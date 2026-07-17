@@ -8,7 +8,7 @@
 // takedown submission, product verification); this generic transition covers the
 // base-lifecycle domains and any generic edge.
 import {
-  canTransitionCase, canonicalPhaseFor, caseTypeEntry, CASE_TYPE_REGISTRY,
+  assignCaseOwner, canTransitionCase, canonicalPhaseFor, caseTypeEntry, CASE_TYPE_REGISTRY,
   CANONICAL_DOMAIN_KEYS, isValidDomainKey, createManagedCase,
   verificationSupportForCase,
 } from "../engines/managed-case-model.js";
@@ -156,6 +156,24 @@ export async function managedCasesRoutes(rctx) {
     return json({ case: caseToUniversalApi(row), events: events.results || [] });
   }
 
+  // ── POST /cases/:caseId/assign — canonical ownership assignment (M5.e) ───
+  // One assignment path for EVERY case type (Brand included). Tenant-authorized
+  // above; persists atomically + appends assignment_changed; empty owner is
+  // refused, never fabricated.
+  if (request.method === "POST" && action === "assign") {
+    let body = {};
+    try { body = await request.json(); } catch { body = {}; }
+    const res = await assignCaseOwner(env, row, {
+      owner_type: body.owner_type,
+      owner_ref: body.owner_ref,
+      actor_type: "customer",
+      actor_id: user.id,
+      assigned_user_id: body.assigned_user_id ?? null,
+    });
+    if (!res.ok) return json({ error: res.error, code: res.code }, res.code === "owner_ref_required" ? 400 : 404);
+    return json({ case: caseToUniversalApi(res.case) });
+  }
+
   // ── POST /cases/:caseId/transition — the ONLY generic mutation path ──────
   if (request.method === "POST" && action === "transition") {
     const entry = caseTypeEntry(row.case_type);
@@ -178,6 +196,9 @@ export async function managedCasesRoutes(rctx) {
       reason: body.reason ?? null,
       risk_accepted_until: body.risk_accepted_until ?? null,
       owner_ref: body.owner_ref ?? null,
+      owner_type: body.owner_type ?? null,
+      assigned_user_id: body.assigned_user_id ?? null,
+      actor_id: user.id,
     });
     if (!decision.ok) {
       const code = decision.code === "system_only" || decision.code === "verify_requires_system" ? 403 : 409;
@@ -190,16 +211,30 @@ export async function managedCasesRoutes(rctx) {
             status = ?, reason = ?, risk_accepted_until = ?, updated_at = ?,
             approved_at = ?, action_started_at = ?, awaiting_verification_at = ?,
             verified_at = ?, monitoring_started_at = ?, reopened_at = ?,
-            accepted_at = ?, closed_at = ?, reopened_count = ?
+            accepted_at = ?, closed_at = ?, reopened_count = ?,
+            owner_type = ?, owner_ref = ?, assigned_by = ?, assigned_user_id = ?
           WHERE id = ? AND workspace_id = ? AND status = ?`)
         .bind(
           next.status, next.reason ?? null, next.risk_accepted_until ?? null, next.updated_at,
           next.approved_at ?? null, next.action_started_at ?? null, next.awaiting_verification_at ?? null,
           next.verified_at ?? null, next.monitoring_started_at ?? null, next.reopened_at ?? null,
           next.accepted_at ?? null, next.closed_at ?? null, Number(next.reopened_count || 0),
+          // Ownership persists atomically with the transition (M5.e) — the
+          // `assigned` guard requires it, and it survives every later step.
+          next.owner_type ?? null, next.owner_ref ?? null, next.assigned_by ?? null, next.assigned_user_id ?? null,
           row.id, wsId, row.status, // CAS on the observed status — concurrent change loses
         ).run();
       // Append-only history event (never updates/deletes a prior row).
+      if (next.owner_ref && next.owner_ref !== row.owner_ref) {
+        await env.cybermeters_db
+          .prepare(`INSERT INTO managed_case_events
+              (id, case_id, workspace_id, actor_type, actor_id, from_status, to_status, action, detail_json, created_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`)
+          .bind(newCaseEventId(), row.id, wsId, "customer", user.id,
+                row.status, next.status, "assignment_changed",
+                JSON.stringify({ owner_type: next.owner_type ?? null, owner_ref: next.owner_ref, assigned_user_id: next.assigned_user_id ?? null }))
+          .run();
+      }
       const ev = decision.event;
       await env.cybermeters_db
         .prepare(`INSERT INTO managed_case_events

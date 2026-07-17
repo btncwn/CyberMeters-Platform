@@ -81,6 +81,15 @@ export function applyCaseTransition(machineDef, caseRecord, to, ctx = {}) {
 
   const now = ctx.now || new Date().toISOString();
   const next = { ...caseRecord, status: to, updated_at: now };
+  // Ownership persists ATOMICALLY with the transition that requires it (M5.e):
+  // the `assigned` guard demands owner_ref, and the returned record now carries
+  // it — a case can never reach state=assigned with owner NULL.
+  if (ctx.owner_ref != null && String(ctx.owner_ref).trim()) {
+    next.owner_ref = String(ctx.owner_ref).trim().slice(0, 255);
+    next.owner_type = ["person", "team", "vendor", "unknown"].includes(ctx.owner_type) ? ctx.owner_type : (caseRecord.owner_type ?? "unknown");
+    next.assigned_by = ctx.actor_id ?? caseRecord.assigned_by ?? null;
+    if (ctx.assigned_user_id != null) next.assigned_user_id = ctx.assigned_user_id;
+  }
   if (ctx.reason != null) next.reason = String(ctx.reason).trim() || null;
   if (ctx.risk_accepted_until != null) next.risk_accepted_until = ctx.risk_accepted_until;
   if (to === "resolved") next.resolved_at = now;

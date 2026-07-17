@@ -16,7 +16,7 @@ import { normalizeDiscoveredHostname } from "./hostnames.js";
 import { MANAGED_VERIFICATION_PROFILE, findingTypeOf, isSupportedVerification, runManagedVerificationProbe } from "./managed-verification.js";
 import { findingRemediation } from "./remediation-registry.js";
 import { ASM_CASE_TYPE, ASM_CASE_MACHINE, ASM_CASE_STATES, SYSTEM_ONLY_CASE_STATES } from "./asm-case-machine.js";
-import { canTransitionCase } from "./managed-case-model.js";
+import { canTransitionCase, assignCaseOwner } from "./managed-case-model.js";
 
 // Re-exported from the neutral machine module so existing importers are unchanged.
 export { ASM_CASE_TYPE, ASM_CASE_MACHINE, ASM_CASE_STATES, SYSTEM_ONLY_CASE_STATES };
@@ -264,24 +264,16 @@ async function updateCaseStatus(env, caseRow, to, ctx = {}) {
 }
 
 export async function assignManagedCaseOwner(env, caseRow, { owner_type, owner_ref, assigned_by = "customer", actor_id = null } = {}) {
-  const type = ["person", "team", "vendor", "unknown"].includes(owner_type) ? owner_type : "unknown";
-  const ref = String(owner_ref || "").trim().slice(0, 255) || "Unknown owner";
-  const now = new Date().toISOString();
-  await env.cybermeters_db
-    .prepare(`UPDATE managed_cases
-      SET owner_type = ?, owner_ref = ?, assigned_by = ?, updated_at = ?
-      WHERE id = ? AND workspace_id = ?`)
-    .bind(type, ref, assigned_by, now, caseRow.id, caseRow.workspace_id)
-    .run();
-  const updated = { ...caseRow, owner_type: type, owner_ref: ref, assigned_by, updated_at: now };
-  await writeCaseEvent(env, updated, {
+  // Delegates persist + append-only assignment_changed evidence to the ONE
+  // canonical assignment helper (M5.e) — no duplicated route logic, and an
+  // empty owner is refused rather than fabricated ("Unknown owner" is gone).
+  const res = await assignCaseOwner(env, caseRow, {
+    owner_type, owner_ref,
     actor_type: assigned_by === "system" ? "system" : "customer",
     actor_id,
-    from_status: caseRow.status,
-    to_status: caseRow.status,
-    action: "owner_assigned",
-    detail: { owner_type: type, owner_ref: ref, assigned_by },
   });
+  if (!res.ok) return res;
+  const updated = res.case;
   if (caseRow.status === "triage") {
     return updateCaseStatus(env, updated, "owner_assigned", { actor_type: assigned_by === "system" ? "system" : "customer", actor_id, action: "transition" });
   }

@@ -152,7 +152,7 @@ export async function executiveDashboardRoutes(rctx) {
             .prepare(
               `SELECT score, rating, domain, created_at
                FROM (SELECT score, rating, domain, created_at
-                     FROM historical_scores WHERE workspace_id = ?
+                     FROM historical_scores WHERE workspace_id = ? AND scan_quality = 'complete'
                      ORDER BY created_at DESC LIMIT 30)
                ORDER BY created_at ASC`
             )
@@ -285,9 +285,13 @@ export async function executiveDashboardRoutes(rctx) {
         const verificationRate = totalDomains > 0
           ? Math.round((verifiedCount / totalDomains) * 100) : 0;
 
-        const avgScore = trendPoints.length > 0
-          ? Math.round(trendPoints.reduce((s, p) => s + (p.score ?? 0), 0) / trendPoints.length)
-          : (latestScan?.score ?? null);
+        // M5.e: complete-quality points only (query above is gated), a missing
+        // score is EXCLUDED rather than averaged as 0, and the no-trend fallback
+        // is the authoritative posture score, never a raw any-quality scan row.
+        const scoredPoints = trendPoints.filter((p) => Number.isFinite(p.score));
+        const avgScore = scoredPoints.length > 0
+          ? Math.round(scoredPoints.reduce((s, p) => s + p.score, 0) / scoredPoints.length)
+          : (posture?.authoritative?.display_score ?? null);
 
         return json({
           workspace_id: wsId,

@@ -4,6 +4,8 @@
 // core BRS computation. Extracted verbatim from index.js (monolith decomposition, Phase 1c).
 import { applyEvidenceQuality, isActionableFinding, normalizeFindingSchema } from "./findings.js";
 import { resolveRemediation } from "./remediation-registry.js";
+import { computeWorkspaceVendorRisk } from "./vendor-risk.js";
+import { createId } from "../lib/util.js";
 
 // ── Business Risk Score (BRS) v1 ─────────────────────────────────────────────
 //
@@ -198,29 +200,6 @@ export function deriveScanBusinessRisk(report) {
   };
 }
 
-/**
- * latestScanBusinessRisk(env, wsId) — Business Risk from the workspace's most
- * recent completed scan, using the same deriveScanBusinessRisk() the scan UI
- * and scan PDF use. Fallback for the executive report when the workspace-level
- * workspace_brs_scores table has not been populated, so the report never shows
- * "unknown" while the scan view shows a real score. Returns null on any miss.
- */
-export async function latestScanBusinessRisk(env, wsId) {
-  try {
-    const scan = await env.cybermeters_db
-      .prepare(`SELECT id FROM scans WHERE workspace_id = ? AND status = 'completed'
-                ORDER BY created_at DESC LIMIT 1`)
-      .bind(wsId).first();
-    if (!scan?.id) return null;
-    const obj = await env.cybermeters_reports.get(`reports/${scan.id}.json`);
-    if (!obj) return null;
-    const report = await obj.json();
-    const brs = deriveScanBusinessRisk(report);
-    return brs && brs.score != null ? brs : null;
-  } catch {
-    return null;
-  }
-}
 
 export function computeBusinessRiskScore(findingIds, workspaceData = {}) {
   if (findingIds && typeof findingIds === "object" && !(findingIds instanceof Set)) {
@@ -474,4 +453,154 @@ export function computeBusinessRiskScore(findingIds, workspaceData = {}) {
     narrative:    summary,
     top_concerns: topRisks.slice(0, 5).map(r => ({ category: r.title, issue: r.impact, score })),
   };
+}
+
+// ── Canonical workspace Business Risk: compute + persist (M5.e) ──────────────
+// The founder contract: the workspace-model BRS is calculated and persisted at
+// SCAN FINALIZE; GET /business-risk reads the persisted result and never
+// recalculates or writes. This function is the ONE producer — it assembles the
+// workspace model (vendors, latest-scan findings, assets), computes, derives
+// the customer payload (narrative, grade, top concerns), and persists
+// workspace_brs_scores (+ one history row per finalized scan — history cadence
+// is scan cadence, never page-view cadence).
+
+// Workspace-BRS letter grade — a WORKSPACE Business Risk semantic, not a Cyber
+// Metrics Score band (relocated verbatim from the route so exactly one ladder
+// exists, here, documented).
+export function workspaceBrsGrade(score) {
+  return score >= 76 ? "A" : score >= 51 ? "B" : score >= 31 ? "C" : "F";
+}
+
+export async function computeAndPersistWorkspaceBrs(env, workspaceId) {
+  const [latestScanRow, assetRow] = await Promise.all([
+    env.cybermeters_db
+      .prepare(`SELECT s.id AS scan_id, s.score, s.rating, s.created_at
+                FROM scans s WHERE s.workspace_id = ? AND s.status = 'completed'
+                ORDER BY s.created_at DESC LIMIT 1`)
+      .bind(workspaceId).first(),
+    env.cybermeters_db
+      .prepare(`SELECT COUNT(*) AS n FROM workspace_assets WHERE workspace_id = ? AND status = 'active'`)
+      .bind(workspaceId).first(),
+  ]);
+
+  let vendorRows = [];
+  try {
+    const r = await env.cybermeters_db
+      .prepare(`SELECT wv.id, wv.workspace_id, wv.vendor_name, wv.category,
+                       wv.source, wv.evidence, wv.confidence, wv.risk_level,
+                       wv.status, wv.first_seen, wv.last_seen,
+                       vrs.score AS persisted_score, vrs.category_multiplier, vrs.concentration_penalty
+                FROM workspace_vendors wv
+                LEFT JOIN vendor_risk_scores vrs
+                  ON vrs.vendor_id = wv.id AND vrs.workspace_id = wv.workspace_id
+                WHERE wv.workspace_id = ? AND wv.status = 'active' AND wv.source_module = 'vendor_risk'`)
+      .bind(workspaceId).all();
+    vendorRows = r.results || [];
+  } catch {
+    const r = await env.cybermeters_db
+      .prepare(`SELECT id, workspace_id, vendor_name, category, source, evidence,
+                       confidence, risk_level, status, first_seen, last_seen
+                FROM workspace_vendors
+                WHERE workspace_id = ? AND status = 'active' AND source_module = 'vendor_risk'`)
+      .bind(workspaceId).all();
+    vendorRows = r.results || [];
+  }
+
+  const vendorAggregate = computeWorkspaceVendorRisk(vendorRows);
+  const topVendors = vendorAggregate.top_vendors.map((v) => ({
+    id: v.id, name: v.vendor_name, vendor_name: v.vendor_name,
+    category: v.normalized_category, score: v.persisted_score ?? v.score, risk_level: v.risk_level,
+  }));
+
+  let findingIds = new Set();
+  let criticalFindings = 0;
+  let highFindings = 0;
+  if (latestScanRow?.scan_id) {
+    try {
+      const obj = await env.cybermeters_reports.get(`reports/${latestScanRow.scan_id}.json`);
+      if (obj) {
+        const report = await obj.json();
+        const findings = Array.isArray(report.findings) ? report.findings : [];
+        findingIds = expandFindingIds(findings.filter(isActionableFinding));
+        criticalFindings = findings.filter((f) => f.severity === "critical").length;
+        highFindings = findings.filter((f) => f.severity === "high").length;
+      }
+    } catch { /* tolerate missing report */ }
+    if (criticalFindings === 0 && highFindings === 0) {
+      try {
+        const severityRows = await env.cybermeters_db
+          .prepare(`SELECT severity, COUNT(*) AS n FROM findings WHERE scan_id = ? GROUP BY severity`)
+          .bind(latestScanRow.scan_id).all();
+        const severityMap = Object.fromEntries((severityRows.results || []).map((r) => [r.severity, r.n]));
+        criticalFindings = severityMap.critical || 0;
+        highFindings = severityMap.high || 0;
+      } catch { /* non-fatal */ }
+    }
+  }
+
+  const workspaceModel = {
+    workspace_id: workspaceId,
+    vendor_risk: {
+      workspace_vendor_risk_score: vendorAggregate.workspace_vendor_risk_score,
+      top_vendors: topVendors,
+      concentration_risk: vendorAggregate.concentration_risk,
+    },
+    asm_security: {
+      critical_findings: criticalFindings,
+      high_findings: highFindings,
+      missing_https: findingIds.has("ssl_no_certificate") || findingIds.has("no_https_redirect"),
+      weak_email_security:
+        findingIds.has("email_missing_spf") || findingIds.has("email_missing_dmarc") ||
+        findingIds.has("email_dmarc_policy_none"),
+      header_misconfig:
+        findingIds.has("header_missing_strict_transport_security") || findingIds.has("header_weak_hsts") ||
+        findingIds.has("header_missing_content_security_policy") || findingIds.has("csp_weak_policy"),
+    },
+    asset_exposure: { asset_count: assetRow?.n || 0 },
+  };
+
+  const brs = computeBusinessRiskScore(workspaceModel);
+  const narrative = brs.summary.primary_risks.length > 0
+    ? `Business risk is ${brs.risk_band}. Primary concerns: ${brs.summary.primary_risks.slice(0, 2).join("; ")}.`
+    : `Business risk is ${brs.risk_band}. No major business-risk drivers were detected from current ASM and vendor data.`;
+  const grade = workspaceBrsGrade(brs.business_risk_score);
+
+  const payload = {
+    ...brs,
+    score: brs.business_risk_score,
+    brs: brs.business_risk_score,
+    band: brs.risk_band,
+    grade,
+    grade_label: brs.risk_band,
+    narrative,
+    top_concerns: brs.summary.primary_risks.map((risk) => ({
+      title: risk, impact: risk,
+      recommendation: brs.recommendations[0] || "Review this risk with the responsible business owner.",
+      severity: brs.risk_band === "critical" ? "critical" : brs.risk_band === "high" ? "high" : "medium",
+    })),
+    latest_scan: latestScanRow ? {
+      scan_id: latestScanRow.scan_id, asm_score: latestScanRow.score,
+      asm_rating: latestScanRow.rating, scanned_at: latestScanRow.created_at,
+    } : null,
+    workspace_context: {
+      vendor_total: vendorAggregate.scored_vendors.length,
+      asset_count: workspaceModel.asset_exposure.asset_count,
+      critical_findings: criticalFindings,
+      high_findings: highFindings,
+    },
+  };
+
+  await env.cybermeters_db
+    .prepare(`INSERT OR REPLACE INTO workspace_brs_scores
+                (workspace_id, score, risk_band, calculated_at, payload_json)
+              VALUES (?, ?, ?, ?, ?)`)
+    .bind(workspaceId, brs.business_risk_score, brs.risk_band, brs.calculated_at, JSON.stringify(payload))
+    .run();
+  await env.cybermeters_db
+    .prepare(`INSERT INTO workspace_brs_score_history
+                (id, workspace_id, score, risk_band, calculated_at)
+              VALUES (?, ?, ?, ?, ?)`)
+    .bind(createId("brshist"), workspaceId, brs.business_risk_score, brs.risk_band, brs.calculated_at)
+    .run();
+  return payload;
 }

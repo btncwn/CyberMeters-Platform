@@ -1,0 +1,23 @@
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Migration 094: Persist the full canonical workspace Business Risk payload
+-- ─────────────────────────────────────────────────────────────────────────────
+--
+-- M5.e-B. Additive only.
+--
+-- The founder-corrected /business-risk contract: the canonical workspace BRS is
+-- calculated and persisted at SCAN FINALIZE, and the GET endpoint reads that
+-- persisted result without writing or independently recalculating. The existing
+-- table carries only (score, risk_band, calculated_at) — not the narrative,
+-- drivers, top concerns, latest-scan reference and workspace context the
+-- customer response is made of. Without this column the GET would have to
+-- recompute presentation live, which is exactly the divergence the contract
+-- forbids. payload_json stores the full computed response object verbatim.
+--
+-- Rollback: leave the schema in place; roll back APPLICATION CODE only. A NULL
+-- payload_json renders as "not yet assessed", which is honest.
+--
+-- Apply:
+--   wrangler d1 execute cybermeters-db --remote \
+--     --file=database/migrations/094-workspace-brs-payload.sql
+
+ALTER TABLE workspace_brs_scores ADD COLUMN payload_json TEXT;

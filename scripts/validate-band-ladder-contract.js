@@ -79,7 +79,6 @@ const ALLOWLIST = {
   "engines/shadow-it-inventory.js": "detection-confidence tiering",
   "engines/confidence.js": "finding confidence tiers, not scores",
   "engines/assessment-presentation.js": "delegates to riskLevelForScore (canonical seam)",
-  "routes/workspace-analytics.js": "workspace BRS grade ladder — M5.e-B removes; tracked",
 };
 const scanDirs = ["engines", "routes"].map((d) => path.join(root, "workers", "scan-api", "src", d));
 const LADDER_RE = />=\s*\d{2}\s*\?/;
