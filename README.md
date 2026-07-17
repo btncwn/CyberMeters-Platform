@@ -41,24 +41,33 @@ CyberMeters is in:
 
 The platform foundations are live, and the current focus is completing the managed lifecycle across all eight domains before controlled external invitations.
 
-Current roadmap state:
+Current roadmap state (verified against git tags, deployed releases and applied migrations):
 
 | Platform Area | Status |
 | --- | --- |
-| Eight-Domain Coverage-State Honesty | Live |
-| Canonical Remediation Registry | Live |
-| Universal Managed-Case Model (incl. enforced invariants) | Live |
-| Shadow IT Approved Inventory + Correlation Depth | Live |
-| Certificates Managed Lifecycle | Live |
-| Identity Exposure Managed Workflow | Live |
-| Complete ASM Verification | Live |
-| Alerts Across All Eight Domains | Live — 8 of 8 domains alert canonically. Engineering closed; genuine live-event acceptance outstanding. |
-| MSP Portfolio Per-Domain State and Trend | Live — built, NOT customer-accepted. Engineering closed; authenticated customer acceptance outstanding. |
-| M5 Completion Across All Eight Domains | In progress — evidence-honesty corrective (`v2026.07.16-6`) and alerting repair (`v2026.07.16-7`) closed; remaining increments planned. |
-| Debugging and Reliability Hardening | Planned after managed lifecycle completion |
-| Pentesting and Security Assurance | Planned after managed lifecycle completion |
-| Founder-Controlled Acceptance Testing | Planned |
-| Final Public-Beta Gate | Planned |
+| Eight-Domain Coverage-State Honesty | Production complete |
+| Canonical Remediation Registry | Production complete |
+| Universal Managed-Case Model (incl. enforced invariants) | Production complete |
+| Shadow IT Approved Inventory + Correlation Depth | Production complete |
+| Certificates Managed Lifecycle | Production complete |
+| Identity Exposure Managed Workflow | Production complete |
+| Complete ASM Verification | Production complete |
+| Alerts Across All Eight Domains | Production complete — 8 of 8 domains alert canonically |
+| MSP Portfolio Per-Domain State and Trend | Production complete |
+| M5.c Unified Reporting — Stage 1 (canonical per-scan snapshot) | Production complete — deployed `v2026.07.17-1` (migration `093`) |
+| M5.d Renderer Migration (every renderer consumes the snapshot) | Production complete — deployed `v2026.07.17-2` |
+| Brand DNS Enrichment lifecycle | Production complete — deployed `v2026.07.17-3` |
+| M5.e Eight-Domain Parity Reconciliation | Production deployed — engineering closed; authenticated customer acceptance pending. Deployed `v2026.07.17-4` (SHA `a33975f`, Worker `2beda497`, migration `094` applied) |
+| M5.f Maturity Ledger | Next |
+| M5.g Final CI, idempotency, cost & proof-of-production closure | Next |
+| Authenticated founder/customer acceptance (across all deployed increments) | Later — public-beta gate |
+| Final pricing decision (after MSP + M5) | Later — public-beta gate |
+| Security / pentest review | Later — public-beta gate |
+| Invitation / beta-user flow validation | Later — public-beta gate |
+| Restore-tested backup operations | Later — public-beta gate |
+| Final public-beta release gate | Later — public-beta gate |
+
+**"Production complete" means deployed and engineering-closed — not authenticated customer acceptance.** Authenticated founder/customer acceptance across every completed increment (including M5.c–M5.e) remains a separate, still-outstanding public-beta gate item.
 
 ---
 
