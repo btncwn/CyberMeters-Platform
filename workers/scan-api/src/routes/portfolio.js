@@ -255,7 +255,12 @@ export async function portfolioRoutes(rctx) {
       try {
         const workspaceIds = await getAccessibleWorkspaceIds(user, env);
         const rows = await computePortfolioCustomerRows(env.cybermeters_db, workspaceIds);
-        return json({ ...buildExecutiveSummary(rows), generated_at: new Date().toISOString() });
+        return json({
+          ...buildExecutiveSummary(rows),
+          partial_failure: (rows.degraded_queries?.length ?? 0) > 0 ? true : false,
+          unavailable_metrics: rows.degraded_queries ?? [],
+          generated_at: new Date().toISOString(),
+        });
       } catch (err) {
         return serverError("api", err);
       }
@@ -395,6 +400,7 @@ export async function portfolioRoutes(rctx) {
             FROM scans s
             JOIN workspace_domains wd ON wd.domain_id = s.domain_id
             WHERE s.status = 'completed'
+              AND s.scan_quality = 'complete'
               AND s.created_at >= datetime('now', '-30 days')
               AND s.score IS NOT NULL
               AND wd.workspace_id IN (${wsIn})
@@ -408,6 +414,7 @@ export async function portfolioRoutes(rctx) {
             JOIN scans s ON f.scan_id = s.id
             JOIN workspace_domains wd ON wd.domain_id = s.domain_id
             WHERE s.status = 'completed'
+              AND s.scan_quality = 'complete'
               AND s.created_at >= datetime('now', '-30 days')
               AND f.severity IN ('critical', 'high')
               AND wd.workspace_id IN (${wsIn})

@@ -151,7 +151,7 @@ function NotificationCard({ n, onMarkRead }) {
   const recordHref = (() => {
     const raw = meta?.link
     if (typeof raw !== 'string' || !raw) return null
-    if (raw.startsWith('/')) return raw
+    if (raw.startsWith('/') && !raw.startsWith('//')) return raw
     try {
       const u = new URL(raw)
       return u.origin === window.location.origin ? `${u.pathname}${u.search}${u.hash}` : null

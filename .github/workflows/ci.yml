@@ -204,6 +204,13 @@ jobs:
       - name: Validate band-ladder contract (canonical bands / frontend mirror / no drift)
         run: node scripts/validate-band-ladder-contract.js
 
+      # M5.e-E — closure gate. Proves the M5.e-A/B/C/D fixes are still coherent as
+      # one release: eight-domain completeness, score/band parity, state honesty,
+      # ownership assignment, persisted Business Risk, MSP parity, frontend parity,
+      # migration 094 compatibility, and the founder-required mutation set.
+      - name: Validate M5.e closure (eight-domain parity closure and release gate)
+        run: node scripts/validate-m5e-closure.js
+
       # Mutation proof for the 2026-07-16 alerting repair. Two guards in this repo were
       # named for coverage they never executed, so the suites above are themselves proved
       # load-bearing here: each defect is reintroduced and must reappear.

@@ -6,7 +6,7 @@
 //
 // The legacy builders and their recalculation imports (posture scoring,
 // scorecard, live resolvers, scan-path risk re-derivation, registry-by-title
-// joins, five-category posture, four-service palette) are DELETED, not merely
+// joins, five-category posture, legacy service palette) are DELETED, not merely
 // unreferenced — the M5.c defect class was renderers re-deriving truth, and
 // dead brains drift back to life.
 //

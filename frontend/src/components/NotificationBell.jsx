@@ -35,7 +35,7 @@ function severityCfg(sev) {
 
 function appPath(raw) {
   if (typeof raw !== 'string' || !raw) return null
-  if (raw.startsWith('/')) return raw
+  if (raw.startsWith('/') && !raw.startsWith('//')) return raw
   try {
     const u = new URL(raw)
     return u.origin === window.location.origin ? `${u.pathname}${u.search}${u.hash}` : null

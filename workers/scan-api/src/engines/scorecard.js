@@ -4,6 +4,7 @@
 // index.js (monolith decomposition, Phase 1c).
 import { computeSecurityPosture } from "./posture-scoring.js";
 import { getCurrentPosturePresentation } from "./current-posture.js";
+import { resolveCyberMotDomainStates } from "./cyber-mot-domains.js";
 
 /**
  * buildScorecardData(wsId, env)
@@ -304,6 +305,9 @@ export async function buildScorecardData(wsId, env, { scanScope = "linked_domain
     },
     report
   );
+  const cyber_mot_domains = Array.isArray(report?.cyber_mot_domains)
+    ? report.cyber_mot_domains
+    : resolveCyberMotDomainStates(report);
 
   // ── Final scorecard object ─────────────────────────────────────────────────
   return {
@@ -350,5 +354,6 @@ export async function buildScorecardData(wsId, env, { scanScope = "linked_domain
     },
     top_recommendations: topRemediation,
     security_posture,
+    cyber_mot_domains,
   };
 }

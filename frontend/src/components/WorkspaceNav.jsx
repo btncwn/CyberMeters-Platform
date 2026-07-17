@@ -3,14 +3,14 @@ import { NavLink, Link, useNavigate, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Shield, Lock, Tag, Briefcase, ChevronLeft, ChevronDown,
   ChevronRight, BarChart2, ClipboardList, Users, HardDrive, Mail,
-  Server, Settings, Bell,
+  Server, Settings, Bell, MonitorCheck, KeyRound, Boxes, ClipboardCheck,
 } from 'lucide-react'
 import { preloadComponent } from '../utils/preload'
 import { routePreloadMap } from '../utils/preloadMap'
 import { SERVICE_COLORS } from '../theme/serviceColors'
 
 // ── Glacier palette — from the shared single source of truth ──────────────────
-// The sidebar maps the shared per-service colours onto the field names it uses
+// The sidebar maps the shared per-domain colours onto the field names it uses
 // (bg = active-item background = the shared `chip`; accent = `icon`). Inline
 // styles keep the themes dynamic without touching tailwind.config (no purge risk).
 const THEME = Object.fromEntries(
@@ -20,7 +20,7 @@ const THEME = Object.fromEntries(
   ])
 )
 
-// ── The four CyberMeters services — the only primary sections in the sidebar ──
+// ── Canonical Cyber MOT domains — the primary sections in the sidebar ─────────
 const SERVICES = [
   {
     key: 'email', title: 'Email Protection', icon: Mail, to: '/ws/email-protection',
@@ -46,9 +46,7 @@ const SERVICES = [
   {
     key: 'surface', title: 'Attack Surface', icon: Server, to: '/assets',
     match: p => p.startsWith('/assets') || p.startsWith('/exposure') || p.startsWith('/ws/admin-surfaces')
-      || p.startsWith('/ws/cloud-assets') || p.startsWith('/ws/saas-exposure')
-      || p.startsWith('/ws/identity-exposure') || p.startsWith('/ws/website-security')
-      || p.startsWith('/ws/third-party') || p.startsWith('/scans') || p.startsWith('/schedules'),
+      || p.startsWith('/ws/cloud-assets') || p.startsWith('/scans') || p.startsWith('/schedules'),
     items: [
       { to: '/assets',            label: 'Overview', end: true },
       { to: '/exposure',          label: 'Timeline' },
@@ -56,19 +54,7 @@ const SERVICES = [
       { to: '/scans',             label: 'Scans' },
       { to: '/schedules',         label: 'Schedules' },
       { to: '/ws/admin-surfaces', label: 'Admin Surfaces' },
-      { to: '/ws/identity-exposure', label: 'Identity Exposure' },
-      // Website Security is a canonical Cyber MOT domain with no service of its own. It
-      // is surfaced here rather than as a fifth service BECAUSE the sidebar's four
-      // services are a locked product model, not an accident — WorkspaceNav.test.jsx
-      // asserts "exactly the four services", and SERVICE_COLORS has no fifth entry. This
-      // follows the precedent already set for Identity Exposure directly above: a
-      // canonical domain that is not a service is reachable as a sub-item of the service
-      // whose evidence it shares. Externally observed website posture belongs with
-      // externally observed exposure.
-      { to: '/ws/website-security', label: 'Website Security' },
       { to: '/ws/cloud-assets',   label: 'Cloud Assets' },
-      { to: '/ws/saas-exposure',  label: 'SaaS Exposure' },
-      { to: '/ws/third-party',    label: 'Third-Party' },
     ],
   },
   {
@@ -82,6 +68,40 @@ const SERVICES = [
       { hash: '#cert-actions',   label: 'Recommended Actions' },
       { hash: '#cert-trust',     label: 'Trust Posture' },
       { to: '/ws/reports',       label: 'Reports' },
+    ],
+  },
+  {
+    key: 'cyber_essentials', title: 'Cyber Essentials Readiness', icon: ClipboardCheck, to: '/ws/cyber-essentials',
+    match: p => p.startsWith('/ws/cyber-essentials'),
+    items: [
+      { to: '/ws/cyber-essentials', label: 'Overview', end: true },
+      { to: '/ws/reports',          label: 'Reports' },
+    ],
+  },
+  {
+    key: 'website', title: 'Website Security', icon: MonitorCheck, to: '/ws/website-security',
+    match: p => p.startsWith('/ws/website-security'),
+    items: [
+      { to: '/ws/website-security', label: 'Overview', end: true },
+      { to: '/ws/reports',          label: 'Reports' },
+    ],
+  },
+  {
+    key: 'identity', title: 'Identity Exposure', icon: KeyRound, to: '/ws/identity-exposure',
+    match: p => p.startsWith('/ws/identity-exposure'),
+    items: [
+      { to: '/ws/identity-exposure', label: 'Overview', end: true },
+      { to: '/ws/reports',           label: 'Reports' },
+    ],
+  },
+  {
+    key: 'shadow_it', title: 'Shadow IT & Unmanaged Technology', icon: Boxes, to: '/ws/shadow-it',
+    match: p => p.startsWith('/ws/shadow-it') || p.startsWith('/ws/saas-exposure') || p.startsWith('/ws/third-party'),
+    items: [
+      { to: '/ws/shadow-it',       label: 'Overview', end: true },
+      { to: '/ws/saas-exposure',   label: 'SaaS Exposure' },
+      { to: '/ws/third-party',     label: 'Third-Party' },
+      { to: '/ws/reports',         label: 'Reports' },
     ],
   },
 ]
@@ -145,7 +165,7 @@ export default function WorkspaceNav({ wsName }) {
         </div>
       </div>
 
-      {/* ── Product suite: four coloured services ── */}
+      {/* ── Cyber MOT domains ── */}
       <nav className="flex-1 px-2.5 py-4 space-y-1.5">
         {SERVICES.map(svc => {
           const active = activeKey === svc.key
@@ -174,7 +194,7 @@ export default function WorkspaceNav({ wsName }) {
                   style={{ color: t.icon, transform: hovered && !active ? 'scale(1.08)' : undefined }}
                 />
                 <span
-                  className="flex-1 truncate text-[18px] leading-tight"
+                  className="flex-1 truncate text-[15px] leading-tight"
                   style={active ? { color: t.text } : undefined}
                 >
                   {svc.title}

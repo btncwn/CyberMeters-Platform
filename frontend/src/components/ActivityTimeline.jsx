@@ -26,9 +26,11 @@ const EVENT_CONFIG = {
   attack_surface_alert:     { icon: Globe,       color: 'text-teal-600',   bg: 'bg-teal-50'   },
   certificates_trust_alert: { icon: Lock,        color: 'text-sky-600',    bg: 'bg-sky-50'    },
   cyber_essentials_alert:   { icon: ClipboardCheck, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+  cyber_essentials_readiness_alert: { icon: ClipboardCheck, color: 'text-emerald-600', bg: 'bg-emerald-50' },
   website_security_alert:   { icon: MonitorCheck, color: 'text-amber-600', bg: 'bg-amber-50'  },
   identity_exposure_alert:  { icon: KeyRound,    color: 'text-indigo-600', bg: 'bg-indigo-50' },
   shadow_it_alert:          { icon: Boxes,       color: 'text-purple-600', bg: 'bg-purple-50' },
+  shadow_it_unmanaged_technology_alert: { icon: Boxes, color: 'text-purple-600', bg: 'bg-purple-50' },
 }
 
 function eventConfig(type) {
@@ -163,9 +165,11 @@ export default function ActivityTimeline({ workspaceId }) {
     { value: 'attack_surface_alert',     label: 'Attack Surface alerts' },
     { value: 'certificates_trust_alert', label: 'Certificate alerts' },
     { value: 'cyber_essentials_alert',   label: 'Cyber Essentials alerts' },
+    { value: 'cyber_essentials_readiness_alert', label: 'Cyber Essentials Readiness alerts' },
     { value: 'website_security_alert',   label: 'Website Security alerts' },
     { value: 'identity_exposure_alert',  label: 'Identity Exposure alerts' },
     { value: 'shadow_it_alert',          label: 'Shadow IT alerts' },
+    { value: 'shadow_it_unmanaged_technology_alert', label: 'Shadow IT & Unmanaged Technology alerts' },
   ]
 
   return (

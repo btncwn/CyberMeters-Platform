@@ -81,22 +81,22 @@ export async function computePortfolioCustomerRows(db, workspaceIds) {
     degradedQueries.push(name);
     return [];
   };
-  const byWs = (r, pick) => { const m = {}; for (const x of rows0(r)) m[x.workspace_id] = pick(x); return m; };
+  const byWs = (r, name, pick) => { const m = {}; for (const x of rows0(r, name)) m[x.workspace_id] = pick(x); return m; };
 
-  const domMap    = byWs(domRes,    (x) => x.count);
-  const assetMap  = byWs(assetRes,  (x) => x.count);
-  const vendorMap = byWs(vendorRes, (x) => x.count);
-  const brandMap  = byWs(brandRes,  (x) => x.count);
-  const scanMap   = byWs(scanRes,   (x) => x);
-  const rptMap    = byWs(rptRes,    (x) => x.last_report_at);
-  const changeMap = byWs(changesRes,(x) => ({ total: Number(x.total) || 0, high: Number(x.high) || 0 }));
+  const domMap    = byWs(domRes,     "domains",       (x) => x.count);
+  const assetMap  = byWs(assetRes,   "assets",        (x) => x.count);
+  const vendorMap = byWs(vendorRes,  "vendors",       (x) => x.count);
+  const brandMap  = byWs(brandRes,   "brand_assets",  (x) => x.count);
+  const scanMap   = byWs(scanRes,    "scores",        (x) => x);
+  const rptMap    = byWs(rptRes,     "reports",       (x) => x.last_report_at);
+  const changeMap = byWs(changesRes, "changes",       (x) => ({ total: Number(x.total) || 0, high: Number(x.high) || 0 }));
   const findingsMap = {};
-  for (const x of rows0(findingsRes)) {
+  for (const x of rows0(findingsRes, "findings")) {
     (findingsMap[x.workspace_id] ??= { critical: 0, high: 0 })[x.severity] = x.cnt;
   }
 
   const now = Date.now();
-  const rows = rows0(wsRes).map((ws) => {
+  const rows = rows0(wsRes, "workspaces").map((ws) => {
     const scan = scanMap[ws.id] ?? {};
     const findings = findingsMap[ws.id] ?? {};
     const changes = changeMap[ws.id] ?? { total: 0, high: 0 };
@@ -157,6 +157,7 @@ export async function computePortfolioCustomerRows(db, workspaceIds) {
 // never disagree with /api/portfolio/risk about the same portfolio — a second ladder
 // here is how the two would drift apart again.
 export function buildExecutiveSummary(rows) {
+  const degradedQueries = Array.isArray(rows?.degraded_queries) ? rows.degraded_queries : [];
   const customers = rows.length;
   const scored = rows.filter((r) => Number.isFinite(r.latest_score));
   const avg_score = scored.length
@@ -184,7 +185,9 @@ export function buildExecutiveSummary(rows) {
 
   let executive_summary;
   if (customers === 0) {
-    executive_summary = "No customers in your portfolio yet.";
+    executive_summary = degradedQueries.length
+      ? "Portfolio summary is unavailable because one or more customer data queries failed."
+      : "No customers in your portfolio yet.";
   } else {
     const lead = top_attention[0];
     const why = lead
@@ -194,6 +197,9 @@ export function buildExecutiveSummary(rows) {
       : "";
 
     const parts = [];
+    if (degradedQueries.length) {
+      parts.push(`Portfolio summary is partially unavailable: ${degradedQueries.join(", ")} data could not be read.`);
+    }
 
     // Lead sentence — only claim an average when there is one. `${avg_score ?? "—"}/100`
     // printed an em-dash where the number goes but kept the sentence's claim ("average
@@ -243,6 +249,8 @@ export function buildExecutiveSummary(rows) {
       avg_score_state:  scoreState.state,
       avg_score_reason: scoreState.reason,
       avg_score_basis:  { scored_customers: scoreState.basis.scored_workspaces, total_customers: scoreState.basis.total_workspaces },
+      partial_failure: degradedQueries.length > 0,
+      unavailable_metrics: degradedQueries,
     },
     top_attention,
     executive_summary,
