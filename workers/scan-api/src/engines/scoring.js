@@ -1092,11 +1092,28 @@ export function computeScore(modules, domain) {
   return { score, risk_level, findings: applyEvidenceQuality(findings), recommendations: uniqueRecs };
 }
 
+// ── The canonical Cyber Metrics Score band ladder (M5.e) ─────────────────────
+// The ONE score→band partition for every surface that labels the Cyber Metrics
+// Score. The frontend carries a MIRROR of these values in
+// frontend/src/lib/score-presentation.js (no cross-build import — the two are
+// held value-identical by scripts/validate-band-ladder-contract.js, which fails
+// CI if either side drifts). Any OTHER band ladder in this codebase must be a
+// documented, deliberately-distinct semantic model (workspace BRS, CE grade,
+// posture status, …) — never a second opinion on this score.
+export const CYBER_METRICS_SCORE_BANDS = Object.freeze({
+  excellent: 90,
+  good: 75,
+  moderate: 50,
+  high: 25,
+  // below `high` → critical
+});
+
 export function riskLevelForScore(score) {
-  return score >= 90 ? "excellent" :
-    score >= 75 ? "good" :
-    score >= 50 ? "moderate" :
-    score >= 25 ? "high" : "critical";
+  const b = CYBER_METRICS_SCORE_BANDS;
+  return score >= b.excellent ? "excellent" :
+    score >= b.good ? "good" :
+    score >= b.moderate ? "moderate" :
+    score >= b.high ? "high" : "critical";
 }
 
 // Canonical scan-score resolution (moved from executive-report.js in M5.d —

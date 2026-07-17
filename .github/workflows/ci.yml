@@ -195,6 +195,15 @@ jobs:
       - name: Validate M5.d renderer migration (snapshot-native renderers / reconstruction / parity)
         run: node scripts/validate-m5d-renderer-migration.js
 
+      # M5.e-A — band-ladder contract. The Cyber Metrics Score has ONE canonical band
+      # partition (CYBER_METRICS_SCORE_BANDS); the frontend carries a value-identical
+      # mirror (no cross-build import — this validator IS the coupling), absent scores
+      # have no band, unknown bands render neutral, and no undocumented inline score
+      # ladder may appear in backend engines/routes. Mutation-tested: threshold change
+      # on either side, mirror desync, and unknown→healthy all fail.
+      - name: Validate band-ladder contract (canonical bands / frontend mirror / no drift)
+        run: node scripts/validate-band-ladder-contract.js
+
       # Mutation proof for the 2026-07-16 alerting repair. Two guards in this repo were
       # named for coverage they never executed, so the suites above are themselves proved
       # load-bearing here: each defect is reintroduced and must reappear.
