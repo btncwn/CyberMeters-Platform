@@ -35,7 +35,9 @@ const files = walk(S);
 // ── 1. riskLevelForScore() is called ONLY inside the canonical seam ──────────
 // The score→label helper stays pure; ANY other call site is a divergent rating.
 {
-  const CANONICAL = new Set(["engines/scoring.js", "engines/assessment-presentation.js"]);
+  const CANONICAL = new Set(["engines/scoring.js", "engines/assessment-presentation.js",
+    // M5.e-C: the portfolio customer rating DELEGATES to the canonical band (that is the fix, not drift).
+    "engines/portfolio-customers.js"]);
   const offenders = [];
   for (const f of files) {
     const rel = path.relative(S, f);

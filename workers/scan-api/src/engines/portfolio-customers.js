@@ -169,8 +169,9 @@ export function buildExecutiveSummary(rows) {
     scoredCount:    scored.length,
     score:          avg_score,
   });
-  const distribution = { Low: 0, Medium: 0, High: 0, Critical: 0 };
-  for (const r of rows) if (r.risk_rating) distribution[r.risk_rating]++;
+  // Canonical band vocabulary (M5.e-C) — buckets match riskLevelForScore.
+  const distribution = { excellent: 0, good: 0, moderate: 0, high: 0, critical: 0 };
+  for (const r of rows) if (r.risk_rating in distribution) distribution[r.risk_rating]++;
   const total_changes_7d = rows.reduce((s, r) => s + (r.changes_7d || 0), 0);
   const high_changes_7d = rows.reduce((s, r) => s + (r.changes_7d_high || 0), 0);
 

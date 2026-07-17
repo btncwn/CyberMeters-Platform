@@ -136,15 +136,16 @@ const beta = rows.find((r) => r.workspace_id === "ws_a2");
 ok("this-week change count excludes >7d events", acme.changes_7d === 3);
 ok("this-week HIGH change count is correct", acme.changes_7d_high === 2);
 ok("clean customer has zero recent changes", beta.changes_7d === 0);
-ok("risk rating derives from score (Acme 30 → Critical)", acme.risk_rating === "Critical");
-ok("risk rating (Beta 92 → Low)", beta.risk_rating === "Low");
+// M5.e-C: the rating speaks the CANONICAL band vocabulary (riskLevelForScore).
+ok("risk rating derives from the canonical band (Acme 30 → high)", acme.risk_rating === "high");
+ok("risk rating (Beta 92 → excellent)", beta.risk_rating === "excellent");
 ok("attention ranking puts the at-risk customer first", rows[0].workspace_id === "ws_a1");
 ok("critical finding surfaced in the row", acme.critical_findings === 1);
 
 // ── 2. Unit: executive summary aggregates ────────────────────────────────────
 const exec = buildExecutiveSummary(rows);
 ok("exec summary counts customers", exec.portfolio.customers === 2);
-ok("exec summary risk distribution", exec.portfolio.distribution.Critical === 1 && exec.portfolio.distribution.Low === 1);
+ok("exec summary risk distribution (canonical buckets)", exec.portfolio.distribution.high === 1 && exec.portfolio.distribution.excellent === 1);
 ok("exec summary sums high changes this week", exec.portfolio.high_changes_7d === 2);
 ok("exec summary flags customers needing attention", exec.portfolio.customers_needing_attention >= 1);
 ok("exec summary top_attention leads with the riskiest", exec.top_attention[0]?.workspace_id === "ws_a1");
