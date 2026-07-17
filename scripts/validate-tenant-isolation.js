@@ -202,6 +202,7 @@ async function main() {
     { path: "/api/workspaces/ws1/scorecard",       marker: "Alpha-SECRET" },
     { path: "/api/workspaces/ws1/business-risk",   marker: "Alpha-SECRET" },
     { path: "/api/workspaces/ws1/certificates",    marker: "secret1.example" },
+    { path: "/api/workspaces/ws1/maturity",        marker: "Email Protection" },
   ];
   for (const r of ROUTES) {
     const foreign = await call("GET", r.path, T.foreign);

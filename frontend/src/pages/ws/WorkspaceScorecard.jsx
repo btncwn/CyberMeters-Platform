@@ -7,6 +7,7 @@ import { useWorkspace } from '../../hooks/useWorkspace'
 import { api } from '../../api'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
 import CyberMotDomains from '../../components/CyberMotDomains'
+import DomainMaturity from '../../components/DomainMaturity'
 import { bandMeta } from '../../lib/score-presentation'
 
 // ── RatingBadge — posture rating (score-derived, distinct from finding severity) ──
@@ -88,6 +89,7 @@ export default function WorkspaceScorecard() {
   const { wsId, wsName } = useWorkspace()
   const [report, setReport]   = useState(null)
   const [motDomains, setMotDomains] = useState([])
+  const [maturityDomains, setMaturityDomains] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState(null)
 
@@ -95,13 +97,15 @@ export default function WorkspaceScorecard() {
     if (!wsId) { setLoading(false); return }
     setLoading(true); setError(null)
     try {
-      const [r, mot] = await Promise.allSettled([
+      const [r, mot, mat] = await Promise.allSettled([
         api.getWorkspaceScorecardReport(wsId),
         api.getCyberMotDomains(wsId),
+        api.getWorkspaceMaturity(wsId),
       ])
       if (r.status === 'fulfilled') setReport(r.value)
       else throw r.reason
       setMotDomains(mot.status === 'fulfilled' ? (mot.value?.cyber_mot_domains ?? []) : [])
+      setMaturityDomains(mat.status === 'fulfilled' ? (mat.value?.domains ?? []) : [])
     } catch (e) {
       setError(e.message)
     } finally {
@@ -145,6 +149,10 @@ export default function WorkspaceScorecard() {
 
       <div className="mb-8">
         <CyberMotDomains domains={motDomains} />
+      </div>
+
+      <div className="mb-8">
+        <DomainMaturity domains={maturityDomains} />
       </div>
 
       {/* ── Section grid ── */}

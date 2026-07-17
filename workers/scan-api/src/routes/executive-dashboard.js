@@ -6,6 +6,7 @@
 import { getCurrentPosturePresentation } from "../engines/current-posture.js";
 import { resolveCyberMotDomainStates } from "../engines/cyber-mot-domains.js";
 import { getCyberEssentialsSnapshot } from "../engines/ce-readiness.js";
+import { MATURITY_LEDGER_CONTRACT_VERSION, readWorkspaceMaturity, readDomainMaturityHistory } from "../engines/domain-maturity.js";
 import { LATEST_COMPLETED_SCAN_SCOPE } from "../engines/report-queries.js";
 import { getEffectivePlan, hasFeatureEntitlement } from "../engines/entitlements.js";
 import { getWorkspaceBillingUserId } from "../engines/plan-usage.js";
@@ -402,6 +403,49 @@ export async function executiveDashboardRoutes(rctx) {
         }));
 
         return json({ events: enriched, limit, offset, count: enriched.length });
+      } catch (e) {
+        return serverError("api", e);
+      }
+    }
+
+    // ── GET /api/workspaces/:id/maturity ─────────────────────────────────────
+    // Canonical per-workspace eight-domain MATURITY (M5.f). Read-only: serves the
+    // latest eligible maturity-ledger row per domain_key. ALWAYS returns eight
+    // domains in canonical order; a domain with no eligible complete-scan row reads
+    // not_established (never healthy, never mature, never fewer than eight). The
+    // backend owns the maturity decision — the frontend renders it, never derives it.
+    // Core coverage: workspace:read only. Performs ZERO writes.
+    const maturityMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/maturity$/);
+    if (maturityMatch && request.method === "GET") {
+      const wsId = maturityMatch[1];
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, wsId, "workspace:read", env);
+      if (!access) return json({ error: "Forbidden" }, 403);
+      try {
+        const domains = await readWorkspaceMaturity(env.cybermeters_db, wsId);
+        return json({ workspace_id: wsId, contract_version: MATURITY_LEDGER_CONTRACT_VERSION, domains });
+      } catch (e) {
+        return serverError("api", e);
+      }
+    }
+
+    // ── GET /api/workspaces/:id/maturity/:domainId/:domainKey/history ─────────
+    // Append-only maturity history for one domain record + canonical domain, newest
+    // first. Bound to (workspace_id, domain_id, domain_key). Read-only.
+    const maturityHistMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/maturity\/([^/]+)\/([^/]+)\/history$/);
+    if (maturityHistMatch && request.method === "GET") {
+      const wsId = maturityHistMatch[1];
+      const domainId = maturityHistMatch[2];
+      const domainKey = maturityHistMatch[3];
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const access = await requireWorkspaceRole(user, wsId, "workspace:read", env);
+      if (!access) return json({ error: "Forbidden" }, 403);
+      try {
+        const limit = parseBoundedInteger(url.searchParams.get("limit"), 50, 1, 200);
+        const history = await readDomainMaturityHistory(env.cybermeters_db, wsId, domainId, domainKey, { limit });
+        return json({ workspace_id: wsId, domain_id: domainId, domain_key: domainKey, contract_version: MATURITY_LEDGER_CONTRACT_VERSION, history });
       } catch (e) {
         return serverError("api", e);
       }
