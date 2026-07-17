@@ -5,6 +5,71 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.17-5 (M5.f — canonical eight-domain maturity ledger) — deployed 2026-07-17
+
+- **Live Worker Version ID:** `9d2f96b1-f4ac-4688-904b-c36faf5f7045` (main `5d85620`)
+- **Rollback Worker Version ID:** `2beda497-0b4e-4d4c-9552-5748742b13e1` (v2026.07.17-4)
+- **Remote D1 migration applied:** `095-domain-maturity-ledger.sql` (additive — new
+  `domain_maturity_ledger` table + `idx_dml_current`/`idx_dml_scan`; applied by exact SQL
+  file; post-apply `num_tables` 83, table verified at 16 columns, both indexes, 0 rows —
+  no backfill).
+- **D1 pre-migration snapshot:** taken before applying 095 (remote export, ~3.9 MB) for
+  rollback evidence.
+- **Pages:** auto-deployed from main by Cloudflare Pages, project `cybermeters-dashboard`,
+  production deployment `145f7afe-05af-42eb-83d1-8d4982e144bc`, source `5d85620`, app root
+  200 on `app.cybermeters.com`.
+- **PRs:** #161 (M5.f engineering) → merge `5d85620`; this release-evidence PR.
+
+M5.f adds ONE canonical, deterministic, append-only per-workspace maturity ledger giving
+every workspace an honest current and historical maturity view across the eight canonical
+Cyber MOT domains (`not_established` → `observed` → `managed` → `verified` → `monitored`).
+Maturity is a pure function of already-canonical inputs — the resolver's domain state, the
+managed-case lifecycle, and the registry-derived verification capability — floored by
+evidence honesty (missing/failed/partial/unavailable never mature; only complete scans
+write rows) and capped by capability (`identity_exposure`/`shadow_it_unmanaged_technology`
+cap at `managed` — CyberMeters cannot re-observe them, so they can never be
+CyberMeters-verified). `verified`/`monitored` are reserved for CyberMeters' own
+re-observation; a customer attestation or approved inventory alone can never reach them. It
+is distinct from the static `CYBER_MOT_DOMAINS[].maturity` platform-capability tag, which is
+left untouched. Written at scan finalize alongside the 091 states + M5.c snapshot (same
+report/CE snapshot/completedAt, so the three cannot disagree). Read-only routes
+`GET /api/workspaces/:id/maturity`, `.../maturity/:domainId/:domainKey/history`,
+`GET /api/portfolio/maturity`; presentation-only `<DomainMaturity>` on the Workspace
+Scorecard.
+
+Production release proof:
+
+- Pre-deploy exact-head CI green on `462a45c` (validate, sast, playwright, Pages); post-merge
+  main CI green on `5d85620` (validate, sast). Local gate green: worker syntax + Wrangler
+  dry-run; `validate-m5f-maturity-ledger` (91 behavioural checks + 10 caught mutations),
+  m5c/m5d/m5e validators, tenant isolation (incl. the new maturity route), purge completeness
+  (incl. the new table), eight-domain parity/wiring, band ladder, regression, integration,
+  error contract, security contracts, log redaction; migrations `105/105`; worker + frontend
+  `npm audit --audit-level=high` = 0; frontend typecheck, build, `279` tests.
+- `/health` on both `cybermeters-platform.ttrnn47.workers.dev` and `api.cybermeters.com`
+  reported deployment `9d2f96b1-f4ac-4688-904b-c36faf5f7045`, maintenance `false`;
+  `/ready` on both reported `{"d1":true,"r2":true}`; anonymous `/api/workspaces/:id/maturity`
+  and `/api/portfolio/maturity` both returned `401` (live and auth-gated).
+- **Founder-controlled complete-scan acceptance** (the M5.f-specific proof): a founder scan
+  of `cybermeters.com` (`scan_9d2fda54-f14c-43b5-bf85-229ab322a8f6`, `scan_quality=complete`,
+  workspace `workspace_2aaf14fb…`) wrote **exactly eight** `domain_maturity_ledger` rows in
+  canonical order, each `resolver_version=2026-07-16.2`, `ledger_contract_version=2026-07-17.1`,
+  `assessed_at` = the scan's completion time. A second complete scan appended an independent
+  eight-row snapshot (append-only history; 16 rows total); the workspace's earlier **partial**
+  scans wrote **zero** rows (the eligibility floor, proven live). Stages were honest: 14
+  `observed` + 2 `not_established` (CE `customer_input_required`), and **zero**
+  `verified`/`monitored` — with 0 CyberMeters-verified cases nothing over-claimed. Reason codes
+  and evidence matched (e.g. `email_protection` `issue_unmanaged` with `has_unmanaged_issue=true`
+  and a real `finding_ids` entry). Idempotent (no duplicate `(scan_id, domain_key)` groups) and
+  tenant-isolated (a different founder workspace held 0 maturity rows; only the scanned
+  workspace appears in the ledger).
+
+Operational note: the pre-existing `APP_VERSION = "2026.07.13"` drift in `wrangler.toml`
+remains (unchanged this release to deploy verified main byte-for-byte); `/health` correctly
+exposes the live deployment id. The static `CYBER_MOT_DOMAINS[].maturity` (M0–M5) tag is now
+superseded for customer-facing purposes by this deterministic ledger and is a candidate for
+reconciliation/removal in a later increment; it renders on no customer surface today.
+
 ## 2026.07.17-4 (M5.e — eight-domain parity closure) — deployed 2026-07-17
 
 - **Live Worker Version ID:** `2beda497-0b4e-4d4c-9552-5748742b13e1` (main `a33975f`)
