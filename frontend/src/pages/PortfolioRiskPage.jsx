@@ -11,6 +11,7 @@ import RiskBadge from '../components/RiskBadge'
 import { PlanGate } from '../components/PlanUsageCard'
 import {
   scoreBandMeta, scoreStateMeta, toneClass, hasRenderableScore, scoreOutOfHundred,
+  bandHex, riskBandHex,
 } from '../lib/portfolioScoreDisplay'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -18,19 +19,14 @@ import {
 // Colours a score. The `== null` guard let NaN through — NaN fails every `>=`, so a
 // non-finite score was painted red, the most alarming colour on the page, purely by
 // falling off the end of a ternary chain. `hasRenderableScore` is finite-checked.
-function scoreColor(score) {
-  if (!hasRenderableScore(score)) return '#9CA3AF'
-  if (score >= 75) return '#00876A'
-  if (score >= 55) return '#22C55E'
-  if (score >= 35) return '#F59E0B'
-  return '#EF4444'
-}
+// M5.e-C: colours come from the BACKEND-owned band, never a local threshold
+// chain — the second copy this file's own header warned about is gone.
 
-function ScoreBar({ score, max = 100 }) {
+function ScoreBar({ score, band, max = 100 }) {
   const pct = !hasRenderableScore(score) ? 0 : Math.max(0, Math.min(100, (score / max) * 100))
   return (
     <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden w-full">
-      <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: scoreColor(score) }} />
+      <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: riskBandHex(band) }} />
     </div>
   )
 }
@@ -63,14 +59,14 @@ function AlertSeverityBar({ level }) {
 
 // ── Sub-sections ──────────────────────────────────────────────────────────────
 
-function PortfolioScoreRing({ score }) {
+function PortfolioScoreRing({ score, band }) {
   const size = 100
   const r = (size - 12) / 2
   const circ = 2 * Math.PI * r
   // NaN would produce strokeDasharray="NaN NaN" (invalid, silently ignored) over a red
   // stroke — an empty ring that still reads as alarm.
   const dash = !hasRenderableScore(score) ? 0 : circ * (score / 100)
-  const color = scoreColor(score)
+  const color = bandHex(band)
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
       <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#F3F4F6" strokeWidth={8} />
@@ -116,7 +112,7 @@ function RiskRankingsTable({ rankings, onWorkspaceClick }) {
                   <TrendIcon trend={r.trend} />
                   <span className="font-medium text-gray-800">{r.workspace_name}</span>
                 </div>
-                <ScoreBar score={r.brs_score} />
+                <ScoreBar score={r.brs_score} band={r.risk_band} />
               </td>
               <td className="py-2.5 pr-4">
                 {/* `/100` was unconditional beside a `?? '—'`, rendering "—/100" — a
@@ -390,7 +386,7 @@ export default function PortfolioRiskPage() {
 
             {/* Score ring card */}
             <div className="card p-6 flex flex-col items-center justify-center gap-3">
-              <PortfolioScoreRing score={data.portfolio_score} />
+              <PortfolioScoreRing score={data.portfolio_score} band={data.portfolio_score_band} />
               <div className="text-center">
                 <p className="font-semibold text-gray-900">Portfolio Score</p>
                 <p className="text-xs text-gray-400 mt-0.5">Average BRS across all customers</p>

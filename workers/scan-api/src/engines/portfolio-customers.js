@@ -7,6 +7,7 @@
 //
 // Imports the canonical score-sayability resolver from portfolio-risk.js rather than
 // re-deriving one. portfolio-risk.js imports nothing, so this is a one-way edge.
+import { riskLevelForScore } from "./scoring.js";
 import { PORTFOLIO_SCORE_STATES, resolvePortfolioScoreState } from "./portfolio-risk.js";
 
 // Deterministic "latest completed scan per domain" CTE body. Selecting on
@@ -100,8 +101,10 @@ export async function computePortfolioCustomerRows(db, workspaceIds) {
     const findings = findingsMap[ws.id] ?? {};
     const changes = changeMap[ws.id] ?? { total: 0, high: 0 };
     const avgScore = scan.avg_score != null ? Math.round(scan.avg_score) : null;
-    let risk_rating = null;
-    if (avgScore !== null) risk_rating = avgScore >= 80 ? "Low" : avgScore >= 60 ? "Medium" : avgScore >= 40 ? "High" : "Critical";
+    // M5.e-C: the avg is a Cyber Metrics Score average, so its rating speaks
+    // the CANONICAL band vocabulary (riskLevelForScore) — the local 80/60/40
+    // Low/Medium/High ladder was drift on a score-labelled surface.
+    const risk_rating = avgScore !== null ? riskLevelForScore(avgScore) : null;
     const lastScanAt = scan.last_scan_at ?? null;
     const status = lastScanAt && now - new Date(lastScanAt).getTime() < 30 * 24 * 3600 * 1000 ? "active" : "inactive";
     return {

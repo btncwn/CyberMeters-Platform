@@ -67,7 +67,6 @@ const ALLOWLIST = {
   "engines/posture-scoring.js": "five-category posture status — workspace analytic, not the score band",
   "engines/ce-readiness.js": "Cyber Essentials readiness grade — readiness model, not the score band",
   "engines/portfolio-risk.js": "portfolio risk/score narrative bands — documented deliberately-unreconciled words",
-  "engines/portfolio-customers.js": "portfolio customer rating — M5.e-C reconciles; tracked",
   "engines/email-intel.js": "email intelligence module-internal status tiers",
   "engines/supply-chain.js": "supply-chain maturity model",
   "engines/bec.js": "BEC exposure tiering",

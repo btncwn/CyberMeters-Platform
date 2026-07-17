@@ -103,3 +103,18 @@ export function hasRenderableScore(score) {
 export function scoreOutOfHundred(score) {
   return hasRenderableScore(score) ? `${score}/100` : null;
 }
+
+// M5.e-C: inline-style hex per tone for SVG/inline consumers (ScoreBar, ring).
+// Unknown is neutral gray — an absent band never paints a risk colour.
+export const TONE_HEX = Object.freeze({
+  healthy: '#00876A', moderate: '#F59E0B', elevated: '#F97316', serious: '#EF4444', unknown: '#9CA3AF',
+});
+export function bandHex(band) {
+  // scoreBandMeta returns null for absent/unknown bands — neutral, never risky.
+  return TONE_HEX[scoreBandMeta(band)?.tone] ?? TONE_HEX.unknown;
+}
+// Workspace BRS risk_band (low/medium/high/critical) — backend-owned words.
+export function riskBandHex(riskBand) {
+  const map = { low: '#00876A', medium: '#F59E0B', high: '#F97316', critical: '#EF4444' };
+  return map[String(riskBand ?? '').toLowerCase()] ?? TONE_HEX.unknown;
+}
