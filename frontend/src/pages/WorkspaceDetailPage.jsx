@@ -11,6 +11,7 @@ import { api } from '../api'
 import Spinner from '../components/Spinner'
 import ErrorAlert from '../components/ErrorAlert'
 import StatusBadge from '../components/StatusBadge'
+import { scoreBand } from '../lib/score-presentation'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -516,11 +517,7 @@ export default function WorkspaceDetailPage() {
                     {/* Score */}
                     <td>
                       <ScoreBadge score={d.latest_score} rating={
-                        d.latest_score == null ? null :
-                        d.latest_score >= 90 ? 'excellent' :
-                        d.latest_score >= 75 ? 'good'      :
-                        d.latest_score >= 50 ? 'moderate'  :
-                        d.latest_score >= 25 ? 'high'      : 'critical'
+                        scoreBand(d.latest_score)
                       } />
                     </td>
 

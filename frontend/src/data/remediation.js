@@ -7,7 +7,7 @@
  * evidence requirements — come from that server-supplied object.
  *
  * This module keeps ONLY presentation detail:
- *  - PRIORITY_LABELS / PRIORITY_SLA (visual priority framework)
+ *  - PRIORITY_LABELS (visual priority framework)
  *  - REMEDIATION_STEPS: step-by-step instructions + a CLI verification
  *    command, keyed by canonical remediation_id
  *  - OWNER_LABELS / EFFORT_LABELS: display strings for server enums
@@ -23,6 +23,7 @@
  *   recommended_action:    string | null   (server)
  *   verification_method:   string | null   (server)
  *   verification_evidence: string | null   (server)
+ *   sla:                   string | null   (server, when provided)
  *   steps:                 string[]        (frontend, keyed by remediation_id)
  *   verification:          string          (frontend CLI command, keyed by remediation_id)
  * }
@@ -38,13 +39,6 @@ export const PRIORITY_LABELS = {
   P2: { label: 'P2 — High',      color: 'text-orange-600', bg: 'bg-orange-50 border-orange-100', dot: 'bg-orange-500' },
   P3: { label: 'P3 — Medium',    color: 'text-amber-600',  bg: 'bg-amber-50 border-amber-100',   dot: 'bg-amber-500'  },
   P4: { label: 'P4 — Advisory',  color: 'text-gray-500',   bg: 'bg-gray-50 border-gray-200',     dot: 'bg-gray-400'   },
-}
-
-export const PRIORITY_SLA = {
-  P1: '24 hours',
-  P2: '7 days',
-  P3: '30 days',
-  P4: '90 days',
 }
 
 // ── Display labels for server-supplied enums ─────────────────────────────────
@@ -333,7 +327,7 @@ const SEVERITY_PRIORITY = {
  * UI renders nothing in that case.
  *
  * All semantic fields (title, owner, effort, business_impact,
- * recommended_action, verification_method, verification_evidence) come from
+ * recommended_action, verification_method, verification_evidence, SLA copy) come from
  * the server object. This module only adds:
  *  - priority: presentation mapping of finding.severity (P1–P4)
  *  - owner/effort display labels for server enums
@@ -358,6 +352,7 @@ export function buildRemediationIntelligence(finding) {
     recommended_action:    rem.recommended_action || null,
     verification_method:   rem.verification_method || null,
     verification_evidence: rem.verification_evidence_requirements || null,
+    sla:                   rem.sla || rem.target_sla || rem.target_resolution || rem.resolution_sla || null,
     steps:                 (presentation && presentation.steps) || [],
     verification:          (presentation && presentation.verification) || '',
   }

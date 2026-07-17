@@ -3,8 +3,8 @@
  *
  * Reads the active workspace from localStorage (cybermeters_workspace_id).
  * Polls every 60s for new notifications. Shows unread count badge.
- * Clicking a notification marks it read and navigates to the related scan
- * (if metadata_json contains a scan_id). "Mark all read" bulk-clears.
+ * Clicking a notification marks it read and navigates to the related scan,
+ * report, or lifecycle record when metadata provides a safe in-app target.
  * Footer includes "View all →" link to /notifications.
  *
  * Only renders the panel when a workspace is selected — falls back to a
@@ -14,7 +14,8 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   Bell, X, CheckCheck, AlertTriangle, ShieldAlert,
-  FileText, Globe, ScanLine, Info,
+  FileText, Globe, ScanLine, Info, Mail, Lock, ClipboardCheck,
+  MonitorCheck, KeyRound, Boxes,
 } from 'lucide-react'
 import { api } from '../api'
 
@@ -32,8 +33,28 @@ function severityCfg(sev) {
   return SEVERITY_CFG[sev] ?? SEVERITY_CFG.info
 }
 
-function TypeIcon({ type }) {
+function appPath(raw) {
+  if (typeof raw !== 'string' || !raw) return null
+  if (raw.startsWith('/')) return raw
+  try {
+    const u = new URL(raw)
+    return u.origin === window.location.origin ? `${u.pathname}${u.search}${u.hash}` : null
+  } catch { return null }
+}
+
+function TypeIcon({ type, domainKey }) {
   const cls = 'w-4 h-4 flex-shrink-0'
+  switch (domainKey) {
+    case 'email_protection':               return <Mail className={`${cls} text-blue-500`} />
+    case 'brand_protection':               return <ShieldAlert className={`${cls} text-red-500`} />
+    case 'attack_surface':                 return <Globe className={`${cls} text-teal-600`} />
+    case 'certificates_trust':             return <Lock className={`${cls} text-sky-600`} />
+    case 'cyber_essentials_readiness':     return <ClipboardCheck className={`${cls} text-emerald-600`} />
+    case 'website_security':               return <MonitorCheck className={`${cls} text-amber-600`} />
+    case 'identity_exposure':              return <KeyRound className={`${cls} text-indigo-600`} />
+    case 'shadow_it_unmanaged_technology': return <Boxes className={`${cls} text-purple-600`} />
+    default: break
+  }
   switch (type) {
     case 'critical_finding':  return <ShieldAlert className={`${cls} text-red-500`} />
     case 'high_finding':      return <AlertTriangle className={`${cls} text-orange-400`} />
@@ -204,9 +225,10 @@ export default function NotificationBell() {
                   // already parsed as `metadata` and drops the raw `metadata_json`
                   // string — accept either so notifications stay clickable.
                   let link = null
+                  let meta = null
                   try {
-                    const meta = n.metadata ?? (n.metadata_json ? JSON.parse(n.metadata_json) : null)
-                    link = meta?.scan_id ? `/scans/${meta.scan_id}` : meta?.report_id ? '/reports' : null
+                    meta = n.metadata ?? (n.metadata_json ? JSON.parse(n.metadata_json) : null)
+                    link = meta?.scan_id ? `/scans/${meta.scan_id}` : meta?.report_id ? '/reports' : appPath(meta?.link)
                   } catch { /* ignore */ }
 
                   function handleNotifClick() {
@@ -225,7 +247,7 @@ export default function NotificationBell() {
                     >
                       {/* Type icon */}
                       <div className="flex-shrink-0 mt-0.5">
-                        <TypeIcon type={n.type} />
+                        <TypeIcon type={n.type} domainKey={meta?.domain_key || meta?.domain} />
                       </div>
 
                       {/* Content */}

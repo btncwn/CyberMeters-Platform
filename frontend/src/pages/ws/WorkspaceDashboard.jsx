@@ -12,6 +12,8 @@ import {
 } from 'recharts'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { api } from '../../api'
+import CyberMotDomains from '../../components/CyberMotDomains'
+import { bandMeta, metaForScore } from '../../lib/score-presentation'
 import { useAuth } from '../../context/AuthContext'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
 import StatCard from '../../components/StatCard'
@@ -30,7 +32,7 @@ const SECURITY_RATING_LABEL = {
   excellent: 'Excellent',
   good:      'Good',
   moderate:  'Moderate',
-  high:      'Poor',
+  high:      bandMeta('high').label,
   critical:  'Critical',
 }
 function securityRatingLabel(r) {
@@ -39,7 +41,7 @@ function securityRatingLabel(r) {
 
 function ScoreGauge({ score, rating }) {
   if (score == null) return <span className="text-3xl font-black text-gray-300">—</span>
-  const color = score >= 80 ? 'text-brand-600' : score >= 60 ? 'text-amber-500' : 'text-red-500'
+  const color = metaForScore(score).text // canonical mirror bands (M5.e)
   return (
     <div className="flex items-end gap-2">
       <span className={`text-5xl font-black leading-none ${color}`}>{score}</span>
@@ -560,6 +562,7 @@ export default function WorkspaceDashboard() {
   const { wsId, wsName } = useWorkspace()
   const { user } = useAuth()
   const [scorecard, setScorecard] = useState(null)
+  const [motDomains, setMotDomains] = useState([])
   const [timeline,  setTimeline]  = useState([])
   const [summary,   setSummary]   = useState(null)
   const [health,    setHealth]    = useState(null)
@@ -571,13 +574,15 @@ export default function WorkspaceDashboard() {
     if (!wsId) { setLoading(false); return }
     setLoading(true); setError(null)
     try {
-      const [sc, tl, sm, hl, dm] = await Promise.allSettled([
+      const [sc, tl, sm, hl, dm, mot] = await Promise.allSettled([
         api.getWorkspaceScorecard(wsId),
         api.getWorkspacePostureTimeline(wsId),
         api.getWorkspaceSummary(wsId),
         api.getWorkspaceHealth(wsId),
         api.getWorkspaceDomains(wsId),
+        api.getCyberMotDomains(wsId),
       ])
+      setMotDomains(mot.status === 'fulfilled' ? (mot.value?.cyber_mot_domains ?? []) : [])
       if (sc.status === 'fulfilled') setScorecard(sc.value)
       setTimeline(tl.status === 'fulfilled' ? (tl.value.timeline || []).slice(-30) : [])
       if (sm.status === 'fulfilled') setSummary(sm.value)
@@ -641,12 +646,11 @@ export default function WorkspaceDashboard() {
 
           {/* Summary stat cards */}
           {summary && (
-            <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-6">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
               <StatCard icon={Globe}       label="Domains"         value={summary.domains}         />
               <StatCard icon={Server}      label="Active Assets"   value={summary.active_assets}   />
               <StatCard icon={Package2}    label="Vendors"         value={summary.vendors}         />
               <StatCard icon={FileText}    label="Reports"         value={summary.reports_count}   />
-              <StatCard icon={Shield}      label="Latest Score"    value={summary.latest_score ?? '—'} />
               <StatCard icon={AlertTriangle} label="Critical"      value={summary.critical_findings ?? 0} danger={(summary.critical_findings ?? 0) > 0} />
             </div>
           )}
@@ -685,6 +689,13 @@ export default function WorkspaceDashboard() {
           <ActivityTimeline workspaceId={wsId} />
 
           {/* Empty state: no scans yet */}
+          {/* Eight-domain Cyber MOT — the canonical state surface (M5.e).
+              Renders backend-owned states for ALL EIGHT domains; with no data
+              the shared component shows honest unavailable states. */}
+          <div className="mb-8">
+            <CyberMotDomains domains={motDomains} />
+          </div>
+
           {noScans ? (
             <div className="mb-8 space-y-4">
               {/* Hero CTA */}

@@ -32,7 +32,7 @@ function RiskBadge({ level }) {
     high:     'badge-high',
     medium:   'badge-medium',
     low:      'badge-low',
-  }[level] || 'badge-low'
+  }[level] || 'badge-unknown' // M5.e: unknown severity is UNKNOWN, never low-risk blue
   return <span className={cls}>{level}</span>
 }
 
