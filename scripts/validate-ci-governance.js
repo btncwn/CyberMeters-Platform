@@ -76,6 +76,15 @@ const alertValidators = fs.readdirSync(path.join(root, "scripts"))
 const unwired = alertValidators.filter((f) => !validators.includes(`scripts/${f}`));
 ok("every alert validator on disk is wired into CI", unwired.length === 0, `unwired: ${unwired.join(", ")}`);
 
+// Reciprocal guard for the M5 final-closure gate. validate-m5-closure.js asserts the whole
+// M5 validator suite (and ci-governance itself) stay wired; a self-guard cannot catch the
+// deletion of its OWN step, so this generic governance guard — which runs as a separate step
+// — asserts the closure is wired. The two mutually guard each other: dropping either step is
+// caught by the other, so neither the M5 gate nor this governance check can be silently lost.
+ok("the M5 final-closure guard is wired as an uncommented run step",
+   /^\s*run:\s*node scripts\/validate-m5-closure\.js\s*$/m.test(src),
+   "validate-m5-closure.js must run in ci.yml");
+
 console.log(`\nci-governance: ${pass} passed, ${fail} failed`);
 if (fail > 0) { console.error("ci-governance validation FAILED"); process.exit(1); }
 console.log("ci-governance validation passed");

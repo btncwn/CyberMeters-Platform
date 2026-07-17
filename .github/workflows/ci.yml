@@ -224,6 +224,15 @@ jobs:
       - name: Validate M5.f maturity ledger (deterministic / honest / append-only / read-pure)
         run: node scripts/validate-m5f-maturity-ledger.js
 
+      # M5.g — Final CI closure for the eight-domain M5 episode. Gate-level guard that the
+      # WHOLE M5 validator suite (read-surfaces, m5a×3, m5b×2, m5c, m5d, m5e, m5f) plus
+      # ci-governance and this closure itself stay wired in ci.yml — so no M5 coverage can
+      # silently rot — and that the three per-scan append-only tables (091 states, 093
+      # snapshot, 095 maturity) keep their idempotency UNIQUE and INSERT OR IGNORE and are
+      # never overwritten in place. Static, deterministic, no runtime change. Mutation-tested.
+      - name: Validate M5 closure (full M5 gate wired + append-only idempotency locked)
+        run: node scripts/validate-m5-closure.js
+
       # Mutation proof for the 2026-07-16 alerting repair. Two guards in this repo were
       # named for coverage they never executed, so the suites above are themselves proved
       # load-bearing here: each defect is reintroduced and must reappear.
