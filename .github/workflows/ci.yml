@@ -436,6 +436,9 @@ jobs:
       - name: Validate managed brand takedown lifecycle (evidence + approval + verification)
         run: node scripts/validate-brand-takedown-lifecycle.js
 
+      - name: Validate brand DNS enrichment (tri-state truth + auto lifecycle + shared helper)
+        run: node scripts/validate-brand-dns-enrichment.js
+
       - name: Validate hosted TLS-RPT (create/verify/delete + coexistence + isolation)
         run: node scripts/validate-hosted-tls-rpt.js
 

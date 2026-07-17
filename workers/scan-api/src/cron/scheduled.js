@@ -119,6 +119,16 @@ export async function runScheduled(event, env, ctx, tasks) {
 	      ctx.waitUntil(runCronTask(env, "brand_takedown_followup", () => tasks.runBrandTakedownFollowupSweep(env)));
 	    }
 
+	    // ── Brand DNS enrichment (bounded, incremental) ──────────────────────
+	    // Scan-time typosquat candidates are persisted UNCHECKED (DNS probe deferred
+	    // to keep the scan within its subrequest budget). Without this sweep they
+	    // would stay unchecked forever unless a user hit manual refresh — so
+	    // "Active DNS" read 0. This runs a bounded batch each hour so candidates are
+	    // eventually deterministically validated with no user action.
+	    if (tasks.runBrandDnsEnrichmentSweep) {
+	      ctx.waitUntil(runCronTask(env, "brand_dns_enrichment", () => tasks.runBrandDnsEnrichmentSweep(env)));
+	    }
+
 	    // ── Report retention cleanup ─────────────────────────────────────────
   // The Worker cron also drives scheduled scans, so keep the hourly trigger
   // and run retention once daily at 02:00 UTC.

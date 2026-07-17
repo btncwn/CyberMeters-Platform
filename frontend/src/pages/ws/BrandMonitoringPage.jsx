@@ -505,21 +505,27 @@ export default function BrandMonitoringPage() {
   // only as a fallback before candidate data is available (e.g. transient load).
   const metrics = useMemo(() => {
     if (candidates.length > 0) {
+      // Tri-state DNS truth: _dns === true active, === false checked-inactive,
+      // null/undefined not yet checked. Unchecked is NEVER folded into inactive.
       return {
-        lookalike:  candidates.length,
-        activeDns:  candidates.filter(c => c._dns === true || c.dns_resolves === true).length,
-        highRisk:   candidates.filter(isHighRisk).length,
-        suspicious: candidates.filter(c => (c.classification || c.status) === 'suspicious').length,
-        unreviewed: candidates.filter(isUnreviewed).length,
+        lookalike:   candidates.length,
+        activeDns:   candidates.filter(c => c._dns === true).length,
+        inactiveDns: candidates.filter(c => c._dns === false).length,
+        uncheckedDns: candidates.filter(c => c._dns == null).length,
+        highRisk:    candidates.filter(isHighRisk).length,
+        suspicious:  candidates.filter(c => (c.classification || c.status) === 'suspicious').length,
+        unreviewed:  candidates.filter(isUnreviewed).length,
       }
     }
     const num = v => (typeof v === 'number' ? v : 0)
     return {
-      lookalike:  num(summary?.total_candidates ?? summary?.candidates ?? summary?.lookalike_candidates),
-      activeDns:  num(summary?.active_dns ?? summary?.dns_active),
-      highRisk:   num(summary?.high_risk),
-      suspicious: num(summary?.suspicious),
-      unreviewed: num(summary?.unreviewed ?? summary?.needs_review),
+      lookalike:   num(summary?.total_candidates ?? summary?.candidates ?? summary?.lookalike_candidates),
+      activeDns:   num(summary?.active_dns ?? summary?.dns_active),
+      inactiveDns: num(summary?.inactive_dns),
+      uncheckedDns: num(summary?.unchecked_dns),
+      highRisk:    num(summary?.high_risk),
+      suspicious:  num(summary?.suspicious),
+      unreviewed:  num(summary?.unreviewed ?? summary?.needs_review),
     }
   }, [summary, candidates])
 
@@ -569,7 +575,11 @@ export default function BrandMonitoringPage() {
       {/* 3 · Risk overview (label-led, numbers below & smaller) */}
       <div id="brand-summary" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 mb-6 scroll-mt-20">
         <StatCard icon={Globe}       label="Lookalike candidates" explanation="Domains resembling your brand"        value={metrics.lookalike} />
-        <StatCard icon={Globe}       label="Active DNS"           explanation="Candidates currently resolving"       value={metrics.activeDns} tone={metrics.activeDns > 0 ? 'info' : undefined} />
+        <StatCard icon={Globe}       label="Active DNS"           explanation={
+          metrics.uncheckedDns > 0
+            ? `${metrics.uncheckedDns} not yet checked${metrics.inactiveDns > 0 ? ` · ${metrics.inactiveDns} inactive` : ''}`
+            : (metrics.inactiveDns > 0 ? `${metrics.inactiveDns} checked, not resolving` : 'Candidates currently resolving')
+        } value={metrics.activeDns} tone={metrics.activeDns > 0 ? 'info' : undefined} />
         <StatCard icon={ShieldAlert} label="High-risk candidates" explanation="May need immediate review"            value={metrics.highRisk}   danger={metrics.highRisk > 0} />
         <StatCard icon={Eye}         label="Suspicious"           explanation="Flagged for impersonation risk"       value={metrics.suspicious} warning={metrics.suspicious > 0} />
         <StatCard icon={Search}      label="Unreviewed"           explanation="Awaiting your classification"         value={metrics.unreviewed} warning={metrics.unreviewed > 0} />

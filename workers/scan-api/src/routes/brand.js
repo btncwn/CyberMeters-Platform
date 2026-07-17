@@ -8,6 +8,7 @@ import { BRAND_CLASSIFICATIONS, BRAND_SUSPICIOUS_TLDS, brandCandidateToApi, bran
 import { approveBrandTakedown, brandCaseToApi, createBrandCaseForCandidateId, createBrandCasesForWorkspace, getBrandCase, listBrandCaseEvents, listBrandCases, recaptureBrandEvidenceBundle, recordBrandTakedownSubmission, reviewBrandCase, transitionBrandCase } from "../engines/brand-cases.js";
 import { extractBrandParts, generateTyposquatCandidates, HIGH_RISK_BRAND_KEYWORDS } from "../engines/brand-typosquat.js";
 import { dnsQuery } from "../engines/dns.js";
+import { enrichBrandCandidatesDns, BRAND_DNS_MANUAL_BATCH_SIZE } from "../engines/brand-dns-enrichment.js";
 import { createAuditEvent } from "../lib/events.js";
 import { createId } from "../lib/util.js";
 
@@ -356,8 +357,6 @@ export async function brandRoutes(rctx) {
       // Validates candidates via DNS (DoH A-record). Capped at 20 lookups
       // so this endpoint's own subrequest budget stays well within 50.
       if (isRefresh && request.method === 'POST') {
-        const MAX_BRAND_DNS_CHECKS = 20;
-
         // Get primary (oldest-added) domain for this workspace
         let primaryDomain;
         try {
@@ -377,31 +376,21 @@ export async function brandRoutes(rctx) {
         if (!primaryDomain) return json({ error: 'No domains in workspace' }, 404);
 
         const { brand, tld } = extractBrandParts(primaryDomain);
-        const allCandidates   = generateTyposquatCandidates(brand, tld);
-        const toValidate      = allCandidates.slice(0, MAX_BRAND_DNS_CHECKS);
+        const allCandidates = generateTyposquatCandidates(brand, tld);
+        const now           = new Date().toISOString();
 
-        const now               = new Date().toISOString();
-        const validationResults = [];
-
-        for (const c of toValidate) {
-          let dnsResolves = false;
-          let ipAddress   = null;
-
-          try {
-            const dohResp = await dnsQuery(c.candidate_domain, 'A');
-            if (dohResp.Answer?.length > 0) {
-              dnsResolves = true;
-              ipAddress   = dohResp.Answer[0]?.data || null;
-            }
-          } catch { /* treat as not resolving */ }
-
-          const status = dnsResolves ? 'active' : 'inactive';
-          const similarity = brandSimilarityScore(c.candidate_domain, brand);
+        // Persist EVERY generated candidate as UNCHECKED (dns_resolves NULL) so the
+        // canonical enrichment helper has the complete population to work through.
+        // INSERT OR IGNORE never clobbers a row already persisted by a scan, a prior
+        // refresh, or a customer classification — it only fills gaps. DNS state is
+        // deliberately NOT set here; that is the enrichment helper's sole job.
+        for (const c of allCandidates) {
+          const similarity   = brandSimilarityScore(c.candidate_domain, brand);
           const candidateSld = c.candidate_domain.split('.')[0];
           const risk = scoreBrandCandidateRisk({
             variant_type: c.variant_type,
             similarity_score: similarity,
-            dns_active: dnsResolves,
+            dns_active: null,
             contains_brand_keyword: candidateSld.includes(brand),
             suspicious_tld: BRAND_SUSPICIOUS_TLDS.has(c.candidate_domain.split('.').pop()),
             looks_like_login: HIGH_RISK_BRAND_KEYWORDS.some((keyword) => candidateSld.includes(keyword)),
@@ -410,104 +399,26 @@ export async function brandRoutes(rctx) {
           const evidence = [
             { signal: "similar_to_brand", value: similarity },
             { signal: "variant_type", value: normalizeBrandVariantType(c.variant_type) },
-            { signal: "dns_active", value: dnsResolves },
           ];
           if (candidateSld.includes(brand)) evidence.push({ signal: "contains_brand_keyword", value: true });
           if (BRAND_SUSPICIOUS_TLDS.has(c.candidate_domain.split('.').pop())) evidence.push({ signal: "suspicious_tld", value: true });
           if (HIGH_RISK_BRAND_KEYWORDS.some((keyword) => candidateSld.includes(keyword))) evidence.push({ signal: "looks_like_login", value: true });
-          // Sprint 9D: confidence and validation_quality based on DNS probe outcome
-          const brandConf = dnsResolves ? 80 : 40;
-          const brandVQ   = dnsResolves ? "good" : "weak";
-          validationResults.push({
-            ...c,
-            similarity_score:   similarity,
-            risk_level:         risk.risk_level,
-            risk_reasons:       risk.reasons,
-            dns_resolves:       dnsResolves,
-            ip_address:         ipAddress,
-            status,
-            confidence:         brandConf,
-            validation_quality: brandVQ,
-          });
-
-          // Upsert validated result into D1
           try {
             await env.cybermeters_db
               .prepare(
-                `INSERT INTO workspace_brand_assets
+                `INSERT OR IGNORE INTO workspace_brand_assets
                    (id, workspace_id, domain, candidate_domain, variant_type,
                     similarity_score, risk_level, risk_reasons, evidence_json, dns_resolves, https_available,
                     ip_address, status, first_seen, last_seen, last_checked_at, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)
-                 ON CONFLICT (workspace_id, domain, candidate_domain) DO UPDATE SET
-                   similarity_score = excluded.similarity_score,
-                   risk_level   = CASE WHEN workspace_brand_assets.classification IN ('owned','ignored','false_positive')
-                                       THEN 'info' ELSE excluded.risk_level END,
-                   risk_reasons = excluded.risk_reasons,
-                   evidence_json = excluded.evidence_json,
-                   dns_resolves = excluded.dns_resolves,
-                   ip_address   = excluded.ip_address,
-                   status       = excluded.status,
-                   last_seen    = excluded.last_seen,
-                   last_checked_at = excluded.last_checked_at,
-                   updated_at   = excluded.updated_at`
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, 'unverified', ?, ?, NULL, ?, ?)`
               )
               .bind(
-                createId('bra'),
-                wsId,
-                primaryDomain,
-                c.candidate_domain,
-                c.variant_type,
-                similarity,
-                risk.risk_level,
-                JSON.stringify(risk.reasons),
-                JSON.stringify(evidence),
-                dnsResolves ? 1 : 0,
-                ipAddress,
-                status,
-                now,  // first_seen
-                now,  // last_seen
-                now,  // last_checked_at
-                now,  // created_at
-                now   // updated_at
+                createId('bra'), wsId, primaryDomain, c.candidate_domain, c.variant_type,
+                similarity, risk.risk_level, JSON.stringify(risk.reasons), JSON.stringify(evidence),
+                now, now, now, now,
               )
               .run();
           } catch { /* non-fatal */ }
-
-          // Fire asset events for resolving (active) typosquat domains
-          if (dnsResolves) {
-            try {
-              const domRows = await env.cybermeters_db
-                .prepare('SELECT domain_id FROM workspace_domains WHERE workspace_id = ? LIMIT 1')
-                .bind(wsId)
-                .first();
-              const evDomainId = domRows?.domain_id || null;
-
-              const evType = ['high', 'critical'].includes(risk.risk_level)
-                ? 'high_risk_typosquat_detected'
-                : 'brand_domain_detected';
-
-              await env.cybermeters_db
-                .prepare(
-                  `INSERT OR IGNORE INTO asset_events
-                     (id, workspace_id, domain_id, scan_id, event_type,
-                      hostname, severity, description, created_at)
-                   VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?)`
-                )
-                .bind(
-                  createId('asev'),
-                  wsId,
-                  evDomainId,
-                  evType,
-                  c.candidate_domain,
-                  ['high', 'critical'].includes(risk.risk_level) ? risk.risk_level : 'medium',
-                  `Typosquat domain ${c.candidate_domain} resolves (${c.variant_type}).` +
-                    (risk.reasons.length > 0 ? ' ' + risk.reasons.join('; ') + '.' : ''),
-                  now
-                )
-                .run();
-            } catch { /* non-fatal */ }
-          }
         }
 
         try {
@@ -517,21 +428,27 @@ export async function brandRoutes(rctx) {
                       WHERE workspace_id = ? AND brand_profile_id IS NULL`)
             .bind(wsId, wsId).run();
         } catch { /* profile is optional */ }
+
+        // Canonical DNS enrichment — the SAME implementation the automatic hourly
+        // cron sweep uses. Unchecked-first selection, tri-state truth, transient
+        // failures left NULL for retry. One dedicated invocation → a larger batch.
+        const stats = await enrichBrandCandidatesDns(env, wsId, {
+          batchSize: BRAND_DNS_MANUAL_BATCH_SIZE, now, dnsQuery,
+        });
+
         const managedCases = await createBrandCasesForWorkspace(env, wsId).catch(() => ({ opened: 0 }));
 
-        const activeResults  = validationResults.filter(v => v.dns_resolves);
-        const highRiskActive = activeResults.filter(v => ['high', 'critical'].includes(v.risk_level)).length;
-
         return json({
-          workspace_id:       wsId,
+          workspace_id:         wsId,
           brand,
-          primary_domain:     primaryDomain,
-          candidates_checked: toValidate.length,
-          active_domains:     activeResults.length,
-          high_risk_active:   highRiskActive,
+          primary_domain:       primaryDomain,
+          candidates_total:     allCandidates.length,
+          candidates_checked:   stats.checked,
+          active_domains:       stats.resolves,
+          not_resolving:        stats.no_answer,
+          inconclusive:         stats.transient,
           managed_cases_opened: managedCases.opened || 0,
-          validated_at:       now,
-          results:            activeResults,
+          validated_at:         now,
         });
       }
 
