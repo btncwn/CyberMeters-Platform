@@ -250,11 +250,11 @@ Do not claim that CyberMeters performs a customer, provider, registrar, certific
 
 Current release facts (as of 17 July 2026):
 
-- latest release tag: `v2026.07.17-1` (M5.c Stage 1 — canonical immutable per-scan reporting snapshot — deployed);
-- live Worker Version ID: `f7429e6f-dffd-485f-9b85-a369641b51af` (built from `ffe5194`);
-- rollback Worker Version ID: `da31fe33-b072-44f7-a1ba-7b933cea72af` (v2026.07.16-17);
+- latest release tag: `v2026.07.17-2` (M5.d — every report renderer consumes the canonical snapshot — deployed);
+- live Worker Version ID: `c02b0759-ab2d-4746-98d0-1a074f7070b6` (built from `33dba60`);
+- rollback Worker Version ID: `f7429e6f-dffd-485f-9b85-a369641b51af` (v2026.07.17-1);
 - latest migration applied to production: `093-scan-report-snapshots.sql` (applied 17 July 2026);
-- active canonical episode: M5 Completion Across All Eight Domains (in progress; M5.c Stage 1 shipped, M5.d renderer migration next).
+- active canonical episode: M5 Completion Across All Eight Domains (in progress; M5.c and M5.d shipped; M5.e parity reconciliation next).
 
 **M5 is under way.** Its pre-change parity audit across all eight domains found four false
 evidence claims live in production, and the founder sequenced them first as data-integrity

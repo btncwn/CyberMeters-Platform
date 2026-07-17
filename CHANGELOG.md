@@ -5,6 +5,41 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.17-2 (M5.d — every report renderer consumes the canonical snapshot) — deployed 2026-07-17
+
+- **Live Worker Version ID:** `c02b0759-ab2d-4746-98d0-1a074f7070b6` (main `33dba60`)
+- **Rollback Worker Version ID:** `f7429e6f-dffd-485f-9b85-a369641b51af` (v2026.07.17-1)
+- **Remote D1 migrations applied:** none (latest remains `093`).
+- **Pages:** auto-deploys (ExecutiveReportV2 rewritten to the v3 eight-domain view).
+- **PR:** #149.
+
+Scan report JSON, scan PDF, executive report v3, workspace executive PDF and the
+scorecard PDF family now render the immutable M5.c snapshot through ONE shared read
+path (`readScanReportSnapshot`: checksum + schema-version fail-closed gate +
+repair-on-read). The five-pillar intelligence-engine registry and the legacy PDF
+brains (`collectPdfData`/`buildExecutivePdf`/`buildPdfStreams`) are DELETED. Pre-093
+scans reconstruct on first authorised read under the founder's strict policy:
+`provenance: reconstructed_on_demand`, `assessed_at` preserved, `built_at` separate,
+NO current case/CE state injected (unavailable + explicit limitation), no legacy
+fallback, no bulk backfill; a young no-attempt scan reports `building` rather than
+racing finalize Phase 8o. Deliberate contract changes (sole consumer = our frontend,
+migrated same PR): v2→v3 executive report (no `intelligence_engines`, no
+`verified_findings`); `/scorecard/pdf-data` serves the verified snapshot contract.
+Defect fixes, labelled: cross-tenant historical-scan baseline scoped to the tenant;
+both report crons skip soft-deleted workspaces; scorecard/pdf error leak closed;
+stored-PDF persistence failure flips the claim to failed; stored PDFs snapshot-bound.
+Two independent reviews; all confirmed findings fixed (incl. a P1 missing `await`
+breaking every white-label PDF, and the finalize race). Proof:
+`validate-m5d-renderer-migration.js` 45 guards + 11 caught mutations through the
+REAL worker; tenant matrix 104/104; 116-validator sweep green; playwright e2e
+updated to the v3 vocabulary and green. **Production proof:** `/health` =
+`c02b0759`; `/ready` d1+r2 true; migrated routes 401 auth-gated — NOT authenticated
+workflow proof; 0 snapshots existed pre-deploy, so reconstruction is unexercised in
+production until a report is first viewed. Known gaps recorded for M5.e: trend
+deltas no longer rendered (supersession chain is the primitive); `/business-risk`
+write-on-read; portfolio band-ladder; NULL-workspace legacy scans honestly
+unavailable on report surfaces.
+
 ## 2026.07.17-1 (M5.c Stage 1 — canonical immutable per-scan reporting snapshot) — deployed 2026-07-17
 
 - **Live Worker Version ID:** `f7429e6f-dffd-485f-9b85-a369641b51af` (main `ffe5194`)
