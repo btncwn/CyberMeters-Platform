@@ -695,8 +695,8 @@ async function main() {
       {
         name: "snapshot read route re-derives domain states (renderer brain returns)",
         file: srcPath("routes", "scans.js"),
-        from: "        return json({\n          snapshot: JSON.parse(body),",
-        to:   "        return json({\n          snapshot: { ...JSON.parse(body), domains: resolveCyberMotDomainStates(JSON.parse(body), {}) },",
+        from: "        return json({\n          snapshot: read.snapshot,",
+        to:   "        return json({\n          snapshot: { ...read.snapshot, domains: resolveCyberMotDomainStates(read.snapshot, {}) },",
       },
       {
         name: "Phase 8o wiring deleted — scan finalize stops building the snapshot",
@@ -705,16 +705,16 @@ async function main() {
         to:   "        if (false) await buildScanReportSnapshot(env, {",
       },
       {
-        name: "checksum verification dropped from the read route",
-        file: srcPath("routes", "scans.js"),
-        from: "        if (row.checksum_sha256 && checksum !== row.checksum_sha256) {",
-        to:   "        if (false) {",
+        name: "checksum verification dropped from the shared read helper",
+        file: srcPath("engines", "report-snapshot.js"),
+        from: "  if (row.checksum_sha256 && checksum !== row.checksum_sha256) {",
+        to:   "  if (false) {",
       },
       {
         name: "building-status gate dropped — half-written snapshots served",
-        file: srcPath("routes", "scans.js"),
-        from: "        if (!row) return json({ error: \"Snapshot not found\" }, 404);\n        if (row.status !== \"completed\") {\n          return json({ error: \"Snapshot not ready\" }, 409);\n        }",
-        to:   "        if (!row) return json({ error: \"Snapshot not found\" }, 404);\n        if (false) {\n          return json({ error: \"Snapshot not ready\" }, 409);\n        }",
+        file: srcPath("engines", "report-snapshot.js"),
+        from: "  if (row.status !== \"completed\") return { status: \"building\", row, reason: \"build_in_progress\" };",
+        to:   "  if (false) return { status: \"building\", row, reason: \"build_in_progress\" };",
       },
       {
         name: "workspace history list loses its tenant WHERE (role gate alone left standing)",

@@ -1099,6 +1099,16 @@ export function riskLevelForScore(score) {
     score >= 25 ? "high" : "critical";
 }
 
+// Canonical scan-score resolution (moved from executive-report.js in M5.d —
+// it is score semantics, not renderer logic): the stored D1 score wins over
+// the report copy; a missing pair resolves to 0, never NaN.
+export function resolveCanonicalScanScore(storedScore, reportScore) {
+  const storedValue = storedScore == null || storedScore === "" ? NaN : Number(storedScore);
+  if (Number.isFinite(storedValue)) return storedValue;
+  const reportValue = reportScore == null || reportScore === "" ? NaN : Number(reportScore);
+  return Number.isFinite(reportValue) ? reportValue : 0;
+}
+
 // First methodology stamp for the Cyber Metrics Score (M5.c). The value dates the
 // CURRENT deduction weights + band cutoffs; bump it whenever either changes, so a
 // persisted snapshot can refuse to present a methodology change as posture movement

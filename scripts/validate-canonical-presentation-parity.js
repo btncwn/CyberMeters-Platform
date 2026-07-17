@@ -62,18 +62,18 @@ const files = walk(S);
   // executive-workspace PDF (GET /api/workspaces/:id/report) headline delegates
   // to the canonical posture selector — NOT a raw AVG(score) that mixes partials.
   {
+    // M5.d: the workspace report renders canonical snapshots — the inline
+    // stats/trend queries and the local score-band brains are GONE, and the
+    // route consumes readLatestWorkspaceSnapshots only.
     const pf = read("routes/portfolio.js");
-    ok("executive-workspace report delegates to the canonical current-posture helper",
-      /getCurrentPosturePresentation/.test(pf));
-    ok("executive-workspace report average is complete-only",
-      /AVG\(s\.score\)/.test(pf) && /s\.score IS NOT NULL AND s\.scan_quality = 'complete'/.test(pf));
-    ok("executive-workspace report domain inventory carries latest_quality",
-      /s\.scan_quality AS latest_quality/.test(pf));
+    // Slice the workspace-report ROUTE BLOCK: portfolio analytics endpoints
+    // legitimately aggregate; the report renderer must not.
+    const wsReportBlock = pf.slice(pf.indexOf("workspace PDF report"), pf.indexOf("Portfolio Risk Engine"));
+    ok("workspace report renders canonical snapshots (no inline stats queries)",
+      /readLatestWorkspaceSnapshots/.test(wsReportBlock) && !/AVG\(/.test(wsReportBlock) && !/FROM findings|FROM scans/.test(wsReportBlock));
     const pdf = read("engines/pdf.js");
-    ok("buildPdfStreams headline gates rating on an established (complete) posture",
-      /postureEstablished/.test(pdf) && /CYBER SCORE[\s\S]{0,160}postureEstablished \? String\(postureScore\)/.test(pdf));
-    ok("buildPdfStreams domain inventory withholds a rating for a non-complete latest scan",
-      /latest_quality === "complete"/.test(pdf) && /domComplete \? scoreToRating\(ds\) : "Provisional"/.test(pdf));
+    ok("legacy buildPdfStreams brain is deleted (not merely unreferenced)",
+      !/buildPdfStreams/.test(pdf) && !/scoreToRating/.test(pdf));
   }
   // workspace detail (GET /api/workspaces/:id) headline delegates to the canonical
   // selector — the raw average must never drive a rating on the detail page.
@@ -117,9 +117,11 @@ const files = walk(S);
 // ── 4. Scan detail returns the canonical `assessment` decision ───────────────
 {
   const sc = read("routes/scans.js");
-  ok("scan-detail delegates to resolveAssessmentPresentation", /resolveAssessmentPresentation/.test(sc));
+  // M5.d: the assessment decision is FROZEN in the canonical snapshot; the
+  // route serves it verbatim and never recomputes it on read.
+  ok("scan-detail serves the snapshot's frozen assessment", /readScanReportSnapshot/.test(sc) && /const assessment = overall\.assessment/.test(sc));
   ok("scan-detail returns the canonical assessment object", /\n\s*assessment,/.test(sc));
-  ok("scan-detail score_change is gated on comparability", /assessment\.comparable && historicalChanges\?\.previous_score/.test(sc));
+  ok("scan-detail score_change is gated on comparability", /comparable && historicalChanges\?\.previous_score/.test(sc));
   // The scan LIST + history API must carry scan_quality so no client can reconstruct
   // a clean rating from a partial scan.
   ok("scan-list API selects scan_quality", /s\.rating, s\.scan_quality, s\.created_at/.test(sc));
@@ -135,8 +137,10 @@ const files = walk(S);
 
 // ── 5. Report + PDF delegate to the resolver (customer artifacts) ────────────
 {
-  ok("executive report V2 delegates to resolveAssessmentPresentation", /resolveAssessmentPresentation/.test(read("engines/executive-report.js")));
-  ok("scan-report PDF delegates to resolveAssessmentPresentation", /resolveAssessmentPresentation/.test(read("engines/pdf.js")));
+  // M5.d: both artifacts render the snapshot's frozen assessment; the snapshot
+  // itself is composed through resolveAssessmentPresentation (the one brain).
+  ok("executive report V2 renders the snapshot's frozen assessment", /overall\.assessment/.test(read("engines/executive-report.js")));
+  ok("scan-report PDF renders the snapshot's frozen assessment fields", /assessment\?\.provisional/.test(read("engines/pdf.js")));
   // Score-drop alerts/emails only fire on a comparable (complete) delta.
   //
   // This counted TWO occurrences of the guard, because alerts.js held two

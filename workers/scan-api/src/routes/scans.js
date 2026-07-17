@@ -5,23 +5,22 @@
 // (router split, Phase 2 PR #14). Receives the per-request routeCtx from
 // index.js; returns a Response when a route matches, or null so the main
 // router continues.
-import { deriveScanBusinessRisk } from "../engines/business-risk.js";
+// M5.d: report render paths import NO calculation brains — assessment facts
+// come from the canonical snapshot via readScanReportSnapshot. The remediation
+// registry attach on /report is the one sanctioned presentation join (the
+// registry is the canonical remediation source of truth).
 import { getEffectivePlan } from "../engines/entitlements.js";
-import { buildExecutiveReportV2, resolveCanonicalScanScore } from "../engines/executive-report.js";
+import { buildExecutiveReportV2 } from "../engines/executive-report.js";
 import { applyEvidenceQuality, normalizeFindingSchema } from "../engines/findings.js";
 import { buildScanReportPdf } from "../engines/pdf.js";
 import { resolveReportBranding } from "../engines/report-branding.js";
 import { prepareLogoXObject } from "../engines/pdf-image.js";
 import { checkScanLimit, checkScheduledScanLimit, getAccountUsage, getEntitlementUsage, getPlanLimits, getWorkspaceBillingUserId, planLimitExceeded } from "../engines/plan-usage.js";
 import { buildScanQuality, runScanEngine } from "../engines/scan-engine.js";
-import { buildDmarcSenderIntelligenceEvidence } from "../engines/sender-provenance.js";
 import { findingRemediation } from "../engines/remediation-registry.js";
-import { buildScanReportSnapshot, snapshotSha256Hex, STALE_BUILDING_MINUTES } from "../engines/report-snapshot.js";
+import { readScanReportSnapshot } from "../engines/report-snapshot.js";
 import { createAuditEvent } from "../lib/events.js";
 import { DOMAIN_VERIFICATION_REQUIRED, isWorkspaceDomainVerified } from "../lib/domain-verification.js";
-import { resolveAssessmentPresentation } from "../engines/assessment-presentation.js";
-import { resolveCyberMotDomainStates } from "../engines/cyber-mot-domains.js";
-import { getCyberEssentialsSnapshot } from "../engines/ce-readiness.js";
 import { createId, isValidDomain, parseBoundedInteger } from "../lib/util.js";
 
 export async function scanRoutes(rctx) {
@@ -368,8 +367,11 @@ export async function scanRoutes(rctx) {
     }
 
     // ── GET /api/scans/:id/report/pdf ──────────────────────────────────
-    // Per-scan PDF export built from the stored V1 report. Read-only, RBAC-
-    // scoped via scan access, audited. Never exposes internals.
+    // Snapshot-native (M5.d): the PDF renders the canonical immutable snapshot
+    // verbatim — no score/band/BRI/domain/taxonomy derivation on this path.
+    // First authorised request for a pre-093 scan triggers the one canonical
+    // reconstruction build (founder policy); afterwards the immutable snapshot
+    // serves every render.
     if (
       request.method === "GET" &&
       /^\/api\/scans\/[^/]+\/report\/pdf$/.test(url.pathname)
@@ -379,59 +381,57 @@ export async function scanRoutes(rctx) {
       if (!user) return json({ error: "Unauthorized" }, 401);
       const access = await requireScanReadAccess(user, scanId, env);
       if (!access) return json({ error: "Forbidden" }, 403);
+
+      const scan = await env.cybermeters_db
+        .prepare(`SELECT id, domain, status, workspace_id FROM scans WHERE id = ?`)
+        .bind(scanId).first();
+      if (!scan) return json({ error: "Forbidden" }, 403);
+      if (scan.status !== "completed") {
+        return json({ error: "Report not ready: scan has not completed" }, 409);
+      }
+
       try {
-        const scan = await env.cybermeters_db
-          .prepare("SELECT id, domain, status, score, rating, created_at FROM scans WHERE id = ? LIMIT 1")
-          .bind(scanId).first();
-        if (!scan) return json({ error: "Scan not found" }, 404);
-        if (scan.status !== "completed") return json({ error: "PDF is available only for completed scans" }, 409);
-
-        const reportObject = await env.cybermeters_reports.get(`reports/${scanId}.json`);
-        if (!reportObject) return json({ error: "Report not found" }, 404);
-        const report = await reportObject.json();
-        // Attach Business Risk from the same shared helper the UI uses, so the
-        // PDF's score matches the on-screen report exactly.
-        report.business_risk = deriveScanBusinessRisk(report);
-
-        // White-label: lead the PDF with the account's brand when enabled. When a
-        // logo is set, prepare it as an embeddable Image-XObject (JPEG direct /
-        // PNG decoded); on any failure it resolves to null → text wordmark.
-        const branding = access.workspace_id
-          ? await resolveReportBranding(env, access.workspace_id)
-          : null;
-        if (branding && branding.logo) {
-          branding.logoImage = await prepareLogoXObject(branding.logo, branding.accent || "#00876A");
+        const read = await readScanReportSnapshot(env, scanId, { allowReconstruction: true });
+        if (read.status === "building") return json({ error: "Report not ready" }, 409);
+        if (read.status === "not_found") return json({ error: "Report not found" }, 404);
+        if (read.status !== "ok") {
+          return serverError("api", new Error(`snapshot ${read.status} (${read.reason}) for scan ${scanId}`));
         }
-        const bytes = buildScanReportPdf(scan, report, branding);
 
+        // Live presentation metadata under the frozen-vs-live policy: branding
+        // only. Frozen security facts all come from the snapshot.
+        let branding = null, logoImage = null;
+        try {
+          branding = await resolveReportBranding(env, scan.workspace_id);
+          if (branding?.logo) logoImage = await prepareLogoXObject(branding.logo, branding.accent);
+        } catch { branding = null; logoImage = null; }
+
+        const pdfBytes = buildScanReportPdf(scan, read, branding, logoImage);
+        const safeName = String(scan.domain || "scan").replace(/[^a-z0-9.-]/gi, "_");
         await createAuditEvent(env, {
-          workspace_id: access.workspace_id || null,
-          user_id:      user.id,
-          event_type:   "scan_report_downloaded",
-          entity_type:  "scan",
-          entity_id:    scanId,
-          description:  `Scan report PDF downloaded for ${scan.domain}`,
-          metadata:     { scan_id: scanId, domain: scan.domain },
+          workspace_id: scan.workspace_id, user_id: user.id,
+          event_type: "scan_report_downloaded", entity_type: "scan", entity_id: scanId,
+          description: `Scan report PDF downloaded for ${scan.domain}`,
+          metadata: { scan_id: scanId, snapshot_id: read.row.id },
         }).catch(() => {});
-
-        const safeName = String(scan.domain || "scan").toLowerCase().replace(/[^a-z0-9.-]/g, "-");
-        return new Response(bytes, {
-          status: 200,
+        return new Response(pdfBytes, {
           headers: {
             ...corsHeaders,
-            "Content-Type":        "application/pdf",
+            "Content-Type": "application/pdf",
             "Content-Disposition": `attachment; filename="cybermeters-${safeName}-scan.pdf"`,
-            "Content-Length":      String(bytes.length),
+            "Content-Length": String(pdfBytes.length),
           },
         });
-      } catch (error) {
-        return serverError("scan-report-pdf", error, "PDF could not be generated.");
+      } catch (err) {
+        return serverError("api", err);
       }
     }
 
     // ── GET /api/scans/:id/executive-report-v2 ─────────────────────────
-    // Additive Executive Intelligence contract built from the stored scan report.
-    // V1 report storage and response behavior remain unchanged.
+    // Snapshot-native (M5.d): canonical facts from the immutable snapshot;
+    // module evidence referenced from the immutable scan-time artefact; the
+    // five-pillar intelligence registry is retired. Branding stays live
+    // (presentation metadata).
     if (
       request.method === "GET" &&
       /^\/api\/scans\/[^/]+\/executive-report-v2$/.test(url.pathname)
@@ -439,74 +439,47 @@ export async function scanRoutes(rctx) {
       const scanId = url.pathname.split("/")[3];
       const user = await requireAuth(request, env);
       if (!user) return json({ error: "Unauthorized" }, 401);
-
       const access = await requireScanReadAccess(user, scanId, env);
       if (!access) return json({ error: "Forbidden" }, 403);
 
+      const scan = await env.cybermeters_db
+        .prepare(`SELECT id, domain_id, domain, status, workspace_id, created_at FROM scans WHERE id = ?`)
+        .bind(scanId).first();
+      if (!scan) return json({ error: "Forbidden" }, 403);
+      if (scan.status !== "completed") {
+        return json({ error: "Executive report is available once the scan completes" }, 409);
+      }
+
       try {
-        const scan = await env.cybermeters_db
-          .prepare(
-            `SELECT id, domain_id, domain, status, score, rating, created_at
-             FROM scans WHERE id = ? LIMIT 1`
-          )
-          .bind(scanId)
-          .first();
-        if (!scan) return json({ error: "Scan not found" }, 404);
-        if (scan.status !== "completed") {
-          return json({ error: "Executive report is available only for completed scans" }, 409);
+        const read = await readScanReportSnapshot(env, scanId, { allowReconstruction: true });
+        if (read.status === "building") return json({ error: "Report not ready" }, 409);
+        if (read.status === "not_found") return json({ error: "Report not found" }, 404);
+        if (read.status !== "ok") {
+          return serverError("api", new Error(`snapshot ${read.status} (${read.reason}) for scan ${scanId}`));
         }
 
-        const reportObject = await env.cybermeters_reports.get(`reports/${scanId}.json`);
-        if (!reportObject) return json({ error: "Report not found" }, 404);
-        const rawReport = await reportObject.json();
+        let workspace = null;
+        if (scan.workspace_id) {
+          workspace = await env.cybermeters_db
+            .prepare(`SELECT id, name FROM workspaces WHERE id = ? AND deleted_at IS NULL`)
+            .bind(scan.workspace_id).first().catch(() => null);
+        }
+        let branding = null;
+        try { branding = await resolveReportBranding(env, scan.workspace_id); } catch { branding = null; }
 
-        const workspace = access.workspace_id
-          ? await env.cybermeters_db
-              .prepare("SELECT id, name FROM workspaces WHERE id = ? LIMIT 1")
-              .bind(access.workspace_id)
-              .first()
-          : null;
-
-        const execReport = buildExecutiveReportV2({ scan, rawReport, workspace });
-        // Additive: canonical eight-domain Cyber MOT coverage states so the Executive
-        // Report UI can show all eight domains with one honest state each (no domain
-        // silently disappears; Identity/Shadow-IT stay in their honest scopes).
-        try {
-          let ceSnap = null;
-          try {
-            const ceWsId = access.workspace_id || scan.workspace_id || null;
-            if (ceWsId) ceSnap = await getCyberEssentialsSnapshot(ceWsId, env);
-          } catch { ceSnap = null; }
-          execReport.cyber_mot_domains = resolveCyberMotDomainStates(rawReport, { scanId: scan.id, cyberEssentials: ceSnap });
-        } catch { execReport.cyber_mot_domains = resolveCyberMotDomainStates(null); }
-        // Additive: attach DMARC sender-intelligence evidence to the Business Email
-        // engine when imported report data exists. Never alters existing structure.
-        try {
-          const senderIntel = await buildDmarcSenderIntelligenceEvidence(
-            env, access.workspace_id || null, scan.domain || rawReport.domain || null);
-          if (senderIntel && execReport?.intelligence_engines?.business_email?.evidence) {
-            execReport.intelligence_engines.business_email.evidence.dmarc_sender_intelligence = senderIntel;
-          }
-        } catch { /* non-fatal — exec report remains unchanged */ }
-        // White-label: attach the account brand (logo/name/accent) so the
-        // shareable HTML report can lead with the MSP's identity. Null → CyberMeters.
-        try {
-          execReport.branding = access.workspace_id
-            ? await resolveReportBranding(env, access.workspace_id)
-            : null;
-        } catch { execReport.branding = null; }
-        return json(execReport);
-      } catch (error) {
-        return serverError("executive-report-v2", error, "Executive report could not be generated.");
+        const report = buildExecutiveReportV2({ scan, workspace, read });
+        return json({ ...report, branding });
+      } catch (err) {
+        return serverError("api", err);
       }
     }
 
     // ── GET /api/scans/:id/snapshot ─────────────────────────────────────
-    // Canonical M5.c reporting snapshot, served VERBATIM from the immutable R2
-    // object. This read path NEVER recalculates: no resolver, no scoring, no
-    // remediation lookup — a historical snapshot must not change meaning when
-    // engine code does. Must be checked BEFORE the generic /api/scans/:id
-    // route below (same ordering trap the /report route documents).
+    // Canonical M5.c reporting snapshot, served VERBATIM. Retrieval, integrity,
+    // schema gating, repair-on-read and reconstruction all live in the ONE
+    // shared helper (readScanReportSnapshot) — this route only maps its
+    // deterministic states onto HTTP. Must be checked BEFORE the generic
+    // /api/scans/:id route below.
     if (
       request.method === "GET" &&
       /^\/api\/scans\/[^/]+\/snapshot$/.test(url.pathname)
@@ -523,91 +496,16 @@ export async function scanRoutes(rctx) {
       if (!access) return json({ error: "Forbidden" }, 403);
 
       try {
-        // Readers serve ONLY completed rows — the status gate sits in D1,
-        // never on R2 object existence.
-        const selectActive = () => env.cybermeters_db
-          .prepare(
-            `SELECT id, workspace_id, domain_id, status, r2_key, checksum_sha256, assessed_at, created_at
-             FROM scan_report_snapshots WHERE scan_id = ? AND status != 'failed'`
-          )
-          .bind(scanId)
-          .first();
-        let row = await selectActive();
-
-        // ── Repair-on-read (the stuck-scan reconciler precedent) ──────────
-        // A Worker killed mid-build leaves 'building' forever; a transient
-        // failure leaves only 'failed' rows. Both are ATTEMPTS that never
-        // reached completion — repair them here from the durable scan report,
-        // via the same idempotent builder (its claim machinery makes a
-        // concurrent repair safe). A scan with NO attempt at all is not
-        // repaired: pre-M5.c history is honestly absent, not backfilled.
-        const staleBuilding = row?.status === "building" &&
-          (Date.now() - new Date(String(row.created_at).includes("T") ? row.created_at : row.created_at.replace(" ", "T") + "Z").getTime())
-            > STALE_BUILDING_MINUTES * 60 * 1000;
-        const failedOnly = !row && !!(await env.cybermeters_db
-          .prepare(`SELECT id FROM scan_report_snapshots WHERE scan_id = ? LIMIT 1`)
-          .bind(scanId).first());
-        if (staleBuilding || failedOnly) {
-          try {
-            const scanRow = await env.cybermeters_db
-              .prepare(`SELECT workspace_id, domain_id, domain, status FROM scans WHERE id = ?`)
-              .bind(scanId).first();
-            if (scanRow?.status === "completed" && scanRow.workspace_id) {
-              const repObj = await env.cybermeters_reports.get(`reports/${scanId}.json`);
-              const rep = repObj ? await repObj.json() : null;
-              if (rep?.status === "completed") {
-                let ceSnap = null;
-                try { ceSnap = await getCyberEssentialsSnapshot(scanRow.workspace_id, env); } catch { ceSnap = null; }
-                await buildScanReportSnapshot(env, {
-                  workspaceId: scanRow.workspace_id, domainId: scanRow.domain_id,
-                  scanId, domain: scanRow.domain, report: rep,
-                  cyberEssentials: ceSnap, assessedAt: rep.completed_at,
-                });
-              }
-            }
-          } catch { /* best-effort — the honest gates below still apply */ }
-          row = await selectActive();
+        const read = await readScanReportSnapshot(env, scanId, { allowReconstruction: true });
+        if (read.status === "not_found") return json({ error: "Snapshot not found" }, 404);
+        if (read.status === "building") return json({ error: "Snapshot not ready" }, 409);
+        if (read.status !== "ok") {
+          return serverError("api", new Error(`snapshot ${read.status} (${read.reason}) for ${scanId}`));
         }
-
-        if (!row) return json({ error: "Snapshot not found" }, 404);
-        if (row.status !== "completed") {
-          return json({ error: "Snapshot not ready" }, 409);
-        }
-
-        const obj = await env.cybermeters_reports.get(row.r2_key);
-        if (!obj) {
-          // A completed row is only ever claimed over a durable object, so a
-          // missing object is a server-side integrity anomaly, not a 404.
-          return serverError("api", new Error(`snapshot object missing for ${row.id}`));
-        }
-        const body = await obj.text();
-
-        // Integrity: the D1 checksum binds the row to the exact bytes it
-        // indexed. A mismatch is a server-side anomaly, never served silently.
-        const checksum = await snapshotSha256Hex(body);
-        if (row.checksum_sha256 && checksum !== row.checksum_sha256) {
-          return serverError("api", new Error(`snapshot checksum mismatch for ${row.id}`));
-        }
-
-        // Supersession is derived on read by following the append-only chain
-        // forward — the historical row itself is never edited. Deterministic:
-        // the earliest completed successor by assessment time.
-        const successor = await env.cybermeters_db
-          .prepare(
-            `SELECT id, scan_id, assessed_at FROM scan_report_snapshots
-             WHERE workspace_id = ? AND supersedes_snapshot_id = ? AND status = 'completed'
-             ORDER BY assessed_at ASC LIMIT 1`
-          )
-          .bind(row.workspace_id, row.id)
-          .first();
-
         return json({
-          snapshot: JSON.parse(body),
-          superseded_by: successor
-            ? { snapshot_id: successor.id, scan_id: successor.scan_id, assessed_at: successor.assessed_at }
-            : null,
-          // Fail-closed: verified only when a checksum existed AND matched.
-          integrity: { checksum_sha256: row.checksum_sha256, verified: !!row.checksum_sha256 },
+          snapshot: read.snapshot,
+          superseded_by: read.supersededBy,
+          integrity: read.integrity,
         });
       } catch (err) {
         return serverError("api", err);
@@ -615,6 +513,14 @@ export async function scanRoutes(rctx) {
     }
 
     // ── GET /api/scans/:id/report ───────────────────────────────────────
+    // Hybrid (M5.d): every ASSESSMENT fact (score, band, assessment, domains,
+    // business risk, taxonomy classification) comes from the canonical
+    // immutable snapshot; module evidence, recommendations and per-finding
+    // detail come from the immutable scan-time artefact the snapshot itself
+    // references (source_artifacts). The response contract is unchanged.
+    // Per-finding remediation is attached from the Canonical Remediation
+    // Registry (the one remediation source of truth) — presentation join,
+    // documented under the frozen-vs-live policy.
     // Must be checked BEFORE the generic /api/scans/:id route below.
     if (
       request.method === "GET" &&
@@ -625,28 +531,16 @@ export async function scanRoutes(rctx) {
       // Auth before DB — prevents scan ID existence probing by unauthenticated callers.
       const user = await requireAuth(request, env);
       if (!user) return json({ error: "Unauthorized" }, 401);
-
       const scan = await env.cybermeters_db
-        .prepare(
-          `SELECT id, domain_id, domain, status, score, rating, created_at
-           FROM scans WHERE id = ?`
-        )
-        .bind(scanId)
-        .first();
-
-      // Authorize BEFORE revealing existence: requireScanReadAccess returns null for
-      // BOTH a foreign-existing scan and a nonexistent scan, so both yield an
-      // identical 403 — no cross-tenant existence oracle. Mirrors the /report/pdf
-      // sibling. The `!scan` branch is defensive and also returns 403.
+        .prepare(`SELECT id, domain_id, domain, status, score, rating, workspace_id, created_at
+                  FROM scans WHERE id = ?`)
+        .bind(scanId).first();
       const access = await requireScanReadAccess(user, scanId, env);
       if (!access) return json({ error: "Forbidden" }, 403);
       if (!scan) return json({ error: "Forbidden" }, 403);
 
       const obj = await env.cybermeters_reports.get(`reports/${scanId}.json`);
-      if (!obj) {
-        return json({ error: "Report not found" }, 404);
-      }
-
+      if (!obj) return json({ error: "Report not found" }, 404);
       const raw = await obj.json();
 
       // Normalise modules — ensure every module key is present even for reports
@@ -655,105 +549,100 @@ export async function scanRoutes(rctx) {
       const normalisedModules = {
         ...storedModules,
         asset_exposure: storedModules.asset_exposure ?? {
-          checked:   0,
-          reachable: 0,
-          assets:    [],
-          source:    "http_probe",
-          error:     null,
+          checked: 0, reachable: 0, assets: [], source: "http_probe", error: null,
         },
         subdomain_takeover: storedModules.subdomain_takeover ?? {
-          checked:         0,
-          potential_risks: 0,
-          risks:           [],
-          source:          "subdomain_cname_fingerprint",
-          error:           null,
+          checked: 0, potential_risks: 0, risks: [], source: "subdomain_cname_fingerprint", error: null,
         },
         historical_changes: storedModules.historical_changes ?? {
-          has_previous:       false,
-          previous_scan_id:   null,
-          previous_score:     null,
-          current_score:      null,
-          score_change:       null,
-          new_subdomains:     [],
-          removed_subdomains: [],
-          new_findings:       [],
-          resolved_findings:  [],
-          new_takeover_risks: [],
-          new_exposed_assets: [],
-          source:             "previous_scan_comparison",
-          error:              null,
+          has_previous: false, previous_scan_id: null, previous_score: null,
+          current_score: null, score_change: null, new_subdomains: [],
+          removed_subdomains: [], new_findings: [], resolved_findings: [],
+          new_takeover_risks: [], new_exposed_assets: [],
+          source: "previous_scan_comparison", error: null,
         },
       };
-
-      // Sprint 9A: normalise to v2 schema before returning — ensures old R2 reports
-      // that pre-date the schema upgrade also expose the full v2 field set.
       const reportFindings = applyEvidenceQuality(
         (Array.isArray(raw.findings) ? raw.findings : []).map(normalizeFindingSchema)
       );
 
-      // Compute Business Risk Score from scan findings + module signals.
-      // Shared helper so the scan PDF (which reads the raw report) produces the
-      // exact same score as this response.
-      const businessRisk = deriveScanBusinessRisk(raw);
+      // Non-completed scans have no assessment to report — serve the artefact's
+      // own lifecycle fields verbatim (Dashboard polls this for running scans).
+      if (raw.status !== "completed" || scan.status !== "completed") {
+        return json({
+          scan_id: scan.id,
+          domain: scan.domain,
+          status: raw.status ?? scan.status,
+          cyber_metrics_score: raw.cyber_metrics_score ?? null,
+          risk_level: raw.risk_level ?? null,
+          assessment: null,
+          cyber_mot_domains: [],
+          findings: reportFindings.map((f) => ({ ...f, remediation: findingRemediation(f) })),
+          recommendations: Array.isArray(raw.recommendations) ? raw.recommendations : [],
+          scan_quality: raw.scan_quality ?? buildScanQuality(normalisedModules),
+          modules: normalisedModules,
+          business_risk: null,
+          ...(raw.started_at ? { started_at: raw.started_at } : {}),
+          ...(raw.completed_at ? { completed_at: raw.completed_at } : {}),
+          ...(raw.failed_at ? { failed_at: raw.failed_at } : {}),
+          ...(raw.message ? { message: raw.message } : {}),
+          ...(raw.error ? { error: raw.error } : {}),
+        });
+      }
 
-      const canonicalScore = resolveCanonicalScanScore(scan.score, raw.cyber_metrics_score);
-      // Canonical completeness-aware presentation for THIS scan — a partial/degraded/
-      // unknown scan gets no final rating and no trend delta.
-      const scanQualityStatus = (raw.scan_quality ?? buildScanQuality(normalisedModules))?.status;
-      const assessment = resolveAssessmentPresentation({ score: canonicalScore, scanQuality: scanQualityStatus, status: scan.status });
-      const canonicalRiskLevel = assessment.display_rating;
-      const historicalChanges = normalisedModules.historical_changes;
-      normalisedModules.historical_changes = {
-        ...historicalChanges,
-        current_score: canonicalScore,
-        comparable: assessment.comparable,
-        // Only a complete assessment produces a delta — never improved/declined/+N.
-        score_change: (assessment.comparable && historicalChanges?.previous_score != null)
-          ? canonicalScore - historicalChanges.previous_score
-          : null,
-      };
-
-      // Canonical eight-domain Cyber MOT coverage states — computed from THIS report,
-      // with the SAME canonical Cyber Essentials snapshot every other surface uses, so
-      // the CE state is identical across Dashboard, Scan Detail, Executive Report UI
-      // and PDF. Compute-on-read; no new storage.
-      let ceSnapshot = null;
       try {
-        const ceWsId = scan.workspace_id || access?.workspace_id || null;
-        if (ceWsId) ceSnapshot = await getCyberEssentialsSnapshot(ceWsId, env);
-      } catch { ceSnapshot = null; }
-      const cyberMotDomains = resolveCyberMotDomainStates({
-        scan_id:      scan.id,
-        completed_at: raw.completed_at,
-        created_at:   raw.created_at,
-        scan_quality: raw.scan_quality ?? buildScanQuality(normalisedModules),
-        modules:      normalisedModules,
-        findings:     reportFindings,
-      }, { scanId: scan.id, cyberEssentials: ceSnapshot });
-
-      return json({
-        scan_id:             scan.id,
-        domain:              scan.domain,
-        status:              scan.status,
-        cyber_metrics_score: assessment.display_score,
-        risk_level:          canonicalRiskLevel,
-        assessment,          // canonical decision: provisional/authoritative/comparable/quality/message
-        cyber_mot_domains:   cyberMotDomains,
-        // Attach the canonical remediation to each finding (compute-on-read) so
-        // the client renders backend-owned remediation meaning — title, business
-        // impact, recommended action, owner, effort, verification — instead of a
-        // second frontend copy that can drift. Null for observations/unmapped.
-        findings:            reportFindings.map((f) => ({ ...f, remediation: findingRemediation(f) })),
-        recommendations:     Array.isArray(raw.recommendations) ? raw.recommendations : [],
-        scan_quality:         raw.scan_quality ?? buildScanQuality(normalisedModules),
-        modules:             normalisedModules,
-        business_risk:       businessRisk,
-        ...(raw.started_at   ? { started_at:   raw.started_at   } : {}),
-        ...(raw.completed_at ? { completed_at: raw.completed_at } : {}),
-        ...(raw.failed_at    ? { failed_at:    raw.failed_at    } : {}),
-        ...(raw.message      ? { message:      raw.message      } : {}),
-        ...(raw.error        ? { error:        raw.error        } : {}),
-      });
+        const read = await readScanReportSnapshot(env, scanId, { allowReconstruction: true });
+        if (read.status === "building") return json({ error: "Report not ready" }, 409);
+        if (read.status === "not_found") return json({ error: "Report not found" }, 404);
+        if (read.status !== "ok") {
+          return serverError("api", new Error(`snapshot ${read.status} (${read.reason}) for scan ${scanId}`));
+        }
+        const snap = read.snapshot;
+        const overall = snap.overall || {};
+        const bri = overall.business_risk_indicator || {};
+        const im = bri.internal_metrics || {};
+        const assessment = overall.assessment || null;
+        const historicalChanges = normalisedModules.historical_changes;
+        const comparable = assessment?.comparable === true;
+        return json({
+          scan_id: scan.id,
+          domain: scan.domain,
+          status: scan.status,
+          // Frozen snapshot facts — never recalculated on read.
+          cyber_metrics_score: overall.cyber_metrics_score ?? null,
+          risk_level: overall.score_band ?? null,
+          assessment,
+          cyber_mot_domains: snap.domains || [],
+          findings: reportFindings.map((f) => ({ ...f, remediation: findingRemediation(f) })),
+          recommendations: Array.isArray(raw.recommendations) ? raw.recommendations : [],
+          scan_quality: raw.scan_quality ?? buildScanQuality(normalisedModules),
+          modules: {
+            ...normalisedModules,
+            historical_changes: {
+              ...historicalChanges,
+              current_score: overall.cyber_metrics_score ?? null,
+              comparable,
+              score_change: (comparable && historicalChanges?.previous_score != null && overall.cyber_metrics_score != null)
+                ? overall.cyber_metrics_score - historicalChanges.previous_score
+                : null,
+            },
+          },
+          // Legacy shape preserved; values are the snapshot's frozen indicator.
+          business_risk: bri.band == null ? null : {
+            score: im.score ?? null,
+            band: bri.band,
+            summary: bri.explanation ?? null,
+            categories: im.categories ?? null,
+            top_business_risks: im.top_business_risks ?? null,
+          },
+          snapshot_id: read.row.id,
+          snapshot_provenance: snap.snapshot?.provenance ?? null,
+          ...(raw.started_at ? { started_at: raw.started_at } : {}),
+          ...(raw.completed_at ? { completed_at: raw.completed_at } : {}),
+        });
+      } catch (err) {
+        return serverError("api", err);
+      }
     }
 
     // ── GET /api/scans/:id ──────────────────────────────────────────────

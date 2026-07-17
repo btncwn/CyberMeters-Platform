@@ -48,15 +48,16 @@ import { runVendorRelationshipModule } from "./engines/vendor-relationship.js";
 import { ASSET_ALERT_EVENTS, assetAlertSeverity, assetAlertWorthy, buildAssetAlertEmail } from "./engines/asset-alerts.js";
 import { insertCertificateEvents, upsertCertificateObservation } from "./engines/cert-events.js";
 import { upsertBrandAssets, upsertIdentityAssets } from "./engines/asset-persistence.js";
-import { computeScore, isEmailApplicable, riskLevelForScore } from "./engines/scoring.js";
+import { computeScore, isEmailApplicable, resolveCanonicalScanScore, riskLevelForScore } from "./engines/scoring.js";
 import { fetchMtaSts, runEmailIntelModule } from "./engines/email-intel.js";
-import { INTELLIGENCE_ENGINE_REGISTRY, buildExecutiveReportV2, resolveCanonicalScanScore, resolveIntelligenceEngine } from "./engines/executive-report.js";
+import { buildExecutiveReportV2 } from "./engines/executive-report.js";
+import { composeSnapshot, readScanReportSnapshot } from "./engines/report-snapshot.js";
 import { computeWorkspaceVendorRisk, confidenceToScore, normalizeVendorKey, normalizeVendorRiskCategory, recomputeVendorRiskScoresForDomain, signalWeightForVendor } from "./engines/vendor-risk.js";
 import { computeConcentration, computeSupplyChainIntelligence, upsertSupplyChainScore } from "./engines/supply-chain.js";
 import { clamp, computeSecurityPosture } from "./engines/posture-scoring.js";
 import { buildScorecardData } from "./engines/scorecard.js";
 import { buildCyberEssentialsReadiness } from "./engines/ce-readiness.js";
-import { computeBusinessRiskScore, deriveScanBusinessRisk, expandFindingIds, latestScanBusinessRisk } from "./engines/business-risk.js";
+import { computeBusinessRiskScore, deriveScanBusinessRisk, expandFindingIds } from "./engines/business-risk.js";
 import { computeBecExposureScore } from "./engines/bec.js";
 import { CHANGE_STATES, applyChangeTransition, buildChangeReviewQueue, canTransitionChange, changeRequestToApi, isTerminalChangeState, newChangeRequestId } from "./engines/dmarc-change-workflow.js";
 import { upsertAssetInventory } from "./engines/asset-inventory.js";
@@ -97,7 +98,7 @@ import { emailProtectionLifecycleRoutes } from "./routes/email-protection-lifecy
 import { workspaceInsightRoutes } from "./routes/workspace-insights.js";
 import { buildCertificateAuthorityConcentrationFromModule, buildScanQuality, computeScanBudget, insertAdminSurfaceEvents, runScanEngine, upsertVendorInventory, upsertVendorRelationships } from "./engines/scan-engine.js";
 import { runBoundedScheduledReports } from "./engines/scheduled-reports.js";
-import { assemblePdf, buildExecutivePdf, buildPdfStreams, buildScanReportPdf, collectPdfData, pdfUtcDate } from "./engines/pdf.js";
+import { assemblePdf, buildScanReportPdf, buildWorkspaceExecutivePdf, pdfUtcDate } from "./engines/pdf.js";
 import { BILLING_PLAN_METADATA, PLAN_FEATURES, PLAN_LIMITS, getEffectivePlan, getPaymentGraceState, getPlanFeatures, getUserPlan, hasFeatureEntitlement, normalizeBillingInterval, normalizePlan } from "./engines/entitlements.js";
 import { findSubscriptionRowId, getBillingIntervalFromStripeSubscription, getPlanFromStripePriceId, getStripeObjectId, getStripePriceIdForPlan, getStripeSubscriptionPrice, handleCheckoutSessionCompleted, handleStripeInvoicePaymentFailed, handleStripeInvoicePaymentSucceeded, handleStripeSubscriptionDeleted, handleStripeSubscriptionUpsert, normalizeStripeSubscriptionStatus, stripeUnixToIso, validateStripeBillingConfig, validateStripeSecretConfig, validateStripeWebhookConfig, verifyStripeWebhookSignature, writeSubscriptionEvent } from "./engines/stripe.js";
 import { ALERT_CHANNEL_MAX_PER_WORKSPACE, alertChannelToApi, buildAlertChannelPayload, deliverWorkspaceAlert, formatAlertEmail, processAlertsForWorkspace, sendAlertEmail, signAlertWebhookBody, validateAlertChannelInput } from "./engines/alerts.js";
@@ -427,7 +428,8 @@ async function getDueReportSchedules(env, now = new Date().toISOString()) {
     .prepare(
       `SELECT id, workspace_id, created_by, frequency, enabled, email_recipients,
               last_run_at, next_run_at, created_at, updated_at
-       FROM report_schedules
+       FROM report_schedules rs2
+         JOIN workspaces w2 ON w2.id = rs2.workspace_id AND w2.deleted_at IS NULL
        WHERE enabled = 1 AND next_run_at <= ?
        ORDER BY next_run_at ASC`
     )
@@ -1137,11 +1139,12 @@ async function processScheduledReports(now, env) {
   try {
     const r = await env.cybermeters_db
       .prepare(
-        `SELECT id, workspace_id, report_type, frequency
-         FROM scheduled_reports
-         WHERE enabled = 1
-           AND (next_run_at IS NULL OR next_run_at <= ?)
-         ORDER BY next_run_at ASC
+        `SELECT sr.id, sr.workspace_id, sr.report_type, sr.frequency
+         FROM scheduled_reports sr
+         JOIN workspaces w ON w.id = sr.workspace_id AND w.deleted_at IS NULL
+         WHERE sr.enabled = 1
+           AND (sr.next_run_at IS NULL OR sr.next_run_at <= ?)
+         ORDER BY sr.next_run_at ASC
          LIMIT 20`
       )
       .bind(now)
@@ -2246,7 +2249,6 @@ export default {
 // the harness import surface stays stable.
 export {
   DMARC_RAMP_LADDER,
-  INTELLIGENCE_ENGINE_REGISTRY,
   REMEDIATION_REGISTRY,
   SCAN_CHILD_TABLES,
   WORKSPACE_PURGE_TABLES,
@@ -2285,6 +2287,9 @@ export {
   buildChangeReviewQueue,
   buildEnforcementReadinessChecks,
   buildExecutiveReportV2,
+  composeSnapshot,
+  resolveCanonicalScanScore,
+  readScanReportSnapshot,
   cfCreateHostedTxt,
   classifyHostedCfError,
   classifyProviderInfrastructure,
@@ -2350,8 +2355,6 @@ export {
   remediationToApi,
   requireWorkspaceAccess,
   requireWorkspaceRole,
-  resolveCanonicalScanScore,
-  resolveIntelligenceEngine,
   resolveRampThresholds,
   retryFailedAssetAlerts,
   revokeCloudflareEmailRoute,

@@ -11,7 +11,7 @@ import { customerSafeFailure } from "../lib/errors.js";
  * Must be called AFTER computeScore so current score and findings are available.
  * Never throws — all errors produce a safe fallback shape.
  */
-export async function runHistoricalModule(scanId, domain, currentScore, currentFindings, currentModules, env) {
+export async function runHistoricalModule(scanId, domain, currentScore, currentFindings, currentModules, env, workspaceId = null) {
   const source = "previous_scan_comparison";
 
   // Canonical empty result for any case where comparison is impossible
@@ -36,13 +36,21 @@ export async function runHistoricalModule(scanId, domain, currentScore, currentF
   try {
     // Trend baseline must be a COMPLETE assessment — a partial/degraded/unknown
     // previous scan is never a comparable baseline (partial-scan honesty).
+    //
+    // TENANT SCOPE (M5.d fix): the same hostname can be scanned by two
+    // independent tenants. An unscoped `WHERE domain = ?` diffed one tenant's
+    // scan against another's — cross-tenant score deltas and subdomain diffs
+    // that then froze into canonical snapshots. The baseline is now the SAME
+    // workspace's previous scan, never a stranger's; legacy scans with no
+    // workspace lose baseline continuity, which is honest.
     prevScan = await env.cybermeters_db
       .prepare(
         `SELECT id, score FROM scans
-         WHERE domain = ? AND status = 'completed' AND scan_quality = 'complete' AND id != ?
+         WHERE domain = ? AND workspace_id = ? AND status = 'completed'
+           AND scan_quality = 'complete' AND id != ?
          ORDER BY created_at DESC, id DESC LIMIT 1`
       )
-      .bind(domain, scanId)
+      .bind(domain, workspaceId ?? null, scanId)
       .first();
   } catch (err) {
     return empty(false, null, null, customerSafeFailure("scan/history/d1", err, "Historical comparison unavailable"));

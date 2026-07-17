@@ -3,7 +3,10 @@
 // policy, quota checkers, report-schedule cadence helpers, and the workspace
 // executive report generator that consumes them. Extracted verbatim from
 // index.js (router split, Phase 2 PR #4).
-import { buildExecutivePdf, collectPdfData } from "./pdf.js";
+import { buildWorkspaceExecutivePdf } from "./pdf.js";
+import { readLatestWorkspaceSnapshots } from "./report-snapshot.js";
+import { resolveReportBranding } from "./report-branding.js";
+import { prepareLogoXObject } from "./pdf-image.js";
 import { createAuditEvent, createNotificationEvent } from "../lib/events.js";
 import { createId } from "../lib/util.js";
 import { getEffectivePlan, hasFeatureEntitlement, normalizePlan, PLAN_LIMITS } from "./entitlements.js";
@@ -190,12 +193,32 @@ export async function generateWorkspaceExecutiveReport(workspaceId, env, options
       : { id: null, workspace_id: workspaceId, report_type, report_period: period, report_key: r2Key, status: "skipped", claimed: false, deduplicated: true };
   }
 
-  let pdfData, bytes;
+  // Snapshot-native (M5.d): the stored executive PDF is a period-framed
+  // rendering over the latest completed canonical snapshot per domain — never a
+  // separate calculation brain. Repair/reconstruction is OFF on this batch path
+  // (cron subrequest budget); domains without snapshots render an honest
+  // "not yet available" state and the interactive per-scan paths build them.
+  const generatedAt = new Date().toISOString();
+  let bytes, snapshotBinding;
   try {
-    pdfData = await collectPdfData(workspaceId, env);
-    if (!pdfData) throw new Error('Workspace not found');
-    pdfData.report_id = reportId;
-    bytes   = buildExecutivePdf(pdfData);
+    const ws = await env.cybermeters_db
+      .prepare(`SELECT id, name FROM workspaces WHERE id = ? AND deleted_at IS NULL`)
+      .bind(workspaceId).first();
+    if (!ws) throw new Error('Workspace not found');
+    const reads = await readLatestWorkspaceSnapshots(env, workspaceId);
+    let branding = null, logoImage = null;
+    try {
+      branding = await resolveReportBranding(env, workspaceId);
+      if (branding?.logo) logoImage = await prepareLogoXObject(branding.logo, branding.accent);
+    } catch { branding = null; logoImage = null; }
+    bytes = buildWorkspaceExecutivePdf({ workspaceName: ws.name, reads, branding, generatedAt, logoImage });
+    // The artefact is bound to the exact immutable snapshots it rendered.
+    snapshotBinding = reads
+      .filter((r) => r.status === "ok")
+      .map((r) => ({
+        snapshot_id: r.row.id, scan_id: r.row.scan_id, domain_id: r.row.domain_id,
+        checksum_sha256: r.row.checksum_sha256, assessed_at: r.row.assessed_at,
+      }));
   } catch (genErr) {
     await env.cybermeters_db.prepare(
       `UPDATE workspace_reports
@@ -205,17 +228,27 @@ export async function generateWorkspaceExecutiveReport(workspaceId, env, options
     throw genErr;
   }
 
-  const generatedAt = new Date().toISOString();
-
-  await env.cybermeters_reports.put(r2Key, bytes, {
-    httpMetadata: { contentType: 'application/pdf' },
-    customMetadata: {
-      workspace_id:  workspaceId,
-      report_type,
-      report_period: period,
-      generated_at:  generatedAt,
-    },
-  });
+  try {
+    await env.cybermeters_reports.put(r2Key, bytes, {
+      httpMetadata: { contentType: 'application/pdf' },
+      customMetadata: {
+        workspace_id:  workspaceId,
+        report_type,
+        report_period: period,
+        generated_at:  generatedAt,
+        snapshot_ids:  snapshotBinding.map((b) => b.snapshot_id).join(",").slice(0, 900),
+      },
+    });
+  } catch (putErr) {
+    // A persistence failure is visible and retryable — the claim flips to
+    // failed (excluded from the active-occurrence UNIQUE) so a retry can win.
+    await env.cybermeters_db.prepare(
+      `UPDATE workspace_reports
+         SET status = 'failed', generated_at = ?, metadata_json = ?
+       WHERE id = ?`
+    ).bind(new Date().toISOString(), JSON.stringify({ error: String(putErr?.message ?? putErr) }), reportId).run().catch(() => {});
+    throw putErr;
+  }
 
   const reportSizeBytes = typeof bytes?.byteLength === "number"
     ? bytes.byteLength
@@ -223,9 +256,9 @@ export async function generateWorkspaceExecutiveReport(workspaceId, env, options
 
   await env.cybermeters_db.prepare(
     `UPDATE workspace_reports
-     SET status = 'completed', generated_at = ?, report_size_bytes = ?
+     SET status = 'completed', generated_at = ?, report_size_bytes = ?, metadata_json = ?
      WHERE id = ?`
-  ).bind(generatedAt, reportSizeBytes, reportId).run();
+  ).bind(generatedAt, reportSizeBytes, JSON.stringify({ snapshots: snapshotBinding }), reportId).run();
 
   // Notification + audit — report generated. Non-fatal: report generation must not fail
   // if notification or audit persistence is unavailable.
