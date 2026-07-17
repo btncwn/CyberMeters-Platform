@@ -868,6 +868,10 @@ const WORKSPACE_PURGE_TABLES = [
   // scan it describes — so it is purged on its own workspace_id here and never appears
   // in SCAN_CHILD_TABLES.
   "cyber_mot_domain_states",
+  // Canonical per-workspace eight-domain maturity ledger (mig 095). Append-only, one row
+  // per (workspace, domain, scan, domain_key). Holds no FK to scans — history outlives the
+  // scan — so it is purged on its own workspace_id here, never in SCAN_CHILD_TABLES.
+  "domain_maturity_ledger",
   // Cyber Essentials questionnaire answers. Customer-entered content — including
   // `note` (free text) and `answered_by` (a user id) — so it is customer data by
   // any reading, and the deletion email tells the owner it has been "permanently

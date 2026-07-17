@@ -211,6 +211,19 @@ jobs:
       - name: Validate M5.e closure (eight-domain parity closure and release gate)
         run: node scripts/validate-m5e-closure.js
 
+      # M5.f — canonical per-workspace eight-domain maturity ledger. Maturity is decided
+      # deterministically by the backend engine (never the frontend) from the resolver's
+      # domain STATE + the managed-case lifecycle + the registry's verification CAPABILITY.
+      # Missing/failed/partial/unavailable evidence never becomes mature; a partial scan
+      # writes nothing; customer attestation and approved inventory alone never reach
+      # verified; the ledger is append-only, idempotent, tenant-isolated and read-pure; a
+      # query failure surfaces unavailable, never a clean/healthy zero. Mutation-tested:
+      # 10 defects incl. a dropped domain, reordered ladder, unavailable→mature, partial
+      # advancement, dropped workspace filter, write-on-read, attestation→verified,
+      # frontend-derived stage, history overwrite, and failure→healthy.
+      - name: Validate M5.f maturity ledger (deterministic / honest / append-only / read-pure)
+        run: node scripts/validate-m5f-maturity-ledger.js
+
       # Mutation proof for the 2026-07-16 alerting repair. Two guards in this repo were
       # named for coverage they never executed, so the suites above are themselves proved
       # load-bearing here: each defect is reintroduced and must reappear.

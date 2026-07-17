@@ -17,6 +17,7 @@ import {
   PORTFOLIO_FILTERS, PORTFOLIO_SORTS,
 } from "../engines/portfolio-domains.js";
 import { CYBER_MOT_DOMAIN_KEYS, readDomainStateHistory } from "../engines/cyber-mot-state-history.js";
+import { MATURITY_LEDGER_CONTRACT_VERSION, computePortfolioMaturity } from "../engines/domain-maturity.js";
 import { auditApiTokenSessionRouteDenied, createWorkspaceTrialSubscription } from "../engines/subscription-state.js";
 import { createAuditEvent } from "../lib/events.js";
 import { sendLifecycleEmail } from "../lib/lifecycle-email.js";
@@ -565,6 +566,31 @@ export async function portfolioRoutes(rctx) {
           pagination: { limit, offset, total: view.total },
           available_filters: PORTFOLIO_FILTERS, available_sorts: PORTFOLIO_SORTS,
           domain_keys: CYBER_MOT_DOMAIN_KEYS,
+          generated_at: new Date().toISOString(),
+        });
+      } catch (err) {
+        return serverError("api", err);
+      }
+    }
+
+    // ── GET /api/portfolio/maturity ──────────────────────────────────────────
+    // MSP portfolio eight-domain MATURITY aggregation (M5.f). Read-only. Only
+    // eligible complete-scan maturity rows exist, so partial/ineligible evidence is
+    // excluded by construction. No mean — a worst-case fold per domain. A query
+    // failure surfaces `unavailable`, never a clean zero or a healthy default.
+    // Scoped to the caller's accessible workspaces (getAccessibleWorkspaceIds).
+    if (request.method === "GET" && url.pathname === "/api/portfolio/maturity") {
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+      const gate = await requirePortfolioEntitlement(user);
+      if (gate) return gate;
+      try {
+        const workspaceIds = await getAccessibleWorkspaceIds(user, env);
+        const result = await computePortfolioMaturity(env.cybermeters_db, workspaceIds);
+        return json({
+          ...result,
+          domain_keys: CYBER_MOT_DOMAIN_KEYS,
+          contract_version: MATURITY_LEDGER_CONTRACT_VERSION,
           generated_at: new Date().toISOString(),
         });
       } catch (err) {

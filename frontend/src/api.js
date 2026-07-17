@@ -604,6 +604,9 @@ export const api = {
   // with no scan). Server-resolved; the frontend never derives domain states.
   getCyberMotDomains: (id) => request(`/workspaces/${id}/cyber-mot-domains`),
 
+  /** GET /api/workspaces/:id/maturity — per-workspace eight-domain maturity ledger (M5.f) */
+  getWorkspaceMaturity: (id) => request(`/workspaces/${id}/maturity`),
+
   /** GET /api/workspaces/:id/scorecard */
   getWorkspaceScorecard: (id) => request(`/workspaces/${id}/scorecard`),
 

@@ -20,6 +20,7 @@ import { computeAndPersistWorkspaceBrs, computeBusinessRiskScore, expandFindingI
 import { getCyberEssentialsSnapshot } from "./ce-readiness.js";
 import { buildCaConcentrationAnalytics } from "./cert-analysis.js";
 import { persistCyberMotDomainStates } from "./cyber-mot-state-history.js";
+import { persistDomainMaturity } from "./domain-maturity.js";
 import { buildScanReportSnapshot } from "./report-snapshot.js";
 import { insertCertificateEvents, upsertCertificateObservation } from "./cert-events.js";
 import { runCertificateIntelligenceModule } from "./cert-intel.js";
@@ -988,6 +989,17 @@ function buildCanonicalUrlProfile(modules) {
           workspaceId, domainId, scanId, report, cyberEssentials: ceSnap, assessedAt: completedAt,
         });
       } catch { /* non-fatal — see above */ }
+
+      // Canonical per-workspace eight-domain maturity ledger (M5.f). Layered on the SAME
+      // resolved states + CE snapshot + completedAt as the 091 write above, so maturity,
+      // domain state and the M5.c snapshot can never disagree for one scan. Eligible
+      // COMPLETE scans only (partial evidence writes nothing); append-only; idempotent.
+      // Non-fatal by the 091 doctrine — recording maturity must never fail a completed scan.
+      try {
+        await persistDomainMaturity(env, {
+          workspaceId, domainId, scanId, report, cyberEssentials: ceSnap, assessedAt: completedAt,
+        });
+      } catch { /* non-fatal — a missing row reads as not_established, which is honest */ }
     }
 
     // Persist findings to D1
