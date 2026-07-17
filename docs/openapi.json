@@ -1221,7 +1221,7 @@
         "tags": [
           "Scans"
         ],
-        "summary": "Get the stored scan report (JSON)",
+        "summary": "Get the stored scan report (JSON) (snapshot-native since M5.d)",
         "operationId": "getScanReport",
         "responses": {
           "200": {
@@ -1232,6 +1232,9 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "Snapshot still building — retryable"
           }
         }
       }
@@ -1274,7 +1277,7 @@
         "tags": [
           "Scans"
         ],
-        "summary": "Download the scan report as PDF",
+        "summary": "Download the scan report as PDF (snapshot-native since M5.d)",
         "operationId": "getScanReportPdf",
         "responses": {
           "200": {
@@ -1290,6 +1293,9 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "Snapshot still building — retryable"
           }
         }
       }
@@ -1304,11 +1310,14 @@
         "tags": [
           "Scans"
         ],
-        "summary": "Intelligence-engine executive report",
+        "summary": "Executive report (v3) — a pure view over the canonical immutable reporting snapshot; eight domains, Observed Findings taxonomy, Business Risk Indicator",
         "operationId": "getExecutiveReportV2",
         "responses": {
           "200": {
             "$ref": "#/components/responses/Ok"
+          },
+          "409": {
+            "description": "Snapshot still building — retryable"
           }
         }
       }

@@ -341,8 +341,6 @@ function sectionMethodology(w, snap) {
     w.prose(`This report was reconstructed on ${pdfUtcDate(s.built_at, true)} from the immutable evidence recorded at assessment time.`, { size: 9, color: "0.45 0.35 0.10" });
   }
   w.text(`Resolver ${m.cyber_mot_resolver_version || "-"} - Score methodology ${m.cyber_metrics_score_methodology_version || "-"} - Risk indicator methodology ${m.business_risk_methodology_version || "-"}`, { size: 8, color: "0.35 0.38 0.44" });
-  const ce = (snap.domains || []).find((d) => d.domain_key === "cyber_essentials_readiness")?.cyber_essentials;
-  if (ce?.external_coverage_statement) w.prose(ce.external_coverage_statement, { size: 8, color: "0.35 0.38 0.44" });
   w.gap(2);
   for (const l of snap.limitations || []) w.prose(`- ${l}`, { size: 8, color: "0.35 0.38 0.44" });
 }

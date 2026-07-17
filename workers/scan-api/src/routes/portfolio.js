@@ -67,7 +67,7 @@ export async function portfolioRoutes(rctx) {
         let branding = null, logoImage = null;
         try {
           branding = await resolveReportBranding(env, wsId);
-          if (branding?.logo) logoImage = prepareLogoXObject(branding.logo, branding.accent);
+          if (branding?.logo) logoImage = await prepareLogoXObject(branding.logo, branding.accent);
         } catch { branding = null; logoImage = null; }
         const generatedAt = new Date().toISOString();
         const pdfBytes = buildWorkspaceExecutivePdf({ workspaceName: ws.name, reads, branding, generatedAt, logoImage });

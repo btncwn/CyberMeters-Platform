@@ -209,7 +209,7 @@ export async function generateWorkspaceExecutiveReport(workspaceId, env, options
     let branding = null, logoImage = null;
     try {
       branding = await resolveReportBranding(env, workspaceId);
-      if (branding?.logo) logoImage = prepareLogoXObject(branding.logo, branding.accent);
+      if (branding?.logo) logoImage = await prepareLogoXObject(branding.logo, branding.accent);
     } catch { branding = null; logoImage = null; }
     bytes = buildWorkspaceExecutivePdf({ workspaceName: ws.name, reads, branding, generatedAt, logoImage });
     // The artefact is bound to the exact immutable snapshots it rendered.

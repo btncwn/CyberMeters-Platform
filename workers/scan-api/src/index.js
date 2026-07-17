@@ -57,7 +57,7 @@ import { computeConcentration, computeSupplyChainIntelligence, upsertSupplyChain
 import { clamp, computeSecurityPosture } from "./engines/posture-scoring.js";
 import { buildScorecardData } from "./engines/scorecard.js";
 import { buildCyberEssentialsReadiness } from "./engines/ce-readiness.js";
-import { computeBusinessRiskScore, deriveScanBusinessRisk, expandFindingIds, latestScanBusinessRisk } from "./engines/business-risk.js";
+import { computeBusinessRiskScore, deriveScanBusinessRisk, expandFindingIds } from "./engines/business-risk.js";
 import { computeBecExposureScore } from "./engines/bec.js";
 import { CHANGE_STATES, applyChangeTransition, buildChangeReviewQueue, canTransitionChange, changeRequestToApi, isTerminalChangeState, newChangeRequestId } from "./engines/dmarc-change-workflow.js";
 import { upsertAssetInventory } from "./engines/asset-inventory.js";
@@ -428,7 +428,8 @@ async function getDueReportSchedules(env, now = new Date().toISOString()) {
     .prepare(
       `SELECT id, workspace_id, created_by, frequency, enabled, email_recipients,
               last_run_at, next_run_at, created_at, updated_at
-       FROM report_schedules
+       FROM report_schedules rs2
+         JOIN workspaces w2 ON w2.id = rs2.workspace_id AND w2.deleted_at IS NULL
        WHERE enabled = 1 AND next_run_at <= ?
        ORDER BY next_run_at ASC`
     )

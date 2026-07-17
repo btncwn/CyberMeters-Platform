@@ -403,7 +403,7 @@ export async function scanRoutes(rctx) {
         let branding = null, logoImage = null;
         try {
           branding = await resolveReportBranding(env, scan.workspace_id);
-          if (branding?.logo) logoImage = prepareLogoXObject(branding.logo, branding.accent);
+          if (branding?.logo) logoImage = await prepareLogoXObject(branding.logo, branding.accent);
         } catch { branding = null; logoImage = null; }
 
         const pdfBytes = buildScanReportPdf(scan, read, branding, logoImage);

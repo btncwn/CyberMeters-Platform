@@ -45,7 +45,7 @@ export async function workspaceAnalyticsRoutes(rctx) {
         let branding = null, logoImage = null;
         try {
           branding = await resolveReportBranding(env, wsId);
-          if (branding?.logo) logoImage = prepareLogoXObject(branding.logo, branding.accent);
+          if (branding?.logo) logoImage = await prepareLogoXObject(branding.logo, branding.accent);
         } catch { branding = null; logoImage = null; }
         // Live render: the artefact timestamp is the request time by design
         // (this endpoint is the on-demand variant of the stored report).

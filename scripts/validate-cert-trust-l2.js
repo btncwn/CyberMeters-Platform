@@ -209,8 +209,8 @@ async function main() {
   ok("no PDF copy claims certificates are 'fully validated'",
     !/fully\s+(?:validated|verified)/i.test(pdfSrc));
   const domSrc = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "engines", "cyber-mot-domains.js"), "utf8");
-  ok("the Certificates & Trust domain limitation names what is NOT checked",
-    /chain|OCSP|revocation/i.test(domSrc));
+  ok("the Certificates & Trust domain limitation names what is NOT checked, verbatim",
+    domSrc.includes("Chain validity, root trust, OCSP and revocation status are not checked and remain unknown."));
 
   console.log(`\nCertificate Trust L2: ${pass}/${pass + fail} passed`);
   if (fail) { console.error("cert-trust-l2 validation FAILED"); process.exit(1); }

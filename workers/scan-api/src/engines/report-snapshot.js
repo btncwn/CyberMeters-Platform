@@ -646,7 +646,7 @@ export async function readScanReportSnapshot(env, scanId, opts = {}) {
 
   const selectActive = () => env.cybermeters_db
     .prepare(
-      `SELECT id, workspace_id, domain_id, status, r2_key, checksum_sha256,
+      `SELECT id, workspace_id, domain_id, scan_id, status, r2_key, checksum_sha256,
               snapshot_schema_version, assessed_at, created_at
        FROM scan_report_snapshots WHERE scan_id = ? AND status != 'failed'`
     )
@@ -675,6 +675,14 @@ export async function readScanReportSnapshot(env, scanId, opts = {}) {
           if (rep?.status === "completed" && rep?.completed_at) {
             const ageMs = Date.now() - new Date(rep.completed_at).getTime();
             const reconstruction = ageMs > RECONSTRUCTION_AGE_MINUTES * 60 * 1000;
+            // A NO-ATTEMPT scan younger than the window is finalize-in-flight:
+            // Phase 8o has not finished writing this scan's cases/CE yet, and a
+            // read-path build here would win the claim and freeze an INCOMPLETE
+            // snapshot forever. Report "building" — honest and retryable —
+            // rather than racing the finalize pipeline.
+            if (noAttempt && !reconstruction) {
+              return { status: "building", reason: "finalize_in_progress" };
+            }
             let ceSnap = null;
             if (!reconstruction) {
               try { ceSnap = await getCyberEssentialsSnapshot(scanRow.workspace_id, env); } catch { ceSnap = null; }
@@ -758,10 +766,11 @@ export async function readLatestWorkspaceSnapshots(env, workspaceId, opts = {}) 
     .prepare(
       `SELECT s.scan_id, s.domain_id FROM scan_report_snapshots s
        WHERE s.workspace_id = ? AND s.status = 'completed'
-         AND s.assessed_at = (
-           SELECT MAX(n.assessed_at) FROM scan_report_snapshots n
+         AND s.id = (
+           SELECT n.id FROM scan_report_snapshots n
            WHERE n.workspace_id = s.workspace_id AND n.domain_id = s.domain_id
              AND n.status = 'completed'
+           ORDER BY n.assessed_at DESC, n.id DESC LIMIT 1
          )
        ORDER BY s.assessed_at DESC`
     )
@@ -772,7 +781,7 @@ export async function readLatestWorkspaceSnapshots(env, workspaceId, opts = {}) 
     const read = await readScanReportSnapshot(env, r.scan_id, { repair, allowReconstruction: false, includeSuccessor: false });
     // Tenant belt-and-braces: the row must belong to the requested workspace.
     if (read.status === "ok" && read.row.workspace_id === workspaceId) out.push(read);
-    else if (read.status !== "ok") out.push({ status: read.status, domain_id: r.domain_id, scan_id: r.scan_id, reason: read.reason });
+    else out.push({ status: read.status === "ok" ? "integrity_error" : read.status, domain_id: r.domain_id, scan_id: r.scan_id, reason: read.reason ?? "workspace_mismatch" });
   }
   return out;
 }

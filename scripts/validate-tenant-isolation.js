@@ -194,6 +194,9 @@ async function main() {
     { path: "/api/workspaces/ws1/invitations",     marker: "invitee@x.co" },
     { path: "/api/workspaces/ws1/reports",         marker: "Alpha-SECRET" },
     { path: "/api/workspaces/ws1/report-snapshots", marker: "snap-tenant-ws1" },
+    { path: "/api/workspaces/ws1/report",           marker: "Alpha-SECRET" },
+    { path: "/api/workspaces/ws1/scorecard/pdf",    marker: "Alpha-SECRET" },
+    { path: "/api/workspaces/ws1/scorecard/pdf-data", marker: "snap-tenant-ws1" },
     { path: "/api/workspaces/ws1/subscription",    marker: "Alpha-SECRET" },
     { path: "/api/workspaces/ws1/brand/profile",   marker: "Alpha-SECRET" },
     { path: "/api/workspaces/ws1/scorecard",       marker: "Alpha-SECRET" },
@@ -241,6 +244,12 @@ async function main() {
      leaks(await call("GET", "/api/scans/scan_ws1/report", T.admin), REPORT_MARKER));
   ok("owner CAN read the reporting snapshot (mig 093 route serves real data, so denials are ownership-based)",
      leaks(await call("GET", "/api/scans/scan_ws1/snapshot", T.admin), REPORT_MARKER));
+  // The PDF/exec surfaces must succeed for the owner (proves the foreign 403s
+  // above are ownership checks, not blanket failures).
+  ok("owner CAN render the scan PDF (M5.d snapshot-native)",
+     (await call("GET", "/api/scans/scan_ws1/report/pdf", T.admin)).status === 200);
+  ok("owner CAN render the executive report v3",
+     (await call("GET", "/api/scans/scan_ws1/executive-report-v2", T.admin)).status === 200);
 
   // ── Invariant 2 & 3: foreign cannot MODIFY / DELETE ws1 resources ──
   section("Invariant 2+3 — foreign cannot modify / delete ws1 resources");
