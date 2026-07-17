@@ -68,7 +68,9 @@ const ws1ReportObject = {
   // envelope from the scan row and echoes the normalised modules — so an
   // authorised read surfaces it, and any unauthorised 200 would leak it.
   json:        async () => ({ scan_id: "scan_ws1", modules: { leak_probe: REPORT_MARKER } }),
-  text:        async () => JSON.stringify({ marker: REPORT_MARKER }),
+  // Snapshot reads use text() and are schema-gated (M5.d): the body must carry
+  // a v1 snapshot envelope or the integrity gate (correctly) refuses to serve.
+  text:        async () => JSON.stringify({ snapshot: { snapshot_schema_version: "1" }, marker: REPORT_MARKER }),
   arrayBuffer: async () => new TextEncoder().encode(REPORT_MARKER).buffer,
   body:        REPORT_MARKER,
 };

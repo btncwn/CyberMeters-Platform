@@ -5,8 +5,10 @@
 // per-request routeCtx from index.js; returns a Response when a route
 // matches, or null so the main router continues.
 import { getEffectivePlan, hasFeatureEntitlement } from "../engines/entitlements.js";
-import { assemblePdf, buildPdfStreams } from "../engines/pdf.js";
-import { REPORT_FINDINGS_SQL, REPORT_RECOMMENDATIONS_SQL } from "../engines/report-queries.js";
+import { buildWorkspaceExecutivePdf } from "../engines/pdf.js";
+import { readLatestWorkspaceSnapshots } from "../engines/report-snapshot.js";
+import { resolveReportBranding } from "../engines/report-branding.js";
+import { prepareLogoXObject } from "../engines/pdf-image.js";
 import { getEntitlementUsage, getPlanLimits, planLimitExceeded } from "../engines/plan-usage.js";
 import { computePortfolioRisk } from "../engines/portfolio-risk.js";
 import { computePortfolioCustomerRows, buildExecutiveSummary, LATEST_SCAN_CTE } from "../engines/portfolio-customers.js";
@@ -15,7 +17,6 @@ import {
   PORTFOLIO_FILTERS, PORTFOLIO_SORTS,
 } from "../engines/portfolio-domains.js";
 import { CYBER_MOT_DOMAIN_KEYS, readDomainStateHistory } from "../engines/cyber-mot-state-history.js";
-import { getCurrentPosturePresentation } from "../engines/current-posture.js";
 import { auditApiTokenSessionRouteDenied, createWorkspaceTrialSubscription } from "../engines/subscription-state.js";
 import { createAuditEvent } from "../lib/events.js";
 import { sendLifecycleEmail } from "../lib/lifecycle-email.js";
@@ -41,9 +42,14 @@ export async function portfolioRoutes(rctx) {
 
     // ── Workspace Routes ──────────────────────────────────────────────────
 
-    // GET /api/workspaces/:id/report — executive PDF report
-    // Tested before the generic wsMatch so "/report" is never confused with a
-    // domain ID.
+    // GET /api/workspaces/:id/report — workspace PDF report
+    // Snapshot-native (M5.d): an explicit "latest completed canonical snapshot
+    // per domain" rendering — the inline stats/domain/finding/trend queries and
+    // the local score-band brains (scoreToRating et al.) are retired. Latest
+    // live state never masquerades as a historical report: every fact shown is
+    // a dated immutable snapshot, and domains without one appear as honestly
+    // not-yet-available. Tested before the generic wsMatch so "/report" is
+    // never confused with a domain ID.
     const reportMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/report$/);
     if (reportMatch && request.method === "GET") {
       const wsId = reportMatch[1];
@@ -52,143 +58,20 @@ export async function portfolioRoutes(rctx) {
       const access = await requireWorkspaceRole(user, wsId, "workspace:read", env);
       if (!access) return json({ error: "Forbidden" }, 403);
 
-      // 1. Workspace row
-      let ws;
       try {
-        ws = await env.cybermeters_db
-          .prepare(`SELECT id, name, created_at FROM workspaces WHERE id = ?`)
+        const ws = await env.cybermeters_db
+          .prepare(`SELECT id, name FROM workspaces WHERE id = ? AND deleted_at IS NULL`)
           .bind(wsId).first();
-      } catch { /* fall through */ }
-      if (!ws) return json({ error: "Workspace not found" }, 404);
-
-      // 2. Stats (4 parallel D1 queries)
-      const [domRow, scanRow, avgRow, latestRow] = await Promise.all([
-        env.cybermeters_db.prepare(
-          `SELECT COUNT(*) AS n FROM workspace_domains WHERE workspace_id = ?`
-        ).bind(wsId).first(),
-        env.cybermeters_db.prepare(
-          `SELECT COUNT(DISTINCT s.id) AS n
-           FROM scans s
-           JOIN domains d ON d.id = s.domain_id
-           JOIN workspace_domains wd ON wd.domain_id = d.id
-           WHERE wd.workspace_id = ? AND s.status = 'completed'`
-        ).bind(wsId).first(),
-        env.cybermeters_db.prepare(
-          // COMPLETE-only: a partial/degraded scan must never contribute to the
-          // headline average, or a workspace whose only scan is partial would
-          // read as a clean "Excellent" (partial-scan honesty).
-          `SELECT AVG(s.score) AS avg
-           FROM scans s
-           JOIN domains d ON d.id = s.domain_id
-           JOIN workspace_domains wd ON wd.domain_id = d.id
-           WHERE wd.workspace_id = ? AND s.status = 'completed' AND s.score IS NOT NULL AND s.scan_quality = 'complete'`
-        ).bind(wsId).first(),
-        env.cybermeters_db.prepare(
-          `SELECT s.id, s.domain, s.created_at
-           FROM scans s
-           JOIN domains d ON d.id = s.domain_id
-           JOIN workspace_domains wd ON wd.domain_id = d.id
-           WHERE wd.workspace_id = ? AND s.status = 'completed'
-           ORDER BY s.created_at DESC LIMIT 1`
-        ).bind(wsId).first(),
-      ]).catch(() => [null, null, null, null]);
-
-      // Canonical authoritative posture (latest COMPLETE scan) — same selector the
-      // scorecard/executive-dashboard use, so the executive PDF headline agrees
-      // with every other surface and a partial-only workspace reads as
-      // "not yet established" rather than a clean rating.
-      let posture = null;
-      try { posture = await getCurrentPosturePresentation(env, { workspaceId: wsId }); } catch { /* tolerate */ }
-
-      const stats = {
-        total_domains:        domRow?.n    ?? 0,
-        total_scans:          scanRow?.n   ?? 0,
-        cyber_score_average:  avgRow?.avg  ?? null,
-        latest_scan:          latestRow    ?? null,
-        // Completeness-aware headline posture for the cover KPI + summary row.
-        posture_established:  posture?.state === "established",
-        posture_score:        posture?.authoritative?.display_score  ?? null,
-        posture_rating:       posture?.authoritative?.display_rating ?? null,
-        posture_message:      posture?.posture_message ?? null,
-      };
-
-      // 3. Domains enriched with latest scan
-      let domains = [];
-      try {
-        const dr = await env.cybermeters_db.prepare(
-          `SELECT d.id AS domain_id, d.domain,
-                  s.id AS last_scan_id, s.score AS latest_score,
-                  s.status AS latest_status, s.scan_quality AS latest_quality,
-                  s.created_at AS last_scanned_at
-           FROM workspace_domains wd
-           JOIN domains d ON d.id = wd.domain_id
-           LEFT JOIN scans s ON s.id = (
-             SELECT id FROM scans WHERE domain_id = d.id ORDER BY created_at DESC, id DESC LIMIT 1
-           )
-           WHERE wd.workspace_id = ?
-           ORDER BY d.domain ASC`
-        ).bind(wsId).all();
-        domains = dr.results || [];
-      } catch { /* tolerate */ }
-
-      // 4. Top findings — latest completed scan per domain only (REPORT_FINDINGS_SQL),
-      //    so a finding is never listed once per historical scan and resolved issues
-      //    do not resurface. Binds the workspace id twice (outer filter + scope).
-      let findings = [];
-      try {
-        const fr = await env.cybermeters_db.prepare(REPORT_FINDINGS_SQL).bind(wsId, wsId).all();
-        findings = fr.results || [];
-      } catch { /* tolerate */ }
-
-      // 5. Recommendations — same latest-completed-scan scope (REPORT_RECOMMENDATIONS_SQL).
-      let recommendations = [];
-      try {
-        const rr = await env.cybermeters_db.prepare(REPORT_RECOMMENDATIONS_SQL).bind(wsId, wsId).all();
-        recommendations = rr.results || [];
-      } catch { /* tolerate */ }
-
-      // 6. Historical trend — last 2 completed scans per domain
-      let trend = [];
-      try {
-        const tr = await env.cybermeters_db.prepare(
-          `SELECT s.domain, s.score AS current_score, s.created_at
-           FROM scans s
-           JOIN domains d ON d.id = s.domain_id
-           JOIN workspace_domains wd ON wd.domain_id = d.id
-           WHERE wd.workspace_id = ? AND s.status = 'completed' AND s.score IS NOT NULL
-           ORDER BY s.created_at DESC
-           LIMIT 20`
-        ).bind(wsId).all();
-
-        // Group by domain, keep newest two
-        const byDomain = {};
-        for (const row of (tr.results || [])) {
-          if (!byDomain[row.domain]) byDomain[row.domain] = [];
-          if (byDomain[row.domain].length < 2) byDomain[row.domain].push(row);
-        }
-        for (const [domain, rows] of Object.entries(byDomain)) {
-          const cur  = rows[0];
-          const prev = rows[1] ?? null;
-          trend.push({
-            domain,
-            date: cur.created_at
-              ? new Date((cur.created_at || "").replace(" ", "T") + "Z")
-                  .toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
-              : "—",
-            current_score:  cur.current_score,
-            previous_score: prev?.current_score ?? null,
-            score_change:   prev != null ? cur.current_score - prev.current_score : null,
-          });
-        }
-      } catch { /* tolerate */ }
-
-      // 7. Build PDF
-      try {
-        const streams = buildPdfStreams({ workspace: ws, stats, domains, findings, recommendations, trend });
-        const pdfText = assemblePdf(streams);
-        const pdfBytes = new TextEncoder().encode(pdfText);
+        if (!ws) return json({ error: "Workspace not found" }, 404);
+        const reads = await readLatestWorkspaceSnapshots(env, wsId);
+        let branding = null, logoImage = null;
+        try {
+          branding = await resolveReportBranding(env, wsId);
+          if (branding?.logo) logoImage = prepareLogoXObject(branding.logo, branding.accent);
+        } catch { branding = null; logoImage = null; }
+        const generatedAt = new Date().toISOString();
+        const pdfBytes = buildWorkspaceExecutivePdf({ workspaceName: ws.name, reads, branding, generatedAt, logoImage });
         const safeName = (ws.name || "workspace").replace(/[^a-zA-Z0-9]+/g, "-").toLowerCase();
-
         return new Response(pdfBytes, {
           status: 200,
           headers: {

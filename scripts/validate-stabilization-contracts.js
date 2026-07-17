@@ -85,8 +85,10 @@ const ok = (n, c, d = "") => { c ? pass++ : fail++; if (!c) console.log(`FAIL ${
     !/f\.severity = 'critical'[\s\S]{0,120}datetime\('now', '-30 days'\)/.test(read("routes/executive-dashboard.js")));
   ok("workspace-insights reuses the canonical scope (no tie-prone MAX join)",
     /LATEST_COMPLETED_SCAN_SCOPE/.test(read("routes/workspace-insights.js")));
-  ok("executive PDF reuses the canonical scope (no inline MAX mirror)",
-    /LATEST_COMPLETED_SCAN_SCOPE/.test(read("engines/pdf.js")) &&
+  // M5.d: the executive PDF renders canonical snapshots and runs NO scan
+  // queries at all — the strongest form of "no inline MAX mirror".
+  ok("executive PDF runs no scan queries (snapshot-native)",
+    !/FROM scans/.test(read("engines/pdf.js")) &&
     !/SELECT MAX\(sy\.created_at\)/.test(read("engines/pdf.js")));
 }
 

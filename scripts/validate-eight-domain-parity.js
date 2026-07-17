@@ -82,16 +82,21 @@ const cleanComplete = () => ({
 
 // A4. STATIC — all four surface producers pass a canonical CE snapshot into the resolver.
 {
+  // M5.d: the scan report routes and PDF builders render the canonical
+  // SNAPSHOT, whose builder passes the ONE CE snapshot into the resolver
+  // (report-snapshot.js). The parity guarantee moved up a level: all report
+  // surfaces render the same frozen resolver output by construction.
   const scansSrc = await fs.readFile(path.join(routesDir, "scans.js"), "utf8");
-  ok("A4: scans.js imports/uses getCyberEssentialsSnapshot", scansSrc.includes("getCyberEssentialsSnapshot"));
-  ok("A4: scans.js passes cyberEssentials: into the resolver for BOTH /report and executive-report-v2",
-    (scansSrc.match(/cyberEssentials:/g) || []).length >= 2 &&
-    (scansSrc.match(/resolveCyberMotDomainStates\(/g) || []).length >= 2);
+  ok("A4: scans.js report surfaces consume the canonical snapshot (no live resolver)",
+    scansSrc.includes("readScanReportSnapshot") && !scansSrc.includes("resolveCyberMotDomainStates"));
 
   const pdfSrc = await fs.readFile(path.join(enginesDir, "pdf.js"), "utf8");
-  ok("A4: pdf.js uses getCyberEssentialsSnapshot", pdfSrc.includes("getCyberEssentialsSnapshot"));
-  ok("A4: pdf.js passes cyberEssentials: into resolveCyberMotDomainStates",
-    pdfSrc.includes("cyberEssentials:") && pdfSrc.includes("resolveCyberMotDomainStates("));
+  ok("A4: pdf.js renders snapshot domains (no live resolver, no CE fetch)",
+    pdfSrc.includes("sectionDomains") && !pdfSrc.includes("resolveCyberMotDomainStates") && !pdfSrc.includes("getCyberEssentialsSnapshot"));
+
+  const rsSrc = await fs.readFile(path.join(enginesDir, "report-snapshot.js"), "utf8");
+  ok("A4: the snapshot builder passes cyberEssentials: into the resolver (the one place)",
+    rsSrc.includes("cyberEssentials:") && rsSrc.includes("resolveCyberMotDomainStates("));
 
   const dashSrc = await fs.readFile(path.join(routesDir, "executive-dashboard.js"), "utf8");
   ok("A4: executive-dashboard.js uses getCyberEssentialsSnapshot", dashSrc.includes("getCyberEssentialsSnapshot"));

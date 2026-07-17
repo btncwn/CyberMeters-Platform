@@ -224,33 +224,20 @@ const cat = (r, k) => r.categories.find((c) => c.key === k);
   }
 }
 
-// ════ 6. THE EXECUTIVE PDF CANNOT PRINT 100/100 FOR EITHER CONTROL ══════════
+// ════ 6. THE PDF CANNOT PRINT A NUMBER FOR A NON-ASSESSABLE CONTROL ═════════
+// M5.d: the PDF renders the canonical snapshot's CE block verbatim. It prints
+// NO per-control scores at all — the only CE facts on the page are the domain
+// state, the external-coverage statement ("2 of 5") and the limitations, all
+// frozen in the snapshot. A per-control 100/100 cannot be printed because the
+// renderer has no per-control rendering path and no score input.
 {
   const pdf = fs.readFileSync(srcPath("engines", "pdf.js"), "utf8");
-  const sec = pdf.slice(pdf.indexOf("Observed Control Area Breakdown"), pdf.indexOf("Observed Control Area Breakdown") + 3400);
-  ok("the PDF reads the assessable flag", /catAssessable/.test(sec));
-  ok("a non-assessable area yields no score to print", /catAssessable \? \(catData\?\.score \?\? null\) : null/.test(sec));
-  ok("the PDF prints the honest label instead of a number",
-    sec.includes("Not externally assessable — self-attestation only"));
-  ok("the PDF prints the coverage statement", /external_coverage_statement/.test(sec));
-  // The band is derived from catScore, which is null for a non-assessable area => 'unknown'
-  // => grey. Proven by construction rather than asserted: there is no other source.
-  ok("the colour band is derived only from the score", /const catStatus= catScore == null \? 'unknown'/.test(sec));
-
-  // Drive the real category data through the PDF's own status derivation.
-  const r = await readiness("perfect");
-  for (const k of NON_ASSESSABLE) {
-    const c = cat(r, k);
-    const catAssessable = c.assessable !== false;
-    const catScore = catAssessable ? (c.score ?? null) : null;
-    eq(`PDF: ${k} has no score to render`, catScore, null);
-    const catStatus = catScore == null ? "unknown" : catScore >= 80 ? "good" : "fair";
-    eq(`PDF: ${k} cannot be green`, catStatus, "unknown");
-  }
-  for (const k of ASSESSABLE) {
-    const c = cat(r, k);
-    ok(`PDF: ${k} still renders its justified number`, typeof c.score === "number");
-  }
+  ok("the PDF renders the snapshot's external coverage statement", /external_coverage_statement/.test(pdf));
+  ok("the PDF has NO per-control score rendering path",
+    !/catAssessable|catScore|categories\[/.test(pdf) && !/\/ 100'\).*control/i.test(pdf));
+  ok("the PDF renders per-domain limitations verbatim from the snapshot", /d\.limitations/.test(pdf));
+  ok("the PDF module never reads cyber_essentials_answers or builds readiness",
+    !/cyber_essentials_answers|buildCyberEssentialsReadiness/.test(pdf));
 }
 
 // ════ 7. THE FRONTEND CONSUMES, IT DOES NOT DERIVE ══════════════════════════
@@ -316,9 +303,9 @@ if (!process.argv.includes("--no-mutate")) {
     { file: CE, name: "the coverage gate is bypassed so proxies score the control again",
       from: "  if (!ceControlIsExternallyAssessable(key)) return cyberEssentialsNonAssessableCategory(key, label);",
       to: "" },
-    { file: PDF, name: "the PDF uses the old five-control numeric breakdown",
-      from: "      const catScore = catAssessable ? (catData?.score ?? null) : null;",
-      to: "      const catScore = catData?.score ?? 100;" },
+    { file: PDF, name: "the PDF stops rendering the coverage statement (2-of-5 disclosure lost)",
+      from: "    const ceStmt = d.cyber_essentials?.external_coverage_statement;",
+      to: "    const ceStmt = null;" },
     { file: PAGE, name: "the frontend derives a positive verdict from an absent score",
       from: "  if (typeof score !== 'number') return 'border-gray-200 bg-gray-50 text-gray-700'",
       to: "  if (typeof score !== 'number') return 'border-brand-100 bg-brand-50 text-brand-800'" },

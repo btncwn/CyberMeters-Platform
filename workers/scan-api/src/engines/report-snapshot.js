@@ -31,7 +31,7 @@ import { resolveCyberMotDomainStates, CYBER_MOT_RESOLVER_VERSION } from "./cyber
 import { resolveAssessmentPresentation } from "./assessment-presentation.js";
 import { deriveScanBusinessRisk, BUSINESS_RISK_METHODOLOGY_VERSION } from "./business-risk.js";
 import { CYBER_METRICS_SCORE_METHODOLOGY_VERSION } from "./scoring.js";
-import { buildCyberEssentialsReadiness } from "./ce-readiness.js";
+import { buildCyberEssentialsReadiness, getCyberEssentialsSnapshot } from "./ce-readiness.js";
 import { applyEvidenceQuality, isActionableFinding, normalizeFindingSchema } from "./findings.js";
 import { findingRemediation, getRemediationById, remediationRegistryFingerprint } from "./remediation-registry.js";
 import { verificationSupportForMethod } from "./managed-case-model.js";
@@ -39,7 +39,28 @@ import { CYBER_MOT_DOMAINS } from "./cyber-mot-domains.js";
 import { createId } from "../lib/util.js";
 
 export const SNAPSHOT_SCHEMA_VERSION = "1";
-export const SNAPSHOT_BUILDER_VERSION = "2026-07-16.1";
+export const SNAPSHOT_BUILDER_VERSION = "2026-07-17.1";
+
+// The versions this code can faithfully interpret. Readers FAIL CLOSED on any
+// other value (mig 093 designed the column for exactly this gate): a future v2
+// snapshot must never be misrendered under v1 assumptions.
+export const SUPPORTED_SNAPSHOT_SCHEMA_VERSIONS = Object.freeze(new Set([SNAPSHOT_SCHEMA_VERSION]));
+
+// Snapshot provenance (founder policy, 2026-07-17):
+//   scan_finalize          — built in the scan-finalize post-terminal block with
+//                            the live world in view (cases, CE answers).
+//   reconstructed_on_demand — built later, from the immutable scan-time report
+//                            ONLY. Current managed-case/workflow/ownership state
+//                            and current CE answers are NEVER injected; anything
+//                            not reconstructable from scan-time evidence is
+//                            marked unavailable with an explicit limitation.
+export const SNAPSHOT_PROVENANCE_FINALIZE = "scan_finalize";
+export const SNAPSHOT_PROVENANCE_RECONSTRUCTED = "reconstructed_on_demand";
+
+// A read-path build for a scan older than this uses strict reconstruction mode;
+// within the window it is a near-contemporaneous crash repair and may build with
+// the live world (what finalize itself would have produced moments earlier).
+export const RECONSTRUCTION_AGE_MINUTES = 30;
 
 // A 'building' claim older than this is presumed crashed and may be reclaimed
 // (the STALE_REPORT_CLAIM_MINUTES precedent, plan-usage.js). Exported so the
@@ -112,6 +133,7 @@ export function composeSnapshot({
   questionSetVersions, // distinct answer question_set_version values (mig 092)
   supersedesSnapshotId,
   builtAt,
+  reconstruction = false, // strict historical reconstruction (founder policy)
 }) {
   const assessedAt = report?.completed_at || null;
   const scanQuality = report?.scan_quality ?? null;
@@ -144,7 +166,14 @@ export function composeSnapshot({
     }).map((d) => d.domain_key);
 
   // ── Managed-case linkage (data gathered by the caller in ONE query) ───────
-  const rows = Array.isArray(caseRows) ? caseRows : [];
+  // Reconstruction: caseRows MUST be empty (the builder never queries them), and
+  // the workflow summary is marked UNAVAILABLE rather than claiming zero cases —
+  // "no cases" is a fact about the workspace; "not reconstructable" is the truth.
+  const rows = reconstruction ? [] : (Array.isArray(caseRows) ? caseRows : []);
+  const WORKFLOW_UNAVAILABLE = Object.freeze({
+    unavailable: true,
+    reason: "Managed-workflow state at scan time cannot be reconstructed from scan-time evidence.",
+  });
   const caseByFindingId = new Map();
   for (const c of rows) {
     if (c.finding_id && !caseByFindingId.has(c.finding_id)) caseByFindingId.set(c.finding_id, c);
@@ -263,7 +292,9 @@ export function composeSnapshot({
       },
       remediation_ids: [...new Set(items.map((i) => i.remediation_id).filter(Boolean))].sort(),
       verification_support_distribution: supports,
-      managed_workflow: workflowByDomain.get(d.domain_key) || { total_cases: 0, open_cases: 0, statuses: {} },
+      managed_workflow: reconstruction
+        ? WORKFLOW_UNAVAILABLE
+        : (workflowByDomain.get(d.domain_key) || { total_cases: 0, open_cases: 0, statuses: {} }),
       methodology_version: CYBER_MOT_RESOLVER_VERSION,
     };
     if (d.domain_key === "cyber_essentials_readiness") {
@@ -296,6 +327,18 @@ export function composeSnapshot({
         complete: cyberEssentials?.complete ?? false,
         question_set_versions: questionSetVersions ?? [],
       };
+      if (reconstruction) {
+        // The CE questionnaire has no history table, so readiness AT SCAN TIME
+        // is genuinely unknowable. Current answers are NEVER injected (founder
+        // policy); the state resolves evidence_insufficient via the resolver's
+        // own not_assessed path and the wording says exactly why.
+        const ceUnavailable =
+          "Cyber Essentials readiness at scan time cannot be reconstructed from scan-time evidence.";
+        entry.summary = ceUnavailable;
+        entry.state_reason = ceUnavailable;
+        entry.cyber_essentials = null;
+        entry.questionnaire = { unavailable: true, reason: ceUnavailable };
+      }
     }
     return entry;
   });
@@ -327,6 +370,7 @@ export function composeSnapshot({
       scan_started_at: report?.started_at ?? null,
       scan_completed_at: assessedAt,
       built_at: builtAt,
+      provenance: reconstruction ? SNAPSHOT_PROVENANCE_RECONSTRUCTED : SNAPSHOT_PROVENANCE_FINALIZE,
       supersedes_snapshot_id: supersedesSnapshotId ?? null,
     },
     methodology: {
@@ -382,6 +426,12 @@ export function composeSnapshot({
       "This snapshot records what CyberMeters externally observed at the assessment time shown; it is not a certification.",
       "Customer attestation and CyberMeters verification are different states and are labelled as such.",
       "Evidence that was missing or incomplete at assessment time is recorded as such and is never presented as healthy.",
+      ...(reconstruction
+        ? [
+            "This snapshot was reconstructed on demand from the immutable scan-time report, after the scan completed.",
+            "Managed-workflow state and Cyber Essentials questionnaire state at scan time cannot be reconstructed and are marked unavailable rather than guessed.",
+          ]
+        : []),
     ],
   };
 }
@@ -393,7 +443,8 @@ export function composeSnapshot({
 //
 // Returns { status: 'completed'|'exists'|'in_progress'|'skipped'|'failed', ... }.
 export async function buildScanReportSnapshot(env, opts = {}) {
-  const { workspaceId, domainId, scanId, domain, report, cyberEssentials = null, assessedAt } = opts;
+  const { workspaceId, domainId, scanId, domain, report, cyberEssentials = null, assessedAt,
+          reconstruction = false } = opts;
   if (!workspaceId || !domainId || !scanId || !report) {
     return { status: "skipped", reason: "missing_identity" };
   }
@@ -469,11 +520,17 @@ export async function buildScanReportSnapshot(env, opts = {}) {
 
   try {
     // Gather the remaining inputs (each bounded; no per-row queries).
+    // Strict reconstruction (founder policy 2026-07-17): security facts come
+    // ONLY from the immutable scan-time report. The live-world queries below
+    // are all SKIPPED — current CE answers, current readiness and current
+    // managed-case state must never be injected into a historical snapshot.
     let ceReadiness = null;
-    try { ceReadiness = await buildCyberEssentialsReadiness(workspaceId, env); } catch { ceReadiness = null; }
+    if (!reconstruction) {
+      try { ceReadiness = await buildCyberEssentialsReadiness(workspaceId, env); } catch { ceReadiness = null; }
+    }
 
     let caseRows = [];
-    try {
+    if (!reconstruction) try {
       const r = await env.cybermeters_db
         .prepare(
           `SELECT id, case_type, domain_key, domain, finding_id, remediation_id,
@@ -486,7 +543,7 @@ export async function buildScanReportSnapshot(env, opts = {}) {
     } catch { caseRows = []; }
 
     let questionSetVersions = [];
-    try {
+    if (!reconstruction) try {
       const r = await env.cybermeters_db
         .prepare(
           `SELECT DISTINCT question_set_version FROM cyber_essentials_answers
@@ -499,9 +556,14 @@ export async function buildScanReportSnapshot(env, opts = {}) {
 
     const snapshot = composeSnapshot({
       snapshotId, workspaceId, domainId, scanId, domain,
-      report, cyberEssentials, ceReadiness, caseRows, questionSetVersions,
+      report,
+      // Reconstruction: CE readiness at scan time is unknowable — the resolver's
+      // own not_assessed path yields evidence_insufficient, never a guess.
+      cyberEssentials: reconstruction ? { status: "not_assessed" } : cyberEssentials,
+      ceReadiness, caseRows, questionSetVersions,
       supersedesSnapshotId,
       builtAt: new Date().toISOString(),
+      reconstruction,
     });
 
     const body = JSON.stringify(snapshot, null, 2);
@@ -551,4 +613,166 @@ export async function buildScanReportSnapshot(env, opts = {}) {
       .catch(() => {});
     return { status: "failed", snapshot_id: snapshotId, reason: String(err?.message ?? "snapshot_build_error") };
   }
+}
+
+// ── readScanReportSnapshot — the ONE canonical read path (M5.d) ──────────────
+// Every consumer of a snapshot — the snapshot API route AND every renderer —
+// goes through this helper, so retrieval, the schema-version gate, checksum
+// integrity, repair-on-read and reconstruction live in exactly one place.
+// The helper performs NO authorization: callers own tenancy and must gate
+// before calling (requireScanReadAccess / requireWorkspaceRole / trusted cron
+// workspace scoping).
+//
+// Availability contract (deterministic for every state a scan can be in):
+//   ok                         — completed row, supported schema, verified bytes
+//   building                   — a fresh claim is in flight; retryable (409)
+//   not_found                  — no snapshot and nothing to honestly build
+//   integrity_error            — completed row with missing object or checksum
+//                                mismatch; NEVER served silently
+//   unsupported_schema_version — future schema; fail closed, never misrender
+//
+// Repair/reconstruction (founder policy 2026-07-17):
+//   • stale 'building' or failed-only attempts on a completed scan are rebuilt
+//     from the durable scan report;
+//   • with allowReconstruction, a scan with NO attempt is built the same way —
+//     the first authorised request triggers the ONE canonical builder, and
+//     every later request serves the immutable completed snapshot;
+//   • any read-path build for a scan older than RECONSTRUCTION_AGE_MINUTES uses
+//     strict reconstruction mode (no live-world injection); younger builds are
+//     near-contemporaneous crash repairs and build as finalize would have;
+//   • no bulk backfill: builds happen one authorised read at a time.
+export async function readScanReportSnapshot(env, scanId, opts = {}) {
+  const { repair = true, allowReconstruction = false, includeSuccessor = true } = opts;
+
+  const selectActive = () => env.cybermeters_db
+    .prepare(
+      `SELECT id, workspace_id, domain_id, status, r2_key, checksum_sha256,
+              snapshot_schema_version, assessed_at, created_at
+       FROM scan_report_snapshots WHERE scan_id = ? AND status != 'failed'`
+    )
+    .bind(scanId)
+    .first();
+  let row = await selectActive();
+
+  if (repair) {
+    const staleBuilding = row?.status === "building" &&
+      (Date.now() - new Date(String(row.created_at).includes("T") ? row.created_at : row.created_at.replace(" ", "T") + "Z").getTime())
+        > STALE_BUILDING_MINUTES * 60 * 1000;
+    const anyRow = row ? true : !!(await env.cybermeters_db
+      .prepare(`SELECT id FROM scan_report_snapshots WHERE scan_id = ? LIMIT 1`)
+      .bind(scanId).first().catch(() => null));
+    const failedOnly = !row && anyRow;
+    const noAttempt = !row && !anyRow;
+
+    if (staleBuilding || failedOnly || (noAttempt && allowReconstruction)) {
+      try {
+        const scanRow = await env.cybermeters_db
+          .prepare(`SELECT workspace_id, domain_id, domain, status, created_at FROM scans WHERE id = ?`)
+          .bind(scanId).first();
+        if (scanRow?.status === "completed" && scanRow.workspace_id) {
+          const repObj = await env.cybermeters_reports.get(`reports/${scanId}.json`);
+          const rep = repObj ? await repObj.json() : null;
+          if (rep?.status === "completed" && rep?.completed_at) {
+            const ageMs = Date.now() - new Date(rep.completed_at).getTime();
+            const reconstruction = ageMs > RECONSTRUCTION_AGE_MINUTES * 60 * 1000;
+            let ceSnap = null;
+            if (!reconstruction) {
+              try { ceSnap = await getCyberEssentialsSnapshot(scanRow.workspace_id, env); } catch { ceSnap = null; }
+            }
+            await buildScanReportSnapshot(env, {
+              workspaceId: scanRow.workspace_id, domainId: scanRow.domain_id,
+              scanId, domain: scanRow.domain, report: rep,
+              cyberEssentials: ceSnap, assessedAt: rep.completed_at,
+              reconstruction,
+            });
+          }
+        }
+      } catch { /* best-effort — the honest gates below still apply */ }
+      row = await selectActive();
+    }
+  }
+
+  if (!row) return { status: "not_found", reason: "no_snapshot" };
+  if (row.status !== "completed") return { status: "building", row, reason: "build_in_progress" };
+
+  // Fail closed on any schema this code cannot faithfully interpret.
+  if (!SUPPORTED_SNAPSHOT_SCHEMA_VERSIONS.has(String(row.snapshot_schema_version))) {
+    return { status: "unsupported_schema_version", row, reason: `schema_${row.snapshot_schema_version}` };
+  }
+
+  const obj = await env.cybermeters_reports.get(row.r2_key);
+  if (!obj) {
+    // A completed row is only ever claimed over a durable object — anomaly.
+    return { status: "integrity_error", row, reason: "object_missing" };
+  }
+  const raw = await obj.text();
+  const checksum = await sha256Hex(raw);
+  if (row.checksum_sha256 && checksum !== row.checksum_sha256) {
+    return { status: "integrity_error", row, reason: "checksum_mismatch" };
+  }
+
+  let snapshot;
+  try { snapshot = JSON.parse(raw); } catch {
+    return { status: "integrity_error", row, reason: "unparseable" };
+  }
+  // Defence in depth: the body must agree with the row it was indexed under.
+  if (String(snapshot?.snapshot?.snapshot_schema_version) !== String(row.snapshot_schema_version)) {
+    return { status: "integrity_error", row, reason: "schema_version_row_body_mismatch" };
+  }
+
+  let supersededBy = null;
+  if (includeSuccessor) {
+    const successor = await env.cybermeters_db
+      .prepare(
+        `SELECT id, scan_id, assessed_at FROM scan_report_snapshots
+         WHERE workspace_id = ? AND supersedes_snapshot_id = ? AND status = 'completed'
+         ORDER BY assessed_at ASC LIMIT 1`
+      )
+      .bind(row.workspace_id, row.id)
+      .first().catch(() => null);
+    supersededBy = successor
+      ? { snapshot_id: successor.id, scan_id: successor.scan_id, assessed_at: successor.assessed_at }
+      : null;
+  }
+
+  return {
+    status: "ok",
+    snapshot,
+    raw,
+    row,
+    supersededBy,
+    integrity: { checksum_sha256: row.checksum_sha256, verified: !!row.checksum_sha256 },
+  };
+}
+
+// ── readLatestWorkspaceSnapshots — workspace-scoped composition (M5.d) ───────
+// Latest completed snapshot per domain for one tenant, each integrity-verified
+// through readScanReportSnapshot (no duplicate checksum/schema logic). Used by
+// workspace-level renderers (executive PDF, workspace report). Repair and
+// reconstruction are OFF by default here: a workspace render must not fan out
+// into N on-demand builds (subrequest budget); per-scan interactive reads are
+// where reconstruction happens.
+export async function readLatestWorkspaceSnapshots(env, workspaceId, opts = {}) {
+  const { repair = false } = opts;
+  const rows = await env.cybermeters_db
+    .prepare(
+      `SELECT s.scan_id, s.domain_id FROM scan_report_snapshots s
+       WHERE s.workspace_id = ? AND s.status = 'completed'
+         AND s.assessed_at = (
+           SELECT MAX(n.assessed_at) FROM scan_report_snapshots n
+           WHERE n.workspace_id = s.workspace_id AND n.domain_id = s.domain_id
+             AND n.status = 'completed'
+         )
+       ORDER BY s.assessed_at DESC`
+    )
+    .bind(workspaceId)
+    .all().catch(() => null);
+  const out = [];
+  for (const r of rows?.results || []) {
+    const read = await readScanReportSnapshot(env, r.scan_id, { repair, allowReconstruction: false, includeSuccessor: false });
+    // Tenant belt-and-braces: the row must belong to the requested workspace.
+    if (read.status === "ok" && read.row.workspace_id === workspaceId) out.push(read);
+    else if (read.status !== "ok") out.push({ status: read.status, domain_id: r.domain_id, scan_id: r.scan_id, reason: read.reason });
+  }
+  return out;
 }

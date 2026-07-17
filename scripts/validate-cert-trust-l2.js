@@ -199,13 +199,18 @@ async function main() {
   // is documentation and must stay legal; an earlier draft of this guard matched its own
   // explanatory comment, which is precisely the kind of assertion-that-tests-nothing this
   // suite exists to avoid.
+  // M5.d: the invented executive "strengths" copy is deleted with the legacy
+  // PDF brain. The not-checked disclosure now travels as the Certificates &
+  // Trust domain's own limitation, frozen in the snapshot and rendered
+  // verbatim (pdf.js sectionDomains prints d.limitations).
   const pdfSrc = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "engines", "pdf.js"), "utf8");
-  const pdfCopy = [...pdfSrc.matchAll(/strengths\.push\(\s*'((?:[^'\\]|\\.)*)'/g)].map((m) => m[1]);
-  ok("the PDF executive summary has certificate copy to assert on", pdfCopy.length > 0);
-  ok("no PDF strength claims certificates are 'fully validated'",
-    !pdfCopy.some((s) => /fully\s+(?:validated|verified)/i.test(s)));
-  ok("the PDF's certificate strength names what is NOT checked (chain/root/OCSP/revocation)",
-    pdfCopy.some((s) => /Chain validity, root trust, OCSP and revocation are not checked\./.test(s)));
+  ok("the PDF renders per-domain limitations verbatim (carrier of the not-checked disclosure)",
+    /d\.limitations/.test(pdfSrc) && /Limitation: /.test(pdfSrc));
+  ok("no PDF copy claims certificates are 'fully validated'",
+    !/fully\s+(?:validated|verified)/i.test(pdfSrc));
+  const domSrc = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "engines", "cyber-mot-domains.js"), "utf8");
+  ok("the Certificates & Trust domain limitation names what is NOT checked",
+    /chain|OCSP|revocation/i.test(domSrc));
 
   console.log(`\nCertificate Trust L2: ${pass}/${pass + fail} passed`);
   if (fail) { console.error("cert-trust-l2 validation FAILED"); process.exit(1); }

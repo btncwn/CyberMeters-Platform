@@ -520,7 +520,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     // score and findings are known. Mutates modules in place before R2 write.
     try {
       modules.historical_changes = await runHistoricalModule(
-        scanId, domain, score, findings, modules, env
+        scanId, domain, score, findings, modules, env, workspaceId
       );
     } catch (err) {
       modules.historical_changes = {

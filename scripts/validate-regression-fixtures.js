@@ -1142,144 +1142,68 @@ results.push(await asyncSecurityContract("email_delivery_provider_rejection", as
   return delivery.sent === false && delivery.reason === "provider_rejected" && delivery.status === 429;
 }));
 
+// M5.d: the executive report is a pure view over the canonical snapshot.
+// The five-pillar intelligence-engine registry is DELETED; these contracts pin
+// the v3 shape (eight domains, Observed Findings taxonomy, one score, BRI as
+// indicator) and prove the legacy shape cannot return.
+const execRawReport = {
+  scan_id: "scan_contract_1", domain_id: "domain_contract_1", domain: "example.com",
+  status: "completed", cyber_metrics_score: 77, risk_level: "good",
+  started_at: "2026-06-27T09:55:00.000Z", completed_at: "2026-06-27T10:01:00.000Z",
+  scan_quality: { status: "complete", modules_skipped: [], warnings: [] },
+  findings: [
+    { id: "dns_no_resolution", module: "dns", finding_type: "finding", severity: "critical", confidence: 90, score_impact: -30, title: "Domain Does Not Resolve", description: "No DNS response was observed.", recommendation: "Restore DNS resolution." },
+    { id: "email_dkim_not_detected", module: "email_security", finding_type: "observation", severity: "info", confidence: 60, score_impact: 0, title: "DKIM Could Not Be Verified Using Common Selectors", description: "A custom selector may exist." },
+  ],
+  recommendations: [],
+  modules: { dns: { resolves: false, has_mx: true }, ssl: { https_available: false }, headers: { accessible: false }, email_security: { spf: { present: true }, dmarc: { present: true, policy: "reject" }, dkim: { present: false } }, historical_changes: { has_previous: false } },
+};
+const execSnapshot = scanner.composeSnapshot({
+  snapshotId: "snap_contract_1", workspaceId: "workspace_contract_1", domainId: "domain_contract_1",
+  scanId: "scan_contract_1", domain: "example.com", report: execRawReport,
+  cyberEssentials: null, ceReadiness: null, caseRows: [], questionSetVersions: [],
+  supersedesSnapshotId: null, builtAt: "2026-06-27T10:01:05.000Z",
+});
 const executiveV2Fixture = scanner.buildExecutiveReportV2({
-  scan: {
-    id: "scan_contract_1",
-    domain_id: "domain_contract_1",
-    domain: "example.com",
-    status: "completed",
-    score: 77,
-    rating: "good",
-    created_at: "2026-06-27T10:00:00.000Z",
-  },
+  scan: { id: "scan_contract_1", domain_id: "domain_contract_1", domain: "example.com", status: "completed" },
   workspace: { id: "workspace_contract_1", name: "Contract Workspace" },
-  generatedAt: "2026-06-27T12:00:00.000Z",
-  rawReport: {
-    cyber_metrics_score: 5,
-    completed_at: "2026-06-27T10:01:00.000Z",
-    findings: [
-      {
-        id: "dns_no_resolution",
-        module: "dns",
-        finding_type: "finding",
-        severity: "critical",
-        confidence: 90,
-        score_impact: -30,
-        title: "Domain Does Not Resolve",
-        description: "No DNS response was observed.",
-        recommendation: "Restore DNS resolution.",
-      },
-      {
-        id: "email_dkim_not_detected",
-        module: "email_security",
-        finding_type: "observation",
-        severity: "info",
-        confidence: 60,
-        score_impact: 0,
-        title: "DKIM Could Not Be Verified Using Common Selectors",
-        description: "A custom selector may exist.",
-      },
-    ],
-    recommendations: [
-      { priority: 1, module: "dns", title: "Fix DNS Configuration", description: "Restore DNS records." },
-      { priority: 3, module: "email_security", title: "Verify DKIM Selector", description: "Review custom selectors." },
-    ],
-    modules: {
-      dns: { resolves: false, has_mx: true, mx: [{ exchange: "mx.example.com" }] },
-      ssl: { https_available: false },
-      headers: { accessible: false },
-      email_security: {
-        spf: { present: true },
-        dkim: { present: false, provider: "google" },
-        dmarc: { present: true, policy: "reject" },
-        spf_detail: { valid: true, includes: ["_spf.google.com"] },
-        dmarc_detail: { valid: true, policy: "reject", has_reporting: true },
-        dkim_detail: { status: "uncertain", confidence: "medium" },
-        bimi_readiness: { record_found: false },
-        policy_journey: { stage: "full_enforcement", label: "Reject" },
-        remediation_actions: [{ id: "bimi_not_configured", protocol: "BIMI", status: "open" }],
-      },
-      email_security_intelligence: {
-        mta_sts: { enabled: false },
-        tls_rpt: { enabled: true },
-        email_security_score: 75,
-        rating: "Good",
-      },
-      historical_changes: { has_previous: false },
-      remediation_plan: {
-        p1_immediate: [{ title: "Domain Does Not Resolve", action: "Restore DNS resolution.", source: "dns" }],
-        p2_high: [],
-        p3_medium_low: [{ title: "DKIM Could Not Be Verified Using Common Selectors", source: "email_security" }],
-      },
-      vendor_risk: { vendors: [{ name: "Example Vendor" }] },
-    },
-  },
+  read: { status: "ok", snapshot: execSnapshot, row: { id: "snap_contract_1" }, integrity: { checksum_sha256: "x", verified: true } },
 });
 
 results.push(
-  securityContract("intelligence_engine_registry_contains_all_engines", () =>
-    ["attack_surface", "business_email", "identity", "brand", "executive"]
-      .every((engine) => scanner.INTELLIGENCE_ENGINE_REGISTRY[engine]) &&
-    Object.keys(scanner.INTELLIGENCE_ENGINE_REGISTRY).length === 5
+  securityContract("five_pillar_registry_is_deleted", () =>
+    !("INTELLIGENCE_ENGINE_REGISTRY" in scanner) && !("resolveIntelligenceEngine" in scanner)
   ),
-  securityContract("intelligence_engine_registry_dns", () =>
-    scanner.resolveIntelligenceEngine({ module: "dns", id: "dns_no_resolution" }) === "attack_surface"
-  ),
-  securityContract("intelligence_engine_registry_email", () =>
-    scanner.resolveIntelligenceEngine({ module: "email_security", id: "email_missing_dmarc" }) === "business_email"
-  ),
-  securityContract("intelligence_engine_registry_identity", () =>
-    scanner.resolveIntelligenceEngine({ module: "identity_discovery", id: "identity_provider_observed" }) === "identity"
-  ),
-  securityContract("intelligence_engine_registry_brand", () =>
-    scanner.resolveIntelligenceEngine({ module: "brand_monitoring", id: "brand_lookalike_detected" }) === "brand"
-  ),
-  securityContract("intelligence_engine_registry_unknown_default", () =>
-    scanner.resolveIntelligenceEngine({ module: "future_detector", id: "future_signal" }) === "attack_surface"
-  ),
-  securityContract("executive_report_v2_contract_shape", () =>
-    executiveV2Fixture.version === "2.0" &&
-    executiveV2Fixture.report_type === "executive" &&
+  securityContract("executive_report_v3_contract_shape", () =>
+    executiveV2Fixture.version === "3.0" &&
+    executiveV2Fixture.report_type === "executive_scan_report" &&
     executiveV2Fixture.workspace.id === "workspace_contract_1" &&
     executiveV2Fixture.domain.scan_id === "scan_contract_1" &&
     executiveV2Fixture.cyber_metrics_score.value === 77 &&
-    executiveV2Fixture.generated_at === "2026-06-27T12:00:00.000Z"
+    executiveV2Fixture.assessed_at === "2026-06-27T10:01:00.000Z" &&
+    executiveV2Fixture.generated_at === "2026-06-27T10:01:05.000Z"
   ),
-  securityContract("executive_report_v2_intelligence_engines", () =>
-    ["attack_surface", "business_email", "identity", "brand", "executive"]
-      .every((key) => executiveV2Fixture.intelligence_engines[key])
+  securityContract("executive_report_v3_eight_domains_no_engines", () =>
+    !("intelligence_engines" in executiveV2Fixture) &&
+    executiveV2Fixture.cyber_mot_domains.length === 8 &&
+    executiveV2Fixture.cyber_mot_domains[0].domain_key === "email_protection"
   ),
-  securityContract("executive_report_v2_attack_surface", () =>
-    executiveV2Fixture.intelligence_engines.attack_surface.evidence.dns.resolves === false &&
-    executiveV2Fixture.intelligence_engines.attack_surface.evidence.ssl_tls.https_available === false &&
-    executiveV2Fixture.intelligence_engines.attack_surface.findings[0].id === "dns_no_resolution"
-  ),
-  securityContract("executive_report_v2_business_email", () =>
-    executiveV2Fixture.intelligence_engines.business_email.evidence.spf.present === true &&
-    executiveV2Fixture.intelligence_engines.business_email.evidence.dmarc.policy === "reject" &&
-    executiveV2Fixture.intelligence_engines.business_email.evidence.provider_detection === "google" &&
-    executiveV2Fixture.intelligence_engines.business_email.evidence.remediation.policy_journey.stage === "full_enforcement" &&
-    executiveV2Fixture.intelligence_engines.business_email.evidence.remediation.actions[0].id === "bimi_not_configured"
-  ),
-  securityContract("executive_report_v2_identity_fallback", () => {
-    const identity = executiveV2Fixture.intelligence_engines.identity;
-    return identity.status === "not_available" &&
-      identity.summary === "Identity Intelligence is not enabled for this workspace yet." &&
-      identity.findings.length === 0 && identity.observations.length === 0;
-  }),
-  securityContract("executive_report_v2_findings_observations_separated", () =>
-    executiveV2Fixture.verified_findings.length === 1 &&
-    executiveV2Fixture.verified_findings[0].id === "dns_no_resolution" &&
+  securityContract("executive_report_v3_findings_observations_separated", () =>
+    executiveV2Fixture.observed_findings.length === 1 &&
+    executiveV2Fixture.observed_findings[0].finding_id === "dns_no_resolution" &&
     executiveV2Fixture.observations.length === 1 &&
-    executiveV2Fixture.observations[0].id === "email_dkim_not_detected" &&
-    executiveV2Fixture.prioritized_remediation.every((item) => !item.title.includes("DKIM")) &&
-    executiveV2Fixture.intelligence_engines.business_email.recommendations.length === 0
+    executiveV2Fixture.observations[0].finding_id === "email_dkim_not_detected" &&
+    !("verified_findings" in executiveV2Fixture)
   ),
-  securityContract("executive_report_v2_legacy_sections_not_top_level", () =>
+  securityContract("executive_report_v3_bri_is_indicator_not_score", () =>
+    executiveV2Fixture.business_risk_indicator.band != null &&
+    !("score" in executiveV2Fixture.business_risk_indicator)
+  ),
+  securityContract("executive_report_v3_no_legacy_sections", () =>
     !("vendor_risk" in executiveV2Fixture) &&
     !("supply_chain" in executiveV2Fixture) &&
-    !("cyber_essentials" in executiveV2Fixture) &&
-    executiveV2Fixture.supporting_evidence.legacy_vendor_context.vendors.length === 1
+    !("supporting_evidence" in executiveV2Fixture) &&
+    executiveV2Fixture.limitations.length >= 3
   ),
 );
 

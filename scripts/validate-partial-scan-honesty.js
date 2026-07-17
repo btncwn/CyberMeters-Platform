@@ -18,6 +18,20 @@ const { resolveAssessmentPresentation, normalizeQuality, ASSESSMENT_MESSAGES, PO
 const { getAuthoritativeCurrentPosture, isComparableAssessment } = await eng("current-posture.js");
 const { createFinalizeLatch, finalizeScanResult } = await eng("scan-engine.js");
 const { buildExecutiveReportV2 } = await eng("executive-report.js");
+const { composeSnapshot } = await eng("report-snapshot.js");
+// M5.d: the executive report is a pure view over the canonical snapshot; the
+// partial-scan honesty now lives in the snapshot's frozen assessment.
+const mkRead = (rawReport, scanId = "s_partial") => ({
+  status: "ok",
+  snapshot: composeSnapshot({
+    snapshotId: "snap_" + scanId, workspaceId: "ws_p", domainId: "dom_p", scanId,
+    domain: rawReport.domain ?? "example.co.uk",
+    report: { status: "completed", completed_at: "2026-07-14T10:00:00Z", ...rawReport },
+    cyberEssentials: null, ceReadiness: null, caseRows: [], questionSetVersions: [],
+    supersedesSnapshotId: null, builtAt: "2026-07-14T10:00:05Z",
+  }),
+  row: { id: "snap_" + scanId }, integrity: { verified: true },
+});
 const { riskLevelForScore } = await eng("scoring.js");
 
 let pass = 0, fail = 0;
@@ -134,32 +148,36 @@ const d1 = (db) => ({ prepare(sql) { const w = (a) => ({ first: async () => db.p
     findings: [], recommendations: [],
     modules: { historical_changes: { has_previous: true, previous_scan_id: "prev", previous_score: 82, score_change: null, comparable: false } },
   };
-  const rep = buildExecutiveReportV2({ scan: { id: "s1", score: 95, status: "completed", domain: "example.co.uk" }, rawReport });
+  const rep = buildExecutiveReportV2({ scan: { id: "s1", score: 95, status: "completed", domain: "example.co.uk" }, read: mkRead(rawReport, "s1") });
   eq("(1) exec report: partial → rating null (never Excellent)", rep.cyber_metrics_score.rating, null);
   eq("exec report: value still 95 (provisional)", rep.cyber_metrics_score.value, 95);
   ok("exec report: marked provisional/non-authoritative", rep.cyber_metrics_score.provisional && !rep.cyber_metrics_score.authoritative);
   eq("(6) exec report: no reassuring narrative — shows the caveat", rep.risk_intelligence?.narrative ?? null, null); // narrative moved; check below
   ok("(6) exec report narrative is the provisional caveat, not 'controls are strong'", JSON.stringify(rep).includes("Some checks were not completed") && !JSON.stringify(rep).includes("controls are strong"));
   eq("(5) exec report: no trend delta for partial (score_change null)", rep.historical_trends?.score_change ?? null, null);
-  eq("(5) exec report: no improved/declined direction", rep.historical_trends?.direction, "not_available");
+  // M5.d: the snapshot-native report renders NO trend direction at all - trend
+  // derivation belongs to the supersession chain, and a partial scan is never
+  // presented as comparable history.
+  ok("(5) exec report: no improved/declined direction anywhere", !JSON.stringify(rep).includes('"improved"') && !JSON.stringify(rep).includes('"declined"'));
+  eq("(5) exec report: comparability is exposed and FALSE for a partial scan", rep.cyber_metrics_score.comparable, false);
 
   // Complete assessment: rating + narrative + comparable trend all present/normal.
   const completeRaw = { domain: "example.co.uk", cyber_metrics_score: 82, risk_level: "good", scan_quality: { status: "complete" }, findings: [], recommendations: [], modules: { historical_changes: { has_previous: true, previous_scan_id: "p", previous_score: 70, comparable: true } } };
-  const repC = buildExecutiveReportV2({ scan: { id: "s2", score: 82, status: "completed", domain: "example.co.uk" }, rawReport: completeRaw });
+  const repC = buildExecutiveReportV2({ scan: { id: "s2", score: 82, status: "completed", domain: "example.co.uk" }, read: mkRead(completeRaw, "s2") });
   eq("(14) complete report keeps its real rating", repC.cyber_metrics_score.rating, riskLevelForScore(82));
-  ok("(14) complete report is comparable + can show a delta", repC.historical_trends?.comparable === true && repC.historical_trends?.score_change === 12);
+  ok("(14) complete report is comparable (frozen assessment.comparable)", repC.cyber_metrics_score.comparable === true);
 }
 
 // ── (13) Parity: resolver, exec-report and PDF derive the SAME decision ──
 {
   const input = { score: 95, scanQuality: "partial", status: "completed" };
   const r = resolveAssessmentPresentation(input);
-  const rep = buildExecutiveReportV2({ scan: { id: "s", score: 95, status: "completed", domain: "d" }, rawReport: { cyber_metrics_score: 95, scan_quality: { status: "partial" }, findings: [], recommendations: [], modules: {} } });
+  const rep = buildExecutiveReportV2({ scan: { id: "s", score: 95, status: "completed", domain: "d" }, read: mkRead({ cyber_metrics_score: 95, scan_quality: { status: "partial" }, findings: [], recommendations: [], modules: {} }, "s3") });
   eq("(13) exec-report rating == resolver display_rating", rep.cyber_metrics_score.rating, r.display_rating);
   eq("(13) exec-report provisional == resolver provisional", rep.cyber_metrics_score.provisional, r.provisional);
   // PDF delegates to the same resolver (source-level: pdf.js imports + uses it).
   const pdfSrc = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "engines", "pdf.js"), "utf8");
-  ok("(13) PDF delegates to resolveAssessmentPresentation", /resolveAssessmentPresentation/.test(pdfSrc));
+  ok("(13) PDF renders the snapshot frozen assessment decision", /assessment\?\.provisional/.test(pdfSrc));
   ok("(13) PDF shows 'Provisional' + suppresses rating on partial", /Provisional Score|"Provisional"/.test(pdfSrc));
 }
 

@@ -99,7 +99,7 @@ export default function ScansPage() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 border-t border-gray-100 pt-6">
               {[
                 { icon: Shield,        color: 'bg-brand-50 text-brand-600', title: 'Cyber Metrics Score', desc: 'A single 0–100 score summarising your external posture'               },
-                { icon: AlertTriangle, color: 'bg-red-50 text-red-500',     title: 'Verified Findings',   desc: 'Issues ranked by severity — Critical, High, Medium, Low'              },
+                { icon: AlertTriangle, color: 'bg-red-50 text-red-500',     title: 'Observed Findings',   desc: 'Issues ranked by severity — Critical, High, Medium, Low'              },
                 { icon: TrendingUp,    color: 'bg-purple-50 text-purple-600', title: 'Trend History',     desc: 'Compare scores over time and track remediation progress'              },
               ].map(({ icon: Icon, color, title, desc }) => (
                 <div key={title} className="flex items-start gap-3 p-4 rounded-xl bg-gray-50/60">

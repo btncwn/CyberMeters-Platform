@@ -183,6 +183,18 @@ jobs:
       - name: Validate M5.c canonical reporting snapshot (immutability / idempotency / honesty / purge)
         run: node scripts/validate-m5c-reporting-snapshot.js
 
+      # M5.d — renderer migration. Every customer report renderer (scan report JSON,
+      # scan PDF, executive report v3, workspace executive PDF) renders the canonical
+      # immutable snapshot: score/band/BRI identical across surfaces by construction,
+      # live-table changes cannot rewrite rendered history, five-pillar and Vendor
+      # Risk/Supply Chain output cannot return, unknown snapshot schema versions fail
+      # closed, and pre-093 scans reconstruct through the ONE canonical builder under
+      # the founder's strict reconstruction policy (no current case/CE state injected).
+      # Mutation-tested: 11 defects incl. a renderer re-deriving score, taxonomy
+      # collapse, reconstruction injecting live state, and render-time clock leakage.
+      - name: Validate M5.d renderer migration (snapshot-native renderers / reconstruction / parity)
+        run: node scripts/validate-m5d-renderer-migration.js
+
       # Mutation proof for the 2026-07-16 alerting repair. Two guards in this repo were
       # named for coverage they never executed, so the suites above are themselves proved
       # load-bearing here: each defect is reintroduced and must reappear.

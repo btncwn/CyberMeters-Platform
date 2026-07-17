@@ -5,7 +5,10 @@
 // route matches, or null so the main router continues.
 import { buildCyberEssentialsReadiness } from "../engines/ce-readiness.js";
 import { CE_QUESTIONS, CE_QUESTION_SET_VERSION, CE_QUESTION_SET_PROVENANCE, mergeReadiness } from "../lib/cyber-essentials.js";
-import { buildExecutivePdf, collectPdfData } from "../engines/pdf.js";
+import { buildWorkspaceExecutivePdf } from "../engines/pdf.js";
+import { readLatestWorkspaceSnapshots } from "../engines/report-snapshot.js";
+import { resolveReportBranding } from "../engines/report-branding.js";
+import { prepareLogoXObject } from "../engines/pdf-image.js";
 import { buildScorecardData } from "../engines/scorecard.js";
 import { computeBusinessRiskScore, expandFindingIds } from "../engines/business-risk.js";
 import { computeWorkspaceVendorRisk } from "../engines/vendor-risk.js";
@@ -17,8 +20,8 @@ export async function workspaceAnalyticsRoutes(rctx) {
           requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId,
           corsHeaders, isActionableFinding } = rctx;
     // ── GET /api/workspaces/:id/scorecard/pdf ─────────────────────────────────
-    // Returns a downloadable PDF executive security report.
-    // Uses the same data as /scorecard/pdf-data via collectPdfData().
+    // Snapshot-native (M5.d): the executive PDF renders the latest completed
+    // canonical snapshot per domain — no live recalculation on this path.
     const pdfMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/scorecard\/pdf$/);
     if (pdfMatch && request.method === 'GET') {
       const wsId = pdfMatch[1];
@@ -34,13 +37,23 @@ export async function workspaceAnalyticsRoutes(rctx) {
         }
       }
       try {
-        const pdfData = await collectPdfData(wsId, env);
-        if (!pdfData) return json({ error: 'Workspace not found' }, 404);
-        const bytes    = buildExecutivePdf(pdfData);
-        const wsSlug   = String(pdfData.workspace?.name ?? 'report')
+        const ws = await env.cybermeters_db
+          .prepare(`SELECT id, name FROM workspaces WHERE id = ? AND deleted_at IS NULL`)
+          .bind(wsId).first();
+        if (!ws) return json({ error: 'Workspace not found' }, 404);
+        const reads = await readLatestWorkspaceSnapshots(env, wsId);
+        let branding = null, logoImage = null;
+        try {
+          branding = await resolveReportBranding(env, wsId);
+          if (branding?.logo) logoImage = prepareLogoXObject(branding.logo, branding.accent);
+        } catch { branding = null; logoImage = null; }
+        // Live render: the artefact timestamp is the request time by design
+        // (this endpoint is the on-demand variant of the stored report).
+        const generatedAt = new Date().toISOString();
+        const bytes = buildWorkspaceExecutivePdf({ workspaceName: ws.name, reads, branding, generatedAt, logoImage });
+        const wsSlug = String(ws.name ?? 'report')
           .toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-        const dateSlug = pdfData.generated_at.slice(0, 10);
-        const filename = `cybermeters-executive-report-${wsSlug}-${dateSlug}.pdf`;
+        const filename = `cybermeters-executive-report-${wsSlug}-${generatedAt.slice(0, 10)}.pdf`;
         return new Response(bytes, {
           status: 200,
           headers: {
@@ -51,17 +64,15 @@ export async function workspaceAnalyticsRoutes(rctx) {
           },
         });
       } catch (err) {
-        return json({
-          error:     'PDF generation failed',
-          message:   String(err?.message ?? err),
-          endpoint:  url.pathname,
-          timestamp: new Date().toISOString(),
-        }, 500);
+        // Customer-safe: never echo internal error detail (the previous body
+        // leaked err.message + endpoint + timestamp).
+        return serverError("scorecard/pdf", err, "PDF generation failed.");
       }
     }
 
     // ── GET /api/workspaces/:id/scorecard/pdf-data ──────────────────────────
-    // Board-level executive security report — pure JSON for frontend / export.
+    // Snapshot metadata + verified snapshot bodies for export tooling. The old
+    // collectPdfData recalculation blob is retired with the legacy PDF brain.
     const pdfDataMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/scorecard\/pdf-data$/);
     if (pdfDataMatch && request.method === 'GET') {
       const wsId = pdfDataMatch[1];
@@ -77,11 +88,19 @@ export async function workspaceAnalyticsRoutes(rctx) {
         }
       }
       try {
-        const pdfData = await collectPdfData(wsId, env);
-        if (!pdfData) return json({ error: 'Workspace not found' }, 404);
-        return json(pdfData);
+        const ws = await env.cybermeters_db
+          .prepare(`SELECT id, name FROM workspaces WHERE id = ? AND deleted_at IS NULL`)
+          .bind(wsId).first();
+        if (!ws) return json({ error: 'Workspace not found' }, 404);
+        const reads = await readLatestWorkspaceSnapshots(env, wsId);
+        return json({
+          workspace: { id: ws.id, name: ws.name },
+          snapshots: reads.map((r) => r.status === "ok"
+            ? { status: "ok", snapshot: r.snapshot, integrity: r.integrity }
+            : { status: r.status, domain_id: r.domain_id ?? null, scan_id: r.scan_id ?? null }),
+        });
       } catch (err) {
-        return serverError("scorecard/pdf-data", err, "PDF data could not be generated.");
+        return serverError("scorecard/pdf-data", err, "Report data could not be generated.");
       }
     }
 
