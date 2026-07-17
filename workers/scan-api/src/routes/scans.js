@@ -16,6 +16,7 @@ import { checkScanLimit, checkScheduledScanLimit, getAccountUsage, getEntitlemen
 import { buildScanQuality, runScanEngine } from "../engines/scan-engine.js";
 import { buildDmarcSenderIntelligenceEvidence } from "../engines/sender-provenance.js";
 import { findingRemediation } from "../engines/remediation-registry.js";
+import { buildScanReportSnapshot, snapshotSha256Hex, STALE_BUILDING_MINUTES } from "../engines/report-snapshot.js";
 import { createAuditEvent } from "../lib/events.js";
 import { DOMAIN_VERIFICATION_REQUIRED, isWorkspaceDomainVerified } from "../lib/domain-verification.js";
 import { resolveAssessmentPresentation } from "../engines/assessment-presentation.js";
@@ -497,6 +498,119 @@ export async function scanRoutes(rctx) {
         return json(execReport);
       } catch (error) {
         return serverError("executive-report-v2", error, "Executive report could not be generated.");
+      }
+    }
+
+    // ── GET /api/scans/:id/snapshot ─────────────────────────────────────
+    // Canonical M5.c reporting snapshot, served VERBATIM from the immutable R2
+    // object. This read path NEVER recalculates: no resolver, no scoring, no
+    // remediation lookup — a historical snapshot must not change meaning when
+    // engine code does. Must be checked BEFORE the generic /api/scans/:id
+    // route below (same ordering trap the /report route documents).
+    if (
+      request.method === "GET" &&
+      /^\/api\/scans\/[^/]+\/snapshot$/.test(url.pathname)
+    ) {
+      const scanId = url.pathname.split("/")[3];
+
+      // Auth before DB — prevents scan ID existence probing by unauthenticated callers.
+      const user = await requireAuth(request, env);
+      if (!user) return json({ error: "Unauthorized" }, 401);
+
+      // Foreign-existing and nonexistent scans both yield an identical 403 —
+      // no cross-tenant existence oracle (the /report sibling's contract).
+      const access = await requireScanReadAccess(user, scanId, env);
+      if (!access) return json({ error: "Forbidden" }, 403);
+
+      try {
+        // Readers serve ONLY completed rows — the status gate sits in D1,
+        // never on R2 object existence.
+        const selectActive = () => env.cybermeters_db
+          .prepare(
+            `SELECT id, workspace_id, domain_id, status, r2_key, checksum_sha256, assessed_at, created_at
+             FROM scan_report_snapshots WHERE scan_id = ? AND status != 'failed'`
+          )
+          .bind(scanId)
+          .first();
+        let row = await selectActive();
+
+        // ── Repair-on-read (the stuck-scan reconciler precedent) ──────────
+        // A Worker killed mid-build leaves 'building' forever; a transient
+        // failure leaves only 'failed' rows. Both are ATTEMPTS that never
+        // reached completion — repair them here from the durable scan report,
+        // via the same idempotent builder (its claim machinery makes a
+        // concurrent repair safe). A scan with NO attempt at all is not
+        // repaired: pre-M5.c history is honestly absent, not backfilled.
+        const staleBuilding = row?.status === "building" &&
+          (Date.now() - new Date(String(row.created_at).includes("T") ? row.created_at : row.created_at.replace(" ", "T") + "Z").getTime())
+            > STALE_BUILDING_MINUTES * 60 * 1000;
+        const failedOnly = !row && !!(await env.cybermeters_db
+          .prepare(`SELECT id FROM scan_report_snapshots WHERE scan_id = ? LIMIT 1`)
+          .bind(scanId).first());
+        if (staleBuilding || failedOnly) {
+          try {
+            const scanRow = await env.cybermeters_db
+              .prepare(`SELECT workspace_id, domain_id, domain, status FROM scans WHERE id = ?`)
+              .bind(scanId).first();
+            if (scanRow?.status === "completed" && scanRow.workspace_id) {
+              const repObj = await env.cybermeters_reports.get(`reports/${scanId}.json`);
+              const rep = repObj ? await repObj.json() : null;
+              if (rep?.status === "completed") {
+                let ceSnap = null;
+                try { ceSnap = await getCyberEssentialsSnapshot(scanRow.workspace_id, env); } catch { ceSnap = null; }
+                await buildScanReportSnapshot(env, {
+                  workspaceId: scanRow.workspace_id, domainId: scanRow.domain_id,
+                  scanId, domain: scanRow.domain, report: rep,
+                  cyberEssentials: ceSnap, assessedAt: rep.completed_at,
+                });
+              }
+            }
+          } catch { /* best-effort — the honest gates below still apply */ }
+          row = await selectActive();
+        }
+
+        if (!row) return json({ error: "Snapshot not found" }, 404);
+        if (row.status !== "completed") {
+          return json({ error: "Snapshot not ready" }, 409);
+        }
+
+        const obj = await env.cybermeters_reports.get(row.r2_key);
+        if (!obj) {
+          // A completed row is only ever claimed over a durable object, so a
+          // missing object is a server-side integrity anomaly, not a 404.
+          return serverError("api", new Error(`snapshot object missing for ${row.id}`));
+        }
+        const body = await obj.text();
+
+        // Integrity: the D1 checksum binds the row to the exact bytes it
+        // indexed. A mismatch is a server-side anomaly, never served silently.
+        const checksum = await snapshotSha256Hex(body);
+        if (row.checksum_sha256 && checksum !== row.checksum_sha256) {
+          return serverError("api", new Error(`snapshot checksum mismatch for ${row.id}`));
+        }
+
+        // Supersession is derived on read by following the append-only chain
+        // forward — the historical row itself is never edited. Deterministic:
+        // the earliest completed successor by assessment time.
+        const successor = await env.cybermeters_db
+          .prepare(
+            `SELECT id, scan_id, assessed_at FROM scan_report_snapshots
+             WHERE workspace_id = ? AND supersedes_snapshot_id = ? AND status = 'completed'
+             ORDER BY assessed_at ASC LIMIT 1`
+          )
+          .bind(row.workspace_id, row.id)
+          .first();
+
+        return json({
+          snapshot: JSON.parse(body),
+          superseded_by: successor
+            ? { snapshot_id: successor.id, scan_id: successor.scan_id, assessed_at: successor.assessed_at }
+            : null,
+          // Fail-closed: verified only when a checksum existed AND matched.
+          integrity: { checksum_sha256: row.checksum_sha256, verified: !!row.checksum_sha256 },
+        });
+      } catch (err) {
+        return serverError("api", err);
       }
     }
 

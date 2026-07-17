@@ -92,6 +92,7 @@ const EXPECTED_NOT_PURGED = {
   // R2 objects must be deleted first.
   scans: "purged directly by purgeWorkspaceData (with its R2 report objects)",
   workspace_reports: "purged directly by purgeWorkspaceData (with its R2 objects)",
+  scan_report_snapshots: "purged directly by purgeWorkspaceData (R2 snapshot JSON deleted before its pointer row — mig 093)",
   // Deliberately retained — see DELETION_PURGE_WINDOW_DAYS in index.js.
   audit_events: "retained: audit history",
   subscriptions: "retained: accounting",
@@ -136,6 +137,8 @@ const EXTRA = { workspace_alert_channels: { channel_type: "webhook" } };
 for (const t of WORKSPACE_PURGE_TABLES) { const e = EXTRA[t] || {}; if (seedRow(t, "wsPurge", e)) seeded.push(t); seedRow(t, "wsKeep", e); }
 seedRow("workspace_reports", "wsPurge", { report_key: "reports/exec-wsPurge.pdf" });
 seedRow("workspace_reports", "wsKeep",  { report_key: "reports/exec-wsKeep.pdf" });
+seedRow("scan_report_snapshots", "wsPurge", { r2_key: "reports/snapshots/wsPurge/scan_wsPurge/snap-p.json", status: "completed" });
+seedRow("scan_report_snapshots", "wsKeep",  { r2_key: "reports/snapshots/wsKeep/scan_wsKeep/snap-k.json",  status: "completed" });
 seedRow("scans", "wsPurge", { id: "scan_wsPurge" });
 seedRow("scans", "wsKeep",  { id: "scan_wsKeep" });
 for (const c of SCAN_CHILD_TABLES) { seedRow(c, "wsPurge", { scan_id: "scan_wsPurge" }); }
@@ -161,6 +164,13 @@ ok("scans fully purged", (db.prepare("SELECT COUNT(*) c FROM scans WHERE workspa
 // R2 objects deleted for both the exec report and the scan json.
 ok("R2 exec report object deleted", deletedKeys.includes("reports/exec-wsPurge.pdf"));
 ok("R2 scan json object deleted", deletedKeys.includes("reports/scan_wsPurge.json"));
+
+// Canonical reporting snapshots (mig 093): pointer-purged with their R2 objects.
+ok("scan_report_snapshots rows purged", countWs("scan_report_snapshots", "wsPurge") === 0);
+ok("R2 snapshot JSON object deleted", deletedKeys.includes("reports/snapshots/wsPurge/scan_wsPurge/snap-p.json"));
+ok("other workspace's snapshot row + R2 object survive",
+   countWs("scan_report_snapshots", "wsKeep") === 1 &&
+   !deletedKeys.includes("reports/snapshots/wsKeep/scan_wsKeep/snap-k.json"));
 
 // The OTHER workspace is untouched — purge must never over-delete.
 let bled = [];

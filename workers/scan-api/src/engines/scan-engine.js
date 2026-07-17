@@ -20,6 +20,7 @@ import { computeBusinessRiskScore, expandFindingIds } from "./business-risk.js";
 import { getCyberEssentialsSnapshot } from "./ce-readiness.js";
 import { buildCaConcentrationAnalytics } from "./cert-analysis.js";
 import { persistCyberMotDomainStates } from "./cyber-mot-state-history.js";
+import { buildScanReportSnapshot } from "./report-snapshot.js";
 import { insertCertificateEvents, upsertCertificateObservation } from "./cert-events.js";
 import { runCertificateIntelligenceModule } from "./cert-intel.js";
 import { runCloudStorageModule } from "./cloud-storage-scan.js";
@@ -915,6 +916,12 @@ function buildCanonicalUrlProfile(modules) {
     // so a telemetry failure can never leave the scan 'running').
     await persistModuleTelemetry(scanId, telemetry, env);
 
+    // Shared by the 091 state persistence below AND the M5.c snapshot build
+    // (Phase 8o): both must resolve the eight domains from the SAME Cyber
+    // Essentials snapshot, or the snapshot could disagree with the persisted
+    // per-domain state rows for the same scan.
+    let ceSnap = null;
+
     if (workspaceId) {
       // Compute BRS using scan findings + workspace intelligence data
       let brsScore = null;
@@ -968,7 +975,6 @@ function buildCanonicalUrlProfile(modules) {
       // short-circuits on a workspace with no questionnaire answers and only runs the
       // heavier readiness build once the questionnaire is COMPLETE.
       try {
-        let ceSnap = null;
         try { ceSnap = await getCyberEssentialsSnapshot(workspaceId, env); } catch { ceSnap = null; }
         await persistCyberMotDomainStates(env, {
           workspaceId, domainId, scanId, report, cyberEssentials: ceSnap, assessedAt: completedAt,
@@ -1190,6 +1196,34 @@ function buildCanonicalUrlProfile(modules) {
         await evaluateCyberEssentialsLifecycle(env, workspace_id, { scanId });
       }
     } catch { /* non-fatal — readiness catches up on the next scan */ }
+
+    // Phase 8o: Canonical reporting snapshot (M5.c) — one completed Cyber MOT →
+    // one immutable eight-domain snapshot (D1 index + R2 JSON). Runs AFTER the
+    // lifecycle/case phases (8a, 8k–8n) so the managed-workflow summaries and
+    // case linkage it freezes include THIS scan's own case activity. Uses the
+    // SAME in-memory report and the SAME ceSnap as the 091 state persistence,
+    // so snapshot domains and cyber_mot_domain_states rows for one scan can
+    // never disagree.
+    //
+    // Non-fatal by construction (the 091 doctrine): a scan that completed must
+    // never be reported as failed because recording it did not. A failed build
+    // leaves a visible 'failed' row, retried by the snapshot read route's
+    // repair-on-read (the stuck-scan reconciler precedent); an absent snapshot
+    // reads as "no snapshot", which is honest.
+    //
+    // Known duplicate cost, accepted for M5.c: the builder re-runs
+    // buildCyberEssentialsReadiness (~3 D1 + up to 2 R2 reads) that Phase 8n's
+    // lifecycle evaluator just ran, because 8n does not return it. Threading it
+    // through is a ce-lifecycle contract change — deferred to the M5.g CI/cost
+    // closure rather than smuggled in here.
+    if (workspaceId) {
+      try {
+        await buildScanReportSnapshot(env, {
+          workspaceId, domainId, scanId, domain, report,
+          cyberEssentials: ceSnap, assessedAt: completedAt,
+        });
+      } catch { /* non-fatal — the snapshot row records its own failure reason */ }
+    }
 
     // Phase 9: Asset Change Alert — one grouped email per workspace per scan.
     // Reads asset_events written by Phase 8, deduped via asset_alert_records.

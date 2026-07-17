@@ -1019,6 +1019,28 @@
         }
       }
     },
+    "/api/workspaces/{workspaceId}/report-snapshots": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/workspaceId"
+        }
+      ],
+      "get": {
+        "tags": [
+          "Reports"
+        ],
+        "summary": "List canonical reporting-snapshot history for a workspace (metadata only)",
+        "operationId": "listWorkspaceReportSnapshots",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Ok"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
     "/api/workspaces/{workspaceId}/hosted-dmarc": {
       "parameters": [
         {
@@ -1210,6 +1232,34 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/scans/{scanId}/snapshot": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/scanId"
+        }
+      ],
+      "get": {
+        "tags": [
+          "Scans"
+        ],
+        "summary": "Get the canonical immutable reporting snapshot for a completed scan",
+        "operationId": "getScanReportSnapshot",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Ok"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "Snapshot exists but is still building"
           }
         }
       }

@@ -20,6 +20,13 @@ import { resolveRemediation } from "./remediation-registry.js";
 //
 // Returns { brs, grade, grade_label, narrative, categories, top_concerns, generated_at }
 
+// First methodology stamp for the scan-path Business Risk derivation (M5.c). Dates
+// the CURRENT category weights + band cutoffs of deriveScanBusinessRisk; bump on any
+// change so a persisted snapshot can refuse cross-methodology comparison. Customer
+// presentation of this value is "Business Risk Indicator" — a band plus explanation,
+// never a second competing score (founder package, 2026-07-16).
+export const BUSINESS_RISK_METHODOLOGY_VERSION = "2026-07-16.1";
+
 function getBusinessRiskBand(score) {
   if (score <= 30) return "critical";
   if (score <= 50) return "high";

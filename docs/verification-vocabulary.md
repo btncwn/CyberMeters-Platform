@@ -18,8 +18,9 @@ behind and one it cannot.
 
 | `verification_support` | What actually happened | Permitted customer wording |
 | --- | --- | --- |
-| `automated` | CyberMeters re-observed the fix itself (registry method `dns_recheck`, `https_recheck`, `certificate_recheck`, `rescan`, `receiver_reports`, `external`) | **"Verified by CyberMeters"** |
+| `automated` | CyberMeters re-observed the fix itself (registry method `dns_recheck`, `https_recheck`, `certificate_recheck`, `rescan`, `receiver_reports`) | **"Verified by CyberMeters"** |
 | `manual` | The registry says the product **cannot observe** this fix (`manual_attestation`). The case rests on the customer's word. | **"Attested by customer — not externally verifiable"** |
+| `external` | An **independent third party** must certify it (registry method `external`) — neither CyberMeters' observation nor the customer's word (v2026.07.16-17) | **"Requires independent third-party evidence"** |
 | `unsupported` | Nothing verifies it | Never "verified"; state the limitation |
 
 ### Reservations
@@ -61,7 +62,7 @@ It is CLAUDE.md's standing rules read literally:
 | --- | --- |
 | Case API | `verification_support` on every case (`routes/managed-cases.js`) |
 | Frontend case display | `phaseMeta(phase, verification_support)` — `frontend/src/lib/caseDisplay.js`; `ATTESTED_LABEL` is the one wording |
-| CI | `scripts/validate-verification-vocabulary.js` (mutation-tested) |
+| CI | `scripts/validate-m5a-website-cases.js` (vocabulary guards, mutation-tested) and `scripts/validate-m5c-reporting-snapshot.js` (snapshot vocabulary + `verification_support` persistence) |
 
 Per-domain today (from the registry, re-asserted in CI):
 

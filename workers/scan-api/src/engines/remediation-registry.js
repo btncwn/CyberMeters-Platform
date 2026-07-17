@@ -1413,3 +1413,25 @@ export function listRegisteredFindingTypes() {
   for (const alias of Object.keys(FINDING_TYPE_ALIASES)) types.add(alias);
   return Array.from(types);
 }
+
+// ── Registry fingerprint (M5.c) ──────────────────────────────────────────────
+// A deterministic content fingerprint over the semantic identity of every entry
+// (id + entry version + status + verification_method). A persisted snapshot
+// stores this beside its frozen remediation copy so a later reader can tell
+// whether the registry has moved since the snapshot froze it. Computed, not
+// hand-bumped: per-entry `version` fields default to 1 and are easy to forget,
+// so a manual registry-level constant would silently go stale.
+// FNV-1a 32-bit — cheap, synchronous, stable; this is drift DETECTION, not a
+// security boundary (the snapshot's own integrity is its SHA-256 checksum).
+export function remediationRegistryFingerprint() {
+  const identity = REMEDIATION_REGISTRY
+    .map((e) => `${e.remediation_id}:${e.version ?? 1}:${e.status}:${e.verification_method ?? ""}`)
+    .sort()
+    .join("|");
+  let h = 0x811c9dc5;
+  for (let i = 0; i < identity.length; i++) {
+    h ^= identity.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return `r${REMEDIATION_REGISTRY.length}-${h.toString(16).padStart(8, "0")}`;
+}
