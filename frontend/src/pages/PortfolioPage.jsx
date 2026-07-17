@@ -13,19 +13,14 @@ import {
 import { api } from '../api'
 import StatCard from '../components/StatCard'
 import RiskBadge from '../components/RiskBadge'
+import { bandMeta, metaForScore } from '../lib/score-presentation'
 
-// RatingBadge: for score-derived posture ratings (excellent/good/moderate/poor/critical).
-// Distinct from RiskBadge which handles finding/asset severity (System B).
-const PORTFOLIO_RATING_CFG = {
-  excellent: { label: 'Excellent', cls: 'bg-brand-50 text-brand-700 border-brand-100'    },
-  good:      { label: 'Good',      cls: 'bg-green-50 text-green-700 border-green-100'    },
-  moderate:  { label: 'Moderate',  cls: 'bg-amber-50 text-amber-700 border-amber-100'    },
-  high:      { label: 'Poor',      cls: 'bg-orange-50 text-orange-700 border-orange-100' },
-  critical:  { label: 'Critical',  cls: 'bg-red-50 text-red-700 border-red-100'          },
-}
+// RatingBadge renders the CANONICAL Cyber Metrics Score band vocabulary via the
+// mirror module (M5.e) — one label/tone source, unknown stays neutral.
 function RatingBadge({ rating }) {
   if (!rating) return <span className="text-gray-300 text-xs">—</span>
-  const cfg = PORTFOLIO_RATING_CFG[rating.toLowerCase()] ?? { label: rating, cls: 'bg-gray-50 text-gray-500 border-gray-100' }
+  const meta = bandMeta(String(rating).toLowerCase())
+  const cfg = { label: meta.label, cls: meta.pill }
   return (
     <span className={`text-xs font-bold px-2 py-0.5 rounded-full border capitalize ${cfg.cls}`}>
       {cfg.label}
@@ -57,8 +52,7 @@ function fmtDay(str) {
 
 function ScorePill({ score }) {
   if (score == null) return <span className="text-gray-300 text-sm font-semibold">—</span>
-  const color = score >= 80 ? 'text-brand-600' : score >= 60 ? 'text-amber-500' : 'text-red-500'
-  return <span className={`text-sm font-bold ${color}`}>{score}</span>
+  return <span className={`text-sm font-bold ${metaForScore(score).text}`}>{score}</span>
 }
 
 function SeverityBadge({ level }) {

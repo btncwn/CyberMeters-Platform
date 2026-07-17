@@ -120,9 +120,6 @@ function DomainRow({ row }) {
             View the assessment behind this →
           </Link>
         )}
-        <Link to={`/domain/${encodeURIComponent(row.hostname)}/history`} className="text-gray-500 hover:underline">
-          History
-        </Link>
       </div>
     </div>
   )
@@ -142,6 +139,7 @@ const Legend = () => (
           <li><b>Not assessed</b> — no completed assessment has recorded a state. This is not a clean bill of health.</li>
           <li><b>Input required</b> — needs the customer's questionnaire before it can be assessed.</li>
           <li><b>Monitoring</b> — observed only; no verdict is claimed.</li>
+          <li><b>Unavailable</b> — this domain could not be assessed at all in the latest pass.</li>
         </ul>
       </div>
       <div>
