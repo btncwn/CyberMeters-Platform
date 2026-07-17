@@ -84,25 +84,30 @@ const report = {
   },
 }
 
+// v3 (M5.d): a pure view over the canonical snapshot — eight domains,
+// Observed Findings taxonomy, Business Risk Indicator as a band.
 const executiveReport = {
-  domain: { name: domain.domain },
-  scan: { id: scan.id, status: 'completed', score: 82, rating: 'good' },
-  summary: {
-    score: 82,
-    risk_level: 'good',
-    verified_findings_count: 1,
-    executive_summary: 'CyberMeters found one email protection improvement to review.',
+  version: '3.0',
+  report_type: 'executive_scan_report',
+  domain: { name: domain.domain, scan_id: scan.id },
+  assessed_at: '2026-07-17T10:00:00.000Z',
+  generated_at: '2026-07-17T10:00:05.000Z',
+  provenance: 'scan_finalize',
+  methodology: { cyber_mot_resolver_version: '2026-07-16.2' },
+  cyber_metrics_score: { value: 82, rating: 'good', provisional: false, message: null },
+  business_risk_indicator: { band: 'low', explanation: 'Externally observed risk remains contained.' },
+  executive_summary: {
+    summary: 'CyberMeters found one email protection improvement to review.',
+    observed_findings_count: 1,
+    observations_count: 0,
+    priority_actions: [],
   },
-  engines: [
-    {
-      id: 'email',
-      title: 'Email Protection',
-      score: 82,
-      risk_level: 'good',
-      findings: report.findings,
-    },
-  ],
-  verified_findings: report.findings,
+  cyber_mot_domains: [],
+  observed_findings: report.findings.map((f) => ({ finding_id: f.id, title: f.title, severity: f.severity, explanation: f.description })),
+  observations: [],
+  remediation_actions: [],
+  unmapped_finding_types: [],
+  limitations: ['This snapshot records what CyberMeters externally observed at the assessment time shown; it is not a certification.'],
 }
 
 function json(body, status = 200) {
@@ -316,7 +321,7 @@ test('customer lifecycle: signup, onboarding, scan, email protection, billing, d
   await page.getByRole('link', { name: /open executive report/i }).click()
   await expect(page).toHaveURL(/\/scans\/scan_e2e$/)
   await expect(page.getByRole('heading', { name: domain.domain })).toBeVisible()
-  await expect(page.getByText(/1 verified findings/i)).toBeVisible()
+  await expect(page.getByText(/Observed Findings/i).first()).toBeVisible()
   await page.getByRole('button', { name: /technical details/i }).click()
   await expect(page.getByText(/DMARC policy is monitoring only/i)).toBeVisible()
 
