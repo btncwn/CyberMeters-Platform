@@ -5,6 +5,101 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.17-1 (M5.c Stage 1 — canonical immutable per-scan reporting snapshot) — deployed 2026-07-17
+
+- **Live Worker Version ID:** `f7429e6f-dffd-485f-9b85-a369641b51af` (main `ffe5194`)
+- **Rollback Worker Version ID:** `da31fe33-b072-44f7-a1ba-7b933cea72af` (v2026.07.16-17)
+- **Remote D1 migrations applied:** `093-scan-report-snapshots.sql` (additive; table
+  `scan_report_snapshots` + partial-UNIQUE claim index + tenant-led history index;
+  verified present remotely — 82 tables).
+- **Pages:** auto-deploys from main; this release contains ZERO frontend changes.
+- **PR:** #147 (feature). Roadmap doc refresh #146 (founder) merged the same evening.
+
+### One completed Cyber MOT → one immutable canonical snapshot
+Five render paths with three independent calculation brains (scan PDF · stored executive
+PDF · online report v2 · legacy workspace PDF · portfolio) could show different
+score/risk/state/remediation truth to the same customer, and every one of them
+recalculated history on read — the same scan rendered differently as code changed.
+
+A completed scan now produces ONE canonical eight-domain snapshot: canonical JSON in R2
+(`reports/snapshots/{workspace}/{scan}/{snapshot}.json`, tenant-prefixed, per-attempt key)
+indexed by a D1 row bound to the exact bytes via SHA-256. Renderers are NOT migrated —
+that is M5.d; every existing reporting surface is untouched and byte-identical.
+
+- **Built once, concurrency-safe** — the migration-081 atomic claim (`INSERT OR IGNORE`
+  against a partial UNIQUE on `scan_id WHERE status != 'failed'`): one winner, losers do
+  zero side effects. `completed` is only ever claimed over a durable R2 object; readers
+  serve ONLY completed rows, so a half-written snapshot cannot be observed.
+- **Failures are visible and retryable, not silent** — a crashed build leaves a stale
+  `building` claim, a transient failure a `failed` row with its reason; the snapshot read
+  route repairs both on read from the durable scan report (the stuck-scan reconciler
+  precedent). A scan with NO attempt is honestly 404 — pre-M5.c history is not backfilled.
+- **Immutable + append-only supersession** — nothing updates a completed row; a later
+  completed Cyber MOT records `supersedes_snapshot_id` (predecessor by `assessed_at`, so
+  out-of-order completion cannot invert the chain); `superseded_by` is derived on read.
+  A methodology change adds snapshots; it never rewrites one.
+- **No new calculation brain** — the builder composes the canonical producers verbatim
+  (eight-domain resolver, the scan's own score + assessment presentation, scan-path
+  Business Risk derivation, CE readiness, the remediation registry) and runs as Phase 8o
+  of scan finalize, after the lifecycle phases, sharing the SAME in-memory report and CE
+  snapshot as the 091 state persistence — snapshot domains and `cyber_mot_domain_states`
+  rows for one scan cannot disagree.
+- **Honesty metadata travels or M5.c silently undoes this month's work** — persisted
+  verbatim: CE 2-of-5 (`external_coverage_statement`, counts, non-assessable controls),
+  `readiness_methodology_version`/`revision`/`as_of`, `CYBER_MOT_RESOLVER_VERSION`
+  (2026-07-16.2), per-answer `question_set_version`, per-item and per-action
+  `verification_support` with ceiling wording ("Verified"/"Confirmed" reserved for
+  system observation; `external` is its own support; unrecognised values fail closed to
+  the weakest claim). Unmapped finding types are recorded explicitly — no invented
+  remediation, ever.
+- **One-score rule** — the snapshot's only customer-facing "score" is the Cyber Metrics
+  Score; the Business Risk Indicator is a band + explanation with its numeric demoted to
+  internal metrics. No ninth "Admin Exposure" domain; no five-pillar
+  `intelligence_engines`; no Vendor Risk / Supply Chain customer sections (the underlying
+  evidence stays internal via the immutable scan-report artefact reference).
+- **First methodology stamps** for the Cyber Metrics Score and the scan-path Business
+  Risk derivation, plus a computed remediation-registry fingerprint — so a future
+  methodology change can never read as posture movement.
+
+### Read surface (for M5.d, additive only)
+`GET /api/scans/:id/snapshot` — verbatim R2 serve, checksum-gated (a mismatch or a
+missing object behind a completed row is a 500 anomaly, never silently served or
+404-hidden), parity-403 (foreign = nonexistent), 409 while building, `superseded_by`
+derived deterministically. `GET /api/workspaces/:id/report-snapshots` — metadata history,
+workspace-scoped in the SQL itself, scalar-subquery `superseded_by` (a forked chain can
+never fan a row into duplicate list entries). Both in `docs/openapi.json`.
+
+### Purge
+`scan_report_snapshots` is pointer-purged in `purgeWorkspaceData` — R2 object before D1
+row, the `workspace_reports` pattern — and registered in `validate-purge-completeness`'s
+exception list with seeded R2-key assertions (the #106 guard sees the table).
+
+### Tests
+`scripts/validate-m5c-reporting-snapshot.js` (CI step): **72 behavioural guards + 17
+source mutations, all caught** — including a REAL `runScanEngine` end-to-end walk proving
+Phase 8o through the genuine finalize path (network-disabled: nothing resolves healthy),
+real worker-fetch route contracts (repair-on-read, corrupted-bytes refusal, member-side
+tenant scoping), two-concurrent-builders, injected R2/D1 failures, stale-claim reclaim,
+and purge R2-key deletion. Tenant-isolation matrix extended to the two new routes with an
+owner positive control (93/93). Two independent post-implementation review agents (code +
+test/mutation) ran; every confirmed finding was fixed and is now guarded. The
+`verificationSupportForCase` method→support mapping was extracted as
+`verificationSupportForMethod` (behaviour-identical; the m5a-email mutant re-anchored).
+`docs/verification-vocabulary.md` corrected: `external` is its own support row, and the
+CI-enforcement citation now names files that exist.
+
+**Production proof:** migration verified remotely (table + both indexes present);
+`/health` read `f7429e6f` on 6 consecutive polls; `/ready` d1+r2 true; both new routes
+return the customer-safe 401 contract unauthenticated — live and auth-gated, which is
+NOT proof of the authenticated customer workflow. No customer scan, snapshot, case,
+alert or email was manufactured; production still holds 0 snapshots (they are created by
+future completed scans). Authenticated acceptance remains a release-gate activity.
+
+**Known drift (pre-existing, recorded not fixed):** `APP_VERSION` in
+`workers/scan-api/wrangler.toml` has read `2026.07.13` since v2026.07.13-1 across ~18
+releases; `/ready` reports it. Bump it alongside the next Worker code change rather than
+spending a deploy on it alone.
+
 ## 2026.07.16-17 (M5.b remaining reconciliation — CE patch readiness, `external`, blanket guards) — deployed 2026-07-16
 
 - **Live Worker Version ID:** `da31fe33-b072-44f7-a1ba-7b933cea72af` (main `e2c2725`)

@@ -2,7 +2,7 @@
 
 Version: July 2026
 
-Last updated: 16 July 2026 (release v2026.07.16-17; active canonical episode: M5 Completion Across All Eight Domains — in progress)
+Last updated: 17 July 2026 (release v2026.07.17-1; active canonical episode: M5 Completion Across All Eight Domains — in progress)
 
 ---
 
@@ -248,13 +248,13 @@ Do not claim that CyberMeters performs a customer, provider, registrar, certific
 | Final Public-Beta Gate | Planned |
 | First Two Controlled Invitations | After final gate |
 
-Current release facts (as of 16 July 2026):
+Current release facts (as of 17 July 2026):
 
-- latest release tag: `v2026.07.16-17` (M5.b remaining reconciliation — CE patch readiness, `external`, blanket guards — deployed);
-- live Worker Version ID: `da31fe33-b072-44f7-a1ba-7b933cea72af` (built from `e2c2725`);
-- rollback Worker Version ID: `366bd540-f819-4814-84c7-5458186c1106` (v2026.07.16-16);
-- latest migration applied to production: `092-ce-answer-question-set-version.sql` (applied 16 July 2026; `v2026.07.16-6` through `-14` carried no migration);
-- active canonical episode: M5 Completion Across All Eight Domains (in progress).
+- latest release tag: `v2026.07.17-1` (M5.c Stage 1 — canonical immutable per-scan reporting snapshot — deployed);
+- live Worker Version ID: `f7429e6f-dffd-485f-9b85-a369641b51af` (built from `ffe5194`);
+- rollback Worker Version ID: `da31fe33-b072-44f7-a1ba-7b933cea72af` (v2026.07.16-17);
+- latest migration applied to production: `093-scan-report-snapshots.sql` (applied 17 July 2026);
+- active canonical episode: M5 Completion Across All Eight Domains (in progress; M5.c Stage 1 shipped, M5.d renderer migration next).
 
 **M5 is under way.** Its pre-change parity audit across all eight domains found four false
 evidence claims live in production, and the founder sequenced them first as data-integrity
@@ -376,6 +376,26 @@ version format is canonical ISO 8601 `YYYY-MM-DD` and is a CyberMeters product v
 an IASME or NCSC identifier. The 20-question readiness model is unchanged; answers still
 never touch the Cyber Metrics Score or the Business Risk Indicator, and still never
 auto-create a case.
+
+**M5.c Stage 1 is shipped** (`v2026.07.17-1`, migration 093). One completed Cyber MOT now
+produces ONE immutable canonical eight-domain snapshot — canonical JSON in R2
+(tenant-prefixed, per-attempt key) indexed by a D1 row bound to the bytes via SHA-256 —
+because five render paths with three calculation brains could show the same customer
+different truth, and every one recalculated history on read. Built once via the 081 atomic
+claim; `completed` only over a durable R2 object; failures visible and repaired on read
+(never a permanent 409, never silent); superseded append-only by `assessed_at`; stamped
+with every methodology version that produced it (resolver, first CMS + BRI stamps, CE
+version/revision, registry fingerprint). The snapshot owns NO calculation brain — it
+composes the canonical producers verbatim in scan-finalize Phase 8o, sharing the 091
+inputs so snapshot domains and persisted state rows cannot disagree. `verification_support`
+travels on every item and action with fail-closed ceiling wording; unmapped finding types
+are recorded, never replaced with invented advice. Read surface for M5.d:
+`GET /api/scans/:id/snapshot` (verbatim, checksum-gated, parity-403) and
+`GET /api/workspaces/:id/report-snapshots`. Renderers are NOT migrated — existing report
+surfaces are untouched, and **no snapshot exists in production yet**: they are created by
+future completed scans, and pre-M5.c history is honestly absent, never backfilled.
+Proven by 72 behavioural guards + 17 caught mutations, including a real `runScanEngine`
+end-to-end walk; **M5.d renderer migration is the next increment.**
 
 The per-domain maturity ledger remains untouched. The ledger is corrected
 **last**: it is wrong in every row today and most rows *under*-claim, so raising it before
