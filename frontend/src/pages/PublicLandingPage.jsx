@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import {
   Mail, Globe, Lock, ArrowRight, ShieldCheck, Check,
   Users, FileBarChart2, History, ClipboardList, Cloud, SearchCheck, Search,
+  MonitorCheck, KeyRound, Boxes,
 } from 'lucide-react'
 import CyberMetersLogo from '../components/CyberMetersLogo'
 import { SERVICE_COLORS } from '../theme/serviceColors'
@@ -10,10 +11,9 @@ import { SERVICE_COLORS } from '../theme/serviceColors'
 const APP_URL = 'https://app.cybermeters.com'
 const CONTACT = 'mailto:hello@cybermeters.com'
 
-// The four core services, each led with the question a business owner actually asks.
-// Each carries a cool "glacier" identity colour drawn from the ice/water palette,
-// so the four services read as four distinct surfaces — brand green stays primary
-// on the nav, CTAs and hero.
+// The eight canonical Cyber MOT domains, each led with the question a business
+// owner actually asks. Each carries a cool "glacier" identity colour from the
+// shared domain palette.
 const SERVICES = [
   {
     icon: Mail, name: 'Email Protection',
@@ -43,11 +43,39 @@ const SERVICES = [
     tags: ['Expiry alerts', 'TLS posture', 'HTTPS trust'],
     key: 'certs',
   },
+  {
+    icon: ClipboardList, name: 'Cyber Essentials Readiness',
+    q: '“How ready are we for Cyber Essentials?”',
+    copy: 'Evidence-led readiness support that combines externally observable signals with saved questionnaire answers.',
+    tags: ['Readiness gaps', 'Evidence', 'Actions'],
+    key: 'cyber_essentials',
+  },
+  {
+    icon: MonitorCheck, name: 'Website Security',
+    q: '“Is my website configured safely?”',
+    copy: 'HTTPS, redirects, security headers, cookie flags and visible website configuration issues in one place.',
+    tags: ['HTTPS', 'Headers', 'Cookies'],
+    key: 'website',
+  },
+  {
+    icon: KeyRound, name: 'Identity Exposure',
+    q: '“Where are our login surfaces exposed?”',
+    copy: 'Public login surfaces and identity-facing entry points, without unsupported breach or dark-web claims.',
+    tags: ['Login surfaces', 'IdP exposure', 'Entry points'],
+    key: 'identity',
+  },
+  {
+    icon: Boxes, name: 'Shadow IT & Unmanaged Technology',
+    q: '“Which outside tools are visible?”',
+    copy: 'Externally observed SaaS, vendors, third-party scripts and unmanaged technology signals for review.',
+    tags: ['SaaS signals', 'Vendors', 'Scripts'],
+    key: 'shadow_it',
+  },
 ]
 
 const STEPS = [
   { n: 'STEP 01', title: 'Scan', copy: 'Add a domain and run your Cyber MOT. No agent, no config — results in under two minutes.' },
-  { n: 'STEP 02', title: 'Understand', copy: 'One posture and four clear verdicts. Every finding written for a business owner, not an engineer.' },
+  { n: 'STEP 02', title: 'Understand', copy: 'One posture across eight domains. Every finding written for a business owner, not an engineer.' },
   { n: 'STEP 03', title: 'Fix', copy: 'Guided remediation tells you what to fix first, and exactly which record or setting to change.' },
   { n: 'STEP 04', title: 'Monitor', copy: 'Schedule re-checks and get alerted the moment something changes — a new asset, an expiring cert, a spoof attempt.' },
 ]
@@ -97,7 +125,7 @@ function Nav() {
       >
         <CyberMetersLogo className="h-6" />
         <nav className="hidden md:flex items-center gap-7 text-sm text-gray-600">
-          <a href="#services" className="hover:text-gray-900 transition-colors">Services</a>
+          <a href="#services" className="hover:text-gray-900 transition-colors">Domains</a>
           <a href="#how" className="hover:text-gray-900 transition-colors">How it works</a>
           <a href="#example-report" className="hover:text-gray-900 transition-colors">The Cyber MOT</a>
           <a href={CONTACT} className="hover:text-gray-900 transition-colors">Contact</a>
@@ -144,6 +172,10 @@ function MotCard() {
     { icon: ShieldCheck, name: 'Brand Protection', val: '0 lookalikes', tag: 'Clear', tone: 'pass', chip: SERVICE_COLORS.brand.chip, ic: SERVICE_COLORS.brand.icon },
     { icon: Search, name: 'Attack Surface', val: '3 assets · 0 risks', tag: 'Clear', tone: 'pass', chip: SERVICE_COLORS.surface.chip, ic: SERVICE_COLORS.surface.icon },
     { icon: Lock, name: 'Certificates & Trust', val: 'valid · 74 days', tag: 'Renew soon', tone: 'adv', chip: SERVICE_COLORS.certs.chip, ic: SERVICE_COLORS.certs.icon },
+    { icon: ClipboardList, name: 'Cyber Essentials Readiness', val: 'evidence-led', tag: 'Review', tone: 'adv', chip: SERVICE_COLORS.cyber_essentials.chip, ic: SERVICE_COLORS.cyber_essentials.icon },
+    { icon: MonitorCheck, name: 'Website Security', val: 'HTTPS · headers', tag: 'Advisory', tone: 'adv', chip: SERVICE_COLORS.website.chip, ic: SERVICE_COLORS.website.icon },
+    { icon: KeyRound, name: 'Identity Exposure', val: '2 login surfaces', tag: 'Review', tone: 'adv', chip: SERVICE_COLORS.identity.chip, ic: SERVICE_COLORS.identity.icon },
+    { icon: Boxes, name: 'Shadow IT & Unmanaged Technology', val: '5 SaaS signals', tag: 'Review', tone: 'adv', chip: SERVICE_COLORS.shadow_it.chip, ic: SERVICE_COLORS.shadow_it.icon },
   ]
   const toneCls = {
     pass: 'bg-emerald-50 text-emerald-700',
@@ -249,7 +281,7 @@ export default function PublicLandingPage() {
                 Know where your business is <span className="relative text-brand-800">exposed<span className="absolute left-0 right-0 -z-10 rounded-sm" style={{ bottom: '0.07em', height: '0.16em', background: '#D6EAE2' }} /></span> — before anyone else does.
               </h1>
               <p className="text-[1.18rem] text-gray-600 mt-5 leading-relaxed max-w-[34ch]">
-                CyberMeters checks your email, brand, website security and certificates, then tells you what to fix first. One clear posture. No jargon.
+                CyberMeters checks the eight Cyber MOT domains, then tells you what to fix first. One clear posture. No jargon.
               </p>
               <div className="flex flex-wrap items-center gap-3.5 mt-8">
                 <Link to="/free-scan" className="btn-primary !rounded-full">Run your free Cyber MOT <ArrowRight className="w-4 h-4" /></Link>
@@ -272,14 +304,14 @@ export default function PublicLandingPage() {
           </div>
         </section>
 
-        {/* ── Four services ── */}
+        {/* ── Eight domains ── */}
         <section id="services" className="max-w-6xl mx-auto px-6 py-20">
           <div className="max-w-[60ch]">
-            <span className="eyebrow">Four services, one posture</span>
+            <span className="eyebrow">Eight domains, one posture</span>
             <h2 className="text-[clamp(1.8rem,3.3vw,2.6rem)] font-bold tracking-tight mt-3" style={{ textWrap: 'balance' }}>
               Everything that carries your name — checked, explained, and prioritised.
             </h2>
-            <p className="text-lg text-gray-600 mt-4">Most tools hand you a wall of findings. CyberMeters answers the four questions a business owner actually asks.</p>
+            <p className="text-lg text-gray-600 mt-4">Most tools hand you a wall of findings. CyberMeters answers the security questions a business owner actually asks across all eight domains.</p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-[18px] mt-11">
             {SERVICES.map(s => {
@@ -377,7 +409,7 @@ export default function PublicLandingPage() {
             <div className="relative">
               <h2 className="text-[clamp(1.9rem,4vw,3rem)] font-bold text-white tracking-tight max-w-[20ch] mx-auto sm:mx-0">Get your first Cyber MOT free.</h2>
               <p className="text-[1.12rem] mt-4 max-w-[44ch] mx-auto sm:mx-0" style={{ color: '#bfe6d8' }}>
-                See your real posture across all four services in two minutes. No card, no agent, no obligation — just a clear picture of where you stand.
+                See your real posture across all eight domains in two minutes. No card, no agent, no obligation — just a clear picture of where you stand.
               </p>
               <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3.5 mt-8">
                 <Link to="/free-scan" className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-white text-brand-800 font-semibold hover:bg-emerald-50 transition-colors">
@@ -397,7 +429,7 @@ export default function PublicLandingPage() {
           <div className="max-w-6xl mx-auto px-6 py-10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6">
             <div>
               <CyberMetersLogo className="h-6 mb-3" />
-              <p className="text-sm text-gray-500">Email · Brand · Attack Surface · Certificates — one posture.</p>
+              <p className="text-sm text-gray-500">Eight Cyber MOT domains — one posture.</p>
               <p className="text-sm text-gray-500 mt-1">
                 <a href={CONTACT} className="hover:text-gray-800">hello@cybermeters.com</a>
                 {' · '}

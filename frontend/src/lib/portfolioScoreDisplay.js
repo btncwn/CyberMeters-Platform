@@ -48,6 +48,7 @@ export const SCORE_BAND_META = Object.freeze({
 export const SCORE_STATE_META = Object.freeze({
   available:             { label: 'All environments assessed', tone: 'healthy', showsScore: true  },
   partial:               { label: 'Partial coverage',          tone: 'moderate', showsScore: true  },
+  unavailable:           { label: 'Temporarily unavailable',   tone: 'unknown', showsScore: false },
   evidence_insufficient: { label: 'Insufficient evidence',     tone: 'unknown', showsScore: false },
   no_workspaces:         { label: 'Nothing monitored',         tone: 'unknown', showsScore: false },
 });

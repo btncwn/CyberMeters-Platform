@@ -170,7 +170,7 @@ function buildLifecycleEmail(type, { origin = null, wsName = null, domain = null
   const link = (path) => (origin ? `${origin}${path}` : null);
   const ws = wsName ? escapeEmailHtml(wsName) : "your workspace";
   const dom = domain ? escapeEmailHtml(domain) : "your domain";
-  const SERVICES_LINE = "Email Protection (DMARC &amp; impersonation), Brand Protection (lookalike domains), Attack Surface (exposed assets) and Certificates &amp; Trust (TLS &amp; expiry).";
+  const DOMAINS_LINE = "Email Protection, Brand Protection, Attack Surface, Certificates &amp; Trust, Cyber Essentials Readiness, Website Security, Identity Exposure and Shadow IT &amp; Unmanaged Technology.";
 
   let subject, heading, paras, ctaLabel, ctaPath;
   switch (type) {
@@ -178,8 +178,8 @@ function buildLifecycleEmail(type, { origin = null, wsName = null, domain = null
       subject = "Welcome to CyberMeters";
       heading = "Welcome to CyberMeters";
       paras = [
-        "CyberMeters helps you understand your email, brand, Website Security and Certificates & Trust from one workspace.",
-        `Four services work together: ${SERVICES_LINE}`,
+        "CyberMeters helps you understand all eight Cyber MOT domains from one workspace.",
+        `The Cyber MOT domains are: ${DOMAINS_LINE}`,
         "To get started, add a domain and run your first Cyber MOT.",
       ];
       ctaLabel = "Open CyberMeters"; ctaPath = "/services";
@@ -189,7 +189,7 @@ function buildLifecycleEmail(type, { origin = null, wsName = null, domain = null
       heading = "Your workspace is ready";
       paras = [
         `Your workspace (${ws}) is set up.`,
-        `A workspace connects ${SERVICES_LINE}`,
+        `A workspace connects the Cyber MOT domains: ${DOMAINS_LINE}`,
         "Next, add or confirm a domain to start monitoring it.",
       ];
       ctaLabel = "Add a domain"; ctaPath = "/ws/dashboard";

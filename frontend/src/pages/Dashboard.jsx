@@ -4,7 +4,8 @@ import {
   RefreshCw, AlertTriangle, ShieldAlert, Eye, Wifi,
   Globe, CheckCircle, XCircle, AlertCircle, ChevronRight,
   ArrowUpRight, ScanLine, Clock, TrendingUp, Briefcase,
-  Mail, Lock, Tag, ArrowRight, Sparkles,
+  Mail, Lock, Tag, ArrowRight, Sparkles, ClipboardCheck,
+  MonitorCheck, KeyRound, Boxes,
 } from 'lucide-react'
 import { api } from '../api'
 import Spinner from '../components/Spinner'
@@ -411,10 +412,10 @@ function SelectWorkspaceState() {
   )
 }
 
-/* ─── Service KPI card (four-service product model) ────────────────────── */
+/* ─── Domain shortcut card ──────────────────────────────────────────────── */
 
-// Glacier identity colours — from the shared single source of truth so the
-// dashboard KPI cards always match the landing, service pages and sidebar.
+// Glacier identity colours — from the shared single source of truth so domain
+// cards always match the landing, workspace pages and sidebar.
 const SERVICE_THEME = SERVICE_COLORS
 
 const titleCase = (s) => (s ? String(s).replace(/[_-]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '—')
@@ -613,7 +614,7 @@ export default function Dashboard() {
             )}
           </div>
           <h1 className="page-title">CyberMeters Dashboard</h1>
-          <p className="page-subtitle max-w-2xl">Monitor email impersonation risk, brand abuse, external exposure and certificate trust across your workspaces.</p>
+          <p className="page-subtitle max-w-2xl">Monitor all eight Cyber MOT domains across your workspaces.</p>
           <p className="text-xs text-gray-400 mt-1">
             {latestScan
               ? `Last assessment: ${latestScan.domain} · ${relativeTime(latestScan.created_at)}`
@@ -693,9 +694,9 @@ export default function Dashboard() {
               domains={motDomains.length ? motDomains : report?.cyber_mot_domains}
               subtitle="Your full Cyber MOT coverage — every domain, one honest state." />
 
-            {/* Four service KPI cards */}
+            {/* Domain shortcut cards */}
             <div>
-              <h2 className="section-title mb-3">Your services</h2>
+              <h2 className="section-title mb-3">Your Cyber MOT domains</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
                 <ServiceKpiCard icon={Mail} title="Email Protection" to="/ws/email-protection" cta="Open Email Protection"
                   theme={SERVICE_THEME.email} status="Not measured"
@@ -709,6 +710,18 @@ export default function Dashboard() {
                 <ServiceKpiCard icon={Lock} title="Certificates & Trust" to="/ws/certificates" cta="Review Certificates"
                   theme={SERVICE_THEME.certs} kpis={certKpis} accentTone={cr && ['high', 'critical'].includes(cr) ? 'bad' : cr === 'medium' ? 'warn' : ''}
                   fallback="Review certificate expiry and HTTPS trust posture." />
+                <ServiceKpiCard icon={ClipboardCheck} title="Cyber Essentials Readiness" to="/ws/cyber-essentials" cta="Review Readiness"
+                  theme={SERVICE_THEME.cyber_essentials} status="Evidence-led"
+                  fallback="Review readiness evidence and saved questionnaire answers." />
+                <ServiceKpiCard icon={MonitorCheck} title="Website Security" to="/ws/website-security" cta="Review Website Security"
+                  theme={SERVICE_THEME.website} status="Externally observed"
+                  fallback="Review HTTPS, redirects, headers and cookie flag evidence." />
+                <ServiceKpiCard icon={KeyRound} title="Identity Exposure" to="/ws/identity-exposure" cta="Review Identity Exposure"
+                  theme={SERVICE_THEME.identity} status="Externally observed"
+                  fallback="Review public login surfaces and identity-facing entry points." />
+                <ServiceKpiCard icon={Boxes} title="Shadow IT & Unmanaged Technology" to="/ws/shadow-it" cta="Review Shadow IT"
+                  theme={SERVICE_THEME.shadow_it} status="Externally observed"
+                  fallback="Review SaaS, vendor, script and unmanaged technology observations." />
               </div>
             </div>
 

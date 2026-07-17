@@ -50,7 +50,7 @@ export function requireReason(_caseRecord = {}, ctx = {}) {
 export function requireField(name) {
   return (caseRecord = {}, ctx = {}) => {
     const value = ctx[name] ?? caseRecord[name];
-    return value ? true : `${name} is required.`;
+    return String(value ?? "").trim() ? true : `${name} is required.`;
   };
 }
 

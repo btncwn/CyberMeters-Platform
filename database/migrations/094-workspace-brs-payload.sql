@@ -16,6 +16,11 @@
 -- Rollback: leave the schema in place; roll back APPLICATION CODE only. A NULL
 -- payload_json renders as "not yet assessed", which is honest.
 --
+-- Idempotence: this migration is intended to be applied once through the D1
+-- migration runner. A direct manual re-run of this raw SQL should fail loudly
+-- with a duplicate-column error rather than silently masking operator error;
+-- the migration ledger is the idempotence boundary.
+--
 -- Apply:
 --   wrangler d1 execute cybermeters-db --remote \
 --     --file=database/migrations/094-workspace-brs-payload.sql

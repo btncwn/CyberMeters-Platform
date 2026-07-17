@@ -54,6 +54,7 @@ function portfolioRiskBand(score) {
  */
 export const PORTFOLIO_SCORE_STATES = Object.freeze({
   NO_WORKSPACES:         'no_workspaces',
+  UNAVAILABLE:           'unavailable',
   EVIDENCE_INSUFFICIENT: 'evidence_insufficient',
   PARTIAL:               'partial',
   AVAILABLE:             'available',
@@ -298,6 +299,25 @@ export async function computePortfolioRisk(workspaceIds, env) {
       LIMIT 20
     `).bind(...workspaceIds).all(),
   ]);
+
+  if (brsRes.status === 'rejected') {
+    return {
+      portfolio_score:        null,
+      portfolio_score_band:   null,
+      portfolio_score_state:  PORTFOLIO_SCORE_STATES.UNAVAILABLE,
+      portfolio_score_reason: 'Portfolio score is temporarily unavailable because the current Business Risk records could not be read.',
+      portfolio_score_basis:  { scored_workspaces: 0, total_workspaces: workspaceIds.length },
+      workspace_count:      workspaceIds.length,
+      high_risk_workspaces: 0,
+      critical_workspaces:  0,
+      risk_rankings:        [],
+      trending:             { improving: [], deteriorating: [] },
+      portfolio_alerts:     [],
+      shared_dependencies:  [],
+      executive_summary:    'Portfolio risk is temporarily unavailable because the current Business Risk records could not be read. Try again later.',
+      calculated_at:        now,
+    };
+  }
 
   // ── Build lookup maps ───────────────────────────────────────────────────────
   const wsNames = {};

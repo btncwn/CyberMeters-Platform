@@ -9,9 +9,18 @@ function renderLanding() {
 }
 
 describe('PublicLandingPage', () => {
-  it('presents the four core services by name', () => {
+  it('presents the eight canonical domains by name', () => {
     renderLanding()
-    for (const name of ['Email Protection', 'Brand Protection', 'Attack Surface', 'Certificates & Trust']) {
+    for (const name of [
+      'Email Protection',
+      'Brand Protection',
+      'Attack Surface',
+      'Certificates & Trust',
+      'Cyber Essentials Readiness',
+      'Website Security',
+      'Identity Exposure',
+      'Shadow IT & Unmanaged Technology',
+    ]) {
       expect(screen.getAllByText(name).length).toBeGreaterThan(0)
     }
   })
@@ -39,7 +48,7 @@ describe('PublicLandingPage', () => {
     expect(screen.getByRole('heading', { name: /Know where your business is/i })).toBeInTheDocument()
   })
 
-  it('colours each service card with its glacier identity from the shared palette', () => {
+  it('colours each domain card with its glacier identity from the shared palette', () => {
     renderLanding()
     // The Email service question is styled with the shared email text colour.
     const emailQuestion = screen.getByText(/Can attackers send email as me/i)

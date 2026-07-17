@@ -22,16 +22,20 @@ function renderNav(path = '/ws/email-protection') {
   )
 }
 
-describe('WorkspaceNav (four-service sidebar)', () => {
-  it('shows exactly the four services', () => {
+describe('WorkspaceNav (eight-domain sidebar)', () => {
+  it('shows the eight canonical domains in order', () => {
     renderNav()
     expect(screen.getByText('Email Protection')).toBeInTheDocument()
     expect(screen.getByText('Brand Protection')).toBeInTheDocument()
     expect(screen.getByText('Attack Surface')).toBeInTheDocument()
     expect(screen.getByText('Certificates & Trust')).toBeInTheDocument()
+    expect(screen.getByText('Cyber Essentials Readiness')).toBeInTheDocument()
+    expect(screen.getByText('Website Security')).toBeInTheDocument()
+    expect(screen.getByText('Identity Exposure')).toBeInTheDocument()
+    expect(screen.getByText('Shadow IT & Unmanaged Technology')).toBeInTheDocument()
   })
 
-  it('expands only the active service — no cross-service sub-item mixing', () => {
+  it('expands only the active domain — no cross-domain sub-item mixing', () => {
     renderNav('/ws/email-protection')
     expect(screen.getByText('DMARC Setup')).toBeInTheDocument()
     // Brand's sub-items must not leak into an Email context.
@@ -48,7 +52,7 @@ describe('WorkspaceNav (four-service sidebar)', () => {
     expect(screen.getByText('DMARC Setup')).toBeInTheDocument()
   })
 
-  it('switching service moves the accordion: Brand opens, Email closes', () => {
+  it('switching domain moves the accordion: Brand opens, Email closes', () => {
     renderNav('/ws/email-protection')
     fireEvent.click(screen.getByText('Brand Protection'))
     expect(screen.getByText('Typosquat Candidates')).toBeInTheDocument()

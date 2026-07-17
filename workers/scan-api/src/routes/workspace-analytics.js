@@ -410,16 +410,16 @@ export async function workspaceAnalyticsRoutes(rctx) {
         },
       ];
 
-      // security_posture_chart — flat array for radar/bar chart rendering
-      const sp = scorecard.security_posture;
-      const security_posture_chart = sp
-        ? [
-            { category: 'Email Security',    score: sp.email_security?.score    ?? null, status: sp.email_security?.status    ?? 'unknown' },
-            { category: 'SSL & Certificates',score: sp.ssl_certificates?.score  ?? null, status: sp.ssl_certificates?.status  ?? 'unknown' },
-            { category: 'Attack Surface',    score: sp.attack_surface?.score    ?? null, status: sp.attack_surface?.status    ?? 'unknown' },
-            { category: 'Third-Party Risk',  score: sp.third_party_risk?.score  ?? null, status: sp.third_party_risk?.status  ?? 'unknown' },
-            { category: 'Admin Exposure',    score: sp.admin_exposure?.score    ?? null, status: sp.admin_exposure?.status    ?? 'unknown' },
-          ]
+      // security_posture_chart — flat array for radar/bar chart rendering.
+      // Presentation is the canonical eight-domain Cyber MOT surface; the raw
+      // legacy security_posture object remains in the response for compatibility.
+      const security_posture_chart = Array.isArray(scorecard.cyber_mot_domains)
+        ? scorecard.cyber_mot_domains.map((d) => ({
+            category: d.display_name,
+            domain_key: d.domain_key,
+            score: null,
+            status: d.state ?? 'unknown',
+          }))
         : [];
 
       return json({

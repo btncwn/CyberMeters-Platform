@@ -293,9 +293,13 @@ async function main() {
   db.prepare("UPDATE scan_report_snapshots SET snapshot_schema_version='999', checksum_sha256=? WHERE scan_id='scan1'")
     .run(await rs.snapshotSha256Hex(pBytes));
   store.set(row1.r2_key, pBytes);
+  const directUnknown = await rs.readScanReportSnapshot(env, "scan1", { repair: false });
   const unknown = await call("GET", "/api/scans/scan1/report");
-  ok("unknown snapshot schema version fails safely (500, no misrender, no legacy fallback)",
-     unknown.status === 500 && !String(unknown.text).includes("cyber_mot_domains"));
+  ok("unknown snapshot schema version is rejected by the shared helper for the intended reason",
+     directUnknown.status === "unsupported_schema_version" && directUnknown.reason === "schema_999");
+  ok("unknown snapshot schema version fails safely at the renderer boundary (500, no misrender, no legacy fallback)",
+     unknown.status === 500 &&
+     !String(unknown.text).includes("cyber_mot_domains"));
   db.prepare("UPDATE scan_report_snapshots SET snapshot_schema_version='1', checksum_sha256=? WHERE scan_id='scan1'").run(row1.checksum_sha256);
   store.set(row1.r2_key, goodBytes);
 

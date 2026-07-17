@@ -128,6 +128,20 @@ describe('NotificationBell click-through', () => {
     expect(api.markNotificationRead).toHaveBeenCalledWith('ws1', 'n1')
   })
 
+  it('refuses protocol-relative metadata links', async () => {
+    api.getWorkspaceNotifications.mockResolvedValue({
+      notifications: [notification({ metadata: { link: '//evil.example/ws/website-security' } })],
+      unread_count: 1,
+    })
+    const user = userEvent.setup()
+    renderBell()
+    await openPanel(user)
+    await user.click(await screen.findByText('Scan finished'))
+
+    expect(screen.getByTestId('pathname')).toHaveTextContent('/dashboard')
+    expect(api.markNotificationRead).toHaveBeenCalledWith('ws1', 'n1')
+  })
+
   it('stays put (no broken navigation) when a notification has no target', async () => {
     api.getWorkspaceNotifications.mockResolvedValue({
       notifications: [notification({ metadata: null })],
