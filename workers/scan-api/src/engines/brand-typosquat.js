@@ -159,10 +159,12 @@ export function generateTyposquatCandidates(brand, tld) {
  * Phase 7i: pure computation, zero network I/O.
  *
  * Generates typosquat candidates for the brand name extracted from `domain`.
- * DNS/HTTPS validation is intentionally deferred to the dedicated
- * POST /api/workspaces/:id/brand-monitoring/refresh endpoint, which carries
- * its own 50-subrequest budget.  Inline DNS checks here would exceed the
- * budget already consumed by scan Phases 1–6 (~47 subrequests).
+ * DNS/HTTPS validation is intentionally deferred: candidates are persisted
+ * UNCHECKED and validated later by the canonical brand-dns-enrichment helper
+ * (automatic hourly cron sweep, plus the manual /brand-monitoring/refresh
+ * endpoint). Keeping DNS out of the scan avoids adding to the fan-out already
+ * consumed by scan Phases 1–6, so scan latency and cost stay predictable —
+ * not a plan subrequest limit (CyberMeters runs on the Workers Paid plan).
  */
 export function runTyposquatModule(domain) {
   try {

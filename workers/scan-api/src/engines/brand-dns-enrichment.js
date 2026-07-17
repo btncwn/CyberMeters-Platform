@@ -20,10 +20,13 @@
 import { dnsQuery as defaultDnsQuery } from "./dns.js";
 import { createId } from "../lib/util.js";
 
-// Bounded work. The hourly cron shares ONE Worker invocation's ~1,000-subrequest
-// budget with scheduled scans and every other cron task, so keep the sweep small
-// and let it make incremental progress across ticks. The manual endpoint has its
-// own invocation and passes a larger batch.
+// Bounded work — NOT a plan subrequest limit (CyberMeters runs on the Workers
+// Paid plan). The batch is deliberately small for CONTROLLED FAN-OUT (the hourly
+// cron shares one invocation with scheduled scans and every other cron task, so a
+// steady trickle keeps combined fan-out predictable), for RETRY BEHAVIOUR (a
+// transient failure is retried next tick, so small batches recover cleanly), and
+// for PRODUCTION OBSERVABILITY (incremental progress is easy to watch). The manual
+// endpoint has its own invocation and passes a larger batch.
 export const BRAND_DNS_BATCH_SIZE = 10;                 // candidates per workspace per invocation
 export const BRAND_DNS_SWEEP_WORKSPACES_PER_TICK = 5;   // workspaces per hourly cron tick
 export const BRAND_DNS_MANUAL_BATCH_SIZE = 20;          // manual refresh: one dedicated invocation

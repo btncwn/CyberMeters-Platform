@@ -354,8 +354,9 @@ export async function brandRoutes(rctx) {
       if (!ws) return json({ error: 'Workspace not found' }, 404);
 
       // ── POST /brand-monitoring/refresh ─────────────────────────────────────
-      // Validates candidates via DNS (DoH A-record). Capped at 20 lookups
-      // so this endpoint's own subrequest budget stays well within 50.
+      // Persists any missing candidates UNCHECKED, then delegates DNS validation
+      // to the canonical enrichBrandCandidatesDns helper (the SAME code the hourly
+      // cron sweep runs). One dedicated invocation → a larger batch than the cron.
       if (isRefresh && request.method === 'POST') {
         // Get primary (oldest-added) domain for this workspace
         let primaryDomain;
