@@ -12,6 +12,7 @@ import OnboardingProgress  from '../components/OnboardingProgress'
 import FirstResultsGuide   from '../components/FirstResultsGuide'
 import TeamOnboardingCard  from '../components/TeamOnboardingCard'
 import RecentChangesCard   from '../components/RecentChangesCard'
+import { bandMeta, metaForScore, scoreBand } from '../lib/score-presentation'
 import CyberMotDomains      from '../components/CyberMotDomains'
 import { SERVICE_COLORS }   from '../theme/serviceColors'
 
@@ -55,51 +56,18 @@ function deriveInsights(scans, report) {
 
   // Health categories: derive from report modules if available, else use scan counts
   const mods = report?.modules ?? {}
-  const healthCategories = [
-    {
-      label:  'DNS',
-      status: mods.dns
-        ? (mods.dns.resolves ? 'good' : 'danger')
-        : 'unknown',
-    },
-    {
-      label:  'SSL / HTTPS',
-      status: mods.ssl
-        ? (mods.ssl.https_available ? (mods.ssl.http_redirects_to_https ? 'good' : 'warning') : 'danger')
-        : 'unknown',
-    },
-    {
-      label:  'Email Security',
-      status: mods.email_security
-        ? (!mods.email_security.spf?.present || !mods.email_security.dmarc?.present
-            ? 'warning'
-            : mods.email_security.dmarc?.policy === 'none' ? 'warning' : 'good')
-        : (failed > 0 ? 'warning' : 'unknown'),
-    },
-    {
-      // `accessible` first: when the header probe never executed (timeout, redirect
-      // loop, blocked), the module still reports every header as missing — that is
-      // a diagnostic default, not an observation. Reading its length graded an
-      // unreachable site 'danger' off evidence nobody collected. The backend marks
-      // the module `incomplete` for exactly this case; honour either signal.
-      label:  'Security Headers',
-      status: (!mods.headers || mods.headers.error || mods.headers.accessible === false || mods.headers.incomplete === true)
-        ? 'unknown'
-        : (mods.headers.missing?.length > 3 ? 'danger' : mods.headers.missing?.length > 1 ? 'warning' : 'good'),
-    },
-    {
-      label:  'IPv6',
-      status: mods.dns
-        ? (mods.dns.has_ipv6 ? 'good' : 'warning')
-        : 'unknown',
-    },
-    {
-      label:  'DKIM Signing',
-      status: mods.email_security
-        ? (mods.email_security.dkim?.present ? 'good' : 'warning')
-        : 'unknown',
-    },
-  ]
+  // M5.e: security-state tiles are BACKEND-OWNED — each tile renders one of the
+  // eight canonical domain states from the resolver (state→tone is vocabulary
+  // display of a backend verdict, never a frontend security decision). Raw
+  // module-derived statuses are gone.
+  const DOMAIN_TONE = {
+    assessed_healthy: 'good', issue_detected: 'danger',
+    provisional: 'warning', degraded: 'warning',
+  }
+  const healthCategories = (report?.cyber_mot_domains ?? []).map((d) => ({
+    label: d.display_name,
+    status: DOMAIN_TONE[d.state] ?? 'unknown',
+  }))
 
   // Findings: use real findings from report, fall back to status-based notices
   const findings = report?.findings
@@ -121,7 +89,7 @@ function deriveInsights(scans, report) {
     .reverse()
     .map((s, i) => ({
       label: s.domain?.split('.')[0] || `#${i + 1}`,
-      value: s.score ?? 0,
+      value: Number.isFinite(s.score) ? s.score : null,
       date:  s.created_at,
     }))
 
@@ -156,6 +124,7 @@ function deriveInsights(scans, report) {
   return {
     score, riskLevel, postureProvisional, postureEstablished, completed, failed, active, domains,
     healthCategories, findings, trend, actions,
+    scanQuality: authoritative?.scan_quality ?? latest?.scan_quality ?? null,
     criticalCount, highCount,
   }
 }
@@ -188,7 +157,7 @@ const RISK_LABEL = {
   excellent: 'Excellent',
   good:      'Good',
   moderate:  'Moderate',
-  high:      'Poor',
+  high:      bandMeta('high').label,
   critical:  'Critical',
 }
 
@@ -196,10 +165,13 @@ function ScoreRing({ score, riskLevel }) {
   const r    = 88
   const circ = 2 * Math.PI * r
 
-  const color  = riskLevel ? (RISK_COLOR[riskLevel] || '#E5E7EB') : score === null ? '#E5E7EB' : score >= 75 ? '#00876A' : score >= 50 ? '#F59E0B' : '#EF4444'
+  // M5.e: backend rating first; otherwise the CANONICAL mirror bands — never a
+  // local 3-band ladder that disagrees with every other surface.
+  const sMeta  = metaForScore(score)
+  const color  = riskLevel ? (RISK_COLOR[riskLevel] || '#E5E7EB') : score === null ? '#E5E7EB' : sMeta.color
   const fill   = score !== null ? circ * (score / 100) : 0
-  const valCls = riskLevel ? (RISK_TEXT_CLS[riskLevel] || 'text-gray-300') : score === null ? 'text-gray-300' : score >= 75 ? 'text-brand-600' : score >= 50 ? 'text-amber-500' : 'text-red-500'
-  const label  = riskLevel ? (RISK_LABEL[riskLevel] || 'Unknown') : score === null ? 'No data yet' : score >= 75 ? 'Good' : score >= 50 ? 'Moderate' : 'Poor'
+  const valCls = riskLevel ? (RISK_TEXT_CLS[riskLevel] || 'text-gray-300') : score === null ? 'text-gray-300' : sMeta.text
+  const label  = riskLevel ? (RISK_LABEL[riskLevel] || 'Unknown') : score === null ? 'No data yet' : sMeta.label
 
   return (
     <div className="flex flex-col items-center select-none">
@@ -667,7 +639,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* ── Four-service KPI overview + recommended action + posture ── */}
+      {/* ── Operational KPI overview + recommended action + observations ── */}
       {(() => {
         const sc = scorecard
         const brand = sc?.brand_risks
@@ -702,11 +674,13 @@ export default function Dashboard() {
                   ? { text: 'Critical findings on your attack surface — review and remediate.', cta: 'Review attack surface', to: '/assets' }
                   : { text: 'Connect Email Protection to measure impersonation exposure and receive DMARC reports.', cta: 'Open Email Protection', to: '/ws/email-protection' }
 
+        // M5.e: this block no longer DECIDES security states locally — counts are
+        // presented as observations; the eight-domain Cyber MOT grid below is
+        // the one canonical state surface on this page.
         const posture = [
-          { label: 'Email risk',       value: 'Not measured', tone: 'na' },
-          { label: 'Brand risk',       value: brand ? ((brand.high ?? 0) > 0 ? 'High' : (brand.active ?? 0) > 0 ? 'Monitoring' : 'Low') : 'Unknown', tone: brand && (brand.high ?? 0) > 0 ? 'bad' : 'na' },
-          { label: 'Attack surface',   value: hasCompletedScan ? (critical > 0 ? 'High' : high > 0 ? 'Elevated' : 'OK') : 'No scan', tone: critical > 0 ? 'bad' : high > 0 ? 'warn' : hasCompletedScan ? 'ok' : 'na' },
-          { label: 'Certificate trust', value: cr ? titleCase(cr) : 'Unknown', tone: cr && ['high', 'critical'].includes(cr) ? 'bad' : cr === 'medium' ? 'warn' : cr ? 'ok' : 'na' },
+          { label: 'Brand candidates',  value: brand ? `${brand.active ?? 0} active${(brand.high ?? 0) > 0 ? `, ${brand.high} high-risk` : ''}` : 'Unknown', tone: brand && (brand.high ?? 0) > 0 ? 'bad' : 'na' },
+          { label: 'Open findings',     value: hasCompletedScan ? `${critical} critical, ${high} high` : 'No completed scan', tone: critical > 0 ? 'bad' : high > 0 ? 'warn' : 'na' },
+          { label: 'Certificate risk',  value: cr ? titleCase(cr) : 'Unknown', tone: cr && ['high', 'critical'].includes(cr) ? 'bad' : cr === 'medium' ? 'warn' : 'na' },
         ]
         const pTone = (t) => t === 'bad' ? 'text-red-700' : t === 'warn' ? 'text-amber-700' : t === 'ok' ? 'text-brand-700' : 'text-gray-400'
 
@@ -820,11 +794,11 @@ export default function Dashboard() {
                 ? 'Some checks were not completed, so current posture is not yet established. Re-run the Cyber MOT for a complete assessment.'
                 : ins.score === null
                 ? 'Run your first Cyber MOT to generate your Cyber Metrics Score and reveal your external security posture.'
-                : ins.score >= 75
+                : ['excellent', 'good'].includes(scoreBand(ins.score))
                   ? 'Your external security posture is well protected. Keep monitoring to catch new exposure as it appears.'
-                  : ins.score >= 50
+                  : scoreBand(ins.score) === 'moderate'
                     ? `Moderate exposure detected. ${ins.findings.length} issue${ins.findings.length !== 1 ? 's' : ''} require attention to strengthen your posture.`
-                    : 'Critical exposures detected. Prioritise the findings below — immediate action is recommended.'}
+                    : 'Serious exposures detected. Prioritise the findings below — immediate action is recommended.'}
             </p>
             <div className="mt-6 flex flex-wrap items-center gap-3">
               {report ? (
@@ -917,13 +891,20 @@ export default function Dashboard() {
             )}
           </div>
           {ins.findings.length === 0 ? (
-            <div className="flex flex-col items-center gap-3 py-12 text-center px-6">
-              <div className="w-12 h-12 rounded-2xl bg-brand-50 flex items-center justify-center">
-                <CheckCircle className="w-6 h-6 text-brand-600" />
+            ins.scanQuality === 'complete' ? (
+              <div className="flex flex-col items-center gap-3 py-12 text-center px-6">
+                <div className="w-12 h-12 rounded-2xl bg-brand-50 flex items-center justify-center">
+                  <CheckCircle className="w-6 h-6 text-brand-600" />
+                </div>
+                <p className="text-sm font-semibold text-gray-900">No findings</p>
+                <p className="text-xs text-gray-400">All checks passed on the latest complete scan</p>
               </div>
-              <p className="text-sm font-semibold text-gray-900">No findings</p>
-              <p className="text-xs text-gray-400">All checks passed on the latest completed scan</p>
-            </div>
+            ) : (
+              <div className="flex flex-col items-center gap-3 py-12 text-center px-6">
+                <p className="text-sm font-semibold text-gray-900">No findings recorded</p>
+                <p className="text-xs text-gray-400">The latest scan's coverage was incomplete — this is not a clean bill of health.</p>
+              </div>
+            )
           ) : (
             <ul className="divide-y divide-gray-50">
               {ins.findings.map((f, i) => (

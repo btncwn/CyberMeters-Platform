@@ -33,6 +33,8 @@ function getConfig(identity_type) {
 }
 
 function riskBand(score) {
+  // M5.e: an absent/non-finite risk score is UNKNOWN — never green Low.
+  if (!Number.isFinite(Number(score)) || score == null) return { label: 'Unknown', cls: 'bg-gray-100 text-gray-600 border-gray-200' }
   if (score >= 20) return { label: 'Critical',  cls: 'bg-red-100    text-red-700    border-red-200'    }
   if (score >= 15) return { label: 'High',      cls: 'bg-orange-100 text-orange-700 border-orange-200' }
   if (score >= 10) return { label: 'Medium',    cls: 'bg-amber-100  text-amber-700  border-amber-200'  }
@@ -83,7 +85,9 @@ function IdentityAssetCard({ asset }) {
         <span>
           {asset.internet_exposed
             ? <span className="text-orange-500 font-medium flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> Internet-exposed</span>
-            : <span className="text-green-600 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Not public</span>
+            : asset.internet_exposed === false
+              ? <span className="text-green-600 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Not public</span>
+              : <span className="text-gray-400 flex items-center gap-1">Exposure unknown</span>
           }
         </span>
         {asset.source && <span>Source: <span className="capitalize font-medium text-gray-600">{asset.source.replace(/_/g, ' ')}</span></span>}

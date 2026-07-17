@@ -8,15 +8,15 @@
  *   status   — 'all' | 'unread'
  *   severity — 'all' | 'critical' | 'high' | 'medium' | 'low' | 'info'
  *
- * Each notification card navigates to /scans/<scan_id> when clicked,
- * provided metadata_json contains a scan_id field.
+ * Each notification card navigates to the scan, report, or lifecycle record
+ * when metadata provides a safe in-app target.
  */
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import {
   Bell, CheckCheck, AlertTriangle, ShieldAlert,
   FileText, Globe, ScanLine, Info, ChevronDown,
-  ArrowLeft,
+  ArrowLeft, Mail, Lock, ClipboardCheck, MonitorCheck, KeyRound, Boxes,
 } from 'lucide-react'
 import { api } from '../api'
 
@@ -71,7 +71,18 @@ function severityCfg(sev) {
 
 // ── Type icon ─────────────────────────────────────────────────────────────────
 
-function TypeIcon({ type, className = 'w-5 h-5 flex-shrink-0' }) {
+function TypeIcon({ type, domainKey, className = 'w-5 h-5 flex-shrink-0' }) {
+  switch (domainKey) {
+    case 'email_protection':               return <Mail           className={`${className} text-blue-500`} />
+    case 'brand_protection':               return <ShieldAlert    className={`${className} text-red-500`} />
+    case 'attack_surface':                 return <Globe          className={`${className} text-teal-600`} />
+    case 'certificates_trust':             return <Lock           className={`${className} text-sky-600`} />
+    case 'cyber_essentials_readiness':     return <ClipboardCheck className={`${className} text-emerald-600`} />
+    case 'website_security':               return <MonitorCheck   className={`${className} text-amber-600`} />
+    case 'identity_exposure':              return <KeyRound       className={`${className} text-indigo-600`} />
+    case 'shadow_it_unmanaged_technology': return <Boxes          className={`${className} text-purple-600`} />
+    default: break
+  }
   switch (type) {
     case 'critical_finding':  return <ShieldAlert  className={`${className} text-red-500`} />
     case 'high_finding':      return <AlertTriangle className={`${className} text-orange-400`} />
@@ -166,7 +177,7 @@ function NotificationCard({ n, onMarkRead }) {
     >
       {/* Type icon */}
       <div className="flex-shrink-0 mt-0.5">
-        <TypeIcon type={n.type} />
+        <TypeIcon type={n.type} domainKey={meta?.domain_key || meta?.domain} />
       </div>
 
       {/* Main content */}

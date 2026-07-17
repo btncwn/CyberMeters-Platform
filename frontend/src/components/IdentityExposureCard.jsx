@@ -40,7 +40,8 @@ export default function IdentityExposureCard({ workspaceId }) {
 
   if (!data || data.error) return null
 
-  const lvl = LEVEL[data.identity_exposure_level] ?? LEVEL.Low
+  // M5.e: an unrecognised exposure level is UNKNOWN (neutral), never green Low.
+  const lvl = LEVEL[data.identity_exposure_level] ?? { label: 'Unknown', cls: 'bg-gray-100 text-gray-600 border-gray-200', tone: 'unknown' }
   const s = data.signals || {}
   const email = s.email_spoofing || {}
   const imp = s.impersonation_infrastructure || {}

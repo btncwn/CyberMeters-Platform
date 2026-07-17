@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Activity, LogIn, LogOut, Globe, ShieldCheck, Users, UserMinus,
-  ScanLine, FileText, Bell, RefreshCw, ChevronDown,
+  ScanLine, FileText, Bell, RefreshCw, ChevronDown, Mail, Lock,
+  ClipboardCheck, MonitorCheck, KeyRound, Boxes, ShieldAlert,
 } from 'lucide-react'
 import { api } from '../api'
 
@@ -20,6 +21,14 @@ const EVENT_CONFIG = {
   scan_started:             { icon: ScanLine,    color: 'text-amber-500',  bg: 'bg-amber-50'  },
   scan_completed:           { icon: ScanLine,    color: 'text-brand-600',  bg: 'bg-brand-50'  },
   notification_read:        { icon: Bell,        color: 'text-gray-500',   bg: 'bg-gray-100'  },
+  email_protection_alert:   { icon: Mail,        color: 'text-blue-600',   bg: 'bg-blue-50'   },
+  brand_protection_alert:   { icon: ShieldAlert, color: 'text-red-600',    bg: 'bg-red-50'    },
+  attack_surface_alert:     { icon: Globe,       color: 'text-teal-600',   bg: 'bg-teal-50'   },
+  certificates_trust_alert: { icon: Lock,        color: 'text-sky-600',    bg: 'bg-sky-50'    },
+  cyber_essentials_alert:   { icon: ClipboardCheck, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+  website_security_alert:   { icon: MonitorCheck, color: 'text-amber-600', bg: 'bg-amber-50'  },
+  identity_exposure_alert:  { icon: KeyRound,    color: 'text-indigo-600', bg: 'bg-indigo-50' },
+  shadow_it_alert:          { icon: Boxes,       color: 'text-purple-600', bg: 'bg-purple-50' },
 }
 
 function eventConfig(type) {
@@ -149,6 +158,14 @@ export default function ActivityTimeline({ workspaceId }) {
     { value: 'login',                    label: 'Logins' },
     { value: 'logout',                   label: 'Logouts' },
     { value: 'notification_read',        label: 'Notifications read' },
+    { value: 'email_protection_alert',   label: 'Email Protection alerts' },
+    { value: 'brand_protection_alert',   label: 'Brand Protection alerts' },
+    { value: 'attack_surface_alert',     label: 'Attack Surface alerts' },
+    { value: 'certificates_trust_alert', label: 'Certificate alerts' },
+    { value: 'cyber_essentials_alert',   label: 'Cyber Essentials alerts' },
+    { value: 'website_security_alert',   label: 'Website Security alerts' },
+    { value: 'identity_exposure_alert',  label: 'Identity Exposure alerts' },
+    { value: 'shadow_it_alert',          label: 'Shadow IT alerts' },
   ]
 
   return (

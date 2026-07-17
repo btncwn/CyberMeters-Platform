@@ -13,6 +13,7 @@ import {
 import { useWorkspace }           from '../../hooks/useWorkspace'
 import { api }                    from '../../api'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
+import { bandMeta, metaForScore } from '../../lib/score-presentation'
 
 // ── Colour helpers ────────────────────────────────────────────────────────────
 
@@ -25,19 +26,22 @@ const SEV_COLORS = {
 }
 
 const SCORE_COLOR = (s) =>
-  s >= 80 ? '#00876A'
-  : s >= 60 ? '#3B82F6'
-  : s >= 40 ? '#F59E0B'
-  : '#EF4444'
+  metaForScore(s).color
+
+function scoreIconBg(score) {
+  if (score == null || score === '') return 'bg-gray-50'
+  const bg = metaForScore(score).pill.split(' ').find(c => c.startsWith('bg-'))
+  return bg || 'bg-gray-50'
+}
 
 // Maps score-derived posture rating values to display labels (Security Rating system).
 // Kept separate from finding severity (critical/high/medium/low) which uses RiskBadge.
 const RATING_LABEL = {
-  excellent: 'Excellent',
-  good:      'Good',
-  moderate:  'Moderate',
-  high:      'Poor',
-  critical:  'Critical',
+  excellent: bandMeta('excellent').label,
+  good:      bandMeta('good').label,
+  moderate:  bandMeta('moderate').label,
+  high:      bandMeta('high').label,
+  critical:  bandMeta('critical').label,
   // legacy letter grades
   a: 'Excellent', b: 'Good', c: 'Moderate', d: 'Poor', f: 'Critical',
   // legacy string grades
@@ -350,8 +354,8 @@ export default function WorkspaceExecutiveDashboard() {
           value={s.security_score ?? '—'}
           sub={s.risk_level ? `Rating: ${riskLabel(s.risk_level)}` : undefined}
           Icon={ShieldCheck}
-          color={s.security_score != null ? (s.security_score >= 80 ? 'text-brand-700' : s.security_score >= 60 ? 'text-blue-700' : s.security_score >= 40 ? 'text-amber-700' : 'text-red-700') : 'text-gray-400'}
-          iconBg={s.security_score != null ? (s.security_score >= 80 ? 'bg-brand-50' : s.security_score >= 60 ? 'bg-blue-50' : s.security_score >= 40 ? 'bg-amber-50' : 'bg-red-50') : 'bg-gray-50'}
+          color={metaForScore(s.security_score).text}
+          iconBg={scoreIconBg(s.security_score)}
         />
         <SummaryCard
           label="Domains"

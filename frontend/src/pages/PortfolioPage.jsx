@@ -62,8 +62,8 @@ function SeverityBadge({ level }) {
     medium:   'badge-medium',
     low:      'badge-low',
     info:     'badge-low',
-  }[(level || '').toLowerCase()] ?? 'badge-low'
-  return <span className={cls}>{level || 'info'}</span>
+  }[(level || '').toLowerCase()] ?? 'badge-unknown'
+  return <span className={cls}>{level || 'unknown'}</span>
 }
 
 function StatusDot({ status }) {

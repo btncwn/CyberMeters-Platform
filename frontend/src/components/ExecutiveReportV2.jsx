@@ -1,5 +1,6 @@
 import CyberMotDomains from './CyberMotDomains'
 import { Minus, CheckCircle, Target, FileText, Lock, Eye } from 'lucide-react'
+import { bandMeta } from '../lib/score-presentation'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Executive Report — snapshot-native (M5.d).
@@ -16,7 +17,7 @@ const RATING_CFG = {
   excellent: { color: '#00876A', text: 'text-brand-600', pill: 'bg-brand-50 text-brand-700 border-brand-100', label: 'Excellent' },
   good:      { color: '#00876A', text: 'text-brand-600', pill: 'bg-brand-50 text-brand-700 border-brand-100', label: 'Good' },
   moderate:  { color: '#F59E0B', text: 'text-amber-500', pill: 'bg-amber-50 text-amber-700 border-amber-100', label: 'Moderate' },
-  high:      { color: '#F97316', text: 'text-orange-500', pill: 'bg-orange-50 text-orange-700 border-orange-100', label: 'Needs Attention' },
+  high:      { color: '#F97316', text: 'text-orange-500', pill: 'bg-orange-50 text-orange-700 border-orange-100', label: bandMeta('high').label },
   critical:  { color: '#EF4444', text: 'text-red-500', pill: 'bg-red-50 text-red-700 border-red-100', label: 'Critical' },
   unknown:   { color: '#D1D5DB', text: 'text-gray-400', pill: 'bg-gray-100 text-gray-500 border-gray-200', label: 'Unrated' },
 }

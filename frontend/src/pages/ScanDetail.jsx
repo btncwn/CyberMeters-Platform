@@ -11,12 +11,13 @@ import {
 } from 'lucide-react'
 import { api } from '../api'
 import { getAcademyArticleForFinding } from '../data/academy'
-import { buildRemediationIntelligence, PRIORITY_LABELS, PRIORITY_SLA } from '../data/remediation'
+import { buildRemediationIntelligence, PRIORITY_LABELS } from '../data/remediation'
 import StatusBadge from '../components/StatusBadge'
 import Spinner from '../components/Spinner'
 import ErrorAlert from '../components/ErrorAlert'
 import ExecutiveReportV2 from '../components/ExecutiveReportV2'
 import CyberMotDomains from '../components/CyberMotDomains'
+import { bandMeta } from '../lib/score-presentation'
 
 const ACTIVE  = new Set(['queued', 'running', 'processing'])
 const POLL_MS = 4000
@@ -48,7 +49,7 @@ const RISK_CFG = {
   excellent: { color: '#00876A', cls: 'text-brand-600', pill: 'bg-brand-50 text-brand-700 border-brand-100', label: 'Excellent' },
   good:      { color: '#00876A', cls: 'text-brand-600', pill: 'bg-brand-50 text-brand-700 border-brand-100', label: 'Good'      },
   moderate:  { color: '#F59E0B', cls: 'text-amber-500', pill: 'bg-amber-50 text-amber-700 border-amber-100', label: 'Moderate'  },
-  high:      { color: '#F97316', cls: 'text-orange-500',pill: 'bg-orange-50 text-orange-700 border-orange-100',label: 'Poor'    },
+  high:      { color: '#F97316', cls: 'text-orange-500',pill: 'bg-orange-50 text-orange-700 border-orange-100',label: bandMeta('high').label },
   critical:  { color: '#EF4444', cls: 'text-red-500',   pill: 'bg-red-50 text-red-700 border-red-100',       label: 'Critical'  },
   unknown:   { color: '#D1D5DB', cls: 'text-gray-400',  pill: 'bg-gray-100 text-gray-500 border-gray-200',   label: 'Unknown'   },
 }
@@ -263,7 +264,7 @@ function CopyButton({ text }) {
 
 function RemediationPanel({ rem }) {
   const plCfg = rem.priority ? (PRIORITY_LABELS[rem.priority] || PRIORITY_LABELS.P4) : null
-  const sla   = rem.priority ? PRIORITY_SLA[rem.priority] : null
+  const sla   = rem.sla || null
   const hasSteps = rem.steps?.length > 0
   const hasVerification = !!rem.verification
 

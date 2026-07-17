@@ -101,6 +101,33 @@ describe('NotificationBell click-through', () => {
     await waitFor(() => expect(screen.getByTestId('pathname')).toHaveTextContent('/reports'))
   })
 
+  it('routes lifecycle notifications using the canonical metadata link', async () => {
+    api.getWorkspaceNotifications.mockResolvedValue({
+      notifications: [notification({ metadata: { link: '/ws/website-security?condition=cond-1', domain_key: 'website_security' } })],
+      unread_count: 1,
+    })
+    const user = userEvent.setup()
+    renderBell()
+    await openPanel(user)
+    await user.click(await screen.findByText('Scan finished'))
+
+    await waitFor(() => expect(screen.getByTestId('pathname')).toHaveTextContent('/ws/website-security'))
+  })
+
+  it('refuses external metadata links', async () => {
+    api.getWorkspaceNotifications.mockResolvedValue({
+      notifications: [notification({ metadata: { link: 'https://evil.example/ws/website-security' } })],
+      unread_count: 1,
+    })
+    const user = userEvent.setup()
+    renderBell()
+    await openPanel(user)
+    await user.click(await screen.findByText('Scan finished'))
+
+    expect(screen.getByTestId('pathname')).toHaveTextContent('/dashboard')
+    expect(api.markNotificationRead).toHaveBeenCalledWith('ws1', 'n1')
+  })
+
   it('stays put (no broken navigation) when a notification has no target', async () => {
     api.getWorkspaceNotifications.mockResolvedValue({
       notifications: [notification({ metadata: null })],

@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Globe, Network, Mail, Lock, AlertTriangle, Activity,
-  RefreshCw, ChevronDown, Clock,
+  RefreshCw, ChevronDown, Clock, ShieldAlert, ClipboardCheck,
+  MonitorCheck, KeyRound, Boxes,
 } from 'lucide-react'
 import { api } from '../api'
 
@@ -19,6 +20,14 @@ const CATEGORY_CONFIG = {
   email:       { icon: Mail,          color: 'text-blue-600',  bg: 'bg-blue-50'  },
   certificate: { icon: Lock,          color: 'text-sky-600',   bg: 'bg-sky-50'   },
   exposure:    { icon: AlertTriangle, color: 'text-amber-600', bg: 'bg-amber-50' },
+  email_protection:               { icon: Mail,           color: 'text-blue-600',    bg: 'bg-blue-50' },
+  brand_protection:               { icon: ShieldAlert,    color: 'text-red-600',     bg: 'bg-red-50' },
+  attack_surface:                 { icon: Globe,          color: 'text-teal-600',    bg: 'bg-teal-50' },
+  certificates_trust:             { icon: Lock,           color: 'text-sky-600',     bg: 'bg-sky-50' },
+  cyber_essentials_readiness:     { icon: ClipboardCheck, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+  website_security:               { icon: MonitorCheck,   color: 'text-amber-600',   bg: 'bg-amber-50' },
+  identity_exposure:              { icon: KeyRound,       color: 'text-indigo-600',  bg: 'bg-indigo-50' },
+  shadow_it_unmanaged_technology: { icon: Boxes,          color: 'text-purple-600',  bg: 'bg-purple-50' },
 }
 function categoryConfig(cat) {
   return CATEGORY_CONFIG[cat] ?? { icon: Activity, color: 'text-gray-400', bg: 'bg-gray-100' }
@@ -39,6 +48,11 @@ const CATEGORY_FILTERS = [
   { value: 'email',       label: 'Email' },
   { value: 'certificate', label: 'Certificates' },
   { value: 'exposure',    label: 'Exposure' },
+  { value: 'brand_protection',               label: 'Brand Protection' },
+  { value: 'cyber_essentials_readiness',     label: 'Cyber Essentials' },
+  { value: 'website_security',               label: 'Website Security' },
+  { value: 'identity_exposure',              label: 'Identity Exposure' },
+  { value: 'shadow_it_unmanaged_technology', label: 'Shadow IT' },
 ]
 
 const SEVERITY_FILTERS = [
