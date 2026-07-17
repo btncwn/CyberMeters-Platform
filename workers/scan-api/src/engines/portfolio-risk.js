@@ -349,8 +349,11 @@ export async function computePortfolioRisk(workspaceIds, env) {
       risk_band:           score != null ? portfolioRiskBand(score) : 'unknown',
       supply_chain_score:  sc?.supply_chain_score ?? null,
       concentration_level: sc?.concentration_level ?? null,
-      spof_count:          sc?.spof_count ?? 0,
-      critical_vendor_count: sc?.critical_vendor_count ?? 0,
+      // M5.e: a workspace with NO supply-chain assessment row is unassessed,
+      // not clean — null, never a zero that ranks as healthy.
+      spof_count:          sc ? (sc.spof_count ?? 0) : null,
+      critical_vendor_count: sc ? (sc.critical_vendor_count ?? 0) : null,
+      supply_chain_state:  sc ? 'assessed' : 'not_assessed',
       score_delta_30d:     delta,
       trend:               delta == null ? 'no_data' : delta > TREND_THRESHOLD ? 'improving' : delta < -TREND_THRESHOLD ? 'deteriorating' : 'stable',
     };

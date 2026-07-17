@@ -456,7 +456,9 @@ export async function computeSupplyChainIntelligence(wsId, env) {
       ).bind(wsId).first(),
     ]);
 
-    const brsScore = brsRow?.brs_score ?? 0;
+    // M5.e: absent BRS is NOT a zero score — null fails every >= maturity
+    // threshold (conservative) without fabricating a numeric assessment.
+    const brsScore = brsRow?.brs_score ?? null;
     const activeVendors = vendorRows.filter(v => v.status === 'active');
     const enriched = enrichVendors(activeVendors);
 

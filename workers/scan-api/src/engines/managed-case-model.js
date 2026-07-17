@@ -267,6 +267,46 @@ export const DEFAULT_CASE_TYPE_BY_DOMAIN = Object.freeze(
   Object.fromEntries(Object.values(CASE_TYPE_REGISTRY).map((e) => [e.domain_key, e.case_type])),
 );
 
+// ── Canonical case-ownership assignment (M5.e) ──────────────────────────────
+// The ONE assignment path for every case type. Persists owner atomically,
+// appends an assignment_changed event (append-only evidence), refuses an empty
+// owner (a case is never assigned to nobody, and an owner is never fabricated),
+// and leaves unassigned cases visibly unassigned.
+export const CASE_OWNER_TYPES = Object.freeze(["person", "team", "vendor", "unknown"]);
+
+export async function assignCaseOwner(env, caseRow, { owner_type, owner_ref, actor_type = "customer", actor_id = null, assigned_user_id = null } = {}) {
+  if (!caseRow?.id || !caseRow?.workspace_id) {
+    return { ok: false, code: "invalid_case", error: "Case not found." };
+  }
+  const ref = String(owner_ref ?? "").trim().slice(0, 255);
+  if (!ref) {
+    return { ok: false, code: "owner_ref_required", error: "An owner is required to assign this case." };
+  }
+  const type = CASE_OWNER_TYPES.includes(owner_type) ? owner_type : "unknown";
+  const now = new Date().toISOString();
+  const res = await env.cybermeters_db
+    .prepare(`UPDATE managed_cases
+        SET owner_type = ?, owner_ref = ?, assigned_by = ?, assigned_user_id = ?, updated_at = ?
+      WHERE id = ? AND workspace_id = ?`)
+    .bind(type, ref, actor_id ?? actor_type, assigned_user_id ?? null, now, caseRow.id, caseRow.workspace_id)
+    .run();
+  if ((res.meta?.changes ?? 0) === 0) {
+    return { ok: false, code: "not_found", error: "Case not found." };
+  }
+  const updated = { ...caseRow, owner_type: type, owner_ref: ref, assigned_by: actor_id ?? actor_type, assigned_user_id: assigned_user_id ?? null, updated_at: now };
+  // Append-only evidence; a failed event write surfaces as an error rather than
+  // silently losing the audit trail (assignment itself is idempotent to retry).
+  await env.cybermeters_db
+    .prepare(`INSERT INTO managed_case_events
+        (id, case_id, workspace_id, actor_type, actor_id, from_status, to_status, action, detail_json, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`)
+    .bind(newCaseEventId(), caseRow.id, caseRow.workspace_id, actor_type, actor_id,
+          caseRow.status, caseRow.status, "assignment_changed",
+          JSON.stringify({ owner_type: type, owner_ref: ref, assigned_user_id: assigned_user_id ?? null }))
+    .run();
+  return { ok: true, case: updated };
+}
+
 export function caseTypeEntry(caseType) {
   return CASE_TYPE_REGISTRY[String(caseType)] || null;
 }

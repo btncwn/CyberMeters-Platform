@@ -152,6 +152,7 @@ export async function portfolioRoutes(rctx) {
             JOIN lpd ON lpd.scan_id = s.id
             JOIN workspace_domains wd ON wd.domain_id = s.domain_id
             WHERE s.score IS NOT NULL
+              AND s.scan_quality = 'complete'
               AND wd.workspace_id IN (${wsIn})
           `).bind(...workspaceIds).first(),
           // Workspace with most critical findings from latest scans
@@ -180,30 +181,43 @@ export async function portfolioRoutes(rctx) {
           `).bind(...workspaceIds).first(),
         ]);
 
+        // M5.e honesty: a REJECTED query is not a clean zero. Each metric from
+        // a failed query is null, and partial_failure discloses the degradation
+        // — a D1 error must never render as "0 critical findings".
+        const settled = [];
+        const count = (res, name) => {
+          if (res.status === 'fulfilled') return res.value?.count ?? 0;
+          settled.push(name);
+          return null;
+        };
         const findingsBySev = {};
-        for (const r of (findingsRes.status === 'fulfilled' ? (findingsRes.value?.results ?? []) : [])) {
-          findingsBySev[r.severity] = r.cnt;
-        }
+        let findingsFailed = false;
+        if (findingsRes.status === 'fulfilled') {
+          for (const r of (findingsRes.value?.results ?? [])) findingsBySev[r.severity] = r.cnt;
+        } else { findingsFailed = true; settled.push('findings'); }
 
-        const avgRaw = avgScoreRes.status === 'fulfilled' ? avgScoreRes.value?.avg_score : null;
-        const hrw    = highRiskRes.status === 'fulfilled'  ? highRiskRes.value : null;
+        const avgRaw = avgScoreRes.status === 'fulfilled' ? avgScoreRes.value?.avg_score : (settled.push('average_score'), null);
+        const hrw    = highRiskRes.status === 'fulfilled'  ? highRiskRes.value : (settled.push('highest_risk_workspace'), null);
 
         return json({
-          total_workspaces:       wsRes.status === 'fulfilled'    ? (wsRes.value?.count    ?? 0) : 0,
-          total_domains:          domRes.status === 'fulfilled'   ? (domRes.value?.count   ?? 0) : 0,
-          total_assets:           assetRes.status === 'fulfilled' ? (assetRes.value?.count ?? 0) : 0,
-          total_vendors:          vendorRes.status === 'fulfilled'? (vendorRes.value?.count?? 0) : 0,
-          total_brand_candidates: brandRes.status === 'fulfilled' ? (brandRes.value?.count ?? 0) : 0,
-          total_reports:          rptRes.status === 'fulfilled'   ? (rptRes.value?.count   ?? 0) : 0,
-          critical_findings:      findingsBySev['critical'] ?? 0,
-          high_findings:          findingsBySev['high']     ?? 0,
-          new_assets_7d:          newAssetsRes.status === 'fulfilled' ? (newAssetsRes.value?.count ?? 0) : 0,
-          new_reports_30d:        newRptsRes.status === 'fulfilled'   ? (newRptsRes.value?.count   ?? 0) : 0,
+          total_workspaces:       count(wsRes, 'total_workspaces'),
+          total_domains:          count(domRes, 'total_domains'),
+          total_assets:           count(assetRes, 'total_assets'),
+          total_vendors:          count(vendorRes, 'total_vendors'),
+          total_brand_candidates: count(brandRes, 'total_brand_candidates'),
+          total_reports:          count(rptRes, 'total_reports'),
+          critical_findings:      findingsFailed ? null : (findingsBySev['critical'] ?? 0),
+          high_findings:          findingsFailed ? null : (findingsBySev['high'] ?? 0),
+          new_assets_7d:          count(newAssetsRes, 'new_assets_7d'),
+          new_reports_30d:        count(newRptsRes, 'new_reports_30d'),
           average_score:          avgRaw != null ? Math.round(avgRaw) : null,
+          average_score_basis:    'complete_scans',
           highest_risk_workspace: hrw ? { id: hrw.id, name: hrw.name, critical_findings: hrw.total_crit } : null,
-          verified_domains:       verifiedDomsRes.status === 'fulfilled'   ? (verifiedDomsRes.value?.count   ?? 0) : 0,
-          unverified_domains:     unverifiedDomsRes.status === 'fulfilled' ? (unverifiedDomsRes.value?.count ?? 0) : 0,
-          verification_failures:  failedVerifRes.status === 'fulfilled'    ? (failedVerifRes.value?.count    ?? 0) : 0,
+          verified_domains:       count(verifiedDomsRes, 'verified_domains'),
+          unverified_domains:     count(unverifiedDomsRes, 'unverified_domains'),
+          verification_failures:  count(failedVerifRes, 'verification_failures'),
+          partial_failure:        settled.length > 0 ? true : false,
+          unavailable_metrics:    settled,
           generated_at:           new Date().toISOString(),
         });
       } catch (err) {
@@ -219,7 +233,11 @@ export async function portfolioRoutes(rctx) {
       try {
         const workspaceIds = await getAccessibleWorkspaceIds(user, env);
         const rows = await computePortfolioCustomerRows(env.cybermeters_db, workspaceIds);
-        return json({ workspaces: rows });
+        return json({
+          workspaces: rows,
+          partial_failure: (rows.degraded_queries?.length ?? 0) > 0 ? true : false,
+          unavailable_metrics: rows.degraded_queries ?? [],
+        });
       } catch (err) {
         return serverError("api", err);
       }
@@ -435,7 +453,19 @@ export async function portfolioRoutes(rctx) {
         }
 
         const trend = Object.values(dayMap).sort((a, b) => a.date.localeCompare(b.date));
-        return json({ trend });
+        // M5.e honesty: a rejected series is disclosed, never an empty-looking
+        // clean trend; the score series is complete-quality only.
+        const failedSeries = [
+          scanTrendRes.status !== 'fulfilled' ? 'scores' : null,
+          findingsTrendRes.status !== 'fulfilled' ? 'findings' : null,
+          assetTrendRes.status !== 'fulfilled' ? 'assets' : null,
+        ].filter(Boolean);
+        return json({
+          trend,
+          comparable_basis: 'complete_scans',
+          partial_failure: failedSeries.length > 0 ? true : false,
+          unavailable_series: failedSeries,
+        });
       } catch (err) {
         return serverError("api", err);
       }

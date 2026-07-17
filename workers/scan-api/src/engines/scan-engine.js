@@ -16,7 +16,7 @@ import { buildDseFindings } from "./dse-findings.js";
 import { upsertAssetInventory } from "./asset-inventory.js";
 import { upsertBrandAssets, upsertIdentityAssets } from "./asset-persistence.js";
 import { runTyposquatModule } from "./brand-typosquat.js";
-import { computeBusinessRiskScore, expandFindingIds } from "./business-risk.js";
+import { computeAndPersistWorkspaceBrs, computeBusinessRiskScore, expandFindingIds } from "./business-risk.js";
 import { getCyberEssentialsSnapshot } from "./ce-readiness.js";
 import { buildCaConcentrationAnalytics } from "./cert-analysis.js";
 import { persistCyberMotDomainStates } from "./cyber-mot-state-history.js";
@@ -961,6 +961,14 @@ function buildCanonicalUrlProfile(modules) {
           .bind(createId("hscore"), workspaceId, domainId, scanId, domain, score, risk_level, brsScore, scanQuality?.status ?? null, completedAt)
           .run();
       } catch { /* non-fatal — scan completion remains source of truth */ }
+
+      // Canonical workspace Business Risk (M5.e): computed + persisted here —
+      // at scan cadence, never page-view cadence — so GET /business-risk is a
+      // pure read that can never diverge from the persisted canonical value.
+      // Non-fatal by the 091 doctrine.
+      try {
+        await computeAndPersistWorkspaceBrs(env, workspaceId);
+      } catch { /* non-fatal — BRS refreshes on the next finalized scan */ }
 
       // Canonical eight-domain state history (mig 091). Resolved from the report ALREADY
       // in memory, so this costs zero R2 reads here and zero R2 reads on every portfolio

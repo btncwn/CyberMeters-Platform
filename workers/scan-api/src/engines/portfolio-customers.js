@@ -71,7 +71,15 @@ export async function computePortfolioCustomerRows(db, workspaceIds) {
        GROUP BY workspace_id`),
   ]);
 
-  const rows0 = (r) => (r.status === "fulfilled" ? (r.value?.results ?? []) : []);
+  // M5.e: a REJECTED query is recorded, not silently emptied — computePortfolioCustomerRows
+  // returns degraded_queries so callers can disclose partial data instead of
+  // rendering a failure as "0 findings".
+  const degradedQueries = [];
+  const rows0 = (r, name = "query") => {
+    if (r.status === "fulfilled") return r.value?.results ?? [];
+    degradedQueries.push(name);
+    return [];
+  };
   const byWs = (r, pick) => { const m = {}; for (const x of rows0(r)) m[x.workspace_id] = pick(x); return m; };
 
   const domMap    = byWs(domRes,    (x) => x.count);
@@ -117,6 +125,9 @@ export async function computePortfolioCustomerRows(db, workspaceIds) {
     if (sa !== sb) return sa - sb;
     return (b.last_scan_at ?? "").localeCompare(a.last_scan_at ?? "");
   });
+  // Non-breaking disclosure channel: an array property, so both existing
+  // consumers keep their contract while the route can disclose degradation.
+  rows.degraded_queries = degradedQueries;
   return rows;
 }
 
