@@ -300,11 +300,19 @@ export function brandCandidateToApi(row, profile = null) {
 }
 
 export function buildBrandProtectionSummary(candidates = []) {
-  const summary = { total_candidates: candidates.length, active_dns: 0, high_risk: 0,
-    confirmed_abuse: 0, suspicious: 0, ignored: 0, owned: 0, unreviewed: 0,
+  // Tri-state DNS truth is surfaced explicitly so the UI never presents an
+  // unchecked candidate as inactive: dns_active === true → active, === false →
+  // inactive (checked, not resolving), null/undefined → not yet checked.
+  // Invariant (asserted in validate-brand-dns-enrichment.js):
+  //   active_dns + inactive_dns + unchecked_dns === total_candidates
+  const summary = { total_candidates: candidates.length,
+    active_dns: 0, inactive_dns: 0, unchecked_dns: 0, dns_checked_total: 0,
+    high_risk: 0, confirmed_abuse: 0, suspicious: 0, ignored: 0, owned: 0, unreviewed: 0,
     last_updated_at: null };
   for (const candidate of candidates) {
-    if (candidate.dns_active === true) summary.active_dns++;
+    if (candidate.dns_active === true) { summary.active_dns++; summary.dns_checked_total++; }
+    else if (candidate.dns_active === false) { summary.inactive_dns++; summary.dns_checked_total++; }
+    else summary.unchecked_dns++;
     if (["critical", "high"].includes(candidate.risk_level)) summary.high_risk++;
     if (["confirmed_abuse", "suspicious", "ignored", "owned", "unreviewed"].includes(candidate.classification)) {
       summary[candidate.classification]++;
