@@ -5,6 +5,37 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.17-3 (Brand DNS enrichment — automatic lifecycle + tri-state truthful reporting) — deployed 2026-07-17
+
+- **Live Worker Version ID:** `a417185c-c359-4090-bc7f-38d61b2f5c0d` (main `c54c63a`)
+- **Rollback Worker Version ID:** `c02b0759-ab2d-4746-98d0-1a074f7070b6` (v2026.07.17-2)
+- **Remote D1 migrations applied:** none (latest remains `093`).
+- **Pages:** auto-deploys — `BrandMonitoringPage` shows unchecked separately, never as inactive.
+- **PRs:** #151 (fix), #152 (subrequest-rationale comment correction).
+
+Root cause (production-confirmed, read-only): brand lookalike candidates were persisted
+UNCHECKED by scans (`dns_resolves NULL`; DNS probe deferred) and the only validation
+trigger was a manual `/brand-monitoring/refresh` endpoint that nothing ever called — so
+"Active DNS" read 0 for 40 candidates and unchecked was displayed as if not resolving.
+
+- **Canonical helper `engines/brand-dns-enrichment.js`** — the ONE DNS-validation implementation
+  used by both the manual refresh and a new automatic bounded hourly cron sweep
+  (`brand_dns_enrichment`, wired in `cron/scheduled.js` + `index.js`, mirroring
+  `brand_takedown_followup`). Tri-state truth: `dns_resolves` NULL = not checked, 0 = checked
+  not resolving, 1 = resolving. A transient resolver failure is NEVER coerced to 0 — the row
+  stays NULL with `last_checked_at` unadvanced and is retried next tick. Unchecked-first bounded
+  selection removes the first-20 starvation; idempotent, tenant-scoped.
+- **Manual `/brand-monitoring/refresh`** now persists candidates unchecked (INSERT OR IGNORE)
+  then calls the same helper — no second copy, no inline `slice(0, 20)`.
+- **Honest summary + frontend:** `active_dns / inactive_dns / unchecked_dns / dns_checked_total`
+  with the invariant `active + inactive + unchecked = total`; the card shows "N not yet checked".
+- **No schema change** — the existing `dns_resolves` tri-state already represents
+  not-checked vs conclusive-negative honestly.
+- Batch size 10 is CONTROLLED FAN-OUT + retry behaviour + production observability — not a plan
+  subrequest limit (Workers Paid plan).
+- **Tests (CI-blocking):** `validate-brand-dns-enrichment.js` (41 assertions; mutation-proven:
+  NULL→false coercion and unchecked-as-inactive both caught). Full gate green on `c54c63a`.
+
 ## 2026.07.17-2 (M5.d — every report renderer consumes the canonical snapshot) — deployed 2026-07-17
 
 - **Live Worker Version ID:** `c02b0759-ab2d-4746-98d0-1a074f7070b6` (main `33dba60`)
