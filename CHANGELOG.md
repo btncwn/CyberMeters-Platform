@@ -5,6 +5,65 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## 2026.07.17-4 (M5.e — eight-domain parity closure) — deployed 2026-07-17
+
+- **Live Worker Version ID:** `2beda497-0b4e-4d4c-9552-5748742b13e1` (main `a33975f`)
+- **Live Worker Deployment ID:** `0283109f-0c7d-4a7a-9feb-24d4abd240da`
+- **Rollback Worker Version ID:** `a417185c-c359-4090-bc7f-38d61b2f5c0d` (v2026.07.17-3)
+- **Rollback Worker Deployment ID:** `b774ad01-2bf6-412f-a4d7-c763ecbb8d06`
+- **Remote D1 migrations applied:** `094-workspace-brs-payload.sql` (additive
+  `workspace_brs_scores.payload_json TEXT`; applied by exact SQL file; final D1
+  bookmark `000005d0-00000006-000050ab-4be7bf5a2c610438f2650dc58ebd2f9b`).
+- **D1 pre-migration snapshot:** `/private/tmp/cybermeters-pre-a33975f-094.sql`
+  (remote export before applying 094).
+- **Pages:** auto-deployed from main by Cloudflare Pages, project `cybermeters-dashboard`,
+  deployment `829f38b6-56df-495c-aa70-d28a52148540`, source `a33975f`, production 200
+  on `app.cybermeters.com`.
+- **PRs:** #158 (M5.e closure + fixes), release-evidence PR.
+
+M5.e closed the parity/honesty layer across the eight canonical Cyber MOT domains:
+one canonical eight-domain registry/order; one Cyber Metrics Score vocabulary; no
+frontend/customer/MSP five-pillar or four-service fallback; no local frontend score
+ladders; no unknown/unavailable-to-green coercion; canonical remediation/SLA copy on
+the server object; complete notification/timeline domain mappings; read-only
+`/business-risk`; persisted BRS payload support; portfolio complete-scan-only trend
+basis; and universal managed-case ownership assignment invariants including Brand.
+
+Production release proof:
+
+- Pre-deploy exact-head CI green on `a33975f155e96a9231963fed3b916948b3079a58`
+  (Actions run `29608699597`).
+- Local release gate green: `git diff --check`, Worker syntax, `validate-m5e-closure`
+  (`197` passed), migration validation (`104/104`), canonical worker sweep
+  (regression `220/220`, security contracts `45/45`, integration `18/18`, tenant
+  isolation `104/104`, pipeline `42/42`, email worker `9/9`, log redaction `17/17`,
+  purge completeness `22/22`, error contract `116/116`, ops health `29/29`,
+  OpenAPI valid), Worker `npm audit --audit-level=high` (`0` vulnerabilities),
+  Wrangler dry-run, frontend typecheck, frontend Vitest (`279` tests / `30` files),
+  and frontend production build.
+- `/health` on both `cybermeters-platform.ttrnn47.workers.dev` and `api.cybermeters.com`
+  reported deployment `2beda497-0b4e-4d4c-9552-5748742b13e1`, maintenance `false`.
+- `/ready` on both hosts reported `{"d1":true,"r2":true}`.
+- Anonymous protected route still returned `401`.
+- Production schema verified `payload_json TEXT` exists. Existing legacy BRS row remains
+  readable with `payload_json NULL`; no live row has a persisted payload yet, so the
+  persisted-payload serve path is proven by CI/validator and schema, not live customer data.
+- `/business-risk` write-purity live check could not be completed authenticated because
+  the available founder bearer token was rejected as expired; the failed unauthenticated
+  request did not change `workspace_brs_scores` or `workspace_brs_score_history`
+  row counts (`1` before / `1` after for the founder workspace). Full authenticated
+  proof remains the first post-release founder-session smoke item.
+- Production D1 currently has no assigned cases and no Brand cases, so live read-only
+  invariants show `assigned_null_owner=0` and `user_demo_owner_refs=0`; Brand assignment
+  and `assignment_changed` event emission are guarded by the M5.e validator, not exercised
+  in production without mutating founder data.
+
+Operational note: the legacy `d1_migrations` table is not authoritative for recent
+manual-file migrations in this repo; it still contains only 003-005, while 091/093/094
+are verified by schema and release evidence. Do not infer 094 failure from that ledger
+alone. The pre-existing `APP_VERSION = "2026.07.13"` drift also remains; `/health`
+correctly exposes the Worker deployment id.
+
 ## 2026.07.17-3 (Brand DNS enrichment — automatic lifecycle + tri-state truthful reporting) — deployed 2026-07-17
 
 - **Live Worker Version ID:** `a417185c-c359-4090-bc7f-38d61b2f5c0d` (main `c54c63a`)
