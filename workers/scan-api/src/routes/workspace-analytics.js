@@ -9,7 +9,7 @@ import { buildWorkspaceExecutivePdf } from "../engines/pdf.js";
 import { readLatestWorkspaceSnapshots } from "../engines/report-snapshot.js";
 import { resolveReportBranding } from "../engines/report-branding.js";
 import { prepareLogoXObject } from "../engines/pdf-image.js";
-import { buildScorecardData } from "../engines/scorecard.js";
+import { buildScorecardData, buildScorecardSections } from "../engines/scorecard.js";
 import { getEffectivePlan, hasFeatureEntitlement } from "../engines/entitlements.js";
 import { createId } from "../lib/util.js";
 
@@ -308,107 +308,9 @@ export async function workspaceAnalyticsRoutes(rctx) {
       // ── GET /scorecard/report — structured for PDF rendering ─────────────
       const generatedAt = new Date().toISOString();
 
-      // Derive per-section status: 'ok' | 'warning' | 'critical' | 'unknown'
-      const sections = [
-        {
-          title:   'Asset Inventory',
-          status:  scorecard.active_assets === 0 ? 'unknown'
-                 : scorecard.new_assets_30d > 0  ? 'warning' : 'ok',
-          summary: scorecard.active_assets > 0
-            ? `${scorecard.active_assets} active assets monitored.` +
-              (scorecard.new_assets_30d > 0
-                ? ` ${scorecard.new_assets_30d} new in the last 30 days.`
-                : ' No new assets in the last 30 days.')
-            : 'No assets have been inventoried yet. Run a scan to begin discovery.',
-          data: {
-            active_assets:    scorecard.active_assets,
-            new_assets_30d:   scorecard.new_assets_30d,
-            asset_events_30d: scorecard.asset_events_30d,
-          },
-        },
-        {
-          title:   'Vendor Risk',
-          status:  scorecard.vendor_risk.high   > 0 ? 'critical'
-                 : scorecard.vendor_risk.medium > 0 ? 'warning' : 'ok',
-          summary: scorecard.vendors_detected > 0
-            ? `${scorecard.vendors_detected} vendor${scorecard.vendors_detected !== 1 ? 's' : ''} detected.` +
-              (scorecard.vendor_risk.high > 0
-                ? ` ${scorecard.vendor_risk.high} high-risk.`
-                : ' No high-risk vendors.')
-            : 'No third-party vendors detected in this scan.',
-          data: {
-            total:  scorecard.vendors_detected,
-            ...scorecard.vendor_risk,
-          },
-        },
-        {
-          title:   'Third-Party Assets',
-          status:  scorecard.third_party_assets > 0 ? 'warning' : 'ok',
-          summary: scorecard.third_party_assets > 0
-            ? `${scorecard.third_party_assets} third-party SaaS service${scorecard.third_party_assets !== 1 ? 's' : ''} in use (email, CRM, support, marketing).`
-            : 'No third-party SaaS dependencies detected.',
-          data: { count: scorecard.third_party_assets },
-        },
-        {
-          title:   'SaaS Exposure',
-          status:  scorecard.saas_exposures > 0 ? 'warning' : 'ok',
-          summary: scorecard.saas_exposures > 0
-            ? `${scorecard.saas_exposures} exposed SaaS portal${scorecard.saas_exposures !== 1 ? 's' : ''} or login surface${scorecard.saas_exposures !== 1 ? 's' : ''} detected.`
-            : 'No externally exposed SaaS portals detected.',
-          data: { count: scorecard.saas_exposures },
-        },
-        {
-          title:   'Admin Surfaces',
-          status:  scorecard.admin_surfaces > 0 ? 'critical' : 'ok',
-          summary: scorecard.admin_surfaces > 0
-            ? `${scorecard.admin_surfaces} admin or management interface${scorecard.admin_surfaces !== 1 ? 's' : ''} publicly exposed.`
-            : 'No exposed admin surfaces detected.',
-          data: { count: scorecard.admin_surfaces },
-        },
-        {
-          title:   'Brand Monitoring',
-          status:  scorecard.brand_risks.high   > 0 ? 'critical'
-                 : scorecard.brand_risks.active > 0 ? 'warning' : 'ok',
-          summary: scorecard.brand_risks.active > 0
-            ? `${scorecard.brand_risks.active} active typosquat domain${scorecard.brand_risks.active !== 1 ? 's' : ''} detected.` +
-              (scorecard.brand_risks.high > 0
-                ? ` ${scorecard.brand_risks.high} high-risk.`
-                : '')
-            : `${scorecard.brand_risks.total} candidate domain${scorecard.brand_risks.total !== 1 ? 's' : ''} generated — none currently resolving.`,
-          data: scorecard.brand_risks,
-        },
-        {
-          title:   'Certificate Intelligence',
-          status:  scorecard.certificate_risks.risk_level === 'critical' ? 'critical'
-                 : scorecard.certificate_risks.risk_level === 'high'     ? 'warning'
-                 : scorecard.certificate_risks.signals > 0               ? 'warning'
-                 : scorecard.certificate_risks.risk_level === null        ? 'unknown' : 'ok',
-          summary: scorecard.certificate_risks.risk_level
-            ? `Certificate risk is ${scorecard.certificate_risks.risk_level}.` +
-              (scorecard.certificate_risks.signals > 0
-                ? ` ${scorecard.certificate_risks.signals} suspicious signal${scorecard.certificate_risks.signals !== 1 ? 's' : ''} detected.`
-                : ' No suspicious signals.')
-            : 'Certificate data not yet available from the latest scan.',
-          data: scorecard.certificate_risks,
-        },
-        {
-          title:   'Security Findings',
-          status:  scorecard.critical_findings > 0 ? 'critical'
-                 : scorecard.high_findings     > 0 ? 'warning' : 'ok',
-          summary: (scorecard.critical_findings + scorecard.high_findings) === 0
-            ? `No critical or high findings.` +
-              (scorecard.medium_findings + scorecard.low_findings > 0
-                ? ` ${scorecard.medium_findings + scorecard.low_findings} lower-severity finding${(scorecard.medium_findings + scorecard.low_findings) !== 1 ? 's' : ''} noted.`
-                : ' Clean scan.')
-            : `${scorecard.critical_findings} critical, ${scorecard.high_findings} high, ${scorecard.medium_findings} medium, ${scorecard.low_findings} low findings.`,
-          data: {
-            critical: scorecard.critical_findings,
-            high:     scorecard.high_findings,
-            medium:   scorecard.medium_findings,
-            low:      scorecard.low_findings,
-          },
-        },
-      ];
+      // B: per-section status/summary now derive from canonical Cyber MOT state via
+      // buildScorecardSections — the route no longer re-infers health from raw counts.
+      const sections = buildScorecardSections(scorecard);
 
       // security_posture_chart — flat array for radar/bar chart rendering.
       // Presentation is the canonical eight-domain Cyber MOT surface; the raw

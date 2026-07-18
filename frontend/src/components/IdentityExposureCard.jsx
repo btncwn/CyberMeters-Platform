@@ -46,6 +46,10 @@ export default function IdentityExposureCard({ workspaceId }) {
   const email = s.email_spoofing || {}
   const imp = s.impersonation_infrastructure || {}
   const login = s.exposed_login_surfaces || {}
+  // B: when the overall verdict is Unavailable / Not Assessed (a source failed or
+  // nothing was assessed), the sub-tiles must NOT read "None active" / "None exposed"
+  // / "Protected" off zero counts. Real detections still surface (findings never hidden).
+  const notObserved = !['Low', 'Medium', 'High'].includes(data.identity_exposure_level)
 
   return (
     <div className={`card p-5 border ${lvl.ring}`}>
@@ -63,20 +67,20 @@ export default function IdentityExposureCard({ workspaceId }) {
         <Signal
           icon={Mail}
           label="Email spoofing"
-          value={email.spoofable_domains > 0 ? `${email.spoofable_domains} of ${email.checked_domains} spoofable` : email.checked_domains ? 'Protected' : '—'}
-          sub={email.spoofable_domains > 0 ? 'Attackers can send email as you' : email.checked_domains ? 'SPF & DMARC in place' : 'No scan data yet'}
+          value={email.spoofable_domains > 0 ? `${email.spoofable_domains} of ${email.checked_domains} spoofable` : notObserved ? '—' : email.checked_domains ? 'Protected' : '—'}
+          sub={email.spoofable_domains > 0 ? 'Attackers can send email as you' : notObserved ? 'Could not assess' : email.checked_domains ? 'SPF & DMARC in place' : 'No scan data yet'}
         />
         <Signal
           icon={Users}
           label="Impersonation"
-          value={imp.active > 0 ? `${imp.active} active lookalike${imp.active === 1 ? '' : 's'}` : 'None active'}
-          sub={imp.can_send_mail > 0 ? `${imp.can_send_mail} can send mail as you` : imp.active > 0 ? 'Resolving lookalike domains' : 'No live impersonation'}
+          value={imp.active > 0 ? `${imp.active} active lookalike${imp.active === 1 ? '' : 's'}` : notObserved ? '—' : 'None active'}
+          sub={imp.can_send_mail > 0 ? `${imp.can_send_mail} can send mail as you` : imp.active > 0 ? 'Resolving lookalike domains' : notObserved ? 'Could not assess' : 'No live impersonation'}
         />
         <Signal
           icon={KeyRound}
           label="Login surfaces"
-          value={login.internet_facing > 0 ? `${login.internet_facing} internet-facing` : 'None exposed'}
-          sub={login.internet_facing > 0 ? 'Where credentials are attacked' : 'No exposed login portals'}
+          value={login.internet_facing > 0 ? `${login.internet_facing} internet-facing` : notObserved ? '—' : 'None exposed'}
+          sub={login.internet_facing > 0 ? 'Where credentials are attacked' : notObserved ? 'Could not assess' : 'No exposed login portals'}
         />
       </div>
     </div>
