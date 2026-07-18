@@ -15,12 +15,17 @@ const MAX_DOMAINS_FOR_EMAIL = 20;
 export async function computeIdentityExposure(env, workspaceId) {
   const db = env.cybermeters_db;
 
+  // A2: a FAILED evidence query/read must never look like "observed, zero exposure".
+  // Each source tracks its own availability so deriveLevel can return an honest
+  // Unavailable / Not Assessed state instead of a false Low/clean conclusion.
+  let loginUnavailable = false, brandUnavailable = false, scansUnavailable = false;
+
   // ── 1. Exposed login / credential surfaces ─────────────────────────────────
   const loginRows = (await db
     .prepare(`SELECT hostname, identity_type, provider, internet_exposed, risk_score
               FROM identity_assets WHERE workspace_id = ? AND status = 'active'
               ORDER BY risk_score DESC, internet_exposed DESC LIMIT 100`)
-    .bind(workspaceId).all().catch(() => ({ results: [] }))).results ?? [];
+    .bind(workspaceId).all().catch(() => { loginUnavailable = true; return { results: [] }; })).results ?? [];
   const byType = {};
   for (const r of loginRows) byType[r.identity_type] = (byType[r.identity_type] || 0) + 1;
   const login = {
@@ -35,7 +40,7 @@ export async function computeIdentityExposure(env, workspaceId) {
     .prepare(`SELECT candidate_domain, classification, risk_level, dns_resolves, mx_present, https_available
               FROM workspace_brand_assets WHERE workspace_id = ? AND status = 'active'
               ORDER BY (COALESCE(dns_resolves,0)+COALESCE(mx_present,0)+COALESCE(https_available,0)) DESC LIMIT 200`)
-    .bind(workspaceId).all().catch(() => ({ results: [] }))).results ?? [];
+    .bind(workspaceId).all().catch(() => { brandUnavailable = true; return { results: [] }; })).results ?? [];
   const active = brandRows.filter((r) => r.dns_resolves);
   const impersonation = {
     total: brandRows.length,
@@ -52,7 +57,7 @@ export async function computeIdentityExposure(env, workspaceId) {
               FROM scans s JOIN lpd ON s.domain_id = lpd.domain_id AND s.created_at = lpd.mx
               JOIN workspace_domains wd ON s.domain_id = wd.domain_id
               WHERE wd.workspace_id = ? LIMIT ${MAX_DOMAINS_FOR_EMAIL}`)
-    .bind(workspaceId).all().catch(() => ({ results: [] }))).results ?? [];
+    .bind(workspaceId).all().catch(() => { scansUnavailable = true; return { results: [] }; })).results ?? [];
   const emailDetails = [];
   for (const row of scanRows) {
     try {
@@ -75,11 +80,24 @@ export async function computeIdentityExposure(env, workspaceId) {
     details: emailDetails,
   };
 
-  return { signals: { exposed_login_surfaces: login, impersonation_infrastructure: impersonation, email_spoofing: email }, ...deriveLevel(login, impersonation, email) };
+  // A2 evidence status. Unavailable = a source query failed, OR we had completed
+  // scans to read but could read NONE of their reports (total R2 failure). A
+  // partial R2 read (some reports readable) proceeds on the observed evidence.
+  const emailUnavailable = scansUnavailable || (scanRows.length > 0 && emailDetails.length === 0);
+  const evidence = {
+    unavailable: loginUnavailable || brandUnavailable || emailUnavailable,
+    // "assessed" = we actually observed some evidence to evaluate (not just empty tables).
+    assessed: login.count > 0 || impersonation.total > 0 || email.checked_domains > 0,
+  };
+
+  return { signals: { exposed_login_surfaces: login, impersonation_infrastructure: impersonation, email_spoofing: email }, ...deriveLevel(login, impersonation, email, evidence) };
 }
 
 // Pure: overall level + plain-English summary from the three signals.
-export function deriveLevel(login, impersonation, email) {
+// A2: `evidence` distinguishes "we observed and saw nothing" from "we could not
+// observe" / "nothing to assess". unavailable / not-assessed must NEVER read as a
+// clean Low. Real exposure always surfaces first and is never hidden by a gap.
+export function deriveLevel(login, impersonation, email, evidence = {}) {
   const highSignals = [
     email.spoofable_domains > 0,                             // attackers can send email as you (BEC)
     impersonation.can_send_mail > 0,                         // a lookalike can spoof mail as you
@@ -90,17 +108,37 @@ export function deriveLevel(login, impersonation, email) {
     impersonation.active > 0,                               // resolving lookalikes (even without mail/login)
   ].filter(Boolean).length;
 
-  let level = "Low";
-  if (highSignals >= 1) level = "High";
-  else if (mediumSignals >= 1) level = "Medium";
-
   const parts = [];
   if (email.spoofable_domains > 0) parts.push(`${email.spoofable_domains} of your ${email.checked_domains} domain${email.checked_domains === 1 ? "" : "s"} can be spoofed in email (weak or missing DMARC)`);
   if (impersonation.active > 0) parts.push(`${impersonation.active} active lookalike domain${impersonation.active === 1 ? "" : "s"}${impersonation.can_send_mail ? ` (${impersonation.can_send_mail} able to send mail as you)` : ""}`);
   if (login.internet_facing > 0) parts.push(`${login.internet_facing} internet-facing login surface${login.internet_facing === 1 ? "" : "s"} where credentials are attacked`);
-  const summary = parts.length
-    ? `Identity exposure is ${level}: ${parts.join("; ")}.`
-    : "No significant identity-exposure signals detected — email authentication, lookalike domains, and exposed login surfaces all look clean.";
 
-  return { identity_exposure_level: level, summary };
+  // Real exposure ALWAYS surfaces first — an evidence gap never hides a finding.
+  if (highSignals >= 1 || mediumSignals >= 1) {
+    const level = highSignals >= 1 ? "High" : "Medium";
+    return { identity_exposure_level: level, summary: `Identity exposure is ${level}: ${parts.join("; ")}.` };
+  }
+
+  // No exposure observed. Unavailable / not-assessed can NEVER become clean Low.
+  const unavailable = evidence.unavailable === true;
+  const assessed = evidence.assessed !== undefined
+    ? evidence.assessed === true
+    : ((login?.count > 0) || (impersonation?.total > 0) || (email?.checked_domains > 0));
+
+  if (unavailable) {
+    return {
+      identity_exposure_level: "Unavailable",
+      summary: "Identity exposure could not be fully assessed this check — some evidence (login-surface, lookalike-domain, or email records) was unavailable. This is not a clean result.",
+    };
+  }
+  if (!assessed) {
+    return {
+      identity_exposure_level: "Not Assessed",
+      summary: "Identity exposure has not been assessed yet — no identity assets, lookalike domains, or completed scans were available to evaluate.",
+    };
+  }
+  return {
+    identity_exposure_level: "Low",
+    summary: "No significant identity-exposure signals detected — email authentication, lookalike domains, and exposed login surfaces all look clean.",
+  };
 }

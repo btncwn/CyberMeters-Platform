@@ -63,7 +63,16 @@ ok("clean → Low", deriveLevel({ internet_facing: 0 }, { active: 0, can_send_ma
 ok("exposed login only → Medium", deriveLevel({ internet_facing: 1 }, { active: 0, can_send_mail: 0, can_host_login: 0 }, { spoofable_domains: 0, checked_domains: 1 }).identity_exposure_level === "Medium");
 ok("spoofable domain → High", deriveLevel({ internet_facing: 0 }, { active: 0, can_send_mail: 0, can_host_login: 0 }, { spoofable_domains: 1, checked_domains: 1 }).identity_exposure_level === "High");
 ok("mail-capable lookalike → High", deriveLevel({ internet_facing: 0 }, { active: 1, can_send_mail: 1, can_host_login: 0 }, { spoofable_domains: 0, checked_domains: 0 }).identity_exposure_level === "High");
-ok("clean summary is reassuring", /clean/i.test(deriveLevel({ internet_facing: 0 }, { active: 0, can_send_mail: 0, can_host_login: 0 }, { spoofable_domains: 0, checked_domains: 0 }).summary));
+// A2: a reassuring "clean" verdict is honest ONLY when evidence was actually
+// assessed (checked_domains>0). With nothing assessed it must read Not Assessed.
+ok("assessed zero-exposure → Low + reassuring clean summary", (() => {
+  const r = deriveLevel({ internet_facing: 0 }, { active: 0, can_send_mail: 0, can_host_login: 0 }, { spoofable_domains: 0, checked_domains: 1 });
+  return r.identity_exposure_level === "Low" && /clean/i.test(r.summary);
+})());
+ok("A2: nothing assessed → Not Assessed, never a clean Low", (() => {
+  const r = deriveLevel({ internet_facing: 0, count: 0 }, { active: 0, total: 0, can_send_mail: 0, can_host_login: 0 }, { spoofable_domains: 0, checked_domains: 0 });
+  return r.identity_exposure_level === "Not Assessed" && !/clean/i.test(r.summary);
+})());
 
 // ── 2. Integration: consolidated exposure for ws_a ───────────────────────────
 const resp = await get("/api/workspaces/ws_a/identity-exposure", TOKEN);
