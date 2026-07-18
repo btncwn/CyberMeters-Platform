@@ -6,7 +6,7 @@
 // leaf config in security-headers-config.js (see that file for the anti-cycle rationale).
 import { assetFingerprintSignals } from "./asset-intel.js";
 import { runTyposquatModule } from "./brand-typosquat.js";
-import { DKIM_PROVIDER_LABELS, DKIM_SELECTORS } from "./email-analysis.js";
+import { DKIM_PROVIDER_LABELS, DKIM_SELECTORS, isEmailProbeUnobserved } from "./email-analysis.js";
 import { applyEvidenceQuality } from "./findings.js";
 import { classifyHeaderStrength } from "./headers-scan.js";
 import { ENTERPRISE_BENCHMARK, ENTERPRISE_DOMAINS } from "./scoring-config.js";
@@ -677,7 +677,13 @@ export function computeScore(modules, domain) {
       }));
     }
 
-    if (!modules.email_security?.spf?.present) {
+    // A1: SPF evidence status (NON-ENUMERABLE — direct read off the source object,
+    // never a spread/JSON copy). A failed/unexecuted SPF probe is unavailable /
+    // not_yet_assessed → score-neutral, NOT a missing record. Absent (pre-A1 reports
+    // / R2 reconstruction) → legacy present-based read, so history is not rewritten.
+    const spfEvidence = modules.email_security?.spf_evidence_status ?? null;
+    const spfUnobserved = spfEvidence ? isEmailProbeUnobserved(spfEvidence) : false;
+    if (!spfUnobserved && !modules.email_security?.spf?.present) {
       finding({
         id:           "email_missing_spf",
         module:       "email_security",

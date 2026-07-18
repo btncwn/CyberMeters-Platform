@@ -46,6 +46,19 @@ export function dmarcObservationStatusFromDnsResult(settledResult) {
   return DMARC_OBSERVATION_STATUS.UNAVAILABLE;
 }
 
+// A1: aggregate the DKIM selector probes into ONE observation status. DKIM probes
+// many selectors; the domain's DKIM is "observed" if ANY probe completed (a
+// non-match is an observed absence, never proof of failure), "unavailable" only if
+// EVERY probe failed (DNS error/timeout), and "not_yet_assessed" if none ran.
+// Reuses the single-result classifier so SPF and DKIM share one "unobserved"
+// definition (isEmailProbeUnobserved lives in email-analysis.js).
+export function dkimObservationStatusFromResults(results = []) {
+  const statuses = (Array.isArray(results) ? results : []).map(dmarcObservationStatusFromDnsResult);
+  if (statuses.includes(DMARC_OBSERVATION_STATUS.OBSERVED)) return DMARC_OBSERVATION_STATUS.OBSERVED;
+  if (statuses.includes(DMARC_OBSERVATION_STATUS.UNAVAILABLE)) return DMARC_OBSERVATION_STATUS.UNAVAILABLE;
+  return DMARC_OBSERVATION_STATUS.NOT_YET_ASSESSED;
+}
+
 export function buildDmarcEvidenceFromDnsResult(settledResult, options = {}) {
   const observationStatus = dmarcObservationStatusFromDnsResult(settledResult);
   const observed = observationStatus === DMARC_OBSERVATION_STATUS.OBSERVED;
@@ -95,6 +108,7 @@ export async function runEmailModule(domain) {
 
   // Check phase 1 DKIM results
   let dkimSelector = findDkimInResults(DKIM_SELECTORS, dkimPhase1);
+  const dkimSettled = [...dkimPhase1];   // A1: track every probe outcome for observation status
 
   // Phase 2 — provider-specific additional selectors (only if provider known and
   // no DKIM found yet). Only probe selectors not already covered by phase 1.
@@ -108,9 +122,13 @@ export async function runEmailModule(domain) {
       const phase2Results = await Promise.allSettled(
         phase2Selectors.map((sel) => dnsQuery(`${sel}._domainkey.${domain}`, "TXT"))
       );
+      dkimSettled.push(...phase2Results);
       dkimSelector = findDkimInResults(phase2Selectors, phase2Results);
     }
   }
+  // A1 evidence status — a failed SPF/DKIM probe must not collapse into "missing".
+  const spfObservationStatus = dmarcObservationStatusFromDnsResult(spfRes);
+  const dkimObservationStatus = dkimObservationStatusFromResults(dkimSettled);
 
   const dmarcRecord = dmarcEvidence.dmarc_record;
   const spfDetail = parseSpfRecord(spfRecord, spfRecs.length);
@@ -152,6 +170,12 @@ export async function runEmailModule(domain) {
     value: dmarcEvidence.dmarc_state,
     enumerable: false,
   });
+  // A1: SPF/DKIM observation status as NON-ENUMERABLE backend evidence — read
+  // directly by the in-memory truth consumers (scoring, email-intel). Kept off the
+  // enumerable module so the customer API response shape (routes/scans.js serves
+  // modules.email_security verbatim) is unchanged.
+  Object.defineProperty(result, "spf_evidence_status", { value: spfObservationStatus, enumerable: false });
+  Object.defineProperty(result, "dkim_evidence_status", { value: dkimObservationStatus, enumerable: false });
   result.remediation_actions = buildEmailRemediationActions(domain, details);
   return result;
 }

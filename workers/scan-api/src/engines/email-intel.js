@@ -8,7 +8,7 @@ import { safeFetch } from "../lib/http.js";
 import { runDnsModule } from "./dns-scan.js";
 import { dnsQuery } from "./dns.js";
 import { DMARC_INTEL_STATUS, isDmarcScoreNeutral } from "./dmarc-canonical-consumers.js";
-import { buildDkimDetail, parseDmarcRecord, parseSpfRecord } from "./email-analysis.js";
+import { buildDkimDetail, isEmailProbeUnobserved, parseDmarcRecord, parseSpfRecord } from "./email-analysis.js";
 import { runEmailModule } from "./email-scan.js";
 import { resolveRemediation } from "./remediation-registry.js";
 import { computeScore } from "./scoring.js";
@@ -17,12 +17,16 @@ import { computeScore } from "./scoring.js";
  * Enrich existing SPF result (from runEmailModule) with status/score/issue.
  * Ported from spf.py analyze_spf() — status enum: PASS / SOFTFAIL / FAIL / PARTIAL / MISSING.
  */
-function enrichSpf(emailMod) {
+export function enrichSpf(emailMod) {
   const spf    = emailMod?.spf || {};
   const record = spf.record || null;
   const detail = emailMod?.spf_detail || parseSpfRecord(record, spf.record_count ?? (record ? 1 : 0));
   if (!spf.present || !record) {
-    return { status: "MISSING", record: null, score: 0, issue: "No SPF record found.", detail };
+    // A1: a failed/unexecuted SPF probe (unavailable / not_yet_assessed) is NOT a
+    // missing record. Status stays MISSING for the (excluded) frontend display, but
+    // observation_unavailable gates the missing finding + business impact below.
+    const observation_unavailable = isEmailProbeUnobserved(emailMod?.spf_evidence_status);
+    return { status: "MISSING", record: null, score: 0, issue: "No SPF record found.", detail, observation_unavailable };
   }
   if (!detail.valid || detail.record_count > 1) {
     return { status: "FAIL", record, score: 5, issue: detail.warnings.join(" "), detail };
@@ -145,13 +149,18 @@ function enrichDmarc(emailMod) {
  * Enrich existing DKIM result (from runEmailModule).
  * Status: VERIFIED (selector found) / NOT_VERIFIED (no selector found).
  */
-function enrichDkim(emailMod) {
+export function enrichDkim(emailMod) {
   const dkim = emailMod?.dkim || {};
   const detail = emailMod?.dkim_detail || buildDkimDetail(dkim);
   if (dkim.present && dkim.selector) {
-    return { status: "VERIFIED", selector: dkim.selector, issue: "", detail };
+    return { status: "VERIFIED", selector: dkim.selector, issue: "", detail, observation_unavailable: false };
   }
-  return { status: "NOT_VERIFIED", selector: null, issue: detail.explanation, detail };
+  // A1: DKIM is "NOT_VERIFIED" only when we actually probed and found no selector.
+  // If every selector probe failed (unavailable) or none ran (not_yet_assessed) this
+  // is unobserved, not a not-verified conclusion — observation_unavailable gates the
+  // not-found finding + business impact below.
+  const observation_unavailable = isEmailProbeUnobserved(emailMod?.dkim_evidence_status);
+  return { status: "NOT_VERIFIED", selector: null, issue: detail.explanation, detail, observation_unavailable };
 }
 
 /**
@@ -310,7 +319,7 @@ function computeEmailScore(spf, dmarc, dkim, mtaSts, tlsRpt) {
  * Convert technical results to business impact statements.
  * Ported from business_impact.py BusinessImpactEngine.generate().
  */
-function buildEmailBusinessImpacts(spf, dmarc, dkim, mtaSts, tlsRpt) {
+export function buildEmailBusinessImpacts(spf, dmarc, dkim, mtaSts, tlsRpt) {
   const impacts = [];
 
   // DMARC — an unobservable lookup (not_observed) is not a "DMARC Missing" impact.
@@ -338,7 +347,7 @@ function buildEmailBusinessImpacts(spf, dmarc, dkim, mtaSts, tlsRpt) {
   }
 
   // DKIM
-  if (dkim.status === "NOT_VERIFIED") {
+  if (dkim.status === "NOT_VERIFIED" && !dkim.observation_unavailable) {
     impacts.push({
       technical:        "DKIM Not Verified",
       risk_level:       "INFO",
@@ -348,7 +357,7 @@ function buildEmailBusinessImpacts(spf, dmarc, dkim, mtaSts, tlsRpt) {
   }
 
   // SPF
-  if (spf.status === "MISSING") {
+  if (spf.status === "MISSING" && !spf.observation_unavailable) {
     impacts.push({
       technical:        "SPF Missing",
       risk_level:       "HIGH",
@@ -401,7 +410,7 @@ function buildEmailBusinessImpacts(spf, dmarc, dkim, mtaSts, tlsRpt) {
  * These findings live in modules.email_security_intelligence.findings only,
  * NOT in the main findings array, to avoid double-counting.
  */
-function buildEmailIntelFindings(spf, dmarc, dkim, mtaSts, tlsRpt) {
+export function buildEmailIntelFindings(spf, dmarc, dkim, mtaSts, tlsRpt) {
   const findings = [];
 
   // A not_observed / not_yet_assessed DMARC surfaces status MISSING for display,
@@ -429,7 +438,7 @@ function buildEmailIntelFindings(spf, dmarc, dkim, mtaSts, tlsRpt) {
     });
   }
 
-  if (spf.status === "MISSING") {
+  if (spf.status === "MISSING" && !spf.observation_unavailable) {
     findings.push({
       id:             "email_intel_spf_missing",
       module:         "email_security_intelligence",
@@ -451,7 +460,7 @@ function buildEmailIntelFindings(spf, dmarc, dkim, mtaSts, tlsRpt) {
     });
   }
 
-  if (dkim.status === "NOT_VERIFIED") {
+  if (dkim.status === "NOT_VERIFIED" && !dkim.observation_unavailable) {
     findings.push({
       id:                "email_intel_dkim_not_found",
       module:            "email_security_intelligence",
