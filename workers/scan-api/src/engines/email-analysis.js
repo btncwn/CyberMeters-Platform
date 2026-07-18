@@ -151,6 +151,18 @@ export function parseDmarcRecord(record, recordCount = record ? 1 : 0) {
   };
 }
 
+// ── Email probe evidence-status (A1) ─────────────────────────────────────────
+// Shared, dependency-free classifier used by BOTH the SPF and DKIM truth
+// consumers (scoring + email-intel) to tell "we could not observe this probe"
+// apart from "we observed it and there is no record". The observation status
+// itself is produced at the probe boundary (email-scan.js) reusing the DMARC
+// observation-status pattern; this leaf helper only answers "is it unobserved?".
+// unavailable = probe/DNS failure; not_yet_assessed = probe never executed.
+// Both are score-neutral and must never become a missing/failed conclusion.
+export function isEmailProbeUnobserved(status) {
+  return status === "unavailable" || status === "not_yet_assessed";
+}
+
 export function parseSpfRecord(record, recordCount = record ? 1 : 0) {
   const raw = normalizeDnsTxtValue(record);
   const tokens = raw.split(/\s+/).filter(Boolean);
