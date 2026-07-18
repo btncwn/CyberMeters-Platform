@@ -5,6 +5,22 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## Docs — Pricing Policy canonicalised (PRICING-POLICY.md rewritten) — 2026-07-19
+
+- **Type:** docs-only (Phase A of the Pricing Canonicalisation & Lockstep episode). No code, no
+  migration, no deploy, no tag.
+- **Change:** `docs/PRICING-POLICY.md` rewritten as the founder-final locked pricing authority
+  (locked 2026-07-19). Supersedes the prior £9/£29/£69 (and legacy £29/£149/£399) sets and withdraws
+  the discredited "~£0.10–0.20/domain / 85% margin" cost claim.
+- **Locked ladder (monthly):** 14-Day Full Trial £0/1-domain/full-product/no-card · Starter £9.99/1 ·
+  Professional £19.99/3 · Business £49.99/10 incl. +£3 per additional domain to a hard cap of 25 ·
+  MSP £99.99 base + £3/domain, minimum billed quantity 10 (floor £129.99/mo).
+- **Annual (exact, pay-10-get-12):** Starter £99.90 · Professional £199.90 · Business £499.90 base +
+  £30/domain/yr · MSP £999.90 base + £30/domain/yr (annual floor £1,299.90).
+- **Not yet implemented:** PLAN_LIMITS, billing metadata, Stripe prices and pricing cards remain on the
+  old values until the separately-gated lockstep PR ships; live billing is unchanged. Stripe test→live
+  cutover remains a founder-run action.
+
 ## Phase A — Posture Timeline Trust & Actionability (RESCOPE of M6) — deployed 2026-07-18, production-accepted 2026-07-18
 
 - **Git release tag:** none yet — tagging deferred to founder approval (verified: newest `git tag` is still `v2026.07.17-5`; next under the `vYYYY.MM.DD-n` scheme would be `v2026.07.18-1`).

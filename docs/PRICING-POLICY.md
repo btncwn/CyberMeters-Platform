@@ -1,205 +1,183 @@
 # CyberMeters — Pricing Policy (canonical)
 
-> **Owner:** Turhan. **Status: DECIDED 2026-07-09 — adopted, NOT yet live.**
-> The live cutover happens at **public-beta launch** (see [Go-live](#go-live--the-one-lockstep-cutover-at-launch)), not before.
-> **Competitor research is CLOSED.** Act from this file — do not re-run pricing analysis.
-> The prices actually charged today are still the OLD ones (see [Currently live](#currently-live-until-the-launch-cutover)).
-
-> **This file is the single canonical pricing and packaging authority (recorded
-> 16 July 2026).** It supersedes every earlier pricing, packaging and commercial
-> direction document. The following are Historical / Superseded and must not be
-> implemented or quoted:
+> **Status: CANONICAL · FOUNDER-FINAL · LOCKED 2026-07-19.**
+> Single source of truth for all CyberMeters pricing, packaging and entitlement limits.
+> Any change to prices, tiers, limits or plan mapping MUST update **this document first**, then
+> propagate to Stripe prices + backend entitlements/billing metadata + pricing cards in **one
+> lockstep**. Cards, Stripe and limits must always match this document. No partial live-price change.
 >
-> - `docs/final-commercial-packaging-v1.md` — was "Approved — Active Commercial
->   Direction"; legacy £29 / £149 / £399, Business as multi-workspace.
-> - `docs/cyber-essentials-commercial-strategy-v1.md` — was "Active Commercial
->   Direction"; legacy prices and CE claims that exceed external evidence.
-> - `docs/pricing-strategy-v1.md` — was "Current strategy"; legacy prices and
->   workspace/domain limits that were never enforced.
-> - `docs/pricing-page-copy-v1.md` — was "Ready for implementation"; legacy prices,
->   banned "Save 20%" annual copy, workspaces shown on cards.
-> - `docs/commercial-packaging-strategy-v1.md` — analysis only; rejected £9.90/£49.
-> - `docs/stripe-billing-architecture-v1.md` — a third, never-live £49 price set.
-> - `docs/pricing-audit-current-state-v1.md`, `docs/entitlement-audit-v1.md`,
->   `docs/PHASE-0-AUDIT.md`, `docs/strategic-review-board-level-june2026.md` —
->   point-in-time audits/reviews; historical only.
+> **Owner:** Turhan (founder). Pricing is founder authority — engineering recommends, the founder decides.
 >
-> `docs/stripe-env-setup-v1.md` remains accurate **for the currently-live legacy
-> prices** and is the runbook for today's Stripe setup — not for the adopted
-> tiers, which cut over per §6. Canonical competitive positioning:
-> `docs/competitive-battlecard-v2.md`.
+> This file supersedes every earlier pricing, packaging and commercial-direction document. The prices
+> actually charged in production remain the OLD legacy set until the founder performs the one-time
+> Stripe **test → live cutover** at public-beta launch (see [§8](#8-stripe-testlive-boundary)); this
+> document does not itself change live billing.
+
+**Superseded / historical (must not be implemented or quoted):**
+`docs/final-commercial-packaging-v1.md` · `docs/cyber-essentials-commercial-strategy-v1.md` ·
+`docs/pricing-strategy-v1.md` · `docs/pricing-page-copy-v1.md` ·
+`docs/commercial-packaging-strategy-v1.md` · `docs/stripe-billing-architecture-v1.md` ·
+`docs/pricing-audit-current-state-v1.md` · `docs/entitlement-audit-v1.md` · earlier point-in-time
+audits/reviews. Any £-figure in those files, in the previous £9/£29/£69 or £29/£149/£399 sets, in
+`docs/competitive-battlecard-v2.md`, or in prior notes is stale relative to this document. The earlier
+"~£0.10–0.20/domain all-in" cost claim is **discredited and withdrawn** — see [§9](#9-cost-floor--planning-assumptions).
+Canonical competitive positioning reference (non-price): `docs/competitive-battlecard-v2.md`.
 
 ---
 
-## 1. The thesis — why we can be genuinely "unbeatable"
+## 1. Product & value metric
 
-Every competitor is either on traditional/AWS infra or single-purpose (DMARC-only,
-or ASM-only, or ratings-only). Our **Cloudflare-native cost is ~£0.10–0.20/domain/mo
-all-in** (incl. Stripe fees; compute alone ≈ £0.002–0.01). So we keep **85 %+ margin
-even at these prices.** No competitor's cost base can follow us down.
-
-**Honest definition of "unbeatable" (never overclaim):** cheapest per-domain for the
-**full external-security posture** — the eight canonical domains: Email Protection ·
-Brand Protection · Attack Surface · Certificates & Trust · Cyber Essentials
-Readiness · Website Security · Identity Exposure · Shadow IT & Unmanaged
-Technology — i.e. **bundle economics**, NOT "cheaper than every single-purpose tool
-on its one job." A UK SMB otherwise stacks OnDMARC + an ASM tool (£89) + a cert
-monitor = £150–250/mo; we give all of it for a fraction.
-
-**The real moat is the Free tier competitors can't match** (their cost base forbids a
-free continuously-monitored domain), not undercutting any single price.
-
----
-
-## 2. Permanent rules
-
-1. **Public value metric = monitored domains.** NEVER on pricing cards: workspaces,
-   users, scans/month, reports/month (internal enforcement concepts only).
-2. **SMB = simple bundled domain tiers · MSP = platform fee + per-domain.** Fixed MSP
-   bands ("20–100+ from £X") are banned — 21 and 99 domains must not cost the same.
-3. **Any price change = Stripe prices + backend `BILLING_PLAN_METADATA` + pricing
-   cards in ONE lockstep change, Turhan-approved.** Cards must ALWAYS match what
-   Stripe charges — a £9 card charging £29 is a trust catastrophe.
-4. **Keep internal plan keys** (`free/starter/professional/business/enterprise`) —
-   relabel only (`professional`→"Growth", `enterprise`→"MSP / Partner"). No key
-   migration, existing subscriptions never break.
-5. Positioning: simpler + cheaper + UK SMB/MSP + domain-first + Cyber MOT language.
-   Don't out-feature Red Sift / Hardenize; make them irrelevant to the UK SMB.
-6. No customer-facing "DAST / scanner / pen test / certification / guaranteed secure".
+- **One product: the Cyber MOT.** Eight canonical customer-facing categories, and **every paid plan
+  includes all eight**:
+  1. Email Protection
+  2. Brand Protection
+  3. Attack Surface
+  4. Certificates & Trust
+  5. Cyber Essentials Readiness
+  6. Website Security
+  7. Identity Exposure
+  8. Shadow IT & Unmanaged Technology
+- **Primary commercial metric: monitored domains.** Billing is **per primary (organisation) domain**;
+  each primary domain includes its discovered footprint — subdomains, certificates, lookalikes and
+  related externally observed evidence — across all eight categories at no extra charge.
+- **Do not price by** users, workspaces, scans or reports, and do not surface those on pricing cards.
+- **Self-service is the operating model.** No routine founder intervention; no managed-service
+  positioning; no feature expansion beyond the existing product boundary.
 
 ---
 
-## 3. Adopted tiers (MAX-aggressive — Turhan, 2026-07-09)
+## 2. Plans (locked · monthly · GBP)
 
-### SMB — domain bundles (all include the full platform)
+| Plan | Monthly | Monitored domains | Notes |
+| --- | --- | --- | --- |
+| **14-Day Full Trial** | £0 | 1 | Full product — all 8 categories + alerts + cases + reports + remediation. No card required. |
+| **Starter** | £9.99 | 1 | Full Cyber MOT |
+| **Professional** | £19.99 | 3 | Full Cyber MOT |
+| **Business** | £49.99 | 10 included | +£3/mo per additional domain, hard cap 25 |
+| **MSP** | £99.99 base + £3/domain | Minimum billed quantity 10 | Monthly floor **£129.99**; distinct customer type |
 
-| Plan | Monthly | Annual (pay 9, get 12) | Monitored domains | Internal key |
-|---|---|---|---|---|
-| **Free forever** | £0 | — | 1 (continuous weekly monitoring) | `free` |
-| **Starter** | **£9** | £81 | 3 | `starter` |
-| **Growth** | **£29** | £261 | 10 | `professional` |
-| **Business** | **£69** | £621 | 25 (single workspace) | `business` |
+**Business overage** — base £49.99/mo **includes 10 domains**; domains 11–25 are billed at **+£3/month
+each**; **hard cap 25**. Worked points: 15 domains = £64.99 · 20 = £79.99 · 25 = £94.99. A customer
+needing more than 25 domains moves to **MSP**.
 
-- Extra domains on any SMB plan: **£3/domain/mo**.
-- Free tier is the land-grab weapon: continuous (weekly passive) monitoring of 1
-  domain + all four services + Cyber MOT + CE Readiness preview. On-demand re-scan
-  limited (cost control). Upgrade triggers: 2nd domain, full history, alerts,
-  scheduled reports, brand depth, CE dashboard.
-
-### MSP / Partner — platform fee + per-domain (white-label, multi-workspace)
-
-**£29/mo platform + £1/domain**, **£0.75 over 100**, **£0.50 over 500**. Min 25 domains.
-Internal key `enterprise`.
-
-| Client domains | Monthly | Effective £/domain |
-|---|---|---|
-| 25 | £54 | £2.16 |
-| 50 | £79 | £1.58 |
-| 100 | £129 | £1.29 |
-| 250 | £241 | £0.97 |
-| 500 | £429 | £0.86 |
-| 1,000 | £679 | £0.68 |
-
-### Business vs MSP boundary (resolves the old `ws=50` question)
-
-- **Business = single-org** (1 workspace, ≤25 monitored domains) → set `PLAN_LIMITS`
-  `business.workspaces = 1`.
-- **MSP / Partner = multi-client** (a workspace per client, white-label) → keeps
-  multi-workspace. This is the ONLY tier that shows "client workspaces".
-
-### Annual
-
-**Pay 9, get 12** (3 months free). Card copy may state this plainly *because the
-Stripe annual prices are set to exactly 9× monthly* — unlike the old ~20 % annuals,
-where only "Save with annual billing." was allowed.
+**MSP billing** — base £99.99/mo **does not include domains**; **every** monitored domain is £3/month
+with a **minimum billed quantity of 10** → MSP minimum monthly charge is **£129.99** (£99.99 + 10 × £3).
+Worked points: 10 domains = £129.99 · 25 = £174.99. MSP is a distinct customer type (multi-client
+portfolio, bulk onboarding, client reporting, white-label, MSP billing/usage), **not** merely a
+high-domain Business plan.
 
 ---
 
-## 4. Phasing (don't block launch on the complex part)
+## 3. Annual billing (locked · exact)
 
-- **Phase 1 (launch):** Free + Starter/Growth/Business as **fixed Stripe prices**
-  (the proven checkout machinery handles these). MSP = **"Talk to us"** (manual
-  invoicing).
-- **Phase 2 (fast-follow, Stripe usage-based):** per-domain add-on (£3) + **MSP
-  metered** (£29 + £1/domain automated) + free-tier continuous-monitoring cron
-  (cost-controlled weekly eligibility).
+Annual billing = **pay for 10 months, receive 12** (2 months free ≈ 16.7%). Stripe must use these
+**exact** annual figures — never a re-computed percentage — so cards, Stripe and this document cannot
+drift on rounding:
 
----
+| Plan | Annual base | Annual per-domain |
+| --- | --- | --- |
+| Starter | £99.90/year | — |
+| Professional | £199.90/year | — |
+| Business | £499.90/year | £30/domain/year (domains 11–25) |
+| MSP | £999.90/year | £30/domain/year (min billed quantity 10) |
 
-## 5. Currently live (until the launch cutover)
-
-Deployed prices are still the OLD set — **Starter £29 / Professional £149 /
-Business £399**, annuals ~20 % off (£276 / £1,428 / £3,828), MSP "Talk to us",
-annual copy "Save with annual billing." Cards render monitored-domains only
-(`PricingPage.jsx`, commits `0e7d1ff` + `bb20865`). Enforcement `v2026.07.09-1`
-(worker `2d17cf49`): SMB single-workspace, domains per-workspace, creation-only.
-
-**These stay live until the launch cutover below.**
+**MSP annual minimum = £1,299.90/year** (£999.90 + 10 × £30).
 
 ---
 
-## 6. Go-live — the ONE lockstep cutover (at launch)
+## 4. 14-Day Full Trial rules
 
-**Important:** the platform has only ever run on **Stripe sandbox/test keys** — no
-real payment has ever been taken (the "6/6 checkouts" were test-mode). Going live is
-a real **test → live cutover**, done ONCE at public-beta launch. No real
-subscriptions exist → clean slate, zero migration.
-
-Order (checkout must never break mid-cutover; cards never go live before Stripe):
-
-1. **Turhan — Stripe (LIVE mode):** activate account (business verify + bank — do
-   this early, verification takes time; UK sole-trader is fine to start), create the
-   3 products with the new live prices (Starter £9/£81 · Professional £29/£261 ·
-   Business £69/£621), create the LIVE webhook (same `/api/billing/webhook` endpoint,
-   live signing secret).
-2. **Turhan — worker secrets** (he sets these himself; Claude never sees values):
-   `wrangler secret put STRIPE_SECRET_KEY` (`sk_live_…`),
-   `STRIPE_WEBHOOK_SECRET` (`whsec_…` live), and the 6 live price IDs
-   (`STRIPE_*_PRICE_ID` or `STRIPE_PRICE_MAP`).
-3. **Claude — code:** `BILLING_PLAN_METADATA` (new prices/names), `PLAN_LIMITS`
-   (domains 1/3/10/25, `business.workspaces=1`), display names (Growth / MSP),
-   pricing cards. Deploy on Turhan's approval.
-4. **Verify:** Turhan runs ONE real **£9 Starter** checkout with his card → confirm
-   charge + subscription activates (webhook fired) → refund from Stripe.
-
-Until then, the new pricing can be **built and tested in sandbox** (test cards, zero
-risk) so the machinery is proven against the new tiers before launch.
+- Full product for **14 days**, **1 monitored domain**, all 8 categories, alerts/cases/reports/
+  remediation — **no card required**.
+- **No automatic charge.** Conversion to a paid plan requires **explicit customer consent**.
+- **Monitoring stops at expiry (fail-closed).** Read-only access to prior evidence may remain only if
+  the existing lifecycle already supports it safely.
+- Abuse controls in place of a card: verified business email (where existing controls allow);
+  domain-ownership verification; **one trial per user/workspace**; **no repeat trial for the same
+  domain**; rate limiting.
 
 ---
 
-## 7. Honest risk
+## 5. Internal plan-key mapping (naming only — subscriptions are NOT auto-migrated)
 
-At these prices the **£100k-Y1 target is volume-bound**: ~50 MSPs (avg £150/mo) *or*
-~120 Business (£69) + the free→paid funnel. It's a deliberate **land-grab bet** that
-the free-funnel virality + MSP channel convert more customers than higher prices
-would. Cloudflare cost advantage + Cyber MOT hook + UK SMB TAM make the bet
-reasonable, but **distribution (funnel + MSP outreach) must actually work** —
-engineering isn't the constraint, go-to-market is.
+Internal keys may remain `free / starter / professional / business / enterprise`. Relabelling is a
+**naming** operation; subscription behaviour, entitlements and Stripe mappings are **not** silently
+remapped.
 
-Month-3 checkpoint: if MRR is weak and no MSP design partner is engaged, revisit the
-aggression dial (a "smart-aggressive" fallback exists: £12/£39/£89 · MSP £1.50/domain).
+- `free` → **14-Day Full Trial** (time-limited; monitoring stops at expiry)
+- `starter` → **Starter**
+- `professional` → **Professional**
+- `business` → **Business** (base includes 10; 11–25 per-domain overage)
+- `enterprise` → **MSP** — **only** after proving zero live enterprise subscriptions, zero live
+  enterprise customers, zero active Stripe enterprise mappings and zero contractual/entitlement
+  divergence from the MSP model. `enterprise → MSP` is a **billing-model and commercial-contract
+  change, not a safe relabel**; if any of that proof is missing, stop and report migration/cutover
+  options rather than remap.
 
 ---
 
-## 8. Competitor benchmarks (settled 2026-07 — cite, DO NOT re-research)
+## 6. Entitlement limits (PLAN_LIMITS — monitored domains)
 
-| Competitor | Model | Signal |
-|---|---|---|
-| **Red Sift / OnDMARC** | DMARC, tiered | Express $9/mo (4 domains); Essentials 25 sender domains; upper tiers sales-led. Enterprise-ish + complex. |
-| **Intruder** | Ext. vuln mgmt / ASM | Base fee + per-target; Enterprise = quote. |
-| **HostedScan** | Ext. scanning | $39 / $109 / $189 mo, 5 targets each. |
-| **Pentest-Tools** | Ext. assessment | $95 / $140 / $190 mo, from 5 assets. |
-| **Detectify** | Surface + app scanning | Platform fee + per-domain (surface) + per-target (app); PCI ASV €500/yr. |
-| **Attack Surface Center** (UK) | ASM | Free · £89/10 assets · £179/30 · £499/100. Closest UK ASM analog. |
-| **Hardenize / Red Sift** | Asset/DNS/TLS/cert monitoring | Monitored-host tiers (250 / 500+), +hosts $2/mo. Business = demo/quote. |
-| **UpGuard** | Ratings / vendor risk | $1,750/mo (50 vendors), +vendors $79 each. Enterprise. |
-| **Censys ASM** | Internet visibility | Credit-based, packages from $100. |
-| **DMARC Report** | DMARC / MSP | Core 1 / Guard 5 / Shield 10 / Defender 25 / Ultimate ∞ ($3,900/mo). MSP 50 % off + volume. |
-| **DMARC Digests** | DMARC-only | **Flat $14/mo per domain**, 60-day history — the cheapest per-domain DMARC benchmark. |
-| **Mailhardener MSP** (model to emulate) | DMARC MSP | **€149 base + €1/domain**, nothing else metered; 50 domains ≈ €199/mo. |
-| **URIports** | DMARC/TLS/DNS packs | €5/5 · €25/25 · €100/100 · €400/400 domains. Domain bundles are market-normal. |
+- `free` (trial): 1, expires after 14 days (fail-closed)
+- `starter`: 1
+- `professional`: 3
+- `business`: 10 included, per-domain overage to a **hard cap of 25** (domain 26 rejected → routed to MSP)
+- `enterprise` (MSP): **minimum billed quantity 10**, metered per-domain
 
-**Four market models** exist (domain-count / host-asset / volume / MSP fee+per-domain).
-Ours: **SMB = domain bundles, MSP = platform fee + per-domain, metric = monitored
-domains** — cheaper than all of them for the full posture, on a cost base they can't
-match. Related: [GROWTH-ROADMAP.md](GROWTH-ROADMAP.md).
+The frontend must never derive or override entitlements; domain-cap enforcement is backend-owned and
+tenant-scoped.
+
+---
+
+## 7. Lockstep rule (permanent)
+
+Any price / tier / limit change = **this document + Stripe prices + backend PLAN_LIMITS /
+BILLING_PLAN_METADATA + pricing cards**, in one founder-approved lockstep. No partial live-price change.
+Pricing cards must always match what Stripe charges and what this document states, for both monthly and
+annual.
+
+---
+
+## 8. Stripe test/live boundary
+
+- Until public-beta go-live, only Stripe **sandbox/test** keys are used, and **production runtime is
+  never bound to test price IDs**. Test price IDs live only in test-only fixtures/config, clearly
+  separated from production metadata.
+- **Go-live is a one-time founder-run test → live cutover:** the founder activates live Stripe, creates
+  live prices + webhook, and sets the secrets himself. Engineering never sees live secret values and
+  then updates metadata/limits/cards to reference the live price IDs.
+- If the repository lacks a safe test/live configuration separation, stop and present the minimum safe
+  design — never improvise a production binding to test price IDs.
+
+---
+
+## 9. Cost floor — planning assumptions
+
+Subject to accountant verification + actual Stripe/Cloudflare telemetry. Solo-founder, AI-augmented,
+self-service operating model — no employee hiring:
+
+- Founder gross salary ~£40,000/year (company-paid); employer NIC ~£5,250 (2026/27: (£40,000 − £5,000)
+  × 15%; single-director → no Employment Allowance; no mandatory pension).
+- Annual operating costs ~£10,000 (Cloudflare, AI/software tooling, accounting/legal, insurance, other).
+- Stripe processing modelled at low 2% / base 2.5% / high 3.5% of revenue (not a single locked %).
+- **Breakeven ≈ £57k ARR;** ~£90k revenue ≈ ~£26k retained post-tax company profit; Corporation Tax
+  19% ≤£50k profit, marginal relief £50k–£250k.
+- Cloudflare-native infrastructure is marginal per domain. The real constraint is **founder time per
+  customer** → MSP-heavy mix + self-service SMB.
+
+These are **founder-approved planning assumptions, not audited figures**. Retained company profit is
+**not** the founder's net personal income; personal income tax and employee NIC on the salary sit
+outside this unit-economics model. (The earlier "~£0.10–0.20/domain all-in / 85% margin" claim is
+withdrawn.)
+
+---
+
+## 10. Competitor guardrails (positioning, not anchors)
+
+SMB/MSP audit set (positioning reference only): Red Sift, CyberSmart, Intruder, CYRISMA, Guardz,
+ConnectSecure, ThreatMate, EasyDMARC, PowerDMARC, Sendmarc. Price anchors: the per-domain email floor
+(EasyDMARC / PowerDMARC / Red Sift) and CyberSmart (UK/channel, ~65% MSP margin). Position on
+eight-category scope at an accessible entry price, **not** on a competitor median. £9.99 removes the
+price-excuse to choose a single-wedge email tool while delivering eight-category scope; growth comes
+from upgrades (2nd/3rd domain → Professional, wider portfolio → Business, multi-client → MSP), not from
+the entry tier.
