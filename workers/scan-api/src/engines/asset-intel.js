@@ -540,7 +540,8 @@ const ADMIN_SURFACE_SIGS = [
  * Pure synchronous — no network I/O.  Called after runExposureModule completes.
  */
 export function runAdminSurfaceModule(modules) {
-  const exposureAssets = modules?.asset_exposure?.assets || [];
+  const exposure       = modules?.asset_exposure || null;
+  const exposureAssets = exposure?.assets || [];
   const reachable      = exposureAssets.filter((a) => a.reachable);
 
   const seen     = new Set();   // deduplicate (hostname, product)
@@ -615,6 +616,23 @@ export function runAdminSurfaceModule(modules) {
   const high     = actionable.filter((s) => s.risk_level === "high").length;
   const medium   = actionable.filter((s) => s.risk_level === "medium").length;
 
+  // A3: admin detection's ONLY evidence is asset_exposure. Reflect its availability so a
+  // failed / incomplete / not-run probe pass can never read as a clean zero-admin verdict.
+  // additive field — no existing field's value or meaning changes. Empty assets alone is
+  // NOT healthy (nothing was probed → not_assessed).
+  let evidence_status;
+  if (actionable.length > 0) {
+    evidence_status = "issue_detected";               // a verified admin surface ALWAYS surfaces first — never hidden by a gap
+  } else if (!exposure) {
+    evidence_status = "not_assessed";                 // asset_exposure never ran for this scan
+  } else if (exposure.error || exposure.incomplete === true) {
+    evidence_status = "unavailable";                  // ran, but probes/evidence incomplete or failed
+  } else if (exposureAssets.length === 0) {
+    evidence_status = "not_assessed";                 // no hosts were probed — empty ≠ observed-clean
+  } else {
+    evidence_status = "assessed_healthy";             // completed, hosts probed, zero verified admin surfaces
+  }
+
   return {
     detected: actionable.length > 0,
     total:    actionable.length,
@@ -624,6 +642,7 @@ export function runAdminSurfaceModule(modules) {
     medium,
     services,
     observations,
+    evidence_status,
     source:   "asset_exposure_fingerprint",
     error:    null,
   };
