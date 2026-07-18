@@ -9,7 +9,7 @@ import { buildCertificateTrustL2 } from "../engines/cert-trust-l2.js";
 import { assignManagedCaseOwner, getManagedCase, listManagedCaseEvents, listManagedCases, managedCaseToApi, transitionManagedCase, verifyManagedCaseById } from "../engines/asm-cases.js";
 import { remapToThirdPartyCategory } from "../engines/discovery-scan.js";
 import { computeWorkspaceVendorRisk, confidenceToScore, normalizeVendorKey, normalizeVendorRiskCategory, signalWeightForVendor } from "../engines/vendor-risk.js";
-import { collapseCustomerTimelineEvents } from "../engines/timeline-trust.js";
+import { collapseCustomerTimelineEvents, countCustomerTimelineEventsByDay } from "../engines/timeline-trust.js";
 import { SEVERITY_RANK, enrichEvent, eventTypesForCategory } from "../lib/exposure-events.js";
 import { pageMeta, paginationParams, parseBoundedInteger } from "../lib/util.js";
 
@@ -353,33 +353,20 @@ export async function attackSurfaceRoutes(rctx) {
         try {
           const result = await env.cybermeters_db
             .prepare(
-              `SELECT date(created_at) AS day, event_type, COUNT(*) AS count
+              `SELECT id, scan_id, event_type, hostname, created_at
                FROM asset_events
                WHERE workspace_id = ?
-               GROUP BY day, event_type
-               ORDER BY day ASC`
+               ORDER BY created_at ASC, id ASC`
             )
             .bind(wsId)
             .all();
 
           // Pivot rows into { day, new_asset_discovered, asset_reappeared, ... }
-          const dayMap = new Map();
           const EVENT_TYPES = [
             "new_asset_discovered", "asset_reappeared", "asset_no_longer_seen",
             "takeover_risk_detected", "wildcard_dns_detected", "cloud_storage_detected",
           ];
-          const timelineRows = collapseCustomerTimelineEvents(result.results || []);
-          for (const row of timelineRows) {
-            if (!dayMap.has(row.day)) {
-              const entry = { day: row.day };
-              for (const t of EVENT_TYPES) entry[t] = 0;
-              dayMap.set(row.day, entry);
-            }
-            if (EVENT_TYPES.includes(row.event_type)) {
-              dayMap.get(row.day)[row.event_type] = row.count;
-            }
-          }
-          return json({ workspace_id: wsId, timeline: [...dayMap.values()] });
+          return json({ workspace_id: wsId, timeline: countCustomerTimelineEventsByDay(result.results || [], EVENT_TYPES) });
         } catch {
           return json({ error: "Database error" }, 500);
         }
@@ -703,17 +690,16 @@ export async function attackSurfaceRoutes(rctx) {
               .prepare(`SELECT COUNT(*) AS n FROM workspace_assets WHERE workspace_id = ? AND status = 'active'`)
               .bind(wsId),
 
-            // Per-day new / removed event counts for the last 90 days
+            // Raw new / removed events for the last 90 days. Collapse first,
+            // then aggregate, so short-lived churn does not drive trend counts.
             env.cybermeters_db
               .prepare(
-                `SELECT date(created_at) AS day,
-                        SUM(CASE WHEN event_type = 'new_asset_discovered'   THEN 1 ELSE 0 END) AS new_assets,
-                        SUM(CASE WHEN event_type = 'asset_no_longer_seen'   THEN 1 ELSE 0 END) AS removed_assets
+                `SELECT id, scan_id, event_type, hostname, created_at
                  FROM asset_events
                  WHERE workspace_id = ?
                    AND created_at >= datetime('now', '-90 days')
-                 GROUP BY day
-                 ORDER BY day ASC`
+                   AND event_type IN ('new_asset_discovered', 'asset_no_longer_seen', 'asset_reappeared')
+                 ORDER BY created_at ASC, id ASC`
               )
               .bind(wsId),
 
@@ -737,8 +723,11 @@ export async function attackSurfaceRoutes(rctx) {
           const eventMap    = new Map();
           const findingMap  = new Map();
 
-          for (const row of (eventRows.results || [])) {
-            eventMap.set(row.day, { new_assets: row.new_assets ?? 0, removed_assets: row.removed_assets ?? 0 });
+          for (const row of countCustomerTimelineEventsByDay(eventRows.results || [], ["new_asset_discovered", "asset_no_longer_seen"])) {
+            eventMap.set(row.day, {
+              new_assets: row.new_asset_discovered ?? 0,
+              removed_assets: row.asset_no_longer_seen ?? 0,
+            });
           }
           for (const row of (findingRows.results || [])) {
             findingMap.set(row.day, row.critical_findings ?? 0);

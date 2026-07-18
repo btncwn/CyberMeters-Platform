@@ -176,30 +176,39 @@ function suppressPairedFlipFlops(events, windowMs) {
   }
 
   for (const hostEvents of byHost.values()) {
-    hostEvents.sort((a, b) =>
+    const sorted = hostEvents.sort((a, b) =>
       eventMs(a.row) - eventMs(b.row)
       || eventOrder(a.row) - eventOrder(b.row)
       || String(a.row?.id || "").localeCompare(String(b.row?.id || ""))
     );
-    for (let i = 0; i < hostEvents.length - 1; i++) {
-      const a = hostEvents[i];
-      if (suppress.has(a.index)) continue;
-      for (let j = i + 1; j < hostEvents.length; j++) {
-        const b = hostEvents[j];
-        if (suppress.has(b.index)) continue;
-        if (eventMs(b.row) - eventMs(a.row) > windowMs) break;
-        const pair = `${a.row.event_type}->${b.row.event_type}`;
-        if (
-          pair === "new_asset_discovered->asset_no_longer_seen" ||
-          pair === "asset_no_longer_seen->asset_reappeared" ||
-          pair === "asset_reappeared->asset_no_longer_seen"
-        ) {
-          suppress.add(a.index);
-          suppress.add(b.index);
-          break;
-        }
+    let cluster = [];
+    const flush = () => {
+      if (cluster.length < 2) {
+        cluster = [];
+        return;
+      }
+      const types = new Set(cluster.map((item) => item.row.event_type));
+      const hasAbsent = types.has("asset_no_longer_seen");
+      const hasPresent = types.has("new_asset_discovered") || types.has("asset_reappeared");
+      if (hasAbsent && hasPresent) {
+        for (const item of cluster) suppress.add(item.index);
+      }
+      cluster = [];
+    };
+    for (const item of sorted) {
+      if (cluster.length === 0) {
+        cluster.push(item);
+        continue;
+      }
+      const firstMs = eventMs(cluster[0].row);
+      if (eventMs(item.row) - firstMs <= windowMs) {
+        cluster.push(item);
+      } else {
+        flush();
+        cluster.push(item);
       }
     }
+    flush();
   }
   return suppress;
 }
@@ -216,4 +225,21 @@ export function collapseCustomerTimelineEvents(rows, opts = {}) {
 export function filterCustomerTimelineEventsForScan(rows, scanId, opts = {}) {
   const collapsed = collapseCustomerTimelineEvents(rows, opts);
   return collapsed.filter((row) => row?.scan_id === scanId || (opts.missingScanIdMatches && row?.scan_id == null));
+}
+
+export function countCustomerTimelineEventsByDay(rows, eventTypes, opts = {}) {
+  const allowed = new Set(eventTypes || []);
+  const dayMap = new Map();
+  for (const row of collapseCustomerTimelineEvents(rows, opts)) {
+    if (!allowed.has(row?.event_type)) continue;
+    const day = String(row.created_at || row.day || "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
+    if (!dayMap.has(day)) {
+      const entry = { day };
+      for (const type of allowed) entry[type] = 0;
+      dayMap.set(day, entry);
+    }
+    dayMap.get(day)[row.event_type] += 1;
+  }
+  return [...dayMap.values()].sort((a, b) => a.day.localeCompare(b.day));
 }

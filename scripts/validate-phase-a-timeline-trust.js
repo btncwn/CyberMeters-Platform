@@ -15,6 +15,7 @@ const {
   assessTimelineComparison,
   buildAssetTimelineTrustMetadata,
   collapseCustomerTimelineEvents,
+  countCustomerTimelineEventsByDay,
   filterCustomerTimelineEventsForScan,
 } = await import(pathToFileURL(timelinePath).href);
 const { upsertAssetInventory } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "asset-inventory.js")).href);
@@ -179,7 +180,7 @@ const asset = (db, hostname) => db.prepare("SELECT hostname, status, last_seen F
     { id: "e2", scan_id: "s2", event_type: "asset_no_longer_seen", hostname: "blackbullbarbers.co.uk", created_at: "2026-07-18T09:05:00.000Z" },
     { id: "e3", scan_id: "s3", event_type: "asset_reappeared", hostname: "blackbullbarbers.co.uk", created_at: "2026-07-18T09:10:00.000Z" },
   ];
-  eq("blackbullbarbers short-lived churn collapses from customer timeline", collapseCustomerTimelineEvents(raw).length, 1);
+  eq("blackbullbarbers short-lived churn collapses from customer timeline", collapseCustomerTimelineEvents(raw).length, 0);
   eq("raw append-only event evidence remains intact in caller memory", raw.length, 3);
 }
 
@@ -192,6 +193,18 @@ const asset = (db, hostname) => db.prepare("SELECT hostname, status, last_seen F
   const collapsed = collapseCustomerTimelineEvents(raw);
   eq("persistent removal remains visible", collapsed[0]?.event_type, "asset_no_longer_seen");
   eq("genuine later reappearance remains visible", collapsed[1]?.event_type, "asset_reappeared");
+}
+
+// Timeline aggregation: collapse raw rows before counting, preserving persistent removals.
+{
+  const raw = [
+    { id: "a", event_type: "asset_no_longer_seen", hostname: "www.blackbullbarbers.co.uk", created_at: "2026-07-18T09:00:00.000Z" },
+    { id: "b", event_type: "asset_reappeared", hostname: "www.blackbullbarbers.co.uk", created_at: "2026-07-18T09:04:00.000Z" },
+    { id: "c", event_type: "asset_no_longer_seen", hostname: "old.blackbullbarbers.co.uk", created_at: "2026-07-18T09:10:00.000Z" },
+  ];
+  const counts = countCustomerTimelineEventsByDay(raw, ["asset_no_longer_seen"]);
+  eq("timeline aggregation collapses short-lived churn before counting", counts[0]?.asset_no_longer_seen, 1);
+  eq("timeline aggregation preserves persistent removal day", counts[0]?.day, "2026-07-18");
 }
 
 // Filtered alert presentation: recent context may collapse prior rows, but output is scan-scoped.
@@ -244,10 +257,16 @@ function pureContract(mod) {
     { id: "cur", scan_id: "scan_current", event_type: "takeover_risk_detected", hostname: "y", created_at: "2026-07-18T09:00:00.000Z" },
   ], "scan_current");
   if (scoped.length !== 1 || scoped[0].id !== "cur") return "alert_scan_scope_removed";
+  const counts = mod.countCustomerTimelineEventsByDay([
+    { id: "a", event_type: "asset_no_longer_seen", hostname: "x", created_at: "2026-07-18T09:00:00.000Z" },
+    { id: "b", event_type: "asset_reappeared", hostname: "x", created_at: "2026-07-18T09:05:00.000Z" },
+    { id: "c", event_type: "asset_no_longer_seen", hostname: "y", created_at: "2026-07-18T09:10:00.000Z" },
+  ], ["asset_no_longer_seen"]);
+  if (counts[0]?.asset_no_longer_seen !== 1) return "timeline_aggregation_did_not_collapse";
   return null;
 }
 
-eq("pure helper contract passes before mutations", pureContract({ assessTimelineComparison, collapseCustomerTimelineEvents, filterCustomerTimelineEventsForScan }), null);
+eq("pure helper contract passes before mutations", pureContract({ assessTimelineComparison, collapseCustomerTimelineEvents, countCustomerTimelineEventsByDay, filterCustomerTimelineEventsForScan }), null);
 
 if (!process.argv.includes("--no-mutate")) {
   const original = fs.readFileSync(timelinePath, "utf8");
@@ -266,8 +285,8 @@ if (!process.argv.includes("--no-mutate")) {
     },
     {
       name: "remove disappearance/reappearance collapse",
-      from: 'pair === "asset_no_longer_seen->asset_reappeared"',
-      to: 'false',
+      from: "if (hasAbsent && hasPresent) {",
+      to: "if (false && hasAbsent && hasPresent) {",
       expected: "flip_flop_pair_not_collapsed",
     },
     {
@@ -275,6 +294,12 @@ if (!process.argv.includes("--no-mutate")) {
       from: "return collapsed.filter((row) => row?.scan_id === scanId || (opts.missingScanIdMatches && row?.scan_id == null));",
       to: "return collapsed;",
       expected: "alert_scan_scope_removed",
+    },
+    {
+      name: "aggregate raw timeline rows without collapse",
+      from: "for (const row of collapseCustomerTimelineEvents(rows, opts)) {",
+      to: "for (const row of (rows || [])) {",
+      expected: "timeline_aggregation_did_not_collapse",
     },
   ];
   let mutationFailures = 0;
