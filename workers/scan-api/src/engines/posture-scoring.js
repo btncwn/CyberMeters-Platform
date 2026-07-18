@@ -232,34 +232,49 @@ export function computeSecurityPosture(sc, report) {
   tpScore = clamp(tpScore);
 
   // ── 5. Admin Exposure ────────────────────────────────────────────────────────
+  // A3: admin exposure earns a score ONLY when the observation completed with
+  // sufficient evidence. Absent / unavailable / not_assessed admin evidence is
+  // EXCLUDED from the weighted denominator (admScore = null), mirroring the email
+  // null-score pattern above — it must never inflate posture with an unearned 100.
+  // A verified admin surface always keeps its penalty (real findings are never hidden).
   let admScore   = 100;
   const admReasons = [];
   const admRem = [];
+  const admEvidence  = adm?.evidence_status ?? null;
+  const admHasFinding = (adm?.critical ?? 0) > 0 || (adm?.high ?? 0) > 0 || (adm?.total ?? 0) > 0;
 
-  // adm.critical / adm.high come from admin_surface_detection module
-  const admCritical = adm?.critical ?? 0;
-  const admHigh     = adm?.high     ?? 0;
-  const admOther    = (adm?.total ?? sc.admin_surfaces) - admCritical - admHigh;
+  if (admHasFinding) {
+    // A verified admin surface ALWAYS penalises — a real finding is never hidden.
+    const admCritical = adm?.critical ?? 0;
+    const admHigh     = adm?.high     ?? 0;
+    const admOther    = (adm?.total ?? sc.admin_surfaces) - admCritical - admHigh;
 
-  if (admCritical > 0) {
-    const cut = clamp(admCritical * 20, 0, 60);
-    admScore -= cut;
-    admReasons.push(`${admCritical} critical admin surface${admCritical !== 1 ? 's' : ''} publicly exposed`);
-    pushRem(admRem, 'admin_surface_critical');
+    if (admCritical > 0) {
+      const cut = clamp(admCritical * 20, 0, 60);
+      admScore -= cut;
+      admReasons.push(`${admCritical} critical admin surface${admCritical !== 1 ? 's' : ''} publicly exposed`);
+      pushRem(admRem, 'admin_surface_critical');
+    }
+    if (admHigh > 0) {
+      const cut = clamp(admHigh * 12, 0, 30);
+      admScore -= cut;
+      admReasons.push(`${admHigh} high-risk admin surface${admHigh !== 1 ? 's' : ''} publicly exposed`);
+      pushRem(admRem, 'admin_surface_high');
+    }
+    if (admOther > 0) {
+      const cut = clamp(admOther * 6, 0, 20);
+      admScore -= cut;
+      admReasons.push(`${admOther} other management interface${admOther !== 1 ? 's' : ''} exposed`);
+      pushRem(admRem, 'asset_exposure_admin_interface');
+    }
+    admScore = clamp(admScore);
+  } else if (admEvidence === 'assessed_healthy') {
+    admScore = 100;   // observation completed, sufficient evidence, zero verified admin surfaces
+  } else {
+    // absent / unavailable / not_assessed / unprovable legacy-empty → EXCLUDED from the
+    // weighted denominator (admScore = null), never an unearned clean 100.
+    admScore = null;
   }
-  if (admHigh > 0) {
-    const cut = clamp(admHigh * 12, 0, 30);
-    admScore -= cut;
-    admReasons.push(`${admHigh} high-risk admin surface${admHigh !== 1 ? 's' : ''} publicly exposed`);
-    pushRem(admRem, 'admin_surface_high');
-  }
-  if (admOther > 0) {
-    const cut = clamp(admOther * 6, 0, 20);
-    admScore -= cut;
-    admReasons.push(`${admOther} other management interface${admOther !== 1 ? 's' : ''} exposed`);
-    pushRem(admRem, 'asset_exposure_admin_interface');
-  }
-  admScore = clamp(admScore);
 
   // ── Weighted overall ─────────────────────────────────────────────────────────
   // If any category is null (no scan data) it is excluded from the weighted average.

@@ -1325,6 +1325,7 @@ export async function attackSurfaceRoutes(rctx) {
         return json({
           workspace_id: wsId,
           total: 0, critical: 0, high: 0, medium: 0, services: [],
+          evidence_status: "not_assessed",   // A3: no domains → nothing assessed (not a clean zero)
         });
       }
 
@@ -1349,17 +1350,29 @@ export async function attackSurfaceRoutes(rctx) {
         scanIds.map((sid) => env.cybermeters_reports.get(`reports/${sid}.json`))
       );
 
-      // 4. Extract and merge admin_surface_detection.services across reports
+      // 4. Extract and merge admin_surface_detection.services across reports.
+      // A3: track per-domain admin evidence availability so an unreadable report /
+      // failed R2 / unavailable module can never present as a clean zero-admin result.
       const seen     = new Set();
       const services = [];
+      let unavailableDomains = 0, notAssessedDomains = 0, healthyDomains = 0;
+      // Domains with no completed scan are simply not assessed yet.
+      notAssessedDomains += Math.max(0, domainIds.length - scanIds.length);
 
       for (const r2 of r2Results) {
-        if (r2.status !== "fulfilled" || !r2.value) continue;
+        if (r2.status !== "fulfilled" || !r2.value) { unavailableDomains++; continue; }  // R2 rejected / object missing
         let report;
-        try { report = await r2.value.json(); } catch { continue; }
+        try { report = await r2.value.json(); } catch { unavailableDomains++; continue; } // malformed / unreadable
 
         const adminMod = report?.modules?.admin_surface_detection;
-        if (!adminMod?.services?.length) continue;
+        if (!adminMod?.services?.length) {
+          // No services collected — classify WHY (never a silent clean zero).
+          const es = adminMod?.evidence_status ?? null;
+          if (es === "unavailable") unavailableDomains++;
+          else if (es === "assessed_healthy") healthyDomains++;
+          else notAssessedDomains++;   // not_assessed, module absent, or legacy report with no evidence_status
+          continue;
+        }
 
         for (const svc of adminMod.services) {
           const key = `${svc.hostname}::${svc.product}`;
@@ -1402,6 +1415,15 @@ export async function attackSurfaceRoutes(rctx) {
         return (riskOrder[a.risk_level] ?? 4) - (riskOrder[b.risk_level] ?? 4);
       });
 
+      // A3 aggregate evidence status (additive; existing fields keep their meaning).
+      // Uses the pre-filter found count so a query filter can never flip a real
+      // exposure into a clean/healthy coverage state.
+      let evidence_status;
+      if (services.length > 0) evidence_status = "issue_detected";
+      else if (unavailableDomains > 0) evidence_status = "unavailable";
+      else if (healthyDomains > 0 && notAssessedDomains === 0) evidence_status = "assessed_healthy";
+      else evidence_status = "not_assessed";
+
       return json({
         workspace_id: wsId,
         total:    filtered.length,
@@ -1409,6 +1431,7 @@ export async function attackSurfaceRoutes(rctx) {
         high:     filtered.filter((s) => s.risk_level === "high").length,
         medium:   filtered.filter((s) => s.risk_level === "medium").length,
         services: filtered,
+        evidence_status,   // A3: unavailable / not_assessed never presents as a clean total:0
       });
     }
 
