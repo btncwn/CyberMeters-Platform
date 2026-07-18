@@ -1,7 +1,9 @@
 # CyberMeters — Pricing Policy (canonical)
 
 > **Status: CANONICAL · FOUNDER-FINAL · LOCKED 2026-07-19.**
-> Single source of truth for all CyberMeters pricing, packaging and entitlement limits.
+> This file is the **single canonical pricing and packaging authority** — the one source of truth for
+> all CyberMeters pricing, packaging and entitlement limits. (This founder-final 2026-07-19 lock
+> supersedes the earlier 2026-07-09 pricing decision.)
 > Any change to prices, tiers, limits or plan mapping MUST update **this document first**, then
 > propagate to Stripe prices + backend entitlements/billing metadata + pricing cards in **one
 > lockstep**. Cards, Stripe and limits must always match this document. No partial live-price change.
@@ -43,6 +45,12 @@ Canonical competitive positioning reference (non-price): `docs/competitive-battl
 - **Do not price by** users, workspaces, scans or reports, and do not surface those on pricing cards.
 - **Self-service is the operating model.** No routine founder intervention; no managed-service
   positioning; no feature expansion beyond the existing product boundary.
+
+**Bundle claim (positioning).** CyberMeters is the cheapest per-domain option for the
+**full external-security posture** — the eight canonical domains:
+Email Protection · Brand Protection · Attack Surface · Certificates & Trust · Cyber Essentials Readiness · Website Security · Identity Exposure · Shadow IT & Unmanaged Technology
+— i.e. **bundle economics**, not undercutting any single single-purpose tool on its one job.
+"Cyber MOT" is the product name, not a ninth domain.
 
 ---
 
