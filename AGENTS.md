@@ -4,7 +4,7 @@
 
 Version: July 2026
 
-Last updated: 16 July 2026 (release v2026.07.16-17; active canonical episode: M5 Completion Across All Eight Domains — in progress)
+Last updated: 18 July 2026 (latest release v2026.07.17-5; active canonical episode: Posture Timeline Trust & Actionability — the founder-approved RESCOPE of M6, after the M6.0-B viability gate; M5.a–M5.g all CLOSED)
 
 ---
 
@@ -105,16 +105,17 @@ CyberMeters manages and verifies the lifecycle where externally observable evide
 | Complete ASM Verification | Live |
 | Alerts Across All Eight Domains | Live — 8 of 8 domains alert canonically (`docs/alerts-eight-domain-coverage.md`). Engineering closed; genuine live-event acceptance outstanding. |
 | MSP Portfolio Per-Domain State and Trend | Live — built, NOT customer-accepted. Persisted per-domain state + honest trend across all 8 domains (mig 091). Engineering closed; authenticated customer acceptance outstanding (no entitled account exists in production), so it is not sellable and must not be demoed. |
-| M5 Completion Across All Eight Domains | In progress — evidence-honesty corrective (`v2026.07.16-6`), alerting repair (`v2026.07.16-7`), occurrence resolver (`-8`), read surfaces (`-9`), and the case verification contract (`-10`) all closed. **M5.a is CLOSED** (`-11` Email, `-12` Website Security + verification vocabulary, `-13` Cyber Essentials): all three domains have creation, linkage, case-level ownership, honest verification and recurrence in production; live-event acceptance outstanding. CE readiness honesty corrective closed (`-14`): access_control/malware_protection no longer scored from email-auth proxies; indicator is 3 of 5 assessable areas. CE Questionnaire Hygiene closed (`-15`, mig 092): one shared build-time question set, ISO-versioned answers, CI drift guard. M5.b shipped (`-16` certificate verification; `-17` remaining reconciliation): certificate_case derives support per finding; CE Security Update Management is no longer scored from certificate/ASM proxies (indicator 2 of 5, methodology-versioned); `external` is not `automated`; blanket drift CI-blocked. M5.b engineering closed; live acceptance outstanding. **M5.c Stage 1 shipped** (`v2026.07.17-1`, mig 093): one completed Cyber MOT → one immutable canonical eight-domain snapshot (R2 JSON + D1 index, 081 atomic claim, R2-durable before completed, append-only supersession, repair-on-read), stamped with every methodology version (first CMS + BRI stamps, registry fingerprint); `verification_support` + fail-closed ceiling wording on every item/action; read endpoints for M5.d live and auth-gated. Renderers NOT migrated; 0 snapshots exist in production (created by future scans; no backfill). Next: M5.d renderer migration. |
+| M5 Completion Across All Eight Domains | Complete — **M5.a–M5.g all CLOSED** (deployed through `v2026.07.17-5`, migration `095`). History: evidence-honesty corrective (`v2026.07.16-6`), alerting repair (`v2026.07.16-7`), occurrence resolver (`-8`), read surfaces (`-9`), and the case verification contract (`-10`) all closed. **M5.a is CLOSED** (`-11` Email, `-12` Website Security + verification vocabulary, `-13` Cyber Essentials): all three domains have creation, linkage, case-level ownership, honest verification and recurrence in production; live-event acceptance outstanding. CE readiness honesty corrective closed (`-14`): access_control/malware_protection no longer scored from email-auth proxies; indicator is 3 of 5 assessable areas. CE Questionnaire Hygiene closed (`-15`, mig 092): one shared build-time question set, ISO-versioned answers, CI drift guard. M5.b shipped (`-16` certificate verification; `-17` remaining reconciliation): certificate_case derives support per finding; CE Security Update Management is no longer scored from certificate/ASM proxies (indicator 2 of 5, methodology-versioned); `external` is not `automated`; blanket drift CI-blocked. M5.b engineering closed; live acceptance outstanding. **M5.c Stage 1 shipped** (`v2026.07.17-1`, mig 093): one completed Cyber MOT → one immutable canonical eight-domain snapshot (R2 JSON + D1 index, 081 atomic claim, R2-durable before completed, append-only supersession, repair-on-read), stamped with every methodology version (first CMS + BRI stamps, registry fingerprint); `verification_support` + fail-closed ceiling wording on every item/action; read endpoints for M5.d live and auth-gated. Renderers NOT migrated at Stage 1; 0 snapshots existed in production at that point (created by future scans; no backfill). M5.d–M5.g subsequently closed (renderer migration, eight-domain parity, maturity ledger, final CI closure). |
+| Posture Timeline Trust & Actionability — the RESCOPE of M6 | CURRENT ACTIVE PHASE. M6.0 viability gate ran to conclusion (M6.0-A PASSED; M6.0-B ran 18 July 2026, founder ruled RESCOPE, GO criteria unmet). Behaviour Intelligence deferred (sensor-dependent, founder-gated). Scope/acceptance in `docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md` and `docs/EPISODE-PLAN-posture-timeline-trust.md`. |
+| M7 Pricing + Billing Alignment | Following gate (after the active episode). |
 | Final Public-Beta Gate | Planned after managed-platform completion |
 
-Current release facts (as of 17 July 2026):
+Current release facts (as of 18 July 2026):
 
-- latest release tag: `v2026.07.17-2` (M5.d — every report renderer consumes the canonical snapshot — deployed);
-- live Worker Version ID: `c02b0759-ab2d-4746-98d0-1a074f7070b6` (built from `33dba60`);
-- rollback Worker Version ID: `f7429e6f-dffd-485f-9b85-a369641b51af` (v2026.07.17-1);
-- latest migration applied to production: `093-scan-report-snapshots.sql` (applied 17 July 2026);
-- active canonical episode: M5 Completion Across All Eight Domains (in progress; M5.c and M5.d shipped; M5.e parity reconciliation next).
+- latest release tag: `v2026.07.17-5` (M5.f — canonical eight-domain maturity ledger — deployed);
+- latest migration applied to production: `095-domain-maturity-ledger.sql` (applied 17 July 2026);
+- fast-aging deployment IDs (live/rollback Worker Version IDs) are held authoritatively in `CHANGELOG.md` and `CLAUDE.md` and are not duplicated here;
+- active canonical episode: Posture Timeline Trust & Actionability — the founder-approved RESCOPE of M6 after the M6.0-B viability gate (M5.a–M5.g all CLOSED; Behaviour Intelligence deferred as a sensor-dependent, founder-gated programme; M7 Pricing + Billing Alignment follows).
 
 **All eight canonical domains alert through the canonical pipeline.** The earlier
 six-of-eight closure (`v2026.07.15-2`) was premature and is superseded — it deferred
@@ -157,13 +158,15 @@ Priority order:
 3. Complete ASM Verification (complete — Live)
 4. Alerts Across All Eight Domains (complete — Live, 8 of 8; genuine live-event acceptance outstanding)
 5. MSP Portfolio Per-Domain State and Trend (Live — built, NOT customer-accepted; acceptance outstanding)
-6. M5 Completion Across All Eight Domains (ACTIVE — in progress; evidence-honesty corrective closed, remaining increments planned)
-7. Systematic debugging and reliability hardening
-8. Security testing and pentesting
-9. Founder-controlled acceptance testing
-10. Final public-beta gate
-11. First controlled customer invitations
-12. Gradual cohort expansion
+6. M5 Completion Across All Eight Domains (COMPLETE — M5.a–M5.g all CLOSED)
+7. Posture Timeline Trust & Actionability — the RESCOPE of M6 (ACTIVE — current canonical episode; scope/acceptance in `docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md` and `docs/EPISODE-PLAN-posture-timeline-trust.md`. Behaviour Intelligence deferred as a sensor-dependent, founder-gated programme)
+8. M7 Pricing + Billing Alignment (following gate)
+9. Systematic debugging and reliability hardening
+10. Security testing and pentesting
+11. Founder-controlled acceptance testing
+12. Final public-beta gate
+13. First controlled customer invitations
+14. Gradual cohort expansion
 
 Do not begin a later phase before the active canonical episode is closed unless an immediate security or production incident requires intervention.
 
