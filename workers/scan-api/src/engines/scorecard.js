@@ -5,6 +5,7 @@
 import { computeSecurityPosture } from "./posture-scoring.js";
 import { getCurrentPosturePresentation } from "./current-posture.js";
 import { resolveCyberMotDomainStates } from "./cyber-mot-domains.js";
+import { canSayHealthy, domainState, neutralSummary, scorecardBehaviour, sectionStatus } from "./scorecard-domain-state.js";
 
 /**
  * buildScorecardData(wsId, env)
@@ -189,6 +190,26 @@ export async function buildScorecardData(wsId, env, { scanScope = "linked_domain
   const attentionRequired = [];
   const urgent            = [];
 
+  // B canonicalisation: reassuring "healthy / none detected / looks normal" wording
+  // is now gated on the canonical Cyber MOT domain state (already resolved from the
+  // report) and the A3 admin evidence_status — an empty raw count / null / failed
+  // query can never by itself produce a positive verdict.
+  const cyberMotStates = Array.isArray(report?.cyber_mot_domains)
+    ? report.cyber_mot_domains
+    : resolveCyberMotDomainStates(report);
+  const adminEvidence = report?.modules?.admin_surface_detection?.evidence_status ?? null;
+  const brandStateB = domainState(cyberMotStates, "brand_protection");
+  const certStateB  = domainState(cyberMotStates, "certificates_trust");
+  const asStateB    = domainState(cyberMotStates, "attack_surface");
+  const shadowStateB = domainState(cyberMotStates, "shadow_it_unmanaged_technology");
+  // A non-healthy, non-issue domain gets a neutral "could not assess / not yet
+  // assessed" line (never a reassuring one, never silent healthy).
+  const noteNeutral = (behaviour, subject) => {
+    if (behaviour === "unavailable" || behaviour === "not_assessed") {
+      attentionRequired.push(neutralSummary(behaviour === "unavailable" ? "unavailable" : "not_yet_assessed", subject));
+    }
+  };
+
   // ── Good signals ──────────────────────────────────────────────────────────
   if (activeAssets > 0) {
     good.push(
@@ -196,7 +217,8 @@ export async function buildScorecardData(wsId, env, { scanScope = "linked_domain
     );
   }
   if (!cloudAssetList.length && !assetTypeMap['cloud_storage']) {
-    good.push('No cloud storage exposure was detected.');
+    if (canSayHealthy(asStateB)) good.push('No cloud storage exposure was detected.');
+    else noteNeutral(scorecardBehaviour(asStateB), 'Cloud storage exposure');
   }
   if (vendorsActive > 0) {
     good.push(
@@ -207,13 +229,17 @@ export async function buildScorecardData(wsId, env, { scanScope = "linked_domain
     good.push('No critical or high-severity findings in the latest scan.');
   }
   if (brandHighRisk === 0 && activeBrands === 0) {
-    good.push('No active brand impersonation domains detected.');
+    if (canSayHealthy(brandStateB)) good.push('No active brand impersonation domains detected.');
+    else noteNeutral(scorecardBehaviour(brandStateB), 'Brand impersonation');
   }
   if (adminTotal === 0) {
-    good.push('No exposed admin or management surfaces detected.');
+    if (adminEvidence === 'assessed_healthy') good.push('No exposed admin or management surfaces detected.');
+    else noteNeutral(adminEvidence, 'Admin surface exposure');   // unavailable/not_assessed → neutral; null (legacy) → silent, never "none detected"
   }
-  if (certRiskLevel === 'low' || (certRiskLevel === null && certSignals.length === 0)) {
+  if (canSayHealthy(certStateB)) {
     good.push('Certificate health looks normal — no suspicious signals detected.');
+  } else {
+    noteNeutral(scorecardBehaviour(certStateB), 'Certificate health');   // null/unavailable/not_assessed → neutral, never "looks normal"; issue handled by the urgent line
   }
 
   // ── Attention Required ────────────────────────────────────────────────────
@@ -305,9 +331,7 @@ export async function buildScorecardData(wsId, env, { scanScope = "linked_domain
     },
     report
   );
-  const cyber_mot_domains = Array.isArray(report?.cyber_mot_domains)
-    ? report.cyber_mot_domains
-    : resolveCyberMotDomainStates(report);
+  const cyber_mot_domains = cyberMotStates;   // resolved once above (B), reused here
 
   // ── Final scorecard object ─────────────────────────────────────────────────
   return {
@@ -330,6 +354,7 @@ export async function buildScorecardData(wsId, env, { scanScope = "linked_domain
     third_party_assets: tpaTotal,
     saas_exposures:     saasTotal,
     admin_surfaces:     adminTotal,
+    admin_surface_evidence_status: adminEvidence,   // B: additive — canonical A3 admin state for wording
     brand_risks: {
       total:  brandTotal,
       active: activeBrands,
@@ -356,4 +381,101 @@ export async function buildScorecardData(wsId, env, { scanScope = "linked_domain
     security_posture,
     cyber_mot_domains,
   };
+}
+
+// ── B: /scorecard/report sections, built from the scorecard payload ──────────
+// Moved out of the route so the sections and the executive_summary share ONE state
+// mapping and the route never re-derives health from raw counts. Brand /
+// Certificates / Shadow-IT / Admin wording is gated on canonical Cyber MOT state
+// (+ the A3 admin evidence_status) — an empty count / null / failed query can never
+// by itself produce a healthy "none detected" / "looks normal".
+export function buildScorecardSections(scorecard) {
+  const cmd = scorecard.cyber_mot_domains;
+  const brandState  = domainState(cmd, "brand_protection");
+  const certState   = domainState(cmd, "certificates_trust");
+  const shadowState = domainState(cmd, "shadow_it_unmanaged_technology");
+  const adminEv     = scorecard.admin_surface_evidence_status ?? null;
+  const cr = scorecard.certificate_risks || {};
+
+  return [
+    {
+      title:   'Asset Inventory',
+      status:  scorecard.active_assets === 0 ? 'unknown'
+             : scorecard.new_assets_30d > 0  ? 'warning' : 'ok',
+      summary: scorecard.active_assets > 0
+        ? `${scorecard.active_assets} active assets monitored.` +
+          (scorecard.new_assets_30d > 0 ? ` ${scorecard.new_assets_30d} new in the last 30 days.` : ' No new assets in the last 30 days.')
+        : 'No assets have been inventoried yet. Run a scan to begin discovery.',
+      data: { active_assets: scorecard.active_assets, new_assets_30d: scorecard.new_assets_30d, asset_events_30d: scorecard.asset_events_30d },
+    },
+    {
+      title:   'Vendor Risk',
+      status:  scorecard.vendor_risk.high > 0 ? 'critical' : scorecard.vendor_risk.medium > 0 ? 'warning' : 'ok',
+      summary: scorecard.vendors_detected > 0
+        ? `${scorecard.vendors_detected} vendor${scorecard.vendors_detected !== 1 ? 's' : ''} detected.` +
+          (scorecard.vendor_risk.high > 0 ? ` ${scorecard.vendor_risk.high} high-risk.` : ' No high-risk vendors.')
+        : 'No third-party vendors detected in this scan.',
+      data: { total: scorecard.vendors_detected, ...scorecard.vendor_risk },
+    },
+    {
+      title:   'Third-Party Assets',
+      status:  scorecard.third_party_assets > 0 ? 'warning' : sectionStatus(shadowState, 'warning'),
+      summary: scorecard.third_party_assets > 0
+        ? `${scorecard.third_party_assets} third-party SaaS service${scorecard.third_party_assets !== 1 ? 's' : ''} in use (email, CRM, support, marketing).`
+        : canSayHealthy(shadowState) ? 'No third-party SaaS dependencies detected.'
+          : neutralSummary(scorecardBehaviour(shadowState) === 'unavailable' ? 'unavailable' : 'not_yet_assessed', 'Unmanaged / shadow-IT technology'),
+      data: { count: scorecard.third_party_assets },
+    },
+    {
+      title:   'SaaS Exposure',
+      status:  scorecard.saas_exposures > 0 ? 'warning' : sectionStatus(shadowState, 'warning'),
+      summary: scorecard.saas_exposures > 0
+        ? `${scorecard.saas_exposures} exposed SaaS portal${scorecard.saas_exposures !== 1 ? 's' : ''} or login surface${scorecard.saas_exposures !== 1 ? 's' : ''} detected.`
+        : canSayHealthy(shadowState) ? 'No externally exposed SaaS portals detected.'
+          : neutralSummary(scorecardBehaviour(shadowState) === 'unavailable' ? 'unavailable' : 'not_yet_assessed', 'Externally exposed SaaS'),
+      data: { count: scorecard.saas_exposures },
+    },
+    {
+      title:   'Admin Surfaces',
+      status:  scorecard.admin_surfaces > 0 ? 'critical' : sectionStatus(adminEv, 'critical'),
+      summary: scorecard.admin_surfaces > 0
+        ? `${scorecard.admin_surfaces} admin or management interface${scorecard.admin_surfaces !== 1 ? 's' : ''} publicly exposed.`
+        : adminEv === 'assessed_healthy' ? 'No exposed admin surfaces detected.'
+          : adminEv === 'unavailable' ? 'Admin surface exposure could not be assessed in the latest scan — evidence was unavailable.'
+          : 'Admin surface exposure has not been assessed yet.',
+      data: { count: scorecard.admin_surfaces, evidence_status: adminEv },
+    },
+    {
+      title:   'Brand Monitoring',
+      status:  scorecard.brand_risks.high > 0 ? 'critical'
+             : scorecard.brand_risks.active > 0 ? 'warning' : sectionStatus(brandState, 'warning'),
+      summary: scorecard.brand_risks.active > 0
+        ? `${scorecard.brand_risks.active} active typosquat domain${scorecard.brand_risks.active !== 1 ? 's' : ''} detected.` +
+          (scorecard.brand_risks.high > 0 ? ` ${scorecard.brand_risks.high} high-risk.` : '')
+        : canSayHealthy(brandState) ? `${scorecard.brand_risks.total} candidate domain${scorecard.brand_risks.total !== 1 ? 's' : ''} generated — none currently resolving.`
+          : neutralSummary(scorecardBehaviour(brandState) === 'unavailable' ? 'unavailable' : 'not_yet_assessed', 'Brand impersonation'),
+      data: scorecard.brand_risks,
+    },
+    {
+      title:   'Certificate Intelligence',
+      status:  cr.risk_level === 'critical' ? 'critical'
+             : cr.risk_level === 'high' ? 'warning'
+             : cr.signals > 0 ? 'warning'
+             : sectionStatus(certState, 'warning'),
+      summary: cr.signals > 0 || cr.risk_level === 'critical' || cr.risk_level === 'high'
+        ? `Certificate risk is ${cr.risk_level || 'elevated'}.` + (cr.signals > 0 ? ` ${cr.signals} suspicious signal${cr.signals !== 1 ? 's' : ''} detected.` : ' No suspicious signals.')
+        : canSayHealthy(certState) ? 'Certificate health looks normal — no suspicious signals detected.'
+          : neutralSummary(scorecardBehaviour(certState) === 'unavailable' ? 'unavailable' : 'not_yet_assessed', 'Certificate health'),
+      data: scorecard.certificate_risks,
+    },
+    {
+      title:   'Security Findings',
+      status:  scorecard.critical_findings > 0 ? 'critical' : scorecard.high_findings > 0 ? 'warning' : 'ok',
+      summary: (scorecard.critical_findings + scorecard.high_findings) === 0
+        ? `No critical or high findings.` +
+          (scorecard.medium_findings + scorecard.low_findings > 0 ? ` ${scorecard.medium_findings + scorecard.low_findings} lower-severity finding${(scorecard.medium_findings + scorecard.low_findings) !== 1 ? 's' : ''} noted.` : ' Clean scan.')
+        : `${scorecard.critical_findings} critical, ${scorecard.high_findings} high, ${scorecard.medium_findings} medium, ${scorecard.low_findings} low findings.`,
+      data: { critical: scorecard.critical_findings, high: scorecard.high_findings, medium: scorecard.medium_findings, low: scorecard.low_findings },
+    },
+  ];
 }
