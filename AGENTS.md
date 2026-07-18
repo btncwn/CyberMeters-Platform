@@ -4,7 +4,7 @@
 
 Version: July 2026
 
-Last updated: 18 July 2026 (latest release v2026.07.17-5; active canonical episode: Posture Timeline Trust & Actionability — the founder-approved RESCOPE of M6, after the M6.0-B viability gate; M5.a–M5.g all CLOSED)
+Last updated: 18 July 2026 (latest git release tag v2026.07.17-5; live Worker `89c398b1` — Phase A "Posture Timeline Trust" deployed + production-accepted 18 July 2026, no migration; active canonical episode: Posture Timeline Trust & Actionability — the founder-approved RESCOPE of M6 — Phase A accepted, Phase B not started; M5.a–M5.g all CLOSED)
 
 ---
 
@@ -106,16 +106,17 @@ CyberMeters manages and verifies the lifecycle where externally observable evide
 | Alerts Across All Eight Domains | Live — 8 of 8 domains alert canonically (`docs/alerts-eight-domain-coverage.md`). Engineering closed; genuine live-event acceptance outstanding. |
 | MSP Portfolio Per-Domain State and Trend | Live — built, NOT customer-accepted. Persisted per-domain state + honest trend across all 8 domains (mig 091). Engineering closed; authenticated customer acceptance outstanding (no entitled account exists in production), so it is not sellable and must not be demoed. |
 | M5 Completion Across All Eight Domains | Complete — **M5.a–M5.g all CLOSED** (deployed through `v2026.07.17-5`, migration `095`). History: evidence-honesty corrective (`v2026.07.16-6`), alerting repair (`v2026.07.16-7`), occurrence resolver (`-8`), read surfaces (`-9`), and the case verification contract (`-10`) all closed. **M5.a is CLOSED** (`-11` Email, `-12` Website Security + verification vocabulary, `-13` Cyber Essentials): all three domains have creation, linkage, case-level ownership, honest verification and recurrence in production; live-event acceptance outstanding. CE readiness honesty corrective closed (`-14`): access_control/malware_protection no longer scored from email-auth proxies; indicator is 3 of 5 assessable areas. CE Questionnaire Hygiene closed (`-15`, mig 092): one shared build-time question set, ISO-versioned answers, CI drift guard. M5.b shipped (`-16` certificate verification; `-17` remaining reconciliation): certificate_case derives support per finding; CE Security Update Management is no longer scored from certificate/ASM proxies (indicator 2 of 5, methodology-versioned); `external` is not `automated`; blanket drift CI-blocked. M5.b engineering closed; live acceptance outstanding. **M5.c Stage 1 shipped** (`v2026.07.17-1`, mig 093): one completed Cyber MOT → one immutable canonical eight-domain snapshot (R2 JSON + D1 index, 081 atomic claim, R2-durable before completed, append-only supersession, repair-on-read), stamped with every methodology version (first CMS + BRI stamps, registry fingerprint); `verification_support` + fail-closed ceiling wording on every item/action; read endpoints for M5.d live and auth-gated. Renderers NOT migrated at Stage 1; 0 snapshots existed in production at that point (created by future scans; no backfill). M5.d–M5.g subsequently closed (renderer migration, eight-domain parity, maturity ledger, final CI closure). |
-| Posture Timeline Trust & Actionability — the RESCOPE of M6 | CURRENT ACTIVE PHASE. M6.0 viability gate ran to conclusion (M6.0-A PASSED; M6.0-B ran 18 July 2026, founder ruled RESCOPE, GO criteria unmet). Behaviour Intelligence deferred (sensor-dependent, founder-gated). Scope/acceptance in `docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md` and `docs/EPISODE-PLAN-posture-timeline-trust.md`. |
+| Posture Timeline Trust & Actionability — the RESCOPE of M6 | ACTIVE EPISODE. M6.0-A PASSED; M6.0-B ran 18 July 2026, founder ruled RESCOPE (GO criteria unmet). **Phase A (timeline-trust) deployed (Worker `89c398b1`, 18 July 2026; rollback `9d2f96b1`) + production-accepted (PASS, 18 July 2026); code-only, no migration. Phase B (UC3) NOT started — founder-gated.** Behaviour Intelligence deferred (sensor-dependent, founder-gated). Scope/acceptance in `docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md` and `docs/EPISODE-PLAN-posture-timeline-trust.md`. |
 | M7 Pricing + Billing Alignment | Following gate (after the active episode). |
 | Final Public-Beta Gate | Planned after managed-platform completion |
 
 Current release facts (as of 18 July 2026):
 
-- latest release tag: `v2026.07.17-5` (M5.f — canonical eight-domain maturity ledger — deployed);
-- latest migration applied to production: `095-domain-maturity-ledger.sql` (applied 17 July 2026);
+- latest git release tag: `v2026.07.17-5` (M5.f — maturity ledger); Phase A carries no git tag yet (tagging deferred to founder approval);
+- latest migration applied to production: `095-domain-maturity-ledger.sql` (applied 17 July 2026) — Phase A added no migration;
 - fast-aging deployment IDs (live/rollback Worker Version IDs) are held authoritatively in `CHANGELOG.md` and `CLAUDE.md` and are not duplicated here;
-- active canonical episode: Posture Timeline Trust & Actionability — the founder-approved RESCOPE of M6 after the M6.0-B viability gate (M5.a–M5.g all CLOSED; Behaviour Intelligence deferred as a sensor-dependent, founder-gated programme; M7 Pricing + Billing Alignment follows).
+- Phase A (timeline-trust) production acceptance: PASS (18 July 2026); Phase B (UC3 correlation) not started;
+- active canonical episode: Posture Timeline Trust & Actionability — the founder-approved RESCOPE of M6 after the M6.0-B viability gate (Phase A deployed + accepted; Phase B not started; M5.a–M5.g all CLOSED; Behaviour Intelligence deferred as a sensor-dependent, founder-gated programme; M7 Pricing + Billing Alignment follows).
 
 **All eight canonical domains alert through the canonical pipeline.** The earlier
 six-of-eight closure (`v2026.07.15-2`) was premature and is superseded — it deferred
@@ -159,7 +160,7 @@ Priority order:
 4. Alerts Across All Eight Domains (complete — Live, 8 of 8; genuine live-event acceptance outstanding)
 5. MSP Portfolio Per-Domain State and Trend (Live — built, NOT customer-accepted; acceptance outstanding)
 6. M5 Completion Across All Eight Domains (COMPLETE — M5.a–M5.g all CLOSED)
-7. Posture Timeline Trust & Actionability — the RESCOPE of M6 (ACTIVE — current canonical episode; scope/acceptance in `docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md` and `docs/EPISODE-PLAN-posture-timeline-trust.md`. Behaviour Intelligence deferred as a sensor-dependent, founder-gated programme)
+7. Posture Timeline Trust & Actionability — the RESCOPE of M6 (ACTIVE — **Phase A deployed + production-accepted 18 July 2026; Phase B (UC3) not started, founder-gated**; scope/acceptance in `docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md` and `docs/EPISODE-PLAN-posture-timeline-trust.md`. Behaviour Intelligence deferred as a sensor-dependent, founder-gated programme)
 8. M7 Pricing + Billing Alignment (following gate)
 9. Systematic debugging and reliability hardening
 10. Security testing and pentesting

@@ -5,6 +5,23 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## Phase A — Posture Timeline Trust & Actionability (RESCOPE of M6) — deployed 2026-07-18, production-accepted 2026-07-18
+
+- **Git release tag:** none yet — tagging deferred to founder approval (verified: newest `git tag` is still `v2026.07.17-5`; next under the `vYYYY.MM.DD-n` scheme would be `v2026.07.18-1`).
+- **Live Worker Version ID:** `89c398b1-60e2-4ce5-b7ee-7eff652cec2e` (verified live at `GET /health`; deployed 2026-07-18 from main `aab3643`; Phase A code merged in `f2632f4` / PR #169).
+- **Rollback Worker Version ID:** `9d2f96b1-f4ac-4688-904b-c36faf5f7045` (v2026.07.17-5).
+- **Remote D1 migration applied:** NONE — Phase A is code-only. Latest applied production migration remains `095-domain-maturity-ledger.sql`. No migration was required for the acceptance verification.
+- **Scope (Phase A of the rescoped M6 episode):** comparability + producer-version honesty gate on go-forward `asset_events` emission (fail-closed `not_comparable`/`unavailable`/`insufficient_history`; operator-only diagnostics), plus deterministic appear/disappear flip-flop collapse for the customer timeline, alerts, digest, and portfolio, with raw `asset_events` kept append-only. New `timeline-trust.js` + emission gating across asset-inventory/posture-events/cert-events/admin-surface/brand-DNS producers; CI validator `validate-phase-a-timeline-trust.js` (21 checks + 5 mutations).
+- **Phase A production acceptance: PASS (18 July 2026)** — verified read-only from live D1/R2 records:
+  - complete + comparable scans (`scan_9d32098b` 14:05 UTC ws_2aaf14fb, `scan_74d48a13` 14:06 UTC ws_df864b4f; both `scan_quality=complete`, no modules skipped);
+  - controlled fixture `test.cybermeters.com` transitioned **active → inactive** (both workspaces, at 14:05:25);
+  - exactly **one** raw `asset_no_longer_seen` per workspace (`evt_0a25b1bb`, `evt_ccb3cb6a`), with **no duplicate** on the following 14:06 scan;
+  - earlier `new_asset_discovered` events preserved **append-only** (4 total rows, none mutated or deleted);
+  - appear/disappear pair **collapsed from the customer presentation** (real `collapseCustomerTimelineEvents` on the actual rows → presented 0);
+  - correct **workspace-scoped fan-out** (distinct `workspace_id` + `event_id`).
+- Controlled fixture removed after acceptance. **No production or application-code changes were required during final acceptance** (read-only verification only).
+- **Phase B (UC3 host-level correlation) is NOT started** — a separate, founder-gated increment of the same episode (blocked on the controlled detection-fixture gate). Behaviour Intelligence remains deferred (sensor-dependent, founder-gated).
+
 ## 2026.07.17-5 (M5.f — canonical eight-domain maturity ledger) — deployed 2026-07-17
 
 - **Live Worker Version ID:** `9d2f96b1-f4ac-4688-904b-c36faf5f7045` (main `5d85620`)
