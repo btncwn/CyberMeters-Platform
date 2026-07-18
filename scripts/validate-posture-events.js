@@ -88,9 +88,14 @@ const email = ({ spfPresent = true, spfRecord = "v=spf1 include:example.net -all
   dkim: { present: dkimPresent },
 });
 const service = (hostname, product, severity = "high") => ({ hostname, product, severity, risk_level: severity });
-const modules = ({ email_security = email(), services = [] } = {}) => ({
+const modules = ({ email_security = email(), services = [], admin_evidence_status } = {}) => ({
   email_security,
-  admin_surface_detection: { services },
+  admin_surface_detection: {
+    services,
+    // A3 evidence_status: default reflects the services (issue when present, healthy when
+    // the assessment completed with none); tests may override to unavailable/not_assessed.
+    evidence_status: admin_evidence_status ?? (services.length > 0 ? "issue_detected" : "assessed_healthy"),
+  },
 });
 const rows = (db) => db.prepare("SELECT event_type, hostname, severity, description FROM asset_events ORDER BY created_at, event_type").all();
 const rowsFor = (db, eventType) => rows(db).filter((row) => row.event_type === eventType);
@@ -133,7 +138,9 @@ const rowsFor = (db, eventType) => rows(db).filter((row) => row.event_type === e
   ok("DKIM present -> absent severity is medium", events[0]?.severity === "medium");
 }
 
-// 5. Admin-surface services are diffed by hostname + product.
+// 5. Admin-surface services are diffed by hostname + product. A prior service missing
+//    from a current pass that is NOT a completed clean assessment (here: current
+//    issue_detected) must NOT be reported as resolved.
 {
   const prev = report(modules({ services: [service("old.example.co.uk", "Jenkins")] }));
   const { db, env } = harness(prev);
@@ -142,7 +149,16 @@ const rowsFor = (db, eventType) => rows(db).filter((row) => row.event_type === e
   const resolved = rowsFor(db, "exposed_service_resolved");
   ok("new exposed service emits exposed_service_detected", detected.length === 1);
   ok("new exposed service description includes product and host", detected[0]?.description === "New internet-exposed service detected: Rundeck on x.example.co.uk");
-  ok("missing previous service emits exposed_service_resolved", resolved.length === 1);
+  ok("prior service missing but current NOT assessed_healthy → no false resolved", resolved.length === 0);
+}
+
+// 5b. Genuine completed clean assessment (current assessed_healthy, service gone) → one resolved.
+{
+  const prev = report(modules({ services: [service("old.example.co.uk", "Jenkins")] }));
+  const { db, env } = harness(prev);
+  await record(env, modules({ services: [], admin_evidence_status: "assessed_healthy" }));
+  const resolved = rowsFor(db, "exposed_service_resolved");
+  ok("prior service + current assessed_healthy → exactly one resolved", resolved.length === 1);
   ok("resolved service severity is low", resolved[0]?.severity === "low");
 }
 

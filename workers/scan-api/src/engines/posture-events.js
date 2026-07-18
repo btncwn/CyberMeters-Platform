@@ -49,7 +49,7 @@ function pushEvent(events, { event_type, hostname, severity, description }) {
   events.push({ event_type, hostname, severity, description });
 }
 
-function buildPostureDiffEvents(domain, prevModules, currentModules) {
+export function buildPostureDiffEvents(domain, prevModules, currentModules) {
   const events = [];
   const previousEmail = prevModules?.email_security || {};
   const currentEmail = currentModules?.email_security || {};
@@ -107,14 +107,24 @@ function buildPostureDiffEvents(domain, prevModules, currentModules) {
       description: `New internet-exposed service detected: ${service.product} on ${service.hostname}`,
     });
   }
-  for (const [key, service] of previousServices) {
-    if (currentServices.has(key)) continue;
-    pushEvent(events, {
-      event_type: "exposed_service_resolved",
-      hostname: normalizeValue(service.hostname),
-      severity: "low",
-      description: `Exposed service no longer detected: ${service.product} on ${service.hostname}`,
-    });
+  // A service's absence from the current scan only proves RESOLUTION when the current
+  // admin-surface assessment actually COMPLETED with zero verified surfaces
+  // (evidence_status === "assessed_healthy", the A3 canonical complete-success state).
+  // unavailable / not_assessed / missing module / legacy report / failed-or-incomplete
+  // probe must NEVER emit a false "resolved" — fail neutral, preserve uncertainty. A
+  // current verified issue (issue_detected) also does not clear a prior exposure here.
+  const currentAdminAssessedHealthy =
+    currentModules?.admin_surface_detection?.evidence_status === "assessed_healthy";
+  if (currentAdminAssessedHealthy) {
+    for (const [key, service] of previousServices) {
+      if (currentServices.has(key)) continue;
+      pushEvent(events, {
+        event_type: "exposed_service_resolved",
+        hostname: normalizeValue(service.hostname),
+        severity: "low",
+        description: `Exposed service no longer detected: ${service.product} on ${service.hostname}`,
+      });
+    }
   }
 
   return events;
