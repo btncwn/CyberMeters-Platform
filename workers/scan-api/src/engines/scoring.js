@@ -602,7 +602,25 @@ export function computeScore(modules, domain) {
       },
     });
   } else {
-    if (!modules.email_security?.dmarc?.present) {
+    // Canonical DMARC state (ADR-003). `dmarc_state` is NON-ENUMERABLE on the
+    // live email module result — read it directly from the source object here.
+    // A spread/JSON copy drops it, which would silently fall back to legacy and
+    // re-penalise an UNAVAILABLE lookup as a missing record. When it is absent
+    // (pre-ADR reports / R2 reconstruction) we fall back to the legacy raw read,
+    // so historical scans are never rewritten. Scoring only expresses two DMARC
+    // findings; the full nine-rung ladder (invalid/quarantine/partials as issues,
+    // reject as healthy) is the Cyber MOT authority (cyber-mot-domains.js).
+    const dmarcState = modules.email_security?.dmarc_state;
+    const dmarcLevel = dmarcState?.enforcement_level ?? null;
+    // not_observed / not_yet_assessed → neither branch → score-neutral (ADR §11):
+    // an unobservable domain must never take the missing-DMARC penalty.
+    const missingDmarc = dmarcLevel !== null
+      ? dmarcLevel === "no_record"
+      : !modules.email_security?.dmarc?.present;
+    const dmarcMonitorOnly = dmarcLevel !== null
+      ? dmarcLevel === "monitoring"
+      : modules.email_security?.dmarc?.policy === "none";
+    if (missingDmarc) {
       finding({
         id:           "email_missing_dmarc",
         module:       "email_security",
@@ -630,7 +648,7 @@ export function computeScore(modules, domain) {
         title: "Implement DMARC",
         description: `Create a TXT record at _dmarc.${domain}: v=DMARC1; p=none; rua=mailto:dmarc-reports@${domain}`,
       }));
-    } else if (modules.email_security.dmarc.policy === "none") {
+    } else if (dmarcMonitorOnly) {
       finding({
         id:           "email_dmarc_policy_none",
         module:       "email_security",
