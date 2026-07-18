@@ -600,17 +600,38 @@ export async function advanceBrandCaseFollowup(env, caseRow, to, detail = {}) {
   });
 }
 
+// Disappearance-confirmation gate for brand takedown verification.
+// A takedown is "technically verified removed" ONLY from an AUTHORITATIVE negative
+// DNS answer. dnsQuery returns the raw DoH JSON, which carries the rcode in
+// `Status`; a SERVFAIL (2) / REFUSED (5) / timeout returns HTTP 200 with an empty
+// `Answer`, so reading `Answer.length` alone treats a FAILED probe as a confirmed
+// takedown — manufacturing disappearance from unavailable evidence. Require both the
+// A and MX lookups to return an authoritative rcode (NOERROR or NXDOMAIN); anything
+// else is inconclusive and must defer. Gone only when both authoritatively show no
+// records (NXDOMAIN, or NOERROR with an empty answer set — a lingering CNAME in the
+// A response counts as an answer, so the case stays open, the safe direction).
+export function interpretBrandGoneProbe(a, mx) {
+  const AUTHORITATIVE = new Set([0, 3]); // 0 = NOERROR, 3 = NXDOMAIN
+  const aStatus = Number.isInteger(a?.Status) ? a.Status : null;
+  const mxStatus = Number.isInteger(mx?.Status) ? mx.Status : null;
+  if (aStatus === null || mxStatus === null
+      || !AUTHORITATIVE.has(aStatus) || !AUTHORITATIVE.has(mxStatus)) {
+    return { complete: false, gone: false, observed: null, reason: "dns_inconclusive" };
+  }
+  const aCount = a?.Answer?.length || 0;
+  const mxCount = mx?.Answer?.length || 0;
+  return {
+    complete: true,
+    gone: aCount === 0 && mxCount === 0,
+    observed: { a_records: aCount, mx_records: mxCount, a_status: aStatus, mx_status: mxStatus },
+  };
+}
+
 export async function verifyBrandCandidateGone(candidateDomain, { verifier = null } = {}) {
   if (verifier) return verifier(candidateDomain);
   try {
     const [a, mx] = await Promise.all([dnsQuery(candidateDomain, "A"), dnsQuery(candidateDomain, "MX")]);
-    const aCount = a?.Answer?.length || 0;
-    const mxCount = mx?.Answer?.length || 0;
-    return {
-      complete: true,
-      gone: aCount === 0 && mxCount === 0,
-      observed: { a_records: aCount, mx_records: mxCount },
-    };
+    return interpretBrandGoneProbe(a, mx);
   } catch (e) {
     return { complete: false, gone: false, observed: null, reason: "probe_failed" };
   }

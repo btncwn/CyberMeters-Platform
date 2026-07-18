@@ -680,6 +680,22 @@ export function gradeSenderCondition({
   return { recurrence: null, band, conflict: policy.conflict };
 }
 
+// Disappearance-confirmation gate for sender recovery / email case closure.
+// The active-failures case closes ONLY when the receivers' own reports in the window
+// PROVE the sender now passes. A sender absent from the window defaults to
+// { window_total: 0, window_failed: 0 } (senderWindowVolumes returns an empty Map on
+// a RUA outage), so window_failed === 0 is ALSO the no-evidence-at-all case — a
+// receiver that stopped reporting, or the ingest feed going down, is indistinguishable
+// from "now passing". Require window_total > 0 (the window demonstrably contains
+// receiver reports) so an evidence outage can never manufacture a false recovery and
+// close the case. Pure and total, so CI can drive it directly.
+export function senderRecoveryConfirmed({ prev_recurrence_type, graded_recurrence, window_total, window_failed }) {
+  return prev_recurrence_type === "sender_unauthorised_failures_active"
+    && graded_recurrence === null
+    && Number(window_total || 0) > 0
+    && Number(window_failed || 0) === SENDER_RECOVERY_FAILURES;
+}
+
 /**
  * evaluateEmailSenderMonitoring — the sender lifecycle pass for one
  * (workspace, domain). Called after a NEW report is ingested, because that is
@@ -792,13 +808,18 @@ export async function evaluateEmailSenderMonitoring(env, workspaceId, domain, { 
         continue;
       }
 
-      // ── Recovery: zero receiver-reported failures in a complete window ─────
+      // ── Recovery: zero receiver-reported failures in a window that HAS reports ─
       // Expressible ONLY because the window drops old reports out. A cumulative
       // counter could never come back down, which is why the legacy sweep had no
-      // recovery at all. Non-alertable by founder decision.
-      if (prev.recurrence_type === "sender_unauthorised_failures_active"
-          && graded.recurrence === null
-          && vol.window_failed === SENDER_RECOVERY_FAILURES) {
+      // recovery at all. Non-alertable by founder decision. senderRecoveryConfirmed
+      // additionally requires window_total > 0, so an empty window (RUA outage /
+      // receiver stopped reporting) can never be read as recovery.
+      if (senderRecoveryConfirmed({
+            prev_recurrence_type: prev.recurrence_type,
+            graded_recurrence: graded.recurrence,
+            window_total: vol.window_total,
+            window_failed: vol.window_failed,
+          })) {
         await appendEmailProtectionEvent(env, {
           workspace_id: workspaceId, record_id: row.id, record_type: SENDER_RECORD_TYPE,
           event_type: EMAIL_EVENT_SENDER_RECOVERED,

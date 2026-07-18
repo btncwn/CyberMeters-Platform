@@ -28,6 +28,38 @@ function normalizeIpAddressList(value) {
   return raw.split(",").map((item) => item.trim()).filter(Boolean).sort().join(", ");
 }
 
+// ── Disappearance-confirmation gate ──────────────────────────────────────────
+// A previously-seen host's ABSENCE from the current scan only proves it is "no
+// longer seen" when the discovery that would have re-found it actually completed.
+// CT enumeration (crt.sh + CertSpotter) is DELIBERATELY excluded from scan_quality
+// (external CT rate-limits must never fail a domain's own scan — see
+// scan-engine.js buildScanQuality), so a rate-limited/failed CT run still yields
+// scan_quality "complete" and passes the comparability gate — yet modules.subdomains
+// .items has collapsed to (near-)empty. Retiring every CT-discovered subdomain as
+// "asset_no_longer_seen" from that degraded set is a false mass-disappearance (and
+// it seeds a false asset_reappeared on the next healthy scan).
+//
+// Per the disappearance contract, unavailable / failed / incomplete / PARTIAL
+// discovery evidence must preserve uncertainty and never manufacture disappearance.
+// So the inactive/asset_no_longer_seen sweep may run ONLY when the discovery
+// evidence is intact: the subdomains module present with no top-level error, no
+// ct_error (both CT sources failed), no per-source error (partial coverage), and no
+// dns_bruteforce error. Otherwise fail neutral — leave prior assets untouched; a
+// genuine disappearance is confirmed on the next fully-healthy scan. CT source
+// reliability itself is the separate app-probe programme, not this gate.
+export function subdomainDiscoveryComplete(modules) {
+  const sub = modules?.subdomains;
+  if (!sub) return false;                        // no discovery module → cannot anchor disappearance
+  if (sub.error) return false;                   // module-level failure (e.g. module rejected)
+  if (sub.ct_error) return false;                // both CT sources failed → items collapsed
+  const sources = sub.sources || {};
+  if (sources.crt_sh?.error) return false;       // a CT source errored → partial coverage
+  if (sources.certspotter?.error) return false;
+  const bf = modules?.dns_bruteforce;
+  if (bf?.error) return false;                   // brute-force feeder timed out/failed
+  return true;
+}
+
 function hostnameFromRedirectTarget(value) {
   const raw = normalizeInventoryValue(value);
   if (!raw) return "";
@@ -65,6 +97,10 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
     currentReport: opts.currentReport,
   }).catch(() => ({ comparable: false, comparison_status: "unavailable" }));
   const canEmitTimelineEvents = comparison.comparable === true;
+  // Disappearance-confirmation gate: a host may only be retired (inactive +
+  // asset_no_longer_seen) when the discovery that would have re-found it completed
+  // intact. Degraded/partial CT enumeration must never manufacture disappearance.
+  const canConfirmDisappearance = canEmitTimelineEvents && subdomainDiscoveryComplete(modules);
 
   // ── Collect all discovered hostnames from this scan ───────────────────────
   const wildcardDns = modules?.subdomains?.wildcard_dns === true;
@@ -465,7 +501,7 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
       //   • Skip the event if asset_no_longer_seen already fired for this
       //     hostname in the last 24 h.
       for (const [hostname, existing] of existingMap) {
-        if (canEmitTimelineEvents && !currentHostnames.has(hostname) && existing.status === "active") {
+        if (canConfirmDisappearance && !currentHostnames.has(hostname) && existing.status === "active") {
           const lastSeenMs = existing.last_seen ? new Date(existing.last_seen).getTime() : 0;
           const ageMs = Date.now() - lastSeenMs;
           if (ageMs < TWO_HOURS_MS) continue; // Too recent — skip to avoid flip-flop
