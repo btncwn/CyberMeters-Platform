@@ -6,6 +6,7 @@ import { hashToken } from "../lib/auth-crypto.js";
 import { createId } from "../lib/util.js";
 import { buildCaConcentrationAnalytics, buildCertificateLifecycleIntelligence, detectSelfSignedCertificate, mapCertificateAuthorityOwner, normalizeCertificateAuthorityVendor, normalizeCertificateIssuer } from "./cert-analysis.js";
 import { isCertSensitiveHost, runCertificateIntelligenceModule } from "./cert-intel.js";
+import { loadTimelineComparisonContext } from "./timeline-trust.js";
 
 // ── Certificate Event Insertion ──────────────────────────────────────────────
 //
@@ -21,8 +22,14 @@ import { isCertSensitiveHost, runCertificateIntelligenceModule } from "./cert-in
  *   certificate_expiring_soon           — expiry < 30 days
  *   certificate_growth_detected         — CT count > 50 hostnames
  */
-export async function insertCertificateEvents(scanId, domainId, certMod, env) {
+export async function insertCertificateEvents(scanId, domainId, certMod, env, opts = {}) {
   if (!certMod || certMod.error) return;
+  const comparison = await loadTimelineComparisonContext(env, {
+    scanId,
+    domainId,
+    currentReport: opts.currentReport,
+  }).catch(() => ({ comparable: false }));
+  if (!comparison.comparable) return;
 
   let wsRows;
   try {
@@ -128,8 +135,14 @@ export async function insertCertificateEvents(scanId, domainId, certMod, env) {
  *
  * All writes are non-fatal so an unapplied v2 migration cannot break scans.
  */
-export async function upsertCertificateObservation(scanId, domainId, certMod, env) {
+export async function upsertCertificateObservation(scanId, domainId, certMod, env, opts = {}) {
   if (!certMod || certMod.error) return;
+  const comparison = await loadTimelineComparisonContext(env, {
+    scanId,
+    domainId,
+    currentReport: opts.currentReport,
+  }).catch(() => ({ comparable: false }));
+  const canEmitTimelineEvents = comparison.comparable === true;
 
   let wsRows;
   try {
@@ -248,7 +261,7 @@ export async function upsertCertificateObservation(scanId, domainId, certMod, en
         )
         .run();
 
-      if (!existing) {
+      if (canEmitTimelineEvents && !existing) {
         await env.cybermeters_db
           .prepare(
             `INSERT INTO asset_events
@@ -266,7 +279,7 @@ export async function upsertCertificateObservation(scanId, domainId, certMod, en
           .run();
       }
 
-      if (issuer !== "unknown" && !priorIssuers.has(issuer)) {
+      if (canEmitTimelineEvents && issuer !== "unknown" && !priorIssuers.has(issuer)) {
         await env.cybermeters_db
           .prepare(
             `INSERT INTO asset_events
@@ -285,7 +298,7 @@ export async function upsertCertificateObservation(scanId, domainId, certMod, en
       }
 
       const newSans = sanHostnames.filter((san) => !priorSans.has(String(san)));
-      if (newSans.length > 0) {
+      if (canEmitTimelineEvents && newSans.length > 0) {
         await env.cybermeters_db
           .prepare(
             `INSERT INTO asset_events

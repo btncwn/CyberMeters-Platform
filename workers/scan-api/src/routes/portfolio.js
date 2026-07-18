@@ -18,6 +18,7 @@ import {
 } from "../engines/portfolio-domains.js";
 import { CYBER_MOT_DOMAIN_KEYS, readDomainStateHistory } from "../engines/cyber-mot-state-history.js";
 import { MATURITY_LEDGER_CONTRACT_VERSION, computePortfolioMaturity } from "../engines/domain-maturity.js";
+import { collapseCustomerTimelineEvents } from "../engines/timeline-trust.js";
 import { auditApiTokenSessionRouteDenied, createWorkspaceTrialSubscription } from "../engines/subscription-state.js";
 import { createAuditEvent } from "../lib/events.js";
 import { sendLifecycleEmail } from "../lib/lifecycle-email.js";
@@ -280,22 +281,21 @@ export async function portfolioRoutes(rctx) {
         const wsIn = workspaceIds.map(() => "?").join(",");
 
         const [eventsRes, brandRes, failedRptsRes] = await Promise.allSettled([
-          // Asset events — deduplicated to one row per (workspace, event_type, hostname, day)
-          // Uses MAX(created_at) to keep the most recent occurrence of each group.
+          // Asset events — presentation-collapsed before the existing per-day
+          // dedupe so short-lived remove/reappear churn never becomes an MSP alert.
           db.prepare(`
-            SELECT ae.workspace_id, w.name AS workspace_name,
-                   ae.event_type,
-                   MAX(ae.severity)    AS severity,
+            SELECT ae.id, ae.workspace_id, w.name AS workspace_name,
+                   ae.domain_id, ae.scan_id, ae.event_type,
+                   ae.severity,
                    ae.hostname,
                    ae.description,
-                   MAX(ae.created_at) AS created_at
+                   ae.created_at
             FROM asset_events ae
             JOIN workspaces w ON w.id = ae.workspace_id
             WHERE ae.workspace_id IN (${wsIn})
-            GROUP BY ae.workspace_id, ae.event_type, ae.hostname, date(ae.created_at)
-            ORDER BY MAX(ae.created_at) DESC
+            ORDER BY ae.created_at DESC, ae.id DESC
             LIMIT ?
-          `).bind(...workspaceIds, limit).all(),
+          `).bind(...workspaceIds, limit * 3).all(),
           // Active brand risks that resolve via DNS
           db.prepare(`
             SELECT ba.workspace_id, w.name AS workspace_name,
@@ -323,7 +323,19 @@ export async function portfolioRoutes(rctx) {
 
         const alerts = [];
 
-        for (const r of (eventsRes.status === 'fulfilled' ? (eventsRes.value?.results ?? []) : [])) {
+        const collapsedEvents = collapseCustomerTimelineEvents(eventsRes.status === 'fulfilled' ? (eventsRes.value?.results ?? []) : []);
+        const dedupedEvents = [];
+        const eventKeys = new Set();
+        for (const ev of collapsedEvents) {
+          const day = String(ev.created_at || "").slice(0, 10);
+          const key = `${ev.workspace_id}:${ev.event_type}:${ev.hostname || ""}:${day}`;
+          if (eventKeys.has(key)) continue;
+          eventKeys.add(key);
+          dedupedEvents.push(ev);
+          if (dedupedEvents.length >= limit) break;
+        }
+
+        for (const r of dedupedEvents) {
           let title = (r.event_type ?? '').replace(/_/g, ' ');
           const et = r.event_type;
           if      (et === 'new_asset_discovered')      title = `New asset: ${r.hostname ?? ''}`;

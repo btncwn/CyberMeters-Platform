@@ -5,6 +5,7 @@
 import { buildAssetInventoryMetadata, consolidateInventoryAssetAliases, probeAsset } from "./asset-intel.js";
 import { normalizeHostname } from "./hostnames.js";
 import { createId } from "../lib/util.js";
+import { loadTimelineComparisonContext } from "./timeline-trust.js";
 
 function normalizeInventoryValue(value) {
   return String(value ?? "").trim();
@@ -56,8 +57,14 @@ function isExternalRedirectTarget(value, domain) {
 // One domain can belong to multiple workspaces — we upsert into each.
 // Uses D1 batch() to minimise round-trips.
 
-export async function upsertAssetInventory(scanId, domainId, domain, modules, env) {
+export async function upsertAssetInventory(scanId, domainId, domain, modules, env, opts = {}) {
   const now = new Date().toISOString();
+  const comparison = await loadTimelineComparisonContext(env, {
+    scanId,
+    domainId,
+    currentReport: opts.currentReport,
+  }).catch(() => ({ comparable: false, comparison_status: "unavailable" }));
+  const canEmitTimelineEvents = comparison.comparable === true;
 
   // ── Collect all discovered hostnames from this scan ───────────────────────
   const wildcardDns = modules?.subdomains?.wildcard_dns === true;
@@ -304,28 +311,31 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
                 now, now
               )
           );
-          stmts.push(
-            env.cybermeters_db
-              .prepare(
-                `INSERT INTO asset_events
-                   (id, workspace_id, domain_id, asset_id, scan_id,
-                    event_type, hostname, severity, description, created_at)
-                 VALUES (?,?,?,?,?,'new_asset_discovered',?,'info',?,?)`
-              )
-              .bind(
-                createId("evt"), workspace_id, domainId, assetId, scanId,
-                asset.hostname,
-                `New asset discovered: ${asset.hostname} (${asset.source ?? "ct"})`,
-                now
-              )
-          );
+          if (canEmitTimelineEvents) {
+            stmts.push(
+              env.cybermeters_db
+                .prepare(
+                  `INSERT INTO asset_events
+                     (id, workspace_id, domain_id, asset_id, scan_id,
+                      event_type, hostname, severity, description, created_at)
+                   VALUES (?,?,?,?,?,'new_asset_discovered',?,'info',?,?)`
+                )
+                .bind(
+                  createId("evt"), workspace_id, domainId, assetId, scanId,
+                  asset.hostname,
+                  `New asset discovered: ${asset.hostname} (${asset.source ?? "ct"})`,
+                  now
+                )
+            );
+          }
         } else {
           // Existing asset — update last_seen + status. domain_id is re-linked
           // to the current domain row so rows orphaned by a domain
           // delete/re-add are adopted instead of drifting further.
           const previousIps = normalizeIpAddressList(existing.ip_addresses);
           const currentIps = normalizeIpAddressList(asset.ip_addresses);
-          if (previousIps && currentIps && previousIps !== currentIps &&
+          if (canEmitTimelineEvents &&
+              previousIps && currentIps && previousIps !== currentIps &&
               !recentEvtSet.has(`dns_ip_changed:${asset.hostname}`)) {
             recentEvtSet.add(`dns_ip_changed:${asset.hostname}`);
             stmts.push(
@@ -348,7 +358,8 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
 
           const previousCname = normalizeInventoryValue(existing.cname);
           const currentCname = normalizeInventoryValue(asset.cname);
-          if (previousCname && currentCname && previousCname !== currentCname &&
+          if (canEmitTimelineEvents &&
+              previousCname && currentCname && previousCname !== currentCname &&
               !recentEvtSet.has(`dns_cname_changed:${asset.hostname}`)) {
             recentEvtSet.add(`dns_cname_changed:${asset.hostname}`);
             stmts.push(
@@ -371,7 +382,8 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
 
           const previousRedirect = normalizeInventoryValue(existing.redirect_to);
           const currentRedirect = normalizeInventoryValue(asset.redirect_to);
-          if (previousRedirect && currentRedirect && previousRedirect !== currentRedirect &&
+          if (canEmitTimelineEvents &&
+              previousRedirect && currentRedirect && previousRedirect !== currentRedirect &&
               !recentEvtSet.has(`dns_redirect_changed:${asset.hostname}`)) {
             const redirectSeverity = isExternalRedirectTarget(currentRedirect, domain) ? "high" : "low";
             recentEvtSet.add(`dns_redirect_changed:${asset.hostname}`);
@@ -421,7 +433,8 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
               )
           );
           // Asset reappeared after being inactive — suppress if already fired today
-          if (existing.status === "inactive" &&
+          if (canEmitTimelineEvents &&
+              existing.status === "inactive" &&
               !recentEvtSet.has(`asset_reappeared:${asset.hostname}`)) {
             recentEvtSet.add(`asset_reappeared:${asset.hostname}`);
             stmts.push(
@@ -452,7 +465,7 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
       //   • Skip the event if asset_no_longer_seen already fired for this
       //     hostname in the last 24 h.
       for (const [hostname, existing] of existingMap) {
-        if (!currentHostnames.has(hostname) && existing.status === "active") {
+        if (canEmitTimelineEvents && !currentHostnames.has(hostname) && existing.status === "active") {
           const lastSeenMs = existing.last_seen ? new Date(existing.last_seen).getTime() : 0;
           const ageMs = Date.now() - lastSeenMs;
           if (ageMs < TWO_HOURS_MS) continue; // Too recent — skip to avoid flip-flop
@@ -490,28 +503,30 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
       }
 
       // Takeover risk events
-      for (const risk of modules?.subdomain_takeover?.risks || []) {
-        const existingAsset = existingMap.get(risk.host) ?? { id: null };
-        stmts.push(
-          env.cybermeters_db
-            .prepare(
-              `INSERT INTO asset_events
-                 (id, workspace_id, domain_id, asset_id, scan_id,
-                  event_type, hostname, severity, description, created_at)
-               VALUES (?,?,?,?,?,'takeover_risk_detected',?,'high',?,?)`
-            )
-            .bind(
-              createId("evt"), workspace_id, domainId,
-              existingAsset.id ?? null, scanId,
-              risk.host,
-              `Subdomain takeover risk: ${risk.host} → ${risk.cname} (${risk.provider ?? risk.service})`,
-              now
-            )
-        );
+      if (canEmitTimelineEvents) {
+        for (const risk of modules?.subdomain_takeover?.risks || []) {
+          const existingAsset = existingMap.get(risk.host) ?? { id: null };
+          stmts.push(
+            env.cybermeters_db
+              .prepare(
+                `INSERT INTO asset_events
+                   (id, workspace_id, domain_id, asset_id, scan_id,
+                    event_type, hostname, severity, description, created_at)
+                 VALUES (?,?,?,?,?,'takeover_risk_detected',?,'high',?,?)`
+              )
+              .bind(
+                createId("evt"), workspace_id, domainId,
+                existingAsset.id ?? null, scanId,
+                risk.host,
+                `Subdomain takeover risk: ${risk.host} → ${risk.cname} (${risk.provider ?? risk.service})`,
+                now
+              )
+          );
+        }
       }
 
       // Wildcard DNS event (once per scan per workspace, if detected)
-      if (wildcardDns) {
+      if (canEmitTimelineEvents && wildcardDns) {
         stmts.push(
           env.cybermeters_db
             .prepare(

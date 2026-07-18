@@ -112,8 +112,11 @@ const files = walk(S);
   // Trend baselines (per-scan comparisons) require a complete baseline.
   ok("historical-scan trend baseline is complete-only",
     /scan_quality = 'complete'/.test(read("engines/historical-scan.js")));
-  ok("posture-events baseline is complete-only",
-    /scan_quality = 'complete'/.test(read("engines/posture-events.js")));
+  ok("posture-events uses Timeline Trust complete-only comparability gate",
+    /loadTimelineComparisonContext/.test(read("engines/posture-events.js")) &&
+    /currentQuality !== "complete"/.test(read("engines/timeline-trust.js")) &&
+    /previousQuality !== "complete"/.test(read("engines/timeline-trust.js")) &&
+    /currentVersion !== previousVersion/.test(read("engines/timeline-trust.js")));
 }
 
 // ── 4. Scan detail returns the canonical `assessment` decision ───────────────

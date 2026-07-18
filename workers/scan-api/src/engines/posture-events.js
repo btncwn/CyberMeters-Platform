@@ -4,6 +4,7 @@
 // the current in-memory modules, and writes asset_events. All failures are
 // non-fatal so scan completion never depends on timeline event generation.
 import { createId } from "../lib/util.js";
+import { loadTimelineComparisonContext } from "./timeline-trust.js";
 
 function normalizeValue(value) {
   return String(value ?? "").trim();
@@ -42,24 +43,6 @@ function serviceMap(adminModule) {
     if (key && !map.has(key)) map.set(key, service);
   }
   return map;
-}
-
-async function loadPreviousReport(scanId, domainId, env) {
-  // Posture-change baseline must be a COMPLETE assessment — a partial/degraded prior
-  // scan (missing modules) would fabricate false new/removed posture events.
-  const prev = await env.cybermeters_db
-    .prepare(
-      `SELECT id FROM scans
-       WHERE domain_id = ? AND status = 'completed' AND scan_quality = 'complete' AND id != ?
-       ORDER BY created_at DESC, id DESC LIMIT 1`
-    )
-    .bind(domainId, scanId)
-    .first();
-  if (!prev?.id) return null;
-
-  const obj = await env.cybermeters_reports.get(`reports/${prev.id}.json`);
-  if (!obj) return null;
-  return await obj.json();
 }
 
 function pushEvent(events, { event_type, hostname, severity, description }) {
@@ -137,12 +120,16 @@ function buildPostureDiffEvents(domain, prevModules, currentModules) {
   return events;
 }
 
-export async function recordPostureEvents(scanId, domainId, domain, modules, env) {
+export async function recordPostureEvents(scanId, domainId, domain, modules, env, opts = {}) {
   try {
-    const prevReport = await loadPreviousReport(scanId, domainId, env);
-    if (!prevReport?.modules) return;
+    const comparison = await loadTimelineComparisonContext(env, {
+      scanId,
+      domainId,
+      currentReport: opts.currentReport,
+    });
+    if (!comparison.comparable || !comparison.previousReport?.modules) return;
 
-    const events = buildPostureDiffEvents(domain, prevReport.modules, modules);
+    const events = buildPostureDiffEvents(domain, comparison.previousReport.modules, modules);
     if (events.length === 0) return;
 
     const r = await env.cybermeters_db

@@ -8,6 +8,7 @@
 // protecting deliverability. Never throws.
 
 import { enrichEvent, SEVERITY_RANK } from "../lib/exposure-events.js";
+import { collapseCustomerTimelineEvents } from "./timeline-trust.js";
 import { deliverEmail, escapeEmailHtml } from "../lib/lifecycle-email.js";
 import { createId } from "../lib/util.js";
 
@@ -38,7 +39,7 @@ export async function computeWeeklyChanges(env, workspaceId) {
     .all()
     .catch(() => ({ results: [] }));
 
-  const events = (rows.results || []).map(enrichEvent);
+  const events = collapseCustomerTimelineEvents(rows.results || []).map(enrichEvent);
   const bySeverity = {}, byCategory = {};
   for (const e of events) {
     bySeverity[e.severity] = (bySeverity[e.severity] || 0) + 1;

@@ -13,6 +13,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const { upsertAssetInventory } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "asset-inventory.js")).href);
+const { buildAssetTimelineTrustMetadata } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "timeline-trust.js")).href);
 
 let pass = 0, fail = 0;
 const ok = (name, cond) => { cond ? pass++ : fail++; if (!cond) console.log("FAIL " + name); };
@@ -42,14 +43,32 @@ function makeD1(db) {
   };
 }
 
+function report() {
+  return {
+    scan_quality: { status: "complete" },
+    timeline_trust: buildAssetTimelineTrustMetadata(),
+    modules: {},
+  };
+}
+
+function makeR2() {
+  return {
+    async get(key) {
+      if (key !== "reports/scan_prev.json") return null;
+      return { json: async () => report() };
+    },
+  };
+}
+
 function harness() {
   const db = buildDb();
-  const env = { cybermeters_db: makeD1(db) };
+  const env = { cybermeters_db: makeD1(db), cybermeters_reports: makeR2() };
   db.prepare("INSERT INTO users (id, email) VALUES (?, ?)").run("usr_1", "owner@example.co.uk");
   db.prepare("INSERT INTO domains (id, user_id, domain) VALUES (?, ?, ?)").run("dom_1", "usr_1", "example.co.uk");
   db.prepare("INSERT INTO workspaces (id, name) VALUES (?, ?)").run("ws_1", "Acme");
   db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES (?, ?)").run("ws_1", "dom_1");
-  db.prepare("INSERT INTO scans (id, domain_id, domain, status, workspace_id) VALUES (?, ?, ?, ?, ?)").run("scan_1", "dom_1", "example.co.uk", "completed", "ws_1");
+  db.prepare("INSERT INTO scans (id, domain_id, domain, status, scan_quality, workspace_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)").run("scan_prev", "dom_1", "example.co.uk", "completed", "complete", "ws_1", "2026-07-17T10:00:00.000Z");
+  db.prepare("INSERT INTO scans (id, domain_id, domain, status, scan_quality, workspace_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)").run("scan_1", "dom_1", "example.co.uk", "completed", "complete", "ws_1", "2026-07-18T10:00:00.000Z");
   return { db, env };
 }
 
@@ -71,7 +90,7 @@ async function runInventory(env, modules) {
     dns_bruteforce: { items: [] },
     asset_exposure: { assets: [] },
     ...modules,
-  }, env);
+  }, env, { currentReport: report() });
 }
 
 const rows = (db, eventType) => db.prepare("SELECT event_type, hostname, severity, description FROM asset_events WHERE event_type = ? ORDER BY created_at").all(eventType);
