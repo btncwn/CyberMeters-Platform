@@ -2,7 +2,7 @@
 
 Version: July 2026
 
-Last updated: 17 July 2026 (release v2026.07.17-1; active canonical episode: M5 Completion Across All Eight Domains — in progress)
+Last updated: 18 July 2026 (latest release v2026.07.17-5; M5 Completion Across All Eight Domains — M5.a–M5.g all CLOSED; active canonical episode: M6 External Behaviour Intelligence Engine)
 
 ---
 
@@ -11,6 +11,8 @@ Last updated: 17 July 2026 (release v2026.07.17-1; active canonical episode: M5 
 CyberMeters is in:
 
 > **Pre-public-beta managed-platform completion**
+
+M5 Completion Across All Eight Domains is engineering-complete (M5.a–M5.g all CLOSED). The **active canonical episode is M6 — External Behaviour Intelligence Engine** (founder decision 18 July 2026: build the behaviour engine to completion before pricing). **M7 — Pricing + Billing Alignment — is the following gate.** The single authoritative definition, scope and acceptance criteria for M6 and M7 live in `docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md` (Pre-Public-Beta Gate Sequence); this file does not restate or redefine them.
 
 Do not state that controlled invite-only beta is already GO.
 
@@ -241,22 +243,25 @@ Do not claim that CyberMeters performs a customer, provider, registrar, certific
 | Complete ASM Verification | Live |
 | Alerts Across All Eight Domains | Live — 8 of 8 domains alert canonically (`docs/alerts-eight-domain-coverage.md`). Engineering closed; genuine live-event acceptance outstanding. |
 | MSP Portfolio Per-Domain State and Trend | Live — built, NOT customer-accepted. Persisted per-domain state + honest trend across all 8 domains (mig 091). Engineering closed; authenticated customer acceptance outstanding (no entitled account exists in production), so it is not sellable and must not be demoed. |
-| M5 Completion Across All Eight Domains | In progress — evidence-honesty corrective (`v2026.07.16-6`) and alerting repair (`v2026.07.16-7`) closed; remaining increments planned. |
-| Debugging and Reliability Hardening | Planned after managed lifecycle completion |
+| M5 Completion Across All Eight Domains | Complete — M5.a–M5.g all CLOSED (deployed through `v2026.07.17-5`, migration `095`; M5.g is a CI-only closure, no deploy). |
+| M6 External Behaviour Intelligence Engine | CURRENT ACTIVE PHASE (founder decision 18 July 2026: engine before pricing). Scope/acceptance are defined only in `docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md`. |
+| M7 Pricing + Billing Alignment | Following gate (after M6). |
+| Debugging and Reliability Hardening | Planned after M6 + M7 |
 | Pentesting and Security Assurance | Planned after managed lifecycle completion |
 | Founder-Controlled Acceptance Testing | Planned |
 | Final Public-Beta Gate | Planned |
 | First Two Controlled Invitations | After final gate |
 
-Current release facts (as of 17 July 2026):
+Current release facts (as of 18 July 2026):
 
-- latest release tag: `v2026.07.17-2` (M5.d — every report renderer consumes the canonical snapshot — deployed);
-- live Worker Version ID: `c02b0759-ab2d-4746-98d0-1a074f7070b6` (built from `33dba60`);
-- rollback Worker Version ID: `f7429e6f-dffd-485f-9b85-a369641b51af` (v2026.07.17-1);
-- latest migration applied to production: `093-scan-report-snapshots.sql` (applied 17 July 2026);
-- active canonical episode: M5 Completion Across All Eight Domains (in progress; M5.c and M5.d shipped; M5.e parity reconciliation next).
+- latest release tag: `v2026.07.17-5` (M5.f — canonical eight-domain maturity ledger — deployed; founder-controlled complete-scan acceptance passed);
+- live Worker Version ID: `9d2f96b1-f4ac-4688-904b-c36faf5f7045` (built from `5d85620`);
+- rollback Worker Version ID: `2beda497-0b4e-4d4c-9552-5748742b13e1` (v2026.07.17-4);
+- latest migration applied to production: `095-domain-maturity-ledger.sql` (applied 17 July 2026);
+- M5.g Final CI Closure is CI-only (merged `cd83939`, no deploy, no tag);
+- active canonical episode: M6 External Behaviour Intelligence Engine (M5.a–M5.g all CLOSED; M7 Pricing + Billing Alignment follows).
 
-**M5 is under way.** Its pre-change parity audit across all eight domains found four false
+**M5 (a–g) is COMPLETE** — the account below is the record of how it was completed and remains valid history; the active canonical episode is now M6. Its pre-change parity audit across all eight domains found four false
 evidence claims live in production, and the founder sequenced them first as data-integrity
 defects. That corrective is **closed** (`v2026.07.16-6`): the Executive PDF no longer calls
 certificates "fully validated" when only HTTPS/redirect/expiry were checked; Certificates &
@@ -448,13 +453,15 @@ Unless the founder explicitly changes the roadmap:
 3. Complete ASM Verification (complete — Live)
 4. Alerts Across All Eight Domains (complete — Live, 8 of 8; genuine live-event acceptance outstanding)
 5. MSP Portfolio Per-Domain State and Trend (Live — built, NOT customer-accepted; acceptance outstanding)
-6. M5 Completion Across All Eight Domains (ACTIVE — in progress; evidence-honesty corrective closed, remaining increments planned)
-7. Systematic debugging and reliability engineering
-8. Security testing and pentesting
-9. Founder-controlled acceptance testing
-10. Final public-beta release gate
-11. First two controlled customer invitations
-12. Gradual cohort expansion
+6. M5 Completion Across All Eight Domains (COMPLETE — M5.a–M5.g all CLOSED)
+7. M6 External Behaviour Intelligence Engine (ACTIVE — current canonical episode; scope/acceptance in `docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md`)
+8. M7 Pricing + Billing Alignment (following gate)
+9. Systematic debugging and reliability engineering
+10. Security testing and pentesting
+11. Founder-controlled acceptance testing
+12. Final public-beta release gate
+13. First two controlled customer invitations
+14. Gradual cohort expansion
 
 Do not begin a later roadmap phase before the active canonical episode is closed.
 
