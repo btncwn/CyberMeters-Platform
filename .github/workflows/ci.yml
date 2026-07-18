@@ -543,6 +543,9 @@ jobs:
       - name: Validate exposure timeline events (DNS-level asset changes)
         run: node scripts/validate-exposure-events.js
 
+      - name: Validate Phase A Timeline Trust (comparability + flip-flop collapse + mutations)
+        run: node scripts/validate-phase-a-timeline-trust.js
+
       - name: Validate posture timeline events (email-auth + exposed services)
         run: node scripts/validate-posture-events.js
 

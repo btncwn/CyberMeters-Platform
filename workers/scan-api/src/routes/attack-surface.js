@@ -9,6 +9,7 @@ import { buildCertificateTrustL2 } from "../engines/cert-trust-l2.js";
 import { assignManagedCaseOwner, getManagedCase, listManagedCaseEvents, listManagedCases, managedCaseToApi, transitionManagedCase, verifyManagedCaseById } from "../engines/asm-cases.js";
 import { remapToThirdPartyCategory } from "../engines/discovery-scan.js";
 import { computeWorkspaceVendorRisk, confidenceToScore, normalizeVendorKey, normalizeVendorRiskCategory, signalWeightForVendor } from "../engines/vendor-risk.js";
+import { collapseCustomerTimelineEvents } from "../engines/timeline-trust.js";
 import { SEVERITY_RANK, enrichEvent, eventTypesForCategory } from "../lib/exposure-events.js";
 import { pageMeta, paginationParams, parseBoundedInteger } from "../lib/util.js";
 
@@ -233,7 +234,7 @@ export async function attackSurfaceRoutes(rctx) {
             .bind(...binds),
         ]);
 
-        const events = (pageResult.results || []).map(enrichEvent);
+        const events = collapseCustomerTimelineEvents(pageResult.results || []).map(enrichEvent);
         const total = totalResult.results?.[0]?.n ?? 0;
         return json({
           workspace_id: wsId,
@@ -308,7 +309,8 @@ export async function attackSurfaceRoutes(rctx) {
             )
             .bind(wsId, limit)
             .all();
-          return json({ workspace_id: wsId, count: result.results.length, events: result.results });
+          const events = collapseCustomerTimelineEvents(result.results || []);
+          return json({ workspace_id: wsId, count: events.length, events });
         } catch {
           return json({ error: "Database error" }, 500);
         }
@@ -366,7 +368,8 @@ export async function attackSurfaceRoutes(rctx) {
             "new_asset_discovered", "asset_reappeared", "asset_no_longer_seen",
             "takeover_risk_detected", "wildcard_dns_detected", "cloud_storage_detected",
           ];
-          for (const row of result.results) {
+          const timelineRows = collapseCustomerTimelineEvents(result.results || []);
+          for (const row of timelineRows) {
             if (!dayMap.has(row.day)) {
               const entry = { day: row.day };
               for (const t of EVENT_TYPES) entry[t] = 0;
@@ -850,7 +853,7 @@ export async function attackSurfaceRoutes(rctx) {
 
         // Group by day
         const dayMap = new Map();
-        for (const ev of events) {
+        for (const ev of collapseCustomerTimelineEvents(events)) {
           if (!dayMap.has(ev.day)) dayMap.set(ev.day, []);
           dayMap.get(ev.day).push({
             event_type:  ev.event_type,

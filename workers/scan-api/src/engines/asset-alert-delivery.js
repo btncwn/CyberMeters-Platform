@@ -4,6 +4,7 @@
 // Extracted verbatim from index.js (monolith decomposition, Phase 1c).
 import { ASSET_ALERT_EVENTS, assetAlertSeverity, assetAlertWorthy, buildAssetAlertEmail } from "./asset-alerts.js";
 import { deliverWorkspaceAlert, sendTenantAlertEmail } from "./alerts.js";
+import { filterCustomerTimelineEventsForScan } from "./timeline-trust.js";
 import { createId } from "../lib/util.js";
 import { getEmailFrontendOrigin } from "../lib/lifecycle-email.js";
 
@@ -64,14 +65,16 @@ export async function sendAssetChangeAlert(domainId, domain, scanId, env) {
       ? [scanWorkspaceId]
       : workspaceIds;
 
-    // Fetch all asset events for this scan (across all workspaces in one query)
+    // Fetch the scan's asset events plus recent same-domain context so presentation
+    // collapse can suppress short-lived remove/reappear churn without mutating rows.
     const eventsResult = await env.cybermeters_db
       .prepare(
-        `SELECT workspace_id, event_type, hostname
+        `SELECT id, workspace_id, domain_id, scan_id, event_type, hostname, created_at
          FROM asset_events
-         WHERE scan_id = ?`
+         WHERE scan_id = ?
+            OR (domain_id = ? AND scan_id IS NOT NULL AND created_at >= datetime('now', '-24 hours'))`
       )
-      .bind(scanId)
+      .bind(scanId, domainId)
       .all();
     const allEvents = eventsResult.results || [];
 
@@ -84,7 +87,7 @@ export async function sendAssetChangeAlert(domainId, domain, scanId, env) {
 
     for (const workspace_id of alertTargets) {
       try {
-        const events = byWorkspace.get(workspace_id) || [];
+        const events = filterCustomerTimelineEventsForScan(byWorkspace.get(workspace_id) || [], scanId, { missingScanIdMatches: true });
         if (events.length === 0) continue;
 
         // Count events by type

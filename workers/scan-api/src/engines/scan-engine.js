@@ -37,6 +37,7 @@ import { runHeadersModule } from "./headers-scan.js";
 import { runHistoricalModule } from "./historical-scan.js";
 import { runIdentityDiscoveryModule } from "./identity-scan.js";
 import { recordPostureEvents } from "./posture-events.js";
+import { buildAssetTimelineTrustMetadata, loadTimelineComparisonContext } from "./timeline-trust.js";
 import { runReservedScan } from "./reserved-scan.js";
 import { createModuleTelemetry, createScanDeadline, markDeadlineDeferred, MODULE_SUBREQUEST_COST, raceModuleDeadline, resolveScanCapacity, skippedModuleResult } from "./scan-budget.js";
 import { computeScore, isEmailApplicable } from "./scoring.js";
@@ -883,6 +884,7 @@ function buildCanonicalUrlProfile(modules) {
       findings:            normalizedFindings,
       recommendations,
       scan_quality:         scanQuality,
+      timeline_trust:       buildAssetTimelineTrustMetadata(),
       modules,
     };
 
@@ -1043,7 +1045,7 @@ function buildCanonicalUrlProfile(modules) {
     // Failure here cannot leave the scan stuck in "running".
     // Uses D1 batch() to minimise round-trips.
     try {
-      await upsertAssetInventory(scanId, domainId, domain, modules, env);
+      await upsertAssetInventory(scanId, domainId, domain, modules, env, { currentReport: report });
     } catch { /* non-fatal — inventory update will catch up on next scan */ }
 
     // Phase 8a.0: Managed ASM cases — opens cases for new exposure findings,
@@ -1057,14 +1059,14 @@ function buildCanonicalUrlProfile(modules) {
     // Phase 8a.1: Posture Timeline Events — cross-scan email-auth and exposed
     // service diffs. Uses previous completed scan report from R2 as baseline.
     try {
-      await recordPostureEvents(scanId, domainId, domain, modules, env);
+      await recordPostureEvents(scanId, domainId, domain, modules, env, { currentReport: report });
     } catch { /* non-fatal — posture events catch up on next scan */ }
 
     // Phase 8b: Admin Surface Events — one asset_event per detected service per workspace.
     // Runs after upsertAssetInventory so workspace_assets rows are already present,
     // allowing asset_id FK resolution.
     try {
-      await insertAdminSurfaceEvents(scanId, domainId, modules.admin_surface_detection, env);
+      await insertAdminSurfaceEvents(scanId, domainId, modules.admin_surface_detection, env, { currentReport: report });
     } catch { /* non-fatal */ }
 
     // Phase 8c: Vendor Inventory Upsert — persists vendor_risk detections to D1.
@@ -1076,13 +1078,13 @@ function buildCanonicalUrlProfile(modules) {
     // Phase 8d: Certificate Events — fires asset_events for sensitive CT hosts,
     // expiry warnings, and growth signals.
     try {
-      await insertCertificateEvents(scanId, domainId, modules.certificate_intelligence, env);
+      await insertCertificateEvents(scanId, domainId, modules.certificate_intelligence, env, { currentReport: report });
     } catch { /* non-fatal */ }
 
     // Phase 8d.1: Certificate Timeline — persists cross-scan certificate
     // observations and emits alerts for new certs, SANs, and issuers.
     try {
-      await upsertCertificateObservation(scanId, domainId, modules.certificate_intelligence, env);
+      await upsertCertificateObservation(scanId, domainId, modules.certificate_intelligence, env, { currentReport: report });
     } catch { /* non-fatal */ }
 
     // Phase 8e: Brand Asset Upsert — persists generated typosquat candidates to
@@ -1376,10 +1378,16 @@ function buildCanonicalUrlProfile(modules) {
   }
 }
 
-export async function insertAdminSurfaceEvents(scanId, domainId, adminModule, env) {
+export async function insertAdminSurfaceEvents(scanId, domainId, adminModule, env, opts = {}) {
   const actionableServices = (adminModule?.services || [])
     .filter((service) => service.finding_type !== "observation");
   if (!adminModule || !adminModule.detected || actionableServices.length === 0) return;
+  const comparison = await loadTimelineComparisonContext(env, {
+    scanId,
+    domainId,
+    currentReport: opts.currentReport,
+  }).catch(() => ({ comparable: false }));
+  if (!comparison.comparable) return;
 
   let wsRows;
   try {

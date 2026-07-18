@@ -13,6 +13,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const { recordPostureEvents } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "posture-events.js")).href);
+const { buildAssetTimelineTrustMetadata } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "timeline-trust.js")).href);
 
 let pass = 0, fail = 0;
 const ok = (name, cond) => { cond ? pass++ : fail++; if (!cond) console.log("FAIL " + name); };
@@ -65,7 +66,7 @@ function harness(prevReport) {
   // fires against a complete previous scan (partial/degraded baselines are not
   // authoritative and cannot anchor a change event).
   db.prepare("INSERT INTO scans (id, domain_id, domain, status, scan_quality, workspace_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)").run("scan_prev", "dom_1", "example.co.uk", "completed", "complete", "ws_1", "2026-07-01T10:00:00.000Z");
-  db.prepare("INSERT INTO scans (id, domain_id, domain, status, workspace_id, created_at) VALUES (?, ?, ?, ?, ?, ?)").run("scan_current", "dom_1", "example.co.uk", "completed", "ws_1", "2026-07-02T10:00:00.000Z");
+  db.prepare("INSERT INTO scans (id, domain_id, domain, status, scan_quality, workspace_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)").run("scan_current", "dom_1", "example.co.uk", "completed", "complete", "ws_1", "2026-07-02T10:00:00.000Z");
   db.prepare(
     `INSERT INTO workspace_assets
        (id, workspace_id, domain_id, hostname, asset_type, source,
@@ -77,10 +78,10 @@ function harness(prevReport) {
 }
 
 async function record(env, modules) {
-  await recordPostureEvents("scan_current", "dom_1", "example.co.uk", modules, env);
+  await recordPostureEvents("scan_current", "dom_1", "example.co.uk", modules, env, { currentReport: report(modules) });
 }
 
-const report = (modules) => ({ domain: "example.co.uk", modules });
+const report = (modules) => ({ domain: "example.co.uk", scan_quality: { status: "complete" }, timeline_trust: buildAssetTimelineTrustMetadata(), modules });
 const email = ({ spfPresent = true, spfRecord = "v=spf1 include:example.net -all", dmarcPresent = true, dmarcPolicy = "none", dkimPresent = true } = {}) => ({
   spf: { present: spfPresent, record: spfRecord },
   dmarc: { present: dmarcPresent, policy: dmarcPolicy },

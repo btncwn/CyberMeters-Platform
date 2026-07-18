@@ -91,8 +91,9 @@ export function selectBrandCandidatesSql() {
 }
 
 /**
- * Fire an asset event when a candidate is observed resolving for the first time.
- * INSERT OR IGNORE keeps it idempotent. Best-effort; never throws.
+ * Historical helper retained for compatibility. Phase A Timeline Trust keeps this
+ * path silent because brand DNS enrichment is not tied to a comparable scan-pair
+ * producer version; resolving candidates remain visible through brand surfaces.
  */
 async function fireResolvingAssetEvent(env, workspaceId, candidateDomain, riskLevel, now) {
   try {
@@ -125,7 +126,7 @@ export async function enrichBrandCandidatesDns(env, workspaceId, opts = {}) {
     now = new Date().toISOString(),
     dnsQuery = defaultDnsQuery,
     recheckAfterMs = BRAND_DNS_RECHECK_AFTER_MS,
-    fireEvents = true,
+    fireEvents = false,
   } = opts;
   const staleBefore = new Date(Date.now() - recheckAfterMs).toISOString();
   const stats = { selected: 0, resolves: 0, no_answer: 0, transient: 0, checked: 0 };
