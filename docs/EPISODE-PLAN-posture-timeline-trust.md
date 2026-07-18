@@ -309,10 +309,43 @@ Full CI-equivalent gate runs (shared systems: alerts, cases, remediation, timeli
 - **Release:** two separate release boundaries — Phase A ships and is proven before Phase B
   begins. Standard model (feature branch → focused tests → full gate → PR → CI green → merge →
   **no migration unless B0 requires** → manual Worker deploy → Pages verify → tag → CHANGELOG →
-  production proof). Use `/cybermeters-release` per phase.
+  production proof). Use `/cybermeters-release` per phase. Immediately before deployment,
+  reconfirm and record the currently live Worker version/deployment as rollback evidence, then
+  deploy only the exact merged Phase A main SHA.
+- **Phase A deploy + live acceptance sequence:** Phase A requires two complete reports stamped with
+  the Phase A producer version before customer-facing asset-change comparison is trusted. The
+  expected quiet period is therefore approximately **one scan interval after the first v1 baseline**:
+  the first v1 complete scan establishes the baseline, and the second v1 complete scan is the first
+  comparable scan. It is not necessarily two full scan intervals of silence.
+  1. **First v1 baseline:** run/observe one complete scan after deploy; record scan id, producer
+     version, and `insufficient_history`; expect zero customer-facing change event/alert/digest
+     claims from the comparability gate.
+  2. **Second stable comparable scan:** run/observe a second complete scan with no controlled
+     asset change; expect `comparable`, zero raw customer-change rows for the controlled target,
+     and zero presented events.
+  3. **Controlled change:** introduce one founder-controlled externally observable asset change
+     only after the stable comparable scan.
+  4. **Third detection scan:** run/observe the next complete scan; expect `comparable`, raw event
+     rows for the controlled change, and exactly the intended customer-presented event count after
+     collapse.
+  5. **Controlled reversal / collapse verification:** reverse the controlled change and run the
+     verification scan(s); prove short-lived flip-flop churn collapses in customer timeline,
+     alerting, and digest presentation while a genuine persistent removal and genuine later
+     reappearance remain visible.
+- **Phase A live-acceptance evidence table:** every acceptance pass records the exact evidence
+  below before any Phase B work is considered:
+
+  | Step | Scan ID | Producer version | Comparison status | Raw event count | Presented event count | Evidence surface |
+  | --- | --- | --- | --- | ---: | ---: | --- |
+  | First v1 baseline | TBD | `asset-timeline-trust-v1` | `insufficient_history` | TBD | 0 | Operator diagnostic + customer timeline/alert/digest absence |
+  | Second stable comparable scan | TBD | `asset-timeline-trust-v1` | `comparable` | 0 expected for controlled target | 0 | Operator diagnostic + customer timeline/alert/digest absence |
+  | Third detection scan | TBD | `asset-timeline-trust-v1` | `comparable` | TBD | TBD | Raw `asset_events` count + customer timeline/alert/digest |
+  | Controlled reversal / collapse | TBD | `asset-timeline-trust-v1` | `comparable` | TBD | TBD | Raw `asset_events` count + collapsed customer timeline/alert/digest |
+
 - **Deployment IDs / production proof:** not yet applicable (plan only). Production proof will use
   founder-controlled workspaces/domains; UC3 detection proof uses the controlled fixture corpus
-  (C3), not live customer data.
+  (C3), not live customer data. Live Worker version/deployment must be reconfirmed immediately
+  before Phase A deployment.
 - **Rollback:** Phase A is presentation/emission-gating only with no destructive migration →
   Worker rollback restores prior emission. Phase B behind a production-enable switch until the
   detection corpus passes.
