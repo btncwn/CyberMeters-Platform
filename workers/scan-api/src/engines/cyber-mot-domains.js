@@ -1,3 +1,4 @@
+import { DMARC_MOT_CONTRIBUTION } from "./dmarc-canonical-consumers.js";
 // ── Canonical eight-domain Cyber MOT coverage-state resolver ──────────────────
 // ONE source of truth for "what state is each of the eight customer-facing Cyber MOT
 // domains in?" — consumed by the Main Dashboard, Scan Detail, Executive Report UI and
@@ -310,6 +311,36 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
       base.coverage = caveat ? "partial" : (quality || "complete");
       base.summary = `${domainFindings.length} issue${domainFindings.length === 1 ? "" : "s"} detected${caveat ? " (provisional evidence)" : ""}.`;
       return base;
+    }
+    // ── Email Protection: canonical DMARC contribution (ADR-003 §7) ──────────
+    // DMARC's enforcement verdict comes from the canonical dmarc_state produced by
+    // deriveDmarcState(), read DIRECTLY from the live email module result. That
+    // property is NON-ENUMERABLE, so it only resolves at snapshot-build time (the
+    // in-memory report); an R2-rehydrated report drops it and this domain falls back
+    // to the module-presence logic below (historical scans are never rewritten).
+    // Runs only when NO material finding surfaced above, so a real finding is never
+    // hidden — this exists to stop a healthy verdict for observed-but-weak DMARC
+    // (partial/quarantine/invalid → issue_detected) or unobserved DMARC
+    // (not_observed → evidence_insufficient). reject_enforced and not_yet_assessed
+    // fall through to the normal healthy / not-assessed logic. no_record and
+    // monitoring already surfaced as findings above and never reach here.
+    if (d.domain_key === "email_protection") {
+      const dmarcLevel = report?.modules?.email_security?.dmarc_state?.enforcement_level ?? null;
+      const contribution = dmarcLevel ? DMARC_MOT_CONTRIBUTION[dmarcLevel] : null;
+      if (contribution === "issue_detected") {
+        const caveat = anyRequiredInsufficient || provisional;
+        base.state = CYBER_MOT_STATES.ISSUE_DETECTED;
+        base.coverage = caveat ? "partial" : (quality || "complete");
+        base.highest_severity = base.highest_severity || "medium";
+        base.summary = `DMARC enforcement is incomplete (${dmarcLevel})${caveat ? " (provisional evidence)" : ""}.`;
+        return base;
+      }
+      if (contribution === "evidence_insufficient") {
+        base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;
+        base.coverage = "degraded";
+        base.summary = "DMARC could not be observed this scan (the DNS lookup did not complete) — not enough to assess.";
+        return base;
+      }
     }
     if (relevant.length === 0) {
       base.state = CYBER_MOT_STATES.NOT_YET_ASSESSED;

@@ -7,6 +7,7 @@
 import { safeFetch } from "../lib/http.js";
 import { runDnsModule } from "./dns-scan.js";
 import { dnsQuery } from "./dns.js";
+import { DMARC_INTEL_STATUS, isDmarcScoreNeutral } from "./dmarc-canonical-consumers.js";
 import { buildDkimDetail, parseDmarcRecord, parseSpfRecord } from "./email-analysis.js";
 import { runEmailModule } from "./email-scan.js";
 import { resolveRemediation } from "./remediation-registry.js";
@@ -46,6 +47,55 @@ function enrichSpf(emailMod) {
 function enrichDmarc(emailMod) {
   const dmarc     = emailMod?.dmarc || {};
   const rawRecord = dmarc.record || null;
+
+  // Canonical DMARC state (ADR-003). `dmarc_state` is NON-ENUMERABLE on the live
+  // email module result — read it directly from the source object (a spread/JSON
+  // copy drops it, silently reverting to the legacy raw path below and mislabelling
+  // an UNAVAILABLE lookup as MISSING). Status/risk are derived from the canonical
+  // enforcement_level, never from raw p/pct/valid (ADR-003 binding rule). When
+  // dmarc_state is absent (pre-ADR reports / R2 reconstruction) the legacy raw
+  // derivation runs unchanged, so historical scans are never rewritten.
+  const dmarcState = emailMod?.dmarc_state;
+  const level = dmarcState?.enforcement_level ?? null;
+  if (level !== null) {
+    const parsed = emailMod?.dmarc_detail || parseDmarcRecord(rawRecord, dmarc.record_count ?? (rawRecord ? 1 : 0));
+    const status = DMARC_INTEL_STATUS[level] ?? "ERROR";        // unknown level → fail closed
+    const unavailable = isDmarcScoreNeutral(level);             // not_observed / not_yet_assessed
+    const RISK = {
+      reject_enforced: "LOW", quarantine_enforced: "MEDIUM", partial_reject: "MEDIUM",
+      partial_quarantine: "HIGH", monitoring: "HIGH", invalid_record: "HIGH",
+      no_record: "CRITICAL", not_observed: "UNKNOWN", not_yet_assessed: "UNKNOWN",
+    };
+    const MSG = {
+      reject_enforced: "Full DMARC protection active (p=reject).",
+      quarantine_enforced: "Quarantine policy is enforced at 100%. Move to p=reject for full protection.",
+      partial_reject: "DMARC reject is not applied to all mail (pct<100 or an unprotected subdomain policy).",
+      partial_quarantine: "DMARC quarantine is not applied to all mail (pct<100 or an unprotected subdomain policy).",
+      monitoring: "DMARC is in reporting-only mode (p=none). Enforcement is not active.",
+      invalid_record: parsed.warnings.join(" ") || "The DMARC record is invalid.",
+      no_record: "DMARC record not found. Email spoofing risk is high.",
+      not_observed: "DMARC could not be observed this scan — the DNS lookup did not complete. This is not a finding about your protection.",
+      not_yet_assessed: "DMARC has not been assessed yet.",
+    };
+    return {
+      status,
+      policy: parsed.policy || null,
+      subdomain_policy: parsed.subdomain_policy || null,
+      pct: typeof parsed.percentage === "number" ? parsed.percentage : 0,
+      rua: parsed.rua.join(", ") || null,
+      ruf: parsed.ruf.join(", ") || null,
+      risk_level: RISK[level] ?? "HIGH",
+      message: MSG[level] ?? "",
+      record: rawRecord,
+      detail: parsed,
+      enforcement_level: level,
+      evidence_status: dmarcState?.evidence_status ?? null,
+      // Backend-truth gate: a not_observed / not_yet_assessed DMARC never counts as
+      // a "missing DMARC" finding or business impact (ADR-003 §11). The honest
+      // display status/label is deferred to the excluded frontend PR.
+      observation_unavailable: unavailable,
+    };
+  }
 
   if (!dmarc.present || !rawRecord) {
     const detail = emailMod?.dmarc_detail || parseDmarcRecord(null, 0);
@@ -263,8 +313,8 @@ function computeEmailScore(spf, dmarc, dkim, mtaSts, tlsRpt) {
 function buildEmailBusinessImpacts(spf, dmarc, dkim, mtaSts, tlsRpt) {
   const impacts = [];
 
-  // DMARC
-  if (dmarc.status === "MISSING") {
+  // DMARC — an unobservable lookup (not_observed) is not a "DMARC Missing" impact.
+  if (dmarc.status === "MISSING" && !dmarc.observation_unavailable) {
     impacts.push({
       technical:        "DMARC Missing",
       risk_level:       "CRITICAL",
@@ -354,7 +404,10 @@ function buildEmailBusinessImpacts(spf, dmarc, dkim, mtaSts, tlsRpt) {
 function buildEmailIntelFindings(spf, dmarc, dkim, mtaSts, tlsRpt) {
   const findings = [];
 
-  if (dmarc.status === "MISSING") {
+  // A not_observed / not_yet_assessed DMARC surfaces status MISSING for display,
+  // but is NOT a missing-record finding — it never reaches Cyber MOT as an email
+  // issue (ADR-003 §11). observation_unavailable is set only on the canonical path.
+  if (dmarc.status === "MISSING" && !dmarc.observation_unavailable) {
     findings.push({
       id:             "email_intel_dmarc_missing",
       module:         "email_security_intelligence",
