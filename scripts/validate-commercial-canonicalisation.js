@@ -78,8 +78,11 @@ ok("exactly one document declares itself the canonical pricing authority",
    `claimants: ${claimsPricingAuthority.join(", ") || "none"}`);
 
 // The canonical policy must name the decision that makes it authoritative.
+// Updated 2026-07-19: the founder re-decided the ladder (Trial/£9.99/£19.99/£49.99/MSP); the canonical
+// policy now carries the 2026-07-19 founder-final lock. The earlier 2026-07-09 decision is superseded.
+// This still asserts DOCUMENT STATUS (a dated founder decision), never a price.
 ok("the canonical policy carries its founder decision date",
-   /Status:\s*DECIDED 2026-07-09/.test(read(CANONICAL_PRICING)));
+   /FOUNDER-FINAL[\s·]*LOCKED 2026-07-19/.test(read(CANONICAL_PRICING)));
 
 // ── 2. No superseded document may read as an active direction ────────────────
 // A status line like "**Status:** Active Commercial Direction" is an instruction to
