@@ -83,6 +83,18 @@ export function shouldEmitCertConditionEvent(currentSignature, previousSignature
   return currentSignature !== previousSignature; // otherwise only on genuine transition
 }
 
+export async function certConditionEventId({ workspaceId, domainId, scanId, eventType, signature } = {}) {
+  const digest = await hashToken(JSON.stringify([
+    "cert-condition-event-v1",
+    workspaceId ?? null,
+    domainId ?? null,
+    scanId ?? null,
+    eventType ?? null,
+    signature ?? null,
+  ]));
+  return `asev_${digest.slice(0, 32)}`;
+}
+
 /**
  * insertCertificateEvents(scanId, domainId, certMod, env)
  *
@@ -157,7 +169,13 @@ export async function insertCertificateEvents(scanId, domainId, certMod, env, op
                      ?, ?, ?, ?)`
           )
           .bind(
-            createId("asev"),
+            await certConditionEventId({
+              workspaceId: workspace_id,
+              domainId,
+              scanId,
+              eventType: "certificate_sensitive_host_detected",
+              signature: sensitiveSigCur,
+            }),
             workspace_id,
             domainId,
             scanId,
@@ -187,7 +205,13 @@ export async function insertCertificateEvents(scanId, domainId, certMod, env, op
                      ?, ?, ?, ?)`
           )
           .bind(
-            createId("asev"),
+            await certConditionEventId({
+              workspaceId: workspace_id,
+              domainId,
+              scanId,
+              eventType: "certificate_expiring_soon",
+              signature: expirySigCur,
+            }),
             workspace_id,
             domainId,
             scanId,
@@ -215,7 +239,13 @@ export async function insertCertificateEvents(scanId, domainId, certMod, env, op
                      ?, 'medium', ?, ?)`
           )
           .bind(
-            createId("asev"),
+            await certConditionEventId({
+              workspaceId: workspace_id,
+              domainId,
+              scanId,
+              eventType: "certificate_growth_detected",
+              signature: growthSigCur,
+            }),
             workspace_id,
             domainId,
             scanId,
