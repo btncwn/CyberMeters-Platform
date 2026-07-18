@@ -351,7 +351,7 @@ function activate(ws, at) {
   eq("REGRESSION: and mints no occurrence", occurrenceEvents("esender_latch").length, 0);
 }
 
-// ── 7. Active failures → recovery → re-entry ─────────────────────────────────
+// ── 7. Active failures → window empties (disappearance, NOT recovery) → re-entry ─
 {
   const nowSec = Math.floor(Date.now() / 1000);
   db.prepare(`INSERT INTO dmarc_aggregate_reports (id, workspace_id, domain, external_report_id, date_range_begin, date_range_end, created_at)
@@ -372,21 +372,28 @@ function activate(ws, at) {
   await evaluateEmailSenderMonitoring(env, "ws2", "beta.com");
   eq("an unchanged active condition sends no second alert", notifications("ws2").length, 1);
 
-  // RECOVERY — the window empties. Expressible only because reports drop out.
+  // DISAPPEARANCE (not recovery) — every report drops out of the window. This is
+  // indistinguishable from an RUA outage / the receiver going silent, so it must
+  // NOT be read as recovery: senderRecoveryConfirmed requires window_total > 0
+  // (positive passing evidence), which an empty window cannot supply. The condition
+  // clears to "observed" (no longer actively detected) but no sender_failures_recovered
+  // event is emitted and the email case is NOT closed — a vanished sender is never
+  // proof it now authenticates. Genuine passing-evidence recovery is proven as a pure
+  // predicate in validate-disappearance-confirmation.js (G1.1 / G1.2).
   db.prepare(`DELETE FROM dmarc_aggregate_records WHERE id='rec_live'`).run();
   await evaluateEmailSenderMonitoring(env, "ws2", "beta.com");
   const evs = allEvents("esender_latch");
-  ok("recovery was recorded as history", evs.some((e) => e.event_type === "sender_failures_recovered"));
-  eq("recovery raised NO alert (founder decision)", notifications("ws2").length, 1);
-  eq("recovery minted no new occurrence", occurrenceEvents("esender_latch").length, 1);
-  eq("the sender is marked recovered", db.prepare("SELECT monitoring_status FROM email_sender_sources WHERE id='esender_latch'").get().monitoring_status, "recovered");
+  ok("an emptied window emits NO false recovery event", !evs.some((e) => e.event_type === "sender_failures_recovered"));
+  eq("the emptied window raised NO alert", notifications("ws2").length, 1);
+  eq("the emptied window minted no new occurrence", occurrenceEvents("esender_latch").length, 1);
+  eq("the sender is NOT marked recovered from absence (condition clears to observed)", db.prepare("SELECT monitoring_status FROM email_sender_sources WHERE id='esender_latch'").get().monitoring_status, "observed");
 
   // RE-ENTRY — it comes back. New event ⇒ new occurrence id ⇒ new dedupe key.
   await tick();
   db.prepare(`INSERT INTO dmarc_aggregate_records (id, report_id, workspace_id, domain, source_ip, message_count, dkim_aligned_result, spf_aligned_result, created_at)
               VALUES ('rec_live2','rep_live','ws2','beta.com','10.1.1.1', 600, 'fail', 'fail', datetime('now'))`).run();
   await evaluateEmailSenderMonitoring(env, "ws2", "beta.com");
-  eq("re-entry after recovery alerts again", notifications("ws2").length, 2);
+  eq("re-entry after the condition cleared alerts again", notifications("ws2").length, 2);
   const occNow = occurrenceEvents("esender_latch");
   eq("re-entry minted a SECOND occurrence", occNow.length, 2);
   ok("re-entry's occurrence identity is NEW", occNow[0].id !== occNow[1].id);

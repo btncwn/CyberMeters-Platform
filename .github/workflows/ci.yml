@@ -549,6 +549,12 @@ jobs:
       - name: Validate posture timeline events (email-auth + exposed services)
         run: node scripts/validate-posture-events.js
 
+      - name: Validate posture-events false-resolution guard (exposed_service_resolved evidence gate)
+        run: node scripts/validate-posture-events-resolution.js
+
+      - name: Validate disappearance confirmation (asset/email/brand evidence gates + mutations)
+        run: node scripts/validate-disappearance-confirmation.js
+
       - name: Validate exposure timeline feed (auth + filters + pagination)
         run: node scripts/validate-exposure-feed.js
 
