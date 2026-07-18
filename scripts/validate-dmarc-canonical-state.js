@@ -96,6 +96,30 @@ const fixtures = [
     },
   },
   {
+    name: "lookup_timeout_unavailable",
+    input: input(null, 0, { lookup_status: "timeout" }),
+    expected: {
+      enforcement_level: "not_observed",
+      evidence_status: "unavailable",
+      record_presence: "unknown",
+      record_validity: "not_applicable",
+      confidence: "low",
+      last_observed: OBSERVED_AT,
+    },
+  },
+  {
+    name: "dns_servfail_unavailable",
+    input: input(null, 0, { dns_status: "SERVFAIL" }),
+    expected: {
+      enforcement_level: "not_observed",
+      evidence_status: "unavailable",
+      record_presence: "unknown",
+      record_validity: "not_applicable",
+      confidence: "low",
+      last_observed: OBSERVED_AT,
+    },
+  },
+  {
     name: "no_record",
     input: input(null, 0),
     expected: {
@@ -184,6 +208,45 @@ const fixtures = [
       subdomain_policy: "inherit",
       caveats: [],
       confidence: "high",
+    },
+  },
+  {
+    name: "customer_asserted_low_confidence",
+    input: input("v=DMARC1; p=reject; rua=mailto:dmarc@example.com", 1, { policy_source: "customer_asserted" }),
+    expected: {
+      enforcement_level: "reject_enforced",
+      record_presence: "present",
+      record_validity: "valid",
+      policy: "reject",
+      pct: 100,
+      policy_source: "customer_asserted",
+      confidence: "low",
+    },
+  },
+  {
+    name: "hosted_managed_verified_high_confidence",
+    input: input("v=DMARC1; p=reject", 1, { policy_source: "hosted_managed_verified" }),
+    expected: {
+      enforcement_level: "reject_enforced",
+      record_presence: "present",
+      record_validity: "valid",
+      policy: "reject",
+      pct: 100,
+      policy_source: "hosted_managed_verified",
+      confidence: "high",
+    },
+  },
+  {
+    name: "observed_valid_without_reporting_medium_confidence",
+    input: input("v=DMARC1; p=reject", 1),
+    expected: {
+      enforcement_level: "reject_enforced",
+      record_presence: "present",
+      record_validity: "valid",
+      policy: "reject",
+      pct: 100,
+      policy_source: "observed_dns",
+      confidence: "medium",
     },
   },
   {
@@ -355,7 +418,7 @@ if (!process.argv.includes("--no-mutate")) {
       name: "quarantine/reject state collapse",
       from: "    enforcementLevel = ordered.length === 0 ? \"reject_enforced\" : \"partial_reject\";",
       to: "    enforcementLevel = ordered.length === 0 ? \"quarantine_enforced\" : \"partial_quarantine\";",
-      expected: "reject_pct_zero_mismatch",
+      expected: "customer_asserted_low_confidence_mismatch",
     },
     {
       name: "partial/full collapse",
@@ -398,6 +461,24 @@ if (!process.argv.includes("--no-mutate")) {
       from: "      enforcement_level: \"no_record\",",
       to: "      enforcement_level: \"reject_enforced\",",
       expected: "no_record_mismatch",
+    },
+    {
+      name: "customer assertion confidence inflated",
+      from: "  if (policySource === \"customer_asserted\") return \"low\";",
+      to: "  if (policySource === \"customer_asserted\") return \"high\";",
+      expected: "customer_asserted_low_confidence_mismatch",
+    },
+    {
+      name: "hosted managed verified confidence downgraded",
+      from: "  if (policySource === \"hosted_managed_verified\") return \"high\";",
+      to: "  if (policySource === \"hosted_managed_verified\") return \"medium\";",
+      expected: "hosted_managed_verified_high_confidence_mismatch",
+    },
+    {
+      name: "observed no-reporting confidence inflated",
+      from: "  if (recordValidity === \"valid\") return parsed?.has_reporting ? \"high\" : \"medium\";",
+      to: "  if (recordValidity === \"valid\") return \"high\";",
+      expected: "observed_valid_without_reporting_medium_confidence_mismatch",
     },
   ];
 

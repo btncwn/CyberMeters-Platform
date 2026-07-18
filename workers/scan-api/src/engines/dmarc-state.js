@@ -96,6 +96,13 @@ function orderedCaveats(caveats) {
   return DMARC_CAVEAT_PRIORITY.filter((caveat) => present.has(caveat));
 }
 
+function confidenceForObservedRecord(policySource, parsed, recordValidity) {
+  if (policySource === "customer_asserted") return "low";
+  if (policySource === "hosted_managed_verified") return "high";
+  if (recordValidity === "valid") return parsed?.has_reporting ? "high" : "medium";
+  return "high";
+}
+
 /**
  * deriveDmarcState(input)
  *
@@ -144,7 +151,7 @@ export function deriveDmarcState(input = {}) {
       record_validity: "not_applicable",
       enforcement_level: "no_record",
       policy_source: policySource,
-      confidence: "high",
+      confidence: confidenceForObservedRecord(policySource, parsed, "absent"),
       last_observed: lastObserved,
     });
   }
@@ -165,7 +172,7 @@ export function deriveDmarcState(input = {}) {
       subdomain_policy: spValid ? (sp || "inherit") : null,
       policy_source: policySource,
       enforcement_level: "invalid_record",
-      confidence: "high",
+      confidence: confidenceForObservedRecord(policySource, parsed, "invalid"),
       last_observed: lastObserved,
     });
   }
@@ -195,7 +202,7 @@ export function deriveDmarcState(input = {}) {
     policy_source: policySource,
     enforcement_level: enforcementLevel,
     caveats: ordered,
-    confidence: parsed?.has_reporting ? "high" : "medium",
+    confidence: confidenceForObservedRecord(policySource, parsed, "valid"),
     last_observed: lastObserved,
   });
 }
