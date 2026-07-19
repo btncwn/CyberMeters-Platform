@@ -90,6 +90,7 @@ import { globalBillingRoutes } from "./routes/global-billing.js";
 import { authRoutes } from "./routes/auth.js";
 import { attackSurfaceRoutes } from "./routes/attack-surface.js";
 import { managedCasesRoutes } from "./routes/managed-cases.js";
+import { relatedChangesRoutes } from "./routes/related-changes.js";
 import { shadowItRoutes } from "./routes/shadow-it.js";
 import { certificatesLifecycleRoutes } from "./routes/certificates-lifecycle.js";
 import { identityExposureRoutes } from "./routes/identity-exposure.js";
@@ -893,6 +894,10 @@ const WORKSPACE_PURGE_TABLES = [
   // Per-workspace report branding (mig 096). Customer-uploaded logo metadata +
   // display name; its R2 logo objects are deleted in step 1c above before this row.
   "workspace_branding",
+  // M6 Phase B1 Related Changes (mig 098). Evidence pointers first (child), then the
+  // clusters (parent) — the evidence table FKs the cluster, so a FK-enforcing engine
+  // must not see the parent vanish before the child.
+  "related_change_evidence", "related_changes",
 ];
 
 /**
@@ -2089,6 +2094,14 @@ export default {
     {
       const casesResponse = await managedCasesRoutes(routeCtx);
       if (casesResponse) return casesResponse;
+    }
+
+    // ── M6 B1 Related Changes routes (deterministic correlation clusters) ────
+    // Pattern /api/workspaces/:id/related-changes is disjoint from /cases and every
+    // other route.
+    {
+      const relatedChangesResponse = await relatedChangesRoutes(routeCtx);
+      if (relatedChangesResponse) return relatedChangesResponse;
     }
 
     // ── Shadow IT approved-inventory routes ─────────────────────────────────

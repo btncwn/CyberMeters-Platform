@@ -11,12 +11,12 @@ data cannot be silently omitted.
 
 ## Counts
 
-- **schema tables:** 85
-- **classified:** 85
-- **tenant owned tables:** 81
+- **schema tables:** 87
+- **classified:** 87
+- **tenant owned tables:** 83
 - **infra or identity tables:** 4
 - **unclassified:** 0
-- **resource classes:** 31
+- **resource classes:** 32
 - **classes with dynamic coverage:** 17
 
 ## The 12 invariants
@@ -60,6 +60,7 @@ data cannot be silently omitted.
 | website_security | website | direct(workspace_id) | 2 | — | — |
 | shadow_it | shadow_it | direct(workspace_id) | 7 | ✓ | — |
 | posture_state | reporting | direct(workspace_id) | 4 | ✓ | — |
+| related_changes | correlation | direct(workspace_id) | 2 | — | — |
 | api_tokens | account | direct(workspace_id) | 1 | — | ✓ |
 | subscriptions | billing | direct(workspace_id), account(owner_user_id), via_subscription(subscription_id) | 4 | ✓ | — |
 | report_branding | reporting | direct(workspace_id), account(owner_user_id) | 2 | — | — |
@@ -83,6 +84,7 @@ _ⁿᵗ = non-tenant (global infrastructure / identity root)._
 - **email_protection:** workspace_id-scoped; ingest is endpoint-key gated (key binds workspace); read surfaces harness-covered via /maturity + email-protection routes
 - **cyber_essentials:** workspace_id-scoped; read surfaces exist; write is answer-versioned (validate-ce-answer-versioning)
 - **website_security:** workspace_id-scoped; static audit + lifecycle validator (validate-website-security-lifecycle)
+- **related_changes:** M6 B1 deterministic Related Changes (mig 098); both workspace_id-scoped (evidence carries a denormalised workspace_id); read/feedback/case surface is workspace_id-filtered and role-gated; isolation proven by validate-m6-b1-related-changes + the static tenant-query audit, purge by validate-purge-completeness
 - **api_tokens:** workspace_id + user_id scoped; account route ownership-gated
 - **report_branding:** workspace_branding is workspace_id-scoped (per-workspace co-brand logo); msp_branding_profiles is owner_user_id-scoped (MSP white-label profile, usable only for the MSP's own portfolio); isolation proven by validate-report-branding-v2 + the static audit; logos stored in R2 under tenant-prefixed, content-addressed keys
 - **msp_portfolio:** owner_id (MSP account) scoped; cross-MSP isolation proven by validate-portfolio + validate-msp-portfolio-domains
@@ -141,6 +143,8 @@ _ⁿᵗ = non-tenant (global infrastructure / identity root)._
 | `oauth_states` | infra | infrastructure |
 | `password_reset_tokens` | user(user_id) | auth_sessions |
 | `portfolio_risk_snapshots` | account(owner_id) | msp_portfolio |
+| `related_change_evidence` | direct(workspace_id) | related_changes |
+| `related_changes` | direct(workspace_id) | related_changes |
 | `remediation_items` | via_scan(scan_id) | findings |
 | `report_schedule_runs` | direct(workspace_id) | scheduled_reports |
 | `report_schedules` | direct(workspace_id) | scheduled_reports |

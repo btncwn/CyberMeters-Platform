@@ -13,8 +13,8 @@ guard without an explicit, documented public-allowlist reason.
 
 ## Coverage summary
 
-- **Total entry points:** 241
-- **Auth-guarded:** 220
+- **Total entry points:** 244
+- **Auth-guarded:** 223
 - **Unauthenticated (public by design):** 21
 - **Sensitive-scope gaps (unauthed workspace/resource/account/admin/portfolio, non-public):** 0
 
@@ -26,7 +26,7 @@ guard without an explicit, documented public-allowlist reason.
 | portfolio | 9 | 9 |
 | preflight | 1 | 0 |
 | public-or-global | 37 | 19 |
-| unknown | 46 | 46 |
+| unknown | 49 | 49 |
 | webhook | 2 | 0 |
 | workspace | 119 | 119 |
 
@@ -71,9 +71,9 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| OPTIONS | `(none)` | 1947 | preflight | public | — |
-| GET | `/health` | 1952 | public-or-global | public | — |
-| GET | `/ready` | 1968 | public-or-global | public | — |
+| OPTIONS | `(none)` | 1969 | preflight | public | — |
+| GET | `/health` | 1974 | public-or-global | public | — |
+| GET | `/ready` | 1990 | public-or-global | public | — |
 
 ### `workers/scan-api/src/routes/account.js`
 
@@ -134,15 +134,15 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | POST | `/api/auth/resend-verification` | 471 | public-or-global | public | — |
 | GET | `/api/auth/microsoft/login` | 587 | public-or-global | public | — |
 | GET | `/api/auth/microsoft/callback` | 648 | public-or-global | public | — |
-| POST | `/api/auth/exchange` | 934 | public-or-global | public | — |
-| POST | `/api/auth/forgot-password` | 997 | public-or-global | public | — |
-| POST | `/api/auth/reset-password` | 1099 | public-or-global | public | — |
-| GET | `/api/auth/mfa/status` | 1212 | public-or-global | ✓ | requireAuth |
-| POST | `/api/auth/mfa/setup` | 1234 | public-or-global | ✓ | requireAuth |
-| POST | `/api/auth/mfa/verify-setup` | 1271 | public-or-global | ✓ | requireAuth |
-| POST | `/api/auth/mfa/challenge` | 1340 | public-or-global | public | — |
-| POST | `/api/auth/mfa/recovery-code` | 1439 | public-or-global | public | — |
-| POST | `/api/auth/mfa/disable` | 1536 | public-or-global | ✓ | requireAuth |
+| POST | `/api/auth/exchange` | 983 | public-or-global | public | — |
+| POST | `/api/auth/forgot-password` | 1054 | public-or-global | public | — |
+| POST | `/api/auth/reset-password` | 1156 | public-or-global | public | — |
+| GET | `/api/auth/mfa/status` | 1277 | public-or-global | ✓ | requireAuth |
+| POST | `/api/auth/mfa/setup` | 1299 | public-or-global | ✓ | requireAuth |
+| POST | `/api/auth/mfa/verify-setup` | 1336 | public-or-global | ✓ | requireAuth |
+| POST | `/api/auth/mfa/challenge` | 1405 | public-or-global | public | — |
+| POST | `/api/auth/mfa/recovery-code` | 1504 | public-or-global | public | — |
+| POST | `/api/auth/mfa/disable` | 1601 | public-or-global | ✓ | requireAuth |
 
 ### `workers/scan-api/src/routes/billing.js`
 
@@ -264,8 +264,8 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | POST | `/api/dmarc-ingest` | 42 | webhook | public | — |
 | GET | `/api/billing/subscription` | 148 | public-or-global | ✓ | requireAuth |
 | POST | `/api/billing/webhook` | 188 | webhook | public | — |
-| POST | `/api/billing/checkout` | 500 | public-or-global | ✓ | requireAuth |
-| POST | `/api/billing/portal` | 645 | public-or-global | ✓ | requireAuth |
+| POST | `/api/billing/checkout` | 558 | public-or-global | ✓ | requireAuth |
+| POST | `/api/billing/portal` | 703 | public-or-global | ✓ | requireAuth |
 
 ### `workers/scan-api/src/routes/identity-exposure.js`
 
@@ -301,6 +301,14 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | GET | `/^\/api\/portfolio\/domains\/([^/` | 621 | portfolio | ✓ | requireAuth, requireWorkspaceRole |
 | GET | `/api/workspaces` | 646 | public-or-global | ✓ | requireAuth, getAccessibleWorkspaceIds* |
 | POST | `/api/workspaces` | 679 | public-or-global | ✓ | requireAuth |
+
+### `workers/scan-api/src/routes/related-changes.js`
+
+| Method | Path | Line | Scope | Auth | Guards |
+|---|---|---:|---|---|---|
+| GET | `(none)` | 60 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `(none)` | 83 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| POST | `(none)` | 101 | unknown | ✓ | requireAuth, requireWorkspaceRole |
 
 ### `workers/scan-api/src/routes/scans.js`
 

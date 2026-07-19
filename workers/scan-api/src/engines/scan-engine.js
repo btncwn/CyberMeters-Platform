@@ -49,6 +49,7 @@ import { correlateCertificateLifecycle } from "./certificate-lifecycle.js";
 import { correlateIdentityExposure } from "./identity-lifecycle.js";
 import { evaluateWebsiteSecurityForScan } from "./website-security-lifecycle.js";
 import { evaluateCyberEssentialsLifecycle } from "./ce-lifecycle.js";
+import { correlateRelatedChanges } from "./related-changes.js";
 import { runTakeoverModule } from "./takeover-scan.js";
 import { runTechModule } from "./tech-scan.js";
 import { runVendorRelationshipModule } from "./vendor-relationship.js";
@@ -1223,6 +1224,28 @@ function buildCanonicalUrlProfile(modules) {
         await evaluateCyberEssentialsLifecycle(env, workspace_id, { scanId });
       }
     } catch { /* non-fatal — readiness catches up on the next scan */ }
+
+    // Phase 8x: M6 Phase B1 Related Changes — deterministic same-entity/same-window
+    // correlation over the change-event producers written by the phases above. Runs
+    // AFTER the lifecycle/case phases (8a, 8k–8n) so it sees this scan's producer rows,
+    // and BEFORE Phase 8o so its clusters are frozen into the snapshot. It reads only
+    // existing producer rows (adapter, no table moves), correlates with the registered
+    // deterministic rules, and persists clusters + evidence POINTERS (mig 098). No
+    // automatic case or alert is created (design §8) — the rule decides, the customer
+    // confirms. Runs only on a complete scan with a complete previous scan (the
+    // posture-events evidence floor). Non-fatal.
+    try {
+      const rcWsRows = await env.cybermeters_db
+        .prepare('SELECT workspace_id FROM workspace_domains WHERE domain_id = ?')
+        .bind(domainId)
+        .all();
+      for (const { workspace_id } of (rcWsRows.results || [])) {
+        await correlateRelatedChanges(env, {
+          workspaceId: workspace_id, domainId, scanId,
+          scanQuality: scanQuality?.status, assessedAt: completedAt,
+        });
+      }
+    } catch { /* non-fatal — correlation catches up on the next scan */ }
 
     // Phase 8o: Canonical reporting snapshot (M5.c) — one completed Cyber MOT →
     // one immutable eight-domain snapshot (D1 index + R2 JSON). Runs AFTER the

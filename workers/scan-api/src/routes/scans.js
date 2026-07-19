@@ -13,6 +13,7 @@ import { getEffectivePlan } from "../engines/entitlements.js";
 import { buildExecutiveReportV2 } from "../engines/executive-report.js";
 import { applyEvidenceQuality, normalizeFindingSchema } from "../engines/findings.js";
 import { buildScanReportPdf } from "../engines/pdf.js";
+import { buildRelatedChangesSummary } from "../engines/related-changes.js";
 import { resolveReportBrandingV2, loadBrandingLogoDataUri } from "../engines/report-branding-v2.js";
 import { prepareLogoXObject } from "../engines/pdf-image.js";
 import { checkScanLimit, checkScheduledScanLimit, getAccountUsage, getEntitlementUsage, getPlanLimits, getWorkspaceBillingUserId, planLimitExceeded } from "../engines/plan-usage.js";
@@ -420,7 +421,25 @@ export async function scanRoutes(rctx) {
           if (dataUri) logoImage = await prepareLogoXObject(dataUri, branding.accent);
         } catch { branding = null; logoImage = null; }
 
-        const pdfBytes = buildScanReportPdf(scan, read, branding, logoImage);
+        // Freeze the Related Changes summary (M6 B1) into the snapshot the first time
+        // this report is generated (the branding_json precedent), so a later
+        // correlation never rewrites this historical PDF.
+        let relatedChanges = null;
+        try {
+          const frozenRc = read.row?.related_changes_json ? JSON.parse(read.row.related_changes_json) : null;
+          if (frozenRc) {
+            relatedChanges = frozenRc;
+          } else {
+            relatedChanges = await buildRelatedChangesSummary(env, scan.workspace_id);
+            if (read.row?.id) {
+              await env.cybermeters_db
+                .prepare("UPDATE scan_report_snapshots SET related_changes_json = ? WHERE id = ? AND related_changes_json IS NULL")
+                .bind(JSON.stringify(relatedChanges), read.row.id).run();
+            }
+          }
+        } catch { relatedChanges = null; }
+
+        const pdfBytes = buildScanReportPdf(scan, read, branding, logoImage, relatedChanges);
         const safeName = String(scan.domain || "scan").replace(/[^a-z0-9.-]/gi, "_");
         await createAuditEvent(env, {
           workspace_id: scan.workspace_id, user_id: user.id,

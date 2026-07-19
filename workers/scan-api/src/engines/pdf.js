@@ -385,6 +385,33 @@ function sectionRemediation(w, snap) {
   }
 }
 
+// Presentation-only labels for the deterministic Related Changes rules. NOT a source
+// of meaning (the backend owns that) — just human titles for the frozen summary.
+const RELATED_CHANGE_LABELS = {
+  new_host_with_cert: "New host with a new or changed certificate",
+  new_host_with_identity: "New host with a login or identity surface",
+  identity_with_cert: "Login or admin surface with a certificate change",
+  email_config_with_host_or_cert: "Email-authentication change with a new host or certificate",
+  new_sender_with_email_config: "New sending source with an email-authentication change",
+  shadow_it_with_host_or_cert: "Unapproved technology with a new host or certificate",
+};
+
+// M6 B1 Related Changes summary. Frozen into the snapshot (related_changes_json) and
+// rendered here. Renders NOTHING when there is nothing to show, so existing reports are
+// byte-unchanged. Wording is locked (design §9): "related changes … may be connected …
+// confirm whether planned"; never attack chain / compromise / incident.
+function sectionRelatedChanges(w, summary) {
+  const items = (summary && Array.isArray(summary.items)) ? summary.items : [];
+  if (!items.length) return;
+  w.heading(`Related Changes observed in this period (${items.length})`);
+  w.prose("Related changes are correlated observations that may be connected. Change is not compromise - confirm whether each was planned.", { size: 9, color: "0.35 0.38 0.44" });
+  for (const it of items) {
+    const label = RELATED_CHANGE_LABELS[it.rule_id] || it.rule_id;
+    w.text(`${label} - ${it.registrable_domain}`, { size: 10, bold: true });
+    w.text(`${it.signal_family_count} independent signal families - ${it.direction} - status: ${it.customer_state}`, { size: 8, indent: 10, color: "0.35 0.38 0.44" });
+  }
+}
+
 function sectionMethodology(w, snap) {
   const m = snap.methodology || {};
   const s = snap.snapshot || {};
@@ -450,7 +477,7 @@ function brandingHeader(w, branding, title, subtitle, logoImage = null) {
  * verified canonical snapshot read ({ snapshot } from readScanReportSnapshot).
  * Returns a Uint8Array. Deterministic for a given snapshot + branding.
  */
-export function buildScanReportPdf(scan, read, branding = null, logoImage = null) {
+export function buildScanReportPdf(scan, read, branding = null, logoImage = null, relatedChanges = null) {
   const snap = read.snapshot;
   const s = snap.snapshot || {};
   const w = makeWriter({
@@ -462,6 +489,7 @@ export function buildScanReportPdf(scan, read, branding = null, logoImage = null
   sectionDomains(w, snap);
   sectionFindings(w, snap);
   sectionRemediation(w, snap);
+  sectionRelatedChanges(w, relatedChanges);
   sectionMethodology(w, snap);
   const streams = w.finish();
   if (logoImage) return assemblePdfWithImage(streams, logoImage);
@@ -480,7 +508,7 @@ export function buildScanReportPdf(scan, read, branding = null, logoImage = null
  * `generatedAt` is the caller's artefact timestamp (claim time for stored
  * PDFs) — deterministic per artefact, never read from the clock here.
  */
-export function buildWorkspaceExecutivePdf({ workspaceName, reads = [], branding = null, generatedAt = null, logoImage = null }) {
+export function buildWorkspaceExecutivePdf({ workspaceName, reads = [], branding = null, generatedAt = null, logoImage = null, relatedChanges = null }) {
   const ok = reads.filter((r) => r.status === "ok");
   const unavailable = reads.filter((r) => r.status !== "ok");
   // Presentation rule (documented): the cover headlines the most recently
@@ -501,6 +529,7 @@ export function buildWorkspaceExecutivePdf({ workspaceName, reads = [], branding
     w.text(`Latest assessment: ${lead.snapshot.snapshot.domain} - ${pdfUtcDate(lead.snapshot.snapshot.as_of, true)}`, { size: 10, bold: true });
     w.gap(2);
     sectionOverall(w, lead.snapshot);
+    sectionRelatedChanges(w, relatedChanges);
     for (const r of ok) {
       w.newPage();
       w.text(`Domain: ${r.snapshot.snapshot.domain}`, { size: 12, bold: true });
