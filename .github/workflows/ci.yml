@@ -600,6 +600,18 @@ jobs:
       - name: Validate disappearance confirmation (asset/email/brand evidence gates + mutations)
         run: node scripts/validate-disappearance-confirmation.js
 
+      # M6 Phase B1 — Deterministic Related Changes. Correlation ships a cluster ONLY
+      # when a registered rule pairs >=2 INDEPENDENT signal families on the same
+      # registrable domain in a bounded window; same domain + window alone is a
+      # candidate, never a cluster. Drives the real adapter + rules + orchestrator
+      # against schema.sql + every migration: proves the shadow-IT provenance guard,
+      # the complete-evidence + adjacency floors, brand-alone-never-clusters,
+      # append-only recurrence + idempotency, tenant isolation, append-only customer
+      # feedback that a recurrence never resets, and manual-only case creation through
+      # the canonical factory (no bypass).
+      - name: Validate M6 B1 Related Changes (deterministic correlation / provenance / recurrence / isolation / manual case)
+        run: node scripts/validate-m6-b1-related-changes.js
+
       - name: Validate exposure timeline feed (auth + filters + pagination)
         run: node scripts/validate-exposure-feed.js
 

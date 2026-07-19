@@ -691,6 +691,30 @@
       }
     },
     {
+      "class": "related_changes",
+      "domain": "correlation",
+      "tables": [
+        "related_changes",
+        "related_change_evidence"
+      ],
+      "ownership": {
+        "related_changes": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "related_change_evidence": {
+          "model": "direct",
+          "column": "workspace_id"
+        }
+      },
+      "non_tenant": false,
+      "coverage": {
+        "dynamic_harness": false,
+        "property_based": false,
+        "note": "M6 B1 deterministic Related Changes (mig 098); both workspace_id-scoped (evidence carries a denormalised workspace_id); read/feedback/case surface is workspace_id-filtered and role-gated; isolation proven by validate-m6-b1-related-changes + the static tenant-query audit, purge by validate-purge-completeness"
+      }
+    },
+    {
       "class": "api_tokens",
       "domain": "account",
       "tables": [
@@ -959,6 +983,8 @@
     "oauth_states": "infrastructure",
     "password_reset_tokens": "auth_sessions",
     "portfolio_risk_snapshots": "msp_portfolio",
+    "related_change_evidence": "related_changes",
+    "related_changes": "related_changes",
     "remediation_items": "findings",
     "report_schedule_runs": "scheduled_reports",
     "report_schedules": "scheduled_reports",
@@ -1000,12 +1026,12 @@
     "workspaces": "workspaces"
   },
   "counts": {
-    "schema_tables": 85,
-    "classified": 85,
-    "tenant_owned_tables": 81,
+    "schema_tables": 87,
+    "classified": 87,
+    "tenant_owned_tables": 83,
     "infra_or_identity_tables": 4,
     "unclassified": 0,
-    "resource_classes": 31,
+    "resource_classes": 32,
     "classes_with_dynamic_coverage": 17
   }
 }

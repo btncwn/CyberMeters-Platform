@@ -581,6 +581,46 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  // ── Related Changes (M6 Phase B1) ─────────────────────────────────────────
+  // Deterministic correlations: ≥2 independent signal families that changed
+  // together on the same registrable domain in the same period. The backend
+  // owns every state (customer_state, direction, confidence, completeness); the
+  // frontend renders them and never derives a verdict.
+
+  /** GET /api/workspaces/:id/related-changes — optional ?customer_state=… filter */
+  getRelatedChanges: (id, params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '')
+    ).toString()
+    return request(`/workspaces/${id}/related-changes${q ? `?${q}` : ''}`)
+  },
+
+  /** GET /api/workspaces/:id/related-changes/:rcId — cluster + related-evidence pointers */
+  getRelatedChange: (id, rcId) =>
+    request(`/workspaces/${id}/related-changes/${encodeURIComponent(rcId)}`),
+
+  /** POST /api/workspaces/:id/related-changes/:rcId/feedback
+   *  body { state: 'expected'|'unrelated'|'unexpected_confirmed', note?: string } */
+  relatedChangeFeedback: (id, rcId, payload) =>
+    request(`/workspaces/${id}/related-changes/${encodeURIComponent(rcId)}/feedback`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  /** POST /api/workspaces/:id/related-changes/:rcId/link-case  body { case_id } */
+  linkRelatedChangeCase: (id, rcId, payload) =>
+    request(`/workspaces/${id}/related-changes/${encodeURIComponent(rcId)}/link-case`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  /** POST /api/workspaces/:id/related-changes/:rcId/create-case → { ok, case_id, case_type } */
+  createRelatedChangeCase: (id, rcId) =>
+    request(`/workspaces/${id}/related-changes/${encodeURIComponent(rcId)}/create-case`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+
   /** GET /api/workspaces/:id/shadow-it/inventory — externally-observed technology inventory */
   getShadowItInventory: (id, params = {}) => {
     const q = new URLSearchParams(

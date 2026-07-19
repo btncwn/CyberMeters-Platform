@@ -25,6 +25,7 @@ export const routePreloadMap = {
   '/ws/audit-log': () => import('../pages/ws/WorkspaceAuditLogPage'),
   '/ws/members': () => import('../pages/ws/WorkspaceMembersPage'),
   '/ws/cases': () => import('../pages/ws/WorkspaceCasesPage'),
+  '/ws/related-changes': () => import('../pages/ws/WorkspaceRelatedChangesPage'),
   '/ws/retention': () => import('../pages/ws/WorkspaceRetentionPage'),
   '/settings': () => import('../pages/SettingsPage'),
 };

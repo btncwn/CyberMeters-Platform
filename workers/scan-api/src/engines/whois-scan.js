@@ -29,7 +29,11 @@ import { RDAP_UA, safeFetch } from "../lib/http.js";
  *   sub.example.com             → example.com
  *   example.com                 → example.com             (no-op)
  */
-function getRegisteredDomain(hostname) {
+// Exported for reuse by M6 Phase B1 Related Changes (engines/related-changes-adapter.js),
+// which resolves every host-tier entity to its registrable domain for the cross-tier
+// join. Still UK-multi-level only, NOT full-PSL (design note §3a) — sufficient for the
+// UK private beta; a non-UK customer needs a full-PSL upgrade first.
+export function getRegisteredDomain(hostname) {
   const parts = hostname.toLowerCase().split(".");
 
   // Known two-label SLDs under .uk that act as effective TLDs

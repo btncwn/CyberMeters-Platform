@@ -19,6 +19,7 @@
     "workers/scan-api/src/routes/identity-exposure.js",
     "workers/scan-api/src/routes/managed-cases.js",
     "workers/scan-api/src/routes/portfolio.js",
+    "workers/scan-api/src/routes/related-changes.js",
     "workers/scan-api/src/routes/scans.js",
     "workers/scan-api/src/routes/shadow-it.js",
     "workers/scan-api/src/routes/website-security.js",
@@ -34,8 +35,8 @@
     "workers/scan-api/src/email/inbound.js"
   ],
   "counts": {
-    "total": 241,
-    "authed": 220,
+    "total": 244,
+    "authed": 223,
     "public_unauthed": 21,
     "sensitive_scope_gaps": 0,
     "by_scope": {
@@ -60,8 +61,8 @@
         "authed": 2
       },
       "unknown": {
-        "total": 46,
-        "authed": 46
+        "total": 49,
+        "authed": 49
       },
       "workspace": {
         "total": 119,
@@ -2345,6 +2346,48 @@
       "scope": "public-or-global",
       "auth_guards": [
         "requireAuth"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/related-changes.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/related-changes.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/related-changes.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
       ],
       "scope_helpers": [],
       "authed": true,

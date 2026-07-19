@@ -647,7 +647,7 @@ export async function readScanReportSnapshot(env, scanId, opts = {}) {
   const selectActive = () => env.cybermeters_db
     .prepare(
       `SELECT id, workspace_id, domain_id, scan_id, status, r2_key, checksum_sha256,
-              snapshot_schema_version, assessed_at, created_at, branding_json
+              snapshot_schema_version, assessed_at, created_at, branding_json, related_changes_json
        FROM scan_report_snapshots WHERE scan_id = ? AND status != 'failed'`
     )
     .bind(scanId)
