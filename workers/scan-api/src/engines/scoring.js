@@ -72,7 +72,19 @@ export function computeScore(modules, domain) {
   }
 
   // ── DNS ────────────────────────────────────────────────────────────────
-  if (!modules.dns?.resolves) {
+  // "Domain Does Not Resolve" is a CRITICAL finding, so it must reflect an
+  // AUTHORITATIVE absence, never a probe failure. Cloudflare-only `resolves:false`
+  // could be a single DoH timeout; only emit when the aggregated A/AAAA resolvers
+  // actually answered (resolution_assessed !== false) AND none of them found a record
+  // (resolves_any !== true). A total resolution outage or a single-resolver timeout
+  // that another resolver contradicts now defers instead of firing a false critical.
+  // Legacy reports without the new fields fall back to the prior `!resolves` behaviour.
+  const dnsResolutionModule = modules.dns || {};
+  const dnsAuthoritativelyUnresolved =
+    !dnsResolutionModule.resolves
+    && dnsResolutionModule.resolves_any !== true
+    && dnsResolutionModule.resolution_assessed !== false;
+  if (dnsAuthoritativelyUnresolved) {
     finding({
       id:           "dns_no_resolution",
       module:       "dns",

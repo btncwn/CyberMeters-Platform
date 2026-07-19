@@ -162,8 +162,34 @@ export async function runDnsModule(domain) {
   const nameservers = nsRecords.map((r) => r.data).filter(Boolean);
   const operationalResilience = buildDnsOperationalResilience({ nameservers, dnssec });
 
+  // App-probe reliability (DNS-before-HTTP): `resolves` above is derived from the
+  // Cloudflare A/AAAA lookups only, so a single DoH timeout collapses to
+  // `resolves:false` and reads as "domain does not resolve" — a failed probe, not an
+  // authoritative absence. Aggregate the independent A/AAAA resolvers that ALREADY ran
+  // (Cloudflare + Google) to separate the two: `resolution_assessed` is true iff at
+  // least one resolver authoritatively answered; `resolves_any` is true iff any of them
+  // returned a record. When no A/AAAA resolver answered at all (resolution_assessed
+  // false), the module is incomplete — a total resolution outage must never read as a
+  // clean/complete verdict. Additive only: `resolves` and every existing field are
+  // unchanged for backward compatibility.
+  // A resolver only AUTHORITATIVELY answered on an authoritative rcode: NOERROR (0) or
+  // NXDOMAIN (3). SERVFAIL (2) / REFUSED (5) / a DoH transport failure (rejected) are
+  // resolver failures, NOT proof the domain has no records — those leave resolution
+  // unassessed (→ incomplete), never a false "does not resolve".
+  const DNS_AUTHORITATIVE_RCODES = new Set([0, 3]);
+  const aAaaaResults = [aRes, aaaaRes, googleARes, googleAaaaRes];
+  const resolutionAssessed = aAaaaResults.some(
+    (r) => r.status === "fulfilled" && DNS_AUTHORITATIVE_RCODES.has(r.value?.Status)
+  );
+  const resolvesAny = aAaaaResults.some(
+    (r) => r.status === "fulfilled" && r.value?.Status === 0 && ((r.value?.Answer?.length ?? 0) > 0)
+  );
+
   return {
     resolves:     aRecords.length > 0 || aaaaRecords.length > 0,
+    resolves_any: resolvesAny,
+    resolution_assessed: resolutionAssessed,
+    ...(resolutionAssessed ? {} : { incomplete: true, incomplete_reason: "dns_resolution_unavailable" }),
     has_ipv6:     aaaaRecords.length > 0,
     has_mx:       mxRecords.length > 0,
     nameservers,

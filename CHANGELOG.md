@@ -5,6 +5,49 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## App-Probe Reliability — deployed 2026-07-18 (code-only, no migration)
+
+- **Release tag / Live Worker / Rollback Worker:** recorded at deploy — see the episode
+  release report and `GET /health` (deployed from the PR #185 merge SHA; latest applied
+  production migration remains `095-domain-maturity-ledger.sql` — **no migration**).
+- **Contract:** a failed / timed-out / blocked / unavailable external probe is never a
+  healthy result, and transport failure is not confused with confirmed application
+  absence. Additive, fail-neutral, tenant-neutral producer changes only — no schema, no
+  API-shape change, no historical rewrite. The honest direction (→ `unavailable` /
+  `incomplete` / `partial`) is preserved throughout; a genuine authoritative negative
+  (a refused connection = "no web service"; NXDOMAIN = "does not resolve") stays
+  reportable.
+- **Two confirmed probe-honesty defects fixed (both self-healing through already-gated
+  consumers):**
+  - **HTTP exposure (`asset-intel.js`):** `probeAsset` now distinguishes a **timeout**
+    (`AbortSignal.timeout` → `reachable:null, probe_status:"timed_out"` — started, not
+    assessed) and an **HTTP 5xx** (`reachable:false, probe_status:"server_error"` —
+    answered, not content-assessable) from an authoritative **connection refusal**
+    (`reachable:false` — no web service). `runExposureModule` flags `incomplete` when any
+    host was budget-starved, timed out or 5xx — never when hosts merely refused. The
+    thrown-module catch in `scan-engine.js` now sets `incomplete` too. This closes a
+    false `assessed_healthy` (→ false "no exposed admin surface", false
+    `exposed_service_resolved`, false ASM case resolution) whenever a probe pass reached
+    no host; it propagates to `runAdminSurfaceModule` (→ `unavailable`),
+    `buildScanQuality` (→ `partial`) and `moduleCompletionGate` (→ verification defers).
+  - **DNS resolution (`dns-scan.js` + `scoring.js`):** `runDnsModule` adds
+    `resolution_assessed` (≥1 A/AAAA resolver returned an **authoritative** rcode
+    NOERROR/NXDOMAIN) and `resolves_any` (any resolver returned a record), and marks the
+    module `incomplete` on a total resolver outage. `resolves` and every existing field
+    are unchanged. The **critical** `dns_no_resolution` finding now fires only on an
+    authoritative absence — never on a single-resolver DoH timeout or a SERVFAIL.
+- **Already-correct paths left untouched (proven, not changed):** the Cyber MOT
+  domain-state resolver, scorecard app-probe sections, report snapshot, ASM / managed /
+  website-security case verification, alerts, posture-events / asset-inventory /
+  timeline, MSP portfolio trend, and the SSL/headers probe modules all already gate on
+  `evidence_status` / `scan_quality` / `moduleCompletionGate` and self-heal.
+- **Validation:** new `scripts/validate-app-probe-reliability.js` (47-assertion truth
+  matrix over the real probe/exposure/admin/scan-quality/gate/DNS/scoring functions +
+  12 load-bearing mutations, 59/59); full CI-equivalent gate 123/123; regression
+  fixtures 220/220; independent adversarial review found no P0/P1/P2 (5xx honesty was
+  folded in from that review; TLS-handshake-vs-refusal is an undetectable-in-workerd
+  residual).
+
 ## Docs — Pricing Policy canonicalised (PRICING-POLICY.md rewritten) — 2026-07-19
 
 - **Type:** docs-only (Phase A of the Pricing Canonicalisation & Lockstep episode). No code, no

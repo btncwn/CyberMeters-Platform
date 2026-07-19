@@ -71,6 +71,18 @@ function isSubrequestBudgetError(err) {
   return /too many subrequests/i.test(err?.message || "");
 }
 
+// A probe timeout is NOT the same as a host that refused the connection. AbortSignal
+// .timeout (defaultProbeFetch, 8s) rejects with a DOMException named "TimeoutError"
+// (older runtimes: "AbortError") when the host accepted-but-never-answered / silently
+// dropped the request. We STARTED but never assessed it — reporting reachable:false
+// would read as a confirmed "no web service", conflating "couldn't reach in time" with
+// "authoritatively nothing there". A refused connection instead throws a TypeError and
+// is left as reachable:false (a real, authoritative negative).
+function isProbeTimeout(err) {
+  const name = err?.name || "";
+  return name === "TimeoutError" || name === "AbortError" || /timed out|timeout/i.test(err?.message || "");
+}
+
 // Default probe fetcher — the exact pre-existing legacy behaviour: native
 // redirect:"follow", GET, 8s timeout. Legacy callers (probeAsset(host)) get this
 // unchanged. The reserved path injects an SSRF-safe capped-redirect fetcher instead.
@@ -95,15 +107,18 @@ function defaultProbeFetch(url) {
 export async function probeAsset(host, opts = {}) {
   const fetcher = typeof opts.fetcher === "function" ? opts.fetcher : defaultProbeFetch;
   let budgetExhausted = false;   // a probe attempt was starved, not genuinely failed
+  let timedOut = false;          // the probe started but never got an answer (not assessed)
   for (const proto of ["https", "http"]) {
     const url = `${proto}://${host}`;
     let res = null;
     try {
       res = await fetcher(url);
     } catch (err) {
-      // Timeout or network error — try HTTP fallback. Distinguish a genuine failure
-      // from subrequest-budget exhaustion (the latter means we never really checked).
+      // Timeout or network error — try HTTP fallback. Distinguish the three cases:
+      // budget exhaustion (never checked) and timeout (started, no answer) are both
+      // "not assessed"; a genuine refusal/reset falls through to reachable:false.
       if (isSubrequestBudgetError(err)) budgetExhausted = true;
+      else if (isProbeTimeout(err)) timedOut = true;
       continue;
     }
     // A fetcher may return null to refuse a target (reserved SSRF guard); the legacy
@@ -138,6 +153,13 @@ export async function probeAsset(host, opts = {}) {
       url:          res.url || url,
       status,
       reachable,
+      // A 5xx means the host answered but with a server error — it EXISTS and serves,
+      // but we could not content-assess it (an admin panel could sit behind the error).
+      // Per the contract "HTTP 5xx must not confirm absence or health": mark it so the
+      // module treats it as not-content-assessed, never as a clean host. reachable
+      // stays false (an authoritative non-200), so `reachable`-keyed consumers are
+      // unchanged; only the exposure-completeness aggregate reads probe_status.
+      ...(status >= 500 ? { probe_status: "server_error", reason: "server_error" } : {}),
       title,
       server,
       content_type: contentType,
@@ -164,7 +186,26 @@ export async function probeAsset(host, opts = {}) {
     };
   }
 
-  // Genuine network failure / timeout — the host really did not respond.
+  if (timedOut) {
+    // The probe started but the host never answered within the timeout. It was NOT
+    // assessed — report reachable:null / timed_out, never reachable:false (which would
+    // read as a confirmed-clean host). Distinct from an authoritative refusal below.
+    return {
+      host,
+      url:          `https://${host}`,
+      status:       null,
+      reachable:    null,
+      probe_status: "timed_out",
+      reason:       "probe_timeout",
+      title:        null,
+      server:       null,
+      content_type: null,
+      tech:         [],
+    };
+  }
+
+  // Authoritative network failure — the host actively refused / reset the connection,
+  // i.e. no web service is served here. A real negative, reachable:false.
   return {
     host,
     url:          `https://${host}`,
@@ -401,12 +442,26 @@ export async function runExposureModule(domain, subdomains, opts = {}) {
 
   const reachableCount = assets.filter((a) => a.reachable === true).length;
 
-  // Trust: if any host could not be probed because the Worker subrequest budget was
-  // exhausted, this module's evidence is incomplete. Absence of exposure here is NOT
-  // proof of a clean surface — flag it so scan_quality goes partial and downstream
-  // verification / managed-case resolution defers instead of treating 0 as verified.
-  const notExecuted = assets.filter((a) => a.probe_status === "not_executed");
-  const incomplete = notExecuted.length > 0;
+  // Trust: a host that could not actually be ASSESSED — the Worker subrequest budget
+  // was exhausted (never checked) OR the probe TIMED OUT (started, no answer) — is not
+  // evidence of a clean surface. Both are reachable:null / probe_status markers, NOT
+  // reachable:false. Flag the module incomplete so scan_quality goes partial and
+  // downstream verification / managed-case resolution defers instead of treating 0 as
+  // verified. A connection actively REFUSED (reachable:false, no marker) is an
+  // authoritative "no web service on this host" and is left as a real result — it does
+  // NOT make the module incomplete, so a genuinely-no-web host set still reads clean.
+  // "Not assessed" = we did not get a content-assessable HTTP response for this host:
+  // budget-starved (never checked), timed out (no answer), or a 5xx server error
+  // (answered but not content-assessable). A connection refused (reachable:false, no
+  // marker) is an authoritative "no web service" and is NOT counted — a genuinely
+  // no-web host set still reads clean.
+  const NOT_ASSESSED = new Set(["not_executed", "timed_out", "server_error"]);
+  const notAssessed = assets.filter((a) => NOT_ASSESSED.has(a.probe_status));
+  const incomplete = notAssessed.length > 0;
+  const incompleteReason =
+    notAssessed.some((a) => a.probe_status === "not_executed") ? "subrequest_budget_exhausted"
+    : notAssessed.some((a) => a.probe_status === "timed_out") ? "probe_timeout"
+    : "server_error";
 
   return {
     checked:   targets.length,
@@ -415,9 +470,9 @@ export async function runExposureModule(domain, subdomains, opts = {}) {
     source,
     error: null,
     ...(incomplete ? {
-      incomplete:        true,
-      incomplete_reason: "subrequest_budget_exhausted",
-      not_executed_count: notExecuted.length,
+      incomplete:          true,
+      incomplete_reason:   incompleteReason,
+      not_assessed_count:  notAssessed.length,
       // Customer-safe copy — never expose raw runtime error text.
       notice: "Some external exposure checks could not complete. Results may be incomplete.",
     } : {}),

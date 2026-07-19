@@ -416,7 +416,12 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
             assetExposureResult = deduplicateExposureAssets(assetExposureResult, domain);
           }
         } catch (err) {
-          assetExposureResult = { checked: 0, reachable: 0, assets: [], source: "http_probe", error: customerSafeFailure("scan/asset-exposure", err, "Asset exposure module failed") };
+          // A thrown exposure module never assessed the HTTP attack surface. Mark it
+          // incomplete (not just error) so buildScanQuality goes partial and the
+          // completion gate defers admin-surface verification — a failed probe must
+          // never read as a completed clean assessment. asset_exposure is non-core, so
+          // without this flag the scan would still certify "complete".
+          assetExposureResult = { checked: 0, reachable: 0, assets: [], source: "http_probe", incomplete: true, incomplete_reason: "exposure_probe_failed", error: customerSafeFailure("scan/asset-exposure", err, "Asset exposure module failed") };
         }
       } else {
         assetExposureResult = markDeadlineDeferred({ checked: 0, reachable: 0, assets: [], source: "http_probe" });
