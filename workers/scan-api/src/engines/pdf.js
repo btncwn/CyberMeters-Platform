@@ -280,17 +280,70 @@ function sectionOverall(w, snap) {
   }
 }
 
-function sectionDomains(w, snap) {
+// Findings/observations that belong to a domain, grouped from the snapshot's
+// canonical arrays (each item carries domain_keys). No new source of truth —
+// the same immutable items, organised per domain for materially richer reporting.
+function domainItems(snap, domainKey, kind) {
+  const arr = kind === "observation" ? (snap.observations || []) : (snap.observed_findings || []);
+  return arr.filter((f) => Array.isArray(f.domain_keys) && f.domain_keys.includes(domainKey));
+}
+
+// Eight-domain section. `detail` = "full" (Assessment PDF: every domain's findings,
+// observations, evidence completeness, managed-case state, verification support) or
+// "concise" (Executive PDF: state + issue count + highest severity + top action —
+// still meaningful for every domain, never a bare card).
+const SEV_RANK = { critical: 4, high: 3, medium: 2, low: 1, info: 0 };
+function highestSev(items) {
+  let best = null, rank = -1;
+  for (const f of items) { const r = SEV_RANK[String(f.severity || "").toLowerCase()] ?? -1; if (r > rank) { rank = r; best = f.severity; } }
+  return best;
+}
+function sectionDomains(w, snap, { detail = "full" } = {}) {
   w.heading("Eight-Domain Cyber MOT");
   for (const d of snap.domains || []) {
+    const findings = domainItems(snap, d.domain_key, "finding");
+    const observations = domainItems(snap, d.domain_key, "observation");
+    const wf = d.managed_workflow || {};
+    const hs = highestSev(findings);
+
     w.text(`${d.display_name}: ${stateLabel(d.state)}`, { size: 10, bold: true });
     if (d.state_reason) w.prose(d.state_reason, { size: 9, indent: 10, color: "0.25 0.28 0.33" });
+
+    // One-line evidence posture per domain (both detail levels).
+    const posture = [];
+    if (findings.length) posture.push(`${findings.length} finding${findings.length === 1 ? "" : "s"}${hs ? ` (highest: ${String(hs).toUpperCase()})` : ""}`);
+    if (observations.length) posture.push(`${observations.length} observation${observations.length === 1 ? "" : "s"}`);
+    if (wf.open_cases) posture.push(`${wf.open_cases} open managed case${wf.open_cases === 1 ? "" : "s"}`);
+    if (posture.length) w.text(posture.join(" · "), { size: 8, indent: 10, color: "0.35 0.38 0.44" });
+
+    if (detail === "full") {
+      // Per-domain findings with severity, explanation, verification support and
+      // managed-case linkage — honest evidence, never invented detail.
+      for (const f of findings) {
+        w.text(`[${String(f.severity || "").toUpperCase()}] ${f.title || "Finding"}`, { size: 9, bold: true, indent: 10 });
+        if (f.explanation) w.prose(f.explanation, { size: 8, indent: 18, color: "0.25 0.28 0.33" });
+        const meta = [];
+        if (f.verification_support) meta.push(`Verification: ${f.verification_support}`);
+        if (f.managed_case_id) meta.push(`Managed case: ${f.managed_case_status || "linked"}`);
+        if (f.evidence_ref?.count) meta.push(`${f.evidence_ref.count} evidence item(s)`);
+        if (meta.length) w.text(meta.join(" · "), { size: 7, indent: 18, color: "0.45 0.48 0.54" });
+      }
+      for (const o of observations) {
+        w.text(o.title || "Observation", { size: 8, indent: 10, color: "0.25 0.28 0.33" });
+        if (o.explanation) w.prose(o.explanation, { size: 7, indent: 18, color: "0.35 0.38 0.44" });
+      }
+    } else {
+      // Concise (Executive): the single most relevant action, if any.
+      const top = findings.find((f) => f.remediation_id) || findings[0];
+      if (top?.title) w.text(`Top item: ${top.title}`, { size: 8, indent: 10, color: "0.25 0.28 0.33" });
+    }
+
     // Honest-scope limitations travel with each domain (e.g. Certificates &
-    // Trust: chain/root/OCSP/revocation are NOT checked) — frozen snapshot
-    // facts, never softened at render time.
+    // Trust: chain/root/OCSP/revocation are NOT checked) — frozen snapshot facts.
     for (const l of d.limitations || []) w.prose(`Limitation: ${l}`, { size: 8, indent: 10, color: "0.35 0.38 0.44" });
     const ceStmt = d.cyber_essentials?.external_coverage_statement;
     if (ceStmt) w.prose(ceStmt, { size: 8, indent: 10, color: "0.35 0.38 0.44" });
+    w.gap(2);
   }
 }
 
@@ -453,7 +506,7 @@ export function buildWorkspaceExecutivePdf({ workspaceName, reads = [], branding
       w.text(`Domain: ${r.snapshot.snapshot.domain}`, { size: 12, bold: true });
       w.text(`Assessed ${pdfUtcDate(r.snapshot.snapshot.as_of, true)}`, { size: 9, color: "0.35 0.38 0.44" });
       sectionOverall(w, r.snapshot);
-      sectionDomains(w, r.snapshot);
+      sectionDomains(w, r.snapshot, { detail: "concise" });
       sectionRemediation(w, r.snapshot);
       sectionMethodology(w, r.snapshot);
     }
