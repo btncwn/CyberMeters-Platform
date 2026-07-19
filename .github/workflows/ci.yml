@@ -401,6 +401,9 @@ jobs:
       - name: Validate exposure-probe honesty (subrequest exhaustion → not-checked, not clean)
         run: node scripts/validate-exposure-honesty.js
 
+      - name: Validate app-probe reliability (timeout≠refused, all-fail≠healthy, DNS resolver-failure≠no-resolution)
+        run: node scripts/validate-app-probe-reliability.js
+
       # The same class of defect as exposure-honesty above, in the modules where it
       # was never fixed. A headers/HTTPS probe that times out, loops on redirects or
       # is refused returns via safeFetch → null; the modules reported that as an
