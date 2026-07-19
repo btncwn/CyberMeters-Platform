@@ -9,6 +9,7 @@ import { buildWorkspaceExecutivePdf } from "../engines/pdf.js";
 import { readLatestWorkspaceSnapshots } from "../engines/report-snapshot.js";
 import { resolveReportBrandingV2, loadBrandingLogoDataUri } from "../engines/report-branding-v2.js";
 import { prepareLogoXObject } from "../engines/pdf-image.js";
+import { CYBERMETERS_LOGO_DATA_URI } from "../engines/brand-logo.js";
 import { buildScorecardData, buildScorecardSections } from "../engines/scorecard.js";
 import { getEffectivePlan, hasFeatureEntitlement } from "../engines/entitlements.js";
 import { createId } from "../lib/util.js";
@@ -46,8 +47,13 @@ export async function workspaceAnalyticsRoutes(rctx) {
           // artefact), so branding is resolved live via v2 precedence — never
           // frozen, never from the request body.
           branding = await resolveReportBrandingV2(env, { workspaceId: wsId });
-          const dataUri = await loadBrandingLogoDataUri(env, branding);
-          if (dataUri) logoImage = await prepareLogoXObject(dataUri, branding.accent);
+          let dataUri = await loadBrandingLogoDataUri(env, branding);
+          // Default (non-white-label) Executive report embeds the canonical
+          // CyberMeters house logo (Worker-embedded); white-label keeps its own.
+          if (!dataUri && branding?.mode === "cybermeters") dataUri = CYBERMETERS_LOGO_DATA_URI;
+          // Transparent-PNG alpha flattens over this background — the house logo
+          // (accent null) flattens over WHITE, never a tint.
+          if (dataUri) logoImage = await prepareLogoXObject(dataUri, branding.accent || "#FFFFFF");
         } catch { branding = null; logoImage = null; }
         // Live render: the artefact timestamp is the request time by design
         // (this endpoint is the on-demand variant of the stored report).

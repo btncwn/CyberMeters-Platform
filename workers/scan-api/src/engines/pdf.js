@@ -212,18 +212,40 @@ function makeWriter({ accentHex = BRAND_HEX, footerText = DEFAULT_FOOTER } = {})
     buf += `BT /${bold ? "F2" : "F1"} ${size} Tf ${color} rg ${MARGIN + indent} ${y} Td (${pdfEsc(line)}) Tj ET\n`;
   };
   // Wrap prose at ~92 chars for 10pt Helvetica in the content width.
-  const prose = (str, opts = {}) => {
-    const width = opts.width ?? 92;
+  const wrapLines = (str, width) => {
     const words = String(str ?? "").split(/\s+/);
+    const lines = [];
     let line = "";
-    for (const w of words) {
-      if ((line + " " + w).trim().length > width) { text(line.trim(), opts); line = w; }
-      else line = `${line} ${w}`;
+    for (const wd of words) {
+      if ((line + " " + wd).trim().length > width) { if (line.trim()) lines.push(line.trim()); line = wd; }
+      else line = `${line} ${wd}`;
     }
-    if (line.trim()) text(line.trim(), opts);
+    if (line.trim()) lines.push(line.trim());
+    return lines;
   };
+  const prose = (str, opts = {}) => { for (const l of wrapLines(str, opts.width ?? 92)) text(l, opts); };
+
+  // ── Controlled page breaking ────────────────────────────────────────────
+  // Space left above the footer; whether the cursor is at the top of a fresh page.
+  const roomLeft  = () => y - FOOT;
+  const atPageTop = () => y >= PAGE_H - MARGIN - 0.5;
+  // Break to a new page if `h` points won't fit here — unless already at the top
+  // (a block taller than one page must still render top-aligned and paginate).
+  const keepTogether = (h) => { if (!atPageTop() && roomLeft() < h) newPage(); };
+  // A prose block that never splits mid-paragraph across a page boundary: measure
+  // the wrapped height, break if it won't fit, then render as one unit. This is
+  // what stops a limitation sentence breaking after a single word ("No" | "internal...").
+  const proseKeep = (str, opts = {}) => {
+    const lines = wrapLines(str, opts.width ?? 92);
+    const size = opts.size ?? 10, g = opts.gap ?? 4;
+    keepTogether(lines.length * (size + g));
+    for (const l of lines) text(l, opts);
+  };
+
   const heading = (str) => {
-    ensure(26);
+    // Never orphan a heading at the foot of a page: keep it with its accent rule
+    // and room for at least one following line.
+    keepTogether(22 + 6 + 16);
     y -= 22;
     buf += `${ar} ${ag} ${ab} rg ${MARGIN} ${y - 4} ${PAGE_W - 2 * MARGIN} 1.5 re f\n`;
     buf += `BT /F2 13 Tf 0.08 0.10 0.14 rg ${MARGIN} ${y} Td (${pdfEsc(str)}) Tj ET\n`;
@@ -232,8 +254,23 @@ function makeWriter({ accentHex = BRAND_HEX, footerText = DEFAULT_FOOTER } = {})
   const gap = (h = 8) => { ensure(h); y -= h; };
   // Raw content-stream ops (logo XObject drawing) — presentation only.
   const raw = (op) => { buf += op; };
+  // A thin horizontal rule at the cursor (cover dividers / section separators).
+  const rule = (color = "0.80 0.83 0.87") => { ensure(6); y -= 4; buf += `${color} rg ${MARGIN} ${y} ${PAGE_W - 2 * MARGIN} 0.7 re f\n`; y -= 2; };
+  // Large display text for the cover (wordmark / report title).
+  const display = (str, { size = 22, bold = true, color = "0.08 0.10 0.14", gap: g = 8 } = {}) => {
+    ensure(size + g); y -= size + g;
+    buf += `BT /${bold ? "F2" : "F1"} ${size} Tf ${color} rg ${MARGIN} ${y} Td (${pdfEsc(str)}) Tj ET\n`;
+  };
+  // Draw the embedded /Im0 image XObject at the left margin, `lw`x`lh` points,
+  // occupying the block below the current cursor. Stays within the content width
+  // (the caller sizes it) and never overlaps text — the cursor advances past it.
+  const image = (lw, lh, g = 10) => {
+    ensure(lh + g); y -= lh;
+    buf += `q ${lw} 0 0 ${lh} ${MARGIN} ${y} cm /Im0 Do Q\n`;
+    y -= g;
+  };
   const finish = () => { if (buf) { pages.push(buf + footer()); buf = ""; } return pages; };
-  return { text, prose, heading, gap, newPage, finish, raw };
+  return { text, prose, proseKeep, keepTogether, heading, gap, newPage, finish, raw, rule, display, image, roomLeft, atPageTop };
 }
 
 // Customer-safe state labels for the canonical domain states. Display mapping
@@ -266,10 +303,27 @@ function sectionOverall(w, snap) {
   if (o.assessment?.message) w.prose(o.assessment.message, { size: 9, color: "0.45 0.35 0.10" });
   w.gap(4);
   const bri = o.business_risk_indicator || {};
+  const ec0 = o.evidence_completeness || {};
+  // Coverage is incomplete when the snapshot's OWN frozen facts say so: a non-complete
+  // scan quality, any skipped module, or any domain still needing further evidence /
+  // customer input / monitoring. This reads only frozen snapshot facts — it never
+  // recomputes the score or band.
+  const coverageIncomplete =
+    (ec0.scan_quality && ec0.scan_quality !== "complete") ||
+    (Array.isArray(ec0.modules_skipped) && ec0.modules_skipped.length > 0) ||
+    (Array.isArray(o.not_fully_assessed) && o.not_fully_assessed.length > 0);
   if (bri.band) {
     // An indicator: band + explanation. Never a second numeric score.
     w.text(`Business Risk Indicator: ${String(bri.band).toUpperCase()}`, { size: 11, bold: true });
-    if (bri.explanation) w.prose(bri.explanation, { size: 9 });
+    // Evidence-honest narrative. The band is a frozen indicator; the EXPLANATION must
+    // not imply a complete absence of gaps when the frozen evidence is incomplete. When
+    // coverage is incomplete we present an evidence-bounded statement instead of the
+    // frozen (unqualified) "no major gaps" summary — no scoring change, frozen facts only.
+    if (coverageIncomplete) {
+      w.proseKeep("No major gaps were identified in the evidence available. Coverage is incomplete - some checks did not run or still need customer input - so this provisional indicator is not confirmation that no other material gaps exist.", { size: 9 });
+    } else if (bri.explanation) {
+      w.proseKeep(bri.explanation, { size: 9 });
+    }
   }
   if (o.summary) { w.gap(2); w.prose(o.summary, { size: 10 }); }
   const ec = o.evidence_completeness || {};
@@ -306,7 +360,9 @@ function sectionDomains(w, snap, { detail = "full" } = {}) {
     const wf = d.managed_workflow || {};
     const hs = highestSev(findings);
 
-    w.text(`${d.display_name}: ${stateLabel(d.state)}`, { size: 10, bold: true });
+    // Keep the domain heading with its state + first line of context — never orphan it.
+    w.keepTogether(30);
+    w.text(`${d.display_name}: ${stateLabel(d.state)}`, { size: 11, bold: true });
     if (d.state_reason) w.prose(d.state_reason, { size: 9, indent: 10, color: "0.25 0.28 0.33" });
 
     // One-line evidence posture per domain (both detail levels).
@@ -340,10 +396,13 @@ function sectionDomains(w, snap, { detail = "full" } = {}) {
 
     // Honest-scope limitations travel with each domain (e.g. Certificates &
     // Trust: chain/root/OCSP/revocation are NOT checked) — frozen snapshot facts.
-    for (const l of d.limitations || []) w.prose(`Limitation: ${l}`, { size: 8, indent: 10, color: "0.35 0.38 0.44" });
+    // proseKeep renders each limitation as ONE unsplittable block, so a sentence can
+    // never break mid-word across a page boundary (the "No" | "internal..." defect).
+    for (const l of d.limitations || []) w.proseKeep(`Limitation: ${l}`, { size: 8, indent: 10, color: "0.35 0.38 0.44" });
     const ceStmt = d.cyber_essentials?.external_coverage_statement;
-    if (ceStmt) w.prose(ceStmt, { size: 8, indent: 10, color: "0.35 0.38 0.44" });
-    w.gap(2);
+    if (ceStmt) w.proseKeep(ceStmt, { size: 8, indent: 10, color: "0.35 0.38 0.44" });
+    // Clear separation between domains (visual hierarchy).
+    w.gap(6);
   }
 }
 
@@ -369,7 +428,10 @@ function sectionRemediation(w, snap) {
   w.heading(`Recommended Actions (${actions.length})`);
   if (!actions.length) w.text("No canonical remediation actions for this assessment.", { size: 10 });
   for (const a of actions) {
-    w.text(`${a.priority ? `[${String(a.priority).toUpperCase()}] ` : ""}${a.title}`, { size: 10, bold: true });
+    // Keep each recommended action's heading with its first line — actions are the
+    // report's call to action and must read as a prominent, unbroken block.
+    w.keepTogether(28);
+    w.text(`${a.priority ? `[${String(a.priority).toUpperCase()}] ` : ""}${a.title}`, { size: 11, bold: true });
     if (a.action) w.prose(a.action, { size: 9, indent: 10 });
     if (a.finding_ids?.length > 1) {
       w.text(`Resolves ${a.finding_ids.length} related findings.`, { size: 8, indent: 10, color: "0.35 0.38 0.44" });
@@ -377,6 +439,7 @@ function sectionRemediation(w, snap) {
     if (a.verification_ceiling) {
       w.text(`Verification: ${a.verification_ceiling}`, { size: 8, indent: 10, color: "0.35 0.38 0.44" });
     }
+    w.gap(3);
   }
   const unmapped = snap.unmapped_finding_types || [];
   if (unmapped.length) {
@@ -413,16 +476,17 @@ function sectionRelatedChanges(w, summary) {
 }
 
 function sectionMethodology(w, snap) {
-  const m = snap.methodology || {};
   const s = snap.snapshot || {};
   w.heading("Methodology & Limitations");
   w.text(`Assessed on ${pdfUtcDate(s.as_of, true)}`, { size: 10, bold: true });
   if (s.provenance === "reconstructed_on_demand") {
-    w.prose(`This report was reconstructed on ${pdfUtcDate(s.built_at, true)} from the immutable evidence recorded at assessment time.`, { size: 9, color: "0.45 0.35 0.10" });
+    w.proseKeep(`This report was reconstructed on ${pdfUtcDate(s.built_at, true)} from the immutable evidence recorded at assessment time.`, { size: 9, color: "0.45 0.35 0.10" });
   }
-  w.text(`Resolver ${m.cyber_mot_resolver_version || "-"} - Score methodology ${m.cyber_metrics_score_methodology_version || "-"} - Risk indicator methodology ${m.business_risk_methodology_version || "-"}`, { size: 8, color: "0.35 0.38 0.44" });
+  // Internal resolver / methodology version identifiers are NOT printed in the
+  // customer-facing body — they remain in the snapshot's methodology metadata for
+  // traceability. (Founder A5 finding #5: implementation/version noise removed.)
   w.gap(2);
-  for (const l of snap.limitations || []) w.prose(`- ${l}`, { size: 8, color: "0.35 0.38 0.44" });
+  for (const l of snap.limitations || []) w.proseKeep(`- ${l}`, { size: 8, color: "0.35 0.38 0.44" });
 }
 
 // Branding footer. Accepts either the v2 descriptor ({ mode, display_name }) or
@@ -451,6 +515,36 @@ function primaryName(branding) {
     return branding.display_name || "CyberMeters";
   }
   return branding?.company_name || "CyberMeters";
+}
+
+// Strong branded cover for the Executive Security Report (page 1). Embeds the
+// canonical CyberMeters logo (/Im0) prominently and proportionally when it is
+// available; if the logo bytes could not be decoded/prepared it falls back to the
+// CyberMeters text wordmark (never a fabricated badge). The logo is drawn, never
+// cropped, stretched or recoloured — it is scaled uniformly within a cover cap.
+function coverExec(w, { branding, workspaceName, domain, generatedAt, assessedAt, logoImage = null }) {
+  const accent = hexToRgbF(branding?.accent || BRAND_HEX).join(" ");
+  w.gap(4);
+  w.rule(accent);
+  w.gap(14);
+  if (logoImage?.width && logoImage?.height) {
+    // Prominent, aspect-preserved: uniform scale within a 300x70pt cover cap
+    // (well inside the 504pt content width — no clipping, no distortion).
+    const maxW = 300, maxH = 70;
+    const scale = Math.min(maxW / logoImage.width, maxH / logoImage.height, 1);
+    w.image(Math.max(1, Math.round(logoImage.width * scale)), Math.max(1, Math.round(logoImage.height * scale)));
+  } else {
+    w.display(primaryName(branding), { size: 26, color: accent });
+  }
+  w.display("Executive Security Report", { size: 20, color: "0.08 0.10 0.14" });
+  w.gap(10);
+  if (workspaceName) w.text(`Workspace:  ${workspaceName}`, { size: 11, bold: true });
+  if (domain)        w.text(`Primary domain:  ${domain}`, { size: 11 });
+  if (assessedAt)    w.text(`Assessment date:  ${pdfUtcDate(assessedAt, true)}`, { size: 10, color: "0.35 0.38 0.44" });
+  if (generatedAt)   w.text(`Report generated:  ${pdfUtcDate(generatedAt, true)}`, { size: 10, color: "0.35 0.38 0.44" });
+  w.gap(6);
+  w.rule();
+  w.gap(10);
 }
 
 function brandingHeader(w, branding, title, subtitle, logoImage = null) {
@@ -519,26 +613,49 @@ export function buildWorkspaceExecutivePdf({ workspaceName, reads = [], branding
     accentHex: branding?.accent || BRAND_HEX,
     footerText: footerFor(branding),
   });
-  brandingHeader(w, branding, "Executive Security Report", workspaceName ? `Workspace: ${workspaceName}` : null, logoImage);
-  if (generatedAt) w.text(`Generated ${pdfUtcDate(generatedAt, true)}`, { size: 9, color: "0.35 0.38 0.44" });
-  w.gap(4);
+
+  // ── Page 1: branded cover ────────────────────────────────────────────────
+  // A CUSTOMER white-label/co-brand logo keeps the top-right logo header. The
+  // default CyberMeters report (and any report without a customer logo) uses the
+  // strong cover: the canonical CyberMeters logo embedded prominently, or the
+  // text wordmark if the logo bytes could not be prepared.
+  const customerLogo = (branding?.mode === "white_label" || branding?.mode === "co_brand") && logoImage?.width && logoImage?.height;
+  if (customerLogo) {
+    brandingHeader(w, branding, "Executive Security Report", workspaceName ? `Workspace: ${workspaceName}` : null, logoImage);
+    if (generatedAt) w.text(`Generated ${pdfUtcDate(generatedAt, true)}`, { size: 9, color: "0.35 0.38 0.44" });
+    w.gap(4);
+  } else {
+    coverExec(w, {
+      branding, workspaceName,
+      domain: lead?.snapshot?.snapshot?.domain || null,
+      generatedAt,
+      assessedAt: lead?.snapshot?.snapshot?.as_of || null,
+      logoImage,   // CyberMeters house logo → prominent on the cover
+    });
+  }
 
   if (!ok.length) {
-    w.prose("No canonical assessment snapshot is available for this workspace yet. Reports are produced from completed Cyber MOT assessments; run a scan to establish the first one.", { size: 10 });
+    w.proseKeep("No canonical assessment snapshot is available for this workspace yet. Reports are produced from completed Cyber MOT assessments; run a scan to establish the first one.", { size: 10 });
   } else {
+    // Executive summary (headline assessment) — flows on the cover page.
+    w.heading("Executive Summary");
     w.text(`Latest assessment: ${lead.snapshot.snapshot.domain} - ${pdfUtcDate(lead.snapshot.snapshot.as_of, true)}`, { size: 10, bold: true });
     w.gap(2);
     sectionOverall(w, lead.snapshot);
     sectionRelatedChanges(w, relatedChanges);
-    for (const r of ok) {
-      w.newPage();
-      w.text(`Domain: ${r.snapshot.snapshot.domain}`, { size: 12, bold: true });
+
+    // Domain detail — deliberately grouped. Multiple domains each get a clean page
+    // break; a single-domain workspace flows continuously (no forced blank pages).
+    ok.forEach((r, i) => {
+      if (i > 0) w.newPage();
+      else w.keepTogether(140);
+      w.heading(`Domain: ${r.snapshot.snapshot.domain}`);
       w.text(`Assessed ${pdfUtcDate(r.snapshot.snapshot.as_of, true)}`, { size: 9, color: "0.35 0.38 0.44" });
-      sectionOverall(w, r.snapshot);
+      w.gap(2);
       sectionDomains(w, r.snapshot, { detail: "concise" });
       sectionRemediation(w, r.snapshot);
       sectionMethodology(w, r.snapshot);
-    }
+    });
   }
   if (unavailable.length) {
     w.gap(6);

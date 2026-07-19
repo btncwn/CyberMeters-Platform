@@ -137,6 +137,13 @@ jobs:
       - name: Validate report content depth + branding (eight-domain richness / co-brand / white-label / logo routes / mutation)
         run: node scripts/validate-report-content-branding.js
 
+      # A5 Executive Security Report PDF quality: evidence-honest risk narrative (no unqualified
+      # "no major gaps" under incomplete coverage), limitation blocks never split across a page,
+      # branded cover, internal version identifiers removed from the visible body, eight domains +
+      # provisional wording preserved. Renders the real PDF and asserts the bytes.
+      - name: Validate A5 executive report PDF (evidence-honest narrative / page breaks / branding / no version noise)
+        run: node scripts/validate-a5-executive-report.js
+
       - name: Validate hosted DNS v2 migration (backfill 1:1 + no-CHECK + idempotent)
         run: node scripts/validate-hosted-dns-v2.js
 
