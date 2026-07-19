@@ -6,8 +6,9 @@
 // a hard, visible line between what is OBSERVED EXTERNALLY, what the CUSTOMER
 // classified, and what CyberMeters has VERIFIED.
 import { useEffect, useState, useCallback } from 'react'
-import { useParams } from 'react-router-dom'
 import { api } from '../../api'
+import { useWorkspace } from '../../hooks/useWorkspace'
+import { NoWorkspaceSelected } from '../../components/WsPage'
 import {
   classificationMeta, riskMeta, ownershipMeta, verificationMeta, surfaceLabel, toneClass,
   isAwaitingVerification, IDENTITY_SCOPE_NOTE,
@@ -20,7 +21,10 @@ function Pill({ meta }) {
 const CLASS_FILTERS = ['', 'unreviewed', 'expected', 'unexpected', 'investigate', 'exception', 'retired']
 
 export default function IdentityExposurePage() {
-  const { workspaceId } = useParams()
+  // Workspace comes from the canonical context hook, not a route param — the
+  // /ws/* routes declare no :workspaceId, so useParams().workspaceId is always
+  // undefined and would produce /api/workspaces/undefined/... (403).
+  const { wsId: workspaceId, loading: wsLoading } = useWorkspace()
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -28,6 +32,7 @@ export default function IdentityExposurePage() {
   const [busy, setBusy] = useState(null)
 
   const load = useCallback(() => {
+    if (!workspaceId) return   // never call the API with a null/unresolved workspace id
     setLoading(true)
     api.getIdentitySurfaces(workspaceId, filter ? { customer_classification: filter } : {})
       .then((res) => { setData(res); setError(null) })
@@ -77,6 +82,8 @@ export default function IdentityExposurePage() {
 
   const items = data?.items || []
   const counts = data?.counts || {}
+
+  if (!wsLoading && !workspaceId) return <NoWorkspaceSelected />
 
   return (
     <div className="p-6 max-w-6xl mx-auto">

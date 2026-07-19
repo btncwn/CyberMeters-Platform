@@ -10,8 +10,10 @@
 // something is fixed. The honesty rule it enforces visually: `no longer seen` and `not
 // determined` are different facts, and only the first is good news.
 import { useCallback, useEffect, useState } from 'react'
-import { useParams, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import { api } from '../../api'
+import { useWorkspace } from '../../hooks/useWorkspace'
+import { NoWorkspaceSelected } from '../../components/WsPage'
 import {
   monitoringMeta, severityMeta, scanQualityMeta, unknownReasonText,
   toneClass, isSettled, conditionLabel,
@@ -110,7 +112,11 @@ function ConditionRow({ item, expanded, onToggle, detail, detailError }) {
 }
 
 export default function WebsiteSecurityPage() {
-  const { workspaceId } = useParams()
+  // Workspace comes from the canonical context hook, not a route param — the
+  // /ws/* routes declare no :workspaceId, so useParams().workspaceId is always
+  // undefined and would produce /api/workspaces/undefined/... (403). The alert
+  // deep-link (?condition=<id>) still uses useSearchParams below.
+  const { wsId: workspaceId, loading: wsLoading } = useWorkspace()
   const [searchParams, setSearchParams] = useSearchParams()
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -121,6 +127,7 @@ export default function WebsiteSecurityPage() {
   const [detailError, setDetailError] = useState(null)
 
   const load = useCallback(() => {
+    if (!workspaceId) return   // never call the API with a null/unresolved workspace id
     setLoading(true)
     api.getWebsiteSecurityConditions(workspaceId, status ? { monitoring_status: status } : {})
       .then((res) => { setData(res); setError(null) })
@@ -145,7 +152,7 @@ export default function WebsiteSecurityPage() {
   }, [searchParams, data])
 
   useEffect(() => {
-    if (!expanded) { setDetail(null); setDetailError(null); return }
+    if (!expanded || !workspaceId) { setDetail(null); setDetailError(null); return }
     setDetail(null); setDetailError(null)
     api.getWebsiteSecurityCondition(workspaceId, expanded)
       .then(setDetail)
@@ -162,6 +169,8 @@ export default function WebsiteSecurityPage() {
 
   const items = data?.items || []
   const linkedMissing = searchParams.get('condition') && data && !items.some((i) => i.id === searchParams.get('condition'))
+
+  if (!wsLoading && !workspaceId) return <NoWorkspaceSelected />
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-6">
