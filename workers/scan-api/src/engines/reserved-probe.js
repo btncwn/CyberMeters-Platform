@@ -32,23 +32,31 @@ function makeSsrfResolver(cache, onOutbound) {
   };
 }
 
-// Build a fetcher(url) → Response | null suitable for probeAsset({ fetcher }).
-// onOutbound() is invoked once per ACTUAL outbound call (each SSRF DNS resolution that
-// missed the cache, and each hop's GET) so the reserved orchestrator can meter real
-// exposure consumption instead of projecting it.
-export function makeReservedProbeFetch({ cache = null, maxHops = RESERVED_MAX_REDIRECT_HOPS, timeoutMs = 8_000, onOutbound = null } = {}) {
-  const resolver = makeSsrfResolver(cache, onOutbound);
-  return async function reservedProbeFetch(url) {
+// Generic SSRF-safe manual-redirect probe fetcher core — the single implementation
+// of the bounded-redirect contract, shared by the reserved path AND the legacy default
+// prober (engines/asset-intel.js). Every hop is validated by the CANONICAL ssrf.js
+// guards; NO guard logic is re-implemented here:
+//   (1) urlIsBlockedTarget — scheme (http/https only), credentials, and private/
+//       reserved LITERAL (loopback/RFC1918/link-local/metadata/multicast/IPv6
+//       loopback+ULA+link-local + IPv4-mapped-private) + malformed URL.
+//   (2) resolvesToPrivateIp — re-resolves the hostname (A+AAAA) via `resolver` on
+//       EVERY hop and rejects if any answer is private/reserved (DNS-rebinding guard).
+// redirect:"manual" so the next Location is re-validated before it is followed; a hard
+// hop cap bounds redirect loops; a blocked/malformed target returns null (fail closed —
+// probeAsset treats null as a non-exposed negative, never assessed_healthy). fetch()
+// errors (incl. the "Too many subrequests" budget throw) propagate so probeAsset can
+// classify them (timeout/not-executed vs authoritative refusal).
+// resolver(name,type) supplies DNS answers and must never throw (resolvesToPrivateIp
+// fails open on a rejected/empty answer). onOutbound() is invoked once per ACTUAL
+// outbound GET so a caller can meter real subrequest consumption.
+export function makeSsrfSafeProbeFetch({ resolver, maxHops = RESERVED_MAX_REDIRECT_HOPS, timeoutMs = 8_000, onOutbound = null } = {}) {
+  return async function ssrfSafeProbeFetch(url) {
     let current = url;
     for (let hop = 0; ; hop++) {
-      // (1) canonical synchronous guard: scheme, credentials, private/reserved literal.
       if (urlIsBlockedTarget(current)) return null;
-      // (2) canonical DNS guard, re-run EVERY hop: reject if the host resolves to a
-      //     private/reserved IP (DNS rebinding). Public → allowed.
       let hostname;
       try { hostname = new URL(current).hostname; } catch { return null; }
       if (await resolvesToPrivateIp(hostname, resolver)) return null;
-      // (3) fetch this hop with manual redirect so the next hop is re-validated.
       onOutbound?.();
       const res = await fetch(current, { method: "GET", redirect: "manual", signal: AbortSignal.timeout(timeoutMs) });
       if (![301, 302, 303, 307, 308].includes(res.status) || hop >= maxHops) return res;
@@ -57,4 +65,14 @@ export function makeReservedProbeFetch({ cache = null, maxHops = RESERVED_MAX_RE
       try { current = new URL(loc, current).toString(); } catch { return res; }
     }
   };
+}
+
+// Build a fetcher(url) → Response | null suitable for probeAsset({ fetcher }).
+// onOutbound() is invoked once per ACTUAL outbound call (each SSRF DNS resolution that
+// missed the cache — via makeSsrfResolver — and each hop's GET — via the shared core)
+// so the reserved orchestrator can meter real exposure consumption instead of
+// projecting it. Behaviour is identical to the pre-extraction inline loop.
+export function makeReservedProbeFetch({ cache = null, maxHops = RESERVED_MAX_REDIRECT_HOPS, timeoutMs = 8_000, onOutbound = null } = {}) {
+  const resolver = makeSsrfResolver(cache, onOutbound);
+  return makeSsrfSafeProbeFetch({ resolver, maxHops, timeoutMs, onOutbound });
 }

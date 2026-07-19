@@ -5,6 +5,8 @@
 // detectTech and isCustomerHostname are module-internal.
 import { hostnameFromValue } from "./cloud-storage-scan.js";
 import { normalizeHostname } from "./hostnames.js";
+import { makeSsrfSafeProbeFetch } from "./reserved-probe.js";
+import { dnsQuery } from "./dns.js";
 
 // ── Module 7: Asset Exposure Engine ──────────────────────────────────────────
 
@@ -83,16 +85,26 @@ function isProbeTimeout(err) {
   return name === "TimeoutError" || name === "AbortError" || /timed out|timeout/i.test(err?.message || "");
 }
 
-// Default probe fetcher — the exact pre-existing legacy behaviour: native
-// redirect:"follow", GET, 8s timeout. Legacy callers (probeAsset(host)) get this
-// unchanged. The reserved path injects an SSRF-safe capped-redirect fetcher instead.
-function defaultProbeFetch(url) {
-  return fetch(url, {
-    method:   "GET",
-    redirect: "follow",
-    signal:   AbortSignal.timeout(8_000),
-  });
-}
+// Default probe fetcher — SSRF-safe by construction (C1). Follows redirects MANUALLY
+// with a bounded hop cap and validates EVERY hop with the canonical ssrf.js guards
+// (scheme/credentials/private-reserved literal + DNS-answer rebinding) via the shared
+// makeSsrfSafeProbeFetch core — the SAME implementation the reserved path uses. 8s
+// timeout preserves the legacy probe budget. A blocked/malformed target returns null →
+// probeAsset treats it as a non-exposed negative (reachable:false), never
+// assessed_healthy, exactly as the reserved path does.
+//
+// Previously this used native redirect:"follow" with no per-hop validation, so a public
+// asset that 302'd to an internal address (or whose A record pointed at a private IP)
+// was followed — the redirect-time SSRF the string input-gate cannot see.
+//
+// SSRF DNS cost: each hop resolves A+AAAA uncached (the legacy path has no per-scan
+// resolver cache), so exposure spends ~2 extra DoH per probed host. The Worker
+// subrequest-budget guard backstops any exhaustion honestly (probe_status:not_executed,
+// never a false clean). Reserved mode uses the cached + metered resolver instead.
+const defaultProbeFetch = makeSsrfSafeProbeFetch({
+  resolver: (name, type) => dnsQuery(name, type).catch(() => null),
+  timeoutMs: 8_000,
+});
 
 /**
  * Probe a single host over HTTPS (with HTTP fallback) and return exposure metadata.
