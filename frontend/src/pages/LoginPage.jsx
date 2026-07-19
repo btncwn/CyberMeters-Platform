@@ -28,8 +28,12 @@ export default function LoginPage() {
   const [resendDone,           setResendDone]           = useState(false)
 
   // ── Step 2: MFA challenge ──
-  const [mfaRequired,     setMfaRequired]     = useState(false)
-  const [challengeToken,  setChallengeToken]  = useState(null)
+  // A Microsoft SSO sign-in for an MFA-enabled account redirects here with the
+  // challenge token in navigation state; initialise the MFA step directly from it
+  // so the same second-factor UI serves both password and SSO logins.
+  const ssoMfaChallenge = location.state?.mfaChallengeToken || null
+  const [mfaRequired,     setMfaRequired]     = useState(!!ssoMfaChallenge)
+  const [challengeToken,  setChallengeToken]  = useState(ssoMfaChallenge)
   const [mfaCode,         setMfaCode]         = useState('')
   const [showRecovery,    setShowRecovery]    = useState(false)
   const [recoveryCode,    setRecoveryCode]    = useState('')

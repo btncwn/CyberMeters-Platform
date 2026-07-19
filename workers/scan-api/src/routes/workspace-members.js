@@ -567,9 +567,17 @@ export async function workspaceMembersRoutes(rctx) {
         const tokenHash = await hashToken(rawToken);
         const invite = await env.cybermeters_db
           .prepare(
-            `SELECT id, workspace_id, email, role, invited_by, status, expires_at
-             FROM workspace_invitations
-             WHERE token_hash = ?
+            // Join workspaces with deleted_at IS NULL so an invitation to a
+            // soft-deleted workspace resolves to null → the same "Invitation not
+            // found" 404 as a nonexistent token (no enumeration oracle). Accept is
+            // the one membership-mutating path that does not flow through the shared
+            // requireWorkspaceRole gate (which already filters deleted_at), so the
+            // soft-delete invariant — soft-deleted workspaces must not receive new
+            // members — has to be enforced explicitly here.
+            `SELECT wi.id, wi.workspace_id, wi.email, wi.role, wi.invited_by, wi.status, wi.expires_at
+             FROM workspace_invitations wi
+             JOIN workspaces w ON w.id = wi.workspace_id AND w.deleted_at IS NULL
+             WHERE wi.token_hash = ?
              LIMIT 1`
           )
           .bind(tokenHash)

@@ -749,7 +749,7 @@ export async function authRoutes(rctx) {
       // ── 4. Find or create user ─────────────────────────────────────────
       // Priority: (a) match by microsoft_oid, (b) match by email, (c) create new
       let user = await env.cybermeters_db
-        .prepare("SELECT id, email, name, plan, status FROM users WHERE microsoft_oid = ? LIMIT 1")
+        .prepare("SELECT id, email, name, plan, status, mfa_enabled FROM users WHERE microsoft_oid = ? LIMIT 1")
         .bind(msOid)
         .first();
 
@@ -766,7 +766,7 @@ export async function authRoutes(rctx) {
       if (!user && tenantTrusted) {
         // Try to link to an existing email/password account
         user = await env.cybermeters_db
-          .prepare("SELECT id, email, name, plan, status FROM users WHERE email = ? LIMIT 1")
+          .prepare("SELECT id, email, name, plan, status, mfa_enabled FROM users WHERE email = ? LIMIT 1")
           .bind(msEmail)
           .first();
 
@@ -791,7 +791,7 @@ export async function authRoutes(rctx) {
             .run();
           // Refresh user object so status/email_verified reflect post-update state
           const refreshed = await env.cybermeters_db
-            .prepare("SELECT id, email, name, plan, status FROM users WHERE id = ? LIMIT 1")
+            .prepare("SELECT id, email, name, plan, status, mfa_enabled FROM users WHERE id = ? LIMIT 1")
             .bind(user.id)
             .first()
             .catch(() => null);
@@ -812,7 +812,7 @@ export async function authRoutes(rctx) {
           .bind(newUserId, msEmail, msName, msOid, msTid)
           .run();
 
-        user = { id: newUserId, email: msEmail, name: msName, plan: "free", status: "active" };
+        user = { id: newUserId, email: msEmail, name: msName, plan: "free", status: "active", mfa_enabled: 0 };
 
         await createAuditEvent(env, {
           user_id:     newUserId,
@@ -840,6 +840,55 @@ export async function authRoutes(rctx) {
         const dest = new URL("/login", frontendUrl);
         dest.searchParams.set("ms_error", "Account suspended. Contact support.");
         return Response.redirect(dest.toString(), 302);
+      }
+
+      // ── 4b. MFA gate ────────────────────────────────────────────────────
+      // If the account has MFA enabled, the SSO path must NOT mint a session on
+      // its own — that would silently ignore a second factor the user opted into
+      // (password login halts here and issues a challenge; SSO must match). Issue
+      // the same short-lived mfa_challenges token, hand it to the frontend through
+      // the OTC redirect, and let it complete at POST /api/auth/mfa/challenge —
+      // the identical endpoint the password flow uses. Fail-closed: no session is
+      // created until the TOTP (or recovery code) is verified.
+      if (user.mfa_enabled) {
+        const { raw: challengeRaw, hash: challengeHash } = await generateMfaChallengeToken();
+        const challengeId = createId("mfach");
+        const challengeExpiry = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 min
+        await env.cybermeters_db
+          .prepare(
+            `INSERT INTO mfa_challenges (id, user_id, challenge_hash, expires_at)
+             VALUES (?, ?, ?, ?)`
+          )
+          .bind(challengeId, user.id, challengeHash, challengeExpiry)
+          .run();
+        await createAuditEvent(env, {
+          user_id:     user.id,
+          event_type:  "mfa_challenge_issued",
+          entity_type: "user",
+          entity_id:   user.id,
+          description: `MFA challenge issued for ${user.email} (Microsoft SSO)`,
+          metadata:    { challenge_id: challengeId, auth_provider: "microsoft", ip_address: request.headers.get("CF-Connecting-IP") || null, user_agent: request.headers.get("User-Agent") || null },
+        }).catch(() => {});
+
+        // Carry the challenge (not a session token) through the single-use OTC so
+        // it never appears in the redirect URL — same handoff shape as the session
+        // path below. The frontend reads { mfa_required, challenge_token } from the
+        // exchange response and drives the existing MFA UI.
+        const mfaOtcRaw = Array.from(crypto.getRandomValues(new Uint8Array(32)))
+          .map(b => b.toString(16).padStart(2, "0")).join("");
+        const mfaOtcPayload = JSON.stringify({ mfa_required: true, challenge_token: challengeRaw });
+        await env.cybermeters_db
+          .prepare(
+            `INSERT INTO oauth_states (state, provider, redirect_uri, expires_at)
+             VALUES (?, 'ms_exchange', ?, datetime('now', '+5 minutes'))`
+          )
+          .bind(mfaOtcRaw, mfaOtcPayload)
+          .run();
+
+        const mfaFrontendUrl = env.FRONTEND_URL || url.origin;
+        const mfaDest = new URL("/auth/microsoft/callback", mfaFrontendUrl);
+        mfaDest.searchParams.set("otc", mfaOtcRaw);
+        return Response.redirect(mfaDest.toString(), 302);
       }
 
       // ── 5. Create session ──────────────────────────────────────────────
@@ -973,6 +1022,14 @@ export async function authRoutes(rctx) {
       } catch (e) {
         console.error("[auth/exchange] payload JSON.parse failed:", e.message);
         return json({ error: "Exchange failed" }, 500);
+      }
+
+      // MFA-gated SSO handoff: the callback issued a challenge instead of a
+      // session (the account has MFA enabled). Return the challenge token so the
+      // frontend can complete the second factor at POST /api/auth/mfa/challenge.
+      // No session token exists in this payload — nothing is authenticated yet.
+      if (payload.mfa_required && payload.challenge_token) {
+        return json({ mfa_required: true, challenge_token: payload.challenge_token });
       }
 
       if (!payload.token || !payload.userId || !payload.email) {
@@ -1170,6 +1227,14 @@ export async function authRoutes(rctx) {
           // Invalidate all existing sessions — security best practice after password change
           env.cybermeters_db
             .prepare("DELETE FROM user_sessions WHERE user_id = ?")
+            .bind(user.id),
+          // Revoke all active API tokens too. Password reset is the primary account-
+          // recovery action after a suspected compromise; leaving long-lived `cm_`
+          // bearer tokens valid would let an attacker who minted one retain access
+          // through the exact flow meant to cut them off. Append-only status flip
+          // (mirrors DELETE /api/account/api-tokens/:id) — history is preserved.
+          env.cybermeters_db
+            .prepare("UPDATE api_tokens SET status = 'revoked' WHERE user_id = ? AND status = 'active'")
             .bind(user.id),
         ]);
 

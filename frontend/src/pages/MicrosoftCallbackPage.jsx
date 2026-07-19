@@ -48,6 +48,13 @@ export default function MicrosoftCallbackPage() {
     // The token is returned in the response body — it never appears in any URL.
     api.exchangeOAuthCode(otc)
       .then(async data => {
+        // MFA-enabled account: the backend issued a second-factor challenge instead
+        // of a session. Hand the challenge to the login page, which renders the
+        // existing MFA step (authenticator code + recovery code) to complete it.
+        if (data.mfa_required && data.challenge_token) {
+          navigate('/login', { replace: true, state: { mfaChallengeToken: data.challenge_token } })
+          return
+        }
         if (!data.token || !data.id || !data.email) {
           setError('Sign-in did not complete. Please try again.')
           return
