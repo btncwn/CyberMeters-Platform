@@ -98,6 +98,9 @@ jobs:
       - name: Validate SSO nOAuth guard (single-tenant tid enforcement + email-link gate)
         run: node scripts/validate-sso-linking-guard.js
 
+      - name: Validate auth/session hardening (SSO MFA gate, reset token revocation, invite + lifecycle deleted_at)
+        run: node scripts/validate-auth-session-hardening.js
+
       - name: Validate MSP portfolio (cross-MSP isolation + change counts + exec summary)
         run: node scripts/validate-portfolio.js
 

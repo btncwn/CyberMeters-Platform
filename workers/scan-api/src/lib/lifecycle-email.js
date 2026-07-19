@@ -265,8 +265,12 @@ async function sendLifecycleEmail(env, { type, user_id = null, workspace_id = nu
       uid = u?.id ?? user_id;
     }
     if (!email && workspace_id) {
+      // deleted_at IS NULL: a soft-deleted workspace must not receive lifecycle
+      // email (including failed-email retries within the 3-day window). The
+      // "workspace deleted" confirmation is sent separately via sendCustomerEmail
+      // with an explicit recipient, so it is unaffected by this filter.
       const row = await env.cybermeters_db
-        .prepare("SELECT u.id AS uid, u.email AS email, u.email_verified AS ev, w.name AS wname FROM workspaces w JOIN users u ON u.id = w.owner_user_id WHERE w.id = ? LIMIT 1")
+        .prepare("SELECT u.id AS uid, u.email AS email, u.email_verified AS ev, w.name AS wname FROM workspaces w JOIN users u ON u.id = w.owner_user_id WHERE w.id = ? AND w.deleted_at IS NULL LIMIT 1")
         .bind(workspace_id).first();
       if (row?.ev && isValidEmail(String(row.email || "").toLowerCase())) email = String(row.email).toLowerCase();
       uid = uid ?? row?.uid ?? null;
