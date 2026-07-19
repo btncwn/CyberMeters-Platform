@@ -13,14 +13,14 @@ guard without an explicit, documented public-allowlist reason.
 
 ## Coverage summary
 
-- **Total entry points:** 234
-- **Auth-guarded:** 213
+- **Total entry points:** 241
+- **Auth-guarded:** 220
 - **Unauthenticated (public by design):** 21
 - **Sensitive-scope gaps (unauthed workspace/resource/account/admin/portfolio, non-public):** 0
 
 | Scope | Handlers | Auth-guarded |
 |---|---:|---:|
-| account | 21 | 21 |
+| account | 24 | 24 |
 | admin | 2 | 2 |
 | email | 1 | 1 |
 | portfolio | 9 | 9 |
@@ -28,7 +28,7 @@ guard without an explicit, documented public-allowlist reason.
 | public-or-global | 37 | 19 |
 | unknown | 46 | 46 |
 | webhook | 2 | 0 |
-| workspace | 115 | 115 |
+| workspace | 119 | 119 |
 
 ## Public allowlist (unauthenticated by design)
 
@@ -71,9 +71,9 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
-| OPTIONS | `(none)` | 1946 | preflight | public | — |
-| GET | `/health` | 1951 | public-or-global | public | — |
-| GET | `/ready` | 1967 | public-or-global | public | — |
+| OPTIONS | `(none)` | 1947 | preflight | public | — |
+| GET | `/health` | 1952 | public-or-global | public | — |
+| GET | `/ready` | 1968 | public-or-global | public | — |
 
 ### `workers/scan-api/src/routes/account.js`
 
@@ -290,17 +290,17 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
 | GET | `/^\/api\/workspaces\/([^/` | 56 | workspace | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `/api/portfolio/overview` | 101 | portfolio | ✓ | requireAuth, getAccessibleWorkspaceIds* |
-| GET | `/api/portfolio/workspaces` | 230 | portfolio | ✓ | requireAuth, getAccessibleWorkspaceIds* |
-| GET | `/api/portfolio/executive-summary` | 252 | portfolio | ✓ | requireAuth, getAccessibleWorkspaceIds* |
-| GET | `/api/portfolio/alerts` | 271 | portfolio | ✓ | requireAuth, getAccessibleWorkspaceIds* |
-| GET | `/api/portfolio/trends` | 394 | portfolio | ✓ | requireAuth, getAccessibleWorkspaceIds* |
-| GET | `/api/portfolio/risk` | 501 | portfolio | ✓ | requireAuth, getAccessibleWorkspaceIds* |
-| GET | `/api/portfolio/domains` | 528 | portfolio | ✓ | requireAuth, getAccessibleWorkspaceIds* |
-| GET | `/api/portfolio/maturity` | 594 | portfolio | ✓ | requireAuth, getAccessibleWorkspaceIds* |
-| GET | `/^\/api\/portfolio\/domains\/([^/` | 620 | portfolio | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `/api/workspaces` | 645 | public-or-global | ✓ | requireAuth, getAccessibleWorkspaceIds* |
-| POST | `/api/workspaces` | 678 | public-or-global | ✓ | requireAuth |
+| GET | `/api/portfolio/overview` | 102 | portfolio | ✓ | requireAuth, getAccessibleWorkspaceIds* |
+| GET | `/api/portfolio/workspaces` | 231 | portfolio | ✓ | requireAuth, getAccessibleWorkspaceIds* |
+| GET | `/api/portfolio/executive-summary` | 253 | portfolio | ✓ | requireAuth, getAccessibleWorkspaceIds* |
+| GET | `/api/portfolio/alerts` | 272 | portfolio | ✓ | requireAuth, getAccessibleWorkspaceIds* |
+| GET | `/api/portfolio/trends` | 395 | portfolio | ✓ | requireAuth, getAccessibleWorkspaceIds* |
+| GET | `/api/portfolio/risk` | 502 | portfolio | ✓ | requireAuth, getAccessibleWorkspaceIds* |
+| GET | `/api/portfolio/domains` | 529 | portfolio | ✓ | requireAuth, getAccessibleWorkspaceIds* |
+| GET | `/api/portfolio/maturity` | 595 | portfolio | ✓ | requireAuth, getAccessibleWorkspaceIds* |
+| GET | `/^\/api\/portfolio\/domains\/([^/` | 621 | portfolio | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `/api/workspaces` | 646 | public-or-global | ✓ | requireAuth, getAccessibleWorkspaceIds* |
+| POST | `/api/workspaces` | 679 | public-or-global | ✓ | requireAuth |
 
 ### `workers/scan-api/src/routes/scans.js`
 
@@ -309,14 +309,14 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | POST | `/api/scan` | 32 | public-or-global | ✓ | requireAuth, requireWorkspaceRole, getAccessibleWorkspaceIds*, getWorkspaceBillingUserId* |
 | GET | `/api/scans` | 240 | public-or-global | ✓ | requireAuth, requireWorkspaceRole, getAccessibleWorkspaceIds* |
 | GET | `(none)` | 376 | unknown | ✓ | requireAuth, requireScanReadAccess, requireWorkspaceRole, getAccessibleWorkspaceIds*, getWorkspaceBillingUserId* |
-| GET | `(none)` | 436 | unknown | ✓ | requireAuth, requireScanReadAccess, requireWorkspaceRole, getAccessibleWorkspaceIds*, getWorkspaceBillingUserId* |
-| GET | `(none)` | 484 | unknown | ✓ | requireAuth, requireScanReadAccess, requireWorkspaceRole, getAccessibleWorkspaceIds*, getWorkspaceBillingUserId* |
-| GET | `(none)` | 526 | unknown | ✓ | requireAuth, requireScanReadAccess, requireWorkspaceRole, getAccessibleWorkspaceIds*, getWorkspaceBillingUserId* |
-| GET | `(none)` | 650 | unknown | ✓ | requireAuth, requireScanReadAccess, requireWorkspaceRole, getAccessibleWorkspaceIds*, getWorkspaceBillingUserId* |
-| GET | `(none)` | 723 | unknown | ✓ | requireAuth, requireScanReadAccess, requireWorkspaceRole, getAccessibleWorkspaceIds*, getWorkspaceBillingUserId* |
-| POST | `/api/schedules` | 757 | public-or-global | ✓ | requireAuth, requireWorkspaceRole, getAccessibleWorkspaceIds* |
-| GET | `/api/schedules` | 855 | public-or-global | ✓ | requireAuth, getAccessibleWorkspaceIds* |
-| DELETE | `(none)` | 885 | unknown | ✓ | requireAuth, requireScanReadAccess, requireWorkspaceRole, getAccessibleWorkspaceIds*, getWorkspaceBillingUserId* |
+| GET | `(none)` | 450 | unknown | ✓ | requireAuth, requireScanReadAccess, requireWorkspaceRole, getAccessibleWorkspaceIds*, getWorkspaceBillingUserId* |
+| GET | `(none)` | 498 | unknown | ✓ | requireAuth, requireScanReadAccess, requireWorkspaceRole, getAccessibleWorkspaceIds*, getWorkspaceBillingUserId* |
+| GET | `(none)` | 540 | unknown | ✓ | requireAuth, requireScanReadAccess, requireWorkspaceRole, getAccessibleWorkspaceIds*, getWorkspaceBillingUserId* |
+| GET | `(none)` | 664 | unknown | ✓ | requireAuth, requireScanReadAccess, requireWorkspaceRole, getAccessibleWorkspaceIds*, getWorkspaceBillingUserId* |
+| GET | `(none)` | 737 | unknown | ✓ | requireAuth, requireScanReadAccess, requireWorkspaceRole, getAccessibleWorkspaceIds*, getWorkspaceBillingUserId* |
+| POST | `/api/schedules` | 771 | public-or-global | ✓ | requireAuth, requireWorkspaceRole, getAccessibleWorkspaceIds* |
+| GET | `/api/schedules` | 869 | public-or-global | ✓ | requireAuth, getAccessibleWorkspaceIds* |
+| DELETE | `(none)` | 899 | unknown | ✓ | requireAuth, requireScanReadAccess, requireWorkspaceRole, getAccessibleWorkspaceIds*, getWorkspaceBillingUserId* |
 
 ### `workers/scan-api/src/routes/shadow-it.js`
 
@@ -349,13 +349,25 @@ unauthenticated sensitive-scope handler NOT covered here fails the CI gate.
 | Method | Path | Line | Scope | Auth | Guards |
 |---|---|---:|---|---|---|
 | GET | `/^\/api\/workspaces\/([^/` | 24 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
-| GET | `/^\/api\/workspaces\/([^/` | 75 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
-| GET | `(none)` | 112 | unknown | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
-| PUT | `(none)` | 112 | unknown | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
-| PUT | `(none)` | 129 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `(none)` | 226 | unknown | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
-| GET | `(none)` | 282 | unknown | ✓ | requireAuth, requireWorkspaceRole |
-| GET | `(none)` | 344 | unknown | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| GET | `/^\/api\/workspaces\/([^/` | 79 | workspace | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| GET | `(none)` | 116 | unknown | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| PUT | `(none)` | 116 | unknown | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| PUT | `(none)` | 133 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `(none)` | 230 | unknown | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+| GET | `(none)` | 286 | unknown | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `(none)` | 348 | unknown | ✓ | requireAuth, requireWorkspaceRole, getWorkspaceBillingUserId* |
+
+### `workers/scan-api/src/routes/workspace-branding.js`
+
+| Method | Path | Line | Scope | Auth | Guards |
+|---|---|---:|---|---|---|
+| GET | `/^\/api\/workspaces\/([^/` | 42 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| DELETE | `/^\/api\/workspaces\/([^/` | 59 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| PUT | `/^\/api\/workspaces\/([^/` | 59 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| DELETE | `/^\/api\/workspaces\/([^/` | 63 | workspace | ✓ | requireAuth, requireWorkspaceRole |
+| GET | `/api/account/branding/profiles` | 117 | account | ✓ | requireAuth |
+| POST | `/api/account/branding/profiles` | 126 | account | ✓ | requireAuth |
+| DELETE | `/^\/api\/account\/branding\/profiles\/([^/` | 154 | account | ✓ | requireAuth |
 
 ### `workers/scan-api/src/routes/workspace-insights.js`
 

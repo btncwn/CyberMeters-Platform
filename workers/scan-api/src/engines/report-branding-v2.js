@@ -153,7 +153,27 @@ export async function resolveReportBrandingV2(env, { workspaceId }) {
       };
     }
 
-    // 3. CyberMeters fallback.
+    // 3. Legacy account-level branding (migration 070, customer_profiles). Kept as
+    //    a backward-compatible fallback so existing white-label customers do not
+    //    lose their brand. The logo there is a data: URI stored in D1, not R2.
+    const legacy = await env.cybermeters_db
+      .prepare(`SELECT company_name, brand_logo, brand_accent, report_white_label FROM customer_profiles WHERE owner_user_id = ? LIMIT 1`)
+      .bind(acct.owner_user_id)
+      .first();
+    if (legacy && legacy.report_white_label && legacy.company_name) {
+      // Legacy white-label only takes effect if the plan is still entitled.
+      const mode = whiteLabelEntitled ? "white_label" : "co_brand";
+      return {
+        mode, source: "legacy_account",
+        logo_r2_key: null, logo_data_uri: legacy.brand_logo || null, logo_sha256: null, logo_mime: null,
+        display_name: legacy.company_name,
+        accent: HEX.test(legacy.brand_accent || "") ? legacy.brand_accent : null,
+        attribution: mode === "white_label" ? "reduced" : "full",
+        renderer_identity: RENDERER_IDENTITY,
+      };
+    }
+
+    // 4. CyberMeters fallback.
     return cyberMetersDescriptor();
   } catch {
     return cyberMetersDescriptor(); // fail-safe: always branded
@@ -166,7 +186,12 @@ export async function resolveReportBrandingV2(env, { workspaceId }) {
 // miss/failure → the renderer uses the CyberMeters text/logo fallback.
 export async function loadBrandingLogoDataUri(env, descriptor) {
   try {
-    if (!descriptor || !descriptor.logo_r2_key || !descriptor.logo_mime) return null;
+    if (!descriptor) return null;
+    // Legacy account branding (mig 070) stores the logo as a data: URI in D1.
+    if (descriptor.logo_data_uri && /^data:image\/(png|jpeg);base64,/.test(descriptor.logo_data_uri)) {
+      return descriptor.logo_data_uri;
+    }
+    if (!descriptor.logo_r2_key || !descriptor.logo_mime) return null;
     const obj = await env.cybermeters_reports.get(descriptor.logo_r2_key);
     if (!obj) return null;
     const bytes = new Uint8Array(await obj.arrayBuffer());

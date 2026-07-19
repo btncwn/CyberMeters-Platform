@@ -5,7 +5,7 @@
 // index.js (router split, Phase 2 PR #4).
 import { buildWorkspaceExecutivePdf } from "./pdf.js";
 import { readLatestWorkspaceSnapshots } from "./report-snapshot.js";
-import { resolveReportBranding } from "./report-branding.js";
+import { resolveReportBrandingV2, loadBrandingLogoDataUri } from "./report-branding-v2.js";
 import { prepareLogoXObject } from "./pdf-image.js";
 import { createAuditEvent, createNotificationEvent } from "../lib/events.js";
 import { createId } from "../lib/util.js";
@@ -208,8 +208,9 @@ export async function generateWorkspaceExecutiveReport(workspaceId, env, options
     const reads = await readLatestWorkspaceSnapshots(env, workspaceId);
     let branding = null, logoImage = null;
     try {
-      branding = await resolveReportBranding(env, workspaceId);
-      if (branding?.logo) logoImage = await prepareLogoXObject(branding.logo, branding.accent);
+      branding = await resolveReportBrandingV2(env, { workspaceId });
+      const dataUri = await loadBrandingLogoDataUri(env, branding);
+      if (dataUri) logoImage = await prepareLogoXObject(dataUri, branding.accent);
     } catch { branding = null; logoImage = null; }
     bytes = buildWorkspaceExecutivePdf({ workspaceName: ws.name, reads, branding, generatedAt, logoImage });
     // The artefact is bound to the exact immutable snapshots it rendered.

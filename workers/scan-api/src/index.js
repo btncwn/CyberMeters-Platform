@@ -97,6 +97,7 @@ import { websiteSecurityRoutes } from "./routes/website-security.js";
 import { cyberEssentialsControlsRoutes } from "./routes/cyber-essentials-controls.js";
 import { emailProtectionLifecycleRoutes } from "./routes/email-protection-lifecycle.js";
 import { workspaceInsightRoutes } from "./routes/workspace-insights.js";
+import { workspaceBrandingRoutes } from "./routes/workspace-branding.js";
 import { buildCertificateAuthorityConcentrationFromModule, buildScanQuality, computeScanBudget, insertAdminSurfaceEvents, runScanEngine, upsertVendorInventory, upsertVendorRelationships } from "./engines/scan-engine.js";
 import { runBoundedScheduledReports } from "./engines/scheduled-reports.js";
 import { assemblePdf, buildScanReportPdf, buildWorkspaceExecutivePdf, pdfUtcDate } from "./engines/pdf.js";
@@ -2111,6 +2112,12 @@ export default {
     {
       const emailLifecycleResponse = await emailProtectionLifecycleRoutes(routeCtx);
       if (emailLifecycleResponse) return emailLifecycleResponse;
+    }
+
+    // ── Report branding routes (per-workspace logo + MSP profiles) ──────────
+    {
+      const brandingResponse = await workspaceBrandingRoutes(routeCtx);
+      if (brandingResponse) return brandingResponse;
     }
 
     // ── Workspace analytics routes (scorecard, CE readiness, business risk) ──

@@ -24,6 +24,7 @@
     "workers/scan-api/src/routes/website-security.js",
     "workers/scan-api/src/routes/workspace-activity.js",
     "workers/scan-api/src/routes/workspace-analytics.js",
+    "workers/scan-api/src/routes/workspace-branding.js",
     "workers/scan-api/src/routes/workspace-insights.js",
     "workers/scan-api/src/routes/workspace-intel.js",
     "workers/scan-api/src/routes/workspace-members.js",
@@ -33,8 +34,8 @@
     "workers/scan-api/src/email/inbound.js"
   ],
   "counts": {
-    "total": 234,
-    "authed": 213,
+    "total": 241,
+    "authed": 220,
     "public_unauthed": 21,
     "sensitive_scope_gaps": 0,
     "by_scope": {
@@ -51,8 +52,8 @@
         "authed": 19
       },
       "account": {
-        "total": 21,
-        "authed": 21
+        "total": 24,
+        "authed": 24
       },
       "admin": {
         "total": 2,
@@ -63,8 +64,8 @@
         "authed": 46
       },
       "workspace": {
-        "total": 115,
-        "authed": 115
+        "total": 119,
+        "authed": 119
       },
       "webhook": {
         "total": 2,
@@ -2814,6 +2815,101 @@
       "auth_guards": [
         "requireAuth",
         "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "DELETE",
+      "path": "/^\\/api\\/account\\/branding\\/profiles\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-branding.js",
+      "scope": "account",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "DELETE",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-branding.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "DELETE",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-branding.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-branding.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "PUT",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-branding.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/account/branding/profiles",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-branding.js",
+      "scope": "account",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/account/branding/profiles",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-branding.js",
+      "scope": "account",
+      "auth_guards": [
+        "requireAuth"
       ],
       "scope_helpers": [],
       "authed": true,
