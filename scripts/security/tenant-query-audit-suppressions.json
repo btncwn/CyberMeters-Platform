@@ -18,6 +18,13 @@
       "contract": "The IN-list is the authenticated caller's accessible-workspace set; LIMIT 1 returns the caller's own first workspace, never a foreign one."
     },
     {
+      "fingerprint": "6c690ea9bff1",
+      "file": "workers/scan-api/src/index.js",
+      "detector": "r2_key_not_workspace_bound",
+      "reason": "R2.delete(o.key) inside workspace purge, deleting per-workspace branding logo objects. o.key comes from env.cybermeters_reports.list({ prefix: 'branding/logos/{workspaceId}/' }), so every key is tenant-prefixed with the workspace being purged.",
+      "contract": "The deleted keys are enumerated from a workspace-prefixed R2 list during that workspace's own hard-delete; no foreign object can be selected (validate-purge-completeness proves purge scope)."
+    },
+    {
       "fingerprint": "ec8e57755922",
       "file": "workers/scan-api/src/routes/workspace-branding.js",
       "detector": "r2_key_not_workspace_bound",

@@ -890,6 +890,9 @@ const WORKSPACE_PURGE_TABLES = [
   "hosted_dns_records", "hosted_dns_entries",
   "tlsrpt_aggregate_reports", "tlsrpt_failure_details",
   "dmarc_change_requests",
+  // Per-workspace report branding (mig 096). Customer-uploaded logo metadata +
+  // display name; its R2 logo objects are deleted in step 1c above before this row.
+  "workspace_branding",
 ];
 
 /**
@@ -926,6 +929,20 @@ async function purgeWorkspaceData(env, workspaceId) {
       await env.cybermeters_db
         .prepare("DELETE FROM scan_report_snapshots WHERE id = ?").bind(s.id).run().catch(() => {});
     }
+    return { done: false }; // more may remain — continue next run
+  }
+
+  // 1c. Per-workspace branding logos in R2 (branding/logos/{workspaceId}/…),
+  // including superseded content-addressed objects a workspace uploaded over time.
+  // R2 objects first (bounded), then the workspace_branding pointer row via
+  // WORKSPACE_PURGE_TABLES below — the same R2-before-pointer ordering as reports.
+  const logos = typeof env.cybermeters_reports.list === "function"
+    ? await env.cybermeters_reports
+        .list({ prefix: `branding/logos/${encodeURIComponent(workspaceId)}/`, limit: PURGE_R2_BATCH })
+        .catch(() => null)
+    : null;
+  if ((logos?.objects || []).length > 0) {
+    for (const o of logos.objects) await env.cybermeters_reports.delete(o.key).catch(() => {});
     return { done: false }; // more may remain — continue next run
   }
 
