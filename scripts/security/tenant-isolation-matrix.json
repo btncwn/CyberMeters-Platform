@@ -1,0 +1,985 @@
+{
+  "schema": "cybermeters.tenant-isolation-matrix/v1",
+  "generated_by": "scripts/security/build-tenant-isolation-matrix.js",
+  "invariants": [
+    {
+      "id": 1,
+      "text": "own resource succeeds"
+    },
+    {
+      "id": 2,
+      "text": "foreign resource safely fails"
+    },
+    {
+      "id": 3,
+      "text": "nonexistent resource behaves equivalently (no existence oracle)"
+    },
+    {
+      "id": 4,
+      "text": "deleted workspace fails per policy"
+    },
+    {
+      "id": 5,
+      "text": "deleted membership fails"
+    },
+    {
+      "id": 6,
+      "text": "soft-deleted resource follows policy"
+    },
+    {
+      "id": 7,
+      "text": "guessed ID does not bypass access"
+    },
+    {
+      "id": 8,
+      "text": "hostname alone is never ownership"
+    },
+    {
+      "id": 9,
+      "text": "resource.workspace_id must equal authorised workspace_id"
+    },
+    {
+      "id": 10,
+      "text": "same hostname in two workspaces remains isolated"
+    },
+    {
+      "id": 11,
+      "text": "read and write paths separately covered"
+    },
+    {
+      "id": 12,
+      "text": "background producers preserve workspace identity"
+    }
+  ],
+  "resource_classes": [
+    {
+      "class": "workspaces",
+      "domain": "core",
+      "tables": [
+        "workspaces"
+      ],
+      "ownership": {
+        "workspaces": {
+          "model": "account",
+          "column": "owner_user_id"
+        }
+      },
+      "non_tenant": false,
+      "coverage": {
+        "dynamic_harness": true,
+        "property_based": true,
+        "note": null
+      }
+    },
+    {
+      "class": "workspace_memberships",
+      "domain": "core",
+      "tables": [
+        "workspace_members"
+      ],
+      "ownership": {
+        "workspace_members": {
+          "model": "direct",
+          "column": "workspace_id"
+        }
+      },
+      "non_tenant": false,
+      "coverage": {
+        "dynamic_harness": true,
+        "property_based": true,
+        "note": null
+      }
+    },
+    {
+      "class": "invitations",
+      "domain": "core",
+      "tables": [
+        "workspace_invitations"
+      ],
+      "ownership": {
+        "workspace_invitations": {
+          "model": "direct",
+          "column": "workspace_id"
+        }
+      },
+      "non_tenant": false,
+      "coverage": {
+        "dynamic_harness": true,
+        "property_based": true,
+        "note": null
+      }
+    },
+    {
+      "class": "domains",
+      "domain": "core",
+      "tables": [
+        "domains",
+        "workspace_domains"
+      ],
+      "ownership": {
+        "domains": {
+          "model": "user",
+          "column": "user_id"
+        },
+        "workspace_domains": {
+          "model": "direct",
+          "column": "workspace_id"
+        }
+      },
+      "non_tenant": false,
+      "coverage": {
+        "dynamic_harness": true,
+        "property_based": true,
+        "note": null
+      }
+    },
+    {
+      "class": "scans",
+      "domain": "core",
+      "tables": [
+        "scans",
+        "scan_module_telemetry",
+        "scheduled_scans"
+      ],
+      "ownership": {
+        "scans": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "scan_module_telemetry": {
+          "model": "via_scan",
+          "column": "scan_id"
+        },
+        "scheduled_scans": {
+          "model": "direct",
+          "column": "workspace_id"
+        }
+      },
+      "non_tenant": false,
+      "coverage": {
+        "dynamic_harness": true,
+        "property_based": true,
+        "note": null
+      }
+    },
+    {
+      "class": "assets",
+      "domain": "attack_surface",
+      "tables": [
+        "workspace_assets",
+        "hidden_assets"
+      ],
+      "ownership": {
+        "workspace_assets": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "hidden_assets": {
+          "model": "via_scan",
+          "column": "scan_id"
+        }
+      },
+      "non_tenant": false,
+      "coverage": {
+        "dynamic_harness": true,
+        "property_based": true,
+        "note": null
+      }
+    },
+    {
+      "class": "asset_events",
+      "domain": "attack_surface",
+      "tables": [
+        "asset_events",
+        "asset_alert_records"
+      ],
+      "ownership": {
+        "asset_events": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "asset_alert_records": {
+          "model": "direct",
+          "column": "workspace_id"
+        }
+      },
+      "non_tenant": false,
+      "coverage": {
+        "dynamic_harness": false,
+        "property_based": false,
+        "note": "written by scan/cron; read via /assets + posture; workspace_id-scoped; isolation proven at the assets read surface + static audit"
+      }
+    },
+    {
+      "class": "findings",
+      "domain": "reporting",
+      "tables": [
+        "findings",
+        "remediation_items",
+        "kev_matches"
+      ],
+      "ownership": {
+        "findings": {
+          "model": "via_scan",
+          "column": "scan_id"
+        },
+        "remediation_items": {
+          "model": "via_scan",
+          "column": "scan_id"
+        },
+        "kev_matches": {
+          "model": "via_scan",
+          "column": "scan_id"
+        }
+      },
+      "non_tenant": false,
+      "coverage": {
+        "dynamic_harness": true,
+        "property_based": false,
+        "note": "scan_id-scoped; reachable only through /scans/:id ownership-gated report surfaces"
+      }
+    },
+    {
+      "class": "reports_snapshots",
+      "domain": "reporting",
+      "tables": [
+        "reports",
+        "workspace_reports",
+        "scan_report_snapshots",
+        "historical_scores"
+      ],
+      "ownership": {
+        "reports": {
+          "model": "via_scan",
+          "column": "scan_id"
+        },
+        "workspace_reports": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "scan_report_snapshots": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "historical_scores": {
+          "model": "direct",
+          "column": "workspace_id"
+        }
+      },
+      "non_tenant": false,
+      "coverage": {
+        "dynamic_harness": true,
+        "property_based": true,
+        "note": null
+      }
+    },
+    {
+      "class": "scheduled_reports",
+      "domain": "reporting",
+      "tables": [
+        "report_schedules",
+        "report_schedule_runs",
+        "scheduled_reports"
+      ],
+      "ownership": {
+        "report_schedules": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "report_schedule_runs": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "scheduled_reports": {
+          "model": "direct",
+          "column": "workspace_id"
+        }
+      },
+      "non_tenant": false,
+      "coverage": {
+        "dynamic_harness": false,
+        "property_based": false,
+        "note": "background report producer; workspace_id-scoped writes; static-audit + background-writer property covered"
+      }
+    },
+    {
+      "class": "managed_cases",
+      "domain": "cases",
+      "tables": [
+        "managed_cases",
+        "managed_case_events"
+      ],
+      "ownership": {
+        "managed_cases": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "managed_case_events": {
+          "model": "direct",
+          "column": "workspace_id"
+        }
+      },
+      "non_tenant": false,
+      "coverage": {
+        "dynamic_harness": true,
+        "property_based": true,
+        "note": null
+      }
+    },
+    {
+      "class": "alerts",
+      "domain": "alerts",
+      "tables": [
+        "alert_activation",
+        "alert_deliveries",
+        "workspace_alert_channels"
+      ],
+      "ownership": {
+        "alert_activation": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "alert_deliveries": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "workspace_alert_channels": {
+          "model": "direct",
+          "column": "workspace_id"
+        }
+      },
+      "non_tenant": false,
+      "coverage": {
+        "dynamic_harness": false,
+        "property_based": false,
+        "note": "workspace_id-scoped; delivery recipients proven by validate-alert-recipients (no operator fallback / soft-delete)"
+      }
+    },
+    {
+      "class": "notifications",
+      "domain": "alerts",
+      "tables": [
+        "notification_events",
+        "notification_preferences"
+      ],
+      "ownership": {
+        "notification_events": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "notification_preferences": {
+          "model": "direct",
+          "column": "workspace_id"
+        }
+      },
+      "non_tenant": false,
+      "coverage": {
+        "dynamic_harness": true,
+        "property_based": true,
+        "note": null
+      }
+    },
+    {
+      "class": "remediation_waivers",
+      "domain": "reporting",
+      "tables": [
+        "finding_waivers"
+      ],
+      "ownership": {
+        "finding_waivers": {
+          "model": "direct",
+          "column": "workspace_id"
+        }
+      },
+      "non_tenant": false,
+      "coverage": {
+        "dynamic_harness": false,
+        "property_based": false,
+        "note": "workspace_id-scoped; static audit + matrix ownership-consistency"
+      }
+    },
+    {
+      "class": "certificates",
+      "domain": "certificates",
+      "tables": [
+        "certificate_lifecycle",
+        "certificate_lifecycle_events",
+        "certificate_observations"
+      ],
+      "ownership": {
+        "certificate_lifecycle": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "certificate_lifecycle_events": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "certificate_observations": {
+          "model": "direct",
+          "column": "workspace_id"
+        }
+      },
+      "non_tenant": false,
+      "coverage": {
+        "dynamic_harness": true,
+        "property_based": false,
+        "note": null
+      }
+    },
+    {
+      "class": "identity_exposure",
+      "domain": "identity",
+      "tables": [
+        "identity_exposure",
+        "identity_exposure_events",
+        "identity_assets"
+      ],
+      "ownership": {
+        "identity_exposure": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "identity_exposure_events": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "identity_assets": {
+          "model": "direct",
+          "column": "workspace_id"
+        }
+      },
+      "non_tenant": false,
+      "coverage": {
+        "dynamic_harness": true,
+        "property_based": false,
+        "note": "foreign/anon denial on /identity-surfaces with owner positive control in validate-tenant-isolation-extended.js; plus the dedicated validate-identity-exposure.js"
+      }
+    },
+    {
+      "class": "brand",
+      "domain": "brand",
+      "tables": [
+        "brand_abuse_campaigns",
+        "brand_evidence_bundles",
+        "workspace_brand_assets",
+        "workspace_brand_profiles"
+      ],
+      "ownership": {
+        "brand_abuse_campaigns": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "brand_evidence_bundles": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "workspace_brand_assets": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "workspace_brand_profiles": {
+          "model": "direct",
+          "column": "workspace_id"
+        }
+      },
+      "non_tenant": false,
+      "coverage": {
+        "dynamic_harness": true,
+        "property_based": true,
+        "note": null
+      }
+    },
+    {
+      "class": "email_protection",
+      "domain": "email",
+      "tables": [
+        "email_protection_events",
+        "email_sender_sources",
+        "dmarc_aggregate_records",
+        "dmarc_aggregate_reports",
+        "dmarc_change_requests",
+        "dmarc_ingest_endpoints",
+        "hosted_dns_entries",
+        "hosted_dns_records",
+        "tlsrpt_aggregate_reports",
+        "tlsrpt_failure_details"
+      ],
+      "ownership": {
+        "email_protection_events": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "email_sender_sources": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "dmarc_aggregate_records": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "dmarc_aggregate_reports": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "dmarc_change_requests": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "dmarc_ingest_endpoints": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "hosted_dns_entries": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "hosted_dns_records": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "tlsrpt_aggregate_reports": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "tlsrpt_failure_details": {
+          "model": "direct",
+          "column": "workspace_id"
+        }
+      },
+      "non_tenant": false,
+      "coverage": {
+        "dynamic_harness": false,
+        "property_based": false,
+        "note": "workspace_id-scoped; ingest is endpoint-key gated (key binds workspace); read surfaces harness-covered via /maturity + email-protection routes"
+      }
+    },
+    {
+      "class": "cyber_essentials",
+      "domain": "cyber_essentials",
+      "tables": [
+        "cyber_essentials_answers",
+        "cyber_essentials_control_records",
+        "cyber_essentials_events"
+      ],
+      "ownership": {
+        "cyber_essentials_answers": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "cyber_essentials_control_records": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "cyber_essentials_events": {
+          "model": "direct",
+          "column": "workspace_id"
+        }
+      },
+      "non_tenant": false,
+      "coverage": {
+        "dynamic_harness": false,
+        "property_based": false,
+        "note": "workspace_id-scoped; read surfaces exist; write is answer-versioned (validate-ce-answer-versioning)"
+      }
+    },
+    {
+      "class": "website_security",
+      "domain": "website",
+      "tables": [
+        "website_security_conditions",
+        "website_security_events"
+      ],
+      "ownership": {
+        "website_security_conditions": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "website_security_events": {
+          "model": "direct",
+          "column": "workspace_id"
+        }
+      },
+      "non_tenant": false,
+      "coverage": {
+        "dynamic_harness": false,
+        "property_based": false,
+        "note": "workspace_id-scoped; static audit + lifecycle validator (validate-website-security-lifecycle)"
+      }
+    },
+    {
+      "class": "shadow_it",
+      "domain": "shadow_it",
+      "tables": [
+        "shadow_it_inventory",
+        "shadow_it_inventory_events",
+        "workspace_vendors",
+        "vendor_risk_scores",
+        "vendor_risk_scores_history",
+        "workspace_supply_chain_scores",
+        "workspace_supply_chain_history"
+      ],
+      "ownership": {
+        "shadow_it_inventory": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "shadow_it_inventory_events": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "workspace_vendors": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "vendor_risk_scores": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "vendor_risk_scores_history": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "workspace_supply_chain_scores": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "workspace_supply_chain_history": {
+          "model": "direct",
+          "column": "workspace_id"
+        }
+      },
+      "non_tenant": false,
+      "coverage": {
+        "dynamic_harness": true,
+        "property_based": false,
+        "note": null
+      }
+    },
+    {
+      "class": "posture_state",
+      "domain": "reporting",
+      "tables": [
+        "cyber_mot_domain_states",
+        "domain_maturity_ledger",
+        "workspace_brs_scores",
+        "workspace_brs_score_history"
+      ],
+      "ownership": {
+        "cyber_mot_domain_states": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "domain_maturity_ledger": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "workspace_brs_scores": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "workspace_brs_score_history": {
+          "model": "direct",
+          "column": "workspace_id"
+        }
+      },
+      "non_tenant": false,
+      "coverage": {
+        "dynamic_harness": true,
+        "property_based": false,
+        "note": null
+      }
+    },
+    {
+      "class": "api_tokens",
+      "domain": "account",
+      "tables": [
+        "api_tokens"
+      ],
+      "ownership": {
+        "api_tokens": {
+          "model": "direct",
+          "column": "workspace_id"
+        }
+      },
+      "non_tenant": false,
+      "coverage": {
+        "dynamic_harness": false,
+        "property_based": true,
+        "note": "workspace_id + user_id scoped; account route ownership-gated"
+      }
+    },
+    {
+      "class": "subscriptions",
+      "domain": "billing",
+      "tables": [
+        "subscriptions",
+        "subscription_accounts",
+        "subscription_events",
+        "customer_profiles"
+      ],
+      "ownership": {
+        "subscriptions": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "subscription_accounts": {
+          "model": "account",
+          "column": "owner_user_id"
+        },
+        "subscription_events": {
+          "model": "via_subscription",
+          "column": "subscription_id"
+        },
+        "customer_profiles": {
+          "model": "account",
+          "column": "owner_user_id"
+        }
+      },
+      "non_tenant": false,
+      "coverage": {
+        "dynamic_harness": true,
+        "property_based": false,
+        "note": null
+      }
+    },
+    {
+      "class": "msp_portfolio",
+      "domain": "portfolio",
+      "tables": [
+        "portfolio_risk_snapshots"
+      ],
+      "ownership": {
+        "portfolio_risk_snapshots": {
+          "model": "account",
+          "column": "owner_id"
+        }
+      },
+      "non_tenant": false,
+      "coverage": {
+        "dynamic_harness": false,
+        "property_based": false,
+        "note": "owner_id (MSP account) scoped; cross-MSP isolation proven by validate-portfolio + validate-msp-portfolio-domains"
+      }
+    },
+    {
+      "class": "audit_log",
+      "domain": "core",
+      "tables": [
+        "audit_events"
+      ],
+      "ownership": {
+        "audit_events": {
+          "model": "direct",
+          "column": "workspace_id"
+        }
+      },
+      "non_tenant": false,
+      "coverage": {
+        "dynamic_harness": true,
+        "property_based": false,
+        "note": null
+      }
+    },
+    {
+      "class": "deletion_lifecycle",
+      "domain": "core",
+      "tables": [
+        "deletion_requests",
+        "workspace_retention_settings",
+        "lifecycle_email_events"
+      ],
+      "ownership": {
+        "deletion_requests": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "workspace_retention_settings": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "lifecycle_email_events": {
+          "model": "direct",
+          "column": "workspace_id"
+        }
+      },
+      "non_tenant": false,
+      "coverage": {
+        "dynamic_harness": false,
+        "property_based": false,
+        "note": "workspace/user-scoped lifecycle; purge-completeness proven by validate-purge-completeness"
+      }
+    },
+    {
+      "class": "auth_sessions",
+      "domain": "auth",
+      "tables": [
+        "user_sessions",
+        "mfa_challenges",
+        "password_reset_tokens"
+      ],
+      "ownership": {
+        "user_sessions": {
+          "model": "user",
+          "column": "user_id"
+        },
+        "mfa_challenges": {
+          "model": "user",
+          "column": "user_id"
+        },
+        "password_reset_tokens": {
+          "model": "user",
+          "column": "user_id"
+        }
+      },
+      "non_tenant": false,
+      "coverage": {
+        "dynamic_harness": false,
+        "property_based": false,
+        "note": "per-user auth material; token-hash keyed; not a workspace resource — covered by validate-security-contracts"
+      }
+    },
+    {
+      "class": "infrastructure",
+      "domain": "infra",
+      "tables": [
+        "api_rate_limits",
+        "oauth_states",
+        "stripe_processed_events"
+      ],
+      "ownership": {
+        "api_rate_limits": {
+          "model": "infra",
+          "column": null
+        },
+        "oauth_states": {
+          "model": "infra",
+          "column": null
+        },
+        "stripe_processed_events": {
+          "model": "infra",
+          "column": null
+        }
+      },
+      "non_tenant": true,
+      "coverage": {
+        "dynamic_harness": false,
+        "property_based": false,
+        "note": "global infrastructure — holds no tenant data"
+      }
+    },
+    {
+      "class": "identity_root",
+      "domain": "auth",
+      "tables": [
+        "users"
+      ],
+      "ownership": {
+        "users": {
+          "model": "identity_root",
+          "column": "id"
+        }
+      },
+      "non_tenant": true,
+      "coverage": {
+        "dynamic_harness": false,
+        "property_based": false,
+        "note": "identity root — a user owns only their own row; not a workspace resource"
+      }
+    }
+  ],
+  "table_index": {
+    "alert_activation": "alerts",
+    "alert_deliveries": "alerts",
+    "api_rate_limits": "infrastructure",
+    "api_tokens": "api_tokens",
+    "asset_alert_records": "asset_events",
+    "asset_events": "asset_events",
+    "audit_events": "audit_log",
+    "brand_abuse_campaigns": "brand",
+    "brand_evidence_bundles": "brand",
+    "certificate_lifecycle": "certificates",
+    "certificate_lifecycle_events": "certificates",
+    "certificate_observations": "certificates",
+    "customer_profiles": "subscriptions",
+    "cyber_essentials_answers": "cyber_essentials",
+    "cyber_essentials_control_records": "cyber_essentials",
+    "cyber_essentials_events": "cyber_essentials",
+    "cyber_mot_domain_states": "posture_state",
+    "deletion_requests": "deletion_lifecycle",
+    "dmarc_aggregate_records": "email_protection",
+    "dmarc_aggregate_reports": "email_protection",
+    "dmarc_change_requests": "email_protection",
+    "dmarc_ingest_endpoints": "email_protection",
+    "domain_maturity_ledger": "posture_state",
+    "domains": "domains",
+    "email_protection_events": "email_protection",
+    "email_sender_sources": "email_protection",
+    "finding_waivers": "remediation_waivers",
+    "findings": "findings",
+    "hidden_assets": "assets",
+    "historical_scores": "reports_snapshots",
+    "hosted_dns_entries": "email_protection",
+    "hosted_dns_records": "email_protection",
+    "identity_assets": "identity_exposure",
+    "identity_exposure": "identity_exposure",
+    "identity_exposure_events": "identity_exposure",
+    "kev_matches": "findings",
+    "lifecycle_email_events": "deletion_lifecycle",
+    "managed_case_events": "managed_cases",
+    "managed_cases": "managed_cases",
+    "mfa_challenges": "auth_sessions",
+    "notification_events": "notifications",
+    "notification_preferences": "notifications",
+    "oauth_states": "infrastructure",
+    "password_reset_tokens": "auth_sessions",
+    "portfolio_risk_snapshots": "msp_portfolio",
+    "remediation_items": "findings",
+    "report_schedule_runs": "scheduled_reports",
+    "report_schedules": "scheduled_reports",
+    "reports": "reports_snapshots",
+    "scan_module_telemetry": "scans",
+    "scan_report_snapshots": "reports_snapshots",
+    "scans": "scans",
+    "scheduled_reports": "scheduled_reports",
+    "scheduled_scans": "scans",
+    "shadow_it_inventory": "shadow_it",
+    "shadow_it_inventory_events": "shadow_it",
+    "stripe_processed_events": "infrastructure",
+    "subscription_accounts": "subscriptions",
+    "subscription_events": "subscriptions",
+    "subscriptions": "subscriptions",
+    "tlsrpt_aggregate_reports": "email_protection",
+    "tlsrpt_failure_details": "email_protection",
+    "user_sessions": "auth_sessions",
+    "users": "identity_root",
+    "vendor_risk_scores": "shadow_it",
+    "vendor_risk_scores_history": "shadow_it",
+    "website_security_conditions": "website_security",
+    "website_security_events": "website_security",
+    "workspace_alert_channels": "alerts",
+    "workspace_assets": "assets",
+    "workspace_brand_assets": "brand",
+    "workspace_brand_profiles": "brand",
+    "workspace_brs_score_history": "posture_state",
+    "workspace_brs_scores": "posture_state",
+    "workspace_domains": "domains",
+    "workspace_invitations": "invitations",
+    "workspace_members": "workspace_memberships",
+    "workspace_reports": "reports_snapshots",
+    "workspace_retention_settings": "deletion_lifecycle",
+    "workspace_supply_chain_history": "shadow_it",
+    "workspace_supply_chain_scores": "shadow_it",
+    "workspace_vendors": "shadow_it",
+    "workspaces": "workspaces"
+  },
+  "counts": {
+    "schema_tables": 83,
+    "classified": 83,
+    "tenant_owned_tables": 79,
+    "infra_or_identity_tables": 4,
+    "unclassified": 0,
+    "resource_classes": 30,
+    "classes_with_dynamic_coverage": 17
+  }
+}
