@@ -237,6 +237,70 @@ export function verificationSupportForMethod(method) {
   return "automated";
 }
 
+// ── Available transitions (canonical, backend-derived) ──────────────────────
+// The ONE place the customer-facing "what can I do next" list is computed — from
+// the case_type's own machine, the current status, and the case's per-finding
+// verification support. The frontend renders exactly this and derives NO
+// transition itself (no second copy of the state machine). Labels are display
+// text; requirement flags mirror the machine's guards so the UI can collect the
+// same input canTransitionCase enforces. Never exposes rule IDs, guard internals
+// or provider data.
+//
+// Only base-lifecycle case types expose generic transitions here; ASM and Brand
+// keep their bespoke flows (empty list — untouched). A verified target is offered
+// to a customer ONLY where the honest ceiling is a manual attestation; automated
+// / external / unsupported verification is never a customer button (CyberMeters
+// or an independent third party concludes those, so advertising it would be a
+// dead control canTransitionCase would refuse).
+const BASE_TRANSITION_META = Object.freeze({
+  triaged:               { label: "Begin triage" },
+  assigned:              { label: "Move to Assigned", owner: true },
+  approved:              { label: "Approve to act" },
+  action_in_progress:    { label: "Start remediation" },
+  awaiting_verification: { label: "Submit for verification" },
+  verified:              { label: "Record customer attestation", verify: true },
+  monitoring:            { label: "Move to monitoring" },
+  reopened:              { label: "Reopen case" },
+  accepted_risk:         { label: "Accept risk", note: true, expiry: true },
+  rejected:              { label: "Reject case", note: true },
+  false_positive:        { label: "Mark false positive", note: true },
+  closed_no_action:      { label: "Close — no action needed", note: true },
+  superseded:            { label: "Mark superseded", note: true },
+});
+
+export function availableTransitionsForCase(caseRecord = {}, { actor_type = "customer" } = {}) {
+  const entry = caseTypeEntry(caseRecord.case_type);
+  if (!entry || !entry.base) return []; // ASM/Brand use bespoke flows — no generic controls
+  const from = String(caseRecord.status || "");
+  const targets = entry.machine.transitions[from] || [];
+  const hasOwner = Boolean(String(caseRecord.owner_ref ?? "").trim());
+  const out = [];
+  for (const target of targets) {
+    // System-only states are never a manual/customer action.
+    if (entry.system_only?.has?.(target) && actor_type !== "system") continue;
+    const meta = BASE_TRANSITION_META[target];
+    // Fail closed: never advertise a target we have no honest label for.
+    if (!meta) continue;
+    const isVerify = entry.verified_states.has(target);
+    let verification_mode = null;
+    if (isVerify) {
+      verification_mode = verificationSupportForCase(caseRecord);
+      // Customer can conclude a verified target only by manual attestation.
+      if (actor_type !== "system" && verification_mode !== "manual") continue;
+    }
+    out.push({
+      target_status: target,
+      label: meta.label,
+      requires_owner: Boolean(meta.owner) && !hasOwner,
+      requires_note: Boolean(meta.note),
+      requires_expiry: Boolean(meta.expiry),
+      requires_attestation: Boolean(isVerify && verification_mode === "manual"),
+      verification_mode,
+    });
+  }
+  return out;
+}
+
 export const CASE_TYPE_REGISTRY = Object.freeze({
   [ASM_CASE_TYPE]: {
     case_type: ASM_CASE_TYPE, domain_key: "attack_surface",

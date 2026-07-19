@@ -10,7 +10,7 @@
 import {
   assignCaseOwner, canTransitionCase, canonicalPhaseFor, caseTypeEntry, CASE_TYPE_REGISTRY,
   CANONICAL_DOMAIN_KEYS, isValidDomainKey, createManagedCase,
-  verificationSupportForCase, isActiveWorkspaceMember,
+  verificationSupportForCase, isActiveWorkspaceMember, availableTransitionsForCase,
 } from "../engines/managed-case-model.js";
 import { newCaseEventId } from "../engines/case-workflow.js";
 import { parseBoundedInteger } from "../lib/util.js";
@@ -153,7 +153,21 @@ export async function managedCasesRoutes(rctx) {
       .prepare(`SELECT id, actor_type, actor_id, from_status, to_status, action, detail_json, created_at
                 FROM managed_case_events WHERE workspace_id = ? AND case_id = ? ORDER BY created_at ASC`)
       .bind(wsId, caseId).all().catch(() => ({ results: [] }));
-    return json({ case: caseToUniversalApi(row), events: events.results || [] });
+    // Server-authoritative manage gate: transitions are a "workspace:manage"
+    // mutation, so they are advertised ONLY to a caller who could actually
+    // perform one. A viewer/analyst gets an empty list (state + history only).
+    // available_transitions is derived from the canonical machine + this case's
+    // verification support — the frontend renders it verbatim and decides nothing.
+    const canManage = Boolean(await requireWorkspaceRole(user, wsId, "workspace:manage", env));
+    const available_transitions = canManage
+      ? availableTransitionsForCase(row, { actor_type: "customer" })
+      : [];
+    return json({
+      case: caseToUniversalApi(row),
+      events: events.results || [],
+      can_manage: canManage,
+      available_transitions,
+    });
   }
 
   // ── POST /cases/:caseId/assign — canonical ownership assignment (M5.e) ───
