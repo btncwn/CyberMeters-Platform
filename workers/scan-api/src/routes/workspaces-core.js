@@ -59,18 +59,28 @@ export async function workspacesCoreRoutes(rctx) {
               .prepare(`SELECT COUNT(*) AS n FROM workspace_domains WHERE workspace_id = ?`)
               .bind(workspaceId).first(),
 
-            // total_scans — prefer direct workspace_id attribution; fallback via
-            // domain join for historical scans where workspace_id IS NULL.
+            // total_scans — the workspace's own RETAINED scan total (lifetime),
+            // including scans whose domains were later removed and are no longer in
+            // workspace_domains. Tenant-safe by construction:
+            //   • branch 1 counts only scans directly attributed to THIS workspace_id
+            //     (ownership; never a foreign scan, never hostname-only);
+            //   • branch 2 counts historical UNATTRIBUTED (workspace_id IS NULL) scans
+            //     for domains CURRENTLY monitored by this workspace.
+            // The earlier INNER JOIN to workspace_domains under-counted, because it
+            // dropped a workspace's own scans once their domain was removed — the
+            // "Total Scans: 12 (should be 22)" defect. No hostname join, no global
+            // fallback, no migration, same response field.
             env.cybermeters_db
               .prepare(
                 `SELECT COUNT(DISTINCT s.id) AS n
                  FROM scans s
-                 JOIN domains d ON d.id = s.domain_id
-                 JOIN workspace_domains wd ON wd.domain_id = d.id
-                 WHERE (
-                   s.workspace_id = ?
-                   OR (s.workspace_id IS NULL AND wd.workspace_id = ?)
-                 )`
+                 WHERE s.workspace_id = ?
+                    OR (
+                      s.workspace_id IS NULL
+                      AND s.domain_id IN (
+                        SELECT domain_id FROM workspace_domains WHERE workspace_id = ?
+                      )
+                    )`
               )
               .bind(workspaceId, workspaceId).first(),
 
@@ -121,6 +131,10 @@ export async function workspacesCoreRoutes(rctx) {
               id:         workspace.id,
               name:       workspace.name,
               created_at: workspace.created_at,
+              // Caller's role in this workspace (additive) — the frontend gates the
+              // owner-only Danger Zone on this. Authorisation is still enforced
+              // server-side by the delete-request route (owner-only), never by the UI.
+              role:       wsAccess?.role ?? null,
             },
             stats: {
               total_domains:       domainsRow?.n ?? 0,
