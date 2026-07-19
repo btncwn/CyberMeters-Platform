@@ -26,6 +26,11 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const eng = (f) => import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", f)).href);
 const { buildWorkspaceExecutivePdf, buildScanReportPdf } = await eng("pdf.js");
+const { CYBERMETERS_LOGO_DATA_URI, CYBERMETERS_LOGO_SHA256, CYBERMETERS_LOGO_DIMENSIONS } = await eng("brand-logo.js");
+const { prepareLogoXObject } = await eng("pdf-image.js");
+const { loadBrandingLogoDataUri, cyberMetersDescriptor } = await eng("report-branding-v2.js");
+const fs = await import("node:fs");
+const crypto = await import("node:crypto");
 
 let pass = 0, fail = 0;
 const ok = (n, c, d = "") => { c ? pass++ : fail++; if (!c) console.log(`FAIL ${n}${d ? " — " + d : ""}`); };
@@ -33,7 +38,7 @@ const ok = (n, c, d = "") => { c ? pass++ : fail++; if (!c) console.log(`FAIL ${
 const DOMAINS = ["Email Protection", "Brand Protection", "Attack Surface", "Certificates & Trust",
   "Cyber Essentials Readiness", "Website Security", "Identity Exposure", "Shadow IT & Unmanaged Technology"];
 
-const SHADOW_LIMIT = "CyberMeters observes only externally visible technology signals. It has No internal-network, endpoint, CASB or EDR visibility, so unmanaged software that leaves no external trace cannot be seen.";
+const SHADOW_LIMIT = "CyberMeters observes only externally visible technology signals. It has no internal-network, endpoint, CASB or EDR visibility, so unmanaged software that leaves no external trace cannot be seen.";
 
 // Build a snapshot in the exact shape the renderer reads. `opts` toggles coverage.
 function mkSnap({ complete = false, weakEmpty = true, pad = 0 } = {}) {
@@ -69,6 +74,8 @@ function mkSnap({ complete = false, weakEmpty = true, pad = 0 } = {}) {
   };
 }
 const readOf = (snap) => ({ status: "ok", snapshot: snap, row: { id: "s1" }, integrity: {} });
+// Prepared canonical logo (flattened over white, like the production route).
+const LOGO_IMAGE = await prepareLogoXObject(CYBERMETERS_LOGO_DATA_URI, "#FFFFFF");
 const render = (snap, extra = {}) => buildWorkspaceExecutivePdf({
   workspaceName: "A4 Managed Case Test", reads: [readOf(snap)],
   branding: { mode: "cybermeters", accent: "#1568C7" }, generatedAt: "2026-07-19 20:37:32", ...extra,
@@ -124,8 +131,11 @@ const norm = (s) => s.replace(/\s+/g, " ").trim();
   ok("B: the Shadow IT limitation renders as ONE unsplit block on a single page", allWhole);
   // Specifically the founder defect: 'No' must not be the last word of a page with
   // 'internal-network' opening the next.
-  const splitAfterNo = pages.some((p, i) => i + 1 < pages.length && /\bIt has No\s*$/.test(p) && /^internal-network/.test(pages[i + 1]));
-  ok("B: no page ends on 'It has No' with the next page continuing 'internal-network'", !splitAfterNo);
+  const splitAfterNo = pages.some((p, i) => i + 1 < pages.length && /\bIt has no\s*$/.test(p) && /^internal-network/.test(pages[i + 1]));
+  ok("B: no page ends on 'It has no' with the next page continuing 'internal-network'", !splitAfterNo);
+  // Copy correction: lowercase 'no' mid-sentence (the fixture grammar the founder flagged).
+  ok("B: Shadow IT limitation uses lowercase 'it has no internal-network'",
+     pages.some((p) => p.includes("It has no internal-network")) && !pages.some((p) => p.includes("It has No internal-network")));
 }
 
 // ── D. Branded cover ──────────────────────────────────────────────────────────
@@ -162,6 +172,73 @@ const norm = (s) => s.replace(/\s+/g, " ").trim();
   ok("regression: scan PDF still valid + carries wordmark + all eight domains",
      scan.startsWith("%PDF-1.4") && scan.trimEnd().endsWith("%%EOF") && scan.includes("CyberMeters") && DOMAINS.every((d) => scan.includes(d)));
   ok("regression: scan PDF also omits the version string", !/Resolver 2026-/.test(scan));
+}
+
+// ── D2. Canonical logo embedded on the cover ─────────────────────────────────
+{
+  const bytes = render(mkSnap({ complete: false }), { logoImage: LOGO_IMAGE });
+  const t = latin1(bytes);
+  ok("D2: generated PDF contains a logo image XObject", t.includes("/Subtype /Image"));
+  ok("D2: the cover draws the embedded logo (/Im0 Do)", t.includes("/Im0 Do"));
+  ok("D2: valid PDF with the image embedded", t.startsWith("%PDF-1.4") && t.trimEnd().endsWith("%%EOF"));
+  // Logo image is the canonical asset at its committed dimensions (not cropped/stretched).
+  ok("D2: embedded image is the canonical asset dimensions",
+     t.includes(`/Width ${CYBERMETERS_LOGO_DIMENSIONS.width} /Height ${CYBERMETERS_LOGO_DIMENSIONS.height}`));
+  // Logo stays within the cover bounds: uniform scale, capped at 300x70pt, inside the
+  // 504pt content width — assert the cm matrix width/height are within the cap.
+  const cm = t.match(/q (\d+) 0 0 (\d+) \d+ \d+ cm \/Im0 Do Q/);
+  ok("D2: logo drawn with a uniform-scaled matrix within the cover cap (<=300x70pt)",
+     !!cm && Number(cm[1]) <= 300 && Number(cm[2]) <= 70 && Number(cm[1]) >= 1 && Number(cm[2]) >= 1);
+  // Aspect preserved (no distortion): drawn ratio ~= source ratio.
+  const srcRatio = CYBERMETERS_LOGO_DIMENSIONS.width / CYBERMETERS_LOGO_DIMENSIONS.height;
+  ok("D2: logo aspect ratio preserved (not stretched)",
+     !!cm && Math.abs((Number(cm[1]) / Number(cm[2])) - srcRatio) < 0.15);
+}
+
+// ── D3. Default CyberMeters branding → canonical logo (executive route contract) ─
+{
+  const descriptor = cyberMetersDescriptor();
+  ok("D3: default descriptor is mode 'cybermeters' with no customer R2 logo key",
+     descriptor.mode === "cybermeters" && !descriptor.logo_r2_key);
+  // The executive routes inject the embedded house logo exactly when the branding
+  // has no customer logo AND mode is cybermeters. Replicate that resolution:
+  let dataUri = await loadBrandingLogoDataUri(null, descriptor); // null for the house descriptor
+  if (!dataUri && descriptor.mode === "cybermeters") dataUri = CYBERMETERS_LOGO_DATA_URI;
+  ok("D3: default branding resolves to the canonical logo data URI",
+     dataUri === CYBERMETERS_LOGO_DATA_URI && /^data:image\/png;base64,/.test(dataUri || ""));
+  const img = await prepareLogoXObject(dataUri, "#FFFFFF");
+  ok("D3: the canonical logo prepares to a DeviceRGB image at committed dimensions",
+     !!img && img.width === CYBERMETERS_LOGO_DIMENSIONS.width && img.height === CYBERMETERS_LOGO_DIMENSIONS.height && img.colorSpace === "DeviceRGB");
+}
+
+// ── D4. Text wordmark fallback when logo preparation fails ────────────────────
+{
+  // No prepared logo (image decode/prep failed) → the cover falls back to the
+  // CyberMeters text wordmark, never a blank identity slot.
+  const t = latin1(render(mkSnap({ complete: false }))); // render() passes no logoImage
+  ok("D4: fallback path draws no image XObject", !t.includes("/Im0 Do"));
+  ok("D4: fallback shows the CyberMeters text wordmark", t.includes("CyberMeters"));
+  ok("D4: fallback PDF is still valid", t.startsWith("%PDF-1.4") && t.trimEnd().endsWith("%%EOF"));
+}
+
+// ── Asset integrity: the embedded data URI is the exact committed PNG ─────────
+{
+  const pngPath = path.join(root, "workers", "scan-api", "src", "assets", "cybermeters-logo-full-pdf@2x.png");
+  ok("asset: committed canonical PNG exists at the Worker asset path", fs.existsSync(pngPath));
+  const b64 = String(CYBERMETERS_LOGO_DATA_URI).replace(/^data:image\/png;base64,/, "");
+  const fromUri = Buffer.from(b64, "base64");
+  const fromFile = fs.readFileSync(pngPath);
+  const shaUri = crypto.createHash("sha256").update(fromUri).digest("hex");
+  ok("asset: embedded data URI decodes to the exact committed PNG (no drift)", fromUri.equals(fromFile));
+  ok("asset: data URI sha256 matches the module's declared CYBERMETERS_LOGO_SHA256", shaUri === CYBERMETERS_LOGO_SHA256);
+}
+
+// ── No retired weekly-PDF content ─────────────────────────────────────────────
+{
+  const t = latin1(render(mkSnap({ complete: false }), { logoImage: LOGO_IMAGE }));
+  const RETIRED = ["Vendor Risk", "Supply Chain", "supply-chain posture", "Five-Pillar", "five-category", "cybermeters.io", "Report ID", "customer logo placeholder"];
+  for (const s of RETIRED) ok(`no-retired: '${s}' does not appear`, !t.includes(s));
+  ok("no-retired: footer domain is app.cybermeters.com (not cybermeters.io)", t.includes("app.cybermeters.com") && !t.includes("cybermeters.io"));
 }
 
 console.log(`\nvalidate-a5-executive-report: ${pass} passed, ${fail} failed`);

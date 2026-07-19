@@ -261,8 +261,16 @@ function makeWriter({ accentHex = BRAND_HEX, footerText = DEFAULT_FOOTER } = {})
     ensure(size + g); y -= size + g;
     buf += `BT /${bold ? "F2" : "F1"} ${size} Tf ${color} rg ${MARGIN} ${y} Td (${pdfEsc(str)}) Tj ET\n`;
   };
+  // Draw the embedded /Im0 image XObject at the left margin, `lw`x`lh` points,
+  // occupying the block below the current cursor. Stays within the content width
+  // (the caller sizes it) and never overlaps text — the cursor advances past it.
+  const image = (lw, lh, g = 10) => {
+    ensure(lh + g); y -= lh;
+    buf += `q ${lw} 0 0 ${lh} ${MARGIN} ${y} cm /Im0 Do Q\n`;
+    y -= g;
+  };
   const finish = () => { if (buf) { pages.push(buf + footer()); buf = ""; } return pages; };
-  return { text, prose, proseKeep, keepTogether, heading, gap, newPage, finish, raw, rule, display, roomLeft, atPageTop };
+  return { text, prose, proseKeep, keepTogether, heading, gap, newPage, finish, raw, rule, display, image, roomLeft, atPageTop };
 }
 
 // Customer-safe state labels for the canonical domain states. Display mapping
@@ -509,17 +517,25 @@ function primaryName(branding) {
   return branding?.company_name || "CyberMeters";
 }
 
-// Strong branded cover for the Executive Security Report (page 1). Uses the
-// canonical CyberMeters wordmark in brand typography plus a restrained accent rule
-// — there is no embeddable house-logo raster available to the Worker yet, so the
-// wordmark IS the canonical mark here (never a fabricated badge). White-label /
-// co-brand reports with an embeddable logo keep the logo header instead.
-function coverExec(w, { branding, workspaceName, domain, generatedAt, assessedAt }) {
+// Strong branded cover for the Executive Security Report (page 1). Embeds the
+// canonical CyberMeters logo (/Im0) prominently and proportionally when it is
+// available; if the logo bytes could not be decoded/prepared it falls back to the
+// CyberMeters text wordmark (never a fabricated badge). The logo is drawn, never
+// cropped, stretched or recoloured — it is scaled uniformly within a cover cap.
+function coverExec(w, { branding, workspaceName, domain, generatedAt, assessedAt, logoImage = null }) {
   const accent = hexToRgbF(branding?.accent || BRAND_HEX).join(" ");
   w.gap(4);
   w.rule(accent);
   w.gap(14);
-  w.display(primaryName(branding), { size: 26, color: accent });
+  if (logoImage?.width && logoImage?.height) {
+    // Prominent, aspect-preserved: uniform scale within a 300x70pt cover cap
+    // (well inside the 504pt content width — no clipping, no distortion).
+    const maxW = 300, maxH = 70;
+    const scale = Math.min(maxW / logoImage.width, maxH / logoImage.height, 1);
+    w.image(Math.max(1, Math.round(logoImage.width * scale)), Math.max(1, Math.round(logoImage.height * scale)));
+  } else {
+    w.display(primaryName(branding), { size: 26, color: accent });
+  }
   w.display("Executive Security Report", { size: 20, color: "0.08 0.10 0.14" });
   w.gap(10);
   if (workspaceName) w.text(`Workspace:  ${workspaceName}`, { size: 11, bold: true });
@@ -599,9 +615,12 @@ export function buildWorkspaceExecutivePdf({ workspaceName, reads = [], branding
   });
 
   // ── Page 1: branded cover ────────────────────────────────────────────────
-  // An entitled white-label/co-brand report with an embeddable logo keeps the
-  // logo header; otherwise the strong wordmark cover (canonical mark, no raster).
-  if (logoImage?.width && logoImage?.height) {
+  // A CUSTOMER white-label/co-brand logo keeps the top-right logo header. The
+  // default CyberMeters report (and any report without a customer logo) uses the
+  // strong cover: the canonical CyberMeters logo embedded prominently, or the
+  // text wordmark if the logo bytes could not be prepared.
+  const customerLogo = (branding?.mode === "white_label" || branding?.mode === "co_brand") && logoImage?.width && logoImage?.height;
+  if (customerLogo) {
     brandingHeader(w, branding, "Executive Security Report", workspaceName ? `Workspace: ${workspaceName}` : null, logoImage);
     if (generatedAt) w.text(`Generated ${pdfUtcDate(generatedAt, true)}`, { size: 9, color: "0.35 0.38 0.44" });
     w.gap(4);
@@ -611,6 +630,7 @@ export function buildWorkspaceExecutivePdf({ workspaceName, reads = [], branding
       domain: lead?.snapshot?.snapshot?.domain || null,
       generatedAt,
       assessedAt: lead?.snapshot?.snapshot?.as_of || null,
+      logoImage,   // CyberMeters house logo → prominent on the cover
     });
   }
 

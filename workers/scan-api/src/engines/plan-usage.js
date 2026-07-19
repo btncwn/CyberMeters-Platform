@@ -8,6 +8,7 @@ import { readLatestWorkspaceSnapshots } from "./report-snapshot.js";
 import { buildRelatedChangesSummary } from "./related-changes.js";
 import { resolveReportBrandingV2, loadBrandingLogoDataUri } from "./report-branding-v2.js";
 import { prepareLogoXObject } from "./pdf-image.js";
+import { CYBERMETERS_LOGO_DATA_URI } from "./brand-logo.js";
 import { createAuditEvent, createNotificationEvent } from "../lib/events.js";
 import { createId } from "../lib/util.js";
 import { getEffectivePlan, hasFeatureEntitlement, normalizePlan, PLAN_LIMITS } from "./entitlements.js";
@@ -210,8 +211,15 @@ export async function generateWorkspaceExecutiveReport(workspaceId, env, options
     let branding = null, logoImage = null;
     try {
       branding = await resolveReportBrandingV2(env, { workspaceId });
-      const dataUri = await loadBrandingLogoDataUri(env, branding);
-      if (dataUri) logoImage = await prepareLogoXObject(dataUri, branding.accent);
+      let dataUri = await loadBrandingLogoDataUri(env, branding);
+      // The DEFAULT (non-white-label) Executive report embeds the canonical
+      // CyberMeters house logo (Worker-embedded base64 — no R2/D1/network/frontend
+      // build). White-label/co-brand keep their own logo. If prep fails, the cover
+      // falls back to the CyberMeters text wordmark.
+      if (!dataUri && branding?.mode === "cybermeters") dataUri = CYBERMETERS_LOGO_DATA_URI;
+      // Transparent-PNG alpha flattens over this background — the house logo
+      // (accent null) flattens over WHITE (the page), never a tint.
+      if (dataUri) logoImage = await prepareLogoXObject(dataUri, branding.accent || "#FFFFFF");
     } catch { branding = null; logoImage = null; }
     let relatedChanges = null;
     try { relatedChanges = await buildRelatedChangesSummary(env, workspaceId); } catch { relatedChanges = null; }
