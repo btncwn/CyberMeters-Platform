@@ -10,7 +10,7 @@
 import {
   assignCaseOwner, canTransitionCase, canonicalPhaseFor, caseTypeEntry, CASE_TYPE_REGISTRY,
   CANONICAL_DOMAIN_KEYS, isValidDomainKey, createManagedCase,
-  verificationSupportForCase,
+  verificationSupportForCase, isActiveWorkspaceMember,
 } from "../engines/managed-case-model.js";
 import { newCaseEventId } from "../engines/case-workflow.js";
 import { parseBoundedInteger } from "../lib/util.js";
@@ -170,7 +170,10 @@ export async function managedCasesRoutes(rctx) {
       actor_id: user.id,
       assigned_user_id: body.assigned_user_id ?? null,
     });
-    if (!res.ok) return json({ error: res.error, code: res.code }, res.code === "owner_ref_required" ? 400 : 404);
+    if (!res.ok) {
+      const status = res.code === "owner_ref_required" || res.code === "assignee_not_member" ? 400 : 404;
+      return json({ error: res.error, code: res.code }, status);
+    }
     return json({ case: caseToUniversalApi(res.case) });
   }
 
@@ -188,6 +191,15 @@ export async function managedCasesRoutes(rctx) {
     const target = String(body.target_status || body.status || "");
     if (!target) return json({ error: "target_status is required" }, 400);
 
+    // A transition may carry a platform-user assignee (the `assigned` guard sets
+    // owner atomically). Same rule as /assign: the user link must be an ACTIVE
+    // member of this workspace — never a foreign-workspace user, a removed
+    // member, or a non-existent id. Fail closed BEFORE the transition validator.
+    const assignee = String(body.assigned_user_id ?? "").trim() || null;
+    if (assignee && !(await isActiveWorkspaceMember(env, wsId, assignee))) {
+      return json({ error: "The assignee must be an active member of this workspace.", code: "assignee_not_member" }, 400);
+    }
+
     const decision = canTransitionCase({
       case: row,
       target_status: target,
@@ -197,7 +209,7 @@ export async function managedCasesRoutes(rctx) {
       risk_accepted_until: body.risk_accepted_until ?? null,
       owner_ref: body.owner_ref ?? null,
       owner_type: body.owner_type ?? null,
-      assigned_user_id: body.assigned_user_id ?? null,
+      assigned_user_id: assignee,
       actor_id: user.id,
     });
     if (!decision.ok) {

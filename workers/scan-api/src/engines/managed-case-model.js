@@ -274,6 +274,20 @@ export const DEFAULT_CASE_TYPE_BY_DOMAIN = Object.freeze(
 // and leaves unassigned cases visibly unassigned.
 export const CASE_OWNER_TYPES = Object.freeze(["person", "team", "vendor", "unknown"]);
 
+// Is user_id an ACTIVE member of workspace_id? Membership is a single row in
+// workspace_members — removal (member-remove and account deletion) is a hard
+// DELETE, and the table has no status/removed_at column, so a row's existence IS
+// active membership. This is the canonical assignee/owner membership check
+// (reused by the universal /assign and /transition paths). Fails CLOSED — any
+// read error returns false so an assignment is never granted on a failed lookup.
+export async function isActiveWorkspaceMember(env, workspace_id, user_id) {
+  if (!workspace_id || !user_id) return false;
+  const row = await env.cybermeters_db
+    .prepare(`SELECT id FROM workspace_members WHERE workspace_id = ? AND user_id = ? LIMIT 1`)
+    .bind(workspace_id, user_id).first().catch(() => null);
+  return Boolean(row);
+}
+
 export async function assignCaseOwner(env, caseRow, { owner_type, owner_ref, actor_type = "customer", actor_id = null, assigned_user_id = null } = {}) {
   if (!caseRow?.id || !caseRow?.workspace_id) {
     return { ok: false, code: "invalid_case", error: "Case not found." };
@@ -282,18 +296,40 @@ export async function assignCaseOwner(env, caseRow, { owner_type, owner_ref, act
   if (!ref) {
     return { ok: false, code: "owner_ref_required", error: "An owner is required to assign this case." };
   }
+  // `assigned_user_id`, when present, is the platform-USER link and must
+  // reference an ACTIVE member of THIS workspace — never a foreign-workspace
+  // user, a removed member, or a non-existent id. `owner_ref` stays free text (a
+  // team or vendor may not be a platform user); only the user link is validated.
+  // Fail CLOSED: a non-member assignee is refused before any write, so the case
+  // owner is never fabricated and never crosses a tenant boundary. Empty /
+  // whitespace-only assignee is treated as "no user link" (owner_ref only).
+  const assignee = String(assigned_user_id ?? "").trim() || null;
+  if (assignee && !(await isActiveWorkspaceMember(env, caseRow.workspace_id, assignee))) {
+    return { ok: false, code: "assignee_not_member", error: "The assignee must be an active member of this workspace." };
+  }
   const type = CASE_OWNER_TYPES.includes(owner_type) ? owner_type : "unknown";
+  // Idempotent no-op: a repeated identical assignment (same owner_type, owner_ref
+  // and user link) records no NEW fact, so it must not append another
+  // assignment_changed event or bump updated_at — an append-only log stays honest
+  // only when every row is a real change. The /transition path already guards this
+  // (owner_ref !== row.owner_ref); the canonical writer must too.
+  const curType = caseRow.owner_type ?? null;
+  const curRef = caseRow.owner_ref ?? null;
+  const curAssignee = caseRow.assigned_user_id ?? null;
+  if (curRef === ref && curType === type && curAssignee === assignee) {
+    return { ok: true, case: caseRow, idempotent: true };
+  }
   const now = new Date().toISOString();
   const res = await env.cybermeters_db
     .prepare(`UPDATE managed_cases
         SET owner_type = ?, owner_ref = ?, assigned_by = ?, assigned_user_id = ?, updated_at = ?
       WHERE id = ? AND workspace_id = ?`)
-    .bind(type, ref, actor_id ?? actor_type, assigned_user_id ?? null, now, caseRow.id, caseRow.workspace_id)
+    .bind(type, ref, actor_id ?? actor_type, assignee, now, caseRow.id, caseRow.workspace_id)
     .run();
   if ((res.meta?.changes ?? 0) === 0) {
     return { ok: false, code: "not_found", error: "Case not found." };
   }
-  const updated = { ...caseRow, owner_type: type, owner_ref: ref, assigned_by: actor_id ?? actor_type, assigned_user_id: assigned_user_id ?? null, updated_at: now };
+  const updated = { ...caseRow, owner_type: type, owner_ref: ref, assigned_by: actor_id ?? actor_type, assigned_user_id: assignee, updated_at: now };
   // Append-only evidence; a failed event write surfaces as an error rather than
   // silently losing the audit trail (assignment itself is idempotent to retry).
   await env.cybermeters_db
@@ -302,7 +338,7 @@ export async function assignCaseOwner(env, caseRow, { owner_type, owner_ref, act
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`)
     .bind(newCaseEventId(), caseRow.id, caseRow.workspace_id, actor_type, actor_id,
           caseRow.status, caseRow.status, "assignment_changed",
-          JSON.stringify({ owner_type: type, owner_ref: ref, assigned_user_id: assigned_user_id ?? null }))
+          JSON.stringify({ owner_type: type, owner_ref: ref, assigned_user_id: assignee }))
     .run();
   return { ok: true, case: updated };
 }

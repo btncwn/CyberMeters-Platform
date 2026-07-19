@@ -5,6 +5,62 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## UC3 — Unified Remediation, Case & Ownership Workflow: assignee-membership + idempotent assignment (code-only, no migration)
+
+- **Release tag / Live Worker / Rollback Worker:** recorded at deploy — see the episode
+  release report and `GET /health`. No schema change; latest applied production migration
+  remains `095-domain-maturity-ledger.sql` — **no migration**. Additive, backward-compatible,
+  no API-shape change, no historical rewrite.
+- **Context:** the backend Unified Remediation/Case/Ownership lifecycle was already
+  substantially delivered across all eight Cyber MOT domains (canonical `createManagedCase`
+  + `assignCaseOwner` + `canTransitionCase`, migration `082` ownership columns, per-finding
+  verification support). A pre-change eight-domain audit found the lifecycle honest end-to-end
+  (unavailable/failed/not-assessed evidence never closes; disappearance ≠ verified removal;
+  recurrence reopens once with no duplicate occurrence; no domain bypasses `canTransitionCase`).
+  Two genuine ownership-contract gaps remained; both are closed here.
+- **Two confirmed ownership defects fixed:**
+  - **Assignee membership never validated.** `assigned_user_id` was written **raw** on both
+    the universal `/cases/:id/assign` and `/cases/:id/transition` paths — a workspace manager
+    could assign a case to a foreign-workspace user, a removed member, or a non-existent id
+    (the column has no FK). Now `assignCaseOwner` and the transition route validate a non-empty
+    `assigned_user_id` against `workspace_members` for the case's own workspace via the new
+    exported `isActiveWorkspaceMember(env, workspace_id, user_id)`; a non-member is refused
+    (`assignee_not_member`, HTTP 400) **before any write**. Fails **closed** — a read error
+    returns false, so an assignment is never granted on a failed lookup. `owner_ref` stays
+    free text (a team or vendor may not be a platform user); only the platform-user link is
+    validated. Membership is a bare row (removal is a hard `DELETE`, no soft-delete column), so
+    row existence is a complete active-member check.
+  - **No-op re-assignment appended a duplicate audit fact.** `assignCaseOwner` emitted an
+    `assignment_changed` event (and bumped `updated_at`) on **every** call, even when owner,
+    owner_type and user link were unchanged — an append-only log stays honest only when every
+    row is a real change. Repeated identical assignment is now **idempotent**: unchanged input
+    returns `{ ok, idempotent:true }` with no event and no write. (The `/transition` path
+    already guarded this; the canonical writer now matches it.)
+- **Canonical semantic separation preserved:** assignment ≠ remediation ≠ verification ≠
+  closure; a customer assertion enters `awaiting_verification`, never verified closure; only
+  CyberMeters' own observation verifies an observable finding (customer verify of an
+  observable finding stays system-only); a structured attestation from an identified actor is
+  the honest ceiling for a `manual_attestation` finding; score, note and any explanatory copy
+  have **no** transition authority (only `canTransitionCase` moves a case).
+- **Latent fail-open pinned (no code change):** `identity_case` / `shadow_it_case` are not
+  registry-derived (blanket `manual`), which is safe only while every identity/shadow
+  remediation is `manual_attestation`. The validator now asserts this, so an observable finding
+  cannot silently fail-open in future.
+- **Tests:** new `scripts/validate-uc3-remediation-ownership.js` — 75 behavioural checks (drives
+  the real `/cases` create/assign/transition/detail routes against the real schema + migrations,
+  and the canonical engines for system-verify/recurrence) + 14 caught mutations, wired into CI.
+  Scoped regression green: `validate-m5e-closure`, `validate-managed-case-model` (107),
+  `validate-managed-verification` (107), `validate-universal-case-factory`, all eight domain
+  lifecycle validators, `validate-tenant-isolation`, `validate-workspace-integrity`,
+  `validate-eight-domain-parity`, `validate-alert-occurrence`, migrations (105/105), ci-governance.
+- **Not started (deliberate — a genuine product/IA decision, deferred to the founder):** the
+  frontend surface unification. Canonical honest case-presentation logic (`lib/caseDisplay.js`)
+  and the `getCase`/`transitionCase` endpoints exist but the customer UI is fragmented across
+  three divergent bespoke panels (ASM, Brand, per-domain lifecycle) with free-text owner input;
+  `assigned_user_id` is used by no surface yet. Unifying these requires deciding whether the
+  universal case surface *replaces* the bespoke domain workflows (which carry domain-specific
+  side effects the universal one lacks) — not a safe unilateral change.
+
 ## App-Probe Reliability — deployed 2026-07-18 (code-only, no migration)
 
 - **Release tag / Live Worker / Rollback Worker:** recorded at deploy — see the episode
