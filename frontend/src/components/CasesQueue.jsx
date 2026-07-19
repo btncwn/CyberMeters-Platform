@@ -5,10 +5,12 @@
 // backend universal validator. A single presentation for all eight Cyber MOT
 // domains, replacing per-page hardcoded state maps for the cross-domain view.
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
-import { phaseMeta, phaseClass, domainKeyLabel } from '../lib/caseDisplay'
+import { phaseMeta, phaseClass, domainKeyLabel, DOMAIN_KEY_LABELS } from '../lib/caseDisplay'
 
 export default function CasesQueue({ workspaceId }) {
+  const navigate = useNavigate()
   const [cases, setCases] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -24,7 +26,10 @@ export default function CasesQueue({ workspaceId }) {
     return () => { cancelled = true }
   }, [workspaceId, domainFilter])
 
-  const domainKeys = Array.from(new Set(cases.map((c) => c.domain_key).filter(Boolean)))
+  // Filter options come from the canonical eight domains, NOT from the currently
+  // loaded (already-filtered) rows — otherwise picking one domain collapses the
+  // dropdown to that domain alone and you can't move to another without resetting.
+  const domainKeys = Object.keys(DOMAIN_KEY_LABELS)
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-5">
@@ -56,6 +61,7 @@ export default function CasesQueue({ workspaceId }) {
               <tr className="text-left text-xs text-slate-400 border-b border-slate-100">
                 <th className="py-2 pr-3 font-medium">Service</th>
                 <th className="py-2 pr-3 font-medium">Case</th>
+                <th className="py-2 pr-3 font-medium">Owner</th>
                 <th className="py-2 pr-3 font-medium">Phase</th>
                 <th className="py-2 pr-3 font-medium">Severity</th>
                 <th className="py-2 pr-3 font-medium">Updated</th>
@@ -65,12 +71,20 @@ export default function CasesQueue({ workspaceId }) {
               {cases.map((c) => {
                 const meta = phaseMeta(c.canonical_phase, c.verification_support)
                 return (
-                  <tr key={c.case_id} className="border-b border-slate-50">
+                  <tr
+                    key={c.case_id}
+                    className="border-b border-slate-50 hover:bg-slate-50 cursor-pointer"
+                    onClick={() => navigate(`/ws/cases/${encodeURIComponent(c.case_id)}`)}
+                    tabIndex={0}
+                    role="link"
+                    onKeyDown={(e) => { if (e.key === 'Enter') navigate(`/ws/cases/${encodeURIComponent(c.case_id)}`) }}
+                  >
                     <td className="py-2 pr-3 text-slate-600">{domainKeyLabel(c.domain_key)}</td>
                     <td className="py-2 pr-3 text-slate-700">
                       <span className="font-medium">{c.title || c.source_finding_type || c.case_id}</span>
                       {c.domain ? <span className="text-slate-400"> · {c.domain}</span> : null}
                     </td>
+                    <td className="py-2 pr-3 text-slate-600">{c.owner_ref || <span className="text-slate-400">Unassigned</span>}</td>
                     <td className="py-2 pr-3">
                       <span className={`inline-block rounded-full border px-2 py-0.5 text-xs ${phaseClass(c.canonical_phase, c.verification_support)}`}>
                         {meta.label}
