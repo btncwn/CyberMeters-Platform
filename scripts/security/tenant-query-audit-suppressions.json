@@ -1,0 +1,140 @@
+{
+  "schema": "cybermeters.tenant-query-audit-suppressions/v1",
+  "note": "Each suppression clears one high-signal static finding whose safety rests on an out-of-band guard. Every entry was manually verified against the source. Fingerprints are line-independent (SQL / key-expr / trimmed line) so they survive unrelated edits but change when the guarded statement itself changes — forcing re-review. A finding with no matching suppression fails CI.",
+  "reviewed_on": "2026-07-19",
+  "suppressions": [
+    {
+      "fingerprint": "6133f9493061",
+      "file": "workers/scan-api/src/engines/timeline-trust.js",
+      "detector": "global_latest_fallback",
+      "reason": "Previous-scan lookup within a single domain during scan finalize. Filtered by domain_id, which is the domain currently being scanned for the owning workspace; timeline-trust runs inside the scan pipeline for that workspace's own domain.",
+      "contract": "domain_id is caller/workspace-validated before the scan runs; the ORDER-BY-LIMIT-1 selects the prior scan of the same owned domain, never a cross-tenant row."
+    },
+    {
+      "fingerprint": "b5d38a008910",
+      "file": "workers/scan-api/src/routes/account.js",
+      "detector": "global_latest_fallback",
+      "reason": "Bootstrap-workspace no-op: SELECT ... FROM workspaces WHERE id IN (${placeholders}). The placeholder list is getAccessibleWorkspaceIds(user) — the caller's own authorized workspaces.",
+      "contract": "The IN-list is the authenticated caller's accessible-workspace set; LIMIT 1 returns the caller's own first workspace, never a foreign one."
+    },
+    {
+      "fingerprint": "2d3ba1886d1e",
+      "file": "workers/scan-api/src/engines/report-snapshot.js",
+      "detector": "r2_key_not_workspace_bound",
+      "reason": "R2.get(row.r2_key) where row is a scan_report_snapshots row already fetched under workspace/scan scope; r2_key is the tenant-prefixed object key stored on that row.",
+      "contract": "The D1 row is ownership-scoped before its r2_key is used; the key is bound to the workspace by construction (reports/snapshots/<workspace>/...)."
+    },
+    {
+      "fingerprint": "80179f34260b",
+      "file": "workers/scan-api/src/engines/vuln-intel.js",
+      "detector": "r2_key_not_workspace_bound",
+      "reason": "R2.get(KEV_CACHE_KEY) — the CISA Known-Exploited-Vulnerabilities catalogue is global reference data cached once for the whole platform.",
+      "contract": "Global reference cache; contains no tenant data, so a constant key is correct."
+    },
+    {
+      "fingerprint": "900ddb005c28",
+      "file": "workers/scan-api/src/engines/vuln-intel.js",
+      "detector": "r2_key_not_workspace_bound",
+      "reason": "R2.put(KEV_CACHE_KEY) — writes the global KEV catalogue cache.",
+      "contract": "Global reference cache; no tenant data."
+    },
+    {
+      "fingerprint": "7accbe620c47",
+      "file": "workers/scan-api/src/index.js",
+      "detector": "r2_key_not_workspace_bound",
+      "reason": "R2.delete(s.r2_key) inside workspace purge; s is a scan row belonging to the workspace being purged.",
+      "contract": "Purge iterates only the target workspace's own scans; r2_key comes from those tenant-scoped rows (validate-purge-completeness proves no cross-tenant object is touched)."
+    },
+    {
+      "fingerprint": "1efbde537d1e",
+      "file": "workers/scan-api/src/index.js",
+      "detector": "r2_key_not_workspace_bound",
+      "reason": "R2.delete(`reports/${s.id}.json`) inside workspace purge; s.id is a scan of the workspace being purged.",
+      "contract": "Purge is scoped to the target workspace's scans (validate-purge-completeness)."
+    },
+    {
+      "fingerprint": "cc3b1cf89568",
+      "file": "workers/scan-api/src/index.js",
+      "detector": "r2_key_not_workspace_bound",
+      "reason": "R2.head(\"__readiness_probe__\") in the /ready health check — a constant infrastructure key.",
+      "contract": "Readiness probe; no tenant data."
+    },
+    {
+      "fingerprint": "44194171d8e4",
+      "file": "workers/scan-api/src/routes/attack-surface.js",
+      "detector": "r2_key_not_workspace_bound",
+      "reason": "R2.get(`reports/${s.id}.json`) where s is drawn from a workspace-scoped scan query inside an authenticated workspace route.",
+      "contract": "The enclosing route is workspace-authorized (see entry-point inventory); s.id derives from the workspace's own domains/scans."
+    },
+    {
+      "fingerprint": "6d3eb9973d2d",
+      "file": "workers/scan-api/src/routes/attack-surface.js",
+      "detector": "r2_key_not_workspace_bound",
+      "reason": "R2.get(`reports/${sid}.json`) where sid is a scan id from workspace-scoped scan rows inside an authenticated workspace route.",
+      "contract": "Enclosing route is workspace-authorized; sid comes from the workspace's own scans."
+    },
+    {
+      "fingerprint": "6cab39e04b7d",
+      "file": "workers/scan-api/src/routes/scans.js",
+      "detector": "r2_key_not_workspace_bound",
+      "reason": "R2.get(`reports/${s.id}.json`) during stuck-scan reconciliation; s comes from the caller's workspace-scoped scan list result.",
+      "contract": "The scan list is already filtered to the caller's accessible scans; s.id is therefore ownership-scoped."
+    },
+    {
+      "fingerprint": "90fc1f650ab7",
+      "file": "workers/scan-api/src/routes/account.js",
+      "detector": "body_workspace_trust",
+      "reason": "body.workspace_id selects a candidate workspace, then requireWorkspaceRole(user, workspaceId, ...) re-validates membership before any action.",
+      "contract": "Body-provided workspace_id is never trusted for authorization; the server re-validates membership/role."
+    },
+    {
+      "fingerprint": "c299a35df517",
+      "file": "workers/scan-api/src/routes/billing.js",
+      "detector": "body_workspace_trust",
+      "reason": "body.plan is the plan the customer chooses to purchase, validated against the server-side price map; not an authorization decision.",
+      "contract": "Plan input is validated against the server plan catalogue; it grants no cross-tenant access."
+    },
+    {
+      "fingerprint": "5f54426b1ef9",
+      "file": "workers/scan-api/src/routes/global-billing.js",
+      "detector": "body_workspace_trust",
+      "reason": "parseCheckoutPlan(body.plan) validates the requested checkout plan against the server catalogue.",
+      "contract": "Plan input validated server-side; not an authz decision."
+    },
+    {
+      "fingerprint": "489752a27c6c",
+      "file": "workers/scan-api/src/routes/scans.js",
+      "detector": "body_workspace_trust",
+      "reason": "body.workspace_id selects a candidate workspace for scan creation, then requireWorkspaceRole(user, workspaceId, 'scan:create') re-validates before the scan is queued.",
+      "contract": "Server re-validates membership/role; body value never trusted for authorization."
+    },
+    {
+      "fingerprint": "447378886234",
+      "file": "workers/scan-api/src/routes/scans.js",
+      "detector": "body_workspace_trust",
+      "reason": "body.workspace_id selects a candidate workspace for a scheduled scan, re-validated by requireWorkspaceRole before the schedule is written.",
+      "contract": "Server re-validates membership/role; body value never trusted for authorization."
+    },
+    {
+      "fingerprint": "5642d505d695",
+      "file": "workers/scan-api/src/routes/workspace-members.js",
+      "detector": "body_workspace_trust",
+      "reason": "body.role is the role to assign on invitation, validated against a server-side ceiling (the actor's requireWorkspaceRole result caps assignable roles).",
+      "contract": "Assignable role is validated against the actor's own role ceiling; a member can never assign a role above their permission."
+    },
+    {
+      "fingerprint": "2d50ead73e84",
+      "file": "workers/scan-api/src/routes/workspace-members.js",
+      "detector": "body_workspace_trust",
+      "reason": "body.role on member-add, validated against the actor's role ceiling allowlist.",
+      "contract": "Role validated against actor ceiling; no privilege escalation via body."
+    },
+    {
+      "fingerprint": "23e65c2199de",
+      "file": "workers/scan-api/src/routes/workspace-members.js",
+      "detector": "body_workspace_trust",
+      "reason": "body.role on role-change, validated against a CHANGEABLE_ROLES set derived from the actor's role (admins cannot promote to admin; owners have no ceiling).",
+      "contract": "Assigned role is bounded by the actor's own role; requireWorkspaceRole('workspace:invite') is checked before the body is read."
+    }
+  ]
+}

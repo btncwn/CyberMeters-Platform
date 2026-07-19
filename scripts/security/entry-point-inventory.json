@@ -1,0 +1,3437 @@
+{
+  "schema": "cybermeters.entry-point-inventory/v1",
+  "generated_by": "scripts/security/build-entry-point-inventory.js",
+  "doc": "docs/security/ENTRY-POINT-INVENTORY.md",
+  "source_files": [
+    "workers/scan-api/src/index.js",
+    "workers/scan-api/src/routes/account.js",
+    "workers/scan-api/src/routes/attack-surface.js",
+    "workers/scan-api/src/routes/auth.js",
+    "workers/scan-api/src/routes/billing.js",
+    "workers/scan-api/src/routes/brand.js",
+    "workers/scan-api/src/routes/certificates-lifecycle.js",
+    "workers/scan-api/src/routes/cyber-essentials-controls.js",
+    "workers/scan-api/src/routes/domains.js",
+    "workers/scan-api/src/routes/email-protection-lifecycle.js",
+    "workers/scan-api/src/routes/email-protection.js",
+    "workers/scan-api/src/routes/executive-dashboard.js",
+    "workers/scan-api/src/routes/global-billing.js",
+    "workers/scan-api/src/routes/identity-exposure.js",
+    "workers/scan-api/src/routes/managed-cases.js",
+    "workers/scan-api/src/routes/portfolio.js",
+    "workers/scan-api/src/routes/scans.js",
+    "workers/scan-api/src/routes/shadow-it.js",
+    "workers/scan-api/src/routes/website-security.js",
+    "workers/scan-api/src/routes/workspace-activity.js",
+    "workers/scan-api/src/routes/workspace-analytics.js",
+    "workers/scan-api/src/routes/workspace-insights.js",
+    "workers/scan-api/src/routes/workspace-intel.js",
+    "workers/scan-api/src/routes/workspace-members.js",
+    "workers/scan-api/src/routes/workspace-reports.js",
+    "workers/scan-api/src/routes/workspaces-core.js",
+    "workers/scan-api/src/cron/scheduled.js",
+    "workers/scan-api/src/email/inbound.js"
+  ],
+  "counts": {
+    "total": 234,
+    "authed": 213,
+    "public_unauthed": 21,
+    "sensitive_scope_gaps": 0,
+    "by_scope": {
+      "email": {
+        "total": 1,
+        "authed": 1
+      },
+      "preflight": {
+        "total": 1,
+        "authed": 0
+      },
+      "public-or-global": {
+        "total": 37,
+        "authed": 19
+      },
+      "account": {
+        "total": 21,
+        "authed": 21
+      },
+      "admin": {
+        "total": 2,
+        "authed": 2
+      },
+      "unknown": {
+        "total": 46,
+        "authed": 46
+      },
+      "workspace": {
+        "total": 115,
+        "authed": 115
+      },
+      "webhook": {
+        "total": 2,
+        "authed": 0
+      },
+      "portfolio": {
+        "total": 9,
+        "authed": 9
+      }
+    }
+  },
+  "public_allowlist": [
+    {
+      "pattern": "/^\\/health$/",
+      "reason": "liveness probe — no tenant data"
+    },
+    {
+      "pattern": "/^\\/ready$/",
+      "reason": "readiness probe — no tenant data"
+    },
+    {
+      "pattern": "/^\\/$/",
+      "reason": "root banner — no tenant data"
+    },
+    {
+      "pattern": "/^\\/\\.well-known\\//",
+      "reason": "security.txt / well-known — public by spec"
+    },
+    {
+      "pattern": "/^\\/api\\/health$/",
+      "reason": "health alias — no tenant data"
+    },
+    {
+      "pattern": "/^\\/api\\/version$/",
+      "reason": "version banner — no tenant data"
+    },
+    {
+      "pattern": "/^\\/api\\/plans$/",
+      "reason": "public pricing catalogue — no tenant data"
+    },
+    {
+      "pattern": "/signup|register/",
+      "reason": "account creation — pre-auth by definition"
+    },
+    {
+      "pattern": "/login|\\/session$/",
+      "reason": "authentication endpoint — pre-auth by definition"
+    },
+    {
+      "pattern": "/verify-email|verify\\/|resend/",
+      "reason": "email verification — token-gated, pre-auth"
+    },
+    {
+      "pattern": "/password|reset|forgot/",
+      "reason": "password reset — token-gated, pre-auth"
+    },
+    {
+      "pattern": "/\\/auth\\/(microsoft|sso|oauth|callback)/",
+      "reason": "SSO/OAuth — provider-token gated"
+    },
+    {
+      "pattern": "/\\/auth\\/exchange/",
+      "reason": "one-time-code → session exchange — pre-auth by definition"
+    },
+    {
+      "pattern": "/\\/auth\\/logout/",
+      "reason": "logout — Bearer-token gated (deletes that session); unauthed is a no-op"
+    },
+    {
+      "pattern": "/\\/auth\\/mfa\\//",
+      "reason": "login MFA challenge/recovery — challenge-token gated, fail-closed IP throttle, pre-full-auth"
+    },
+    {
+      "pattern": "/webhook/",
+      "reason": "Stripe webhook — HMAC signature verified before parse"
+    },
+    {
+      "pattern": "/\\/billing\\/plans/",
+      "reason": "public billing catalogue — no Stripe price IDs, no tenant data"
+    },
+    {
+      "pattern": "/\\/free-scan/",
+      "reason": "public lead-gen scan — SSRF-guarded, gated preview, rate-limited"
+    },
+    {
+      "pattern": "/\\/api\\/invitations\\//",
+      "reason": "invitation token flow — opaque-token gated, pre-membership"
+    },
+    {
+      "pattern": "/dmarc-ingest|\\/ingest\\/|\\/rua|\\/tlsrpt|\\/inbound/",
+      "reason": "report ingestion — endpoint-key / DMARC-trust gated (key binds the workspace)"
+    },
+    {
+      "pattern": "/^OPTIONS$/",
+      "reason": "CORS preflight — no body, no tenant data"
+    }
+  ],
+  "entry_points": [
+    {
+      "method": "EMAIL",
+      "path": "email()",
+      "path_kind": "event",
+      "file": "workers/scan-api/src/email/inbound.js",
+      "scope": "email",
+      "auth_guards": [
+        "cloudflare-email-routing",
+        "dmarc-trust"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/health",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/index.js",
+      "scope": "public-or-global",
+      "auth_guards": [],
+      "scope_helpers": [],
+      "authed": false,
+      "public_reason": "liveness probe — no tenant data"
+    },
+    {
+      "method": "GET",
+      "path": "/ready",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/index.js",
+      "scope": "public-or-global",
+      "auth_guards": [],
+      "scope_helpers": [],
+      "authed": false,
+      "public_reason": "readiness probe — no tenant data"
+    },
+    {
+      "method": "OPTIONS",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/index.js",
+      "scope": "preflight",
+      "auth_guards": [],
+      "scope_helpers": [],
+      "authed": false,
+      "public_reason": "CORS preflight — no body, no tenant data"
+    },
+    {
+      "method": "DELETE",
+      "path": "/^\\/api\\/account\\/api-tokens\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/account.js",
+      "scope": "account",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/account\\/sessions\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/account.js",
+      "scope": "account",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/account/api-tokens",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/account.js",
+      "scope": "account",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/account/api-tokens",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/account.js",
+      "scope": "account",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceAccess"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/account/bootstrap",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/account.js",
+      "scope": "account",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [
+        "getAccessibleWorkspaceIds"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/account/company",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/account.js",
+      "scope": "account",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "PUT",
+      "path": "/api/account/company",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/account.js",
+      "scope": "account",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/account/delete-request",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/account.js",
+      "scope": "account",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/account/export",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/account.js",
+      "scope": "account",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/account/login-history",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/account.js",
+      "scope": "account",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/account/onboarding-state",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/account.js",
+      "scope": "account",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [
+        "getAccessibleWorkspaceIds"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/account/profile",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/account.js",
+      "scope": "account",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/account/profile",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/account.js",
+      "scope": "account",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/account/report-branding",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/account.js",
+      "scope": "account",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "PUT",
+      "path": "/api/account/report-branding",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/account.js",
+      "scope": "account",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/account/sessions",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/account.js",
+      "scope": "account",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/account/subscription",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/account.js",
+      "scope": "account",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/account/subscription/features",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/account.js",
+      "scope": "account",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/account/subscription/limits",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/account.js",
+      "scope": "account",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/account/usage",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/account.js",
+      "scope": "account",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/subscriptions",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/account.js",
+      "scope": "admin",
+      "auth_guards": [
+        "isPlatformAdmin",
+        "requireAuth"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/platform/accuracy",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/account.js",
+      "scope": "admin",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [
+        "getAccessibleWorkspaceIds"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/attack-surface.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/attack-surface.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/attack-surface.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/attack-surface.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/attack-surface.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/attack-surface.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/attack-surface.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/attack-surface.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/attack-surface.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/attack-surface.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/attack-surface.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/attack-surface.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/attack-surface.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/attack-surface.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/attack-surface.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/exchange",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/auth.js",
+      "scope": "public-or-global",
+      "auth_guards": [],
+      "scope_helpers": [],
+      "authed": false,
+      "public_reason": "one-time-code → session exchange — pre-auth by definition"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/forgot-password",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/auth.js",
+      "scope": "public-or-global",
+      "auth_guards": [],
+      "scope_helpers": [],
+      "authed": false,
+      "public_reason": "password reset — token-gated, pre-auth"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/login",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/auth.js",
+      "scope": "public-or-global",
+      "auth_guards": [],
+      "scope_helpers": [],
+      "authed": false,
+      "public_reason": "authentication endpoint — pre-auth by definition"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/logout",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/auth.js",
+      "scope": "public-or-global",
+      "auth_guards": [],
+      "scope_helpers": [],
+      "authed": false,
+      "public_reason": "logout — Bearer-token gated (deletes that session); unauthed is a no-op"
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/auth.js",
+      "scope": "account",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/mfa/challenge",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/auth.js",
+      "scope": "public-or-global",
+      "auth_guards": [],
+      "scope_helpers": [],
+      "authed": false,
+      "public_reason": "login MFA challenge/recovery — challenge-token gated, fail-closed IP throttle, pre-full-auth"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/mfa/disable",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/auth.js",
+      "scope": "public-or-global",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/mfa/recovery-code",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/auth.js",
+      "scope": "public-or-global",
+      "auth_guards": [],
+      "scope_helpers": [],
+      "authed": false,
+      "public_reason": "login MFA challenge/recovery — challenge-token gated, fail-closed IP throttle, pre-full-auth"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/mfa/setup",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/auth.js",
+      "scope": "public-or-global",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/mfa/status",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/auth.js",
+      "scope": "public-or-global",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/mfa/verify-setup",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/auth.js",
+      "scope": "public-or-global",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/microsoft/callback",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/auth.js",
+      "scope": "public-or-global",
+      "auth_guards": [],
+      "scope_helpers": [],
+      "authed": false,
+      "public_reason": "SSO/OAuth — provider-token gated"
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/microsoft/login",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/auth.js",
+      "scope": "public-or-global",
+      "auth_guards": [],
+      "scope_helpers": [],
+      "authed": false,
+      "public_reason": "authentication endpoint — pre-auth by definition"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/resend-verification",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/auth.js",
+      "scope": "public-or-global",
+      "auth_guards": [],
+      "scope_helpers": [],
+      "authed": false,
+      "public_reason": "email verification — token-gated, pre-auth"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/reset-password",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/auth.js",
+      "scope": "public-or-global",
+      "auth_guards": [],
+      "scope_helpers": [],
+      "authed": false,
+      "public_reason": "password reset — token-gated, pre-auth"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/signup",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/auth.js",
+      "scope": "public-or-global",
+      "auth_guards": [],
+      "scope_helpers": [],
+      "authed": false,
+      "public_reason": "account creation — pre-auth by definition"
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/verify-email",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/auth.js",
+      "scope": "public-or-global",
+      "auth_guards": [],
+      "scope_helpers": [],
+      "authed": false,
+      "public_reason": "email verification — token-gated, pre-auth"
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/billing.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/billing.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [
+        "getWorkspaceBillingUserId"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/billing.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [
+        "getWorkspaceBillingUserId"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/free-scan",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/billing.js",
+      "scope": "public-or-global",
+      "auth_guards": [],
+      "scope_helpers": [],
+      "authed": false,
+      "public_reason": "public lead-gen scan — SSRF-guarded, gated preview, rate-limited"
+    },
+    {
+      "method": "GET",
+      "path": "/api/plans",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/billing.js",
+      "scope": "public-or-global",
+      "auth_guards": [],
+      "scope_helpers": [],
+      "authed": false,
+      "public_reason": "public pricing catalogue — no tenant data"
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/brand.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/brand.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/brand.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/brand.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/brand.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/brand.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/brand.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/brand.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/brand.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/brand.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/brand.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/brand.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/brand.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/brand.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/brand.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/brand.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/brand.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/certificates-lifecycle.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/certificates-lifecycle.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/certificates-lifecycle.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/cyber-essentials-controls.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/cyber-essentials-controls.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/domains\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/domains.js",
+      "scope": "public-or-global",
+      "auth_guards": [
+        "requireAuth",
+        "requireDomainRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/domains\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/domains.js",
+      "scope": "public-or-global",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/domains\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/domains.js",
+      "scope": "public-or-global",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/domains\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/domains.js",
+      "scope": "public-or-global",
+      "auth_guards": [
+        "requireAuth",
+        "requireDomainRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/domains.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [
+        "getWorkspaceBillingUserId"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "DELETE",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/email-protection.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "DELETE",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/email-protection.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "DELETE",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/email-protection.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "DELETE",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/email-protection.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "DELETE",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/email-protection.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/email-protection.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/email-protection.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/email-protection.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/email-protection.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/email-protection.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/email-protection.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/email-protection.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/email-protection.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/email-protection.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/email-protection.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/email-protection.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/email-protection.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/email-protection.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/email-protection.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/email-protection.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/email-protection.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/email-protection.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/email-protection.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/email-protection.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/email-protection.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/email-protection.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/email-protection.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/email-protection.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/email-protection.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/email-protection.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/email-protection.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/email-protection.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/email-protection.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/email-protection.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/email-protection.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/email-protection.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/email-protection.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/email-protection.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "PUT",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/email-protection.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "PUT",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/email-protection.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/executive-dashboard.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/executive-dashboard.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/executive-dashboard.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/executive-dashboard.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/executive-dashboard.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [
+        "getWorkspaceBillingUserId"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/billing/checkout",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/global-billing.js",
+      "scope": "public-or-global",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/billing/plans",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/global-billing.js",
+      "scope": "public-or-global",
+      "auth_guards": [],
+      "scope_helpers": [],
+      "authed": false,
+      "public_reason": "public billing catalogue — no Stripe price IDs, no tenant data"
+    },
+    {
+      "method": "POST",
+      "path": "/api/billing/portal",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/global-billing.js",
+      "scope": "public-or-global",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/billing/subscription",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/global-billing.js",
+      "scope": "public-or-global",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/billing/webhook",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/global-billing.js",
+      "scope": "webhook",
+      "auth_guards": [],
+      "scope_helpers": [],
+      "authed": false,
+      "public_reason": "Stripe webhook — HMAC signature verified before parse"
+    },
+    {
+      "method": "POST",
+      "path": "/api/dmarc-ingest",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/global-billing.js",
+      "scope": "webhook",
+      "auth_guards": [],
+      "scope_helpers": [],
+      "authed": false,
+      "public_reason": "report ingestion — endpoint-key / DMARC-trust gated (key binds the workspace)"
+    },
+    {
+      "method": "GET",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/identity-exposure.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/identity-exposure.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/identity-exposure.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/managed-cases.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/managed-cases.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/managed-cases.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/managed-cases.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/managed-cases.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/portfolio\\/domains\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/portfolio.js",
+      "scope": "portfolio",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/portfolio.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/portfolio/alerts",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/portfolio.js",
+      "scope": "portfolio",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [
+        "getAccessibleWorkspaceIds"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/portfolio/domains",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/portfolio.js",
+      "scope": "portfolio",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [
+        "getAccessibleWorkspaceIds"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/portfolio/executive-summary",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/portfolio.js",
+      "scope": "portfolio",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [
+        "getAccessibleWorkspaceIds"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/portfolio/maturity",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/portfolio.js",
+      "scope": "portfolio",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [
+        "getAccessibleWorkspaceIds"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/portfolio/overview",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/portfolio.js",
+      "scope": "portfolio",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [
+        "getAccessibleWorkspaceIds"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/portfolio/risk",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/portfolio.js",
+      "scope": "portfolio",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [
+        "getAccessibleWorkspaceIds"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/portfolio/trends",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/portfolio.js",
+      "scope": "portfolio",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [
+        "getAccessibleWorkspaceIds"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/portfolio/workspaces",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/portfolio.js",
+      "scope": "portfolio",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [
+        "getAccessibleWorkspaceIds"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspaces",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/portfolio.js",
+      "scope": "public-or-global",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [
+        "getAccessibleWorkspaceIds"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspaces",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/portfolio.js",
+      "scope": "public-or-global",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/scan",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/scans.js",
+      "scope": "public-or-global",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [
+        "getAccessibleWorkspaceIds",
+        "getWorkspaceBillingUserId"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/scans",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/scans.js",
+      "scope": "public-or-global",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [
+        "getAccessibleWorkspaceIds"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/schedules",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/scans.js",
+      "scope": "public-or-global",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [
+        "getAccessibleWorkspaceIds"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/schedules",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/scans.js",
+      "scope": "public-or-global",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [
+        "getAccessibleWorkspaceIds"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "DELETE",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/scans.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireScanReadAccess",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [
+        "getAccessibleWorkspaceIds",
+        "getWorkspaceBillingUserId"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/scans.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireScanReadAccess",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [
+        "getAccessibleWorkspaceIds",
+        "getWorkspaceBillingUserId"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/scans.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireScanReadAccess",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [
+        "getAccessibleWorkspaceIds",
+        "getWorkspaceBillingUserId"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/scans.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireScanReadAccess",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [
+        "getAccessibleWorkspaceIds",
+        "getWorkspaceBillingUserId"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/scans.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireScanReadAccess",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [
+        "getAccessibleWorkspaceIds",
+        "getWorkspaceBillingUserId"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/scans.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireScanReadAccess",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [
+        "getAccessibleWorkspaceIds",
+        "getWorkspaceBillingUserId"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/scans.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireScanReadAccess",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [
+        "getAccessibleWorkspaceIds",
+        "getWorkspaceBillingUserId"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/shadow-it.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/shadow-it.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/shadow-it.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/website-security.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/website-security.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-activity.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-activity.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [
+        "getWorkspaceBillingUserId"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-activity.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-activity.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-activity.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "PUT",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-activity.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-analytics.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [
+        "getWorkspaceBillingUserId"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-analytics.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [
+        "getWorkspaceBillingUserId"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/workspace-analytics.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [
+        "getWorkspaceBillingUserId"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/workspace-analytics.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [
+        "getWorkspaceBillingUserId"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/workspace-analytics.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/workspace-analytics.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [
+        "getWorkspaceBillingUserId"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "PUT",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/workspace-analytics.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [
+        "getWorkspaceBillingUserId"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "PUT",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/workspace-analytics.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-insights.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [
+        "getWorkspaceBillingUserId"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-insights.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-insights.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/validation/benchmark",
+      "path_kind": "exact",
+      "file": "workers/scan-api/src/routes/workspace-insights.js",
+      "scope": "public-or-global",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-intel.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [
+        "getWorkspaceBillingUserId"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-intel.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [
+        "getWorkspaceBillingUserId"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-intel.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-intel.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/invitations\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-members.js",
+      "scope": "public-or-global",
+      "auth_guards": [],
+      "scope_helpers": [],
+      "authed": false,
+      "public_reason": "invitation token flow — opaque-token gated, pre-membership"
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/invitations\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-members.js",
+      "scope": "public-or-global",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [
+        "getWorkspaceBillingUserId"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "DELETE",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-members.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-members.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-members.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-members.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [
+        "getWorkspaceBillingUserId"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-members.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [
+        "getWorkspaceBillingUserId"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "DELETE",
+      "path": "/^\\/api\\/workspaces\\/([^\\/]+)\\/invitations\\/([^\\/]+)$/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-members.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "PATCH",
+      "path": "/^\\/api\\/workspaces\\/([^\\/]+)\\/members\\/([^\\/]+)$/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-members.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "DELETE",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-reports.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "DELETE",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-reports.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "DELETE",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-reports.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-reports.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-reports.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-reports.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-reports.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-reports.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-reports.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-reports.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-reports.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-reports.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-reports.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "PATCH",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-reports.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-reports.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-reports.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-reports.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [
+        "getWorkspaceBillingUserId"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "PUT",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-reports.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "PUT",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspace-reports.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [
+        "getWorkspaceBillingUserId"
+      ],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspaces-core.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": "/^\\/api\\/workspaces\\/([^/",
+      "path_kind": "regex",
+      "file": "workers/scan-api/src/routes/workspaces-core.js",
+      "scope": "workspace",
+      "auth_guards": [
+        "requireAuth"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "DELETE",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/workspaces-core.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/workspaces-core.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "GET",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/workspaces-core.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "PATCH",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/workspaces-core.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [],
+      "authed": true,
+      "public_reason": null
+    },
+    {
+      "method": "POST",
+      "path": null,
+      "path_kind": null,
+      "file": "workers/scan-api/src/routes/workspaces-core.js",
+      "scope": "unknown",
+      "auth_guards": [
+        "requireAuth",
+        "requireWorkspaceRole"
+      ],
+      "scope_helpers": [
+        "getWorkspaceBillingUserId"
+      ],
+      "authed": true,
+      "public_reason": null
+    }
+  ]
+}
