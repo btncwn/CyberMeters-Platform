@@ -17,10 +17,26 @@ export function hostIsPrivateOrReserved(hostname) {
   // No dot and no colon → single-label internal name or a decimal-encoded IPv4
   // (e.g. 2130706433 == 127.0.0.1). Public hosts always have a dot.
   if (!host.includes(".") && !host.includes(":")) return true;
-  // IPv4 loopback / private / link-local / "this network" (0.0.0.0/8) ranges.
-  if (/^(0\.|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)/.test(host)) return true;
-  // IPv6 loopback (::1), unspecified (::), ULA (fc00::/7 → fc/fd), link-local (fe80::/10).
-  if (host === "::1" || host === "::" || /^f[cd][0-9a-f]*:/i.test(host) || /^fe80:/i.test(host)) return true;
+  // IPv4 loopback / private / link-local / "this network" (0.0.0.0/8) / CGNAT
+  // (100.64.0.0/10) ranges.
+  if (/^(0\.|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/.test(host)) return true;
+  // IPv4 multicast (224.0.0.0/4) and reserved/broadcast (240.0.0.0/4, 255.*): never
+  // a public unicast asset, so never a legitimate scan target.
+  if (/^(22[4-9]|23\d|24\d|25[0-5])\./.test(host)) return true;
+  // IPv4-mapped IPv6 — an attacker can encode a prohibited v4 address as
+  // ::ffff:169.254.169.254 (dotted) or ::ffff:a9fe:a9fe (hex). Decode and re-vet the
+  // embedded IPv4 so the mapping cannot smuggle a private/reserved target past the
+  // IPv4 gate above.
+  const v4mappedDotted = host.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i);
+  if (v4mappedDotted) return hostIsPrivateOrReserved(v4mappedDotted[1]);
+  const v4mappedHex = host.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
+  if (v4mappedHex) {
+    const hi = parseInt(v4mappedHex[1], 16), lo = parseInt(v4mappedHex[2], 16);
+    return hostIsPrivateOrReserved(`${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`);
+  }
+  // IPv6 loopback (::1), unspecified (::), ULA (fc00::/7 → fc/fd), link-local
+  // (fe80::/10 → first hextet fe80–febf).
+  if (host === "::1" || host === "::" || /^f[cd][0-9a-f]*:/i.test(host) || /^fe[89ab][0-9a-f]:/i.test(host)) return true;
   return false;
 }
 

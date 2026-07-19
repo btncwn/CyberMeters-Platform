@@ -213,19 +213,63 @@ export async function globalBillingRoutes(rctx) {
       const eventType = event?.type ?? "unknown";
       const obj       = event?.data?.object;
 
-      // Idempotency / replay protection: Stripe retries deliveries and can
-      // re-send the same event. Record the event id; if we've already handled
-      // it, acknowledge (200) and skip so a replay can't re-apply a state
-      // transition. Signature is already verified above.
+      // Environment guard (Q3): a test-mode event must never mutate live subscription
+      // state (and vice-versa). Derive our configured mode from the secret key; when
+      // determinable and it disagrees with event.livemode, acknowledge (200 — so Stripe
+      // stops retrying) but DO NOT process. No marker is claimed and no state mutates.
+      const keyMode = String(env.STRIPE_SECRET_KEY || "").includes("_test_") ? "test"
+                    : String(env.STRIPE_SECRET_KEY || "").includes("_live_") ? "live" : null;
+      if (keyMode && ((keyMode === "live") !== (event?.livemode === true))) {
+        return json({ received: true, ignored: "environment_mismatch" }, 200);
+      }
+
+      // ── Idempotency STATE MACHINE (Q3) ────────────────────────────────────
+      // The processed-event row is a CLAIM, not a completion marker. It is written as
+      // 'processing' and only advanced to 'completed' AFTER all side effects succeed
+      // (see the success/catch tails below). A duplicate of a 'completed' event is
+      // skipped; a 'failed' event — or a 'processing' row whose claim has gone stale
+      // (a crashed attempt, older than the lease) — is re-claimed so the Stripe retry
+      // actually re-runs. This closes the drift where a marker committed before a
+      // partial failure permanently suppressed retries. Signature is verified above.
       const eventId = event?.id;
+      const CLAIM_LEASE_MS = 2 * 60 * 1000; // a live handler finishes well within 2 min
       if (eventId) {
-        const dedup = await env.cybermeters_db
-          .prepare(`INSERT OR IGNORE INTO stripe_processed_events (id, event_type, processed_at) VALUES (?, ?, datetime('now'))`)
+        const claim = await env.cybermeters_db
+          .prepare(`INSERT OR IGNORE INTO stripe_processed_events (id, event_type, status, processed_at) VALUES (?, ?, 'processing', datetime('now'))`)
           .bind(eventId, eventType)
           .run()
           .catch(() => null);
-        if (dedup && (dedup.meta?.changes ?? 0) === 0) {
-          return json({ received: true, deduped: true }, 200);
+        const claimed = claim && (claim.meta?.changes ?? 0) === 1;
+        if (!claimed) {
+          const existing = await env.cybermeters_db
+            .prepare(`SELECT status, processed_at FROM stripe_processed_events WHERE id = ? LIMIT 1`)
+            .bind(eventId)
+            .first()
+            .catch(() => null);
+          const status = existing?.status ?? "completed";
+          if (status === "completed") {
+            return json({ received: true, deduped: true }, 200);
+          }
+          // 'failed', or a 'processing' row past its lease (crashed attempt), may be
+          // re-claimed. A fresh 'processing' row is a live concurrent delivery — leave
+          // it to its owner and just acknowledge (no double-apply).
+          const staleBefore = new Date(Date.now() - CLAIM_LEASE_MS)
+            .toISOString().replace("T", " ").replace(/\.\d+Z$/, "");
+          const reclaimable = status === "failed" ||
+            (status === "processing" && String(existing?.processed_at ?? "") <= staleBefore);
+          if (!reclaimable) {
+            return json({ received: true, deduped: true }, 200);
+          }
+          // Optimistic CAS on the observed processed_at so two concurrent retries
+          // cannot both win the re-claim.
+          const recl = await env.cybermeters_db
+            .prepare(`UPDATE stripe_processed_events SET status = 'processing', processed_at = datetime('now') WHERE id = ? AND status = ? AND processed_at = ?`)
+            .bind(eventId, status, existing?.processed_at ?? null)
+            .run()
+            .catch(() => null);
+          if (!recl || (recl.meta?.changes ?? 0) === 0) {
+            return json({ received: true, deduped: true }, 200);
+          }
         }
       }
 
@@ -481,9 +525,16 @@ export async function globalBillingRoutes(rctx) {
             break;
         }
       } catch (e) {
-        // Return 500 so Stripe retries delivery on transient D1 failures.
-        // Stripe uses exponential backoff (max 25 attempts over 72 h).
+        // Side effects failed — mark the claim 'failed' so the next Stripe retry
+        // re-claims and RE-RUNS them (the marker never suppresses a retry after a
+        // partial failure). Return 500 so Stripe retries (exp. backoff, ~25 attempts
+        // over 72 h).
         console.error(`[webhook] handler error [${eventType}]: ${e?.message ?? e}`);
+        if (eventId) {
+          await env.cybermeters_db
+            .prepare(`UPDATE stripe_processed_events SET status = 'failed', processed_at = datetime('now') WHERE id = ?`)
+            .bind(eventId).run().catch(() => {});
+        }
         return json({
           error:      "webhook_sync_failed",
           event_type: eventType,
@@ -491,6 +542,13 @@ export async function globalBillingRoutes(rctx) {
         }, 500);
       }
 
+      // All side effects succeeded — NOW mark the event completed. Only after this
+      // point does a duplicate delivery get safely skipped.
+      if (eventId) {
+        await env.cybermeters_db
+          .prepare(`UPDATE stripe_processed_events SET status = 'completed', processed_at = datetime('now') WHERE id = ?`)
+          .bind(eventId).run().catch(() => {});
+      }
       return json({ received: true, event_type: eventType }, 200);
     }
 

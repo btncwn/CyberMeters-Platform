@@ -6,8 +6,11 @@
 // isolation. This fixture runs the ACTUAL runScanEngine against mocked fetch / D1 / R2
 // with a counter that observes EVERY real outbound call — so instrumentation is proven
 // against the engine, not a self-agreeing model. It runs BOTH modes: the legacy ledger
-// must remain unchanged after Commit 3, and the reserved ledger is captured faithfully.
-// It also proves the legacy probeAsset call/result shape is unchanged. Node 24+.
+// stays within its budget envelope (still legacy MODE — not switched to reserved), and
+// the reserved ledger is captured faithfully. It also proves the legacy probeAsset
+// result shape is unchanged; C1 hardened the redirect handling to SSRF-safe manual
+// per-hop validation (so the probe now also resolves A+AAAA for the rebinding guard).
+// Node 24+.
 //
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -27,10 +30,14 @@ const realFetch = globalThis.fetch;
   let lastOpts = null;
   globalThis.fetch = async (_url, opts) => { lastOpts = opts; return new Response("<title>x</title>", { status: 200, headers: { "content-type": "text/html" } }); };
   const r = await probeAsset("up.example");
-  eq("legacy probeAsset uses native redirect:\"follow\"", lastOpts.redirect, "follow");
+  // C1 (2026-07-19): the default prober is now SSRF-safe — it follows redirects
+  // MANUALLY and validates every hop (scheme/credentials/private-reserved literal +
+  // DNS-answer rebinding) via the shared makeSsrfSafeProbeFetch core. It previously
+  // used native redirect:"follow" with no per-hop validation (the redirect-time SSRF).
+  eq("legacy probeAsset uses SSRF-safe redirect:\"manual\" (C1)", lastOpts.redirect, "manual");
   eq("legacy probeAsset method GET", lastOpts.method, "GET");
   ok("legacy probeAsset keeps AbortSignal timeout", !!lastOpts.signal);
-  ok("legacy probeAsset does NOT set redirect:\"manual\"", lastOpts.redirect !== "manual");
+  ok("legacy probeAsset sets redirect:\"manual\" for per-hop SSRF validation (C1)", lastOpts.redirect === "manual");
   eq("legacy probeAsset success result shape unchanged",
      Object.keys(r).sort().join(","), "content_type,host,reachable,server,status,tech,title,url");
   globalThis.fetch = realFetch;

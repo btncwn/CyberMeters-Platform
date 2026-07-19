@@ -248,6 +248,15 @@ async function upsertStripeSubscriptionState(env, state) {
     const cancelAtPeriodEnd = state.cancel_at_period_end != null
       ? (state.cancel_at_period_end ? 1 : 0)
       : null;
+    // Stale-event guard (Q3, item 13): Stripe can deliver subscription events out of
+    // order. current_period_end only ever advances on renewal, so never let an
+    // incoming (possibly stale) event move it BACKWARD — that would shorten a
+    // customer's entitlement window from an old delivery. Both stored and incoming
+    // values are same-format ISO timestamps, so lexical >= is chronological. Other
+    // fields still apply (a cancel that does not advance the period must take effect);
+    // full status-transition ordering is not enforced (the schema carries no per-event
+    // sequence — documented residual).
+    const cpEnd = state.current_period_end || null;
     await env.cybermeters_db
       .prepare(
         `UPDATE subscriptions
@@ -258,7 +267,9 @@ async function upsertStripeSubscriptionState(env, state) {
              stripe_subscription_id = COALESCE(?, stripe_subscription_id),
              stripe_price_id = COALESCE(?, stripe_price_id),
              current_period_start = COALESCE(?, current_period_start),
-             current_period_end = COALESCE(?, current_period_end),
+             current_period_end = CASE
+               WHEN ? IS NOT NULL AND (current_period_end IS NULL OR ? >= current_period_end) THEN ?
+               ELSE current_period_end END,
              cancel_at_period_end = COALESCE(?, cancel_at_period_end),
              workspace_id = COALESCE(?, workspace_id),
              updated_at = datetime('now')
@@ -272,7 +283,7 @@ async function upsertStripeSubscriptionState(env, state) {
         stripeSubscriptionId,
         state.stripe_price_id || null,
         state.current_period_start || null,
-        state.current_period_end || null,
+        cpEnd, cpEnd, cpEnd,
         cancelAtPeriodEnd,
         workspaceId,
         rowId

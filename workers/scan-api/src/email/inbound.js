@@ -429,7 +429,7 @@ function deriveInboundReportProvenance(rawLatin1, message, boundDomain) {
 // Operator routing: private beta may use exact per-address routes; public beta
 // should send *@reports.cybermeters.com to this Worker. D1 address_local lookup
 // authorizes known recipients, and unknown localparts are safely dropped.
-export async function handleInboundEmail(message, env, _ctx) {
+export async function handleInboundEmail(message, env, _ctx, deps = {}) {
   const caps = {
     attachmentMax: RUA_ATTACHMENT_MAX_BYTES,
     decompressedMax: RUA_DECOMPRESSED_MAX_BYTES,
@@ -493,6 +493,33 @@ export async function handleInboundEmail(message, env, _ctx) {
     if (!ingestEndpointIsActive(endpoint)) {
       await drop(endpoint, endpoint ? "endpoint_inactive" : "endpoint_not_found", recipient);
       return;
+    }
+
+    // Per-endpoint inbound rate limit (Q7 hardening). The rua address is published
+    // publicly in the customer's DNS, so anyone can send forged reports to a known
+    // endpoint. Per-message bomb/size caps bound each message; this bounds the
+    // CROSS-message flood (storage growth / alert-evaluation churn) that the
+    // per-message caps cannot. Fail-OPEN — a rate-limit-store outage must NEVER drop
+    // legitimate customer evidence. Legitimate reporters send a handful of reports/day
+    // per endpoint, far under this ceiling. A limited drop is audited (append-only)
+    // but NOT surfaced as a misleading "malformed report" customer notification.
+    if (typeof deps.consumeApiRateLimit === "function") {
+      const scopeId = typeof deps.rateLimitScopeId === "function"
+        ? await deps.rateLimitScopeId("rua_inbound", endpoint.id)
+        : `rua_inbound_${endpoint.id}`;
+      const limited = await deps.consumeApiRateLimit(env,
+        [{ scope: "rua_inbound_endpoint", scope_id: scopeId }],
+        "rua_inbound", 120, 3600).catch(() => null);
+      if (limited) {
+        await createAuditEvent(env, {
+          workspace_id: endpoint.workspace_id, user_id: null,
+          event_type: "dmarc_inbound_email_rate_limited", entity_type: "domain",
+          entity_id: endpoint.domain_id,
+          description: `Inbound report rate limit reached for ${endpoint.domain}`,
+          metadata: { source: "inbound_email", reason: "rate_limited", recipient_localpart: localpart },
+        }).catch(() => {});
+        return;
+      }
     }
 
     if (typeof message.rawSize === "number" && message.rawSize > RUA_RAW_EMAIL_MAX_BYTES) {
