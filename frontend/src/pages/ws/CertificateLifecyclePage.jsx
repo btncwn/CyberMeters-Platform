@@ -6,8 +6,9 @@
 // visible line between a CUSTOMER-RECORDED renewal (asserted) and an EXTERNALLY
 // VERIFIED replacement (the product actually observed a distinct new cert).
 import { useEffect, useState, useCallback } from 'react'
-import { useParams } from 'react-router-dom'
 import { api } from '../../api'
+import { useWorkspace } from '../../hooks/useWorkspace'
+import { NoWorkspaceSelected } from '../../components/WsPage'
 import {
   readinessMeta, coverageMeta, ownershipMeta, verificationMeta, toneClass,
   daysRemainingLabel, isAwaitingVerification, CERT_LIFECYCLE_SCOPE_NOTE,
@@ -20,7 +21,10 @@ function Pill({ meta }) {
 const READINESS_FILTERS = ['', 'critical', 'high', 'preparation', 'planning', 'monitoring', 'expired']
 
 export default function CertificateLifecyclePage() {
-  const { workspaceId } = useParams()
+  // Workspace comes from the canonical context hook, not a route param — the
+  // /ws/* routes declare no :workspaceId, so useParams().workspaceId is always
+  // undefined and would produce /api/workspaces/undefined/... (403).
+  const { wsId: workspaceId, loading: wsLoading } = useWorkspace()
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -28,6 +32,7 @@ export default function CertificateLifecyclePage() {
   const [busy, setBusy] = useState(null)
 
   const load = useCallback(() => {
+    if (!workspaceId) return   // never call the API with a null/unresolved workspace id
     setLoading(true)
     api.getCertificateLifecycle(workspaceId, filter ? { renewal_readiness: filter } : {})
       .then((res) => { setData(res); setError(null) })
@@ -86,6 +91,8 @@ export default function CertificateLifecyclePage() {
 
   const items = data?.items || []
   const counts = data?.counts || {}
+
+  if (!wsLoading && !workspaceId) return <NoWorkspaceSelected />
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
