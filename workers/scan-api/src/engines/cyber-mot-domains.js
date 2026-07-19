@@ -99,7 +99,7 @@ export const CYBER_MOT_DOMAINS = Object.freeze([
     required: ["subdomains", "dns"],
     match: (f) => /^(asset_|subdomain_|admin_|takeover_|exposure_|dse_|cve_|kev_|cloud_|dns_)/.test(f.id || ""),
     maturity: "M3", managed_status: "managed_case",
-    limitations: ["External observation only — no internal-network discovery. Subdomain coverage depends on public Certificate Transparency logs."],
+    limitations: ["External observation only; no internal-network discovery. Subdomain coverage depends on public Certificate Transparency logs."],
   },
   {
     domain_key: "certificates_trust",
@@ -128,7 +128,7 @@ export const CYBER_MOT_DOMAINS = Object.freeze([
     required: ["headers", "ssl"],
     match: (f) => /^(header_|https_|redirect_|canonical_|ssl_|tech_)/.test(f.id || ""),
     maturity: "M2", managed_status: "recommendations",
-    limitations: ["Passive external check only — no active, authenticated or intrusive testing."],
+    limitations: ["Passive external check only; no active, authenticated or intrusive testing."],
   },
   {
     domain_key: "identity_exposure",

@@ -29,6 +29,7 @@ const { buildWorkspaceExecutivePdf, buildScanReportPdf } = await eng("pdf.js");
 const { CYBERMETERS_LOGO_DATA_URI, CYBERMETERS_LOGO_SHA256, CYBERMETERS_LOGO_DIMENSIONS } = await eng("brand-logo.js");
 const { prepareLogoXObject } = await eng("pdf-image.js");
 const { loadBrandingLogoDataUri, cyberMetersDescriptor } = await eng("report-branding-v2.js");
+const { CYBER_MOT_DOMAINS } = await eng("cyber-mot-domains.js");
 const fs = await import("node:fs");
 const crypto = await import("node:crypto");
 
@@ -239,6 +240,44 @@ const norm = (s) => s.replace(/\s+/g, " ").trim();
   const RETIRED = ["Vendor Risk", "Supply Chain", "supply-chain posture", "Five-Pillar", "five-category", "cybermeters.io", "Report ID", "customer logo placeholder"];
   for (const s of RETIRED) ok(`no-retired: '${s}' does not appear`, !t.includes(s));
   ok("no-retired: footer domain is app.cybermeters.com (not cybermeters.io)", t.includes("app.cybermeters.com") && !t.includes("cybermeters.io"));
+}
+
+// ── Copy correction: limitation punctuation renders correctly (no dash-loss) ──
+// The ASCII-only PDF renderer strips a non-ASCII em-dash to a space, so a source
+// "only — no" rendered as a malformed "only  no". The canonical limitation copy in
+// cyber-mot-domains.js must use ASCII punctuation (a semicolon) so it renders clean.
+{
+  // Source-level: the two flagged domain limitations are ASCII with a semicolon.
+  const allLimits = CYBER_MOT_DOMAINS.flatMap((d) => d.limitations || []);
+  const extObs = allLimits.find((l) => l.startsWith("External observation only"));
+  const passive = allLimits.find((l) => l.startsWith("Passive external check only"));
+  ok("copy: canonical Attack-Surface limitation is ASCII with a semicolon",
+     extObs === "External observation only; no internal-network discovery. Subdomain coverage depends on public Certificate Transparency logs.");
+  ok("copy: canonical Website-Security limitation is ASCII with a semicolon",
+     passive === "Passive external check only; no active, authenticated or intrusive testing.");
+  ok("copy: no non-ASCII in either flagged limitation (no em/en dash to strip)",
+     !/[^\x00-\x7F]/.test(extObs || "x") && !/[^\x00-\x7F]/.test(passive || "x"));
+
+  // Rendered: the corrected sentences appear in the Executive PDF; the malformed
+  // double-space variants are absent. Render a fixture carrying the REAL limitations.
+  const snap = mkSnap({ complete: false });
+  snap.domains[2].limitations = [extObs];   // Attack Surface
+  snap.domains[5].limitations = [passive];  // Website Security
+  const pages = pageTexts(render(snap, { logoImage: LOGO_IMAGE })).map(norm);
+  const joined = pages.join(" ");
+  ok("copy: corrected 'External observation only; no internal-network discovery' in PDF",
+     joined.includes("External observation only; no internal-network discovery"));
+  ok("copy: corrected 'Passive external check only; no active, authenticated or intrusive testing' in PDF",
+     joined.includes("Passive external check only; no active, authenticated or intrusive testing"));
+  ok("copy: malformed double-space 'External observation only  no' absent",
+     !/External observation only\s{2,}no/.test(joined) && !joined.includes("External observation only  no"));
+  ok("copy: malformed double-space 'Passive external check only  no' absent",
+     !/Passive external check only\s{2,}no/.test(joined) && !joined.includes("Passive external check only  no"));
+  // Regressions still hold with the real limitations present.
+  const t = latin1(render(snap, { logoImage: LOGO_IMAGE }));
+  ok("copy: all eight domains still present", DOMAINS.every((d) => t.includes(d)));
+  ok("copy: canonical logo image still embedded", t.includes("/Subtype /Image") && t.includes("/Im0 Do"));
+  ok("copy: two-page fixture remains balanced", (t.match(/\/Type \/Page \/Parent/g) || []).length === 2);
 }
 
 console.log(`\nvalidate-a5-executive-report: ${pass} passed, ${fail} failed`);
