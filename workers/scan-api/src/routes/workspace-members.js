@@ -8,7 +8,43 @@ import { getEffectivePlan } from "../engines/entitlements.js";
 import { getPlanLimits, getWorkspaceBillingUserId, planLimitExceeded } from "../engines/plan-usage.js";
 import { generateInviteToken, hashToken } from "../lib/auth-crypto.js";
 import { createAuditEvent } from "../lib/events.js";
+import { escapeEmailHtml, getEmailFrontendOrigin, sendCustomerEmail } from "../lib/lifecycle-email.js";
 import { createId, isValidEmail } from "../lib/util.js";
+
+// ── Workspace-invitation email ────────────────────────────────────────────────
+// Pure/testable builder for the invitation email (subject/text/html). The accept
+// link is the ONLY place the raw token appears; the workspace name is
+// caller-influenced, so it is HTML-escaped. Never embeds secrets, internal
+// identifiers, or provider details. Delivered through the canonical
+// sendCustomerEmail path, mirroring the password-reset precedent.
+export function buildInvitationEmail({ workspaceName, role, acceptUrl, expiresAt }) {
+  const wsName     = workspaceName || "a CyberMeters workspace";
+  const wsHtml     = escapeEmailHtml(wsName);
+  const roleHtml   = escapeEmailHtml(role);
+  const expiryDate = String(expiresAt || "").slice(0, 10);
+  const expiryLine = expiryDate
+    ? `This invitation expires in 7 days (on ${expiryDate}).`
+    : "This invitation expires in 7 days.";
+  const subject = "You’ve been invited to a CyberMeters workspace";
+  const text =
+    `Hi,\n\n` +
+    `You’ve been invited to join the ${wsName} workspace on CyberMeters as a ${role}.\n\n` +
+    `Accept your invitation here:\n${acceptUrl}\n\n` +
+    `${expiryLine}\n\n` +
+    `If you were not expecting this invitation, you can ignore this email.\n\n` +
+    `— The CyberMeters team`;
+  const html =
+    `<!DOCTYPE html><html lang="en"><body style="font-family:Arial,sans-serif;color:#111;max-width:560px;margin:40px auto;padding:0 20px">` +
+    `<div style="margin-bottom:24px"><span style="font-weight:700;font-size:18px;color:#0a7c5c">CyberMeters</span></div>` +
+    `<h2 style="font-size:20px;margin-bottom:8px">You’ve been invited to a workspace</h2>` +
+    `<p style="color:#555;margin-bottom:24px">You’ve been invited to join the <strong>${wsHtml}</strong> workspace on CyberMeters as a <strong>${roleHtml}</strong>.</p>` +
+    `<a href="${acceptUrl}" style="display:inline-block;background:#0a7c5c;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px">Accept invitation</a>` +
+    `<p style="margin-top:24px;font-size:13px;color:#999">Or copy this URL into your browser:<br><span style="color:#0a7c5c">${acceptUrl}</span></p>` +
+    `<p style="margin-top:16px;font-size:13px;color:#999">${expiryLine}</p>` +
+    `<p style="margin-top:40px;font-size:12px;color:#bbb">If you were not expecting this invitation, you can ignore this email.</p>` +
+    `</body></html>`;
+  return { subject, text, html };
+}
 
 export async function workspaceMembersRoutes(rctx) {
   const { request, env, url, json, serverError,
@@ -107,8 +143,11 @@ export async function workspaceMembersRoutes(rctx) {
       }
 
       try {
+        // deleted_at IS NULL: defence-in-depth. requireWorkspaceRole already
+        // rejects a soft-deleted workspace above, so this is belt-and-suspenders,
+        // and the name feeds the invitation email below.
         const workspace = await env.cybermeters_db
-          .prepare("SELECT id FROM workspaces WHERE id = ?")
+          .prepare("SELECT id, name FROM workspaces WHERE id = ? AND deleted_at IS NULL")
           .bind(workspaceId)
           .first();
         if (!workspace) return json({ error: "Workspace not found" }, 404);
@@ -218,6 +257,44 @@ export async function workspaceMembersRoutes(rctx) {
           .bind(inviteId, workspaceId, email, role, tokenHash, user.id, expiresAt)
           .run();
 
+        // ── Deliver the invitation email (canonical customer-email path) ──────
+        // The email is the delivery channel, so a failed send must NOT leave a
+        // pending invitation the invitee never received (it would consume the
+        // pending-invite quota, arm the 24 h cooldown, and read as "sent"). On
+        // failure we compensating-delete the row we just created — scoped to its
+        // exact id + workspace + still-pending status — record an honest failure
+        // audit event, and return a generic error. The raw token appears only in
+        // the accept URL inside the email; it is never logged or audited, and no
+        // provider detail reaches the client.
+        const inviteOrigin = getEmailFrontendOrigin(env) || "https://app.cybermeters.com";
+        const acceptUrl    = `${inviteOrigin}/invitations/${token}`;
+        const { subject, text, html } = buildInvitationEmail({
+          workspaceName: workspace.name,
+          role,
+          acceptUrl,
+          expiresAt,
+        });
+        const inviteDelivery = await sendCustomerEmail(subject, text, html, env, "HELLO_EMAIL_FROM", [email]);
+
+        if (!inviteDelivery.sent) {
+          await env.cybermeters_db
+            .prepare("DELETE FROM workspace_invitations WHERE id = ? AND workspace_id = ? AND status = 'pending'")
+            .bind(inviteId, workspaceId)
+            .run();
+          await createAuditEvent(env, {
+            workspace_id: workspaceId,
+            user_id:      user.id,
+            event_type:   "workspace_invitation_send_failed",
+            entity_type:  "workspace_invitation",
+            entity_id:    inviteId,
+            description:  `Invitation email to ${email} could not be sent — invitation not created`,
+            // delivery_reason is a sanitised machine code — no secret material, no PII, no provider body.
+            metadata:     { invitation_id: inviteId, email, role, delivery_reason: inviteDelivery.reason || "send_failed" },
+          });
+          return json({ error: "We couldn't send the invitation email. Please try again." }, 502);
+        }
+
+        // Send succeeded — the invitation genuinely exists AND was dispatched.
         await createAuditEvent(env, {
           workspace_id: workspaceId,
           user_id:      user.id,
@@ -225,7 +302,10 @@ export async function workspaceMembersRoutes(rctx) {
           entity_type:  "workspace_invitation",
           entity_id:    inviteId,
           description:  `${user.email} invited ${email} as ${role}`,
-          metadata:     { invitation_id: inviteId, email, role, expires_at: expiresAt },
+          metadata:     {
+            invitation_id: inviteId, email, role, expires_at: expiresAt,
+            delivery_status: "accepted", provider_id: inviteDelivery.provider_id || null,
+          },
         });
 
         return json({

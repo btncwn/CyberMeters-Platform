@@ -268,13 +268,13 @@ export default function WorkspaceMembersPanel({ workspaceId, currentUser }) {
             )}
             {inviteLink && (
               <div className="p-3 rounded-xl bg-amber-50 border border-amber-100">
-                <p className="text-xs font-semibold text-amber-800 mb-1">Copy this invite link now. It will not be shown again.</p>
+                <p className="text-xs font-semibold text-amber-800 mb-1">Invitation email sent. You can also copy this link now to share it directly — it will not be shown again.</p>
                 <code className="block text-xs text-amber-900 break-all bg-white/60 rounded-lg p-2">{inviteLink}</code>
               </div>
             )}
           </form>
           <p className="text-[10px] text-gray-400 mt-2">
-            No email will be sent. Share the generated invite link manually.
+            We email the invitee an accept link. You can also share the generated link manually as a backup.
           </p>
         </div>
       )}

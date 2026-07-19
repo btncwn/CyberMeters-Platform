@@ -104,6 +104,13 @@ jobs:
       - name: Validate auth/session hardening (SSO MFA gate, reset token revocation, invite + lifecycle deleted_at)
         run: node scripts/validate-auth-session-hardening.js
 
+      # Workspace invitations must actually be delivered: the POST handler dispatches the
+      # email through the canonical sendCustomerEmail path, fails CLOSED on a send failure
+      # (compensating-delete + generic non-2xx), records the created audit only on a real
+      # handoff, and never leaks the raw token. Self-proving (mutation-tested).
+      - name: Validate workspace invitation email delivery (send-before-201 / fail-closed / no token leak)
+        run: node scripts/validate-workspace-invitation-email.js
+
       - name: Validate MSP portfolio (cross-MSP isolation + change counts + exec summary)
         run: node scripts/validate-portfolio.js
 
