@@ -151,6 +151,100 @@ function AddDomainModal({ workspaceId, onAdded, onClose }) {
   )
 }
 
+// Owner-only Delete Workspace confirmation. Requires the exact workspace name to be
+// typed, protects against duplicate submits, and wires to the EXISTING backend
+// soft-delete endpoint (no competing mechanism). Wording is honest about soft-delete +
+// restore window; server enforces owner-only regardless of this UI.
+function DeleteWorkspaceModal({ workspaceId, workspaceName, onClose, onDeleted }) {
+  const [confirmText, setConfirmText] = useState('')
+  const [loading, setLoading]         = useState(false)
+  const [error, setError]             = useState(null)
+
+  const target = (workspaceName ?? '').trim()
+  const nameMatches = target.length > 0 && confirmText.trim() === target
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+    if (!nameMatches || loading) return   // typed-name gate + duplicate-submit protection
+    setLoading(true)
+    setError(null)
+    try {
+      await api.requestWorkspaceDeletion(workspaceId)
+      onDeleted()
+    } catch (err) {
+      const m = err?.message || ''
+      const msg = /403|Forbidden/i.test(m) ? 'Only the workspace owner can delete this workspace.'
+        : /404|not found/i.test(m)         ? 'This workspace no longer exists.'
+        : /409/.test(m)                    ? 'This workspace can no longer be deleted.'
+        : /429/.test(m)                    ? 'Too many requests — please wait a moment and try again.'
+        : (m || 'Unable to delete workspace.')
+      setError(msg)
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-gray-900/40 backdrop-blur-sm" onClick={loading ? undefined : onClose} />
+      <div role="dialog" aria-modal="true" aria-label="Delete workspace" className="relative bg-white rounded-2xl shadow-xl w-full max-w-md p-6 z-10">
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-lg font-bold text-red-700">Delete workspace</h2>
+          <button
+            onClick={onClose}
+            disabled={loading}
+            className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors disabled:opacity-40"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="mb-4 p-3 bg-red-50 border border-red-100 rounded-xl text-sm text-red-800 space-y-1.5">
+          <p>Deleting <strong>{workspaceName}</strong> will:</p>
+          <ul className="list-disc pl-5 space-y-0.5">
+            <li>stop all monitoring and scheduled scans;</li>
+            <li>make the workspace unavailable in CyberMeters;</li>
+            <li>retain its historical scans, assets and reports during a restore window, after which they are permanently removed.</li>
+          </ul>
+          <p>You can restore it during the restore window before permanent deletion.</p>
+        </div>
+
+        {error && (
+          <div className="mb-4 p-3 bg-red-50 text-red-700 text-sm rounded-xl border border-red-100">{error}</div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="label block mb-1.5">Type <span className="font-semibold">{workspaceName}</span> to confirm</label>
+            <input
+              className="input"
+              placeholder={workspaceName}
+              value={confirmText}
+              onChange={e => setConfirmText(e.target.value)}
+              autoFocus
+              disabled={loading}
+              spellCheck={false}
+              autoCapitalize="none"
+            />
+          </div>
+          <div className="flex gap-3 pt-1">
+            <button
+              type="submit"
+              disabled={!nameMatches || loading}
+              className="flex-1 justify-center inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-red-600 hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Trash2 className="w-4 h-4" />
+              {loading ? 'Deleting…' : 'Delete workspace'}
+            </button>
+            <button type="button" onClick={onClose} disabled={loading} className="btn-secondary disabled:opacity-40">
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function WorkspaceDetailPage() {
@@ -165,6 +259,7 @@ export default function WorkspaceDetailPage() {
   const [error,        setError]        = useState(null)
   const [refreshing,   setRefreshing]   = useState(false)
   const [showAdd,      setShowAdd]      = useState(false)
+  const [showDelete,   setShowDelete]   = useState(false)
 
   // Per-domain scan state: { [domain]: 'idle' | 'scanning' | 'queued' }
   const [scanState, setScanState] = useState({})
@@ -305,6 +400,19 @@ export default function WorkspaceDetailPage() {
     setShowAdd(false)
   }
 
+  // Workspace soft-deleted — drop it from local cache so it cannot linger in the
+  // sidebar/selection, then leave for the workspace list.
+  function handleDeleted() {
+    try {
+      if (localStorage.getItem('cybermeters_workspace_id') === id) {
+        localStorage.removeItem('cybermeters_workspace_id')
+        localStorage.removeItem('cybermeters_workspace_name')
+      }
+    } catch { /* ignore storage errors */ }
+    setShowDelete(false)
+    navigate('/workspaces', { replace: true })
+  }
+
   // ── Render ──────────────────────────────────────────────────────────────────
 
   if (loading) {
@@ -330,6 +438,12 @@ export default function WorkspaceDetailPage() {
   const postureScore = postureEstablished ? Math.round(stats.posture_score) : null
   const postureRating = postureEstablished && stats?.posture_rating ? stats.posture_rating : null
   const postureMessage = stats?.posture_message || 'Current posture not yet established'
+
+  // Empty-workspace honesty: a workspace with zero currently-monitored domains must not
+  // present retained scans/assets/score as CURRENT monitoring state. The history itself is
+  // preserved and shown below, explicitly labelled as retained — never deleted or hidden.
+  const noCurrentMonitoring = (stats?.total_domains ?? 0) === 0
+  const hasRetainedHistory = (stats?.total_scans ?? 0) > 0 || (assetSummary?.total_assets ?? 0) > 0
 
   return (
     <div className="max-w-screen-xl mx-auto px-6 py-8 space-y-6">
@@ -384,6 +498,17 @@ export default function WorkspaceDetailPage() {
         </div>
       )}
 
+      {/* Retained-history notice — zero currently-monitored domains. */}
+      {noCurrentMonitoring && hasRetainedHistory && (
+        <div className="flex items-start gap-3 px-4 py-3 bg-amber-50 border border-amber-100 rounded-xl text-sm text-amber-800">
+          <Activity className="w-4 h-4 mt-0.5 flex-shrink-0" />
+          <span>
+            No domains are currently monitored in this workspace. Historical scan and asset evidence
+            is retained below — it reflects past activity, not current monitoring.
+          </span>
+        </div>
+      )}
+
       {/* Stats cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
@@ -395,24 +520,25 @@ export default function WorkspaceDetailPage() {
         />
         <StatCard
           icon={ScanLine}
-          label="Total Scans"
+          label={noCurrentMonitoring ? 'Total Scans (historical)' : 'Total Scans'}
           value={stats?.total_scans ?? 0}
+          sub={noCurrentMonitoring ? 'Retained history' : undefined}
           iconColor="text-blue-600"
           iconBg="bg-blue-50"
         />
         <StatCard
           icon={BarChart2}
           label="Cyber Score"
-          value={postureScore != null ? postureScore : '—'}
-          sub={postureRating ? postureRating.charAt(0).toUpperCase() + postureRating.slice(1) : postureMessage}
+          value={noCurrentMonitoring ? '—' : (postureScore != null ? postureScore : '—')}
+          sub={noCurrentMonitoring ? 'No current monitoring' : (postureRating ? postureRating.charAt(0).toUpperCase() + postureRating.slice(1) : postureMessage)}
           iconColor="text-purple-600"
           iconBg="bg-purple-50"
         />
         <StatCard
           icon={Clock}
-          label="Latest Scan"
+          label={noCurrentMonitoring ? 'Last Scan (historical)' : 'Latest Scan'}
           value={stats?.latest_scan ? stats.latest_scan.domain : '—'}
-          sub={stats?.latest_scan ? formatDate(stats.latest_scan.created_at) : 'None yet'}
+          sub={stats?.latest_scan ? formatDate(stats.latest_scan.created_at) + (noCurrentMonitoring ? ' · historical' : '') : 'None yet'}
           iconColor="text-amber-600"
           iconBg="bg-amber-50"
         />
@@ -426,7 +552,9 @@ export default function WorkspaceDetailPage() {
               <div className="w-7 h-7 rounded-lg bg-brand-50 flex items-center justify-center flex-shrink-0">
                 <Server className="w-4 h-4 text-brand-600" />
               </div>
-              <span className="text-sm font-semibold text-gray-900">Asset Inventory</span>
+              <span className="text-sm font-semibold text-gray-900">
+                {noCurrentMonitoring ? 'Asset Inventory (historical — retained)' : 'Asset Inventory'}
+              </span>
             </div>
             <Link
               to="/assets"
@@ -589,12 +717,45 @@ export default function WorkspaceDetailPage() {
         )}
       </div>
 
+      {/* Danger Zone — owner only. Server enforces owner-only on the delete route too. */}
+      {workspace?.role === 'owner' && (
+        <div className="card border border-red-100 p-5">
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div>
+              <h3 className="text-sm font-semibold text-red-700">Danger Zone</h3>
+              <p className="text-xs text-gray-500 mt-1 max-w-lg">
+                Delete this workspace. Monitoring and scheduled scans stop and the workspace becomes
+                unavailable. Historical scans, assets and reports are retained during a restore window
+                before permanent removal.
+              </p>
+            </div>
+            <button
+              onClick={() => setShowDelete(true)}
+              className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold text-red-700 bg-red-50 hover:bg-red-100 border border-red-100 transition-colors"
+            >
+              <Trash2 className="w-4 h-4" />
+              Delete Workspace
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Add Domain modal */}
       {showAdd && (
         <AddDomainModal
           workspaceId={id}
           onAdded={handleAdded}
           onClose={() => setShowAdd(false)}
+        />
+      )}
+
+      {/* Delete Workspace modal */}
+      {showDelete && (
+        <DeleteWorkspaceModal
+          workspaceId={id}
+          workspaceName={workspace?.name}
+          onClose={() => setShowDelete(false)}
+          onDeleted={handleDeleted}
         />
       )}
     </div>

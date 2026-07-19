@@ -47,6 +47,9 @@ jobs:
       - name: Validate tenant-isolation matrix (cross-tenant read/write/delete/oracle)
         run: node scripts/validate-tenant-isolation.js
 
+      - name: Validate workspace integrity (own-retained scan count / owner-only soft-delete)
+        run: node scripts/validate-workspace-integrity.js
+
       - name: Validate DMARC XML safety (XXE / entity-expansion / size DoS)
         run: node scripts/validate-dmarc-xml-safety.js
 
