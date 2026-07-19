@@ -19,7 +19,7 @@ export default function ResetPasswordPage() {
   if (!token) {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4">
-        <div className="card w-full max-w-sm p-8 text-center">
+        <div className="card auth-card text-center">
           <AlertTriangle className="w-8 h-8 text-amber-500 mx-auto mb-3" />
           <h1 className="text-lg font-bold text-gray-900 mb-2">Invalid reset link</h1>
           <p className="text-sm text-gray-400 mb-6">
@@ -66,7 +66,7 @@ export default function ResetPasswordPage() {
       {/* Brand */}
       <CyberMetersLogo size={48} showWordmark animated className="mb-8" />
 
-      <div className="card w-full max-w-sm p-8">
+      <div className="card auth-card">
         {done ? (
           /* ── Success state ── */
           <div className="text-center">

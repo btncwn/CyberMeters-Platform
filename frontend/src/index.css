@@ -52,6 +52,36 @@
     @apply transition-all duration-200 hover:border-brand-200 hover:shadow-card-md;
   }
 
+  /* ── Canonical compact auth-card sizing ──────────────────────────────────
+     ONE shared size contract for every centered single-card auth screen:
+     sign-in, sign-up, forgot/reset password and all their success / error /
+     expired states, and the invitation state cards. Every one of these uses
+     `.auth-card` so the family is a single size — no per-state one-offs, no
+     "form small / success large". Mobile: fills the page's px-4 gutter (~92vw,
+     never overflows). Desktop: ~41% of the content width, floored so it never
+     looks lost in the canvas and capped so it never sprawls. Width + padding
+     scale together; inner buttons/inputs are w-full so they scale with it. */
+  .auth-card {
+    width: 100%;
+    max-width: 34rem;            /* 544px — tablet cap; phones fill the gutter */
+    padding: 2rem;               /* 32px */
+  }
+  .auth-card-col {               /* width-only variant for container columns */
+    width: 100%;
+    max-width: 34rem;
+  }
+  @media (min-width: 768px) {
+    .auth-card {
+      width: clamp(34rem, 41vw, 42.5rem);  /* 544px → 41vw → 680px */
+      max-width: none;
+      padding: 2.75rem;          /* 44px */
+    }
+    .auth-card-col {
+      width: clamp(34rem, 41vw, 42.5rem);
+      max-width: none;
+    }
+  }
+
   .mono { font-family: 'JetBrains Mono', 'Fira Code', monospace; }
   .label { @apply text-[11px] font-bold text-gray-500 uppercase tracking-[0.12em]; }
 
