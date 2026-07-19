@@ -525,6 +525,9 @@ jobs:
       - name: Validate TLS-RPT ingestion (parse + inbound routing + dedup + isolation)
         run: node scripts/validate-tlsrpt-ingest.js
 
+      - name: Validate Q7 DMARC/TLS-RPT trust boundary (no forged-report authority + inbound rate limit)
+        run: node scripts/validate-q7-dmarc-report-trust.js
+
       - name: Validate DMARC sender classification (auto evidence + manual override)
         run: node scripts/validate-sender-classification.js
 

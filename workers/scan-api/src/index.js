@@ -2262,9 +2262,11 @@ export default {
   }),
 
   // ── Inbound DMARC aggregate (RUA) email handler ──────────────────────────
-  // Extracted to src/email/inbound.js (Sprint 9 phase 1). Same behaviour,
-  // same signature — Cloudflare Email Routing invokes this for every message.
-  email: handleInboundEmail,
+  // Extracted to src/email/inbound.js (Sprint 9 phase 1). Cloudflare Email Routing
+  // invokes this for every message. The rate limiter is injected here (it lives in
+  // this module and cannot be imported without a cycle) so the inbound path can bound
+  // per-endpoint forged-report floods (Q7); absent deps, the handler is unchanged.
+  email: (message, env, ctx) => handleInboundEmail(message, env, ctx, { consumeApiRateLimit, rateLimitScopeId }),
 };
 
 // ── Test-only named exports ──────────────────────────────────────────────────
