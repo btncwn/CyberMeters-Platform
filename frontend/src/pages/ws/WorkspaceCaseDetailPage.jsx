@@ -7,7 +7,7 @@
 // honest label comes from the shared caseDisplay vocabulary.
 import { useCallback, useEffect, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { ArrowLeft, ExternalLink, Clock, FileSearch, MapPin, RefreshCw, ShieldCheck, Info } from 'lucide-react'
+import { ArrowLeft, ArrowRight, ExternalLink, Clock, FileSearch, MapPin, RefreshCw, ShieldCheck, Info, AlertTriangle } from 'lucide-react'
 import { api } from '../../api'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
@@ -61,6 +61,163 @@ function eventLabel(ev) {
   if (a === 'status_changed') return `Status changed ${ev.from_status || '?'} → ${ev.to_status || '?'}`
   if (a === 'case_reopened' || ev.to_status === 'reopened') return 'Reopened (condition re-observed)'
   return a.replace(/_/g, ' ') || 'Update'
+}
+
+// ── Next action ─────────────────────────────────────────────────────────────
+// Renders ONLY the transitions the backend advertised in available_transitions —
+// it never derives the state machine and never invents a shortcut. Each control
+// collects exactly the input the backend guard requires (a reason, an expiry, or
+// a structured attestation) via inline fields (no native prompt/confirm). Manual
+// verification is recorded honestly as a customer attestation, never as
+// "Verified by CyberMeters".
+function NextActionSection({ wsId, caseId, transitions, onDone }) {
+  const [selected, setSelected] = useState(null)
+  const [note, setNote] = useState('')
+  const [expiry, setExpiry] = useState('')
+  const [attestation, setAttestation] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [actionError, setActionError] = useState(null)
+
+  const reset = () => { setNote(''); setExpiry(''); setAttestation(''); setActionError(null) }
+  const choose = (t) => { setSelected(t); reset() }
+  const cancel = () => { setSelected(null); reset() }
+
+  const noteOk        = !selected?.requires_note        || note.trim().length > 0
+  const expiryOk      = !selected?.requires_expiry      || Boolean(expiry)
+  const attestationOk = !selected?.requires_attestation || attestation.trim().length > 0
+  const ownerOk       = !selected?.requires_owner // owner is set separately, in the Owner section
+  const canSubmit = Boolean(selected) && noteOk && expiryOk && attestationOk && ownerOk && !submitting
+
+  async function submit() {
+    if (!canSubmit) return
+    setSubmitting(true); setActionError(null)
+    const payload = { target_status: selected.target_status }
+    if (selected.requires_note)   payload.reason = note.trim()
+    if (selected.requires_expiry) payload.risk_accepted_until = new Date(expiry).toISOString()
+    if (selected.requires_attestation) {
+      const nowIso = new Date().toISOString()
+      payload.evidence = {
+        verification_method: 'manual_attestation',
+        verification_result: 'fixed',
+        evidence_type: 'customer_attestation',
+        observed_at: nowIso,
+        attestation: { statement: attestation.trim(), attested_at: nowIso },
+      }
+    }
+    try {
+      await api.transitionCase(wsId, caseId, payload)
+      cancel()
+      onDone?.()
+    } catch {
+      setActionError('Could not complete this action. Please try again.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className={CARD}>
+      <div className="flex items-center gap-2 mb-3">
+        <ArrowRight className="w-4 h-4 text-slate-400" />
+        <h2 className="text-sm font-semibold text-slate-800">Next action</h2>
+      </div>
+
+      {transitions.length === 0 ? (
+        <p className="text-base text-slate-500">No further actions are available for this case in its current state.</p>
+      ) : !selected ? (
+        <div className="flex flex-wrap gap-2">
+          {transitions.map((t) => (
+            <button
+              key={t.target_status}
+              type="button"
+              onClick={() => choose(t)}
+              className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-4 min-h-[40px] text-sm font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-300"
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-3">
+          <p className="text-base font-medium text-slate-800">{selected.label}</p>
+
+          {selected.requires_owner && (
+            <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3">
+              <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+              <p className="text-sm text-amber-800">Assign an owner in the Owner section above before moving this case to Assigned.</p>
+            </div>
+          )}
+
+          {selected.requires_note && (
+            <label className="block">
+              <span className="block text-sm font-medium text-slate-700 mb-1">Reason <span className="text-red-500">*</span></span>
+              <textarea
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                rows={3}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-base min-h-[40px] focus:outline-none focus:ring-2 focus:ring-brand-300"
+                placeholder="Why is this the right outcome? Recorded in the case history."
+              />
+            </label>
+          )}
+
+          {selected.requires_expiry && (
+            <label className="block">
+              <span className="block text-sm font-medium text-slate-700 mb-1">Accepted until <span className="text-red-500">*</span></span>
+              <input
+                type="date"
+                value={expiry}
+                onChange={(e) => setExpiry(e.target.value)}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-base min-h-[40px] focus:outline-none focus:ring-2 focus:ring-brand-300"
+              />
+            </label>
+          )}
+
+          {selected.requires_attestation && (
+            <div className="space-y-2">
+              <div className="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 p-3">
+                <Info className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
+                <p className="text-sm text-blue-800">
+                  {ATTESTED_LABEL}. This records your confirmation only — it is never presented as CyberMeters-verified.
+                </p>
+              </div>
+              <label className="block">
+                <span className="block text-sm font-medium text-slate-700 mb-1">Attestation statement <span className="text-red-500">*</span></span>
+                <textarea
+                  value={attestation}
+                  onChange={(e) => setAttestation(e.target.value)}
+                  rows={3}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-base min-h-[40px] focus:outline-none focus:ring-2 focus:ring-brand-300"
+                  placeholder="Describe what you changed and confirm the remediation is in place."
+                />
+              </label>
+            </div>
+          )}
+
+          {actionError && <p className="text-sm text-red-600" role="alert">{actionError}</p>}
+
+          <div className="flex flex-wrap gap-2 pt-1">
+            <button
+              type="button"
+              onClick={submit}
+              disabled={!canSubmit}
+              className="inline-flex items-center rounded-lg bg-brand-600 px-4 min-h-[40px] text-sm font-semibold text-white hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-300 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {submitting ? 'Working…' : 'Confirm'}
+            </button>
+            <button
+              type="button"
+              onClick={cancel}
+              disabled={submitting}
+              className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-4 min-h-[40px] text-sm font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-300 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default function WorkspaceCaseDetailPage() {
@@ -196,6 +353,19 @@ export default function WorkspaceCaseDetailPage() {
               onAssigned={() => load()}
             />
           </div>
+
+          {/* ── Next action — server-authoritative; managers only ──────── */}
+          {/* can_manage + available_transitions come from the backend (the
+              canonical machine). A viewer/analyst gets neither, so this section
+              does not render for them — they still see all state and history. */}
+          {data?.can_manage && (
+            <NextActionSection
+              wsId={wsId}
+              caseId={c.case_id}
+              transitions={data?.available_transitions || []}
+              onDone={() => load()}
+            />
+          )}
 
           {/* ── Recurrence / reopen ────────────────────────────────────── */}
           <div className={CARD}>
