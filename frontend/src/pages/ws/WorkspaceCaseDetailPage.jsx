@@ -53,44 +53,85 @@ function fmt(ts) {
 }
 
 // Present one append-only history event honestly (assignment, creation, transitions).
+// A reopen event's honest meaning depends on WHO reopened it — the persisted
+// actor_type already records this: 'system' = an automatic evidence-driven
+// recurrence; anything else ('customer') = a manual reopen by a workspace member.
+// A manual reopen must never be described as a re-observation.
+function isReopenEvent(ev) {
+  return ev.to_status === 'reopened' || ev.action === 'case_reopened' || ev.action === 'transition_reopened'
+}
+function isAutomaticReopen(ev) {
+  return (ev.actor_type || 'system') === 'system'
+}
+
 function eventLabel(ev) {
   const a = ev.action || ''
   if (a === 'case_created') return 'Case opened'
   if (a === 'assignment_changed') return 'Owner assigned'
+  if (isReopenEvent(ev)) {
+    return isAutomaticReopen(ev)
+      ? 'Reopened automatically after the condition was re-observed'
+      : 'Manually reopened by a workspace member'
+  }
   if (a.startsWith('transition_')) return `Moved to ${a.replace('transition_', '').replace(/_/g, ' ')}`
   if (a === 'status_changed') return `Status changed ${ev.from_status || '?'} → ${ev.to_status || '?'}`
-  if (a === 'case_reopened' || ev.to_status === 'reopened') return 'Reopened (condition re-observed)'
   return a.replace(/_/g, ' ') || 'Update'
 }
 
 // ── Next action ─────────────────────────────────────────────────────────────
 // Renders ONLY the transitions the backend advertised in available_transitions —
-// it never derives the state machine and never invents a shortcut. Each control
-// collects exactly the input the backend guard requires (a reason, an expiry, or
-// a structured attestation) via inline fields (no native prompt/confirm). Manual
-// verification is recorded honestly as a customer attestation, never as
-// "Verified by CyberMeters".
+// it never derives the state machine and never invents a shortcut. A transition
+// that needs NO extra input executes DIRECTLY on one click (no redundant confirm
+// panel). A transition that requires a reason, an expiry, an owner or a structured
+// attestation opens an inline form that collects ONLY those fields (no native
+// prompt/confirm). Manual verification is recorded honestly as a customer
+// attestation, never as "Verified by CyberMeters".
 function NextActionSection({ wsId, caseId, transitions, onDone }) {
-  const [selected, setSelected] = useState(null)
+  const [selected, setSelected] = useState(null)   // the transition whose input form is open
   const [note, setNote] = useState('')
   const [expiry, setExpiry] = useState('')
   const [attestation, setAttestation] = useState('')
-  const [submitting, setSubmitting] = useState(false)
+  const [busy, setBusy] = useState(null)           // target_status of the in-flight request; null = idle
   const [actionError, setActionError] = useState(null)
 
-  const reset = () => { setNote(''); setExpiry(''); setAttestation(''); setActionError(null) }
-  const choose = (t) => { setSelected(t); reset() }
-  const cancel = () => { setSelected(null); reset() }
+  // A form is needed ONLY when the backend advertises a required input (or an
+  // owner the case does not yet have). Everything else is a direct one-click move.
+  const needsForm = (t) => Boolean(t.requires_note || t.requires_expiry || t.requires_attestation || t.requires_owner)
+
+  const resetForm = () => { setNote(''); setExpiry(''); setAttestation('') }
+  const cancel = () => { setSelected(null); resetForm(); setActionError(null) }
+
+  // The single transition executor — used by both the direct buttons and the
+  // form. `busy` guards against duplicate/concurrent submissions (double-click).
+  async function run(target, payload) {
+    if (busy) return
+    setBusy(target); setActionError(null)
+    try {
+      await api.transitionCase(wsId, caseId, payload)
+      setSelected(null); resetForm()
+      onDone?.()
+    } catch {
+      setActionError('Could not complete this action. Please try again.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  function onButtonClick(t) {
+    if (busy) return
+    setActionError(null)
+    if (needsForm(t)) { setSelected(t); resetForm() }
+    else run(t.target_status, { target_status: t.target_status })   // no input required → execute directly
+  }
 
   const noteOk        = !selected?.requires_note        || note.trim().length > 0
   const expiryOk      = !selected?.requires_expiry      || Boolean(expiry)
   const attestationOk = !selected?.requires_attestation || attestation.trim().length > 0
   const ownerOk       = !selected?.requires_owner // owner is set separately, in the Owner section
-  const canSubmit = Boolean(selected) && noteOk && expiryOk && attestationOk && ownerOk && !submitting
+  const canSubmit = Boolean(selected) && noteOk && expiryOk && attestationOk && ownerOk && !busy
 
-  async function submit() {
+  function submitForm() {
     if (!canSubmit) return
-    setSubmitting(true); setActionError(null)
     const payload = { target_status: selected.target_status }
     if (selected.requires_note)   payload.reason = note.trim()
     if (selected.requires_expiry) payload.risk_accepted_until = new Date(expiry).toISOString()
@@ -104,15 +145,7 @@ function NextActionSection({ wsId, caseId, transitions, onDone }) {
         attestation: { statement: attestation.trim(), attested_at: nowIso },
       }
     }
-    try {
-      await api.transitionCase(wsId, caseId, payload)
-      cancel()
-      onDone?.()
-    } catch {
-      setActionError('Could not complete this action. Please try again.')
-    } finally {
-      setSubmitting(false)
-    }
+    run(selected.target_status, payload)
   }
 
   return (
@@ -125,18 +158,23 @@ function NextActionSection({ wsId, caseId, transitions, onDone }) {
       {transitions.length === 0 ? (
         <p className="text-base text-slate-500">No further actions are available for this case in its current state.</p>
       ) : !selected ? (
-        <div className="flex flex-wrap gap-2">
-          {transitions.map((t) => (
-            <button
-              key={t.target_status}
-              type="button"
-              onClick={() => choose(t)}
-              className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-4 min-h-[40px] text-sm font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-300"
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+        <>
+          <div className="flex flex-wrap gap-2">
+            {transitions.map((t) => (
+              <button
+                key={t.target_status}
+                type="button"
+                onClick={() => onButtonClick(t)}
+                disabled={Boolean(busy)}
+                aria-busy={busy === t.target_status}
+                className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-4 min-h-[40px] text-sm font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-300 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {busy === t.target_status ? 'Working…' : t.label}
+              </button>
+            ))}
+          </div>
+          {actionError && <p className="mt-3 text-sm text-red-600" role="alert">{actionError}</p>}
+        </>
       ) : (
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-3">
           <p className="text-base font-medium text-slate-800">{selected.label}</p>
@@ -199,16 +237,16 @@ function NextActionSection({ wsId, caseId, transitions, onDone }) {
           <div className="flex flex-wrap gap-2 pt-1">
             <button
               type="button"
-              onClick={submit}
+              onClick={submitForm}
               disabled={!canSubmit}
               className="inline-flex items-center rounded-lg bg-brand-600 px-4 min-h-[40px] text-sm font-semibold text-white hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-300 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {submitting ? 'Working…' : 'Confirm'}
+              {busy ? 'Working…' : 'Confirm'}
             </button>
             <button
               type="button"
               onClick={cancel}
-              disabled={submitting}
+              disabled={Boolean(busy)}
               className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-4 min-h-[40px] text-sm font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-300 disabled:opacity-50"
             >
               Cancel
@@ -368,18 +406,38 @@ export default function WorkspaceCaseDetailPage() {
           )}
 
           {/* ── Recurrence / reopen ────────────────────────────────────── */}
+          {/* Honest per-cause copy, derived from the persisted reopen events'
+              actor_type — a manual/customer reopen is NOT a re-observation, and
+              the re-observation counter describes only automatic recurrences. */}
           <div className={CARD}>
             <div className="flex items-center gap-2 mb-2">
               <RefreshCw className="w-4 h-4 text-slate-400" />
               <h2 className="text-sm font-semibold text-slate-800">Recurrence</h2>
             </div>
-            {c.reopened_count > 0 ? (
-              <p className="text-sm text-slate-700">
-                This case has been reopened <span className="font-semibold">{c.reopened_count}</span> time{c.reopened_count === 1 ? '' : 's'} after the condition was re-observed. Reopen history is preserved below.
-              </p>
-            ) : (
-              <p className="text-sm text-slate-500">Not reopened. If the condition returns after resolution, this case reopens rather than a duplicate being created.</p>
-            )}
+            {(() => {
+              const reopens = events.filter(isReopenEvent)
+              const autoCount = reopens.filter(isAutomaticReopen).length
+              const manualCount = reopens.length - autoCount
+              if (reopens.length === 0 && !(c.reopened_count > 0)) {
+                return <p className="text-sm text-slate-500">Not reopened. If the condition returns after resolution, this case reopens rather than a duplicate being created.</p>
+              }
+              const plural = (n) => (n === 1 ? '' : 's')
+              return (
+                <div className="text-sm text-slate-700 space-y-1">
+                  {autoCount > 0 && (
+                    <p className="font-medium">{`Automatically reopened ${autoCount} time${plural(autoCount)} after the condition was re-observed.`}</p>
+                  )}
+                  {manualCount > 0 && (
+                    <p className="font-medium">{`Manually reopened ${manualCount} time${plural(manualCount)} by a workspace member.`}</p>
+                  )}
+                  {/* Fallback: reopened_count records a reopen we have no event for — never attribute it to a re-observation. */}
+                  {reopens.length === 0 && c.reopened_count > 0 && (
+                    <p className="font-medium">{`This case has been reopened ${c.reopened_count} time${plural(c.reopened_count)}. See history below.`}</p>
+                  )}
+                  <p className="text-slate-500">Reopen history is preserved below.</p>
+                </div>
+              )
+            })()}
           </div>
 
           {/* ── Append-only history ────────────────────────────────────── */}
