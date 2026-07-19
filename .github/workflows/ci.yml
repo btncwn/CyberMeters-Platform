@@ -121,6 +121,12 @@ jobs:
       - name: Validate report branding (white-label gating + PDF wordmark + isolation)
         run: node scripts/validate-report-branding.js
 
+      - name: Validate report branding v2 (precedence / entitlement / tenant isolation / logo validation / freeze integrity)
+        run: node scripts/validate-report-branding-v2.js
+
+      - name: Validate report content depth + branding (eight-domain richness / co-brand / white-label / logo routes / mutation)
+        run: node scripts/validate-report-content-branding.js
+
       - name: Validate hosted DNS v2 migration (backfill 1:1 + no-CHECK + idempotent)
         run: node scripts/validate-hosted-dns-v2.js
 

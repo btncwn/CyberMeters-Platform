@@ -7,7 +7,7 @@ import { buildCyberEssentialsReadiness } from "../engines/ce-readiness.js";
 import { CE_QUESTIONS, CE_QUESTION_SET_VERSION, CE_QUESTION_SET_PROVENANCE, mergeReadiness } from "../lib/cyber-essentials.js";
 import { buildWorkspaceExecutivePdf } from "../engines/pdf.js";
 import { readLatestWorkspaceSnapshots } from "../engines/report-snapshot.js";
-import { resolveReportBranding } from "../engines/report-branding.js";
+import { resolveReportBrandingV2, loadBrandingLogoDataUri } from "../engines/report-branding-v2.js";
 import { prepareLogoXObject } from "../engines/pdf-image.js";
 import { buildScorecardData, buildScorecardSections } from "../engines/scorecard.js";
 import { getEffectivePlan, hasFeatureEntitlement } from "../engines/entitlements.js";
@@ -42,8 +42,12 @@ export async function workspaceAnalyticsRoutes(rctx) {
         const reads = await readLatestWorkspaceSnapshots(env, wsId);
         let branding = null, logoImage = null;
         try {
-          branding = await resolveReportBranding(env, wsId);
-          if (branding?.logo) logoImage = await prepareLogoXObject(branding.logo, branding.accent);
+          // Executive scorecard is a current-state report (not a per-scan
+          // artefact), so branding is resolved live via v2 precedence — never
+          // frozen, never from the request body.
+          branding = await resolveReportBrandingV2(env, { workspaceId: wsId });
+          const dataUri = await loadBrandingLogoDataUri(env, branding);
+          if (dataUri) logoImage = await prepareLogoXObject(dataUri, branding.accent);
         } catch { branding = null; logoImage = null; }
         // Live render: the artefact timestamp is the request time by design
         // (this endpoint is the on-demand variant of the stored report).

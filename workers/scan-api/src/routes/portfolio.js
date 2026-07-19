@@ -7,7 +7,7 @@
 import { getEffectivePlan, hasFeatureEntitlement } from "../engines/entitlements.js";
 import { buildWorkspaceExecutivePdf } from "../engines/pdf.js";
 import { readLatestWorkspaceSnapshots } from "../engines/report-snapshot.js";
-import { resolveReportBranding } from "../engines/report-branding.js";
+import { resolveReportBrandingV2, loadBrandingLogoDataUri } from "../engines/report-branding-v2.js";
 import { prepareLogoXObject } from "../engines/pdf-image.js";
 import { getEntitlementUsage, getPlanLimits, planLimitExceeded } from "../engines/plan-usage.js";
 import { computePortfolioRisk } from "../engines/portfolio-risk.js";
@@ -68,8 +68,9 @@ export async function portfolioRoutes(rctx) {
         const reads = await readLatestWorkspaceSnapshots(env, wsId);
         let branding = null, logoImage = null;
         try {
-          branding = await resolveReportBranding(env, wsId);
-          if (branding?.logo) logoImage = await prepareLogoXObject(branding.logo, branding.accent);
+          branding = await resolveReportBrandingV2(env, { workspaceId: wsId });
+          const dataUri = await loadBrandingLogoDataUri(env, branding);
+          if (dataUri) logoImage = await prepareLogoXObject(dataUri, branding.accent);
         } catch { branding = null; logoImage = null; }
         const generatedAt = new Date().toISOString();
         const pdfBytes = buildWorkspaceExecutivePdf({ workspaceName: ws.name, reads, branding, generatedAt, logoImage });

@@ -18,6 +18,34 @@
       "contract": "The IN-list is the authenticated caller's accessible-workspace set; LIMIT 1 returns the caller's own first workspace, never a foreign one."
     },
     {
+      "fingerprint": "6c690ea9bff1",
+      "file": "workers/scan-api/src/index.js",
+      "detector": "r2_key_not_workspace_bound",
+      "reason": "R2.delete(o.key) inside workspace purge, deleting per-workspace branding logo objects. o.key comes from env.cybermeters_reports.list({ prefix: 'branding/logos/{workspaceId}/' }), so every key is tenant-prefixed with the workspace being purged.",
+      "contract": "The deleted keys are enumerated from a workspace-prefixed R2 list during that workspace's own hard-delete; no foreign object can be selected (validate-purge-completeness proves purge scope)."
+    },
+    {
+      "fingerprint": "ec8e57755922",
+      "file": "workers/scan-api/src/routes/workspace-branding.js",
+      "detector": "r2_key_not_workspace_bound",
+      "reason": "R2.put of a workspace logo. The key is workspaceLogoKey(workspaceId, sha256, ext) = branding/logos/{workspaceId}/{sha256}.ext — the workspaceId comes from the authenticated, requireWorkspaceRole('workspace:manage')-authorised path parameter, never the request body; the bytes were validated (magic-byte PNG/JPEG) and content-hashed first.",
+      "contract": "The R2 key is tenant-prefixed with the authorised workspaceId and content-addressed by sha256; only a workspace manager can write it, and the object is immutable."
+    },
+    {
+      "fingerprint": "28a0e65cd01f",
+      "file": "workers/scan-api/src/routes/workspace-branding.js",
+      "detector": "r2_key_not_workspace_bound",
+      "reason": "R2.put of an MSP branding-profile logo. The key is mspLogoKey(ownerId, sha256, ext) = branding/msp/{ownerId}/{sha256}.ext — ownerId is the authenticated account (user.id), the account is white_label-entitled, and the bytes were validated + content-hashed first.",
+      "contract": "The R2 key is prefixed with the authenticated account owner id and content-addressed; only the account owner (session, not api-token) can write it."
+    },
+    {
+      "fingerprint": "68d48caafb17",
+      "file": "workers/scan-api/src/engines/report-branding-v2.js",
+      "detector": "r2_key_not_workspace_bound",
+      "reason": "R2.get(descriptor.logo_r2_key) loads a report logo. The key is tenant-prefixed and content-addressed (branding/logos/{workspace_id}/{sha256}.ext or branding/msp/{owner_user_id}/...), resolved from a workspace-scoped workspace_branding row or an owner-scoped msp_branding_profiles row, and the loaded bytes are verified against the frozen logo_sha256 before use.",
+      "contract": "The logo key is derived from a tenant-scoped D1 row (never the request body) and the bytes are sha256-integrity-checked; a foreign or tampered object fails the hash check and falls back to the CyberMeters mark."
+    },
+    {
       "fingerprint": "2d3ba1886d1e",
       "file": "workers/scan-api/src/engines/report-snapshot.js",
       "detector": "r2_key_not_workspace_bound",

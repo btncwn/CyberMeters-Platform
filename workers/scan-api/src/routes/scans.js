@@ -13,7 +13,7 @@ import { getEffectivePlan } from "../engines/entitlements.js";
 import { buildExecutiveReportV2 } from "../engines/executive-report.js";
 import { applyEvidenceQuality, normalizeFindingSchema } from "../engines/findings.js";
 import { buildScanReportPdf } from "../engines/pdf.js";
-import { resolveReportBranding } from "../engines/report-branding.js";
+import { resolveReportBrandingV2, loadBrandingLogoDataUri } from "../engines/report-branding-v2.js";
 import { prepareLogoXObject } from "../engines/pdf-image.js";
 import { checkScanLimit, checkScheduledScanLimit, getAccountUsage, getEntitlementUsage, getPlanLimits, getWorkspaceBillingUserId, planLimitExceeded } from "../engines/plan-usage.js";
 import { buildScanQuality, runScanEngine } from "../engines/scan-engine.js";
@@ -398,12 +398,26 @@ export async function scanRoutes(rctx) {
           return serverError("api", new Error(`snapshot ${read.status} (${read.reason}) for scan ${scanId}`));
         }
 
-        // Live presentation metadata under the frozen-vs-live policy: branding
-        // only. Frozen security facts all come from the snapshot.
+        // Deterministic branding (branding v2). The branding used the FIRST time
+        // this report is generated is frozen into the snapshot's branding_json, so
+        // a later logo change never rewrites this historical PDF. If a frozen
+        // descriptor exists we use it verbatim; otherwise resolve once (server-side
+        // precedence, never the request body) and persist it if still unset.
         let branding = null, logoImage = null;
         try {
-          branding = await resolveReportBranding(env, scan.workspace_id);
-          if (branding?.logo) logoImage = await prepareLogoXObject(branding.logo, branding.accent);
+          const frozen = read.row?.branding_json ? JSON.parse(read.row.branding_json) : null;
+          if (frozen) {
+            branding = frozen;
+          } else {
+            branding = await resolveReportBrandingV2(env, { workspaceId: scan.workspace_id });
+            if (read.row?.id) {
+              await env.cybermeters_db
+                .prepare("UPDATE scan_report_snapshots SET branding_json = ? WHERE id = ? AND branding_json IS NULL")
+                .bind(JSON.stringify(branding), read.row.id).run();
+            }
+          }
+          const dataUri = await loadBrandingLogoDataUri(env, branding);
+          if (dataUri) logoImage = await prepareLogoXObject(dataUri, branding.accent);
         } catch { branding = null; logoImage = null; }
 
         const pdfBytes = buildScanReportPdf(scan, read, branding, logoImage);
