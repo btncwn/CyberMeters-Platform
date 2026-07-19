@@ -24,10 +24,10 @@ table set from the isolation matrix. A statement carrying an inline tenant predi
 
 - **body_workspace_trust:** 8
 - **global_latest_fallback:** 2
-- **r2_key_not_workspace_bound:** 11
-- **unscoped_tenant_query:** 240
+- **r2_key_not_workspace_bound:** 12
+- **unscoped_tenant_query:** 241
 
-Blocking findings are all covered by 19 documented suppressions
+Blocking findings are all covered by 20 documented suppressions
 (each a manually-verified out-of-band guard with a security contract) — see
 `scripts/security/tenant-query-audit-suppressions.json`. Zero unsuppressed.
 
@@ -46,7 +46,7 @@ They are listed for the record, not as defects.
 
 | Table | Unscoped queries |
 |---|---:|
-| `workspaces` | 67 |
+| `workspaces` | 68 |
 | `hosted_dns_entries` | 23 |
 | `scans` | 21 |
 | `dmarc_ingest_endpoints` | 14 |

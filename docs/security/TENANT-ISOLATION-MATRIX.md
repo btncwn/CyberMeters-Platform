@@ -11,12 +11,12 @@ data cannot be silently omitted.
 
 ## Counts
 
-- **schema tables:** 83
-- **classified:** 83
-- **tenant owned tables:** 79
+- **schema tables:** 85
+- **classified:** 85
+- **tenant owned tables:** 81
 - **infra or identity tables:** 4
 - **unclassified:** 0
-- **resource classes:** 30
+- **resource classes:** 31
 - **classes with dynamic coverage:** 17
 
 ## The 12 invariants
@@ -62,6 +62,7 @@ data cannot be silently omitted.
 | posture_state | reporting | direct(workspace_id) | 4 | ✓ | — |
 | api_tokens | account | direct(workspace_id) | 1 | — | ✓ |
 | subscriptions | billing | direct(workspace_id), account(owner_user_id), via_subscription(subscription_id) | 4 | ✓ | — |
+| report_branding | reporting | direct(workspace_id), account(owner_user_id) | 2 | — | — |
 | msp_portfolio | portfolio | account(owner_id) | 1 | — | — |
 | audit_log | core | direct(workspace_id) | 1 | ✓ | — |
 | deletion_lifecycle | core | direct(workspace_id) | 3 | — | — |
@@ -83,6 +84,7 @@ _ⁿᵗ = non-tenant (global infrastructure / identity root)._
 - **cyber_essentials:** workspace_id-scoped; read surfaces exist; write is answer-versioned (validate-ce-answer-versioning)
 - **website_security:** workspace_id-scoped; static audit + lifecycle validator (validate-website-security-lifecycle)
 - **api_tokens:** workspace_id + user_id scoped; account route ownership-gated
+- **report_branding:** workspace_branding is workspace_id-scoped (per-workspace co-brand logo); msp_branding_profiles is owner_user_id-scoped (MSP white-label profile, usable only for the MSP's own portfolio); isolation proven by validate-report-branding-v2 + the static audit; logos stored in R2 under tenant-prefixed, content-addressed keys
 - **msp_portfolio:** owner_id (MSP account) scoped; cross-MSP isolation proven by validate-portfolio + validate-msp-portfolio-domains
 - **deletion_lifecycle:** workspace/user-scoped lifecycle; purge-completeness proven by validate-purge-completeness
 - **auth_sessions:** per-user auth material; token-hash keyed; not a workspace resource — covered by validate-security-contracts
@@ -133,6 +135,7 @@ _ⁿᵗ = non-tenant (global infrastructure / identity root)._
 | `managed_case_events` | direct(workspace_id) | managed_cases |
 | `managed_cases` | direct(workspace_id) | managed_cases |
 | `mfa_challenges` | user(user_id) | auth_sessions |
+| `msp_branding_profiles` | account(owner_user_id) | report_branding |
 | `notification_events` | direct(workspace_id) | notifications |
 | `notification_preferences` | direct(workspace_id) | notifications |
 | `oauth_states` | infra | infrastructure |
@@ -165,6 +168,7 @@ _ⁿᵗ = non-tenant (global infrastructure / identity root)._
 | `workspace_assets` | direct(workspace_id) | assets |
 | `workspace_brand_assets` | direct(workspace_id) | brand |
 | `workspace_brand_profiles` | direct(workspace_id) | brand |
+| `workspace_branding` | direct(workspace_id) | report_branding |
 | `workspace_brs_score_history` | direct(workspace_id) | posture_state |
 | `workspace_brs_scores` | direct(workspace_id) | posture_state |
 | `workspace_domains` | direct(workspace_id) | domains |

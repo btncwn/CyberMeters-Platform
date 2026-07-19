@@ -744,6 +744,30 @@
       }
     },
     {
+      "class": "report_branding",
+      "domain": "reporting",
+      "tables": [
+        "workspace_branding",
+        "msp_branding_profiles"
+      ],
+      "ownership": {
+        "workspace_branding": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "msp_branding_profiles": {
+          "model": "account",
+          "column": "owner_user_id"
+        }
+      },
+      "non_tenant": false,
+      "coverage": {
+        "dynamic_harness": false,
+        "property_based": false,
+        "note": "workspace_branding is workspace_id-scoped (per-workspace co-brand logo); msp_branding_profiles is owner_user_id-scoped (MSP white-label profile, usable only for the MSP's own portfolio); isolation proven by validate-report-branding-v2 + the static audit; logos stored in R2 under tenant-prefixed, content-addressed keys"
+      }
+    },
+    {
       "class": "msp_portfolio",
       "domain": "portfolio",
       "tables": [
@@ -929,6 +953,7 @@
     "managed_case_events": "managed_cases",
     "managed_cases": "managed_cases",
     "mfa_challenges": "auth_sessions",
+    "msp_branding_profiles": "report_branding",
     "notification_events": "notifications",
     "notification_preferences": "notifications",
     "oauth_states": "infrastructure",
@@ -961,6 +986,7 @@
     "workspace_assets": "assets",
     "workspace_brand_assets": "brand",
     "workspace_brand_profiles": "brand",
+    "workspace_branding": "report_branding",
     "workspace_brs_score_history": "posture_state",
     "workspace_brs_scores": "posture_state",
     "workspace_domains": "domains",
@@ -974,12 +1000,12 @@
     "workspaces": "workspaces"
   },
   "counts": {
-    "schema_tables": 83,
-    "classified": 83,
-    "tenant_owned_tables": 79,
+    "schema_tables": 85,
+    "classified": 85,
+    "tenant_owned_tables": 81,
     "infra_or_identity_tables": 4,
     "unclassified": 0,
-    "resource_classes": 30,
+    "resource_classes": 31,
     "classes_with_dynamic_coverage": 17
   }
 }
