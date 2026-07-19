@@ -144,9 +144,13 @@ back to Website Security as an OUTPUT (no double-count of the same signal).
 
 ## 6. Candidate rule families (acceptance standard, not a fixed count)
 
-Rules ship **only** when each is: evidence-backed · fixture-proven · ≥2 independent
-families · mutation-tested (remove one signal → cluster breaks) · double-count-free ·
-honest-language. Number is an output of that bar, not a target (7–8 clean rules expected).
+Rules ship **only** when each is: evidence-backed · fixture-proven · **≥2 INDEPENDENT
+signal families** (§4.3 — not merely ≥2 events, and not ≥2 producers within one family) ·
+mutation-tested (remove one signal → cluster breaks) · double-count-free · honest-language.
+The number is an output of that bar, not a target.
+
+**Six rules meet the bar and ship in v1** — each pairs two genuinely independent families
+that share the registrable-domain join:
 
 1. New hostname + certificate issuance/change
 2. New hostname + login/IdP surface
@@ -154,8 +158,26 @@ honest-language. Number is an output of that bar, not a target (7–8 clean rule
 4. Email-config change (DMARC/SPF/DKIM) + new hostname/certificate on same registrable domain
 5. New sender source + SPF/DMARC change (same root-domain window) *(bounded sender rule)*
 6. Unapproved technology (independent provenance) + new hostname/certificate
-7. Brand candidate + active DNS + HTTP/impersonation evidence
-8. Reappeared brand candidate + renewed active evidence
+
+**Brand ships NO rule in v1 (founder-accepted 2026-07-19).** Brand is a single signal
+family (§4.3), and its evidence concerns *lookalike* domains — a **different** registrable
+domain than the protected host/cert/email signals — so it does not reach ≥2 independent
+families at the registrable-domain join. The earlier candidates "brand candidate + active
+DNS/HTTP" and "reappeared brand candidate + renewed evidence" are brand-INTERNAL: DNS, HTTP
+and campaign linkage are facets of the **same** family, not independent families, so under
+the §4.3 rule they cannot form a cluster. Forcing one would fabricate a cross-domain
+correlation, which the honesty contract forbids. Therefore:
+
+- Brand evidence **is** collected by the adapter in B1 (workspace_brand_assets +
+  brand_abuse_campaigns) and remains eligible for future phases.
+- Brand evidence **does not form a Related Changes cluster in v1** under the current
+  producer model. "Brand-alone never clusters" is enforced as a *tested invariant*
+  (`scripts/validate-m6-b1-related-changes.js`).
+- A Brand cluster ships only if and when two genuinely independent signal families can be
+  established (a B2/producer-model question), never from single-family Brand evidence.
+
+Brand impersonation continues to be handled by its own managed lifecycle (brand cases /
+takedown) — that path is unchanged and is not a Related Changes cluster.
 
 ---
 

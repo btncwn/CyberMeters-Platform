@@ -16,6 +16,7 @@ import {
   FEEDBACK_OPTIONS,
   CUSTOMER_STATE_FILTERS,
   HONESTY_NOTE,
+  emptyStateFor,
 } from '../relatedChangesDisplay'
 
 // The vocabulary lock is enforced by the backend + a CI validator; the frontend
@@ -196,5 +197,51 @@ describe('honesty note', () => {
     expect(HONESTY_NOTE).toContain('Change is not compromise')
     expect(HONESTY_NOTE).toContain('confirm whether each was planned')
     assertClean(HONESTY_NOTE.replace('Change is not compromise', ''))
+  })
+})
+
+describe('emptyStateFor — three-way distinction', () => {
+  // No presentation string here may imply a security verdict ("healthy / secure /
+  // all clear / protected") — an empty list is a factual "none observed", not a verdict.
+  const VERDICT_WORDS = ['healthy', 'secure', 'all clear', 'protected', 'safe', 'no threats']
+  const assertNoVerdict = (s) => {
+    const lower = String(s).toLowerCase()
+    for (const w of VERDICT_WORDS) expect(lower).not.toContain(w)
+  }
+
+  it('(filter) explains an empty filtered view without a verdict', () => {
+    const e = emptyStateFor({ complete_scans: 5, correlation_possible: true, latest_scan_quality: 'complete' }, true)
+    expect(e.title.toLowerCase()).toContain('review status')
+    assertClean(e.title); assertClean(e.description); assertNoVerdict(e.title); assertNoVerdict(e.description)
+  })
+
+  it('(a) not yet assessed when there is no complete assessment', () => {
+    const e = emptyStateFor({ complete_scans: 0, correlation_possible: false, latest_scan_quality: null }, false)
+    expect(e.title).toBe('Not yet assessed')
+    assertClean(e.description); assertNoVerdict(e.description)
+  })
+
+  it('(a) insufficient history with a single complete assessment', () => {
+    const e = emptyStateFor({ complete_scans: 1, correlation_possible: false, latest_scan_quality: 'complete' }, false)
+    expect(e.title.toLowerCase()).toContain('history')
+    assertClean(e.description); assertNoVerdict(e.description)
+  })
+
+  it('(b) incomplete correlation when the latest assessment did not complete', () => {
+    const e = emptyStateFor({ complete_scans: 2, correlation_possible: true, latest_scan_quality: 'partial' }, false)
+    expect(e.title.toLowerCase()).toContain('incomplete')
+    assertClean(e.description); assertNoVerdict(e.description)
+  })
+
+  it('(c) assessed with no related changes — factual, never a verdict', () => {
+    const e = emptyStateFor({ complete_scans: 3, correlation_possible: true, latest_scan_quality: 'complete' }, false)
+    expect(e.title).toContain('No related changes observed')
+    assertClean(e.title); assertClean(e.description); assertNoVerdict(e.title); assertNoVerdict(e.description)
+  })
+
+  it('degrades safely when the assessment context is missing', () => {
+    const e = emptyStateFor(null, false)
+    expect(e.title).toBe('Not yet assessed')
+    assertClean(e.description)
   })
 })

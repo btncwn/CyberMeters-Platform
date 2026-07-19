@@ -9,7 +9,7 @@
 // creation here (design §8). Wording stays "related change", never attack/compromise.
 import {
   listRelatedChanges, getRelatedChange, setRelatedChangeCustomerState,
-  linkRelatedChangeToCase, createCaseFromRelatedChange,
+  linkRelatedChangeToCase, createCaseFromRelatedChange, getAssessmentContext,
   CUSTOMER_STATES, CUSTOMER_FEEDBACK_STATES,
 } from "../engines/related-changes.js";
 import { parseBoundedInteger } from "../lib/util.js";
@@ -66,9 +66,13 @@ export async function relatedChangesRoutes(rctx) {
       const limit = parseBoundedInteger(url.searchParams.get("limit"), 50, 1, 200);
       const offset = parseBoundedInteger(url.searchParams.get("offset"), 0, 0, 100000);
       const rows = await listRelatedChanges(env, wsId, { customer_state: customerState, limit, offset });
+      // Read-only assessment context so the surface can distinguish "not yet assessed"
+      // from "assessed, nothing found" without inferring a verdict client-side.
+      const assessment = await getAssessmentContext(env, wsId);
       return json({
         workspace_id: wsId,
         customer_states: CUSTOMER_STATES,
+        assessment,
         count: rows.length,
         related_changes: rows.map(clusterToApi),
       });

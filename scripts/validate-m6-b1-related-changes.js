@@ -325,6 +325,53 @@ async function clusters(env) { return orch.listRelatedChanges(env, "ws_1", {}); 
     res.ok && clean(res.case.title) && clean(res.case.summary));
 }
 
+// ── 13. Assessment context — three-way empty-state distinction (read-only) ────
+{
+  // (a) not yet assessed: a workspace with NO complete scan.
+  const db = buildDb();
+  db.prepare("INSERT INTO users (id, email) VALUES (?, ?)").run("usr_1", "usr_1@acme.co.uk");
+  db.prepare("INSERT INTO workspaces (id, name) VALUES (?, ?)").run("ws_1", "Acme");
+  db.prepare("INSERT INTO domains (id, user_id, domain) VALUES (?, ?, ?)").run("dom_1", "usr_1", "acme.co.uk");
+  db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES (?, ?)").run("ws_1", "dom_1");
+  const env = makeEnv(db);
+  let ctx = await orch.getAssessmentContext(env, "ws_1");
+  ok("13a no complete scan → not yet assessed", ctx.complete_scans === 0 && ctx.correlation_possible === false);
+
+  // (b) one complete scan → still insufficient history for correlation.
+  db.prepare("INSERT INTO scans (id, domain_id, domain, status, scan_quality, workspace_id, created_at) VALUES (?,?,?,?,?,?,?)")
+    .run("s1", "dom_1", "acme.co.uk", "completed", "complete", "ws_1", T_PREV);
+  ctx = await orch.getAssessmentContext(env, "ws_1");
+  ok("13b one complete scan → correlation not yet possible", ctx.complete_scans === 1 && ctx.correlation_possible === false);
+
+  // (c) two complete scans, latest complete → assessed, correlation possible.
+  db.prepare("INSERT INTO scans (id, domain_id, domain, status, scan_quality, workspace_id, created_at) VALUES (?,?,?,?,?,?,?)")
+    .run("s2", "dom_1", "acme.co.uk", "completed", "complete", "ws_1", T_CUR);
+  ctx = await orch.getAssessmentContext(env, "ws_1");
+  ok("13c two complete scans → correlation possible, latest complete", ctx.correlation_possible === true && ctx.latest_scan_quality === "complete");
+
+  // (b') a later completed-but-PARTIAL scan → latest quality reflects the incomplete run.
+  db.prepare("INSERT INTO scans (id, domain_id, domain, status, scan_quality, workspace_id, created_at) VALUES (?,?,?,?,?,?,?)")
+    .run("s3", "dom_1", "acme.co.uk", "completed", "partial", "ws_1", "2026-07-15T10:00:00.000Z");
+  ctx = await orch.getAssessmentContext(env, "ws_1");
+  ok("13d latest completed-but-partial scan surfaces as incomplete", ctx.correlation_possible === true && ctx.latest_scan_quality === "partial");
+
+  // Tenant isolation: another workspace's scans never inflate this count.
+  seedBase(db, { ws: "ws_2", user: "usr_2", domId: "dom_2", domain: "other.co.uk" });
+  ctx = await orch.getAssessmentContext(env, "ws_1");
+  ok("13e assessment context is tenant-scoped", ctx.complete_scans === 2);
+}
+
+// ── 14. Phase 8x observability is sanitized (source contract) ─────────────────
+{
+  const src = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "engines", "scan-engine.js"), "utf8");
+  const m = src.match(/\[related-changes\] correlation phase failed[\s\S]{0,400}?\}\s*\}/);
+  const block = m ? m[0] : "";
+  ok("14a Phase 8x observability exists", block.length > 0);
+  ok("14b it routes through redactedJson (secret backstop)", block.includes("redactedJson"));
+  ok("14c it logs the error TYPE only, never the message", block.includes("err?.name") && !/err\??\.message/.test(block));
+  ok("14d it logs no raw evidence / cluster / threshold fields", !/evidence|cluster|threshold|source_record|entity_key/.test(block));
+}
+
 console.log(`\nM6 B1 Related Changes: ${pass}/${pass + fail} passed`);
 if (fail > 0) { console.error("related-changes validation FAILED"); process.exit(1); }
 console.log("related-changes validation passed");

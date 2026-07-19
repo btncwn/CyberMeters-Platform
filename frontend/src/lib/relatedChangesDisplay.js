@@ -191,6 +191,57 @@ export function producerFamilyLabel(family) {
   return words ? words.charAt(0).toUpperCase() + words.slice(1) : 'Observation';
 }
 
+/**
+ * Empty-state copy. Distinguishes three honest situations so an empty list never
+ * implies a clean verdict when correlation simply has not run yet:
+ *   (a) insufficient history / not yet assessed  — fewer than two complete assessments
+ *   (b) incomplete/failed correlation            — latest assessment did not complete
+ *   (c) assessed, no related changes             — complete history, nothing correlated
+ * Wording stays inside the vocabulary lock: no attack, incident, anomaly, unusualness,
+ * AI, or "healthy / secure / all clear" verdict language — a related change is a
+ * deterministic correlation, and its absence is a factual "none observed", never a
+ * security verdict.
+ * @param {{complete_scans?: number, correlation_possible?: boolean, latest_scan_quality?: string|null} | null} assessment
+ * @param {boolean} hasFilter
+ * @returns {{ title: string, description: string }}
+ */
+export function emptyStateFor(assessment, hasFilter) {
+  if (hasFilter) {
+    return {
+      title: 'No related changes with this review status.',
+      description: 'No change clusters match the selected review state. Clear the filter to see all related changes.',
+    };
+  }
+  const completeScans = Number(assessment?.complete_scans ?? 0);
+  const possible = Boolean(assessment?.correlation_possible);
+  const latestQuality = assessment?.latest_scan_quality ?? null;
+  // (a) insufficient history / not yet assessed
+  if (!possible) {
+    if (completeScans <= 0) {
+      return {
+        title: 'Not yet assessed',
+        description: 'Related changes are found by comparing your completed assessments. They will appear here once your assessments have run.',
+      };
+    }
+    return {
+      title: 'Not enough history yet',
+      description: 'Related changes compare two or more completed assessments of the same domain. Run another assessment to establish a comparison.',
+    };
+  }
+  // (b) incomplete / failed correlation for the latest assessment
+  if (latestQuality && latestQuality !== 'complete') {
+    return {
+      title: 'Latest assessment was incomplete',
+      description: 'The most recent assessment did not complete, so related changes for it are not available yet. They are reviewed after the next complete assessment.',
+    };
+  }
+  // (c) assessed, no related changes
+  return {
+    title: 'No related changes observed in this period.',
+    description: 'When two or more independent signal families change together on the same domain in the same period, the change cluster appears here for you to confirm whether it was planned.',
+  };
+}
+
 // The single honesty note shown on every related-changes surface. Kept here so
 // the wording is identical everywhere and stays inside the vocabulary lock.
 export const HONESTY_NOTE =

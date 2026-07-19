@@ -197,6 +197,48 @@ export async function listRelatedChanges(env, workspaceId, { customer_state = nu
   return rows.results || [];
 }
 
+/**
+ * getAssessmentContext — read-only signal the empty state uses to distinguish "not yet
+ * assessed" from "assessed, nothing found". It does NOT change the correlation model,
+ * the schema or any persistence: it just counts the workspace's complete scans (a
+ * complete PLUS a complete previous scan is what correlation needs) and reports the
+ * latest scan's quality. Tenant-scoped via workspace_domains.
+ *
+ * The unobservable edge — a complete latest scan whose Phase 8x errored — cannot be
+ * distinguished here without a schema marker (out of scope); it is surfaced to operators
+ * by the sanitized scan-finalize log instead, and reads to the customer as "no related
+ * changes", which is the honest customer-facing statement (we hold no clusters).
+ */
+export async function getAssessmentContext(env, workspaceId) {
+  const db = env.cybermeters_db;
+  const completeRow = await db
+    .prepare(
+      `SELECT COUNT(*) AS c FROM scans s
+         JOIN workspace_domains wd ON wd.domain_id = s.domain_id
+        WHERE wd.workspace_id = ? AND s.status = 'completed' AND s.scan_quality = 'complete'`
+    )
+    .bind(workspaceId)
+    .first()
+    .catch(() => null);
+  const latestRow = await db
+    .prepare(
+      `SELECT s.scan_quality AS q FROM scans s
+         JOIN workspace_domains wd ON wd.domain_id = s.domain_id
+        WHERE wd.workspace_id = ? AND s.status = 'completed'
+        ORDER BY s.created_at DESC LIMIT 1`
+    )
+    .bind(workspaceId)
+    .first()
+    .catch(() => null);
+  const completeScans = Number(completeRow?.c || 0);
+  return {
+    complete_scans: completeScans,
+    // Correlation needs a complete scan AND a complete previous scan to bound the window.
+    correlation_possible: completeScans >= 2,
+    latest_scan_quality: latestRow?.q ?? null,
+  };
+}
+
 export async function getRelatedChange(env, workspaceId, id) {
   const cluster = await env.cybermeters_db
     .prepare(`SELECT * FROM related_changes WHERE workspace_id = ? AND id = ?`)

@@ -28,6 +28,7 @@ import {
   shortDate,
   HONESTY_NOTE,
   CUSTOMER_STATE_FILTERS,
+  emptyStateFor,
 } from '../lib/relatedChangesDisplay'
 
 /** @param {{ tone: string, children: import('react').ReactNode }} props */
@@ -42,6 +43,7 @@ function Tag({ tone, children }) {
 export default function RelatedChangesList({ workspaceId }) {
   const navigate = useNavigate()
   const [items, setItems] = useState([])
+  const [assessment, setAssessment] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [stateFilter, setStateFilter] = useState('')
@@ -58,6 +60,7 @@ export default function RelatedChangesList({ workspaceId }) {
         // Sort by most recently observed first — the backend supplies last_seen.
         list.sort((a, b) => String(b?.last_seen || '').localeCompare(String(a?.last_seen || '')))
         setItems(list)
+        setAssessment(res?.assessment || null)
         setError(null)
       })
       .catch(() => {
@@ -110,13 +113,16 @@ export default function RelatedChangesList({ workspaceId }) {
 
       {!loading && error && <ErrorAlert message={error} onRetry={() => setReloadKey((k) => k + 1)} />}
 
-      {!loading && !error && items.length === 0 && (
-        <EmptyState
-          icon={GitCompareArrows}
-          title="No related changes observed in this period."
-          description="When two or more independent signal families change together on the same domain in the same period, the change cluster appears here for you to confirm whether it was planned."
-        />
-      )}
+      {!loading && !error && items.length === 0 && (() => {
+        const empty = emptyStateFor(assessment, Boolean(stateFilter))
+        return (
+          <EmptyState
+            icon={GitCompareArrows}
+            title={empty.title}
+            description={empty.description}
+          />
+        )
+      })()}
 
       {!loading && !error && items.length > 0 && (
         <ul className="space-y-3">

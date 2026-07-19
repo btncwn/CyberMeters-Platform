@@ -103,10 +103,33 @@ describe('RelatedChangesList', () => {
     expect(titles[0].textContent).toContain('Login or admin surface')
   })
 
-  it('renders an honest empty state', async () => {
-    api.getRelatedChanges.mockResolvedValue({ related_changes: [] })
+  it('empty state (c): assessed with no related changes', async () => {
+    api.getRelatedChanges.mockResolvedValue({
+      related_changes: [],
+      assessment: { complete_scans: 3, correlation_possible: true, latest_scan_quality: 'complete' },
+    })
     renderList()
     expect(await screen.findByText('No related changes observed in this period.')).toBeInTheDocument()
+  })
+
+  it('empty state (a): not yet assessed when there is no complete history', async () => {
+    api.getRelatedChanges.mockResolvedValue({
+      related_changes: [],
+      assessment: { complete_scans: 0, correlation_possible: false, latest_scan_quality: null },
+    })
+    renderList()
+    expect(await screen.findByText('Not yet assessed')).toBeInTheDocument()
+    // Must NOT claim "no related changes" (which would imply an assessment happened).
+    expect(screen.queryByText('No related changes observed in this period.')).not.toBeInTheDocument()
+  })
+
+  it('empty state (b): latest assessment incomplete', async () => {
+    api.getRelatedChanges.mockResolvedValue({
+      related_changes: [],
+      assessment: { complete_scans: 2, correlation_possible: true, latest_scan_quality: 'partial' },
+    })
+    renderList()
+    expect(await screen.findByText('Latest assessment was incomplete')).toBeInTheDocument()
   })
 
   it('renders a customer-safe error state with retry', async () => {

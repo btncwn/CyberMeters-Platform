@@ -8,6 +8,7 @@ import { customerSafeFailure } from "../lib/errors.js";
 import { createAuditEvent, createNotificationsForDomain } from "../lib/events.js";
 import { json, sendLifecycleEmail } from "../lib/lifecycle-email.js";
 import { createId } from "../lib/util.js";
+import { redactedJson } from "../lib/redact.js";
 import { processAlertsForWorkspace } from "./alerts.js";
 import { createManagedAsmCasesForScan, verifyManagedAsmCasesForScan } from "./asm-cases.js";
 import { sendAssetChangeAlert } from "./asset-alert-delivery.js";
@@ -1245,7 +1246,18 @@ function buildCanonicalUrlProfile(modules) {
           scanQuality: scanQuality?.status, assessedAt: completedAt,
         });
       }
-    } catch { /* non-fatal — correlation catches up on the next scan */ }
+    } catch (err) {
+      // Non-fatal — correlation catches up on the next scan. But a silent failure must
+      // still be VISIBLE to operators, so emit ONE sanitized line. It carries only the
+      // scan id (the operational correlation key) and the error TYPE — never the error
+      // message (which could carry a D1/query fragment), never raw evidence, customer
+      // data or internal rule thresholds. Routed through redactedJson as a backstop, and
+      // itself wrapped so logging can never break finalize.
+      try {
+        console.warn("[related-changes] correlation phase failed (non-fatal): " +
+          redactedJson({ scan_id: scanId, error: err?.name || "Error" }));
+      } catch { /* logging must never break finalize */ }
+    }
 
     // Phase 8o: Canonical reporting snapshot (M5.c) — one completed Cyber MOT →
     // one immutable eight-domain snapshot (D1 index + R2 JSON). Runs AFTER the
