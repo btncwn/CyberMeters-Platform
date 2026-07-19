@@ -5,6 +5,17 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## v2026.07.19-8 — M6 Phase B1: Deterministic Related Changes — deployed 2026-07-19 (migration 098)
+
+- **Release tag:** `v2026.07.19-8` (points at squash-merge commit `b3397e565681d438f0dc56e5bb4470c6f6b106da`, PR #193).
+- **Live Worker Version ID:** `bb982d97-19ec-4abd-b76a-a287613b1f26` (verified live at `GET /health`; deployed 2026-07-19 from main `b3397e5`).
+- **Rollback Worker Version ID:** `b000cc6e-1f75-478c-b95b-f93876bb110b` (v2026.07.19-7).
+- **Migration:** `098-related-changes.sql` applied to production D1 (additive: `CREATE TABLE IF NOT EXISTS related_changes` + `related_change_evidence`, and `ALTER TABLE scan_report_snapshots ADD COLUMN related_changes_json`). Verified post-deploy — both tables present and empty, the new column present, unique indexes present.
+- **What shipped:** deterministic same-entity / same-window correlation over the existing change-event producers via a read-only adapter (no table moves). A cluster is produced only when a registered rule pairs **≥2 INDEPENDENT signal families** on the same registrable domain within a bounded window (same or adjacent complete scan). Six rules ship; the rule decides and the customer confirms (mark expected / unrelated / confirm unexpected). **Manual case link/create only — no automatic case or alert, and no attack / compromise / incident language.** Persistence is append-only with evidence stored by **pointer**, never copied. A short "Related Changes observed in this period" summary is frozen into both report PDFs. Runs as scan-finalize Phase 8x, gated on a complete scan with a complete previous scan; non-fatal, with sanitized operator observability. A three-way empty state distinguishes "not yet assessed", "latest assessment incomplete" and "assessed with none" — never a healthy verdict.
+- **Brand (honest narrowing):** Brand evidence **is collected** in B1 but forms **no** Related Changes cluster in v1 under the current producer model. Brand is a single signal family — its evidence concerns *lookalike* domains, a different registrable domain than the protected host/cert/email signals — so it cannot reach ≥2 independent families at the registrable-domain join. "Brand-alone never clusters" is a tested invariant. A Brand cluster ships only if two genuinely independent signal families can later be established; it is never forced from single-family evidence.
+- **Known limitation:** the registrable-domain resolver is UK-multi-level only (`.co.uk`, `.org.uk`, …), not the full Public Suffix List — sufficient for the UK private beta; a full-PSL resolver is a bounded prerequisite before any non-UK customer.
+- **Acceptance:** founder-authenticated acceptance (A6 — Related Changes RC-01…10) remains **NOT RUN**. Proven by CI, behavioural validators and unauthenticated `401` route checks only; deployed ≠ founder-verified. The authenticated customer workflow must be run in a founder session before public beta. B2 (baselines / unusualness) and B3 (statistical / AI) remain out of scope and unstarted.
+
 ## UC3 — Unified Remediation, Case & Ownership Workflow: assignee-membership + idempotent assignment (code-only, no migration)
 
 - **Release tag / Live Worker / Rollback Worker:** recorded at deploy — see the episode
