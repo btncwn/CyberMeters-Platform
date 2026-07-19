@@ -31,19 +31,35 @@ export default function ForgotPasswordPage() {
       {/* Brand */}
       <CyberMetersLogo size={48} showWordmark animated className="mb-8" />
 
-      <div className="card w-full max-w-sm p-8">
+      {/*
+        Width is state-specific: the success ("Check your email") confirmation is
+        deliberately prominent — roughly a third of the desktop viewport
+        (~34vw, floored at 480px and capped at 560px) while staying ~92vw on
+        mobile — whereas the entry form keeps its original compact width. The
+        mobile width uses `w-full` inside the page's `px-4` gutter so it can never
+        overflow horizontally. This lives entirely on this page; the shared
+        `.card` utility (background/border/shadow only) is untouched, so no other
+        auth screen changes.
+      */}
+      <div
+        className={`card ${
+          submitted
+            ? 'w-full max-w-[480px] md:w-[34vw] md:min-w-[480px] md:max-w-[560px] p-10 sm:p-12'
+            : 'w-full max-w-sm p-8'
+        }`}
+      >
         {submitted ? (
           /* ── Success state ── */
           <div className="text-center">
-            <div className="w-12 h-12 rounded-full bg-brand-50 flex items-center justify-center mx-auto mb-4">
-              <CheckCircle2 className="w-6 h-6 text-brand-600" />
+            <div className="w-16 h-16 rounded-full bg-brand-50 flex items-center justify-center mx-auto mb-5">
+              <CheckCircle2 className="w-8 h-8 text-brand-600" />
             </div>
-            <h1 className="text-xl font-bold text-gray-900 mb-2">Check your email</h1>
-            <p className="text-sm text-gray-500 mb-6">
+            <h1 className="text-2xl font-bold text-gray-900 mb-3">Check your email</h1>
+            <p className="text-base text-gray-500 leading-relaxed mb-6">
               If <span className="font-medium text-gray-700">{email}</span> is registered,
               you'll receive a reset link within a few minutes. The link expires in 1 hour.
             </p>
-            <p className="text-xs text-gray-400 mb-6">
+            <p className="text-sm text-gray-400 mb-7">
               Didn't receive anything? Check your spam folder, or{' '}
               <button
                 className="text-brand-600 font-semibold hover:underline"
@@ -52,7 +68,7 @@ export default function ForgotPasswordPage() {
                 try again
               </button>.
             </p>
-            <Link to="/login" className="btn-primary w-full justify-center">
+            <Link to="/login" className="btn-primary w-full justify-center py-3.5 text-base">
               Back to sign in
             </Link>
           </div>
