@@ -88,6 +88,8 @@ const WorkspaceCyberEssentialsPage  = lazy(() => import('./pages/ws/WorkspaceCyb
 const WorkspaceSupplyChainPage      = lazy(() => import('./pages/ws/WorkspaceSupplyChainPage'))
 const WorkspaceAuditLogPage         = lazy(() => import('./pages/ws/WorkspaceAuditLogPage'))
 const WorkspaceMembersPage          = lazy(() => import('./pages/ws/WorkspaceMembersPage'))
+const WorkspaceCasesPage            = lazy(() => import('./pages/ws/WorkspaceCasesPage'))
+const WorkspaceCaseDetailPage       = lazy(() => import('./pages/ws/WorkspaceCaseDetailPage'))
 const WorkspaceRetentionPage        = lazy(() => import('./pages/ws/WorkspaceRetentionPage'))
 
 
@@ -222,6 +224,8 @@ function AppRoutes() {
           <Route path="ws/supply-chain"        element={<WorkspaceSupplyChainPage />} />
           <Route path="ws/audit-log"            element={<WorkspaceAuditLogPage />} />
           <Route path="ws/members"              element={<WorkspaceMembersPage />} />
+          <Route path="ws/cases"                element={<WorkspaceCasesPage />} />
+          <Route path="ws/cases/:caseId"        element={<WorkspaceCaseDetailPage />} />
           <Route path="ws/alerts"               element={<WorkspaceAlertsPage />} />
           <Route path="ws/retention"            element={<WorkspaceRetentionPage />} />
 

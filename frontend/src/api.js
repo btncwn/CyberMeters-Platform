@@ -565,6 +565,15 @@ export const api = {
   getCase: (id, caseId) =>
     request(`/workspaces/${id}/cases/${encodeURIComponent(caseId)}`),
 
+  /** POST /api/workspaces/:id/cases/:caseId/assign — canonical ownership assignment.
+   *  The backend validates assigned_user_id is an ACTIVE member of this workspace
+   *  (fail-closed); the picker only ever sends a real member id, never free text. */
+  assignCase: (id, caseId, payload) =>
+    request(`/workspaces/${id}/cases/${encodeURIComponent(caseId)}/assign`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
   /** POST /api/workspaces/:id/cases/:caseId/transition — validated by the backend */
   transitionCase: (id, caseId, payload) =>
     request(`/workspaces/${id}/cases/${encodeURIComponent(caseId)}/transition`, {
