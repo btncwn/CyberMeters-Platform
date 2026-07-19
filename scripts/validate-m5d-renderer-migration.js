@@ -219,10 +219,16 @@ async function main() {
      JSON.stringify(v2Res.data.limitations).includes("not a certification"));
   ok("limitations rendered on both PDF and JSON surfaces",
      pdfRes.text.includes("it is not a certification") && (v2Res.data.limitations?.length ?? 0) >= 3);
-  ok("methodology versions + assessed_at rendered",
-     pdfRes.text.includes(truth.methodology.cyber_mot_resolver_version) &&
+  // Founder A5 correction: internal resolver/methodology VERSION identifiers are no
+  // longer printed in the customer-facing PDF body (implementation noise) — but they
+  // remain in the snapshot/JSON methodology for traceability, and the customer-facing
+  // assessed_at date is still rendered. This keeps the renderer snapshot-native while
+  // removing the version string from the visible report.
+  ok("assessed_at rendered on PDF; version identifiers removed from visible body but retained in metadata",
      pdfRes.text.includes("Assessed on 15 July 2026") &&
-     v2Res.data.assessed_at === truth.snapshot.as_of);
+     v2Res.data.assessed_at === truth.snapshot.as_of &&
+     !pdfRes.text.includes(truth.methodology.cyber_mot_resolver_version) &&
+     v2Res.data.methodology?.cyber_mot_resolver_version === truth.methodology.cyber_mot_resolver_version);
   const spfAction = v2Res.data.remediation_actions.find((a) => a.remediation_id === "email.spf.publish");
   ok("one remediation action carries its finding linkage + ceiling",
      !!spfAction && spfAction.finding_ids.includes("email_missing_spf") && !!spfAction.verification_ceiling);
@@ -444,7 +450,7 @@ async function main() {
       {
         name: "limitations dropped from the PDF",
         file: srcPath("engines", "pdf.js"),
-        from: "  for (const l of snap.limitations || []) w.prose(`- ${l}`, { size: 8, color: \"0.35 0.38 0.44\" });",
+        from: "  for (const l of snap.limitations || []) w.proseKeep(`- ${l}`, { size: 8, color: \"0.35 0.38 0.44\" });",
         to:   "  ;",
       },
       {
