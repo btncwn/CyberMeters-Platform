@@ -32,22 +32,11 @@ export default function ForgotPasswordPage() {
       <CyberMetersLogo size={48} showWordmark animated className="mb-8" />
 
       {/*
-        Width is state-specific: the success ("Check your email") confirmation is
-        deliberately prominent — roughly a third of the desktop viewport
-        (~34vw, floored at 480px and capped at 560px) while staying ~92vw on
-        mobile — whereas the entry form keeps its original compact width. The
-        mobile width uses `w-full` inside the page's `px-4` gutter so it can never
-        overflow horizontally. This lives entirely on this page; the shared
-        `.card` utility (background/border/shadow only) is untouched, so no other
-        auth screen changes.
+        Both the form and the "Check your email" success state share the ONE
+        canonical `.auth-card` size (see index.css) — same width, same padding —
+        so the confirmation is never a different size family from the form.
       */}
-      <div
-        className={`card ${
-          submitted
-            ? 'w-full max-w-[480px] md:w-[34vw] md:min-w-[480px] md:max-w-[560px] p-10 sm:p-12'
-            : 'w-full max-w-sm p-8'
-        }`}
-      >
+      <div className="card auth-card">
         {submitted ? (
           /* ── Success state ── */
           <div className="text-center">

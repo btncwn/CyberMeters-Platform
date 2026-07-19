@@ -142,7 +142,7 @@ export default function LoginPage() {
       {/* Brand */}
       <CyberMetersLogo size={48} showWordmark animated className="mb-8" />
 
-      <div className="card w-full max-w-sm p-8 shadow-card-lg !rounded-[20px]">
+      <div className="card auth-card shadow-card-lg !rounded-[20px]">
 
         {/* ── Step 1: Email + Password ── */}
         {!mfaRequired && (

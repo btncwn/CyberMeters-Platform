@@ -233,9 +233,9 @@ export default function InvitationLandingPage() {
   if (loadError) {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4">
-        <div className="w-full max-w-md space-y-6">
+        <div className="w-full flex flex-col items-center gap-6">
           <div className="flex justify-center"><CyberMetersLogoMark size={36} showWordmark animated /></div>
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 text-center">
+          <div className="card auth-card text-center">
             <div className="w-14 h-14 rounded-2xl bg-red-50 flex items-center justify-center mx-auto mb-4">
               <X className="w-7 h-7 text-red-500" />
             </div>
@@ -256,9 +256,9 @@ export default function InvitationLandingPage() {
   if (expired) {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4">
-        <div className="w-full max-w-md space-y-6">
+        <div className="w-full flex flex-col items-center gap-6">
           <div className="flex justify-center"><CyberMetersLogoMark size={36} showWordmark animated /></div>
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 text-center">
+          <div className="card auth-card text-center">
             <div className="w-14 h-14 rounded-2xl bg-amber-50 flex items-center justify-center mx-auto mb-4">
               <Clock className="w-7 h-7 text-amber-500" />
             </div>
@@ -280,9 +280,9 @@ export default function InvitationLandingPage() {
   if (alreadyUsed) {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4">
-        <div className="w-full max-w-md space-y-6">
+        <div className="w-full flex flex-col items-center gap-6">
           <div className="flex justify-center"><CyberMetersLogoMark size={36} showWordmark animated /></div>
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 text-center">
+          <div className="card auth-card text-center">
             <div className="w-14 h-14 rounded-2xl bg-green-50 flex items-center justify-center mx-auto mb-4">
               <CheckCircle className="w-7 h-7 text-green-500" />
             </div>
@@ -304,9 +304,9 @@ export default function InvitationLandingPage() {
   if (cancelled) {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4">
-        <div className="w-full max-w-md space-y-6">
+        <div className="w-full flex flex-col items-center gap-6">
           <div className="flex justify-center"><CyberMetersLogoMark size={36} showWordmark animated /></div>
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 text-center">
+          <div className="card auth-card text-center">
             <div className="w-14 h-14 rounded-2xl bg-gray-50 flex items-center justify-center mx-auto mb-4">
               <X className="w-7 h-7 text-gray-400" />
             </div>
@@ -328,9 +328,9 @@ export default function InvitationLandingPage() {
   if (joined) {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4">
-        <div className="w-full max-w-md space-y-6">
+        <div className="w-full flex flex-col items-center gap-6">
           <div className="flex justify-center"><CyberMetersLogoMark size={36} showWordmark animated /></div>
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 text-center">
+          <div className="card auth-card text-center">
             <div className="w-14 h-14 rounded-2xl bg-green-50 flex items-center justify-center mx-auto mb-4">
               <CheckCircle className="w-7 h-7 text-green-500" />
             </div>

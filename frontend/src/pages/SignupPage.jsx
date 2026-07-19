@@ -85,7 +85,7 @@ export default function SignupPage() {
 
       {/* ── Success: email sent ── */}
       {done ? (
-        <div className="card w-full max-w-sm p-8 text-center">
+        <div className="card auth-card text-center">
           <div className="flex justify-center mb-4">
             <div className="w-12 h-12 rounded-full bg-green-50 flex items-center justify-center">
               <CheckCircle className="w-6 h-6 text-green-500" />
@@ -110,7 +110,7 @@ export default function SignupPage() {
       ) : (
 
       /* ── Signup form ── */
-      <div className="card w-full max-w-sm p-8 shadow-card-lg !rounded-[20px]">
+      <div className="card auth-card shadow-card-lg !rounded-[20px]">
         <h1 className="text-xl font-bold text-gray-900 mb-1">Create account</h1>
         <p className="text-sm text-gray-400 mb-6">See your business's external security risks in minutes.</p>
 
