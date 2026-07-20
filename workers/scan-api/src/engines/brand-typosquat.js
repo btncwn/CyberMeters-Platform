@@ -17,13 +17,25 @@ export function extractBrandParts(domain) {
   return { brand: labels[0], tld: labels.slice(1).join('.') };
 }
 
-// Keywords that lift candidate risk to 'high' (impersonation-focused)
+// Keywords that lift candidate risk to 'high' (impersonation-focused).
+// Includes credential-theft themes (password/OTP/MFA) and the Microsoft 365
+// service names most commonly abused against small businesses.
 export const HIGH_RISK_BRAND_KEYWORDS = [
   'login', 'secure', 'account', 'verify', 'auth', 'portal', 'admin', 'support',
+  'password', 'office365', 'o365', 'm365', 'microsoft', 'otp', 'mfa',
 ];
 // Keywords that lift candidate risk to 'medium'
 const MED_RISK_BRAND_KEYWORDS = [
   'help', 'service', 'online', 'my', 'app', 'customer', 'access', 'billing',
+  'reset', 'unlock',
+];
+
+// Curated confusable-TLD substitutions for the exact brand label (acme.com → acme.co).
+// Bounded, curated list — never the full IANA set; TLD-swap of the unchanged brand
+// token is the most common real-world impersonation pattern. A swap equal to the
+// customer's own TLD is skipped, so the customer's own domain is never a candidate.
+export const CONFUSABLE_TLD_SWAPS = [
+  'com', 'co', 'net', 'org', 'io', 'app', 'uk', 'co.uk', 'info', 'biz',
 ];
 
 // Visual character substitutions commonly used in phishing / lookalike domains
@@ -60,6 +72,15 @@ function _typosquatRisk(sld, variantType) {
     score += 2; reasons.push('single-character typo variant');
   } else if (variantType === 'substitution') {
     score += 2; reasons.push('homoglyph character substitution');
+  } else if (variantType === 'tld_variation') {
+    // Exact brand label on a confusable TLD. Score 4 ranks these above keyword
+    // and typo variants inside the candidate cap, but deliberately BELOW the
+    // 'high' threshold (5): computeScore turns high/critical generated
+    // candidates into scored findings, and an unregistered permutation must
+    // never move a customer's score. Persistence-side risk stays owned by
+    // scoreBrandCandidateRisk, whose registration-reality gate caps unregistered
+    // candidates at 'low' and lifts DNS/MX-confirmed ones.
+    score += 4; reasons.push('exact brand name on a different top-level domain');
   }
 
   const risk_level = score >= 7 ? 'critical' : score >= 5 ? 'high' : score >= 2 ? 'medium' : 'low';
@@ -69,6 +90,18 @@ function _typosquatRisk(sld, variantType) {
 /** Maximum candidates returned by generateTyposquatCandidates. */
 const MAX_BRAND_CANDIDATES = 40;
 
+// Per-family floors inside MAX_BRAND_CANDIDATES. Without them the ~50 keyword
+// variants plus the TLD swaps would out-score and silently crowd out every
+// homoglyph/typo variant for longer brands — a coverage regression, not a
+// ranking choice. Quotas sum to the cap; unused quota backfills by score.
+const BRAND_FAMILY_QUOTAS = { tld: 10, keyword: 14, character: 16 };
+
+function _variantFamily(variantType) {
+  if (variantType === 'tld_variation') return 'tld';
+  if (variantType === 'hyphen_keyword' || variantType === 'prefix_keyword') return 'keyword';
+  return 'character';
+}
+
 /**
  * generateTyposquatCandidates(brand, tld)
  * Pure function. Generates lookalike domain candidates via:
@@ -76,20 +109,25 @@ const MAX_BRAND_CANDIDATES = 40;
  *   2. Omission                (drop one character)
  *   3. Duplication             (double one character)
  *   4. Transposition           (swap adjacent characters)
- *   5. Hyphen keyword append   (brand-login.tld)
- *   6. Prefix keyword prepend  (login-brand.tld)
- * Returns up to MAX_BRAND_CANDIDATES items sorted by descending risk score.
+ *   5. Keyboard-adjacent substitution
+ *   6. Hyphen keyword append   (brand-login.tld)
+ *   7. Prefix keyword prepend  (login-brand.tld)
+ *   8. TLD substitution        (brand.co — exact brand label on a confusable TLD)
+ * Returns up to MAX_BRAND_CANDIDATES items sorted by descending risk score,
+ * with per-family floors so no variant family is silently crowded out.
+ * The customer's own registered domain is never emitted.
  */
 export function generateTyposquatCandidates(brand, tld) {
   if (!brand || brand.length < 3) return [];
 
+  const ownDomain = `${brand}.${tld}`;
   const seen  = new Set();
   const items = [];
 
-  function add(sld, variantType) {
-    const candidate_domain = `${sld}.${tld}`;
+  function add(sld, variantType, candidateTld = tld) {
+    const candidate_domain = `${sld}.${candidateTld}`;
+    if (candidate_domain === ownDomain) return;
     if (seen.has(candidate_domain)) return;
-    if (sld === brand) return;
     if (sld.length < 2) return;
     seen.add(candidate_domain);
     const { risk_level, risk_reasons, _score } = _typosquatRisk(sld, variantType);
@@ -140,14 +178,42 @@ export function generateTyposquatCandidates(brand, tld) {
     add(`${kw}-${brand}`, 'prefix_keyword');
   }
 
+  // 8. TLD substitution — the exact brand label on a confusable TLD.
+  for (const swapTld of CONFUSABLE_TLD_SWAPS) {
+    if (swapTld === tld) continue;
+    add(brand, 'tld_variation', swapTld);
+  }
+
   // Sort by risk score desc, then alphabetically for determinism
   items.sort(
     (a, b) => b._score - a._score || a.candidate_domain.localeCompare(b.candidate_domain)
   );
 
+  // Family-quota selection inside the cap, then score-ordered backfill of any
+  // unused quota, so every variant family stays represented.
+  const counts   = { tld: 0, keyword: 0, character: 0 };
+  const selected = [];
+  const overflow = [];
+  for (const item of items) {
+    const family = _variantFamily(item.variant_type);
+    if (selected.length < MAX_BRAND_CANDIDATES && counts[family] < BRAND_FAMILY_QUOTAS[family]) {
+      counts[family]++;
+      selected.push(item);
+    } else {
+      overflow.push(item);
+    }
+  }
+  for (const item of overflow) {
+    if (selected.length >= MAX_BRAND_CANDIDATES) break;
+    selected.push(item);
+  }
+  selected.sort(
+    (a, b) => b._score - a._score || a.candidate_domain.localeCompare(b.candidate_domain)
+  );
+
   // Strip internal scoring field before returning.
   // Sprint 9D: all scan-time candidates are unvalidated (DNS probe deferred to /refresh).
-  return items.slice(0, MAX_BRAND_CANDIDATES).map(({ _score, ...rest }) => ({
+  return selected.map(({ _score, ...rest }) => ({
     ...rest,
     confidence:         40,
     validation_quality: "weak",
