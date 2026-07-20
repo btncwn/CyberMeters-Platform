@@ -349,6 +349,7 @@ async function main() {
   const nowD = new Date();
   if (nowD.getUTCHours() === 2) expectedTasks.push("report_retention");
   if (nowD.getUTCHours() === 3) expectedTasks.push("brand_passive_discovery");
+  if (nowD.getUTCHours() === 4) expectedTasks.push("brand_http_enrichment");
   if (nowD.getUTCHours() === 8) expectedTasks.push("ops_health_heartbeat");
   if (nowD.getUTCDay() === 1 && nowD.getUTCHours() === 8) expectedTasks.push("weekly_digest");
   const seenTasks = cronPoints.map((d) => String(d.blobs?.[1] ?? "")).sort();

@@ -536,6 +536,9 @@ jobs:
       - name: Validate brand passive discovery (CT nested-host discovery / membership filter / CT-observed honesty / tenant isolation)
         run: node scripts/validate-brand-passive-discovery.js
 
+      - name: Validate brand HTTP/TLS enrichment (SSRF-safe live probe / tri-state https / login-surface honesty / tenant isolation)
+        run: node scripts/validate-brand-http-enrichment.js
+
       - name: Validate hosted TLS-RPT (create/verify/delete + coexistence + isolation)
         run: node scripts/validate-hosted-tls-rpt.js
 

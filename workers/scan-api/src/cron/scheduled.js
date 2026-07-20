@@ -140,6 +140,15 @@ export async function runScheduled(event, env, ctx, tasks) {
 	      ctx.waitUntil(runCronTask(env, "brand_passive_discovery", () => tasks.runBrandPassiveDiscoverySweep(env)));
 	    }
 
+	    // ── Brand HTTP/TLS live enrichment (daily) ───────────────────────────
+	    // For lookalike candidates DNS has confirmed live, probe the live web
+	    // surface (through the SSRF-safe fetcher) to set https_available and detect a
+	    // real login/password form. Runs at 04:00 UTC, one hour after discovery, so
+	    // hosts found by the discovery sweep have had a DNS-enrichment tick first.
+	    if (tasks.runBrandHttpEnrichmentSweep && new Date(now).getUTCHours() === 4) {
+	      ctx.waitUntil(runCronTask(env, "brand_http_enrichment", () => tasks.runBrandHttpEnrichmentSweep(env)));
+	    }
+
 	    // ── Report retention cleanup ─────────────────────────────────────────
   // The Worker cron also drives scheduled scans, so keep the hourly trigger
   // and run retention once daily at 02:00 UTC.
