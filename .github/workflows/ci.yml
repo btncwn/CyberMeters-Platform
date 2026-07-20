@@ -415,6 +415,15 @@ jobs:
       - name: Validate DMARC change workflow (state machine + separation-of-duties + review queue)
         run: node scripts/validate-dmarc-change-workflow.js
 
+      - name: Validate DMARC canonical state (ADR-003 dmarc_state derivation — unavailable never collapses to missing + mutations)
+        run: node scripts/validate-dmarc-canonical-state.js
+
+      - name: Validate DMARC canonical consumer switch (every consumer reads dmarc_state, no legacy-state reads + mutations)
+        run: node scripts/validate-dmarc-consumer-switch.js
+
+      - name: Validate DMARC DNS evidence PR-2 (observation status preserved — timeout/servfail never read as absent + mutations)
+        run: node scripts/validate-dmarc-dns-evidence-pr2.js
+
       - name: Validate managed case workflow (generic engine + ASM/DMARC graphs)
         run: node scripts/validate-managed-case-workflow.js
 
@@ -426,6 +435,9 @@ jobs:
 
       - name: Validate UC3 unified remediation/case/ownership (assignee membership + assertion≠verification + recurrence + 8-domain parity)
         run: node scripts/validate-uc3-remediation-ownership.js
+
+      - name: Validate UC3 case-transition surface (available_transitions derived from canonical machine + attestation-only verified + ASM/Brand excluded)
+        run: node scripts/validate-uc3-case-transitions.js
 
       - name: Validate Shadow IT approved inventory (identity + correlation + classification + case linkage + isolation)
         run: node scripts/validate-shadow-it-inventory.js
@@ -620,6 +632,18 @@ jobs:
       - name: Validate posture-events false-resolution guard (exposed_service_resolved evidence gate)
         run: node scripts/validate-posture-events-resolution.js
 
+      - name: Validate A1 email evidence-status honesty (unavailable SPF/DKIM never reads missing/clean + mutations)
+        run: node scripts/validate-a1-email-evidence-status.js
+
+      - name: Validate A2 identity evidence-status honesty (unavailable evidence never reads Low/clean + mutations)
+        run: node scripts/validate-a2-identity-evidence-status.js
+
+      - name: Validate A3 admin-surface evidence-status honesty (unavailable evidence never reads zero-exposure/healthy + mutations)
+        run: node scripts/validate-a3-admin-evidence-status.js
+
+      - name: Validate B workspace scorecard canonicalisation (absent evidence never presented as healthy + mutations)
+        run: node scripts/validate-b-scorecard-canonical.js
+
       - name: Validate disappearance confirmation (asset/email/brand evidence gates + mutations)
         run: node scripts/validate-disappearance-confirmation.js
 
@@ -640,6 +664,9 @@ jobs:
 
       - name: Validate Certificates & Trust L2 (findings + honest unknowns)
         run: node scripts/validate-cert-trust-l2.js
+
+      - name: Validate certificate standing-condition dedupe (occurrence identity — unchanged state never re-emits + mutations)
+        run: node scripts/validate-cert-standing-condition-dedupe.js
 
       - name: Install worker deps
         working-directory: workers/scan-api
