@@ -106,6 +106,31 @@ const defaultProbeFetch = makeSsrfSafeProbeFetch({
   timeoutMs: 8_000,
 });
 
+// Cloudflare-edge error statuses: 520–527 (origin connection/response failures),
+// 530 (1xxx accompanying code, incl. 1016 origin DNS error). These are synthesised
+// by the Cloudflare edge when NO origin produced an HTTP answer — they are never an
+// origin's own response. Require the edge signature (`Server: cloudflare`) as well as
+// the status range: a proxied origin's own 5xx keeps its real status (500/502/503…,
+// outside this range), and a non-Cloudflare host emitting a non-standard 52x without
+// the signature stays server_error (fail toward the stricter not-assessed reading).
+const CF_EDGE_STATUS_MIN = 520;
+const CF_EDGE_STATUS_MAX = 530;
+
+export function classifyServerErrorStatus(status, server) {
+  const edgeSynthesised =
+    status >= CF_EDGE_STATUS_MIN && status <= CF_EDGE_STATUS_MAX &&
+    String(server || "").trim().toLowerCase() === "cloudflare";
+  if (edgeSynthesised) {
+    // Authoritative negative — nothing serves at this name (same evidence class as a
+    // refused connection). Distinct marker so consumers can still see WHY, but never
+    // counted "not assessed": the probe DID complete and observed the public truth.
+    return { probe_status: "origin_unreachable", reason: "cloudflare_edge_error" };
+  }
+  // Genuine origin 5xx — answered, not content-assessable (per the #185 contract this
+  // must never confirm absence or health, so it stays in the not-assessed class).
+  return { probe_status: "server_error", reason: "server_error" };
+}
+
 /**
  * Probe a single host over HTTPS (with HTTP fallback) and return exposure metadata.
  * Never throws. Returns reachable:false on a genuine network failure, or a
@@ -171,7 +196,17 @@ export async function probeAsset(host, opts = {}) {
       // module treats it as not-content-assessed, never as a clean host. reachable
       // stays false (an authoritative non-200), so `reachable`-keyed consumers are
       // unchanged; only the exposure-completeness aggregate reads probe_status.
-      ...(status >= 500 ? { probe_status: "server_error", reason: "server_error" } : {}),
+      //
+      // EXCEPT the Cloudflare-edge-synthesised range (classifyServerErrorStatus): inside
+      // a Worker, fetch() to a hostname with no functioning origin does not throw — the
+      // edge answers FOR it with 520–530 (530/1016 = the name has no address records,
+      // 52x = no origin delivered an HTTP response through the proxy). No origin
+      // answered and no visitor can retrieve content there, so it is the same
+      // authoritative-negative evidence class as a refused connection — NOT a host that
+      // "answered 5xx". Without this split, every mail-only / DNS-only subdomain
+      // (reports.*, send.*) probes as a synthetic 530 → server_error → module
+      // incomplete, permanently degrading every scan of every real domain to "partial".
+      ...(status >= 500 ? classifyServerErrorStatus(status, server) : {}),
       title,
       server,
       content_type: contentType,
@@ -466,7 +501,10 @@ export async function runExposureModule(domain, subdomains, opts = {}) {
   // budget-starved (never checked), timed out (no answer), or a 5xx server error
   // (answered but not content-assessable). A connection refused (reachable:false, no
   // marker) is an authoritative "no web service" and is NOT counted — a genuinely
-  // no-web host set still reads clean.
+  // no-web host set still reads clean. "origin_unreachable" (Cloudflare-edge-synthesised
+  // 52x/530 — see classifyServerErrorStatus) is likewise NOT counted: the probe
+  // completed and authoritatively observed that no origin serves at that name, so it
+  // must never degrade the module to incomplete / the scan to partial.
   const NOT_ASSESSED = new Set(["not_executed", "timed_out", "server_error"]);
   const notAssessed = assets.filter((a) => NOT_ASSESSED.has(a.probe_status));
   const incomplete = notAssessed.length > 0;
