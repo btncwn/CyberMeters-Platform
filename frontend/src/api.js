@@ -333,10 +333,6 @@ export const api = {
       body: JSON.stringify({ email, password }),
     }),
 
-  /** GET /api/auth/me  → { id, email, name, plan } */
-  /** @returns {Promise<User>} */
-  authMe: () => request('/auth/me'),
-
   /** POST /api/auth/logout */
   authLogout: () => request('/auth/logout', { method: 'POST' }),
 
@@ -629,10 +625,6 @@ export const api = {
     return request(`/workspaces/${id}/shadow-it/inventory${q ? `?${q}` : ''}`)
   },
 
-  /** GET /api/workspaces/:id/shadow-it/inventory/:itemId — item + history + linked case */
-  getShadowItItem: (id, itemId) =>
-    request(`/workspaces/${id}/shadow-it/inventory/${encodeURIComponent(itemId)}`),
-
   /** POST /api/workspaces/:id/shadow-it/inventory/:itemId/action — classify/assign/lifecycle */
   shadowItAction: (id, itemId, payload) =>
     request(`/workspaces/${id}/shadow-it/inventory/${encodeURIComponent(itemId)}/action`, {
@@ -677,9 +669,6 @@ export const api = {
       body: JSON.stringify({ answers }),
     }),
 
-  /** GET /api/workspaces/:id/posture */
-  getWorkspacePosture: (id) => request(`/workspaces/${id}/posture`),
-
   /** GET /api/workspaces/:id/posture/timeline */
   getWorkspacePostureTimeline: (id) => request(`/workspaces/${id}/posture/timeline`),
 
@@ -723,10 +712,6 @@ export const api = {
     return request(`/workspaces/${id}/certificates/lifecycle${q ? `?${q}` : ''}`)
   },
 
-  /** GET /api/workspaces/:id/certificates/lifecycle/:recId — record + history + linked case */
-  getCertificateLifecycleRecord: (id, recId) =>
-    request(`/workspaces/${id}/certificates/lifecycle/${encodeURIComponent(recId)}`),
-
   /** POST /api/workspaces/:id/certificates/lifecycle/:recId/action — ownership/planning/lifecycle */
   certificateLifecycleAction: (id, recId, body) =>
     request(`/workspaces/${id}/certificates/lifecycle/${encodeURIComponent(recId)}/action`, {
@@ -745,13 +730,6 @@ export const api = {
     return request(`/workspaces/${id}/brand-monitoring${q ? `?${q}` : ''}`)
   },
 
-  /** GET /api/workspaces/:id/brand-monitoring/summary */
-  getWorkspaceBrandMonitoringSummary: (id) => request(`/workspaces/${id}/brand-monitoring/summary`),
-
-  /** POST /api/workspaces/:id/brand-monitoring/refresh */
-  refreshBrandMonitoring: (id) =>
-    request(`/workspaces/${id}/brand-monitoring/refresh`, { method: 'POST' }),
-
   // ── Brand Protection Intelligence v1 ──────────────────────────────────────
   /** GET /api/workspaces/:id/brand/profile */
   getBrandProfile: (id) => request(`/workspaces/${id}/brand/profile`),
@@ -765,9 +743,6 @@ export const api = {
     const q = new URLSearchParams(params).toString()
     return request(`/workspaces/${id}/brand/candidates${q ? `?${q}` : ''}`)
   },
-  /** GET /api/workspaces/:id/brand/candidates/:candidateId */
-  getBrandCandidate: (id, candidateId) =>
-    request(`/workspaces/${id}/brand/candidates/${candidateId}`),
   /** POST /api/workspaces/:id/brand/candidates/:candidateId/classify  body: { classification } */
   classifyBrandCandidate: (id, candidateId, classification) =>
     request(`/workspaces/${id}/brand/candidates/${candidateId}/classify`, {
@@ -778,8 +753,6 @@ export const api = {
     const q = new URLSearchParams(params).toString()
     return request(`/workspaces/${id}/brand/cases${q ? `?${q}` : ''}`)
   },
-  /** GET /api/workspaces/:id/brand/cases/:caseId */
-  getBrandCase: (id, caseId) => request(`/workspaces/${id}/brand/cases/${caseId}`),
   /** POST /api/workspaces/:id/brand/cases/:caseId/review */
   reviewBrandCase: (id, caseId, payload) =>
     request(`/workspaces/${id}/brand/cases/${caseId}/review`, { method: 'POST', body: JSON.stringify(payload) }),
@@ -826,10 +799,6 @@ export const api = {
     return request(`/workspaces/${id}/cyber-essentials/controls${q ? `?${q}` : ''}`)
   },
 
-  /** GET /api/workspaces/:id/cyber-essentials/controls/:recId — record + history */
-  getCyberEssentialsControl: (id, recId) =>
-    request(`/workspaces/${id}/cyber-essentials/controls/${encodeURIComponent(recId)}`),
-
   /** GET /api/workspaces/:id/email-protection/lifecycle — history (mig 088) */
   getEmailProtectionLifecycle: (id, params = {}) => {
     const q = new URLSearchParams(params).toString()
@@ -840,10 +809,6 @@ export const api = {
     const q = new URLSearchParams(params).toString()
     return request(`/workspaces/${id}/identity-surfaces${q ? `?${q}` : ''}`)
   },
-
-  /** GET /api/workspaces/:id/identity-surfaces/:recId — record + history + linked case */
-  getIdentitySurface: (id, recId) =>
-    request(`/workspaces/${id}/identity-surfaces/${encodeURIComponent(recId)}`),
 
   /** POST /api/workspaces/:id/identity-surfaces/:recId/action — classify/assign/remediate */
   identitySurfaceAction: (id, recId, body) =>
@@ -858,6 +823,9 @@ export const api = {
     }),
 
   /** GET /api/workspaces/:id/vendor-relationships */
+  // DELIBERATELY RETAINED despite currently having no frontend call site:
+  // Vendor Risk / Supply Chain is protected evidence-pipeline substrate
+  // (founder decision) — do not remove as "dead code".
   getVendorRelationships: (id, params = {}) => {
     const q = new URLSearchParams(params).toString()
     return request(`/workspaces/${id}/vendor-relationships${q ? `?${q}` : ''}`)
@@ -915,9 +883,6 @@ export const api = {
     return res.blob()
   },
 
-  /** GET /api/workspaces/:id/alerts */
-  getWorkspaceAlerts: (id) => request(`/workspaces/${id}/alerts`),
-
   // ── Workspace Executive Reports ───────────────────────────────────────────
 
   /** GET /api/workspaces/:id/reports  optional: ?report_type=&status= */
@@ -930,10 +895,6 @@ export const api = {
     const q = new URLSearchParams(/** @type {Record<string, string>} */ (params)).toString()
     return request(`/workspaces/${workspaceId}/reports${q ? `?${q}` : ''}`)
   },
-
-  /** GET /api/workspaces/:id/report-retention */
-  getWorkspaceReportRetention: (workspaceId) =>
-    request(`/workspaces/${workspaceId}/report-retention`),
 
   /** POST /api/workspaces/:id/reports/generate  body: { report_type } */
   generateWorkspaceReport: (workspaceId, reportType = 'manual') =>
@@ -965,10 +926,6 @@ export const api = {
   /** GET /api/workspaces/:id/domains/:domain/dmarc-summary?days=30 */
   getDmarcSummary: (workspaceId, domain, days = 30) =>
     request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/dmarc-summary?days=${days}`),
-
-  /** POST /api/workspaces/:id/restore → undo a workspace soft-delete inside the 30-day window */
-  restoreWorkspace: (workspaceId) =>
-    request(`/workspaces/${workspaceId}/restore`, { method: 'POST' }),
 
   /** POST /api/workspaces/:id/domains/:domain/validate-source  body: { headers } → instant sender verdict */
   validateEmailSource: (workspaceId, domain, headers) =>
@@ -1030,9 +987,6 @@ export const api = {
     request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/remediations`),
   getRemediationFix: (workspaceId, domain, id) =>
     request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/remediations/${encodeURIComponent(id)}`),
-  verifyRemediation: (workspaceId, domain, id) =>
-    request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/remediations/${encodeURIComponent(id)}/verify`),
-
   /** Hosted DMARC (managed record) — Hosted Records Engine */
   getHostedDmarc: (workspaceId, domain) =>
     request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/hosted-dmarc`),
@@ -1082,9 +1036,6 @@ export const api = {
   /** GET /api/workspaces/:id/dmarc/change-requests[?state=] → { queue, requests } */
   listDmarcChangeRequests: (workspaceId, state) =>
     request(`/workspaces/${workspaceId}/dmarc/change-requests${state ? `?state=${encodeURIComponent(state)}` : ''}`),
-  /** POST /api/workspaces/:id/dmarc/change-requests → propose a policy change */
-  createDmarcChangeRequest: (workspaceId, payload) =>
-    request(`/workspaces/${workspaceId}/dmarc/change-requests`, { method: 'POST', body: JSON.stringify(payload) }),
   /** POST /api/workspaces/:id/dmarc/change-requests/:cid/transition → approve/reject/… */
   transitionDmarcChangeRequest: (workspaceId, changeId, payload) =>
     request(`/workspaces/${workspaceId}/dmarc/change-requests/${encodeURIComponent(changeId)}/transition`, {
@@ -1122,18 +1073,6 @@ export const api = {
     request(`/workspaces/${workspaceId}/domains/${encodeURIComponent(domain)}/dmarc-ingest-endpoint/revoke`, {
       method: 'POST',
     }),
-
-  /** GET /api/workspaces/:id/reports/:reportId */
-  getWorkspaceReportById: (workspaceId, reportId) =>
-    request(`/workspaces/${workspaceId}/reports/${reportId}`),
-
-  /**
-   * Returns the absolute download URL for a report PDF.
-   * Use in window.open() or as an <a href>.
-   * Not a fetch — the browser handles the download directly.
-   */
-  getWorkspaceReportDownloadUrl: (workspaceId, reportId) =>
-    `${BASE}/workspaces/${workspaceId}/reports/${reportId}/download`,
 
   /** GET /api/workspaces/:id/reports/:reportId/download */
   downloadWorkspaceReport: (workspaceId, reportId) =>
@@ -1294,12 +1233,6 @@ export const api = {
     request(`/workspaces/${workspaceId}/subscription`),
 
   /**
-   * GET /api/plans  — public, no auth required
-   * Returns static plan metadata: pricing, limits, features.
-   */
-  getPlans: () => request('/plans'),
-
-  /**
    * GET /api/account/subscription/limits
    * Returns { plan, limits, usage } — current plan limits and usage counts.
    */
@@ -1313,20 +1246,6 @@ export const api = {
 
   /** GET /api/billing/plans */
   getBillingPlans: () => request('/billing/plans'),
-
-  /** POST /api/billing/checkout */
-  createCheckoutSession: ({ plan, interval = 'monthly', success_url, cancel_url }) =>
-    request('/billing/checkout', {
-      method: 'POST',
-      body: JSON.stringify({ plan, interval, success_url, cancel_url }),
-    }),
-
-  /** POST /api/billing/portal */
-  createBillingPortalSession: (return_url) =>
-    request('/billing/portal', {
-      method: 'POST',
-      body: JSON.stringify({ return_url }),
-    }),
 
   /** GET /api/account/api-tokens */
   getApiTokens: () => request('/account/api-tokens'),
@@ -1446,17 +1365,6 @@ export const api = {
     request(`/workspaces/${workspaceId}/members`),
 
   /**
-   * POST /api/workspaces/:id/members
-   * Body: { email, role }   role ∈ 'viewer' | 'analyst' | 'admin' | 'owner'
-   * Requires owner role.
-   */
-  addWorkspaceMember: (workspaceId, email, role) =>
-    request(`/workspaces/${workspaceId}/members`, {
-      method: 'POST',
-      body: JSON.stringify({ email, role }),
-    }),
-
-  /**
    * DELETE /api/workspaces/:id/members/:memberId
    * Requires owner role.
    */
@@ -1522,17 +1430,6 @@ export const api = {
     }),
 
   /**
-   * POST /api/billing/portal
-   * Body: { return_url }
-   * Returns: { portal_url }
-   */
-  openBillingPortal: (return_url) =>
-    request('/billing/portal', {
-      method: 'POST',
-      body: JSON.stringify({ return_url }),
-    }),
-
-  /**
    * POST /api/workspaces/:id/billing/checkout
    * Workspace-scoped checkout. Workspace owner only.
    * Body: { plan, interval? }  interval defaults to 'monthly'.
@@ -1573,9 +1470,6 @@ export const api = {
   /** GET /api/portfolio/risk — MSP portfolio risk intelligence */
   getPortfolioRisk: () => request('/portfolio/risk'),
 
-  /** GET /api/portfolio/executive-summary — portfolio-level exec summary */
-  getPortfolioExecutiveSummary: () => request('/portfolio/executive-summary'),
-
   /**
    * GET /api/portfolio/domains — per-domain state + trend across all eight Cyber MOT
    * domains. params: { limit, offset, sort, filter, domain_key, state }
@@ -1586,10 +1480,6 @@ export const api = {
     ).toString()
     return request(`/portfolio/domains${q ? `?${q}` : ''}`)
   },
-
-  /** GET /api/portfolio/domains/:workspaceId/:domainId — detail + history series */
-  getPortfolioDomainDetail: (workspaceId, domainId) =>
-    request(`/portfolio/domains/${encodeURIComponent(workspaceId)}/${encodeURIComponent(domainId)}`),
 
   // ── Account Security ──────────────────────────────────────────────────────
 
@@ -1626,21 +1516,4 @@ export const api = {
 
   // ── Public Free Scan (no auth required) ──────────────────────────────────
 
-  /**
-   * POST /api/free-scan
-   * Anonymous — no auth token sent.
-   * Body: { domain: string }
-   * Returns: { domain, score, risk_level, severity_counts, total_findings,
-   *            preview_findings, hidden_count, modules_scanned, scanned_at }
-   */
-  runFreeScan: (domain) =>
-    fetch(`${BASE}/free-scan`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ domain }),
-    }).then(async res => {
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
-      return data
-    }),
 }
