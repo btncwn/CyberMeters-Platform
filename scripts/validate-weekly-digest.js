@@ -91,8 +91,14 @@ const withChanges = buildDigestEmail("Acme", changes, env.FRONTEND_URL);
 ok("digest subject names the change count", /3 changes on Acme/.test(withChanges.subject));
 ok("digest body lists a top event", withChanges.text.includes(changes.top[0].title));
 ok("digest links to the timeline", withChanges.html.includes("/exposure"));
-const quiet = buildDigestEmail("Acme", { total: 0, bySeverity: {}, byCategory: {}, top: [] }, env.FRONTEND_URL);
-ok("quiet week is the 'all quiet' reassurance", /all quiet on Acme/i.test(quiet.subject) && /stable/i.test(quiet.text));
+// Digest-truth episode: reassurance now REQUIRES a complete comparable
+// assessment in the window. A quiet week without one states the absence of
+// evidence instead of asserting stability.
+const quietComplete = buildDigestEmail("Acme", { total: 0, bySeverity: {}, byCategory: {}, top: [], assessment: { coverage: "complete_assessment" } }, env.FRONTEND_URL);
+ok("quiet week WITH complete assessment is the 'all quiet' reassurance", /all quiet on Acme/i.test(quietComplete.subject) && /stable/i.test(quietComplete.text));
+const quietNoEvidence = buildDigestEmail("Acme", { total: 0, bySeverity: {}, byCategory: {}, top: [] }, env.FRONTEND_URL);
+ok("quiet week WITHOUT assessment evidence never claims stability",
+   !/stable/i.test(quietNoEvidence.text) && /No completed assessment was available/.test(quietNoEvidence.text));
 
 // ── 4. sendWeeklyDigests: active workspace with changes → sent, deduped ──────
 deliverOk = true; sends = 0;
