@@ -315,6 +315,21 @@ export async function ensureAlertActivation(env, workspaceId, domainKey, { now =
 // started watching => it does not alert. The whole point of the watermark is that a
 // pre-existing condition cannot masquerade as new; a caller with no timestamp is
 // not evidence, it is an assertion.
+// ── Lazy-activation clock-skew grace (first-ever hatch only) ─────────────────
+// The firstEverCondition hatch compares two datetime('now') stamps written
+// moments apart in the SAME evaluator pass: the occurrence event first, the
+// lazily-created activation watermark second. Both are second-precision, so a
+// second boundary ticking between the two writes makes the occurrence look 1s
+// older than its own activation. 2000 ms tolerates that boundary (and one tick
+// of runner slowness) while keeping the backlog guard intact: a genuine
+// pre-existing backlog is minutes-to-months older than activation and remains
+// excluded. This grace applies ONLY to the first-ever hatch — the ongoing
+// watermark comparison (observationIsAfterWatermark) is unchanged.
+export const ACTIVATION_CLOCK_SKEW_GRACE_MS = 2000;
+export function withinActivationGrace(observedMs, activatedMs) {
+  return observedMs >= activatedMs - ACTIVATION_CLOCK_SKEW_GRACE_MS;
+}
+
 export function observationIsAfterWatermark(observedAt, activatedAt) {
   const o = parseUtcMs(observedAt);
   const a = parseUtcMs(activatedAt);
@@ -479,14 +494,20 @@ export async function emitManagedAlert(env, {
     // "first-ever", which is the exact flood the guard exists to stop.
     //
     // So the occurrence must ALSO be contemporaneous with activation: not provably
-    // older than the watermark. `>=` rather than `>` because the two timestamps are
-    // written by the same clock at the same second — the event is persisted moments
-    // before activation, so a strict `>` would reject the very case this exists for,
-    // while anything genuinely pre-existing is seconds-to-months earlier and is
-    // still excluded.
+    // older than the watermark, within the bounded lazy-activation clock-skew
+    // grace (see ACTIVATION_CLOCK_SKEW_GRACE_MS). A bare `>=` assumed the
+    // occurrence INSERT and the activation INSERT always land in the same
+    // wall-clock second; when the second boundary ticked between the two writes
+    // inside one evaluator pass, the workspace's genuinely-first occurrence read
+    // as 1s "older" than its own activation and was suppressed as baseline —
+    // PERMANENTLY, because every later pass compared the same fixed observed_at
+    // against the same watermark. Reproduced deterministically (P2, July 2026)
+    // after a one-off CI failure of the website-security suite. Anything
+    // genuinely pre-existing is minutes-to-months older and stays excluded.
     const observedMs = parseUtcMs(observed_at);
     const activatedMs = parseUtcMs(activation.activated_at);
-    const contemporaneous = observedMs !== null && activatedMs !== null && observedMs >= activatedMs;
+    const contemporaneous = observedMs !== null && activatedMs !== null
+      && withinActivationGrace(observedMs, activatedMs);
     const firstEverCondition = activation.established_now && activation.baseline_empty && contemporaneous;
 
     if (!firstEverCondition
