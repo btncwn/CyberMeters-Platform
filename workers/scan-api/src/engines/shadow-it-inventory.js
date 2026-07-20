@@ -13,7 +13,8 @@
 // policy) classifies it that way. Follow-up uses the Universal Managed-Case Model
 // (shadow_it_case → shadow_it.saas.review remediation).
 
-import { emitLifecycleAlert } from "./alert-consumers.js";
+import { emitLifecycleAlert, describeRecurrenceEvent, recommendationForRecurrence } from "./alert-consumers.js";
+import { resolveRemediation } from "./remediation-registry.js";
 import { buildMonitoringTransitionDetail, isMonitoringTransition } from "./alert-occurrence.js";
 import { createManagedCase, canTransitionCase, canonicalPhaseFor } from "./managed-case-model.js";
 import { newCaseEventId } from "./case-workflow.js";
@@ -717,6 +718,15 @@ export async function classifyShadowItItem(env, workspaceId, itemId, action, opt
   return { ok: true, item: shadowItItemToApi(fresh) };
 }
 
+// The canonical registry action for the finding type Shadow IT cases open under —
+// the same fallback the alert consumer uses, so UI and email cannot disagree.
+// Resolved lazily (and gated on status) so an unmapped registry never yields an
+// invented action.
+function registryActionForShadowIt() {
+  const r = resolveRemediation({ finding_type: "saas_exposure" });
+  return r?.status === "resolved" ? (r.recommended_action || null) : null;
+}
+
 // ── API serializer ──────────────────────────────────────────────────────────
 export function shadowItItemToApi(row) {
   return {
@@ -749,6 +759,16 @@ export function shadowItItemToApi(row) {
     evidence_age_days: row.evidence_age_days ?? null,
     material_change: Boolean(row.material_change),
     recurrence_type: row.recurrence_type || null,
+    // Parity fields (PR-2): the SAME copy the alert email and in-app card carry,
+    // computed by the same functions — the UI never re-derives or re-words the
+    // recurrence meaning. Null when there is no active recurrence.
+    recurrence_summary: row.recurrence_type
+      ? describeRecurrenceEvent("shadow_it_unmanaged_technology", row.recurrence_type, row.display_name || row.canonical_technology_key)
+      : null,
+    recommended_next_action: row.recurrence_type
+      ? recommendationForRecurrence("shadow_it_unmanaged_technology", row.recurrence_type,
+          row.display_name || row.canonical_technology_key, registryActionForShadowIt())
+      : null,
     required_case_action: row.required_case_action || null,
     evaluated_at: row.evaluated_at || null,
     source_evidence: parseJson(row.source_evidence_json, []) || [],

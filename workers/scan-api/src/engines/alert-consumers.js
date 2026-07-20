@@ -310,11 +310,57 @@ export function alertKindFor(domain_key, recurrence) {
 // already approved — implying it needs sanction review would misdescribe the
 // customer's own classification. The truthful meaning is "approved, but nobody
 // owns it".
+// PR-2 (Shadow IT recurrence semantics): every recurrence the evaluator can emit
+// carries its own event description and action — the complete set is CI-pinned
+// against RECURRENCE_SEVERITY so a new recurrence cannot ship with generic copy.
+// The truth rules each sentence obeys:
+//   • observed ≠ unauthorised — no copy calls a service unapproved, unauthorised
+//     or malicious; "rejected"/"retired"/"removed" always refer to the CUSTOMER'S
+//     OWN classification, never to a judgement the product made;
+//   • disappearance is never verified removal (approved_disappeared says so);
+//   • a reappearance is never worded as a first observation;
+//   • the action is never the event description.
+// "First observed" and plain "reappeared" are deliberately ABSENT: they are
+// monitoring statuses, not alerting recurrences — a first observation is
+// baseline (the activation watermark suppresses it) and a plain reappearance
+// alerts only through the classification-aware recurrences below.
 const RECURRENCE_COPY = Object.freeze({
   shadow_it_unmanaged_technology: Object.freeze({
     owner_missing: Object.freeze({
       what_changed: () => "An approved service does not have an assigned owner.",
       action: (entity) => `Assign a business or technical owner for ${entity} and record the responsible team.`,
+    }),
+    removal_contradicted: Object.freeze({
+      what_changed: (entity) => `${entity} was marked as removed but is still externally observed.`,
+      action: (entity) => `Re-check the removal of ${entity}: the service remains visible from the internet, so the removal has not taken effect externally.`,
+    }),
+    removal_incomplete: Object.freeze({
+      what_changed: (entity) => `${entity} has removal in progress but is still externally observed.`,
+      action: (entity) => `Complete the removal of ${entity}, or update its removal status if the plan has changed.`,
+    }),
+    rejected_reappeared: Object.freeze({
+      what_changed: (entity) => `${entity}, which you rejected, is still externally observed.`,
+      action: (entity) => `Review ${entity}: your classification is rejected, but the service remains visible from the internet.`,
+    }),
+    retired_reappeared: Object.freeze({
+      what_changed: (entity) => `${entity}, which you retired, was observed again after previously no longer being seen.`,
+      action: (entity) => `Review ${entity}: it was retired but has reappeared in external observations.`,
+    }),
+    exception_expired: Object.freeze({
+      what_changed: (entity) => `The exception you recorded for ${entity} has expired.`,
+      action: (entity) => `Renew or remove the exception for ${entity}, or reclassify the service.`,
+    }),
+    approved_disappeared: Object.freeze({
+      what_changed: (entity) => `${entity}, an approved service, is no longer externally observed. This is an observation only — it does not verify removal.`,
+      action: (entity) => `Confirm whether ${entity} is still in use. Disappearance from external observation is not verified removal.`,
+    }),
+    material_change: Object.freeze({
+      what_changed: (entity) => `A material change was observed for ${entity} (such as a new hostname, provider or category).`,
+      action: (entity) => `Review the recent change to ${entity} against your records for this service.`,
+    }),
+    evidence_stale: Object.freeze({
+      what_changed: (entity) => `External evidence for ${entity} has not been refreshed recently.`,
+      action: (entity) => `Review whether ${entity} is still in use; recent scans no longer refresh its evidence.`,
     }),
   }),
 });
@@ -326,9 +372,9 @@ export function humanizeRecurrence(recurrence) {
 // The generic event description: names the entity and the observed transition,
 // asserts nothing beyond them. Deliberately NOT the recommendation.
 export function describeRecurrenceEvent(domain_key, recurrence, entityDisplay) {
-  const copy = RECURRENCE_COPY[String(domain_key || "")]?.[String(recurrence || "")];
-  if (copy?.what_changed) return copy.what_changed(entityDisplay);
   const subject = String(entityDisplay || "").trim() || "A monitored item";
+  const copy = RECURRENCE_COPY[String(domain_key || "")]?.[String(recurrence || "")];
+  if (copy?.what_changed) return copy.what_changed(subject);
   return `${subject}: condition "${humanizeRecurrence(recurrence)}" was observed.`;
 }
 

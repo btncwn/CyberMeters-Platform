@@ -3,7 +3,8 @@
 // inventory and posts classification/ownership/lifecycle actions the BACKEND
 // validates. The set of allowed actions comes from the server response — the
 // frontend never invents classification states or actions.
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { api } from '../../api'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { NoWorkspaceSelected } from '../../components/WsPage'
@@ -25,6 +26,15 @@ export default function ShadowItInventoryPage() {
   const [error, setError] = useState(null)
   const [filter, setFilter] = useState('')
   const [busy, setBusy] = useState(null)
+  // Deep-link target from an alert CTA (/ws/shadow-it?item=<id>). The id is the
+  // server's own opaque surrogate; the list below is already workspace-scoped, so
+  // a foreign id simply matches nothing.
+  const [searchParams] = useSearchParams()
+  const focusItemId = searchParams.get('item')
+  const focusRef = useRef(null)
+  useEffect(() => {
+    if (focusRef.current) focusRef.current.scrollIntoView({ block: 'center' })
+  }, [data, focusItemId])
 
   const load = useCallback(() => {
     if (!workspaceId) return   // never call the API with a null/unresolved workspace id
@@ -115,18 +125,33 @@ export default function ShadowItInventoryPage() {
             </thead>
             <tbody>
               {items.map((it) => (
-                <tr key={it.inventory_item_id} className="border-b border-slate-50 align-top">
+                <tr
+                  key={it.inventory_item_id}
+                  ref={it.inventory_item_id === focusItemId ? focusRef : null}
+                  className={`border-b border-slate-50 align-top ${it.inventory_item_id === focusItemId ? 'bg-amber-50/60 ring-1 ring-inset ring-amber-200' : ''}`}
+                >
                   <td className="py-2 px-3">
                     <div className="font-medium text-slate-700">{it.display_name}</div>
                     <div className="text-xs text-slate-400">{it.provider}{it.confidence ? ` · ${it.confidence} confidence` : ''}</div>
                     {it.linked_case_id && <div className="text-xs text-amber-600">Open case</div>}
+                    {it.inventory_item_id === focusItemId && (it.observed_hostnames || []).length > 0 && (
+                      <div className="text-xs text-slate-400 mt-0.5">Observed: {it.observed_hostnames.slice(0, 2).join(', ')}</div>
+                    )}
                   </td>
                   <td className="py-2 px-3 text-slate-500 capitalize">{(it.category || '—').replace(/_/g, ' ')}</td>
                   <td className="py-2 px-3"><Pill meta={classificationMeta(it.classification)} /></td>
                   <td className="py-2 px-3">
                     <Pill meta={ownershipMeta(it.ownership_status)} />
                     {(it.business_owner || it.technical_owner) && <div className="text-xs text-slate-400 mt-0.5">{it.business_owner || it.technical_owner}</div>}
-                    {it.recurrence_type && <div className="text-xs text-amber-600 mt-0.5">{it.recurrence_type.replace(/_/g, ' ')}</div>}
+                    {/* Server-owned recurrence meaning — the same sentence the alert
+                        email and in-app card carry. Falls back to the raw type only
+                        when the server sent no summary. */}
+                    {(it.recurrence_summary || it.recurrence_type) && (
+                      <div className="text-xs text-amber-600 mt-0.5">{it.recurrence_summary || it.recurrence_type.replace(/_/g, ' ')}</div>
+                    )}
+                    {it.inventory_item_id === focusItemId && it.recommended_next_action && (
+                      <div className="text-xs text-slate-500 mt-0.5"><span className="font-medium">Recommended:</span> {it.recommended_next_action}</div>
+                    )}
                   </td>
                   <td className="py-2 px-3"><Pill meta={monitoringMeta(it.monitoring_status)} /></td>
                   <td className="py-2 px-3 text-slate-400 text-xs">{it.last_seen_at ? it.last_seen_at.slice(0, 10) : '—'}</td>

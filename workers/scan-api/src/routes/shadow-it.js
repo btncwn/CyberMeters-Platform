@@ -36,6 +36,11 @@ export async function shadowItRoutes(rctx) {
   // ── GET /shadow-it/inventory — list + counts ─────────────────────────────
   if (request.method === "GET" && !itemId) {
     try {
+      // Role-honest action surface (PR-2): the action list drives the UI's
+      // buttons, and the POST below requires workspace:manage — advertising
+      // mutation actions to a read-only viewer offers controls that can only
+      // 403. Same derivation as the managed-case route (can_manage).
+      const canManage = Boolean(await requireWorkspaceRole(user, wsId, "workspace:manage", env));
       const items = await listShadowItInventory(env, wsId, {
         classification: url.searchParams.get("classification"),
         monitoring_status: url.searchParams.get("monitoring_status"),
@@ -46,7 +51,8 @@ export async function shadowItRoutes(rctx) {
       return json({
         workspace_id: wsId, count: items.length, counts,
         classifications: SHADOW_IT_CLASSIFICATIONS, ownership_statuses: SHADOW_IT_OWNERSHIP_STATUSES,
-        actions: SHADOW_IT_WORKFLOW_ACTIONS,
+        actions: canManage ? SHADOW_IT_WORKFLOW_ACTIONS : [],
+        can_manage: canManage,
         items,
         scope_note: "Externally observed technology only — no internal-network, endpoint, CASB or EDR visibility.",
       });

@@ -7,7 +7,9 @@
 // Classification labels (must match backend SHADOW_IT_CLASSIFICATIONS — the
 // customer decision). Ownership is a SEPARATE server-derived dimension below.
 export const CLASSIFICATION_META = {
-  unreviewed:    { label: 'Unreviewed',    tone: 'slate'  },
+  // "Not yet classified" — never "unapproved"/"unauthorised": absence of a
+  // customer decision (or of an approved-inventory comparison) is not a verdict.
+  unreviewed:    { label: 'Not yet classified', tone: 'slate' },
   approved:      { label: 'Approved',      tone: 'green'  },
   rejected:      { label: 'Rejected',      tone: 'red'    },
   exception:     { label: 'Exception',     tone: 'amber'  },

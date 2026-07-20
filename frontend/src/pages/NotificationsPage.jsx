@@ -190,6 +190,14 @@ function NotificationCard({ n, onMarkRead }) {
             {n.message && (
               <p className="text-sm text-gray-400 mt-0.5 leading-relaxed">{n.message}</p>
             )}
+            {/* Parity with the alert email: the recommendation is a separate,
+                backend-owned sentence — never re-derived or re-worded here. */}
+            {meta?.recommended_action && meta.recommended_action !== n.message && (
+              <p className="text-sm text-gray-500 mt-1 leading-relaxed">
+                <span className="font-medium text-gray-600">Recommended next action:</span>{' '}
+                {meta.recommended_action}
+              </p>
+            )}
             <div className="flex flex-wrap items-center gap-2 mt-2">
               {/* Severity pill */}
               <span className={`inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full ${cfg.pill}`}>
