@@ -42,16 +42,28 @@ function normCandidate(c) {
   }
 }
 
+// Evidence signals that carry their own explicit badge copy — mapped here so the
+// generic humaniser never renders a raw signal key or an overclaiming phrase. A CT
+// observation means a certificate naming the host was logged; it says nothing about
+// the host being live or malicious, so the copy is deliberately factual.
+const EVIDENCE_SIGNAL_LABELS = {
+  ct_observed: 'Seen in certificate log',
+  nested_host: 'Subdomain of a lookalike',
+}
+
 // Evidence badges — only emitted when the underlying signal genuinely exists.
 function evidenceBadges(c) {
   const out = []
   const variant = String(c.variant_type || '').toLowerCase()
-  if (TYPO_VARIANTS.some(v => variant.includes(v))) out.push('Similar spelling')
+  if (variant === 'nested_host') out.push('Subdomain of a lookalike')
+  else if (TYPO_VARIANTS.some(v => variant.includes(v))) out.push('Similar spelling')
   if (c._dns === true) out.push('DNS active')
   if (c._https === true) out.push('HTTPS active')
   if (c._mx === true) out.push('MX present')
   if (c._new) out.push('Newly seen')
   for (const e of c._evidence) {
+    const signal = typeof e === 'object' ? e.signal : null
+    if (signal && EVIDENCE_SIGNAL_LABELS[signal]) { out.push(EVIDENCE_SIGNAL_LABELS[signal]); continue }
     const label = typeof e === 'object' ? (e.label || e.title || e.type || e.name) : e
     if (label) out.push(humanize(label))
   }
