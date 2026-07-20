@@ -5,6 +5,20 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## v2026.07.20-5 — Shadow IT Alert Trust PR-2: recurrence semantics, deep-link and UI parity — deployed 2026-07-20 (code-only, no migration)
+
+- **Release tag:** `v2026.07.20-5` (points at squash-merge commit `dc13dc7`, PR #213).
+- **Live Worker Version ID:** `56ced057-a2ec-41fe-abbe-c6186db8b8b7` (verified at `GET /health`; deployed 2026-07-20 from main `dc13dc7`).
+- **Rollback Worker Version ID:** `520c562b-ed48-41d3-af49-7fc6e28cc88e` (v2026.07.20-4).
+- **Migration:** none. Latest applied production migration remains `098-related-changes.sql`.
+- **Sprint context:** stage 2 (final engineering stage) of the founder-approved Shadow IT Alert Trust remediation. **The two-PR engineering scope is complete; founder production acceptance of a controlled Shadow IT occurrence remains outstanding.**
+- **What shipped:**
+  - **Complete per-recurrence truth copy** — all nine evaluator recurrences carry a distinct event description and action (`RECURRENCE_COPY`), CI-pinned against the severity map. Truth rules encoded: observed ≠ unauthorised (no copy says unapproved/unauthorised/malicious); `approved_disappeared` explicitly denies verified removal; `retired_reappeared` is a re-observation, never first-seen wording; the action is never the event description. First-observed and plain reappeared are deliberately absent as alert types (monitoring statuses, baseline-suppressed); no lifecycle state is invented.
+  - **Surface parity** — `shadowItItemToApi` gains additive `recurrence_summary` + `recommended_next_action` computed by the same functions the alert email/in-app card use; `ShadowItInventoryPage` honours `/ws/shadow-it?item=<id>` (highlight, scroll, observed-hostname evidence, recommendation) and renders the server's summary; `NotificationsPage` shows the backend `recommended_action` as its own line; `unreviewed` reads "Not yet classified" — never "unapproved".
+  - **Viewer role honesty** — the inventory list route now advertises mutation actions only to `workspace:manage` (`actions: []` + additive `can_manage` for read-only members); the POST was already manage-gated, so this removes buttons that could only 403.
+  - **Occurrence/dedupe preserved** — first occurrence delivered once; a second unchanged pass appends no occurrence and emits nothing (proven again, including a mutation removing the unchanged-state guard).
+- **Validation:** new CI-blocking `validate-shadow-it-recurrence-truth.js` (66/66; 7 mutations all CAUGHT); frontend 394 tests + coverage + build; full 154-validator sweep green.
+
 ## v2026.07.20-4 — Shadow IT Alert Trust PR-1: managed-alert truth and field mapping — deployed 2026-07-20 (code-only, no migration)
 
 - **Release tag:** `v2026.07.20-4` (points at squash-merge commit `c591a16`, PR #211).
