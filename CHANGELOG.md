@@ -5,6 +5,24 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## v2026.07.20-3 — Brand Protection PR-C: HTTP/TLS live enrichment (confirms live HTTPS + login surface) — deployed 2026-07-20 (code-only, no migration)
+
+- **Release tag:** `v2026.07.20-3` (points at squash-merge commit `4b2ec908d2b4ea43a8ba674c8e17ff22649d4530`, PR #208).
+- **Live Worker Version ID:** `8d5bb33b-8f2c-43c6-a9d8-036871675a4a` (verified serving at `GET /health` via cache-busted probe; deployed 2026-07-20 from main `4b2ec90`).
+- **Rollback Worker Version ID:** `f06e95a2-be19-4cf0-9794-30162cb77368` (v2026.07.20-2, PR-B).
+- **Migration:** none. Latest applied production migration remains `098-related-changes.sql`.
+- **Sprint context:** stage 3 (final) of the three-PR Brand Protection blocker-remediation sprint. PR-A generated the lookalike bases; PR-B discovered nested hosts on them from Certificate Transparency; **PR-C confirms which confirmed-live hosts actually serve a web surface and harvest credentials**, upgrading the evidence from name-based inference to live observation. **This clears the engineering scope of the public-beta blocker; Brand Protection remains PUBLIC-BETA BLOCKED until founder acceptance of a controlled scan exercising the full chain.**
+- **What shipped (engine + daily cron + serializer; no migration, no frontend change):**
+  - **`engines/brand-http-enrichment.js`** — a bounded daily cron (`brand_http_enrichment`, 04:00 UTC, one hour after discovery) probes the live web surface of candidates DNS has already confirmed live (`dns_resolves = 1`) and sets two signals: **`https_available`** (the host actually serves HTTPS — tri-state NULL/0/1, transient failures never coerced to 0) and a **live `looks_like_login`** (a real password/login form observed in a bounded body slice, not merely a login-ish word in the hostname).
+  - **SSRF safety (load-bearing):** a brand candidate is an attacker-influenced host, so every probe goes through the canonical SSRF-safe fetcher (`makeReservedProbeFetch` → `makeSsrfSafeProbeFetch`), which re-resolves and rejects private/reserved hops on each redirect. The module never calls `fetch()` directly, and a blocked (null) target is treated as **transient** — never a positive or negative fact.
+  - **Honest escalation:** the `brandCandidateToApi` serializer now reads the durable live `looks_like_login` signal into its recompute (previously login-likeness came only from the hostname). Combined with `https_active`, this is what lifts a confirmed-live credential lookalike from `high` to `critical` — **DNS-live + HTTPS-serving + a real login form** is a genuine confirmed impersonation surface. Without the live login form (and without a login-word name) the same host stays `high`.
+  - **DNS gate + no silent truncation:** only DNS-live, non-closed candidates are probed; bounded to 3 workspaces/day and 8 candidates/workspace, and the sweep logs the eligible-workspace count deferred by the cap.
+- **Why no frontend change:** `BrandMonitoringPage` already renders "HTTPS active" from `https_available` and routes `looks_like_login` through its evidence loop, so the new live signals surface with no UI change.
+- **Safety:** additive and reversible (`https_available` and `evidence_json` are existing columns; the cron task and both signals removable without data loss). Evidence merge preserves every prior signal (PR-B's `ct_observed` / `nested_host` survive the HTTP update). Transient failures never fabricate state; tenant isolation and idempotency asserted end-to-end.
+- **Tests:** `scripts/validate-brand-http-enrichment.js` (42 checks, CI-blocking) — login-surface detection, tri-state probe outcomes, SSRF-blocked→transient, DNS gate, evidence-merge preservation, serializer live-login band agreement, tenant isolation, idempotency, transient-failure safety; **mutation-proven** (6 deliberate reversions each fail the suite). `validate-pipeline.js` cron task-set expectation aligned for the new hour-4 task.
+- **Sprint completion:** the end-to-end lookalike pipeline is now generate bases → discover nested hosts from CT → validate DNS → confirm live HTTPS + login surface → band honestly, with `critical` reserved for confirmed-live credential-harvesting impersonation. Founder acceptance of a controlled scan remains the sprint's production release gate.
+- **Operational follow-up (carried from PR-A):** the Cloudflare Pages build-service incident on 2026-07-20 recovered — PR #206 and #208 Pages checks passed normally.
+
 ## v2026.07.20-2 — Brand Protection PR-B: passive Certificate-Transparency nested-host discovery — deployed 2026-07-20 (code-only, no migration)
 
 - **Release tag:** `v2026.07.20-2` (points at squash-merge commit `20730c996ffc72e60935e7119b3219f833d1d34d`, PR #206).
