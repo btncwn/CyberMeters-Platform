@@ -87,8 +87,14 @@ export async function relatedChangesRoutes(rctx) {
   if (request.method === "GET") {
     const detail = await getRelatedChange(env, wsId, rcId);
     if (!detail) return json({ error: "Related change not found" }, 404); // same for foreign + nonexistent
+    // Role-honest action surface: the review/case-linkage POSTs below require
+    // workspace:manage, so the UI needs to know whether to render those
+    // controls at all — a viewer shown buttons that can only 403 is offered
+    // controls it cannot use. Same derivation as the managed-case route.
+    const canManage = Boolean(await requireWorkspaceRole(user, wsId, "workspace:manage", env));
     return json({
       related_change: clusterToApi(detail.cluster),
+      can_manage: canManage,
       evidence: detail.evidence.map((e) => ({
         producer_family: e.producer_family,
         source_table: e.source_table,

@@ -11,7 +11,7 @@
 // severity. Vocabulary lock applies: correlated observations that MAY be
 // connected — change is not compromise.
 import { useCallback, useEffect, useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, Link } from 'react-router-dom'
 import { ArrowLeft, GitCompareArrows, Link2, FolderPlus } from 'lucide-react'
 import { api } from '../../api'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
@@ -186,7 +186,12 @@ export default function WorkspaceRelatedChangeDetailPage() {
               <span>Last seen: {shortDate(rc.last_seen)}</span>
               <span>Seen {rc.recurrence_count ?? 1} times</span>
               {rc.linked_case_id && (
-                <span className="text-brand-600">Linked case: {rc.linked_case_id}</span>
+                <Link
+                  to={`/ws/cases/${encodeURIComponent(rc.linked_case_id)}`}
+                  className="text-brand-600 hover:underline"
+                >
+                  Linked case: {rc.linked_case_id} →
+                </Link>
               )}
             </div>
 
@@ -219,7 +224,9 @@ export default function WorkspaceRelatedChangeDetailPage() {
                         {e.entity_key || e.source_record_id || '—'}
                         {e.source_event_type ? ` · ${e.source_event_type}` : ''}
                       </p>
-                      {e.source_table && <p className="text-xs text-slate-400 mt-0.5 font-mono">{e.source_table}</p>}
+                      {/* Internal storage names (source_table) are deliberately not
+                          rendered — the producer-family label above is the
+                          customer-facing identity of the signal. */}
                     </div>
                     <span className="text-xs text-slate-400 whitespace-nowrap">{shortDate(e.observed_at)}</span>
                   </li>
@@ -228,7 +235,18 @@ export default function WorkspaceRelatedChangeDetailPage() {
             )}
           </div>
 
-          {/* ── Review actions ─────────────────────────────────────────── */}
+          {/* ── Review actions — manage-gated ──────────────────────────────
+              The review/case-linkage POSTs require workspace:manage; the
+              server says so via can_manage, and a viewer is not offered
+              controls that can only 403. */}
+          {data?.can_manage !== true ? (
+            <div className={CARD}>
+              <h2 className="text-sm font-semibold text-slate-800">Review</h2>
+              <p className="text-xs text-slate-500 mt-1">
+                Recording whether these changes were planned, and case linkage, are available to workspace managers.
+              </p>
+            </div>
+          ) : (
           <div className={CARD}>
             <h2 className="text-sm font-semibold text-slate-800">Confirm whether planned</h2>
             <p className="text-xs text-slate-500 mt-1">
@@ -295,6 +313,7 @@ export default function WorkspaceRelatedChangeDetailPage() {
             {actionError && <p className="text-xs text-red-600 mt-3" role="alert">{actionError}</p>}
             {actionOk && <p className="text-xs text-green-700 mt-3" role="status">{actionOk}</p>}
           </div>
+          )}
         </div>
       )}
     </WsPage>

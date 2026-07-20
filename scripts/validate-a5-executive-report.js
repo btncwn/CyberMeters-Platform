@@ -25,7 +25,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const eng = (f) => import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", f)).href);
-const { buildWorkspaceExecutivePdf, buildScanReportPdf } = await eng("pdf.js");
+const { buildWorkspaceExecutivePdf, buildScanReportPdf, pdfEsc } = await eng("pdf.js");
 const { CYBERMETERS_LOGO_DATA_URI, CYBERMETERS_LOGO_SHA256, CYBERMETERS_LOGO_DIMENSIONS } = await eng("brand-logo.js");
 const { prepareLogoXObject } = await eng("pdf-image.js");
 const { loadBrandingLogoDataUri, cyberMetersDescriptor } = await eng("report-branding-v2.js");
@@ -278,6 +278,29 @@ const norm = (s) => s.replace(/\s+/g, " ").trim();
   ok("copy: all eight domains still present", DOMAINS.every((d) => t.includes(d)));
   ok("copy: canonical logo image still embedded", t.includes("/Subtype /Image") && t.includes("/Im0 Do"));
   ok("copy: two-page fixture remains balanced", (t.match(/\/Type \/Page \/Parent/g) || []).length === 2);
+}
+
+// ── Typographic punctuation → ASCII (trust-closure episode) ──────────────────
+// The ASCII stream encoder used to strip EVERY non-ASCII byte to a space, so
+// "scan — not enough to assess" rendered "scan   not enough" — punctuation
+// vanished, leaving a malformed double space (the class behind the certificate
+// evidence-insufficient and DMARC could-not-be-observed sentences). pdfEsc now
+// transliterates the common typographic characters; these pins keep the class
+// closed for every current and future sentence.
+{
+  ok("pdfEsc: em dash transliterates, no double space",
+     pdfEsc("scan — not enough to assess.") === "scan - not enough to assess.");
+  ok("pdfEsc: the DMARC could-not-be-observed sentence renders intact",
+     pdfEsc("DMARC could not be observed this scan (the DNS lookup did not complete) — not enough to assess.")
+       === "DMARC could not be observed this scan \\(the DNS lookup did not complete\\) - not enough to assess.");
+  ok("pdfEsc: en dash, curly quotes and ellipsis transliterate",
+     pdfEsc("2–3 ‘quoted’ “words”…") === `2-3 'quoted' "words"...`);
+  ok("pdfEsc: arrows and comparators transliterate", pdfEsc("a → b ≠ c") === "a -> b != c");
+  ok("pdfEsc: unmapped non-ASCII still falls back to a space (never dropped)", pdfEsc("a☃b") === "a b");
+  ok("pdfEsc: PDF escaping is preserved after transliteration",
+     pdfEsc("(x) \\ y") === "\\(x\\) \\\\ y");
+  ok("pdfEsc: no transliterated sentence produces a double space",
+     !/\s{2}/.test(pdfEsc("Required evidence (certificate_chain) could not be collected this scan — not enough to assess.")));
 }
 
 console.log(`\nvalidate-a5-executive-report: ${pass} passed, ${fail} failed`);

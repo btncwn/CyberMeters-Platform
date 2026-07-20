@@ -4,7 +4,7 @@
 // validates. The set of allowed actions comes from the server response — the
 // frontend never invents classification states or actions.
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, Link } from 'react-router-dom'
 import { api } from '../../api'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { NoWorkspaceSelected } from '../../components/WsPage'
@@ -133,7 +133,11 @@ export default function ShadowItInventoryPage() {
                   <td className="py-2 px-3">
                     <div className="font-medium text-slate-700">{it.display_name}</div>
                     <div className="text-xs text-slate-400">{it.provider}{it.confidence ? ` · ${it.confidence} confidence` : ''}</div>
-                    {it.linked_case_id && <div className="text-xs text-amber-600">Open case</div>}
+                    {it.linked_case_id && (
+                      <Link to={`/ws/cases/${encodeURIComponent(it.linked_case_id)}`} className="text-xs text-amber-600 hover:underline">
+                        Open case →
+                      </Link>
+                    )}
                     {it.inventory_item_id === focusItemId && (it.observed_hostnames || []).length > 0 && (
                       <div className="text-xs text-slate-400 mt-0.5">Observed: {it.observed_hostnames.slice(0, 2).join(', ')}</div>
                     )}

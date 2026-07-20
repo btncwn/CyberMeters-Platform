@@ -19,6 +19,8 @@ vi.mock('../../../hooks/useWorkspace', () => ({
 }))
 
 const DETAIL = {
+  // Server-declared role: review/case-linkage actions render only for managers.
+  can_manage: true,
   related_change: {
     id: 'rc1',
     registrable_domain: 'example.com',
@@ -86,6 +88,22 @@ function renderDetail(id = 'rc1') {
 }
 
 describe('WorkspaceRelatedChangeDetailPage', () => {
+  it('viewer (can_manage false) sees no review or case-linkage controls', async () => {
+    api.getRelatedChange.mockResolvedValue({ ...DETAIL, can_manage: false })
+    renderDetail()
+    expect(await screen.findByText('New host with a new or changed certificate')).toBeInTheDocument()
+    expect(screen.queryByText('Confirm whether planned')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Create case from this related change/)).not.toBeInTheDocument()
+    expect(screen.getByText(/available to workspace managers/i)).toBeInTheDocument()
+  })
+
+  it('internal storage names are never rendered as evidence labels', async () => {
+    api.getRelatedChange.mockResolvedValue(DETAIL)
+    renderDetail()
+    expect(await screen.findByText('Related evidence')).toBeInTheDocument()
+    expect(screen.queryByText('asset_events')).not.toBeInTheDocument()
+  })
+
   it('renders the cluster summary and related-evidence pointers', async () => {
     api.getRelatedChange.mockResolvedValue(DETAIL)
     renderDetail()

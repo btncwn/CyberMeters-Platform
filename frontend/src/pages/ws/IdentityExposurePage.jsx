@@ -1,11 +1,12 @@
-// Identity Exposure Managed Workflow — a focused managed surface (not a nav or
+// Identity Exposure Managed Workflow â a focused managed surface (not a nav or
 // dashboard redesign). It renders the server-owned canonical managed identity
 // records and posts classification / ownership / remediation / verification
 // actions the BACKEND validates. The set of allowed actions comes from the server
-// response — the frontend never invents risk, verification, or actions. It draws
+// response â the frontend never invents risk, verification, or actions. It draws
 // a hard, visible line between what is OBSERVED EXTERNALLY, what the CUSTOMER
 // classified, and what CyberMeters has VERIFIED.
 import { useEffect, useState, useCallback } from 'react'
+import { Link } from 'react-router-dom'
 import { api } from '../../api'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { NoWorkspaceSelected } from '../../components/WsPage'
@@ -21,7 +22,7 @@ function Pill({ meta }) {
 const CLASS_FILTERS = ['', 'unreviewed', 'expected', 'unexpected', 'investigate', 'exception', 'retired']
 
 export default function IdentityExposurePage() {
-  // Workspace comes from the canonical context hook, not a route param — the
+  // Workspace comes from the canonical context hook, not a route param â the
   // /ws/* routes declare no :workspaceId, so useParams().workspaceId is always
   // undefined and would produce /api/workspaces/undefined/... (403).
   const { wsId: workspaceId, loading: wsLoading } = useWorkspace()
@@ -69,7 +70,7 @@ export default function IdentityExposurePage() {
       if (purpose == null) return
       payload.business_purpose = purpose
     } else if (action === 'record_surface_removed' || action === 'record_configuration_changed') {
-      if (!window.confirm('Record this as done?\n\nThis is your assertion only — CyberMeters will NOT mark it verified until it re-observes the expected change externally.')) return
+      if (!window.confirm('Record this as done?\n\nThis is your assertion only â CyberMeters will NOT mark it verified until it re-observes the expected change externally.')) return
     }
     setBusy(id)
     try {
@@ -110,7 +111,7 @@ export default function IdentityExposurePage() {
         ))}
       </div>
 
-      {loading && <p className="text-sm text-slate-400">Loading…</p>}
+      {loading && <p className="text-sm text-slate-400">Loadingâ¦</p>}
       {error && <p className="text-sm text-red-600">{error}</p>}
       {!loading && !error && items.length === 0 && (
         <p className="text-sm text-slate-400">No managed identity surfaces yet. Records appear here after a scan observes identity providers or login surfaces for a monitored domain.</p>
@@ -134,9 +135,13 @@ export default function IdentityExposurePage() {
                 <tr key={it.identity_exposure_id} className="border-b border-slate-50 align-top">
                   <td className="py-2 px-3">
                     <div className="font-medium text-slate-700">{it.primary_hostname || it.provider_name || surfaceLabel(it.surface_type)}</div>
-                    <div className="text-xs text-slate-400">{surfaceLabel(it.surface_type)}{it.provider_name ? ` · ${it.provider_name}` : ''}</div>
-                    <div className="text-[11px] text-slate-400">Observed externally{it.confidence ? ` · ${it.confidence} confidence` : ''}</div>
-                    {it.linked_case_id && <div className="text-xs text-amber-600">Open case</div>}
+                    <div className="text-xs text-slate-400">{surfaceLabel(it.surface_type)}{it.provider_name ? ` Â· ${it.provider_name}` : ''}</div>
+                    <div className="text-[11px] text-slate-400">Observed externally{it.confidence ? ` Â· ${it.confidence} confidence` : ''}</div>
+                    {it.linked_case_id && (
+                      <Link to={`/ws/cases/${encodeURIComponent(it.linked_case_id)}`} className="text-xs text-amber-600 hover:underline">
+                        Open case →
+                      </Link>
+                    )}
                   </td>
                   <td className="py-2 px-3">
                     <Pill meta={riskMeta(it.risk_status)} />
@@ -155,7 +160,7 @@ export default function IdentityExposurePage() {
                   <td className="py-2 px-3">
                     <Pill meta={verificationMeta(it.verification_status)} />
                     {isAwaitingVerification(it) && (
-                      <div className="text-xs text-amber-600 mt-0.5">Recorded by you — not yet verified</div>
+                      <div className="text-xs text-amber-600 mt-0.5">Recorded by you â not yet verified</div>
                     )}
                     {it.verified_at && <div className="text-[11px] text-slate-300 mt-0.5">Verified by CyberMeters {it.verified_at.slice(0, 10)}</div>}
                   </td>

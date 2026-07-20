@@ -1,11 +1,11 @@
 import { parseServerDate } from '../../utils/dates'
 import { useState, useEffect, useCallback } from 'react'
-import { useParams } from 'react-router-dom'
+import { useWorkspace } from '../../hooks/useWorkspace'
 import {
   ClipboardList, Search, Filter, Download, ChevronLeft,
   ChevronRight, AlertTriangle, RefreshCw, User, Tag, Calendar,
 } from 'lucide-react'
-import WsPage from '../../components/WsPage'
+import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
 import { api } from '../../api'
 
 const PAGE_SIZE = 50
@@ -66,7 +66,11 @@ function MetaSummary({ metadata }) {
 }
 
 export default function WorkspaceAuditLogPage() {
-  const { wsId } = useParams()
+  // Workspace comes from the canonical context hook, not a route param — the
+  // /ws/* routes declare no :workspaceId, so useParams().workspaceId was always
+  // undefined here and every API call went to /workspaces/undefined/... (403).
+  // Same defect class as the four lifecycle pages fixed in PR #197.
+  const { wsId, loading: wsLoading } = useWorkspace()
 
   // Filters
   const [search,      setSearch]      = useState('')
@@ -143,6 +147,8 @@ export default function WorkspaceAuditLogPage() {
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const currentPage = Math.floor(offset / PAGE_SIZE) + 1
+
+  if (!wsLoading && !wsId) return <NoWorkspaceSelected />
 
   return (
     <WsPage title="Audit Log">
