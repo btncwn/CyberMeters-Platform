@@ -115,6 +115,35 @@ ok("deleted accepted", deleted.status >= 200 && deleted.status < 300);
 ok("deleted → subscription_status canceled", rowStatus()?.subscription_status === "canceled");
 ok("deleted retains the row (historical record)", rowStatus() !== undefined);
 
+// ── Unknown price fails CLOSED — the metadata plan claim never wins ──────────
+const UID2 = "usr_stripe2", WS2 = "ws_stripe2", CUS2 = "cus_2", SUB2 = "sub_2";
+const meta2 = { user_id: UID2, workspace_id: WS2, plan: "business", interval: "monthly" };
+const subObj2 = (status, priceId, extraItems = []) => ({
+  id: SUB2, customer: CUS2, status, metadata: meta2,
+  items: { data: [...extraItems, { price: { id: priceId } }] },
+  current_period_start: nowUnix, current_period_end: futureUnix,
+});
+const rowStatus2 = () => db.prepare("SELECT subscription_status, plan, current_period_end FROM subscriptions WHERE owner_user_id = ? ORDER BY updated_at DESC LIMIT 1").get(UID2);
+
+await postWebhook(evt("evt_6", "customer.subscription.created", subObj2("active", "price_sm")));
+ok("second subscription created as starter", rowStatus2()?.plan === "starter");
+const unknown = await postWebhook(evt("evt_7", "customer.subscription.updated", subObj2("active", "price_UNKNOWN")));
+ok("unknown-price event acknowledged (Stripe must not retry forever)", unknown.status >= 200 && unknown.status < 300);
+ok("unknown price did NOT grant the metadata plan (business)", rowStatus2()?.plan === "starter");
+ok("unknown price still applied lifecycle status", rowStatus2()?.subscription_status === "active");
+
+// ── Multi-item subscription: the BASE item maps the plan, not items[0] ───────
+await postWebhook(evt("evt_8", "customer.subscription.updated",
+  subObj2("active", "price_pm", [{ price: { id: "price_overage_addon" } }])));
+ok("multi-item: plan resolved from the mapped base item (professional)", rowStatus2()?.plan === "professional");
+
+// ── Out-of-order delivery: current_period_end never moves backward ───────────
+const laterUnix = futureUnix + 30 * 86400;
+await postWebhook(evt("evt_9", "customer.subscription.updated", { ...subObj2("active", "price_pm"), current_period_end: laterUnix }));
+const advanced = rowStatus2()?.current_period_end;
+await postWebhook(evt("evt_10", "customer.subscription.updated", { ...subObj2("active", "price_pm"), current_period_end: futureUnix }));
+ok("stale event cannot shorten the entitlement window", rowStatus2()?.current_period_end === advanced);
+
 console.log(`\nStripe events: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("stripe-events validation FAILED"); process.exit(1); }
 console.log("stripe-events validation passed");

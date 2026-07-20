@@ -8,6 +8,7 @@ import { createAuditEvent, createNotificationEvent } from "../lib/events.js";
 import { createId } from "../lib/util.js";
 import { escapeEmailHtml, getEmailFrontendOrigin, sendCustomerEmail } from "../lib/lifecycle-email.js";
 import { normalizeBillingInterval, normalizePlan } from "./entitlements.js";
+import { expectedCheckoutAmountPence } from "./pricing-registry.js";
 
 function parseStripePriceMap(env) {
   const raw = env?.STRIPE_PRICE_MAP;
@@ -174,22 +175,83 @@ export function getStripeObjectId(value) {
   return null;
 }
 
-export function getStripeSubscriptionPrice(subscription) {
+// Merged forward map — the ONE price-ID authority for both directions.
+// Individual env vars (Option A) overlay the STRIPE_PRICE_MAP JSON (Option B),
+// exactly matching getStripePriceIdForPlan's checkout-time precedence. Before
+// this, the webhook reverse lookup read ONLY the JSON map: a deployment
+// configured through individual vars mapped every subscription event through
+// the metadata fallback instead of through the price the customer actually pays.
+export function buildMergedStripePriceMap(env) {
+  const json = parseStripePriceMap(env);
+  return { ...(json.ok ? json.map : {}), ...buildStripePriceMapFromIndividualVars(env) };
+}
+
+export function getStripeSubscriptionPrice(subscription, env = null) {
+  const items = subscription?.items?.data;
+  if (Array.isArray(items) && items.length > 1 && env) {
+    // Multi-item subscription (e.g. base plan + per-domain overage item):
+    // the BASE item is the one whose price maps to a canonical plan — never
+    // blindly items[0], whose ordering Stripe does not guarantee.
+    const merged = buildMergedStripePriceMap(env);
+    const mappedIds = new Set(Object.values(merged));
+    const base = items.find((it) => it?.price?.id && mappedIds.has(it.price.id));
+    if (base?.price) return base.price;
+  }
   return subscription?.items?.data?.[0]?.price ?? subscription?.plan ?? null;
 }
 
 export function getPlanFromStripePriceId(env, priceId, fallbackPlan = null) {
   const fallback = fallbackPlan ? normalizePlan(fallbackPlan) : null;
+  // No price on the event (e.g. checkout.session.completed) → the server-authored
+  // checkout metadata is the only plan source and remains acceptable.
   if (!priceId) return fallback;
-  const priceMap = parseStripePriceMap(env);
-  if (!priceMap.ok) return fallback;
-  // STRIPE_PRICE_MAP is keyed as "{plan}_{interval}" → price_id.
-  // Reverse lookup: find the key whose value matches priceId, then extract the plan prefix.
-  const entry = Object.entries(priceMap.map).find(([, pid]) => pid === priceId);
-  if (!entry) return fallback;
+  const merged = buildMergedStripePriceMap(env);
+  // Reverse lookup over the merged map: find the key whose value matches priceId.
+  const entry = Object.entries(merged).find(([, pid]) => pid === priceId);
+  // A PRESENT but UNMAPPED price fails CLOSED (null — no plan granted), never
+  // through the metadata fallback: metadata reflects what checkout once set,
+  // not what the subscription now charges (e.g. a portal-side price change).
+  if (!entry) return null;
   // Key format: "{plan}_{interval}" — plan is everything before the last underscore.
   const planPart = entry[0].replace(/_[^_]+$/, "");
-  return normalizePlan(planPart) || fallback;
+  return normalizePlan(planPart) || null;
+}
+
+// verifyStripePriceMatchesPolicy — checkout guard. Reads the resolved price
+// from Stripe and refuses the session unless it charges EXACTLY what the
+// canonical pricing policy states for (plan, interval): GBP, recurring on the
+// right interval, unit_amount to the penny, and active. This is the fail-closed
+// link between the pricing cards and the card charge: a stale or mistyped
+// Stripe price can never sell a number the policy does not state.
+export async function verifyStripePriceMatchesPolicy(env, plan, interval, priceId) {
+  const expectedPence = expectedCheckoutAmountPence(normalizePlan(plan), normalizeBillingInterval(interval));
+  if (!expectedPence) return { ok: false, error: "plan_not_checkout_eligible" };
+  let price;
+  try {
+    const res = await fetch(`https://api.stripe.com/v1/prices/${encodeURIComponent(priceId)}`, {
+      headers: { "Authorization": `Bearer ${env.STRIPE_SECRET_KEY}` },
+    });
+    price = await res.json();
+    if (!res.ok) return { ok: false, error: "stripe_price_lookup_failed" };
+  } catch {
+    return { ok: false, error: "stripe_price_lookup_failed" };
+  }
+  const expectedInterval = normalizeBillingInterval(interval) === "annual" ? "year" : "month";
+  const mismatches = [];
+  if (price?.currency !== "gbp") mismatches.push("currency");
+  if (price?.recurring?.interval !== expectedInterval) mismatches.push("interval");
+  if (price?.unit_amount !== expectedPence) mismatches.push("amount");
+  if (price?.active === false) mismatches.push("inactive");
+  if (mismatches.length > 0) {
+    console.error("[stripe_price_policy_mismatch]", {
+      plan: normalizePlan(plan), interval: normalizeBillingInterval(interval),
+      price_id: priceId, expected_pence: expectedPence,
+      actual_pence: price?.unit_amount ?? null, actual_currency: price?.currency ?? null,
+      actual_interval: price?.recurring?.interval ?? null, mismatches,
+    });
+    return { ok: false, error: "stripe_price_policy_mismatch", mismatches };
+  }
+  return { ok: true, error: null };
 }
 
 export function getBillingIntervalFromStripeSubscription(subscription, fallbackInterval = "monthly") {
@@ -257,10 +319,14 @@ async function upsertStripeSubscriptionState(env, state) {
     // full status-transition ordering is not enforced (the schema carries no per-event
     // sequence — documented residual).
     const cpEnd = state.current_period_end || null;
+    // state.plan === null means the event's price could not be mapped to a
+    // canonical plan (fail-closed): payment/lifecycle state still applies, but
+    // the stored plan is left untouched — an unknown price never grants or
+    // changes an entitlement.
     await env.cybermeters_db
       .prepare(
         `UPDATE subscriptions
-         SET plan = ?,
+         SET plan = COALESCE(?, plan),
              billing_interval = ?,
              subscription_status = ?,
              stripe_customer_id = COALESCE(?, stripe_customer_id),
@@ -276,7 +342,7 @@ async function upsertStripeSubscriptionState(env, state) {
          WHERE id = ?`
       )
       .bind(
-        normalizePlan(state.plan),
+        state.plan === null ? null : normalizePlan(state.plan),
         normalizeBillingInterval(state.billing_interval),
         normalizeStripeSubscriptionStatus(state.subscription_status),
         stripeCustomerId,
@@ -329,7 +395,7 @@ async function upsertStripeSubscriptionState(env, state) {
       await env.cybermeters_db
         .prepare(
           `UPDATE subscriptions
-           SET plan = ?,
+           SET plan = COALESCE(?, plan),
                billing_interval = ?,
                subscription_status = ?,
                owner_user_id = COALESCE(?, owner_user_id),
@@ -343,7 +409,7 @@ async function upsertStripeSubscriptionState(env, state) {
            WHERE id = ?`
         )
         .bind(
-          normalizePlan(state.plan),
+          state.plan === null ? null : normalizePlan(state.plan),
           normalizeBillingInterval(state.billing_interval),
           normalizeStripeSubscriptionStatus(state.subscription_status),
           ownerUserId,
@@ -421,9 +487,28 @@ export async function handleCheckoutSessionCompleted(env, session) {
 
 export async function handleStripeSubscriptionUpsert(env, subscription) {
   const metadata = subscription?.metadata || {};
-  const price = getStripeSubscriptionPrice(subscription);
+  const price = getStripeSubscriptionPrice(subscription, env);
   const priceId = price?.id || null;
+  // Price-authoritative mapping. metadata.plan applies only when the event
+  // carries no price at all; a present-but-unknown price yields null and the
+  // upsert keeps the stored plan unchanged (fail-closed — see below).
   const plan = getPlanFromStripePriceId(env, priceId, metadata.plan);
+  if (priceId && plan === null) {
+    console.error("[stripe_unknown_price_fail_closed]", {
+      stripe_subscription_id: subscription?.id || null,
+      stripe_price_id: priceId,
+      metadata_plan: metadata.plan || null,
+    });
+    await createAuditEvent(env, {
+      user_id: metadata.user_id || null,
+      workspace_id: metadata.workspace_id || null,
+      event_type: "stripe_unknown_price_fail_closed",
+      entity_type: "subscription",
+      entity_id: subscription?.id || null,
+      description: "Stripe subscription event carried a price ID with no canonical plan mapping — plan left unchanged (fail closed)",
+      metadata: { stripe_price_id: priceId, metadata_plan: metadata.plan || null },
+    }).catch(() => {});
+  }
   const billingInterval = getBillingIntervalFromStripeSubscription(subscription, metadata.interval);
 
   // Resolve workspace_id — order of precedence:
@@ -522,8 +607,8 @@ export async function handleStripeSubscriptionDeleted(env, subscription) {
         : "please contact CyberMeters support.";
       await sendCustomerEmail(
         "Your CyberMeters subscription has been cancelled",
-        `Hi ${customerName},\n\nYour CyberMeters subscription has been cancelled. You will remain on the free plan going forward.\n\nIf you believe this is an error or would like to resubscribe, ${nextStepText}\n\nCyberMeters Team`,
-        `<p>Hi ${escapeEmailHtml(customerName)},</p><p>Your CyberMeters subscription has been cancelled. You will remain on the free plan going forward.</p><p>If you believe this is an error or would like to resubscribe, ${nextStepHtml}</p><p>CyberMeters Team</p>`,
+        `Hi ${customerName},\n\nYour CyberMeters subscription has been cancelled. Paid monitoring has now stopped; your existing scans, reports and evidence history remain available to view.\n\nIf you believe this is an error or would like to resubscribe, ${nextStepText}\n\nCyberMeters Team`,
+        `<p>Hi ${escapeEmailHtml(customerName)},</p><p>Your CyberMeters subscription has been cancelled. Paid monitoring has now stopped; your existing scans, reports and evidence history remain available to view.</p><p>If you believe this is an error or would like to resubscribe, ${nextStepHtml}</p><p>CyberMeters Team</p>`,
         env,
         "ALERT_EMAIL_FROM",
         [subRow.email]
@@ -535,7 +620,7 @@ export async function handleStripeSubscriptionDeleted(env, subscription) {
         type:     "subscription_canceled",
         severity: "high",
         title:    "Subscription cancelled",
-        message:  "Your subscription has been cancelled and your account has moved to the free plan. Visit Billing to resubscribe.",
+        message:  "Your subscription has been cancelled. Paid monitoring has stopped; your existing evidence remains viewable. Visit Billing to resubscribe.",
         metadata: { subscription_id: rowId },
         user_id:  subRow.owner_user_id ?? null,
       }).catch(() => {});

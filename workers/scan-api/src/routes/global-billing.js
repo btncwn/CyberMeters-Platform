@@ -7,7 +7,7 @@
 // route matches, or null so the main router continues.
 import { BILLING_PLAN_METADATA, getEffectivePlan, getUserPlan, normalizeBillingInterval, normalizePlan } from "../engines/entitlements.js";
 import { extractIngestToken, hashIngestToken } from "../engines/rua-routing.js";
-import { findSubscriptionRowId, getBillingIntervalFromStripeSubscription, getPlanFromStripePriceId, getStripeObjectId, getStripePriceIdForPlan, getStripeSubscriptionPrice, handleCheckoutSessionCompleted, handleStripeInvoicePaymentFailed, handleStripeInvoicePaymentSucceeded, handleStripeSubscriptionDeleted, handleStripeSubscriptionUpsert, normalizeStripeSubscriptionStatus, stripeUnixToIso, validateStripeBillingConfig, validateStripeSecretConfig, validateStripeWebhookConfig, verifyStripeWebhookSignature, writeSubscriptionEvent } from "../engines/stripe.js";
+import { findSubscriptionRowId, getBillingIntervalFromStripeSubscription, getPlanFromStripePriceId, getStripeObjectId, getStripePriceIdForPlan, getStripeSubscriptionPrice, handleCheckoutSessionCompleted, handleStripeInvoicePaymentFailed, handleStripeInvoicePaymentSucceeded, handleStripeSubscriptionDeleted, handleStripeSubscriptionUpsert, normalizeStripeSubscriptionStatus, stripeUnixToIso, validateStripeBillingConfig, validateStripeSecretConfig, validateStripeWebhookConfig, verifyStripePriceMatchesPolicy, verifyStripeWebhookSignature, writeSubscriptionEvent } from "../engines/stripe.js";
 import { auditApiTokenSessionRouteDenied, getPublicBillingPlans, parseCheckoutPlan } from "../engines/subscription-state.js";
 import { ingestDmarcReport, ingestEndpointIsActive } from "../lib/dmarc-ingest.js";
 import { createAuditEvent, createNotificationEvent } from "../lib/events.js";
@@ -315,7 +315,7 @@ export async function globalBillingRoutes(rctx) {
           case "customer.subscription.created": {
             const rowId = await handleStripeSubscriptionUpsert(env, obj);
             const metadata = obj?.metadata || {};
-            const price = getStripeSubscriptionPrice(obj);
+            const price = getStripeSubscriptionPrice(obj, env);
             await createAuditEvent(env, {
               user_id:     metadata.user_id || null,
               event_type:  "subscription_created",
@@ -363,7 +363,7 @@ export async function globalBillingRoutes(rctx) {
                 : null;
             } catch { /* audit metadata lookup only */ }
             const rowId = await handleStripeSubscriptionUpsert(env, obj);
-            const price = getStripeSubscriptionPrice(obj);
+            const price = getStripeSubscriptionPrice(obj, env);
             const newPlan = getPlanFromStripePriceId(env, price?.id || null, metadata.plan);
             const previousPlan = previousSubscription?.plan ? normalizePlan(previousSubscription.plan) : null;
             await createAuditEvent(env, {
@@ -593,6 +593,17 @@ export async function globalBillingRoutes(rctx) {
           error: priceResolution.error,
           ...(priceResolution.missing?.length ? { missing: priceResolution.missing } : {}),
           message: "Stripe billing configuration is not ready for checkout.",
+        }, 503);
+      }
+
+      // Lockstep guard: the configured Stripe price must charge exactly what the
+      // canonical pricing policy states for this plan/interval. A stale or wrong
+      // price refuses checkout rather than charging a number the cards never showed.
+      const priceCheck = await verifyStripePriceMatchesPolicy(env, requestedPlan, interval, priceResolution.price_id);
+      if (!priceCheck.ok) {
+        return json({
+          error: priceCheck.error,
+          message: "Checkout is temporarily unavailable while billing configuration is verified.",
         }, 503);
       }
 

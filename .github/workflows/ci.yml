@@ -626,6 +626,9 @@ jobs:
       - name: Validate weekly digest truth (semantic grouping + coverage-aware quiet state + workspace-scoped CTA + mutations)
         run: node scripts/validate-weekly-digest-truth.js
 
+      - name: Validate pricing policy parity (locked ladder + fail-closed price mapping + checkout guard)
+        run: node scripts/validate-pricing-policy-parity.js
+
       - name: Validate billing lifecycle (entitlement state machine + grace window)
         run: node scripts/validate-billing-lifecycle.js
 

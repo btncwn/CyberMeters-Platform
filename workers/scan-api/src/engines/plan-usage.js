@@ -11,7 +11,8 @@ import { prepareLogoXObject } from "./pdf-image.js";
 import { CYBERMETERS_LOGO_DATA_URI } from "./brand-logo.js";
 import { createAuditEvent, createNotificationEvent } from "../lib/events.js";
 import { createId } from "../lib/util.js";
-import { getEffectivePlan, hasFeatureEntitlement, normalizePlan, PLAN_LIMITS } from "./entitlements.js";
+import { getEffectiveDomainLimit, getEffectivePlan, getEffectivePlanState, hasFeatureEntitlement, normalizePlan, PLAN_LIMITS } from "./entitlements.js";
+import { CANONICAL_PLANS, penceToGbp } from "./pricing-registry.js";
 import { isWorkspaceDomainVerified } from "../lib/domain-verification.js";
 
 /**
@@ -452,6 +453,46 @@ export function planLimitExceeded(resource, limit, usage = null) {
     resource,
     limit,
     ...(usage === null ? {} : { usage }),
+  };
+}
+
+// getEffectiveDomainState — the one domain-entitlement read every domain-add
+// path uses: canonical plan + trial awareness (the 14-day trial caps at 1
+// domain regardless of the feature plan it borrows) + the enforced limit.
+export async function getEffectiveDomainState(ownerUserId, env) {
+  const state = await getEffectivePlanState(ownerUserId, env);
+  return {
+    plan: state.plan,
+    is_trial: state.is_trial,
+    domains: getEffectiveDomainLimit(state.plan, state.is_trial),
+  };
+}
+
+// domainLimitRejection — honest, plan-aware refusal body for a blocked domain
+// add. Business is special: the canonical policy sells per-domain expansion
+// (11–25 at +£3/month) but per-domain overage billing is not yet wired to
+// Stripe, so the block must say that truthfully instead of pretending 10 is
+// the whole plan. Figures come from the canonical registry, never hand-typed.
+export function domainLimitRejection(planKey, isTrial, limit, used) {
+  const base = planLimitExceeded("domains", limit, used);
+  if (isTrial) {
+    return {
+      ...base,
+      code: "trial_domain_limit",
+      upgrade_message: `The 14-day full trial includes ${limit} monitored domain${limit === 1 ? "" : "s"}. Choose a paid plan to monitor more domains.`,
+    };
+  }
+  if (planKey === "business") {
+    const biz = CANONICAL_PLANS.business;
+    return {
+      ...base,
+      code: "additional_domain_billing_unavailable",
+      upgrade_message: `Your plan includes ${biz.included_domains} monitored domains. Additional domains (up to ${biz.domain_hard_cap}, at £${penceToGbp(biz.additional_domain_monthly_pence)}/month each) are not yet available for self-service — contact support to add more.`,
+    };
+  }
+  return {
+    ...base,
+    upgrade_message: `Your plan includes ${limit} monitored domain${limit === 1 ? "" : "s"}. Upgrade your plan to monitor more domains.`,
   };
 }
 

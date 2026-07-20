@@ -75,6 +75,41 @@ ok("grace never active when not past_due", getPaymentGraceState({ subscription_s
 ok("grace inactive with no failure timestamp", getPaymentGraceState({ subscription_status: "past_due", payment_failed_at: null }).active === false);
 ok("grace exposes an ends_at while active", typeof getPaymentGraceState({ subscription_status: "past_due", payment_failed_at: iso(-1 * DAY) }).ends_at === "string");
 
+// ── Trial expiry is governed by trial_end and fails CLOSED ───────────────────
+// Locally-provisioned trials carry trial_end but a NULL current_period_end;
+// before the fix the resolver only checked current_period_end, so a 14-day
+// trial granted its plan FOREVER. These cases pin the honest window.
+function seedRow(uid, { plan = "professional", status, period_end = null, trial_end = null, stripe_id = null, ws = null, cancel_at_period_end = 0, updated = 0 }) {
+  db.prepare(`INSERT INTO subscriptions
+      (id, owner_user_id, workspace_id, plan, status, subscription_status, current_period_end, trial_end, stripe_subscription_id, cancel_at_period_end, created_at, updated_at)
+      VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, datetime('now'), ?)`)
+    .run(`sub_${++seq}`, uid, ws ?? `ws_${seq}`, plan, status, period_end, trial_end, stripe_id, cancel_at_period_end, new Date(Date.now() + updated).toISOString());
+  return uid;
+}
+seedRow("usr_trial_live", { status: "trialing", trial_end: iso(7 * DAY) });
+ok("trialing + future trial_end (NULL period) → the plan", await plan("usr_trial_live") === "professional");
+seedRow("usr_trial_dead", { status: "trialing", trial_end: iso(-2 * DAY) });
+ok("EXPIRED trial (NULL period) → free — the never-expiring-trial defect", await plan("usr_trial_dead") === "free");
+seedRow("usr_trial_bare", { status: "trialing" });
+ok("trialing with NO end date at all → free (fail closed)", await plan("usr_trial_bare") === "free");
+
+// ── Duplicate rows resolve by explicit precedence, not row ordering ──────────
+// The production shape F0 flagged: an owner holding a professional/trialing row
+// AND a Stripe-bound starter/active row (different workspaces). The purchased
+// plan governs — in BOTH orderings — and an expired trial never out-ranks it.
+seedRow("usr_dup", { plan: "starter", status: "active", stripe_id: "sub_stripe_dup", ws: "ws_dup_a", updated: -3 * DAY });
+seedRow("usr_dup", { plan: "professional", status: "trialing", trial_end: iso(-1 * DAY), ws: "ws_dup_b" });
+ok("expired trial + older Stripe-bound active starter → starter", await plan("usr_dup") === "starter");
+seedRow("usr_dup2", { plan: "professional", status: "trialing", trial_end: iso(7 * DAY), ws: "ws_dup2_b", updated: 0 });
+seedRow("usr_dup2", { plan: "starter", status: "active", stripe_id: "sub_stripe_dup2", ws: "ws_dup2_a", updated: -3 * DAY });
+ok("LIVE trial + active paid starter → the PURCHASED plan wins", await plan("usr_dup2") === "starter");
+
+// ── Scheduled cancellation is not immediate cancellation ─────────────────────
+seedRow("usr_cape", { status: "active", period_end: iso(20 * DAY), cancel_at_period_end: 1 });
+ok("cancel_at_period_end + future period → keeps paid plan until period end", await plan("usr_cape") === "professional");
+seedRow("usr_cape_done", { status: "active", period_end: iso(-1 * DAY), cancel_at_period_end: 1 });
+ok("cancel_at_period_end + period passed → free", await plan("usr_cape_done") === "free");
+
 // ── The latest row wins (cancel supersedes an older active row) ──────────────
 const churnUid = `usr_churn`;
 db.prepare(`INSERT INTO subscriptions (id, owner_user_id, workspace_id, plan, status, subscription_status, current_period_end, created_at, updated_at)

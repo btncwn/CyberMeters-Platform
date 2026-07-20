@@ -219,7 +219,7 @@ function buildLifecycleEmail(type, { origin = null, wsName = null, domain = null
       paras = [
         "The latest payment for your CyberMeters subscription could not be processed.",
         "Please update your payment method to keep your paid plan active. The charge will be retried automatically over the next few days.",
-        "If payment continues to fail, your account will move to the free plan. Your data and settings are kept safe either way.",
+        "If payment continues to fail, paid monitoring will stop. Your existing scans, reports and evidence history remain available to view either way.",
       ];
       ctaLabel = "Update payment method"; ctaPath = "/billing";
       break;

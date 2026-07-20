@@ -31,7 +31,7 @@ function db0() {
   const db = new DatabaseSync(":memory:");
   db.exec(`
     CREATE TABLE users (id TEXT PRIMARY KEY, plan TEXT);
-    CREATE TABLE subscriptions (owner_user_id TEXT, plan TEXT, subscription_status TEXT, current_period_end TEXT, payment_failed_at TEXT, created_at TEXT, updated_at TEXT);
+    CREATE TABLE subscriptions (id TEXT, owner_user_id TEXT, workspace_id TEXT, plan TEXT, status TEXT, subscription_status TEXT, trial_end TEXT, expires_at TEXT, current_period_end TEXT, payment_failed_at TEXT, stripe_subscription_id TEXT, created_at TEXT, updated_at TEXT);
   `);
   return db;
 }

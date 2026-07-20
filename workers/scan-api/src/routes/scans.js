@@ -16,7 +16,7 @@ import { buildScanReportPdf } from "../engines/pdf.js";
 import { buildRelatedChangesSummary } from "../engines/related-changes.js";
 import { resolveReportBrandingV2, loadBrandingLogoDataUri } from "../engines/report-branding-v2.js";
 import { prepareLogoXObject } from "../engines/pdf-image.js";
-import { checkScanLimit, checkScheduledScanLimit, getAccountUsage, getEntitlementUsage, getPlanLimits, getWorkspaceBillingUserId, planLimitExceeded } from "../engines/plan-usage.js";
+import { checkScanLimit, checkScheduledScanLimit, domainLimitRejection, getAccountUsage, getEffectiveDomainState, getEntitlementUsage, getPlanLimits, getWorkspaceBillingUserId } from "../engines/plan-usage.js";
 import { buildScanQuality, runScanEngine } from "../engines/scan-engine.js";
 import { findingRemediation } from "../engines/remediation-registry.js";
 import { readScanReportSnapshot } from "../engines/report-snapshot.js";
@@ -134,17 +134,17 @@ export async function scanRoutes(rctx) {
       if (!existingDomain) {
         // Entitlement: per-workspace limit + account-level limit for new domains only.
         // burstOwnerId is already resolved above for the hourly rate-limit check.
-        const domScanPlan   = await getEffectivePlan(burstOwnerId, env);
+        // Trial-aware (trial = 1 domain) and business-aware honest rejection.
+        const domScanState  = await getEffectiveDomainState(burstOwnerId, env);
         const domScanUsage  = await getEntitlementUsage(user, env, workspaceId);
-        const domScanLimits = getPlanLimits(domScanPlan);
         // (a) Per-workspace limit
-        if (domScanUsage.domains_in_workspace >= domScanLimits.domains_per_workspace) {
-          return json(planLimitExceeded("domains", domScanLimits.domains, domScanUsage.domains_in_workspace), 403);
+        if (domScanUsage.domains_in_workspace >= domScanState.domains) {
+          return json(domainLimitRejection(domScanState.plan, domScanState.is_trial, domScanState.domains, domScanUsage.domains_in_workspace), 403);
         }
         // (b) Account-level limit across all owned workspaces
         const domScanOwnerAcct = await getAccountUsage(burstOwnerId, env);
-        if (domScanOwnerAcct.domains >= domScanLimits.domains) {
-          return json(planLimitExceeded("domains", domScanLimits.domains, domScanOwnerAcct.domains), 403);
+        if (domScanOwnerAcct.domains >= domScanState.domains) {
+          return json(domainLimitRejection(domScanState.plan, domScanState.is_trial, domScanState.domains, domScanOwnerAcct.domains), 403);
         }
 
         await env.cybermeters_db

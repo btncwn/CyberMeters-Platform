@@ -4,9 +4,8 @@
 // Extracted near-verbatim from index.js (router split, Phase 2 PR #11).
 // Receives the per-request routeCtx from index.js; returns a Response when a
 // route matches, or null so the main router continues.
-import { getEffectivePlan } from "../engines/entitlements.js";
 import { getCurrentPosturePresentation } from "../engines/current-posture.js";
-import { getAccountUsage, getEntitlementUsage, getPlanLimits, getWorkspaceBillingUserId, planLimitExceeded } from "../engines/plan-usage.js";
+import { domainLimitRejection, getAccountUsage, getEffectiveDomainState, getEntitlementUsage, getWorkspaceBillingUserId } from "../engines/plan-usage.js";
 import { createAuditEvent } from "../lib/events.js";
 import { escapeEmailHtml, sendCustomerEmail, sendLifecycleEmail } from "../lib/lifecycle-email.js";
 import { createId, isValidDomain, isValidEmail } from "../lib/util.js";
@@ -303,20 +302,20 @@ export async function workspacesCoreRoutes(rctx) {
           return json({ error: "domain is required and must be a valid domain" }, 400);
         }
         try {
-          // Entitlement: per-workspace limit + account-level cross-workspace limit
+          // Entitlement: per-workspace limit + account-level cross-workspace limit.
+          // Trial-aware (trial = 1 domain) and business-aware honest rejection.
           const domainBillingUserId = await getWorkspaceBillingUserId(workspaceId, wsUser.id, env);
-          const domPlan = await getEffectivePlan(domainBillingUserId, env);
+          const domState = await getEffectiveDomainState(domainBillingUserId, env);
           const domUsage  = await getEntitlementUsage(wsUser, env, workspaceId);
-          const domLimits = getPlanLimits(domPlan);
           // (a) Per-workspace limit
-          if (domUsage.domains_in_workspace >= domLimits.domains_per_workspace) {
-            return json(planLimitExceeded("domains", domLimits.domains, domUsage.domains_in_workspace), 403);
+          if (domUsage.domains_in_workspace >= domState.domains) {
+            return json(domainLimitRejection(domState.plan, domState.is_trial, domState.domains, domUsage.domains_in_workspace), 403);
           }
           // (b) Account-level limit: total unique domains across all owned workspaces.
           //     Uses the billing owner's workspace set so non-owner members are scoped correctly.
           const domOwnerAcct = await getAccountUsage(domainBillingUserId, env);
-          if (domOwnerAcct.domains >= domLimits.domains) {
-            return json(planLimitExceeded("domains", domLimits.domains, domOwnerAcct.domains), 403);
+          if (domOwnerAcct.domains >= domState.domains) {
+            return json(domainLimitRejection(domState.plan, domState.is_trial, domState.domains, domOwnerAcct.domains), 403);
           }
 
           // Scoped by user_id to prevent cross-user domain aliasing.
