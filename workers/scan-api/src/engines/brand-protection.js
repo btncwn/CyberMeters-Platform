@@ -15,7 +15,8 @@ import { isValidDomain, parseBoundedInteger } from "../lib/util.js";
 
 const BRAND_VARIANT_TYPES = new Set([
   "homoglyph", "typosquat", "substitution", "insertion", "omission",
-  "transposition", "hyphenation", "tld_variation", "keyword_abuse", "unknown",
+  "transposition", "hyphenation", "tld_variation", "keyword_abuse",
+  "nested_host", "unknown",
 ]);
 export const BRAND_CLASSIFICATIONS = new Set([
   "unreviewed", "monitoring", "suspicious", "owned", "ignored",
@@ -28,7 +29,7 @@ export const BRAND_SUSPICIOUS_TLDS = new Set([
 const BRAND_EVIDENCE_SIGNALS = new Set([
   "similar_to_brand", "variant_type", "dns_active", "mx_present", "https_active",
   "newly_seen", "suspicious_tld", "contains_brand_keyword", "looks_like_login",
-  "possible_mail_abuse", "known_owned_domain_match",
+  "possible_mail_abuse", "known_owned_domain_match", "ct_observed", "nested_host",
 ]);
 
 function safeJsonArray(value) {
@@ -84,7 +85,7 @@ export function scoreBrandCandidateRisk(candidate = {}) {
   const variantWeight = {
     homoglyph: 25, substitution: 22, typosquat: 20, omission: 20,
     insertion: 18, transposition: 18, hyphenation: 15,
-    tld_variation: 18, keyword_abuse: 20, unknown: 5,
+    tld_variation: 18, keyword_abuse: 20, nested_host: 20, unknown: 5,
   }[variant];
   score += variantWeight;
   reasons.push(`variant_${variant}`);
@@ -103,15 +104,19 @@ export function scoreBrandCandidateRisk(candidate = {}) {
   if (candidate.suspicious_tld === true) { score += 10; reasons.push("suspicious_tld"); }
   if (candidate.looks_like_login === true) { score += 12; reasons.push("looks_like_login"); }
   if (candidate.newly_seen === true) { score += 5; reasons.push("newly_seen"); }
+  // A certificate NAMING this host was observed in a public CT log — real external
+  // evidence the host was provisioned, stronger than a pure generated permutation.
+  const ctObserved = candidate.ct_observed === true;
+  if (ctObserved) { score += 12; reasons.push("observed_in_certificate_log"); }
 
   // Registration-reality gate. String similarity alone does not make a threat:
   // an unregistered permutation nobody has taken is a watchlist item, not a
-  // high-risk lookalike. Unless a candidate is confirmed live (DNS resolves or
-  // MX present) — or a human classified it — cap its risk at "low" so
-  // theoretical permutations never crowd out domains that actually exist.
+  // high-risk lookalike. A candidate escapes the watchlist cap only when it is
+  // confirmed live (DNS resolves or MX present) OR a certificate for it was
+  // logged in CT (strong evidence it was provisioned) — or a human classified it.
   const confirmedLive = candidate.dns_active === true || candidate.mx_present === true;
   if (classification === "unreviewed") {
-    if (!confirmedLive) {
+    if (!confirmedLive && !ctObserved) {
       score = Math.min(score, 30); // caps at "low"
       reasons.push("not_registered_watchlist");
     } else if (candidate.mx_present === true) {
@@ -119,6 +124,11 @@ export function scoreBrandCandidateRisk(candidate = {}) {
       // impersonation capability; ensure it surfaces as at least high.
       score = Math.max(score, 65);
       reasons.push("registered_with_mail_capability");
+    } else if (ctObserved && !confirmedLive) {
+      // A logged certificate is strong, but reserve "critical" for a lookalike
+      // confirmed live and mail/serving-capable. Cap CT-only evidence at "high".
+      score = Math.min(score, 84);
+      reasons.push("certificate_observed_not_yet_live");
     }
   }
 
@@ -248,10 +258,15 @@ export function brandCandidateToApi(row, profile = null) {
   const suspiciousTld = BRAND_SUSPICIOUS_TLDS.has(tld.split(".").pop());
   const firstSeen = row?.first_seen || null;
   const newlySeen = firstSeen ? Date.now() - new Date(firstSeen).getTime() <= 30 * 86400000 : false;
+  // ct_observed is durable external evidence recorded at discovery time; it must
+  // feed the recompute or the API band would silently disagree with the persisted
+  // band (a CT-discovered host would fall back to the unregistered watchlist cap).
+  const ctObserved = safeJsonArray(row?.evidence_json)
+    .some((item) => item?.signal === "ct_observed" && item.value === true);
   const risk = scoreBrandCandidateRisk({
     variant_type: variant, similarity_score: similarity, dns_active: dnsActive,
     https_active: httpsActive, mx_present: mxPresent, contains_brand_keyword: containsBrandKeyword,
-    suspicious_tld: suspiciousTld, looks_like_login: looksLikeLogin,
+    suspicious_tld: suspiciousTld, looks_like_login: looksLikeLogin, ct_observed: ctObserved,
     classification,
   });
 
@@ -265,6 +280,8 @@ export function brandCandidateToApi(row, profile = null) {
   if (suspiciousTld) evidence.push({ signal: "suspicious_tld", value: true });
   if (containsBrandKeyword) evidence.push({ signal: "contains_brand_keyword", value: true });
   if (looksLikeLogin) evidence.push({ signal: "looks_like_login", value: true });
+  if (ctObserved) evidence.push({ signal: "ct_observed", value: true });
+  if (variant === "nested_host") evidence.push({ signal: "nested_host", value: true });
   if (mxPresent) evidence.push({ signal: "possible_mail_abuse", value: true });
   if (classification === "owned") evidence.push({ signal: "known_owned_domain_match", value: true });
   for (const item of safeJsonArray(row?.evidence_json)) {
