@@ -1,11 +1,12 @@
-// Certificates Managed Lifecycle — a focused managed surface (not a nav/dashboard
+// Certificates Managed Lifecycle â a focused managed surface (not a nav/dashboard
 // redesign). It renders the server-owned canonical certificate lifecycle and
 // posts ownership / planning / verification actions the BACKEND validates. The
-// set of allowed actions comes from the server response — the frontend never
+// set of allowed actions comes from the server response â the frontend never
 // invents renewal states, verification results, or actions. It draws a hard,
 // visible line between a CUSTOMER-RECORDED renewal (asserted) and an EXTERNALLY
 // VERIFIED replacement (the product actually observed a distinct new cert).
 import { useEffect, useState, useCallback } from 'react'
+import { Link } from 'react-router-dom'
 import { api } from '../../api'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { NoWorkspaceSelected } from '../../components/WsPage'
@@ -21,7 +22,7 @@ function Pill({ meta }) {
 const READINESS_FILTERS = ['', 'critical', 'high', 'preparation', 'planning', 'monitoring', 'expired']
 
 export default function CertificateLifecyclePage() {
-  // Workspace comes from the canonical context hook, not a route param — the
+  // Workspace comes from the canonical context hook, not a route param â the
   // /ws/* routes declare no :workspaceId, so useParams().workspaceId is always
   // undefined and would produce /api/workspaces/undefined/... (403).
   const { wsId: workspaceId, loading: wsLoading } = useWorkspace()
@@ -67,7 +68,7 @@ export default function CertificateLifecyclePage() {
       if (!when) return
       payload.replacement_expected_at = new Date(when).toISOString()
     } else if (action === 'record_replacement_completed') {
-      if (!window.confirm('Record that you have installed the replacement certificate?\n\nThis is your assertion only — CyberMeters will NOT mark it verified until it observes a distinct new certificate on the expected hostnames with a later expiry.')) return
+      if (!window.confirm('Record that you have installed the replacement certificate?\n\nThis is your assertion only â CyberMeters will NOT mark it verified until it observes a distinct new certificate on the expected hostnames with a later expiry.')) return
     } else if (action === 'record_exception') {
       const reason = window.prompt(`Exception reason for ${item.primary_hostname}:`)
       if (!reason) return
@@ -119,7 +120,7 @@ export default function CertificateLifecyclePage() {
         ))}
       </div>
 
-      {loading && <p className="text-sm text-slate-400">Loading…</p>}
+      {loading && <p className="text-sm text-slate-400">Loadingâ¦</p>}
       {error && <p className="text-sm text-red-600">{error}</p>}
       {!loading && !error && items.length === 0 && (
         <p className="text-sm text-slate-400">No certificates under management yet. Records appear here after a scan observes a certificate for a monitored domain.</p>
@@ -145,7 +146,11 @@ export default function CertificateLifecyclePage() {
                     <div className="font-medium text-slate-700">{it.primary_hostname}</div>
                     <div className="text-xs text-slate-400">{it.issuer || 'Issuer unknown'}</div>
                     {it.replacement_detected_at && <div className="text-xs text-blue-600 mt-0.5">Replacement observed</div>}
-                    {it.linked_case_id && <div className="text-xs text-amber-600">Open case</div>}
+                    {it.linked_case_id && (
+                      <Link to={`/ws/cases/${encodeURIComponent(it.linked_case_id)}`} className="text-xs text-amber-600 hover:underline">
+                        Open case →
+                      </Link>
+                    )}
                   </td>
                   <td className="py-2 px-3">
                     <Pill meta={readinessMeta(it.renewal_readiness)} />
@@ -168,7 +173,7 @@ export default function CertificateLifecyclePage() {
                   <td className="py-2 px-3">
                     <Pill meta={verificationMeta(it.verification_status)} />
                     {isAwaitingVerification(it) && (
-                      <div className="text-xs text-amber-600 mt-0.5">Recorded by you — not yet verified</div>
+                      <div className="text-xs text-amber-600 mt-0.5">Recorded by you â not yet verified</div>
                     )}
                     {it.verified_at && <div className="text-xs text-slate-300 mt-0.5">Verified {it.verified_at.slice(0, 10)}</div>}
                   </td>

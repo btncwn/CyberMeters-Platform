@@ -15,20 +15,33 @@ export default function ResetPasswordPage() {
   const [error,     setError]     = useState(null)
   const [loading,   setLoading]   = useState(false)
 
-  // If no token in URL, show an error immediately
+  // If no token in URL, show an error immediately — with the same canonical
+  // brand header and footer as every other auth state, so an invalid link never
+  // lands on an unbranded page.
   if (!token) {
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4">
+        <CyberMetersLogo size={48} showWordmark animated className="mb-8" />
         <div className="card auth-card text-center">
           <AlertTriangle className="w-8 h-8 text-amber-500 mx-auto mb-3" />
-          <h1 className="text-lg font-bold text-gray-900 mb-2">Invalid reset link</h1>
+          <h1 className="text-lg font-bold text-gray-900 mb-2">This reset link is invalid or has expired</h1>
           <p className="text-sm text-gray-400 mb-6">
-            This link is missing a reset token. Please request a new one.
+            The link is missing its reset token, or it may already have been used or expired.
+            Password reset links only work once. Please request a new one.
           </p>
           <Link to="/forgot-password" className="btn-primary w-full justify-center">
             Request new link
           </Link>
         </div>
+        <p className="mt-5 text-sm text-gray-400">
+          Remember your password?{' '}
+          <Link to="/login" className="text-brand-600 font-semibold hover:underline">
+            Sign in
+          </Link>
+        </p>
+        <p className="mt-8 text-xs text-gray-300">
+          © {new Date().getFullYear()} CyberMeters — External Security Monitoring
+        </p>
       </div>
     )
   }

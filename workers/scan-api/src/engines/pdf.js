@@ -16,8 +16,30 @@
 // the workspace display name. No clock is read here; every date printed comes
 // from the snapshot (as_of / built_at) or an explicit caller argument.
 
-function pdfEsc(v) {
+// Typographic → ASCII transliteration (trust-closure episode, July 2026).
+// The stream encoder is ASCII-only, and the old behaviour replaced EVERY
+// non-ASCII byte with a space — so a source sentence like "…this scan — not
+// enough to assess." rendered as "…this scan   not enough to assess.": the
+// punctuation silently vanished and left a malformed double-space (the defect
+// PR #202 fixed for one limitation line at the source). Transliterating the
+// common typographic characters fixes the CLASS at the renderer, for every
+// current and future sentence, without touching any source copy. Anything not
+// mapped still falls back to a space, exactly as before.
+const PDF_ASCII_MAP = Object.freeze({
+  "—": "-",  // em dash
+  "–": "-",  // en dash
+  "‘": "'", "’": "'",     // curly single quotes
+  "“": '"', "”": '"',     // curly double quotes
+  "…": "...",
+  " ": " ",  // no-break space
+  "≠": "!=",
+  "→": "->",
+  "×": "x",
+  "·": "-",  // middle dot separator
+});
+export function pdfEsc(v) {
   return String(v == null ? "" : v)
+    .replace(/[—–‘’“”… ≠→×·]/g, (c) => PDF_ASCII_MAP[c] || " ")
     .replace(/[^\x20-\x7E]/g, " ")
     .replace(/\\/g, "\\\\")
     .replace(/\(/g, "\\(")
