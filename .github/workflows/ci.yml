@@ -530,6 +530,9 @@ jobs:
       - name: Validate brand DNS enrichment (tri-state truth + auto lifecycle + shared helper)
         run: node scripts/validate-brand-dns-enrichment.js
 
+      - name: Validate brand typosquat generator (TLD substitution / credential keywords / family quotas / speculative-risk honesty)
+        run: node scripts/validate-brand-typosquat.js
+
       - name: Validate hosted TLS-RPT (create/verify/delete + coexistence + isolation)
         run: node scripts/validate-hosted-tls-rpt.js
 
