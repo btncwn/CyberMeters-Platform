@@ -5,6 +5,23 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## v2026.07.20-4 — Shadow IT Alert Trust PR-1: managed-alert truth and field mapping — deployed 2026-07-20 (code-only, no migration)
+
+- **Release tag:** `v2026.07.20-4` (points at squash-merge commit `c591a16`, PR #211).
+- **Live Worker Version ID:** `520c562b-ed48-41d3-af49-7fc6e28cc88e` (verified at `GET /health`; deployed 2026-07-20 from main `c591a16`).
+- **Rollback Worker Version ID:** `8d5bb33b-8f2c-43c6-a9d8-036871675a4a` (v2026.07.20-3).
+- **Migration:** none. Latest applied production migration remains `098-related-changes.sql`.
+- **Sprint context:** stage 1 of the founder-approved two-PR Shadow IT Alert Trust remediation. The audited production defect (P2 customer-presentation, NOT a false positive or tenant leak): a true `owner_missing` alert for the **approved** service Stripe rendered the raw workspace UUID, "Affected Domain: stripe" (a service labelled as a domain), the same registry sentence as both "What Changed" and "Recommended Next Action" (sanction-review wording for an already-approved service), no evidence source, a generic `/notifications` CTA and an "Attack Surface Management" footer.
+- **What shipped (managed-alert pipeline; no migration, no frontend change):**
+  - **Workspace display** — the alert email shows the customer-facing `workspaces.name`, resolved inside the same tenant-scoped, soft-delete-gated liveness lookup (no second read, no unscoped read); the raw UUID is never the normal display value.
+  - **Entity typing** — bounded evidence-based vocabulary (`ALERT_ENTITY_TYPE_LABELS`); Shadow IT alerts label the observed entity "Affected Service" with its display name, and the monitored domain renders as a **separate** row. Explicit compatibility rule: absent/unknown `entity_type` keeps the legacy domain labelling.
+  - **What Changed ≠ Recommended Next Action** — the event description now derives from the recurrence transition (`describeRecurrenceEvent`), the action from a recurrence override or the canonical registry (`recommendationForRecurrence`); `owner_missing` states "An approved service does not have an assigned owner." and recommends owner assignment — never sanction-review wording.
+  - **Evidence source** — bounded structured summary from the item's own evidence chain (e.g. "Content-Security-Policy (script-src): https://js.stripe.com"); customer-safe labels, never internal table names; missing evidence yields no statement.
+  - **Footer** — module-aware from the canonical eight-domain map; neutral "Security Monitoring" default; the legacy per-scan ASM path keeps its wording explicitly.
+  - **CTA** — tenant-safe deep link `/ws/shadow-it?item=<sii-id>`; email and in-app card metadata carry the same destination.
+- **Validation:** new CI-blocking `validate-alert-truth-mapping.js` (67/67; end-to-end reproduction of the audited Stripe case over the real seeded schema + 7 mutations all CAUGHT); full 153-validator sweep green. Dedupe keys are built from stable inputs, so no existing alert re-fires from the copy change.
+- **Outstanding:** PR-2 (Shadow IT recurrence semantics + UI parity) follows; founder production acceptance of a controlled Shadow IT occurrence remains a release-gate action.
+
 ## v2026.07.20-3 — Brand Protection PR-C: HTTP/TLS live enrichment (confirms live HTTPS + login surface) — deployed 2026-07-20 (code-only, no migration)
 
 - **Release tag:** `v2026.07.20-3` (points at squash-merge commit `4b2ec908d2b4ea43a8ba674c8e17ff22649d4530`, PR #208).
