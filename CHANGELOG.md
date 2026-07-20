@@ -5,6 +5,16 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## v2026.07.20-8 — P2: first-ever managed-alert watermark race (2s lazy-activation grace) — deployed 2026-07-20 (code-only, no migration)
+
+- **Release tag:** `v2026.07.20-8` (squash-merge `b10c757`, PR #222).
+- **Live Worker Version ID:** `761f2f50-00bf-4266-b4ad-9bc34941b780` (verified at `GET /health`; deployments status 100%, 6/6 cache-busted probes).
+- **Rollback Worker Version ID:** `b6b52726-4b33-4ffc-b930-e73d17df11e1` (v2026.07.20-7).
+- **Migration:** none. Latest applied remains `098-related-changes.sql`.
+- **Root cause (found via a one-off CI failure of `validate-website-security-lifecycle`, then reproduced deterministically):** the `firstEverCondition` hatch compared the occurrence event's second-precision `datetime('now')` against the lazily-created activation watermark's own `datetime('now')` with a bare `>=`. A wall-clock second boundary ticking between the two writes inside one evaluator pass made a workspace+domain's genuinely-first occurrence look 1s older than its own activation — suppressed as `alert_baseline_established`, permanently. Affected the first-ever alert of any (workspace, domain) across all eight domains.
+- **Fix:** named bounded grace `ACTIVATION_CLOCK_SKEW_GRACE_MS = 2000` (+ `withinActivationGrace`), applied only to the first-ever hatch; ongoing watermark semantics unchanged; the pre-existing-backlog guard is proven intact.
+- **Validation:** new CI-blocking `validate-alert-activation-grace.js` (16/16; exact-2000ms boundary pinned at the pure predicate layer; jitter-proof e2e band; 3 mutations CAUGHT — grace removed reproduces the lost first alert, grace widened lets an old occurrence alert, suppression removed releases the backlog); `validate-website-security-lifecycle` 20/20 consecutive; all alert-family validators green; full **157-validator** sweep green.
+
 ## v2026.07.20-7 — Trust & UX closure: PDF typographic rendering, case deep links, viewer gating, audit-log routing — deployed 2026-07-20 (code-only, no migration)
 
 - **Release tag:** `v2026.07.20-7` (squash-merge `208d5e5`, PR #218).
