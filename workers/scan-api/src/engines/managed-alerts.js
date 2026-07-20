@@ -45,6 +45,10 @@ import { isInCooldown, normalizeProviderOutcome, PROVIDER_OUTCOMES } from "./ale
 import { ALERTS_FEATURE_KEY, channelEnabledForWorkspace, GATED_CHANNELS, workspaceAlertsEntitled } from "./alert-gate.js";
 // alert-occurrence.js has no imports of its own, so this cannot cycle.
 import { LIFECYCLE_EVENT_SOURCES, MONITORING_CHANGED, parseUtcMs } from "./alert-occurrence.js";
+// Canonical eight-domain display names for the email footer — ONE source of truth
+// (cyber-mot-domains.js), never a second hand-written list. Import chain is
+// cyber-mot-domains → dmarc-canonical-consumers → dmarc-state (leaf): no cycle.
+import { CYBER_MOT_DOMAINS } from "./cyber-mot-domains.js";
 
 // The entitlement and preference decisions now live in alert-gate.js so the legacy
 // senders in alerts.js can share them without a circular import (managed-alerts.js
@@ -320,11 +324,85 @@ export function observationIsAfterWatermark(observedAt, activatedAt) {
 
 
 // A soft-deleted workspace is nonexistent: no event, no email, no channel.
-async function workspaceIsLive(env, workspaceId) {
-  const row = await env.cybermeters_db
-    .prepare(`SELECT id FROM workspaces WHERE id = ? AND deleted_at IS NULL`)
+// Returns the live row (id + customer-facing name) or null — the name is read in
+// the SAME tenant-scoped, soft-delete-gated lookup the liveness decision uses, so
+// there is no second (and no unscoped) workspace read, and a foreign workspace's
+// name can never be resolved: the query is keyed by the exact workspace_id the
+// alert belongs to.
+async function liveWorkspaceRow(env, workspaceId) {
+  return await env.cybermeters_db
+    .prepare(`SELECT id, name FROM workspaces WHERE id = ? AND deleted_at IS NULL`)
     .bind(workspaceId).first().catch(() => null);
-  return Boolean(row);
+}
+async function workspaceIsLive(env, workspaceId) {
+  return Boolean(await liveWorkspaceRow(env, workspaceId));
+}
+
+// ── Customer-facing email field mapping (alert-truth episode, July 2026) ─────
+// The email used to render `workspaceName: workspace_id` (a raw UUID) and forced
+// every entity into the "Affected Domain" slot — a Shadow IT alert about the
+// observed SERVICE Stripe read "Affected Domain: stripe". The mapping is a pure,
+// exported function so the contract is testable and mutation-provable.
+//
+// Entity typing is BOUNDED and evidence-based: only the types below are
+// recognised. An unknown or absent entity_type falls back to the legacy domain
+// labelling — the explicit compatibility rule — rather than guessing a label.
+export const ALERT_ENTITY_TYPE_LABELS = Object.freeze({
+  domain: "Affected Domain",
+  hostname: "Affected Host",
+  service: "Affected Service",
+  vendor: "Affected Vendor",
+  technology: "Affected Technology",
+  certificate: "Affected Certificate",
+  identity_surface: "Affected Identity Surface",
+  sender: "Affected Sender",
+});
+
+// domain_key → canonical customer-facing module name, from the ONE eight-domain
+// source of truth. Unknown domain keys fall back to the neutral footer inside
+// formatAlertEmail rather than borrowing another module's name.
+const DOMAIN_MODULE_NAMES = Object.freeze(Object.fromEntries(
+  CYBER_MOT_DOMAINS.map((d) => [d.domain_key, d.display_name]),
+));
+
+// Bounded evidence sentence from structured metadata.evidence_source — never a raw
+// header/CSP dump. Accepts { label, detail, last_seen_at } (all optional) and
+// refuses to fabricate: no label + no detail => no evidence statement at all,
+// because a confident "how this was observed" with nothing behind it is exactly
+// the kind of invented claim the evidence rules exist to prevent.
+export function boundedEvidenceSentence(evidence) {
+  if (!evidence || typeof evidence !== "object") return null;
+  const label = String(evidence.label || "").trim().slice(0, 120);
+  const detail = String(evidence.detail || "").trim().slice(0, 200);
+  if (!label && !detail) return null;
+  const seen = String(evidence.last_seen_at || "").trim().slice(0, 10); // date part only
+  let s = label ? `Observed via ${label}` : "Observed";
+  if (detail) s += `: ${detail}`;
+  if (seen) s += ` (last seen ${seen})`;
+  return `${s}.`;
+}
+
+// Pure mapping from the canonical alert (message + metadata) to formatAlertEmail
+// inputs. `workspaceName` comes from the live-workspace lookup — the raw
+// workspace_id must never be the normal display value.
+export function buildAlertEmailFields({ workspaceName, domain_key, message, metadata = {}, link = null, origin = null }) {
+  const entityLabel = ALERT_ENTITY_TYPE_LABELS[String(metadata.entity_type || "")] || null;
+  const entityDisplay = entityLabel ? String(metadata.entity_display || metadata.hostname || "").trim() || null : null;
+  const typed = Boolean(entityLabel && entityDisplay);
+  return {
+    workspaceName: String(workspaceName || "").trim() || "Unknown Workspace",
+    // Legacy slot: only when there is no typed entity (compatibility rule).
+    domain: typed ? null : (metadata.hostname || null),
+    entityLabel: typed ? entityLabel : null,
+    entityDisplay: typed ? entityDisplay : null,
+    monitoredDomain: typed ? (String(metadata.monitored_domain || "").trim() || null) : null,
+    evidenceSource: boundedEvidenceSentence(metadata.evidence_source),
+    moduleName: DOMAIN_MODULE_NAMES[String(domain_key || "")] || null,
+    whatChanged: message,
+    recommendation: metadata.recommended_action || "Review this alert in CyberMeters.",
+    link: link || (origin ? `${origin}/notifications` : null),
+    preferencesLink: origin ? `${origin}/settings` : null,
+  };
 }
 
 // Entitlement and channel-preference decisions live in alert-gate.js (imported and
@@ -366,8 +444,10 @@ export async function emitManagedAlert(env, {
   const deliveries = [];
   const base = { workspace_id, domain_key, alert_kind: kind, dedupe_key, severity };
   try {
-    // 1. Soft-deleted workspaces receive nothing at all.
-    if (!(await workspaceIsLive(env, workspace_id))) {
+    // 1. Soft-deleted workspaces receive nothing at all. The same lookup carries
+    //    the customer-facing workspace name for the email (tenant-scoped by id).
+    const wsRow = await liveWorkspaceRow(env, workspace_id);
+    if (!wsRow) {
       deliveries.push(await recordDelivery(env, { ...base, channel: "in_app", outcome: "suppressed", reason: "workspace_deleted" }));
       return { emitted: false, notification_id: null, reason: "workspace_deleted", deliveries };
     }
@@ -470,16 +550,14 @@ export async function emitManagedAlert(env, {
     {
       // Reuse the canonical escaped template — one alert-email body for every
       // domain — and carry the monitoring-preference-centre link (a product
-      // setting, NOT a marketing unsubscribe).
+      // setting, NOT a marketing unsubscribe). Field mapping is the exported pure
+      // function above: customer-facing workspace NAME (never the raw id), typed
+      // entity when the caller supplied one, bounded evidence, module footer.
       const origin = getEmailFrontendOrigin(env);
-      const { text, html } = formatAlertEmail({
-        workspaceName: workspace_id,
-        domain: metadata.hostname || null,
-        whatChanged: message,
-        recommendation: metadata.recommended_action || "Review this alert in CyberMeters.",
-        link: link || (origin ? `${origin}/notifications` : null),
-        preferencesLink: origin ? `${origin}/settings` : null,
-      });
+      const { text, html } = formatAlertEmail(buildAlertEmailFields({
+        workspaceName: wsRow.name,
+        domain_key, message, metadata, link, origin,
+      }));
       const sent = await sendTenantAlertEmail(env, workspace_id, {
         subject: title, text, html, fromKey: "ALERT_EMAIL_FROM", severity,
       });

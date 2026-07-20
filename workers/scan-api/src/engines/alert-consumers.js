@@ -268,6 +268,13 @@ const LIFECYCLE_LINK_BUILDERS = Object.freeze({
     `${origin}/ws/cyber-essentials?control=${encodeURIComponent(recordId)}`,
   email_protection: (origin, recordId) =>
     `${origin}/ws/email-protection?lifecycle=${encodeURIComponent(recordId)}`,
+  // Shadow IT alerts used to dead-end at the generic notifications list. The
+  // inventory page is the canonical read surface (App.jsx: /ws/shadow-it); the
+  // record id is the item's own opaque `sii-` surrogate, and the page is
+  // workspace-scoped + auth-gated, so the link is tenant-safe by the same rule as
+  // every other builder here.
+  shadow_it_unmanaged_technology: (origin, recordId) =>
+    `${origin}/ws/shadow-it?item=${encodeURIComponent(recordId)}`,
 });
 
 /**
@@ -284,6 +291,54 @@ export function lifecycleRecordLink(env, domain_key, record_id) {
 
 export function alertKindFor(domain_key, recurrence) {
   return `${domain_key}.${recurrence}`;
+}
+
+// ── What changed vs. what to do (alert-truth episode, July 2026) ─────────────
+// `message` (the email's "What Changed") and `metadata.recommended_action` were
+// BOTH sourced from the registry's recommended_action — the customer read the
+// same sentence twice, and neither described the event. The registry stays the
+// one source of remediation meaning (the ACTION); the EVENT description comes
+// from the recurrence transition itself, which the registry cannot know.
+//
+// Per-recurrence copy is bounded and namespaced by domain, exactly like
+// RECURRENCE_SEVERITY. Where a recurrence has no specific copy, the fallback is a
+// truthful generic transition statement — never the recommendation again, so the
+// two can never collapse back into one sentence.
+//
+// owner_missing carries its own copy because the registry action for the finding
+// ("confirm it is sanctioned") is WRONG for this transition: the service is
+// already approved — implying it needs sanction review would misdescribe the
+// customer's own classification. The truthful meaning is "approved, but nobody
+// owns it".
+const RECURRENCE_COPY = Object.freeze({
+  shadow_it_unmanaged_technology: Object.freeze({
+    owner_missing: Object.freeze({
+      what_changed: () => "An approved service does not have an assigned owner.",
+      action: (entity) => `Assign a business or technical owner for ${entity} and record the responsible team.`,
+    }),
+  }),
+});
+
+export function humanizeRecurrence(recurrence) {
+  return String(recurrence || "").replace(/_/g, " ").trim();
+}
+
+// The generic event description: names the entity and the observed transition,
+// asserts nothing beyond them. Deliberately NOT the recommendation.
+export function describeRecurrenceEvent(domain_key, recurrence, entityDisplay) {
+  const copy = RECURRENCE_COPY[String(domain_key || "")]?.[String(recurrence || "")];
+  if (copy?.what_changed) return copy.what_changed(entityDisplay);
+  const subject = String(entityDisplay || "").trim() || "A monitored item";
+  return `${subject}: condition "${humanizeRecurrence(recurrence)}" was observed.`;
+}
+
+// The recommendation: recurrence-specific override first (a transition can make
+// the finding-level action wrong — see owner_missing), then the canonical
+// registry action, then the bounded fallback.
+export function recommendationForRecurrence(domain_key, recurrence, entityDisplay, registryAction) {
+  const copy = RECURRENCE_COPY[String(domain_key || "")]?.[String(recurrence || "")];
+  if (copy?.action) return copy.action(String(entityDisplay || "").trim() || "this item");
+  return registryAction || "Review this item in CyberMeters.";
 }
 
 // ── Managed-case bridge (PR-B1) ──────────────────────────────────────────────
@@ -376,6 +431,14 @@ export async function emitLifecycleAlert(env, {
   workspace_id, domain_key, record_id, entity,
   recurrence, finding_type = null, case_id = null, link = null,
   hostname = null, cooldownActive = null, record_severity = null,
+  // Semantic entity typing (alert-truth episode). Optional and additive: a caller
+  // that knows its entity is a service/vendor/certificate says so, with a
+  // customer-facing display name; monitored_domain is the workspace domain the
+  // observation belongs to (shown separately from the entity — a service is not a
+  // domain); evidence_source is a structured { label, detail, last_seen_at }
+  // summary of HOW it was observed. Callers that pass none of these keep the
+  // legacy behaviour exactly.
+  entity_type = null, entity_display = null, monitored_domain = null, evidence_source = null,
 } = {}) {
   try {
     if (!workspace_id || !domain_key || !record_id || !recurrence) return { skipped: "incomplete_condition" };
@@ -430,12 +493,20 @@ export async function emitLifecycleAlert(env, {
     //    be worse than pointing at a general one.
     const record_link = link || lifecycleRecordLink(env, domain_key, record_id);
 
+    // What changed ≠ what to do. The event description comes from the recurrence
+    // transition; the recommendation from the recurrence override or the registry.
+    // They are built by separate functions so they can never collapse back into
+    // the same registry string (the defect this episode fixes).
+    const displayName = String(entity_display || "").trim() || entity || record_id;
+    const whatChanged = describeRecurrenceEvent(domain_key, recurrence, displayName);
+    const recommendation = recommendationForRecurrence(domain_key, recurrence, displayName, resolved?.recommended_action || null);
+
     return await emitManagedAlert(env, {
       workspace_id, domain_key,
       kind: alertKindFor(domain_key, recurrence),
       severity,
       title: resolved?.customer_title || `${entity || record_id}: review required`,
-      message: resolved?.recommended_action || "Review this item in CyberMeters.",
+      message: whatChanged,
       dedupe_key,
       link: record_link,
       case_id,
@@ -448,7 +519,13 @@ export async function emitLifecycleAlert(env, {
         recurrence_type: recurrence,
         occurrence_id: occurrence.occurrence_id,
         required_case_action: occurrence.detail?.required_case_action || null,
-        recommended_action: resolved?.recommended_action || null,
+        recommended_action: recommendation,
+        // Typed entity + bounded evidence for the email field mapping
+        // (managed-alerts.js buildAlertEmailFields). Absent for legacy callers.
+        entity_type: entity_type || null,
+        entity_display: entity_type ? displayName : null,
+        monitored_domain: monitored_domain || null,
+        evidence_source: evidence_source || null,
         // The in-app card reads its destination from metadata, not from the row's `link`
         // column (NotificationsPage.jsx). Without this the email would deep-link and the
         // card next to it would not — the same alert, two different answers to "where do

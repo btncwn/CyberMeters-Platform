@@ -517,23 +517,47 @@ export async function deliverWorkspaceAlert(env, workspaceId, event, { fetchImpl
 // cross-sell. `preferencesLink` points at the monitoring-preference centre — it is
 // deliberately NOT a marketing unsubscribe, and is labelled as such, because turning
 // monitoring off is a product setting the customer controls per channel.
-export function formatAlertEmail({ workspaceName, domain, whatChanged, recommendation, link, preferencesLink = null }) {
+//
+// Entity typing (alert-truth episode, July 2026): an alert's subject is not always a
+// domain — Shadow IT alerts about an observed SERVICE ("Stripe") were rendered as
+// "Affected Domain: stripe", labelling a vendor as a domain. Callers that know the
+// entity's semantic type pass `entityLabel` + `entityDisplay` and the row is labelled
+// truthfully; the monitored domain, when known, is shown SEPARATELY so a service is
+// never conflated with the domain it was observed on. Legacy callers that pass only
+// `domain` render exactly as before — the explicit compatibility rule is "no entity
+// type => legacy domain labelling", never a guess.
+//
+// `evidenceSource` is a bounded, pre-normalised sentence explaining HOW the entity
+// was observed (built by the caller from structured evidence — never a raw header
+// dump). `moduleName` names the product module in the footer; the fallback is the
+// neutral security-monitoring footer, because a hard-coded "Attack Surface
+// Management" on a Shadow IT alert misattributed every non-ASM domain's alerts.
+export function formatAlertEmail({ workspaceName, domain, whatChanged, recommendation, link, preferencesLink = null,
+  entityLabel = null, entityDisplay = null, monitoredDomain = null, evidenceSource = null, moduleName = null }) {
+  const hasTypedEntity = Boolean(entityLabel && entityDisplay);
+  const footerModule = String(moduleName || "Security Monitoring").slice(0, 80);
+  const entityRowText = hasTypedEntity
+    ? `${entityLabel}: ${entityDisplay}${monitoredDomain ? `\nMonitored Domain: ${monitoredDomain}` : ""}`
+    : `Affected Domain: ${domain || "N/A"}`;
   const text = `CyberMeters Alert
 
 Workspace: ${workspaceName}
-Affected Domain: ${domain || "N/A"}
+${entityRowText}
 
 What Changed:
 ${whatChanged}
 
 Recommended Next Action:
 ${recommendation}
-
+${evidenceSource ? `
+How this was observed:
+${evidenceSource}
+` : ""}
 View Dashboard/Report:
 ${link || "Open CyberMeters to review this alert."}
 
 --
-CyberMeters — Attack Surface Management
+CyberMeters — ${footerModule}
 This is an automated security-monitoring alert for your workspace.${preferencesLink ? `
 Manage your monitoring alert preferences: ${preferencesLink}` : ""}`;
 
@@ -546,12 +570,18 @@ Manage your monitoring alert preferences: ${preferencesLink}` : ""}`;
       <td style="padding: 6px 0; font-weight: bold; width: 150px;">Workspace:</td>
       <td>${escapeEmailHtml(workspaceName)}</td>
     </tr>
-    ${domain ? `<tr>
+    ${hasTypedEntity ? `<tr>
+      <td style="padding: 6px 0; font-weight: bold;">${escapeEmailHtml(entityLabel)}:</td>
+      <td>${escapeEmailHtml(entityDisplay)}</td>
+    </tr>${monitoredDomain ? `<tr>
+      <td style="padding: 6px 0; font-weight: bold;">Monitored Domain:</td>
+      <td>${escapeEmailHtml(monitoredDomain)}</td>
+    </tr>` : ''}` : domain ? `<tr>
       <td style="padding: 6px 0; font-weight: bold;">Affected Domain:</td>
       <td>${escapeEmailHtml(domain)}</td>
     </tr>` : ''}
   </table>
-  
+
   <div style="background: #F9FAFB; border-left: 4px solid #F59E0B; padding: 15px; margin-bottom: 20px;">
     <h4 style="margin: 0 0 8px 0; color: #374151;">What Changed:</h4>
     <p style="margin: 0; color: #4B5563; white-space: pre-wrap;">${escapeEmailHtml(whatChanged)}</p>
@@ -562,6 +592,11 @@ Manage your monitoring alert preferences: ${preferencesLink}` : ""}`;
     <p style="margin: 0; color: #4B5563;">${escapeEmailHtml(recommendation)}</p>
   </div>
 
+  ${evidenceSource ? `<div style="margin-bottom: 25px;">
+    <h4 style="margin: 0 0 8px 0; color: #374151;">How this was observed:</h4>
+    <p style="margin: 0; color: #6B7280; font-size: 13px;">${escapeEmailHtml(evidenceSource)}</p>
+  </div>` : ''}
+
   ${link ? `<p style="margin-top: 20px;">
     <a href="${escapeEmailHtml(link)}" style="background: #00876A; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: bold; display: inline-block;">
       View Dashboard / Report
@@ -570,7 +605,7 @@ Manage your monitoring alert preferences: ${preferencesLink}` : ""}`;
   
   <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 30px 0;" />
   <p style="font-size: 12px; color: #9CA3AF; margin: 0;">
-    CyberMeters &mdash; Attack Surface Management<br>
+    CyberMeters &mdash; ${escapeEmailHtml(footerModule)}<br>
     This is an automated security-monitoring alert for your workspace, sent to
     workspace owners and admins.${preferencesLink ? `<br>
     <a href="${escapeEmailHtml(preferencesLink)}" style="color: #6B7280;">Manage your monitoring alert preferences</a>` : ""}
@@ -621,6 +656,10 @@ export async function processAlertsForWorkspace(workspaceId, domainId, domain, s
           recommendation,
           link: frontendOrigin ? `${frontendOrigin}/scans/${encodeURIComponent(scanId)}` : null,
           preferencesLink: frontendOrigin ? `${frontendOrigin}/settings` : null,
+          // Legacy per-scan alerts genuinely are attack-surface monitoring; the
+          // footer stays as shipped. The neutral default exists for the managed
+          // pipeline, where one template serves all eight domains.
+          moduleName: "Attack Surface Management",
         });
         const delivery = await sendTenantAlertEmail(env, workspaceId, {
           subject: title, text, html, fromKey, severity,
