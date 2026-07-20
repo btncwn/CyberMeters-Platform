@@ -39,7 +39,7 @@ function freshDb() {
   db.exec(`
     CREATE TABLE workspaces (id TEXT PRIMARY KEY, owner_user_id TEXT, deleted_at TEXT);
     CREATE TABLE workspace_reports (id TEXT PRIMARY KEY, workspace_id TEXT, report_type TEXT, report_period TEXT, status TEXT, created_at TEXT, deleted_at TEXT);
-    CREATE TABLE subscriptions (owner_user_id TEXT, plan TEXT, subscription_status TEXT, current_period_end TEXT, payment_failed_at TEXT, created_at TEXT, updated_at TEXT);
+    CREATE TABLE subscriptions (id TEXT, owner_user_id TEXT, workspace_id TEXT, plan TEXT, status TEXT, subscription_status TEXT, trial_end TEXT, expires_at TEXT, current_period_end TEXT, payment_failed_at TEXT, stripe_subscription_id TEXT, created_at TEXT, updated_at TEXT);
   `);
   return db;
 }

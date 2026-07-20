@@ -85,6 +85,17 @@ seedWs("ws_u2", "u2");
 seedDomain("dom_u2", "u2", "shared.co.uk");
 link("ws_u2", "dom_u2", "unverified");
 
+// Entitled paid subscriptions for both owners: the `free` state is post-trial
+// read-only (0 scans), so an unsubscribed fixture user would hit the plan gate
+// before ever reaching the domain-verification gate under test here.
+function seedSub(uid, wsId) {
+  db.prepare(`INSERT INTO subscriptions (id, owner_user_id, workspace_id, plan, status, subscription_status, current_period_end, created_at, updated_at)
+              VALUES (?, ?, ?, 'professional', 'active', 'active', ?, datetime('now'), datetime('now'))`)
+    .run("sub_" + uid, uid, wsId, new Date(Date.now() + 30 * 864e5).toISOString());
+}
+seedSub("u1", "ws_ver");
+seedSub("u2", "ws_u2");
+
 const r2puts = [];
 const env = {
   cybermeters_db: makeD1(db),

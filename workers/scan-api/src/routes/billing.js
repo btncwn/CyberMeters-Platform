@@ -10,9 +10,9 @@ import { runHeadersModule } from "../engines/headers-scan.js";
 import { runSslModule } from "../engines/ssl-scan.js";
 import { computeScore } from "../engines/scoring.js";
 import { normalizeFindingSchema } from "../engines/findings.js";
-import { BILLING_PLAN_METADATA, getPaymentGraceState, getPlanFeatures, normalizeBillingInterval, normalizePlan } from "../engines/entitlements.js";
+import { BILLING_PLAN_METADATA, getEffectiveDomainLimit, getPaymentGraceState, getPlanFeatures, normalizeBillingInterval, normalizePlan } from "../engines/entitlements.js";
 import { getPlanLimits, getWorkspaceBillingUserId } from "../engines/plan-usage.js";
-import { getStripePriceIdForPlan, validateStripeSecretConfig } from "../engines/stripe.js";
+import { getStripePriceIdForPlan, validateStripeSecretConfig, verifyStripePriceMatchesPolicy } from "../engines/stripe.js";
 import { TRIAL_PLAN, auditApiTokenSessionRouteDenied, getPublicBillingPlans, getTrialRemainingDays, getWorkspaceSubscription, isSubscriptionActive, isTrialActive, parseCheckoutPlan } from "../engines/subscription-state.js";
 import { dnsQuery } from "../engines/dns.js";
 import { createAuditEvent } from "../lib/events.js";
@@ -244,7 +244,15 @@ export async function billingRoutes(rctx) {
           }
         }
 
-        const limits   = getPlanLimits(effectivePlan);
+        // Trial-aware limits: the 14-day trial borrows the professional feature
+        // set but caps monitored domains at the trial allowance — the SAME
+        // override the domain-add enforcement applies, so the billing UI can
+        // never display headroom the backend would refuse.
+        const baseLimits = getPlanLimits(effectivePlan);
+        const trialDomains = trialActive ? getEffectiveDomainLimit(effectivePlan, true) : null;
+        const limits = trialActive
+          ? { ...baseLimits, domains: trialDomains, domains_per_workspace: trialDomains }
+          : baseLimits;
         const features = getPlanFeatures(effectivePlan);
 
         return json({
@@ -337,6 +345,17 @@ export async function billingRoutes(rctx) {
           error: priceResolution.error,
           ...(priceResolution.missing?.length ? { missing: priceResolution.missing } : {}),
           message: "Stripe billing configuration is not ready for checkout.",
+        }, 503);
+      }
+
+      // Lockstep guard: the configured Stripe price must charge exactly what the
+      // canonical pricing policy states for this plan/interval. A stale or wrong
+      // price refuses checkout rather than charging a number the cards never showed.
+      const priceCheck = await verifyStripePriceMatchesPolicy(env, requestedPlan, interval, priceResolution.price_id);
+      if (!priceCheck.ok) {
+        return json({
+          error: priceCheck.error,
+          message: "Checkout is temporarily unavailable while billing configuration is verified.",
         }, 503);
       }
 

@@ -2,27 +2,34 @@
 // Plan limits/features/metadata tables, plan normalisation, payment grace-period state, and
 // user/effective plan resolution + feature entitlement checks. Extracted verbatim from
 // index.js (monolith decomposition, Phase 1c). isExpiredDate + PAYMENT_GRACE_PERIOD_DAYS internal.
+// Prices and domain limits derive from the canonical pricing registry
+// (pricing-registry.js ← docs/PRICING-POLICY.md, locked 2026-07-19). Do not
+// hand-edit a price or domain count here.
+import { CANONICAL_PLANS, TRIAL_SPEC, penceToGbp } from "./pricing-registry.js";
 
 // ── Subscription Entitlements ────────────────────────────────────────────────
 
 export const PLAN_LIMITS = {
   free: {
+    // `free` is the post-trial / no-subscription state. Policy §4: monitoring
+    // stops at trial expiry (fail-closed); prior evidence stays readable.
+    // Zero new scans/reports/schedules — read-only access to existing history.
     workspaces: 1,
-    domains: 1,       // UK Cyber MOT tiers (2026-07): Free 1 / Starter 1 / Pro 5 / Business 20 / MSP(enterprise) 20-100+
+    domains: CANONICAL_PLANS.free.included_domains,
     users: 1,
     history_days: 30,
     report_retention: "90_days",
     api_tokens: 1,
-    scheduled_reports_per_workspace: 1,
-    scans_per_month: 5,
-    scan_starts_per_hour: 5,
-    reports_per_month: 3,
-    scheduled_scans: 0,       // free plan: no scheduled scans
-    pending_invitations: 10,
+    scheduled_reports_per_workspace: 0,
+    scans_per_month: 0,
+    scan_starts_per_hour: 0,
+    reports_per_month: 0,
+    scheduled_scans: 0,
+    pending_invitations: 0,
   },
   starter: {
     workspaces: 1,  // SMB = single tenant; domains are the value metric (see pricing cards)
-    domains: 1,
+    domains: CANONICAL_PLANS.starter.included_domains,
     users: 3,
     history_days: 90,
     report_retention: "90_days",
@@ -35,8 +42,8 @@ export const PLAN_LIMITS = {
     pending_invitations: 25,
   },
   professional: {
-    workspaces: 1,  // SMB = single tenant; 5 domains in one workspace (see pricing cards)
-    domains: 5,
+    workspaces: 1,  // SMB = single tenant; 3 domains in one workspace (see pricing cards)
+    domains: CANONICAL_PLANS.professional.included_domains,
     users: 10,
     history_days: 365,
     report_retention: "2_years",
@@ -50,7 +57,12 @@ export const PLAN_LIMITS = {
   },
   business: {
     workspaces: 50,
-    domains: 20,
+    // Base plan INCLUDES 10 domains. Domains 11–25 exist in the canonical
+    // policy as per-domain overage (+£3/mo, hard cap 25) but per-domain overage
+    // BILLING is not yet wired to Stripe, so entitlement fails closed at the
+    // included count — a domain we cannot bill is a domain we do not grant.
+    // See domainLimitRejection (plan-usage.js) for the honest customer copy.
+    domains: CANONICAL_PLANS.business.included_domains,
     users: 50,
     history_days: 730,
     report_retention: "7_years",
@@ -133,48 +145,55 @@ export const PLAN_FEATURES = {
   ],
 };
 
-export const BILLING_PLAN_METADATA = {
-  free: {
-    name: "Free",
-    description: "Platform evaluation with basic scans and on-screen results.",
-    monthly_gbp: 0,
-    annual_gbp: 0,
-    annual_equivalent_monthly_gbp: 0,
-    checkout_enabled: false,
-  },
-  starter: {
-    name: "Starter",
-    description: "Business Risk Score, scheduled scans, and basic executive reports.",
-    monthly_gbp: 29,
-    annual_gbp: 276,
-    annual_equivalent_monthly_gbp: 23,
-    checkout_enabled: true,
-  },
-  professional: {
-    name: "Professional",
-    description: "Cyber Essentials Readiness, Vendor Risk, and advanced reports.",
-    monthly_gbp: 149,
-    annual_gbp: 1428,
-    annual_equivalent_monthly_gbp: 119,
-    checkout_enabled: true,
-  },
-  business: {
-    name: "Business",
-    description: "Portfolio Monitoring, White Label reports, and extended retention.",
-    monthly_gbp: 399,
-    annual_gbp: 3828,
-    annual_equivalent_monthly_gbp: 319,
-    checkout_enabled: true,
-  },
-  enterprise: {
-    name: "Enterprise",
-    description: "MSP Dashboard, custom limits, priority support, and dedicated onboarding.",
-    monthly_gbp: null,
-    annual_gbp: null,
-    annual_equivalent_monthly_gbp: null,
-    checkout_enabled: false,
-  },
-};
+// Derived verbatim from the canonical pricing registry. The legacy shape
+// (name/description/monthly_gbp/annual_gbp/annual_equivalent_monthly_gbp/
+// checkout_enabled) is preserved for existing consumers; the additive
+// `pricing_model` block carries the per-domain commercial model (Business
+// overage, MSP base + metered domains) so no surface has to invent it.
+function buildBillingPlanMetadata() {
+  const out = {};
+  for (const [key, p] of Object.entries(CANONICAL_PLANS)) {
+    const annualGbp = penceToGbp(p.annual_pence);
+    out[key] = {
+      name: p.name,
+      description: p.description,
+      monthly_gbp: penceToGbp(p.monthly_pence),
+      annual_gbp: annualGbp,
+      annual_equivalent_monthly_gbp: annualGbp === null
+        ? null
+        : Math.round(p.annual_pence / 12) / 100,
+      checkout_enabled: p.checkout_enabled === true,
+      pricing_model: {
+        currency: "gbp",
+        included_domains: p.included_domains,
+        ...(p.additional_domain_monthly_pence ? {
+          additional_domain_monthly_gbp: penceToGbp(p.additional_domain_monthly_pence),
+          additional_domain_annual_gbp: penceToGbp(p.additional_domain_annual_pence),
+          domain_hard_cap: p.domain_hard_cap,
+        } : {}),
+        ...(p.base_monthly_pence ? {
+          base_monthly_gbp: penceToGbp(p.base_monthly_pence),
+          base_annual_gbp: penceToGbp(p.base_annual_pence),
+          per_domain_monthly_gbp: penceToGbp(p.per_domain_monthly_pence),
+          per_domain_annual_gbp: penceToGbp(p.per_domain_annual_pence),
+          min_billed_domains: p.min_billed_domains,
+          floor_monthly_gbp: penceToGbp(p.floor_monthly_pence),
+          floor_annual_gbp: penceToGbp(p.floor_annual_pence),
+        } : {}),
+        ...(key === "free" ? {
+          trial: {
+            duration_days: TRIAL_SPEC.duration_days,
+            domains: TRIAL_SPEC.domains,
+            card_required: TRIAL_SPEC.card_required,
+          },
+        } : {}),
+      },
+    };
+  }
+  return out;
+}
+
+export const BILLING_PLAN_METADATA = buildBillingPlanMetadata();
 
 export function normalizePlan(plan) {
   const value = String(plan || "free").trim().toLowerCase();
@@ -202,45 +221,121 @@ export function getPaymentGraceState(sub) {
   return { active: Date.now() < endsAtMs, ends_at: new Date(endsAtMs).toISOString() };
 }
 
-export async function getUserPlan(userId, env) {
+// isTrialWindowValid — a `trialing` row is entitled only while its trial
+// window genuinely runs. The window end is trial_end, falling back to
+// current_period_end for Stripe-managed trials that carry no local trial
+// columns. A trialing row with NEITHER end date fails CLOSED: before this
+// rule, locally-provisioned trials (trial_end set, current_period_end NULL)
+// passed the old current_period_end-only check forever — a 14-day trial that
+// never expired at runtime.
+function isTrialWindowValid(sub) {
+  const end = sub?.trial_end || sub?.current_period_end || null;
+  if (!end) return false;
+  const t = new Date(end).getTime();
+  if (Number.isNaN(t)) return false;
+  return t > Date.now();
+}
+
+// resolveCanonicalSubscriptionRow — the ONE decision for which subscription
+// row governs an owner's entitlement when history holds several (append-only
+// billing rows are never deleted). Explicit precedence, never newest-row
+// ordering (F0 precondition, ROADMAP-TO-FIRST-PAYING-CUSTOMER.md):
+//   0. lineage supersession — rows sharing a billing lineage (same
+//      stripe_subscription_id, or same workspace_id) are the SAME
+//      subscription's history: only the newest row of a lineage stands, so a
+//      cancellation can never be out-shadowed by its own stale predecessor.
+//   1. an unexpired ACTIVE paid row — the purchased reality. A customer
+//      receives exactly what they pay for, so a live paid plan beats a
+//      concurrent trial row in either direction.
+//   2. a trialing row inside a valid trial window.
+//   3. a past_due row inside the 7-day payment grace window.
+// Within a class: Stripe-bound rows (stripe_subscription_id) beat local rows,
+// then latest updated_at/created_at, then id — fully deterministic.
+// Returns { row, source: "paid" | "trial" | "grace" } or null (→ free).
+export function resolveCanonicalSubscriptionRow(rows) {
+  const all = Array.isArray(rows) ? rows.filter(Boolean) : [];
+  const recency = (r) => String(r.updated_at || r.created_at || "");
+  const newer = (a, b) => {
+    const aT = recency(a), bT = recency(b);
+    if (aT !== bT) return aT > bT;
+    return String(a.id || "") > String(b.id || "");
+  };
+  const sameLineage = (a, b) =>
+    (a.stripe_subscription_id && a.stripe_subscription_id === b.stripe_subscription_id) ||
+    (a.workspace_id && a.workspace_id === b.workspace_id);
+  const list = all.filter((r) => !all.some((o) => o !== r && sameLineage(r, o) && newer(o, r)));
+  const statusOf = (r) => String(r.subscription_status || r.status || "").trim().toLowerCase();
+  const activePaid = list.filter((r) => statusOf(r) === "active" && !isExpiredDate(r.current_period_end ?? r.expires_at ?? null));
+  const trialing = list.filter((r) => statusOf(r) === "trialing" && isTrialWindowValid(r));
+  const grace = list.filter((r) => statusOf(r) === "past_due" && getPaymentGraceState(r).active);
+  const pickDeterministic = (candidates) => {
+    const sorted = [...candidates].sort((a, b) => {
+      const aStripe = a.stripe_subscription_id ? 1 : 0;
+      const bStripe = b.stripe_subscription_id ? 1 : 0;
+      if (aStripe !== bStripe) return bStripe - aStripe;
+      const aT = recency(a), bT = recency(b);
+      if (aT !== bT) return aT < bT ? 1 : -1;
+      return String(a.id || "") < String(b.id || "") ? 1 : -1;
+    });
+    return sorted[0] ?? null;
+  };
+  if (activePaid.length) return { row: pickDeterministic(activePaid), source: "paid" };
+  if (trialing.length) return { row: pickDeterministic(trialing), source: "trial" };
+  if (grace.length) return { row: pickDeterministic(grace), source: "grace" };
+  return null;
+}
+
+export async function getEffectivePlanState(userId, env) {
   // Canonical plan resolver for all application billing decisions.
   // Stripe updates the subscriptions table through webhooks; runtime requests
   // must continue to read through this helper rather than Stripe.
   //
-  // Current behavior:
-  // - missing user_id, missing subscription row, D1 errors -> free
-  // - non-active subscription_status values -> free
-  // - past_due inside the payment grace window -> keep the paid plan
-  // - expired current_period_end -> free
-  // - otherwise normalize and return subscriptions.plan
-  if (!userId) return "free";
+  // Behavior:
+  // - missing user_id, no entitling row, D1 errors -> { plan: "free" }
+  // - active paid row (unexpired) -> its plan
+  // - trialing row inside a valid trial window -> its plan, is_trial: true
+  //   (trial window = trial_end, else current_period_end; neither -> free)
+  // - past_due inside the 7-day payment grace window -> keep the paid plan
+  // - duplicate rows resolve by resolveCanonicalSubscriptionRow, never by
+  //   ambiguous newest-row ordering
+  if (!userId) return { plan: "free", is_trial: false, source: "none" };
   try {
-    const sub = await env.cybermeters_db
+    const res = await env.cybermeters_db
       .prepare(
-        `SELECT plan, subscription_status, current_period_end, payment_failed_at
+        `SELECT id, workspace_id, plan, status, subscription_status, trial_end,
+                expires_at, current_period_end, payment_failed_at,
+                stripe_subscription_id, created_at, updated_at
          FROM subscriptions
-         WHERE owner_user_id = ?
-         ORDER BY COALESCE(updated_at, created_at) DESC
-         LIMIT 1`
+         WHERE owner_user_id = ?`
       )
       .bind(userId)
-      .first();
-
-    if (!sub) return "free";
-    const status = String(sub.subscription_status || "").trim().toLowerCase();
-    if (status === "past_due") {
-      return getPaymentGraceState(sub).active ? normalizePlan(sub.plan) : "free";
-    }
-    if (status && !["active", "trialing"].includes(status)) return "free";
-    if (isExpiredDate(sub.current_period_end)) return "free";
-    return normalizePlan(sub.plan);
+      .all();
+    const resolved = resolveCanonicalSubscriptionRow(res?.results || []);
+    if (!resolved) return { plan: "free", is_trial: false, source: "none" };
+    return {
+      plan: normalizePlan(resolved.row.plan),
+      is_trial: resolved.source === "trial",
+      source: resolved.source,
+    };
   } catch {
-    return "free";
+    return { plan: "free", is_trial: false, source: "none" };
   }
+}
+
+export async function getUserPlan(userId, env) {
+  return (await getEffectivePlanState(userId, env)).plan;
 }
 
 export async function getEffectivePlan(userId, env) {
   return getUserPlan(userId, env);
+}
+
+// Trial domain cap (policy §4): the 14-Day Full Trial grants the full product
+// but exactly ONE monitored domain, regardless of the feature plan it borrows.
+export function getEffectiveDomainLimit(plan, isTrial) {
+  if (isTrial) return TRIAL_SPEC.domains;
+  const normalized = normalizePlan(plan);
+  return (PLAN_LIMITS[normalized] ?? PLAN_LIMITS.free).domains;
 }
 
 export function getPlanFeatures(plan) {

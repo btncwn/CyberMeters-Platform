@@ -6,9 +6,8 @@
 // router continues. Dispatched BEFORE the workspaces-core wsMatch block so
 // /domains/import keeps winning over the :domainId pattern, as before.
 import { dnsQuery } from "../engines/dns.js";
-import { getEffectivePlan } from "../engines/entitlements.js";
 import { normalizeHostname } from "../engines/hostnames.js";
-import { getAccountUsage, getEntitlementUsage, getPlanLimits, getWorkspaceBillingUserId, planLimitExceeded } from "../engines/plan-usage.js";
+import { domainLimitRejection, getAccountUsage, getEffectiveDomainState, getEntitlementUsage, getWorkspaceBillingUserId } from "../engines/plan-usage.js";
 import { hashToken } from "../lib/auth-crypto.js";
 import { checkDnsTxtProof, outcomeForDnsCategory, persistVerification, recordVerificationAttempt,
          resolveVerificationWorkspace, VERIFICATION_OUTCOMES, VERIFICATION_RECHECK_INTERVAL,
@@ -61,21 +60,22 @@ export async function domainRoutes(rctx) {
           return json({ imported: 0, skipped: 0, invalid: invalid.length, total: rawList.length });
         }
 
-        // Entitlement: per-workspace limit + account-level limit — check before touching DB
+        // Entitlement: per-workspace limit + account-level limit — check before touching DB.
+        // Domain limits are trial-aware (trial = 1 domain) and business-aware
+        // (10 included; per-domain expansion honestly refused until billable).
         const importBillingUserId = await getWorkspaceBillingUserId(workspaceId, importUser.id, env);
-        const impPlan = await getEffectivePlan(importBillingUserId, env);
+        const impState = await getEffectiveDomainState(importBillingUserId, env);
         const impUsage  = await getEntitlementUsage(importUser, env, workspaceId);
-        const impLimits = getPlanLimits(impPlan);
         // (a) Per-workspace headroom
-        const wsRemaining = impLimits.domains_per_workspace - impUsage.domains_in_workspace;
+        const wsRemaining = impState.domains - impUsage.domains_in_workspace;
         if (wsRemaining <= 0) {
-          return json(planLimitExceeded("domains", impLimits.domains, impUsage.domains_in_workspace), 403);
+          return json(domainLimitRejection(impState.plan, impState.is_trial, impState.domains, impUsage.domains_in_workspace), 403);
         }
         // (b) Account-level headroom across all owned workspaces
         const impOwnerAcct = await getAccountUsage(importBillingUserId, env);
-        const acctRemaining = impLimits.domains - impOwnerAcct.domains;
+        const acctRemaining = impState.domains - impOwnerAcct.domains;
         if (acctRemaining <= 0) {
-          return json(planLimitExceeded("domains", impLimits.domains, impOwnerAcct.domains), 403);
+          return json(domainLimitRejection(impState.plan, impState.is_trial, impState.domains, impOwnerAcct.domains), 403);
         }
         // Trim to whichever headroom is smaller
         const remaining = Math.min(wsRemaining, acctRemaining);

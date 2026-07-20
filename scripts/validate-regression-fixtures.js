@@ -2252,7 +2252,14 @@ results.push(await asyncSecurityContract("alert_delivery_signs_and_records_statu
   ];
   const env = { cybermeters_db: { prepare(sql) { return {
     _sql: sql, bind(...args) { this._args = args; return this; },
-    async all() { return { results: rows }; },
+    // The canonical plan resolver reads ALL subscription rows for the owner
+    // (duplicate-row resolution), so the entitled stub must answer .all() too.
+    async all() {
+      if (this._sql.includes("FROM subscriptions")) return { results: [
+        { id: "sub_1", workspace_id: "ws1", plan: "professional", status: "active", subscription_status: "active", trial_end: null, expires_at: null, current_period_end: "2099-01-01T00:00:00.000Z", payment_failed_at: null, stripe_subscription_id: "sub_stripe_1", created_at: "2026-01-01", updated_at: "2026-01-01" },
+      ] };
+      return { results: rows };
+    },
     async run() { if (this._sql.includes("UPDATE workspace_alert_channels")) updates.push(this._args); return { meta: { changes: 1 } }; },
     // deliverWorkspaceAlert is now entitlement-gated (the channel chokepoint —
     // free plans get no Slack/Teams/webhook delivery), so this stub must present
@@ -2789,8 +2796,11 @@ results.push(securityContract("lifecycle_payment_failed_copy_safe_and_actionable
   // No internals: never leak Stripe ids, invoice ids, or infra terms; must
   // link to /billing and never threaten silent access removal.
   const leak = /token|secret|bearer|api[_-]?key|password|stripe|cus_|sub_|in_\d|worker|d1\b/i.test(blob);
+  // Honest consequence copy (M7): the email states that paid monitoring stops
+  // and evidence stays viewable — never a silent removal, never an overclaim
+  // that everything continues unchanged on a "free plan".
   return /payment/i.test(e.subject) && e.html.includes(`href="${ORIGIN}/billing"`) && !leak &&
-    /free plan/i.test(blob) && /data and settings are kept safe/i.test(blob);
+    /paid monitoring will stop/i.test(blob) && /remain available to view/i.test(blob);
 }));
 results.push(securityContract("lifecycle_links_use_frontend_url", () => {
   const types = ["lifecycle_welcome", "lifecycle_workspace_created", "lifecycle_domain_added", "lifecycle_first_scan_completed", "lifecycle_email_protection_next_step", "lifecycle_payment_failed"];
@@ -2953,6 +2963,11 @@ results.push(await asyncSecurityContract("asset_alert_failed_delivery_recorded_f
       async all() {
         if (this._sql.includes("FROM workspace_domains")) return { results: [{ workspace_id: "w1" }] };
         if (this._sql.includes("FROM asset_events")) return { results: [{ workspace_id: "w1", event_type: "new_asset_discovered", hostname: "dev.example.com" }] };
+        // The canonical plan resolver reads ALL subscription rows (.all());
+        // present the same entitled subscription the first() stub declares.
+        if (this._sql.includes("FROM subscriptions")) return { results: [
+          { id: "sub_1", workspace_id: "w1", plan: "professional", status: "active", subscription_status: "active", trial_end: null, expires_at: null, current_period_end: "2099-01-01T00:00:00.000Z", payment_failed_at: null, stripe_subscription_id: "sub_stripe_1", created_at: "2026-01-01", updated_at: "2026-01-01" },
+        ] };
         // The workspace's own verified recipient. Tenant alerts resolve their
         // audience from the workspace and never fall back to ALERT_EMAIL_TO, so
         // this fixture must supply one to reach the delivery path at all.
@@ -2996,6 +3011,11 @@ results.push(await asyncSecurityContract("asset_alert_cron_retry_resends_failed_
           severity: "high", event_counts: JSON.stringify({ new_asset_discovered: 2 }),
           top_hostnames: JSON.stringify(["dev.example.com"]),
         }] };
+        // The canonical plan resolver reads ALL subscription rows (.all());
+        // present the same entitled subscription the first() stub declares.
+        if (this._sql.includes("FROM subscriptions")) return { results: [
+          { id: "sub_1", workspace_id: "w1", plan: "professional", status: "active", subscription_status: "active", trial_end: null, expires_at: null, current_period_end: "2099-01-01T00:00:00.000Z", payment_failed_at: null, stripe_subscription_id: "sub_stripe_1", created_at: "2026-01-01", updated_at: "2026-01-01" },
+        ] };
         // The retried alert resolves the recording workspace's own verified
         // recipient — the retry must not resurrect the operator fallback.
         if (this._sql.includes("FROM workspaces")) return { results: [{ user_id: "u1", email: "owner@w1.example.com" }] };

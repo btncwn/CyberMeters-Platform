@@ -4,15 +4,18 @@
 // parsing, public billing-plan metadata and the API-token session-route
 // denial audit helper. Extracted verbatim from index.js (router split,
 // Phase 2 PR #12).
-import { BILLING_PLAN_METADATA, getPlanFeatures } from "./entitlements.js";
+import { BILLING_PLAN_METADATA, getPlanFeatures, resolveCanonicalSubscriptionRow } from "./entitlements.js";
+import { TRIAL_SPEC } from "./pricing-registry.js";
 import { getPlanLimits } from "./plan-usage.js";
 import { createAuditEvent } from "../lib/events.js";
 import { createId } from "../lib/util.js";
 
 // ── Trial engine ──────────────────────────────────────────────────────────────
+// Trial rules live in the canonical pricing registry (policy §4): 14 days,
+// full product (professional feature set), 1 monitored domain, no card.
 
-export const TRIAL_PLAN          = "professional"; // plan granted during trial
-export const TRIAL_DURATION_DAYS = 14;
+export const TRIAL_PLAN          = TRIAL_SPEC.features_plan; // feature plan granted during trial
+export const TRIAL_DURATION_DAYS = TRIAL_SPEC.duration_days;
 
 /**
  * isTrialActive(sub)
@@ -20,16 +23,21 @@ export const TRIAL_DURATION_DAYS = 14;
  * Returns true if the subscription row represents an active trial.
  * A trial is active when:
  *   - subscription_status is 'trialing'
- *   - trial_end has not passed
+ *   - the trial window has not passed. The window end is trial_end, falling
+ *     back to current_period_end for Stripe-managed trials with no local trial
+ *     columns — the SAME rule the runtime entitlement resolver applies, so the
+ *     billing UI and feature gates can never disagree about a trial.
  *
+ * A trialing row with neither end date is NOT active (fail closed).
  * Handles null/missing gracefully (returns false).
  */
 export function isTrialActive(sub) {
   if (!sub) return false;
   const status = String(sub.subscription_status || sub.status || "").trim().toLowerCase();
   if (status !== "trialing") return false;
-  if (!sub.trial_end) return false;
-  const end = new Date(sub.trial_end);
+  const endValue = sub.trial_end || sub.current_period_end || null;
+  if (!endValue) return false;
+  const end = new Date(endValue);
   if (Number.isNaN(end.getTime())) return false;
   return end.getTime() > Date.now();
 }
@@ -64,7 +72,7 @@ export function isSubscriptionActive(sub) {
 export function getTrialRemainingDays(sub) {
   if (!isTrialActive(sub)) return 0;
   const now = Date.now();
-  const end = new Date(sub.trial_end).getTime();
+  const end = new Date(sub.trial_end || sub.current_period_end).getTime();
   const diffMs = end - now;
   if (diffMs <= 0) return 0;
   return Math.ceil(diffMs / (1000 * 60 * 60 * 24));
@@ -90,7 +98,7 @@ export async function getWorkspaceSubscription(workspaceId, env) {
       .first();
     if (!ws?.owner_user_id) return null;
 
-    const sub = await env.cybermeters_db
+    const res = await env.cybermeters_db
       .prepare(
         `SELECT id, owner_user_id, workspace_id, plan, status,
                 subscription_status, billing_interval,
@@ -100,13 +108,27 @@ export async function getWorkspaceSubscription(workspaceId, env) {
                 payment_failed_at, payment_retry_count,
                 created_at, updated_at
          FROM subscriptions
-         WHERE owner_user_id = ?
-         ORDER BY COALESCE(updated_at, created_at) DESC
-         LIMIT 1`
+         WHERE owner_user_id = ?`
       )
       .bind(ws.owner_user_id)
-      .first();
-    return sub ?? null;
+      .all();
+    const rows = res?.results || [];
+    if (rows.length === 0) return null;
+    // The SAME canonical resolver the runtime entitlement path uses — the
+    // billing UI must never show a different row than the one that governs
+    // feature access. When no row currently entitles anything (expired trial,
+    // cancelled subscription), fall back to the most recent row so the UI can
+    // display the honest lapsed state; the route's own trial/active/grace
+    // checks all evaluate false on it.
+    const resolved = resolveCanonicalSubscriptionRow(rows);
+    if (resolved?.row) return resolved.row;
+    const sorted = [...rows].sort((a, b) => {
+      const aT = String(a.updated_at || a.created_at || "");
+      const bT = String(b.updated_at || b.created_at || "");
+      if (aT !== bT) return aT < bT ? 1 : -1;
+      return String(a.id || "") < String(b.id || "") ? 1 : -1;
+    });
+    return sorted[0] ?? null;
   } catch {
     return null;
   }
