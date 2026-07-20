@@ -5,6 +5,16 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## v2026.07.20-7 — Trust & UX closure: PDF typographic rendering, case deep links, viewer gating, audit-log routing — deployed 2026-07-20 (code-only, no migration)
+
+- **Release tag:** `v2026.07.20-7` (squash-merge `208d5e5`, PR #218).
+- **Live Worker Version ID:** `b6b52726-4b33-4ffc-b930-e73d17df11e1` (verified at `GET /health` via cache-busted probe).
+- **Rollback Worker Version ID:** `01f0a2f4-a431-4e6e-b8fb-7264fd99bd30` (v2026.07.20-6).
+- **Migration:** none. Latest applied remains `098-related-changes.sql`.
+- **What shipped (six audited P2/P3 trust/UX defects, Phase 3 of the pre-acceptance sequence):** `pdfEsc` typographic→ASCII transliteration (closes the certificate evidence-insufficient + DMARC could-not-be-observed vanished-punctuation class at the renderer; 7 regression pins); Related Changes detail linked-case Link + no internal `source_table` labels + manage-gated review/case actions via additive `can_manage`; "Open case" is a real case-detail Link on the Shadow IT/Identity/Certificates pages; reset-password invalid/missing-token state carries the canonical logo, footer and honest expired/invalid wording; Workspace Audit Log reads the workspace from `useWorkspace()` (PR #197 `useParams` class — the page previously called `/workspaces/undefined/...`).
+- **Validation:** FE 402 tests + coverage + build; a5 68/68; tenant-isolation/authz/m6-b1 green; full 156-validator sweep green.
+- Related CI-only hardening merged the same day without deploy/tag per convention: H1 nine-validator recovery + anti-orphan governance (PR #210), anti-date-rot governance (PR #217).
+
 ## v2026.07.20-6 — Weekly Digest Truth: semantic grouping, coverage-aware quiet state, workspace-scoped CTA — deployed 2026-07-20 (code-only, no migration)
 
 - **Release tag:** `v2026.07.20-6` (points at squash-merge commit `b1765c6`, PR #215).
