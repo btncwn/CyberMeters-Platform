@@ -76,6 +76,42 @@ const alertValidators = fs.readdirSync(path.join(root, "scripts"))
 const unwired = alertValidators.filter((f) => !validators.includes(`scripts/${f}`));
 ok("every alert validator on disk is wired into CI", unwired.length === 0, `unwired: ${unwired.join(", ")}`);
 
+// ── 5. No orphan validators — every scripts/validate-*.js runs in CI or is exempted ──
+// H1 validator recovery (July 2026): nine critical validators (A1/A2/A3 evidence-status,
+// B scorecard, cert standing-condition dedupe, three ADR-003 DMARC guards, UC3 case
+// transitions) existed on disk but were wired into neither CI nor any pipeline, so the
+// contracts they protect could have regressed under green CI. The alert-only guard above
+// caught this class for alerts alone; this generalises it. A validator not run is worse
+// than none — it reads as coverage and provides none. Every scripts/validate-*.js must
+// appear as a CI run step, or carry an explicit exemption here with a stated reason
+// (ops/backfill one-offs; scripts/load and scripts/security helpers are out of scope by
+// directory). Adding a validator without wiring or exempting it fails this check.
+const EXEMPT_VALIDATORS = new Map([
+  // ["validate-example.js", "why this deliberately does not run in CI"],
+]);
+const allValidatorScripts = fs.readdirSync(path.join(root, "scripts"))
+  .filter((f) => /^validate-[a-z0-9-]+\.js$/.test(f));
+const orphans = allValidatorScripts
+  .filter((f) => !validators.includes(`scripts/${f}`) && !EXEMPT_VALIDATORS.has(f));
+ok("every scripts/validate-*.js is wired into CI or explicitly exempted with a reason",
+   orphans.length === 0,
+   `unwired (add a ci.yml run step, or an EXEMPT_VALIDATORS entry stating why): ${orphans.join(", ")}`);
+
+// Exemptions must stay honest: an entry for a file that no longer exists, or for one
+// that IS wired, is stale and must be removed so the list never rots into noise.
+const staleExemptions = [...EXEMPT_VALIDATORS.keys()]
+  .filter((f) => !allValidatorScripts.includes(f) || validators.includes(`scripts/${f}`));
+ok("no stale validator exemption (missing file, or exempted yet actually wired)",
+   staleExemptions.length === 0, `stale: ${staleExemptions.join(", ")}`);
+
+// No accidental duplicate plain steps: each validator gets ONE `run: node scripts/…`
+// step. Deliberate re-runs (e.g. the TZ-matrix loop) use a multiline block and are
+// not counted here, so they stay possible without weakening this check.
+const plainSteps = [...src.matchAll(/^\s*run:\s*node (scripts\/validate-[a-z0-9-]+\.js)\s*$/gm)].map((m) => m[1]);
+const dupSteps = [...new Set(plainSteps.filter((v, i) => plainSteps.indexOf(v) !== i))];
+ok("no validator is wired as a plain run step more than once",
+   dupSteps.length === 0, `duplicated: ${dupSteps.join(", ")}`);
+
 // Reciprocal guard for the M5 final-closure gate. validate-m5-closure.js asserts the whole
 // M5 validator suite (and ci-governance itself) stay wired; a self-guard cannot catch the
 // deletion of its OWN step, so this generic governance guard — which runs as a separate step
