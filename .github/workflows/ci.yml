@@ -373,6 +373,9 @@ jobs:
       - name: Validate CI governance (every branch gets the same gate)
         run: node scripts/validate-ci-governance.js
 
+      - name: Validate date-rot governance (future-dated fixtures require a frozen clock or an explicit allowlist reason)
+        run: node scripts/validate-date-rot-governance.js
+
       # An audit found FIVE June-2026 commercial documents still carrying live
       # authority markers ("Approved — Active Commercial Direction", "Ready for
       # implementation") months after the 2026-07-09 founder decision superseded

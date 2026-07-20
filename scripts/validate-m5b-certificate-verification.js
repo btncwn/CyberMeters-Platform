@@ -190,7 +190,7 @@ function seedReplacement(db, { remediation_id = "cert.expiry.expired", distinct 
   // certificate_key, so the real shape is: current still points at the SAME observation.
   if (distinct) {
     db.prepare(`INSERT INTO certificate_observations (id,workspace_id,domain_id,certificate_key,expires_at,first_seen,last_seen)
-                VALUES ('obs-new','ws1','d1','KEY-NEW','2027-07-01T00:00:00Z',datetime('now'),datetime('now'))`).run();
+                VALUES ('obs-new','ws1','d1','KEY-NEW','2099-07-01T00:00:00Z',datetime('now'),datetime('now'))`).run();
   }
   const currentObs = distinct ? "obs-new" : "obs-old";
   db.prepare(`INSERT INTO managed_cases (id,workspace_id,case_type,domain_key,finding_id,source_finding_type,remediation_id,status,severity,created_at,updated_at)
@@ -205,7 +205,7 @@ function seedReplacement(db, { remediation_id = "cert.expiry.expired", distinct 
        expected_hostnames_json,observed_sans_json,coverage_status,ownership_status,
        renewal_status,renewal_readiness,verification_status,monitoring_status,material_change,
        lifecycle_state,linked_case_id,first_seen_at,last_seen_at,created_at,updated_at)
-     VALUES ('cl-1','ws1','d1','acme.example.com','KEY-NEW','2027-07-01T00:00:00Z',
+     VALUES ('cl-1','ws1','d1','acme.example.com','KEY-NEW','2099-07-01T00:00:00Z',
              ?,'obs-old',?,?,?, 'known',
              'awaiting_verification','ok','not_verified','observed',0,
              'awaiting_verification','mc-cert',datetime('now'),datetime('now'),datetime('now'),datetime('now'))`)
