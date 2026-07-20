@@ -2,7 +2,7 @@
 
 Version: July 2026
 
-Last updated: 18 July 2026 (latest git release tag v2026.07.17-5; live Worker `89c398b1` — Phase A "Posture Timeline Trust" deployed + production-accepted 18 July 2026, code-only/no migration; active canonical episode: Posture Timeline Trust & Actionability — the founder-approved RESCOPE of M6 — Phase A CLOSED/accepted, Phase B not started)
+Last updated: 20 July 2026 (latest git release tag `v2026.07.20-7`; live Worker `b6b52726` (rollback `01f0a2f4`); latest applied migration `098-related-changes.sql`. Since 18 July: Brand Protection PR-A/B/C, Shadow IT Alert Trust PR-1/PR-2, Weekly Digest Truth, UC3 case surface/transitions, M6 Phase B1 Related Changes, H1 validator recovery + anti-orphan CI governance, anti-date-rot governance, and the trust & UX closure are all engineering-complete and deployed — **each remains PENDING FOUNDER PRODUCTION ACCEPTANCE; none may be described as accepted**. Per-release facts: `CHANGELOG.md`.)
 
 ---
 
@@ -252,15 +252,16 @@ Do not claim that CyberMeters performs a customer, provider, registrar, certific
 | Final Public-Beta Gate | Planned |
 | First Two Controlled Invitations | After final gate |
 
-Current release facts (as of 18 July 2026):
+Current release facts (as of 20 July 2026):
 
-- latest git release tag: `v2026.07.17-5` (M5.f — maturity ledger); **Phase A carries NO git tag yet — tagging deferred to founder approval** (next under the `vYYYY.MM.DD-n` scheme would be `v2026.07.18-1`);
-- live Worker Version ID: `89c398b1-60e2-4ce5-b7ee-7eff652cec2e` (Phase A — Posture Timeline Trust; deployed 2026-07-18 from main `aab3643`; verified at `GET /health`);
-- rollback Worker Version ID: `9d2f96b1-f4ac-4688-904b-c36faf5f7045` (v2026.07.17-5);
-- latest migration applied to production: `095-domain-maturity-ledger.sql` (applied 17 July 2026) — **Phase A added no migration**;
-- M5.g Final CI Closure is CI-only (merged `cd83939`, no deploy, no tag);
-- Phase A (timeline-trust) production acceptance: **PASS (18 July 2026)** — evidence in `CHANGELOG.md`; Phase B (UC3 correlation) not started;
-- active canonical episode: Posture Timeline Trust & Actionability — the founder-approved RESCOPE of M6 after the M6.0-B viability gate (Phase A deployed + accepted; Phase B not started; Behaviour Intelligence deferred as a sensor-dependent, founder-gated programme; M7 Pricing + Billing Alignment follows).
+- latest git release tag: `v2026.07.20-7` (trust & UX closure);
+- live Worker Version ID: `b6b52726-4b33-4ffc-b930-e73d17df11e1` (deployed 2026-07-20 from main `208d5e5`; verified at `GET /health`);
+- rollback Worker Version ID: `01f0a2f4-a431-4e6e-b8fb-7264fd99bd30` (v2026.07.20-6);
+- latest migration applied to production: `098-related-changes.sql` (applied 19 July 2026);
+- Phase A (timeline-trust) production acceptance: **PASS (18 July 2026)** — evidence in `CHANGELOG.md`;
+- shipped since 18 July, all engineering-complete and **PENDING FOUNDER PRODUCTION ACCEPTANCE** (never describe as accepted): Brand Protection PR-A/B/C (`v2026.07.20-1..3`), Shadow IT Alert Trust PR-1/PR-2 (`v2026.07.20-4/-5`), Weekly Digest Truth (`v2026.07.20-6`), UC3 case surface/transitions, M6 Phase B1 Related Changes (mig `098`), H1 validator recovery + anti-orphan CI governance, anti-date-rot governance, trust & UX closure (`v2026.07.20-7`);
+- per-release detail (PRs, Worker IDs, evidence) is authoritative in `CHANGELOG.md`;
+- Behaviour Intelligence remains deferred (sensor-dependent, founder-gated); M7 Pricing + Billing Alignment remains the following gate.
 
 **M5 (a–g) is COMPLETE** — the account below is the record of how it was completed and remains valid history; the active canonical episode is now the RESCOPE of M6 ("Posture Timeline Trust & Actionability"). Its pre-change parity audit across all eight domains found four false
 evidence claims live in production, and the founder sequenced them first as data-integrity

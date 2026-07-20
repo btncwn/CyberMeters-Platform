@@ -1,5 +1,13 @@
 -- CyberMeters Platform Database Schema
 -- Cloudflare D1 / SQLite compatible
+--
+-- ⚠ HISTORICAL BASELINE — NOT the authoritative production schema on its own.
+-- The canonical schema is THIS FILE plus every migration in database/migrations/
+-- applied in numeric order (production is tracked in CHANGELOG.md, e.g.
+-- "latest applied migration"). Never apply this file alone to production, and
+-- never treat a table shape here as current without checking the migrations
+-- that alter it. CI validators build their test databases the same way:
+-- schema.sql first, then all migrations in order.
 
 CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,

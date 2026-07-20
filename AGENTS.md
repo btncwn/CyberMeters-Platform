@@ -4,7 +4,7 @@
 
 Version: July 2026
 
-Last updated: 18 July 2026 (latest git release tag v2026.07.17-5; live Worker `89c398b1` — Phase A "Posture Timeline Trust" deployed + production-accepted 18 July 2026, no migration; active canonical episode: Posture Timeline Trust & Actionability — the founder-approved RESCOPE of M6 — Phase A accepted, Phase B not started; M5.a–M5.g all CLOSED)
+Last updated: 20 July 2026 (latest git release tag `v2026.07.20-7`; live Worker `b6b52726` (rollback `01f0a2f4`); latest applied migration `098-related-changes.sql`. Since 18 July: Brand Protection PR-A/B/C, Shadow IT Alert Trust PR-1/PR-2, Weekly Digest Truth, UC3 case surface/transitions, M6 Phase B1 Related Changes, H1 validator recovery + anti-orphan CI governance, anti-date-rot governance and the trust & UX closure are engineering-complete and deployed — **each PENDING FOUNDER PRODUCTION ACCEPTANCE**. Per-release facts: `CHANGELOG.md`.)
 
 ---
 
@@ -110,10 +110,10 @@ CyberMeters manages and verifies the lifecycle where externally observable evide
 | M7 Pricing + Billing Alignment | Following gate (after the active episode). |
 | Final Public-Beta Gate | Planned after managed-platform completion |
 
-Current release facts (as of 18 July 2026):
+Current release facts (as of 20 July 2026):
 
-- latest git release tag: `v2026.07.17-5` (M5.f — maturity ledger); Phase A carries no git tag yet (tagging deferred to founder approval);
-- latest migration applied to production: `095-domain-maturity-ledger.sql` (applied 17 July 2026) — Phase A added no migration;
+- latest git release tag: `v2026.07.20-7` (trust & UX closure);
+- latest migration applied to production: `098-related-changes.sql` (applied 19 July 2026);
 - fast-aging deployment IDs (live/rollback Worker Version IDs) are held authoritatively in `CHANGELOG.md` and `CLAUDE.md` and are not duplicated here;
 - Phase A (timeline-trust) production acceptance: PASS (18 July 2026); Phase B (UC3 correlation) not started;
 - active canonical episode: Posture Timeline Trust & Actionability — the founder-approved RESCOPE of M6 after the M6.0-B viability gate (Phase A deployed + accepted; Phase B not started; M5.a–M5.g all CLOSED; Behaviour Intelligence deferred as a sensor-dependent, founder-gated programme; M7 Pricing + Billing Alignment follows).
