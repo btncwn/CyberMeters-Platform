@@ -254,15 +254,19 @@ export function brandCandidateToApi(row, profile = null) {
   const httpsActive = row?.https_available == null ? null : Boolean(row.https_available);
   const mxPresent = row?.mx_present == null ? null : Boolean(row.mx_present);
   const containsBrandKeyword = Boolean(brandToken && sld.replace(/[^a-z0-9]/g, "").includes(brandToken));
-  const looksLikeLogin = HIGH_RISK_BRAND_KEYWORDS.some((keyword) => sld.includes(keyword));
   const suspiciousTld = BRAND_SUSPICIOUS_TLDS.has(tld.split(".").pop());
   const firstSeen = row?.first_seen || null;
   const newlySeen = firstSeen ? Date.now() - new Date(firstSeen).getTime() <= 30 * 86400000 : false;
-  // ct_observed is durable external evidence recorded at discovery time; it must
-  // feed the recompute or the API band would silently disagree with the persisted
-  // band (a CT-discovered host would fall back to the unregistered watchlist cap).
-  const ctObserved = safeJsonArray(row?.evidence_json)
-    .some((item) => item?.signal === "ct_observed" && item.value === true);
+  // Durable evidence signals recorded by the enrichment sweeps must feed the
+  // recompute, or the API band would silently disagree with the persisted band.
+  // - ct_observed (PR-B): a certificate for this host was logged.
+  // - looks_like_login (PR-C): a live password/login form was observed. This is
+  //   stronger than the name heuristic, so a lookalike whose HOSTNAME has no
+  //   login-ish word but whose live page harvests credentials still scores it.
+  const persistedSignals = safeJsonArray(row?.evidence_json);
+  const ctObserved = persistedSignals.some((item) => item?.signal === "ct_observed" && item.value === true);
+  const liveLoginObserved = persistedSignals.some((item) => item?.signal === "looks_like_login" && item.value === true);
+  const looksLikeLogin = liveLoginObserved || HIGH_RISK_BRAND_KEYWORDS.some((keyword) => sld.includes(keyword));
   const risk = scoreBrandCandidateRisk({
     variant_type: variant, similarity_score: similarity, dns_active: dnsActive,
     https_active: httpsActive, mx_present: mxPresent, contains_brand_keyword: containsBrandKeyword,
