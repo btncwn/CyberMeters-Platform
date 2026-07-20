@@ -617,6 +617,9 @@ jobs:
       - name: Validate weekly digest (active-only + dedup + all-quiet + windowing)
         run: node scripts/validate-weekly-digest.js
 
+      - name: Validate weekly digest truth (semantic grouping + coverage-aware quiet state + workspace-scoped CTA + mutations)
+        run: node scripts/validate-weekly-digest-truth.js
+
       - name: Validate billing lifecycle (entitlement state machine + grace window)
         run: node scripts/validate-billing-lifecycle.js
 
