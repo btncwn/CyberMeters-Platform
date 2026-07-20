@@ -41,7 +41,7 @@ const PLAN_CFG = {
   starter:      { label: 'Starter',      bg: 'bg-blue-50',    text: 'text-blue-700',   border: 'border-blue-200'  },
   professional: { label: 'Professional', bg: 'bg-brand-50',   text: 'text-brand-700',  border: 'border-brand-200' },
   business:     { label: 'Business',     bg: 'bg-purple-50',  text: 'text-purple-700', border: 'border-purple-200'},
-  enterprise:   { label: 'Enterprise',   bg: 'bg-amber-50',   text: 'text-amber-700',  border: 'border-amber-200' },
+  enterprise:   { label: 'MSP',          bg: 'bg-amber-50',   text: 'text-amber-700',  border: 'border-amber-200' },
 }
 
 const PLAN_ORDER = ['free', 'starter', 'professional', 'business', 'enterprise']
@@ -57,12 +57,13 @@ const FEATURE_LABELS = {
 }
 
 // What each required plan unlocks (shown in the upgrade CTA).
-// Domain allowances MUST match the frozen public tiers (Starter 1 / Pro 5 /
-// Business 20) — this card is an upgrade wall, so wrong numbers are mis-selling.
+// Domain allowances MUST match the locked canonical ladder (Starter 1 /
+// Professional 3 / Business 10 included) in docs/PRICING-POLICY.md — this card
+// is an upgrade wall, so wrong numbers are mis-selling.
 const PLAN_FEATURES = {
   starter:      ['Business Risk Score', 'Executive PDF Reports', '1 monitored domain'],
-  professional: ['Cyber Essentials Readiness', 'Vendor Risk Analysis', 'Supply Chain Intelligence', 'Up to 5 monitored domains'],
-  business:     ['Portfolio Risk Monitoring', 'White Label Reports', 'Up to 20 monitored domains'],
+  professional: ['Cyber Essentials Readiness', 'Vendor Risk Analysis', 'Supply Chain Intelligence', 'Up to 3 monitored domains'],
+  business:     ['Portfolio Risk Monitoring', 'White Label Reports', '10 monitored domains included'],
   enterprise:   ['MSP Dashboard', 'Built for client portfolios', 'Dedicated support'],
 }
 

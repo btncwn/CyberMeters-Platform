@@ -26,53 +26,47 @@ import {
 } from 'lucide-react'
 import { api } from '../api'
 
-// ── Plan metadata ─────────────────────────────────────────────────────────────
+// ── Plan display config (visual only) ────────────────────────────────────────
+// Prices are NEVER stated here: they come exclusively from the canonical plan
+// API (GET /api/billing/plans, backed by the locked pricing policy). When live
+// metadata is unavailable no price is shown — a stale local number could sell
+// an amount the backend would refuse to charge.
 
 const PLAN_META = {
   free: {
-    label:       'Free',
+    label:       '14-Day Full Trial',
     color:       'text-gray-600',
     badge:       'bg-gray-100 text-gray-700 border-gray-200',
     ring:        'border-gray-200',
-    description: 'Basic scanning and on-screen results. No credit card required.',
-    monthly_gbp: 0,
-    annual_gbp:  0,
+    description: 'Trial ended or no subscription: read-only access to your existing scans, reports and evidence. Choose a plan to resume monitoring.',
   },
   starter: {
     label:       'Starter',
     color:       'text-blue-600',
     badge:       'bg-blue-50 text-blue-700 border-blue-200',
     ring:        'border-blue-200',
-    description: 'Scheduled scans, PDF reports, email alerts and Business Risk Score.',
-    monthly_gbp: 29,
-    annual_gbp:  23,
+    description: 'Full Cyber MOT for 1 monitored domain — scheduled scans, PDF reports, alerts and Business Risk Score.',
   },
   professional: {
     label:       'Professional',
     color:       'text-brand-600',
     badge:       'bg-brand-50 text-brand-700 border-brand-200',
     ring:        'border-brand-200',
-    description: 'Cyber Essentials Readiness, Vendor Risk, Executive Dashboard and audit logs.',
-    monthly_gbp: 149,
-    annual_gbp:  119,
+    description: 'Up to 3 monitored domains, plus Cyber Essentials Readiness, Vendor Risk, Executive Dashboard and audit logs.',
   },
   business: {
     label:       'Business',
     color:       'text-purple-600',
     badge:       'bg-purple-50 text-purple-700 border-purple-200',
     ring:        'border-purple-200',
-    description: 'Portfolio Monitoring, White Label reports and 7-year retention.',
-    monthly_gbp: 399,
-    annual_gbp:  319,
+    description: '10 monitored domains included, plus Portfolio Monitoring, White Label reports and extended retention.',
   },
   enterprise: {
-    label:       'Enterprise',
+    label:       'MSP',
     color:       'text-amber-600',
     badge:       'bg-amber-50 text-amber-700 border-amber-200',
     ring:        'border-amber-200',
-    description: 'MSP Dashboard, unlimited usage and dedicated onboarding.',
-    monthly_gbp: null,
-    annual_gbp:  null,
+    description: 'For MSPs and advisors managing client portfolios — base fee plus per-domain pricing, sales-led onboarding.',
   },
 }
 
@@ -143,7 +137,7 @@ function TrialCountdown({ daysLeft, trialEnd, onUpgrade }) {
             <p className={`text-sm font-bold ${textH}`}>
               {urgent
                 ? daysLeft === 0 ? 'Your trial ends today' : `${daysLeft} day${daysLeft !== 1 ? 's' : ''} left in your trial`
-                : `${daysLeft} days left in your Professional trial`}
+                : `${daysLeft} days left in your 14-day full trial`}
             </p>
             <p className={`text-xs mt-0.5 ${textB}`}>
               {endDate ? `Trial ends ${endDate}` : 'Upgrade to keep full access'}
@@ -180,9 +174,13 @@ function TrialCountdown({ daysLeft, trialEnd, onUpgrade }) {
 
 // ── Plan card ─────────────────────────────────────────────────────────────────
 
-function PlanCard({ plan, status, meta, onUpgrade, subscriptionActive, trialActive, checkoutLoading }) {
+function PlanCard({ plan, status, meta, livePlan, onUpgrade, subscriptionActive, trialActive, checkoutLoading }) {
   const scfg = statusCfg(trialActive ? 'trialing' : (status || 'free'))
   const upgradeTo = UPGRADE_TARGET[plan]
+  // Price comes only from live canonical plan metadata; without it, no price
+  // is displayed (never a stale local figure).
+  const monthlyGbp = livePlan && Number.isFinite(livePlan.monthly_gbp) ? livePlan.monthly_gbp : null
+  const mspFloor = livePlan?.pricing_model?.floor_monthly_gbp ?? null
 
   return (
     <div className={`bg-white rounded-2xl border-2 p-5 ${meta.ring}`}>
@@ -199,22 +197,22 @@ function PlanCard({ plan, status, meta, onUpgrade, subscriptionActive, trialActi
           </div>
           <p className="text-xs text-gray-500 mt-2 leading-relaxed max-w-sm">{meta.description}</p>
         </div>
-        {meta.monthly_gbp !== null && (
+        {monthlyGbp !== null && (
           <div className="text-right flex-shrink-0">
-            {meta.monthly_gbp === 0 ? (
-              <p className="text-2xl font-black text-gray-800">Free</p>
+            {monthlyGbp === 0 ? (
+              <p className="text-2xl font-black text-gray-800">£0</p>
             ) : (
               <>
-                <p className="text-2xl font-black text-gray-800">£{meta.monthly_gbp}</p>
+                <p className="text-2xl font-black text-gray-800">£{monthlyGbp.toFixed(2)}</p>
                 <p className="text-[10px] text-gray-400 font-medium">/ month</p>
               </>
             )}
           </div>
         )}
-        {meta.monthly_gbp === null && (
+        {monthlyGbp === null && plan === 'enterprise' && (
           <div className="text-right flex-shrink-0">
-            <p className="text-lg font-black text-amber-700">Custom</p>
-            <p className="text-[10px] text-gray-400 font-medium">contact us</p>
+            <p className="text-lg font-black text-amber-700">{mspFloor != null ? `from £${mspFloor.toFixed(2)}` : 'Contact us'}</p>
+            <p className="text-[10px] text-gray-400 font-medium">{mspFloor != null ? '/ month · contact us' : 'sales-led'}</p>
           </div>
         )}
       </div>
@@ -233,11 +231,11 @@ function PlanCard({ plan, status, meta, onUpgrade, subscriptionActive, trialActi
       )}
       {upgradeTo === 'enterprise' && (
         <a
-          href="mailto:sales@cybermeters.com?subject=CyberMeters%20Enterprise%20Enquiry"
+          href="mailto:sales@cybermeters.com?subject=CyberMeters%20MSP%20Enquiry"
           className="w-full flex items-center justify-center gap-2 py-2.5 text-sm font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-xl transition-colors"
         >
           <Mail className="w-4 h-4" />
-          Contact Sales for Enterprise
+          Contact Sales for MSP
         </a>
       )}
       {!upgradeTo && (
@@ -312,9 +310,12 @@ function FeatureChecklist({ features }) {
 
 // ── Upgrade prompt (shown for free / trial-expired users) ─────────────────────
 
-function UpgradePrompt({ plan, onUpgrade, checkoutLoading }) {
+function UpgradePrompt({ plan, onUpgrade, checkoutLoading, livePlans }) {
   const upgradeTo = UPGRADE_TARGET[plan] ?? 'starter'
   if (upgradeTo === null) return null
+  const starterPrice = livePlans?.starter && Number.isFinite(livePlans.starter.monthly_gbp)
+    ? `£${livePlans.starter.monthly_gbp.toFixed(2)}`
+    : null
 
   return (
     <div className="bg-gray-900 rounded-2xl p-6">
@@ -330,7 +331,7 @@ function UpgradePrompt({ plan, onUpgrade, checkoutLoading }) {
           </h3>
           <p className="text-xs text-gray-400 leading-relaxed">
             {plan === 'free'
-              ? 'Get scheduled scans, PDF reports, email alerts, and Business Risk Score — starting at £29/mo.'
+              ? `Get scheduled scans, PDF reports, email alerts, and Business Risk Score${starterPrice ? ` — starting at ${starterPrice}/mo` : ''}.`
               : `${PLAN_META[upgradeTo]?.description}`}
           </p>
         </div>
@@ -349,11 +350,11 @@ function UpgradePrompt({ plan, onUpgrade, checkoutLoading }) {
           </button>
         ) : (
           <a
-            href="mailto:sales@cybermeters.com?subject=CyberMeters%20Enterprise%20Enquiry"
+            href="mailto:sales@cybermeters.com?subject=CyberMeters%20MSP%20Enquiry"
             className="flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-bold text-white bg-brand-600 hover:bg-brand-500 rounded-xl transition-colors"
           >
             <Mail className="w-4 h-4" />
-            Contact Sales for Enterprise
+            Contact Sales for MSP
           </a>
         )}
         <Link
@@ -373,6 +374,7 @@ function UpgradePrompt({ plan, onUpgrade, checkoutLoading }) {
 
 export default function SubscriptionPage() {
   const [sub,            setSub]            = useState(null)
+  const [livePlans,      setLivePlans]      = useState(null)
   const [loading,        setLoading]        = useState(true)
   const [error,          setError]          = useState(null)
   const [checkoutLoading, setCheckoutLoading] = useState(false)
@@ -413,11 +415,26 @@ export default function SubscriptionPage() {
     return () => { cancelled = true }
   }, [workspaceId])
 
+  // Live canonical plan metadata (prices). Optional: when unavailable the page
+  // simply shows no prices rather than any local figure.
+  useEffect(() => {
+    let cancelled = false
+    api.getBillingPlans()
+      .then((data) => {
+        if (cancelled || !Array.isArray(data?.plans)) return
+        const byKey = {}
+        for (const p of data.plans) byKey[p.key] = p
+        setLivePlans(byKey)
+      })
+      .catch(() => { /* fail honestly — no price shown */ })
+    return () => { cancelled = true }
+  }, [])
+
   async function handleUpgrade(targetPlan = 'professional') {
     if (!workspaceId) return
     // Enterprise → contact sales, never self-serve
     if (targetPlan === 'enterprise') {
-      window.location.href = 'mailto:sales@cybermeters.com?subject=CyberMeters%20Enterprise%20Enquiry'
+      window.location.href = 'mailto:sales@cybermeters.com?subject=CyberMeters%20MSP%20Enquiry'
       return
     }
     setCheckoutError(null)
@@ -667,6 +684,7 @@ export default function SubscriptionPage() {
         plan={plan}
         status={status}
         meta={meta}
+        livePlan={livePlans?.[plan] ?? null}
         onUpgrade={handleUpgrade}
         subscriptionActive={subscriptionActive}
         trialActive={trialActive}
@@ -691,7 +709,7 @@ export default function SubscriptionPage() {
 
       {/* ── Upgrade prompt (free + post-trial) ── */}
       {!subscriptionActive && !trialActive && (
-        <UpgradePrompt plan={plan} onUpgrade={handleUpgrade} checkoutLoading={checkoutLoading} />
+        <UpgradePrompt plan={plan} onUpgrade={handleUpgrade} checkoutLoading={checkoutLoading} livePlans={livePlans} />
       )}
 
       {/* ── Trial tip (when still in trial) ── */}
@@ -699,9 +717,9 @@ export default function SubscriptionPage() {
         <div className="bg-brand-50 border border-brand-100 rounded-2xl p-4 flex items-start gap-3">
           <Shield className="w-5 h-5 text-brand-600 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm font-bold text-brand-800 mb-1">You're on a full Professional trial</p>
+            <p className="text-sm font-bold text-brand-800 mb-1">You're on the 14-day full trial</p>
             <p className="text-xs text-brand-600 leading-relaxed">
-              All Professional features are active. Upgrade before your trial ends to keep
+              The full product is active for 1 monitored domain. Upgrade before your trial ends to keep
               access to Cyber Essentials, Vendor Risk, the Executive Dashboard, and more.
             </p>
           </div>

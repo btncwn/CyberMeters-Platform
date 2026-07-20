@@ -1,91 +1,60 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Check, ArrowRight, Loader2 } from 'lucide-react'
+import { Check, ArrowRight, Loader2, AlertTriangle, RefreshCw } from 'lucide-react'
 import CyberMetersLogo from '../components/CyberMetersLogo'
 import { api } from '../api'
 import { useAuth } from '../context/AuthContext'
 
-// Fallback copy keeps the pricing page usable if live billing metadata is
-// unreachable. Limits mirror the backend PLAN_LIMITS so the same tier-aware
-// display logic renders consistently whether or not the API responds.
-const FALLBACK_PLANS = [
-  {
-    key: 'free',
-    name: 'Free',
-    description: 'Platform evaluation with basic scans and on-screen results.',
-    monthly_gbp: 0,
-    annual_gbp: 0,
-    checkout_enabled: false,
-    limits: { workspaces: 1, domains: 1, users: 1 },
-  },
-  {
-    key: 'starter',
-    name: 'Starter',
-    description: 'Business Risk Score, scheduled scans, and basic executive reports.',
-    monthly_gbp: 29,
-    annual_gbp: 276,
-    checkout_enabled: true,
-    limits: { workspaces: 1, domains: 1, users: 3 },
-  },
-  {
-    key: 'professional',
-    name: 'Professional',
-    description: 'Cyber Essentials Readiness, Vendor Risk, and advanced reports.',
-    monthly_gbp: 149,
-    annual_gbp: 1428,
-    checkout_enabled: true,
-    limits: { workspaces: 1, domains: 5, users: 10 },
-  },
-  {
-    key: 'business',
-    name: 'Business',
-    description: 'Portfolio Monitoring, White Label reports, and extended retention.',
-    monthly_gbp: 399,
-    annual_gbp: 3828,
-    checkout_enabled: true,
-    limits: { workspaces: 50, domains: 20, users: 50 },
-  },
-  {
-    key: 'enterprise',
-    name: 'Enterprise',
-    description: 'MSP Dashboard, custom limits, priority support, and dedicated onboarding.',
-    monthly_gbp: null,
-    annual_gbp: null,
-    checkout_enabled: false,
-    limits: { workspaces: 999999, domains: 999999, users: 999999 },
-  },
-]
+// Pricing is served EXCLUSIVELY by the canonical plan API (backed by the
+// locked pricing policy). There is deliberately no hard-coded price fallback:
+// if live plan metadata is unreachable the page says so honestly instead of
+// silently advertising a stale ladder the backend would refuse to charge.
 
-function formatLimit(value) {
-  if (value === undefined || value === null) return null
-  if (value >= 999999) return 'Unlimited'
-  return value
+function gbp(value) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return null
+  return `£${value.toFixed(2).replace(/\.00$/, '')}`
 }
 
 // Customer-facing value metric is monitored domains (product rule). Workspaces,
 // users and internal scan/report quotas are enforcement concepts and never
-// appear on pricing cards. MSP / Partner is presented separately and sales-led —
+// appear on pricing cards. MSP is presented separately and sales-led —
 // Business is an SMB plan, not an MSP plan.
-const MSP_DISPLAY = {
-  name: 'MSP / Partner',
-  description: 'Built for MSPs and cyber advisors managing client portfolios.',
-  features: ['Platform fee + per monitored client domain'],
-}
-
 function planFeatures(plan) {
-  if (plan.key === 'enterprise') return MSP_DISPLAY.features
-  const domains = plan.limits?.domains
-  if (domains == null) return plan.features || [] // fallback copy when live limits are unavailable
-  return [domains === 1 ? '1 monitored domain' : `Up to ${formatLimit(domains)} monitored domains`]
+  const pm = plan.pricing_model || {}
+  const features = []
+  if (plan.key === 'enterprise') {
+    features.push('Built for MSPs and advisors managing client portfolios')
+    if (pm.per_domain_monthly_gbp != null && pm.min_billed_domains != null) {
+      features.push(`Base fee + ${gbp(pm.per_domain_monthly_gbp)}/month per monitored domain (minimum ${pm.min_billed_domains} domains)`)
+    }
+    return features
+  }
+  const domains = pm.included_domains ?? plan.limits?.domains
+  if (domains != null) {
+    features.push(domains === 1 ? '1 monitored domain' : `${domains} monitored domains included`)
+  }
+  if (pm.additional_domain_monthly_gbp != null && pm.domain_hard_cap != null) {
+    features.push(`Add domains at ${gbp(pm.additional_domain_monthly_gbp)}/month each (up to ${pm.domain_hard_cap})`)
+  }
+  if (plan.key === 'free' && pm.trial) {
+    features.push(`Full product for ${pm.trial.duration_days} days`)
+    if (pm.trial.card_required === false) features.push('No card required')
+  }
+  return features
 }
 
 function priceFor(plan, interval) {
-  if (plan.key === 'enterprise') return 'Talk to us'
+  if (plan.key === 'enterprise') {
+    const pm = plan.pricing_model || {}
+    const floor = interval === 'annual' ? pm.floor_annual_gbp : pm.floor_monthly_gbp
+    if (floor != null) return `from ${gbp(floor)}${interval === 'annual' ? '/yr' : '/mo'}`
+    return 'Contact sales'
+  }
   if (interval === 'annual' && Number.isFinite(plan.annual_gbp)) {
-    return `£${plan.annual_gbp}/yr`
+    return `${gbp(plan.annual_gbp)}/yr`
   }
   if (Number.isFinite(plan.monthly_gbp)) {
-    return `£${plan.monthly_gbp}/mo`
+    return plan.monthly_gbp === 0 ? '£0' : `${gbp(plan.monthly_gbp)}/mo`
   }
   return 'Contact sales'
 }
@@ -93,7 +62,7 @@ function priceFor(plan, interval) {
 export default function PricingPage() {
   const navigate = useNavigate()
   const { isAuthenticated } = useAuth()
-  const [plans, setPlans] = useState(FALLBACK_PLANS)
+  const [plans, setPlans] = useState(null)
   const [interval, setInterval] = useState(() => {
     // Persist the billing-cycle choice so it survives the signup/checkout round-trip.
     try {
@@ -103,28 +72,32 @@ export default function PricingPage() {
     }
   })
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
   const [checkoutPlan, setCheckoutPlan] = useState(null)
   const [error, setError] = useState(null)
 
-  useEffect(() => {
-    let cancelled = false
-    async function load() {
-      try {
-        const data = await api.getBillingPlans()
-        if (!cancelled && Array.isArray(data?.plans) && data.plans.length > 0) {
-          setPlans(data.plans)
-        }
-      } catch {
-        // Fallback copy keeps the pricing page available if billing metadata is unreachable.
-      } finally {
-        if (!cancelled) setLoading(false)
+  const load = useCallback(async () => {
+    setLoading(true)
+    setLoadError(false)
+    try {
+      const data = await api.getBillingPlans()
+      if (Array.isArray(data?.plans) && data.plans.length > 0) {
+        setPlans(data.plans)
+      } else {
+        setLoadError(true)
       }
+    } catch {
+      // Fail honestly: no stale fallback prices are ever shown.
+      setLoadError(true)
+    } finally {
+      setLoading(false)
     }
-    load()
-    return () => { cancelled = true }
   }, [])
 
+  useEffect(() => { load() }, [load])
+
   const orderedPlans = useMemo(() => {
+    if (!plans) return []
     const order = ['free', 'starter', 'professional', 'business', 'enterprise']
     return [...plans].sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key))
   }, [plans])
@@ -136,7 +109,7 @@ export default function PricingPage() {
       return
     }
     if (plan.key === 'enterprise' || !plan.checkout_enabled) {
-      window.location.href = 'mailto:hello@cybermeters.com?subject=CyberMeters%20Enterprise'
+      window.location.href = 'mailto:hello@cybermeters.com?subject=CyberMeters%20MSP'
       return
     }
     if (!isAuthenticated) {
@@ -186,7 +159,8 @@ export default function PricingPage() {
           <p className="text-xs font-bold uppercase tracking-widest text-brand-600 mb-3">Pricing</p>
           <h1 className="text-4xl font-bold text-gray-900 tracking-tight">Choose the plan that matches your security workflow.</h1>
           <p className="text-gray-500 mt-4">
-            Start with a simple Cyber MOT for your first monitored domain, then add monitoring, executive reporting, and MSP-ready capabilities as you grow.
+            Every paid plan is the full Cyber MOT — all eight security categories, alerts, managed cases,
+            reports and remediation. Pricing is per monitored domain, starting with a 14-day full trial.
           </p>
         </div>
 
@@ -207,10 +181,10 @@ export default function PricingPage() {
               {key === 'monthly' ? 'Monthly' : 'Annual'}
             </button>
           ))}
-          {/* Approved safe wording only — never claim a specific ratio (e.g. "pay for
-              10, get 12") unless the Stripe annual prices actually match it. */}
-          <span className="text-xs text-gray-400 ml-1">Save with annual billing.</span>
-          {loading && <span className="text-xs text-gray-400 ml-2">Loading live plan metadata…</span>}
+          {/* Annual = pay for 10 months, receive 12 (exact policy figures; checkout
+              refuses any Stripe price that does not charge them). */}
+          <span className="text-xs text-gray-400 ml-1">Annual billing: 2 months free.</span>
+          {loading && <span className="text-xs text-gray-400 ml-2">Loading live pricing…</span>}
         </div>
 
         {error && (
@@ -219,59 +193,72 @@ export default function PricingPage() {
           </div>
         )}
 
-        <div className="grid md:grid-cols-2 xl:grid-cols-5 gap-4">
-          {orderedPlans.map(plan => (
-            <section
-              key={plan.key}
-              className={`bg-white rounded-2xl shadow-card p-5 flex flex-col ${
-                plan.key === 'professional'
-                  ? 'relative border border-brand-500 ring-1 ring-brand-500'
-                  : 'border border-gray-100'
-              }`}
-            >
-              {plan.key === 'professional' && (
-                <span className="absolute -top-3 left-5 inline-flex items-center rounded-full bg-brand-600 px-3 py-1 text-xs font-semibold text-white shadow-sm">
-                  Most popular
-                </span>
-              )}
-              <div>
-                <h2 className="text-lg font-bold text-gray-900">
-                  {plan.key === 'enterprise' ? MSP_DISPLAY.name : (plan.name || plan.key)}
-                </h2>
-                <p className="text-sm text-gray-600 mt-2 min-h-[60px] font-medium">
-                  {plan.key === 'enterprise' ? MSP_DISPLAY.description : plan.description}
-                </p>
-                <div className="mt-5">
-                  <span className="text-3xl font-bold text-gray-900">{priceFor(plan, interval)}</span>
-                </div>
-              </div>
+        {loadError && !loading && (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 px-6 py-8 text-center">
+            <AlertTriangle className="w-6 h-6 text-amber-500 mx-auto mb-3" />
+            <p className="text-sm font-semibold text-amber-800 mb-1">Live pricing is temporarily unavailable</p>
+            <p className="text-sm text-amber-700 mb-4">
+              We only show prices confirmed by our billing system, so nothing is displayed right now.
+              Please try again in a moment.
+            </p>
+            <button onClick={load} className="inline-flex items-center gap-2 btn-secondary py-2">
+              <RefreshCw className="w-4 h-4" />
+              Retry
+            </button>
+          </div>
+        )}
 
-              <ul className="mt-5 space-y-2 flex-1">
-                {planFeatures(plan).map(feature => (
-                  <li key={feature} className="flex items-start gap-2 text-sm text-gray-600">
-                    <Check className="w-4 h-4 text-brand-600 mt-0.5 flex-shrink-0" />
-                    <span>{feature}</span>
-                  </li>
-                ))}
-              </ul>
-
-              <button
-                onClick={() => startCheckout(plan)}
-                disabled={checkoutPlan === plan.key}
-                className={`mt-6 w-full ${plan.key === 'professional' ? 'btn-primary' : 'btn-secondary'} justify-center py-2.5`}
+        {!loadError && !loading && (
+          <div className="grid md:grid-cols-2 xl:grid-cols-5 gap-4">
+            {orderedPlans.map(plan => (
+              <section
+                key={plan.key}
+                className={`bg-white rounded-2xl shadow-card p-5 flex flex-col ${
+                  plan.key === 'professional'
+                    ? 'relative border border-brand-500 ring-1 ring-brand-500'
+                    : 'border border-gray-100'
+                }`}
               >
-                {checkoutPlan === plan.key ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <>
-                    {plan.key === 'free' ? 'Start Free' : plan.key === 'enterprise' ? 'Contact Sales' : 'Start Checkout'}
-                    <ArrowRight className="w-4 h-4" />
-                  </>
+                {plan.key === 'professional' && (
+                  <span className="absolute -top-3 left-5 inline-flex items-center rounded-full bg-brand-600 px-3 py-1 text-xs font-semibold text-white shadow-sm">
+                    Most popular
+                  </span>
                 )}
-              </button>
-            </section>
-          ))}
-        </div>
+                <div>
+                  <h2 className="text-lg font-bold text-gray-900">{plan.name || plan.key}</h2>
+                  <p className="text-sm text-gray-600 mt-2 min-h-[60px] font-medium">{plan.description}</p>
+                  <div className="mt-5">
+                    <span className="text-3xl font-bold text-gray-900">{priceFor(plan, interval)}</span>
+                  </div>
+                </div>
+
+                <ul className="mt-5 space-y-2 flex-1">
+                  {planFeatures(plan).map(feature => (
+                    <li key={feature} className="flex items-start gap-2 text-sm text-gray-600">
+                      <Check className="w-4 h-4 text-brand-600 mt-0.5 flex-shrink-0" />
+                      <span>{feature}</span>
+                    </li>
+                  ))}
+                </ul>
+
+                <button
+                  onClick={() => startCheckout(plan)}
+                  disabled={checkoutPlan === plan.key}
+                  className={`mt-6 w-full ${plan.key === 'professional' ? 'btn-primary' : 'btn-secondary'} justify-center py-2.5`}
+                >
+                  {checkoutPlan === plan.key ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <>
+                      {plan.key === 'free' ? 'Start free trial' : plan.key === 'enterprise' ? 'Contact Sales' : 'Start Checkout'}
+                      <ArrowRight className="w-4 h-4" />
+                    </>
+                  )}
+                </button>
+              </section>
+            ))}
+          </div>
+        )}
 
         <footer className="mt-12 pt-6 border-t border-gray-200 flex flex-wrap gap-4 text-sm text-gray-400">
           <Link to="/terms" className="hover:text-gray-700">Terms</Link>
