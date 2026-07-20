@@ -5,6 +5,20 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## v2026.07.20-6 — Weekly Digest Truth: semantic grouping, coverage-aware quiet state, workspace-scoped CTA — deployed 2026-07-20 (code-only, no migration)
+
+- **Release tag:** `v2026.07.20-6` (points at squash-merge commit `b1765c6`, PR #215).
+- **Live Worker Version ID:** `01f0a2f4-a431-4e6e-b8fb-7264fd99bd30` (verified at `GET /health` via cache-busted probe; deployed 2026-07-20 from main `b1765c6`).
+- **Rollback Worker Version ID:** `56ced057-a2ec-41fe-abbe-c6186db8b8b7` (v2026.07.20-5).
+- **Migration:** none. Latest applied production migration remains `098-related-changes.sql`.
+- **Context:** founder-approved single-PR remediation of the three audited Weekly Digest P2 trust defects (no P0/P1; recipients, weekly dedupe and workspace scoping were already correct and are preserved).
+- **What shipped:**
+  - **Semantic grouping** — a digest row is a distinct semantic change (`event_type | hostname | normalised description`): repeated observations of the same unchanged condition render once with an honest "(observed N times this week)" note; headline and severity totals count distinct changes; `2 hosts → 3 hosts` transitions stay separate; separate certificates never collapse on similar SAN sets. Read-time only — historical `asset_events` untouched.
+  - **Coverage-aware quiet state** — "Your security posture is stable" now requires a completed `scan_quality='complete'` scan in the 7-day window (fail-closed on partial/degraded/unknown/NULL); otherwise: "No completed assessment was available for this digest period. We'll report changes once full evidence is available." The three coverage states (`complete_assessment` / `partial_only` / `no_assessment`) stay distinct.
+  - **Workspace-scoped CTA** — the digest links to `/exposure?ws=<workspace_id>`; `ExposureTimelinePage` honours it only after the server-authoritative workspace list confirms access, switches selection to the digest's workspace, and falls back with a notice when inaccessible — never trusting the URL or stale localStorage first.
+- **Validation:** new CI-blocking `validate-weekly-digest-truth.js` (32/32, 6 mutations CAUGHT); `validate-weekly-digest.js` strengthened (17/17); new FE test (6/6); frontend suite/coverage/build green; full 155-validator sweep green.
+- **Outstanding:** founder production acceptance (next real Monday digest on a founder workspace) remains a release-gate observation.
+
 ## v2026.07.20-5 — Shadow IT Alert Trust PR-2: recurrence semantics, deep-link and UI parity — deployed 2026-07-20 (code-only, no migration)
 
 - **Release tag:** `v2026.07.20-5` (points at squash-merge commit `dc13dc7`, PR #213).
