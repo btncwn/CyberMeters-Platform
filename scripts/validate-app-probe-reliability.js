@@ -13,7 +13,12 @@
 //                     "timed_out";  connection refused → reachable:false (authoritative
 //                     "no web service");  budget → reachable:null / "not_executed";
 //                     2xx/3xx/401/403/404/429 → reachable:true (app EXISTS);  5xx →
-//                     reachable:false.
+//                     reachable:false;  genuine origin 5xx → "server_error" (not
+//                     assessed);  Cloudflare-edge-synthesised 52x/530 (Server:
+//                     cloudflare — no origin answered, e.g. a mail-only subdomain
+//                     fetched from a Worker returns synthetic 530, never a thrown DNS
+//                     error) → "origin_unreachable", an AUTHORITATIVE negative that
+//                     never degrades the module/scan.
 //   runExposureModule any timed_out OR budget host → incomplete;  all-refused → NOT
 //                     incomplete (a real negative);  success → complete.
 //   runAdminSurface   exposure error/incomplete → "unavailable";  empty → "not_assessed";
@@ -57,6 +62,9 @@ const realFetch = globalThis.fetch;
 const setFetch = (fn) => { globalThis.fetch = fn; };
 const htmlResponse = (status, body = "") =>
   new Response(body, { status, headers: { "content-type": "text/html" } });
+// A Cloudflare-edge-synthesised error page (520–530 always carry `Server: cloudflare`).
+const edgeResponse = (status) =>
+  new Response("error page", { status, headers: { "content-type": "text/html", server: "cloudflare" } });
 const timeoutError = () => { const e = new Error("The operation was aborted due to timeout"); e.name = "TimeoutError"; throw e; };
 // A simulated DoH outage makes the DNS module's own (internally-caught, non-fatal)
 // DNSSEC lookup log to stderr — suppress that benign noise so CI output stays clean.
@@ -110,6 +118,30 @@ ok("A11 HTTP 503 → reachable:false + server_error marker (answered, not conten
 setFetch(() => htmlResponse(500));
 p = await probeAsset("crash.example.com");
 ok("A12 HTTP 500 → reachable:false + server_error marker", p.reachable === false && p.probe_status === "server_error");
+// Cloudflare-edge-synthesised statuses: 530 = origin DNS error (a mail-only/DNS-only
+// name fetched from a Worker), 522 = origin connection timed out, 526 = invalid origin
+// SSL. No origin answered — an authoritative negative, never "not assessed".
+setFetch(() => edgeResponse(530));
+p = await probeAsset("reports.example.com");
+ok("A13 CF edge 530 (origin DNS error) → reachable:false + origin_unreachable (authoritative negative)",
+  p.reachable === false && p.status === 530 && p.probe_status === "origin_unreachable" && p.reason === "cloudflare_edge_error");
+setFetch(() => edgeResponse(522));
+p = await probeAsset("api.example.com");
+ok("A14 CF edge 522 (origin connection timeout) → origin_unreachable", p.reachable === false && p.probe_status === "origin_unreachable");
+setFetch(() => edgeResponse(526));
+p = await probeAsset("email.example.com");
+ok("A15 CF edge 526 (invalid origin SSL) → origin_unreachable", p.reachable === false && p.probe_status === "origin_unreachable");
+// A 52x WITHOUT the Cloudflare edge signature stays server_error (fail toward strict).
+setFetch(() => htmlResponse(530));
+p = await probeAsset("odd.example.com");
+ok("A16 530 without Server:cloudflare → server_error (strict not-assessed reading kept)",
+  p.reachable === false && p.probe_status === "server_error");
+// A proxied origin's own 5xx keeps its real status (outside 520-530) → server_error
+// even though Cloudflare rewrites the Server header on proxied responses.
+setFetch(() => edgeResponse(502));
+p = await probeAsset("brokenapp.example.com");
+ok("A17 origin 502 behind Cloudflare proxy → server_error (genuine origin error preserved)",
+  p.reachable === false && p.probe_status === "server_error");
 
 // ── SECTION B — runExposureModule aggregation ────────────────────────────────
 setFetch(timeoutError);
@@ -129,6 +161,23 @@ setFetch(() => htmlResponse(503));
 mod = await runExposureModule("example.com", ["a.example.com", "b.example.com"]);
 ok("B5b all 5xx (answered, not content-assessed) → incomplete (server_error), reachable 0",
   mod.incomplete === true && mod.incomplete_reason === "server_error" && mod.reachable === 0);
+// Production-regression repro (P1, 19-20 Jul 2026): a real domain whose subdomain list
+// contains mail-only / no-origin names — reachable sites plus CF-edge 522/530 answers.
+// The pass is COMPLETE: every host got an authoritative disposition.
+setFetch((url) => {
+  const h = new URL(url).hostname;
+  if (h === "www.example.com" || h === "app.example.com") return htmlResponse(200, "<title>x</title>");
+  if (h === "api.example.com") return edgeResponse(522);
+  return edgeResponse(530); // reports./send. — mail-only names, synthetic origin DNS error
+});
+mod = await runExposureModule("example.com", ["www.example.com", "api.example.com", "app.example.com", "reports.example.com", "send.example.com"]);
+ok("B8 CF-edge 52x/530 hosts (no origin serves there) → NOT incomplete, reachable counts real sites",
+  !mod.incomplete && mod.reachable === 2 && mod.checked === 5);
+// A genuine origin 5xx mixed in still degrades the pass — the #185 contract holds.
+setFetch((url) => (new URL(url).hostname === "dead.example.com" ? edgeResponse(530) : htmlResponse(503)));
+mod = await runExposureModule("example.com", ["dead.example.com", "sick.example.com"]);
+ok("B9 mixed edge-530 + genuine 503 → incomplete (server_error) — origin 5xx contract preserved",
+  mod.incomplete === true && mod.incomplete_reason === "server_error");
 // mix: one reachable, one timed out → incomplete (the timed-out host was NOT assessed).
 // Route by hostname (probeAsset issues https+http per host and allSettled interleaves).
 setFetch((url) => (new URL(url).hostname === "slow.example.com" ? timeoutError() : htmlResponse(200, "<title>x</title>")));
@@ -164,6 +213,13 @@ const err5xxMod = await runExposureModule("example.com", ["a.example.com"]);
 setFetch(realFetch);
 ok("C8 end-to-end: all-5xx exposure → admin unavailable (server error is not clean)",
   runAdminSurfaceModule({ asset_exposure: err5xxMod }).evidence_status === "unavailable");
+// An all-CF-edge pass is an authoritative negative (same class as all-refused B4):
+// the module completed, nothing serves content, no admin surface is publicly exposed.
+setFetch(() => edgeResponse(530));
+const edgeMod = await runExposureModule("example.com", ["reports.example.com"]);
+setFetch(realFetch);
+ok("C9 end-to-end: all-CF-edge exposure → module complete, admin assessed (never unavailable)",
+  !edgeMod.incomplete && runAdminSurfaceModule({ asset_exposure: edgeMod }).evidence_status === "assessed_healthy");
 
 // ── SECTION D — buildScanQuality + moduleCompletionGate ──────────────────────
 const qIncomplete = buildScanQuality({ asset_exposure: { checked: 5, reachable: 0, incomplete: true, incomplete_reason: "probe_timeout" } });
@@ -178,6 +234,14 @@ ok("D4 complete scan, module ran → gate.canVerify true", gateComplete.canVerif
 const gateIncompleteMod = moduleCompletionGate({ asset_exposure: { incomplete: true } }, { status: "complete" });
 ok("D5 module flagged incomplete → gate.canVerify false for that module",
   gateIncompleteMod.canVerify("asset_exposure") === false);
+// End-to-end P1 repro: an exposure pass over CF-edge-answered hosts must yield a
+// COMPLETE scan_quality (clean core), never a permanent platform-wide "partial".
+setFetch(() => edgeResponse(530));
+const edgeOnlyMod = await runExposureModule("example.com", ["reports.example.com", "send.example.com"]);
+setFetch(realFetch);
+const qEdge = buildScanQuality({ dns: { resolves: true }, ssl: {}, headers: {}, email_security: {}, asset_exposure: edgeOnlyMod });
+ok("D6 CF-edge-only exposure pass (+clean core) → scan_quality complete (P1 regression repro)",
+  qEdge.status === "complete" && !qEdge.modules_skipped.includes("asset_exposure"));
 
 // ── SECTION E — runDnsModule resolution honesty ──────────────────────────────
 setFetch(dohFetch({ a: { Status: 3, Answer: [] }, aaaa: { Status: 3, Answer: [] } })); // NXDOMAIN
@@ -351,11 +415,42 @@ const mfetch = (fn, run) => { const prev = globalThis.fetch; globalThis.fetch = 
 // M14: 5xx no longer marked server_error in probeAsset → module can't see it.
 {
   const m = await mutant(ASSET_SRC,
-    '...(status >= 500 ? { probe_status: "server_error", reason: "server_error" } : {}),',
+    "...(status >= 500 ? classifyServerErrorStatus(status, server) : {}),",
     "");
   const r = m.anchor ? await mfetch(() => htmlResponse(503), () => m.mod.runExposureModule("example.com", ["a.example.com"])) : null;
   ok("mutation M14 (5xx server_error marker removed) → all-5xx pass falsely complete — CAUGHT",
     m.anchor && !r.incomplete);
+}
+// M15: classifier treats EVERY 5xx as edge-synthesised → a genuine all-503 origin
+// error pass falsely reads complete (breaks the #185 contract → B5b/A11 would fail).
+{
+  const m = await mutant(ASSET_SRC,
+    "    status >= CF_EDGE_STATUS_MIN && status <= CF_EDGE_STATUS_MAX &&",
+    "    status >= 500 &&");
+  const r = m.anchor ? await mfetch(() => edgeResponse(503), () => m.mod.runExposureModule("example.com", ["a.example.com"])) : null;
+  ok("mutation M15 (edge range widened to all 5xx) → genuine origin 503 falsely complete — CAUGHT",
+    m.anchor && !r.incomplete);
+}
+// M16: classifier drops the Server:cloudflare signature requirement → a bare 530 from
+// a non-Cloudflare host falsely reads authoritative (A16 would fail).
+{
+  const m = await mutant(ASSET_SRC,
+    '    String(server || "").trim().toLowerCase() === "cloudflare";',
+    "    true;");
+  const r = m.anchor ? await mfetch(() => htmlResponse(530), () => m.mod.probeAsset("odd.example.com")) : null;
+  ok("mutation M16 (edge signature check removed) → unsigned 530 falsely origin_unreachable — CAUGHT",
+    m.anchor && r.probe_status === "origin_unreachable");
+}
+// M17: edge branch removed (revert to blanket server_error) → REINTRODUCES the P1:
+// a mail-only-subdomain pass (synthetic CF 530) marks the module incomplete and every
+// scan permanently partial (A13/B8/D6 would fail).
+{
+  const m = await mutant(ASSET_SRC,
+    "  if (edgeSynthesised) {",
+    "  if (false) {");
+  const r = m.anchor ? await mfetch(() => edgeResponse(530), () => m.mod.runExposureModule("example.com", ["reports.example.com"])) : null;
+  ok("mutation M17 (edge branch removed — the 19 Jul P1 reintroduced) → edge-530 pass falsely incomplete — CAUGHT",
+    m.anchor && r.incomplete === true && r.incomplete_reason === "server_error");
 }
 
 console.log(`\napp-probe-reliability: ${pass}/${pass + fail} passed`);
