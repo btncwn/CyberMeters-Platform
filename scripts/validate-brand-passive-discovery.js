@@ -118,6 +118,16 @@ eq("empty brand refused", brandCtQueryUrl(""), null);
   ok("evidence carries ct_observed", evidence.some((e) => e.signal === "ct_observed" && e.value === true));
   ok("evidence carries nested_host", evidence.some((e) => e.signal === "nested_host" && e.value === true));
 
+  // The cap must be load-bearing: a CT-only host whose raw signals SUM above the
+  // critical threshold (nested 20 + similarity 35 + brand-kw 8 + login 12 + ct 12
+  // = 87) is still held at 'high' because it is not confirmed live. Removing the
+  // 84 cap would let it read 'critical' on speculation.
+  const hot = scoreBrandCandidateRisk({
+    variant_type: "nested_host", similarity_score: 100, contains_brand_keyword: true,
+    looks_like_login: true, ct_observed: true, classification: "unreviewed",
+  });
+  eq("CT-only host above critical-raw is capped to high", hot.risk_level, "high");
+
   // Escalation: same host confirmed live + mail-capable → may reach critical.
   const live = scoreBrandCandidateRisk({
     variant_type: "nested_host", similarity_score: 100, contains_brand_keyword: true,
