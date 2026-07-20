@@ -158,5 +158,19 @@ eq("tld_variation is canonical", normalizeBrandVariantType("tld_variation"), "tl
   eq("empty brand still returns nothing", generateTyposquatCandidates("", "com"), []);
 }
 
+// ── 9. Own-domain guard under identity-preserving mutations ──────────────────
+// Transposing two IDENTICAL adjacent letters regenerates the brand itself
+// ('aabrand' → 'aabrand'), so a double-letter brand can reproduce its own
+// domain as a "candidate" unless the own-domain guard blocks it. 'aa…' sorts
+// first among character variants, so without the guard it deterministically
+// lands inside the selected set — a customer would see their own registered
+// domain listed as a lookalike.
+{
+  const dbl = generateTyposquatCandidates("aabrand", "com");
+  ok("double-letter brand: own domain never a candidate",
+    !dbl.some((c) => c.candidate_domain === "aabrand.com"));
+  ok("double-letter brand still yields real candidates", dbl.length > 0);
+}
+
 console.log(`\nvalidate-brand-typosquat: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);
