@@ -308,6 +308,87 @@ function daysBetween(from, to) {
   return Number.isFinite(d) ? Math.max(0, Math.floor(d)) : null;
 }
 
+// ── Alert evidence + monitored domain (alert-truth episode, July 2026) ───────
+
+// Customer-facing labels for HOW an observation was made. Keys are the vendor
+// evidence `source` vocabulary (vendor-signatures.js / vendor-risk.js) plus the
+// inventory-level source_type fallbacks. Internal table/module names must never
+// reach the customer; an unknown source gets the honest generic label.
+const EVIDENCE_SOURCE_LABELS = Object.freeze({
+  "csp:script-src": "Content-Security-Policy (script-src)",
+  "csp:connect-src": "Content-Security-Policy (connect-src)",
+  csp: "Content-Security-Policy",
+  script: "page script reference",
+  cname: "DNS CNAME record",
+  spf: "SPF DNS record",
+  dkim: "DKIM DNS record",
+  mx: "MX DNS record",
+  ns: "NS DNS record",
+  server: "HTTP server header",
+  headers: "HTTP response headers",
+  header: "HTTP response headers",
+  tech: "technology fingerprint",
+});
+const SOURCE_TYPE_LABELS = Object.freeze({
+  vendor: "external website analysis",
+  cloud_asset: "cloud infrastructure observation",
+  identity_provider: "identity-surface observation",
+  email_sender: "email sender analysis",
+  saas_portal: "SaaS portal discovery",
+});
+
+// Bounded, structured evidence summary for ONE inventory item: the strongest
+// specific signal we hold (a workspace_vendors evidence entry, e.g. a CSP source
+// naming https://js.stripe.com), falling back to the item's own source-type +
+// observed hostname. One tenant-scoped read at most, only at alert time — never
+// per evaluation row. Returns { label, detail, last_seen_at } or null: missing
+// evidence yields NO statement, never a confident invented one.
+export async function summarizeShadowItEvidence(env, item) {
+  try {
+    const refs = parseJson(item.source_evidence_json, []) || [];
+    const vendorRef = refs.find((r) => r?.source_table === "workspace_vendors" && r?.source_record_id);
+    if (vendorRef) {
+      const row = await env.cybermeters_db
+        .prepare(`SELECT evidence, last_seen FROM workspace_vendors WHERE id = ? AND workspace_id = ?`)
+        .bind(vendorRef.source_record_id, item.workspace_id).first().catch(() => null);
+      const entries = parseJson(row?.evidence, []) || [];
+      const e = entries.find((x) => x?.source && x?.detail);
+      if (e) {
+        return {
+          label: EVIDENCE_SOURCE_LABELS[String(e.source)] || SOURCE_TYPE_LABELS.vendor,
+          detail: String(e.detail).slice(0, 200),
+          last_seen_at: row?.last_seen || item.last_seen_at || null,
+        };
+      }
+    }
+    const firstType = String(item.source_type || "").split(",")[0].trim();
+    const label = SOURCE_TYPE_LABELS[firstType] || (firstType ? "external observation" : null);
+    const hosts = parseJson(item.observed_hostnames_json, []) || [];
+    const detail = hosts.length ? String(hosts[0]).slice(0, 200) : null;
+    if (!label && !detail) return null;
+    return { label: label || "external observation", detail, last_seen_at: item.last_seen_at || null };
+  } catch {
+    return null;
+  }
+}
+
+// The workspace's monitored domain, shown in the alert ONLY when it is
+// unambiguous: exactly one linked domain. With several domains the observation
+// cannot be attributed to one of them from the inventory row, and guessing would
+// present an attribution the evidence does not support. Same join as
+// brand-protection.js; tenant-scoped by workspace_id.
+async function workspaceMonitoredDomain(env, workspaceId) {
+  try {
+    const rows = (await env.cybermeters_db
+      .prepare(`SELECT d.domain FROM workspace_domains wd JOIN domains d ON d.id = wd.domain_id
+                WHERE wd.workspace_id = ? LIMIT 2`)
+      .bind(workspaceId).all().catch(() => ({ results: [] }))).results || [];
+    return rows.length === 1 ? String(rows[0].domain) : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function evaluateShadowItMonitoring(env, workspaceId, { seenKeys = null, now = new Date().toISOString() } = {}) {
   const ws = await env.cybermeters_db
     .prepare(`SELECT id FROM workspaces WHERE id = ? AND deleted_at IS NULL`).bind(workspaceId).first().catch(() => null);
@@ -316,6 +397,8 @@ export async function evaluateShadowItMonitoring(env, workspaceId, { seenKeys = 
   const items = (await env.cybermeters_db
     .prepare(`SELECT * FROM shadow_it_inventory WHERE workspace_id = ?`).bind(workspaceId).all().catch(() => ({ results: [] }))).results || [];
   let disappeared = 0, contradictions = 0, cases = 0, ownerMissingEvents = 0;
+  // One bounded read per evaluation pass, not per item.
+  const monitoredDomain = await workspaceMonitoredDomain(env, workspaceId);
 
   for (const it of items) {
     let monitoring_status = it.monitoring_status;
@@ -430,6 +513,13 @@ export async function evaluateShadowItMonitoring(env, workspaceId, { seenKeys = 
         // so the alert and the case resolve to the SAME canonical remediation.
         finding_type: "saas_exposure",
         case_id: it.linked_case_id || null,
+        // The observed entity is a SERVICE, not a domain: label it as one, with
+        // its customer-facing display name, the workspace's monitored domain
+        // shown separately, and a bounded structured evidence summary.
+        entity_type: "service",
+        entity_display: it.display_name || it.canonical_technology_key,
+        monitored_domain: monitoredDomain,
+        evidence_source: await summarizeShadowItEvidence(env, it),
       }).catch(() => { /* alerting must never break the evaluator */ });
       if (acted?.ok) cases++;
     }
