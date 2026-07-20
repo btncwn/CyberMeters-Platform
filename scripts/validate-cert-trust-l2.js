@@ -72,11 +72,17 @@ const forbiddenTypes = new Set(["weak_key", "weak_signature", "untrusted_chain",
 async function main() {
   const { buildCertificateTrustL2 } = await import(pathToFileURL(certL2Path).href);
 
+  // The parallel-certificate anomaly compares expires_at against Date.now(),
+  // so "currently valid" fixtures MUST be expressed relative to the run time.
+  // Fixed calendar dates rotted: the original current-cert expiry
+  // (2026-07-20T00:00:00Z) passed and the anomaly silently stopped firing.
+  const DAY = 86_400_000;
+  const iso = (offsetDays) => new Date(Date.now() + offsetDays * DAY).toISOString();
   const history = [
     {
       issuer: "CN=Old CA,O=Old Trust",
       subject: "example.co.uk",
-      expires_at: "2026-07-10T00:00:00.000Z",
+      expires_at: iso(-10), // deliberately expired — must NOT count as parallel
       first_seen: "2026-01-01T00:00:00.000Z",
       last_seen: "2026-01-10T00:00:00.000Z",
       evidence_json: JSON.stringify({ san_hostnames: ["example.co.uk", "www.example.co.uk"] }),
@@ -84,7 +90,7 @@ async function main() {
     {
       issuer: "CN=Parallel CA,O=Parallel Trust",
       subject: "example.co.uk",
-      expires_at: "2027-03-31T00:00:00.000Z",
+      expires_at: iso(250), // currently valid — the parallel issuer
       first_seen: "2026-02-01T00:00:00.000Z",
       last_seen: "2026-02-10T00:00:00.000Z",
       evidence_json: JSON.stringify({ san_hostnames: ["example.co.uk"] }),
@@ -94,7 +100,7 @@ async function main() {
     issuer: "CN=New CA,O=New Trust",
     subject: "example.co.uk",
     san_hostnames: ["example.co.uk", "admin.example.co.uk", "*.example.co.uk"],
-    expires_at: "2026-07-20T00:00:00.000Z",
+    expires_at: iso(7), // currently valid, inside the expiring-soon window
     days_until_expiry: 7,
     certificate_status: "valid",
     ct_sources: { crt_sh: 3, certspotter: 2 },
