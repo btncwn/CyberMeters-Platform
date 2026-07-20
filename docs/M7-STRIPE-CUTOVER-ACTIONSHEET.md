@@ -64,7 +64,7 @@ same six price IDs or delete it; a stale map entry no longer wins but should not
 
 ## 4. Old object disposition
 
-- **Archive (do not delete)** the legacy £29/£149/£399 prices in Stripe (set inactive).
+- **Archive (do not delete)** the legacy price set in Stripe (set each old price inactive).
   The checkout guard refuses inactive prices, so an accidentally lingering secret fails
   closed instead of charging the legacy amount.
 - The two existing test subscriptions (`starter`) keep working: their price IDs remain in
