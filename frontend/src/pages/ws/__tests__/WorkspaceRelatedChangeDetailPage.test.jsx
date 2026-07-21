@@ -92,9 +92,34 @@ describe('WorkspaceRelatedChangeDetailPage', () => {
     api.getRelatedChange.mockResolvedValue({ ...DETAIL, can_manage: false })
     renderDetail()
     expect(await screen.findByText('New host with a certificate signal')).toBeInTheDocument()
+    // The manager-only Review section (heading + explanation) is gone.
     expect(screen.queryByText('Confirm whether planned')).not.toBeInTheDocument()
-    expect(screen.queryByText(/Create case from this related change/)).not.toBeInTheDocument()
     expect(screen.getByText(/available to workspace managers/i)).toBeInTheDocument()
+    // A6 release-gate: assert EACH control is absent, not just the section heading.
+    // The three feedback state actions (mark expected / unrelated / unexpected):
+    expect(screen.queryByRole('button', { name: /mark expected/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /mark unrelated/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /confirm unexpected/i })).not.toBeInTheDocument()
+    // Case linkage (the existing-case input + the two case buttons):
+    expect(screen.queryByLabelText(/existing case id/i)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /link to existing case/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /create case from this related change/i })).not.toBeInTheDocument()
+    // The read surface (evidence) stays fully visible to the viewer.
+    expect(screen.getByText('Related evidence')).toBeInTheDocument()
+  })
+
+  it('manager (can_manage true) sees every review + case-linkage control (positive control)', async () => {
+    api.getRelatedChange.mockResolvedValue({ ...DETAIL, can_manage: true })
+    renderDetail()
+    await screen.findByText('New host with a certificate signal')
+    expect(screen.getByText('Confirm whether planned')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /mark expected/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /mark unrelated/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /confirm unexpected/i })).toBeInTheDocument()
+    expect(screen.getByLabelText(/existing case id/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /link to existing case/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /create case from this related change/i })).toBeInTheDocument()
+    expect(screen.queryByText(/available to workspace managers/i)).not.toBeInTheDocument()
   })
 
   it('internal storage names are never rendered as evidence labels', async () => {
