@@ -89,6 +89,7 @@ async function main() {
   ok("weekly digest escapes an injected change title", !/<img[^>]*onerror/i.test(digestHtml));
   // expiresAt is computed relative to now (no naked future literal — anti-date-rot governance).
   const inviteExpiry = new Date(Date.now() + 7 * 86400 * 1000).toISOString();
+  // nosemgrep: javascript.lang.security.audit.unknown-value-with-script-tag.unknown-value-with-script-tag -- INTENTIONAL: this security test feeds an XSS payload to buildInvitationEmail to PROVE the template escapes it; the assertion below verifies no raw <script> survives.
   const inviteHtml = buildInvitationEmail({ workspaceName: XSS, role: IMG, acceptUrl: "https://app.cybermeters.com/i", expiresAt: inviteExpiry }).html;
   ok("invitation email escapes <script> in workspace name", !inviteHtml.includes("<script>") && inviteHtml.includes("&lt;script&gt;"));
   ok("invitation email escapes an injected role payload", !/<img[^>]*onerror/i.test(inviteHtml));
