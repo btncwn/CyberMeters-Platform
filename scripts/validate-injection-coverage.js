@@ -87,7 +87,9 @@ async function main() {
   const digestHtml = buildDigestEmail(XSS, digestChanges, "https://app.cybermeters.com", "ws1").html;
   ok("weekly digest escapes <script> in the workspace name", !digestHtml.includes("<script>") && digestHtml.includes("&lt;script&gt;"));
   ok("weekly digest escapes an injected change title", !/<img[^>]*onerror/i.test(digestHtml));
-  const inviteHtml = buildInvitationEmail({ workspaceName: XSS, role: IMG, acceptUrl: "https://app.cybermeters.com/i", expiresAt: "2026-12-31" }).html;
+  // expiresAt is computed relative to now (no naked future literal — anti-date-rot governance).
+  const inviteExpiry = new Date(Date.now() + 7 * 86400 * 1000).toISOString();
+  const inviteHtml = buildInvitationEmail({ workspaceName: XSS, role: IMG, acceptUrl: "https://app.cybermeters.com/i", expiresAt: inviteExpiry }).html;
   ok("invitation email escapes <script> in workspace name", !inviteHtml.includes("<script>") && inviteHtml.includes("&lt;script&gt;"));
   ok("invitation email escapes an injected role payload", !/<img[^>]*onerror/i.test(inviteHtml));
 
