@@ -665,6 +665,9 @@ jobs:
       - name: Validate posture timeline events (email-auth + exposed services)
         run: node scripts/validate-posture-events.js
 
+      - name: Validate SPF static PASS-authorisation resolver (RFC 7208 limits / TempError fail-safe / CIDR containment / change detection)
+        run: node scripts/validate-spf-resolver.js
+
       - name: Validate posture-events false-resolution guard (exposed_service_resolved evidence gate)
         run: node scripts/validate-posture-events-resolution.js
 

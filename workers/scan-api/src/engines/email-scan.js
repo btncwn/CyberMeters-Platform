@@ -5,6 +5,7 @@
 import { dnsQuery } from "./dns.js";
 import { deriveDmarcState } from "./dmarc-state.js";
 import { DKIM_PROVIDER_SELECTORS, DKIM_SELECTORS, buildDkimDetail, buildDmarcPolicyJourney, buildEmailRemediationActions, findDkimInResults, inferEmailProvider, normalizeDnsTxtValue, parseBimiRecord, parseDmarcRecord, parseSpfRecord } from "./email-analysis.js";
+import { makeDohSpfLookup, resolveSpfAuthorization } from "./spf-resolver.js";
 
 export const DMARC_OBSERVATION_STATUS = Object.freeze({
   OBSERVED: "observed",
@@ -132,6 +133,18 @@ export async function runEmailModule(domain) {
 
   const dmarcRecord = dmarcEvidence.dmarc_record;
   const spfDetail = parseSpfRecord(spfRecord, spfRecs.length);
+  // Statically-resolvable PASS-authorisation set (recursive include/redirect/a/mx).
+  // Reuses the already-fetched root record (no redundant root lookup); the resolver
+  // enforces RFC 7208 lookup/void limits and fails SAFE (temperror) on any transient
+  // DNS error. resolution_status is recorded SEPARATELY so a partial/temperror set is
+  // never treated as exhaustive by the posture-events comparator.
+  const spfAuthorization = await resolveSpfAuthorization({
+    domain,
+    rootRecord: spfRecord,
+    recordCount: spfRecs.length,
+    lookup: makeDohSpfLookup(dnsQuery, normalizeDnsTxtValue),
+    nowIso: new Date().toISOString(),
+  }).catch(() => null);
   const dmarcDetail = dmarcEvidence.dmarc_detail;
   const dkim = {
     present:          dkimSelector !== null,
@@ -156,6 +169,17 @@ export async function runEmailModule(domain) {
       present: hasSPF,
       record:  spfRecord,
       record_count: spfRecs.length,
+      // Additive resolved-authorisation snapshot (PR-A). Null only if the resolver
+      // threw unexpectedly; a transient DNS error is represented HONESTLY as
+      // resolution_status="temperror" with resolved_pass_authorisations=null, not
+      // as a silent failure. The posture-events comparator only diffs two
+      // "complete" snapshots, so partial/temperror can never produce a false change.
+      resolution_status: spfAuthorization?.resolution_status ?? null,
+      resolved_pass_authorisations: spfAuthorization?.resolved_pass_authorisations ?? null,
+      unresolved_mechanisms: spfAuthorization?.unresolved_mechanisms ?? [],
+      lookup_count: spfAuthorization?.lookup_count ?? null,
+      void_lookup_count: spfAuthorization?.void_lookup_count ?? null,
+      resolved_at: spfAuthorization?.resolved_at ?? null,
     },
     dmarc: {
       present: hasDMARC,

@@ -5,6 +5,7 @@
 // non-fatal so scan completion never depends on timeline event generation.
 import { createId } from "../lib/util.js";
 import { loadTimelineComparisonContext } from "./timeline-trust.js";
+import { diffResolvedAuthorizations } from "./spf-resolver.js";
 
 function normalizeValue(value) {
   return String(value ?? "").trim();
@@ -45,8 +46,10 @@ function serviceMap(adminModule) {
   return map;
 }
 
-function pushEvent(events, { event_type, hostname, severity, description }) {
-  events.push({ event_type, hostname, severity, description });
+function pushEvent(events, { event_type, hostname, severity, description, evidence = undefined }) {
+  const event = { event_type, hostname, severity, description };
+  if (evidence !== undefined) event.evidence = evidence;
+  events.push(event);
 }
 
 export function buildPostureDiffEvents(domain, prevModules, currentModules) {
@@ -71,6 +74,32 @@ export function buildPostureDiffEvents(domain, prevModules, currentModules) {
       hostname: domain,
       severity: "medium",
       description: `SPF record changed for ${domain}`,
+    });
+  }
+
+  // Resolved PASS-authorisation-set change (PR-A). Independent of the root-string
+  // diff above: a provider adding IPs inside their own include:spf.provider.com
+  // leaves the root record UNCHANGED, so email_spf_changed does not fire, but the
+  // resolved set does. diffResolvedAuthorizations returns null (comparison NOT
+  // performed) unless BOTH snapshots resolved to status "complete" — so a
+  // temperror, partial resolution, permerror, or a legacy report without the
+  // resolved fields can NEVER produce a false authorisation-change event.
+  const spfDelta = diffResolvedAuthorizations(previousEmail?.spf, currentEmail?.spf);
+  if (spfDelta && spfDelta.changed) {
+    // Persist the CANONICAL added/removed CIDRs in the description (bounded so a
+    // pathological record can never write an unbounded row) — asset_events has no
+    // structured-evidence column, and the counts alone would lose the actual ranges.
+    const cap = 12;
+    const listOf = (arr) => arr.slice(0, cap).join(", ") + (arr.length > cap ? ` (+${arr.length - cap} more)` : "");
+    const parts = [];
+    if (spfDelta.added.length) parts.push(`added ${spfDelta.added.length} [${listOf(spfDelta.added)}]`);
+    if (spfDelta.removed.length) parts.push(`removed ${spfDelta.removed.length} [${listOf(spfDelta.removed)}]`);
+    pushEvent(events, {
+      event_type: "email_spf_authorization_changed",
+      hostname: domain,
+      severity: spfDelta.added.length > 0 ? "medium" : "low",
+      description: `SPF authorised sending sources changed for ${domain}: ${parts.join("; ")}`,
+      evidence: { added: spfDelta.added, removed: spfDelta.removed },
     });
   }
 
