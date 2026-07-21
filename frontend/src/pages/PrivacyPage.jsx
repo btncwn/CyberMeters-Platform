@@ -25,9 +25,12 @@ export default function PrivacyPage() {
 
         <article className="bg-white border border-gray-100 rounded-2xl shadow-sm p-8 sm:p-10">
           <h1 className="text-3xl font-bold text-gray-900">Privacy Policy</h1>
-          <p className="text-sm text-gray-400 mt-2">Last updated: June 2026 — Version 1.0</p>
+          <p className="text-sm text-gray-400 mt-2">Last updated: July 2026 — Version 1.1</p>
           <p className="text-sm text-gray-500 mt-4 leading-relaxed">
             CyberMeters ("<strong>we</strong>", "<strong>us</strong>", "<strong>our</strong>") is committed to protecting the personal data of our customers and the individuals associated with them. This Privacy Policy explains what data we collect, how we use it, and your rights in relation to it.
+          </p>
+          <p className="text-sm text-gray-500 mt-3 leading-relaxed">
+            CyberMeters is a trading name of <strong>Turhan Acar</strong>, a sole trader in the United Kingdom, who is the data controller responsible for the personal data processed in connection with your CyberMeters account. Contact: <a href="mailto:hello@cybermeters.com" className="text-brand-600 hover:underline">hello@cybermeters.com</a>.
           </p>
           <p className="text-sm text-gray-500 mt-3 leading-relaxed">
             CyberMeters operates primarily for UK and European business customers. We process personal data in accordance with the UK General Data Protection Regulation (UK GDPR), the Data Protection Act 2018, and where applicable, the EU GDPR.

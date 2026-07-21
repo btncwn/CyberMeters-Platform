@@ -25,9 +25,9 @@ export default function DpaPage() {
 
         <article className="bg-white border border-gray-100 rounded-2xl shadow-sm p-8 sm:p-10">
           <h1 className="text-3xl font-bold text-gray-900">Data Processing Addendum</h1>
-          <p className="text-sm text-gray-400 mt-2">Last updated: June 2026 — Version 1.0</p>
+          <p className="text-sm text-gray-400 mt-2">Last updated: July 2026 — Version 1.1</p>
           <p className="text-sm text-gray-500 mt-4 leading-relaxed">
-            This Data Processing Addendum ("<strong>DPA</strong>") supplements and forms part of the CyberMeters Terms of Service between CyberMeters ("<strong>Processor</strong>") and the customer ("<strong>Controller</strong>"). It governs the processing of personal data by CyberMeters on behalf of the Controller in connection with the provision of the Services.
+            This Data Processing Addendum ("<strong>DPA</strong>") supplements and forms part of the CyberMeters Terms of Service between CyberMeters ("<strong>Processor</strong>") and the customer ("<strong>Controller</strong>"). CyberMeters is a trading name of <strong>Turhan Acar</strong>, a sole trader in the United Kingdom, acting as Processor. This DPA governs the processing of personal data by CyberMeters on behalf of the Controller in connection with the provision of the Services.
           </p>
           <p className="text-sm text-gray-500 mt-3 leading-relaxed">
             This DPA is entered into to satisfy the requirements of Article 28 of the UK GDPR and, where applicable, the EU GDPR. In the event of a conflict between this DPA and the Terms of Service, this DPA shall prevail with respect to data protection matters.
@@ -89,9 +89,20 @@ export default function DpaPage() {
                     <td className="px-4 py-2.5 text-gray-600">Payment processing and subscription management</td>
                     <td className="px-4 py-2.5 text-gray-500">US / EU</td>
                   </tr>
+                  <tr>
+                    <td className="px-4 py-2.5 font-medium text-gray-800">Resend (Plus Five Five, Inc.)</td>
+                    <td className="px-4 py-2.5 text-gray-600">Transactional email delivery (alerts, reports, lifecycle and billing emails)</td>
+                    <td className="px-4 py-2.5 text-gray-500">US</td>
+                  </tr>
+                  <tr>
+                    <td className="px-4 py-2.5 font-medium text-gray-800">Microsoft Corporation (Microsoft Entra ID)</td>
+                    <td className="px-4 py-2.5 text-gray-600">Authentication for customers who sign in with Microsoft SSO (processes sign-in identity such as name, email and tenant/object identifiers)</td>
+                    <td className="px-4 py-2.5 text-gray-500">US / Global</td>
+                  </tr>
                 </tbody>
               </table>
             </div>
+            <p className="mt-3">Some Sub-Processors may process personal data outside the United Kingdom. Where this occurs, such transfers are made under appropriate safeguards (for example the provider's UK/EU data-protection addendum, Standard Contractual Clauses, or the UK International Data Transfer Agreement, as applicable).</p>
             <p className="mt-3">The Processor shall notify the Controller of any intended changes to Sub-Processors (additions or replacements) with at least 14 days' notice, giving the Controller the opportunity to object. Objections must be raised within 14 days of notification and must be based on reasonable grounds related to data protection. If the parties cannot resolve an objection, either party may terminate the affected portion of the Services.</p>
           </Section>
 

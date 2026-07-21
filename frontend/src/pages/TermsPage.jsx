@@ -25,9 +25,12 @@ export default function TermsPage() {
 
         <article className="bg-white border border-gray-100 rounded-2xl shadow-sm p-8 sm:p-10">
           <h1 className="text-3xl font-bold text-gray-900">Terms of Service</h1>
-          <p className="text-sm text-gray-400 mt-2">Last updated: June 2026 — Version 1.0</p>
+          <p className="text-sm text-gray-400 mt-2">Last updated: July 2026 — Version 1.1</p>
           <p className="text-sm text-gray-500 mt-4 leading-relaxed">
             These Terms of Service ("<strong>Terms</strong>") govern your access to and use of the CyberMeters platform and related services ("<strong>Services</strong>") provided by CyberMeters ("<strong>we</strong>", "<strong>us</strong>", "<strong>our</strong>").
+          </p>
+          <p className="text-sm text-gray-500 mt-3 leading-relaxed">
+            CyberMeters is a trading name of <strong>Turhan Acar</strong>, a sole trader in the United Kingdom. References to "CyberMeters", "we", "us" or "our" mean Turhan Acar trading as CyberMeters. You can contact us at <a href="mailto:hello@cybermeters.com" className="text-brand-600 hover:underline">hello@cybermeters.com</a>.
           </p>
           <p className="text-sm text-gray-500 mt-3 leading-relaxed">
             By creating an account or using the Services, you agree to be bound by these Terms. If you are accepting on behalf of an organisation, you represent that you have authority to bind that organisation.
@@ -79,7 +82,7 @@ export default function TermsPage() {
           </Section>
 
           <Section title="5. Subscription and Billing">
-            <p>Access to the Services is subject to a subscription plan. Subscriptions are billed on a recurring basis (monthly or annually depending on your plan). All fees are stated exclusive of VAT unless otherwise specified.</p>
+            <p>Access to the Services is subject to a subscription plan. Subscriptions are billed on a recurring basis (monthly or annually depending on your plan). All fees are stated in pounds sterling (GBP). CyberMeters (Turhan Acar) is not currently registered for VAT; no VAT is charged on subscriptions and invoices do not show a VAT line. If CyberMeters becomes VAT-registered in future, fees and invoices will be updated accordingly and you will be notified.</p>
             <p>Payment processing is handled by Stripe, Inc. By providing a payment method, you authorise us to charge the applicable subscription fees to that method at the start of each billing period.</p>
             <p>If a payment fails, we will attempt to notify you. Continued failure may result in suspension of the Services. Subscriptions may be cancelled at any time through your account settings; cancellation takes effect at the end of the current billing period.</p>
             <p>We reserve the right to change subscription pricing with at least 30 days' advance notice to existing customers. Price changes will not apply to the current billing period.</p>
@@ -121,7 +124,7 @@ export default function TermsPage() {
           </Section>
 
           <Section title="12. Governing Law and Disputes">
-            <p>These Terms are governed by and construed in accordance with the laws of England and Wales. Any disputes arising out of or in connection with these Terms shall be subject to the exclusive jurisdiction of the courts of England and Wales.</p>
+            <p>These Terms are governed by and construed in accordance with the law of Scotland. Any dispute arising out of or in connection with these Terms shall be subject to the exclusive jurisdiction of the Scottish courts. Nothing in this clause removes any mandatory consumer-protection rights available to you under the law of the country in which you live.</p>
           </Section>
 
           <Section title="13. Contact">
