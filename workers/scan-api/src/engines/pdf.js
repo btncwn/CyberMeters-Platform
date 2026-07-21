@@ -472,13 +472,17 @@ function sectionRemediation(w, snap) {
 
 // Presentation-only labels for the deterministic Related Changes rules. NOT a source
 // of meaning (the backend owns that) — just human titles for the frozen summary.
+// Cert halves say "a certificate signal", never "a new or changed certificate":
+// the rule's cert family also matches standing conditions (sensitive hostname in
+// CT, expiring soon), so a more specific claim could say more than the evidence.
+// Wording is kept identical to frontend RULE_LABELS (relatedChangesDisplay.js).
 const RELATED_CHANGE_LABELS = {
-  new_host_with_cert: "New host with a new or changed certificate",
+  new_host_with_cert: "New host with a certificate signal",
   new_host_with_identity: "New host with a login or identity surface",
-  identity_with_cert: "Login or admin surface with a certificate change",
-  email_config_with_host_or_cert: "Email-authentication change with a new host or certificate",
+  identity_with_cert: "Login or admin surface with a certificate signal",
+  email_config_with_host_or_cert: "Email-authentication change with a new host or a certificate signal",
   new_sender_with_email_config: "New sending source with an email-authentication change",
-  shadow_it_with_host_or_cert: "Unapproved technology with a new host or certificate",
+  shadow_it_with_host_or_cert: "Unapproved technology with a new host or a certificate signal",
 };
 
 // M6 B1 Related Changes summary. Frozen into the snapshot (related_changes_json) and
