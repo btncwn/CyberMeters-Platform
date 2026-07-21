@@ -74,6 +74,9 @@ jobs:
       - name: Full-repo assurance — authentication coverage (B2 session / B3 invalidation / B4 MFA / B5 SSO claims / B6 reset)
         run: node scripts/validate-auth-coverage.js
 
+      - name: Full-repo assurance — injection coverage (E2 render-sink escaping / E4 mass-assignment)
+        run: node scripts/validate-injection-coverage.js
+
       - name: Full-repo assurance — production integrity runbook SQL (executable check)
         run: node scripts/validate-production-integrity-sql.js
 
