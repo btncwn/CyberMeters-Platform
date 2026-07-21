@@ -38,7 +38,7 @@ export default function PrivacyPage() {
 
           <Section title="1. Who We Are">
             <p>CyberMeters provides an Attack Surface Management (ASM) platform, Security Posture Management (SPM) tools, and executive security reporting services delivered as a Software-as-a-Service (SaaS) product.</p>
-            <p>For questions about this policy or to exercise your rights, contact us at: <a href="mailto:privacy@cybermeters.com" className="text-brand-600 hover:underline">privacy@cybermeters.com</a></p>
+            <p>For questions about this policy or to exercise your rights, contact us at: <a href="mailto:hello@cybermeters.com" className="text-brand-600 hover:underline">hello@cybermeters.com</a></p>
           </Section>
 
           <Section title="2. Data We Collect">
@@ -140,7 +140,7 @@ export default function PrivacyPage() {
               <li><strong className="text-gray-800">Right to data portability</strong> — to receive your data in a structured, machine-readable format.</li>
               <li><strong className="text-gray-800">Right to object</strong> — to object to processing based on legitimate interests.</li>
             </ul>
-            <p className="mt-3">To exercise any of these rights, email <a href="mailto:privacy@cybermeters.com" className="text-brand-600 hover:underline">privacy@cybermeters.com</a>. We will respond within 30 days. If you are not satisfied with our response, you have the right to lodge a complaint with the Information Commissioner's Office (ICO) at <a href="https://ico.org.uk" target="_blank" rel="noopener noreferrer" className="text-brand-600 hover:underline">ico.org.uk</a>.</p>
+            <p className="mt-3">To exercise any of these rights, email <a href="mailto:hello@cybermeters.com" className="text-brand-600 hover:underline">hello@cybermeters.com</a>. We will respond within 30 days. If you are not satisfied with our response, you have the right to lodge a complaint with the Information Commissioner's Office (ICO) at <a href="https://ico.org.uk" target="_blank" rel="noopener noreferrer" className="text-brand-600 hover:underline">ico.org.uk</a>.</p>
           </Section>
 
           <Section title="10. Cookies">
@@ -153,7 +153,7 @@ export default function PrivacyPage() {
 
           <Section title="12. Contact">
             <p>For all privacy-related queries or to exercise your data subject rights:</p>
-            <p><a href="mailto:privacy@cybermeters.com" className="text-brand-600 hover:underline font-medium">privacy@cybermeters.com</a></p>
+            <p><a href="mailto:hello@cybermeters.com" className="text-brand-600 hover:underline font-medium">hello@cybermeters.com</a></p>
           </Section>
         </article>
 

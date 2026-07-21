@@ -53,7 +53,7 @@ export default function TermsPage() {
 
           <Section title="2. Eligibility and Account Registration">
             <p>To use the Services, you must: (a) be at least 18 years of age; (b) provide accurate registration information; and (c) maintain the security of your account credentials.</p>
-            <p>You are responsible for all activity that occurs under your account. You must notify us immediately at <a href="mailto:support@cybermeters.com" className="text-brand-600 hover:underline">support@cybermeters.com</a> if you suspect unauthorised access to your account.</p>
+            <p>You are responsible for all activity that occurs under your account. You must notify us immediately at <a href="mailto:hello@cybermeters.com" className="text-brand-600 hover:underline">hello@cybermeters.com</a> if you suspect unauthorised access to your account.</p>
           </Section>
 
           <Section title="3. Acceptable Use">
@@ -128,7 +128,7 @@ export default function TermsPage() {
           </Section>
 
           <Section title="13. Contact">
-            <p>For questions about these Terms, contact us at: <a href="mailto:legal@cybermeters.com" className="text-brand-600 hover:underline font-medium">legal@cybermeters.com</a></p>
+            <p>For questions about these Terms, contact us at: <a href="mailto:hello@cybermeters.com" className="text-brand-600 hover:underline font-medium">hello@cybermeters.com</a></p>
           </Section>
         </article>
 

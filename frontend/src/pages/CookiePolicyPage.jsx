@@ -100,7 +100,7 @@ export default function CookiePolicyPage() {
           </Section>
 
           <Section title="7. Contact">
-            <p>For questions about this Cookie Policy, contact us at: <a href="mailto:privacy@cybermeters.com" className="text-brand-600 hover:underline font-medium">privacy@cybermeters.com</a></p>
+            <p>For questions about this Cookie Policy, contact us at: <a href="mailto:hello@cybermeters.com" className="text-brand-600 hover:underline font-medium">hello@cybermeters.com</a></p>
           </Section>
         </article>
 

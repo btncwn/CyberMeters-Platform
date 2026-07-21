@@ -136,7 +136,7 @@ export default function DpaPage() {
           </Section>
 
           <Section title="9. Contact">
-            <p>For data protection queries relating to this DPA, contact CyberMeters at: <a href="mailto:dpa@cybermeters.com" className="text-brand-600 hover:underline font-medium">dpa@cybermeters.com</a></p>
+            <p>For data protection queries relating to this DPA, contact CyberMeters at: <a href="mailto:hello@cybermeters.com" className="text-brand-600 hover:underline font-medium">hello@cybermeters.com</a></p>
           </Section>
         </article>
 
