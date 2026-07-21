@@ -38,7 +38,7 @@ describe('SERVICE_COLORS — glacier palette single source of truth', () => {
     // If these are intentionally re-themed, update this test in the same commit
     // — that is the point: the colour is a product decision, not an accident.
     expect(SERVICE_COLORS.email.icon).toBe('#1E5FDB')   // glacier blue
-    expect(SERVICE_COLORS.brand.icon).toBe('#0797BC')   // turquoise
+    expect(SERVICE_COLORS.brand.icon).toBe('#D6488E')   // rose (founder re-theme 21 Jul)
     expect(SERVICE_COLORS.surface.icon).toBe('#12938C') // glacier teal
     expect(SERVICE_COLORS.certs.icon).toBe('#1685C9')   // azure
     expect(SERVICE_COLORS.cyber_essentials.icon).toBe('#0F9F6E') // mint
