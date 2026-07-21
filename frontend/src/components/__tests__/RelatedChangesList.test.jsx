@@ -81,8 +81,8 @@ describe('RelatedChangesList', () => {
     api.getRelatedChanges.mockResolvedValue({ related_changes: CLUSTERS })
     renderList()
 
-    expect(await screen.findByText('New host with a new or changed certificate')).toBeInTheDocument()
-    expect(screen.getByText('Login or admin surface with a certificate change')).toBeInTheDocument()
+    expect(await screen.findByText('New host with a certificate signal')).toBeInTheDocument()
+    expect(screen.getByText('Login or admin surface with a certificate signal')).toBeInTheDocument()
     // Family count wording (explanation first, number second).
     expect(screen.getByText(/2 independent signal families/)).toBeInTheDocument()
     // Backend-owned customer_state badge, rendered verbatim (no derived verdict).
@@ -143,7 +143,7 @@ describe('RelatedChangesList', () => {
   it('refetches with the customer_state filter when changed', async () => {
     api.getRelatedChanges.mockResolvedValue({ related_changes: CLUSTERS })
     renderList()
-    await screen.findByText('New host with a new or changed certificate')
+    await screen.findByText('New host with a certificate signal')
 
     fireEvent.change(screen.getByLabelText(/filter related changes by review state/i), {
       target: { value: 'unexpected_confirmed' },
@@ -157,7 +157,7 @@ describe('RelatedChangesList', () => {
   it('navigates to the detail route on cluster click', async () => {
     api.getRelatedChanges.mockResolvedValue({ related_changes: CLUSTERS })
     renderList()
-    const card = await screen.findByText('New host with a new or changed certificate')
+    const card = await screen.findByText('New host with a certificate signal')
     fireEvent.click(card)
     expect(await screen.findByText('Detail route')).toBeInTheDocument()
   })
@@ -165,7 +165,7 @@ describe('RelatedChangesList', () => {
   it('shows the honesty note and never renders forbidden vocabulary', async () => {
     api.getRelatedChanges.mockResolvedValue({ related_changes: CLUSTERS })
     const { container } = renderList()
-    await screen.findByText('New host with a new or changed certificate')
+    await screen.findByText('New host with a certificate signal')
 
     // The mandated honesty note must be present.
     expect(screen.getByText(HONESTY_NOTE)).toBeInTheDocument()

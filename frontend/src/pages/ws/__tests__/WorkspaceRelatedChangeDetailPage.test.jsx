@@ -91,7 +91,7 @@ describe('WorkspaceRelatedChangeDetailPage', () => {
   it('viewer (can_manage false) sees no review or case-linkage controls', async () => {
     api.getRelatedChange.mockResolvedValue({ ...DETAIL, can_manage: false })
     renderDetail()
-    expect(await screen.findByText('New host with a new or changed certificate')).toBeInTheDocument()
+    expect(await screen.findByText('New host with a certificate signal')).toBeInTheDocument()
     expect(screen.queryByText('Confirm whether planned')).not.toBeInTheDocument()
     expect(screen.queryByText(/Create case from this related change/)).not.toBeInTheDocument()
     expect(screen.getByText(/available to workspace managers/i)).toBeInTheDocument()
@@ -108,7 +108,7 @@ describe('WorkspaceRelatedChangeDetailPage', () => {
     api.getRelatedChange.mockResolvedValue(DETAIL)
     renderDetail()
 
-    expect(await screen.findByText('New host with a new or changed certificate')).toBeInTheDocument()
+    expect(await screen.findByText('New host with a certificate signal')).toBeInTheDocument()
     expect(screen.getByText(/2 independent signal families/)).toBeInTheDocument()
     expect(screen.getByText('Related evidence')).toBeInTheDocument()
     // Evidence is presented as pointers to underlying observations.
@@ -122,7 +122,7 @@ describe('WorkspaceRelatedChangeDetailPage', () => {
     api.relatedChangeFeedback.mockResolvedValue({ ok: true, customer_state: 'expected' })
     renderDetail()
 
-    await screen.findByText('New host with a new or changed certificate')
+    await screen.findByText('New host with a certificate signal')
     // Add a note, then mark expected.
     fireEvent.change(screen.getByPlaceholderText(/add context/i), { target: { value: 'Planned migration' } })
     fireEvent.click(screen.getByRole('button', { name: /mark expected/i }))
@@ -143,7 +143,7 @@ describe('WorkspaceRelatedChangeDetailPage', () => {
     api.relatedChangeFeedback.mockResolvedValue({ ok: true, customer_state: 'unrelated' })
     renderDetail()
 
-    await screen.findByText('New host with a new or changed certificate')
+    await screen.findByText('New host with a certificate signal')
     fireEvent.click(screen.getByRole('button', { name: /mark unrelated/i }))
 
     await waitFor(() =>
@@ -156,7 +156,7 @@ describe('WorkspaceRelatedChangeDetailPage', () => {
     api.linkRelatedChangeCase.mockResolvedValue({ ok: true, linked_case_id: 'case-42' })
     renderDetail()
 
-    await screen.findByText('New host with a new or changed certificate')
+    await screen.findByText('New host with a certificate signal')
     fireEvent.change(screen.getByLabelText(/existing case id/i), { target: { value: 'case-42' } })
     fireEvent.click(screen.getByRole('button', { name: /link to existing case/i }))
 
@@ -171,7 +171,7 @@ describe('WorkspaceRelatedChangeDetailPage', () => {
     api.createRelatedChangeCase.mockResolvedValue({ ok: true, case_id: 'case-new', case_type: 'attack_surface' })
     renderDetail()
 
-    await screen.findByText('New host with a new or changed certificate')
+    await screen.findByText('New host with a certificate signal')
     fireEvent.click(screen.getByRole('button', { name: /create case from this related change/i }))
 
     await waitFor(() => expect(api.createRelatedChangeCase).toHaveBeenCalledWith('ws1', 'rc1'))
@@ -183,17 +183,80 @@ describe('WorkspaceRelatedChangeDetailPage', () => {
     api.relatedChangeFeedback.mockRejectedValue(new Error('kaboom'))
     renderDetail()
 
-    await screen.findByText('New host with a new or changed certificate')
+    await screen.findByText('New host with a certificate signal')
     fireEvent.click(screen.getByRole('button', { name: /confirm unexpected/i }))
 
     expect(await screen.findByText(/could not record your review/i)).toBeInTheDocument()
     expect(screen.queryByText('kaboom')).not.toBeInTheDocument()
   })
 
+  it('collapses identical repeated evidence pointers into one row with an honest repeat count', async () => {
+    // Pre-#172 standing-condition cert evidence: the same observation appended
+    // once per scan rendered as ~10 separate rows (A6 P3 #1, 20 Jul 2026).
+    const repeated = Array.from({ length: 10 }, (_, i) => ({
+      producer_family: 'cert',
+      source_table: 'asset_events',
+      source_record_id: `ae-${i}`,
+      source_event_type: 'certificate_sensitive_host_detected',
+      entity_key: 'host:api.example.com',
+      observed_at: `2026-07-${String(i + 5).padStart(2, '0')}T00:00:00Z`,
+      evidence_ref: `ae-${i}`,
+    }))
+    api.getRelatedChange.mockResolvedValue({
+      ...DETAIL,
+      evidence: [DETAIL.evidence[0], ...repeated],
+    })
+    renderDetail()
+
+    await screen.findByText('Related evidence')
+    // One collapsed row, not ten — with an honest count and first/last seen.
+    expect(screen.getAllByText('Certificate')).toHaveLength(1)
+    expect(screen.getByText(/Observed 10 times/)).toBeInTheDocument()
+    expect(screen.getByText(/First seen 2026-07-05 · last seen 2026-07-14/)).toBeInTheDocument()
+    // The non-repeated host pointer still renders as its own row.
+    expect(screen.getAllByText('Host / attack surface').length).toBeGreaterThan(0)
+  })
+
+  it('does not collapse observations that differ in a material field', async () => {
+    api.getRelatedChange.mockResolvedValue({
+      ...DETAIL,
+      evidence: [
+        { ...DETAIL.evidence[1], source_record_id: 'c-1', evidence_ref: 'c-1', source_event_type: 'certificate_new_detected' },
+        { ...DETAIL.evidence[1], source_record_id: 'c-2', evidence_ref: 'c-2', source_event_type: 'certificate_expiring_soon' },
+      ],
+    })
+    renderDetail()
+
+    await screen.findByText('Related evidence')
+    expect(screen.getAllByText('Certificate')).toHaveLength(2)
+    expect(screen.queryByText(/Observed 2 times/)).not.toBeInTheDocument()
+  })
+
+  it('evidence subtypes render as honest labels, never raw internal enums, and the header names the same signals', async () => {
+    api.getRelatedChange.mockResolvedValue({
+      ...DETAIL,
+      evidence: [
+        DETAIL.evidence[0],
+        { ...DETAIL.evidence[1], source_event_type: 'certificate_sensitive_host_detected' },
+      ],
+    })
+    renderDetail()
+
+    await screen.findByText('New host with a certificate signal')
+    // The raw enum never reaches the customer.
+    expect(screen.queryByText(/certificate_sensitive_host_detected/)).not.toBeInTheDocument()
+    // The evidence row and the header signals line tell the same story as the
+    // producer: a sensitive hostname observed in CT — not a new/changed cert.
+    expect(
+      screen.getAllByText(/Sensitive hostname observed in certificate-transparency logs/).length,
+    ).toBeGreaterThanOrEqual(2)
+    expect(screen.getByText(/Signals observed:/)).toBeInTheDocument()
+  })
+
   it('renders the honesty note and no forbidden vocabulary', async () => {
     api.getRelatedChange.mockResolvedValue(DETAIL)
     const { container } = renderDetail()
-    await screen.findByText('New host with a new or changed certificate')
+    await screen.findByText('New host with a certificate signal')
 
     expect(screen.getByText(HONESTY_NOTE)).toBeInTheDocument()
 

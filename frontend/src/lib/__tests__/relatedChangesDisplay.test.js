@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest'
 import {
   ruleLabel,
   RULE_LABELS,
+  eventTypeLabel,
+  EVENT_TYPE_LABELS,
+  groupEvidencePointers,
   directionMeta,
   customerStateMeta,
   CUSTOMER_STATE_META,
@@ -59,6 +62,121 @@ describe('ruleLabel', () => {
 
   it('never emits forbidden vocabulary', () => {
     for (const key of Object.keys(RULE_LABELS)) assertClean(ruleLabel(key))
+  })
+
+  it('never claims a specific certificate story the evidence may not tell', () => {
+    // The cert family of a rule also matches standing conditions (sensitive
+    // hostname in CT, expiring soon) — a title claiming "new or changed
+    // certificate" would say more than the evidence. (A6 P3, 20 Jul 2026.)
+    for (const key of Object.keys(RULE_LABELS)) {
+      expect(RULE_LABELS[key].toLowerCase()).not.toContain('new or changed certificate')
+      expect(RULE_LABELS[key].toLowerCase()).not.toContain('certificate change')
+    }
+    expect(RULE_LABELS.new_host_with_cert).toBe('New host with a certificate signal')
+  })
+})
+
+describe('eventTypeLabel — evidence subtype tells the same story as the producer', () => {
+  it('maps every known subtype to honest wording, never the raw enum', () => {
+    for (const key of Object.keys(EVENT_TYPE_LABELS)) {
+      const label = eventTypeLabel(key)
+      expect(label).toBe(EVENT_TYPE_LABELS[key])
+      expect(label).not.toContain('_')
+      assertClean(label)
+    }
+  })
+
+  it('a standing sensitive-host condition is never presented as a new or changed certificate', () => {
+    const label = eventTypeLabel('certificate_sensitive_host_detected')
+    expect(label).toBe('Sensitive hostname observed in certificate-transparency logs')
+    expect(label.toLowerCase()).not.toContain('new')
+    expect(label.toLowerCase()).not.toContain('changed')
+  })
+
+  it('falls back to a readable form for unknown subtypes and empty for missing input', () => {
+    expect(eventTypeLabel('some_future_event')).toBe('Some future event')
+    expect(eventTypeLabel(null)).toBe('')
+    expect(eventTypeLabel('')).toBe('')
+  })
+})
+
+describe('groupEvidencePointers — presentation-level collapse only', () => {
+  const pointer = (over = {}) => ({
+    producer_family: 'cert',
+    source_table: 'asset_events',
+    source_record_id: 'r-1',
+    source_event_type: 'certificate_sensitive_host_detected',
+    entity_key: 'host:api.example.com',
+    observed_at: '2026-07-10T00:00:00Z',
+    evidence_ref: 'r-1',
+    ...over,
+  })
+
+  it('collapses identical repeated observations into one row with an honest count and first/last seen', () => {
+    // Pre-#172 standing-condition producers appended the same pointer once per
+    // scan — ~10 identical rows for one condition.
+    const rows = Array.from({ length: 10 }, (_, i) =>
+      pointer({
+        source_record_id: `r-${i}`,
+        evidence_ref: `r-${i}`,
+        observed_at: `2026-07-${String(i + 5).padStart(2, '0')}T00:00:00Z`,
+      }),
+    )
+    const groups = groupEvidencePointers(rows)
+    expect(groups).toHaveLength(1)
+    expect(groups[0].occurrence_count).toBe(10)
+    expect(groups[0].first_observed_at).toBe('2026-07-05T00:00:00Z')
+    expect(groups[0].last_observed_at).toBe('2026-07-14T00:00:00Z')
+  })
+
+  it('never collapses observations that differ in any material field', () => {
+    const rows = [
+      pointer(),
+      pointer({ source_record_id: 'r-2', evidence_ref: 'r-2', source_event_type: 'certificate_expiring_soon' }),
+      pointer({ source_record_id: 'r-3', evidence_ref: 'r-3', entity_key: 'host:www.example.com' }),
+      pointer({ source_record_id: 'r-4', evidence_ref: 'r-4', producer_family: 'host' }),
+      pointer({ source_record_id: 'r-5', evidence_ref: 'r-5', source_table: 'certificate_lifecycle_events' }),
+    ]
+    expect(groupEvidencePointers(rows)).toHaveLength(5)
+  })
+
+  it('keeps brand candidates distinct — evidence_ref that is not the row pointer is material', () => {
+    const rows = [
+      pointer({
+        producer_family: 'brand', source_table: 'workspace_brand_assets',
+        entity_key: 'brand-target:example.com', source_record_id: 'b-1', evidence_ref: 'examp1e.com',
+      }),
+      pointer({
+        producer_family: 'brand', source_table: 'workspace_brand_assets',
+        entity_key: 'brand-target:example.com', source_record_id: 'b-2', evidence_ref: 'exarnple.com',
+      }),
+    ]
+    expect(groupEvidencePointers(rows)).toHaveLength(2)
+  })
+
+  it('single observations pass through unchanged with a count of one', () => {
+    const groups = groupEvidencePointers([pointer()])
+    expect(groups).toHaveLength(1)
+    expect(groups[0].occurrence_count).toBe(1)
+    expect(groups[0].entity_key).toBe('host:api.example.com')
+  })
+
+  it('handles empty and missing input', () => {
+    expect(groupEvidencePointers([])).toEqual([])
+    expect(groupEvidencePointers(null)).toEqual([])
+  })
+
+  it('preserves first-appearance order across groups', () => {
+    const rows = [
+      pointer({ source_event_type: 'certificate_new_detected' }),
+      pointer({ source_record_id: 'r-2', evidence_ref: 'r-2' }),
+      pointer({ source_event_type: 'certificate_new_detected', source_record_id: 'r-3', evidence_ref: 'r-3' }),
+    ]
+    const groups = groupEvidencePointers(rows)
+    expect(groups.map((g) => g.source_event_type)).toEqual([
+      'certificate_new_detected',
+      'certificate_sensitive_host_detected',
+    ])
   })
 })
 

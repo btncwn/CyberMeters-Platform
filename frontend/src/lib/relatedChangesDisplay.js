@@ -34,13 +34,18 @@ export function toneClass(tone) {
 
 // ── Rule labels (presentation only — NOT a source of truth for meaning) ──────
 // The backend owns what each rule means; these are human titles for display.
+// The cert half of a rule says "a certificate signal", never "a new or changed
+// certificate": the rule's cert family also matches standing conditions
+// (sensitive hostname in CT, expiring soon), so a more specific claim in the
+// title could say more than the evidence. The exact observation is named per
+// evidence row via EVENT_TYPE_LABELS below.
 export const RULE_LABELS = {
-  new_host_with_cert: 'New host with a new or changed certificate',
+  new_host_with_cert: 'New host with a certificate signal',
   new_host_with_identity: 'New host with a login or identity surface',
-  identity_with_cert: 'Login or admin surface with a certificate change',
-  email_config_with_host_or_cert: 'Email-authentication change with a new host or certificate',
+  identity_with_cert: 'Login or admin surface with a certificate signal',
+  email_config_with_host_or_cert: 'Email-authentication change with a new host or a certificate signal',
   new_sender_with_email_config: 'New sending source with an email-authentication change',
-  shadow_it_with_host_or_cert: 'Unapproved technology with a new host or certificate',
+  shadow_it_with_host_or_cert: 'Unapproved technology with a new host or a certificate signal',
 };
 
 /**
@@ -189,6 +194,96 @@ export function producerFamilyLabel(family) {
   if (PRODUCER_FAMILY_LABELS[family]) return PRODUCER_FAMILY_LABELS[family];
   const words = String(family).replace(/_/g, ' ').trim();
   return words ? words.charAt(0).toUpperCase() + words.slice(1) : 'Observation';
+}
+
+// ── Evidence event subtypes (presentation only) ──────────────────────────────
+// Each label states exactly what the producer records — no more, no other — so
+// the heading and the evidence tell the same story. A standing condition (e.g.
+// a sensitive hostname observed in certificate-transparency logs) is never
+// presented as a new or changed certificate. Internal enum values are never
+// rendered raw.
+export const EVENT_TYPE_LABELS = {
+  // asset family (asset-inventory + exposed-service events)
+  new_asset_discovered: 'New asset discovered',
+  asset_reappeared: 'Asset reappeared',
+  dns_ip_changed: 'DNS IP address changed',
+  dns_cname_changed: 'DNS CNAME record changed',
+  dns_redirect_changed: 'Redirect target changed',
+  takeover_risk_detected: 'Takeover risk detected',
+  wildcard_dns_detected: 'Wildcard DNS detected',
+  exposed_service_detected: 'Exposed service detected',
+  // email-authentication configuration
+  email_spf_changed: 'SPF record changed',
+  email_dmarc_policy_changed: 'DMARC policy changed',
+  email_dkim_changed: 'DKIM configuration changed',
+  // certificate family
+  certificate_new_detected: 'New certificate detected',
+  certificate_new_san_detected: 'New certificate hostname detected',
+  certificate_new_issuer_detected: 'Certificate issuer changed',
+  certificate_growth_detected: 'Certificate hostname count grew',
+  certificate_sensitive_host_detected: 'Sensitive hostname observed in certificate-transparency logs',
+  certificate_expiring_soon: 'Certificate expiring soon',
+  // other producers
+  email_sender_new_source: 'New sending source observed',
+  identity_surface_observed: 'Login or identity surface observed',
+  brand_candidate_active_dns: 'Lookalike candidate resolving in DNS',
+  brand_candidate_active_http: 'Lookalike candidate responding over HTTPS',
+  brand_campaign_linked: 'Linked brand campaign observed',
+  shadow_it_observed: 'Unapproved technology observed',
+};
+
+/**
+ * Honest label for an evidence event subtype. Unknown subtypes fall back to a
+ * readable form of the raw key rather than an invented claim; empty input
+ * yields an empty string so callers can omit the line entirely.
+ * @param {string | null | undefined} eventType
+ * @returns {string}
+ */
+export function eventTypeLabel(eventType) {
+  if (!eventType) return '';
+  if (EVENT_TYPE_LABELS[eventType]) return EVENT_TYPE_LABELS[eventType];
+  const words = String(eventType).replace(/_/g, ' ').trim();
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : '';
+}
+
+// Group-key separator: a control character that can never appear in the
+// material fields, so joined keys cannot collide.
+const GROUP_KEY_SEP = String.fromCharCode(0);
+
+/**
+ * Presentation-level collapse of identical repeated observations. Standing-
+ * condition producers (pre-#172) appended the same evidence pointer once per
+ * scan, so one condition could render as ~10 identical rows. Underlying
+ * evidence records are never merged or discarded — this groups rows whose
+ * every material field is identical and reports an honest repeat count with
+ * first/last observed times.
+ *
+ * Material identity: producer family, source table, event subtype, the
+ * rendered entity identity (entity_key, or the source_record_id it falls back
+ * to), and evidence_ref when it carries meaning beyond the row pointer (e.g.
+ * a brand candidate domain — for most producers evidence_ref simply repeats
+ * source_record_id). Rows differing in ANY material field never collapse.
+ * @param {Array<object> | null | undefined} evidence
+ * @returns {Array<object>} groups in first-appearance order, each the first
+ *   row plus { occurrence_count, first_observed_at, last_observed_at }
+ */
+export function groupEvidencePointers(evidence) {
+  const groups = new Map();
+  for (const e of evidence || []) {
+    const identity = e?.entity_key || e?.source_record_id || '';
+    const ref = e?.evidence_ref && e.evidence_ref !== e.source_record_id ? String(e.evidence_ref) : '';
+    const key = [e?.producer_family ?? '', e?.source_table ?? '', e?.source_event_type ?? '', identity, ref].join(GROUP_KEY_SEP);
+    const at = e?.observed_at || null;
+    const g = groups.get(key);
+    if (!g) {
+      groups.set(key, { ...e, occurrence_count: 1, first_observed_at: at, last_observed_at: at });
+    } else {
+      g.occurrence_count += 1;
+      if (at && (!g.first_observed_at || at < g.first_observed_at)) g.first_observed_at = at;
+      if (at && (!g.last_observed_at || at > g.last_observed_at)) g.last_observed_at = at;
+    }
+  }
+  return [...groups.values()];
 }
 
 /**
