@@ -62,6 +62,7 @@ const ASSET_EVENT_MAP = Object.freeze({
   exposed_service_resolved:  { family: SIGNAL_FAMILY.ASSET, direction: "resolved" },
   // posture-events.js email-authentication configuration
   email_spf_changed:            { family: SIGNAL_FAMILY.EMAIL_CONFIG, direction: "changed" },
+  email_spf_authorization_changed: { family: SIGNAL_FAMILY.EMAIL_CONFIG, direction: "changed" },
   email_dmarc_policy_changed:   { family: SIGNAL_FAMILY.EMAIL_CONFIG, direction: "changed" },
   email_dkim_changed:           { family: SIGNAL_FAMILY.EMAIL_CONFIG, direction: "changed" },
   // cert-events.js (certificates)
