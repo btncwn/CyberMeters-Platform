@@ -31,6 +31,7 @@ const EMAIL_SCAN_PATH = path.join(ROOT, "workers/scan-api/src/engines/email-scan
 const DNS_PATH = path.join(ROOT, "workers/scan-api/src/engines/dns.js");
 const ANALYSIS_PATH = path.join(ROOT, "workers/scan-api/src/engines/email-analysis.js");
 const STATE_PATH = path.join(ROOT, "workers/scan-api/src/engines/dmarc-state.js");
+const SPF_RESOLVER_PATH = path.join(ROOT, "workers/scan-api/src/engines/spf-resolver.js");
 
 function settled(value) {
   return { status: "fulfilled", value };
@@ -122,6 +123,7 @@ function rewriteImports(source) {
   return source
     .replace('import { dnsQuery } from "./dns.js";', `import { dnsQuery } from ${JSON.stringify(pathToFileURL(DNS_PATH).href)};`)
     .replace('import { deriveDmarcState } from "./dmarc-state.js";', `import { deriveDmarcState } from ${JSON.stringify(pathToFileURL(STATE_PATH).href)};`)
+    .replace('import { makeDohSpfLookup, resolveSpfAuthorization } from "./spf-resolver.js";', `import { makeDohSpfLookup, resolveSpfAuthorization } from ${JSON.stringify(pathToFileURL(SPF_RESOLVER_PATH).href)};`)
     .replace('from "./email-analysis.js";', `from ${JSON.stringify(pathToFileURL(ANALYSIS_PATH).href)};`);
 }
 
