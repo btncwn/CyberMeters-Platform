@@ -105,6 +105,60 @@ Last 3 days, latest-per-domain: 2 partial, 1 complete — all founder domains (b
 
 - No deploy in this episode. When the founder authorises: deploy current main to the Worker; rollback = the prior live version (`d1ad62b8`). The change is additive and evidence-preserving; smoke = `/health` + a founder-domain scan confirming `ssl` duration dropped and cert fields are still populated.
 
+## 9b. Deploy + live exit-gate (21 July 2026)
+
+**Deploy facts:** current main `506f364` deployed to the Worker. New live Worker
+`ecd03d0a-bbcd-42d9-95ad-bcf01e632028`; rollback `d1ad62b8` (v2026.07.21-4);
+tag `v2026.07.21-5`; migration **none**. Runtime delta vs the deployed commit was
+**exactly** PR #263 (`ssl-scan.js` only) — #259–#265 are otherwise docs-only.
+Post-deploy `/health` = `ecd03d0a` (5/5 cache-busted after propagation); smoke:
+`billing/subscription` 401, `workspaces` 401, `auth/login` 400, `billing/plans`
+200 — no regression.
+
+**Live external-call latency (read-only, measured post-deploy):** for
+blackbullbarbers.co.uk — reachability probes ~0.09–0.25 s each (fast);
+**crt.sh cert query TIMED OUT at ~8 s (HTTP 000 — crt.sh is currently down)**;
+**crt.sh wildcard (subdomains) TIMED OUT at ~12 s (HTTP 000)**; certspotter fast
+(~0.39 s, HTTP 200).
+
+**Before/after SSL wall-time (from live latencies):**
+- Before (sequential): reachability (~0.5 s) + crt.sh (8 s timeout) + certspotter
+  (~0.4 s) → and on a bad day the observed **28 s**.
+- After (concurrent): max(reachability ~0.5 s, CT chain [crt.sh 8 s → certspotter
+  0.4 s] ≈ 8.4 s) ≈ **8.4 s**. SSL is no longer the multi-tens-of-seconds
+  bottleneck — a material drop.
+
+**Residual blockers (independent of SSL):**
+1. **`subdomains` — constant ~12 s** on the crt.sh wildcard query (crt.sh is
+   currently down, so it maxes its 12 s timeout). This is now the Phase-1 floor
+   (57 % of the 21 s budget).
+2. **`headers` — variable up to ~20 s** (multi-host `safeFetch`, 10 s each). When
+   slow it independently blows the budget.
+
+With the SSL fix, when only `subdomains` is the Phase-1 floor (12 s), ~9 s remain —
+enough for the deadline-gated Phase-5 modules (which gate at 4 s / 6 s / 8 s), so
+the scan **can** complete; but if `headers` is slow (up to 20 s) or crt.sh stays
+down, the scan can still go `partial`. **Complete scanning is improved, not
+guaranteed.**
+
+**Live scan confirmation — PENDING.** The workspace scan runs **daily**
+(next `2026-07-22T19:00`); it cannot be triggered autonomously without founder
+authentication or mutating `scheduled_scans.next_run_at` (production data — not
+done). The actual `complete`/`partial` outcome of a post-fix scan must be read
+from either the next scheduled cron or a founder-triggered manual scan.
+
+**Exit-gate answers (evidence-based):** (1) SSL wall-time materially dropped
+(28 s → ~8.4 s, sum→max). (2)/(3)/(4) the six starved modules / headers /
+`complete` result — **not yet observed** (no post-fix scan exists; pending).
+(5) if still partial, the residual modules are `subdomains` (crt.sh wildcard) and
+`headers` (latency). (6) **crt.sh latency is still sufficient to cause partial**
+(it is down right now; `subdomains` still spends 12 s on it). (7) authoritative
+posture stayed on the last complete scan (`current-posture.js`, unchanged).
+(8) complete-to-complete event paths become eligible only on a `complete` scan —
+still gated. (9) **SPF live acceptance is NOT yet unblocked.** (10) **per-signal
+evidence completeness is still required** — it is the only path that unblocks the
+SPF diff regardless of the unrelated `subdomains`/`headers`/crt.sh latency.
+
 ## 10. Hard-stop checks
 
 No cross-tenant ambiguity (anchor filtered to one pair), no exploitation/corruption signal, no destructive migration, no comparison-from-incomplete-evidence introduced, deterministic reproduction exists for the shipped fix, current main carries no unrelated unreviewed runtime delta, and no scan was falsely marked healthy.
