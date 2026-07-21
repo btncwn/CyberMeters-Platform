@@ -7,8 +7,9 @@
 import { createAuditEvent, createNotificationEvent } from "../lib/events.js";
 import { createId } from "../lib/util.js";
 import { escapeEmailHtml, getEmailFrontendOrigin, sendCustomerEmail } from "../lib/lifecycle-email.js";
-import { normalizeBillingInterval, normalizePlan } from "./entitlements.js";
+import { getPaymentGraceState, normalizeBillingInterval, normalizePlan } from "./entitlements.js";
 import { expectedCheckoutAmountPence } from "./pricing-registry.js";
+import { isSubscriptionActive } from "./subscription-state.js";
 
 function parseStripePriceMap(env) {
   const raw = env?.STRIPE_PRICE_MAP;
@@ -252,6 +253,50 @@ export async function verifyStripePriceMatchesPolicy(env, plan, interval, priceI
     return { ok: false, error: "stripe_price_policy_mismatch", mismatches };
   }
   return { ok: true, error: null };
+}
+
+// ── B2: checkout consent (founder-approved 21 Jul 2026) ──────────────────────
+// Terms acceptance + immediate-start consent collected ON the Stripe Checkout
+// page. consent_collection.terms_of_service='required' makes Stripe render a
+// mandatory Terms checkbox (the ToS URL comes from the Stripe account's public
+// business settings — a founder dashboard action); the custom_text message
+// makes the immediate-start / 14-day cooling-off waiver explicit next to it.
+// Stripe records the acceptance on the session (session.consent) — surfaced in
+// our webhook audit trail. The wording states ONLY the approved policy: the
+// service starts immediately, the consumer 14-day cancellation right is given
+// up, prepaid fees are non-refundable except where required by law, and the
+// free 14-day trial exists to try first. No rights beyond that are offered.
+export const CHECKOUT_IMMEDIATE_START_CONSENT_TEXT =
+  "By subscribing you agree to the CyberMeters Terms of Service and request that the " +
+  "digital service starts immediately. Because the service begins straight away, you " +
+  "give up the 14-day consumer cancellation (cooling-off) right, and prepaid fees are " +
+  "non-refundable except where required by law. The free 14-day trial lets you try " +
+  "CyberMeters before paying.";
+
+export function applyCheckoutConsentParams(params) {
+  params.set("consent_collection[terms_of_service]", "required");
+  params.set("custom_text[terms_of_service_acceptance][message]", CHECKOUT_IMMEDIATE_START_CONSENT_TEXT);
+  return params;
+}
+
+// ── B3: portal-only plan changes (founder-approved 21 Jul 2026) ──────────────
+// A subscription-mode Checkout Session ALWAYS creates a NEW Stripe
+// subscription — it never switches an existing one, and nothing in the webhook
+// chain cancels a prior subscription. So a fresh checkout by a customer who
+// already has an active paid Stripe subscription would stack a SECOND live
+// subscription and charge them for both (our entitlement resolver would pick
+// one row deterministically, but Stripe would bill both). Plan changes for
+// such customers must therefore go through the Stripe billing portal, which
+// switches the price on the EXISTING subscription and prorates cleanly.
+//
+// True only for a live PAID Stripe-bound subscription (active, or past_due
+// inside the payment-grace window). Local trial rows and manual/founder rows
+// carry no stripe_subscription_id and keep the fresh-checkout path; a
+// Stripe customer id is also required — without one the portal cannot open.
+export function shouldRoutePlanChangeToPortal(sub) {
+  if (!sub) return false;
+  if (!sub.stripe_customer_id || !sub.stripe_subscription_id) return false;
+  return isSubscriptionActive(sub) || getPaymentGraceState(sub).active;
 }
 
 export function getBillingIntervalFromStripeSubscription(subscription, fallbackInterval = "monthly") {

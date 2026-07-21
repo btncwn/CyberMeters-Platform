@@ -629,6 +629,9 @@ jobs:
       - name: Validate pricing policy parity (locked ladder + fail-closed price mapping + checkout guard)
         run: node scripts/validate-pricing-policy-parity.js
 
+      - name: Validate checkout consent + portal-only plan changes (B2 Terms/immediate-start waiver, B3 no second subscription)
+        run: node scripts/validate-checkout-consent-portal.js
+
       - name: Validate billing lifecycle (entitlement state machine + grace window)
         run: node scripts/validate-billing-lifecycle.js
 

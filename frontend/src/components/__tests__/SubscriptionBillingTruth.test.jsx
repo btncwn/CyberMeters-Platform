@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { vi } from 'vitest'
 import fs from 'node:fs'
@@ -155,6 +155,40 @@ test('PlanGate upgrade wall for vendor_risk uses the honest label, no retired cl
   expect(screen.getByText(/Third-party technology detection requires an upgrade/)).toBeInTheDocument()
   expect(container.textContent).not.toMatch(/Vendor Risk/i)
   expect(container.textContent).not.toMatch(/Supply Chain Intelligence/i)
+})
+
+// ── B3: plan changes for a paid subscription go to the portal, not checkout ──
+// A fresh subscription-mode checkout for an existing paid subscriber would
+// create a SECOND Stripe subscription (both billing). The upgrade action must
+// therefore open the billing portal, where Stripe switches the existing
+// subscription with proration.
+
+test('active PAID sub: upgrade action opens the billing portal, never a fresh checkout', async () => {
+  api.getWorkspaceSubscription.mockResolvedValue(subFixture({ plan: 'professional', billing_interval: 'monthly' }))
+  api.getBillingPlans.mockResolvedValue({ plans: CANONICAL_PLANS })
+  api.openWorkspaceBillingPortal.mockResolvedValue({})
+  renderPage()
+  const portalBtn = await screen.findByRole('button', { name: /Change plan in billing portal/ })
+  fireEvent.click(portalBtn)
+  await waitFor(() => expect(api.openWorkspaceBillingPortal).toHaveBeenCalledWith('ws_test'))
+  expect(api.startWorkspaceCheckout).not.toHaveBeenCalled()
+  // The upgrade-to-checkout label is gone for paid subscribers.
+  expect(screen.queryByRole('button', { name: /Upgrade to Business/ })).not.toBeInTheDocument()
+})
+
+test('TRIAL user still gets the fresh-checkout path (no paid sub to stack against)', async () => {
+  api.getWorkspaceSubscription.mockResolvedValue(subFixture({
+    plan: 'professional', status: 'trialing', trial_active: true, trial_remaining_days: 10,
+    trial_end: '2026-07-31 00:00:00', stripe_subscription_id: null,
+    limits: { domains: 1, users: 5, history_days: 365 },
+  }))
+  api.getBillingPlans.mockResolvedValue({ plans: CANONICAL_PLANS })
+  api.startWorkspaceCheckout.mockResolvedValue({})
+  renderPage()
+  const upgradeBtn = await screen.findByRole('button', { name: /Upgrade to Business/ })
+  fireEvent.click(upgradeBtn)
+  await waitFor(() => expect(api.startWorkspaceCheckout).toHaveBeenCalledWith('ws_test', 'business', 'monthly'))
+  expect(api.openWorkspaceBillingPortal).not.toHaveBeenCalled()
 })
 
 // ── Source guard: the retired claims must not reappear in billing sources ────

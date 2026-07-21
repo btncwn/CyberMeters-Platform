@@ -177,7 +177,7 @@ function TrialCountdown({ daysLeft, trialEnd, onUpgrade }) {
 
 // ── Plan card ─────────────────────────────────────────────────────────────────
 
-function PlanCard({ plan, status, meta, livePlan, billingInterval, onUpgrade, subscriptionActive, trialActive, checkoutLoading }) {
+function PlanCard({ plan, status, meta, livePlan, billingInterval, onUpgrade, subscriptionActive, trialActive, checkoutLoading, portalPlanChange = false }) {
   const scfg = statusCfg(trialActive ? 'trialing' : (status || 'free'))
   const upgradeTo = UPGRADE_TARGET[plan]
   // Price comes only from live canonical plan metadata; without it, no price
@@ -246,8 +246,10 @@ function PlanCard({ plan, status, meta, livePlan, billingInterval, onUpgrade, su
           className="w-full flex items-center justify-center gap-2 py-2.5 text-sm font-bold text-white bg-brand-600 hover:bg-brand-700 rounded-xl transition-colors disabled:opacity-60"
         >
           {checkoutLoading
-            ? <><RefreshCw className="w-4 h-4 animate-spin" /> Opening checkout…</>
-            : <><span>Upgrade to {PLAN_META[upgradeTo]?.label}</span><ArrowRight className="w-4 h-4" /></>
+            ? <><RefreshCw className="w-4 h-4 animate-spin" /> {portalPlanChange ? 'Opening billing portal…' : 'Opening checkout…'}</>
+            : portalPlanChange
+              ? <><span>Change plan in billing portal</span><ArrowRight className="w-4 h-4" /></>
+              : <><span>Upgrade to {PLAN_META[upgradeTo]?.label}</span><ArrowRight className="w-4 h-4" /></>
           }
         </button>
       )}
@@ -452,11 +454,24 @@ export default function SubscriptionPage() {
     return () => { cancelled = true }
   }, [])
 
+  // B3: an active PAID Stripe subscription changes plan in the Stripe billing
+  // portal (which switches the existing subscription and prorates) — never via
+  // a fresh checkout, which would create a second subscription. The backend
+  // enforces this structurally; the UI routes there directly and says so.
+  const paidPlanChangeViaPortal =
+    (sub?.subscription_active ?? false) &&
+    !(sub?.trial_active ?? false) &&
+    Boolean(sub?.stripe_subscription_id)
+
   async function handleUpgrade(targetPlan = 'professional') {
     if (!workspaceId) return
     // Enterprise → contact sales, never self-serve
     if (targetPlan === 'enterprise') {
       window.location.href = 'mailto:sales@cybermeters.com?subject=CyberMeters%20MSP%20Enquiry'
+      return
+    }
+    if (paidPlanChangeViaPortal) {
+      await handleManageBilling()
       return
     }
     setCheckoutError(null)
@@ -711,7 +726,8 @@ export default function SubscriptionPage() {
         onUpgrade={handleUpgrade}
         subscriptionActive={subscriptionActive}
         trialActive={trialActive}
-        checkoutLoading={checkoutLoading}
+        checkoutLoading={checkoutLoading || (paidPlanChangeViaPortal && portalLoading)}
+        portalPlanChange={paidPlanChangeViaPortal}
       />
 
       {/* ── Plan limits ── */}
