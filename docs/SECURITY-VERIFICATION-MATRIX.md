@@ -87,10 +87,10 @@ Legend: **P**=PASS · **F**=FAIL(→fix) · **NT**=not tested yet · **N/A**=out
 ### D. Billing / entitlement business logic
 | # | ASVS / WSTG | Control | Method | Env | Status | Evidence |
 |---|-------------|---------|--------|-----|--------|----------|
-| D1 | V4.x / business | Plan downgrade closes entitlement immediately (no open pro features) | Manual | 1t | NT | today's stale-status finding lives here |
-| D2 | business | Trial-expiry cannot be bypassed (clock/param tampering) | Burp | 1t | NT | |
-| D3 | V13 | Stripe webhook replay rejected (CAS idempotency #191) | Manual | 1t | NT | |
-| D4 | business | Checkout fail-closed: price/plan mismatch rejected (verifyStripePriceMatchesPolicy) | Manual | 1t | NT | |
+| D1 | V4.x / business | Plan downgrade closes entitlement immediately (no open pro features) | Runtime suite | 1t | **P** | #243 (`validate-billing-abuse-coverage.js`, 33/33, ran locally 21 Jul): professional→starter + cancel both drop `getEffectivePlanState` same request; exec-dashboard/vendor_risk + domain limit 3→1 denied after. **Regression-locks #239**: `status == subscription_status` after downgrade AND cancel. Mutation-verified |
+| D2 | business | Trial-expiry cannot be bypassed (clock/param tampering) | Runtime suite | 1t | **P** | #243: expired trial→free; trialing row with neither trial_end nor current_period_end fails closed; client-set `plan=business` on expired trial grants nothing. Mutation-verified |
+| D3 | V13 | Stripe webhook replay rejected (CAS idempotency #191) | Runtime suite | 1t | **P** | #243: exact event-id replay deduped (no 2nd row); superseded-upgrade replay after downgrade doesn't resurrect higher plan; stale out-of-order event never rewinds current_period_end. Mutation-verified |
+| D4 | business | Checkout fail-closed: price/plan mismatch rejected (verifyStripePriceMatchesPolicy) | Runtime suite | 1t | **P** | #243: refuses amount/currency/interval/inactive mismatch, Stripe lookup failure, non-eligible plan — tampered price/higher plan can never charge below canonical registry. Mutation-verified |
 | D5 | business | Portal-only plan change cannot stack a 2nd subscription (B3) | Done 21 Jul | 1t | **P** | D1 single-row proof, [[m7-b2-b3-checkout-consent-portal]] |
 
 ### E. Input validation, injection, SSRF
@@ -104,7 +104,7 @@ Legend: **P**=PASS · **F**=FAIL(→fix) · **NT**=not tested yet · **N/A**=out
 ### F. Workflow / lifecycle logic
 | # | ASVS / WSTG | Control | Method | Env | Status | Evidence |
 |---|-------------|---------|--------|-----|--------|----------|
-| F1 | business | Case lifecycle transitions honour canTransitionCase (no illegal jump) | Burp | 1t | NT | |
+| F1 | business | Case lifecycle transitions honour canTransitionCase (no illegal jump) | Static audit | 1t | **P** | `applyCaseTransition` fail-closed (terminal immutability + unknown-target reject + illegal-edge reject + guards); `canTransitionCase` layers system-only + verified-evidence rules; every `managed_cases SET status` write is canTransitionCase-gated (1:1, no bypass); route writes only validator `next.status` under `WHERE …AND status=?` TOCTOU guard; guard-arity P1 fixed+documented via wrapper closure (static, 21 Jul) |
 | F2 | business | Verification cannot be forged (attest ≠ verified) | Manual | 1t | NT | |
 | F3 | business | Alert/digest workflow cannot be spoofed or replayed | Manual | 1t | NT | |
 | F4 | V11.1 | Rate limiting on scan starts, auth, expensive endpoints | Manual + Nuclei | 1t | NT | |
