@@ -62,6 +62,9 @@ jobs:
       - name: Full-repo assurance — property-based authorization suite (deterministic seed)
         run: node scripts/validate-authz-properties.js
 
+      - name: Full-repo assurance — cross-tenant authz coverage (C1 smuggle / C2 role / C4 R2 / C5 token)
+        run: node scripts/validate-tenant-authz-coverage.js
+
       - name: Full-repo assurance — production integrity runbook SQL (executable check)
         run: node scripts/validate-production-integrity-sql.js
 
