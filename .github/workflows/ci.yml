@@ -725,6 +725,9 @@ jobs:
       - name: Validate OpenAPI spec
         run: node scripts/validate-openapi.js
 
+      - name: Validate CAPABILITIES.md drift
+        run: node scripts/validate-capabilities-doc.js
+
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
