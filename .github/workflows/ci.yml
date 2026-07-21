@@ -65,6 +65,9 @@ jobs:
       - name: Full-repo assurance — cross-tenant authz coverage (C1 smuggle / C2 role / C4 R2 / C5 token)
         run: node scripts/validate-tenant-authz-coverage.js
 
+      - name: A6 viewer-role enforcement (Related Changes — read-allowed / all mutations refused / honest can_manage)
+        run: node scripts/validate-a6-viewer-enforcement.js
+
       - name: Full-repo assurance — billing/entitlement abuse coverage (D1 downgrade / D2 trial / D3 replay / D4 checkout)
         run: node scripts/validate-billing-abuse-coverage.js
 
