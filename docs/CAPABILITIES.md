@@ -1,75 +1,160 @@
-# CyberMeters — Capabilities & Limitations (living document)
+# CyberMeters — Capabilities & Limitations (canonical living register)
 
-**Purpose:** the single, honest source of truth for **what CyberMeters can and cannot do right now**. This is a *current-state* document, not a change log — the [CHANGELOG](../CHANGELOG.md) is the authoritative release timeline; this doc says what the product *is capable of today*. Kept honest per the product's core discipline (coverage-state honesty + external-scope honesty). **A stale capability doc is worse than none** — update it in the same PR whenever an episode adds/removes/changes a capability (governance hook: `cybermeters-docs-governance`).
+**This is the single source of truth for three questions:**
+1. What does CyberMeters do **today**?
+2. At what **evidence level** does it do it?
+3. What does it **explicitly not do**, or has **not yet verified**?
 
-**Status legend:** `Live` = built + deployed + observable · `Built — pending deploy` = merged, not yet on the live Worker · `Foundation live — completion planned` · `Unreachable in prod` = built but no entitled/real account exercises it yet.
+It describes **verified present behaviour, not roadmap ambition.** It is a *current-state* register — not a timeline. Related documents, kept separate on purpose:
+- **When something shipped** → [`CHANGELOG.md`](../CHANGELOG.md) (release timeline — never duplicated here).
+- **Future work** → `docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md` and episode/backlog docs.
+- **Marketing-claim accuracy** → `docs/PUBLIC-CLAIMS-TRUTH-AUDIT.md`.
 
-**Verification vocabulary (canonical):** *Verified / Confirmed* = CyberMeters itself observed it. *Attested* = the customer asserted it; not externally verified. These are different states and are never conflated.
+**Sensitive-information boundary:** this register states *customer truth*; it does **not** give an attacker a blueprint. It deliberately omits secret names, internal route maps, private table names, exact rate-limit thresholds, rollback-mechanism internals, and any implementation detail that would ease bypassing a control. Implementation lives in code and internal engineering docs, not here.
+
+## Status labels (every capability carries exactly one)
+- **Live — production-verified** — deployed and confirmed working against real production evidence.
+- **Live — founder acceptance pending** — deployed and engineering-closed, but genuine live-event / founder acceptance is still outstanding.
+- **Engineering complete — deployment pending** — merged and validated, not yet on the live Worker.
+- **Partial / bounded coverage** — works within an explicit, honest boundary (not full coverage).
+- **Planned** — not built.
+- **Retired from customer-facing claims** — deliberately removed as a customer claim (underlying data may be preserved internally).
+
+## Evidence language (never conflated)
+- **Observed** — CyberMeters externally saw it directly.
+- **Derived** — deterministically computed from an observation.
+- **Correlated** — two or more independent signals deterministically linked.
+- **Customer-declared** — the customer asserted it (not externally verified).
+- **Inferred / unverified** — no conclusive evidence; stated as such, never as fact.
+
+*Honesty rule:* "A sender IP was **observed** failing SPF in DMARC aggregate evidence" is valid. "An attacker modified your SPF" is **not** valid without evidence. *Verified/Confirmed* is reserved for what CyberMeters itself observed; *Attested* is the customer's word.
 
 ---
 
-## The eight canonical customer-facing domains
+## Hard product boundaries (cross-cutting — referenced by every domain)
+CyberMeters is external-observation, evidence-led. It is **not**, and does not claim to be:
+- an endpoint agent · EDR · SIEM · NDR;
+- LAN packet capture; internal DNS-tunneling detection; process or registry monitoring;
+- dark-web / breach / stealer-log monitoring;
+- a full active DAST;
+- a substitute for an independent penetration test;
+- a claim to cover **all** phishing or **all** supply-chain risk.
 
-### 1. Email Protection — `Live`
-- **Observes:** SPF / DKIM / DMARC records; DMARC policy journey; DMARC aggregate (RUA) reports ingested on `reports.*` MX → sending-source rollup (source_ip, reported SPF/DKIM result); sender inventory; hosted-record maturity (DMARC L1/L2/L3 scorecard).
-- **Verifies (CyberMeters-observed):** SPF/DKIM/DMARC presence and configuration; DMARC posture changes; a `email_spf_changed` root-record change (catches unauthorized SPF tampering, e.g. the classic spoofing-via-SPF-edit case).
-- **Built — pending deploy (#251/#252, deploy founder-gated after M7):** *include-aware* SPF authorisation-set resolution (follows include/redirect/a/mx, RFC-7208 lookup + void limits, TempError fail-safe) → detects effective-authorisation changes even when the root record is unchanged; RUA-corroborated "unauthorised sending source" signal (uses the report's own SPF-fail result as authoritative).
-- **Does NOT:** read mailbox contents or internal mail flow; guarantee it knows every provider IP with no DNS/DMARC evidence (external-scope honest); derive an SPF-fail verdict it did not observe.
+It has no visibility into internal networks, endpoints, employee devices, browser history, internal software inventory, internal identity events, full SaaS-licence data, or internal CASB data. Domain sections reference this section rather than repeating it.
 
-### 2. Brand Protection — `Live` (founder full-chain acceptance outstanding)
-- **Observes:** lookalike / typosquat candidate domains (TLD-swap, keyword permutations, passive Certificate Transparency); DNS + HTTPS + login-form enrichment on candidates (a resolving lookalike with a login page = higher risk).
-- **Verifies:** existence and enrichment signals of candidate domains.
-- **Does NOT:** *execute* takedowns — it **prepares/tracks** takedown submissions (never "we took it down"); confirm intent of a lookalike owner.
+---
 
-### 3. Attack Surface — `Live`
-- **Observes:** externally reachable assets, subdomains, exposure signals; ASM verification.
-- **Does NOT:** scan internal networks; perform authenticated/internal scanning; exploit or penetration-test; see assets that are not externally observable.
+## The eight canonical domains
 
-### 4. Certificates & Trust — `Live`
-- **Observes:** certificate identity, expiry, Certificate Transparency; managed certificate lifecycle (identity / replacement / coverage).
-- **Verifies (external-only):** what CyberMeters re-observes externally. `external` verification support = an independent third party certifies it (neither CyberMeters' observation nor the customer's word).
-- **Does NOT:** confirm private-key security, internal keystore state, full chain/trusted-root/OCSP/revocation unless supported by observed evidence — these stay `unknown` otherwise. An unexpired cert ≠ verified trust path.
+> The model is **exactly eight** customer-facing domains. There is no ninth. Third-party / vendor technology signals are described under **Shadow IT**, not as a separate capability.
 
-### 5. Cyber Essentials Readiness — `Live`
-- **Observes/assesses:** the 20-question readiness questionnaire (one shared set, public self-check + authenticated); **2 of 5** CE controls are externally assessable (only partially).
-- **Does NOT:** certify Cyber Essentials (not a certification body); externally assess `access_control` or `malware_protection` — these are "Not externally assessable — self-attestation only"; feed questionnaire answers into the Cyber Metrics Score / Business Risk Indicator.
+### 1. Email Protection
+- **Observes:** SPF / DKIM / DMARC records; DMARC policy posture; DMARC aggregate (RUA) reports received on the reporting mailbox → per-source rollup (source IP, the report's own SPF/DKIM result).
+- **Detects:** presence/absence and misconfiguration of SPF/DKIM/DMARC; a change to the published SPF record (catches unauthorised SPF-record tampering); DMARC posture changes.
+- **Verifies (Observed):** the externally published email-authentication configuration and its changes over time.
+- **Customer-declared inputs:** none required for observation; sender legitimacy classifications are customer-declared.
+- **Alerts & managed workflows:** canonical email alerts; managed cases for email-authentication findings with honest verification.
+- **Evidence sources:** live DNS; received DMARC aggregate reports.
+- **Known limitations:** an SPF change hidden inside a provider's own `include:` chain is only caught once include-aware resolution is deployed (see maturity); a provider IP with no DNS or DMARC evidence cannot be known.
+- **Explicitly does not do:** read mailbox contents or internal mail flow; assert an SPF-fail verdict it did not observe (it uses the DMARC report's own result). See **Hard boundaries**.
+- **Current maturity:** core observation, DMARC-maturity scorecard, alerts and managed cases — **Live — founder acceptance pending**. Include-aware SPF authorisation-set resolution + RUA-corroborated "unauthorised sending source" signal — **Engineering complete — deployment pending**.
+- **Canonical supporting docs:** `DMARC-MATURITY-SCORECARD.md`, `alerts-eight-domain-coverage.md`.
 
-### 6. Website Security — `Live`
+### 2. Brand Protection
+- **Observes:** lookalike / typosquat candidate domains (TLD-swap, keyword permutations, passive Certificate Transparency); DNS + HTTPS + login-form enrichment on candidates.
+- **Detects:** registered lookalikes; a candidate that resolves and hosts a login page (higher risk).
+- **Verifies (Observed):** existence and enrichment signals of candidate domains.
+- **Customer-declared inputs:** the protected brand / domain.
+- **Alerts & managed workflows:** brand alerts; managed cases; takedown **preparation and tracking**.
+- **Evidence sources:** DNS, Certificate Transparency, HTTP/TLS enrichment.
+- **Known limitations:** cannot prove a lookalike owner's intent; discovery is signal-based, not exhaustive.
+- **Explicitly does not do:** **execute** takedowns (prepares/tracks only — never "we took it down").
+- **Current maturity:** **Live — founder acceptance pending** (full-chain acceptance needs a registered lookalike scenario; **Partial** until then).
+- **Canonical supporting docs:** `alerts-eight-domain-coverage.md`.
+
+### 3. Attack Surface
+- **Observes:** externally reachable assets, subdomains, exposure signals.
+- **Detects:** newly appearing/disappearing externally observable assets and exposures.
+- **Verifies (Observed):** external reachability and exposure state; ASM verification of remediation.
+- **Customer-declared inputs:** the domain(s) in scope.
+- **Alerts & managed workflows:** ASM alerts; managed cases with verification.
+- **Evidence sources:** external discovery and probing of customer-owned domains.
+- **Known limitations:** only what is externally observable; not exhaustive of an org's true asset set.
+- **Explicitly does not do:** internal-network or authenticated scanning; exploitation / penetration testing. See **Hard boundaries**.
+- **Current maturity:** **Live — founder acceptance pending**.
+
+### 4. Certificates & Trust
+- **Observes:** certificate identity, expiry, Certificate Transparency.
+- **Detects:** expiring/expired certificates; certificate replacement/identity changes; coverage gaps.
+- **Verifies:** what CyberMeters externally re-observes (**Observed**). `external` verification = an independent third party certifies it — neither CyberMeters' observation nor the customer's word.
+- **Customer-declared inputs:** none required for observation.
+- **Alerts & managed workflows:** certificate alerts; managed lifecycle (identity / replacement / coverage).
+- **Evidence sources:** live TLS observation, Certificate Transparency.
+- **Known limitations:** an unexpired certificate is not a verified trust path.
+- **Explicitly does not do:** confirm private-key security, internal keystore state, or full chain / trusted-root / OCSP / revocation unless supported by observed evidence — otherwise these remain `unknown`.
+- **Current maturity:** **Live — founder acceptance pending**.
+
+### 5. Cyber Essentials Readiness
+- **Observes/assesses:** a 20-question readiness questionnaire (one shared set: public self-check + authenticated).
+- **Detects:** readiness gaps against the externally assessable controls.
+- **Verifies:** only the externally assessable evidence, never the control itself.
+- **Customer-declared inputs:** questionnaire answers (**Customer-declared**), version-stamped.
+- **Alerts & managed workflows:** CE readiness cases where externally assessable.
+- **Evidence sources:** external observation for the assessable areas; customer attestation otherwise.
+- **Known limitations:** **2 of 5** controls are externally assessable, and only partially; `access_control` and `malware_protection` are "Not externally assessable — self-attestation only".
+- **Explicitly does not do:** certify Cyber Essentials (not a certification body); feed questionnaire answers into the Cyber Metrics Score or Business Risk Indicator.
+- **Current maturity:** **Partial / bounded coverage** — Live within the 2-of-5 external boundary.
+
+### 6. Website Security
 - **Observes:** HTTPS, redirects, security headers, cookie-flag evidence, module completeness.
-- **Does NOT:** run DAST / active application-security testing; test authenticated app internals.
+- **Detects:** missing/weak transport and header protections.
+- **Verifies (Observed):** externally observable web-transport posture and its module completeness.
+- **Customer-declared inputs:** the site/domain in scope.
+- **Alerts & managed workflows:** website-security alerts; managed cases with re-check verification.
+- **Evidence sources:** external HTTP/TLS observation.
+- **Known limitations:** transport/header layer only; not application-logic testing.
+- **Explicitly does not do:** run DAST / active application-security testing; test authenticated app internals. See **Hard boundaries**.
+- **Current maturity:** **Live — founder acceptance pending**.
 
-### 7. Identity Exposure — `Live`
+### 7. Identity Exposure
 - **Observes:** public login surfaces and identity-facing entry points.
-- **Does NOT:** credential / breach / stealer-log / dark-web monitoring (explicitly not that); see internal identity events.
+- **Detects:** externally visible identity/login exposure.
+- **Verifies (Observed):** the externally observable identity-facing surface.
+- **Customer-declared inputs:** the domain in scope.
+- **Alerts & managed workflows:** identity-exposure alerts; managed workflow.
+- **Evidence sources:** external observation.
+- **Known limitations:** external surface only.
+- **Explicitly does not do:** credential / breach / stealer-log / dark-web monitoring; see internal identity events. See **Hard boundaries**.
+- **Current maturity:** **Live — founder acceptance pending**.
 
-### 8. Shadow IT & Unmanaged Technology — `Live`
-- **Observes:** externally observed SaaS, vendors, third-party scripts and unmanaged-technology signals; approved-inventory comparison + correlation.
-- **Boundary:** *externally observed* ≠ *customer approved*; `approved` ≠ secure; `rejected` ≠ removed; disappearance ≠ verified removal.
-- **Does NOT:** internal asset discovery; CASB; full SaaS-licence visibility.
-- **Note:** the standalone "Vendor Risk" / "Supply Chain Score" customer surfaces are **queued for retirement** — folding the honest signal here (`docs/EPISODE-vendor-supply-retirement.md`).
+### 8. Shadow IT & Unmanaged Technology
+- **Observes:** externally observed SaaS, vendors, third-party scripts and unmanaged-technology signals (this is where **third-party / vendor technology** lives — not a separate domain).
+- **Detects:** newly observed third-party technology; approved-inventory deviations (**Correlated** where multiple signals align).
+- **Verifies (Observed):** external observation of third-party technology.
+- **Customer-declared inputs:** approved-inventory classifications (**Customer-declared**).
+- **Alerts & managed workflows:** Shadow IT alerts; approved-inventory comparison + correlation; managed cases.
+- **Evidence sources:** external observation from scan data.
+- **Known limitations:** *externally observed* ≠ *customer approved*; `approved` ≠ secure; `rejected` ≠ removed; disappearance ≠ verified removal.
+- **Explicitly does not do:** internal asset discovery; CASB; full SaaS-licence visibility. See **Hard boundaries**.
+- **Current maturity:** **Live — founder acceptance pending**. The standalone "Vendor Risk" / "Supply Chain Score" customer surfaces are **Retired from customer-facing claims** (queued; the honest third-party signal folds in here — underlying data preserved).
 
 ---
 
 ## Cross-cutting capabilities
 
-- **Managed cases** — `Live`. Universal lifecycle across all eight domains; every transition goes through `canTransitionCase` (fail-closed state machine: terminal immutability, no illegal jump, system-only + verified-evidence rules). A completed scan or a customer note alone never marks a case *verified*.
-- **Canonical remediation** — `Live`. One registry is the source of truth for title / impact / action / effort / owner-type / verification-method / evidence per finding. Unmapped findings stay explicit — no invented advice.
-- **Alerts** — `Live`, 8/8 domains through the canonical pipeline (`docs/alerts-eight-domain-coverage.md`). Genuine live-event acceptance still outstanding per domain.
-- **Reports** — `Live`. Immutable per-scan eight-domain snapshot; Executive PDF (co-brand / white-label / fallback). Renderers are snapshot-native.
-- **MSP Portfolio (per-domain state + trend)** — `Unreachable in prod`. Built (mig 091) but no entitled account exercises it — not sellable/demoable yet.
-
-## Hard boundaries (external-scope honesty — CyberMeters does NOT claim visibility into)
-Internal networks · endpoints / employee devices · browser history · internal software inventory · leaked credentials / stealer logs / dark-web data · EDR / SIEM telemetry · internal identity events · full SaaS-licence visibility · internal CASB data. CyberMeters is external-observation, evidence-led — not a scanner/pentest/DAST/EDR/SIEM/CASB/dark-web platform.
-
-## Assurance state (companion docs)
-- Security: `docs/SECURITY-VERIFICATION-MATRIX.md` — internal Web/API verification fixture/code layer complete (A–F, no findings); release-gate items + independent pentest outstanding.
-- Reliability: `docs/RELIABILITY-VERIFICATION-MATRIX.md` — code-layer delta closed; runtime (load/chaos/rollback drill) → RC.
-- Claim honesty: `docs/PUBLIC-CLAIMS-TRUTH-AUDIT.md`.
-
-## Recently changed (pointer, not a timeline)
-Newest capability deltas — full detail and dates in the [CHANGELOG](../CHANGELOG.md):
-- **Built — pending deploy:** Email include-aware SPF authorisation-change detection + RUA-corroborated unauthorised-source (#251/#252).
-- Recently live: M7 pricing/billing lockstep (checkout consent + portal-only plan changes); eight-domain colour identity; A6 Related Changes; Shadow IT alert trust; Weekly Digest truth.
+- **Managed alerts** — **Live — founder acceptance pending.** All eight domains alert through one canonical pipeline (email + in-app, tenant-safe deep links, dedupe). Genuine live-event acceptance still outstanding per domain. `alerts-eight-domain-coverage.md`.
+- **Cases & lifecycle** — **Live — production-verified** (mechanism). A universal state machine governs every case transition, fail-closed: terminal states are immutable, illegal jumps are refused, and a completed scan or a customer note alone never marks a case *verified*.
+- **Remediation registry** — **Live — production-verified.** One registry is the source of truth for title / impact / action / effort / owner-type / verification-method / evidence per finding. Unmapped findings stay explicit — no invented advice.
+- **Related Changes** — **Live — founder acceptance pending.** Deterministic correlation of independent signal families on the same domain in the same period (manual case creation only).
+- **Evidence & history** — **Live — production-verified.** Append-only history; historical evidence is never destructively overwritten (inactive / archived / superseded / soft-deleted instead).
+- **Reports & Executive PDF** — **Live — founder acceptance pending.** One immutable per-scan eight-domain snapshot; Executive PDF with co-brand / white-label / fallback; renderers are snapshot-native.
+- **Weekly Digest** — **Live — founder acceptance pending** (acceptance = the next real Monday digest). Semantic grouping; quiet wording gated on complete scan quality.
+- **MSP Portfolio (per-domain state + trend)** — **Live — founder acceptance pending**, but **currently unreachable in production**: no entitled account exercises it, so it is not sellable or demoable yet.
+- **Billing & entitlements** — states separated honestly: fail-closed pricing guard + webhook + entitlement resolution are **Live — production-verified** (checkout consent + portal-only plan changes accepted in sandbox with evidence); the **live-account cutover** (live keys, portal config, real-card checkout) is **Planned** (RC); commercial terms (refund/cancellation/VAT/legal) are **Planned**.
+- **Tenant isolation** — **Live — production-verified.** Every workspace read/write is membership- and role-checked; cross-tenant access is refused (static + runtime-suite verified). `SECURITY-VERIFICATION-MATRIX.md`.
+- **Release & acceptance status** — engineering-complete ≠ founder-accepted ≠ live-event-proven; this register uses the status labels above to keep those distinct. Assurance state: `SECURITY-VERIFICATION-MATRIX.md`, `RELIABILITY-VERIFICATION-MATRIX.md`.
 
 ---
-*Maintenance rule: any episode that adds, removes, or materially changes what the product can do updates this file in the same PR, and never claims more than the deployed, evidence-backed state (`Built — pending deploy` is not `Live`).*
+
+## Governance
+Any PR that **adds, removes, expands, narrows, or changes the customer language of** a capability updates this file in the same PR — or states in the PR description why no update is needed. Enforced as a **checklist + `validate-capabilities-doc.js` drift check** (eight-domain model intact, no ninth domain, retired claims stay retired, only the allowed status labels, hard-boundary section present, no release-timeline content) — **not** a crude "file unchanged → fail" gate. See the `cybermeters-docs-governance` skill.
