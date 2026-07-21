@@ -26,6 +26,8 @@ import {
   producerText,
   confidenceLabel,
   producerFamilyLabel,
+  eventTypeLabel,
+  groupEvidencePointers,
   shortDate,
   FEEDBACK_OPTIONS,
   HONESTY_NOTE,
@@ -79,6 +81,12 @@ export default function WorkspaceRelatedChangeDetailPage() {
 
   const rc = data?.related_change
   const evidence = data?.evidence || []
+  // Presentation-level collapse of identical repeated observations (honest
+  // repeat count; underlying evidence records are never merged or discarded).
+  const evidenceGroups = groupEvidencePointers(evidence)
+  // The exact observed signals, named from the evidence subtypes, so the
+  // heading never claims more or other than the evidence below it.
+  const signalLabels = [...new Set(evidenceGroups.map((e) => eventTypeLabel(e.source_event_type)).filter(Boolean))]
 
   const state = rc ? customerStateMeta(rc.customer_state) : null
   const dir = rc ? directionMeta(rc.direction) : null
@@ -171,6 +179,11 @@ export default function WorkspaceRelatedChangeDetailPage() {
                   {rc.registrable_domain} · {signalFamilyText(rc.signal_family_count)} and{' '}
                   {producerText(rc.independent_producer_count)} observed in the same period.
                 </p>
+                {signalLabels.length > 0 && (
+                  <p className="text-xs text-slate-500 mt-1">
+                    Signals observed: {signalLabels.join(' · ')}
+                  </p>
+                )}
               </div>
               {state && <Tag tone={state.tone}>{state.label}</Tag>}
             </div>
@@ -212,23 +225,33 @@ export default function WorkspaceRelatedChangeDetailPage() {
               signal family and the record it was observed in.
             </p>
 
-            {evidence.length === 0 ? (
+            {evidenceGroups.length === 0 ? (
               <p className="text-xs text-slate-400 mt-4">No related evidence pointers are available for this cluster.</p>
             ) : (
               <ul className="mt-4 divide-y divide-slate-100">
-                {evidence.map((e, i) => (
+                {evidenceGroups.map((e, i) => (
                   <li key={e.source_record_id || e.evidence_ref || i} className="py-3 flex flex-wrap items-start justify-between gap-2">
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-slate-800">{producerFamilyLabel(e.producer_family)}</p>
                       <p className="text-xs text-slate-500 mt-0.5 break-words">
                         {e.entity_key || e.source_record_id || '—'}
-                        {e.source_event_type ? ` · ${e.source_event_type}` : ''}
+                        {eventTypeLabel(e.source_event_type) ? ` · ${eventTypeLabel(e.source_event_type)}` : ''}
                       </p>
-                      {/* Internal storage names (source_table) are deliberately not
-                          rendered — the producer-family label above is the
-                          customer-facing identity of the signal. */}
+                      {/* Internal storage names (source_table, raw event enums) are
+                          deliberately not rendered — the producer-family and
+                          subtype labels above are the customer-facing identity
+                          of the signal. */}
                     </div>
-                    <span className="text-xs text-slate-400 whitespace-nowrap">{shortDate(e.observed_at)}</span>
+                    {e.occurrence_count > 1 ? (
+                      <span className="text-xs text-slate-400 whitespace-nowrap text-right">
+                        Observed {e.occurrence_count} times
+                        <span className="block mt-0.5">
+                          First seen {shortDate(e.first_observed_at)} · last seen {shortDate(e.last_observed_at)}
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="text-xs text-slate-400 whitespace-nowrap">{shortDate(e.observed_at)}</span>
+                    )}
                   </li>
                 ))}
               </ul>
