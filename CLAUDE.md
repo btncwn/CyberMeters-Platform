@@ -504,6 +504,8 @@ For the seven customer-facing domains (Cyber Essentials Readiness excepted — i
 - **Success is never "modules exist / tests green / engine present" alone.** At every episode end, report: (1) the real customer harm, (2) whether CyberMeters catches it now, (3) exactly where the pipeline breaks, (4) the small PR sequence + live acceptance to close it.
 - No **known** critical false-negative, silent monitoring loss, or unproven security claim may be left open before public beta.
 
+**Protocol Standards Conformance** is a distinct companion gate (full detail in the roadmap doc): modules are RFC-*aware*, not proven "RFC compliant" — no blanket compliance claim; each protocol module proves conformance per RFC clause with fixtures+mutations, honest per-module wording ("RFC 7208-aware", not "fully compliant"). Verify the *current* RFC version — e.g. **DMARC is now RFC 9989/9990/9991 (DMARCbis, May 2026), which obsoletes RFC 7489** (removed `pct`, PSL→DNS tree-walk org-domain); DKIM 6376(+Ed25519), MTA-STS 8461, TLS-RPT 8460, IDNA 5890–5895, SPF 7208. Protocol conformance and detection accuracy are separate gates.
+
 Engineering oath: **every byte must earn its customer outcome.**
 
 ## Eight-Domain Coverage-State Honesty
