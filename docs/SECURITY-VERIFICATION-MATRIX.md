@@ -97,9 +97,9 @@ Legend: **P**=PASS · **F**=FAIL(→fix) · **NT**=not tested yet · **N/A**=out
 | # | ASVS / WSTG | Control | Method | Env | Status | Evidence |
 |---|-------------|---------|--------|-----|--------|----------|
 | E1 | V5.3 / WSTG-INPV | SQLi — bound params everywhere (D1 prepared statements) | Code review | 1t | **P** | 1013 `.prepare()` / 1002 `.bind()`; all values parameterized; template interpolation ONLY for code-controlled identifiers (table/column names from constants, `?,?,?` placeholder lists) — verified portfolio-risk/plan-usage/cert-lifecycle/purge (static, 21 Jul). Runtime ZAP confirm still useful. |
-| E2 | V5.2 | Stored/reflected XSS in workspace names, notes, domain inputs | ZAP + manual | 1t | NT | |
+| E2 | V5.2 | Injection on server-side render sinks (PDF, email, API echo) | Runtime suite | 1t | **P (server sinks)** | #249 (`validate-injection-coverage.js`, 53/53, ran locally 21 Jul): pdfEsc neutralises content-stream breakout (paren/`<script>`/control/backslash, ASCII-only); alert+digest+invitation email templates HTML-escape user fields; API echo is JSON (Content-Type application/json, never text/html); isValidDomain + name length cap. Mutation-verified. **NT: pure DOM-XSS** (React auto-escapes; needs browser/DAST → release-gate) |
 | E3 | V12.6 / WSTG-INPV | SSRF: scan-target & fetch paths cannot hit internal/metadata (per-hop guard #191) | Code review | 1t | **P** | `lib/ssrf.js` blocks loopback/private/link-local/reserved across encodings (decimal-IP, IPv4-mapped-IPv6, `169.254.169.254` metadata) + DNS-resolution check on A+AAAA (rebinding) + per-hop redirect guard (#191); `safeFetch` (lib/http.js) is the canonical fetcher used by all scan engines (static, 21 Jul). Runtime confirm still useful. |
-| E4 | V5.1 | Mass-assignment / unexpected field injection on writes | Burp | 1t | NT | |
+| E4 | V5.1 | Mass-assignment / unexpected field injection on writes | Runtime suite | 1t | **P** | #249: profile update ignores injected plan/role/status/email_verified/id; workspace rename ignores owner_user_id/id/deleted_at; member invite→role=owner refused; api-token create ignores internal token_scope/token_workspace_id + refuses non-member ws; case transition writes validator target, never client status/verified_at — each verified unchanged in D1. Mutation-verified |
 
 ### F. Workflow / lifecycle logic
 | # | ASVS / WSTG | Control | Method | Env | Status | Evidence |
@@ -127,12 +127,31 @@ The #187 tenant-isolation sweep (`docs/tenant-isolation-sweep-v1.md`, commit `85
 
 **Conclusion:** no new tenant-isolation gap at the route-authorization layer. This is a **static** result — the crown-jewel controls (C1/C4/C5) still deserve **runtime two-tenant proof**, which the CLI's automated cross-tenant authz suite (+ later Burp) provides. Static-clean + runtime-proof together = C-section PASS.
 
+## Progress status (21 July 2026)
+
+**Fixture-testable + code/static layer COMPLETE — no findings.** Six CI-enforced suites (204 assertions, all mutation-verified, each run locally not CI-alone) + the Nuclei public baseline + the code/static audit close every control except the release-gate items:
+
+| Section | Result |
+|---|---|
+| A public surface | A1–A5 PASS · A6 → release-gate (auth UI smoke) |
+| B auth | B1–B4, B6 PASS · B5 claims PASS (RS256 sig + live OAuth → release-gate) |
+| C tenant isolation | C1/C2/C4/C5 PASS + C3 static-clean |
+| D billing/entitlement | D1–D5 PASS |
+| E injection/SSRF | E1, E3, E4 PASS · E2 server sinks PASS (pure DOM-XSS → release-gate DAST) |
+| F workflow | F1–F4 PASS |
+
+Suites: `validate-tenant-authz-coverage` (44) · `validate-billing-abuse-coverage` (33) · `validate-workflow-abuse-coverage` (35) · `validate-auth-coverage` (39) · `validate-injection-coverage` (53) + the reliability matrix.
+
+**Remaining before declaring `Internal Web/API Security Verification — PASS`** (all need the real environment, fold into founder-controlled acceptance / RC):
+1. A6 authenticated API UI smoke; B5 RS256 JWKS signature + live Microsoft OAuth exchange; pure DOM-XSS DAST (E1/E3 UI).
+2. The reliability runtime deltas (R10–R13: load, chaos, live rollback drill) — `docs/RELIABILITY-VERIFICATION-MATRIX.md`.
+
 ## Sequencing
 
-1. **Today (safe, parallel to M7):** control matrix (this doc) + section **A** via a scoped, rate-limited Nuclei baseline on `*.cybermeters.com` (founder-owned only). Triage → real findings become go-live blockers.
-2. **After the go-live full-reset test environment exists** (founder creates one clean test account, then a second test tenant): sections **B–F** with ZAP automation + Burp manual, two founder tenants, side-effect-safe.
+1. ✅ **Done (21 Jul):** the matrix + Nuclei public baseline + all six fixture/static suites — no findings.
+2. **RC / founder-controlled acceptance (real env):** the release-gate items above, side-effect-safe, on the founder test tenants created at the go-live full-reset.
 3. **Retest** every FAIL after fix; attach evidence.
-4. Only when A–F are PASS/NT-resolved with evidence → declare `Internal Web/API Security Verification — PASS`.
-5. Independent external pentest + retest remains a separate, later gate.
+4. Only when the release-gate items are PASS/NT-resolved with evidence → declare `Internal Web/API Security Verification — PASS`. **The fixture/static layer is already there; what remains is the real-environment smoke.**
+5. Independent external pentest + retest remains a separate, later gate (see the cost-focused options recorded with the founder: scoped freelance app-sec test, or defer-with-honest-disclosure to post-controlled-beta).
 
 Related: [[security-hardening-v2-closure-shipped]], [[full-repo-security-assurance]], [[m7-b2-b3-checkout-consent-portal]], [[data-minimization-discovery]].
