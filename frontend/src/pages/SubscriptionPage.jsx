@@ -52,7 +52,7 @@ const PLAN_META = {
     color:       'text-brand-600',
     badge:       'bg-brand-50 text-brand-700 border-brand-200',
     ring:        'border-brand-200',
-    description: 'Up to 3 monitored domains, plus Cyber Essentials Readiness, Vendor Risk, Executive Dashboard and audit logs.',
+    description: 'Up to 3 monitored domains, plus Cyber Essentials Readiness, third-party technology detection, Executive Dashboard and audit logs.',
   },
   business: {
     label:       'Business',
@@ -88,7 +88,10 @@ const GATE_DISPLAY = [
   { key: 'team_members',    icon: Users,    label: 'Team member invitations' },
   { key: 'business_risk_score', icon: BarChart2, label: 'Business Risk Score' },
   { key: 'cyber_essentials',    icon: Shield,    label: 'Cyber Essentials Readiness' },
-  { key: 'vendor_risk',         icon: Globe,     label: 'Vendor Risk Intelligence'   },
+  // vendor_risk gates the live third-party technology surface; the retired
+  // vendor-risk marketing claim must not be advertised — the honest label
+  // states only what external observation actually provides.
+  { key: 'vendor_risk',         icon: Globe,     label: 'Third-party technology detection' },
   { key: 'executive_dashboard', icon: Star,      label: 'Executive Risk Dashboard'   },
   { key: 'audit_logs',          icon: CheckCircle, label: 'Workspace Audit Logs'     },
   { key: 'portfolio_monitoring',icon: BarChart2, label: 'Portfolio Monitoring'       },
@@ -174,13 +177,29 @@ function TrialCountdown({ daysLeft, trialEnd, onUpgrade }) {
 
 // ── Plan card ─────────────────────────────────────────────────────────────────
 
-function PlanCard({ plan, status, meta, livePlan, onUpgrade, subscriptionActive, trialActive, checkoutLoading }) {
+function PlanCard({ plan, status, meta, livePlan, billingInterval, onUpgrade, subscriptionActive, trialActive, checkoutLoading }) {
   const scfg = statusCfg(trialActive ? 'trialing' : (status || 'free'))
   const upgradeTo = UPGRADE_TARGET[plan]
   // Price comes only from live canonical plan metadata; without it, no price
   // is displayed (never a stale local figure).
+  //
+  // The displayed amount must reflect the subscription's ACTUAL billing
+  // interval: an annual subscriber is charged the annual price, so showing the
+  // plan's monthly headline for them mis-states what they pay. When the
+  // subscription bills annually, render the annual figure (with the monthly
+  // equivalent as context); if the annual figure is unavailable from the live
+  // API, show NO price — never the monthly number an annual customer is not
+  // charged.
+  const annualBilling = subscriptionActive && !trialActive && billingInterval === 'annual'
   const monthlyGbp = livePlan && Number.isFinite(livePlan.monthly_gbp) ? livePlan.monthly_gbp : null
-  const mspFloor = livePlan?.pricing_model?.floor_monthly_gbp ?? null
+  const annualGbp  = livePlan && Number.isFinite(livePlan.annual_gbp)  ? livePlan.annual_gbp  : null
+  const annualEqMonthlyGbp = livePlan && Number.isFinite(livePlan.annual_equivalent_monthly_gbp)
+    ? livePlan.annual_equivalent_monthly_gbp
+    : null
+  const mspFloor = annualBilling
+    ? (livePlan?.pricing_model?.floor_annual_gbp ?? null)
+    : (livePlan?.pricing_model?.floor_monthly_gbp ?? null)
+  const shownGbp = annualBilling ? annualGbp : monthlyGbp
 
   return (
     <div className={`bg-white rounded-2xl border-2 p-5 ${meta.ring}`}>
@@ -197,22 +216,25 @@ function PlanCard({ plan, status, meta, livePlan, onUpgrade, subscriptionActive,
           </div>
           <p className="text-xs text-gray-500 mt-2 leading-relaxed max-w-sm">{meta.description}</p>
         </div>
-        {monthlyGbp !== null && (
+        {shownGbp !== null && (
           <div className="text-right flex-shrink-0">
-            {monthlyGbp === 0 ? (
+            {shownGbp === 0 ? (
               <p className="text-2xl font-black text-gray-800">£0</p>
             ) : (
               <>
-                <p className="text-2xl font-black text-gray-800">£{monthlyGbp.toFixed(2)}</p>
-                <p className="text-[10px] text-gray-400 font-medium">/ month</p>
+                <p className="text-2xl font-black text-gray-800">£{shownGbp.toFixed(2)}</p>
+                <p className="text-[10px] text-gray-400 font-medium">{annualBilling ? '/ year' : '/ month'}</p>
+                {annualBilling && annualEqMonthlyGbp !== null && annualEqMonthlyGbp > 0 && (
+                  <p className="text-[10px] text-gray-400 font-medium mt-0.5">≈ £{annualEqMonthlyGbp.toFixed(2)}/mo · billed annually</p>
+                )}
               </>
             )}
           </div>
         )}
-        {monthlyGbp === null && plan === 'enterprise' && (
+        {shownGbp === null && plan === 'enterprise' && (
           <div className="text-right flex-shrink-0">
             <p className="text-lg font-black text-amber-700">{mspFloor != null ? `from £${mspFloor.toFixed(2)}` : 'Contact us'}</p>
-            <p className="text-[10px] text-gray-400 font-medium">{mspFloor != null ? '/ month · contact us' : 'sales-led'}</p>
+            <p className="text-[10px] text-gray-400 font-medium">{mspFloor != null ? `${annualBilling ? '/ year' : '/ month'} · contact us` : 'sales-led'}</p>
           </div>
         )}
       </div>
@@ -685,6 +707,7 @@ export default function SubscriptionPage() {
         status={status}
         meta={meta}
         livePlan={livePlans?.[plan] ?? null}
+        billingInterval={sub?.billing_interval ?? 'monthly'}
         onUpgrade={handleUpgrade}
         subscriptionActive={subscriptionActive}
         trialActive={trialActive}
@@ -720,7 +743,7 @@ export default function SubscriptionPage() {
             <p className="text-sm font-bold text-brand-800 mb-1">You're on the 14-day full trial</p>
             <p className="text-xs text-brand-600 leading-relaxed">
               The full product is active for 1 monitored domain. Upgrade before your trial ends to keep
-              access to Cyber Essentials, Vendor Risk, the Executive Dashboard, and more.
+              access to Cyber Essentials Readiness, the Executive Dashboard, and more.
             </p>
           </div>
         </div>
