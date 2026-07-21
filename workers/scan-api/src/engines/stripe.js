@@ -187,18 +187,39 @@ export function buildMergedStripePriceMap(env) {
   return { ...(json.ok ? json.map : {}), ...buildStripePriceMapFromIndividualVars(env) };
 }
 
-export function getStripeSubscriptionPrice(subscription, env = null) {
+// Base subscription item. Multi-item subscriptions (e.g. base plan +
+// per-domain overage item): the BASE item is the one whose price maps to a
+// canonical plan — never blindly items[0], whose ordering Stripe does not
+// guarantee.
+export function getStripeBaseSubscriptionItem(subscription, env = null) {
   const items = subscription?.items?.data;
-  if (Array.isArray(items) && items.length > 1 && env) {
-    // Multi-item subscription (e.g. base plan + per-domain overage item):
-    // the BASE item is the one whose price maps to a canonical plan — never
-    // blindly items[0], whose ordering Stripe does not guarantee.
+  if (!Array.isArray(items) || items.length === 0) return null;
+  if (items.length > 1 && env) {
     const merged = buildMergedStripePriceMap(env);
     const mappedIds = new Set(Object.values(merged));
     const base = items.find((it) => it?.price?.id && mappedIds.has(it.price.id));
-    if (base?.price) return base.price;
+    if (base?.price) return base;
   }
-  return subscription?.items?.data?.[0]?.price ?? subscription?.plan ?? null;
+  return items[0];
+}
+
+export function getStripeSubscriptionPrice(subscription, env = null) {
+  const item = getStripeBaseSubscriptionItem(subscription, env);
+  return item?.price ?? subscription?.plan ?? null;
+}
+
+// Stripe API 2025-03-31 (Basil) and later moved current_period_start/end off
+// the subscription object onto each subscription item, and this deployment
+// does not pin a Stripe-Version — payloads arrive at the account's default
+// API version. Read the top-level fields first (older API versions still send
+// them), then fall back to the BASE plan item's period, so the entitlement
+// window is never silently persisted as NULL on a newer API version.
+export function getStripeSubscriptionPeriod(subscription, env = null) {
+  const item = getStripeBaseSubscriptionItem(subscription, env);
+  return {
+    start: stripeUnixToIso(subscription?.current_period_start) ?? stripeUnixToIso(item?.current_period_start),
+    end: stripeUnixToIso(subscription?.current_period_end) ?? stripeUnixToIso(item?.current_period_end),
+  };
 }
 
 export function getPlanFromStripePriceId(env, priceId, fallbackPlan = null) {
@@ -368,12 +389,20 @@ async function upsertStripeSubscriptionState(env, state) {
     // canonical plan (fail-closed): payment/lifecycle state still applies, but
     // the stored plan is left untouched — an unknown price never grants or
     // changes an entitlement.
+    //
+    // subscription_status is the canonical lifecycle column; the legacy
+    // `status` column is written in LOCKSTEP (same value) by every webhook
+    // writer so the two can never diverge — a June trial row kept
+    // status='trialing' after a paid checkout because only
+    // subscription_status was updated (21 Jul 2026 B2/B3 acceptance
+    // evidence), misleading any reader of the raw column.
     await env.cybermeters_db
       .prepare(
         `UPDATE subscriptions
          SET plan = COALESCE(?, plan),
              billing_interval = ?,
              subscription_status = ?,
+             status = ?,
              stripe_customer_id = COALESCE(?, stripe_customer_id),
              stripe_subscription_id = COALESCE(?, stripe_subscription_id),
              stripe_price_id = COALESCE(?, stripe_price_id),
@@ -389,6 +418,7 @@ async function upsertStripeSubscriptionState(env, state) {
       .bind(
         state.plan === null ? null : normalizePlan(state.plan),
         normalizeBillingInterval(state.billing_interval),
+        normalizeStripeSubscriptionStatus(state.subscription_status),
         normalizeStripeSubscriptionStatus(state.subscription_status),
         stripeCustomerId,
         stripeSubscriptionId,
@@ -443,6 +473,7 @@ async function upsertStripeSubscriptionState(env, state) {
            SET plan = COALESCE(?, plan),
                billing_interval = ?,
                subscription_status = ?,
+               status = ?,
                owner_user_id = COALESCE(?, owner_user_id),
                stripe_customer_id = COALESCE(?, stripe_customer_id),
                stripe_subscription_id = COALESCE(?, stripe_subscription_id),
@@ -456,6 +487,7 @@ async function upsertStripeSubscriptionState(env, state) {
         .bind(
           state.plan === null ? null : normalizePlan(state.plan),
           normalizeBillingInterval(state.billing_interval),
+          normalizeStripeSubscriptionStatus(state.subscription_status),
           normalizeStripeSubscriptionStatus(state.subscription_status),
           ownerUserId,
           stripeCustomerId,
@@ -478,11 +510,11 @@ async function upsertStripeSubscriptionState(env, state) {
   await env.cybermeters_db
     .prepare(
       `INSERT INTO subscriptions
-         (id, owner_user_id, workspace_id, plan, billing_interval, subscription_status,
+         (id, owner_user_id, workspace_id, plan, billing_interval, subscription_status, status,
           stripe_customer_id, stripe_subscription_id, stripe_price_id,
           current_period_start, current_period_end, cancel_at_period_end,
           created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
     )
     .bind(
       id,
@@ -490,6 +522,7 @@ async function upsertStripeSubscriptionState(env, state) {
       workspaceId,
       normalizePlan(state.plan),
       normalizeBillingInterval(state.billing_interval),
+      normalizeStripeSubscriptionStatus(state.subscription_status),
       normalizeStripeSubscriptionStatus(state.subscription_status),
       stripeCustomerId,
       stripeSubscriptionId,
@@ -589,6 +622,9 @@ export async function handleStripeSubscriptionUpsert(env, subscription) {
     }
   }
 
+  // Period boundary: top-level on older API versions, base item on Basil+.
+  const period = getStripeSubscriptionPeriod(subscription, env);
+
   return upsertStripeSubscriptionState(env, {
     owner_user_id: metadata.user_id || null,
     workspace_id: workspaceId,
@@ -598,8 +634,8 @@ export async function handleStripeSubscriptionUpsert(env, subscription) {
     stripe_customer_id: getStripeObjectId(subscription?.customer),
     stripe_subscription_id: subscription?.id || null,
     stripe_price_id: priceId,
-    current_period_start: stripeUnixToIso(subscription?.current_period_start),
-    current_period_end: stripeUnixToIso(subscription?.current_period_end),
+    current_period_start: period.start,
+    current_period_end: period.end,
     cancel_at_period_end: subscription?.cancel_at_period_end ?? null,
   });
 }
@@ -613,15 +649,19 @@ export async function handleStripeSubscriptionDeleted(env, subscription) {
   });
 
   if (!rowId) return null;
+  // Legacy `status` written in lockstep with subscription_status (see
+  // upsertStripeSubscriptionState); period end read Basil-aware.
+  const deletedPeriodEnd = getStripeSubscriptionPeriod(subscription, env).end;
   await env.cybermeters_db
     .prepare(
       `UPDATE subscriptions
        SET subscription_status = 'canceled',
+           status = 'canceled',
            current_period_end = COALESCE(?, current_period_end),
            updated_at = datetime('now')
        WHERE id = ?`
     )
-    .bind(stripeUnixToIso(subscription?.current_period_end), rowId)
+    .bind(deletedPeriodEnd, rowId)
     .run();
 
   // Billing audit trail — non-fatal
@@ -679,7 +719,7 @@ export async function handleStripeSubscriptionDeleted(env, subscription) {
         description:  "Stripe subscription cancelled — account reverted to free plan",
         metadata:     {
           stripe_subscription_id: subscription?.id ?? null,
-          current_period_end:     stripeUnixToIso(subscription?.current_period_end),
+          current_period_end:     deletedPeriodEnd,
         },
       }).catch(() => {});
     }
@@ -703,6 +743,7 @@ export async function handleStripeInvoicePaymentFailed(env, invoice) {
     .prepare(
       `UPDATE subscriptions
        SET subscription_status = 'past_due',
+           status = 'past_due',
            payment_failed_at = datetime('now'),
            payment_retry_count = COALESCE(payment_retry_count, 0) + 1,
            updated_at = datetime('now')
@@ -724,10 +765,14 @@ export async function handleStripeInvoicePaymentSucceeded(env, invoice) {
   if (!rowId) return null;
   // Clear past_due state when payment succeeds; only restore active if currently past_due
   // (subscription.updated events also fire on renewal and update period_end authoritatively).
+  // Both SET expressions read the OLD subscription_status, so `status` lands in
+  // lockstep with the new subscription_status — and a historically stale
+  // `status` value is re-synced by the same write.
   await env.cybermeters_db
     .prepare(
       `UPDATE subscriptions
        SET subscription_status = CASE WHEN subscription_status = 'past_due' THEN 'active' ELSE subscription_status END,
+           status = CASE WHEN subscription_status = 'past_due' THEN 'active' ELSE subscription_status END,
            payment_failed_at = NULL,
            payment_retry_count = 0,
            updated_at = datetime('now')
