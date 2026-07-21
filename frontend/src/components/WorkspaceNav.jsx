@@ -122,7 +122,9 @@ const WORKSPACE_TOOLS = [
   { to: '/settings',               icon: Settings,        label: 'Settings'     },
 ]
 
-function detectServiceKey(pathname) {
+// Exported: Layout uses this to wash the routed content column in the active
+// domain's `surface` colour — route→domain mapping stays defined ONCE, here.
+export function detectServiceKey(pathname) {
   const s = SERVICES.find(svc => svc.match(pathname))
   return s ? s.key : null
 }
