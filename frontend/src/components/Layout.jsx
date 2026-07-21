@@ -1,6 +1,6 @@
 import { parseServerDate } from '../utils/dates'
 import { useState, useEffect, useRef } from 'react'
-import { Outlet, NavLink, useNavigate } from 'react-router-dom'
+import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Server, ScanLine, FileBarChart2,
   Settings, Shield, Plus, ChevronDown, Calendar,
@@ -11,7 +11,8 @@ import CyberMetersLogo from './CyberMetersLogo'
 import { api, logoutWithToken } from '../api'
 import { TOKEN_KEY } from '../context/authKeys'
 import { useAuth } from '../context/AuthContext'
-import WorkspaceNav from './WorkspaceNav'
+import WorkspaceNav, { detectServiceKey } from './WorkspaceNav'
+import { SERVICE_COLORS } from '../theme/serviceColors'
 import SafeBoundary from './SafeBoundary'
 import NotificationBell from './NotificationBell'
 import FeedbackWidget from './FeedbackWidget'
@@ -381,6 +382,13 @@ export default function Layout() {
   // triggers its own workspaces fetch / bootstrap on every route.
   const [wsId, setWsId]     = useState(() => localStorage.getItem('cybermeters_workspace_id'))
   const [wsName, setWsName] = useState(() => localStorage.getItem('cybermeters_workspace_name'))
+
+  // Domain identity wash — the routed content column takes the active domain's
+  // faint `surface` colour, so each module's pages subtly carry its identity.
+  // Identity colour is presentation only: severity/state colours are unchanged
+  // and non-domain routes (dashboard, cases, settings…) keep the neutral grey.
+  const { pathname } = useLocation()
+  const domainColors = SERVICE_COLORS[detectServiceKey(pathname)] || null
   useEffect(() => {
     function sync() {
       setWsId(localStorage.getItem('cybermeters_workspace_id'))
@@ -456,7 +464,18 @@ export default function Layout() {
               <WorkspaceNav wsName={wsName} />
             </SafeBoundary>
           )}
-          <div className="flex-1 min-w-0">
+          <div
+            className="flex-1 min-w-0 transition-colors duration-300"
+            style={domainColors ? {
+              backgroundColor: domainColors.surface,
+              // Exposed for pages/components that want stronger domain accents
+              // (headers, active tabs) without importing the palette themselves.
+              '--domain-accent': domainColors.icon,
+              '--domain-text':   domainColors.text,
+              '--domain-chip':   domainColors.chip,
+              '--domain-ring':   domainColors.ring,
+            } : undefined}
+          >
             <Outlet />
           </div>
         </div>

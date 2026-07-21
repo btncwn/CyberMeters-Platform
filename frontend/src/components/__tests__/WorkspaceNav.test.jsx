@@ -66,3 +66,46 @@ describe('WorkspaceNav (eight-domain sidebar)', () => {
     expect(screen.getByText('DMARC Setup')).toHaveStyle({ color: hexToRgb(SERVICE_COLORS.email.text) })
   })
 })
+
+// ── Domain identity wash (Layout content-column tint) ─────────────────────────
+import { detectServiceKey } from '../WorkspaceNav'
+
+describe('detectServiceKey → domain surface wash', () => {
+  it('maps every canonical domain route to its palette entry', () => {
+    const expectations = {
+      '/ws/email-protection':  'email',
+      '/ws/brand-monitoring':  'brand',
+      '/assets':               'surface',
+      '/scans/new':            'surface',
+      '/ws/certificates/lifecycle': 'certs',
+      '/ws/cyber-essentials':  'cyber_essentials',
+      '/ws/website-security':  'website',
+      '/ws/identity-exposure': 'identity',
+      '/ws/shadow-it':         'shadow_it',
+      '/ws/saas-exposure':     'shadow_it',
+    }
+    for (const [path, key] of Object.entries(expectations)) {
+      expect(detectServiceKey(path), path).toBe(key)
+      expect(SERVICE_COLORS[key].surface, `${key}.surface`).toMatch(/^#[0-9A-F]{6}$/i)
+    }
+  })
+
+  it('non-domain routes stay neutral — no identity wash on shared surfaces', () => {
+    for (const path of ['/ws/dashboard', '/ws/cases', '/ws/members', '/settings', '/ws/reports']) {
+      expect(detectServiceKey(path), path).toBeNull()
+    }
+  })
+
+  it('every palette entry ships a surface wash lighter than its card tint', () => {
+    // Large-area washes must stay fainter than card tints so white cards pop
+    // and severity colours remain unambiguous. Luminance(surface) > luminance(card).
+    const lum = (hex) => {
+      const n = parseInt(hex.slice(1), 16)
+      return ((n >> 16) & 255) + ((n >> 8) & 255) + (n & 255)
+    }
+    for (const [key, c] of Object.entries(SERVICE_COLORS)) {
+      expect(c.surface, `${key}.surface`).toBeTruthy()
+      expect(lum(c.surface), `${key}: surface must be lighter than card`).toBeGreaterThan(lum(c.card))
+    }
+  })
+})
