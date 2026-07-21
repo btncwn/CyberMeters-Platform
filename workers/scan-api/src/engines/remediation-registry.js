@@ -188,6 +188,22 @@ export const REMEDIATION_REGISTRY = Object.freeze([
     supporting_evidence_types: ["dns_txt_lookup"],
   }),
   entry({
+    remediation_id: "email.spf.unauthorised_source",
+    domain_key: "email_protection",
+    finding_types: ["email_spf_unauthorised_source"],
+    customer_title: "Review a sending source outside your SPF authorisation",
+    technical_explanation: "A DMARC aggregate (RUA) report recorded an SPF failure from a source IP that is not contained in any range your resolved SPF record authorises. CyberMeters uses the report's own observed SPF result; the source is either a legitimate sender you have not yet authorised, or an impersonation attempt.",
+    business_impact: "An unauthorised source sending as your domain is the core mechanism of phishing and business-email-compromise against your customers and staff.",
+    recommended_action: "Identify the sending service behind the reported IP. If it is a legitimate sender, add it to your SPF record; if you do not recognise it, treat it as an impersonation attempt and monitor your DMARC reports as you move towards p=reject.",
+    effort: "medium",
+    owner_type: "customer_it",
+    // The product cannot externally CONFIRM a customer's business decision about a
+    // sender; verification is a manual attestation, never a CyberMeters re-observation.
+    verification_method: "manual_attestation",
+    verification_evidence_requirements: "The customer confirms whether the source is a legitimate sender they have now authorised, or an impersonation they have escalated.",
+    supporting_evidence_types: ["dmarc_aggregate_report", "dns_txt_lookup"],
+  }),
+  entry({
     remediation_id: "email.spf.single_record",
     domain_key: "email_protection",
     finding_types: ["spf_multiple_records"],
