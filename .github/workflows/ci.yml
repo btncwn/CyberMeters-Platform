@@ -668,6 +668,9 @@ jobs:
       - name: Validate SPF static PASS-authorisation resolver (RFC 7208 limits / TempError fail-safe / CIDR containment / change detection)
         run: node scripts/validate-spf-resolver.js
 
+      - name: Validate SPF-RUA corroboration (observed-fail gate / containment / complete-only firm wording / dedupe)
+        run: node scripts/validate-spf-corroboration.js
+
       - name: Validate posture-events false-resolution guard (exposed_service_resolved evidence gate)
         run: node scripts/validate-posture-events-resolution.js
 

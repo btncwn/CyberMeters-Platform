@@ -38,6 +38,7 @@ import { runHeadersModule } from "./headers-scan.js";
 import { runHistoricalModule } from "./historical-scan.js";
 import { runIdentityDiscoveryModule } from "./identity-scan.js";
 import { recordPostureEvents } from "./posture-events.js";
+import { recordSpfRuaCorroboration } from "./spf-corroboration.js";
 import { buildAssetTimelineTrustMetadata, loadTimelineComparisonContext } from "./timeline-trust.js";
 import { runReservedScan } from "./reserved-scan.js";
 import { createModuleTelemetry, createScanDeadline, markDeadlineDeferred, MODULE_SUBREQUEST_COST, raceModuleDeadline, resolveScanCapacity, skippedModuleResult } from "./scan-budget.js";
@@ -1068,6 +1069,15 @@ function buildCanonicalUrlProfile(modules) {
     try {
       await recordPostureEvents(scanId, domainId, domain, modules, env, { currentReport: report });
     } catch { /* non-fatal — posture events catch up on next scan */ }
+
+    // Phase 8a.2: SPF-RUA corroboration (PR-B) — cross-checks this scan's freshly
+    // resolved SPF PASS-authorisation set against the domain's recent DMARC-RUA
+    // fail-sources and raises a canonical alert for an OBSERVED failure from a
+    // source outside the authorised set. Only fires firm wording when the
+    // resolution is complete; fails safe otherwise. Non-fatal.
+    try {
+      await recordSpfRuaCorroboration(scanId, domainId, domain, modules, env);
+    } catch { /* non-fatal — corroboration catches up on the next scan */ }
 
     // Phase 8b: Admin Surface Events — one asset_event per detected service per workspace.
     // Runs after upsertAssetInventory so workspace_assets rows are already present,
