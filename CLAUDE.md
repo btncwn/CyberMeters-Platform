@@ -491,6 +491,21 @@ Do not allow the following to displace the active canonical roadmap:
 
 # Permanent Architectural Rules
 
+## Detection Depth Law (Detection Integrity Gate) — canonical founder decision, 21 July 2026
+
+The full law and roadmap live in `docs/DETECTION-QUALITY-ROADMAP.md` and are canonical. Summary of the permanent rule:
+
+For the seven customer-facing domains (Cyber Essentials Readiness excepted — it is an assessment/readiness domain), **no capability is complete by reading a record and rendering a score.** Each meaningful capability must prove the chain: external change → discovery → normalisation → dependency/effective-state resolution → snapshot → meaningful diff → independent corroboration → prioritisation → event → alert → remediation/case → report → honest customer wording. A missing link is `PARTIAL` / `FAIL` / `NOT TESTED` / `OUT OF SCOPE`, never `PASS`.
+
+- **Every byte must earn a customer outcome.** The root record is not enough — resolve the effective state behind it (the SPF include-aware pattern is the reference). Per-signal evidence completeness + global scan honesty (one incomplete module never silently kills a reliable signal's diff, and incomplete evidence never produces a false alert).
+- **Detection ≠ maliciousness** — "observed/found/authorised" is sayable; "attacker/phishing/compromise" needs evidence.
+- **Four proofs per critical capability:** deterministic fixture · mutation proof · end-to-end pipeline trace · founder-controlled live acceptance.
+- **Status ladder:** `DISCOVERED · DESIGNED · IMPLEMENTED · CI-PROVEN · MERGED · DEPLOYED · LIVE-ACCEPTED · CUSTOMER-CLAIM-APPROVED`. **`MERGED` never substitutes for `LIVE-ACCEPTED`.** Public copy states only the live-proven level.
+- **Success is never "modules exist / tests green / engine present" alone.** At every episode end, report: (1) the real customer harm, (2) whether CyberMeters catches it now, (3) exactly where the pipeline breaks, (4) the small PR sequence + live acceptance to close it.
+- No **known** critical false-negative, silent monitoring loss, or unproven security claim may be left open before public beta.
+
+Engineering oath: **every byte must earn its customer outcome.**
+
 ## Eight-Domain Coverage-State Honesty
 
 All eight canonical domains must remain visible where the product contract requires them.
