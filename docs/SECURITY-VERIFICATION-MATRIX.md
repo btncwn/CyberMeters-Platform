@@ -69,11 +69,11 @@ Legend: **P**=PASS · **F**=FAIL(→fix) · **NT**=not tested yet · **N/A**=out
 | # | ASVS / WSTG | Control | Method | Env | Status | Evidence |
 |---|-------------|---------|--------|-----|--------|----------|
 | B1 | V2.1 / WSTG-ATHN | Password hashing PBKDF2-SHA256 100k, no plaintext, timing-safe verify | Code review | 1t | **P** | `lib/password.js`: PBKDF2-SHA256, 100_000 iters, 16-byte random salt, stored `pbkdf2:sha256:100000:salt:hash`; verify uses constant-time XOR compare (static, 21 Jul) |
-| B2 | V3.2 / WSTG-SESS | Session token: httpOnly, secure, server-side, rotates on login | Burp | 1t | NT | |
-| B3 | V3.3 | Logout + password reset invalidate all sessions | Burp | 1t | NT | |
-| B4 | V2.2 | MFA (TOTP) enrol/verify, no bypass | Manual | 1t | NT | |
-| B5 | V2.x | Microsoft SSO: state/nonce, account-linking safety | Burp | 1t | NT | |
-| B6 | V2.5 | Password reset: token single-use, expiring, no user enum | Burp | 1t | NT | |
+| B2 | V3.2 / WSTG-SESS | Session token: hashed-at-rest, high-entropy, rotates on login | Runtime suite | 1t | **P** | #247 (`validate-auth-coverage.js`, 39/39, ran locally 21 Jul): raw token never stored (hash-at-rest), high-entropy, rotates on login. **N/A: cookie flags** — Bearer-token architecture (token in Authorization header, no auth cookie), so httpOnly/Secure/SameSite don't apply; equivalent protections asserted. Mutation-verified |
+| B3 | V3.3 | Logout + password reset session invalidation | Runtime suite | 1t | **P** | #247: password reset invalidates ALL sessions + revokes API tokens; logout is per-device **by design** (not all-sessions) — the true oracle, not misrepresented. Mutation-verified |
+| B4 | V2.2 | MFA (TOTP) enrol/verify, no bypass | Runtime suite | 1t | **P** | #247: valid RFC-6238 TOTP verifies, wrong code rejected; login-MFA challenge single-use + expiry; recovery codes single-use. Mutation-verified |
+| B5 | V2.x | Microsoft SSO id_token claims validation | Runtime suite | 1t | **P (claims)** | #247: alg/aud/exp/nbf/iss/tid/oid/nonce each enforced. **NT: RS256 JWKS signature + live OAuth redirect/state exchange** need a real Microsoft IdP (release-gate). Mutation-verified (drop-aud → red) |
+| B6 | V2.5 | Password reset: token single-use, expiring, no user enum | Runtime suite | 1t | **P** | #247: single-use (`used_at`) + expiring; forgot-password does not enumerate accounts. Mutation-verified |
 
 ### C. Authorization & tenant isolation (highest priority)
 | # | ASVS / WSTG | Control | Method | Env | Status | Evidence |
@@ -105,9 +105,9 @@ Legend: **P**=PASS · **F**=FAIL(→fix) · **NT**=not tested yet · **N/A**=out
 | # | ASVS / WSTG | Control | Method | Env | Status | Evidence |
 |---|-------------|---------|--------|-----|--------|----------|
 | F1 | business | Case lifecycle transitions honour canTransitionCase (no illegal jump) | Static audit | 1t | **P** | `applyCaseTransition` fail-closed (terminal immutability + unknown-target reject + illegal-edge reject + guards); `canTransitionCase` layers system-only + verified-evidence rules; every `managed_cases SET status` write is canTransitionCase-gated (1:1, no bypass); route writes only validator `next.status` under `WHERE …AND status=?` TOCTOU guard; guard-arity P1 fixed+documented via wrapper closure (static, 21 Jul) |
-| F2 | business | Verification cannot be forged (attest ≠ verified) | Manual | 1t | NT | |
-| F3 | business | Alert/digest workflow cannot be spoofed or replayed | Manual | 1t | NT | |
-| F4 | V11.1 | Rate limiting on scan starts, auth, expensive endpoints | Manual + Nuclei | 1t | NT | |
+| F2 | business | Verification cannot be forged (attest ≠ verified) | Runtime suite | 1t | **P** | #245 (`validate-workflow-abuse-coverage.js`, 35/35, ran locally 21 Jul): bare completed-scan / note-only / no-evidence never reaches verified; automated-support needs a system actor (customer refused); unsupported refused; manual verifies only with structured attestation; `verificationCeiling('manual')` = "Attested by customer — not externally verifiable". Mutation-verified |
+| F3 | business | Alert/digest workflow cannot be spoofed or replayed | Runtime suite | 1t | **P** | #245: `emitManagedAlert` dedupes identical dedupe_key (DB unique index), suppresses soft-deleted workspace, resolves recipients to the alert's own workspace only; `sendWeeklyDigests` idempotent per ISO week. Mutation-verified |
+| F4 | V11.1 | Rate limiting on scan starts, auth, expensive endpoints | Runtime suite | 1t | **P** | #245: real login route (cap 10/15min, failClosed) — (cap+1)th from one IP → 429; on rate-store error the failClosed caller DENIES. Mutation-verified |
 
 ---
 
