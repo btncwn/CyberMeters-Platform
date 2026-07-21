@@ -47,10 +47,13 @@ const SHADOW_SOURCE_TO_FAMILY = Object.freeze({
 // matches when EVERY requirement is satisfiable by a distinct available family, and the
 // total distinct families selected is >= 2.
 export const RELATED_CHANGE_RULES = Object.freeze([
+  // Cert halves say "a certificate signal", never "a new or changed certificate":
+  // the cert family also matches standing conditions (sensitive hostname in CT,
+  // expiring soon), so a more specific claim could say more than the evidence.
   {
     id: "new_host_with_cert",
-    title: "New host with a new or changed certificate",
-    summary: "A new host appeared and a certificate was issued or changed for the same registrable domain in the same period.",
+    title: "New host with a certificate signal",
+    summary: "A new host appeared and a certificate signal was observed for the same registrable domain in the same period.",
     requires: [F.ASSET, F.CERT],
   },
   {
@@ -61,14 +64,14 @@ export const RELATED_CHANGE_RULES = Object.freeze([
   },
   {
     id: "identity_with_cert",
-    title: "Login or admin surface with a certificate change",
-    summary: "A login or admin surface and a certificate change were observed on the same registrable domain in the same period.",
+    title: "Login or admin surface with a certificate signal",
+    summary: "A login or admin surface and a certificate signal were observed on the same registrable domain in the same period.",
     requires: [F.IDENTITY, F.CERT],
   },
   {
     id: "email_config_with_host_or_cert",
-    title: "Email-authentication change with a new host or certificate",
-    summary: "Email authentication (SPF, DMARC or DKIM) changed and a new host or certificate appeared on the same registrable domain in the same period.",
+    title: "Email-authentication change with a new host or a certificate signal",
+    summary: "Email authentication (SPF, DMARC or DKIM) changed and a new host or a certificate signal was observed on the same registrable domain in the same period.",
     requires: [F.EMAIL_CONFIG, [F.ASSET, F.CERT]],
   },
   {
@@ -79,8 +82,8 @@ export const RELATED_CHANGE_RULES = Object.freeze([
   },
   {
     id: "shadow_it_with_host_or_cert",
-    title: "Unapproved technology with a new host or certificate",
-    summary: "Unapproved technology (from independent provenance) and a new host or certificate were observed on the same registrable domain in the same period.",
+    title: "Unapproved technology with a new host or a certificate signal",
+    summary: "Unapproved technology (from independent provenance) and a new host or a certificate signal were observed on the same registrable domain in the same period.",
     requires: [F.SHADOW_IT, [F.ASSET, F.CERT]],
   },
 ]);
