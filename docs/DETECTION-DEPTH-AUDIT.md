@@ -205,10 +205,21 @@ First protocol-conformance audit under the new gate. Read-only; no runtime chang
 | External report auth (`_report._dmarc`) | yes | yes (9990) | `ensureExternalReportAuthorization` implemented | **PASS** |
 | Multiple records | permerror | permerror | warns + `valid=false` | **PASS** |
 | Unknown tags | ignore | ignore | stored, not acted on (except pct) | **PASS** (except pct) |
-| Org-domain discovery (PSL → **DNS tree-walk**) | PSL | **tree-walk** | **low impact — see scope note** | **OUT OF SCOPE (mostly)** |
+| Org-domain discovery (PSL → **DNS tree-walk**) | PSL | **tree-walk** | not traced | **NOT TESTED** — lower immediate impact, but the policy-discovery path must be traced before it is marked OUT OF SCOPE (founder correction) |
+
+*Severity refinement (founder): `pct` deprecated-wording = **P2**; `t` parsing = **P2/P3**; `np` policy visibility + change tracking = **P1 if the np change is fully lost from alert/remediation/report, else P2**; org-domain tree-walk = **NOT TESTED**.*
 
 ### Honest scope note
-CyberMeters is a **policy reader / reporter**, not a mail receiver that *evaluates* DMARC on live messages. Alignment verdicts come from the RUA aggregate reports (computed by real receivers), so the PSL→tree-walk organizational-domain change — a big deal for *receivers* — has **low impact** for us; we surface the customer's published policy and read reports. We must not claim to *evaluate* DMARC alignment. `rua-routing.js` already does a same-org test by label-drop (not PSL), which is adequate for its narrow inbound-routing purpose.
+CyberMeters is a **policy reader / reporter**, not a mail receiver that *evaluates* DMARC on live messages. Alignment verdicts come from the RUA aggregate reports (computed by real receivers), so the PSL→tree-walk change has **lower immediate impact** for us. **But this does not close it:** if CyberMeters does any organizational-domain or inherited-policy discovery (e.g. how it reasons about `sp`/subdomain inheritance), the tree-walk behaviour still matters — so it is **NOT TESTED**, not out of scope, until that path is traced. We must not claim to *evaluate* DMARC alignment. `rua-routing.js` does a same-org test by label-drop (not PSL) adequate for its narrow inbound-routing purpose only.
+
+### `pct` fix — the RIGHT behaviour (founder refinement)
+Do **not** stop parsing `pct`. Instead: **observe it → mark legacy/deprecated → exclude from active enforcement semantics → bounded wording** ("Legacy `pct` tag observed; modern DMARC receivers may ignore it"). Data is preserved; no false policy effect is produced. (Supersedes the earlier "treat as deprecated" phrasing, which risked reading as drop-it.)
+
+### Implementation design REQUIRED before any fix PR (founder)
+Adding two tags to the parser is not enough. The DMARCbis-migration episode must first design: (1) how legacy `pct` is stored; (2) whether/how it is excluded from scoring; (3) backward-compatibility with existing snapshots; (4) how `np` **absent** is interpreted (inheritance from `sp`/`p`); (5) how `sp` / `p` / `np` precedence is shown; (6) whether the change event is an existing type or new; (7) reports/PDF wording; (8) false-diff risk between old and new scans.
+
+### Sequencing (founder re-lock — this audit jumped the queue)
+This audit is **recorded only**. **No runtime PR now.** The DMARC fix is a **separate later episode**, AFTER the **Phase 0 exit-gate**: **#263 chronic-partial fix is merged but NOT deployed (live Worker still `d1ad62b8`)** → it needs deploy preflight → controlled deploy → blackbullbarbers new scan → complete/partial result → downstream module/event availability check → per-signal SPF completeness if needed. Only then: DMARCbis implementation design → fix → deploy → founder live acceptance. Then SPF 7208 → DKIM → MTA-STS → TLS-RPT conformance audits.
 
 ### Verdict
-`DMARC HANDLING = RFC 7489-BASED / DMARCbis DRIFT ON pct + np` — no catastrophic conformance failure (alignment, external-auth, multi-record, unknown-tags all fine), two real drifts (`pct` applied though removed; `np` unsupported). Status: **CI-PROVEN pending** — the migration PR above closes it. Public copy must not claim "DMARCbis / RFC 9989 compliant" until then.
+`DMARC HANDLING = RFC 7489-BASED / DMARCbis DRIFT ON pct + np` — no catastrophic conformance failure (alignment, external-auth, multi-record, unknown-tags all fine); two real drifts (`pct` applied though removed; `np` unsupported); org-domain tree-walk NOT TESTED. Status: **DISCOVERED / DESIGN-PENDING** (not IMPLEMENTED). Public copy must not claim "DMARCbis / RFC 9989 compliant" until the migration episode closes with live acceptance.
