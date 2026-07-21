@@ -35,7 +35,7 @@ Read-only audit (Phase 0 deepening). No runtime change, no deploy. P1 detection-
 | Invocation lifetime | cron + HTTP; no client-timeout issue for cron |
 | Cron limits | generous CPU; wall-clock is not the cron constraint |
 
-**⚠️ Plan confirmation:** the "no wall-clock limit" holds for **Paid**. All evidence (custom domain, hourly cron, D1/R2 at production scale, CPU-configurability context) strongly indicates Paid, but the founder should confirm the plan in the Cloudflare dashboard before removal ships. If Free, the analysis changes (Free has stricter limits).
+**✅ Plan confirmed (21 Jul, founder dashboard evidence):** account-level **Workers Paid — Active — $5/month**. The `cybermeters.com` zone's "Free" label is a separate zone/CDN/WAF plan and does not change the Workers execution plan. Therefore the "no wall-clock limit" reality applies, and **the 21-second global wall-clock cap is not required by the current Workers plan.**
 
 ## Phase C — Quantified damage (telemetry, read-only)
 - Scan quality since 14 Jul: **24 complete / 21 partial / 1 null (~47% partial)**.
@@ -69,7 +69,7 @@ Goal: *give every module the time it legitimately needs without letting one brok
 "No wall-clock limit" is necessary but **not sufficient**. Before PR1 ships, verify:
 | Precondition | Status (this audit) |
 |--------------|----------------------|
-| Cloudflare plan = **Paid** | **NOT confirmed** — founder must check the dashboard (strongly indicated, not proven) |
+| Cloudflare plan = **Paid** | ✅ **VERIFIED (founder dashboard evidence, 21 Jul)** — account-level **Workers Paid — Active — $5/month**. (The `cybermeters.com` zone showing "Free" is a separate zone/CDN/WAF plan and does not change the Workers **execution** plan.) So the 21-second global wall-clock cap is **not required by the current Workers plan.** |
 | Scheduled handler runs via `ctx.waitUntil()` | ✅ verified (16 uses in `cron/scheduled.js`) |
 | Every fetch is bounded (per-fetch timeout) | ✅ verified (`safeFetch` = `AbortSignal.timeout(10_000)`) |
 | Current **cron invocation** duration/CPU limit | **NOT verified** — confirm against current Cloudflare cron docs |
@@ -108,4 +108,4 @@ one provider hangs · crt.sh times out · headers never responds · all fast mod
 The `scan-budget.js:108` comment ("~30s cliff") and any doc implying a universal 30-second Worker wall-clock limit are **incorrect for Workers Paid** and should be corrected when PR1 lands. Public marketing copy unchanged.
 
 ---
-`GLOBAL DEADLINE TOO LOW / EVIDENCE-BASED REPLACEMENT READY` — the 21s global wall-clock cap is mis-calibrated (built on a "~30s wall-clock cliff" that current Cloudflare Paid docs contradict) and materially suppresses detection (~47% partial; KEV/takeover starved). The evidence-based replacement (retire the false global cap → strict per-module timeouts + per-signal evidence completeness, Option 5) is designed. **Not** stamped "safe removal ready": removal is gated on the precondition checklist above — chiefly the founder confirming the plan is **Paid** and the cron-invocation limit — plus re-confirming safe finalisation and per-module bounding in PR1. The fix is per-module real timeouts, **not** unlimited time.
+`GLOBAL DEADLINE TOO LOW / EVIDENCE-BASED REPLACEMENT READY` — **Workers Paid VERIFIED (founder dashboard); the 21-second global wall-clock cap is not required by the current Workers plan.** It is mis-calibrated (built on a "~30s wall-clock cliff" that current Cloudflare Paid docs contradict) and materially suppresses detection (~47% partial; KEV/takeover starved). The evidence-based replacement (retire the false global cap → strict per-module timeouts + per-signal evidence completeness, Option 5) is designed. **Not** stamped "safe removal": the remaining runtime preconditions (cron-invocation limit, `cpu_ms`, no hanging/retry, safe finalisation, request lifecycle) are re-verified in **PR1**. The fix is per-module real timeouts, **not** unlimited time.
