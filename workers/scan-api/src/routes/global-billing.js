@@ -298,12 +298,17 @@ export async function globalBillingRoutes(rctx) {
                 stripe_subscription_id: getStripeObjectId(obj?.subscription),
                 plan: normalizePlan(metadata.plan),
                 interval: normalizeBillingInterval(metadata.interval),
+                // B2: Stripe-collected Terms + immediate-start consent, recorded
+                // for our own audit trail ("accepted" when the customer ticked
+                // the required box; null on sessions predating consent collection).
+                terms_consent: obj?.consent?.terms_of_service ?? null,
               },
             });
             await writeSubscriptionEvent(env, rowId, "checkout_completed", {
               stripe_session_id: obj?.id || null,
               plan: normalizePlan(metadata.plan),
               interval: normalizeBillingInterval(metadata.interval),
+              terms_consent: obj?.consent?.terms_of_service ?? null,
             });
             break;
           }

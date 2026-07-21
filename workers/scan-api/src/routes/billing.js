@@ -12,7 +12,7 @@ import { computeScore } from "../engines/scoring.js";
 import { normalizeFindingSchema } from "../engines/findings.js";
 import { BILLING_PLAN_METADATA, getEffectiveDomainLimit, getPaymentGraceState, getPlanFeatures, normalizeBillingInterval, normalizePlan } from "../engines/entitlements.js";
 import { getPlanLimits, getWorkspaceBillingUserId } from "../engines/plan-usage.js";
-import { getStripePriceIdForPlan, validateStripeSecretConfig, verifyStripePriceMatchesPolicy } from "../engines/stripe.js";
+import { applyCheckoutConsentParams, getStripePriceIdForPlan, shouldRoutePlanChangeToPortal, validateStripeSecretConfig, verifyStripePriceMatchesPolicy } from "../engines/stripe.js";
 import { TRIAL_PLAN, auditApiTokenSessionRouteDenied, getPublicBillingPlans, getTrialRemainingDays, getWorkspaceSubscription, isSubscriptionActive, isTrialActive, parseCheckoutPlan } from "../engines/subscription-state.js";
 import { dnsQuery } from "../engines/dns.js";
 import { createAuditEvent } from "../lib/events.js";
@@ -287,6 +287,38 @@ export async function billingRoutes(rctx) {
       return json({ plans: getPublicBillingPlans() });
     }
 
+    // Create a Stripe billing-portal session for a customer. Shared by the
+    // portal route and the B3 checkout guard (plan changes for active paid
+    // subscribers happen in the portal, never via a second checkout).
+    async function createStripeBillingPortalSession(stripeCustomerId, returnUrl) {
+      const portalParams = new URLSearchParams();
+      portalParams.set("customer",   stripeCustomerId);
+      portalParams.set("return_url", returnUrl);
+      try {
+        const stripeRes = await fetch("https://api.stripe.com/v1/billing_portal/sessions", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${env.STRIPE_SECRET_KEY}`,
+            "Content-Type":  "application/x-www-form-urlencoded",
+          },
+          body: portalParams.toString(),
+        });
+        const stripeData = await stripeRes.json();
+        if (!stripeRes.ok) {
+          console.error("[workspace-billing/portal] Stripe API error", {
+            status: stripeRes.status,
+            type: stripeData?.error?.type ?? null,
+            code: stripeData?.error?.code ?? null,
+          });
+          return { ok: false, error: "stripe_api_error", message: "Stripe Billing Portal Session creation failed. Please try again." };
+        }
+        return { ok: true, session: stripeData };
+      } catch (e) {
+        console.error(`[workspace-billing/portal] ${e?.message ?? e}`);
+        return { ok: false, error: "stripe_request_failed", message: "Could not reach Stripe. Please try again." };
+      }
+    }
+
     // ── POST /api/workspaces/:id/billing/checkout ─────────────────────────────
     // Workspace-scoped Stripe Checkout Session. Workspace owner only.
     // Body: { "plan": "starter|professional|business", "interval": "monthly|annual" }
@@ -337,6 +369,50 @@ export async function billingRoutes(rctx) {
           plan: requestedPlan,
           message: "This plan is not available through self-service checkout.",
         }, 400);
+      }
+
+      // B3 (founder-approved 21 Jul 2026): a customer who ALREADY has an
+      // active paid Stripe subscription must change plan through the Stripe
+      // billing portal. A fresh subscription-mode Checkout Session always
+      // creates a NEW subscription — it never switches the existing one, and
+      // nothing in the checkout or webhook chain cancels the old sub — so a
+      // second live subscription would stack and the customer would be charged
+      // for BOTH. Structural guard: return a billing-portal session (Stripe
+      // switches the EXISTING subscription there, with clean proration)
+      // instead of a checkout session. Trial / free / manual rows carry no
+      // stripe_subscription_id and keep the fresh-checkout path. Returning the
+      // portal URL (same { url } shape) also self-heals older cached frontends.
+      const currentSub = await getWorkspaceSubscription(wsId, env);
+      if (shouldRoutePlanChangeToPortal(currentSub)) {
+        const reqOrigin = new URL(request.url).origin;
+        const portalReturnOrigin = env.FRONTEND_URL || reqOrigin.replace("cybermeters-platform.ttrnn47.workers.dev", "cybermeters.com");
+        const portal = await createStripeBillingPortalSession(currentSub.stripe_customer_id, `${portalReturnOrigin}/billing`);
+        if (!portal.ok) {
+          return json({ error: portal.error, message: portal.message }, 502);
+        }
+        await createAuditEvent(env, {
+          user_id:      user.id,
+          workspace_id: wsId,
+          event_type:   "billing_checkout_routed_to_portal",
+          entity_type:  "stripe_billing_portal_session",
+          entity_id:    portal.session.id,
+          description:  `Checkout request for ${requestedPlan} (${interval}) routed to the billing portal — active paid subscription exists; plan changes go through the portal so a second subscription can never stack`,
+          metadata:     {
+            requested_plan:         requestedPlan,
+            requested_interval:     interval,
+            subscription_row_id:    currentSub.id ?? null,
+            stripe_subscription_id: currentSub.stripe_subscription_id ?? null,
+            stripe_session_id:      portal.session.id,
+            workspace_id:           wsId,
+          },
+        });
+        return json({
+          url:        portal.session.url,
+          session_id: portal.session.id,
+          portal:     true,
+          reason:     "plan_change_via_portal",
+          message:    "You already have an active subscription. Plan changes are made in the Stripe billing portal, which adjusts your existing subscription with fair proration.",
+        }, 200);
       }
 
       const priceResolution = getStripePriceIdForPlan(env, requestedPlan, interval);
@@ -399,6 +475,15 @@ export async function billingRoutes(rctx) {
       params.set("subscription_data[metadata][interval]",   interval);
       params.set("subscription_data[metadata][workspace_id]", wsId);
       params.set("allow_promotion_codes", "true");
+
+      // B2 (founder-approved 21 Jul 2026): mandatory Terms acceptance plus the
+      // explicit immediate-start / 14-day cooling-off waiver, collected by
+      // Stripe on the checkout page and recorded on the session — see
+      // applyCheckoutConsentParams (engines/stripe.js) for the approved wording
+      // and the webhook audit trail for the recorded acceptance. Requires the
+      // Terms of Service URL to be set in the Stripe account's public business
+      // settings (founder dashboard action; session creation fails without it).
+      applyCheckoutConsentParams(params);
 
       if (existingSub?.stripe_customer_id) {
         params.set("customer", existingSub.stripe_customer_id);
@@ -506,41 +591,11 @@ export async function billingRoutes(rctx) {
       const frontendOrigin = env.FRONTEND_URL || origin.replace("cybermeters-platform.ttrnn47.workers.dev", "cybermeters.com");
       const returnUrl = `${frontendOrigin}/billing`;
 
-      const params = new URLSearchParams();
-      params.set("customer",   subscription.stripe_customer_id);
-      params.set("return_url", returnUrl);
-
-      let portalSession;
-      try {
-        const stripeRes = await fetch("https://api.stripe.com/v1/billing_portal/sessions", {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${env.STRIPE_SECRET_KEY}`,
-            "Content-Type":  "application/x-www-form-urlencoded",
-          },
-          body: params.toString(),
-        });
-
-        const stripeData = await stripeRes.json();
-        if (!stripeRes.ok) {
-          console.error("[workspace-billing/portal] Stripe API error", {
-            status: stripeRes.status,
-            type: stripeData?.error?.type ?? null,
-            code: stripeData?.error?.code ?? null,
-          });
-          return json({
-            error:             "stripe_api_error",
-            message:           "Stripe Billing Portal Session creation failed. Please try again.",
-          }, 502);
-        }
-        portalSession = stripeData;
-      } catch (e) {
-        console.error(`[workspace-billing/portal] ${e?.message ?? e}`);
-        return json({
-          error:   "stripe_request_failed",
-          message: "Could not reach Stripe. Please try again.",
-        }, 502);
+      const portal = await createStripeBillingPortalSession(subscription.stripe_customer_id, returnUrl);
+      if (!portal.ok) {
+        return json({ error: portal.error, message: portal.message }, 502);
       }
+      const portalSession = portal.session;
 
       await createAuditEvent(env, {
         user_id:      user.id,
