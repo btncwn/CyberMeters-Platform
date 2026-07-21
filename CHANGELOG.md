@@ -5,6 +5,16 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## v2026.07.21-1 — M7 billing-UI truth: interval-truthful plan card + retired vendor-risk claims removed — deployed 2026-07-21 (frontend-only, no migration)
+
+- **Release tag:** `v2026.07.21-1` (squash-merge `62fb41f`, PR #230). **Frontend-only** — Cloudflare Pages auto-deploy; production deployment `41dcaf80` (branch `main`, source `62fb41f`) verified Active, `app.cybermeters.com` HTTP 200.
+- **Worker unchanged:** live Worker Version ID remains `239bcd77-366a-4263-b72d-c12bcac35742` (v2026.07.20-11); rollback remains `0b2354e7-4ca8-4f9d-b122-02d89b207d7e` (v2026.07.20-9). Frontend rollback = re-deploy Pages deployment `f75ddc84` (previous main build).
+- **Migration:** none. Latest applied remains `098-related-changes.sql`. No backend behaviour change; Stripe objects/secrets/config untouched.
+- **P2 (founder M7 test-mode acceptance):** the Subscription plan card showed the plan's MONTHLY headline for ANNUAL subscriptions (Business annual read "£49.99 / month" against a £499.90/year charge; Professional annual likewise — the Stripe portal showed the truth, the app card contradicted it). The card now keys off the subscription's actual `billing_interval` (served by `GET /api/workspaces/:id/subscription`, persisted by the webhook): an active annual subscription renders the live `annual_gbp` + "/ year" with an "≈ £NN.NN/mo · billed annually" equivalent; if the live annual figure is unavailable the card shows **no price** — never the monthly amount an annual customer is not charged. MSP floor line is interval-aware (`floor_annual_gbp`). Monthly, trial and free displays unchanged; prices remain API-only (PricingParity guard green).
+- **P3:** the retired vendor-risk marketing claims ("Vendor Risk Intelligence", "Vendor Risk Analysis", "Supply Chain Intelligence", "Vendor & Supply Chain Risk") are no longer advertised on the billing/upgrade surfaces (SubscriptionPage checklist, plan descriptions, trial tip; PlanUsageCard/PlanGate labels and bullets). The `vendor_risk` feature key still gates its live surface, advertised under the honest external-observation label "Third-party technology detection". `entitlements.js PLAN_FEATURES` untouched.
+- **Validation:** new `SubscriptionBillingTruth.test.jsx` (8 tests: annual renders annual and NOT the monthly headline for Business + Professional; monthly unchanged; missing annual figure → no price; trial keeps prospective monthly; billing page + PlanGate carry no retired claim; source guard fails if any retired claim string reappears). Full FE suite 48 files / 414 tests + coverage + build green; full 158-validator sweep green.
+- **Outstanding M7 backlog (unchanged by this release):** P3 stale `professional/trialing` subscriptions row; commercial acceptance decisions (cancel/refund/proration/VAT) and LIVE-mode Stripe cutover under the sole-trader entity; per-domain overage billing episode.
+
 ## v2026.07.20-11 — P1: asset_exposure Cloudflare-edge misclassification (every scan platform-wide read partial) — deployed 2026-07-20 (code-only, no migration)
 
 - **Release tag:** `v2026.07.20-11` (deployed commit = main HEAD `b6a39ff`, squash-merge of PR #228).
