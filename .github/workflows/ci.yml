@@ -509,6 +509,9 @@ jobs:
       - name: Validate passive-probe evidence honesty (timeout/redirect-loop/refused → unknown, never healthy)
         run: node scripts/validate-probe-evidence-honesty.js
 
+      - name: Validate SSL concurrent CT lookup (reachability ∥ crt.sh/certspotter — max not sum, evidence preserved)
+        run: node scripts/validate-ssl-concurrent-ct.js
+
       - name: Validate scan deadline + partial finalization (waitUntil-cancellation guard)
         run: node scripts/validate-scan-deadline.js
 
