@@ -50,7 +50,9 @@ const PLAN_ORDER = ['free', 'starter', 'professional', 'business', 'enterprise']
 const FEATURE_LABELS = {
   business_risk_score: 'Business Risk Score',
   cyber_essentials:    'Cyber Essentials Readiness',
-  vendor_risk:         'Vendor & Supply Chain Risk',
+  // Honest external-observation label — the retired vendor-risk marketing
+  // claim must not be advertised on billing/upgrade surfaces.
+  vendor_risk:         'Third-party technology detection',
   portfolio_monitoring:'Portfolio Risk Monitoring',
   white_label:         'White Label Reports',
   msp_dashboard:       'MSP Dashboard',
@@ -62,7 +64,7 @@ const FEATURE_LABELS = {
 // is an upgrade wall, so wrong numbers are mis-selling.
 const PLAN_FEATURES = {
   starter:      ['Business Risk Score', 'Executive PDF Reports', '1 monitored domain'],
-  professional: ['Cyber Essentials Readiness', 'Vendor Risk Analysis', 'Supply Chain Intelligence', 'Up to 3 monitored domains'],
+  professional: ['Cyber Essentials Readiness', 'Third-party technology detection', 'Up to 3 monitored domains'],
   business:     ['Portfolio Risk Monitoring', 'White Label Reports', '10 monitored domains included'],
   enterprise:   ['MSP Dashboard', 'Built for client portfolios', 'Dedicated support'],
 }
