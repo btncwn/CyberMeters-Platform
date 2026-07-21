@@ -8,12 +8,13 @@ Read-only audit (Phase 0 deepening). No runtime change, no deploy. P1 detection-
 3. **Exact pipeline break:** `engines/scan-budget.js:108` — a **global WALL-CLOCK budget of 21_000 ms** with the comment *"~9s reserved under the ~30s cliff"*. `ssl` (avg 7.7s, **max 28.4s**) + `subdomains` (avg 8.1s) consume the budget → deadline-gated modules (KEV, takeover) are skipped → `partial` → the complete-only gate suppresses cross-scan change events.
 4. **Smallest PR sequence** (§Phase G).
 
-## Phase A — Git-forensic origin
-- `SCAN_DEADLINE_DEFAULTS` object: commit `fd8c13d` "fix(scan): global wall-clock deadline + latched partial finalization" — **Turhan (founder), 2026-07-14 01:56**.
-- `budgetMs: 21_000` value: commit `990df1b` "fix(scan): durable tri-state finalize + hard-bounded network phases" — **Turhan, 2026-07-14 02:26**.
-- **Rationale, verbatim in code (scan-budget.js:108):** `// network phases stop here — ~9s reserved under the ~30s cliff`. So the 21s wall-clock cap was derived to stay **~9s under an assumed ~30-second cliff**, reserving time for persistence/finalisation.
+## Phase A — Git-forensic origin (attribution = repository, not authorship of the idea)
+- `SCAN_DEADLINE_DEFAULTS` object: commit `fd8c13d` "fix(scan): global wall-clock deadline + latched partial finalization" — **2026-07-14 01:56, committed under the repository founder's Git identity during an AI-assisted engineering episode**.
+- `budgetMs: 21_000` value: commit `990df1b` "fix(scan): durable tri-state finalize + hard-bounded network phases" — **2026-07-14 02:26, same Git identity**.
+- **Rationale, verbatim in code (scan-budget.js:108):** `// network phases stop here — ~9s reserved under the ~30s cliff`. The cap was derived to stay ~9s under an assumed ~30-second cliff, reserving time for persistence/finalisation.
+- **Git authorship proves repository attribution, NOT who originated or technically recommended the "~30s" platform assumption.** The history does not prove whether that assumption came from the founder, Claude, Codex, copied architecture, or another source. This audit is about evidence, impact and remediation — **not blame**.
 - Lineage: `ffa385e` (capacity config) → `b533601` (reserved-mode 50-class budget, gated) → `fd8c13d` (global wall-clock deadline) → `990df1b` (21s + tri-state finalize) → `73f23d5` (per-module telemetry) → `#263 e9e169a` (concurrent CT in ssl — merged, **NOT deployed**).
-- **The "~30s cliff" is a WALL-CLOCK assumption.** The audit's core question is whether that assumption holds.
+- **The "~30s cliff" is a WALL-CLOCK assumption**, now contradicted by current Cloudflare Paid Workers documentation (Phase B). Whether it holds is the audit's core question.
 
 ## Phase B — Current Cloudflare reality (verified)
 **Official docs (verified via WebSearch, Mar-2025 platform change):** on **Workers Paid**, **there is NO wall-clock duration limit** — waiting on `fetch()`/DB/subrequests does **not** count toward CPU time. **CPU time** default is **30 s**, configurable up to **5 minutes (300,000 ms)** on Paid. Sources: [5-min CPU changelog](https://developers.cloudflare.com/changelog/post/2025-03-25-higher-cpu-limits/), [Workers limits](https://developers.cloudflare.com/workers/platform/limits/).
@@ -64,6 +65,21 @@ Goal: *give every module the time it legitimately needs without letting one brok
 - **Option 4 (Queue/Workflow/DO fan-out):** **not needed before public beta** — over-engineering; the scan fits one invocation comfortably once the false wall-clock cap is removed.
 - **Option 5 (hybrid) — RECOMMENDED:** generous invocation ceiling (no artificial 21s wall-clock cap) + **strict per-module timeouts** + **concurrency** (respect 6 connections; #263 pattern) + **cached/reused external intelligence** (share CT results across ssl/subdomains) + **per-signal evidence completeness** (a reliable email/SPF signal's diff is never suppressed by a slow KEV) + **final aggregation with reserved finalisation time** + **monitoring-degraded alert** for chronic partial.
 
+## Removal preconditions — ALL must be verified before the cap is removed (not just "no wall-clock limit")
+"No wall-clock limit" is necessary but **not sufficient**. Before PR1 ships, verify:
+| Precondition | Status (this audit) |
+|--------------|----------------------|
+| Cloudflare plan = **Paid** | **NOT confirmed** — founder must check the dashboard (strongly indicated, not proven) |
+| Scheduled handler runs via `ctx.waitUntil()` | ✅ verified (16 uses in `cron/scheduled.js`) |
+| Every fetch is bounded (per-fetch timeout) | ✅ verified (`safeFetch` = `AbortSignal.timeout(10_000)`) |
+| Current **cron invocation** duration/CPU limit | **NOT verified** — confirm against current Cloudflare cron docs |
+| `cpu_ms` configured value | default (no `[limits]` set) — 30s; raise only if compute-bound (it is not) |
+| No hanging promise / infinite retry | retry crons are terminal-classified (reliability audit) — re-confirm per module in PR1 |
+| Safe finalisation / durable close (reserved time) | tri-state finalize exists (`990df1b`) — must keep a **reserved finalisation window** independent of any global cap |
+| Upstream/request lifecycle (HTTP path) | HTTP path has a client; cron path does not — bound both |
+
+Until these are all green, the correct action is **evidence-based replacement** (retire the false global cap → strict per-module real timeouts + per-signal completeness), **not** "give unlimited time." Removal is not "safe" in the unqualified sense until the checklist closes.
+
 ## Phase G — Fix policy (audit-first; NO deploy this episode)
 Smallest safe PR sequence (each: timing fixtures + timeout mutations + full regression + cost/abuse analysis; **no deploy without explicit authorisation**):
 - **PR1 — retire the false global wall-clock cap.** After confirming Paid: remove (or raise far above any real scan, e.g. treat as a safety net not a budget) the 21s wall-clock budget; rely on bounded **per-module** timeouts + a small **reserved finalisation** window. Keep the `deadline_exceeded` telemetry.
@@ -77,7 +93,7 @@ If removal turned out to need a broader orchestration redesign → **STOP, archi
 one provider hangs · crt.sh times out · headers never responds · all fast modules complete · a slow optional module does NOT suppress an unrelated complete signal · two modules compete for connection slots · subrequest limit approached · client disconnect (HTTP) · cron invocation · persistence near invocation end · module throws after partial evidence · fallback source succeeds · all providers fail honestly · scan at 30/60/90/120s · no runaway invocation or duplicate persistence.
 
 ## Hard questions — answered
-1. **21s under Free/legacy?** Introduced 14 Jul by the founder against an assumed **~30s wall-clock cliff** (code comment), not a plan-specific fact.
+1. **21s under Free/legacy?** Introduced 14 Jul (commits `fd8c13d`/`990df1b`, under the founder Git identity in an AI-assisted episode) against an assumed **~30s wall-clock cliff** (code comment). The **origin of that assumption is unproven** by git history; it is not a plan-specific fact.
 2. **Does Cloudflare require it?** **No** — Paid has no wall-clock limit; scan is I/O-bound.
 3. **Real upper limits today?** No wall-clock limit (Paid); CPU 30s default→300s configurable; 1000 subrequests; 6 simultaneous connections. (Confirm Paid.)
 4. **Detection suppressed?** ~47% partial; KEV starved 7×, takeover 4×; 37 deadline_exceeded.
@@ -92,4 +108,4 @@ one provider hangs · crt.sh times out · headers never responds · all fast mod
 The `scan-budget.js:108` comment ("~30s cliff") and any doc implying a universal 30-second Worker wall-clock limit are **incorrect for Workers Paid** and should be corrected when PR1 lands. Public marketing copy unchanged.
 
 ---
-`21-SECOND DEADLINE OBSOLETE / SAFE REMOVAL DESIGN READY` — contingent on founder confirming the Cloudflare plan is **Paid** (invocation type and platform limits independently verified; plan strongly indicated but not dashboard-confirmed here).
+`GLOBAL DEADLINE TOO LOW / EVIDENCE-BASED REPLACEMENT READY` — the 21s global wall-clock cap is mis-calibrated (built on a "~30s wall-clock cliff" that current Cloudflare Paid docs contradict) and materially suppresses detection (~47% partial; KEV/takeover starved). The evidence-based replacement (retire the false global cap → strict per-module timeouts + per-signal evidence completeness, Option 5) is designed. **Not** stamped "safe removal ready": removal is gated on the precondition checklist above — chiefly the founder confirming the plan is **Paid** and the cron-invocation limit — plus re-confirming safe finalisation and per-module bounding in PR1. The fix is per-module real timeouts, **not** unlimited time.
