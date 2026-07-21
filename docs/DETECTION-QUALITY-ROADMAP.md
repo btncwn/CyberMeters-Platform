@@ -89,6 +89,27 @@ Ten competitors compared not by marketing page but by: their public evidence · 
 ## Mandatory before public beta
 chronic-partial monitoring integrity · Brand IDN PR-A/B + live acceptance · ASM high-impact depth · Certificates CT/active-service lifecycle · Email effective-state change validation · Website sensitive-surface dependency changes · Shadow IT attribution/owner lifecycle · Identity bounded external-surface workflow · cross-domain dedupe/correlation · independent scoped pentest + retest · claims audit · first-customer end-to-end acceptance.
 
+## Companion gate — Protocol Standards Conformance (canonical, 21 July 2026)
+A distinct axis from detection depth: depth asks "do we catch the change?"; conformance asks "do we parse/evaluate the standard correctly per its MUST / MUST NOT / SHOULD?". **We may NOT stamp the product "RFC compliant" today.** Many modules are RFC-*aware*; full conformance is proven per module, per RFC clause, with fixtures + mutations. Honest per-module wording (e.g. "RFC 7208-aware SPF resolution", NOT "fully RFC 7208 compliant SPF evaluator") until proven.
+
+**Per protocol-backed module, the audit answers:** (1) which RFC/standard applies; (2) which *current* version (watch for supersession); (3) which MUST/MUST-NOT/SHOULD apply to us; (4) what is deliberately out-of-scope; (5) golden fixtures? (6) malformed-input fixtures? (7) mutation tests? (8) parser↔customer-wording consistency; (9) a drift detector for when the standard updates; (10) exactly what level the claim states.
+
+**Verified RFC baseline (confirm currency at audit time):**
+| Area | Standard | Note |
+|------|----------|------|
+| SPF | RFC 7208 | resolver is 7208-*aware*; full evaluator conformance not yet proven |
+| DKIM | RFC 6376 (+ updates) | v=DKIM1 position, empty `p=`(revoked), unknown-tag ignore, RSA length, **Ed25519**, TXT folding, selector rotation |
+| **DMARC** | **RFC 9989 (core) + 9990 (aggregate) + 9991 (failure) — DMARCbis, published May 2026, OBSOLETES RFC 7489 + 9091** (verified) | **Concrete drift risk:** DMARCbis removed `pct` and moved org-domain discovery from PSL → DNS **tree walk**. Our parser likely reflects 7489 → **must re-audit** |
+| MTA-STS | RFC 8461 | `_mta-sts` TXT, `v=STSv1`, policy file at `.well-known`, mode/mx/max_age, HTTPS+content-type, redirect, stale `id`, unavailable host |
+| TLS-RPT | RFC 8460 | separate conformance audit |
+| IDNA | RFC 5890–5895 (+ Unicode UTS-46/TR39 — a Unicode security standard, not an RFC) | A-label/U-label, invalid punycode, disallowed code points, bidi, normalisation, mixed-script, eTLD+1 |
+| X.509 / CAA / CT / TLS | RFC 5280 etc. | we do CT/metadata analysis, NOT full path/chain/OCSP validation — never claim RFC 5280 full path validation |
+| HTTP / security headers | RFC 9110 family (+ CSP/HSTS/cookie separate standards) | directive grammar + inheritance, not just "header present" |
+
+**Two separate gates for protocol modules:** *protocol conformance* AND *detection accuracy* (a correctly-parsed banner with a wrong CVE mapping is still a product defect).
+
+**Audit order:** 1) SPF RFC 7208 · 2) **DMARC RFC 9989/9990/9991 migration** · 3) DKIM RFC 6376 + updates · 4) MTA-STS RFC 8461 · 5) TLS-RPT RFC 8460 · 6) IDNA RFC 5890–5895 · 7) X.509/CAA/CT · 8) HTTP/security-header. Interleaves with the detection phases (each protocol audit sits alongside its domain phase; DMARCbis migration is a real Email-phase work item, not cosmetic).
+
 ## Founder gate — the report at every episode end
 1. the real harm that could reach the customer;
 2. whether CyberMeters catches it right now;
