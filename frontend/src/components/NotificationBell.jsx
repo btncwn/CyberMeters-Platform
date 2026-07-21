@@ -33,7 +33,13 @@ function severityCfg(sev) {
   return SEVERITY_CFG[sev] ?? SEVERITY_CFG.info
 }
 
-function appPath(raw) {
+// Exported for the DOM-XSS safety suite: this is the load-bearing sanitiser for
+// alert deep-links (notification meta.link), which can carry attacker-influenced
+// data. It admits ONLY a same-origin path — a leading '/' (but not protocol-
+// relative '//'), or an absolute URL whose origin matches the app — and returns
+// null for everything else (javascript:, data:, cross-origin), so navigate() is
+// never handed a dangerous target.
+export function appPath(raw) {
   if (typeof raw !== 'string' || !raw) return null
   if (raw.startsWith('/') && !raw.startsWith('//')) return raw
   try {
