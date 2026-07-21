@@ -80,6 +80,9 @@ jobs:
       - name: Full-repo assurance — injection coverage (E2 render-sink escaping / E4 mass-assignment)
         run: node scripts/validate-injection-coverage.js
 
+      - name: DOM-XSS sink source-guard (no raw-HTML sink in frontend/src + alert-link sanitiser present)
+        run: node scripts/validate-dom-xss-sinks.js
+
       - name: Full-repo assurance — production integrity runbook SQL (executable check)
         run: node scripts/validate-production-integrity-sql.js
 
