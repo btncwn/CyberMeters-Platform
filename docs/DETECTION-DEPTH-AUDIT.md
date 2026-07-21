@@ -179,3 +179,36 @@ Read-only design; no runtime code changed. Proves the §6.1 gap end-to-end and s
 `BRAND IDN DEPTH DESIGN COMPLETE / IMPLEMENTATION READY`
 
 `SEVEN-DOMAIN DETECTION-DEPTH AUDIT — ITERATION 1 + BRAND-IDN DEEPENING / IMPLEMENTATION ROADMAP READY` (exhaustive ≥15-scenario per-domain trace = continuing deepening pass; no runtime code or deployment changed).
+
+---
+
+## 16. DMARC DMARCbis conformance audit (2026-07-21)
+First protocol-conformance audit under the new gate. Read-only; no runtime change. Standard baseline: **DMARCbis — RFC 9989 (core) / 9990 (aggregate) / 9991 (failure), published May 2026, obsoletes RFC 7489 + 9091** (WebSearch-verified). Code: `email-analysis.js parseDmarcRecord` + policy journey; `rua-routing.js`.
+
+### Detection Depth Law — the four things
+1. **Real customer harm:** (a) `pct` — a customer with `pct=50; p=reject` is shown "Reject at 50%"; DMARCbis removed `pct`, so modern receivers ignore it and enforce at 100%. We **understate** their enforcement (safe direction — never overstates protection — but inaccurate). (b) `np` — a customer who set `np=reject` (policy for *non-existent* subdomains, a real anti-spoofing control added in DMARCbis) is invisible to us: we neither credit it nor detect a change/weakening to it.
+2. **Do we catch it now:** `pct` handled on OLD (7489) semantics; `np` NOT parsed (invisible); `t` (testing) NOT parsed.
+3. **Where the pipeline breaks:** `parseDmarcRecord` (email-analysis.js) — the `pct` block validates/applies a tag DMARCbis removed and emits "enforcement applies to X%" / "Reject at X%"; no `np`/`t` extraction. External-report auth and alignment are fine (below).
+4. **Minimal PR sequence:** (a) treat `pct` as **deprecated** — parse it but replace the wording with "`pct` is deprecated in DMARCbis and ignored by modern receivers" instead of understating enforcement; (b) parse + surface **`np`** (non-existent-subdomain policy) and track its change/weakening; (c) parse `t=` testing; (d) fixtures: pct-deprecated-wording, np-present, np-weakened (reject→none), t-present, multiple-record→permerror; mutations: drop np-parse → np test reddens, restore old pct wording → deprecation test reddens; (e) live-acceptance: a founder DMARC record with `np=reject` is surfaced.
+
+### Tag/behaviour conformance matrix
+| Item | RFC 7489 (old) | DMARCbis (9989/90/91) | Our handling | Verdict |
+|------|----------------|------------------------|--------------|---------|
+| `v=DMARC1` | required | required | validated | **PASS** |
+| `p` none/quarantine/reject | yes | yes | validated | **PASS** |
+| `sp` subdomain policy | yes | yes | parsed + warns if absent | **PASS** |
+| `pct` | applied (0–100) | **REMOVED / ignored** | validated + applied + "Reject at X%" | **FAIL (drift)** — P2 |
+| `np` non-existent-subdomain policy | — | **ADDED** | **not parsed** | **PARTIAL/MISSING** — P2 |
+| `t` testing | — | added (replaces some pct use) | not parsed | **PARTIAL** — P3 |
+| `adkim`/`aspf` alignment | yes | yes | parsed, default `r` | **PASS** (policy-level) |
+| `rua`/`ruf` | yes | yes | parsed (comma-split) | **PASS** |
+| External report auth (`_report._dmarc`) | yes | yes (9990) | `ensureExternalReportAuthorization` implemented | **PASS** |
+| Multiple records | permerror | permerror | warns + `valid=false` | **PASS** |
+| Unknown tags | ignore | ignore | stored, not acted on (except pct) | **PASS** (except pct) |
+| Org-domain discovery (PSL → **DNS tree-walk**) | PSL | **tree-walk** | **low impact — see scope note** | **OUT OF SCOPE (mostly)** |
+
+### Honest scope note
+CyberMeters is a **policy reader / reporter**, not a mail receiver that *evaluates* DMARC on live messages. Alignment verdicts come from the RUA aggregate reports (computed by real receivers), so the PSL→tree-walk organizational-domain change — a big deal for *receivers* — has **low impact** for us; we surface the customer's published policy and read reports. We must not claim to *evaluate* DMARC alignment. `rua-routing.js` already does a same-org test by label-drop (not PSL), which is adequate for its narrow inbound-routing purpose.
+
+### Verdict
+`DMARC HANDLING = RFC 7489-BASED / DMARCbis DRIFT ON pct + np` — no catastrophic conformance failure (alignment, external-auth, multi-record, unknown-tags all fine), two real drifts (`pct` applied though removed; `np` unsupported). Status: **CI-PROVEN pending** — the migration PR above closes it. Public copy must not claim "DMARCbis / RFC 9989 compliant" until then.
