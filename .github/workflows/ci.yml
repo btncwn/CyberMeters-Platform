@@ -122,6 +122,9 @@ jobs:
       - name: Validate auth/session hardening (SSO MFA gate, reset token revocation, invite + lifecycle deleted_at)
         run: node scripts/validate-auth-session-hardening.js
 
+      - name: B5 OAuth callback readiness (state CSRF single-use/TTL, config/error gates, OTC single-use, nonce binding)
+        run: node scripts/validate-oauth-callback-readiness.js
+
       # Workspace invitations must actually be delivered: the POST handler dispatches the
       # email through the canonical sendCustomerEmail path, fails CLOSED on a send failure
       # (compensating-delete + generic non-2xx), records the created audit only on a real
