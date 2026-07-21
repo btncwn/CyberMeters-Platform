@@ -6,6 +6,7 @@ import {
 import { useWorkspace } from '../../hooks/useWorkspace'
 import { api } from '../../api'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
+import { SERVICE_COLORS } from '../../theme/serviceColors'
 import RiskBadge from '../../components/RiskBadge'
 import StatCard from '../../components/StatCard'
 
@@ -567,11 +568,11 @@ export default function BrandMonitoringPage() {
 
       {/* 1 · Hero */}
       <div className="card p-6 mb-6 flex flex-col lg:flex-row lg:items-center gap-5">
-        <div className="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ background: '#D5F1F8' }}>
-          <Radar className="w-6 h-6" style={{ color: '#0797BC' }} />
+        <div className="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ background: SERVICE_COLORS.brand.chip }}>
+          <Radar className="w-6 h-6" style={{ color: SERVICE_COLORS.brand.icon }} />
         </div>
         <div className="flex-1 min-w-0">
-          <span className="eyebrow" style={{ color: '#0A7592' }}>Brand Protection</span>
+          <span className="eyebrow" style={{ color: SERVICE_COLORS.brand.text }}>Brand Protection</span>
           <h1 className="page-title">Brand Protection</h1>
           <p className="page-subtitle">Monitor lookalike domains, typosquats, impersonation risk and brand-abuse signals.</p>
         </div>

@@ -16,7 +16,7 @@
 //             still pop and severity colours stay unambiguous on top of it.
 export const SERVICE_COLORS = {
   email:            { icon: '#1E5FDB', text: '#1A4FB8', chip: '#DCE8FC', card: '#EEF3FD', ring: '#D6E2FB', surface: '#F5F8FE' }, // Glacier blue
-  brand:            { icon: '#0797BC', text: '#0A7592', chip: '#D5F1F8', card: '#E5F7FB', ring: '#C7EDF5', surface: '#F1FAFC' }, // Turquoise
+  brand:            { icon: '#D6488E', text: '#AE3670', chip: '#FADFEC', card: '#FCEFF6', ring: '#F6D2E4', surface: '#FEF6FA' }, // Rose (founder re-theme 21 Jul — completes the 8-swatch scale; also breaks up the blue-family crowding next to certs/surface)
   surface:          { icon: '#12938C', text: '#0E736D', chip: '#D6F0EC', card: '#E6F5F3', ring: '#CBEBE6', surface: '#F1F9F8' }, // Glacier teal
   certs:            { icon: '#1685C9', text: '#0F689F', chip: '#DBEDFB', card: '#E8F3FC', ring: '#CFE6F8', surface: '#F3F8FD' }, // Azure
   cyber_essentials: { icon: '#0F9F6E', text: '#0B7D56', chip: '#D9F3E8', card: '#E9F8F1', ring: '#CBEFDB', surface: '#F3FBF7' }, // Mint
