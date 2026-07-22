@@ -228,8 +228,14 @@ function d1Stub({ fail = false } = {}) {
   eq("outbound_calls surfaced", diag.modules[3].outbound_calls, 2);
   eq("no timeout → timeout_source null", diag.modules[0].timeout_source, null);
 
+  // PR-B1A: advisory trigger origin — additive, passthrough, fail-safe null.
+  const trigDiag = buildExecutionDiagnostics({ executionContext: "queue", trigger: "scheduled", deadline: dl, telemetry: telem });
+  eq("trigger passthrough (scheduled)", trigDiag.trigger, "scheduled");
+  eq("trigger does not alter execution_context", trigDiag.execution_context, "queue");
+
   const empty = buildExecutionDiagnostics({});
   eq("missing context fails safe to null", empty.execution_context, null);
+  eq("missing trigger fails safe to null (PR-B1A)", empty.trigger, null);
   eq("missing deadline → null budget", empty.deadline_budget_ms, null);
   eq("missing telemetry → empty modules", empty.modules.length, 0);
 }
@@ -260,14 +266,17 @@ function d1Stub({ fail = false } = {}) {
 
   ok("engine whitelists execution contexts (fail-safe null)",
     /opts\.executionContext === "queue" \|\| opts\.executionContext === "cron" \|\| opts\.executionContext === "waituntil"/.test(engineSrc));
-  ok("completed report embeds execution_diagnostics",
-    /report\.execution_diagnostics = buildExecutionDiagnostics\(\{ executionContext, deadline, telemetry \}\)/.test(engineSrc));
-  ok("failed report embeds execution_diagnostics",
-    /execution_diagnostics: buildExecutionDiagnostics\(\{ executionContext, deadline, telemetry \}\)/.test(engineSrc));
+  // PR-B1A: advisory origin is validated with the same fail-safe pattern.
+  ok("engine whitelists trigger origins (fail-safe null)",
+    /opts\.trigger === "manual" \|\| opts\.trigger === "scheduled"/.test(engineSrc));
+  ok("completed report embeds execution_diagnostics (with trigger, PR-B1A)",
+    /report\.execution_diagnostics = buildExecutionDiagnostics\(\{ executionContext, trigger, deadline, telemetry \}\)/.test(engineSrc));
+  ok("failed report embeds execution_diagnostics (with trigger, PR-B1A)",
+    /execution_diagnostics: buildExecutionDiagnostics\(\{ executionContext, trigger, deadline, telemetry \}\)/.test(engineSrc));
   ok("finalisation wall time recorded as D1 pseudo-row",
     /telemetry\.record\("scan_finalisation", \{ outcome: "ok", duration_ms: now\(\) - finalizeStartedMs \}\)/.test(engineSrc));
-  ok("queue call site passes executionContext queue",
-    /doRunScanEngine\([^)]*\{ executionContext: "queue" \}\)/.test(dispatchSrc));
+  ok("queue call site passes executionContext queue (+ advisory trigger, PR-B1A)",
+    /doRunScanEngine\([^)]*\{ executionContext: "queue", trigger \}\)/.test(dispatchSrc));
   ok("cron call site passes executionContext cron",
     /runScanEngine\([^)]*\{ executionContext: "cron" \}\)/.test(indexSrc));
   ok("waituntil call site passes executionContext waituntil",

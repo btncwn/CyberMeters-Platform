@@ -1,6 +1,6 @@
 import { handleInboundEmail } from "./email/inbound.js";
 import { runScheduled } from "./cron/scheduled.js";
-import { handleScanDispatchBatch } from "./engines/scan-dispatch.js";
+import { handleScanDispatchBatch, dispatchAdmittedScan, isScheduledQueueDispatchMode } from "./engines/scan-dispatch.js";
 import { recoverInterruptedScans } from "./engines/scan-recovery.js";
 import { recordMetric } from "./lib/metrics.js";
 import { redactedJson } from "./lib/redact.js";
@@ -645,17 +645,26 @@ async function triggerScheduledScan(schedule, env) {
       return;
     }
 
+    // ── Durable Queue dispatch mode for scheduled scans (PR-B1A) ──────────────
+    // Producer-side flag ONLY (the Queue consumer is shared with manual dispatch
+    // and never flag-gated). "queue" admits the scan as 'queued' and hands
+    // execution to the consumer's claim CAS; any other value keeps the legacy
+    // direct-engine path below byte-identical.
+    const scheduledQueueMode = isScheduledQueueDispatchMode(env);
+
     // Create scan row — admission is decided by the database (PR-2): migration
     // 099's partial unique index allows at most one active scan per
     // (workspace_id, domain). If a scan is already in flight for this domain
     // (e.g. a manual scan the customer just started), skip exactly like an
     // eligibility failure — no R2 placeholder, no last_run_at stamp, no engine
     // start — and the schedule stays due, so the next hourly tick retries once
-    // the active scan reaches a terminal state.
+    // the active scan reaches a terminal state. In queue mode the row is
+    // admitted as 'queued' (the consumer's claim CAS flips it to 'running');
+    // the conflict semantics are identical in both modes.
     try {
       await env.cybermeters_db
         .prepare(`INSERT INTO scans (id, domain_id, workspace_id, domain, status) VALUES (?, ?, ?, ?, ?)`)
-        .bind(scanId, domainId, schedule.workspace_id ?? null, schedule.domain, "running")
+        .bind(scanId, domainId, schedule.workspace_id ?? null, schedule.domain, scheduledQueueMode ? "queued" : "running")
         .run();
     } catch (insertErr) {
       if (!isUniqueConstraintError(insertErr)) throw insertErr;
@@ -663,6 +672,85 @@ async function triggerScheduledScan(schedule, env) {
         schedule_id: schedule.id ?? null, workspace_id: schedule.workspace_id ?? null,
         domain_id: domainId, domain: schedule.domain, reason: ACTIVE_SCAN_CONFLICT_CODE,
       }));
+      return;
+    }
+
+    if (scheduledQueueMode) {
+      // ── Queue path (PR-B1A). Ordering per the approved PR-B1 design: ────────
+      //   admission (above) → schedule stamp → scheduled_scan_triggered audit →
+      //   dispatchAdmittedScan (queued R2 placeholder + Queue send, ONE
+      //   compensation boundary; the queue binding is touched ONLY inside
+      //   engines/scan-dispatch.js) → return. The engine, the scan_started audit
+      //   (exactly-once at claim) and the scheduled settlement (asset counts +
+      //   failure notification) all run in the Queue consumer invocation.
+      //
+      // The stamp is the SINGLE schedule-advance site, placed BEFORE dispatch:
+      // a crash after the stamp leaves a queued row that PR-1 recovery honestly
+      // terminalises and a schedule that waits for its natural next run — never
+      // a duplicate scan. Founder decision (PR-B1): next_run_at is never rolled
+      // back after a post-stamp dispatch failure — the run is honestly lost
+      // until the next natural due time, exactly like today's post-stamp engine
+      // failure.
+      try {
+        await env.cybermeters_db
+          .prepare(`UPDATE scheduled_scans SET last_run_at = ?, next_run_at = ? WHERE id = ?`)
+          .bind(now, computeNextRunAt(schedule.frequency), schedule.id)
+          .run();
+      } catch (stampErr) {
+        // Founder decision (PR-B1): an admitted scan whose schedule stamp
+        // failed is CAS-failed immediately (queued→failed, scan_quality NULL —
+        // it earned neither `complete` nor `partial`) and never dispatched: a
+        // fast honest failure instead of an hour-long zombie. The CAS guard
+        // means a racing actor's transition is never clobbered; if this write
+        // itself fails, the stale queued row is left for PR-1 recovery.
+        console.error("[scheduled-scan] stamp failed", schedule.id, stampErr?.message);
+        await env.cybermeters_db
+          .prepare(`UPDATE scans SET status = 'failed', scan_quality = NULL WHERE id = ? AND status = 'queued'`)
+          .bind(scanId)
+          .run()
+          .catch(() => {});
+        return;
+      }
+
+      console.log("[scheduled-monitoring]", JSON.stringify({
+        schedule_id:  schedule.id,
+        workspace_id: schedule.workspace_id ?? null,
+        domain:       schedule.domain,
+        scan_id:      scanId,
+        domain_id:    domainId,
+      }));
+
+      // Request-level audit (the consumer owns the exactly-once scan_started
+      // at claim). Non-fatal: once the row is admitted and the schedule
+      // stamped, an audit-write failure must not strand the scan undispatched.
+      try {
+        await createAuditEvent(env, {
+          workspace_id: schedule.workspace_id ?? null,
+          user_id:     userId,
+          event_type:  "scheduled_scan_triggered",
+          entity_type: "scheduled_scan",
+          entity_id:   schedule.id,
+          description: `Scheduled scan triggered for ${schedule.domain}`,
+          metadata:    { scheduled_scan_id: schedule.id, scan_id: scanId, domain: schedule.domain, domain_id: domainId },
+        });
+      } catch { /* non-fatal */ }
+
+      // Queued R2 placeholder + Queue send — the SAME compensation
+      // boundary as manual dispatch (on failure: CAS queued→failed with
+      // scan_quality NULL, canonical failed report, one scan_dispatch_failed
+      // audit). Never throws; there is no caller response to serve here, so
+      // the {ok:false} outcome needs no further handling — the compensation
+      // already owns the truth and the schedule deliberately stays advanced.
+      await dispatchAdmittedScan(env, {
+        scanId,
+        domainId,
+        workspaceId: schedule.workspace_id ?? null,
+        userId,
+        domain: schedule.domain,
+        reportKey: `reports/${scanId}.json`,
+        trigger: "scheduled",
+        scheduled_scan_id: schedule.id,
+      });
       return;
     }
 
@@ -807,6 +895,126 @@ async function triggerScheduledScan(schedule, env) {
     // Note: Alert phase is now handled uniformly during scan completion in runScanEngine (Phase 10).
   } catch {
     // Graceful failure — one schedule erroring must not affect the others
+  }
+}
+
+/**
+ * settleScheduledQueueScan — Queue-consumer settlement hook for scheduled
+ * scans (PR-B1A). The engine runs in the consumer invocation under queue
+ * dispatch, so the legacy post-engine follow-up moves here with it:
+ *   1. asset counts on the scheduled_scans row (lifted from the legacy block);
+ *   2. the scheduled_scan_failed notification, preserved ONLY for the legacy
+ *      trigger condition (the engine THREW — `engineError`) AND when D1 shows
+ *      the row honestly terminal 'failed' (the legacy catch could notify even
+ *      when the downgrade-safe guard had preserved a completed scan; deriving
+ *      from D1 closes that dishonesty without widening the notification).
+ *
+ * DERIVED, ADVISORY, NON-FATAL by contract: every fact is re-read from D1.
+ * `scheduledScanId` is message correlation only and never authorises anything
+ * — the schedule row must exist AND belong to the scan row's workspace, or
+ * settlement silently skips. Exactly-once posture: the consumer's claim CAS
+ * admits one execution per scan, so this hook fires at most once per scan —
+ * the same dedupe surface as the legacy single post-engine block.
+ */
+async function settleScheduledQueueScan(env, { scanId, row, scheduledScanId, engineError = false } = {}) {
+  // Coarse progress marker for the outer failure log below — correlation only.
+  let stage = "cross_check";
+  try {
+    if (!scanId || !scheduledScanId || !row?.workspace_id) return;
+
+    // Advisory cross-check — fail SILENT (skip), never closed on the scan:
+    // the scan itself already executed under D1-derived identity.
+    const schedRow = await env.cybermeters_db
+      .prepare(`SELECT id, domain, workspace_id FROM scheduled_scans WHERE id = ? LIMIT 1`)
+      .bind(scheduledScanId)
+      .first()
+      .catch(() => null);
+    if (!schedRow || schedRow.workspace_id !== row.workspace_id) return;
+
+    // ── Asset counts (verbatim semantics of the legacy post-engine block) ──
+    stage = "asset_counts";
+    try {
+      const [eventsResult, totalResult] = await Promise.all([
+        env.cybermeters_db
+          .prepare(
+            `SELECT event_type FROM asset_events
+             WHERE scan_id = ? AND workspace_id = ?`
+          )
+          .bind(scanId, row.workspace_id)
+          .all(),
+        env.cybermeters_db
+          .prepare(
+            `SELECT COUNT(*) AS n FROM workspace_assets
+             WHERE workspace_id = ? AND status = 'active'`
+          )
+          .bind(row.workspace_id)
+          .first(),
+      ]);
+      const changeCount = (eventsResult.results || []).filter(
+        (e) => e.event_type === "new_asset_discovered" || e.event_type === "asset_reappeared"
+      ).length;
+      await env.cybermeters_db
+        .prepare(
+          `UPDATE scheduled_scans
+           SET last_asset_count = ?, asset_change_count = ?
+           WHERE id = ?`
+        )
+        .bind(totalResult?.n ?? 0, changeCount, schedRow.id)
+        .run();
+      console.log("[scheduled-monitoring]", JSON.stringify({
+        schedule_id:        schedRow.id,
+        workspace_id:       row.workspace_id,
+        scan_id:            scanId,
+        last_asset_count:   totalResult?.n ?? 0,
+        asset_change_count: changeCount,
+      }));
+    } catch (e) {
+      console.error("[scheduled-monitoring] asset count update failed:", e?.message);
+    }
+
+    // ── Engine-failure notification (legacy parity, D1-derived) ──
+    stage = "notification";
+    if (engineError) {
+      const scanRow = await env.cybermeters_db
+        .prepare(`SELECT status FROM scans WHERE id = ? LIMIT 1`)
+        .bind(scanId)
+        .first()
+        .catch(() => null);
+      if (scanRow?.status === "failed") {
+        const ownerRow = await env.cybermeters_db
+          .prepare("SELECT owner_user_id FROM workspaces WHERE id = ? AND deleted_at IS NULL LIMIT 1")
+          .bind(row.workspace_id)
+          .first()
+          .catch(() => null);
+        await createNotificationEvent(env, row.workspace_id, {
+          type:     "scheduled_scan_failed",
+          severity: "high",
+          title:    "Scheduled scan failed",
+          message:  `The scheduled scan for ${row.domain} failed to complete. Your next scheduled run will try again automatically.`,
+          metadata: { scheduled_scan_id: schedRow.id, scan_id: scanId, domain: row.domain },
+          user_id:  ownerRow?.owner_user_id ?? null,
+        });
+      }
+    }
+  } catch (settleErr) {
+    // Non-fatal by contract — settlement never affects the scan's terminal
+    // state (no retry, no rerun, no rethrow). But NEVER silent (PR-B1A P1):
+    // an unexpected settlement failure must be operationally observable and
+    // must not imply success. Safe correlation ONLY: ids the producer/row
+    // already carry, the coarse stage and the error NAME. The error MESSAGE
+    // is deliberately never logged — length bounding is not redaction, and a
+    // message can carry SQL fragments, secrets or tenant data (same rule as
+    // dispatchLog).
+    try {
+      console.error("[scheduled-settlement]", JSON.stringify({
+        scan_id: scanId ?? null,
+        scheduled_scan_id: scheduledScanId ?? null,
+        workspace_id: row?.workspace_id ?? null,
+        stage,
+        outcome: "settlement_failed",
+        error: settleErr?.name || "Error",
+      }));
+    } catch { /* logging must never throw */ }
   }
 }
 
@@ -2297,13 +2505,16 @@ export default {
     recoverInterruptedScans,
   }),
 
-  // ── Durable scan-dispatch Queue consumer (PR-3A) ──────────────────────────
-  // Receives manual-scan dispatch messages (producer: dispatchAdmittedScan,
-  // inert until SCAN_DISPATCH_MODE="queue"). The engine is AWAITED inside the
-  // queue invocation — full invocation lifetime, never the post-response ~30s
+  // ── Durable scan-dispatch Queue consumer (PR-3A; PR-B1A settlement) ───────
+  // Receives scan dispatch messages from BOTH producers (manual route +
+  // scheduled cron, each behind its own producer-side flag) through the ONE
+  // dispatchAdmittedScan boundary. The engine is AWAITED inside the queue
+  // invocation — full invocation lifetime, never the post-response ~30s
   // waitUntil path this replaces. Claim CAS + terminal no-op semantics live in
-  // engines/scan-dispatch.js.
-  queue: (batch, env, ctx) => handleScanDispatchBatch(batch, env, ctx),
+  // engines/scan-dispatch.js. The settlement hook runs the scheduled-only
+  // post-engine follow-up (asset counts + failure notification) — derived,
+  // advisory, non-fatal.
+  queue: (batch, env, ctx) => handleScanDispatchBatch(batch, env, ctx, { onScheduledScanSettled: settleScheduledQueueScan }),
 
   // ── Inbound DMARC aggregate (RUA) email handler ──────────────────────────
   // Extracted to src/email/inbound.js (Sprint 9 phase 1). Cloudflare Email Routing
@@ -2327,6 +2538,10 @@ export {
   // injected into runScheduled rather than exported, so the only other way to reach
   // this one is to drive the whole hourly tick and every unrelated task with it.
   retryPendingDomainVerifications,
+  // Exported for validate-scheduled-queue-dispatch.js (PR-B1A): same rationale —
+  // both are reachable in production only via the cron tick / queue consumer.
+  triggerScheduledScan,
+  settleScheduledQueueScan,
   purgeWorkspaceData,
   isMaintenanceMode,
   isMaintenanceBypass,

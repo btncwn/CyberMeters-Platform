@@ -235,6 +235,11 @@ export function createModuleTelemetry(now = Date.now) {
 // reads it; scan_quality, events, alerts and every customer surface are untouched.
 //   execution_context — how the engine was invoked (queue | cron | waituntil);
 //                       unknown/absent fails safe to null, never guessed.
+//   trigger           — advisory scan origin (manual | scheduled); additive in
+//                       PR-B1A because the scheduled Queue cutover makes both
+//                       origins execute as "queue". Correlation-only (sourced
+//                       from the advisory message field, validated at the
+//                       engine); unknown/absent fails safe to null.
 //   wall_ms           — the engine-OBSERVED wall time per module. For a module
 //                       abandoned by raceModuleDeadline the underlying provider
 //                       fetch continues unobserved, so used≡wall from the
@@ -248,10 +253,11 @@ export function createModuleTelemetry(now = Date.now) {
 //                       timeout, derived from the existing timeout flag) | null.
 export const SCAN_EXECUTION_DIAGNOSTICS_VERSION = "scan-exec-diag-v1";
 
-export function buildExecutionDiagnostics({ executionContext = null, deadline = null, telemetry = null } = {}) {
+export function buildExecutionDiagnostics({ executionContext = null, trigger = null, deadline = null, telemetry = null } = {}) {
   return {
     version:            SCAN_EXECUTION_DIAGNOSTICS_VERSION,
     execution_context:  executionContext ?? null,
+    trigger:            trigger ?? null,
     deadline_budget_ms: deadline?.budgetMs ?? null,
     engine_wall_ms:     typeof deadline?.elapsedMs === "function" ? deadline.elapsedMs() : null,
     modules: (telemetry?.rows ?? []).map((r) => ({

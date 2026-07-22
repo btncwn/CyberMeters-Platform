@@ -319,6 +319,14 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
   const executionContext = opts.executionContext === "queue" || opts.executionContext === "cron" || opts.executionContext === "waituntil"
     ? opts.executionContext
     : null;
+  // PR-B1A: advisory scan origin (manual | scheduled) for diagnostics only —
+  // after the scheduled Queue cutover both origins execute with
+  // executionContext "queue", so origin needs its own additive field. Same
+  // contract as executionContext: telemetry-only, never authoritative, fails
+  // safe to null.
+  const trigger = opts.trigger === "manual" || opts.trigger === "scheduled"
+    ? opts.trigger
+    : null;
 
   try {
     // Mark scan as running in D1
@@ -963,7 +971,7 @@ function buildCanonicalUrlProfile(modules) {
     // PR-A1: additive execution diagnostics — versioned, R2-only, built AFTER the
     // telemetry backfill so both scan modes get full module coverage. No runtime
     // consumer reads this block; scan_quality/events/alerts are untouched.
-    report.execution_diagnostics = buildExecutionDiagnostics({ executionContext, deadline, telemetry });
+    report.execution_diagnostics = buildExecutionDiagnostics({ executionContext, trigger, deadline, telemetry });
 
     // Heartbeat: entering finalization. A cancellation after this is a finalize-time
     // failure (the reconciler is the backstop), not a mid-scan orphan.
@@ -1456,7 +1464,7 @@ function buildCanonicalUrlProfile(modules) {
       failed_at:           failedAt,
       // PR-A1: additive diagnostics on the failed report too — a failed scan's
       // execution timing is exactly what a diagnosis needs. Observational only.
-      execution_diagnostics: buildExecutionDiagnostics({ executionContext, deadline, telemetry }),
+      execution_diagnostics: buildExecutionDiagnostics({ executionContext, trigger, deadline, telemetry }),
     };
     await finalizeScanResult(latch, {
       scanId, report: failedReport, score: 0, rating: "unknown", status: "failed", env,
