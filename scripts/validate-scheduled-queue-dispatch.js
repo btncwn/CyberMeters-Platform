@@ -196,6 +196,17 @@ function makeScheduledEnv(mode) {
   };
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Capture console output during fn() — used to prove settlement failures are
+// OBSERVABLE (structured operational log) while successes stay log-silent.
+async function captureConsole(fn) {
+  const lines = [];
+  const origLog = console.log, origErr = console.error;
+  console.log = (...a) => { lines.push(a.map(String).join(" ")); };
+  console.error = (...a) => { lines.push(a.map(String).join(" ")); };
+  try { return { result: await fn(), lines }; }
+  finally { console.log = origLog; console.error = origErr; }
+}
+const settlementFailLines = (lines) => lines.filter((l) => l.includes("settlement_failed"));
 async function waitFor(cond, timeoutMs = 3000) {
   const start = Date.now();
   while (!cond()) {
@@ -408,7 +419,7 @@ const consumerEnv = makeScheduledEnv("queue");
   seedWa.run("wa_3", "ws_S1", "dom_S_h", "c.sched-h.co.uk", "inactive");
 
   const { deps, rec } = makeConsumerDeps({ engineOutcome: "completed" });
-  const d = await processScanDispatchMessage(H_MSG, consumerEnv, deps);
+  const { result: d, lines } = await captureConsole(() => processScanDispatchMessage(H_MSG, consumerEnv, deps));
   const sr = schedRowOf("sch_h");
   const notifs = sdb.prepare("SELECT COUNT(*) c FROM notification_events WHERE type='scheduled_scan_failed'").get().c;
   ok("C1 claim → engine invoked with executionContext queue + trigger scheduled",
@@ -421,6 +432,8 @@ const consumerEnv = makeScheduledEnv("queue");
     sr?.last_asset_count === 2 && sr?.asset_change_count === 2 &&
     notifs === 0,
     JSON.stringify({ sr: { la: sr?.last_asset_count, ac: sr?.asset_change_count }, notifs }));
+  ok("C2c successful settlement emits NO settlement_failed log",
+    settlementFailLines(lines).length === 0, JSON.stringify(settlementFailLines(lines)));
 }
 
 // C2b — the notification preserves the LEGACY trigger condition ONLY: an
@@ -510,14 +523,52 @@ const I_MSG = sState.sends[sState.sends.length - 1];
     d.outcome === "terminal_noop" && rec.hookCalls.length === 0);
 }
 
-// C8 — a throwing hook never poisons the ack decision.
+// C8 — a throwing hook never poisons the ack decision, AND the failure is
+// OBSERVABLE: exactly one structured settlement_failed log with safe
+// correlation only (ids + stage + error name — never the message body).
 {
   sdb.prepare("UPDATE scans SET status='queued' WHERE id=?").run(H_ROW.id);
   const { deps, rec } = makeConsumerDeps();
-  deps.onScheduledScanSettled = async () => { throw new Error("hook exploded"); };
-  const d = await processScanDispatchMessage(H_MSG, consumerEnv, deps);
-  ok("C8 hook failure is non-fatal: decision stays executed/ack",
+  deps.onScheduledScanSettled = async () => { throw new Error("hook exploded s3cret-fragment"); };
+  const { result: d, lines } = await captureConsole(() => processScanDispatchMessage(H_MSG, consumerEnv, deps));
+  const failLogs = settlementFailLines(lines);
+  ok("C8 hook failure is non-fatal: decision stays executed/ack, engine ran once, no retry",
     d.action === "ack" && d.outcome === "executed" && rec.engineCalls.length === 1);
+  ok("C8b hook failure emits EXACTLY ONE structured settlement_failed log (safe correlation, name-only error)",
+    failLogs.length === 1 &&
+    failLogs[0].includes(`"scan_id":"${H_ROW.id}"`) &&
+    failLogs[0].includes('"scheduled_scan_id":"sch_h"') &&
+    failLogs[0].includes('"workspace_id":"ws_S1"') &&
+    failLogs[0].includes('"stage":"scheduled_settlement"') &&
+    failLogs[0].includes('"error":"Error"') &&
+    !failLogs[0].includes("s3cret-fragment"),
+    JSON.stringify(failLogs));
+}
+
+// C9 — an UNEXPECTED outer failure inside settleScheduledQueueScan (a
+// synchronous throw the inner .catch chains cannot absorb) returns
+// non-fatally AND emits exactly one structured [scheduled-settlement] log
+// with stage + bounded error detail.
+{
+  const brokenEnv = {
+    cybermeters_db: { prepare() { throw new Error("prepare exploded"); } },
+  };
+  const { result, lines } = await captureConsole(() =>
+    settleScheduledQueueScan(brokenEnv, {
+      scanId: H_ROW.id, row: { workspace_id: "ws_S1", domain: "sched-h.co.uk" },
+      scheduledScanId: "sch_h", engineError: false,
+    }));
+  const failLogs = settlementFailLines(lines);
+  ok("C9 outer settlement failure → non-fatal return + exactly one structured log (stage cross_check)",
+    result === undefined && failLogs.length === 1 &&
+    failLogs[0].includes("[scheduled-settlement]") &&
+    failLogs[0].includes(`"scan_id":"${H_ROW.id}"`) &&
+    failLogs[0].includes('"scheduled_scan_id":"sch_h"') &&
+    failLogs[0].includes('"workspace_id":"ws_S1"') &&
+    failLogs[0].includes('"stage":"cross_check"') &&
+    failLogs[0].includes('"error":"Error"') &&
+    failLogs[0].includes('"message":"prepare exploded"'),
+    JSON.stringify(failLogs));
 }
 
 // ── Layer D: recovery integration ────────────────────────────────────────────

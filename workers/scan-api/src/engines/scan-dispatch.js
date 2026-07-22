@@ -337,7 +337,25 @@ export async function processScanDispatchMessage(body, env, deps = {}) {
             : null,
         engineError: decision.outcome === "engine_error",
       });
-    } catch { /* non-fatal by contract — settlement is derived, never authoritative */ }
+    } catch (settleErr) {
+      // Non-fatal by contract — settlement is derived, never authoritative:
+      // the decision is never altered (no retry, no rerun, no terminal-state
+      // change). But NEVER silent (PR-B1A P1): a settlement failure must be
+      // operationally observable and must not imply success. Safe correlation
+      // only — ids + stage + error NAME (dispatchLog convention: never error
+      // messages, never message bodies).
+      dispatchLog({
+        scan_id: scanId,
+        scheduled_scan_id:
+          typeof body.scheduled_scan_id === "string" && body.scheduled_scan_id.length > 0
+            ? body.scheduled_scan_id
+            : null,
+        workspace_id: row.workspace_id ?? null,
+        stage: "scheduled_settlement",
+        outcome: "settlement_failed",
+        error: settleErr?.name || "Error",
+      });
+    }
   }
   return decision;
 }

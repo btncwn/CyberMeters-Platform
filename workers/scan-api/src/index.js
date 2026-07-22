@@ -917,6 +917,8 @@ async function triggerScheduledScan(schedule, env) {
  * the same dedupe surface as the legacy single post-engine block.
  */
 async function settleScheduledQueueScan(env, { scanId, row, scheduledScanId, engineError = false } = {}) {
+  // Coarse progress marker for the outer failure log below — correlation only.
+  let stage = "cross_check";
   try {
     if (!scanId || !scheduledScanId || !row?.workspace_id) return;
 
@@ -930,6 +932,7 @@ async function settleScheduledQueueScan(env, { scanId, row, scheduledScanId, eng
     if (!schedRow || schedRow.workspace_id !== row.workspace_id) return;
 
     // ── Asset counts (verbatim semantics of the legacy post-engine block) ──
+    stage = "asset_counts";
     try {
       const [eventsResult, totalResult] = await Promise.all([
         env.cybermeters_db
@@ -970,6 +973,7 @@ async function settleScheduledQueueScan(env, { scanId, row, scheduledScanId, eng
     }
 
     // ── Engine-failure notification (legacy parity, D1-derived) ──
+    stage = "notification";
     if (engineError) {
       const scanRow = await env.cybermeters_db
         .prepare(`SELECT status FROM scans WHERE id = ? LIMIT 1`)
@@ -992,7 +996,26 @@ async function settleScheduledQueueScan(env, { scanId, row, scheduledScanId, eng
         });
       }
     }
-  } catch { /* non-fatal by contract — settlement never affects the scan's terminal state */ }
+  } catch (settleErr) {
+    // Non-fatal by contract — settlement never affects the scan's terminal
+    // state (no retry, no rerun, no rethrow). But NEVER silent (PR-B1A P1):
+    // an unexpected settlement failure must be operationally observable and
+    // must not imply success. Safe correlation only: ids the producer/row
+    // already carry, the coarse stage, the error name and a bounded message
+    // (operational log convention of this scheduled path — never message
+    // bodies, secrets or tenant data beyond existing-safe identifiers).
+    try {
+      console.error("[scheduled-settlement]", JSON.stringify({
+        scan_id: scanId ?? null,
+        scheduled_scan_id: scheduledScanId ?? null,
+        workspace_id: row?.workspace_id ?? null,
+        stage,
+        outcome: "settlement_failed",
+        error: settleErr?.name || "Error",
+        message: String(settleErr?.message ?? "").slice(0, 200),
+      }));
+    } catch { /* logging must never throw */ }
+  }
 }
 
 
