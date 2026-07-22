@@ -19,7 +19,9 @@
 //      BOTH dispatch modes.
 //   D. Recovery integration — recoverInterruptedScans over queued rows.
 //   E. Static/config contracts — wrangler queue config, workers_dev survives,
-//      scheduled path never touches SCAN_QUEUE, no third scan-creation path.
+//      every SCAN_QUEUE send flows through the ONE dispatch boundary
+//      (engines/scan-dispatch.js — PR-B1A routes scheduled sends through it
+//      too), no third scan-creation path.
 //
 // Mutation directions (reverting the guard reddens the named assertion):
 //   - consumer executes without the claim CAS guard   → B2 (exactly-one) fails
@@ -86,6 +88,11 @@ ok("A1 mode flag: only the exact string 'queue' enables dispatch (fail-safe)",
     m.user_id === "user_x" && m.trigger === "manual" &&
     !Number.isNaN(Date.parse(m.admitted_at)) &&
     typeof m.request_id === "string" && m.request_id.length > 0);
+  // PR-B1A byte-parity: a manual message carries NO scheduled_scan_id key and
+  // its trigger defaults to "manual" (mutation direction: a producer that
+  // stamps scheduled fields on manual messages reddens this).
+  ok("A2b manual message is byte-parity: no scheduled_scan_id key, trigger manual",
+    !("scheduled_scan_id" in m) && m.trigger === "manual");
 }
 ok("A3 retry delays are bounded and positive",
   Number.isInteger(UNKNOWN_VERSION_RETRY_DELAY_S) && UNKNOWN_VERSION_RETRY_DELAY_S > 0 && UNKNOWN_VERSION_RETRY_DELAY_S <= 3600 &&
@@ -652,8 +659,11 @@ const STALE = RECOVERY_MIN_AGE_MS + 60 * 60 * 1000;
 const wranglerSrc = fs.readFileSync(path.join(root, "workers", "scan-api", "wrangler.toml"), "utf8");
 const stripToml = wranglerSrc.replace(/#[^\n]*/g, "");
 
-// E1 — the scheduled/cron path never touches SCAN_QUEUE: the binding is
-// consumed by engines/scan-dispatch.js and NOWHERE else in the Worker source.
+// E1 — every send flows through the ONE dispatch boundary: the SCAN_QUEUE
+// binding is consumed by engines/scan-dispatch.js and NOWHERE else in the
+// Worker source. (PR-B1A: the scheduled producer sends via the SAME
+// dispatchAdmittedScan compensation boundary — never via a direct binding
+// reference of its own.)
 {
   const files = [];
   const walk = (d) => {
@@ -664,7 +674,7 @@ const stripToml = wranglerSrc.replace(/#[^\n]*/g, "");
     }
   };
   walk(srcPath());
-  ok("E1 SCAN_QUEUE is referenced ONLY by engines/scan-dispatch.js (scheduled path never sends)",
+  ok("E1 SCAN_QUEUE is referenced ONLY by engines/scan-dispatch.js (the one dispatch boundary)",
     JSON.stringify(files) === JSON.stringify(["workers/scan-api/src/engines/scan-dispatch.js"]),
     JSON.stringify(files));
 }

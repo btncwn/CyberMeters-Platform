@@ -1,13 +1,21 @@
-// ── Durable manual-scan Queue dispatch (PR-3A, 22 Jul 2026) ──────────────────
-// Producer + consumer for the manual-scan Cloudflare Queue lifecycle:
+// ── Durable scan Queue dispatch (PR-3A manual, 22 Jul 2026; PR-B1A scheduled) ─
+// Producer + consumer for the scan Cloudflare Queue lifecycle. Two producers,
+// ONE consumer and ONE compensation boundary:
 //
-//   POST /api/scan → atomic 099 admission (status 'queued') → dispatchAdmittedScan
-//   (R2 queued placeholder + SCAN_QUEUE.send) → 202 → queue() consumer →
-//   claim CAS queued→running → runScanEngine → terminal finalisation (engine).
+//   manual:    POST /api/scan → atomic 099 admission (status 'queued') →
+//              dispatchAdmittedScan (R2 queued placeholder + SCAN_QUEUE.send)
+//              → 202 → queue() consumer → claim CAS queued→running →
+//              runScanEngine → terminal finalisation (engine).
+//   scheduled: cron triggerScheduledScan (index.js) → same 099 admission →
+//              schedule stamp → scheduled_scan_triggered audit → the SAME
+//              dispatchAdmittedScan → the SAME consumer lifecycle → the
+//              scheduled settlement hook (asset counts + failure notification).
 //
-// INERT until SCAN_DISPATCH_MODE = "queue" (PR-3B cutover, founder-gated): any
-// other value — including absent — fails safe to the existing waitUntil path,
-// and the consumer receives nothing because the producer never sends.
+// Manual dispatch is gated by SCAN_DISPATCH_MODE = "queue" (PR-3B cutover,
+// LIVE); scheduled dispatch is gated by the SEPARATE SCHEDULED_DISPATCH_MODE
+// (PR-B1B cutover, founder-gated). For each flag, any other value — including
+// absent — fails safe to that producer's legacy path. The consumer is never
+// flag-gated: flags are producer-side only, so in-flight messages always drain.
 //
 // Trust boundary: delivery is AT-LEAST-ONCE and the message body is advisory.
 // Only scan_id is execution-authoritative — the consumer re-reads the scans row
@@ -52,9 +60,28 @@ export function isQueueDispatchMode(env = {}) {
   return env?.SCAN_DISPATCH_MODE === "queue";
 }
 
+// Scheduled-scan cutover switch (PR-B1A, 22 Jul 2026). DELIBERATELY separate
+// from SCAN_DISPATCH_MODE: the manual Queue path is already LIVE-ACCEPTED, so
+// coupling the flags would make any scheduled rollback also roll back the
+// proven manual path, and would turn the PR-B1A deploy itself into the
+// scheduled cutover instead of an inert release. Both flags are PRODUCER-side
+// only — the Queue consumer below is shared and never flag-gated, so in-flight
+// messages keep draining across any flag change. Fail-safe: anything but the
+// exact string "queue" keeps the legacy direct-engine cron path.
+export function isScheduledQueueDispatchMode(env = {}) {
+  return env?.SCHEDULED_DISPATCH_MODE === "queue";
+}
+
 // Version-1 message. scan_id is the only execution-authoritative field; the
 // rest is advisory (cross-checked by the consumer) or correlation-only.
-export function buildScanDispatchMessage({ scanId, workspaceId, domainId, domain, userId, requestId }) {
+// PR-B1A widens `trigger` to "manual" | "scheduled" and adds an optional
+// advisory `scheduled_scan_id` — both correlation-only, NEVER authorising
+// tenant/domain execution (the consumer still derives all identity from D1).
+// The version stays 1: the additions are advisory, the consumer tolerates
+// their absence, and producer + consumer deploy atomically in one Worker.
+// A manual message is byte-identical to before (default trigger, no
+// scheduled_scan_id key).
+export function buildScanDispatchMessage({ scanId, workspaceId, domainId, domain, userId, requestId, trigger, scheduledScanId }) {
   return {
     v: SCAN_DISPATCH_MESSAGE_VERSION,
     scan_id: scanId,
@@ -62,7 +89,10 @@ export function buildScanDispatchMessage({ scanId, workspaceId, domainId, domain
     domain: domain ?? null,
     domain_id: domainId ?? null,
     user_id: userId ?? null,
-    trigger: "manual",
+    trigger: trigger === "scheduled" ? "scheduled" : "manual",
+    ...(typeof scheduledScanId === "string" && scheduledScanId.length > 0
+      ? { scheduled_scan_id: scheduledScanId }
+      : {}),
     admitted_at: new Date().toISOString(),
     request_id: requestId ?? createId("req"),
   };
@@ -83,7 +113,7 @@ function dispatchLog(fields) {
 // is appended, and the caller returns a customer-safe 503. If the compensating
 // D1 write itself fails, the stale 'queued' row is deliberately LEFT for the
 // hourly PR-1 recovery path to converge — never reported as success.
-export async function dispatchAdmittedScan(env, { scanId, domainId, workspaceId, userId, domain, reportKey }) {
+export async function dispatchAdmittedScan(env, { scanId, domainId, workspaceId, userId, domain, reportKey, trigger, scheduled_scan_id }) {
   const requestId = createId("req");
   let stage = "r2_placeholder";
   try {
@@ -108,7 +138,7 @@ export async function dispatchAdmittedScan(env, { scanId, domainId, workspaceId,
 
     stage = "queue_send";
     await env.SCAN_QUEUE.send(
-      buildScanDispatchMessage({ scanId, workspaceId, domainId, domain, userId, requestId })
+      buildScanDispatchMessage({ scanId, workspaceId, domainId, domain, userId, requestId, trigger, scheduledScanId: scheduled_scan_id })
     );
 
     return { ok: true, request_id: requestId };
@@ -175,6 +205,7 @@ export async function processScanDispatchMessage(body, env, deps = {}) {
   const doRunScanEngine = deps.runScanEngine ?? runScanEngine;
   const doCreateAuditEvent = deps.createAuditEvent ?? createAuditEvent;
   const doHeartbeatScan = deps.heartbeatScan ?? heartbeatScan;
+  const onScheduledScanSettled = deps.onScheduledScanSettled ?? null;
 
   // ── 1. Validate the envelope. scan_id is mandatory; version must be known. ─
   if (!body || typeof body !== "object" || typeof body.scan_id !== "string" || body.scan_id.length === 0) {
@@ -274,12 +305,41 @@ export async function processScanDispatchMessage(body, env, deps = {}) {
   // completed/failed via the canonical latch; a throw here is a defensive
   // impossibility and is ACKED, never retried — the row converges via the
   // engine's own terminal write or PR-1 recovery.
+  // PR-B1A: `trigger` is advisory origin for telemetry ONLY (execution
+  // identity still comes exclusively from the row); an unrecognised value
+  // fails safe to null, never guessed.
+  const trigger = body.trigger === "manual" || body.trigger === "scheduled" ? body.trigger : null;
+  let decision;
   try {
-    await doRunScanEngine(scanId, row.domain_id, row.workspace_id ?? null, row.domain, env, { executionContext: "queue" });
-    return { action: "ack", outcome: "executed" };
+    await doRunScanEngine(scanId, row.domain_id, row.workspace_id ?? null, row.domain, env, { executionContext: "queue", trigger });
+    decision = { action: "ack", outcome: "executed" };
   } catch (err) {
-    return { action: "ack", outcome: "engine_error", error: err?.name || "Error" };
+    decision = { action: "ack", outcome: "engine_error", error: err?.name || "Error" };
   }
+
+  // ── 8. Scheduled settlement (PR-B1A) — derived, advisory, non-fatal. ──────
+  // The engine now runs HERE for queue-dispatched scheduled scans, so the
+  // legacy post-engine follow-up (asset counts + engine-failure notification)
+  // moves here with it, behind the injected hook. Runs ONLY after the claim
+  // was won and the engine settled — the claim CAS admits exactly one
+  // execution, so the hook fires at most once per scan. scheduled_scan_id is
+  // correlation-only: the hook re-derives every fact from D1 and silently
+  // skips on any mismatch. A hook failure never alters the decision — the
+  // scan's terminal state is already owned by the engine's canonical latch.
+  if (trigger === "scheduled" && typeof onScheduledScanSettled === "function") {
+    try {
+      await onScheduledScanSettled(env, {
+        scanId,
+        row,
+        scheduledScanId:
+          typeof body.scheduled_scan_id === "string" && body.scheduled_scan_id.length > 0
+            ? body.scheduled_scan_id
+            : null,
+        engineError: decision.outcome === "engine_error",
+      });
+    } catch { /* non-fatal by contract — settlement is derived, never authoritative */ }
+  }
+  return decision;
 }
 
 // ── Consumer entry: the Worker's queue() handler body ────────────────────────

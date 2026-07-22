@@ -331,6 +331,9 @@ jobs:
       - name: Validate durable scan Queue dispatch (PR-3A flag-off parity + claim CAS + at-least-once no-ops + dispatch compensation + recovery widening + config invariants + mutations)
         run: node scripts/validate-scan-queue-dispatch.js
 
+      - name: Validate scheduled durable Queue dispatch (PR-B1A flag-off parity + queued admission ordering + single stamp + stamp/dispatch compensation + settlement hook + advisory origin + config pin + mutations)
+        run: node scripts/validate-scheduled-queue-dispatch.js
+
       - name: Validate Shadow IT recurrence truth (per-recurrence copy + observed ≠ unauthorised + surface parity + viewer gating + dedupe + mutations)
         run: node scripts/validate-shadow-it-recurrence-truth.js
 

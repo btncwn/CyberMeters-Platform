@@ -119,5 +119,15 @@ RUA_INBOUND_DOMAIN = "reports.cybermeters.com"
 # ONLY after both queues above exist in the account.
 SCAN_DISPATCH_MODE = "queue"
 
+# Scheduled-scan dispatch mode (PR-B1A, 22 Jul 2026). Producer-side ONLY — the
+# Queue consumer is shared with manual dispatch and is NOT flag-gated, so
+# in-flight messages keep draining across any flag change. "waituntil" keeps
+# the legacy cron direct-engine path byte-identical (any unrecognised value
+# fails safe here); "queue" admits scheduled scans as 'queued' and dispatches
+# via SCAN_QUEUE — PR-B1B cutover only, founder-gated, config-only flip.
+# DELIBERATELY separate from SCAN_DISPATCH_MODE: coupling them would make a
+# scheduled rollback also roll back the LIVE-ACCEPTED manual Queue path.
+SCHEDULED_DISPATCH_MODE = "waituntil"
+
 FRONTEND_URL = "https://app.cybermeters.com"
 MICROSOFT_REDIRECT_URI = "https://cybermeters-platform.ttrnn47.workers.dev/api/auth/microsoft/callback"
