@@ -548,10 +548,15 @@ const I_MSG = sState.sends[sState.sends.length - 1];
 // C9 — an UNEXPECTED outer failure inside settleScheduledQueueScan (a
 // synchronous throw the inner .catch chains cannot absorb) returns
 // non-fatally AND emits exactly one structured [scheduled-settlement] log
-// with stage + bounded error detail.
+// carrying safe correlation + error NAME only. The raw error MESSAGE must
+// NEVER appear — length bounding is not redaction, and a message can carry
+// SQL fragments, secrets or tenant data. An injected canary secret in the
+// thrown message is proven ABSENT from the log. (Mutation direction:
+// restoring any settleErr.message use in this log reddens this.)
 {
+  const CANARY = "sk_live_c4n4ry-t0k3n-fragment";
   const brokenEnv = {
-    cybermeters_db: { prepare() { throw new Error("prepare exploded"); } },
+    cybermeters_db: { prepare() { throw new Error(`prepare exploded ${CANARY}`); } },
   };
   const { result, lines } = await captureConsole(() =>
     settleScheduledQueueScan(brokenEnv, {
@@ -566,8 +571,13 @@ const I_MSG = sState.sends[sState.sends.length - 1];
     failLogs[0].includes('"scheduled_scan_id":"sch_h"') &&
     failLogs[0].includes('"workspace_id":"ws_S1"') &&
     failLogs[0].includes('"stage":"cross_check"') &&
-    failLogs[0].includes('"error":"Error"') &&
-    failLogs[0].includes('"message":"prepare exploded"'),
+    failLogs[0].includes('"error":"Error"'),
+    JSON.stringify(failLogs));
+  ok("C9b raw error message NEVER logged: no message field, canary secret absent from ALL output",
+    failLogs.length === 1 &&
+    !failLogs[0].includes('"message"') &&
+    !lines.some((l) => l.includes(CANARY)) &&
+    !lines.some((l) => l.includes("prepare exploded")),
     JSON.stringify(failLogs));
 }
 

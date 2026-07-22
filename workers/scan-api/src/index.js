@@ -1000,10 +1000,11 @@ async function settleScheduledQueueScan(env, { scanId, row, scheduledScanId, eng
     // Non-fatal by contract — settlement never affects the scan's terminal
     // state (no retry, no rerun, no rethrow). But NEVER silent (PR-B1A P1):
     // an unexpected settlement failure must be operationally observable and
-    // must not imply success. Safe correlation only: ids the producer/row
-    // already carry, the coarse stage, the error name and a bounded message
-    // (operational log convention of this scheduled path — never message
-    // bodies, secrets or tenant data beyond existing-safe identifiers).
+    // must not imply success. Safe correlation ONLY: ids the producer/row
+    // already carry, the coarse stage and the error NAME. The error MESSAGE
+    // is deliberately never logged — length bounding is not redaction, and a
+    // message can carry SQL fragments, secrets or tenant data (same rule as
+    // dispatchLog).
     try {
       console.error("[scheduled-settlement]", JSON.stringify({
         scan_id: scanId ?? null,
@@ -1012,7 +1013,6 @@ async function settleScheduledQueueScan(env, { scanId, row, scheduledScanId, eng
         stage,
         outcome: "settlement_failed",
         error: settleErr?.name || "Error",
-        message: String(settleErr?.message ?? "").slice(0, 200),
       }));
     } catch { /* logging must never throw */ }
   }
