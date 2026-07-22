@@ -101,13 +101,10 @@ function isProbeTimeout(err) {
 // resolver cache), so exposure spends ~2 extra DoH per probed host. The Worker
 // subrequest-budget guard backstops any exhaustion honestly (probe_status:not_executed,
 // never a false clean). Reserved mode uses the cached + metered resolver instead.
-function makeDefaultProbeFetch(accounting = null) {
-  return makeSsrfSafeProbeFetch({
-    resolver: (name, type) => dnsQuery(name, type, { accounting }).catch(() => null),
-    timeoutMs: 8_000,
-    accounting,
-  });
-}
+const defaultProbeFetch = makeSsrfSafeProbeFetch({
+  resolver: (name, type, opts = {}) => dnsQuery(name, type, { accounting: opts.accounting || null }).catch(() => null),
+  timeoutMs: 8_000,
+});
 
 // Cloudflare-edge error statuses: 520–527 (origin connection/response failures),
 // 530 (1xxx accompanying code, incl. 1016 origin DNS error). These are synthesised
@@ -146,14 +143,14 @@ export function classifyServerErrorStatus(status, server) {
  */
 export async function probeAsset(host, opts = {}) {
   const accounting = opts.accounting || null;
-  const fetcher = typeof opts.fetcher === "function" ? opts.fetcher : makeDefaultProbeFetch(accounting);
+  const fetcher = typeof opts.fetcher === "function" ? opts.fetcher : defaultProbeFetch;
   let budgetExhausted = false;   // a probe attempt was starved, not genuinely failed
   let timedOut = false;          // the probe started but never got an answer (not assessed)
   for (const proto of ["https", "http"]) {
     const url = `${proto}://${host}`;
     let res = null;
     try {
-      res = await fetcher(url);
+      res = await fetcher(url, { accounting });
     } catch (err) {
       // Timeout or network error — try HTTP fallback. Distinguish the three cases:
       // budget exhaustion (never checked) and timeout (started, no answer) are both

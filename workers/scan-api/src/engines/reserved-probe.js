@@ -49,8 +49,12 @@ function makeSsrfResolver(cache, onOutbound, accounting = null) {
 // resolver(name,type) supplies DNS answers and must never throw (resolvesToPrivateIp
 // fails open on a rejected/empty answer). onOutbound() is invoked once per ACTUAL
 // outbound GET so a caller can meter real subrequest consumption.
-export function makeSsrfSafeProbeFetch({ resolver, maxHops = RESERVED_MAX_REDIRECT_HOPS, timeoutMs = 8_000, onOutbound = null, accounting = null } = {}) {
-  return async function ssrfSafeProbeFetch(url) {
+export function makeSsrfSafeProbeFetch({ resolver: baseResolver, maxHops = RESERVED_MAX_REDIRECT_HOPS, timeoutMs = 8_000, onOutbound = null, accounting = null } = {}) {
+  return async function ssrfSafeProbeFetch(url, opts = {}) {
+    const activeAccounting = opts?.accounting || accounting;
+    const resolver = typeof baseResolver === "function"
+      ? (name, type) => baseResolver(name, type, { accounting: activeAccounting })
+      : baseResolver;
     let current = url;
     for (let hop = 0; ; hop++) {
       if (urlIsBlockedTarget(current)) return null;
@@ -58,13 +62,13 @@ export function makeSsrfSafeProbeFetch({ resolver, maxHops = RESERVED_MAX_REDIRE
       try { hostname = new URL(current).hostname; } catch { return null; }
       if (await resolvesToPrivateIp(hostname, resolver)) return null;
       onOutbound?.();
-      accounting?.recordAttempt?.();
+      activeAccounting?.recordAttempt?.();
       let res;
       try {
         res = await fetch(current, { method: "GET", redirect: "manual", signal: AbortSignal.timeout(timeoutMs) });
-        accounting?.recordCompleted?.();
+        activeAccounting?.recordCompleted?.();
       } catch (err) {
-        accounting?.recordError?.(err);
+        activeAccounting?.recordError?.(err);
         throw err;
       }
       if (![301, 302, 303, 307, 308].includes(res.status) || hop >= maxHops) return res;
