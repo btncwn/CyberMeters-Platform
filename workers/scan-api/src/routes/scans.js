@@ -23,6 +23,7 @@ import { readScanReportSnapshot } from "../engines/report-snapshot.js";
 import { createAuditEvent } from "../lib/events.js";
 import { DOMAIN_VERIFICATION_REQUIRED, isWorkspaceDomainVerified } from "../lib/domain-verification.js";
 import { createId, isValidDomain, parseBoundedInteger } from "../lib/util.js";
+import { ACTIVE_SCAN_CONFLICT_MESSAGE, findActiveScan, isUniqueConstraintError } from "../lib/scan-admission.js";
 
 export async function scanRoutes(rctx) {
   const { request, env, ctx, url, json, serverError, corsHeaders,
@@ -175,13 +176,37 @@ export async function scanRoutes(rctx) {
         return json({ ...DOMAIN_VERIFICATION_REQUIRED, domain_id: resolvedDomainId, workspace_id: workspaceId }, 403);
       }
 
-      // Create scan row — status 'running' (engine starts immediately)
-      await env.cybermeters_db
-        .prepare(
-          `INSERT INTO scans (id, domain_id, workspace_id, domain, status) VALUES (?, ?, ?, ?, ?)`
-        )
-        .bind(scanId, resolvedDomainId, workspaceId, domain, "running")
-        .run();
+      // Create scan row — status 'running' (engine starts immediately).
+      // Admission is decided HERE, by the database (PR-2): migration 099's
+      // partial unique index allows at most one active scan per
+      // (workspace_id, domain), so of two racing requests exactly one INSERT
+      // succeeds — a pre-insert SELECT cannot be the authority because both
+      // racers pass any read-then-write check. The loser gets an honest 409:
+      // no R2 placeholder, no engine start, no side effect past this point.
+      try {
+        await env.cybermeters_db
+          .prepare(
+            `INSERT INTO scans (id, domain_id, workspace_id, domain, status) VALUES (?, ?, ?, ?, ?)`
+          )
+          .bind(scanId, resolvedDomainId, workspaceId, domain, "running")
+          .run();
+      } catch (insertErr) {
+        if (!isUniqueConstraintError(insertErr)) throw insertErr;
+        const active = await findActiveScan(env, workspaceId, domain);
+        return json(
+          {
+            error: ACTIVE_SCAN_CONFLICT_MESSAGE,
+            ...(active
+              ? {
+                  active_scan_id: active.id,
+                  active_scan_status: active.status,
+                  active_scan_created_at: active.created_at,
+                }
+              : {}),
+          },
+          409
+        );
+      }
 
       // Write placeholder report to R2 so GET /report returns 200 immediately
       await env.cybermeters_reports.put(
