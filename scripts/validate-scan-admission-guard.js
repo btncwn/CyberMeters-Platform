@@ -19,6 +19,13 @@
 //   D. Source contracts — both creation paths route the constraint rejection
 //      to the honest outcome (manual → 409 body, scheduled → skip + return),
 //      and no creation path exists outside them.
+//   E. REAL-ROUTE behaviour (PR-2b) — drives the actual scanRoutes handler
+//      against a real SQLite database (schema + all migrations, including the
+//      REAL 099 index), a recording R2 stub, and a parked engine. Proves the
+//      audit-ordering invariant: scan_requested is written ONLY after the
+//      atomic INSERT admits the scan — a rejected duplicate leaves NO scan
+//      row, NO audit, NO R2 placeholder and never starts the engine; an
+//      unexpected INSERT failure also writes no lifecycle audit.
 //
 // Mutation directions (reverting the guard reddens the named assertion):
 //   - drop WHERE from the primary index      → "terminal statuses free the slot"
@@ -95,7 +102,7 @@ const a4 = throwsUnique(() => insertScan({ ws: "ws2", domainId: "dom_c", domain:
 ok("A4 same domain in a DIFFERENT workspace is admitted (tenant-scoped)", !a4.threw);
 
 // A5 — same workspace, different domain is admitted.
-const a5 = throwsUnique(() => insertScan({ ws: "ws1", domainId: "dom_d", domain: "other.example", status: "running" }));
+const a5 = throwsUnique(() => insertScan({ ws: "ws1", domainId: "dom_d", domain: "other-fixture.co.uk", status: "running" }));
 ok("A5 different domain in the same workspace is admitted", !a5.threw);
 
 // A6 — every future active status participates in the guard.
@@ -238,6 +245,158 @@ const workerInsertCount = (dir) => {
 ok("D6 exactly two scan-creation paths exist in the Worker",
   workerInsertCount(path.join(root, "workers", "scan-api", "src")) === 2);
 
+
+// ── Layer E: real-route behaviour (PR-2b audit ordering) ─────────────────────
+// A second REAL database (fresh converge) drives the actual scanRoutes handler.
+// The engine is parked at its first D1 write (a never-resolving promise) so no
+// network runs and no engine write pollutes the audit assertions; admission,
+// audit, placeholder and 409 behaviour are all the production code paths.
+const routesPath = path.join(root, "workers", "scan-api", "src", "routes", "scans.js");
+const { scanRoutes } = await import(pathToFileURL(routesPath).href);
+
+const edb = new DatabaseSync(":memory:", { enableForeignKeyConstraints: false });
+{
+  const applyTo = (p2) => {
+    try { edb.exec(fs.readFileSync(p2, "utf8")); }
+    catch (e) { if (!/duplicate|already exists|no such (table|column)/i.test(e.message)) throw e; }
+  };
+  applyTo(path.join(root, "database", "schema.sql"));
+  for (const f of migFiles) applyTo(path.join(migDir, f));
+}
+
+const engineParks = [];
+let insertPoison = null; // when set, INSERT INTO scans throws this (test E6)
+function d1Adapter(sqlite) {
+  const exec = (sql, args) => ({
+    async first() { poke(sql); const r = sqlite.prepare(sql).get(...args); return r === undefined ? null : r; },
+    async all()   { poke(sql); return { results: sqlite.prepare(sql).all(...args) }; },
+    async run()   {
+      if (/UPDATE scans SET status = 'running'/.test(sql)) {
+        engineParks.push(sql);
+        return new Promise(() => {}); // park the engine forever — no network, no writes
+      }
+      poke(sql);
+      const info = sqlite.prepare(sql).run(...args);
+      return { meta: { changes: Number(info.changes) } };
+    },
+  });
+  const poke = (sql) => {
+    if (insertPoison && /INSERT INTO scans/.test(sql)) { const e = insertPoison; throw e; }
+  };
+  return { prepare(sql) { const noArgs = exec(sql, []); return { ...noArgs, bind(...args) { return exec(sql, args); } }; } };
+}
+
+const r2Puts = [];
+const waitUntils = [];
+const envE = {
+  cybermeters_db: d1Adapter(edb),
+  cybermeters_reports: { put: async (k) => { r2Puts.push(k); }, get: async () => null },
+};
+
+// Fixtures: one billing-entitled owner, two workspaces, two verified domains.
+edb.exec(`
+  INSERT INTO workspaces (id, name, owner_user_id) VALUES ('ws_E_a', 'WS A', 'user_E1');
+  INSERT INTO workspaces (id, name, owner_user_id) VALUES ('ws_E_b', 'WS B', 'user_E1');
+  INSERT INTO domains (id, user_id, domain) VALUES ('dom_E_1', 'user_E1', 'accept-fixture.co.uk');
+  INSERT INTO domains (id, user_id, domain) VALUES ('dom_E_2', 'user_E1', 'other-fixture.co.uk');
+  INSERT INTO workspace_domains (workspace_id, domain_id, verification_status) VALUES ('ws_E_a', 'dom_E_1', 'verified');
+  INSERT INTO workspace_domains (workspace_id, domain_id, verification_status) VALUES ('ws_E_b', 'dom_E_1', 'verified');
+  INSERT INTO workspace_domains (workspace_id, domain_id, verification_status) VALUES ('ws_E_a', 'dom_E_2', 'verified');
+  INSERT INTO subscriptions (id, owner_user_id, plan, status, subscription_status, current_period_end)
+    VALUES ('sub_E_1', 'user_E1', 'business', 'active', 'active', '2030-01-01T00:00:00.000Z');
+`);
+
+const auditCounts = () => Object.fromEntries(
+  edb.prepare("SELECT event_type, COUNT(*) c FROM audit_events GROUP BY event_type").all().map((r) => [r.event_type, r.c]));
+const activeRows = (ws, dom) => edb.prepare(
+  "SELECT COUNT(*) c FROM scans WHERE workspace_id=? AND domain=? AND status IN ('queued','running','retrying')").get(ws, dom).c;
+
+async function postScan(domain, workspaceId) {
+  const rctx = {
+    request: { method: "POST", json: async () => ({ domain, workspace_id: workspaceId }) },
+    env: envE,
+    ctx: { waitUntil: (p) => { waitUntils.push(p); } },
+    url: new URL("https://api.test/api/scan"),
+    json: (data, status = 200) => ({ data, status }),
+    serverError: (scope, error) => ({ data: { error: "Request failed. Please try again." }, status: 500 }),
+    corsHeaders: {},
+    requireAuth: async () => ({ id: "user_E1" }),
+    requireWorkspaceRole: async () => true,
+    consumeApiRateLimit: async () => null,
+    requireScanReadAccess: async () => null,
+    getAccessibleWorkspaceIds: async () => ["ws_E_a"],
+    computeNextRunAt: () => "2030-01-01T00:00:00.000Z",
+  };
+  return scanRoutes(rctx);
+}
+
+// E1 — successful admission: 202, exactly one scan row and one scan_requested.
+const e1 = await postScan("accept-fixture.co.uk", "ws_E_a");
+const e1Audits = auditCounts();
+ok("E1 successful admission → 202, one active row, exactly one scan_requested audit",
+  e1?.status === 202 && activeRows("ws_E_a", "accept-fixture.co.uk") === 1 &&
+  (e1Audits.scan_requested || 0) === 1,
+  `status=${e1?.status} audits=${JSON.stringify(e1Audits)}`);
+ok("E1b admitted path wrote the placeholder and started the engine (existing design)",
+  r2Puts.length === 1 && waitUntils.length === 1 && engineParks.length === 1);
+
+// E2 — duplicate same-workspace/domain → canonical 409, exact body.
+const e2 = await postScan("accept-fixture.co.uk", "ws_E_a");
+ok("E2 duplicate request → canonical 409 body",
+  e2?.status === 409 &&
+  JSON.stringify(Object.keys(e2.data).sort()) === JSON.stringify(["code", "error"]) &&
+  e2.data.code === "active_scan_exists" &&
+  e2.data.error === "A scan is already active for this domain.");
+
+// E3/E4/E5 — the rejected duplicate created NOTHING: no audit row of any type,
+// no R2 placeholder, no engine start, no second scan row.
+const e3Audits = auditCounts();
+ok("E3 rejected duplicate created ZERO additional audit rows",
+  JSON.stringify(e3Audits) === JSON.stringify(e1Audits), JSON.stringify(e3Audits));
+ok("E4 rejected duplicate created no R2 placeholder", r2Puts.length === 1);
+ok("E5 rejected duplicate never invoked the scan engine",
+  waitUntils.length === 1 && engineParks.length === 1 &&
+  activeRows("ws_E_a", "accept-fixture.co.uk") === 1);
+
+// E6 — an UNEXPECTED insert failure (not the unique constraint) propagates as a
+// real failure and writes no lifecycle audit.
+insertPoison = new Error("D1_ERROR: no such table: scans");
+let e6Threw = false;
+try { await postScan("other-fixture.co.uk", "ws_E_a"); } catch { e6Threw = true; }
+insertPoison = null;
+const e6Audits = auditCounts();
+ok("E6 unexpected INSERT failure → propagated error, no scan_requested audit",
+  e6Threw && JSON.stringify(e6Audits) === JSON.stringify(e1Audits) &&
+  activeRows("ws_E_a", "other-fixture.co.uk") === 0);
+
+// E7 — same domain in ANOTHER workspace is independently admitted.
+const e7 = await postScan("accept-fixture.co.uk", "ws_E_b");
+ok("E7 same domain, different workspace → independently admitted (202)",
+  e7?.status === 202 && activeRows("ws_E_b", "accept-fixture.co.uk") === 1);
+
+// E8 — different domain in the SAME workspace is independently admitted.
+const e8 = await postScan("other-fixture.co.uk", "ws_E_a");
+ok("E8 different domain, same workspace → independently admitted (202)",
+  e8?.status === 202 && activeRows("ws_E_a", "other-fixture.co.uk") === 1);
+
+// E9 — ordering contracts. Manual: scan_requested appears AFTER the guarded
+// INSERT + 409 return (post-admission only). Scheduled: the existing
+// scheduled_scan_triggered audit stays AFTER its guarded INSERT (unchanged
+// intended semantics).
+{
+  const srcNow = fs.readFileSync(routesPath, "utf8");
+  const insertIdx = srcNow.indexOf("INSERT INTO scans");
+  const conflictIdx = srcNow.indexOf("activeScanConflictBody(), 409");
+  const requestedIdx = srcNow.indexOf('"scan_requested"');
+  ok("E9 manual: scan_requested is written only after the admission decision",
+    insertIdx > -1 && conflictIdx > insertIdx && requestedIdx > conflictIdx);
+  const idxSrcNow = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "index.js"), "utf8");
+  const schedInsert = idxSrcNow.indexOf("INSERT INTO scans");
+  const schedAudit = idxSrcNow.indexOf('"scheduled_scan_triggered"');
+  ok("E9b scheduled: scheduled_scan_triggered audit remains after its guarded INSERT",
+    schedInsert > -1 && schedAudit > schedInsert);
+}
+
 // ── Summary ──────────────────────────────────────────────────────────────────
 console.log(`\n${passed} passed, ${failed} failed`);
-if (failed > 0) process.exit(1);
+process.exit(failed > 0 ? 1 : 0);
