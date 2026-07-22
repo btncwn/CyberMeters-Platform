@@ -19,7 +19,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const eng = (f) => import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", f)).href);
-const { createModuleTelemetry } = await eng("scan-budget.js");
+const { createModuleTelemetry, createScanDeadline, raceModuleDeadline, buildExecutionDiagnostics, SCAN_EXECUTION_DIAGNOSTICS_VERSION } = await eng("scan-budget.js");
 const { persistModuleTelemetry, heartbeatScan } = await eng("scan-engine.js");
 
 let pass = 0, fail = 0;
@@ -134,6 +134,155 @@ function d1Stub({ fail = false } = {}) {
   ok("creates scan_module_telemetry if not exists", /CREATE TABLE IF NOT EXISTS scan_module_telemetry/i.test(mig));
   ok("telemetry table has all required columns", ["scan_id", "module", "started_at", "completed_at", "duration_ms", "outbound_calls", "outcome", "timeout", "error_class"].every((c) => new RegExp("\\b" + c + "\\b").test(mig)));
   ok("no destructive statement", !/\b(DROP\s+TABLE|DROP\s+COLUMN|DELETE\s+FROM|TRUNCATE)\b/i.test(mig.replace(/--[^\n]*/g, "")));
+}
+
+// ═══ PR-A1: additive execution timing telemetry ═══════════════════════════════
+
+// ── 8. record() carries allocated_ms / timeout_source; defaults stay null ──
+{
+  const telem = createModuleTelemetry(steppingClock());
+  telem.record("subdomain_takeover", { outcome: "deadline_exceeded", timeout: true, duration_ms: 1200, allocated_ms: 1500, timeout_source: "module_race" });
+  telem.record("dns", { outcome: "ok" });
+  eq("record carries allocated_ms", telem.rows[0].allocated_ms, 1500);
+  eq("record carries timeout_source", telem.rows[0].timeout_source, "module_race");
+  eq("allocated_ms defaults null", telem.rows[1].allocated_ms, null);
+  eq("timeout_source defaults null", telem.rows[1].timeout_source, null);
+}
+
+// ── 9. raceModuleDeadline onStart reports the EXACT applied cap ──
+{
+  // Non-advancing fake clock: time moves only via tick().
+  let t = 0;
+  const clock = () => t;
+  const dl = createScanDeadline({}, clock); // 21_000 budget from t=0
+  t = 1_000; // 20_000 remaining
+
+  let reported = null;
+  const v = await raceModuleDeadline(dl, async () => "done", () => "deferred", {
+    onStart: (capMs) => { reported = capMs; },
+    setTimer: () => null, clearTimer: () => {},
+  });
+  eq("race resolves module value with onStart present", v, "done");
+  eq("onStart reports remaining budget as the cap", reported, 20_000);
+
+  // hardMs narrows the cap — onStart must report the NARROWED value (mutation
+  // direction: a call-site re-computation of remainingMs would report 20_000).
+  reported = null;
+  await raceModuleDeadline(dl, async () => "done", () => "deferred", {
+    hardMs: 5_000, onStart: (capMs) => { reported = capMs; },
+    setTimer: () => null, clearTimer: () => {},
+  });
+  eq("onStart reports min(hardMs, remaining)", reported, 5_000);
+
+  // Exhausted budget: onStart still reports (0 or negative cap) and the race
+  // defers without launching the thunk.
+  t = 30_000;
+  reported = "unset";
+  let launched = false;
+  const d = await raceModuleDeadline(dl, async () => { launched = true; return "ran"; }, () => "deferred", {
+    onStart: (capMs) => { reported = capMs; },
+  });
+  eq("exhausted budget defers", d, "deferred");
+  ok("exhausted budget never launches the thunk", launched === false);
+  eq("onStart reports 0 on exhausted budget", reported, 0);
+
+  // A throwing onStart must never affect the race (observational only).
+  t = 1_000;
+  const v2 = await raceModuleDeadline(dl, async () => "done", () => "deferred", {
+    onStart: () => { throw new Error("telemetry hook exploded"); },
+    setTimer: () => null, clearTimer: () => {},
+  });
+  eq("throwing onStart never affects the race", v2, "done");
+
+  // Omitting onStart is byte-identical behaviour (the pre-PR-A1 call shape).
+  const v3 = await raceModuleDeadline(dl, async () => "done", () => "deferred", { setTimer: () => null, clearTimer: () => {} });
+  eq("onStart omitted → unchanged behaviour", v3, "done");
+}
+
+// ── 10. buildExecutionDiagnostics contract ──
+{
+  let t = 0;
+  const clock = () => t;
+  const dl = createScanDeadline({}, clock);
+  t = 4_321;
+
+  const telem = createModuleTelemetry(clock);
+  telem.record("ssl", { outcome: "ok", duration_ms: 812 });
+  telem.record("headers", { outcome: "error", timeout: true, error_class: "TimeoutError", duration_ms: 10_000 });
+  telem.record("subdomain_takeover", { outcome: "deadline_exceeded", timeout: true, duration_ms: 900, allocated_ms: 950, timeout_source: "module_race" });
+  telem.record("cve_intelligence", { outcome: "ok", duration_ms: 400, outbound_calls: 2 });
+
+  const diag = buildExecutionDiagnostics({ executionContext: "queue", deadline: dl, telemetry: telem });
+  eq("diagnostics version stamped", diag.version, SCAN_EXECUTION_DIAGNOSTICS_VERSION);
+  eq("execution_context passthrough", diag.execution_context, "queue");
+  eq("deadline budget surfaced", diag.deadline_budget_ms, 21_000);
+  eq("engine_wall_ms from deadline elapsed", diag.engine_wall_ms, 4_321);
+  eq("one diagnostics row per telemetry row", diag.modules.length, 4);
+  eq("wall_ms mirrors duration_ms", diag.modules[0].wall_ms, 812);
+  // per_fetch derivation: timeout flag without an explicit source = the module's
+  // own fetch timeout (mutation direction: dropping the derivation yields null).
+  eq("timeout without explicit source derives per_fetch", diag.modules[1].timeout_source, "per_fetch");
+  // explicit source always wins over the derivation
+  eq("explicit timeout_source wins", diag.modules[2].timeout_source, "module_race");
+  eq("allocated_ms surfaced", diag.modules[2].allocated_ms, 950);
+  eq("outbound_calls surfaced", diag.modules[3].outbound_calls, 2);
+  eq("no timeout → timeout_source null", diag.modules[0].timeout_source, null);
+
+  const empty = buildExecutionDiagnostics({});
+  eq("missing context fails safe to null", empty.execution_context, null);
+  eq("missing deadline → null budget", empty.deadline_budget_ms, null);
+  eq("missing telemetry → empty modules", empty.modules.length, 0);
+}
+
+// ── 11. D1 persistence is SCHEMA-UNCHANGED: new fields are never bound ──
+{
+  const telem = createModuleTelemetry(steppingClock());
+  telem.record("subdomain_takeover", { outcome: "deadline_exceeded", timeout: true, duration_ms: 1200, allocated_ms: 1500, timeout_source: "module_race" });
+  const env = d1Stub();
+  await persistModuleTelemetry("scan_a1", telem, env);
+  eq("still one INSERT per row", env._calls.length, 1);
+  // 10 bound columns exactly (id, scan_id, module, started_at, completed_at,
+  // duration_ms, outbound_calls, outcome, timeout, error_class) — a migration-100
+  // column addition would change this count. Mutation proof: binding
+  // allocated_ms/timeout_source into D1 without a migration must fail here.
+  eq("exactly 10 bound parameters (existing 078 schema)", env._calls[0].args.length, 10);
+  ok("allocated_ms value never bound into D1", !env._calls[0].args.includes(1500));
+  ok("timeout_source value never bound into D1", !env._calls[0].args.includes("module_race"));
+}
+
+// ── 12. Engine + call-site wiring (source contracts, PR-A1) ──
+{
+  const src = (...p) => fs.readFileSync(path.join(root, ...p), "utf8");
+  const engineSrc   = src("workers", "scan-api", "src", "engines", "scan-engine.js");
+  const dispatchSrc = src("workers", "scan-api", "src", "engines", "scan-dispatch.js");
+  const indexSrc    = src("workers", "scan-api", "src", "index.js");
+  const scansSrc    = src("workers", "scan-api", "src", "routes", "scans.js");
+
+  ok("engine whitelists execution contexts (fail-safe null)",
+    /opts\.executionContext === "queue" \|\| opts\.executionContext === "cron" \|\| opts\.executionContext === "waituntil"/.test(engineSrc));
+  ok("completed report embeds execution_diagnostics",
+    /report\.execution_diagnostics = buildExecutionDiagnostics\(\{ executionContext, deadline, telemetry \}\)/.test(engineSrc));
+  ok("failed report embeds execution_diagnostics",
+    /execution_diagnostics: buildExecutionDiagnostics\(\{ executionContext, deadline, telemetry \}\)/.test(engineSrc));
+  ok("finalisation wall time recorded as D1 pseudo-row",
+    /telemetry\.record\("scan_finalisation", \{ outcome: "ok", duration_ms: now\(\) - finalizeStartedMs \}\)/.test(engineSrc));
+  ok("queue call site passes executionContext queue",
+    /doRunScanEngine\([^)]*\{ executionContext: "queue" \}\)/.test(dispatchSrc));
+  ok("cron call site passes executionContext cron",
+    /runScanEngine\([^)]*\{ executionContext: "cron" \}\)/.test(indexSrc));
+  ok("waituntil call site passes executionContext waituntil",
+    /runScanEngine\([^)]*\{ executionContext: "waituntil" \}\)/.test(scansSrc));
+  ok("cve outbound_calls from technologies_checked (reliable 1:1 counter)",
+    /outbound_calls: Array\.isArray\(modules\.cve_intelligence\?\.technologies_checked\) \? modules\.cve_intelligence\.technologies_checked\.length : null/.test(engineSrc));
+
+  // Behaviour-neutrality direction proofs: diagnostics must remain write-only in
+  // the engine (assigned into reports, never read back into any decision), and
+  // scan_finalisation must never join the tracked-module backfill set.
+  const readsBack = engineSrc.split("execution_diagnostics").length - 1;
+  eq("engine references execution_diagnostics exactly twice (both writes)", readsBack, 2);
+  const trackedArr = engineSrc.slice(engineSrc.indexOf("TELEMETRY_TRACKED_MODULES = Object.freeze(["));
+  ok("scan_finalisation is not a tracked module", !trackedArr.slice(0, trackedArr.indexOf("])")).includes("scan_finalisation"));
+  ok("buildScanQuality never reads diagnostics", !/buildScanQuality[\s\S]{0,2000}execution_diagnostics/.test(engineSrc.slice(engineSrc.indexOf("export function buildScanQuality"), engineSrc.indexOf("export function buildScanQuality") + 3000)));
 }
 
 console.log(`\nscan-telemetry: ${pass} passed, ${fail} failed`);

@@ -139,9 +139,14 @@ export function createScanDeadline(env = {}, now = Date.now) {
 // honest deferred result — and ABANDON the underlying promise: its late value is
 // discarded and modules perform no persistence, so it cannot mutate finalized state.
 // `setTimer`/`clearTimer` are injectable so tests drive the timeout deterministically.
-export async function raceModuleDeadline(deadline, thunk, onDeadline, { hardMs = null, setTimer = setTimeout, clearTimer = clearTimeout } = {}) {
+export async function raceModuleDeadline(deadline, thunk, onDeadline, { hardMs = null, setTimer = setTimeout, clearTimer = clearTimeout, onStart = null } = {}) {
   const remaining = deadline.remainingMs();
   const capMs = hardMs != null ? Math.min(hardMs, remaining) : remaining;
+  // PR-A1 telemetry-only hook: report the cap actually applied to this run so the
+  // caller can record allocated_ms without duplicating (and drifting from) the cap
+  // computation above. Guarded and observational — a throwing hook never affects
+  // the race, and omitting it changes nothing.
+  if (typeof onStart === "function") { try { onStart(capMs); } catch { /* telemetry only */ } }
   if (capMs <= 0) return onDeadline();
 
   const DEADLINE = Symbol("deadline");
@@ -213,12 +218,52 @@ export function createModuleTelemetry(now = Date.now) {
       }
     },
     // Record a module that ran outside the wrapper (deferred, reserved-mode, or a
-    // pure-computation phase) — coarse outcome, no duration.
-    record(module, { outcome = "ok", timeout = false, error_class = null, duration_ms = null, outbound_calls = null } = {}) {
-      rows.push({ module, started_at: null, completed_at: null, duration_ms, outbound_calls, outcome, timeout, error_class });
+    // pure-computation phase) — coarse outcome, no duration. allocated_ms /
+    // timeout_source (PR-A1) are diagnostics-only: surfaced in the R2 execution
+    // diagnostics, never bound into the D1 INSERT (no schema change).
+    record(module, { outcome = "ok", timeout = false, error_class = null, duration_ms = null, outbound_calls = null, allocated_ms = null, timeout_source = null } = {}) {
+      rows.push({ module, started_at: null, completed_at: null, duration_ms, outbound_calls, outcome, timeout, error_class, allocated_ms, timeout_source });
     },
     // True if a module already has a telemetry row (avoids double-recording).
     has(module) { return rows.some((r) => r.module === module); },
+  };
+}
+
+// ── Execution diagnostics (PR-A1: additive, R2-only) ──────────────────────────
+// A structured, versioned snapshot of the scan's execution timing embedded in the
+// R2 report next to timeline_trust. Purely observational: no runtime consumer
+// reads it; scan_quality, events, alerts and every customer surface are untouched.
+//   execution_context — how the engine was invoked (queue | cron | waituntil);
+//                       unknown/absent fails safe to null, never guessed.
+//   wall_ms           — the engine-OBSERVED wall time per module. For a module
+//                       abandoned by raceModuleDeadline the underlying provider
+//                       fetch continues unobserved, so used≡wall from the
+//                       engine's view; the distinction is deliberately not faked.
+//   allocated_ms      — the cap actually applied where an existing allocation or
+//                       launch gate is already known (race cap, or 0 for a
+//                       launch-gate refusal); null where no allocation exists
+//                       (the parallel Phase-1 modules share the whole budget).
+//   timeout_source    — module_race (race cap fired) | launch_gate (canRun
+//                       refused the launch) | per_fetch (the module's own fetch
+//                       timeout, derived from the existing timeout flag) | null.
+export const SCAN_EXECUTION_DIAGNOSTICS_VERSION = "scan-exec-diag-v1";
+
+export function buildExecutionDiagnostics({ executionContext = null, deadline = null, telemetry = null } = {}) {
+  return {
+    version:            SCAN_EXECUTION_DIAGNOSTICS_VERSION,
+    execution_context:  executionContext ?? null,
+    deadline_budget_ms: deadline?.budgetMs ?? null,
+    engine_wall_ms:     typeof deadline?.elapsedMs === "function" ? deadline.elapsedMs() : null,
+    modules: (telemetry?.rows ?? []).map((r) => ({
+      module:         r.module,
+      wall_ms:        r.duration_ms ?? null,
+      outcome:        r.outcome ?? null,
+      timeout:        !!r.timeout,
+      error_class:    r.error_class ?? null,
+      allocated_ms:   r.allocated_ms ?? null,
+      timeout_source: r.timeout_source ?? (r.timeout ? "per_fetch" : null),
+      outbound_calls: r.outbound_calls ?? null,
+    })),
   };
 }
 

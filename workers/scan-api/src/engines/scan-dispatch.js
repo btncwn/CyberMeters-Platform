@@ -275,7 +275,7 @@ export async function processScanDispatchMessage(body, env, deps = {}) {
   // impossibility and is ACKED, never retried — the row converges via the
   // engine's own terminal write or PR-1 recovery.
   try {
-    await doRunScanEngine(scanId, row.domain_id, row.workspace_id ?? null, row.domain, env);
+    await doRunScanEngine(scanId, row.domain_id, row.workspace_id ?? null, row.domain, env, { executionContext: "queue" });
     return { action: "ack", outcome: "executed" };
   } catch (err) {
     return { action: "ack", outcome: "engine_error", error: err?.name || "Error" };

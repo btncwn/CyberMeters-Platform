@@ -41,7 +41,7 @@ import { recordPostureEvents } from "./posture-events.js";
 import { recordSpfRuaCorroboration } from "./spf-corroboration.js";
 import { buildAssetTimelineTrustMetadata, loadTimelineComparisonContext } from "./timeline-trust.js";
 import { runReservedScan } from "./reserved-scan.js";
-import { createModuleTelemetry, createScanDeadline, markDeadlineDeferred, MODULE_SUBREQUEST_COST, raceModuleDeadline, resolveScanCapacity, skippedModuleResult } from "./scan-budget.js";
+import { buildExecutionDiagnostics, createModuleTelemetry, createScanDeadline, markDeadlineDeferred, MODULE_SUBREQUEST_COST, raceModuleDeadline, resolveScanCapacity, skippedModuleResult } from "./scan-budget.js";
 import { computeScore, isEmailApplicable } from "./scoring.js";
 import { runSslModule } from "./ssl-scan.js";
 import { BRUTEFORCE_MAX_NAMES, filterWildcardBruteforceResults, runBruteforceModule, runSubdomainsModule } from "./subdomains-scan.js";
@@ -313,6 +313,12 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
   const latch = createFinalizeLatch();
   // Per-module telemetry collector (persisted at finalization; non-fatal).
   const telemetry = createModuleTelemetry(now);
+  // PR-A1: execution context threaded from the dispatch site (queue | cron |
+  // waituntil). Telemetry-only — it never alters scheduling, budgets or module
+  // behaviour; an unrecognised value fails safe to null, never guessed.
+  const executionContext = opts.executionContext === "queue" || opts.executionContext === "cron" || opts.executionContext === "waituntil"
+    ? opts.executionContext
+    : null;
 
   try {
     // Mark scan as running in D1
@@ -388,12 +394,16 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
 
       // Takeover: canRun() gates the launch; raceModuleDeadline BOUNDS the run so an
       // overrun cannot cross the ~30s cliff. On the bound it defers honestly.
+      // PR-A1: launched/allocated/started are telemetry-only observations.
+      let takeoverAllocatedMs = null, takeoverStartedMs = null;
       if (deadline.canRun(4_000)) {
+        takeoverStartedMs = now();
         try {
           takeoverResult = await raceModuleDeadline(
             deadline,
             () => runTakeoverModule(domain, mergedSubdomainItems),
             () => markDeadlineDeferred({ checked: 0, potential_risks: 0, risks: [], cname_observations: [], source: "subdomain_cname_fingerprint" }),
+            { onStart: (capMs) => { takeoverAllocatedMs = capMs; } },
           );
         } catch (err) {
           takeoverResult = { checked: 0, potential_risks: 0, risks: [], source: "subdomain_cname_fingerprint", error: customerSafeFailure("scan/takeover", err, "Takeover module failed") };
@@ -401,18 +411,27 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       } else {
         takeoverResult = markDeadlineDeferred({ checked: 0, potential_risks: 0, risks: [], cname_observations: [], source: "subdomain_cname_fingerprint" });
       }
-      telemetry.record("subdomain_takeover", { outcome: telemetry.outcomeOf(takeoverResult), timeout: takeoverResult?.outcome === "deadline_exceeded" });
+      telemetry.record("subdomain_takeover", {
+        outcome:        telemetry.outcomeOf(takeoverResult),
+        timeout:        takeoverResult?.outcome === "deadline_exceeded",
+        duration_ms:    takeoverStartedMs != null ? now() - takeoverStartedMs : null,
+        allocated_ms:   takeoverStartedMs != null ? takeoverAllocatedMs : 0,
+        timeout_source: takeoverResult?.outcome === "deadline_exceeded" ? (takeoverStartedMs != null ? "module_race" : "launch_gate") : null,
+      });
 
       // Asset exposure (admin-surface signal): customer-critical, so it runs before the
       // cheaper enrichment phases — but its probes time out at 8-10s each, exceeding the
       // 6s launch estimate, so the run is hard-bounded to the remaining budget. On the
       // bound it defers honestly rather than orphaning the scan.
+      let exposureAllocatedMs = null, exposureStartedMs = null;
       if (deadline.canRun(6_000)) {
+        exposureStartedMs = now();
         try {
           assetExposureResult = await raceModuleDeadline(
             deadline,
             () => runExposureModule(domain, mergedSubdomainItems),
             () => markDeadlineDeferred({ checked: 0, reachable: 0, assets: [], source: "http_probe" }),
+            { onStart: (capMs) => { exposureAllocatedMs = capMs; } },
           );
           if (!assetExposureResult.incomplete) {
             assetExposureResult = annotateExposureInfrastructure(assetExposureResult, takeoverResult.cname_observations);
@@ -429,7 +448,13 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       } else {
         assetExposureResult = markDeadlineDeferred({ checked: 0, reachable: 0, assets: [], source: "http_probe" });
       }
-      telemetry.record("asset_exposure", { outcome: telemetry.outcomeOf(assetExposureResult), timeout: assetExposureResult?.outcome === "deadline_exceeded" });
+      telemetry.record("asset_exposure", {
+        outcome:        telemetry.outcomeOf(assetExposureResult),
+        timeout:        assetExposureResult?.outcome === "deadline_exceeded",
+        duration_ms:    exposureStartedMs != null ? now() - exposureStartedMs : null,
+        allocated_ms:   exposureStartedMs != null ? exposureAllocatedMs : 0,
+        timeout_source: assetExposureResult?.outcome === "deadline_exceeded" ? (exposureStartedMs != null ? "module_race" : "launch_gate") : null,
+      });
     }
 
     const modules = {
@@ -565,9 +590,9 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       modules.cve_intelligence = markDeadlineDeferred({ technologies_checked: [], results: {}, total_cves: 0, critical_count: 0, high_count: 0, source: "nvd_api" });
       modules.known_exploited_vulnerabilities = markDeadlineDeferred({ matches: [], checked: 0, matched: 0, source: "cisa_kev" });
       modules.email_security_intelligence = markDeadlineDeferred({ source: "email_intelligence" });
-      telemetry.record("cve_intelligence", { outcome: "deadline_exceeded" });
-      telemetry.record("known_exploited_vulnerabilities", { outcome: "deadline_exceeded" });
-      telemetry.record("email_security_intelligence", { outcome: "deadline_exceeded" });
+      telemetry.record("cve_intelligence", { outcome: "deadline_exceeded", allocated_ms: 0, timeout_source: "launch_gate" });
+      telemetry.record("known_exploited_vulnerabilities", { outcome: "deadline_exceeded", allocated_ms: 0, timeout_source: "launch_gate" });
+      telemetry.record("email_security_intelligence", { outcome: "deadline_exceeded", allocated_ms: 0, timeout_source: "launch_gate" });
     } else if (reservedMode && reservedBudget && reservedBudget.wouldExceed(phase5Cost)) {
       modules.cve_intelligence = skippedModuleResult("cve", { technologies_checked: [], results: {}, total_cves: 0, critical_count: 0, high_count: 0 });
       modules.known_exploited_vulnerabilities = skippedModuleResult("kev", { matches: [], checked: 0, matched: 0 });
@@ -579,6 +604,10 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     // telemetry.run wrapper here: an abandoned late promise must not push a second
     // row; a single coarse row per module is recorded from the resolved outcome.)
     const PHASE5_DEADLINE = "__phase5_deadline__";
+    // PR-A1: the trio shares ONE race, so all three modules share the same
+    // allocation and observed wall time — recorded per module for diagnosability.
+    let phase5AllocatedMs = null;
+    const phase5StartedMs = now();
     const settled = await raceModuleDeadline(
       deadline,
       () => Promise.allSettled([
@@ -587,6 +616,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
         runEmailIntelModule(domain, modules.email_security, modules.dns),
       ]),
       () => PHASE5_DEADLINE,
+      { onStart: (capMs) => { phase5AllocatedMs = capMs; } },
     );
     if (settled === PHASE5_DEADLINE) {
       modules.cve_intelligence = markDeadlineDeferred({ technologies_checked: [], results: {}, total_cves: 0, critical_count: 0, high_count: 0, source: "nvd_api" });
@@ -608,9 +638,23 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
         ? emailIntelSettled.value
         : { error: customerSafeFailure("scan/email-intelligence", emailIntelSettled.reason, "Email intelligence module failed") };
     }
-    telemetry.record("cve_intelligence", { outcome: telemetry.outcomeOf(modules.cve_intelligence), timeout: modules.cve_intelligence?.outcome === "deadline_exceeded" });
-    telemetry.record("known_exploited_vulnerabilities", { outcome: telemetry.outcomeOf(modules.known_exploited_vulnerabilities), timeout: modules.known_exploited_vulnerabilities?.outcome === "deadline_exceeded" });
-    telemetry.record("email_security_intelligence", { outcome: telemetry.outcomeOf(modules.email_security_intelligence), timeout: modules.email_security_intelligence?.outcome === "deadline_exceeded" });
+    const phase5WallMs = now() - phase5StartedMs;
+    const phase5Raced = settled === PHASE5_DEADLINE;
+    telemetry.record("cve_intelligence", {
+      outcome: telemetry.outcomeOf(modules.cve_intelligence), timeout: modules.cve_intelligence?.outcome === "deadline_exceeded",
+      duration_ms: phase5WallMs, allocated_ms: phase5AllocatedMs, timeout_source: phase5Raced ? "module_race" : null,
+      // Reliable existing counter: runCveModule issues exactly ONE NVD request per
+      // technology in technologies_checked (vuln-intel.js) — 1:1, never estimated.
+      outbound_calls: Array.isArray(modules.cve_intelligence?.technologies_checked) ? modules.cve_intelligence.technologies_checked.length : null,
+    });
+    telemetry.record("known_exploited_vulnerabilities", {
+      outcome: telemetry.outcomeOf(modules.known_exploited_vulnerabilities), timeout: modules.known_exploited_vulnerabilities?.outcome === "deadline_exceeded",
+      duration_ms: phase5WallMs, allocated_ms: phase5AllocatedMs, timeout_source: phase5Raced ? "module_race" : null,
+    });
+    telemetry.record("email_security_intelligence", {
+      outcome: telemetry.outcomeOf(modules.email_security_intelligence), timeout: modules.email_security_intelligence?.outcome === "deadline_exceeded",
+      duration_ms: phase5WallMs, allocated_ms: phase5AllocatedMs, timeout_source: phase5Raced ? "module_race" : null,
+    });
     }
     if (!modules.email_security_intelligence.error && !modules.email_security_intelligence.skipped && emailApplicability.applicable) {
       const transportDetails = buildEmailTransportDetails(modules.email_security_intelligence);
@@ -636,6 +680,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     // candidates from observed ASM/CNAME/header signals. No guessing or listing
     // enumeration; response bodies are only inspected for listing indicators.
     // Reserved mode: cloud-storage validation is budget-permitting enrichment.
+    let cloudAllocatedMs = null, cloudStartedMs = null;
     if (!deadline.canRun(4_000)) {
       modules.cloud_storage_discovery = markDeadlineDeferred({ total: 0, checked: 0, findings: [] });
     } else if (reservedMode && reservedBudget && reservedBudget.wouldExceed(MODULE_SUBREQUEST_COST.cloud_storage)) {
@@ -643,12 +688,24 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     } else {
       if (reservedMode && reservedBudget) reservedBudget.spend("cloud_storage", MODULE_SUBREQUEST_COST.cloud_storage);
       // Bound the run so a slow validation cannot cross the cliff; defer honestly on the bound.
+      cloudStartedMs = now();
       modules.cloud_storage_discovery = await raceModuleDeadline(
         deadline,
         () => runCloudStorageModule(domain, modules),
         () => markDeadlineDeferred({ total: 0, checked: 0, findings: [] }),
+        { onStart: (capMs) => { cloudAllocatedMs = capMs; } },
       );
     }
+    // PR-A1: explicit row (previously left to the coarse finalization backfill) so
+    // the launched/deferred/skipped distinction and timing are diagnosable. A
+    // reserved-budget skip carries no allocation semantics (null, not 0).
+    telemetry.record("cloud_storage_discovery", {
+      outcome:        telemetry.outcomeOf(modules.cloud_storage_discovery),
+      timeout:        modules.cloud_storage_discovery?.outcome === "deadline_exceeded",
+      duration_ms:    cloudStartedMs != null ? now() - cloudStartedMs : null,
+      allocated_ms:   cloudStartedMs != null ? cloudAllocatedMs : (modules.cloud_storage_discovery?.skipped ? null : 0),
+      timeout_source: modules.cloud_storage_discovery?.outcome === "deadline_exceeded" ? (cloudStartedMs != null ? "module_race" : "launch_gate") : null,
+    });
     for (const f of modules.cloud_storage_discovery.findings || []) {
       findings.push(f);
     }
@@ -903,6 +960,11 @@ function buildCanonicalUrlProfile(modules) {
       if (!telemetry.has(name)) telemetry.record(name, { outcome: telemetry.outcomeOf(modules[name]) });
     }
 
+    // PR-A1: additive execution diagnostics — versioned, R2-only, built AFTER the
+    // telemetry backfill so both scan modes get full module coverage. No runtime
+    // consumer reads this block; scan_quality/events/alerts are untouched.
+    report.execution_diagnostics = buildExecutionDiagnostics({ executionContext, deadline, telemetry });
+
     // Heartbeat: entering finalization. A cancellation after this is a finalize-time
     // failure (the reconciler is the backstop), not a mid-scan orphan.
     await heartbeatScan(env, scanId, "finalizing", telemetry.rows.filter((r) => r.outcome === "ok").length);
@@ -911,6 +973,7 @@ function buildCanonicalUrlProfile(modules) {
     // stays "completed"; scan_quality.status carries "partial" when the deadline
     // deferred any module (honest partial finalization). finalizeScanResult never
     // throws and only reaches "finalized" when BOTH writes are durable.
+    const finalizeStartedMs = now();
     const finalized = await finalizeScanResult(latch, {
       scanId, report, score, rating: risk_level, status: "completed", env,
     });
@@ -922,6 +985,13 @@ function buildCanonicalUrlProfile(modules) {
       // scan never remains 'running'.
       throw new Error(`scan finalization incomplete: ${JSON.stringify(finalized.errors || {})}`);
     }
+
+    // PR-A1: finalisation wall time (terminal R2 put + D1 status write). The R2
+    // report is frozen BEFORE finalize completes, so this lands as a D1-only
+    // pseudo-row in scan_module_telemetry using the EXISTING columns — no schema
+    // change. It is not in TELEMETRY_TRACKED_MODULES, so the backfill never
+    // duplicates it, and it is purged with the scan via SCAN_CHILD_TABLES.
+    telemetry.record("scan_finalisation", { outcome: "ok", duration_ms: now() - finalizeStartedMs });
 
     // Persist per-module telemetry (non-fatal; after the terminal status is written
     // so a telemetry failure can never leave the scan 'running').
@@ -1384,6 +1454,9 @@ function buildCanonicalUrlProfile(modules) {
       error:               err?.message ?? "Unknown scan engine error",
       started_at:          startedAt,
       failed_at:           failedAt,
+      // PR-A1: additive diagnostics on the failed report too — a failed scan's
+      // execution timing is exactly what a diagnosis needs. Observational only.
+      execution_diagnostics: buildExecutionDiagnostics({ executionContext, deadline, telemetry }),
     };
     await finalizeScanResult(latch, {
       scanId, report: failedReport, score: 0, rating: "unknown", status: "failed", env,
