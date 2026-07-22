@@ -241,7 +241,11 @@ const schedRowOf = (id) => sdb.prepare("SELECT * FROM scheduled_scans WHERE id=?
   const before = audits();
   const parksBefore = sState.engineParks;
   const stampsBefore = sState.stampCount;
-  await triggerScheduledScan(sched, makeScheduledEnv("queue"));
+  // Bounded race: in queue mode the producer returns immediately after
+  // dispatch. A mutant that falls through to the legacy engine call parks
+  // forever — the race converts that hang into red assertions below
+  // (duplicate stamp, engine park) instead of a silent suite timeout.
+  await Promise.race([triggerScheduledScan(sched, makeScheduledEnv("queue")), sleep(2000)]);
   const row = scanRowFor("sched-b.co.uk");
   const a = audits();
   const put = sState.r2Puts[sState.r2Puts.length - 1];
@@ -419,6 +423,23 @@ const consumerEnv = makeScheduledEnv("queue");
     JSON.stringify({ sr: { la: sr?.last_asset_count, ac: sr?.asset_change_count }, notifs }));
 }
 
+// C2b — the notification preserves the LEGACY trigger condition ONLY: an
+// engine that self-finalises a failed row WITHOUT throwing (the canonical
+// latch path) must NOT notify — exactly like the legacy catch, which only
+// fired on a throw. (Mutation direction: dropping the engineError gate and
+// notifying on any failed row reddens this.)
+{
+  sdb.prepare("UPDATE scans SET status='queued' WHERE id=?").run(H_ROW.id);
+  const notifsBefore = sdb.prepare("SELECT COUNT(*) c FROM notification_events WHERE type='scheduled_scan_failed'").get().c;
+  const { deps, rec } = makeConsumerDeps({ engineOutcome: "failed", engineThrows: false });
+  const d = await processScanDispatchMessage(H_MSG, consumerEnv, deps);
+  ok("C2b engine-finalised failure without a throw → settlement runs, NO notification (legacy parity)",
+    d.outcome === "executed" && rec.hookCalls.length === 1 &&
+    sdb.prepare("SELECT COUNT(*) c FROM notification_events WHERE type='scheduled_scan_failed'").get().c === notifsBefore);
+  // Restore the completed terminal state for the later fixtures.
+  sdb.prepare("UPDATE scans SET status='completed', scan_quality='complete' WHERE id=?").run(H_ROW.id);
+}
+
 // C3 — engine failure (throw + honest failed row) → exactly one
 // scheduled_scan_failed notification, attributed to the workspace owner.
 const schedI = mkSchedule("sch_i", "sched-i.co.uk");
@@ -439,18 +460,24 @@ const I_MSG = sState.sends[sState.sends.length - 1];
 // never settles (no counts write, no notification) — correlation can never
 // reattribute across tenants.
 {
-  const foreign = { ...I_MSG, scan_id: H_ROW.id, scheduled_scan_id: "sch_x2" }; // sch_x2 belongs to ws_S2
+  // The advisory IDENTITY fields must MATCH the H row so the consumer's own
+  // advisory-mismatch gate does not ack first — the point of this fixture is
+  // that the SETTLEMENT's cross-tenant check, alone, refuses the foreign
+  // schedule. Only scheduled_scan_id is foreign (sch_x2 belongs to ws_S2).
+  const foreign = { ...H_MSG, scheduled_scan_id: "sch_x2" };
   // Reset the H scan to queued so the claim can be won again in isolation.
   sdb.prepare("UPDATE scans SET status='queued' WHERE id=?").run(H_ROW.id);
   const before = schedRowOf("sch_x2");
   const notifsBefore = sdb.prepare("SELECT COUNT(*) c FROM notification_events WHERE type='scheduled_scan_failed'").get().c;
-  const { deps } = makeConsumerDeps({ engineOutcome: "failed", engineThrows: true });
-  await processScanDispatchMessage(foreign, consumerEnv, deps);
+  const { deps, rec } = makeConsumerDeps({ engineOutcome: "failed", engineThrows: true });
+  const d = await processScanDispatchMessage(foreign, consumerEnv, deps);
   const after = schedRowOf("sch_x2");
-  ok("C4 cross-tenant scheduled_scan_id → settlement silently skips (no write, no notification)",
+  ok("C4 cross-tenant scheduled_scan_id → settlement hook runs but silently skips (no write, no notification)",
+    d.outcome === "engine_error" && rec.hookCalls.length === 1 &&
     after?.last_asset_count === before?.last_asset_count &&
     after?.asset_change_count === before?.asset_change_count &&
-    sdb.prepare("SELECT COUNT(*) c FROM notification_events WHERE type='scheduled_scan_failed'").get().c === notifsBefore);
+    sdb.prepare("SELECT COUNT(*) c FROM notification_events WHERE type='scheduled_scan_failed'").get().c === notifsBefore,
+    JSON.stringify({ outcome: d.outcome, hook: rec.hookCalls.length, before, after }));
 }
 
 // C5 — manual trigger: the settlement hook is NEVER called.
