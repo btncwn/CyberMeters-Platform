@@ -149,6 +149,11 @@ export async function recoverInterruptedScans(env, { now = Date.now() } = {}) {
         reason: INTERRUPTED_REASON,
         interrupted_at: new Date(now).toISOString(),
         message: INTERRUPTED_CUSTOMER_MESSAGE,
+        // EXPLICIT after the spread: an interrupted scan earned neither
+        // `complete` nor `partial`, and any quality inherited from the running
+        // placeholder must not survive into the terminal report (parallel to
+        // the D1 scan_quality = NULL write below).
+        scan_quality: null,
       };
       await env.cybermeters_reports.put(
         reportKey,

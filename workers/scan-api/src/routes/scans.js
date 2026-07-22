@@ -101,16 +101,12 @@ export async function scanRoutes(rctx) {
       const domainId = createId("domain");
       const scanId   = createId("scan");
       const reportKey = `reports/${scanId}.json`;
-      const initialScanQuality = {
-        status: "complete",
-        warnings: [],
-        modules_skipped: [],
-        subrequest_budget: {
-          estimated: 0,
-          limit: 1_000,       // Sprint 10B: Workers Paid plan limit
-          remaining_estimate: 1_000,
-        },
-      };
+      // Canonical quality invariant (PR-1b, 22 Jul 2026): a RUNNING scan has not
+      // earned `complete` or `partial` — the placeholder's scan_quality is NULL.
+      // Only legitimate terminal finalisation may persist an earned quality.
+      // (The previous placeholder hardcoded status:"complete", which leaked into
+      // interrupted failed reports via the recovery spread — an honesty defect.)
+      const initialScanQuality = null;
 
       await createAuditEvent(env, {
         workspace_id: workspaceId ?? null,
