@@ -127,7 +127,7 @@ SCAN_DISPATCH_MODE = "queue"
 # via SCAN_QUEUE — PR-B1B cutover only, founder-gated, config-only flip.
 # DELIBERATELY separate from SCAN_DISPATCH_MODE: coupling them would make a
 # scheduled rollback also roll back the LIVE-ACCEPTED manual Queue path.
-SCHEDULED_DISPATCH_MODE = "waituntil"
+SCHEDULED_DISPATCH_MODE = "queue"
 
 FRONTEND_URL = "https://app.cybermeters.com"
 MICROSOFT_REDIRECT_URI = "https://cybermeters-platform.ttrnn47.workers.dev/api/auth/microsoft/callback"
