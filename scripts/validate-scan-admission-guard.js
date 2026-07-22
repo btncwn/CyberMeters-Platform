@@ -264,6 +264,11 @@ const edb = new DatabaseSync(":memory:", { enableForeignKeyConstraints: false })
   for (const f of migFiles) applyTo(path.join(migDir, f));
 }
 
+// Real-clock future horizon (one year out) for fixtures that must be "unexpired"
+// against code reading the real clock (subscription period end, schedule stubs).
+// Computed, never a literal date — it cannot rot and needs no allowlist.
+const FUTURE_ISO = new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString();
+
 const engineParks = [];
 let insertPoison = null; // when set, INSERT INTO scans throws this (test E6)
 function d1Adapter(sqlite) {
@@ -303,7 +308,7 @@ edb.exec(`
   INSERT INTO workspace_domains (workspace_id, domain_id, verification_status) VALUES ('ws_E_b', 'dom_E_1', 'verified');
   INSERT INTO workspace_domains (workspace_id, domain_id, verification_status) VALUES ('ws_E_a', 'dom_E_2', 'verified');
   INSERT INTO subscriptions (id, owner_user_id, plan, status, subscription_status, current_period_end)
-    VALUES ('sub_E_1', 'user_E1', 'business', 'active', 'active', '2030-01-01T00:00:00.000Z');
+    VALUES ('sub_E_1', 'user_E1', 'business', 'active', 'active', '${FUTURE_ISO}');
 `);
 
 const auditCounts = () => Object.fromEntries(
@@ -325,7 +330,7 @@ async function postScan(domain, workspaceId) {
     consumeApiRateLimit: async () => null,
     requireScanReadAccess: async () => null,
     getAccessibleWorkspaceIds: async () => ["ws_E_a"],
-    computeNextRunAt: () => "2030-01-01T00:00:00.000Z",
+    computeNextRunAt: () => FUTURE_ISO,
   };
   return scanRoutes(rctx);
 }
