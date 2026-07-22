@@ -16,8 +16,11 @@ re-implementation) · **[IMPL]** implementation work · **[DES]** design-first.
 
 ## Corrections captured at freeze (do not re-litigate)
 
-1. **Pricing is LOCKED, not open.** The old `£29 / £149 / £399 / Talk-to-us` ladder is
-   **RETIRED**. Canonical ladder per `docs/PRICING-POLICY.md`:
+1. **Pricing is LOCKED, not open.** Every earlier pre-lock price ladder (including the
+   higher-priced "Talk to us"-MSP variant) is **RETIRED** — never resurrect one or treat
+   it as a competing policy (the figures are deliberately not repeated here; the
+   commercial-canonicalisation guard enforces this). Canonical ladder per
+   `docs/PRICING-POLICY.md`:
    Trial £0 · Starter £9.99 · Professional £19.99 · Business £49.99 · MSP £99.99+.
    Remaining pricing work is **production lockstep only** (policy ↔ backend registry ↔
    PricingPage ↔ Stripe products/prices ↔ checkout ↔ portal ↔ trial/cancellation/VAT/legal
