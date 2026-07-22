@@ -112,6 +112,17 @@ export async function runScheduled(event, env, ctx, tasks) {
 	      ctx.waitUntil(runCronTask(env, "alert_delivery_retry", () => tasks.retryFailedAlertDeliveries(env)));
 	    }
 
+	    // ── Interrupted-scan terminal recovery (bounded, idempotent) ─────────
+	    // The ONE canonical repair path for scans abandoned mid-flight (e.g. the
+	    // HTTP post-response ~30 s waitUntil kill, 22 Jul 2026 incident): a row
+	    // far beyond any legitimate runtime, with a stale heartbeat and no
+	    // terminal R2 report, becomes an honest `failed` — never healthy, never
+	    // scored, one append-only audit event. GET list/detail are read-only and
+	    // never perform this repair.
+	    if (tasks.recoverInterruptedScans) {
+	      ctx.waitUntil(runCronTask(env, "interrupted_scan_recovery", () => tasks.recoverInterruptedScans(env)));
+	    }
+
 	    // ── Managed Brand Protection follow-up ───────────────────────────────
 	    // Advances takedown submissions through provider follow-up and performs
 	    // CyberMeters-only technical verification of resolved/reappeared cases.

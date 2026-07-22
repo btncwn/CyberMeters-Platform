@@ -322,6 +322,9 @@ jobs:
       - name: Validate first-ever alert activation grace (2s lazy-activation clock-skew + backlog guard + mutations)
         run: node scripts/validate-alert-activation-grace.js
 
+      - name: Validate interrupted-scan terminal recovery (canonical cron repair + read-only GETs + race/idempotency/terminal-report guards)
+        run: node scripts/validate-interrupted-scan-recovery.js
+
       - name: Validate Shadow IT recurrence truth (per-recurrence copy + observed ≠ unauthorised + surface parity + viewer gating + dedupe + mutations)
         run: node scripts/validate-shadow-it-recurrence-truth.js
 

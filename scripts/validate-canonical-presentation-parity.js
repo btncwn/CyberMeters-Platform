@@ -171,9 +171,16 @@ const files = walk(S);
   const se = read("engines/scan-engine.js");
   ok("finalizeScanResult persists scan_quality in the D1 UPDATE", /UPDATE scans SET status = \?, score = \?, rating = \?, scan_quality = \?/.test(se));
   ok("historical_scores INSERT carries scan_quality", /scan_quality[\s\S]{0,40}VALUES/.test(se) || /brs_score, scan_quality, created_at/.test(se));
-  const scReconciler = read("routes/scans.js");
-  ok("stuck-scan reconciler converges scan_quality from R2",
-    /UPDATE scans SET status = \?, score = \?, rating = \?, scan_quality = \?/.test(scReconciler) && /raw\.scan_quality\?\.status/.test(scReconciler));
+  // PR-1 (22 Jul 2026): reconciliation moved to the canonical cron recovery
+  // engine — GET routes are read-only display. The invariant is UNCHANGED and
+  // now pinned at its canonical site: the converging UPDATE carries
+  // scan_quality from the SAME R2 report.
+  const scRecovery = read("engines/scan-recovery.js");
+  ok("cron recovery converges scan_quality from R2 (canonical reconciler)",
+    /UPDATE scans SET status = \?, score = \?, rating = \?, scan_quality = \?/.test(scRecovery) && /raw\.scan_quality\?\.status/.test(scRecovery));
+  const scRoutes = read("routes/scans.js");
+  ok("GET display correction presents scan_quality from R2 and stays read-only",
+    /raw\.scan_quality\?\.status/.test(scRoutes) && !/UPDATE scans/.test(scRoutes));
 }
 
 console.log(`\ncanonical-presentation-parity: ${pass} passed, ${fail} failed`);

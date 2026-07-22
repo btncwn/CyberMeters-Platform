@@ -47,14 +47,59 @@ const ok = (n, c, d = "") => { c ? pass++ : fail++; if (!c) console.log(`FAIL ${
     /alreadyCompleted/.test(idx));
 }
 
-// ── Episode 5B — detail reconciler converges scan_quality from R2 ────────────
+// ── Episode 5B — scan-lifecycle persistence contracts (PR-1, 22 Jul 2026) ────
+// Durable D1↔R2 convergence moved to the ONE canonical cron recovery engine;
+// GET list/detail became read-only display. Five contracts, founder-specified:
+//   1. detail/list reconciliation performs NO DB mutation;
+//   2. terminal finalisation still persists scan_quality;
+//   3. interrupted recovery EXPLICITLY persists scan_quality = NULL;
+//   4. the recovery UPDATE is guarded and cron/internal-only;
+//   5. any reintroduced GET-side UPDATE fails here (contract 1's direction).
 {
   const sc = read("routes/scans.js");
-  // Both reconcilers (list + detail) now write scan_quality from raw.scan_quality.
-  ok("detail reconciler UPDATE carries scan_quality",
-    (sc.match(/UPDATE scans SET status = \?, score = \?, rating = \?, scan_quality = \? WHERE id = \?/g) || []).length >= 2);
-  ok("detail reconciler derives scan_quality from the canonical R2 report",
+
+  // (1)+(5) The two display-correction blocks are mutation-free, and the whole
+  // route file carries ZERO scans-mutating statements. The block-scoped check
+  // makes a reintroduced write INSIDE a reconciler fail even if someone also
+  // renames things; the file-scoped check catches it anywhere else.
+  const markers = sc.split("Stuck-scan DISPLAY correction (read-only)");
+  ok("both GET display-correction blocks exist (list + detail)", markers.length === 3);
+  for (let i = 1; i < markers.length; i++) {
+    const block = markers[i].slice(0, 3200); // the full reconciler block body
+    ok(`display-correction block ${i} performs no DB mutation (no INSERT/UPDATE/DELETE)`,
+      !/\b(INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM)\b/i.test(block));
+  }
+  ok("routes/scans.js contains zero UPDATE/DELETE against scans",
+    !/UPDATE\s+scans/i.test(sc) && !/DELETE\s+FROM\s+scans/i.test(sc));
+
+  // (2) Terminal finalisation still persists scan_quality (canonical writer).
+  const se = read("engines/scan-engine.js");
+  ok("finalisation persists scan_quality in its D1 UPDATE",
+    /UPDATE scans SET status = \?, score = \?, rating = \?, scan_quality = \?/.test(se));
+
+  // (3) Interrupted recovery explicitly persists scan_quality = NULL.
+  const rec = read("engines/scan-recovery.js");
+  ok("interrupted recovery explicitly persists scan_quality = NULL",
+    /UPDATE scans SET status = 'failed', scan_quality = NULL/.test(rec));
+
+  // Convergence-from-R2 invariant stays pinned at the canonical site.
+  ok("canonical recovery converges scan_quality from the SAME R2 report",
+    /UPDATE scans SET status = \?, score = \?, rating = \?, scan_quality = \?/.test(rec) &&
+    /raw\.scan_quality\?\.status/.test(rec));
+  ok("detail display correction derives scan_quality from the canonical R2 report",
     /correctedQuality = raw\.scan_quality\?\.status/.test(sc));
+
+  // (4) Recovery is guarded (racing finalisation wins) and cron/internal-only:
+  // registered in the cron orchestrator, imported by index.js, and by NO route.
+  ok("recovery UPDATE is guarded by AND status IN (racing finalisation wins)",
+    /status = 'failed', scan_quality = NULL\s*\n?\s*WHERE id = \? AND status IN/.test(rec));
+  const cron = read("cron/scheduled.js");
+  ok("recovery is registered as a cron task", /recoverInterruptedScans/.test(cron));
+  const routeFiles = fs.readdirSync(path.join(S, "routes")).filter((f) => f.endsWith(".js"));
+  const routeImports = routeFiles.filter((f) =>
+    /import[^;]*from\s+["'][^"']*scan-recovery/.test(read(`routes/${f}`)));
+  ok("no route imports the recovery engine (cron/internal-only)",
+    routeImports.length === 0, routeImports.join(","));
 }
 
 // ── Episode 6 — DMARC ingest fails closed on limiter-store failure ──────────
