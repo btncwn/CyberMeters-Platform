@@ -1,0 +1,242 @@
+# Pre-Beta Frozen Execution Backlog
+
+**Status:** FOUNDER-APPROVED (22 July 2026) — corrected and frozen.
+**Authority:** this document ORDERS the remaining pre-beta work. Scope and acceptance
+definitions remain owned by `docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md` (gate sequence)
+and `docs/DETECTION-QUALITY-ROADMAP.md` (Detection Depth Law). Release facts are
+authoritative in `CHANGELOG.md`. This file does not redefine either.
+
+Production baseline at freeze: `main @ bfc7c1d` · live Worker `ecd03d0a`
+(v2026.07.21-5, deployed 2026-07-21T21:28Z) · rollback `d1ad62b8` · latest migration `098`.
+
+Labels: **[ACC]** acceptance-only (already built/deployed — needs live acceptance, not
+re-implementation) · **[IMPL]** implementation work · **[DES]** design-first.
+
+---
+
+## Corrections captured at freeze (do not re-litigate)
+
+1. **Pricing is LOCKED, not open.** The old `£29 / £149 / £399 / Talk-to-us` ladder is
+   **RETIRED**. Canonical ladder per `docs/PRICING-POLICY.md`:
+   Trial £0 · Starter £9.99 · Professional £19.99 · Business £49.99 · MSP £99.99+.
+   Remaining pricing work is **production lockstep only** (policy ↔ backend registry ↔
+   PricingPage ↔ Stripe products/prices ↔ checkout ↔ portal ↔ trial/cancellation/VAT/legal
+   copy). Report drift only against the locked ladder.
+2. **The PDF problem is content depth, not renderer failure.** No evidence exists of
+   blank pages, zero-byte PDFs, R2 corruption or renderer crashes. The founder concern is
+   that generated PDFs are **too shallow relative to the evidence the platform holds**.
+   The former "empty-PDF root-cause audit" is replaced by the
+   **Executive PDF Content Depth & Context Completeness Audit** (item 6).
+3. **Closed items removed:** the certificate evidence-insufficient and DMARC
+   could-not-be-observed punctuation/template defects were closed by PR #218
+   (`v2026.07.20-7`, `pdfEsc` transliteration). Reopen only on a NEW failing artefact.
+4. **Shadow IT Alert Trust is DEPLOYED** (#211/#213, v2026.07.20-4/-5) —
+   remaining work is **founder live acceptance**, not re-implementation.
+5. **No stale deployment facts.** #263 is DEPLOYED (v2026.07.21-5); SSL external latency
+   28s → ~8.4s verified live. `d1ad62b8` is the rollback baseline, not live.
+
+---
+
+## Frozen execution order
+
+### 1. Post-#263 authenticated workspace scan acceptance — [ACC] · ACTIVE
+The first post-fix scheduled scan of `blackbullbarbers.co.uk` is
+**2026-07-22 19:00 UTC** (the 2026-07-21 19:00:08 scan pre-dated the 21:28Z deploy and
+ran on the old Worker).
+
+**Pre-fix baseline (scan_ff98eb61, 2026-07-21 19:00:08, old Worker — recorded for the
+comparison):**
+
+| module | outcome | duration |
+| --- | --- | --- |
+| ssl | ok | **28,423 ms** (sequential CT — the driver) |
+| headers | incomplete | 20,001 ms |
+| subdomains | ok | 12,000 ms |
+| technology_detection | error | 10,000 ms |
+| whois_intelligence · dns_bruteforce · email_security · dns | ok | ≤1.3 s |
+| asset_exposure · cloud_storage_discovery · cve_intelligence · email_security_intelligence · known_exploited_vulnerabilities · subdomain_takeover | **deadline_exceeded** | never ran |
+
+**Acceptance checks:** scan completes; `scan_quality`; the full previously-starved set
+above actually runs; ssl/subdomains/headers/technology/takeover/SPF-email module
+outcomes; telemetry durations recorded; no deadline starvation; comparison against the
+last complete scan; alert/event/case production unbroken; **a fresh Executive PDF is
+generated from this scan and handed to item 6**.
+
+**Verdict (one of):** `PASS` · `PASS WITH RESIDUAL DEGRADATION` · `FAIL — DEADLINE` ·
+`FAIL — PROVIDER / MODULE`.
+
+### 2. Global 21-second deadline replacement — [IMPL]
+Retire the 21s global cap in `scan-budget.js` per the #267 audit. Not unlimited: an
+invocation ceiling per real Workers Paid limits; per-fetch timeouts preserved;
+per-module timeouts; safe finalize/persist reserve; stuck-promise tests; deadline
+telemetry; explicit CPU vs wall-clock model; cron vs HTTP invocation assessed
+separately. Acceptance: deterministic deadline fixtures · mutation proof · complete
+scan · partial scan · provider timeout · finalisation still persists · no false
+healthy · no missing telemetry.
+
+### 3. SPF per-signal evidence completeness — [IMPL]
+Change detection per signal, not per scan: previous and current SPF evidence complete →
+compare resolved sets; unrelated SSL/CT/subdomain partial never silences the SPF event;
+incomplete SPF never produces a change. Rollout order after SPF: DMARC → certificates →
+headers → subdomains → asset exposure → takeover → technology → Brand candidate
+activity.
+
+### 4. SPF controlled live acceptance — [ACC]
+Code is DEPLOYED (v2026.07.21-4). Controlled, reversible root change on
+`v=spf1 include:secureserver.net -all`; child-include change with root unchanged;
+RUA corroboration (unauthorised source, tier, dedupe, fail-honest wording, no
+"malicious" claim); edge cases (cycle, redirect, multiple records, void/10-lookup
+limits, TempError/PermError, CIDR v4/v6, `a`/`mx`, nested includes, old-complete vs
+new-incomplete suppression).
+
+### 5. Provider isolation + monitoring-degraded customer state — [IMPL]
+crt.sh isolation; CertSpotter fallback semantics; shared per-scan CT cache (kill the
+duplicate ssl+subdomains lookups); per-provider timeout + health telemetry;
+provider unavailable ≠ no findings; provider failure ≠ healthy; bounded
+retry/backoff; circuit-breaker/bounded degradation. Canonical customer states:
+`monitoring healthy · monitoring degraded · signal unavailable · evidence incomplete ·
+recovered` with signal-specific wording ("We could not fully verify certificate
+transparency data in this run. Other checks completed normally.").
+**Includes: `cybermeters-email` inbound Worker reliability/security acceptance**
+(per-address Email Routing only — never catch-all; DMARC-trust gating; RUA/TLS-RPT
+parser safety; header-From trust boundary). Plus the reliability live matrix (fast
+healthy · slow TLS · crt.sh down · NXDOMAIN · HTTP timeout · odd DNS · rate-limited
+provider · large SPF chain · partial-but-SPF-complete · complete-after-partial ·
+recovery · no duplicate alert).
+
+### 6. Executive PDF Content Depth & Context Completeness Audit — [DES→IMPL]
+NOT a renderer-failure hunt. Trace: available scan evidence → canonical report
+snapshot → selected domain findings → historical changes → Related Changes → managed
+cases/remediation → customer narrative → rendered PDF. Assess (founder's 12 questions):
+evidence beyond scores; what changed and when; why it matters; affected assets;
+confidence/evidence-completeness; unknown/unavailable/not-assessed vs healthy
+distinctions; remediation steps; ownership + case status; verification method;
+recurrence; meaningful context for **all eight** Cyber MOT domains; MSP/customer
+branding without content loss; whether the PDF is merely a poorer summary of the
+dashboard. Founder reviews the fresh post-#263 PDF from item 1. No renderer-corruption
+claims without a concrete failing artefact.
+
+### 7. DMARCbis design + runtime remediation — [DES→IMPL]
+Design first (`pct` storage/enforcement/legacy display; `np`, `t`; inheritance;
+tree-walk org-domain; external `rua` authorisation; multiple/malformed records; event
+subtypes; snapshot compatibility; PDF wording; API contract), then RFC 9989/9990/9991
+parser/derivation with fixtures (org-domain exact, subdomain without record, inherited
+`sp`, `np`, multiple, malformed, external `rua` authorised/unauthorised, tree-walk,
+non-existent subdomain, legacy `pct`, transitional) and live acceptance (controlled
+policy change · RUA ingest · canonical state · impact forecast · change-request
+workflow · hosted DMARC · report/PDF · no alert duplication).
+
+### 8. Brand IDN/homograph — PR-A / PR-B / PR-C — [IMPL] + live acceptance
+PR-A normalisation + confusable core (NFC, punycode round-trip, mixed-script,
+skeleton, allowlists, deterministic fixtures + mutation). PR-B candidate generation +
+passive CT/SAN discovery (bounded volume, nested hostnames, dedupe, activity checks,
+prioritisation). PR-C lifecycle/customer surface (campaign grouping, first-seen /
+reappeared / inactive, DNS/HTTP/TLS + login-surface evidence, case lifecycle, alert
+copy, PDF/MSP, fail-honest claims). Live acceptance on controlled fixtures — no
+"confirmed phishing" overclaim.
+
+### 9. Certificates & Trust depth + live acceptance
+Per-signal completeness (leaf/chain/SAN/issuer/expiry/CT/wildcard/parallel/active
+service); renewal lifecycle acceptance (bands, renewed, failed, replaced, issuer/SAN
+changed, wildcard, dedupe, case close/reopen, PDF parity); trust-policy depth (CAA,
+chain state, hostname mismatch, weak algorithms, expired intermediate, CT-only vs
+live-serving); controlled renewal on a founder-owned host.
+
+### 10. Attack Surface depth + live acceptance
+Full module reliability with observed/unavailable/incomplete/absent/resolved/reappeared
+distinctions; asset lifecycle trust (first seen → confirmed removed → reappeared,
+DNS-only vs HTTP-only, no false "resolved"); the deferred
+`www.email.blackbullbarbers.co.uk` alert-quality review (true-positive vs
+noisy-but-true vs false-positive — **scoped review; the alert pipeline stays on**);
+founder-controlled live acceptance (new/removed/reappeared asset, admin surface,
+takeover candidate, KEV signal).
+
+### 11. Website / Identity / Shadow IT domain closures
+Website: header/technology completeness (fetch-failed ≠ missing; 52x/530; CSP/HSTS/
+Permissions/Referrer/XCTO/frame; confidence), change intelligence (added/removed/
+weakened/strengthened; false-diff suppression), managed lifecycle acceptance.
+Identity: evidence source + scope audit (no dark-web/endpoint overclaim; unavailable ≠
+low risk), lifecycle acceptance, wording tiers (observed exposure ≠ confirmed
+compromise ≠ validity unknown). Shadow IT: **[ACC]** — the wording/field-mapping fixes
+are DEPLOYED (v2026.07.20-4/-5); verify against the live product (approved-but-
+owner-missing wording, owner status, evidence source, affected domain, no workspace-
+UUID leakage, CTA destination, footer, approved ≠ suspicious, WC ≠ action), then the
+full approved-inventory acceptance and claim boundaries (external evidence only).
+
+### 12. Related Changes B2/B3 — [IMPL]
+B2 correlation quality (stronger cross-domain rules, bounded temporal windows, evidence
+compatibility, duplicate grouping, confidence, contradictions, no causality overclaim).
+B3 customer actionability (related-not-caused-by language, owner, case linkage,
+remediation ordering, report/PDF, MSP surface, alerting rules). Live scenarios
+including the negative control: unrelated simultaneous events must NOT correlate.
+
+### 13. Dead-code & reachability audit — [IMPL]
+Classify every file (runtime-reachable / route-only / cron-only / email-only /
+test-only / docs-only / legacy / retired / orphan). Vendor/Supply retirement per the
+queued founder episode (Option B — fold honest signal into Shadow IT; preserve data +
+pipeline). Frontend surfaces (`VendorsPage`, `WorkspaceSupplyChainPage`,
+`ThirdPartyPage`, `SaasExposurePage`, duplicate lifecycle pages) — **no deletion before
+reachability proof**.
+
+### 14. Founder manual security acceptance — [ACC]
+A6 production viewer spot-check · live Microsoft SSO + MFA-with-SSO · password-reset
+revocation · invitation flows · deleted-workspace behaviour · API-token lifecycle ·
+case ownership/transitions · branded PDF access.
+
+### 15. Independent authenticated pentest (narrow, pre-first-sale)
+Auth/session/MFA/SSO · tenant isolation · roles · token scopes · invitation abuse ·
+password reset · billing/webhooks · SSRF · report/object access · IDOR/BOLA · rate
+limits · business-logic abuse. Full pentest + retest scheduled before public beta;
+live DAST acceptance (DOM-XSS founder plan, OAuth callback, viewer enforcement) —
+no destructive production actions.
+
+### 16. Legal #232 + Stripe production cutover
+Close the founder-gated #232 decisions (entity/sole-trader wording, Terms, Privacy,
+DPA, subprocessors, retention/deletion, trial/cancellation/refunds, immediate-start
+consent, VAT, auto-renewal, AUP, scanning authorisation, liability, beta wording,
+SLA, incident notification). Stripe LIVE cutover under sole-trader Turhan Acar:
+live products/prices for the LOCKED ladder, webhook verification, portal
+(switch-plans + prorate + ToS/Privacy replicated from sandbox), invoice/VAT display,
+cancellation live acceptance. **Requires creating a real entitled MSP account so the
+MSP portfolio surface can finally be customer-accepted.**
+
+### 17. Full public-claims truth audit
+Map every public claim to the proven rung of the status ladder
+(`DISCOVERED → … → DEPLOYED → LIVE-ACCEPTED → CUSTOMER-CLAIM-APPROVED`); public copy
+uses the last proven level only. Forbidden overclaims list enforced (no exhaustive
+phishing detection, no confirmed-malicious from lookalike alone, no dark-web /
+internal / endpoint claims, no "RFC compliant" without fixture+live proof, no
+"continuous"/"real time" where hourly/bounded). Copy parity across landing, pricing,
+dashboard, alerts, cases, reports, PDFs, lifecycle emails, legal, MSP materials.
+
+### 18. Final public-beta exit review
+All blocks simultaneously green: reliability (items 1–5) · detection integrity
+(6–12) · security (14–15) · commercial/legal (16) · operations (monitoring, backup/
+restore drill, incident response, rollback, support) · claims (17). Then the first two
+controlled invitations — never an open launch.
+
+---
+
+## Standing release invariants (added at freeze)
+
+- **`workers_dev = true` must survive every deploy** — Microsoft SSO's registered
+  redirect URI lives on the workers.dev hostname and it is the rollback path; declaring
+  a route silently flips the default to false (recorded 96-second outage). Deploy
+  checklist: verify the line is present before `wrangler deploy`, verify
+  `cybermeters-platform.ttrnn47.workers.dev/health` after.
+- **No stale deployment facts in any report:** live/rollback Worker IDs are read from
+  `CHANGELOG.md` (or `wrangler deployments list`) at reporting time — never from a
+  prior session's summary.
+- Sharp override OV-1 (`docs/DEPENDENCY-OVERRIDES.md`): review 2026-10-31; remove when
+  wrangler/miniflare ships sharp ≥ 0.35.0; rerun clean install + build + scheduled
+  smoke at removal.
+
+## Today's honest status line
+
+```text
+Platform exists: YES        Core product value exists: YES
+Security engineering substantial: YES
+Reliability exit gate complete: NO      Detection Integrity Gate complete: NO
+Independent pentest complete: NO        Legal/commercial closure complete: NO
+Public beta ready: NO                   Engineering finished: NO
+```
