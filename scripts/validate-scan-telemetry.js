@@ -26,6 +26,7 @@ const { dnsQuery } = await eng("dns.js");
 const { makeReservedProbeFetch } = await eng("reserved-probe.js");
 const { getKevCatalogue } = await eng("vuln-intel.js");
 const { runWhoisModule } = await eng("whois-scan.js");
+const { runHeadersModule } = await eng("headers-scan.js");
 
 let pass = 0, fail = 0;
 const ok = (n, c, d = "") => { c ? pass++ : fail++; if (!c) console.log(`FAIL ${n}${d ? " — " + d : ""}`); };
@@ -345,6 +346,46 @@ function d1Stub({ fail = false } = {}) {
 
 {
   const acct = createOutboundAccounting();
+  const ctx = acct.contextFor("headers");
+  let n = 0;
+  await withMockFetch(async () => {
+    await runHeadersModule("www.example.com", { accounting: ctx });
+  }, async () => {
+    n += 1;
+    if (n === 1) return new Response("", { status: 503, headers: { "retry-after": "30" } });
+    return new Response("", { status: 200, headers: { server: "origin", "content-type": "text/html" } });
+  });
+  ctx.markSettled();
+  eq("C1A headers bot-protection HEAD fallback counted", acct.snapshot("headers").outbound_attempts_observed, 2);
+}
+
+{
+  const acct = createOutboundAccounting();
+  const ctx = acct.contextFor("headers");
+  await withMockFetch(async () => {
+    await runHeadersModule("example.com", { accounting: ctx });
+  }, async () => new Response("", { status: 200, headers: { server: "origin", "content-type": "text/html" } }));
+  ctx.markSettled();
+  eq("C1A headers www-variant HEAD counted", acct.snapshot("headers").outbound_attempts_observed, 2);
+}
+
+{
+  const acct = createOutboundAccounting();
+  const ctx = acct.contextFor("headers");
+  let n = 0;
+  await withMockFetch(async () => {
+    await runHeadersModule("www.example.com", { accounting: ctx });
+  }, async () => {
+    n += 1;
+    if (n === 1) return new Response("", { status: 302, headers: { location: "https://www.example.com/final" } });
+    return new Response("", { status: 200, headers: { server: "origin", "content-type": "text/html" } });
+  });
+  ctx.markSettled();
+  eq("C1A headers redirect hops still counted physically", acct.snapshot("headers").outbound_attempts_observed, 2);
+}
+
+{
+  const acct = createOutboundAccounting();
   const ctx = acct.contextFor("dns");
   await withMockFetch(async () => {
     await dnsQuery("example.com", "A", { accounting: ctx });
@@ -443,6 +484,29 @@ function d1Stub({ fail = false } = {}) {
 {
   const telem = createModuleTelemetry(steppingClock());
   const acct = createOutboundAccounting();
+  const okCtx = acct.contextFor("dns");
+  const rejectedCtx = acct.contextFor("headers");
+  okCtx.recordAttempt();
+  rejectedCtx.recordAttempt();
+  okCtx.markSettled();
+  rejectedCtx.markIncomplete("module_error");
+  const okSnap = acct.snapshot("dns");
+  const rejectedSnap = acct.snapshot("headers");
+  telem.record("dns", { outcome: "ok", outbound: okSnap, outbound_calls: okSnap.outbound_measurement_complete ? okSnap.outbound_attempts_observed : null });
+  telem.record("headers", { outcome: "error", outbound: rejectedSnap, outbound_calls: rejectedSnap.outbound_measurement_complete ? rejectedSnap.outbound_attempts_observed : null });
+  const diag = buildExecutionDiagnostics({ telemetry: telem });
+  const env = d1Stub();
+  await persistModuleTelemetry("scan_rejected", telem, env);
+  eq("C1A successful sibling persists measured D1 integer", env._calls[0].args[6], 1);
+  eq("C1A rejected module observed attempts retained in R2", diag.modules[1].outbound_attempts_observed, 1);
+  eq("C1A rejected module measurement incomplete", diag.modules[1].outbound_measurement_complete, false);
+  eq("C1A rejected module persists D1 null", env._calls[1].args[6], null);
+  eq("C1A no cross-module attempt contamination", diag.modules[0].outbound_attempts_observed, 1);
+}
+
+{
+  const telem = createModuleTelemetry(steppingClock());
+  const acct = createOutboundAccounting();
   const snap = acct.snapshot("cve_intelligence");
   telem.record("cve_intelligence", { outcome: "deadline_exceeded", outbound: snap, outbound_calls: snap.outbound_measurement_complete ? snap.outbound_attempts_observed : null });
   const env = d1Stub();
@@ -486,6 +550,22 @@ function d1Stub({ fail = false } = {}) {
   ok("C1A incomplete measurement keeps D1 outbound_calls null", /outbound_measurement_complete \? .*outbound_attempts_observed : null/.test(engineSrc));
   ok("C1A manual queue path still passes trigger only", /doRunScanEngine\([^)]*\{ executionContext: "queue", trigger \}\)/.test(dispatchSrc));
   ok("C1A scheduled queue consumer remains shared", /queue: \(batch, env, ctx\) => handleScanDispatchBatch/.test(indexSrc));
+  const headersSrc = src("workers", "scan-api", "src", "engines", "headers-scan.js");
+  function sourceGuard(name, source, predicate, mutate) {
+    ok(`${name} — holds on current source`, predicate(source) === true);
+    const mutated = mutate(source);
+    ok(`${name} — mutation changed source`, mutated !== source);
+    ok(`${name} — CAUGHT when defect reintroduced`, predicate(mutated) === false);
+  }
+  sourceGuard("C1A headers bot HEAD carries accounting", headersSrc,
+    (s) => /const headRes = await safeFetch\(probeUrl, \{[\s\S]{0,180}accounting,[\s\S]{0,180}\}\);/.test(s),
+    (s) => s.replace(/(const headRes = await safeFetch\(probeUrl, \{[\s\S]{0,180})\s*accounting,\n/, "$1"));
+  sourceGuard("C1A headers www HEAD carries accounting", headersSrc,
+    (s) => /const wwwRes = await safeFetch\(wwwUrl, \{[\s\S]{0,180}accounting,[\s\S]{0,180}\}\);/.test(s),
+    (s) => s.replace(/(const wwwRes = await safeFetch\(wwwUrl, \{[\s\S]{0,180})\s*accounting,\n/, "$1"));
+  sourceGuard("C1A rejected modules cannot be marked complete", engineSrc,
+    (s) => /settled\?\.status === "fulfilled" && telemetry\.outcomeOf\(settled\.value\) === "ok"[\s\S]{0,220}ctx\.markIncomplete/.test(s),
+    (s) => s.replace('settled?.status === "fulfilled" && telemetry.outcomeOf(settled.value) === "ok"', "true"));
   const frontendFiles = [];
   const walk = (dir) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {

@@ -315,9 +315,24 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
   const telemetry = createModuleTelemetry(now);
   const outboundAccounting = createOutboundAccounting();
   const outboundContext = (module) => outboundAccounting.contextFor(module);
-  const settleOutbound = (ctx, module) => {
-    ctx?.markSettled?.();
-    telemetry.setOutbound(module, outboundAccounting.snapshot(module));
+  const settleOutbound = (ctx, module, settled) => {
+    if (!ctx) return null;
+    if (settled?.status === "fulfilled" && telemetry.outcomeOf(settled.value) === "ok") {
+      ctx.markSettled();
+    } else {
+      const outcome = settled?.status === "fulfilled" ? telemetry.outcomeOf(settled.value) : "error";
+      ctx.markIncomplete(outcome === "error" ? "module_error" : `module_${outcome}`);
+    }
+    const snap = outboundAccounting.snapshot(module);
+    telemetry.setOutbound(module, snap);
+    return snap;
+  };
+  const settleOutboundValue = (ctx, module, value) => {
+    if (!ctx) return null;
+    const outcome = telemetry.outcomeOf(value);
+    if (outcome === "ok") ctx.markSettled();
+    else ctx.markIncomplete(outcome === "error" ? "module_error" : `module_${outcome}`);
+    return outboundAccounting.snapshot(module);
   };
   const abandonOutbound = (ctx, module, cutoff = "module_race") => {
     ctx?.markAbandoned?.(cutoff);
@@ -388,11 +403,11 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
           telemetry.run("whois_intelligence",   () => runWhoisModule(domain, { accounting: whoisOutbound })),
           telemetry.run("dns_bruteforce",       () => runBruteforceModule(domain)),
         ]);
-      settleOutbound(dnsOutbound, "dns");
-      settleOutbound(headersOutbound, "headers");
-      settleOutbound(emailOutbound, "email_security");
-      settleOutbound(techOutbound, "technology_detection");
-      settleOutbound(whoisOutbound, "whois_intelligence");
+      settleOutbound(dnsOutbound, "dns", dnsSettled);
+      settleOutbound(headersOutbound, "headers", headersSettled);
+      settleOutbound(emailOutbound, "email_security", emailSettled);
+      settleOutbound(techOutbound, "technology_detection", techSettled);
+      settleOutbound(whoisOutbound, "whois_intelligence", whoisSettled);
 
       dnsResult = dnsSettled.status === "fulfilled" ? dnsSettled.value : { error: customerSafeFailure("scan/dns", dnsSettled.reason, "DNS module failed") };
       sslResult = sslSettled.status === "fulfilled" ? sslSettled.value : { error: customerSafeFailure("scan/ssl", sslSettled.reason, "SSL module failed") };
@@ -444,7 +459,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       const takeoverTimedOut = takeoverResult?.outcome === "deadline_exceeded";
       const takeoverOutboundSnapshot = takeoverTimedOut
         ? abandonOutbound(takeoverOutbound, "subdomain_takeover", takeoverStartedMs != null ? "module_race" : "launch_gate")
-        : (takeoverOutbound ? (takeoverOutbound.markSettled(), outboundAccounting.snapshot("subdomain_takeover")) : null);
+        : settleOutboundValue(takeoverOutbound, "subdomain_takeover", takeoverResult);
       telemetry.record("subdomain_takeover", {
         outcome:        telemetry.outcomeOf(takeoverResult),
         timeout:        takeoverTimedOut,
@@ -489,7 +504,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       const exposureTimedOut = assetExposureResult?.outcome === "deadline_exceeded";
       const exposureOutboundSnapshot = exposureTimedOut
         ? abandonOutbound(exposureOutbound, "asset_exposure", exposureStartedMs != null ? "module_race" : "launch_gate")
-        : (exposureOutbound ? (exposureOutbound.markSettled(), outboundAccounting.snapshot("asset_exposure")) : null);
+        : settleOutboundValue(exposureOutbound, "asset_exposure", assetExposureResult);
       telemetry.record("asset_exposure", {
         outcome:        telemetry.outcomeOf(assetExposureResult),
         timeout:        exposureTimedOut,
@@ -687,9 +702,9 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     }
     const phase5WallMs = now() - phase5StartedMs;
     const phase5Raced = settled === PHASE5_DEADLINE;
-    const cveOutboundSnapshot = phase5Raced ? abandonOutbound(cveOutbound, "cve_intelligence", "module_race") : (cveOutbound.markSettled(), outboundAccounting.snapshot("cve_intelligence"));
-    const kevOutboundSnapshot = phase5Raced ? abandonOutbound(kevOutbound, "known_exploited_vulnerabilities", "module_race") : (kevOutbound.markSettled(), outboundAccounting.snapshot("known_exploited_vulnerabilities"));
-    const emailIntelOutboundSnapshot = phase5Raced ? abandonOutbound(emailIntelOutbound, "email_security_intelligence", "module_race") : (emailIntelOutbound.markSettled(), outboundAccounting.snapshot("email_security_intelligence"));
+    const cveOutboundSnapshot = phase5Raced ? abandonOutbound(cveOutbound, "cve_intelligence", "module_race") : settleOutboundValue(cveOutbound, "cve_intelligence", modules.cve_intelligence);
+    const kevOutboundSnapshot = phase5Raced ? abandonOutbound(kevOutbound, "known_exploited_vulnerabilities", "module_race") : settleOutboundValue(kevOutbound, "known_exploited_vulnerabilities", modules.known_exploited_vulnerabilities);
+    const emailIntelOutboundSnapshot = phase5Raced ? abandonOutbound(emailIntelOutbound, "email_security_intelligence", "module_race") : settleOutboundValue(emailIntelOutbound, "email_security_intelligence", modules.email_security_intelligence);
     telemetry.record("cve_intelligence", {
       outcome: telemetry.outcomeOf(modules.cve_intelligence), timeout: modules.cve_intelligence?.outcome === "deadline_exceeded",
       duration_ms: phase5WallMs, allocated_ms: phase5AllocatedMs, timeout_source: phase5Raced ? "module_race" : null,
