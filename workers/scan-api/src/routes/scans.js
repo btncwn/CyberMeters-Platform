@@ -109,16 +109,6 @@ export async function scanRoutes(rctx) {
       // interrupted failed reports via the recovery spread — an honesty defect.)
       const initialScanQuality = null;
 
-      await createAuditEvent(env, {
-        workspace_id: workspaceId ?? null,
-        user_id:      userId ?? null,
-        event_type:   "scan_requested",
-        entity_type:  "scan",
-        entity_id:    scanId,
-        description:  `Scan requested for ${domain}`,
-        metadata:     { scan_id: scanId, domain, workspace_id: workspaceId ?? null },
-      });
-
       // Register domain — reuse existing row for same (user_id, domain) pair.
       // Scoped by user_id to prevent cross-user domain aliasing.
       const existingDomain = await env.cybermeters_db
@@ -198,6 +188,23 @@ export async function scanRoutes(rctx) {
         // propagating to the safe 500 path above.
         return json(activeScanConflictBody(), 409);
       }
+
+      // Audit — scan requested (PR-2b): written ONLY after the atomic INSERT
+      // admitted the scan. A duplicate rejected by the 099 constraint leaves NO
+      // lifecycle audit — no row, no audit, no placeholder, no engine. Non-fatal
+      // like the scan_started audit below: once the row exists, an audit-write
+      // failure must not strand an admitted 'running' scan without its engine.
+      try {
+        await createAuditEvent(env, {
+          workspace_id: workspaceId ?? null,
+          user_id:      userId ?? null,
+          event_type:   "scan_requested",
+          entity_type:  "scan",
+          entity_id:    scanId,
+          description:  `Scan requested for ${domain}`,
+          metadata:     { scan_id: scanId, domain, workspace_id: workspaceId ?? null },
+        });
+      } catch { /* non-fatal */ }
 
       // Write placeholder report to R2 so GET /report returns 200 immediately
       await env.cybermeters_reports.put(
