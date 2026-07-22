@@ -56,6 +56,33 @@ dataset = "cybermeters_metrics"
 [triggers]
 crons = ["0 * * * *"]
 
+# ── Durable manual-scan dispatch (PR-3A, 22 Jul 2026) ──
+# Producer binding + consumer attachment for the manual-scan Queue lifecycle
+# (engines/scan-dispatch.js). INERT until SCAN_DISPATCH_MODE (below) is flipped
+# to "queue" (PR-3B cutover, founder-gated): at "waituntil" the producer never
+# sends, so the consumer receives nothing.
+#
+# BOTH queues must exist BEFORE the first deploy of this config (deploy fails
+# otherwise; `wrangler deploy --dry-run` in CI does not require them):
+#   wrangler queues create cybermeters-scan-dispatch
+#   wrangler queues create cybermeters-scan-dlq
+#
+# max_batch_size = 1: one scan = one consumer invocation = a full invocation
+# subrequest budget per scan (never shared, unlike the cron tick).
+# The DLQ deliberately has NO consumer: a dead-lettered scan's row is a stale
+# 'queued'/'running' the hourly PR-1 recovery path converges to an honest
+# 'failed' (engines/scan-recovery.js).
+[[queues.producers]]
+binding = "SCAN_QUEUE"
+queue = "cybermeters-scan-dispatch"
+
+[[queues.consumers]]
+queue = "cybermeters-scan-dispatch"
+max_batch_size = 1
+max_retries = 3
+max_concurrency = 2
+dead_letter_queue = "cybermeters-scan-dlq"
+
 # Alert email recipients and sender.
 # RESEND_API_KEY must be set as a Wrangler secret (never committed):
 #   wrangler secret put RESEND_API_KEY
@@ -85,6 +112,12 @@ RUA_INBOUND_DOMAIN = "reports.cybermeters.com"
 # zone-scoped, so CLOUDFLARE_ACCOUNT_ID is accepted by the Worker environment but
 # is not required by this adapter. Optional worker override:
 # CLOUDFLARE_EMAIL_ROUTING_WORKER_NAME = "cybermeters-platform"
+
+# Manual-scan dispatch mode (PR-3A): "waituntil" = existing post-response
+# ctx.waitUntil path (the default; any unrecognised value fails safe here);
+# "queue" = durable Queue dispatch — PR-3B cutover only, founder-gated, and
+# ONLY after both queues above exist in the account.
+SCAN_DISPATCH_MODE = "waituntil"
 
 FRONTEND_URL = "https://app.cybermeters.com"
 MICROSOFT_REDIRECT_URI = "https://cybermeters-platform.ttrnn47.workers.dev/api/auth/microsoft/callback"

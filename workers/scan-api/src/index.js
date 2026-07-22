@@ -1,5 +1,6 @@
 import { handleInboundEmail } from "./email/inbound.js";
 import { runScheduled } from "./cron/scheduled.js";
+import { handleScanDispatchBatch } from "./engines/scan-dispatch.js";
 import { recoverInterruptedScans } from "./engines/scan-recovery.js";
 import { recordMetric } from "./lib/metrics.js";
 import { redactedJson } from "./lib/redact.js";
@@ -2295,6 +2296,14 @@ export default {
     triggerScheduledScan,
     recoverInterruptedScans,
   }),
+
+  // ── Durable scan-dispatch Queue consumer (PR-3A) ──────────────────────────
+  // Receives manual-scan dispatch messages (producer: dispatchAdmittedScan,
+  // inert until SCAN_DISPATCH_MODE="queue"). The engine is AWAITED inside the
+  // queue invocation — full invocation lifetime, never the post-response ~30s
+  // waitUntil path this replaces. Claim CAS + terminal no-op semantics live in
+  // engines/scan-dispatch.js.
+  queue: (batch, env, ctx) => handleScanDispatchBatch(batch, env, ctx),
 
   // ── Inbound DMARC aggregate (RUA) email handler ──────────────────────────
   // Extracted to src/email/inbound.js (Sprint 9 phase 1). Cloudflare Email Routing

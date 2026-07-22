@@ -24,6 +24,7 @@ import { createAuditEvent } from "../lib/events.js";
 import { DOMAIN_VERIFICATION_REQUIRED, isWorkspaceDomainVerified } from "../lib/domain-verification.js";
 import { createId, isValidDomain, parseBoundedInteger } from "../lib/util.js";
 import { activeScanConflictBody, isUniqueConstraintError } from "../lib/scan-admission.js";
+import { dispatchAdmittedScan, isQueueDispatchMode } from "../engines/scan-dispatch.js";
 
 export async function scanRoutes(rctx) {
   const { request, env, ctx, url, json, serverError, corsHeaders,
@@ -166,19 +167,24 @@ export async function scanRoutes(rctx) {
         return json({ ...DOMAIN_VERIFICATION_REQUIRED, domain_id: resolvedDomainId, workspace_id: workspaceId }, 403);
       }
 
-      // Create scan row — status 'running' (engine starts immediately).
-      // Admission is decided HERE, by the database (PR-2): migration 099's
-      // partial unique index allows at most one active scan per
-      // (workspace_id, domain), so of two racing requests exactly one INSERT
-      // succeeds — a pre-insert SELECT cannot be the authority because both
-      // racers pass any read-then-write check. The loser gets an honest 409:
-      // no R2 placeholder, no engine start, no side effect past this point.
+      // Create scan row. Dispatch mode decides the initial status (PR-3A):
+      // waitUntil mode starts the engine immediately ('running'); queue mode
+      // admits the scan as 'queued' and the Queue consumer's claim CAS flips
+      // it to 'running'. Admission is decided HERE, by the database (PR-2):
+      // migration 099's partial unique index allows at most one active scan
+      // ('queued'|'running'|'retrying') per (workspace_id, domain), so of two
+      // racing requests exactly one INSERT succeeds — a pre-insert SELECT
+      // cannot be the authority because both racers pass any read-then-write
+      // check. The loser gets an honest 409: no R2 placeholder, no dispatch,
+      // no engine start, no side effect past this point.
+      const queueDispatch = isQueueDispatchMode(env);
+      const initialScanStatus = queueDispatch ? "queued" : "running";
       try {
         await env.cybermeters_db
           .prepare(
             `INSERT INTO scans (id, domain_id, workspace_id, domain, status) VALUES (?, ?, ?, ?, ?)`
           )
-          .bind(scanId, resolvedDomainId, workspaceId, domain, "running")
+          .bind(scanId, resolvedDomainId, workspaceId, domain, initialScanStatus)
           .run();
       } catch (insertErr) {
         if (!isUniqueConstraintError(insertErr)) throw insertErr;
@@ -205,6 +211,36 @@ export async function scanRoutes(rctx) {
           metadata:     { scan_id: scanId, domain, workspace_id: workspaceId ?? null },
         });
       } catch { /* non-fatal */ }
+
+      // ── Queue dispatch (PR-3A — inert until SCAN_DISPATCH_MODE="queue") ──
+      // The queued R2 placeholder + Queue.send live in dispatchAdmittedScan as
+      // ONE compensation boundary: on failure the admitted row is CAS-failed
+      // (scan_quality stays NULL), one scan_dispatch_failed audit is appended,
+      // and the customer gets an honest 503 — never a scan reported as
+      // running that nothing will ever execute. scan_started is deliberately
+      // NOT emitted here: the Queue consumer writes it at claim, when the
+      // engine actually starts (exactly-once via the claim CAS).
+      if (queueDispatch) {
+        const dispatched = await dispatchAdmittedScan(env, {
+          scanId, domainId: resolvedDomainId, workspaceId, userId, domain, reportKey,
+        });
+        if (!dispatched.ok) {
+          return json({ error: "The scan could not be started. Please try again." }, 503);
+        }
+        return json(
+          {
+            status:       "queued",
+            scan_id:      scanId,
+            domain_id:    resolvedDomainId,
+            domain,
+            report_key:   reportKey,
+            scan_quality: initialScanQuality,
+            ...(workspaceId ? { workspace_id: workspaceId } : {}),
+            message:      "Scan queued. Poll GET /api/scans/:id until status is completed, then GET /api/scans/:id/report.",
+          },
+          202
+        );
+      }
 
       // Write placeholder report to R2 so GET /report returns 200 immediately
       await env.cybermeters_reports.put(
