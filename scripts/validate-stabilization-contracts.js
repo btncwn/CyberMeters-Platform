@@ -47,14 +47,21 @@ const ok = (n, c, d = "") => { c ? pass++ : fail++; if (!c) console.log(`FAIL ${
     /alreadyCompleted/.test(idx));
 }
 
-// ── Episode 5B — detail reconciler converges scan_quality from R2 ────────────
+// ── Episode 5B — reconciliation converges scan_quality from R2 ───────────────
+// PR-1 (22 Jul 2026): durable D1↔R2 convergence moved to the ONE canonical cron
+// recovery engine; GET list/detail became read-only display. The invariant is
+// unchanged — converged quality comes from the SAME R2 report — and is pinned
+// at its canonical site, plus the new read-only guarantee.
 {
+  const rec = read("engines/scan-recovery.js");
+  ok("canonical recovery UPDATE carries scan_quality (converged from R2)",
+    /UPDATE scans SET status = \?, score = \?, rating = \?, scan_quality = \?/.test(rec) &&
+    /raw\.scan_quality\?\.status/.test(rec));
   const sc = read("routes/scans.js");
-  // Both reconcilers (list + detail) now write scan_quality from raw.scan_quality.
-  ok("detail reconciler UPDATE carries scan_quality",
-    (sc.match(/UPDATE scans SET status = \?, score = \?, rating = \?, scan_quality = \? WHERE id = \?/g) || []).length >= 2);
-  ok("detail reconciler derives scan_quality from the canonical R2 report",
+  ok("detail display correction derives scan_quality from the canonical R2 report",
     /correctedQuality = raw\.scan_quality\?\.status/.test(sc));
+  ok("GET reconcilers perform no scans UPDATE (read-only)",
+    !/UPDATE scans/.test(sc));
 }
 
 // ── Episode 6 — DMARC ingest fails closed on limiter-store failure ──────────
