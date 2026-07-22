@@ -162,6 +162,8 @@ const FRESH_AGE = 2 * 60 * 1000;                              // 2 min old
      state.audits.length === 1);
   ok("1g no findings/score fabricated on the failed report",
      put && (put.body.findings || []).length === 0 && put.body.cyber_metrics_score !== 100);
+  ok("1h failed report carries scan_quality = null (PR-1b invariant)",
+     put && put.body.scan_quality === null);
 }
 
 // ── Fixture 2: recent scan untouched (age gate) ─────────────────────────────
@@ -314,6 +316,33 @@ const FRESH_AGE = 2 * 60 * 1000;                              // 2 min old
   const row = state.scans[0];
   ok("11a interrupted recovery persists scan_quality = NULL explicitly",
      row.status === "failed" && row.scan_quality === null);
+}
+
+// ── Fixtures 12/13: inherited placeholder quality NEVER survives recovery ────
+// The 22 Jul live-acceptance gate-fail: the old START placeholder hardcoded
+// scan_quality.status="complete", and the recovery spread preserved it into the
+// failed report. The explicit `scan_quality: null` after the spread closes it.
+// Removing that explicit null must redden BOTH fixtures.
+for (const inherited of [{ status: "complete" }, { status: "partial" }]) {
+  const { env, state } = makeEnv({
+    scans: [{
+      id: `scan_inherit_${inherited.status}`, workspace_id: "ws_A", domain_id: "d",
+      domain: "x.co", status: "running",
+      created_at: sqlite(STALE_AGE), last_heartbeat_at: iso(STALE_AGE),
+    }],
+    r2Objects: {
+      [`reports/scan_inherit_${inherited.status}.json`]: {
+        scan_id: `scan_inherit_${inherited.status}`, status: "running",
+        scan_quality: inherited, findings: [],
+      },
+    },
+  });
+  await recoverInterruptedScans(env, { now: NOW });
+  const put = state.r2Puts[0];
+  ok(`12-${inherited.status} inherited placeholder quality "${inherited.status}" → failed report quality null`,
+     put && put.body.status === "failed" && put.body.scan_quality === null);
+  ok(`12-${inherited.status}b no score/rating/findings gained`,
+     put && (put.body.findings || []).length === 0 && !put.body.rating);
 }
 
 // ── Fixture 10: SELECT→UPDATE race — a finalize that lands mid-recovery wins ─

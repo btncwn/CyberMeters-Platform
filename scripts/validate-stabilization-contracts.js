@@ -95,6 +95,13 @@ const ok = (n, c, d = "") => { c ? pass++ : fail++; if (!c) console.log(`FAIL ${
     /status = 'failed', scan_quality = NULL\s*\n?\s*WHERE id = \? AND status IN/.test(rec));
   const cron = read("cron/scheduled.js");
   ok("recovery is registered as a cron task", /recoverInterruptedScans/.test(cron));
+
+  // PR-1b (22 Jul 2026) — canonical quality invariant: a running or interrupted
+  // scan has NOT earned `complete` or `partial`.
+  ok("running START placeholder carries scan_quality = null (no hardcoded quality)",
+    /const initialScanQuality = null/.test(sc) && !/initialScanQuality = \{/.test(sc));
+  ok("interrupted failed R2 report explicitly nulls scan_quality after the spread",
+    /message: INTERRUPTED_CUSTOMER_MESSAGE,[\s\S]{0,500}scan_quality: null/.test(rec));
   const routeFiles = fs.readdirSync(path.join(S, "routes")).filter((f) => f.endsWith(".js"));
   const routeImports = routeFiles.filter((f) =>
     /import[^;]*from\s+["'][^"']*scan-recovery/.test(read(`routes/${f}`)));
