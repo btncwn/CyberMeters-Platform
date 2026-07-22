@@ -253,6 +253,8 @@ ok("D6 exactly two scan-creation paths exist in the Worker",
 // audit, placeholder and 409 behaviour are all the production code paths.
 const routesPath = path.join(root, "workers", "scan-api", "src", "routes", "scans.js");
 const { scanRoutes } = await import(pathToFileURL(routesPath).href);
+const utilPath = path.join(root, "workers", "scan-api", "src", "lib", "util.js");
+const { normalizeApiResponseData } = await import(pathToFileURL(utilPath).href);
 
 const edb = new DatabaseSync(":memory:", { enableForeignKeyConstraints: false });
 {
@@ -322,7 +324,10 @@ async function postScan(domain, workspaceId) {
     env: envE,
     ctx: { waitUntil: (p) => { waitUntils.push(p); } },
     url: new URL("https://api.test/api/scan"),
-    json: (data, status = 200) => ({ data, status }),
+    // REAL middleware: the production json() helper passes every body
+    // through normalizeApiResponseData before serialization — the stub that
+    // bypassed it is exactly how the PR-2c message-injection defect escaped CI.
+    json: (data, status = 200) => ({ data: normalizeApiResponseData(data, status), status }),
     serverError: (scope, error) => ({ data: { error: "Request failed. Please try again." }, status: 500 }),
     corsHeaders: {},
     requireAuth: async () => ({ id: "user_E1" }),
@@ -345,7 +350,10 @@ ok("E1 successful admission → 202, one active row, exactly one scan_requested 
 ok("E1b admitted path wrote the placeholder and started the engine (existing design)",
   r2Puts.length === 1 && waitUntils.length === 1 && engineParks.length === 1);
 
-// E2 — duplicate same-workspace/domain → canonical 409, exact body.
+// E2 — duplicate same-workspace/domain → canonical 409, and the body that
+// SERIALIZES through the real middleware stack is EXACTLY { code, error } —
+// the end-to-end proof the live acceptance ran (PR-2c: a normalizer-injected
+// third key reddens this).
 const e2 = await postScan("accept-fixture.co.uk", "ws_E_a");
 ok("E2 duplicate request → canonical 409 body",
   e2?.status === 409 &&
@@ -400,6 +408,29 @@ ok("E8 different domain, same workspace → independently admitted (202)",
   const schedAudit = idxSrcNow.indexOf('"scheduled_scan_triggered"');
   ok("E9b scheduled: scheduled_scan_triggered audit remains after its guarded INSERT",
     schedInsert > -1 && schedAudit > schedInsert);
+}
+
+// ── Layer F: middleware serialization contract (PR-2c) ──────────────────────
+// The normalizer must ship the canonical conflict body EXACTLY, while every
+// unrelated error keeps the full { error, code, message } decoration.
+{
+  const canon = normalizeApiResponseData({ error: "A scan is already active for this domain.", code: "active_scan_exists" }, 409);
+  ok("F1 canonical conflict body serializes with exactly [code, error]",
+    JSON.stringify(Object.keys(canon).sort()) === JSON.stringify(["code", "error"]) &&
+    canon.error === "A scan is already active for this domain." &&
+    canon.code === "active_scan_exists");
+
+  const other409 = normalizeApiResponseData({ error: "Report not ready: scan has not completed" }, 409);
+  ok("F2 unrelated 409s KEEP their message decoration (shared handling not weakened)",
+    typeof other409.message === "string" && other409.message.length > 0 &&
+    other409.error === "Report not ready: scan has not completed");
+
+  const with500 = normalizeApiResponseData({ error: "boom" }, 500);
+  ok("F3 5xx errors keep the customer-safe message", typeof with500.message === "string");
+
+  const leaky = normalizeApiResponseData({ error: "x", code: "active_scan_exists", detail: "SQL...", stack: "at ..." }, 409);
+  ok("F4 internals are stripped even for exact-contract codes",
+    !("detail" in leaky) && !("stack" in leaky));
 }
 
 // ── Summary ──────────────────────────────────────────────────────────────────
