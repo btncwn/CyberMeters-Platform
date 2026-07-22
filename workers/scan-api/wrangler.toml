@@ -117,7 +117,7 @@ RUA_INBOUND_DOMAIN = "reports.cybermeters.com"
 # ctx.waitUntil path (the default; any unrecognised value fails safe here);
 # "queue" = durable Queue dispatch — PR-3B cutover only, founder-gated, and
 # ONLY after both queues above exist in the account.
-SCAN_DISPATCH_MODE = "waituntil"
+SCAN_DISPATCH_MODE = "queue"
 
 FRONTEND_URL = "https://app.cybermeters.com"
 MICROSOFT_REDIRECT_URI = "https://cybermeters-platform.ttrnn47.workers.dev/api/auth/microsoft/callback"

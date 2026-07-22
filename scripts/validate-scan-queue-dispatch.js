@@ -680,8 +680,12 @@ ok("E2c consumer: batch 1, retries 3, concurrency 2, DLQ cybermeters-scan-dlq",
   /max_retries = 3\b/.test(stripToml) &&
   /max_concurrency = 2\b/.test(stripToml) &&
   /dead_letter_queue = "cybermeters-scan-dlq"/.test(stripToml));
-ok("E2d cutover flag is present and OFF (SCAN_DISPATCH_MODE = \"waituntil\")",
-  /^SCAN_DISPATCH_MODE = "waituntil"$/m.test(stripToml.replace(/\r/g, "")));
+// PR-3B (founder-approved cutover): the flag is now pinned ON. A silent
+// config revert, a removed flag or a typo'd value all redden this — an
+// intentional rollback must change this assertion in the same commit,
+// keeping the deployed mode and its pin in lockstep.
+ok("E2d cutover flag is present and ON (SCAN_DISPATCH_MODE = \"queue\")",
+  /^SCAN_DISPATCH_MODE = "queue"$/m.test(stripToml.replace(/\r/g, "")));
 ok("E2e custom-domain route and cron unchanged",
   /pattern = "api\.cybermeters\.com"/.test(wranglerSrc) &&
   /custom_domain = true/.test(wranglerSrc) &&
