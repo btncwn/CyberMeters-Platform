@@ -29,10 +29,21 @@
 
 import { createAuditEvent } from "../lib/events.js";
 
-// Non-terminal statuses recovery may touch. PR-3 (durable Queue dispatch) adds
-// its own pre-run states (e.g. "queued") here so an orphaned enqueue can also
-// reach a terminal state through this same canonical path.
-export const RECOVERY_ACTIVE_STATUSES = ["running"];
+// Non-terminal statuses recovery may touch. Deliberately widened for PR-3A
+// (durable Queue dispatch) — NEVER by importing SCAN_ACTIVE_STATUSES (that is
+// the admission set; this is the narrower set recovery knows how to repair):
+//   - "running"  — the original interrupted class (PR-1);
+//   - "queued"   — a dispatched-but-never-consumed row (lost/expired Queue
+//     message, dead-lettered delivery, or a failed compensation after a
+//     dispatch-setup error). A queued row has no heartbeat, so the heartbeat
+//     gate below falls back to created_at and the age threshold alone decides
+//     — 30 min comfortably exceeds worst-case delivery latency + bounded
+//     retries (~20 min), so a message still working through its retries can
+//     never be stolen from.
+// "retrying" is intentionally absent: PR-3 v1 never persists it (Queue
+// delivery metadata is authoritative for retry state), and the recovery set
+// only contains statuses that can actually occur.
+export const RECOVERY_ACTIVE_STATUSES = ["queued", "running"];
 
 // Eligibility thresholds — deliberately conservative. Today's longest legitimate
 // scan is ~60 s (21 s network budget + finalisation); the future Queue-consumer
@@ -195,6 +206,9 @@ export async function recoverInterruptedScans(env, { now = Date.now() } = {}) {
           metadata: {
             reason: INTERRUPTED_REASON,
             domain: s.domain ?? null,
+            // Distinguishes the queued (never consumed) class from the running
+            // (interrupted mid-flight) class in the append-only evidence.
+            status_before: s.status,
             age_ms: now - createdMs,
             heartbeat_stale_ms: now - heartbeatMs,
             r2_state: raw ? "running_placeholder" : "absent",
