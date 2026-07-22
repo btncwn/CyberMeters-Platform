@@ -163,9 +163,12 @@ export async function recoverInterruptedScans(env, { now = Date.now() } = {}) {
     }
 
     try {
+      // scan_quality is EXPLICITLY persisted as NULL: an interrupted scan earned
+      // neither `complete` nor `partial`, and any stale value a dying invocation
+      // may have left behind must not survive into the terminal row.
       const res = await env.cybermeters_db
         .prepare(
-          `UPDATE scans SET status = 'failed'
+          `UPDATE scans SET status = 'failed', scan_quality = NULL
             WHERE id = ? AND status IN (${statusPlaceholders})`
         )
         .bind(s.id, ...RECOVERY_ACTIVE_STATUSES)

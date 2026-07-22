@@ -91,6 +91,7 @@ function makeEnv({ scans, r2Objects, afterSelect = null }) {
               // real D1 would.
               if (/UPDATE scans SET status = 'failed'/i.test(sql)) {
                 const hasGuard = /AND\s+status\s+IN/i.test(sql);
+                const nullsQuality = /scan_quality\s*=\s*NULL/i.test(sql);
                 const id = args[0];
                 const statuses = args.slice(1);
                 const row = state.scans.find(
@@ -98,6 +99,7 @@ function makeEnv({ scans, r2Objects, afterSelect = null }) {
                 );
                 if (!row) return { meta: { changes: 0 } };
                 row.status = "failed";
+                if (nullsQuality) row.scan_quality = null;
                 return { meta: { changes: 1 } };
               }
               if (/UPDATE scans SET status = \?/i.test(sql)) {
@@ -292,6 +294,26 @@ const FRESH_AGE = 2 * 60 * 1000;                              // 2 min old
   const summary = await recoverInterruptedScans(env, { now: NOW });
   ok("9a absent R2 object still recovers to failed",
      state.scans[0].status === "failed" && summary.recovered_interrupted === 1);
+}
+
+// ── Fixture 11: recovery EXPLICITLY nulls a stale scan_quality ───────────────
+// A dying invocation may have left a stale quality value behind. The terminal
+// row of an interrupted scan must carry scan_quality = NULL — it earned neither
+// `complete` nor `partial`. Removing `, scan_quality = NULL` from the recovery
+// UPDATE must redden here.
+{
+  const { env, state } = makeEnv({
+    scans: [{
+      id: "scan_stalequality", workspace_id: "ws_A", domain_id: "d", domain: "x.co",
+      status: "running", scan_quality: "partial", // stale leftover
+      created_at: sqlite(STALE_AGE), last_heartbeat_at: iso(STALE_AGE),
+    }],
+    r2Objects: { "reports/scan_stalequality.json": { status: "running" } },
+  });
+  await recoverInterruptedScans(env, { now: NOW });
+  const row = state.scans[0];
+  ok("11a interrupted recovery persists scan_quality = NULL explicitly",
+     row.status === "failed" && row.scan_quality === null);
 }
 
 // ── Fixture 10: SELECT→UPDATE race — a finalize that lands mid-recovery wins ─
