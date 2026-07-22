@@ -607,11 +607,14 @@ const wranglerSrc = fs.readFileSync(path.join(root, "workers", "scan-api", "wran
 const stripToml = wranglerSrc.replace(/#[^\n]*/g, "").replace(/\r/g, "");
 const indexSrc = fs.readFileSync(srcPath("index.js"), "utf8");
 
-// E1 — PR-B1A ships INERT: the scheduled flag is present and pinned OFF. The
-// PR-B1B cutover must flip this assertion in the SAME commit as the config
-// (the E2d lockstep pattern), keeping the deployed mode and its pin together.
-ok("E1 SCHEDULED_DISPATCH_MODE present and pinned OFF (\"waituntil\") for PR-B1A",
-  /^SCHEDULED_DISPATCH_MODE = "waituntil"$/m.test(stripToml));
+// E1 — PR-B1B (founder-approved cutover): the scheduled flag is now pinned ON.
+// A silent config revert, a removed flag or a typo'd value all redden this —
+// an intentional rollback must change this assertion in the same commit,
+// keeping the deployed mode and its pin in lockstep (the E2d pattern). The
+// flag-off LEGACY path stays fully covered by the unit fixtures (A1
+// waituntil/absent/malformed fail-safe; B1 byte-identical legacy behaviour).
+ok("E1 SCHEDULED_DISPATCH_MODE present and pinned ON (\"queue\") for PR-B1B",
+  /^SCHEDULED_DISPATCH_MODE = "queue"$/m.test(stripToml));
 
 // E2 — the LIVE manual flag is untouched by this PR.
 ok("E2 SCAN_DISPATCH_MODE remains \"queue\" (manual path untouched)",
