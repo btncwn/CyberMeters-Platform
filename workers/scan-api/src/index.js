@@ -10,7 +10,7 @@ import { createAuditEvent, createNotificationEvent, createNotificationsForDomain
 import { RUA_INBOUND_DOMAIN_DEFAULT, ingestDmarcReport, ingestEndpointIsActive, normalizeInboundRecipientDomain, parseEmailAuthHeaders, sha256Hex, updateEmailSenderSources } from "./lib/dmarc-ingest.js";
 import { buildCorsHeaders, buildJsonHeaders, deliverEmail, escapeEmailHtml, getEmailFrontendOrigin, json, retryFailedLifecycleEmails, sendCustomerEmail, sendLifecycleEmail } from "./lib/lifecycle-email.js";
 import { RDAP_UA, safeFetch } from "./lib/http.js";
-import { isUniqueConstraintError } from "./lib/scan-admission.js";
+import { ACTIVE_SCAN_CONFLICT_CODE, isUniqueConstraintError } from "./lib/scan-admission.js";
 import { generateTotpSecret, verifyTotp } from "./lib/totp.js";
 import { hashPassword, verifyPassword } from "./lib/password.js";
 import { validateMicrosoftIdToken, validateMicrosoftIdTokenClaims } from "./lib/microsoft-jwt.js";
@@ -660,7 +660,7 @@ async function triggerScheduledScan(schedule, env) {
       if (!isUniqueConstraintError(insertErr)) throw insertErr;
       console.log("[scheduled-scan] skipped", JSON.stringify({
         schedule_id: schedule.id ?? null, workspace_id: schedule.workspace_id ?? null,
-        domain_id: domainId, domain: schedule.domain, reason: "active_scan_exists",
+        domain_id: domainId, domain: schedule.domain, reason: ACTIVE_SCAN_CONFLICT_CODE,
       }));
       return;
     }

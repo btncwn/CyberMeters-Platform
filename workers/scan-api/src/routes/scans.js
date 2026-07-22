@@ -23,7 +23,7 @@ import { readScanReportSnapshot } from "../engines/report-snapshot.js";
 import { createAuditEvent } from "../lib/events.js";
 import { DOMAIN_VERIFICATION_REQUIRED, isWorkspaceDomainVerified } from "../lib/domain-verification.js";
 import { createId, isValidDomain, parseBoundedInteger } from "../lib/util.js";
-import { ACTIVE_SCAN_CONFLICT_MESSAGE, findActiveScan, isUniqueConstraintError } from "../lib/scan-admission.js";
+import { activeScanConflictBody, isUniqueConstraintError } from "../lib/scan-admission.js";
 
 export async function scanRoutes(rctx) {
   const { request, env, ctx, url, json, serverError, corsHeaders,
@@ -192,20 +192,11 @@ export async function scanRoutes(rctx) {
           .run();
       } catch (insertErr) {
         if (!isUniqueConstraintError(insertErr)) throw insertErr;
-        const active = await findActiveScan(env, workspaceId, domain);
-        return json(
-          {
-            error: ACTIVE_SCAN_CONFLICT_MESSAGE,
-            ...(active
-              ? {
-                  active_scan_id: active.id,
-                  active_scan_status: active.status,
-                  active_scan_created_at: active.created_at,
-                }
-              : {}),
-          },
-          409
-        );
+        // Customer-safe conflict contract: a constant { error, code } body —
+        // no scan id, no timestamps, no database detail, identical whichever
+        // active row caused the conflict. Non-constraint errors keep
+        // propagating to the safe 500 path above.
+        return json(activeScanConflictBody(), 409);
       }
 
       // Write placeholder report to R2 so GET /report returns 200 immediately

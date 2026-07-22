@@ -5,7 +5,8 @@
 // decides admission by reading first (a read-then-write check loses the race
 // between two concurrent Worker invocations); it attempts the INSERT and
 // converts the constraint rejection into an honest customer outcome:
-//   - manual POST /api/scan  → json({ error, active_scan_* }, 409)
+//   - manual POST /api/scan  → json(activeScanConflictBody(), 409) — the
+//     stable customer-safe contract { error, code }, never internal ids
 //   - scheduled cron runner  → skip with a stable reason; the schedule stays
 //     due and retries next tick, exactly like an eligibility skip.
 //
@@ -19,9 +20,23 @@
 
 export const SCAN_ACTIVE_STATUSES = ["queued", "running", "retrying"];
 
+export const ACTIVE_SCAN_CONFLICT_CODE = "active_scan_exists";
 export const ACTIVE_SCAN_CONFLICT_MESSAGE =
-  "A scan for this domain is already in progress in this workspace. " +
-  "Wait for it to finish, then start a new scan.";
+  "A scan is already active for this domain.";
+
+// The canonical customer-safe conflict body — a frozen CONSTANT by design.
+// It carries no scan id, workspace id, domain id, timestamp or database
+// detail, and is byte-identical regardless of WHICH active row caused the
+// conflict, so the response can never become a cross-tenant or internal-state
+// oracle. The route returns exactly this with status 409; anything richer
+// (polling hints, active status) needs a founder-approved UI contract first.
+const ACTIVE_SCAN_CONFLICT_BODY = Object.freeze({
+  error: ACTIVE_SCAN_CONFLICT_MESSAGE,
+  code: ACTIVE_SCAN_CONFLICT_CODE,
+});
+export function activeScanConflictBody() {
+  return ACTIVE_SCAN_CONFLICT_BODY;
+}
 
 // D1 surfaces SQLite constraint rejections as an Error whose message contains
 // the SQLite wording (typically prefixed "D1_ERROR:"), e.g.
@@ -31,26 +46,4 @@ export const ACTIVE_SCAN_CONFLICT_MESSAGE =
 // NOT an admission conflict and must keep propagating to the safe 500 path.
 export function isUniqueConstraintError(err) {
   return /UNIQUE constraint failed/i.test(String(err?.message ?? err ?? ""));
-}
-
-// Read-only lookup of the blocking active scan, for the honest 409 payload.
-// Both ids returned are the caller's own already-authorised workspace context
-// (scan:create was verified before admission), so this is not an enumeration
-// oracle. Best-effort: a read failure degrades to a payload without the
-// active_scan_* fields, never to a different admission decision.
-export async function findActiveScan(env, workspaceId, domain) {
-  try {
-    const placeholders = SCAN_ACTIVE_STATUSES.map(() => "?").join(",");
-    const row = await env.cybermeters_db
-      .prepare(
-        `SELECT id, status, created_at FROM scans
-          WHERE workspace_id = ? AND domain = ? AND status IN (${placeholders})
-          ORDER BY created_at DESC LIMIT 1`
-      )
-      .bind(workspaceId, domain, ...SCAN_ACTIVE_STATUSES)
-      .first();
-    return row ?? null;
-  } catch {
-    return null;
-  }
 }

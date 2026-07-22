@@ -41,7 +41,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const libPath = path.join(root, "workers", "scan-api", "src", "lib", "scan-admission.js");
-const { SCAN_ACTIVE_STATUSES, ACTIVE_SCAN_CONFLICT_MESSAGE, isUniqueConstraintError, findActiveScan } =
+const { SCAN_ACTIVE_STATUSES, ACTIVE_SCAN_CONFLICT_CODE, ACTIVE_SCAN_CONFLICT_MESSAGE, activeScanConflictBody, isUniqueConstraintError } =
   await import(pathToFileURL(libPath).href);
 
 let passed = 0, failed = 0;
@@ -155,30 +155,38 @@ ok("B3 non-constraint errors are not admission conflicts",
   !isUniqueConstraintError(new Error("network timeout")) &&
   !isUniqueConstraintError(undefined) && !isUniqueConstraintError(null));
 
-// B4 — findActiveScan returns the blocking row via a bound, workspace-scoped read.
-const stubEnv = (rows, { fail = false } = {}) => ({
-  cybermeters_db: {
-    prepare(sql) {
-      return { bind(...args) { return { async first() {
-        if (fail) throw new Error("D1 read failure");
-        // Assert tenancy + status binding shape rather than trusting SQL text.
-        const [ws, domain, ...statuses] = args;
-        const hit = rows.find((r) => r.workspace_id === ws && r.domain === domain && statuses.includes(r.status));
-        return hit ?? null;
-      } }; } };
-    },
-  },
-});
-const found = await findActiveScan(
-  stubEnv([{ id: "scan_x", workspace_id: "ws1", domain: "example.com", status: "running", created_at: "2026-07-22 10:00:00" }]),
-  "ws1", "example.com");
-ok("B4 findActiveScan returns the blocking active scan", found?.id === "scan_x");
-const foreign = await findActiveScan(
-  stubEnv([{ id: "scan_y", workspace_id: "ws2", domain: "example.com", status: "running" }]),
-  "ws1", "example.com");
-ok("B5 findActiveScan never crosses the workspace boundary", foreign === null);
-const degraded = await findActiveScan(stubEnv([], { fail: true }), "ws1", "example.com");
-ok("B6 findActiveScan read failure degrades to null, never throws", degraded === null);
+// B4 — the canonical conflict body is EXACTLY { error, code }: the approved
+// customer-safe contract. Any extra key (scan_id, active_scan_*, created_at,
+// workspace_id, domain_id, status) is a contract violation.
+const body = activeScanConflictBody();
+ok("B4 conflict body is exactly { error, code } with the canonical values",
+  JSON.stringify(Object.keys(body).sort()) === JSON.stringify(["code", "error"]) &&
+  body.code === ACTIVE_SCAN_CONFLICT_CODE &&
+  body.code === "active_scan_exists" &&
+  body.error === ACTIVE_SCAN_CONFLICT_MESSAGE &&
+  body.error === "A scan is already active for this domain.");
+
+// B5 — no internal detail can leak through the body values: no identifiers,
+// no raw timestamps, no SQL/constraint wording, and the customer-facing error
+// is a human sentence, never a machine code.
+const bodyText = JSON.stringify(body);
+ok("B5 conflict body carries no internal identifiers, timestamps or DB detail",
+  !/scan_[a-z0-9]|ws_|dom_|workspace_id|domain_id|created_at|UNIQUE|constraint|SQLITE|D1_/i.test(
+    bodyText.replace(/"active_scan_exists"/, "")) &&
+  / /.test(body.error) && !/^[a-z0-9]+(_[a-z0-9]+)+$/.test(body.error));
+
+// B6 — the body is a frozen CONSTANT: byte-identical regardless of which
+// active row caused the conflict, so the response shape can never depend on —
+// or reveal — database state.
+const body2 = activeScanConflictBody();
+ok("B6 conflict body is constant and frozen (same shape whatever the cause)",
+  JSON.stringify(body) === JSON.stringify(body2) && Object.isFrozen(body));
+
+// B7 — cross-tenant existence cannot be inferred: a foreign workspace's
+// active scan never causes a conflict at all (A4), and when a conflict does
+// occur the body is the constant above (B6) — there is no channel.
+ok("B7 cross-tenant existence cannot be inferred (A4 no foreign conflict + constant body)",
+  !a4.threw && JSON.stringify(body) === JSON.stringify(body2));
 
 // ── Layer C: constant ↔ migration drift guard ────────────────────────────────
 ok("C0 SCAN_ACTIVE_STATUSES is exactly queued/running/retrying",
@@ -197,15 +205,22 @@ const indexSrc = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "
 
 ok("D1 manual path imports the admission guard",
   /from ["']\.\.\/lib\/scan-admission\.js["']/.test(scansSrc));
-ok("D2 manual path converts the constraint rejection to an honest 409",
-  /isUniqueConstraintError\(insertErr\)[\s\S]{0,700}ACTIVE_SCAN_CONFLICT_MESSAGE[\s\S]{0,700}409/.test(scansSrc));
-ok("D3 manual 409 names the blocking scan (honest, pollable outcome)",
-  /active_scan_id/.test(scansSrc) && /findActiveScan\(env, workspaceId, domain\)/.test(scansSrc));
+ok("D2 manual path returns the canonical constant body with 409",
+  /isUniqueConstraintError\(insertErr\)[\s\S]{0,700}json\(activeScanConflictBody\(\), 409\)/.test(scansSrc));
+// D3 — the conflict path must NOT enrich the response with internal state:
+// no lookup of the blocking row, no identifier or timestamp fields anywhere
+// in the route file's conflict handling. Reintroducing scan_id/created_at
+// enrichment (the pre-correction shape) reddens this assertion.
+const conflictSlice = (scansSrc.match(/catch \(insertErr\)[\s\S]{0,900}?409[\s\S]{0,80}?\}/) || [""])[0];
+ok("D3 conflict path exposes no internal identifiers or timestamps",
+  conflictSlice.length > 0 &&
+  !/active_scan|created_at|\bscan_id\b|workspace_id|domain_id|findActiveScan|\.id\b|\.status\b/.test(conflictSlice) &&
+  !/findActiveScan|active_scan_id|active_scan_created_at/.test(scansSrc));
 ok("D4 scheduled path imports the admission guard",
   /from ["']\.\/lib\/scan-admission\.js["']/.test(indexSrc));
 const schedGuard = indexSrc.match(/isUniqueConstraintError\(insertErr\)[\s\S]{0,600}/);
-ok("D5 scheduled path skips with the stable reason and returns (no side effects)",
-  !!schedGuard && /active_scan_exists/.test(schedGuard[0]) && /return;/.test(schedGuard[0]));
+ok("D5 scheduled path skips with the stable canonical reason and returns (no side effects)",
+  !!schedGuard && /reason: ACTIVE_SCAN_CONFLICT_CODE/.test(schedGuard[0]) && /return;/.test(schedGuard[0]));
 // D6 — the two guarded INSERTs are the ONLY scan-row creation paths in the
 // Worker. A third path would bypass route-level honesty (the DB still blocks).
 const workerInsertCount = (dir) => {
