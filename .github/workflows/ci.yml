@@ -325,6 +325,9 @@ jobs:
       - name: Validate interrupted-scan terminal recovery (canonical cron repair + read-only GETs + race/idempotency/terminal-report guards)
         run: node scripts/validate-interrupted-scan-recovery.js
 
+      - name: Validate atomic active-scan admission guard (mig 099 partial unique indexes + domain-aliasing + NULL-ws defense + honest 409 + drift + mutations)
+        run: node scripts/validate-scan-admission-guard.js
+
       - name: Validate Shadow IT recurrence truth (per-recurrence copy + observed ≠ unauthorised + surface parity + viewer gating + dedupe + mutations)
         run: node scripts/validate-shadow-it-recurrence-truth.js
 

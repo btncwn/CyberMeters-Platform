@@ -10,6 +10,7 @@ import { createAuditEvent, createNotificationEvent, createNotificationsForDomain
 import { RUA_INBOUND_DOMAIN_DEFAULT, ingestDmarcReport, ingestEndpointIsActive, normalizeInboundRecipientDomain, parseEmailAuthHeaders, sha256Hex, updateEmailSenderSources } from "./lib/dmarc-ingest.js";
 import { buildCorsHeaders, buildJsonHeaders, deliverEmail, escapeEmailHtml, getEmailFrontendOrigin, json, retryFailedLifecycleEmails, sendCustomerEmail, sendLifecycleEmail } from "./lib/lifecycle-email.js";
 import { RDAP_UA, safeFetch } from "./lib/http.js";
+import { ACTIVE_SCAN_CONFLICT_CODE, isUniqueConstraintError } from "./lib/scan-admission.js";
 import { generateTotpSecret, verifyTotp } from "./lib/totp.js";
 import { hashPassword, verifyPassword } from "./lib/password.js";
 import { validateMicrosoftIdToken, validateMicrosoftIdTokenClaims } from "./lib/microsoft-jwt.js";
@@ -643,11 +644,26 @@ async function triggerScheduledScan(schedule, env) {
       return;
     }
 
-    // Create scan row
-    await env.cybermeters_db
-      .prepare(`INSERT INTO scans (id, domain_id, workspace_id, domain, status) VALUES (?, ?, ?, ?, ?)`)
-      .bind(scanId, domainId, schedule.workspace_id ?? null, schedule.domain, "running")
-      .run();
+    // Create scan row — admission is decided by the database (PR-2): migration
+    // 099's partial unique index allows at most one active scan per
+    // (workspace_id, domain). If a scan is already in flight for this domain
+    // (e.g. a manual scan the customer just started), skip exactly like an
+    // eligibility failure — no R2 placeholder, no last_run_at stamp, no engine
+    // start — and the schedule stays due, so the next hourly tick retries once
+    // the active scan reaches a terminal state.
+    try {
+      await env.cybermeters_db
+        .prepare(`INSERT INTO scans (id, domain_id, workspace_id, domain, status) VALUES (?, ?, ?, ?, ?)`)
+        .bind(scanId, domainId, schedule.workspace_id ?? null, schedule.domain, "running")
+        .run();
+    } catch (insertErr) {
+      if (!isUniqueConstraintError(insertErr)) throw insertErr;
+      console.log("[scheduled-scan] skipped", JSON.stringify({
+        schedule_id: schedule.id ?? null, workspace_id: schedule.workspace_id ?? null,
+        domain_id: domainId, domain: schedule.domain, reason: ACTIVE_SCAN_CONFLICT_CODE,
+      }));
+      return;
+    }
 
     // Write placeholder report so GET /report returns 200 immediately
     await env.cybermeters_reports.put(

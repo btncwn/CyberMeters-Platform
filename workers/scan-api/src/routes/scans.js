@@ -23,6 +23,7 @@ import { readScanReportSnapshot } from "../engines/report-snapshot.js";
 import { createAuditEvent } from "../lib/events.js";
 import { DOMAIN_VERIFICATION_REQUIRED, isWorkspaceDomainVerified } from "../lib/domain-verification.js";
 import { createId, isValidDomain, parseBoundedInteger } from "../lib/util.js";
+import { activeScanConflictBody, isUniqueConstraintError } from "../lib/scan-admission.js";
 
 export async function scanRoutes(rctx) {
   const { request, env, ctx, url, json, serverError, corsHeaders,
@@ -175,13 +176,28 @@ export async function scanRoutes(rctx) {
         return json({ ...DOMAIN_VERIFICATION_REQUIRED, domain_id: resolvedDomainId, workspace_id: workspaceId }, 403);
       }
 
-      // Create scan row — status 'running' (engine starts immediately)
-      await env.cybermeters_db
-        .prepare(
-          `INSERT INTO scans (id, domain_id, workspace_id, domain, status) VALUES (?, ?, ?, ?, ?)`
-        )
-        .bind(scanId, resolvedDomainId, workspaceId, domain, "running")
-        .run();
+      // Create scan row — status 'running' (engine starts immediately).
+      // Admission is decided HERE, by the database (PR-2): migration 099's
+      // partial unique index allows at most one active scan per
+      // (workspace_id, domain), so of two racing requests exactly one INSERT
+      // succeeds — a pre-insert SELECT cannot be the authority because both
+      // racers pass any read-then-write check. The loser gets an honest 409:
+      // no R2 placeholder, no engine start, no side effect past this point.
+      try {
+        await env.cybermeters_db
+          .prepare(
+            `INSERT INTO scans (id, domain_id, workspace_id, domain, status) VALUES (?, ?, ?, ?, ?)`
+          )
+          .bind(scanId, resolvedDomainId, workspaceId, domain, "running")
+          .run();
+      } catch (insertErr) {
+        if (!isUniqueConstraintError(insertErr)) throw insertErr;
+        // Customer-safe conflict contract: a constant { error, code } body —
+        // no scan id, no timestamps, no database detail, identical whichever
+        // active row caused the conflict. Non-constraint errors keep
+        // propagating to the safe 500 path above.
+        return json(activeScanConflictBody(), 409);
+      }
 
       // Write placeholder report to R2 so GET /report returns 200 immediately
       await env.cybermeters_reports.put(
