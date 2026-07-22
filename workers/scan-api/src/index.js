@@ -1,5 +1,6 @@
 import { handleInboundEmail } from "./email/inbound.js";
 import { runScheduled } from "./cron/scheduled.js";
+import { recoverInterruptedScans } from "./engines/scan-recovery.js";
 import { recordMetric } from "./lib/metrics.js";
 import { redactedJson } from "./lib/redact.js";
 import { computeOpsHealth, formatOpsHealthEmail } from "./lib/ops-health.js";
@@ -2276,6 +2277,7 @@ export default {
     runBrandPassiveDiscoverySweep,
     runBrandHttpEnrichmentSweep,
     triggerScheduledScan,
+    recoverInterruptedScans,
   }),
 
   // ── Inbound DMARC aggregate (RUA) email handler ──────────────────────────

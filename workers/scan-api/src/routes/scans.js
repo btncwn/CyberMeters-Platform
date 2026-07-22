@@ -292,12 +292,13 @@ export async function scanRoutes(rctx) {
           .all();
       }
 
-      // ── Stuck-scan reconciliation ─────────────────────────────────────
-      // Edge case: if runScanEngine was killed (Worker CPU timeout, subrequest limit)
-      // between the R2 write and the D1 status write, the scan stays 'running' in D1
-      // permanently even though R2 has the completed report.
-      // For any scan that has been 'running' for > 10 minutes, check R2 and correct D1.
-      // Only genuinely old scans are checked — in-flight scans (<10 min) are never touched.
+      // ── Stuck-scan DISPLAY correction (read-only) ─────────────────────
+      // Edge case: if runScanEngine was killed between the R2 write and the D1
+      // status write, D1 lags behind the terminal R2 report. This GET corrects
+      // the RESPONSE from R2 so polling clients see the truth — it performs NO
+      // writes. Durable repair (both this class and the interrupted-scan class)
+      // is owned by the hourly cron's canonical recovery path
+      // (engines/scan-recovery.js); GET list/detail never mutate production.
       const STUCK_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes — scans complete in ~15s; >2min means stuck
       const nowMs = Date.now();
       const stuckScans = (result.results || []).filter(s => {
@@ -319,21 +320,9 @@ export async function scanRoutes(rctx) {
                 raw.status === 'completed' ? 'completed' :
                 raw.status === 'failed'    ? 'failed'    : null;
               if (!correctedStatus) return null;
-              // Correct D1 so future queries also return the right status, score,
-              // rating, AND coverage quality — converged from the SAME R2 report, so
-              // D1 and R2 cannot present contradictory quality after reconciliation.
-              try {
-                await env.cybermeters_db
-                  .prepare(`UPDATE scans SET status = ?, score = ?, rating = ?, scan_quality = ? WHERE id = ?`)
-                  .bind(
-                    correctedStatus,
-                    raw.cyber_metrics_score ?? null,
-                    raw.risk_level          ?? null,
-                    raw.scan_quality?.status ?? null,
-                    s.id
-                  )
-                  .run();
-              } catch { /* non-fatal — response still returns corrected status */ }
+              // Display-only: the corrected values are merged into THIS response.
+              // D1 persistence is deliberately NOT done here — the hourly cron's
+              // recovery task converges D1 from the same R2 report.
               return {
                 id:     s.id,
                 status: correctedStatus,
@@ -703,10 +692,11 @@ export async function scanRoutes(rctx) {
       if (!access) return json({ error: "Forbidden" }, 403);
       if (!scan) return json({ error: "Forbidden" }, 403);
 
-      // ── Stuck-scan reconciliation ────────────────────────────────────────
-      // If D1 still shows 'running' but the scan is older than 2 minutes,
-      // the Worker was likely CPU-killed between the R2 write and the D1 write.
-      // Check R2 for the real status and correct D1 so polling can terminate.
+      // ── Stuck-scan DISPLAY correction (read-only) ────────────────────────
+      // If D1 still shows 'running' but the scan is older than 2 minutes and R2
+      // already holds a terminal report, return the R2 truth so polling can
+      // terminate. NO write happens here — durable D1 repair is owned by the
+      // hourly cron's canonical recovery path (engines/scan-recovery.js).
       if (scan.status === "running") {
         const createdMs = new Date(
           scan.created_at.includes("T") ? scan.created_at : scan.created_at + "Z"
@@ -719,17 +709,10 @@ export async function scanRoutes(rctx) {
               if (raw.status === "completed" || raw.status === "failed") {
                 const correctedScore   = raw.cyber_metrics_score ?? null;
                 const correctedRating  = raw.risk_level ?? null;
-                // Converge scan_quality from the SAME canonical R2 report, matching
-                // the list reconciler + finalizer, so D1 and R2 cannot present
-                // contradictory quality after reconciliation. Never fabricated:
-                // absent report quality stays NULL (unknown, non-authoritative).
+                // Display-only convergence from the SAME canonical R2 report.
+                // Never fabricated: absent report quality stays NULL. D1 is NOT
+                // written here — the cron recovery task persists it.
                 const correctedQuality = raw.scan_quality?.status ?? scan.scan_quality ?? null;
-                await env.cybermeters_db
-                  .prepare(
-                    `UPDATE scans SET status = ?, score = ?, rating = ?, scan_quality = ? WHERE id = ?`
-                  )
-                  .bind(raw.status, correctedScore, correctedRating, correctedQuality, scanId)
-                  .run();
                 scan = {
                   ...scan,
                   status:       raw.status,
