@@ -712,7 +712,7 @@ async function triggerScheduledScan(schedule, env) {
     // Run the full scan engine — awaited inside waitUntil context
     // Specific catch so a scan failure updates status and notifies the workspace owner.
     try {
-      await runScanEngine(scanId, domainId, schedule.workspace_id ?? null, schedule.domain, env);
+      await runScanEngine(scanId, domainId, schedule.workspace_id ?? null, schedule.domain, env, { executionContext: "cron" });
     } catch (scanErr) {
       console.error("[scheduled-scan] FAILED", schedule.id, scanErr?.message);
       // Downgrade-safe: runScanEngine's own catch already routes through the

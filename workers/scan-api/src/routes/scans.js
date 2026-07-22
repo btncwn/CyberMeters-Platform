@@ -274,7 +274,7 @@ export async function scanRoutes(rctx) {
       } catch { /* non-fatal */ }
 
       // Fire the scan engine after the response is sent
-      ctx.waitUntil(runScanEngine(scanId, resolvedDomainId, workspaceId, domain, env));
+      ctx.waitUntil(runScanEngine(scanId, resolvedDomainId, workspaceId, domain, env, { executionContext: "waituntil" }));
 
       return json(
         {
