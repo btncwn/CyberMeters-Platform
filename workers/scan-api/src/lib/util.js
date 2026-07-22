@@ -65,12 +65,23 @@ const STATUS_MESSAGE = {
   429: "Too many requests right now. Please wait a moment and try again.",
 };
 
+// Exact-contract codes (PR-2c): error bodies that ARE the complete approved
+// public contract — the normalizer must not decorate them with a fallback
+// `message` (or anything else) beyond stripping internals. The PR-2 live
+// acceptance failed on exactly this: the frozen active-scan conflict body
+// { error, code } gained STATUS_MESSAGE[409] here and broke the two-key
+// contract. Add a code ONLY when its producing body is a founder-approved
+// frozen constant; every other error keeps the full { error, code, message }
+// treatment below.
+const CONTRACT_EXACT_CODES = new Set(["active_scan_exists"]);
+
 // normalizeApiResponseData — the single choke point that gives every error
 // response (status >= 400) a uniform, leak-free contract: { error, code, message }.
 //   - `error`   : preserved verbatim (machine code OR human string the UI reads).
 //   - `code`    : snake_case machine token derived from `error` or the status.
 //   - `message` : customer-safe human sentence (added only when absent — a
-//                 route's own specific message always wins).
+//                 route's own specific message always wins; exact-contract
+//                 codes above are never given one).
 // `detail`/`stack` are stripped so an internal trace can never reach a client.
 // Called by the `json()` helper, so all 568+ error return sites conform without
 // each one repeating the shape. Success bodies (status < 400) pass through untouched.
@@ -91,6 +102,12 @@ function normalizeApiResponseData(data, status) {
     normalized.code = /^[a-z][a-z0-9_]*$/.test(normalized.error)
       ? normalized.error
       : (STATUS_CODE[status] || (status >= 500 ? "server_error" : "request_error"));
+  }
+
+  // Exact-contract bodies keep their approved shape verbatim (internals were
+  // already stripped above; error/code were already present by definition).
+  if (CONTRACT_EXACT_CODES.has(normalized.code)) {
+    return normalized;
   }
 
   if (typeof normalized.message !== "string" || !normalized.message.trim()) {
