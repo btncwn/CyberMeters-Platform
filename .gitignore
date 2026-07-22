@@ -35,3 +35,7 @@ workers/scan-api/.wrangler/
 # Generated report artifacts + business docs — keep out of the code repo
 *.pdf
 *.docx
+
+# Confidential local-only deliverables — NEVER commit or push (anti-imitability policy)
+*.local.html
+local/
