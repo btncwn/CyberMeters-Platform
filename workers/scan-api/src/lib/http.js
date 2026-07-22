@@ -19,15 +19,20 @@ const MAX_REDIRECT_HOPS = 4;
 //    every caller already handles (`if (!res) …`).
 export async function safeFetch(url, options = {}) {
   const followManually = options.redirect !== "manual";
+  const accounting = options.accounting || null;
+  const fetchOptions = { ...options };
+  delete fetchOptions.accounting;
   try {
     let current = url;
     for (let hop = 0; hop <= MAX_REDIRECT_HOPS; hop++) {
       if (urlIsBlockedTarget(current)) return null;
+      accounting?.recordAttempt?.();
       const res = await fetch(current, {
-        ...options,
+        ...fetchOptions,
         redirect: "manual",
         signal: AbortSignal.timeout(10_000),
       });
+      accounting?.recordCompleted?.();
       if (!followManually) return res;
       if ([301, 302, 303, 307, 308].includes(res.status)) {
         const loc = res.headers.get("location");
@@ -38,7 +43,8 @@ export async function safeFetch(url, options = {}) {
       return res; // final (non-redirect) response
     }
     return null; // redirect loop / exceeded MAX_REDIRECT_HOPS
-  } catch {
+  } catch (err) {
+    accounting?.recordError?.(err);
     return null;
   }
 }

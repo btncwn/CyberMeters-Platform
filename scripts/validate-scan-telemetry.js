@@ -19,8 +19,13 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const eng = (f) => import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", f)).href);
-const { createModuleTelemetry, createScanDeadline, raceModuleDeadline, buildExecutionDiagnostics, SCAN_EXECUTION_DIAGNOSTICS_VERSION } = await eng("scan-budget.js");
+const { createModuleTelemetry, createOutboundAccounting, createScanDeadline, raceModuleDeadline, buildExecutionDiagnostics, SCAN_EXECUTION_DIAGNOSTICS_VERSION } = await eng("scan-budget.js");
 const { persistModuleTelemetry, heartbeatScan } = await eng("scan-engine.js");
+const { safeFetch } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "lib", "http.js")).href);
+const { dnsQuery } = await eng("dns.js");
+const { makeReservedProbeFetch } = await eng("reserved-probe.js");
+const { getKevCatalogue } = await eng("vuln-intel.js");
+const { runWhoisModule } = await eng("whois-scan.js");
 
 let pass = 0, fail = 0;
 const ok = (n, c, d = "") => { c ? pass++ : fail++; if (!c) console.log(`FAIL ${n}${d ? " — " + d : ""}`); };
@@ -30,6 +35,17 @@ const eq = (n, g, w) => ok(n, g === w, `got ${JSON.stringify(g)} want ${JSON.str
 function steppingClock(start = 1_000_000, step = 25) {
   let t = start;
   return () => { const v = t; t += step; return v; };
+}
+
+async function withMockFetch(fn, impl) {
+  const prior = globalThis.fetch;
+  globalThis.fetch = impl;
+  try { return await fn(); }
+  finally { globalThis.fetch = prior; }
+}
+
+function jsonResponse(body, init = {}) {
+  return new Response(JSON.stringify(body), { status: init.status || 200, headers: { "content-type": "application/json", ...(init.headers || {}) } });
 }
 
 // ── 1. run() times a module, classifies ok, returns value unchanged ──
@@ -281,8 +297,10 @@ function d1Stub({ fail = false } = {}) {
     /runScanEngine\([^)]*\{ executionContext: "cron" \}\)/.test(indexSrc));
   ok("waituntil call site passes executionContext waituntil",
     /runScanEngine\([^)]*\{ executionContext: "waituntil" \}\)/.test(scansSrc));
-  ok("cve outbound_calls from technologies_checked (reliable 1:1 counter)",
-    /outbound_calls: Array\.isArray\(modules\.cve_intelligence\?\.technologies_checked\) \? modules\.cve_intelligence\.technologies_checked\.length : null/.test(engineSrc));
+  ok("old CVE technologies_checked outbound estimate removed",
+    !/outbound_calls: Array\.isArray\(modules\.cve_intelligence\?\.technologies_checked\) \? modules\.cve_intelligence\.technologies_checked\.length : null/.test(engineSrc));
+  ok("CVE outbound_calls now derives from measured outbound snapshot",
+    /cveOutboundSnapshot\.outbound_measurement_complete \? cveOutboundSnapshot\.outbound_attempts_observed : null/.test(engineSrc));
 
   // Behaviour-neutrality direction proofs: diagnostics must remain write-only in
   // the engine (assigned into reports, never read back into any decision), and
@@ -292,6 +310,193 @@ function d1Stub({ fail = false } = {}) {
   const trackedArr = engineSrc.slice(engineSrc.indexOf("TELEMETRY_TRACKED_MODULES = Object.freeze(["));
   ok("scan_finalisation is not a tracked module", !trackedArr.slice(0, trackedArr.indexOf("])")).includes("scan_finalisation"));
   ok("buildScanQuality never reads diagnostics", !/buildScanQuality[\s\S]{0,2000}execution_diagnostics/.test(engineSrc.slice(engineSrc.indexOf("export function buildScanQuality"), engineSrc.indexOf("export function buildScanQuality") + 3000)));
+}
+
+// ── 13. Outbound accounting leaf helpers and D1/null semantics (PR-C1A) ──
+{
+  const acct = createOutboundAccounting();
+  const ctx = acct.contextFor("technology_detection");
+  await withMockFetch(async () => {
+    const res = await safeFetch("https://example.com", { accounting: ctx });
+    eq("C1A one successful HTTP response", res.status, 200);
+  }, async () => new Response("ok", { status: 200 }));
+  ctx.markSettled();
+  const snap = acct.snapshot("technology_detection");
+  eq("C1A one successful HTTP attempt", snap.outbound_attempts_observed, 1);
+  eq("C1A one successful HTTP completed", snap.outbound_completed_observed, 1);
+  eq("C1A settled leaf measurement complete", snap.outbound_measurement_complete, true);
+}
+
+{
+  const acct = createOutboundAccounting();
+  const ctx = acct.contextFor("headers");
+  const seen = [];
+  await withMockFetch(async () => {
+    const res = await safeFetch("https://example.com", { redirect: "follow", accounting: ctx });
+    eq("C1A redirect final response", res.status, 200);
+  }, async (url) => {
+    seen.push(String(url));
+    if (seen.length === 1) return new Response("", { status: 302, headers: { location: "https://example.com/final" } });
+    return new Response("ok", { status: 200 });
+  });
+  ctx.markSettled();
+  eq("C1A manual redirect counts both hops", acct.snapshot("headers").outbound_attempts_observed, 2);
+}
+
+{
+  const acct = createOutboundAccounting();
+  const ctx = acct.contextFor("dns");
+  await withMockFetch(async () => {
+    await dnsQuery("example.com", "A", { accounting: ctx });
+  }, async () => jsonResponse({ Status: 0, Answer: [{ data: "203.0.113.10", type: 1 }] }));
+  ctx.markSettled();
+  eq("C1A DNS DoH attempt counted", acct.snapshot("dns").outbound_attempts_observed, 1);
+}
+
+{
+  const acct = createOutboundAccounting();
+  const ctx = acct.contextFor("dns");
+  await withMockFetch(async () => {
+    await Promise.allSettled([
+      dnsQuery("example.com", "A", { accounting: ctx }),
+      dnsQuery("example.com", "AAAA", { accounting: ctx }),
+      dnsQuery("example.com", "MX", { accounting: ctx }),
+    ]);
+  }, async () => jsonResponse({ Status: 0, Answer: [] }));
+  ctx.markSettled();
+  eq("C1A parallel DNS calls counted individually", acct.snapshot("dns").outbound_attempts_observed, 3);
+}
+
+{
+  const acct = createOutboundAccounting();
+  const ctx = acct.contextFor("whois_intelligence");
+  let n = 0;
+  await withMockFetch(async () => {
+    await runWhoisModule("example.com", { accounting: ctx });
+  }, async () => {
+    n += 1;
+    return n === 1 ? new Response("missing", { status: 404 }) : jsonResponse({ events: [], entities: [], nameservers: [] });
+  });
+  ctx.markSettled();
+  eq("C1A provider fallback counts both RDAP attempts", acct.snapshot("whois_intelligence").outbound_attempts_observed, 2);
+}
+
+{
+  const acct = createOutboundAccounting();
+  const ctx = acct.contextFor("headers");
+  await withMockFetch(async () => {
+    await safeFetch("https://example.com", { signal: AbortSignal.abort(), accounting: ctx });
+  }, async () => { throw new DOMException("aborted", "AbortError"); });
+  ctx.markSettled();
+  eq("C1A abort observed without changing safeFetch contract", acct.snapshot("headers").outbound_aborted_observed, 1);
+}
+
+{
+  const acct = createOutboundAccounting();
+  const ctx = acct.contextFor("headers");
+  await withMockFetch(async () => {
+    await safeFetch("https://example.com", { accounting: ctx });
+  }, async () => { throw new DOMException("timed out", "TimeoutError"); });
+  ctx.markSettled();
+  eq("C1A timeout attempt counted", acct.snapshot("headers").outbound_attempts_observed, 1);
+  eq("C1A timeout observed", acct.snapshot("headers").outbound_timed_out_observed, 1);
+}
+
+{
+  const acct = createOutboundAccounting();
+  const ctx = acct.contextFor("known_exploited_vulnerabilities");
+  const env = { cybermeters_reports: { get: async () => ({ text: async () => JSON.stringify({ fetched_at_ms: Date.now(), vulnerabilities: [] }) }) } };
+  await withMockFetch(async () => {
+    const cat = await getKevCatalogue(env, { accounting: ctx });
+    eq("C1A KEV cache source", cat.source, "r2_cache");
+  }, async () => { throw new Error("origin fetch should not happen on cache hit"); });
+  ctx.markSettled();
+  eq("C1A provider cache hit excluded from outbound attempts", acct.snapshot("known_exploited_vulnerabilities").outbound_attempts_observed, 0);
+}
+
+{
+  const acct = createOutboundAccounting();
+  const ctx = acct.contextFor("asset_exposure");
+  await withMockFetch(async () => {
+    const fetcher = makeReservedProbeFetch({ cache: new Map(), accounting: ctx });
+    await fetcher("https://example.com");
+  }, async (url) => {
+    if (String(url).includes("dns-query")) return jsonResponse({ Status: 0, Answer: [] });
+    return new Response("ok", { status: 200 });
+  });
+  ctx.markSettled();
+  eq("C1A nested SSRF helper avoids caller+leaf double count", acct.snapshot("asset_exposure").outbound_attempts_observed, 3);
+}
+
+{
+  const telem = createModuleTelemetry(steppingClock());
+  const acct = createOutboundAccounting();
+  const ctx = acct.contextFor("cve_intelligence");
+  ctx.markSettled();
+  const snap = acct.snapshot("cve_intelligence");
+  telem.record("cve_intelligence", { outcome: "ok", outbound: snap, outbound_calls: snap.outbound_measurement_complete ? snap.outbound_attempts_observed : null });
+  const env = d1Stub();
+  await persistModuleTelemetry("scan_zero", telem, env);
+  eq("C1A launched measured-zero persists D1 0", env._calls[0].args[6], 0);
+}
+
+{
+  const telem = createModuleTelemetry(steppingClock());
+  const acct = createOutboundAccounting();
+  const snap = acct.snapshot("cve_intelligence");
+  telem.record("cve_intelligence", { outcome: "deadline_exceeded", outbound: snap, outbound_calls: snap.outbound_measurement_complete ? snap.outbound_attempts_observed : null });
+  const env = d1Stub();
+  await persistModuleTelemetry("scan_never", telem, env);
+  eq("C1A never-launched module persists D1 null", env._calls[0].args[6], null);
+}
+
+{
+  const telem = createModuleTelemetry(steppingClock());
+  telem.record("cloud_storage_discovery", { outcome: "ok" });
+  const env = d1Stub();
+  await persistModuleTelemetry("scan_uninstrumented", telem, env);
+  eq("C1A uninstrumented module persists D1 null", env._calls[0].args[6], null);
+}
+
+{
+  const telem = createModuleTelemetry(steppingClock());
+  const acct = createOutboundAccounting();
+  const ctx = acct.contextFor("asset_exposure");
+  ctx.recordAttempt();
+  ctx.markAbandoned("module_race");
+  const snap = acct.snapshot("asset_exposure");
+  telem.record("asset_exposure", { outcome: "deadline_exceeded", outbound: snap, outbound_calls: snap.outbound_measurement_complete ? snap.outbound_attempts_observed : null });
+  const diag = buildExecutionDiagnostics({ telemetry: telem });
+  const env = d1Stub();
+  await persistModuleTelemetry("scan_abandoned", telem, env);
+  eq("C1A abandoned observed count preserved in R2 diagnostics", diag.modules[0].outbound_attempts_observed, 1);
+  eq("C1A abandoned measurement marked incomplete", diag.modules[0].outbound_measurement_complete, false);
+  eq("C1A abandoned partial count never written to D1", env._calls[0].args[6], null);
+}
+
+{
+  const src = (...p) => fs.readFileSync(path.join(root, ...p), "utf8");
+  const engineSrc = src("workers", "scan-api", "src", "engines", "scan-engine.js");
+  const budgetSrc = src("workers", "scan-api", "src", "engines", "scan-budget.js");
+  const dispatchSrc = src("workers", "scan-api", "src", "engines", "scan-dispatch.js");
+  const indexSrc = src("workers", "scan-api", "src", "index.js");
+  ok("C1A D1/R2/Queue operations are not leaf-counted", !/cybermeters_(?:db|reports)|SCAN_QUEUE/.test(budgetSrc.slice(budgetSrc.indexOf("createOutboundAccounting"), budgetSrc.indexOf("// ── Per-module telemetry"))));
+  ok("C1A diagnostics include observed attempts", /outbound_attempts_observed/.test(budgetSrc));
+  ok("C1A diagnostics include measurement complete", /outbound_measurement_complete/.test(budgetSrc));
+  ok("C1A incomplete measurement keeps D1 outbound_calls null", /outbound_measurement_complete \? .*outbound_attempts_observed : null/.test(engineSrc));
+  ok("C1A manual queue path still passes trigger only", /doRunScanEngine\([^)]*\{ executionContext: "queue", trigger \}\)/.test(dispatchSrc));
+  ok("C1A scheduled queue consumer remains shared", /queue: \(batch, env, ctx\) => handleScanDispatchBatch/.test(indexSrc));
+  const frontendFiles = [];
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(p);
+      else frontendFiles.push(p);
+    }
+  };
+  walk(path.join(root, "frontend", "src"));
+  const frontendUsesDiagnostics = frontendFiles.some((p) => /outbound_attempts_observed|outbound_measurement_complete/.test(fs.readFileSync(p, "utf8")));
+  ok("C1A no customer reader consumes outbound diagnostics", !frontendUsesDiagnostics);
 }
 
 console.log(`\nscan-telemetry: ${pass} passed, ${fail} failed`);

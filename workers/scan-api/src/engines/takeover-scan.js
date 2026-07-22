@@ -297,7 +297,8 @@ export function takeoverObservationFor(mod, host) {
 export async function runTakeoverModule(domain, subdomains, opts = {}) {
   const source = "subdomain_cname_fingerprint";
   const fetchImpl = typeof opts.fetcher === "function" ? opts.fetcher : null;
-  const dnsImpl = typeof opts.dnsQueryImpl === "function" ? opts.dnsQueryImpl : dnsQuery;
+  const accounting = opts.accounting || null;
+  const dnsImpl = typeof opts.dnsQueryImpl === "function" ? opts.dnsQueryImpl : (name, type) => dnsQuery(name, type, { accounting });
 
   if (!subdomains || subdomains.length === 0) {
     return { checked: 0, potential_risks: 0, risks: [], checked_hosts: [], lookup_failed_hosts: [], unconfirmed: [], source, error: null };
@@ -344,7 +345,7 @@ export async function runTakeoverModule(domain, subdomains, opts = {}) {
   const bodyResults = await Promise.allSettled(
     candidates.map((c) => (fetchImpl
       ? fetchImpl(`https://${c.host}`)
-      : safeFetch(`https://${c.host}`, { method: "GET", redirect: "follow" })))
+      : safeFetch(`https://${c.host}`, { method: "GET", redirect: "follow", accounting })))
   );
 
   const risks = [];

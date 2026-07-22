@@ -21,12 +21,12 @@ export const RESERVED_MAX_REDIRECT_HOPS = 3;   // follow up to 3 redirects; cap 
 // addition to A, so the true exposure cost exceeds the projected C_h model by ~1 DoH
 // for the first resolution of each new host; the trust-fix runtime guard backstops any
 // real exhaustion (not_executed), and Tier-2's live counter makes `consumed` exact.
-function makeSsrfResolver(cache, onOutbound) {
+function makeSsrfResolver(cache, onOutbound, accounting = null) {
   return async (name, type) => {
     const key = dnsCacheKey(name, type);
     if (cache && cache.has(key)) return cache.get(key);      // cache hit → no outbound call
     let ans = null;
-    try { onOutbound?.(); ans = await dnsQuery(name, type); } catch { ans = null; }
+    try { onOutbound?.(); ans = await dnsQuery(name, type, { accounting }); } catch { ans = null; }
     if (cache) cache.set(key, ans);
     return ans;
   };
@@ -49,7 +49,7 @@ function makeSsrfResolver(cache, onOutbound) {
 // resolver(name,type) supplies DNS answers and must never throw (resolvesToPrivateIp
 // fails open on a rejected/empty answer). onOutbound() is invoked once per ACTUAL
 // outbound GET so a caller can meter real subrequest consumption.
-export function makeSsrfSafeProbeFetch({ resolver, maxHops = RESERVED_MAX_REDIRECT_HOPS, timeoutMs = 8_000, onOutbound = null } = {}) {
+export function makeSsrfSafeProbeFetch({ resolver, maxHops = RESERVED_MAX_REDIRECT_HOPS, timeoutMs = 8_000, onOutbound = null, accounting = null } = {}) {
   return async function ssrfSafeProbeFetch(url) {
     let current = url;
     for (let hop = 0; ; hop++) {
@@ -58,7 +58,15 @@ export function makeSsrfSafeProbeFetch({ resolver, maxHops = RESERVED_MAX_REDIRE
       try { hostname = new URL(current).hostname; } catch { return null; }
       if (await resolvesToPrivateIp(hostname, resolver)) return null;
       onOutbound?.();
-      const res = await fetch(current, { method: "GET", redirect: "manual", signal: AbortSignal.timeout(timeoutMs) });
+      accounting?.recordAttempt?.();
+      let res;
+      try {
+        res = await fetch(current, { method: "GET", redirect: "manual", signal: AbortSignal.timeout(timeoutMs) });
+        accounting?.recordCompleted?.();
+      } catch (err) {
+        accounting?.recordError?.(err);
+        throw err;
+      }
       if (![301, 302, 303, 307, 308].includes(res.status) || hop >= maxHops) return res;
       const loc = res.headers.get("location");
       if (!loc) return res;
@@ -72,7 +80,7 @@ export function makeSsrfSafeProbeFetch({ resolver, maxHops = RESERVED_MAX_REDIRE
 // missed the cache — via makeSsrfResolver — and each hop's GET — via the shared core)
 // so the reserved orchestrator can meter real exposure consumption instead of
 // projecting it. Behaviour is identical to the pre-extraction inline loop.
-export function makeReservedProbeFetch({ cache = null, maxHops = RESERVED_MAX_REDIRECT_HOPS, timeoutMs = 8_000, onOutbound = null } = {}) {
-  const resolver = makeSsrfResolver(cache, onOutbound);
-  return makeSsrfSafeProbeFetch({ resolver, maxHops, timeoutMs, onOutbound });
+export function makeReservedProbeFetch({ cache = null, maxHops = RESERVED_MAX_REDIRECT_HOPS, timeoutMs = 8_000, onOutbound = null, accounting = null } = {}) {
+  const resolver = makeSsrfResolver(cache, onOutbound, accounting);
+  return makeSsrfSafeProbeFetch({ resolver, maxHops, timeoutMs, onOutbound, accounting });
 }

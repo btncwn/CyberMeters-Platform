@@ -83,13 +83,14 @@ export function buildDmarcEvidenceFromDnsResult(settledResult, options = {}) {
   };
 }
 
-export async function runEmailModule(domain) {
+export async function runEmailModule(domain, opts = {}) {
+  const accounting = opts.accounting || null;
   // Phase 1 — fire SPF + DMARC + BIMI + generic DKIM selectors in parallel.
   const [spfRes, dmarcRes, bimiRes, ...dkimPhase1] = await Promise.allSettled([
-    dnsQuery(domain, "TXT"),
-    dnsQuery(`_dmarc.${domain}`, "TXT"),
-    dnsQuery(`default._bimi.${domain}`, "TXT"),
-    ...DKIM_SELECTORS.map((sel) => dnsQuery(`${sel}._domainkey.${domain}`, "TXT")),
+    dnsQuery(domain, "TXT", { accounting }),
+    dnsQuery(`_dmarc.${domain}`, "TXT", { accounting }),
+    dnsQuery(`default._bimi.${domain}`, "TXT", { accounting }),
+    ...DKIM_SELECTORS.map((sel) => dnsQuery(`${sel}._domainkey.${domain}`, "TXT", { accounting })),
   ]);
 
   // SPF — look for v=spf1 in root TXT records
@@ -121,7 +122,7 @@ export async function runEmailModule(domain) {
     if (providerExtras.length > 0) {
       phase2Selectors = providerExtras;
       const phase2Results = await Promise.allSettled(
-        phase2Selectors.map((sel) => dnsQuery(`${sel}._domainkey.${domain}`, "TXT"))
+        phase2Selectors.map((sel) => dnsQuery(`${sel}._domainkey.${domain}`, "TXT", { accounting }))
       );
       dkimSettled.push(...phase2Results);
       dkimSelector = findDkimInResults(phase2Selectors, phase2Results);
@@ -142,7 +143,7 @@ export async function runEmailModule(domain) {
     domain,
     rootRecord: spfRecord,
     recordCount: spfRecs.length,
-    lookup: makeDohSpfLookup(dnsQuery, normalizeDnsTxtValue),
+    lookup: makeDohSpfLookup((name, type) => dnsQuery(name, type, { accounting }), normalizeDnsTxtValue),
     nowIso: new Date().toISOString(),
   }).catch(() => null);
   const dmarcDetail = dmarcEvidence.dmarc_detail;

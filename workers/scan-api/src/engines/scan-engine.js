@@ -41,7 +41,7 @@ import { recordPostureEvents } from "./posture-events.js";
 import { recordSpfRuaCorroboration } from "./spf-corroboration.js";
 import { buildAssetTimelineTrustMetadata, loadTimelineComparisonContext } from "./timeline-trust.js";
 import { runReservedScan } from "./reserved-scan.js";
-import { buildExecutionDiagnostics, createModuleTelemetry, createScanDeadline, markDeadlineDeferred, MODULE_SUBREQUEST_COST, raceModuleDeadline, resolveScanCapacity, skippedModuleResult } from "./scan-budget.js";
+import { buildExecutionDiagnostics, createModuleTelemetry, createOutboundAccounting, createScanDeadline, markDeadlineDeferred, MODULE_SUBREQUEST_COST, raceModuleDeadline, resolveScanCapacity, skippedModuleResult } from "./scan-budget.js";
 import { computeScore, isEmailApplicable } from "./scoring.js";
 import { runSslModule } from "./ssl-scan.js";
 import { BRUTEFORCE_MAX_NAMES, filterWildcardBruteforceResults, runBruteforceModule, runSubdomainsModule } from "./subdomains-scan.js";
@@ -313,6 +313,16 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
   const latch = createFinalizeLatch();
   // Per-module telemetry collector (persisted at finalization; non-fatal).
   const telemetry = createModuleTelemetry(now);
+  const outboundAccounting = createOutboundAccounting();
+  const outboundContext = (module) => outboundAccounting.contextFor(module);
+  const settleOutbound = (ctx, module) => {
+    ctx?.markSettled?.();
+    telemetry.setOutbound(module, outboundAccounting.snapshot(module));
+  };
+  const abandonOutbound = (ctx, module, cutoff = "module_race") => {
+    ctx?.markAbandoned?.(cutoff);
+    return outboundAccounting.snapshot(module);
+  };
   // PR-A1: execution context threaded from the dispatch site (queue | cron |
   // waituntil). Telemetry-only — it never alters scheduling, budgets or module
   // behaviour; an unrecognised value fails safe to null, never guessed.
@@ -362,17 +372,27 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     } else {
       // ── Legacy path (unchanged): 8 core modules in parallel, then takeover, then
       // asset exposure over the merged (CT + brute-force) subdomain list. ──
+      const dnsOutbound = outboundContext("dns");
+      const headersOutbound = outboundContext("headers");
+      const emailOutbound = outboundContext("email_security");
+      const techOutbound = outboundContext("technology_detection");
+      const whoisOutbound = outboundContext("whois_intelligence");
       const [dnsSettled, sslSettled, headersSettled, emailSettled, subdomainsSettled, techSettled, whoisSettled, bruteforceSettled] =
         await Promise.allSettled([
-          telemetry.run("dns",                  () => runDnsModule(domain)),
+          telemetry.run("dns",                  () => runDnsModule(domain, { accounting: dnsOutbound })),
           telemetry.run("ssl",                  () => runSslModule(domain)),
-          telemetry.run("headers",              () => runHeadersModule(domain)),
-          telemetry.run("email_security",       () => runEmailModule(domain)),
+          telemetry.run("headers",              () => runHeadersModule(domain, { accounting: headersOutbound })),
+          telemetry.run("email_security",       () => runEmailModule(domain, { accounting: emailOutbound })),
           telemetry.run("subdomains",           () => runSubdomainsModule(domain)),
-          telemetry.run("technology_detection", () => runTechModule(domain)),
-          telemetry.run("whois_intelligence",   () => runWhoisModule(domain)),
+          telemetry.run("technology_detection", () => runTechModule(domain, { accounting: techOutbound })),
+          telemetry.run("whois_intelligence",   () => runWhoisModule(domain, { accounting: whoisOutbound })),
           telemetry.run("dns_bruteforce",       () => runBruteforceModule(domain)),
         ]);
+      settleOutbound(dnsOutbound, "dns");
+      settleOutbound(headersOutbound, "headers");
+      settleOutbound(emailOutbound, "email_security");
+      settleOutbound(techOutbound, "technology_detection");
+      settleOutbound(whoisOutbound, "whois_intelligence");
 
       dnsResult = dnsSettled.status === "fulfilled" ? dnsSettled.value : { error: customerSafeFailure("scan/dns", dnsSettled.reason, "DNS module failed") };
       sslResult = sslSettled.status === "fulfilled" ? sslSettled.value : { error: customerSafeFailure("scan/ssl", sslSettled.reason, "SSL module failed") };
@@ -404,12 +424,14 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       // overrun cannot cross the ~30s cliff. On the bound it defers honestly.
       // PR-A1: launched/allocated/started are telemetry-only observations.
       let takeoverAllocatedMs = null, takeoverStartedMs = null;
+      let takeoverOutbound = null;
       if (deadline.canRun(4_000)) {
         takeoverStartedMs = now();
+        takeoverOutbound = outboundContext("subdomain_takeover");
         try {
           takeoverResult = await raceModuleDeadline(
             deadline,
-            () => runTakeoverModule(domain, mergedSubdomainItems),
+            () => runTakeoverModule(domain, mergedSubdomainItems, { accounting: takeoverOutbound }),
             () => markDeadlineDeferred({ checked: 0, potential_risks: 0, risks: [], cname_observations: [], source: "subdomain_cname_fingerprint" }),
             { onStart: (capMs) => { takeoverAllocatedMs = capMs; } },
           );
@@ -419,12 +441,18 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       } else {
         takeoverResult = markDeadlineDeferred({ checked: 0, potential_risks: 0, risks: [], cname_observations: [], source: "subdomain_cname_fingerprint" });
       }
+      const takeoverTimedOut = takeoverResult?.outcome === "deadline_exceeded";
+      const takeoverOutboundSnapshot = takeoverTimedOut
+        ? abandonOutbound(takeoverOutbound, "subdomain_takeover", takeoverStartedMs != null ? "module_race" : "launch_gate")
+        : (takeoverOutbound ? (takeoverOutbound.markSettled(), outboundAccounting.snapshot("subdomain_takeover")) : null);
       telemetry.record("subdomain_takeover", {
         outcome:        telemetry.outcomeOf(takeoverResult),
-        timeout:        takeoverResult?.outcome === "deadline_exceeded",
+        timeout:        takeoverTimedOut,
         duration_ms:    takeoverStartedMs != null ? now() - takeoverStartedMs : null,
         allocated_ms:   takeoverStartedMs != null ? takeoverAllocatedMs : 0,
-        timeout_source: takeoverResult?.outcome === "deadline_exceeded" ? (takeoverStartedMs != null ? "module_race" : "launch_gate") : null,
+        timeout_source: takeoverTimedOut ? (takeoverStartedMs != null ? "module_race" : "launch_gate") : null,
+        outbound:       takeoverOutboundSnapshot,
+        outbound_calls: takeoverOutboundSnapshot?.outbound_measurement_complete ? takeoverOutboundSnapshot.outbound_attempts_observed : null,
       });
 
       // Asset exposure (admin-surface signal): customer-critical, so it runs before the
@@ -432,12 +460,14 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       // 6s launch estimate, so the run is hard-bounded to the remaining budget. On the
       // bound it defers honestly rather than orphaning the scan.
       let exposureAllocatedMs = null, exposureStartedMs = null;
+      let exposureOutbound = null;
       if (deadline.canRun(6_000)) {
         exposureStartedMs = now();
+        exposureOutbound = outboundContext("asset_exposure");
         try {
           assetExposureResult = await raceModuleDeadline(
             deadline,
-            () => runExposureModule(domain, mergedSubdomainItems),
+            () => runExposureModule(domain, mergedSubdomainItems, { accounting: exposureOutbound }),
             () => markDeadlineDeferred({ checked: 0, reachable: 0, assets: [], source: "http_probe" }),
             { onStart: (capMs) => { exposureAllocatedMs = capMs; } },
           );
@@ -456,12 +486,18 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       } else {
         assetExposureResult = markDeadlineDeferred({ checked: 0, reachable: 0, assets: [], source: "http_probe" });
       }
+      const exposureTimedOut = assetExposureResult?.outcome === "deadline_exceeded";
+      const exposureOutboundSnapshot = exposureTimedOut
+        ? abandonOutbound(exposureOutbound, "asset_exposure", exposureStartedMs != null ? "module_race" : "launch_gate")
+        : (exposureOutbound ? (exposureOutbound.markSettled(), outboundAccounting.snapshot("asset_exposure")) : null);
       telemetry.record("asset_exposure", {
         outcome:        telemetry.outcomeOf(assetExposureResult),
-        timeout:        assetExposureResult?.outcome === "deadline_exceeded",
+        timeout:        exposureTimedOut,
         duration_ms:    exposureStartedMs != null ? now() - exposureStartedMs : null,
         allocated_ms:   exposureStartedMs != null ? exposureAllocatedMs : 0,
-        timeout_source: assetExposureResult?.outcome === "deadline_exceeded" ? (exposureStartedMs != null ? "module_race" : "launch_gate") : null,
+        timeout_source: exposureTimedOut ? (exposureStartedMs != null ? "module_race" : "launch_gate") : null,
+        outbound:       exposureOutboundSnapshot,
+        outbound_calls: exposureOutboundSnapshot?.outbound_measurement_complete ? exposureOutboundSnapshot.outbound_attempts_observed : null,
       });
     }
 
@@ -616,12 +652,15 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     // allocation and observed wall time — recorded per module for diagnosability.
     let phase5AllocatedMs = null;
     const phase5StartedMs = now();
+    const cveOutbound = outboundContext("cve_intelligence");
+    const kevOutbound = outboundContext("known_exploited_vulnerabilities");
+    const emailIntelOutbound = outboundContext("email_security_intelligence");
     const settled = await raceModuleDeadline(
       deadline,
       () => Promise.allSettled([
-        runCveModule(modules.technology_detection),
-        runKevModule(modules.technology_detection, env),
-        runEmailIntelModule(domain, modules.email_security, modules.dns),
+        runCveModule(modules.technology_detection, { accounting: cveOutbound }),
+        runKevModule(modules.technology_detection, env, { accounting: kevOutbound }),
+        runEmailIntelModule(domain, modules.email_security, modules.dns, { accounting: emailIntelOutbound }),
       ]),
       () => PHASE5_DEADLINE,
       { onStart: (capMs) => { phase5AllocatedMs = capMs; } },
@@ -648,20 +687,26 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     }
     const phase5WallMs = now() - phase5StartedMs;
     const phase5Raced = settled === PHASE5_DEADLINE;
+    const cveOutboundSnapshot = phase5Raced ? abandonOutbound(cveOutbound, "cve_intelligence", "module_race") : (cveOutbound.markSettled(), outboundAccounting.snapshot("cve_intelligence"));
+    const kevOutboundSnapshot = phase5Raced ? abandonOutbound(kevOutbound, "known_exploited_vulnerabilities", "module_race") : (kevOutbound.markSettled(), outboundAccounting.snapshot("known_exploited_vulnerabilities"));
+    const emailIntelOutboundSnapshot = phase5Raced ? abandonOutbound(emailIntelOutbound, "email_security_intelligence", "module_race") : (emailIntelOutbound.markSettled(), outboundAccounting.snapshot("email_security_intelligence"));
     telemetry.record("cve_intelligence", {
       outcome: telemetry.outcomeOf(modules.cve_intelligence), timeout: modules.cve_intelligence?.outcome === "deadline_exceeded",
       duration_ms: phase5WallMs, allocated_ms: phase5AllocatedMs, timeout_source: phase5Raced ? "module_race" : null,
-      // Reliable existing counter: runCveModule issues exactly ONE NVD request per
-      // technology in technologies_checked (vuln-intel.js) — 1:1, never estimated.
-      outbound_calls: Array.isArray(modules.cve_intelligence?.technologies_checked) ? modules.cve_intelligence.technologies_checked.length : null,
+      outbound: cveOutboundSnapshot,
+      outbound_calls: cveOutboundSnapshot.outbound_measurement_complete ? cveOutboundSnapshot.outbound_attempts_observed : null,
     });
     telemetry.record("known_exploited_vulnerabilities", {
       outcome: telemetry.outcomeOf(modules.known_exploited_vulnerabilities), timeout: modules.known_exploited_vulnerabilities?.outcome === "deadline_exceeded",
       duration_ms: phase5WallMs, allocated_ms: phase5AllocatedMs, timeout_source: phase5Raced ? "module_race" : null,
+      outbound: kevOutboundSnapshot,
+      outbound_calls: kevOutboundSnapshot.outbound_measurement_complete ? kevOutboundSnapshot.outbound_attempts_observed : null,
     });
     telemetry.record("email_security_intelligence", {
       outcome: telemetry.outcomeOf(modules.email_security_intelligence), timeout: modules.email_security_intelligence?.outcome === "deadline_exceeded",
       duration_ms: phase5WallMs, allocated_ms: phase5AllocatedMs, timeout_source: phase5Raced ? "module_race" : null,
+      outbound: emailIntelOutboundSnapshot,
+      outbound_calls: emailIntelOutboundSnapshot.outbound_measurement_complete ? emailIntelOutboundSnapshot.outbound_attempts_observed : null,
     });
     }
     if (!modules.email_security_intelligence.error && !modules.email_security_intelligence.skipped && emailApplicability.applicable) {
