@@ -168,7 +168,8 @@ export function captureSetCookieRaw(headers) {
   } catch { return []; }
 }
 
-export async function runHeadersModule(domain) {
+export async function runHeadersModule(domain, opts = {}) {
+  const accounting = opts.accounting || null;
   let headerValues         = {};
   let accessible           = false;
   let statusCode           = null;
@@ -225,6 +226,7 @@ export async function runHeadersModule(domain) {
     const getRes = await safeFetch(probeUrl, {
       method:   "GET",
       redirect: "follow",
+      accounting,
       ...HEADER_PROBE_INIT,
     });
     if (!getRes) continue;
@@ -266,6 +268,7 @@ export async function runHeadersModule(domain) {
       const headRes = await safeFetch(probeUrl, {
         method:   "HEAD",
         redirect: "follow",
+        accounting,
         ...HEADER_PROBE_INIT,
       });
       if (headRes) {
@@ -294,6 +297,7 @@ export async function runHeadersModule(domain) {
       const wwwRes = await safeFetch(wwwUrl, {
         method:   "HEAD",
         redirect: "follow",
+        accounting,
         ...HEADER_PROBE_INIT,
       });
       recordHeaderCheck("www_variant", wwwUrl, wwwRes, "HEAD");

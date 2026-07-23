@@ -91,7 +91,8 @@ function getRdapUrls(registeredDomain) {
 }
 
 
-export async function runWhoisModule(domain) {
+export async function runWhoisModule(domain, opts = {}) {
+  const accounting = opts.accounting || null;
   try {
     // Strip subdomains — WHOIS is authoritative at the registered domain level.
     // e.g. sub.example.com → example.com
@@ -113,6 +114,7 @@ export async function runWhoisModule(domain) {
             "User-Agent": RDAP_UA,
           },
           signal: AbortSignal.timeout(12_000),
+          accounting,
         });
       } catch (fetchErr) {
         errors.push(`${rdapUrl} → network error: ${fetchErr.message ?? "timeout"}`);

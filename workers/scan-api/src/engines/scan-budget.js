@@ -177,6 +177,104 @@ export function markDeadlineDeferred(base = {}) {
   };
 }
 
+// ── Outbound accounting (PR-C1A: telemetry only) ──────────────────────────────
+// Counts observed external HTTP/DoH attempts at instrumented leaf helpers. D1 may
+// receive a module's attempts only when the scan engine can prove the module
+// launched, settled normally, and every outbound leaf it used was instrumented.
+// Partial/abandoned observations stay in R2 diagnostics only.
+function isTimeoutError(err) {
+  const name = err?.name || "";
+  return name === "TimeoutError" || /timed out|timeout/i.test(String(err?.message || ""));
+}
+
+function isAbortError(err) {
+  const name = err?.name || "";
+  return name === "AbortError" || /abort/i.test(String(err?.message || ""));
+}
+
+export const OUTBOUND_FULLY_INSTRUMENTED_MODULES = Object.freeze(new Set([
+  "dns",
+  "headers",
+  "email_security",
+  "technology_detection",
+  "whois_intelligence",
+  "subdomain_takeover",
+  "asset_exposure",
+  "cve_intelligence",
+  "known_exploited_vulnerabilities",
+  "email_security_intelligence",
+]));
+
+export function createOutboundAccounting() {
+  const modules = new Map();
+
+  function ensure(module) {
+    const key = String(module || "");
+    if (!modules.has(key)) {
+      modules.set(key, {
+        module: key,
+        launched: false,
+        fully_instrumented: OUTBOUND_FULLY_INSTRUMENTED_MODULES.has(key),
+        settled: false,
+        abandoned: false,
+        attempts: 0,
+        completed: 0,
+        aborted: 0,
+        timed_out: 0,
+        cutoff: null,
+      });
+    }
+    return modules.get(key);
+  }
+
+  function contextFor(module, { fullyInstrumented = OUTBOUND_FULLY_INSTRUMENTED_MODULES.has(module) } = {}) {
+    const row = ensure(module);
+    row.launched = true;
+    row.fully_instrumented = !!fullyInstrumented;
+    return {
+      module,
+      recordAttempt() { row.attempts += 1; },
+      recordCompleted() { row.completed += 1; },
+      recordError(err) {
+        if (isTimeoutError(err)) row.timed_out += 1;
+        else if (isAbortError(err)) row.aborted += 1;
+      },
+      markSettled() { row.settled = true; },
+      markAbandoned(cutoff = "module_race") { row.abandoned = true; row.cutoff = cutoff; },
+      markIncomplete(cutoff = "uninstrumented_leaf") { row.fully_instrumented = false; row.cutoff = row.cutoff || cutoff; },
+      snapshot() { return snapshot(module); },
+    };
+  }
+
+  function snapshot(module) {
+    const row = ensure(module);
+    const complete = row.launched && row.fully_instrumented && row.settled && !row.abandoned;
+    return {
+      outbound_attempts_observed: row.attempts,
+      outbound_completed_observed: row.completed,
+      outbound_aborted_observed: row.aborted,
+      outbound_timed_out_observed: row.timed_out,
+      outbound_measurement_complete: complete,
+      outbound_measurement_cutoff: complete ? null : (row.cutoff || (
+        !row.launched ? "module_not_launched" :
+        !row.fully_instrumented ? "uninstrumented_leaf" :
+        row.abandoned ? "module_abandoned" :
+        !row.settled ? "module_not_settled" :
+        "unavailable"
+      )),
+    };
+  }
+
+  return {
+    contextFor,
+    snapshot,
+    attemptsForD1(module) {
+      const snap = snapshot(module);
+      return snap.outbound_measurement_complete ? snap.outbound_attempts_observed : null;
+    },
+  };
+}
+
 // ── Per-module telemetry collector (Tier 1: diagnosability) ───────────────────
 // Times each instrumented module and classifies its outcome so a future orphaned
 // scan is diagnosable from D1 alone (which module, how long, what happened). Purely
@@ -221,11 +319,18 @@ export function createModuleTelemetry(now = Date.now) {
     // pure-computation phase) — coarse outcome, no duration. allocated_ms /
     // timeout_source (PR-A1) are diagnostics-only: surfaced in the R2 execution
     // diagnostics, never bound into the D1 INSERT (no schema change).
-    record(module, { outcome = "ok", timeout = false, error_class = null, duration_ms = null, outbound_calls = null, allocated_ms = null, timeout_source = null } = {}) {
-      rows.push({ module, started_at: null, completed_at: null, duration_ms, outbound_calls, outcome, timeout, error_class, allocated_ms, timeout_source });
+    record(module, { outcome = "ok", timeout = false, error_class = null, duration_ms = null, outbound_calls = null, allocated_ms = null, timeout_source = null, outbound = null } = {}) {
+      rows.push({ module, started_at: null, completed_at: null, duration_ms, outbound_calls, outcome, timeout, error_class, allocated_ms, timeout_source, outbound });
     },
     // True if a module already has a telemetry row (avoids double-recording).
     has(module) { return rows.some((r) => r.module === module); },
+    setOutbound(module, outbound) {
+      const row = [...rows].reverse().find((r) => r.module === module);
+      if (row) {
+        row.outbound = outbound ?? null;
+        row.outbound_calls = outbound?.outbound_measurement_complete ? outbound.outbound_attempts_observed : null;
+      }
+    },
   };
 }
 
@@ -269,6 +374,12 @@ export function buildExecutionDiagnostics({ executionContext = null, trigger = n
       allocated_ms:   r.allocated_ms ?? null,
       timeout_source: r.timeout_source ?? (r.timeout ? "per_fetch" : null),
       outbound_calls: r.outbound_calls ?? null,
+      outbound_attempts_observed: r.outbound?.outbound_attempts_observed ?? null,
+      outbound_completed_observed: r.outbound?.outbound_completed_observed ?? null,
+      outbound_aborted_observed: r.outbound?.outbound_aborted_observed ?? null,
+      outbound_timed_out_observed: r.outbound?.outbound_timed_out_observed ?? null,
+      outbound_measurement_complete: r.outbound?.outbound_measurement_complete ?? false,
+      outbound_measurement_cutoff: r.outbound?.outbound_measurement_cutoff ?? "unavailable",
     })),
   };
 }

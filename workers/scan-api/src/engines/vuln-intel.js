@@ -75,8 +75,9 @@ function normalizeTechnology(tech) {
 }
 
 /** Query NVD for HIGH+ CVEs for a single technology.  Returns [] on any failure. */
-async function lookupCvesForTechnology(techName, maxResults = 5) {
+async function lookupCvesForTechnology(techName, maxResults = 5, opts = {}) {
   if (!ALLOWED_CVE_TECHNOLOGIES.has(techName)) return [];
+  const accounting = opts.accounting || null;
   const keyword = CVE_KEYWORD_MAP[techName] || techName;
   const url = new URL("https://services.nvd.nist.gov/rest/json/cves/2.0");
   url.searchParams.set("keywordSearch",   keyword);
@@ -86,6 +87,7 @@ async function lookupCvesForTechnology(techName, maxResults = 5) {
     const res = await safeFetch(url.toString(), {
       headers: { "User-Agent": "CyberMeters-Scanner/1.0" },
       signal:  AbortSignal.timeout(10_000),
+      accounting,
     });
     if (!res || res.status !== 200) return [];
     const data = await res.json();
@@ -132,7 +134,8 @@ async function lookupCvesForTechnology(techName, maxResults = 5) {
  * 300ms delay between NVD requests to respect free-tier rate limits,
  * skips exploit-db check (Worker network budget).
  */
-export async function runCveModule(techModule) {
+export async function runCveModule(techModule, opts = {}) {
+  const accounting = opts.accounting || null;
   if (!techModule || techModule.error) {
     return {
       technologies_checked: [], results: {}, total_cves: 0,
@@ -157,7 +160,7 @@ export async function runCveModule(techModule) {
   let totalCves = 0, criticalCount = 0, highCount = 0;
 
   for (const tech of toCheck) {
-    const cves = await lookupCvesForTechnology(tech);
+    const cves = await lookupCvesForTechnology(tech, 5, { accounting });
     if (cves.length > 0) {
       results[tech] = cves;
       totalCves   += cves.length;
@@ -209,7 +212,7 @@ export const KEV_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h freshness window
  *
  * Returns { vulnerabilities: Array|null, source, stale, age_ms }.
  */
-export async function getKevCatalogue(env = null, { fetcher = safeFetch, now = Date.now } = {}) {
+export async function getKevCatalogue(env = null, { fetcher = safeFetch, now = Date.now, accounting = null } = {}) {
   const nowMs = now();
   let stale = null;
 
@@ -232,7 +235,7 @@ export async function getKevCatalogue(env = null, { fetcher = safeFetch, now = D
 
   // 2. Fetch fresh from CISA.
   try {
-    const res = await fetcher(CISA_KEV_URL, { signal: AbortSignal.timeout(15_000) });
+    const res = await fetcher(CISA_KEV_URL, { signal: AbortSignal.timeout(15_000), accounting });
     if (res && res.status === 200) {
       const data = await res.json();
       const vulnerabilities = data.vulnerabilities || [];

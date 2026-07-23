@@ -50,7 +50,8 @@ export function buildCaaFromAnswers(answers) {
   };
 }
 
-export async function runDnsModule(domain) {
+export async function runDnsModule(domain, opts = {}) {
+  const accounting = opts.accounting || null;
   // CAA and DNSSEC trust evidence run here alongside A/AAAA/NS/MX.
   // Placing CAA in the DNS module avoids adding subrequests to later phases
   // where the free-plan 50-subrequest budget may already be exhausted.
@@ -67,23 +68,23 @@ export async function runDnsModule(domain) {
     googleCaaRes,
     dsRes, dnskeyRes, rrsigARes,
   ] = await Promise.allSettled([
-    dnsQuery(domain, "A"),
-    dnsQuery(domain, "AAAA"),
-    dnsQuery(domain, "NS"),
-    dnsQuery(domain, "MX"),
-    dnsQuery(domain, "CAA"),
-    dnsQueryGoogle(domain, "A"),
-    dnsQueryGoogle(domain, "AAAA"),
-    dnsQueryGoogle(domain, "MX"),
-    dnsQueryGoogle(domain, "TXT"),
-    dnsQueryGoogle(`_dmarc.${domain}`, "TXT"),
-    dnsQueryQuad9(domain, "A").then((r) => ({ status: "fulfilled", value: r })).catch(() => ({ status: "rejected" })),
-    dnsQuery(domain, "TXT"),
-    dnsQuery(`_dmarc.${domain}`, "TXT"),
-    dnsQueryGoogle(domain, "CAA"),
-    dnsQueryDnssec(domain, "DS"),
-    dnsQueryDnssec(domain, "DNSKEY"),
-    dnsQueryDnssec(domain, "A"),
+    dnsQuery(domain, "A", { accounting }),
+    dnsQuery(domain, "AAAA", { accounting }),
+    dnsQuery(domain, "NS", { accounting }),
+    dnsQuery(domain, "MX", { accounting }),
+    dnsQuery(domain, "CAA", { accounting }),
+    dnsQueryGoogle(domain, "A", { accounting }),
+    dnsQueryGoogle(domain, "AAAA", { accounting }),
+    dnsQueryGoogle(domain, "MX", { accounting }),
+    dnsQueryGoogle(domain, "TXT", { accounting }),
+    dnsQueryGoogle(`_dmarc.${domain}`, "TXT", { accounting }),
+    dnsQueryQuad9(domain, "A", { accounting }).then((r) => ({ status: "fulfilled", value: r })).catch(() => ({ status: "rejected" })),
+    dnsQuery(domain, "TXT", { accounting }),
+    dnsQuery(`_dmarc.${domain}`, "TXT", { accounting }),
+    dnsQueryGoogle(domain, "CAA", { accounting }),
+    dnsQueryDnssec(domain, "DS", { accounting }),
+    dnsQueryDnssec(domain, "DNSKEY", { accounting }),
+    dnsQueryDnssec(domain, "A", { accounting }),
   ]);
 
   const pick = (r) =>

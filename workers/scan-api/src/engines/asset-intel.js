@@ -102,7 +102,7 @@ function isProbeTimeout(err) {
 // subrequest-budget guard backstops any exhaustion honestly (probe_status:not_executed,
 // never a false clean). Reserved mode uses the cached + metered resolver instead.
 const defaultProbeFetch = makeSsrfSafeProbeFetch({
-  resolver: (name, type) => dnsQuery(name, type).catch(() => null),
+  resolver: (name, type, opts = {}) => dnsQuery(name, type, { accounting: opts.accounting || null }).catch(() => null),
   timeoutMs: 8_000,
 });
 
@@ -142,6 +142,7 @@ export function classifyServerErrorStatus(status, server) {
  * behaviour is byte-identical to the legacy native fetch.
  */
 export async function probeAsset(host, opts = {}) {
+  const accounting = opts.accounting || null;
   const fetcher = typeof opts.fetcher === "function" ? opts.fetcher : defaultProbeFetch;
   let budgetExhausted = false;   // a probe attempt was starved, not genuinely failed
   let timedOut = false;          // the probe started but never got an answer (not assessed)
@@ -149,7 +150,7 @@ export async function probeAsset(host, opts = {}) {
     const url = `${proto}://${host}`;
     let res = null;
     try {
-      res = await fetcher(url);
+      res = await fetcher(url, { accounting });
     } catch (err) {
       // Timeout or network error — try HTTP fallback. Distinguish the three cases:
       // budget exhaustion (never checked) and timeout (started, no answer) are both

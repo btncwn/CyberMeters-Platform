@@ -3,14 +3,22 @@
 // Pure module: depends only on global fetch/AbortSignal. Extracted verbatim from
 // index.js (monolith decomposition, Phase 1). Behavior-preserving — no logic change.
 
-export async function dnsQuery(name, type) {
-  const res = await fetch(
-    `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}`,
-    {
-      headers: { Accept: "application/dns-json" },
-      signal: AbortSignal.timeout(6_000),
-    }
-  );
+export async function dnsQuery(name, type, opts = {}) {
+  opts.accounting?.recordAttempt?.();
+  let res;
+  try {
+    res = await fetch(
+      `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}`,
+      {
+        headers: { Accept: "application/dns-json" },
+        signal: AbortSignal.timeout(6_000),
+      }
+    );
+    opts.accounting?.recordCompleted?.();
+  } catch (err) {
+    opts.accounting?.recordError?.(err);
+    throw err;
+  }
   if (!res.ok) throw new Error(`DoH ${res.status} for ${type} ${name}`);
   return res.json();
 }
@@ -19,12 +27,12 @@ export async function dnsQuery(name, type) {
 // "name|A"). Used by the critical-prefix discovery pass: strict — one resolver,
 // A-only, no cross-check — and budget-safe (never throws; returns null on failure).
 // The cache guarantees each (name,"A") is resolved at most once per scan.
-export async function dnsResolveACached(name, cache = null) {
+export async function dnsResolveACached(name, cache = null, opts = {}) {
   const key = `${String(name).toLowerCase()}|A`;
   if (cache && cache.has(key)) return cache.get(key);
   let answer = null;
   try {
-    answer = await dnsQuery(name, "A");
+    answer = await dnsQuery(name, "A", opts);
   } catch {
     answer = null;
   }
@@ -32,31 +40,48 @@ export async function dnsResolveACached(name, cache = null) {
   return answer;
 }
 
-export async function dnsQueryDnssec(name, type) {
-  const res = await fetch(
-    `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}&do=1`,
-    {
-      headers: { Accept: "application/dns-json" },
-      signal: AbortSignal.timeout(6_000),
-    }
-  );
+export async function dnsQueryDnssec(name, type, opts = {}) {
+  opts.accounting?.recordAttempt?.();
+  let res;
+  try {
+    res = await fetch(
+      `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}&do=1`,
+      {
+        headers: { Accept: "application/dns-json" },
+        signal: AbortSignal.timeout(6_000),
+      }
+    );
+    opts.accounting?.recordCompleted?.();
+  } catch (err) {
+    opts.accounting?.recordError?.(err);
+    throw err;
+  }
   if (!res.ok) throw new Error(`DoH DNSSEC ${res.status} for ${type} ${name}`);
   return res.json();
 }
 
-export async function dnsQueryGoogle(name, type) {
-  const res = await fetch(
-    `https://dns.google/resolve?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}`,
-    { signal: AbortSignal.timeout(6_000) }
-  );
+export async function dnsQueryGoogle(name, type, opts = {}) {
+  opts.accounting?.recordAttempt?.();
+  let res;
+  try {
+    res = await fetch(
+      `https://dns.google/resolve?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}`,
+      { signal: AbortSignal.timeout(6_000) }
+    );
+    opts.accounting?.recordCompleted?.();
+  } catch (err) {
+    opts.accounting?.recordError?.(err);
+    throw err;
+  }
   if (!res.ok) throw new Error(`Google DoH ${res.status} for ${type} ${name}`);
   return res.json();
 }
 
-export async function dnsQueryQuad9(name, type) {
+export async function dnsQueryQuad9(name, type, opts = {}) {
   // Quad9 DoH — optional third resolver for A/AAAA agreement checks.
   // Never throws: failure returns null so budget-safe.
   try {
+    opts.accounting?.recordAttempt?.();
     const res = await fetch(
       `https://dns.quad9.net/dns-query?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}`,
       {
@@ -64,9 +89,11 @@ export async function dnsQueryQuad9(name, type) {
         signal: AbortSignal.timeout(5_000),
       }
     );
+    opts.accounting?.recordCompleted?.();
     if (!res.ok) return null;
     return res.json();
-  } catch {
+  } catch (err) {
+    opts.accounting?.recordError?.(err);
     return null;
   }
 }

@@ -16,7 +16,8 @@ function looksVersioned(s) {
   return /[\/\s][0-9]+\.[0-9]/.test(s) || /[\/\s][0-9]{1,3}$/.test(s.trim());
 }
 
-export async function runTechModule(domain) {
+export async function runTechModule(domain, opts = {}) {
+  const accounting = opts.accounting || null;
   let res = null;
   let bodySnippet = "";
 
@@ -24,6 +25,7 @@ export async function runTechModule(domain) {
     res = await safeFetch(`https://${domain}`, {
       method:   "GET",
       redirect: "follow",
+      accounting,
     });
     if (res) {
       // Read first 4 KB of body — enough for <script src> / vite markers in <head>

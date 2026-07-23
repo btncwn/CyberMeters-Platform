@@ -167,11 +167,13 @@ export function enrichDkim(emailMod) {
  * Fetch and parse MTA-STS policy.
  * Ported from mta_sts.py analyze_mta_sts() — HTTP GET, not DNS.
  */
-export async function fetchMtaSts(domain) {
+export async function fetchMtaSts(domain, opts = {}) {
+  const accounting = opts.accounting || null;
   const result = { enabled: false, policy_version: null, policy_mode: null, mx_patterns: [], max_age: null, errors: [] };
   try {
     const res = await safeFetch(`https://mta-sts.${domain}/.well-known/mta-sts.txt`, {
       signal: AbortSignal.timeout(10_000),
+      accounting,
     });
     if (!res || res.status !== 200) return result;
     result.enabled = true;
@@ -200,11 +202,12 @@ export async function fetchMtaSts(domain) {
  * Check TLS-RPT DNS record.
  * Ported from tls_rpt.py analyze_tls_rpt() — queries _smtp._tls.<domain> TXT.
  */
-async function checkTlsRpt(domain) {
+async function checkTlsRpt(domain, opts = {}) {
+  const accounting = opts.accounting || null;
   const recordName = `_smtp._tls.${domain}`;
   const result = { enabled: false, record_name: recordName, record: null, reporting_uris: [], errors: [] };
   try {
-    const res     = await dnsQuery(recordName, "TXT");
+    const res     = await dnsQuery(recordName, "TXT", { accounting });
     const answers = res?.Answer || [];
     for (const ans of answers) {
       const txt = ans.data || "";
@@ -522,7 +525,8 @@ export function buildEmailIntelFindings(spf, dmarc, dkim, mtaSts, tlsRpt) {
  * @param {object} emailMod  — modules.email_security (from runEmailModule)
  * @param {object} dnsModule — modules.dns (from runDnsModule — supplies MX for STARTTLS stub)
  */
-export async function runEmailIntelModule(domain, emailMod, dnsModule) {
+export async function runEmailIntelModule(domain, emailMod, dnsModule, opts = {}) {
+  const accounting = opts.accounting || null;
   // Step 1: Enrich existing results — no extra DNS calls needed
   const spf   = enrichSpf(emailMod);
   const dmarc = enrichDmarc(emailMod);
@@ -530,8 +534,8 @@ export async function runEmailIntelModule(domain, emailMod, dnsModule) {
 
   // Step 2: MTA-STS + TLS-RPT in parallel (both are fast, independent)
   const [mtaStsSettled, tlsRptSettled] = await Promise.allSettled([
-    fetchMtaSts(domain),
-    checkTlsRpt(domain),
+    fetchMtaSts(domain, { accounting }),
+    checkTlsRpt(domain, { accounting }),
   ]);
   const mtaSts = mtaStsSettled.status === "fulfilled"
     ? mtaStsSettled.value
