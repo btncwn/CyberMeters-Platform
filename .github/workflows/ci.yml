@@ -539,6 +539,9 @@ jobs:
       - name: Validate partial-scan honesty (provisional score/rating + current posture + trend gating)
         run: node scripts/validate-partial-scan-honesty.js
 
+      - name: Validate scan-completion quality disclosure (notification + email + mutation)
+        run: node scripts/validate-scan-completion-quality-copy.js
+
       - name: Validate canonical presentation parity (all score/rating consumers delegate to one decision)
         run: node scripts/validate-canonical-presentation-parity.js
 

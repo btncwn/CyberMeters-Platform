@@ -733,6 +733,7 @@ results.push(
       ["<admin>.example.com"],
       "high",
       "https://app.cybermeters.com/assets",
+      "complete",
     );
     return rendered.subject.includes("example.com") &&
       rendered.text.includes("https://app.cybermeters.com/assets") &&

@@ -34,7 +34,7 @@ export function deliveryOutcome(delivery) {
   return { status: "failed", error: delivery.reason || "send_failed" };
 }
 
-export async function sendAssetChangeAlert(domainId, domain, scanId, env) {
+export async function sendAssetChangeAlert(domainId, domain, scanId, env, scanQuality = null) {
   try {
     // Find all LIVE workspaces that own this domain. A soft-deleted workspace is
     // treated as nonexistent: it receives no email, no channel fan-out and no
@@ -56,11 +56,12 @@ export async function sendAssetChangeAlert(domainId, domain, scanId, env) {
     // same owner and puts one workspace's scan id inside another workspace's
     // alert. Scans without a workspace (legacy rows) keep the old fan-out.
     const scanRow = await env.cybermeters_db
-      .prepare(`SELECT workspace_id FROM scans WHERE id = ?`)
+      .prepare(`SELECT workspace_id, scan_quality FROM scans WHERE id = ?`)
       .bind(scanId)
       .first()
       .catch(() => null);
     const scanWorkspaceId = scanRow?.workspace_id ?? null;
+    const persistedScanQuality = scanRow?.scan_quality ?? scanQuality;
     const alertTargets = scanWorkspaceId && workspaceIds.includes(scanWorkspaceId)
       ? [scanWorkspaceId]
       : workspaceIds;
@@ -153,6 +154,7 @@ export async function sendAssetChangeAlert(domainId, domain, scanId, env) {
           topHostnames,
           severity,
           frontendOrigin ? `${frontendOrigin}/assets` : null,
+          persistedScanQuality,
         );
         // Tenant alert: recipients come from THIS workspace (verified, live) — never
         // the operator fallback. No verified audience => skipped + recorded, not sent.
@@ -230,11 +232,13 @@ export async function retryFailedAssetAlerts(env) {
   try {
     const rows = await env.cybermeters_db
       .prepare(
-        `SELECT id, workspace_id, scan_id, domain, severity, event_counts, top_hostnames
-         FROM asset_alert_records
-         WHERE status = 'failed'
-           AND sent_at > datetime('now', '-3 days')
-         ORDER BY sent_at ASC
+        `SELECT aar.id, aar.workspace_id, aar.scan_id, aar.domain, aar.severity,
+                aar.event_counts, aar.top_hostnames, s.scan_quality
+         FROM asset_alert_records aar
+         LEFT JOIN scans s ON s.id = aar.scan_id
+         WHERE aar.status = 'failed'
+           AND aar.sent_at > datetime('now', '-3 days')
+         ORDER BY aar.sent_at ASC
          LIMIT 10`
       )
       .all().catch(() => null);
@@ -262,6 +266,7 @@ export async function retryFailedAssetAlerts(env) {
           topHostnames,
           row.severity || "info",
           frontendOrigin ? `${frontendOrigin}/assets` : null,
+          row.scan_quality ?? null,
         );
         const delivery = await sendTenantAlertEmail(env, row.workspace_id, { subject, text, html, fromKey: "ALERT_EMAIL_FROM", severity: row.severity || "info" });
         // A missing verified audience is not a transient failure — retrying it forever

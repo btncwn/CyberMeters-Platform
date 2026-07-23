@@ -2,6 +2,7 @@
 // Decides when an asset-inventory change is alert-worthy (severity) and builds the
 // customer alert email. Extracted verbatim from index.js (monolith decomposition, Phase 1c).
 import { escapeEmailHtml } from "../lib/lifecycle-email.js";
+import { scanCompletionQualityDisclosure } from "./assessment-presentation.js";
 
 // ── Asset Change Alert Engine ─────────────────────────────────────────────────
 //
@@ -64,7 +65,7 @@ export function assetAlertWorthy(counts) {
   );
 }
 
-export function buildAssetAlertEmail(domain, workspaceId, scanId, counts, topHostnames, severity, assetsUrl = null) {
+export function buildAssetAlertEmail(domain, workspaceId, scanId, counts, topHostnames, severity, assetsUrl = null, scanQuality = null) {
   const SEVERITY_COLOR = {
     critical: "#dc2626",
     high:     "#ea580c",
@@ -72,6 +73,7 @@ export function buildAssetAlertEmail(domain, workspaceId, scanId, counts, topHos
     info:     "#00876A",
   };
   const color = SEVERITY_COLOR[severity] || SEVERITY_COLOR.info;
+  const quality = scanCompletionQualityDisclosure(scanQuality);
 
   const LABELS = {
     new_asset_discovered:   "New assets discovered",
@@ -102,6 +104,7 @@ export function buildAssetAlertEmail(domain, workspaceId, scanId, counts, topHos
   const text = [
     `Asset change alert for ${domain} (workspace ${workspaceId})`,
     `Severity: ${severity.toUpperCase()}`,
+    ...(quality.disclosure ? [`Scan quality: ${quality.disclosure}`] : []),
     "",
     ...lines,
     ...(hostLine ? [hostLine] : []),
@@ -126,8 +129,9 @@ export function buildAssetAlertEmail(domain, workspaceId, scanId, counts, topHos
     <h2 style="margin:0 0 4px;color:${color};font-size:18px;">Asset Change Alert</h2>
     <p style="margin:0;color:#555;font-size:14px;">
       Scan completed for <strong>${escapeEmailHtml(domain)}</strong> &mdash;
-      <span style="font-weight:600;color:${color};text-transform:uppercase;font-size:12px">${severity}</span>
-    </p>
+      ${quality.complete ? "" : "Event severity: "}<span style="font-weight:600;color:${color};text-transform:uppercase;font-size:12px">${severity}</span>
+    </p>${quality.disclosure ? `
+    <p style="margin:8px 0 0;color:#92400e;font-size:13px;line-height:1.5;">${escapeEmailHtml(quality.disclosure)}</p>` : ""}
   </div>
   <ul style="padding-left:20px;line-height:1.8;font-size:14px;color:#333;">
     ${listItems}
