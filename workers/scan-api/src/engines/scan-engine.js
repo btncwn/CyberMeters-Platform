@@ -27,6 +27,7 @@ import { buildScanReportSnapshot } from "./report-snapshot.js";
 import { insertCertificateEvents, upsertCertificateObservation } from "./cert-events.js";
 import { runCertificateIntelligenceModule } from "./cert-intel.js";
 import { runCloudStorageModule } from "./cloud-storage-scan.js";
+import { createCertificateTransparencyCache } from "./ct-provider-cache.js";
 import { runSaasExposureModule, runThirdPartyDiscoveryModule } from "./discovery-scan.js";
 import { buildDnsOperationalResilience } from "./dns-resilience.js";
 import { runDnsModule } from "./dns-scan.js";
@@ -315,6 +316,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
   // Per-module telemetry collector (persisted at finalization; non-fatal).
   const telemetry = createModuleTelemetry(now);
   const outboundAccounting = createOutboundAccounting();
+  const ctCache = createCertificateTransparencyCache({ signal: deadline.signal });
   const createChildSignal = () => {
     const controller = new AbortController();
     if (deadline.signal?.aborted) controller.abort(deadline.signal.reason);
@@ -429,7 +431,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       // EXPOSURE runs FIRST within a live-metered budget; the remaining modules run
       // only if the runtime budget permits and are otherwise SKIPPED honestly. Never
       // starves exposure. admin_surface is derived downstream (zero network). ──
-      const reserved = await runReservedScan(domain, { capacity });
+      const reserved = await runReservedScan(domain, { capacity, ctCache });
       const m = reserved.modules;
       dnsResult = m.dns; sslResult = m.ssl; headersResult = m.headers; emailResult = m.email_security;
       subdomainsResult = m.subdomains; techResult = m.technology_detection; whoisResult = m.whois_intelligence;
@@ -448,10 +450,10 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       const [dnsSettled, sslSettled, headersSettled, emailSettled, subdomainsSettled, techSettled, whoisSettled, bruteforceSettled] =
         await Promise.allSettled([
           runCappedModule("dns",                  { fallback: () => markDeadlineDeferred({ source: "dns" }), run: ({ accounting, signal }) => runDnsModule(domain, { accounting, signal }) }),
-          runCappedModule("ssl",                  { fallback: () => markDeadlineDeferred({ https_available: false, source: "tls_probe" }), run: ({ accounting, signal }) => runSslModule(domain, { accounting, signal }) }),
+          runCappedModule("ssl",                  { fallback: () => markDeadlineDeferred({ https_available: false, source: "tls_probe" }), run: ({ accounting, signal }) => runSslModule(domain, { accounting, signal, ctCache }) }),
           runCappedModule("headers",              { fallback: () => markDeadlineDeferred({ headers: {}, source: "http_headers" }), run: ({ accounting, signal }) => runHeadersModule(domain, { accounting, signal }) }),
           runCappedModule("email_security",       { fallback: () => markDeadlineDeferred({ spf: {}, dmarc: {}, dkim: {}, source: "email_security" }), run: ({ accounting, signal }) => runEmailModule(domain, { accounting, signal }) }),
-          runCappedModule("subdomains",           { fallback: subdomainsFallback, run: ({ accounting, signal }) => runSubdomainsModule(domain, { accounting, signal }) }),
+          runCappedModule("subdomains",           { fallback: subdomainsFallback, run: ({ accounting, signal }) => runSubdomainsModule(domain, { accounting, signal, ctCache }) }),
           runCappedModule("technology_detection", { fallback: () => markDeadlineDeferred({ technologies: [], info_findings: [], source: "technology_detection" }), run: ({ accounting, signal }) => runTechModule(domain, { accounting, signal }) }),
           runCappedModule("whois_intelligence",   { fallback: () => markDeadlineDeferred({ source: "rdap" }), run: ({ accounting, signal }) => runWhoisModule(domain, { accounting, signal }) }),
           runCappedModule("dns_bruteforce",       { fallback: () => markDeadlineDeferred({ checked: 0, found: 0, items: [], source: "dns_bruteforce" }), run: ({ accounting, signal }) => runBruteforceModule(domain, { accounting, signal }) }),

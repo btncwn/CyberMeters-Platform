@@ -721,15 +721,22 @@ function d1Stub({ fail = false } = {}) {
     (s) => s.replace('settled?.status === "fulfilled" && telemetry.outcomeOf(settled.value) === "ok"', "true"));
   const sslSrc = src("workers", "scan-api", "src", "engines", "ssl-scan.js");
   const subdomainsSrc = src("workers", "scan-api", "src", "engines", "subdomains-scan.js");
+  const ctCacheSrc = src("workers", "scan-api", "src", "engines", "ct-provider-cache.js");
   const cloudSrc = src("workers", "scan-api", "src", "engines", "cloud-storage-scan.js");
   sourceGuard("C1B SSL safeFetch leaves carry accounting", sslSrc,
     (s) => /safeFetch\(`https:\/\/\$\{domain\}`,[\s\S]{0,140}accounting/.test(s) && /safeFetch\(httpOrigUrl,[\s\S]{0,120}accounting/.test(s) && /safeFetch\(loc1,[\s\S]{0,120}accounting/.test(s),
     (s) => s.replace(/,\s*accounting/g, ""));
-  sourceGuard("C1B SSL CT native fetches are counted", sslSrc,
-    (s) => /countedFetch\(\s*`https:\/\/crt\.sh\/\?q=/.test(s) && /countedFetch\(\s*`https:\/\/api\.certspotter\.com\/v1\/issuances/.test(s),
-    (s) => s.replace(/countedFetch\(/g, "fetch("));
+  sourceGuard("C1B shared CT provider fetches are counted", ctCacheSrc,
+    (s) => /accounting\?\.assertCanIssue\?\.\(\)/.test(s) &&
+      /accounting\?\.recordAttempt\?\.\(\)/.test(s) &&
+      /accounting\?\.recordCompleted\?\.\(\)/.test(s) &&
+      /accounting\?\.recordError\?\.\(err\)/.test(s),
+    (s) => s.replace("  accounting?.recordAttempt?.();", ""));
   sourceGuard("C1B subdomain CT and wildcard DNS carry accounting", subdomainsSrc,
-    (s) => /dnsQuery\(wildcardHost, "A", \{ accounting \}\)/.test(s) && /dnsQuery\(wildcardHost, "AAAA", \{ accounting \}\)/.test(s) && /countedFetch\(\s*`https:\/\/crt\.sh\/\?q=/.test(s) && /countedFetch\(\s*`https:\/\/api\.certspotter\.com\/v1\/issuances/.test(s),
+    (s) => /dnsQuery\(wildcardHost, "A", \{ accounting \}\)/.test(s) &&
+      /dnsQuery\(wildcardHost, "AAAA", \{ accounting \}\)/.test(s) &&
+      /ctCache\.get\(domain, "crt_sh", \{ accounting \}\)/.test(s) &&
+      /ctCache\.get\(domain, "certspotter", \{ accounting \}\)/.test(s),
     (s) => s.replace('dnsQuery(wildcardHost, "A", { accounting })', 'dnsQuery(wildcardHost, "A")'));
   sourceGuard("C1B brute-force DNS leaves carry accounting", subdomainsSrc,
     (s) => /dnsQuery\(host, "A", \{ accounting \}\)/.test(s) && /dnsQuery\(host, "MX", \{ accounting \}\)/.test(s),
@@ -738,8 +745,8 @@ function d1Stub({ fail = false } = {}) {
     (s) => /headRes = await countedFetch\(headUrl,[\s\S]{0,120}accounting/.test(s) && /getRes = await countedFetch\(listUrl,[\s\S]{0,120}accounting/.test(s),
     (s) => s.replace(/countedFetch\(listUrl,/, "fetch(listUrl,"));
   sourceGuard("C1B scan-engine threads module contexts", engineSrc,
-    (s) => /runSslModule\(domain, \{ accounting, signal \}\)/.test(s) && /runSubdomainsModule\(domain, \{ accounting, signal \}\)/.test(s) && /runBruteforceModule\(domain, \{ accounting, signal \}\)/.test(s) && /runCloudStorageModule\(domain, modules, \{ accounting, signal \}\)/.test(s),
-    (s) => s.replace('runSslModule(domain, { accounting, signal })', "runSslModule(domain)"));
+    (s) => /runSslModule\(domain, \{ accounting, signal, ctCache \}\)/.test(s) && /runSubdomainsModule\(domain, \{ accounting, signal, ctCache \}\)/.test(s) && /runBruteforceModule\(domain, \{ accounting, signal \}\)/.test(s) && /runCloudStorageModule\(domain, modules, \{ accounting, signal \}\)/.test(s),
+    (s) => s.replace('runSslModule(domain, { accounting, signal, ctCache })', "runSslModule(domain)"));
   sourceGuard("C1B complete-set includes newly covered modules", budgetSrc,
     (s) => ["ssl", "subdomains", "dns_bruteforce", "cloud_storage_discovery"].every((m) => s.includes(`"${m}"`)),
     (s) => s.replace('"cloud_storage_discovery",', ""));
@@ -761,9 +768,14 @@ function d1Stub({ fail = false } = {}) {
   sourceGuard("B2 incomplete outbound counts remain D1 null", budgetSrc,
     (s) => /outbound_measurement_complete \? snap\.outbound_attempts_observed : null/.test(s),
     (s) => s.replace("outbound_measurement_complete ? snap.outbound_attempts_observed : null", "outbound_attempts_observed"));
-  sourceGuard("B2 native counted fetches preserve caller and module signals", subdomainsSrc + "\n" + cloudSrc,
-    (s) => (s.match(/function combineSignals\(/g) || []).length >= 2 && !/accounting\?\.signal \|\| init\?\.signal/.test(s),
-    (s) => s.replace(/combineSignals\(init\?\.signal, accounting\?\.signal\)/g, "accounting?.signal || init?.signal"));
+  sourceGuard("B2 native counted fetches preserve caller and module signals", ctCacheSrc + "\n" + cloudSrc,
+    (s) => (s.match(/function combineSignals\(/g) || []).length >= 2 &&
+      /combineSignals\(signal, accounting\?\.signal, AbortSignal\.timeout/.test(s) &&
+      /combineSignals\(init\?\.signal, accounting\?\.signal\)/.test(s),
+    (s) => s.replace(
+      "combineSignals(signal, accounting?.signal, AbortSignal.timeout(config.timeoutMs))",
+      "signal || accounting?.signal || AbortSignal.timeout(config.timeoutMs)"
+    ));
   sourceGuard("B2 reserved mode is explicitly documented as not B2-covered", engineSrc,
     (s) => /SCAN_CAPACITY_MODE=reserved experiment[\s\S]{0,260}not be treated as[\s\S]{0,120}B2 cancellation\/accounting guarantees/.test(s),
     (s) => s.replace("not be treated as", "be treated as"));

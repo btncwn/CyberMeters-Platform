@@ -5,8 +5,8 @@
 // sets, isSensitiveSubdomain and _subdomainsCoreWork are module-internal.
 import { dnsQuery } from "./dns.js";
 import { normalizeDiscoveredHostname } from "./hostnames.js";
-import { RDAP_UA } from "../lib/http.js";
 import { customerSafeFailure } from "../lib/errors.js";
+import { createCertificateTransparencyCache } from "./ct-provider-cache.js";
 
 /**
  * Subdomain names whose presence suggests a development, staging, or
@@ -78,46 +78,15 @@ function isSensitiveSubdomain(hostname, domain) {
 // If one source fails the other still contributes — scan never aborts.
 // Per-source counts and errors are exposed in modules.subdomains.sources.
 
-function combineSignals(...signals) {
-  const active = signals.filter(Boolean);
-  if (active.length === 0) return undefined;
-  if (active.length === 1) return active[0];
-  if (typeof AbortSignal.any === "function") return AbortSignal.any(active);
-  const controller = new AbortController();
-  const abort = () => {
-    const aborted = active.find((s) => s.aborted);
-    controller.abort(aborted?.reason);
-  };
-  for (const signal of active) {
-    if (signal.aborted) { abort(); break; }
-    signal.addEventListener("abort", abort, { once: true });
-  }
-  return controller.signal;
-}
-
-async function countedFetch(url, init, accounting = null) {
-  accounting?.assertCanIssue?.();
-  accounting?.recordAttempt?.();
-  try {
-    const res = await fetch(url, { ...init, signal: combineSignals(init?.signal, accounting?.signal) });
-    accounting?.recordCompleted?.();
-    return res;
-  } catch (err) {
-    accounting?.recordError?.(err);
-    throw err;
-  }
-}
-
 export async function runSubdomainsModule(domain, opts = {}) {
   const accounting = opts.accounting || null;
+  const ctCache = opts.ctCache || createCertificateTransparencyCache({ signal: opts.signal });
   const SOURCE    = "certificate_transparency_multi_source";
   const PER_CAP   = 200;   // max unique names from each CT source
   const MERGE_CAP = 300;   // cap on the merged deduplicated set
-  // Tier 1 (waitUntil-cancellation guard): reduced 25s → 15s. The inner crt.sh
-  // fetch times out at 12s (CertSpotter 8s in parallel); 15s leaves ~3s for body
-  // parse while reclaiming 10s of worst-case wall-time for the engine deadline, so
-  // CT discovery can no longer alone push the invocation toward the ~30s cliff. On
-  // cap the scan continues with an honest empty CT result (never a fake clean one).
+  // Tier 1 (waitUntil-cancellation guard): the shared provider cache owns its leaf
+  // deadlines; this outer 15s cap still bounds provider parsing plus wildcard DNS.
+  // On cap the scan continues with an honest empty CT result (never fake clean).
   const HARD_CAP_MS = 15_000;
 
   // Graceful fallback — returned on hard-cap timeout or unexpected throw
@@ -139,7 +108,7 @@ export async function runSubdomainsModule(domain, opts = {}) {
     // If the hard cap fires first the scan continues with an empty result;
     // the inner work is abandoned (Cloudflare GC's the hanging fetch).
     return await Promise.race([
-      _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, { accounting }),
+      _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, { accounting, ctCache }),
       new Promise((resolve) =>
         setTimeout(() =>
           resolve(emptyResult("Subdomain discovery timed out (15s hard cap)")),
@@ -157,12 +126,12 @@ export async function runSubdomainsModule(domain, opts = {}) {
  * All 4 network calls fire in parallel:
  *   • Wildcard DNS A  (6 s DoH timeout via dnsQuery)
  *   • Wildcard DNS AAAA
- *   • crt.sh          (12 s)
- *   • CertSpotter     ( 8 s)
- * Total worst-case I/O = max(6, 12) = 12 s (well under the 15 s hard cap).
+ *   • shared crt.sh provider promise
+ *   • shared CertSpotter provider promise
  */
 async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}) {
   const accounting = opts.accounting || null;
+  const ctCache = opts.ctCache;
   const wildcardLabel = `cybermeters-wildcard-check-${Math.random().toString(36).slice(2, 10)}`;
   const wildcardHost  = `${wildcardLabel}.${domain}`;
 
@@ -171,22 +140,8 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
     await Promise.allSettled([
       dnsQuery(wildcardHost, "A", { accounting }),
       dnsQuery(wildcardHost, "AAAA", { accounting }),
-      countedFetch(
-        `https://crt.sh/?q=${encodeURIComponent("%." + domain)}&output=json`,
-        {
-          headers: { Accept: "application/json", "User-Agent": RDAP_UA },
-          signal:  AbortSignal.timeout(12_000),
-        },
-        accounting
-      ),
-      countedFetch(
-        `https://api.certspotter.com/v1/issuances?domain=${encodeURIComponent(domain)}&include_subdomains=true&expand=dns_names`,
-        {
-          headers: { Accept: "application/json", "User-Agent": RDAP_UA },
-          signal:  AbortSignal.timeout(8_000),
-        },
-        accounting
-      ),
+      ctCache.get(domain, "crt_sh", { accounting }),
+      ctCache.get(domain, "certspotter", { accounting }),
     ]);
 
   // ── Wildcard DNS result ─────────────────────────────────────────────────
@@ -214,36 +169,34 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
 
   // ── Source 1: crt.sh ───────────────────────────────────────────────────
   try {
-    const res = crtShSettled.status === "fulfilled" ? crtShSettled.value : null;
-    if (!res) {
+    const result = crtShSettled.status === "fulfilled" ? crtShSettled.value : null;
+    if (!result) {
       sources.crt_sh = { count: 0, error: customerSafeFailure("scan/ct/crt-sh", crtShSettled.reason, "fetch failed") };
-    } else if (!res.ok) {
-      sources.crt_sh = { count: 0, error: `HTTP ${res.status}` };
+    } else if (result.status === "unavailable") {
+      sources.crt_sh = { count: 0, error: result.error };
     } else {
-      const ct = res.headers.get("content-type") || "";
-      if (!ct.includes("json")) {
-        sources.crt_sh = { count: 0, error: "non-JSON response" };
-      } else {
-        const rawData = await res.json();
-        if (!Array.isArray(rawData)) {
-          sources.crt_sh = { count: 0, error: "unexpected response shape" };
-        } else {
-          const before = seen.size;
-          outer: for (const entry of rawData.slice(0, 2_000)) {
-            const names = [
-              ...(entry.name_value || "").split(/\n/),
-              entry.common_name || "",
-            ];
-            for (const raw of names) {
-              const name = normalizeDiscoveredHostname(raw, domain);
-              if (!name) continue;
-              seen.add(name);
-              if (seen.size - before >= PER_CAP) break outer;
-            }
-          }
-          sources.crt_sh = { count: seen.size - before, error: null };
+      const rootDomain = String(domain || "").trim().toLowerCase().replace(/\.$/, "");
+      const rawData = result.data.filter((entry) => [
+        ...(entry.name_value || "").split(/\n/),
+        entry.common_name || "",
+      ].some((raw) => {
+        const name = String(raw || "").trim().toLowerCase().replace(/\.$/, "");
+        return name !== rootDomain && name.endsWith(`.${rootDomain}`);
+      }));
+      const before = seen.size;
+      outer: for (const entry of rawData.slice(0, 2_000)) {
+        const names = [
+          ...(entry.name_value || "").split(/\n/),
+          entry.common_name || "",
+        ];
+        for (const raw of names) {
+          const name = normalizeDiscoveredHostname(raw, domain);
+          if (!name) continue;
+          seen.add(name);
+          if (seen.size - before >= PER_CAP) break outer;
         }
       }
+      sources.crt_sh = { count: seen.size - before, error: null };
     }
   } catch (err) {
     sources.crt_sh = { count: 0, error: customerSafeFailure("scan/ct/crt-sh-parse", err, "parse error") };
@@ -252,27 +205,22 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
   // ── Source 2: CertSpotter ─────────────────────────────────────────────
   // Response: [{ dns_names: ["sub.example.com", ...], ... }, ...]
   try {
-    const res = certSpotterSettled.status === "fulfilled" ? certSpotterSettled.value : null;
-    if (!res) {
+    const result = certSpotterSettled.status === "fulfilled" ? certSpotterSettled.value : null;
+    if (!result) {
       sources.certspotter = { count: 0, error: customerSafeFailure("scan/ct/certspotter", certSpotterSettled.reason, "fetch failed") };
-    } else if (!res.ok) {
-      sources.certspotter = { count: 0, error: `HTTP ${res.status}` };
+    } else if (result.status === "unavailable") {
+      sources.certspotter = { count: 0, error: result.error };
     } else {
-      const rawData = await res.json();
-      if (!Array.isArray(rawData)) {
-        sources.certspotter = { count: 0, error: "unexpected response shape" };
-      } else {
-        const before = seen.size;
-        outer: for (const entry of rawData) {
-          for (const name of entry.dns_names || []) {
-            const n = normalizeDiscoveredHostname(name, domain);
-            if (!n) continue;
-            seen.add(n);
-            if (seen.size - before >= PER_CAP) break outer;
-          }
+      const before = seen.size;
+      outer: for (const entry of result.data) {
+        for (const name of entry.dns_names || []) {
+          const n = normalizeDiscoveredHostname(name, domain);
+          if (!n) continue;
+          seen.add(n);
+          if (seen.size - before >= PER_CAP) break outer;
         }
-        sources.certspotter = { count: seen.size - before, error: null };
       }
+      sources.certspotter = { count: seen.size - before, error: null };
     }
   } catch (err) {
     sources.certspotter = { count: 0, error: customerSafeFailure("scan/ct/certspotter-parse", err, "parse error") };
