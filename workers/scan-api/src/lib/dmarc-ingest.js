@@ -285,7 +285,7 @@ function ingestEndpointIsActive(row) {
  */
 async function ingestDmarcReport(env, opts = {}) {
   const {
-    workspaceId, domain, source = "manual_paste", xmlString,
+    workspaceId, domain, source = "unknown", xmlString,
     filename: rawFilename = null, actorUserId = null,
     ingestEndpointId = null, domainId = null, enforceDomainMatch = false,
     provenance = null,

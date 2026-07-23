@@ -453,6 +453,22 @@ ok("source allow-list fails closed for inbound, null and unknown markers",
   isDmarcAuthorityEligibleSource("inbound_email") === false &&
   isDmarcAuthorityEligibleSource(null) === false &&
   isDmarcAuthorityEligibleSource("future_unreviewed_source") === false);
+const unmarked = await ingestDmarcReport(env, {
+  workspaceId: "ws1",
+  domain: "victim.example",
+  domainId: "d-victim",
+  enforceDomainMatch: true,
+  xmlString: dmarcXml("unmarked-fail-closed-1", "victim.example",
+    [{ ip: "203.0.113.200", count: 999999, pass: false }], "reject"),
+});
+ok("omitted source is persisted as unknown rather than default-authoritative",
+  unmarked.ok === true &&
+  db.prepare(`SELECT source FROM dmarc_aggregate_reports
+              WHERE external_report_id='unmarked-fail-closed-1'`).get()?.source === "unknown");
+const afterUnmarkedRate = await getHostedDmarcPassRate(env, "ws1", "victim.example");
+ok("omitted-source report has zero authority",
+  afterUnmarkedRate.total === manualRate.total &&
+  afterUnmarkedRate.pass_rate === manualRate.pass_rate);
 
 // ── Mutation guards: deleting any consumer gate is CI-red ────────────────────
 function guard(name, rel, predicate, mutate) {
