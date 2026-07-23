@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "deploy": "npx wrangler deploy --config wrangler.toml"
+    "deploy": "../scan-api/node_modules/.bin/wrangler deploy --config wrangler.toml",
+    "dry-run": "../scan-api/node_modules/.bin/wrangler deploy --dry-run --config wrangler.toml"
   }
 }

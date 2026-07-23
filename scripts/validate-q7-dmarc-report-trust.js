@@ -17,6 +17,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const imp = (rel) => import(pathToFileURL(path.join(root, "workers", "scan-api", "src", rel)).href);
 const read = (rel) => fs.readFileSync(path.join(root, "workers", "scan-api", "src", rel), "utf8");
+const readRepo = (rel) => fs.readFileSync(path.join(root, rel), "utf8");
 
 const { parseDmarcAggregateXml, dmarcReportDomainMatches, ingestDmarcReport } = await imp("lib/dmarc-ingest.js");
 const { handleInboundEmail } = await imp("email/inbound.js");
@@ -167,8 +168,25 @@ guard("D enforceDomainMatch gate present", ingestSrc,
   (s) => s.replace("enforceDomainMatch && !dmarcReportDomainMatches(parsed, domain)", "false"));
 // inbound rate limit present
 guard("D inbound per-endpoint rate limit present", inboundSrc,
-  (s) => /deps\.consumeApiRateLimit/.test(s) && /"rua_inbound", 120, 3600/.test(s),
+  (s) => /inbound_rate_limiter_not_wired/.test(s) &&
+    /deps\.consumeApiRateLimit/.test(s) &&
+    /"rua_inbound", 120, 3600/.test(s),
   (s) => s.replace('"rua_inbound", 120, 3600', '"rua_inbound", 999999, 3600'));
+
+// Real routed entrypoint wiring: both Workers import the same cycle-safe
+// implementation and the standalone export cannot bypass dependency injection.
+const apiEntry = read("index.js");
+const emailEntry = readRepo("workers/email-ingest/src/index.js");
+ok("D API Worker imports the canonical rate limiter",
+  /from "\.\/lib\/rate-limit\.js"/.test(apiEntry));
+ok("D standalone email Worker imports the same canonical rate limiter",
+  /from "\.\.\/\.\.\/scan-api\/src\/lib\/rate-limit\.js"/.test(emailEntry));
+guard("D standalone email export injects the mandatory limiter", emailEntry,
+  (s) => /handleInboundEmail\(message, env, ctx, \{ consumeApiRateLimit, rateLimitScopeId \}\)/.test(s),
+  (s) => s.replace(
+    /email:\s*\(message, env, ctx\)\s*=>\s*\n?\s*handleInboundEmail\(message, env, ctx, \{ consumeApiRateLimit, rateLimitScopeId \}\),/,
+    "email: handleInboundEmail,",
+  ));
 
 // Direct scoring/posture engines still do not read the ingest tables. The
 // authority-bearing sender/readiness/lifecycle consumers are separately proven

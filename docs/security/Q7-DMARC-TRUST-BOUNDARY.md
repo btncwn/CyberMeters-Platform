@@ -71,8 +71,16 @@ guarded JSON parsing and array caps, raw/compressed/decompressed email caps,
 compression-ratio caps, bounded MIME selection, endpoint-derived tenant/domain
 binding, natural-key dedupe, safe drop reasons, and audit metadata.
 
-The inbound per-endpoint limiter is also unchanged in Gate 2. Limiter and parser
-hardening are later founder-gated work and are not evidence of report authority.
+Gate 3A wires the same cycle-safe D1 limiter into both Worker entries. The
+standalone `cybermeters-email` export now enforces the 120-message
+per-endpoint/hour ceiling before reading message bodies; missing dependency
+wiring is a hard failure and a CI mutation removes the injection to prove the
+gate turns red. The limiter remains intentionally non-atomic and fail-open on a
+rate-limit-store outage; those semantics belong to separately founder-gated
+Gate 3B and are not changed here.
+
+Parser hardening remains separately founder-gated Gate 4 and is not evidence of
+report authority.
 
 ## Residual limitation
 

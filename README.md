@@ -667,9 +667,14 @@ After merge, verify:
 ## Email-ingest Worker
 
 ```bash
-cd workers/scan-api
-npx wrangler deploy --config ../email-ingest/wrangler.toml
+npm ci --prefix workers/scan-api
+npm run deploy --prefix workers/email-ingest
 ```
+
+The email package invokes the exact Wrangler version pinned in the scan-api
+lockfile. Any change to its effective shared-source import closure must also
+update `workers/email-ingest/deploy-manifest.json` and its closure-derived
+`APP_VERSION`, then receive a founder-approved email-worker deployment.
 
 ## Release tag
 

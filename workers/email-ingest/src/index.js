@@ -5,6 +5,10 @@
 // two workers cannot drift. HTTP surface is health-only by design (§3 of
 // docs/SPRINT-10-DESIGN.md: this worker must never serve app routes).
 import { handleInboundEmail } from "../../scan-api/src/email/inbound.js";
+import {
+  consumeApiRateLimit,
+  rateLimitScopeId,
+} from "../../scan-api/src/lib/rate-limit.js";
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -41,5 +45,8 @@ export default {
     return json({ error: "Not found" }, 404);
   },
 
-  email: handleInboundEmail,
+  // Mandatory shared limiter injection. The handler rejects missing wiring
+  // before reading a message, so this boundary can never silently fail open.
+  email: (message, env, ctx) =>
+    handleInboundEmail(message, env, ctx, { consumeApiRateLimit, rateLimitScopeId }),
 };

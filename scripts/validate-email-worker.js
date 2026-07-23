@@ -8,7 +8,10 @@
 //   2. the duplicate natural-key dedupe still holds,
 //   3. an unknown recipient is dropped safely (audit, no rows),
 //   4. GOLDEN: both workers produce identical DB outcomes for the same email,
-//   5. the email worker's health surface responds.
+//   5. the real standalone export bounds a 121-message endpoint flood,
+//   6. TLS-RPT traverses the real standalone export under the canonical limiter,
+//   7. missing/removed limiter wiring is a CI-red hard failure, and
+//   8. the email worker's health surface responds.
 // Requires Node 24+ (node:sqlite). Exits non-zero on any failure so CI blocks.
 //
 import fs from "node:fs";
@@ -76,26 +79,84 @@ const DMARC_XML = `<?xml version="1.0"?>
       <spf><domain>example.com</domain><result>pass</result></spf></auth_results></record>
 </feedback>`;
 
+const TLS_RPT_JSON = JSON.stringify({
+  "organization-name": "Example Reporter",
+  "date-range": {
+    "start-datetime": "2026-07-22T00:00:00Z",
+    "end-datetime": "2026-07-22T23:59:59Z",
+  },
+  "contact-info": "tls-reports@example.net",
+  "report-id": "TLS-STANDALONE-1",
+  policies: [{
+    policy: { "policy-type": "sts", "policy-domain": "example.com" },
+    summary: {
+      "total-successful-session-count": 97,
+      "total-failure-session-count": 3,
+    },
+    "failure-details": [{
+      "result-type": "certificate-expired",
+      "failed-session-count": 3,
+    }],
+  }],
+});
+
 async function gzipBytes(text) {
   const stream = new Response(new TextEncoder().encode(text)).body.pipeThrough(new CompressionStream("gzip"));
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
-async function buildRuaMime() {
-  const gz = await gzipBytes(DMARC_XML);
+async function buildGzipReportMime(text, {
+  contentType,
+  filename,
+  boundary,
+  from,
+}) {
+  const gz = await gzipBytes(text);
   const b64 = Buffer.from(gz).toString("base64").replace(/(.{76})/g, "$1\r\n");
-  return "From: noreply-dmarc@google.com\r\nSubject: Report domain: example.com\r\n" +
-    'Content-Type: multipart/mixed; boundary="EQ1"\r\n\r\n' +
-    "--EQ1\r\nContent-Type: text/plain\r\n\r\nReport attached.\r\n" +
-    "--EQ1\r\n" +
-    'Content-Type: application/gzip; name="example.com!report.xml.gz"\r\n' +
-    'Content-Disposition: attachment; filename="example.com!report.xml.gz"\r\n' +
-    "Content-Transfer-Encoding: base64\r\n\r\n" + b64 + "\r\n--EQ1--\r\n";
+  return `From: ${from}\r\nSubject: Aggregate report for example.com\r\n` +
+    `Content-Type: multipart/mixed; boundary="${boundary}"\r\n\r\n` +
+    `--${boundary}\r\nContent-Type: text/plain\r\n\r\nReport attached.\r\n` +
+    `--${boundary}\r\n` +
+    `Content-Type: ${contentType}; name="${filename}"\r\n` +
+    `Content-Disposition: attachment; filename="${filename}"\r\n` +
+    `Content-Transfer-Encoding: base64\r\n\r\n${b64}\r\n--${boundary}--\r\n`;
+}
+
+async function buildRuaMime() {
+  return buildGzipReportMime(DMARC_XML, {
+    contentType: "application/gzip",
+    filename: "example.com!report.xml.gz",
+    boundary: "EQ1",
+    from: "noreply-dmarc@google.com",
+  });
+}
+
+async function buildTlsRptMime() {
+  return buildGzipReportMime(TLS_RPT_JSON, {
+    contentType: "application/tlsrpt+gzip",
+    filename: "example.com!tls-report.json.gz",
+    boundary: "TLS1",
+    from: "tls-reports@example.net",
+  });
 }
 
 function message(to, mime) {
   const bytes = new TextEncoder().encode(mime);
   return { to, rawSize: bytes.length, raw: new Response(bytes).body };
+}
+
+function trackedMessage(to, mime) {
+  const bytes = new TextEncoder().encode(mime);
+  let rawRead = false;
+  return {
+    to,
+    rawSize: bytes.length,
+    get raw() {
+      rawRead = true;
+      return new Response(bytes).body;
+    },
+    rawWasRead: () => rawRead,
+  };
 }
 
 // ── DB outcome snapshot for the golden comparison (stable fields only) ─────────
@@ -123,6 +184,7 @@ function ok(name, cond) {
 async function main() {
   const apiMod   = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "index.js")).href);
   const emailMod = await import(pathToFileURL(path.join(root, "workers", "email-ingest", "src", "index.js")).href);
+  const inboundMod = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "email", "inbound.js")).href);
 
   const mime = await buildRuaMime();
 
@@ -135,6 +197,8 @@ async function main() {
     reportRow?.org_name === "google.com" && reportRow?.external_report_id === "RPT-EQUIV-1");
   ok("record row persisted with parsed auth results",
     dbE.prepare("SELECT count(*) c FROM dmarc_aggregate_records").get().c === 1);
+  ok("standalone export consumed the canonical endpoint rate limit",
+    dbE.prepare("SELECT request_count FROM api_rate_limits WHERE action='rua_inbound'").get()?.request_count === 1);
 
   await emailMod.default.email(message("cmrua_equivtest01@reports.cybermeters.com", mime), envE, {});
   ok("DUPLICATE: same report again → still exactly one report row (natural-key dedupe)",
@@ -158,7 +222,76 @@ async function main() {
   ok("GOLDEN: api worker and email worker produce IDENTICAL DB outcomes for the same email",
     snapA === snapB && snapA.includes("RPT-EQUIV-1"));
 
-  // ── 5: health surface ──
+  // ── 5: real standalone export bounds a forged cross-message flood ──
+  const dbFlood = buildDb(); seed(dbFlood);
+  const envFlood = makeEnv(dbFlood, "email-ingest");
+  for (let index = 0; index < 120; index += 1) {
+    await emailMod.default.email(
+      message("cmrua_equivtest01@reports.cybermeters.com", mime),
+      envFlood,
+      {},
+    );
+  }
+  const blockedMessage = trackedMessage(
+    "cmrua_equivtest01@reports.cybermeters.com",
+    mime,
+  );
+  await emailMod.default.email(blockedMessage, envFlood, {});
+  ok("standalone forged flood is bounded at 120 messages per endpoint/window",
+    dbFlood.prepare("SELECT request_count FROM api_rate_limits WHERE action='rua_inbound'").get()?.request_count === 120);
+  ok("standalone message 121 is rejected before its raw body is read",
+    blockedMessage.rawWasRead() === false);
+  ok("standalone rate-limit rejection is append-only audited",
+    dbFlood.prepare("SELECT count(*) c FROM audit_events WHERE event_type='dmarc_inbound_email_rate_limited'").get().c === 1);
+
+  // ── 6: TLS-RPT parity through the real standalone export ──
+  const dbTls = buildDb(); seed(dbTls);
+  const tlsMime = await buildTlsRptMime();
+  await emailMod.default.email(
+    message("cmrua_equivtest01@reports.cybermeters.com", tlsMime),
+    makeEnv(dbTls, "email-ingest"),
+    {},
+  );
+  const tlsRow = dbTls.prepare(
+    `SELECT external_report_id, total_successful_sessions, total_failure_sessions
+     FROM tlsrpt_aggregate_reports`,
+  ).get();
+  ok("standalone export routes and stores TLS-RPT under the canonical limiter",
+    tlsRow?.external_report_id === "TLS-STANDALONE-1" &&
+    tlsRow?.total_successful_sessions === 97 &&
+    tlsRow?.total_failure_sessions === 3 &&
+    dbTls.prepare("SELECT request_count FROM api_rate_limits WHERE action='rua_inbound'").get()?.request_count === 1);
+
+  // ── 7: missing/removal wiring is CI-red, never silently unthrottled ──
+  let missingWiringRejected = false;
+  try {
+    await inboundMod.handleInboundEmail(
+      message("cmrua_equivtest01@reports.cybermeters.com", mime),
+      makeEnv(buildDb(), "email-ingest"),
+      {},
+    );
+  } catch (error) {
+    missingWiringRejected = error?.message === "inbound_rate_limiter_not_wired";
+  }
+  ok("shared handler rejects absent limiter wiring before processing",
+    missingWiringRejected === true);
+
+  const emailEntryPath = path.join(root, "workers", "email-ingest", "src", "index.js");
+  const emailEntrySource = fs.readFileSync(emailEntryPath, "utf8");
+  const mandatoryInjection = (source) =>
+    /handleInboundEmail\(message, env, ctx, \{ consumeApiRateLimit, rateLimitScopeId \}\)/.test(source);
+  ok("standalone entry has mandatory canonical limiter injection",
+    mandatoryInjection(emailEntrySource));
+  const unwiredMutant = emailEntrySource.replace(
+    /email:\s*\(message, env, ctx\)\s*=>\s*\n?\s*handleInboundEmail\(message, env, ctx, \{ consumeApiRateLimit, rateLimitScopeId \}\),/,
+    "email: handleInboundEmail,",
+  );
+  ok("mutation removes standalone limiter injection",
+    unwiredMutant !== emailEntrySource);
+  ok("mutation removing standalone limiter injection is CI-red",
+    mandatoryInjection(unwiredMutant) === false);
+
+  // ── 8: health surface ──
   const health = await emailMod.default.fetch(new Request("https://cybermeters-email.example/health"), makeEnv(buildDb(), "email-ingest"));
   const hBody = await health.json();
   ok("email worker /health → 200 {status:ok, service:cybermeters-email}",
