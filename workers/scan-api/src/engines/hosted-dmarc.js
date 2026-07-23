@@ -10,6 +10,7 @@ import {
   DMARC_EXTERNAL_AUTOMATION_EVIDENCE_SCOPE,
   dmarcExternalAutomationSourceSql,
 } from "../lib/dmarc-authority.js";
+import { aggregateReportCompleteSql } from "../lib/aggregate-report-ingest.js";
 import { createAuditEvent } from "../lib/events.js";
 // PR-B3: this engine no longer holds a sender. Every alert it used to deliver
 // directly — bypassing occurrence identity, the activation watermark, dedupe and
@@ -795,6 +796,7 @@ export async function getHostedDmarcPassRate(env, workspaceId, domain, { sinceDa
                  AND rep.workspace_id = r.workspace_id
                  AND rep.domain = r.domain
                 WHERE r.workspace_id = ? AND r.domain = ?
+                  AND ${aggregateReportCompleteSql("rep", "dmarc")}
                   AND r.created_at >= datetime('now', ?)
                   AND ${dmarcExternalAutomationSourceSql("rep")}`)
       .bind(workspaceId, domain, `-${Math.max(1, sinceDays)} days`).first();

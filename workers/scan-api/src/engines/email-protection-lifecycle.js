@@ -53,6 +53,7 @@
 // findConditionOccurrence cannot match them and no alert path exists at all.
 import { emitLifecycleAlert } from "./alert-consumers.js";
 import { dmarcAuthoritySourceSql } from "../lib/dmarc-authority.js";
+import { aggregateReportCompleteSql } from "../lib/aggregate-report-ingest.js";
 import {
   assertedClassification, isCustomerDisposition, isObservedClassification,
   resolveEffectiveClassification,
@@ -622,6 +623,7 @@ export async function senderWindowVolumes(env, workspaceId, domain, { now = new 
                  AND rep.workspace_id = r.workspace_id
                  AND rep.domain = r.domain
                 WHERE r.workspace_id = ? AND r.domain = ? AND rep.date_range_end >= ?
+                  AND ${aggregateReportCompleteSql("rep", "dmarc")}
                   AND ${dmarcAuthoritySourceSql("rep")}
                 GROUP BY r.source_ip`)
       .bind(workspaceId, domain, windowStart)

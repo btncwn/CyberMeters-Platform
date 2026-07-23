@@ -5,6 +5,7 @@
 // vocabulary by the canonical resolver when classified_at is set.
 import { resolveEffectiveClassification } from "./sender-classification.js";
 import { dmarcAuthoritySourceSql } from "../lib/dmarc-authority.js";
+import { aggregateReportCompleteSql } from "../lib/aggregate-report-ingest.js";
 
 export const IMPACT_MIN_MESSAGES = 50;
 export const IMPACT_WINDOW_DAYS = 7;
@@ -65,6 +66,7 @@ async function loadImpactRows(env, workspaceId, domain, { startEpoch, endEpoch }
                AND s.domain = r.domain
                AND s.source_ip = r.source_ip
               WHERE r.workspace_id = ? AND r.domain = ?
+                AND ${aggregateReportCompleteSql("rep", "dmarc")}
                 AND rep.date_range_begin IS NOT NULL
                 AND rep.date_range_begin >= ?
                 AND rep.date_range_begin < ?

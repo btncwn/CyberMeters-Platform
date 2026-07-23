@@ -31,7 +31,36 @@ const apply = (p) => { try { db.exec(fs.readFileSync(p, "utf8")); } catch { /* o
 apply(path.join(root, "database", "schema.sql"));
 for (const f of fs.readdirSync(path.join(root, "database", "migrations")).filter((f) => f.endsWith(".sql")).sort()) apply(path.join(root, "database", "migrations", f));
 db.exec("PRAGMA foreign_keys = OFF");
-const makeD1 = (db) => { const wrap = (sql, a) => ({ first: async () => db.prepare(sql).get(...a) ?? null, all: async () => ({ results: db.prepare(sql).all(...a) }), run: async () => { const r = db.prepare(sql).run(...a); return { meta: { changes: r.changes } }; } }); return { prepare(sql) { const b = wrap(sql, []); b.bind = (...a) => wrap(sql, a); return b; } }; };
+const makeD1 = (db) => {
+  const wrap = (sql, a) => ({
+    __sql: sql,
+    first: async () => db.prepare(sql).get(...a) ?? null,
+    all: async () => ({ results: db.prepare(sql).all(...a) }),
+    run: async () => {
+      const r = db.prepare(sql).run(...a);
+      return { meta: { changes: r.changes } };
+    },
+  });
+  return {
+    prepare(sql) {
+      const b = wrap(sql, []);
+      b.bind = (...a) => wrap(sql, a);
+      return b;
+    },
+    async batch(statements) {
+      db.exec("BEGIN");
+      try {
+        const results = [];
+        for (const statement of statements) results.push(await statement.run());
+        db.exec("COMMIT");
+        return results;
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+      }
+    },
+  };
+};
 const env = { cybermeters_db: makeD1(db), ALLOWED_ORIGIN: "https://app.cybermeters.com", APP_VERSION: "test", RUA_INBOUND_DOMAIN: "reports.cybermeters.com" };
 const ctx = { waitUntil: () => {}, passThroughOnException: () => {} };
 

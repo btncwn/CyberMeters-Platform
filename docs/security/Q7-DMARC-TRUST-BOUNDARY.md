@@ -76,8 +76,19 @@ standalone `cybermeters-email` export now enforces the 120-message
 per-endpoint/hour ceiling before reading message bodies; missing dependency
 wiring is a hard failure and a CI mutation removes the injection to prove the
 gate turns red. The limiter remains intentionally non-atomic and fail-open on a
-rate-limit-store outage; those semantics belong to separately founder-gated
-Gate 3B and are not changed here.
+rate-limit-store outage; Gate 3B does not change those Gate-3A limiter
+semantics.
+
+Gate 3B makes DMARC/TLS-RPT evidence persistence atomic and repairable. A
+non-null, authority-vs-observational source-scoped claim moves
+`pending → complete | failed`; report metadata, detail rows, sender rollups and
+the complete transition commit in one D1 batch. Failed claims are repairable on
+redelivery and are excluded from every evidence reader until complete. The
+persisted-detail ceiling is 300 rows: the worst DMARC transaction is 604 D1
+statements, leaving 396 of the 1,000-query invocation budget for claim/audit and
+surrounding work. Larger reports and invalid base64 are required audited drops,
+while transient persistence failure is a failed/quarantined claim plus
+append-only audit rather than silent success.
 
 Parser hardening remains separately founder-gated Gate 4 and is not evidence of
 report authority.

@@ -29,6 +29,7 @@ import { ipContainedInAnyCidr } from "./spf-resolver.js";
 import { emitManagedAlert } from "./managed-alerts.js";
 import { resolveRemediation } from "./remediation-registry.js";
 import { dmarcAuthoritySourceSql } from "../lib/dmarc-authority.js";
+import { aggregateReportCompleteSql } from "../lib/aggregate-report-ingest.js";
 
 export const SPF_CORROBORATION_TIER = Object.freeze({
   UNAUTHORISED_CONFIRMED: "unauthorised_confirmed",     // complete + not-contained + enforcing (-all) policy
@@ -179,6 +180,7 @@ export async function recordSpfRuaCorroboration(scanId, domainId, domain, module
             AND rep.workspace_id = r.workspace_id
             AND rep.domain = r.domain
           WHERE r.workspace_id = ? AND r.domain = ?
+            AND ${aggregateReportCompleteSql("rep", "dmarc")}
             AND LOWER(r.spf_result) = 'fail'
             AND r.source_ip IS NOT NULL AND r.source_ip != ''
             AND r.created_at >= datetime('now', '-30 days')

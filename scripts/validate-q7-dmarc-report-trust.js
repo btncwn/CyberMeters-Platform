@@ -53,14 +53,24 @@ function makeDb({ dedupe = false } = {}) {
     inserts,
     prepare(sql) {
       let args = [];
-      const isDedupeSelect = /SELECT id FROM dmarc_aggregate_reports/.test(sql);
+      const isClaimInsert = /INSERT OR IGNORE INTO aggregate_report_ingest_claims/.test(sql);
+      const isClaimSelect = /FROM aggregate_report_ingest_claims/.test(sql) &&
+        /^\s*SELECT/i.test(sql);
       const insTable = /INSERT INTO dmarc_aggregate_reports/.test(sql) ? "dmarc_aggregate_reports"
                      : /INSERT INTO dmarc_aggregate_records/.test(sql) ? "dmarc_aggregate_records" : null;
       // crude column extraction for the reports insert (to assert workspace_id binding)
       return {
         bind(...a) { args = a; return this; },
-        async run() { if (insTable) inserts[insTable].push(args); return { meta: { changes: 1 } }; },
-        async first() { return isDedupeSelect && dedupe ? { id: "existing" } : null; },
+        async run() {
+          if (insTable) inserts[insTable].push(args);
+          return { meta: { changes: isClaimInsert && dedupe ? 0 : 1 } };
+        },
+        async first() {
+          return isClaimSelect && dedupe
+            ? { id: "claim_existing", report_id: "existing", content_hash: "",
+                ingest_state: "complete", source_scope: "observational" }
+            : null;
+        },
         async all() { return { results: [] }; },
       };
     },

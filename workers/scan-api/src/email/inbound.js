@@ -64,7 +64,18 @@ function _bytesToLatin1(bytes) {
   return s;
 }
 function _base64ToBytes(b64) {
-  return _latin1ToBytes(atob(String(b64).replace(/[^A-Za-z0-9+/=]/g, "")));
+  const compact = String(b64).replace(/\s/g, "");
+  if (!compact ||
+      compact.length % 4 === 1 ||
+      !/^[A-Za-z0-9+/]*={0,2}$/.test(compact) ||
+      /=/.test(compact.slice(0, -2))) {
+    throw new Error("invalid_base64");
+  }
+  try {
+    return _latin1ToBytes(atob(compact));
+  } catch {
+    throw new Error("invalid_base64");
+  }
 }
 function _readU16(b, o) { return b[o] | (b[o + 1] << 8); }
 function _readU32(b, o) { return (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0; }
@@ -196,6 +207,8 @@ function normalizeInboundDropReason(reason) {
     case "decompressed_too_large":  return "decompressed_too_large";
     case "compression_ratio_exceeded": return "compression_ratio_exceeded";
     case "domain_mismatch":         return "domain_mismatch";
+    case "invalid_base64":          return "invalid_base64";
+    case "report_row_limit_exceeded": return "report_row_limit_exceeded";
     case "unsupported_attachment":
     case "empty_attachment":        return "unsupported_attachment";
     default:                        return "parse_error";
@@ -215,7 +228,10 @@ function inboundDropCustomerMessage(reason) {
     case "attachment_too_large":
     case "decompressed_too_large":
     case "compression_ratio_exceeded":
+    case "report_row_limit_exceeded":
       return "The report attachment was larger than the supported size.";
+    case "invalid_base64":
+      return "The report attachment used an invalid transfer encoding and could not be read.";
     default:
       return "The report attachment could not be read. Occasional malformed reports from providers are normal — no action is needed unless this keeps happening.";
   }
@@ -434,7 +450,9 @@ function deriveInboundReportProvenance(rawLatin1, message, boundDomain) {
 // localpart to an active ingestion endpoint, safely extract the DMARC XML from
 // a gzip/zip/raw attachment (hard bomb caps), and run it through the SAME
 // ingestDmarcReport() pipeline with source=inbound_email. The handler never
-// throws, never stores raw payloads, and drops invalid mail with an audit note.
+// stores raw payloads. Permanent invalid mail has a required append-only audit;
+// if neither a terminal nor transient audit can be persisted, the invocation
+// throws rather than reporting silent success.
 // Operator routing: private beta may use exact per-address routes; public beta
 // should send *@reports.cybermeters.com to this Worker. D1 address_local lookup
 // authorizes known recipients, and unknown localparts are safely dropped.
@@ -451,26 +469,27 @@ export async function handleInboundEmail(message, env, _ctx, deps = {}) {
   // Drop safely with a STABLE, customer-safe reason and no raw payload.
   // `kind` labels the report type in customer-facing text ("DMARC"/"TLS-RPT").
   const drop = async (endpoint, rawReason, recipient = null, kind = "DMARC") => {
-    try {
-      const reason = normalizeInboundDropReason(rawReason);
-      await createAuditEvent(env, {
-        workspace_id: endpoint?.workspace_id || null, user_id: null,
-        event_type: "dmarc_inbound_email_dropped", entity_type: "domain",
-        entity_id: endpoint?.domain_id || null,
-        description: `Dropped inbound ${kind} email (${reason})`,
-        metadata: {
-          source: "inbound_email",
-          reason,
-          recipient_localpart: recipient?.localpart || null,
-          recipient_domain: recipient?.domain || null,
-        },
-      });
+    const reason = normalizeInboundDropReason(rawReason);
+    // The append-only audit is the terminal outcome. It is intentionally not
+    // swallowed: if D1 cannot durably record it, the outer handler records a
+    // transient failure or rethrows so the delivery never looks successful.
+    await createAuditEvent(env, {
+      workspace_id: endpoint?.workspace_id || null, user_id: null,
+      event_type: "dmarc_inbound_email_dropped", entity_type: "domain",
+      entity_id: endpoint?.domain_id || null,
+      description: `Dropped inbound ${kind} email (${reason})`,
+      metadata: {
+        source: "inbound_email",
+        reason,
+        recipient_localpart: recipient?.localpart || null,
+        recipient_domain: recipient?.domain || null,
+      },
+      required: true,
+    });
 
-      // Customer visibility: an audit row alone leaves the customer blind to
-      // "my reports aren't arriving". When the drop maps to a known workspace,
-      // surface one calm notification — deduped per workspace+domain per 24h
-      // so a misbehaving reporter can't flood the bell.
-      if (endpoint?.workspace_id && endpoint?.domain) {
+    // Customer visibility is best-effort after the durable terminal audit.
+    if (endpoint?.workspace_id && endpoint?.domain) {
+      try {
         const title = `A ${kind} report for ${endpoint.domain} could not be processed`;
         const dup = await env.cybermeters_db
           .prepare(`SELECT id FROM notification_events
@@ -487,11 +506,17 @@ export async function handleInboundEmail(message, env, _ctx, deps = {}) {
             metadata: { domain: endpoint.domain, domain_id: endpoint.domain_id || null, reason },
           });
         }
-      }
-    } catch { /* never throw from the email handler */ }
+      } catch { /* the terminal audit above is already durable */ }
+    }
+    return reason;
   };
+
+  let activeEndpoint = null;
+  let activeRecipient = null;
+  let activeKind = "aggregate";
   try {
     const recipient = parseInboundRecipient(message.to);
+    activeRecipient = recipient;
     if (!recipient) { await drop(null, "parse_error"); return; }
     const inboundDomain = normalizeInboundRecipientDomain(env.RUA_INBOUND_DOMAIN || RUA_INBOUND_DOMAIN_DEFAULT);
     if (!inboundDomain || recipient.domain !== inboundDomain) {
@@ -503,6 +528,7 @@ export async function handleInboundEmail(message, env, _ctx, deps = {}) {
     const endpoint = await env.cybermeters_db
       .prepare(`SELECT * FROM dmarc_ingest_endpoints WHERE address_local = ? LIMIT 1`)
       .bind(localpart).first();
+    activeEndpoint = endpoint;
     if (!ingestEndpointIsActive(endpoint)) {
       await drop(endpoint, endpoint ? "endpoint_inactive" : "endpoint_not_found", recipient);
       return;
@@ -544,19 +570,34 @@ export async function handleInboundEmail(message, env, _ctx, deps = {}) {
     // checks the body claim against the endpoint binding.
     const provenance = deriveInboundReportProvenance(rawLatin1, message, endpoint.domain);
 
-    const parts = parseMimeParts(rawLatin1);
+    let parts;
+    try {
+      parts = parseMimeParts(rawLatin1);
+    } catch (error) {
+      await drop(
+        endpoint,
+        error?.message === "invalid_base64" ? "invalid_base64" : "parse_error",
+        recipient,
+      );
+      return;
+    }
 
     // Route by attachment type: TLS-RPT (JSON) → its own parser; DMARC XML falls
     // through to the existing path, byte-for-byte unchanged.
     const tlsSel = selectTlsRptAttachment(parts);
     if (tlsSel.part) {
+      activeKind = "TLS-RPT";
       const tlsExt = await extractTlsRptFromAttachment(tlsSel.part.filename, tlsSel.part.bytes, caps);
       if (tlsExt.error) { await drop(endpoint, tlsExt.error, recipient, "TLS-RPT"); return; }
       const tlsResult = await ingestTlsRptReport(env, {
         workspaceId: endpoint.workspace_id, domain: endpoint.domain, jsonString: tlsExt.json,
         ingestEndpointId: endpoint.id, domainId: endpoint.domain_id, enforceDomainMatch: true, provenance,
       });
-      if (!tlsResult.ok) { await drop(endpoint, tlsResult.error, recipient, "TLS-RPT"); return; }
+      if (!tlsResult.ok) {
+        if (tlsResult.transient && tlsResult.audited) return;
+        await drop(endpoint, tlsResult.error, recipient, "TLS-RPT");
+        return;
+      }
       await env.cybermeters_db
         .prepare(`UPDATE dmarc_ingest_endpoints SET last_used_at = datetime('now'), last_inbound_at = datetime('now') WHERE id = ?`)
         .bind(endpoint.id).run();
@@ -576,6 +617,7 @@ export async function handleInboundEmail(message, env, _ctx, deps = {}) {
     }
 
     const sel = selectDmarcAttachment(parts);
+    activeKind = "DMARC";
     if (sel.error) { await drop(endpoint, sel.error, recipient); return; }
     const ext = await extractDmarcXmlFromAttachment(sel.part.filename, sel.part.bytes, caps);
     if (ext.error) { await drop(endpoint, ext.error, recipient); return; }
@@ -588,7 +630,11 @@ export async function handleInboundEmail(message, env, _ctx, deps = {}) {
 
     // Parse/validation rejection (e.g. domain_mismatch). Do NOT mark the
     // address as "receiving" — it did not deliver a valid report.
-    if (!result.ok) { await drop(endpoint, result.error, recipient); return; }
+    if (!result.ok) {
+      if (result.transient && result.audited) return;
+      await drop(endpoint, result.error, recipient);
+      return;
+    }
 
     // A valid report arrived (new import OR an already-seen duplicate). Both
     // are honest "we received an inbound report" signals.
@@ -630,7 +676,28 @@ export async function handleInboundEmail(message, env, _ctx, deps = {}) {
     }).catch(() => {});
   } catch (e) {
     console.error("[email-ingest]", String(e?.message ?? e));
-    // Swallow — an inbound mail handler must never throw.
+    try {
+      await createAuditEvent(env, {
+        workspace_id: activeEndpoint?.workspace_id || null,
+        user_id: null,
+        event_type: "aggregate_report_inbound_transient_failure",
+        entity_type: "domain",
+        entity_id: activeEndpoint?.domain_id || null,
+        description: `Inbound ${activeKind} ingestion failed before a terminal outcome`,
+        metadata: {
+          source: "inbound_email",
+          reason: "transient_platform_failure",
+          repairable: true,
+          recipient_localpart: activeRecipient?.localpart || null,
+          recipient_domain: activeRecipient?.domain || null,
+        },
+        required: true,
+      });
+    } catch {
+      // Neither persistence nor the append-only quarantine audit succeeded.
+      // Rethrow so Cloudflare records a failed invocation; never report success.
+      throw e;
+    }
   }
 }
 
