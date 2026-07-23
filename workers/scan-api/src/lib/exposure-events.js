@@ -15,6 +15,7 @@ export const EXPOSURE_EVENT_META = {
   dns_cname_changed:                 { category: "dns",         title: "CNAME changed" },
   dns_redirect_changed:              { category: "dns",         title: "Redirect target changed" },
   email_spf_changed:                 { category: "email",       title: "SPF record changed" },
+  email_spf_authorization_changed:   { category: "email",       title: "SPF authorised senders changed" },
   email_dmarc_policy_changed:        { category: "email",       title: "DMARC policy changed" },
   email_dkim_changed:                { category: "email",       title: "DKIM changed" },
   certificate_new_detected:          { category: "certificate", title: "New certificate" },

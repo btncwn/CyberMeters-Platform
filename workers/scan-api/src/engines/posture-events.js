@@ -52,15 +52,25 @@ function pushEvent(events, { event_type, hostname, severity, description, eviden
   events.push(event);
 }
 
-export function buildPostureDiffEvents(domain, prevModules, currentModules) {
+function spfEvidenceComplete(spf) {
+  return spf?.resolution_status === "complete" && Array.isArray(spf?.resolved_pass_authorisations);
+}
+
+export function buildSpfDiffEvents(domain, prevModules, currentModules) {
   const events = [];
   const previousEmail = prevModules?.email_security || {};
   const currentEmail = currentModules?.email_security || {};
+  const previousSpf = previousEmail?.spf;
+  const currentSpf = currentEmail?.spf;
 
-  const prevSpfPresent = boolState(previousEmail?.spf?.present);
-  const currSpfPresent = boolState(currentEmail?.spf?.present);
-  const prevSpfRecord = normalizeValue(previousEmail?.spf?.record);
-  const currSpfRecord = normalizeValue(currentEmail?.spf?.record);
+  if (!spfEvidenceComplete(previousSpf) || !spfEvidenceComplete(currentSpf)) {
+    return events;
+  }
+
+  const prevSpfPresent = boolState(previousSpf?.present);
+  const currSpfPresent = boolState(currentSpf?.present);
+  const prevSpfRecord = normalizeValue(previousSpf?.record);
+  const currSpfRecord = normalizeValue(currentSpf?.record);
   if (prevSpfPresent !== null && currSpfPresent !== null && prevSpfPresent !== currSpfPresent) {
     pushEvent(events, {
       event_type: "email_spf_changed",
@@ -84,7 +94,7 @@ export function buildPostureDiffEvents(domain, prevModules, currentModules) {
   // performed) unless BOTH snapshots resolved to status "complete" — so a
   // temperror, partial resolution, permerror, or a legacy report without the
   // resolved fields can NEVER produce a false authorisation-change event.
-  const spfDelta = diffResolvedAuthorizations(previousEmail?.spf, currentEmail?.spf);
+  const spfDelta = diffResolvedAuthorizations(previousSpf, currentSpf);
   if (spfDelta && spfDelta.changed) {
     // Persist the CANONICAL added/removed CIDRs in the description (bounded so a
     // pathological record can never write an unbounded row) — asset_events has no
@@ -102,6 +112,21 @@ export function buildPostureDiffEvents(domain, prevModules, currentModules) {
       evidence: { added: spfDelta.added, removed: spfDelta.removed },
     });
   }
+
+  return events;
+}
+
+export function buildPostureDiffEvents(domain, prevModules, currentModules, opts = {}) {
+  const events = [];
+  if (opts.includeSpf !== false) {
+    events.push(...buildSpfDiffEvents(domain, prevModules, currentModules));
+  }
+  if (opts.includeNonSpf === false) {
+    return events;
+  }
+
+  const previousEmail = prevModules?.email_security || {};
+  const currentEmail = currentModules?.email_security || {};
 
   const prevPolicy = policyValue(previousEmail);
   const currPolicy = policyValue(currentEmail);
@@ -166,9 +191,14 @@ export async function recordPostureEvents(scanId, domainId, domain, modules, env
       domainId,
       currentReport: opts.currentReport,
     });
-    if (!comparison.comparable || !comparison.previousReport?.modules) return;
+    if (!comparison.previousReport?.modules) return;
 
-    const events = buildPostureDiffEvents(domain, comparison.previousReport.modules, modules);
+    const events = [
+      ...buildSpfDiffEvents(domain, comparison.previousReport.modules, modules),
+      ...(comparison.comparable
+        ? buildPostureDiffEvents(domain, comparison.previousReport.modules, modules, { includeSpf: false })
+        : []),
+    ];
     if (events.length === 0) return;
 
     const r = await env.cybermeters_db

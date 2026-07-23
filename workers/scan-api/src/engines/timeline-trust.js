@@ -21,6 +21,7 @@ export const CUSTOMER_CHANGE_EVENT_TYPES = new Set([
   "dns_cname_changed",
   "dns_redirect_changed",
   "email_spf_changed",
+  "email_spf_authorization_changed",
   "email_dmarc_policy_changed",
   "email_dkim_changed",
   "exposed_service_detected",

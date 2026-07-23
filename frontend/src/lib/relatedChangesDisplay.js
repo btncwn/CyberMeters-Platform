@@ -214,6 +214,7 @@ export const EVENT_TYPE_LABELS = {
   exposed_service_detected: 'Exposed service detected',
   // email-authentication configuration
   email_spf_changed: 'SPF record changed',
+  email_spf_authorization_changed: 'SPF authorised senders changed',
   email_dmarc_policy_changed: 'DMARC policy changed',
   email_dkim_changed: 'DKIM configuration changed',
   // certificate family

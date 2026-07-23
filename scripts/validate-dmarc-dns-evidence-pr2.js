@@ -32,6 +32,7 @@ const DNS_PATH = path.join(ROOT, "workers/scan-api/src/engines/dns.js");
 const ANALYSIS_PATH = path.join(ROOT, "workers/scan-api/src/engines/email-analysis.js");
 const STATE_PATH = path.join(ROOT, "workers/scan-api/src/engines/dmarc-state.js");
 const SPF_RESOLVER_PATH = path.join(ROOT, "workers/scan-api/src/engines/spf-resolver.js");
+const POSTURE_EVENTS_PATH = path.join(ROOT, "workers/scan-api/src/engines/posture-events.js");
 
 function settled(value) {
   return { status: "fulfilled", value };
@@ -119,10 +120,11 @@ function fixtureReason(mod, fixture) {
   return null;
 }
 
-function rewriteImports(source) {
+function rewriteImports(source, overrides = {}) {
   return source
-    .replace('import { dnsQuery } from "./dns.js";', `import { dnsQuery } from ${JSON.stringify(pathToFileURL(DNS_PATH).href)};`)
+    .replace('import { dnsQuery } from "./dns.js";', `import { dnsQuery } from ${JSON.stringify(overrides.dnsUrl || pathToFileURL(DNS_PATH).href)};`)
     .replace('import { deriveDmarcState } from "./dmarc-state.js";', `import { deriveDmarcState } from ${JSON.stringify(pathToFileURL(STATE_PATH).href)};`)
+    .replace('import { makeDohSpfLookup, resolveSpfAuthorization, SPF_RESOLUTION_STATUS } from "./spf-resolver.js";', `import { makeDohSpfLookup, resolveSpfAuthorization, SPF_RESOLUTION_STATUS } from ${JSON.stringify(pathToFileURL(SPF_RESOLVER_PATH).href)};`)
     .replace('import { makeDohSpfLookup, resolveSpfAuthorization } from "./spf-resolver.js";', `import { makeDohSpfLookup, resolveSpfAuthorization } from ${JSON.stringify(pathToFileURL(SPF_RESOLVER_PATH).href)};`)
     .replace('from "./email-analysis.js";', `from ${JSON.stringify(pathToFileURL(ANALYSIS_PATH).href)};`);
 }
@@ -133,6 +135,27 @@ async function importEmailScanFromSource(source, label) {
   fs.writeFileSync(file, rewriteImports(source));
   try {
     return await import(`${pathToFileURL(file).href}?t=${Date.now()}-${Math.random()}`);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+async function importEmailScanWithDnsStub(source, label, zone) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `spf-root-${label}-`));
+  const dnsFile = path.join(dir, "dns-stub.mjs");
+  const scanFile = path.join(dir, "email-scan.mjs");
+  fs.writeFileSync(dnsFile, `
+const zone = ${JSON.stringify(zone)};
+export async function dnsQuery(name, type) {
+  const entry = zone[\`\${String(name).toLowerCase()}|\${type}\`];
+  if (entry?.reject) throw new Error(entry.reject);
+  if (entry?.value) return entry.value;
+  return { Status: 3, Answer: [] };
+}
+`);
+  fs.writeFileSync(scanFile, rewriteImports(source, { dnsUrl: pathToFileURL(dnsFile).href }));
+  try {
+    return await import(`${pathToFileURL(scanFile).href}?t=${Date.now()}-${Math.random()}`);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -168,6 +191,7 @@ async function mutationFailureReason(source, mutation) {
 
 const source = fs.readFileSync(EMAIL_SCAN_PATH, "utf8");
 const baselineMod = await import(pathToFileURL(EMAIL_SCAN_PATH).href);
+const { buildPostureDiffEvents } = await import(pathToFileURL(POSTURE_EVENTS_PATH).href);
 
 ok("exports DMARC observation enum", baselineMod.DMARC_OBSERVATION_STATUS?.UNAVAILABLE === "unavailable");
 ok("exports DNS evidence builder", typeof baselineMod.buildDmarcEvidenceFromDnsResult === "function");
@@ -176,6 +200,60 @@ ok("runEmailModule attaches non-enumerable canonical dmarc_state evidence", /Obj
 ok("PR-2 does not JSON-serialize dmarc_state through normal details", !/dmarc_state: dmarcEvidence\.dmarc_state/.test(source));
 
 runFixtures(baselineMod);
+
+async function runEmailWithRootTxt(rootEntry, label, sourceOverride = source) {
+  const mod = await importEmailScanWithDnsStub(sourceOverride, label, {
+    "example.co.uk|TXT": rootEntry,
+  });
+  return mod.runEmailModule("example.co.uk");
+}
+
+function previousSpfModules() {
+  return {
+    email_security: {
+      spf: {
+        present: true,
+        record: "v=spf1 ip4:192.0.2.0/24 -all",
+        resolution_status: "complete",
+        resolved_pass_authorisations: ["ip4:c0000200/24"],
+      },
+    },
+  };
+}
+
+function spfEvents(currentEmail) {
+  return buildPostureDiffEvents("example.co.uk", previousSpfModules(), { email_security: currentEmail })
+    .filter((event) => event.event_type === "email_spf_changed" || event.event_type === "email_spf_authorization_changed");
+}
+
+// SPF root TXT evidence mirrors ADR-003: failed/unavailable lookup is not the same
+// evidence state as an observed no-record result. A transient root failure must never
+// be flattened to {present:false, complete empty set}, or it can create a false
+// "SPF removed" event against a previous complete SPF snapshot.
+{
+  const current = await runEmailWithRootTxt({ value: { Status: 2, Answer: [] } }, "spf-servfail");
+  eq("SPF SERVFAIL root lookup records temperror resolution", current.spf.resolution_status, "temperror");
+  eq("SPF SERVFAIL root lookup has null resolved set", current.spf.resolved_pass_authorisations, null);
+  const events = spfEvents(current);
+  eq("SPF SERVFAIL emits zero SPF events", events.length, 0);
+}
+
+{
+  const current = await runEmailWithRootTxt({ reject: "resolver rejected" }, "spf-rejected");
+  eq("SPF rejected root lookup records temperror resolution", current.spf.resolution_status, "temperror");
+  const events = spfEvents(current);
+  eq("SPF rejected root lookup emits zero SPF events", events.length, 0);
+}
+
+{
+  const current = await runEmailWithRootTxt({ value: { Status: 0, Answer: [] } }, "spf-no-record");
+  eq("SPF observed no-record resolves as complete empty set", current.spf.resolution_status, "complete");
+  ok("SPF observed no-record carries empty resolved set", Array.isArray(current.spf.resolved_pass_authorisations) && current.spf.resolved_pass_authorisations.length === 0);
+  const events = spfEvents(current);
+  const rootRemoval = events.find((event) => event.event_type === "email_spf_changed");
+  ok("SPF observed no-record emits root SPF removal event", !!rootRemoval);
+  eq("SPF observed no-record root removal severity is high", rootRemoval?.severity, "high");
+}
 
 const MUTATIONS = [
   {
@@ -221,6 +299,20 @@ const MUTATIONS = [
     expected: "servfail_with_answer_still_not_observed",
   },
 ];
+
+const spfFailureCollapseMutation = {
+  name: "spf_root_failure_collapsed_to_observed_absent",
+  from: "const spfAuthorization = spfObservationStatus === DMARC_OBSERVATION_STATUS.OBSERVED",
+  to: "const spfAuthorization = true",
+};
+
+{
+  const mutated = replaceOnce(source, spfFailureCollapseMutation.from, spfFailureCollapseMutation.to, spfFailureCollapseMutation.name);
+  const current = await runEmailWithRootTxt({ value: { Status: 2, Answer: [] } }, "mut-spf-servfail", mutated);
+  const events = spfEvents(current);
+  ok("mutation spf_root_failure_collapsed_to_observed_absent is caught by false-removal event",
+    events.some((event) => event.event_type === "email_spf_changed"));
+}
 
 let mutationFailures = 0;
 for (const mutation of MUTATIONS) {
