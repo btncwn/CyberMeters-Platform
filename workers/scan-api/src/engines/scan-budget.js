@@ -388,9 +388,17 @@ export function createModuleTelemetry(now = Date.now) {
 //   timeout_source    — module_race (race cap fired) | launch_gate (canRun
 //                       refused the launch) | per_fetch (the module's own fetch
 //                       timeout, derived from the existing timeout flag) | null.
+//   provider_health   — per-provider outcome/attempt/latency/final-error snapshot
+//                       from the per-scan CT cache; R2 diagnostics only.
 export const SCAN_EXECUTION_DIAGNOSTICS_VERSION = "scan-exec-diag-v1";
 
-export function buildExecutionDiagnostics({ executionContext = null, trigger = null, deadline = null, telemetry = null } = {}) {
+export function buildExecutionDiagnostics({
+  executionContext = null,
+  trigger = null,
+  deadline = null,
+  telemetry = null,
+  providerHealth = null,
+} = {}) {
   return {
     version:            SCAN_EXECUTION_DIAGNOSTICS_VERSION,
     execution_context:  executionContext ?? null,
@@ -399,6 +407,7 @@ export function buildExecutionDiagnostics({ executionContext = null, trigger = n
     total_ceiling_ms:   deadline?.totalCeilingMs ?? null,
     finalization_reserve_ms: deadline?.finalizationReserveMs ?? null,
     engine_wall_ms:     typeof deadline?.elapsedMs === "function" ? deadline.elapsedMs() : null,
+    provider_health:    providerHealth ?? {},
     modules: (telemetry?.rows ?? []).map((r) => ({
       module:         r.module,
       wall_ms:        r.duration_ms ?? null,

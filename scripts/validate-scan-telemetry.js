@@ -232,7 +232,20 @@ function d1Stub({ fail = false } = {}) {
   telem.record("subdomain_takeover", { outcome: "deadline_exceeded", timeout: true, duration_ms: 900, allocated_ms: 950, timeout_source: "module_race" });
   telem.record("cve_intelligence", { outcome: "ok", duration_ms: 400, outbound_calls: 2 });
 
-  const diag = buildExecutionDiagnostics({ executionContext: "queue", deadline: dl, telemetry: telem });
+  const providerHealth = {
+    crt_sh: {
+      outcome: "available",
+      attempts: 2,
+      latency_ms: 225,
+      final_error: null,
+    },
+  };
+  const diag = buildExecutionDiagnostics({
+    executionContext: "queue",
+    deadline: dl,
+    telemetry: telem,
+    providerHealth,
+  });
   eq("diagnostics version stamped", diag.version, SCAN_EXECUTION_DIAGNOSTICS_VERSION);
   eq("execution_context passthrough", diag.execution_context, "queue");
   eq("deadline budget surfaced", diag.deadline_budget_ms, 19_000);
@@ -249,6 +262,10 @@ function d1Stub({ fail = false } = {}) {
   eq("allocated_ms surfaced", diag.modules[2].allocated_ms, 950);
   eq("outbound_calls surfaced", diag.modules[3].outbound_calls, 2);
   eq("no timeout → timeout_source null", diag.modules[0].timeout_source, null);
+  eq("provider health outcome surfaced", diag.provider_health.crt_sh.outcome, "available");
+  eq("provider health attempts surfaced", diag.provider_health.crt_sh.attempts, 2);
+  eq("provider health latency surfaced", diag.provider_health.crt_sh.latency_ms, 225);
+  eq("provider health final error surfaced", diag.provider_health.crt_sh.final_error, null);
 
   // PR-B1A: advisory trigger origin — additive, passthrough, fail-safe null.
   const trigDiag = buildExecutionDiagnostics({ executionContext: "queue", trigger: "scheduled", deadline: dl, telemetry: telem });
@@ -259,6 +276,7 @@ function d1Stub({ fail = false } = {}) {
   eq("missing context fails safe to null", empty.execution_context, null);
   eq("missing trigger fails safe to null (PR-B1A)", empty.trigger, null);
   eq("missing deadline → null budget", empty.deadline_budget_ms, null);
+  eq("missing provider health → empty object", JSON.stringify(empty.provider_health), "{}");
   eq("missing telemetry → empty modules", empty.modules.length, 0);
 }
 
@@ -291,10 +309,10 @@ function d1Stub({ fail = false } = {}) {
   // PR-B1A: advisory origin is validated with the same fail-safe pattern.
   ok("engine whitelists trigger origins (fail-safe null)",
     /opts\.trigger === "manual" \|\| opts\.trigger === "scheduled"/.test(engineSrc));
-  ok("completed report embeds execution_diagnostics (with trigger, PR-B1A)",
-    /report\.execution_diagnostics = buildExecutionDiagnostics\(\{ executionContext, trigger, deadline, telemetry \}\)/.test(engineSrc));
-  ok("failed report embeds execution_diagnostics (with trigger, PR-B1A)",
-    /execution_diagnostics: buildExecutionDiagnostics\(\{ executionContext, trigger, deadline, telemetry \}\)/.test(engineSrc));
+  ok("completed report embeds execution_diagnostics with CT provider health",
+    /report\.execution_diagnostics = buildExecutionDiagnostics\(\{[\s\S]{0,220}providerHealth: ctCache\.healthSnapshot\(\),[\s\S]{0,30}\}\);/.test(engineSrc));
+  ok("failed report embeds execution_diagnostics with CT provider health",
+    /execution_diagnostics: buildExecutionDiagnostics\(\{[\s\S]{0,220}providerHealth: ctCache\.healthSnapshot\(\),[\s\S]{0,30}\}\),/.test(engineSrc));
   ok("finalisation wall time recorded as D1 pseudo-row",
     /telemetry\.record\("scan_finalisation", \{ outcome: "ok", duration_ms: now\(\) - finalizeStartedMs \}\)/.test(engineSrc));
   ok("queue call site passes executionContext queue (+ advisory trigger, PR-B1A)",
@@ -770,11 +788,11 @@ function d1Stub({ fail = false } = {}) {
     (s) => s.replace("outbound_measurement_complete ? snap.outbound_attempts_observed : null", "outbound_attempts_observed"));
   sourceGuard("B2 native counted fetches preserve caller and module signals", ctCacheSrc + "\n" + cloudSrc,
     (s) => (s.match(/function combineSignals\(/g) || []).length >= 2 &&
-      /combineSignals\(signal, accounting\?\.signal, AbortSignal\.timeout/.test(s) &&
+      /combineSignals\(signal, accounting\?\.signal, timeoutSignal\(timeoutMs\)\)/.test(s) &&
       /combineSignals\(init\?\.signal, accounting\?\.signal\)/.test(s),
     (s) => s.replace(
-      "combineSignals(signal, accounting?.signal, AbortSignal.timeout(config.timeoutMs))",
-      "signal || accounting?.signal || AbortSignal.timeout(config.timeoutMs)"
+      "combineSignals(signal, accounting?.signal, timeoutSignal(timeoutMs))",
+      "signal || accounting?.signal || timeoutSignal(timeoutMs)"
     ));
   sourceGuard("B2 reserved mode is explicitly documented as not B2-covered", engineSrc,
     (s) => /SCAN_CAPACITY_MODE=reserved experiment[\s\S]{0,260}not be treated as[\s\S]{0,120}B2 cancellation\/accounting guarantees/.test(s),

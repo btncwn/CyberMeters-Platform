@@ -237,7 +237,7 @@ try {
     eq("provider timeout is explicit unavailable", timedOut.status, "unavailable");
     eq("provider timeout never returns false-empty data", timedOut.data, null);
     eq("provider timeout retains a safe error", timedOut.error, "fetch failed");
-    eq("provider timeout is cached after one fetch", fetchCalls, 1);
+    eq("provider timeout is cached after one bounded retry", fetchCalls, 2);
   }
 
   {
@@ -263,7 +263,7 @@ try {
     crt: new Error("crt.sh down"),
   }));
 
-  eq("crt.sh-down scan still performs one crt.sh fetch", fallbackCalls.crt_sh, 1);
+  eq("crt.sh-down scan performs one shared lookup with one bounded retry", fallbackCalls.crt_sh, 2);
   eq("crt.sh-down scan performs one shared CertSpotter fallback", fallbackCalls.certspotter, 1);
   eq("SSL observes crt.sh as unavailable", fallback.ssl.ct_sources.crt_sh?.error, "fetch failed");
   eq("SSL observes CertSpotter fallback as available", fallback.ssl.ct_sources.certspotter?.error, null);
@@ -284,8 +284,8 @@ try {
     crt: new Error("crt.sh down"),
     certspotter: new Error("CertSpotter down"),
   }));
-  eq("blackout still performs one crt.sh fetch", blackoutCalls.crt_sh, 1);
-  eq("blackout still performs one CertSpotter fetch", blackoutCalls.certspotter, 1);
+  eq("blackout bounds shared crt.sh attempts", blackoutCalls.crt_sh, 2);
+  eq("blackout bounds shared CertSpotter attempts", blackoutCalls.certspotter, 2);
   eq("blackout leaves SSL certificate unknown", blackout.ssl.cert_not_after, null);
   eq("blackout exposes SSL crt.sh failure", blackout.ssl.ct_sources.crt_sh?.error, "fetch failed");
   eq("blackout exposes SSL CertSpotter failure", blackout.ssl.ct_sources.certspotter?.error, "fetch failed");
