@@ -657,6 +657,7 @@ export async function scanRoutes(rctx) {
           findings: reportFindings.map((f) => ({ ...f, remediation: findingRemediation(f) })),
           recommendations: Array.isArray(raw.recommendations) ? raw.recommendations : [],
           scan_quality: raw.scan_quality ?? buildScanQuality(normalisedModules),
+          monitoring_states: raw.monitoring_states ?? null,
           modules: normalisedModules,
           business_risk: null,
           ...(raw.started_at ? { started_at: raw.started_at } : {}),
@@ -693,6 +694,7 @@ export async function scanRoutes(rctx) {
           findings: reportFindings.map((f) => ({ ...f, remediation: findingRemediation(f) })),
           recommendations: Array.isArray(raw.recommendations) ? raw.recommendations : [],
           scan_quality: raw.scan_quality ?? buildScanQuality(normalisedModules),
+          monitoring_states: raw.monitoring_states ?? null,
           modules: {
             ...normalisedModules,
             historical_changes: {

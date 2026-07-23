@@ -292,15 +292,22 @@ ok("provider timeouts are independently tunable",
   eq("cache health snapshot is defensive", cache.healthSnapshot().certspotter.attempts, 1);
 }
 
-// Engine wiring remains observational: one cache, current deadline, two R2 report writes.
+// Engine wiring keeps one cache and one snapshot per terminal path. PR-5.4 reuses
+// the completed-path snapshot for customer state; the diagnostics bytes stay the
+// same and no provider request or health record is duplicated.
 {
   const engineSource = fs.readFileSync(enginePath("scan-engine.js"), "utf8");
   eq("engine creates one per-scan CT cache",
     (engineSource.match(/createCertificateTransparencyCache\(\{/g) || []).length, 1);
   ok("engine supplies live remaining scan budget",
     /remainingMs: \(\) => deadline\.remainingMs\(\)/.test(engineSource));
-  eq("completed and failed diagnostics both snapshot provider health",
-    (engineSource.match(/providerHealth: ctCache\.healthSnapshot\(\)/g) || []).length, 2);
+  eq("completed and failed terminal paths each snapshot provider health once",
+    (engineSource.match(/ctCache\.healthSnapshot\(\)/g) || []).length, 2);
+  ok("completed diagnostics reuse the canonical completed-path snapshot",
+    /const providerHealth = ctCache\.healthSnapshot\(\);/.test(engineSource) &&
+      /report\.execution_diagnostics = buildExecutionDiagnostics\(\{[\s\S]{0,220}providerHealth,[\s\S]{0,30}\}\);/.test(engineSource));
+  ok("failed diagnostics still snapshot provider health",
+    /execution_diagnostics: buildExecutionDiagnostics\(\{[\s\S]{0,220}providerHealth: ctCache\.healthSnapshot\(\),[\s\S]{0,30}\}\),/.test(engineSource));
 }
 
 // Each mutation represents the named defect and must violate the executable contract.

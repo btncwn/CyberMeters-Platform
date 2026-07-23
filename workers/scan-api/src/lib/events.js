@@ -89,7 +89,17 @@ function sanitizeAuditMetadata(metadata) {
   return sanitized;
 }
 
-async function createNotificationsForDomain(domainId, domain, scanId, score, risk_level, findings, env, scanQuality = null) {
+async function createNotificationsForDomain(
+  domainId,
+  domain,
+  scanId,
+  score,
+  risk_level,
+  findings,
+  env,
+  scanQuality = null,
+  monitoringStates = null,
+) {
   try {
     const wsResult = await env.cybermeters_db
       .prepare("SELECT workspace_id FROM workspace_domains WHERE domain_id = ?")
@@ -101,7 +111,13 @@ async function createNotificationsForDomain(domainId, domain, scanId, score, ris
     const criticalCount = findings.filter(f => f.severity === "critical").length;
     const highCount     = findings.filter(f => f.severity === "high").length;
     const meta          = { scan_id: scanId, domain, score, risk_level };
-    const completion    = buildScanCompletionPresentation({ domain, score, riskLevel: risk_level, scanQuality });
+    const completion    = buildScanCompletionPresentation({
+      domain,
+      score,
+      riskLevel: risk_level,
+      scanQuality,
+      monitoringStates,
+    });
 
     for (const wsId of workspaceIds) {
       // Scan completed notification

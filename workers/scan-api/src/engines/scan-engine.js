@@ -28,6 +28,7 @@ import { insertCertificateEvents, upsertCertificateObservation } from "./cert-ev
 import { runCertificateIntelligenceModule } from "./cert-intel.js";
 import { runCloudStorageModule } from "./cloud-storage-scan.js";
 import { createCertificateTransparencyCache } from "./ct-provider-cache.js";
+import { deriveSignalMonitoringStates } from "./signal-monitoring-state.js";
 import { runSaasExposureModule, runThirdPartyDiscoveryModule } from "./discovery-scan.js";
 import { buildDnsOperationalResilience } from "./dns-resilience.js";
 import { runDnsModule } from "./dns-scan.js";
@@ -1054,6 +1055,15 @@ function buildCanonicalUrlProfile(modules) {
     // Cloudflare Worker free-plan 50-subrequest limit.
     modules.scan_budget = computeScanBudget(bruteforceResult.checked);
     const scanQuality = buildScanQuality(modules);
+    // PR-5.4: backend-owned within-scan monitoring truth. Reuse the SAME
+    // per-provider snapshot that is written into execution diagnostics; no new
+    // provider call, probe, scan-quality rule or scoring input is introduced.
+    const providerHealth = ctCache.healthSnapshot();
+    const monitoringStates = deriveSignalMonitoringStates({
+      modules,
+      scanQuality,
+      providerHealth,
+    });
 
     // Trend eligibility (partial-scan honesty): only a COMPLETE assessment is a
     // comparable trend point. A partial/degraded/unknown current scan must never
@@ -1133,6 +1143,7 @@ function buildCanonicalUrlProfile(modules) {
       findings:            normalizedFindings,
       recommendations,
       scan_quality:         scanQuality,
+      monitoring_states:    monitoringStates,
       timeline_trust:       buildAssetTimelineTrustMetadata(),
       modules,
     };
@@ -1152,7 +1163,7 @@ function buildCanonicalUrlProfile(modules) {
       trigger,
       deadline,
       telemetry,
-      providerHealth: ctCache.healthSnapshot(),
+      providerHealth,
     });
 
     // Heartbeat: entering finalization. A cancellation after this is a finalize-time
@@ -1567,7 +1578,17 @@ function buildCanonicalUrlProfile(modules) {
     // Phase 10: Notification Events — create in-app notifications for scan
     // completion and any critical/high findings. Non-fatal.
     try {
-      await createNotificationsForDomain(domainId, domain, scanId, score, risk_level, findings, env, scanQuality?.status);
+      await createNotificationsForDomain(
+        domainId,
+        domain,
+        scanId,
+        score,
+        risk_level,
+        findings,
+        env,
+        scanQuality?.status,
+        monitoringStates,
+      );
       
       const wsRows = await env.cybermeters_db
         .prepare("SELECT workspace_id FROM workspace_domains WHERE domain_id = ?")
@@ -1591,7 +1612,11 @@ function buildCanonicalUrlProfile(modules) {
     // Phase 11: Audit — scan completed. Fire per-workspace. Non-fatal.
     try {
       const completion = buildScanCompletionPresentation({
-        domain, score, riskLevel: risk_level, scanQuality: scanQuality?.status,
+        domain,
+        score,
+        riskLevel: risk_level,
+        scanQuality: scanQuality?.status,
+        monitoringStates,
       });
       const wsRows = await env.cybermeters_db
         .prepare("SELECT workspace_id FROM workspace_domains WHERE domain_id = ?")
