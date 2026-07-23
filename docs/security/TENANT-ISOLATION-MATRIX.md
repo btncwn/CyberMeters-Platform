@@ -11,9 +11,9 @@ data cannot be silently omitted.
 
 ## Counts
 
-- **schema tables:** 87
-- **classified:** 87
-- **tenant owned tables:** 83
+- **schema tables:** 88
+- **classified:** 88
+- **tenant owned tables:** 84
 - **infra or identity tables:** 4
 - **unclassified:** 0
 - **resource classes:** 32
@@ -55,7 +55,7 @@ data cannot be silently omitted.
 | certificates | certificates | direct(workspace_id) | 3 | ✓ | — |
 | identity_exposure | identity | direct(workspace_id) | 3 | ✓ | — |
 | brand | brand | direct(workspace_id) | 4 | ✓ | ✓ |
-| email_protection | email | direct(workspace_id) | 10 | — | — |
+| email_protection | email | direct(workspace_id) | 11 | — | — |
 | cyber_essentials | cyber_essentials | direct(workspace_id) | 3 | — | — |
 | website_security | website | direct(workspace_id) | 2 | — | — |
 | shadow_it | shadow_it | direct(workspace_id) | 7 | ✓ | — |
@@ -97,6 +97,7 @@ _ⁿᵗ = non-tenant (global infrastructure / identity root)._
 
 | Table | Ownership model | Class |
 |---|---|---|
+| `aggregate_report_ingest_claims` | direct(workspace_id) | email_protection |
 | `alert_activation` | direct(workspace_id) | alerts |
 | `alert_deliveries` | direct(workspace_id) | alerts |
 | `api_rate_limits` | infra | infrastructure |

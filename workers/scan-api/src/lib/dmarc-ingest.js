@@ -8,17 +8,22 @@ import {
   DMARC_AUTHORITY_ELIGIBLE_SOURCES,
   isDmarcAuthorityEligibleSource,
 } from "./dmarc-authority.js";
+import {
+  AGGREGATE_REPORT_MAX_PERSISTED_ROWS,
+  acquireAggregateReportClaim,
+  aggregateReportIdentity,
+  aggregateReportSourceScope,
+  assertAggregateReportClaimCompleteStatement,
+  completeAggregateReportClaimStatement,
+  failAggregateReportClaim,
+  sha256Hex,
+} from "./aggregate-report-ingest.js";
 import { PROVIDER_MAP_VERSION, classifyWorkspaceDomainSenders } from "../engines/sender-classification.js";
 import { evaluateEmailSenderMonitoring } from "../engines/email-protection-lifecycle.js";
 
 const DMARC_XML_MAX_BYTES = 2 * 1024 * 1024; // 2 MB hard cap
 
 const DMARC_MAX_RECORDS   = 5000;            // defensive row cap
-
-async function sha256Hex(input) {
-  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(input)));
-  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
-}
 
 function _xmlDecodeEntities(s) {
   return String(s)
@@ -146,14 +151,8 @@ function guessEmailSenderProvider(record = {}) {
   return { provider: "unknown", confidence: "low", reason: "No known provider pattern matched" };
 }
 
-/**
- * updateEmailSenderSources(env, workspaceId, domain, parsedReport) — roll up the
- * parsed report's records into the per-source inventory. Only ever called for a
- * NEW (non-duplicate) report, so increments never double-count. Preserves any
- * existing classification and notes on a sender row.
- */
-async function updateEmailSenderSources(env, workspaceId, domain, parsed) {
-  if (!parsed || !Array.isArray(parsed.records)) return { sources_updated: 0 };
+function emailSenderSourceStatements(env, workspaceId, domain, parsed) {
+  if (!parsed || !Array.isArray(parsed.records)) return [];
   const beginIso = parsed.metadata?.date_range_begin
     ? new Date(parsed.metadata.date_range_begin * 1000).toISOString()
     : new Date().toISOString();
@@ -177,61 +176,71 @@ async function updateEmailSenderSources(env, workspaceId, domain, parsed) {
     if (r.disposition === "reject") agg.rejected += cnt;
   }
 
-  let updated = 0;
+  const statements = [];
   for (const agg of bySource.values()) {
     const guess = guessEmailSenderProvider(agg.sample);
-    const existing = await env.cybermeters_db
-      .prepare(`SELECT id, total_messages, aligned_messages, failed_messages,
-                       spf_aligned_messages, dkim_aligned_messages,
-                       quarantined_messages, rejected_messages, first_seen
-                FROM email_sender_sources
-                WHERE workspace_id = ? AND domain = ? AND source_ip = ? LIMIT 1`)
-      .bind(workspaceId, domain, agg.ip).first();
-    if (existing) {
-      const total    = (existing.total_messages || 0) + agg.total;
-      const alignedM = (existing.aligned_messages || 0) + agg.aligned;
-      const spfAlignedM = (existing.spf_aligned_messages || 0) + agg.spfAligned;
-      const dkimAlignedM = (existing.dkim_aligned_messages || 0) + agg.dkimAligned;
-      const failedM  = (existing.failed_messages || 0) + agg.failed;
-      const quarM    = (existing.quarantined_messages || 0) + agg.quarantined;
-      const rejM     = (existing.rejected_messages || 0) + agg.rejected;
-      const passRate = total > 0 ? Math.round((alignedM / total) * 1000) / 10 : 0;
-      const firstSeen = existing.first_seen && existing.first_seen < beginIso ? existing.first_seen : beginIso;
-      await env.cybermeters_db
-        .prepare(`UPDATE email_sender_sources
-                  SET last_seen = ?, total_messages = ?, aligned_messages = ?, failed_messages = ?,
-                      spf_aligned_messages = ?, dkim_aligned_messages = ?,
-                      quarantined_messages = ?, rejected_messages = ?, pass_rate = ?,
-                      provider_guess = ?, provider_confidence = ?, provider_reason = ?, provider_map_version = ?,
-                      header_from = COALESCE(header_from, ?), first_seen = ?, updated_at = datetime('now')
-                  WHERE id = ?`)
-        .bind(endIso, total, alignedM, failedM, spfAlignedM, dkimAlignedM, quarM, rejM, passRate,
-              guess.provider, guess.confidence, guess.reason, PROVIDER_MAP_VERSION,
-              agg.sample.header_from || null, firstSeen, existing.id)
-        .run();
-      // classification + notes deliberately omitted from UPDATE → preserved.
-    } else {
-      const passRate = agg.total > 0 ? Math.round((agg.aligned / agg.total) * 1000) / 10 : 0;
-      await env.cybermeters_db
-        .prepare(`INSERT INTO email_sender_sources
-                  (id, workspace_id, domain, source_ip, provider_guess, provider_confidence, provider_reason,
-                   header_from, first_seen, last_seen, total_messages, aligned_messages, failed_messages,
-                   quarantined_messages, rejected_messages, pass_rate,
-                   spf_aligned_messages, dkim_aligned_messages, classification, notes, provider_map_version, created_at, updated_at)
-                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unknown', NULL, ?, datetime('now'), datetime('now'))`)
-        .bind(createId("esender"), workspaceId, domain, agg.ip, guess.provider, guess.confidence, guess.reason,
-              agg.sample.header_from || null, beginIso, endIso, agg.total, agg.aligned, agg.failed,
-              agg.quarantined, agg.rejected, passRate, agg.spfAligned, agg.dkimAligned, PROVIDER_MAP_VERSION)
-        .run();
-    }
-    updated++;
+    const passRate = agg.total > 0 ? Math.round((agg.aligned / agg.total) * 1000) / 10 : 0;
+    statements.push(env.cybermeters_db
+      .prepare(`INSERT INTO email_sender_sources
+                (id, workspace_id, domain, source_ip, provider_guess, provider_confidence, provider_reason,
+                 header_from, first_seen, last_seen, total_messages, aligned_messages, failed_messages,
+                 quarantined_messages, rejected_messages, pass_rate,
+                 spf_aligned_messages, dkim_aligned_messages, classification, notes, provider_map_version,
+                 created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unknown', NULL, ?,
+                        datetime('now'), datetime('now'))
+                ON CONFLICT(workspace_id, domain, source_ip) DO UPDATE SET
+                  last_seen = excluded.last_seen,
+                  total_messages = email_sender_sources.total_messages + excluded.total_messages,
+                  aligned_messages = email_sender_sources.aligned_messages + excluded.aligned_messages,
+                  failed_messages = email_sender_sources.failed_messages + excluded.failed_messages,
+                  spf_aligned_messages = email_sender_sources.spf_aligned_messages + excluded.spf_aligned_messages,
+                  dkim_aligned_messages = email_sender_sources.dkim_aligned_messages + excluded.dkim_aligned_messages,
+                  quarantined_messages = email_sender_sources.quarantined_messages + excluded.quarantined_messages,
+                  rejected_messages = email_sender_sources.rejected_messages + excluded.rejected_messages,
+                  pass_rate = CASE
+                    WHEN email_sender_sources.total_messages + excluded.total_messages > 0
+                    THEN ROUND(
+                      1000.0 * (email_sender_sources.aligned_messages + excluded.aligned_messages)
+                      / (email_sender_sources.total_messages + excluded.total_messages)
+                    ) / 10.0
+                    ELSE 0
+                  END,
+                  provider_guess = excluded.provider_guess,
+                  provider_confidence = excluded.provider_confidence,
+                  provider_reason = excluded.provider_reason,
+                  provider_map_version = excluded.provider_map_version,
+                  header_from = COALESCE(email_sender_sources.header_from, excluded.header_from),
+                  first_seen = CASE
+                    WHEN email_sender_sources.first_seen IS NULL
+                      OR excluded.first_seen < email_sender_sources.first_seen
+                    THEN excluded.first_seen
+                    ELSE email_sender_sources.first_seen
+                  END,
+                  updated_at = datetime('now')`)
+      .bind(createId("esender"), workspaceId, domain, agg.ip,
+        guess.provider, guess.confidence, guess.reason,
+        agg.sample.header_from || null, beginIso, endIso,
+        agg.total, agg.aligned, agg.failed, agg.quarantined, agg.rejected,
+        passRate, agg.spfAligned, agg.dkimAligned, PROVIDER_MAP_VERSION));
   }
-  return { sources_updated: updated };
+  return statements;
 }
 
-// Pure, testable: the report identity tuple used for dedupe. Deliberately
-// EXCLUDES source/workspace/domain — dedupe is source-agnostic, so the same
-// report imported via paste and via signed upload is counted exactly once.
+/**
+ * Compatibility export used by existing callers/tests. New report ingestion
+ * includes these statements in the same transaction as report persistence.
+ */
+async function updateEmailSenderSources(env, workspaceId, domain, parsed) {
+  const statements = emailSenderSourceStatements(env, workspaceId, domain, parsed);
+  if (statements.length) await env.cybermeters_db.batch(statements);
+  return { sources_updated: statements.length };
+}
+
+// Pure, testable: the report identity tuple used for dedupe. The claim table
+// adds workspace/domain and the authority-vs-observational source scope, so
+// manual + signed submissions dedupe together while inbound cannot suppress
+// a later authoritative copy.
 async function dmarcReportIdentity(xmlString, parsed) {
   const m = parsed?.metadata || {};
   const rawHash = await sha256Hex(xmlString);
@@ -315,49 +324,292 @@ async function ingestDmarcReport(env, opts = {}) {
       message: "This report is for a different domain than the one this upload key is bound to." };
   }
 
-  const identity = await dmarcReportIdentity(xmlString, parsed);
   const m = parsed.metadata;
+  if (parsed.records.length > AGGREGATE_REPORT_MAX_PERSISTED_ROWS) {
+    await createAuditEvent(env, {
+      workspace_id: workspaceId,
+      user_id: actorUserId,
+      event_type: "dmarc_report_rejected",
+      entity_type: "domain",
+      entity_id: domainId,
+      description: `Rejected DMARC report for ${domain}: row limit exceeded`,
+      metadata: {
+        domain,
+        source,
+        reason: "report_row_limit_exceeded",
+        rows_present: parsed.records.length,
+        rows_allowed: AGGREGATE_REPORT_MAX_PERSISTED_ROWS,
+        ingest_endpoint_id: ingestEndpointId,
+      },
+      required: true,
+    });
+    return {
+      ok: false,
+      status: 422,
+      error: "report_row_limit_exceeded",
+      message: `The report contains more than ${AGGREGATE_REPORT_MAX_PERSISTED_ROWS} record rows.`,
+      terminal: true,
+      audited: true,
+    };
+  }
 
-  // Dedupe (null-safe with IS) — source-agnostic; the same report is never
-  // double-counted regardless of which ingestion path delivered it.
-  const dup = await env.cybermeters_db
-    .prepare(`SELECT id FROM dmarc_aggregate_reports
-              WHERE workspace_id = ? AND domain = ? AND org_name IS ?
-                AND external_report_id = ? AND date_range_begin IS ? AND date_range_end IS ? LIMIT 1`)
-    .bind(workspaceId, domain, identity.org_name, identity.external_report_id,
-          identity.date_range_begin, identity.date_range_end)
-    .first();
-  if (dup) {
+  const identity = await dmarcReportIdentity(xmlString, parsed);
+  const authorityEligible = isDmarcAuthorityEligibleSource(source);
+  const sourceScope = aggregateReportSourceScope(authorityEligible);
+  const claim = await acquireAggregateReportClaim(env, {
+    reportType: "dmarc",
+    workspaceId,
+    domain,
+    source,
+    sourceScope,
+    identity: aggregateReportIdentity({
+      orgName: identity.org_name,
+      externalReportId: identity.external_report_id,
+      dateBegin: identity.date_range_begin,
+      dateEnd: identity.date_range_end,
+    }),
+    contentHash: identity.raw_hash,
+  });
+
+  if (claim.collision) {
+    await createAuditEvent(env, {
+      workspace_id: workspaceId,
+      user_id: actorUserId,
+      event_type: "dmarc_report_identity_collision",
+      entity_type: "domain",
+      entity_id: domainId,
+      description: `Rejected colliding DMARC report identity for ${domain}`,
+      metadata: {
+        domain,
+        source,
+        source_scope: sourceScope,
+        report_id: identity.external_report_id,
+        reason: "content_hash_mismatch",
+        ingest_endpoint_id: ingestEndpointId,
+      },
+      required: true,
+    });
+    return {
+      ok: false,
+      status: 409,
+      error: "report_identity_collision",
+      message: "A different report body already uses this report identity.",
+      terminal: true,
+      audited: true,
+    };
+  }
+
+  if (claim.inProgress) {
+    await createAuditEvent(env, {
+      workspace_id: workspaceId,
+      user_id: actorUserId,
+      event_type: "dmarc_report_ingest_deferred",
+      entity_type: "domain",
+      entity_id: domainId,
+      description: `Deferred concurrent DMARC report ingestion for ${domain}`,
+      metadata: {
+        domain,
+        source,
+        source_scope: sourceScope,
+        report_id: identity.external_report_id,
+        reason: "ingest_in_progress",
+        claim_id: claim.claimId,
+      },
+      required: true,
+    });
+    return {
+      ok: false,
+      status: 503,
+      error: "ingest_in_progress",
+      message: "This report is already being processed. Retry shortly.",
+      transient: true,
+      audited: true,
+    };
+  }
+
+  if (claim.duplicate) {
     await createAuditEvent(env, {
       workspace_id: workspaceId, user_id: actorUserId, event_type: "dmarc_report_duplicate",
       entity_type: "domain", entity_id: domainId,
       description: `Duplicate DMARC report ignored for ${domain}`,
       metadata: { domain, source, org_name: m.org_name, report_id: identity.external_report_id,
-                  duplicate: true, ingest_endpoint_id: ingestEndpointId,
+                  duplicate: true, source_scope: sourceScope, ingest_endpoint_id: ingestEndpointId,
                   auth_verdict: prov.auth_verdict ?? null, reporter_domain: prov.reporter_domain ?? null },
     });
-    return { ok: true, imported: false, duplicate: true };
+    return { ok: true, imported: false, duplicate: true, reportId: claim.reportId };
   }
 
-  const reportId = createId("dmarcrep");
   const pol = parsed.policy_published || {};
   const messageCount = parsed.records.reduce((a, r) => a + (r.count || 0), 0);
-  await env.cybermeters_db
-    .prepare(`INSERT INTO dmarc_aggregate_reports
-              (id, workspace_id, domain, org_name, report_email, external_report_id, date_range_begin, date_range_end,
-               policy_domain, policy_adkim, policy_aspf, policy_p, policy_sp, policy_pct,
-               record_count, message_count, raw_hash, source,
-               envelope_from, reporter_domain, auth_verdict, auth_evidence, created_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`)
-    .bind(reportId, workspaceId, domain, m.org_name || null, m.email || null, identity.external_report_id,
-          m.date_range_begin || null, m.date_range_end || null, pol.domain || null, pol.adkim || null,
-          pol.aspf || null, pol.p || null, pol.sp || null, pol.pct ?? null,
-          parsed.records.length, messageCount, identity.raw_hash, source,
-          prov.envelope_from ?? null, prov.reporter_domain ?? null, prov.auth_verdict ?? null, prov.auth_evidence ?? null)
-    .run();
+  const existingAcrossScope = await env.cybermeters_db
+    .prepare(`SELECT id, raw_hash, source
+              FROM dmarc_aggregate_reports
+              WHERE workspace_id = ? AND domain = ? AND org_name IS ?
+                AND external_report_id = ? AND date_range_begin IS ? AND date_range_end IS ?
+              LIMIT 1`)
+    .bind(workspaceId, domain, identity.org_name, identity.external_report_id,
+      identity.date_range_begin, identity.date_range_end)
+    .first();
+
+  const repairingOwnLegacyParent = claim.repaired &&
+    existingAcrossScope?.id === claim.reportId;
+  if (existingAcrossScope && !repairingOwnLegacyParent) {
+    if (existingAcrossScope.raw_hash &&
+        existingAcrossScope.raw_hash !== identity.raw_hash) {
+      const failed = await failAggregateReportClaim(
+        env,
+        claim,
+        "cross_scope_content_hash_mismatch",
+      );
+      if (!failed) throw new Error("aggregate_ingest_claim_fail_transition_lost");
+      await createAuditEvent(env, {
+        workspace_id: workspaceId,
+        user_id: actorUserId,
+        event_type: "dmarc_report_identity_collision",
+        entity_type: "domain",
+        entity_id: domainId,
+        description: `Rejected cross-scope DMARC identity collision for ${domain}`,
+        metadata: {
+          domain,
+          source,
+          source_scope: sourceScope,
+          report_id: identity.external_report_id,
+          reason: "content_hash_mismatch",
+          claim_id: claim.claimId,
+        },
+        required: true,
+      });
+      return {
+        ok: false,
+        status: 409,
+        error: "report_identity_collision",
+        message: "A different report body already uses this report identity.",
+        terminal: true,
+        audited: true,
+      };
+    }
+
+    const promoted = authorityEligible &&
+      !isDmarcAuthorityEligibleSource(existingAcrossScope.source);
+    const crossScopeStatements = [
+      env.cybermeters_db
+        .prepare(`UPDATE aggregate_report_ingest_claims
+                  SET report_id = ?, updated_at = datetime('now')
+                  WHERE id = ? AND attempt_token = ? AND ingest_state = 'pending'`)
+        .bind(existingAcrossScope.id, claim.claimId, claim.attemptToken),
+    ];
+    if (promoted) {
+      crossScopeStatements.push(env.cybermeters_db
+        .prepare(`UPDATE dmarc_aggregate_reports
+                  SET source = ?
+                  WHERE id = ?`)
+        .bind(source, existingAcrossScope.id));
+    }
+    crossScopeStatements.push(completeAggregateReportClaimStatement(env, claim));
+    crossScopeStatements.push(
+      assertAggregateReportClaimCompleteStatement(env, claim),
+    );
+    await env.cybermeters_db.batch(crossScopeStatements);
+
+    await createAuditEvent(env, {
+      workspace_id: workspaceId,
+      user_id: actorUserId,
+      event_type: promoted ? "dmarc_report_scope_promoted" : "dmarc_report_duplicate",
+      entity_type: "domain",
+      entity_id: domainId,
+      description: promoted
+        ? `Accepted authoritative copy of an observational DMARC report for ${domain}`
+        : `Duplicate DMARC report ignored for ${domain}`,
+      metadata: {
+        domain,
+        source,
+        source_scope: sourceScope,
+        report_id: identity.external_report_id,
+        duplicate: !promoted,
+        promoted,
+        content_hash_match: true,
+        claim_id: claim.claimId,
+        ingest_endpoint_id: ingestEndpointId,
+      },
+    });
+
+    if (!promoted) {
+      return {
+        ok: true,
+        imported: false,
+        duplicate: true,
+        reportId: existingAcrossScope.id,
+      };
+    }
+
+    try {
+      await classifyWorkspaceDomainSenders(env, workspaceId, domain, {
+        reportSources: DMARC_AUTHORITY_ELIGIBLE_SOURCES,
+      });
+    } catch { /* auto-classification is best-effort */ }
+    try {
+      await evaluateEmailSenderMonitoring(env, workspaceId, domain);
+    } catch { /* alerting must never break evidence ingestion */ }
+    return {
+      ok: true,
+      imported: true,
+      duplicate: false,
+      promoted: true,
+      reportId: existingAcrossScope.id,
+      records: parsed.records.length,
+      messages: messageCount,
+      sourcesUpdated: 0,
+    };
+  }
+
+  const reportId = claim.reportId;
+  const transaction = [
+    // A failed legacy/pre-Gate-3B row may already have children. Repair replaces
+    // them inside this transaction; a new failed batch leaves no children at all.
+    env.cybermeters_db
+      .prepare("DELETE FROM dmarc_aggregate_records WHERE report_id = ?")
+      .bind(reportId),
+    env.cybermeters_db
+      .prepare(`INSERT INTO dmarc_aggregate_reports
+                (id, workspace_id, domain, org_name, report_email, external_report_id,
+                 date_range_begin, date_range_end, policy_domain, policy_adkim, policy_aspf,
+                 policy_p, policy_sp, policy_pct, record_count, message_count, raw_hash, source,
+                 envelope_from, reporter_domain, auth_verdict, auth_evidence, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                        datetime('now'))
+                ON CONFLICT(id) DO UPDATE SET
+                  workspace_id = excluded.workspace_id,
+                  domain = excluded.domain,
+                  org_name = excluded.org_name,
+                  report_email = excluded.report_email,
+                  external_report_id = excluded.external_report_id,
+                  date_range_begin = excluded.date_range_begin,
+                  date_range_end = excluded.date_range_end,
+                  policy_domain = excluded.policy_domain,
+                  policy_adkim = excluded.policy_adkim,
+                  policy_aspf = excluded.policy_aspf,
+                  policy_p = excluded.policy_p,
+                  policy_sp = excluded.policy_sp,
+                  policy_pct = excluded.policy_pct,
+                  record_count = excluded.record_count,
+                  message_count = excluded.message_count,
+                  raw_hash = excluded.raw_hash,
+                  source = excluded.source,
+                  envelope_from = excluded.envelope_from,
+                  reporter_domain = excluded.reporter_domain,
+                  auth_verdict = excluded.auth_verdict,
+                  auth_evidence = excluded.auth_evidence`)
+      .bind(reportId, workspaceId, domain, m.org_name || null, m.email || null,
+        identity.external_report_id, m.date_range_begin || null, m.date_range_end || null,
+        pol.domain || null, pol.adkim || null, pol.aspf || null, pol.p || null,
+        pol.sp || null, pol.pct ?? null, parsed.records.length, messageCount,
+        identity.raw_hash, source, prov.envelope_from ?? null,
+        prov.reporter_domain ?? null, prov.auth_verdict ?? null,
+        prov.auth_evidence ?? null),
+  ];
 
   for (const r of parsed.records) {
-    await env.cybermeters_db
+    transaction.push(env.cybermeters_db
       .prepare(`INSERT INTO dmarc_aggregate_records
                 (id, report_id, workspace_id, domain, source_ip, message_count, disposition,
                  dkim_aligned_result, spf_aligned_result, header_from, envelope_from,
@@ -367,11 +619,58 @@ async function ingestDmarcReport(env, opts = {}) {
             r.disposition || null, r.dkim_aligned_result || null, r.spf_aligned_result || null,
             r.header_from || null, r.envelope_from || null, r.dkim_domain || null, r.dkim_selector || null,
             r.dkim_result || null, r.spf_domain || null, r.spf_result || null)
-      .run();
+    );
   }
 
-  const rollup = await updateEmailSenderSources(env, workspaceId, domain, parsed);
-  const authorityEligible = isDmarcAuthorityEligibleSource(source);
+  const sourceStatements = emailSenderSourceStatements(env, workspaceId, domain, parsed);
+  transaction.push(...sourceStatements);
+  transaction.push(completeAggregateReportClaimStatement(env, claim));
+  transaction.push(assertAggregateReportClaimCompleteStatement(env, claim));
+
+  try {
+    await env.cybermeters_db.batch(transaction);
+  } catch {
+    let quarantined = false;
+    try {
+      quarantined = await failAggregateReportClaim(
+        env,
+        claim,
+        "transient_storage_failure",
+      );
+      if (!quarantined) throw new Error("aggregate_ingest_claim_fail_transition_lost");
+      await createAuditEvent(env, {
+        workspace_id: workspaceId,
+        user_id: actorUserId,
+        event_type: "dmarc_report_ingest_failed",
+        entity_type: "domain",
+        entity_id: domainId,
+        description: `DMARC report ingestion failed safely for ${domain}`,
+        metadata: {
+          domain,
+          source,
+          source_scope: sourceScope,
+          report_id: identity.external_report_id,
+          reason: "transient_storage_failure",
+          claim_id: claim.claimId,
+          repairable: true,
+          ingest_endpoint_id: ingestEndpointId,
+        },
+        required: true,
+      });
+    } catch (quarantineError) {
+      throw quarantineError;
+    }
+    return {
+      ok: false,
+      status: 503,
+      error: "ingest_transient_failure",
+      message: "The report was not partially stored and can be retried.",
+      transient: true,
+      quarantined,
+      audited: true,
+    };
+  }
+
   // PR-5.5 Gate 1: inbound email remains stored and rolled up for observational
   // display, but it cannot refresh an authoritative classifier or enter the
   // case/alert/recovery consumer. Unknown/unmarked sources fail closed too.
@@ -402,13 +701,15 @@ async function ingestDmarcReport(env, opts = {}) {
     description: `Ingested DMARC report for ${domain} from ${m.org_name || "unknown reporter"} via ${source}`,
     metadata: { domain, source, org_name: m.org_name, report_id: identity.external_report_id,
                 records: parsed.records.length, messages: messageCount, duplicate: false,
-                filename, ingest_endpoint_id: ingestEndpointId,
+                filename, source_scope: sourceScope, claim_id: claim.claimId,
+                repaired: claim.repaired, ingest_endpoint_id: ingestEndpointId,
                 auth_verdict: prov.auth_verdict ?? null, reporter_domain: prov.reporter_domain ?? null,
                 envelope_from: prov.envelope_from ?? null },
   });
 
   return { ok: true, imported: true, duplicate: false, reportId,
-    records: parsed.records.length, messages: messageCount, sourcesUpdated: rollup.sources_updated };
+    records: parsed.records.length, messages: messageCount,
+    sourcesUpdated: sourceStatements.length, repaired: claim.repaired };
 }
 
 const RUA_INBOUND_DOMAIN_DEFAULT = "reports.cybermeters.com";

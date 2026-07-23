@@ -1078,6 +1078,7 @@ const WORKSPACE_PURGE_TABLES = [
   // (hosted_dns_entries is hard-deleted on removal, and one column carries ids
   // from both), so it is purged on its own workspace_id ahead of them.
   "email_protection_events",
+  "aggregate_report_ingest_claims",
   "dmarc_aggregate_records", "dmarc_aggregate_reports", "email_sender_sources",
   "brand_abuse_campaigns",
   "dmarc_ingest_endpoints", "workspace_brand_assets", "workspace_brand_profiles",

@@ -494,6 +494,7 @@
       "class": "email_protection",
       "domain": "email",
       "tables": [
+        "aggregate_report_ingest_claims",
         "email_protection_events",
         "email_sender_sources",
         "dmarc_aggregate_records",
@@ -506,6 +507,10 @@
         "tlsrpt_failure_details"
       ],
       "ownership": {
+        "aggregate_report_ingest_claims": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
         "email_protection_events": {
           "model": "direct",
           "column": "workspace_id"
@@ -937,6 +942,7 @@
     }
   ],
   "table_index": {
+    "aggregate_report_ingest_claims": "email_protection",
     "alert_activation": "alerts",
     "alert_deliveries": "alerts",
     "api_rate_limits": "infrastructure",
@@ -1026,9 +1032,9 @@
     "workspaces": "workspaces"
   },
   "counts": {
-    "schema_tables": 87,
-    "classified": 87,
-    "tenant_owned_tables": 83,
+    "schema_tables": 88,
+    "classified": 88,
+    "tenant_owned_tables": 84,
     "infra_or_identity_tables": 4,
     "unclassified": 0,
     "resource_classes": 32,

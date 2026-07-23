@@ -1386,13 +1386,24 @@ results.push(securityContract("dmarc_inbound_provenance_never_throws", () => {
 }));
 results.push(await asyncSecurityContract("dmarc_sender_rollup_totals", async () => {
   const inserts = [];
-  const mockEnv = { cybermeters_db: { prepare(sql) { return {
-    _sql: sql, _b: null,
-    bind(...a) { this._b = a; return this; },
-    async first() { return null; },
-    async all() { return { results: [] }; },
-    async run() { if (this._sql.includes("INSERT INTO email_sender_sources")) inserts.push(this._b); return {}; },
-  }; } } };
+  const mockDb = {
+    prepare(sql) { return {
+      _sql: sql, _b: null,
+      bind(...a) { this._b = a; return this; },
+      async first() { return null; },
+      async all() { return { results: [] }; },
+      async run() {
+        if (this._sql.includes("INSERT INTO email_sender_sources")) inserts.push(this._b);
+        return { meta: { changes: 1 } };
+      },
+    }; },
+    async batch(statements) {
+      const out = [];
+      for (const statement of statements) out.push(await statement.run());
+      return out;
+    },
+  };
+  const mockEnv = { cybermeters_db: mockDb };
   const out = await scanner.updateEmailSenderSources(mockEnv, "ws1", "example.com", dmarcMixedParsed);
   // INSERT binds: [id,ws,domain,ip,prov,conf,reason,header_from,first,last,total,aligned,failed,quar,rej,pass_rate]
   const good = inserts.find((b) => b[3] === "209.85.220.41");
@@ -1772,6 +1783,7 @@ function _ruaHandlerHarness({ duplicate = false, status = "active", revoked_at =
   };
   const state = {
     reportSeen: duplicate, reportInserts: 0, recordInserts: 0,
+    claimState: duplicate ? "complete" : null, claimReportId: "existing-report",
     senderInserts: 0, senderMessages: 0, lastInboundUpdates: 0,
     endpointLookups: 0, audits: [], runs: [],
   };
@@ -1787,8 +1799,19 @@ function _ruaHandlerHarness({ duplicate = false, status = "active", revoked_at =
               state.endpointLookups++;
               return this._bindings[0] === endpoint.address_local ? endpoint : null;
             }
-            if (/SELECT id FROM dmarc_aggregate_reports/.test(this._sql)) {
-              return state.reportSeen ? { id: "existing-report" } : null;
+            if (/FROM aggregate_report_ingest_claims/.test(this._sql)) {
+              return state.claimState
+                ? {
+                    id: "claim-1", report_id: state.claimReportId,
+                    content_hash: "", ingest_state: state.claimState,
+                    source_scope: "observational",
+                  }
+                : null;
+            }
+            if (/SELECT id, raw_hash, source\s+FROM dmarc_aggregate_reports/.test(this._sql)) {
+              return state.reportSeen
+                ? { id: "existing-report", raw_hash: "", source: "inbound_email" }
+                : null;
             }
             if (/FROM email_sender_sources/.test(this._sql)) return null;
             return null;
@@ -1796,6 +1819,15 @@ function _ruaHandlerHarness({ duplicate = false, status = "active", revoked_at =
           async all() { return { results: [] }; },
           async run() {
             state.runs.push({ sql: this._sql, bindings: this._bindings });
+            if (/INSERT OR IGNORE INTO aggregate_report_ingest_claims/.test(this._sql)) {
+              if (state.claimState) return { meta: { changes: 0 } };
+              state.claimState = "pending";
+              state.claimReportId = this._bindings[10];
+              return { meta: { changes: 1 } };
+            }
+            if (/UPDATE aggregate_report_ingest_claims[\s\S]+ingest_state = 'complete'/.test(this._sql)) {
+              state.claimState = "complete";
+            }
             if (/INSERT INTO dmarc_aggregate_reports/.test(this._sql)) {
               state.reportSeen = true;
               state.reportInserts++;
@@ -1813,9 +1845,14 @@ function _ruaHandlerHarness({ duplicate = false, status = "active", revoked_at =
                 metadata: this._bindings[8] ? JSON.parse(this._bindings[8]) : null,
               });
             }
-            return {};
+            return { meta: { changes: 1 } };
           },
         };
+      },
+      async batch(statements) {
+        const out = [];
+        for (const statement of statements) out.push(await statement.run());
+        return out;
       },
     },
   };
@@ -2098,13 +2135,37 @@ results.push(await asyncSecurityContract("rua_catchall_audit_metadata_safe", asy
 // duplicate:true, and must emit dmarc_report_duplicate with source=inbound_email.
 results.push(await asyncSecurityContract("rua_duplicate_inbound_no_double_count", async () => {
   const runs = [];
-  const mockEnv = { cybermeters_db: { prepare(sql) { return {
-    _sql: sql, _b: null,
-    bind(...a) { this._b = a; return this; },
-    async first() { return this._sql.includes("SELECT id FROM dmarc_aggregate_reports") ? { id: "existing" } : null; },
-    async all() { return { results: [] }; },
-    async run() { runs.push({ sql: this._sql, b: this._b }); return {}; },
-  }; } } };
+  const mockEnv = { cybermeters_db: {
+    prepare(sql) { return {
+      _sql: sql, _b: null,
+      bind(...a) { this._b = a; return this; },
+      async first() {
+        return this._sql.includes("FROM aggregate_report_ingest_claims")
+          ? {
+              id: "claim-existing", report_id: "existing",
+              content_hash: "", ingest_state: "complete",
+              source_scope: "observational",
+            }
+          : null;
+      },
+      async all() { return { results: [] }; },
+      async run() {
+        runs.push({ sql: this._sql, b: this._b });
+        return {
+          meta: {
+            changes: this._sql.includes("INSERT OR IGNORE INTO aggregate_report_ingest_claims")
+              ? 0
+              : 1,
+          },
+        };
+      },
+    }; },
+    async batch(statements) {
+      const out = [];
+      for (const statement of statements) out.push(await statement.run());
+      return out;
+    },
+  } };
   const res = await scanner.ingestDmarcReport(mockEnv, {
     workspaceId: "ws1", domain: "example.com", source: "inbound_email", xmlString: dmarcMixedXml,
     ingestEndpointId: "e1", enforceDomainMatch: true,
@@ -2120,7 +2181,7 @@ results.push(securityContract("rua_drop_reason_normalization_stable", () => {
   const STABLE = new Set(["endpoint_not_found", "endpoint_inactive", "no_dmarc_attachment",
     "multiple_dmarc_attachments", "attachment_too_large", "decompressed_too_large",
     "compression_ratio_exceeded", "domain_mismatch", "parse_error", "unsupported_attachment",
-    "unsupported_recipient_domain"]);
+    "unsupported_recipient_domain", "invalid_base64", "report_row_limit_exceeded"]);
   const cases = {
     invalid_recipient: "endpoint_not_found", unknown_address: "endpoint_not_found",
     unsupported_recipient_domain: "unsupported_recipient_domain",
@@ -2129,6 +2190,7 @@ results.push(securityContract("rua_drop_reason_normalization_stable", () => {
     zip_inflate_failed: "parse_error", zip_multi_entry: "parse_error", empty_xml: "parse_error",
     empty_attachment: "unsupported_attachment", domain_mismatch: "domain_mismatch",
     decompressed_too_large: "decompressed_too_large", compression_ratio_exceeded: "compression_ratio_exceeded",
+    invalid_base64: "invalid_base64", report_row_limit_exceeded: "report_row_limit_exceeded",
     something_unexpected: "parse_error",
   };
   return Object.entries(cases).every(([k, v]) => scanner.normalizeInboundDropReason(k) === v && STABLE.has(v));

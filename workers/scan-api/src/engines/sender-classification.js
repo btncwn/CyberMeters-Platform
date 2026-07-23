@@ -2,11 +2,13 @@
 // Evidence-based, deterministic sender classification for DMARC aggregate
 // senders. Manual customer decisions stay in email_sender_sources.classification;
 // this engine only writes auto_* evidence fields and provider_map_version.
+import { aggregateReportCompleteSql } from "../lib/aggregate-report-ingest.js";
 
 export const PROVIDER_MAP_VERSION = "2026-07-13.1";
 
 // ── The canonical sender vocabulary — ONE authority ─────────────────────────
-// This module is a leaf (it imports nothing), so every consumer can reach it:
+// This module imports only the cycle-safe complete-ingest read guard, so every
+// consumer can still reach it without pulling in routes or the Worker entry:
 // the lifecycle engine, dmarc-impact, rua-routing and the classify route.
 //
 // THE DEFECT THIS EXISTS TO PREVENT (reproduced live, 2026-07-16): the product
@@ -292,6 +294,7 @@ export async function classifyWorkspaceDomainSenders(env, workspaceId, domain, {
                  AND rep.workspace_id = r.workspace_id
                  AND rep.domain = r.domain
                 WHERE s.workspace_id = ? AND s.domain = ?
+                  AND ${aggregateReportCompleteSql("rep", "dmarc")}
                   AND rep.source IN (${placeholders})
                 GROUP BY s.id, s.workspace_id, s.domain, s.source_ip,
                          s.provider_guess, s.provider_confidence, s.header_from`)

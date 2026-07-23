@@ -643,6 +643,9 @@ jobs:
       - name: Validate email worker equivalence (golden vs api worker)
         run: node scripts/validate-email-worker.js
 
+      - name: Validate aggregate email ingestion reliability (Gate 3B)
+        run: node scripts/validate-email-ingest-reliability.js
+
       - name: Validate email worker deploy traceability (closure stamp + pinned tooling)
         run: node scripts/validate-email-worker-deploy-traceability.js
 

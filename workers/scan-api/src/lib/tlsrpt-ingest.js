@@ -4,7 +4,21 @@
 // JSON, so there is no XXE surface, but the input is still fully untrusted:
 // size + array caps, JSON.parse in try/catch, never throws.
 import { createId } from "./util.js";
-import { normalizeTransportSenderStatus } from "./dmarc-authority.js";
+import {
+  isDmarcAuthorityEligibleSource,
+  normalizeTransportSenderStatus,
+} from "./dmarc-authority.js";
+import { createAuditEvent } from "./events.js";
+import {
+  AGGREGATE_REPORT_MAX_PERSISTED_ROWS,
+  acquireAggregateReportClaim,
+  aggregateReportIdentity,
+  aggregateReportSourceScope,
+  assertAggregateReportClaimCompleteStatement,
+  completeAggregateReportClaimStatement,
+  failAggregateReportClaim,
+  sha256Hex,
+} from "./aggregate-report-ingest.js";
 
 const MAX_JSON_BYTES = 2 * 1024 * 1024; // 2 MB decoded — same order as the DMARC cap
 const MAX_POLICIES = 1000;
@@ -81,7 +95,7 @@ export function parseTlsRptReport(jsonString) {
 // { ok, status?, error?, duplicate?, sessions?, failures? }. Dedup by report-id.
 export async function ingestTlsRptReport(env, opts = {}) {
   const {
-    workspaceId, domain, jsonString,
+    workspaceId, domain, jsonString, source = "inbound_email",
     ingestEndpointId = null, domainId = null, enforceDomainMatch = false, provenance = null,
   } = opts;
   if (!workspaceId || !domain) return { ok: false, status: 400, error: "missing_binding" };
@@ -98,12 +112,109 @@ export async function ingestTlsRptReport(env, opts = {}) {
   }
 
   const sessions = rep.total_successful_sessions + rep.total_failure_sessions;
+  if (rep.failure_count > AGGREGATE_REPORT_MAX_PERSISTED_ROWS) {
+    await createAuditEvent(env, {
+      workspace_id: workspaceId,
+      user_id: null,
+      event_type: "tlsrpt_report_rejected",
+      entity_type: "domain",
+      entity_id: domainId,
+      description: `Rejected TLS-RPT report for ${domain}: row limit exceeded`,
+      metadata: {
+        domain,
+        source,
+        reason: "report_row_limit_exceeded",
+        rows_present: rep.failure_count,
+        rows_allowed: AGGREGATE_REPORT_MAX_PERSISTED_ROWS,
+        ingest_endpoint_id: ingestEndpointId,
+      },
+      required: true,
+    });
+    return {
+      ok: false,
+      status: 422,
+      error: "report_row_limit_exceeded",
+      terminal: true,
+      audited: true,
+    };
+  }
 
-  // Dedup by (workspace, domain, report-id) — a re-sent report changes nothing.
-  const dup = await env.cybermeters_db
-    .prepare(`SELECT id FROM tlsrpt_aggregate_reports WHERE workspace_id = ? AND domain = ? AND external_report_id = ? LIMIT 1`)
-    .bind(workspaceId, domain, rep.external_report_id).first();
-  if (dup) return { ok: true, duplicate: true, sessions, failures: rep.failure_count };
+  const rawHash = await sha256Hex(jsonString);
+  const authorityEligible = isDmarcAuthorityEligibleSource(source);
+  const sourceScope = aggregateReportSourceScope(authorityEligible);
+  const claim = await acquireAggregateReportClaim(env, {
+    reportType: "tlsrpt",
+    workspaceId,
+    domain,
+    source,
+    sourceScope,
+    identity: aggregateReportIdentity({
+      externalReportId: rep.external_report_id,
+    }),
+    contentHash: rawHash,
+  });
+
+  if (claim.collision) {
+    await createAuditEvent(env, {
+      workspace_id: workspaceId,
+      user_id: null,
+      event_type: "tlsrpt_report_identity_collision",
+      entity_type: "domain",
+      entity_id: domainId,
+      description: `Rejected colliding TLS-RPT report identity for ${domain}`,
+      metadata: {
+        domain,
+        source,
+        source_scope: sourceScope,
+        report_id: rep.external_report_id,
+        reason: "content_hash_mismatch",
+        ingest_endpoint_id: ingestEndpointId,
+      },
+      required: true,
+    });
+    return {
+      ok: false,
+      status: 409,
+      error: "report_identity_collision",
+      terminal: true,
+      audited: true,
+    };
+  }
+  if (claim.inProgress) {
+    await createAuditEvent(env, {
+      workspace_id: workspaceId,
+      user_id: null,
+      event_type: "tlsrpt_report_ingest_deferred",
+      entity_type: "domain",
+      entity_id: domainId,
+      description: `Deferred concurrent TLS-RPT ingestion for ${domain}`,
+      metadata: {
+        domain,
+        source,
+        source_scope: sourceScope,
+        report_id: rep.external_report_id,
+        reason: "ingest_in_progress",
+        claim_id: claim.claimId,
+      },
+      required: true,
+    });
+    return {
+      ok: false,
+      status: 503,
+      error: "ingest_in_progress",
+      transient: true,
+      audited: true,
+    };
+  }
+  if (claim.duplicate) {
+    return {
+      ok: true,
+      duplicate: true,
+      sessions,
+      failures: rep.failure_count,
+      reportId: claim.reportId,
+    };
+  }
 
   // Transport metadata only. Header-From and recognised public-mail membership
   // do not authenticate the report producer and never grant report authority.
@@ -112,30 +223,176 @@ export async function ingestTlsRptReport(env, opts = {}) {
     ? normalizeTransportSenderStatus(provenance.auth_verdict, provenance.reporter_domain)
     : null;
 
-  const reportRowId = createId("tlsr");
-  await env.cybermeters_db
-    .prepare(`INSERT INTO tlsrpt_aggregate_reports
-                (id, workspace_id, domain, org_name, contact_info, external_report_id,
-                 date_range_begin, date_range_end, policy_type, policy_domain,
-                 total_successful_sessions, total_failure_sessions, failure_count, provenance)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .bind(reportRowId, workspaceId, domain, rep.org_name, rep.contact_info, rep.external_report_id,
-      rep.date_range_begin, rep.date_range_end, rep.primary_policy_type, rep.primary_policy_domain,
-      rep.total_successful_sessions, rep.total_failure_sessions, rep.failure_count, prov)
-    .run();
+  const existingAcrossScope = await env.cybermeters_db
+    .prepare(`SELECT id, raw_hash, source
+              FROM tlsrpt_aggregate_reports
+              WHERE workspace_id = ? AND domain = ? AND external_report_id = ?
+              LIMIT 1`)
+    .bind(workspaceId, domain, rep.external_report_id)
+    .first();
+  const repairingOwnLegacyParent = claim.repaired &&
+    existingAcrossScope?.id === claim.reportId;
+  if (existingAcrossScope && !repairingOwnLegacyParent) {
+    if (existingAcrossScope.raw_hash &&
+        existingAcrossScope.raw_hash !== rawHash) {
+      const failed = await failAggregateReportClaim(
+        env,
+        claim,
+        "cross_scope_content_hash_mismatch",
+      );
+      if (!failed) throw new Error("aggregate_ingest_claim_fail_transition_lost");
+      await createAuditEvent(env, {
+        workspace_id: workspaceId,
+        user_id: null,
+        event_type: "tlsrpt_report_identity_collision",
+        entity_type: "domain",
+        entity_id: domainId,
+        description: `Rejected cross-scope TLS-RPT identity collision for ${domain}`,
+        metadata: {
+          domain,
+          source,
+          source_scope: sourceScope,
+          report_id: rep.external_report_id,
+          reason: "content_hash_mismatch",
+          claim_id: claim.claimId,
+        },
+        required: true,
+      });
+      return {
+        ok: false,
+        status: 409,
+        error: "report_identity_collision",
+        terminal: true,
+        audited: true,
+      };
+    }
+
+    const promoted = authorityEligible &&
+      !isDmarcAuthorityEligibleSource(existingAcrossScope.source);
+    const statements = [
+      env.cybermeters_db
+        .prepare(`UPDATE aggregate_report_ingest_claims
+                  SET report_id = ?, updated_at = datetime('now')
+                  WHERE id = ? AND attempt_token = ? AND ingest_state = 'pending'`)
+        .bind(existingAcrossScope.id, claim.claimId, claim.attemptToken),
+    ];
+    if (promoted) {
+      statements.push(env.cybermeters_db
+        .prepare("UPDATE tlsrpt_aggregate_reports SET source = ? WHERE id = ?")
+        .bind(source, existingAcrossScope.id));
+    }
+    statements.push(completeAggregateReportClaimStatement(env, claim));
+    statements.push(assertAggregateReportClaimCompleteStatement(env, claim));
+    await env.cybermeters_db.batch(statements);
+    return {
+      ok: true,
+      duplicate: !promoted,
+      promoted,
+      sessions,
+      failures: rep.failure_count,
+      reportId: existingAcrossScope.id,
+    };
+  }
+
+  const reportRowId = claim.reportId;
+  const transaction = [
+    env.cybermeters_db
+      .prepare("DELETE FROM tlsrpt_failure_details WHERE report_id = ?")
+      .bind(reportRowId),
+    env.cybermeters_db
+      .prepare(`INSERT INTO tlsrpt_aggregate_reports
+                  (id, workspace_id, domain, org_name, contact_info, external_report_id,
+                   date_range_begin, date_range_end, policy_type, policy_domain,
+                   total_successful_sessions, total_failure_sessions, failure_count,
+                   raw_hash, provenance, source)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                  workspace_id = excluded.workspace_id,
+                  domain = excluded.domain,
+                  org_name = excluded.org_name,
+                  contact_info = excluded.contact_info,
+                  external_report_id = excluded.external_report_id,
+                  date_range_begin = excluded.date_range_begin,
+                  date_range_end = excluded.date_range_end,
+                  policy_type = excluded.policy_type,
+                  policy_domain = excluded.policy_domain,
+                  total_successful_sessions = excluded.total_successful_sessions,
+                  total_failure_sessions = excluded.total_failure_sessions,
+                  failure_count = excluded.failure_count,
+                  raw_hash = excluded.raw_hash,
+                  provenance = excluded.provenance,
+                  source = excluded.source`)
+      .bind(reportRowId, workspaceId, domain, rep.org_name, rep.contact_info,
+        rep.external_report_id, rep.date_range_begin, rep.date_range_end,
+        rep.primary_policy_type, rep.primary_policy_domain,
+        rep.total_successful_sessions, rep.total_failure_sessions,
+        rep.failure_count, rawHash, prov, source),
+  ];
 
   for (const p of rep.policies) {
     for (const f of p.failures) {
-      await env.cybermeters_db
+      transaction.push(env.cybermeters_db
         .prepare(`INSERT INTO tlsrpt_failure_details
                     (id, report_id, workspace_id, domain, result_type, sending_mta_ip,
                      receiving_mx_hostname, receiving_ip, failed_session_count, additional_info)
                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
         .bind(createId("tlsf"), reportRowId, workspaceId, domain, f.result_type, f.sending_mta_ip,
           f.receiving_mx_hostname, f.receiving_ip, f.failed_session_count, f.additional_info)
-        .run();
+      );
     }
   }
+  transaction.push(completeAggregateReportClaimStatement(env, claim));
+  transaction.push(assertAggregateReportClaimCompleteStatement(env, claim));
 
-  return { ok: true, duplicate: false, sessions, failures: rep.failure_count };
+  try {
+    await env.cybermeters_db.batch(transaction);
+  } catch {
+    let quarantined = false;
+    try {
+      quarantined = await failAggregateReportClaim(
+        env,
+        claim,
+        "transient_storage_failure",
+      );
+      if (!quarantined) throw new Error("aggregate_ingest_claim_fail_transition_lost");
+      await createAuditEvent(env, {
+        workspace_id: workspaceId,
+        user_id: null,
+        event_type: "tlsrpt_report_ingest_failed",
+        entity_type: "domain",
+        entity_id: domainId,
+        description: `TLS-RPT report ingestion failed safely for ${domain}`,
+        metadata: {
+          domain,
+          source,
+          source_scope: sourceScope,
+          report_id: rep.external_report_id,
+          reason: "transient_storage_failure",
+          claim_id: claim.claimId,
+          repairable: true,
+          ingest_endpoint_id: ingestEndpointId,
+        },
+        required: true,
+      });
+    } catch (quarantineError) {
+      throw quarantineError;
+    }
+    return {
+      ok: false,
+      status: 503,
+      error: "ingest_transient_failure",
+      transient: true,
+      quarantined,
+      audited: true,
+    };
+  }
+
+  return {
+    ok: true,
+    duplicate: false,
+    sessions,
+    failures: rep.failure_count,
+    reportId: reportRowId,
+    repaired: claim.repaired,
+  };
 }

@@ -34,11 +34,30 @@ function buildDb() {
 
 function makeD1(db) {
   const wrap = (sql, args) => ({
+    __sql: sql,
     first: async () => db.prepare(sql).get(...args) ?? null,
     all: async () => ({ results: db.prepare(sql).all(...args), success: true, meta: {} }),
     run: async () => { const r = db.prepare(sql).run(...args); return { success: true, meta: { changes: r.changes } }; },
   });
-  return { prepare(sql) { const b = wrap(sql, []); b.bind = (...args) => wrap(sql, args); return b; } };
+  return {
+    prepare(sql) {
+      const b = wrap(sql, []);
+      b.bind = (...args) => wrap(sql, args);
+      return b;
+    },
+    async batch(statements) {
+      db.exec("BEGIN");
+      try {
+        const results = [];
+        for (const statement of statements) results.push(await statement.run());
+        db.exec("COMMIT");
+        return results;
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+      }
+    },
+  };
 }
 
 function makeEnv(db) {

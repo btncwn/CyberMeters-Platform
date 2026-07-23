@@ -9,6 +9,7 @@ import {
   DMARC_AUTHORITY_EVIDENCE_SCOPE,
   dmarcAuthoritySourceSql,
 } from "../lib/dmarc-authority.js";
+import { aggregateReportCompleteSql } from "../lib/aggregate-report-ingest.js";
 import { brandCandidateToApi, loadWorkspaceBrandProfile } from "./brand-protection.js";
 import { remediationAction } from "./email-analysis.js";
 import { buildDmarcEnforcementReadiness, summarizeEmailSenders } from "./rua-routing.js";
@@ -203,6 +204,7 @@ async function loadAuthorityEligibleDmarcSenders(env, workspaceId, domain) {
                AND s.domain = r.domain
                AND s.source_ip = r.source_ip
               WHERE r.workspace_id = ? AND r.domain = ?
+                AND ${aggregateReportCompleteSql("rep", "dmarc")}
                 AND ${dmarcAuthoritySourceSql("rep")}
               GROUP BY r.source_ip, s.classification
               ORDER BY total_messages DESC`)
@@ -236,14 +238,17 @@ export async function loadBecExposureEvidence(env, workspaceId, domain) {
                        MAX(date_range_end) AS last_report_epoch,
                        (SELECT policy_p FROM dmarc_aggregate_reports
                         WHERE workspace_id = ? AND domain = ?
+                          AND ${aggregateReportCompleteSql("dmarc_aggregate_reports", "dmarc")}
                           AND ${dmarcAuthoritySourceSql("dmarc_aggregate_reports")}
                         ORDER BY created_at DESC LIMIT 1) AS latest_policy_p,
                        (SELECT policy_pct FROM dmarc_aggregate_reports
                         WHERE workspace_id = ? AND domain = ?
+                          AND ${aggregateReportCompleteSql("dmarc_aggregate_reports", "dmarc")}
                           AND ${dmarcAuthoritySourceSql("dmarc_aggregate_reports")}
                         ORDER BY created_at DESC LIMIT 1) AS latest_policy_pct
                 FROM dmarc_aggregate_reports rep
                 WHERE workspace_id = ? AND domain = ?
+                  AND ${aggregateReportCompleteSql("rep", "dmarc")}
                   AND ${dmarcAuthoritySourceSql("rep")}`)
       .bind(workspaceId, domain, workspaceId, domain, workspaceId, domain).first().catch(() => null),
     env.cybermeters_db
@@ -327,6 +332,7 @@ export async function buildDmarcSenderIntelligenceEvidence(env, workspaceId, dom
       .prepare(`SELECT COUNT(*) AS c, MIN(date_range_begin) AS minb, MAX(date_range_end) AS maxe
                 FROM dmarc_aggregate_reports rep
                 WHERE workspace_id = ? AND domain = ?
+                  AND ${aggregateReportCompleteSql("rep", "dmarc")}
                   AND ${dmarcAuthoritySourceSql("rep")}`)
       .bind(workspaceId, domain).first();
     const imported = window?.c || 0;

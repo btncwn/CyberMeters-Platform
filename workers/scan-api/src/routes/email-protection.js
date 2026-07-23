@@ -11,6 +11,7 @@ import {
   DMARC_OBSERVATIONAL_EVIDENCE_SCOPE,
   buildAggregateReportTrustSemantics,
 } from "../lib/dmarc-authority.js";
+import { aggregateReportCompleteSql } from "../lib/aggregate-report-ingest.js";
 import { assessImpactRollback, comparePolicyImpact, forecastPolicyImpact } from "../engines/dmarc-impact.js";
 import { applyChangeTransition, buildChangeReviewQueue, changeRequestToApi, newChangeRequestId } from "../engines/dmarc-change-workflow.js";
 import { dnsQuery } from "../engines/dns.js";
@@ -905,19 +906,27 @@ export async function emailProtectionRoutes(rctx) {
         if (!access) return json({ error: "Forbidden" }, 403);
 
         const reports = (await env.cybermeters_db
-          .prepare(`SELECT id, org_name, external_report_id, date_range_begin, date_range_end, policy_type,
-                           policy_domain,
-                           total_successful_sessions, total_failure_sessions, failure_count, provenance, created_at
-                    FROM tlsrpt_aggregate_reports WHERE workspace_id = ? AND domain = ?
-                    ORDER BY created_at DESC LIMIT 50`)
+          .prepare(`SELECT rep.id, rep.org_name, rep.external_report_id,
+                           rep.date_range_begin, rep.date_range_end, rep.policy_type,
+                           rep.policy_domain, rep.total_successful_sessions,
+                           rep.total_failure_sessions, rep.failure_count,
+                           rep.provenance, rep.created_at
+                    FROM tlsrpt_aggregate_reports rep
+                    WHERE rep.workspace_id = ? AND rep.domain = ?
+                      AND ${aggregateReportCompleteSql("rep", "tlsrpt")}
+                    ORDER BY rep.created_at DESC LIMIT 50`)
           .bind(workspaceId, domain).all()).results || [];
         let succ = 0, fail = 0;
         for (const r of reports) { succ += r.total_successful_sessions || 0; fail += r.total_failure_sessions || 0; }
         const totalSessions = succ + fail;
         const topFailures = (await env.cybermeters_db
-          .prepare(`SELECT result_type, COUNT(*) AS report_hits, SUM(failed_session_count) AS sessions
-                    FROM tlsrpt_failure_details WHERE workspace_id = ? AND domain = ?
-                    GROUP BY result_type ORDER BY sessions DESC LIMIT 5`)
+          .prepare(`SELECT f.result_type, COUNT(*) AS report_hits,
+                           SUM(f.failed_session_count) AS sessions
+                    FROM tlsrpt_failure_details f
+                    JOIN tlsrpt_aggregate_reports rep ON rep.id = f.report_id
+                    WHERE f.workspace_id = ? AND f.domain = ?
+                      AND ${aggregateReportCompleteSql("rep", "tlsrpt")}
+                    GROUP BY f.result_type ORDER BY sessions DESC LIMIT 5`)
           .bind(workspaceId, domain).all()).results || [];
 
         return json({
@@ -1246,6 +1255,7 @@ export async function emailProtectionRoutes(rctx) {
                     FROM dmarc_aggregate_records r
                     JOIN dmarc_aggregate_reports rep ON rep.id = r.report_id
                     WHERE r.workspace_id = ? AND r.domain = ? AND (rep.date_range_end IS NULL OR rep.date_range_end >= ?)
+                      AND ${aggregateReportCompleteSql("rep", "dmarc")}
                     GROUP BY r.disposition`)
           .bind(workspaceId, domain, cutoff).all();
         const disposition = { none: 0, quarantine: 0, reject: 0 };
@@ -1262,8 +1272,11 @@ export async function emailProtectionRoutes(rctx) {
         const passRate = totalMsgs > 0 ? Math.round((alignedMsgs / totalMsgs) * 1000) / 10 : sSummary.overall_pass_rate;
 
         const window = await env.cybermeters_db
-          .prepare(`SELECT COUNT(*) AS c, MIN(date_range_begin) AS minb, MAX(date_range_end) AS maxe
-                    FROM dmarc_aggregate_reports WHERE workspace_id = ? AND domain = ?`)
+          .prepare(`SELECT COUNT(*) AS c, MIN(rep.date_range_begin) AS minb,
+                           MAX(rep.date_range_end) AS maxe
+                    FROM dmarc_aggregate_reports rep
+                    WHERE rep.workspace_id = ? AND rep.domain = ?
+                      AND ${aggregateReportCompleteSql("rep", "dmarc")}`)
           .bind(workspaceId, domain).first();
         const daysWithData = (window?.minb && window?.maxe) ? Math.max(1, Math.round((window.maxe - window.minb) / 86400)) : 0;
         const highVolFailed = senders.filter((s) => (s.total_messages || 0) >= 50 && (typeof s.pass_rate === "number" ? s.pass_rate : 100) < 90).length;
@@ -1372,10 +1385,13 @@ export async function emailProtectionRoutes(rctx) {
         const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get("limit") || "50", 10) || 50));
 
         const totals = await env.cybermeters_db
-          .prepare(`SELECT COUNT(*) AS reports, COUNT(DISTINCT org_name) AS reporters,
-                           MIN(date_range_begin) AS first_seen, MAX(date_range_end) AS last_seen,
-                           SUM(message_count) AS total_messages
-                    FROM dmarc_aggregate_reports WHERE workspace_id = ? AND domain = ?`)
+          .prepare(`SELECT COUNT(*) AS reports, COUNT(DISTINCT rep.org_name) AS reporters,
+                           MIN(rep.date_range_begin) AS first_seen,
+                           MAX(rep.date_range_end) AS last_seen,
+                           SUM(rep.message_count) AS total_messages
+                    FROM dmarc_aggregate_reports rep
+                    WHERE rep.workspace_id = ? AND rep.domain = ?
+                      AND ${aggregateReportCompleteSql("rep", "dmarc")}`)
           .bind(workspaceId, domain).first();
 
         const rows = await env.cybermeters_db
@@ -1387,6 +1403,7 @@ export async function emailProtectionRoutes(rctx) {
                     FROM dmarc_aggregate_reports rep
                     LEFT JOIN dmarc_aggregate_records r ON r.report_id = rep.id
                     WHERE rep.workspace_id = ? AND rep.domain = ?
+                      AND ${aggregateReportCompleteSql("rep", "dmarc")}
                     GROUP BY rep.id
                     ORDER BY COALESCE(rep.date_range_end, 0) DESC, rep.created_at DESC
                     LIMIT ?`)

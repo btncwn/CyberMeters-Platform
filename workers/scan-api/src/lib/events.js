@@ -32,7 +32,9 @@ async function createNotificationEvent(env, workspace_id, { type, severity = "in
 /**
  * createAuditEvent — inserts one row into audit_events.
  *
- * Always non-fatal. Audit failures must never break business logic.
+ * Non-fatal by default. Evidence-integrity terminal outcomes may opt into
+ * `required: true`; those callers must not report success unless the append-only
+ * audit is durable.
  *
  * @param {object} env              - Worker env bindings
  * @param {object} opts
@@ -43,6 +45,8 @@ async function createNotificationEvent(env, workspace_id, { type, severity = "in
  *   entity_id     {string|null}   - ID of the affected entity
  *   description   {string|null}   - Human-readable summary
  *   metadata      {object|null}   - Arbitrary JSON context
+ *   required      {boolean}       - Rethrow storage failure for terminal
+ *                                   evidence-integrity outcomes
  */
 async function createAuditEvent(env, {
   workspace_id  = null,
@@ -53,6 +57,7 @@ async function createAuditEvent(env, {
   entity_id     = null,
   description   = null,
   metadata      = null,
+  required      = false,
 } = {}) {
   if (!event_type) return;
   try {
@@ -66,7 +71,10 @@ async function createAuditEvent(env, {
       )
       .bind(id, workspace_id, user_id, actor_type || (user_id ? "customer" : "system"), event_type, entity_type, entity_id, description, metaJson)
       .run();
-  } catch { /* non-fatal */ }
+  } catch (error) {
+    if (required) throw error;
+    // Existing audit callers remain non-fatal by default.
+  }
 }
 
 /**
