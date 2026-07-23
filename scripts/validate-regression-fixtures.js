@@ -1690,8 +1690,8 @@ results.push(await asyncSecurityContract("dmarc_ingest_dedupe_source_agnostic", 
 results.push(securityContract("dmarc_ingest_domain_match_and_mismatch", () =>
   scanner.dmarcReportDomainMatches(dmarcMixedParsed, "example.com") === true &&
   scanner.dmarcReportDomainMatches(dmarcMixedParsed, "attacker.test") === false &&
-  // no published policy domain → cannot disprove → allowed (documented)
-  scanner.dmarcReportDomainMatches({ policy_published: {} }, "example.com") === true
+  // Gate 4: an absent body identity is never attributable to the bound domain.
+  scanner.dmarcReportDomainMatches({ policy_published: {} }, "example.com") === false
 ));
 // Token model: high-entropy, unique, deterministic SHA-256 hash, hash != raw.
 results.push(await asyncSecurityContract("dmarc_ingest_token_hash_resolution", async () => {
@@ -2181,16 +2181,26 @@ results.push(securityContract("rua_drop_reason_normalization_stable", () => {
   const STABLE = new Set(["endpoint_not_found", "endpoint_inactive", "no_dmarc_attachment",
     "multiple_dmarc_attachments", "attachment_too_large", "decompressed_too_large",
     "compression_ratio_exceeded", "domain_mismatch", "parse_error", "unsupported_attachment",
-    "unsupported_recipient_domain", "invalid_base64", "report_row_limit_exceeded"]);
+    "unsupported_recipient_domain", "invalid_base64", "report_row_limit_exceeded",
+    "email_too_large", "stream_read_error", "truncated_mime", "unterminated_multipart",
+    "header_too_large", "invalid_mime", "mime_complexity_exceeded",
+    "unsupported_nested_multipart", "unsupported_transfer_encoding",
+    "multiple_tlsrpt_attachments"]);
   const cases = {
     invalid_recipient: "endpoint_not_found", unknown_address: "endpoint_not_found",
     unsupported_recipient_domain: "unsupported_recipient_domain",
-    endpoint_revoked: "endpoint_inactive", email_too_large: "attachment_too_large",
+    endpoint_revoked: "endpoint_inactive", email_too_large: "email_too_large",
     zip_too_large: "attachment_too_large", multiple_attachments: "multiple_dmarc_attachments",
     zip_inflate_failed: "parse_error", zip_multi_entry: "parse_error", empty_xml: "parse_error",
     empty_attachment: "unsupported_attachment", domain_mismatch: "domain_mismatch",
     decompressed_too_large: "decompressed_too_large", compression_ratio_exceeded: "compression_ratio_exceeded",
     invalid_base64: "invalid_base64", report_row_limit_exceeded: "report_row_limit_exceeded",
+    stream_read_error: "stream_read_error", truncated_mime: "truncated_mime",
+    unterminated_multipart: "unterminated_multipart", header_too_large: "header_too_large",
+    invalid_mime: "invalid_mime", mime_complexity_exceeded: "mime_complexity_exceeded",
+    unsupported_nested_multipart: "unsupported_nested_multipart",
+    unsupported_transfer_encoding: "unsupported_transfer_encoding",
+    multiple_tlsrpt_attachments: "multiple_tlsrpt_attachments",
     something_unexpected: "parse_error",
   };
   return Object.entries(cases).every(([k, v]) => scanner.normalizeInboundDropReason(k) === v && STABLE.has(v));

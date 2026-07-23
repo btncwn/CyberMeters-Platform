@@ -24,39 +24,280 @@ import { evaluateEmailSenderMonitoring } from "../engines/email-protection-lifec
 const DMARC_XML_MAX_BYTES = 2 * 1024 * 1024; // 2 MB hard cap
 
 const DMARC_MAX_RECORDS   = 5000;            // defensive row cap
+const DMARC_MAX_MESSAGES_PER_RECORD = 10_000_000;
+const DMARC_MAX_EPOCH_SECONDS = 4_102_444_800; // 2100-01-01T00:00:00Z
+const DMARC_MAX_REPORT_WINDOW_SECONDS = 366 * 24 * 60 * 60;
 
 function _xmlDecodeEntities(s) {
-  return String(s)
-    .replace(/&lt;/g, "<").replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"').replace(/&#0*39;/g, "'").replace(/&apos;/g, "'")
-    .replace(/&amp;/g, "&");
+  const raw = String(s);
+  const entityPattern = /&(lt|gt|quot|apos|amp|#\d+|#x[0-9a-f]+);/gi;
+  if (raw.replace(entityPattern, "").includes("&")) {
+    throw new Error("invalid_xml_entity");
+  }
+  return raw.replace(
+    entityPattern,
+    (match, entity) => {
+      const lower = entity.toLowerCase();
+      if (lower === "lt") return "<";
+      if (lower === "gt") return ">";
+      if (lower === "quot") return '"';
+      if (lower === "apos") return "'";
+      if (lower === "amp") return "&";
+      const codePoint = lower.startsWith("#x")
+        ? Number.parseInt(lower.slice(2), 16)
+        : Number.parseInt(lower.slice(1), 10);
+      if (!Number.isInteger(codePoint) || codePoint <= 0 ||
+          codePoint > 0x10ffff || (codePoint >= 0xd800 && codePoint <= 0xdfff)) {
+        throw new Error("invalid_xml_entity");
+      }
+      return String.fromCodePoint(codePoint);
+    },
+  );
 }
 
-// Extract the inner text of the FIRST occurrence of <tag>…</tag> (tag is a fixed literal).
-function _xmlFirst(xml, tag) {
-  if (!xml) return null;
-  const m = xml.match(new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`, "i"));
-  return m ? _xmlDecodeEntities(m[1]).trim() : null;
-}
-
-// Return the inner content of EVERY <tag>…</tag> block.
-function _xmlBlocks(xml, tag) {
+// Return raw inner content for fixed-literal tags. Decoding is deliberately
+// deferred until a leaf text field is validated, so an escaped string can never
+// manufacture structural tags.
+function _xmlBlocks(xml, tag, limit = DMARC_MAX_RECORDS + 1) {
   if (!xml) return [];
   const re = new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`, "gi");
   const out = []; let m;
-  while ((m = re.exec(xml)) !== null) { out.push(m[1]); if (out.length >= DMARC_MAX_RECORDS) break; }
+  while ((m = re.exec(xml)) !== null) {
+    out.push(m[1]);
+    if (out.length >= limit) break;
+  }
   return out;
 }
 
-function _dmarcInt(v, dflt = 0) { const n = parseInt(v, 10); return Number.isFinite(n) ? n : dflt; }
+function _xmlFirst(xml, tag) {
+  const blocks = _xmlBlocks(xml, tag, 1);
+  return blocks.length ? _xmlDecodeEntities(blocks[0]).trim() : null;
+}
+
+function _schemaFailure(code, message) {
+  const error = new Error(message);
+  error.code = code;
+  throw error;
+}
+
+function _singleXmlBlock(container, tag, { required = true } = {}) {
+  const blocks = _xmlBlocks(container, tag, 2);
+  if (blocks.length > 1) {
+    _schemaFailure("invalid_structure", `DMARC ${tag} must appear at most once.`);
+  }
+  if (!blocks.length) {
+    if (required) _schemaFailure("invalid_structure", `DMARC ${tag} is required.`);
+    return null;
+  }
+  return blocks[0];
+}
+
+function _xmlText(container, tag, {
+  required = false,
+  maxLength = 512,
+  normalize = null,
+} = {}) {
+  const block = _singleXmlBlock(container, tag, { required });
+  if (block == null) return null;
+  if (/<[^>]*>/.test(block)) {
+    _schemaFailure("invalid_structure", `DMARC ${tag} must contain text only.`);
+  }
+  let value;
+  try { value = _xmlDecodeEntities(block).trim(); }
+  catch { _schemaFailure("invalid_text", `DMARC ${tag} contains an invalid entity.`); }
+  if (!value) {
+    if (required) _schemaFailure("invalid_structure", `DMARC ${tag} cannot be empty.`);
+    return null;
+  }
+  if (value.length > maxLength ||
+      /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value)) {
+    _schemaFailure("invalid_text", `DMARC ${tag} is outside the accepted text bounds.`);
+  }
+  return normalize ? normalize(value) : value;
+}
+
+function _boundedDmarcInteger(container, tag, {
+  min = 0,
+  max,
+  required = true,
+  code = "invalid_integer",
+} = {}) {
+  const text = _xmlText(container, tag, { required, maxLength: 20 });
+  if (text == null) return null;
+  if (!/^(?:0|[1-9]\d*)$/.test(text)) {
+    _schemaFailure(code, `DMARC ${tag} must be a non-negative integer.`);
+  }
+  const value = Number(text);
+  if (!Number.isSafeInteger(value) || value < min || value > max) {
+    _schemaFailure(code, `DMARC ${tag} is outside the accepted range.`);
+  }
+  return value;
+}
+
+function _normalizeDmarcDomain(value) {
+  const normalized = String(value || "").trim().toLowerCase().replace(/\.$/, "");
+  if (!normalized || normalized.length > 253 || !/^[a-z0-9.-]+$/.test(normalized)) {
+    _schemaFailure("invalid_domain", "DMARC domain is invalid.");
+  }
+  const labels = normalized.split(".");
+  if (labels.some((label) => !label || label.length > 63 ||
+      !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label))) {
+    _schemaFailure("invalid_domain", "DMARC domain is invalid.");
+  }
+  return normalized;
+}
+
+function _isIpv4(value) {
+  const parts = value.split(".");
+  return parts.length === 4 && parts.every((part) =>
+    /^(?:0|[1-9]\d{0,2})$/.test(part) && Number(part) <= 255);
+}
+
+function _isIpv6(value) {
+  if (!/^[0-9a-f:.]+$/i.test(value) || value.includes(":::")) return false;
+  const halves = value.split("::");
+  if (halves.length > 2) return false;
+  const groups = [];
+  for (const half of halves) {
+    if (!half) continue;
+    groups.push(...half.split(":"));
+  }
+  let units = 0;
+  for (let index = 0; index < groups.length; index++) {
+    const group = groups[index];
+    if (group.includes(".")) {
+      if (index !== groups.length - 1 || !_isIpv4(group)) return false;
+      units += 2;
+    } else {
+      if (!/^[0-9a-f]{1,4}$/i.test(group)) return false;
+      units += 1;
+    }
+  }
+  return halves.length === 2 ? units < 8 : units === 8;
+}
+
+function _validatedIp(value) {
+  const candidate = String(value || "").trim().toLowerCase();
+  if (!_isIpv4(candidate) && !_isIpv6(candidate)) {
+    _schemaFailure("invalid_source_ip", "DMARC source_ip is invalid.");
+  }
+  return candidate;
+}
+
+function _enumValue(container, tag, allowed, { required = true } = {}) {
+  const value = _xmlText(container, tag, {
+    required,
+    maxLength: 32,
+    normalize: (text) => text.toLowerCase(),
+  });
+  if (value == null) return null;
+  if (!allowed.has(value)) {
+    _schemaFailure("invalid_enum", `DMARC ${tag} has an unsupported value.`);
+  }
+  return value;
+}
+
+const DMARC_POLICY_VALUES = new Set(["none", "quarantine", "reject"]);
+const DMARC_ALIGNMENT_VALUES = new Set(["r", "s"]);
+const DMARC_EVALUATED_VALUES = new Set(["pass", "fail"]);
+const DMARC_DKIM_RESULTS = new Set([
+  "none", "pass", "fail", "policy", "neutral", "temperror", "permerror",
+]);
+const DMARC_SPF_RESULTS = new Set([
+  "none", "neutral", "pass", "fail", "softfail", "temperror", "permerror",
+]);
+const DMARC_SUPPORTED_DEFAULT_NAMESPACES = new Set([
+  "http://dmarc.org/dmarc-xml/0.1",
+  "urn:ietf:params:xml:ns:dmarc-2.0",
+]);
+
+const DMARC_CRITICAL_ELEMENT_PARENTS = new Map([
+  ["feedback", new Set([null])],
+  ["report_metadata", new Set(["feedback"])],
+  ["policy_published", new Set(["feedback"])],
+  ["record", new Set(["feedback"])],
+  ["date_range", new Set(["report_metadata"])],
+  ["org_name", new Set(["report_metadata"])],
+  ["email", new Set(["report_metadata"])],
+  ["report_id", new Set(["report_metadata"])],
+  ["begin", new Set(["date_range"])],
+  ["end", new Set(["date_range"])],
+  ["row", new Set(["record"])],
+  ["identifiers", new Set(["record"])],
+  ["auth_results", new Set(["record"])],
+  ["source_ip", new Set(["row"])],
+  ["count", new Set(["row"])],
+  ["policy_evaluated", new Set(["row"])],
+  ["disposition", new Set(["policy_evaluated"])],
+  ["header_from", new Set(["identifiers"])],
+  ["envelope_from", new Set(["identifiers"])],
+  ["envelope_to", new Set(["identifiers"])],
+  ["adkim", new Set(["policy_published"])],
+  ["aspf", new Set(["policy_published"])],
+  ["p", new Set(["policy_published"])],
+  ["sp", new Set(["policy_published"])],
+  ["pct", new Set(["policy_published"])],
+  ["dkim", new Set(["policy_evaluated", "auth_results"])],
+  ["spf", new Set(["policy_evaluated", "auth_results"])],
+  ["domain", new Set(["policy_published", "dkim", "spf"])],
+  ["selector", new Set(["dkim"])],
+  ["result", new Set(["dkim", "spf"])],
+]);
+
+// Validate the element stack before fixed-literal extraction. This does not
+// resolve entities or namespaces; it only prevents a critical lookalike/nested
+// field from being accepted out of its DMARC schema position.
+function _validateDmarcElementStructure(xml) {
+  if (/<!--|<!\[CDATA\[|<\?(?!xml(?:\s|[?]))/i.test(xml)) {
+    _schemaFailure("invalid_structure", "Unsupported XML markup is present.");
+  }
+  const stack = [];
+  let rootCount = 0;
+  const tags = xml.match(/<[^>]+>/g) || [];
+  for (const token of tags) {
+    if (/^<\?xml(?:\s[^?]*)?\?>$/i.test(token)) {
+      if (stack.length || rootCount) {
+        _schemaFailure("invalid_structure", "The XML declaration is misplaced.");
+      }
+      continue;
+    }
+    if (/^<!|^<\?/.test(token)) {
+      _schemaFailure("invalid_structure", "Unsupported XML markup is present.");
+    }
+    const nameMatch = token.match(/^<\s*\/?\s*([A-Za-z_][A-Za-z0-9_.-]*)/);
+    if (!nameMatch) _schemaFailure("invalid_structure", "An XML element is malformed.");
+    const name = nameMatch[1].toLowerCase();
+    const closing = /^<\s*\//.test(token);
+    const selfClosing = /\/\s*>$/.test(token);
+    if (closing) {
+      if (selfClosing || stack.pop() !== name) {
+        _schemaFailure("invalid_structure", "DMARC elements are not properly nested.");
+      }
+      continue;
+    }
+
+    const parent = stack.length ? stack[stack.length - 1] : null;
+    const allowedParents = DMARC_CRITICAL_ELEMENT_PARENTS.get(name);
+    if (allowedParents && !allowedParents.has(parent)) {
+      _schemaFailure("invalid_structure", `DMARC ${name} is in an invalid position.`);
+    }
+    if (name === "feedback") rootCount += 1;
+    if (!selfClosing) stack.push(name);
+  }
+  if (stack.length || rootCount !== 1) {
+    _schemaFailure("invalid_structure", "DMARC elements are not properly nested.");
+  }
+}
 
 /**
  * parseDmarcAggregateXml(xml) — controlled, defensive DMARC aggregate parser.
  *
  * Security: rejects empty input and input > 2 MB; rejects DOCTYPE/ENTITY/
- * stylesheet declarations (no XXE / entity expansion); performs no network
- * I/O; never returns or stores raw XML. Returns { error, message } on failure
- * or the structured { metadata, policy_published, records } shape on success.
+ * stylesheet declarations (no XXE / entity expansion); rejects namespace-
+ * prefixed/lookalike critical elements and duplicate singleton structures;
+ * performs no network I/O; never returns or stores raw XML. Returns
+ * { error, message } on failure or the strict structured
+ * { metadata, policy_published, records } shape on success.
  */
 function parseDmarcAggregateXml(xml) {
   if (typeof xml !== "string" || xml.trim() === "") {
@@ -69,57 +310,184 @@ function parseDmarcAggregateXml(xml) {
   if (/<!DOCTYPE/i.test(xml) || /<!ENTITY/i.test(xml) || /<\?xml-stylesheet/i.test(xml)) {
     return { error: "unsafe_xml", message: "The XML contains a disallowed declaration." };
   }
-  const metaBlock   = _xmlFirst(xml, "report_metadata");
-  const policyBlock = _xmlFirst(xml, "policy_published");
-  const recordBlocks = _xmlBlocks(xml, "record");
-  if (!metaBlock && !policyBlock && recordBlocks.length === 0) {
-    return { error: "invalid_structure", message: "The file does not look like a DMARC aggregate report." };
+  // The fixed-literal parser deliberately supports an optional default namespace
+  // on <feedback>, but not prefixed element names. A prefix must never make a
+  // lookalike element satisfy a critical DMARC field.
+  if (/<\/?[A-Za-z_][A-Za-z0-9_.-]*:[A-Za-z_][A-Za-z0-9_.-]*(?:\s|\/?>)/.test(xml)) {
+    return {
+      error: "unsupported_namespace",
+      message: "Namespace-prefixed DMARC elements are not supported.",
+    };
   }
-  const dateRange = _xmlFirst(metaBlock || xml, "date_range");
-  const metadata = {
-    org_name:         _xmlFirst(metaBlock, "org_name"),
-    email:            _xmlFirst(metaBlock, "email"),
-    report_id:        _xmlFirst(metaBlock, "report_id"),
-    date_range_begin: _dmarcInt(_xmlFirst(dateRange, "begin"), 0) || null,
-    date_range_end:   _dmarcInt(_xmlFirst(dateRange, "end"), 0) || null,
-  };
-  const pctText = _xmlFirst(policyBlock, "pct");
-  const policy_published = {
-    domain: _xmlFirst(policyBlock, "domain"),
-    adkim:  _xmlFirst(policyBlock, "adkim"),
-    aspf:   _xmlFirst(policyBlock, "aspf"),
-    p:      _xmlFirst(policyBlock, "p"),
-    sp:     _xmlFirst(policyBlock, "sp"),
-    pct:    pctText != null ? _dmarcInt(pctText, 100) : null,
-  };
-  const norm = (v) => (v ? String(v).trim().toLowerCase() : null);
-  const records = [];
-  for (const rec of recordBlocks) {
-    const row   = _xmlFirst(rec, "row");
-    const pe    = _xmlFirst(row, "policy_evaluated");
-    const ident = _xmlFirst(rec, "identifiers");
-    const auth  = _xmlFirst(rec, "auth_results");
-    const dkimA = _xmlFirst(auth, "dkim");
-    const spfA  = _xmlFirst(auth, "spf");
-    records.push({
-      source_ip:           _xmlFirst(row, "source_ip"),
-      count:               _dmarcInt(_xmlFirst(row, "count"), 0),
-      disposition:         norm(_xmlFirst(pe, "disposition")),
-      dkim_aligned_result: norm(_xmlFirst(pe, "dkim")),
-      spf_aligned_result:  norm(_xmlFirst(pe, "spf")),
-      header_from:         _xmlFirst(ident, "header_from"),
-      envelope_from:       _xmlFirst(ident, "envelope_from"),
-      dkim_domain:         _xmlFirst(dkimA, "domain"),
-      dkim_selector:       _xmlFirst(dkimA, "selector"),
-      dkim_result:         norm(_xmlFirst(dkimA, "result")),
-      spf_domain:          _xmlFirst(spfA, "domain"),
-      spf_result:          norm(_xmlFirst(spfA, "result")),
+  try {
+    _validateDmarcElementStructure(xml);
+    const root = xml.match(
+      /^\s*(?:<\?xml(?:\s[^?]*)?\?>\s*)?<feedback(\s[^>]*)?>([\s\S]*)<\/feedback>\s*$/i,
+    );
+    if (!root) {
+      return {
+        error: "invalid_structure",
+        message: "A DMARC report must contain one feedback document.",
+      };
+    }
+    const rootAttributes = root[1] || "";
+    const namespaceMatches = [...rootAttributes.matchAll(
+      /\bxmlns\s*=\s*(?:"([^"]*)"|'([^']*)')/gi,
+    )];
+    if (/\bxmlns\s*=/i.test(rootAttributes) && namespaceMatches.length === 0) {
+      _schemaFailure("unsupported_namespace", "The DMARC default namespace is malformed.");
+    }
+    if (namespaceMatches.length > 1) {
+      _schemaFailure("unsupported_namespace", "The DMARC default namespace is ambiguous.");
+    }
+    if (namespaceMatches.length === 1) {
+      const namespace = namespaceMatches[0][1] ?? namespaceMatches[0][2] ?? "";
+      if (!DMARC_SUPPORTED_DEFAULT_NAMESPACES.has(namespace)) {
+        _schemaFailure("unsupported_namespace", "The DMARC default namespace is unsupported.");
+      }
+    }
+    const feedback = root[2];
+    if (/<\/?feedback(?:\s|>)/i.test(feedback)) {
+      _schemaFailure("invalid_structure", "DMARC feedback must appear exactly once.");
+    }
+    const metaBlock = _singleXmlBlock(feedback, "report_metadata");
+    const policyBlock = _singleXmlBlock(feedback, "policy_published");
+    const recordBlocks = _xmlBlocks(feedback, "record", DMARC_MAX_RECORDS + 1);
+    if (recordBlocks.length > DMARC_MAX_RECORDS) {
+      return {
+        error: "too_many_records",
+        message: `The DMARC report exceeds ${DMARC_MAX_RECORDS} record rows.`,
+      };
+    }
+    if (recordBlocks.length === 0) {
+      return { error: "no_records", message: "The DMARC report contained no record rows." };
+    }
+
+    const dateRange = _singleXmlBlock(metaBlock, "date_range");
+    const begin = _boundedDmarcInteger(dateRange, "begin", {
+      min: 1,
+      max: DMARC_MAX_EPOCH_SECONDS,
+      code: "invalid_date_range",
     });
+    const end = _boundedDmarcInteger(dateRange, "end", {
+      min: 1,
+      max: DMARC_MAX_EPOCH_SECONDS,
+      code: "invalid_date_range",
+    });
+    if (end < begin || end - begin > DMARC_MAX_REPORT_WINDOW_SECONDS) {
+      _schemaFailure("invalid_date_range", "DMARC date_range is invalid.");
+    }
+    const metadata = {
+      org_name: _xmlText(metaBlock, "org_name", { required: true, maxLength: 256 }),
+      email: _xmlText(metaBlock, "email", { required: true, maxLength: 320 }),
+      report_id: _xmlText(metaBlock, "report_id", { required: true, maxLength: 256 }),
+      date_range_begin: begin,
+      date_range_end: end,
+    };
+
+    const policy_published = {
+      domain: _xmlText(policyBlock, "domain", {
+        required: true,
+        maxLength: 253,
+        normalize: _normalizeDmarcDomain,
+      }),
+      adkim: _enumValue(policyBlock, "adkim", DMARC_ALIGNMENT_VALUES, { required: false }),
+      aspf: _enumValue(policyBlock, "aspf", DMARC_ALIGNMENT_VALUES, { required: false }),
+      p: _enumValue(policyBlock, "p", DMARC_POLICY_VALUES),
+      sp: _enumValue(policyBlock, "sp", DMARC_POLICY_VALUES, { required: false }),
+      pct: _boundedDmarcInteger(policyBlock, "pct", {
+        min: 0,
+        max: 100,
+        required: false,
+        code: "invalid_policy",
+      }),
+    };
+
+    const records = [];
+    for (const rec of recordBlocks) {
+      const row = _singleXmlBlock(rec, "row");
+      const policyEvaluated = _singleXmlBlock(row, "policy_evaluated");
+      const identifiers = _singleXmlBlock(rec, "identifiers");
+      const authResults = _singleXmlBlock(rec, "auth_results", { required: false });
+
+      let firstDkim = null;
+      let firstSpf = null;
+      if (authResults) {
+        const dkimBlocks = _xmlBlocks(authResults, "dkim", 11);
+        const spfBlocks = _xmlBlocks(authResults, "spf", 11);
+        if (dkimBlocks.length > 10 || spfBlocks.length > 10) {
+          _schemaFailure("invalid_structure", "DMARC auth_results is too complex.");
+        }
+        for (const dkim of dkimBlocks) {
+          const parsed = {
+            domain: _xmlText(dkim, "domain", {
+              required: true,
+              maxLength: 253,
+              normalize: _normalizeDmarcDomain,
+            }),
+            selector: _xmlText(dkim, "selector", { required: false, maxLength: 253 }),
+            result: _enumValue(dkim, "result", DMARC_DKIM_RESULTS),
+          };
+          if (!firstDkim) firstDkim = parsed;
+        }
+        for (const spf of spfBlocks) {
+          const parsed = {
+            domain: _xmlText(spf, "domain", {
+              required: true,
+              maxLength: 253,
+              normalize: _normalizeDmarcDomain,
+            }),
+            result: _enumValue(spf, "result", DMARC_SPF_RESULTS),
+          };
+          if (!firstSpf) firstSpf = parsed;
+        }
+      }
+
+      records.push({
+        source_ip: _validatedIp(_xmlText(row, "source_ip", {
+          required: true,
+          maxLength: 45,
+        })),
+        count: _boundedDmarcInteger(row, "count", {
+          min: 0,
+          max: DMARC_MAX_MESSAGES_PER_RECORD,
+          code: "invalid_record_count",
+        }),
+        disposition: _enumValue(policyEvaluated, "disposition", DMARC_POLICY_VALUES),
+        dkim_aligned_result: _enumValue(
+          policyEvaluated,
+          "dkim",
+          DMARC_EVALUATED_VALUES,
+        ),
+        spf_aligned_result: _enumValue(
+          policyEvaluated,
+          "spf",
+          DMARC_EVALUATED_VALUES,
+        ),
+        header_from: _xmlText(identifiers, "header_from", {
+          required: true,
+          maxLength: 253,
+          normalize: _normalizeDmarcDomain,
+        }),
+        envelope_from: _xmlText(identifiers, "envelope_from", {
+          required: false,
+          maxLength: 253,
+          normalize: _normalizeDmarcDomain,
+        }),
+        dkim_domain: firstDkim?.domain || null,
+        dkim_selector: firstDkim?.selector || null,
+        dkim_result: firstDkim?.result || null,
+        spf_domain: firstSpf?.domain || null,
+        spf_result: firstSpf?.result || null,
+      });
+    }
+    return { metadata, policy_published, records };
+  } catch (error) {
+    return {
+      error: error?.code || "invalid_structure",
+      message: String(error?.message || "The DMARC report is malformed.").slice(0, 300),
+    };
   }
-  if (records.length === 0) {
-    return { error: "no_records", message: "The DMARC report contained no record rows." };
-  }
-  return { metadata, policy_published, records };
 }
 
 // Basic, never-overclaiming provider guessing from real DMARC sender signals.
@@ -256,11 +624,11 @@ async function dmarcReportIdentity(xmlString, parsed) {
 
 // Pure, testable: does a parsed report belong to the bound domain? Used to stop
 // one domain's upload key from poisoning another domain's sender intelligence.
-// A report with no published policy domain cannot be disproven, so it is allowed
-// (documented limitation) — the workspace+domain binding still scopes the data.
+// Missing/invalid policy domains fail closed in the strict parser and again here
+// so no caller can attribute an unbound report body to the endpoint domain.
 function dmarcReportDomainMatches(parsed, boundDomain) {
   const reportDomain = (parsed?.policy_published?.domain || "").trim().toLowerCase();
-  if (!reportDomain) return true;
+  if (!reportDomain) return false;
   return reportDomain === String(boundDomain || "").trim().toLowerCase();
 }
 
@@ -782,10 +1150,10 @@ function parseEmailAuthHeaders(raw, domain) {
 
 export {
   DMARC_MAX_RECORDS,
+  DMARC_MAX_MESSAGES_PER_RECORD,
   DMARC_PROVIDER_PATTERNS,
   DMARC_XML_MAX_BYTES,
   RUA_INBOUND_DOMAIN_DEFAULT,
-  _dmarcInt,
   _xmlBlocks,
   _xmlDecodeEntities,
   _xmlFirst,

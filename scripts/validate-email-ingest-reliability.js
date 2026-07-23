@@ -185,7 +185,8 @@ function dmarcXml(reportId, rows, {
   countOffset = 0,
 } = {}) {
   const metadata = includeMetadata
-    ? `<org_name>Reporter</org_name><report_id>${reportId}</report_id>` +
+    ? `<org_name>Reporter</org_name><email>reports@reporter.example</email>` +
+      `<report_id>${reportId}</report_id>` +
       "<date_range><begin>1784764800</begin><end>1784851200</end></date_range>"
     : `<report_id>${reportId}</report_id>`;
   const records = Array.from({ length: rows }, (_, index) => `
@@ -452,7 +453,7 @@ ok("worst-case DMARC transaction preserves material D1 headroom",
     workspaceId: binding.workspace,
     domain: "victim.example",
     source: "inbound_email",
-    xmlString: dmarcXml("null-metadata", 1, { includeMetadata: false }),
+    xmlString: dmarcXml("concurrent-complete-metadata", 1),
     domainId: binding.domainId,
     enforceDomainMatch: true,
   };
@@ -460,7 +461,7 @@ ok("worst-case DMARC transaction preserves material D1 headroom",
     ingestDmarcReport(env, opts),
     ingestDmarcReport(env, opts),
   ]);
-  ok("concurrent null-metadata deliveries cannot bypass atomic claim dedupe",
+  ok("concurrent valid deliveries cannot bypass atomic claim dedupe",
     [first, second].filter((result) => result.ok && result.imported).length === 1 &&
     db.prepare("SELECT COUNT(*) c FROM aggregate_report_ingest_claims").get().c === 1 &&
     db.prepare("SELECT COUNT(*) c FROM dmarc_aggregate_reports").get().c === 1);
@@ -468,10 +469,10 @@ ok("worst-case DMARC transaction preserves material D1 headroom",
     `SELECT identity_org_name, identity_date_begin, identity_date_end
      FROM aggregate_report_ingest_claims`,
   ).get();
-  ok("nullable natural metadata is normalized into non-null identity fields",
-    claim.identity_org_name === "" &&
-    claim.identity_date_begin === "" &&
-    claim.identity_date_end === "");
+  ok("strict metadata produces non-null atomic identity fields",
+    claim.identity_org_name === "Reporter" &&
+    claim.identity_date_begin === "1784764800" &&
+    claim.identity_date_end === "1784851200");
 }
 
 {
