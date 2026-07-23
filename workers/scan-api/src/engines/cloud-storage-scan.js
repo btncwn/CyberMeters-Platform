@@ -165,10 +165,28 @@ async function readResponseTextLimit(response, limit = 8192) {
   return new TextDecoder().decode(out);
 }
 
+function combineSignals(...signals) {
+  const active = signals.filter(Boolean);
+  if (active.length === 0) return undefined;
+  if (active.length === 1) return active[0];
+  if (typeof AbortSignal.any === "function") return AbortSignal.any(active);
+  const controller = new AbortController();
+  const abort = () => {
+    const aborted = active.find((s) => s.aborted);
+    controller.abort(aborted?.reason);
+  };
+  for (const signal of active) {
+    if (signal.aborted) { abort(); break; }
+    signal.addEventListener("abort", abort, { once: true });
+  }
+  return controller.signal;
+}
+
 async function countedFetch(url, init, accounting = null) {
+  accounting?.assertCanIssue?.();
   accounting?.recordAttempt?.();
   try {
-    const res = await fetch(url, init);
+    const res = await fetch(url, { ...init, signal: combineSignals(init?.signal, accounting?.signal) });
     accounting?.recordCompleted?.();
     return res;
   } catch (err) {

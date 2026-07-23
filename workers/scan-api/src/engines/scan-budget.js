@@ -105,12 +105,35 @@ export class SubrequestBudget {
 // root cause: an invocation with wallTime 31170ms / cpuTime 40ms / outcome "ok"
 // logged "waitUntil() tasks did not complete ... have been cancelled".
 export const SCAN_DEADLINE_DEFAULTS = Object.freeze({
-  budgetMs:    21_000, // network phases stop here — ~9s reserved under the ~30s cliff
+  // PR-B2 measured from 13 PR-C2 queue samples: keep a hard finalisation reserve
+  // below the ~30s waitUntil cliff, and stop launching/issuing network attempts
+  // once the executable budget is spent.
+  totalCeilingMs:        24_000,
+  finalizationReserveMs:  5_000,
+  budgetMs:             19_000,
   minBudgetMs:  5_000,
   // Hard ceiling on the config override: even at max, ≥6s stays reserved for
   // finalization (the terminal R2+D1 write runs first in finalization and is fast,
   // so this comfortably protects the anti-orphan guarantee).
-  maxBudgetMs: 24_000,
+  maxBudgetMs: 19_000,
+});
+
+export const SCAN_MODULE_BUDGETS = Object.freeze({
+  dns:                           750,
+  dns_bruteforce:                750,
+  email_security:                750,
+  technology_detection:          500,
+  whois_intelligence:          2_000,
+  headers:                     1_200,
+  ssl:                         9_000,
+  subdomains:                 12_000,
+  subdomain_takeover:            750,
+  asset_exposure:              2_500,
+  cve_intelligence:            1_000,
+  known_exploited_vulnerabilities: 1_000,
+  email_security_intelligence: 1_000,
+  phase5_intelligence:         1_000,
+  cloud_storage_discovery:       500,
 });
 
 // A monotonic wall-clock deadline. `now` is injectable so tests can drive the clock
@@ -120,14 +143,19 @@ export function createScanDeadline(env = {}, now = Date.now) {
   const budgetMs = clampInt(env.SCAN_DEADLINE_MS, SCAN_DEADLINE_DEFAULTS.budgetMs,
     SCAN_DEADLINE_DEFAULTS.minBudgetMs, SCAN_DEADLINE_DEFAULTS.maxBudgetMs);
   const startedAtMs = now();
+  const controller = new AbortController();
   return {
     budgetMs,
+    totalCeilingMs: SCAN_DEADLINE_DEFAULTS.totalCeilingMs,
+    finalizationReserveMs: SCAN_DEADLINE_DEFAULTS.finalizationReserveMs,
     startedAtMs,
+    signal: controller.signal,
     elapsedMs()   { return now() - startedAtMs; },
     remainingMs() { return Math.max(0, budgetMs - (now() - startedAtMs)); },
     exceeded()    { return now() - startedAtMs >= budgetMs; },
     // A phase launches only if elapsed + its estimate still fits the budget.
     canRun(estimateMs = 0) { return (now() - startedAtMs) + estimateMs < budgetMs; },
+    cancel(reason = "scan_deadline_exhausted") { if (!controller.signal.aborted) controller.abort(reason); },
   };
 }
 
@@ -368,6 +396,8 @@ export function buildExecutionDiagnostics({ executionContext = null, trigger = n
     execution_context:  executionContext ?? null,
     trigger:            trigger ?? null,
     deadline_budget_ms: deadline?.budgetMs ?? null,
+    total_ceiling_ms:   deadline?.totalCeilingMs ?? null,
+    finalization_reserve_ms: deadline?.finalizationReserveMs ?? null,
     engine_wall_ms:     typeof deadline?.elapsedMs === "function" ? deadline.elapsedMs() : null,
     modules: (telemetry?.rows ?? []).map((r) => ({
       module:         r.module,
