@@ -123,6 +123,9 @@ function makeD1(db) {
   db.prepare("INSERT INTO workspaces (id, owner_user_id, name) VALUES ('wsS','u','WS')").run();
   db.prepare("INSERT INTO domains (id, user_id, domain) VALUES ('dS','u','acme.example')").run();
   db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES ('wsS','dS')").run();
+  db.prepare(`INSERT INTO dmarc_aggregate_reports
+    (id, workspace_id, domain, external_report_id, source, created_at)
+    VALUES ('rep1','wsS','acme.example','spf-authority-1','manual_paste',datetime('now'))`).run();
   const rec = (ip, res, i) => db.prepare(`INSERT INTO dmarc_aggregate_records (id, report_id, workspace_id, domain, source_ip, message_count, spf_result, spf_domain, created_at) VALUES (?, 'rep1','wsS','acme.example', ?, 5, ?, 'acme.example', datetime('now'))`).run(`rec${i}`, ip, res);
   rec("203.0.113.9", "fail", 1);   // outside the /24 authorised set → should alert
   rec("192.0.2.7", "fail", 2);     // inside the authorised set → must NOT alert
@@ -146,6 +149,9 @@ function makeD1(db) {
   db.prepare("INSERT INTO workspaces (id, owner_user_id, name) VALUES ('wsT','u','WS')").run();
   db.prepare("INSERT INTO domains (id, user_id, domain) VALUES ('dT','u','acme.example')").run();
   db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES ('wsT','dT')").run();
+  db.prepare(`INSERT INTO dmarc_aggregate_reports
+    (id, workspace_id, domain, external_report_id, source, created_at)
+    VALUES ('rep','wsT','acme.example','spf-authority-2','signed_upload',datetime('now'))`).run();
   db.prepare(`INSERT INTO dmarc_aggregate_records (id, report_id, workspace_id, domain, source_ip, message_count, spf_result, spf_domain, created_at) VALUES ('t1','rep','wsT','acme.example','203.0.113.9',5,'fail','acme.example', datetime('now'))`).run();
   const modules = { email_security: { spf: { resolution_status: "temperror", resolved_pass_authorisations: null }, spf_detail: { policy_strength: "strong" } } };
   const out = await recordSpfRuaCorroboration("scanT", "dT", "acme.example", modules, env, { nowIso: new Date().toISOString() });

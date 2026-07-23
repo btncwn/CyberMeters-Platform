@@ -32,24 +32,38 @@ const env = { cybermeters_db: makeD1(db) };
 
 let seq = 0;
 // Seed an aggregate record. agedDays shifts created_at into the past.
-const rec = (ws, domain, msgs, aligned, agedDays = 0) =>
+const rec = (ws, domain, msgs, aligned, agedDays = 0, source = "manual_paste") => {
+  const reportId = `rep${++seq}`;
+  db.prepare(`INSERT INTO dmarc_aggregate_reports
+    (id, workspace_id, domain, external_report_id, record_count, message_count, source, created_at)
+    VALUES (?, ?, ?, ?, 1, ?, ?, datetime('now', ?))`)
+    .run(reportId, ws, domain, reportId, msgs, source, `-${agedDays} days`);
   db.prepare(`INSERT INTO dmarc_aggregate_records
     (id, report_id, workspace_id, domain, source_ip, message_count, disposition,
      dkim_aligned_result, spf_aligned_result, created_at)
-    VALUES (?, 'rep', ?, ?, '1.1.1.1', ?, 'none', ?, ?, datetime('now', ?))`)
-    .run(`r${++seq}`, ws, domain, msgs, aligned ? "pass" : "fail", aligned ? "pass" : "fail", `-${agedDays} days`);
+    VALUES (?, ?, ?, ?, '1.1.1.1', ?, 'none', ?, ?, datetime('now', ?))`)
+    .run(`r${++seq}`, reportId, ws, domain, msgs,
+      aligned ? "pass" : "fail", aligned ? "pass" : "fail", `-${agedDays} days`);
+};
 
 // ── getHostedDmarcPassRate: windowed pass-rate + tenant scope ─────────────────
 rec("ws_a", "acme.co.uk", 98, true);      // in-window aligned
 rec("ws_a", "acme.co.uk", 2, false);      // in-window failing
 rec("ws_a", "acme.co.uk", 1000, true, 30); // OUT of the 7-day window (must be ignored)
 rec("ws_b", "acme.co.uk", 500, false);    // another tenant, SAME domain (isolation)
+rec("ws_a", "acme.co.uk", 1_000_000, false, 0, "inbound_email"); // forged inbound: no authority
+rec("ws_a", "acme.co.uk", 1_000_000, false, 0, "unknown_source"); // unknown: fail closed
+rec("ws_c", "signed.example", 99, true, 0, "signed_upload");      // existing explicit path
 
 const pr = await getHostedDmarcPassRate(env, "ws_a", "acme.co.uk", { sinceDays: 7 });
 ok("pass-rate computed from in-window records only", pr.total === 100 && pr.pass_rate === 98);
 ok("out-of-window records excluded (30d-old row ignored)", pr.total === 100);
+ok("forged inbound and unknown-source records have zero hosted-DNS authority",
+  pr.total === 100 && pr.pass_rate === 98 && pr.inbound_automation_suspended === true);
 const prB = await getHostedDmarcPassRate(env, "ws_b", "acme.co.uk", { sinceDays: 7 });
 ok("tenant-scoped: ws_b sees only its own records (not ws_a's)", prB.total === 500 && prB.pass_rate === 0);
+const prSigned = await getHostedDmarcPassRate(env, "ws_c", "signed.example", { sinceDays: 7 });
+ok("explicit signed-upload regression path remains eligible", prSigned.total === 99 && prSigned.pass_rate === 100);
 const prEmpty = await getHostedDmarcPassRate(env, "ws_none", "nope.co", { sinceDays: 7 });
 ok("no data → null pass-rate (honest, not a fake number)", prEmpty.total === 0 && prEmpty.pass_rate === null);
 

@@ -4,6 +4,10 @@
 // route and the inbound email worker path.
 import { createId } from "./util.js";
 import { createAuditEvent } from "./events.js";
+import {
+  DMARC_AUTHORITY_ELIGIBLE_SOURCES,
+  isDmarcAuthorityEligibleSource,
+} from "./dmarc-authority.js";
 import { PROVIDER_MAP_VERSION, classifyWorkspaceDomainSenders } from "../engines/sender-classification.js";
 import { evaluateEmailSenderMonitoring } from "../engines/email-protection-lifecycle.js";
 
@@ -281,7 +285,7 @@ function ingestEndpointIsActive(row) {
  */
 async function ingestDmarcReport(env, opts = {}) {
   const {
-    workspaceId, domain, source = "manual_paste", xmlString,
+    workspaceId, domain, source = "unknown", xmlString,
     filename: rawFilename = null, actorUserId = null,
     ingestEndpointId = null, domainId = null, enforceDomainMatch = false,
     provenance = null,
@@ -366,7 +370,17 @@ async function ingestDmarcReport(env, opts = {}) {
   }
 
   const rollup = await updateEmailSenderSources(env, workspaceId, domain, parsed);
-  try { await classifyWorkspaceDomainSenders(env, workspaceId, domain); } catch { /* auto-classification is best-effort */ }
+  const authorityEligible = isDmarcAuthorityEligibleSource(source);
+  // PR-5.5 Gate 1: inbound email remains stored and rolled up for observational
+  // display, but it cannot refresh an authoritative classifier or enter the
+  // case/alert/recovery consumer. Unknown/unmarked sources fail closed too.
+  if (authorityEligible) {
+    try {
+      await classifyWorkspaceDomainSenders(env, workspaceId, domain, {
+        reportSources: DMARC_AUTHORITY_ELIGIBLE_SOURCES,
+      });
+    } catch { /* auto-classification is best-effort */ }
+  }
   // PR-B3: evaluate the sender lifecycle HERE, because ingesting a new report is
   // the only moment the receiver-reported evidence can have changed. This is
   // deliberately not a cron sweep: the legacy hourly sweep re-read cumulative
@@ -376,9 +390,11 @@ async function ingestDmarcReport(env, opts = {}) {
   // Runs AFTER auto-classification so the grading sees this report's verdict
   // rather than the previous one. Best-effort: alerting must never fail an
   // ingest, or a delivery problem would start losing customer evidence.
-  try {
-    await evaluateEmailSenderMonitoring(env, workspaceId, domain);
-  } catch { /* alerting must never break evidence ingestion */ }
+  if (authorityEligible) {
+    try {
+      await evaluateEmailSenderMonitoring(env, workspaceId, domain);
+    } catch { /* alerting must never break evidence ingestion */ }
+  }
   await createAuditEvent(env, {
     workspace_id: workspaceId, user_id: actorUserId, event_type: "dmarc_report_ingested",
     entity_type: "domain", entity_id: domainId,

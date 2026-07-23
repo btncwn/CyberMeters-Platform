@@ -3,15 +3,13 @@
 // Q7 — DMARC / TLS-RPT report trust boundary. CI-blocking. Node 24+.
 //
 // The rua report address is, by DMARC/TLS-RPT protocol, an UNAUTHENTICATED public
-// inbox (customers publish it in DNS). This proves a forged report is bounded to
-// workspace+domain-scoped OBSERVED telemetry and gains NO downstream authority —
-// no cross-tenant write, no trusted "verified"/healthy/score credit, no attacker
-// case/remediation closure — and that hostile input is bounded (parser safety, size
-// caps, tenant binding, dedupe) PLUS the newly-added per-endpoint inbound rate limit.
+// inbox (customers publish it in DNS). This proves the parser, tenant binding,
+// dedupe and inbound-rate-limit boundary. Gate 1's end-to-end downstream
+// non-authority proof lives in validate-inbound-email-authority-containment.js.
 //
-// Disposition: Q7 is an inherent protocol trust limitation, correctly classified P3,
-// with the one missing bounded control (inbound rate limit) now added. See
-// docs/security/Q7-DMARC-TRUST-BOUNDARY.md.
+// The former P3 disposition is superseded by the confirmed P0 authority path:
+// unauthenticated inbound data could steer external DNS and authoritative
+// outcomes. PR-5.5 Gate 1 contains that path without changing ingest semantics.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -172,8 +170,9 @@ guard("D inbound per-endpoint rate limit present", inboundSrc,
   (s) => /deps\.consumeApiRateLimit/.test(s) && /"rua_inbound", 120, 3600/.test(s),
   (s) => s.replace('"rua_inbound", 120, 3600', '"rua_inbound", 999999, 3600'));
 
-// absence-of-authority: no scoring/posture engine reads the ingested tables (a forged
-// report can never move a score or turn a domain healthy). Grep is the proof.
+// Direct scoring/posture engines still do not read the ingest tables. The
+// authority-bearing sender/readiness/lifecycle consumers are separately proven
+// source-gated by validate-inbound-email-authority-containment.js.
 const SCORING = ["engines/scoring.js", "engines/business-risk.js", "engines/executive-report.js"];
 for (const f of SCORING) {
   const src = read(f);
