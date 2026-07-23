@@ -3,20 +3,40 @@
 // Pure module: depends only on global fetch/AbortSignal. Extracted verbatim from
 // index.js (monolith decomposition, Phase 1). Behavior-preserving — no logic change.
 
+function combineSignals(...signals) {
+  const active = signals.filter(Boolean);
+  if (active.length === 0) return undefined;
+  if (active.length === 1) return active[0];
+  if (typeof AbortSignal.any === "function") return AbortSignal.any(active);
+  const controller = new AbortController();
+  const abort = () => {
+    const aborted = active.find((s) => s.aborted);
+    controller.abort(aborted?.reason);
+  };
+  for (const signal of active) {
+    if (signal.aborted) { abort(); break; }
+    signal.addEventListener("abort", abort, { once: true });
+  }
+  return controller.signal;
+}
+
 export async function dnsQuery(name, type, opts = {}) {
+  opts.accounting?.assertCanIssue?.();
   opts.accounting?.recordAttempt?.();
+  let attemptInFlight = true;
   let res;
   try {
     res = await fetch(
       `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}`,
       {
         headers: { Accept: "application/dns-json" },
-        signal: AbortSignal.timeout(6_000),
+        signal: combineSignals(opts.signal, opts.accounting?.signal, AbortSignal.timeout(6_000)),
       }
     );
     opts.accounting?.recordCompleted?.();
+    attemptInFlight = false;
   } catch (err) {
-    opts.accounting?.recordError?.(err);
+    if (attemptInFlight) opts.accounting?.recordError?.(err);
     throw err;
   }
   if (!res.ok) throw new Error(`DoH ${res.status} for ${type} ${name}`);
@@ -41,19 +61,22 @@ export async function dnsResolveACached(name, cache = null, opts = {}) {
 }
 
 export async function dnsQueryDnssec(name, type, opts = {}) {
+  opts.accounting?.assertCanIssue?.();
   opts.accounting?.recordAttempt?.();
+  let attemptInFlight = true;
   let res;
   try {
     res = await fetch(
       `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}&do=1`,
       {
         headers: { Accept: "application/dns-json" },
-        signal: AbortSignal.timeout(6_000),
+        signal: combineSignals(opts.signal, opts.accounting?.signal, AbortSignal.timeout(6_000)),
       }
     );
     opts.accounting?.recordCompleted?.();
+    attemptInFlight = false;
   } catch (err) {
-    opts.accounting?.recordError?.(err);
+    if (attemptInFlight) opts.accounting?.recordError?.(err);
     throw err;
   }
   if (!res.ok) throw new Error(`DoH DNSSEC ${res.status} for ${type} ${name}`);
@@ -61,16 +84,19 @@ export async function dnsQueryDnssec(name, type, opts = {}) {
 }
 
 export async function dnsQueryGoogle(name, type, opts = {}) {
+  opts.accounting?.assertCanIssue?.();
   opts.accounting?.recordAttempt?.();
+  let attemptInFlight = true;
   let res;
   try {
     res = await fetch(
       `https://dns.google/resolve?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}`,
-      { signal: AbortSignal.timeout(6_000) }
+      { signal: combineSignals(opts.signal, opts.accounting?.signal, AbortSignal.timeout(6_000)) }
     );
     opts.accounting?.recordCompleted?.();
+    attemptInFlight = false;
   } catch (err) {
-    opts.accounting?.recordError?.(err);
+    if (attemptInFlight) opts.accounting?.recordError?.(err);
     throw err;
   }
   if (!res.ok) throw new Error(`Google DoH ${res.status} for ${type} ${name}`);
@@ -80,20 +106,24 @@ export async function dnsQueryGoogle(name, type, opts = {}) {
 export async function dnsQueryQuad9(name, type, opts = {}) {
   // Quad9 DoH — optional third resolver for A/AAAA agreement checks.
   // Never throws: failure returns null so budget-safe.
+  let attemptInFlight = false;
   try {
+    opts.accounting?.assertCanIssue?.();
     opts.accounting?.recordAttempt?.();
+    attemptInFlight = true;
     const res = await fetch(
       `https://dns.quad9.net/dns-query?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}`,
       {
         headers: { Accept: "application/dns-json" },
-        signal: AbortSignal.timeout(5_000),
+        signal: combineSignals(opts.signal, opts.accounting?.signal, AbortSignal.timeout(5_000)),
       }
     );
     opts.accounting?.recordCompleted?.();
+    attemptInFlight = false;
     if (!res.ok) return null;
     return res.json();
   } catch (err) {
-    opts.accounting?.recordError?.(err);
+    if (attemptInFlight) opts.accounting?.recordError?.(err);
     return null;
   }
 }

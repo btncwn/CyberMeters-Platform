@@ -174,8 +174,8 @@ function d1Stub({ fail = false } = {}) {
   // Non-advancing fake clock: time moves only via tick().
   let t = 0;
   const clock = () => t;
-  const dl = createScanDeadline({}, clock); // 21_000 budget from t=0
-  t = 1_000; // 20_000 remaining
+  const dl = createScanDeadline({}, clock); // 19_000 executable budget from t=0
+  t = 1_000; // 18_000 remaining
 
   let reported = null;
   const v = await raceModuleDeadline(dl, async () => "done", () => "deferred", {
@@ -183,10 +183,10 @@ function d1Stub({ fail = false } = {}) {
     setTimer: () => null, clearTimer: () => {},
   });
   eq("race resolves module value with onStart present", v, "done");
-  eq("onStart reports remaining budget as the cap", reported, 20_000);
+  eq("onStart reports remaining budget as the cap", reported, 18_000);
 
   // hardMs narrows the cap — onStart must report the NARROWED value (mutation
-  // direction: a call-site re-computation of remainingMs would report 20_000).
+  // direction: a call-site re-computation of remainingMs would report 18_000).
   reported = null;
   await raceModuleDeadline(dl, async () => "done", () => "deferred", {
     hardMs: 5_000, onStart: (capMs) => { reported = capMs; },
@@ -235,7 +235,9 @@ function d1Stub({ fail = false } = {}) {
   const diag = buildExecutionDiagnostics({ executionContext: "queue", deadline: dl, telemetry: telem });
   eq("diagnostics version stamped", diag.version, SCAN_EXECUTION_DIAGNOSTICS_VERSION);
   eq("execution_context passthrough", diag.execution_context, "queue");
-  eq("deadline budget surfaced", diag.deadline_budget_ms, 21_000);
+  eq("deadline budget surfaced", diag.deadline_budget_ms, 19_000);
+  eq("total ceiling surfaced", diag.total_ceiling_ms, 24_000);
+  eq("finalization reserve surfaced", diag.finalization_reserve_ms, 5_000);
   eq("engine_wall_ms from deadline elapsed", diag.engine_wall_ms, 4_321);
   eq("one diagnostics row per telemetry row", diag.modules.length, 4);
   eq("wall_ms mirrors duration_ms", diag.modules[0].wall_ms, 812);
@@ -637,6 +639,58 @@ function d1Stub({ fail = false } = {}) {
   eq("C1A abandoned partial count never written to D1", env._calls[0].args[6], null);
 }
 
+// ── B2. Leaf cancellation preserves caller signal and stops new attempts ──
+{
+  const acct = createOutboundAccounting();
+  const ctx = acct.contextFor("headers");
+  const caller = new AbortController();
+  let seenSignal = null;
+  await withMockFetch(async () => {
+    const res = await safeFetch("https://example.com", { signal: caller.signal, accounting: ctx });
+    eq("B2 caller-signal fetch succeeds", res.status, 200);
+  }, async (_url, init) => {
+    seenSignal = init.signal;
+    caller.abort("caller_abort");
+    ok("B2 combined signal observes caller abort", seenSignal.aborted === true);
+    return new Response("ok", { status: 200 });
+  });
+  eq("B2 caller-signal attempt counted once", acct.snapshot("headers").outbound_attempts_observed, 1);
+}
+
+{
+  const acct = createOutboundAccounting();
+  const ctx = acct.contextFor("headers");
+  const controller = new AbortController();
+  controller.abort("module_budget_exhausted");
+  ctx.signal = controller.signal;
+  ctx.assertCanIssue = () => { if (ctx.signal.aborted) throw new DOMException("Module budget exhausted", "AbortError"); };
+  let launched = false;
+  await withMockFetch(async () => {
+    const res = await safeFetch("https://example.com", { accounting: ctx });
+    eq("B2 cancelled leaf returns null", res, null);
+  }, async () => { launched = true; return new Response("unexpected"); });
+  eq("B2 cancellation prevents physical fetch launch", launched, false);
+  eq("B2 cancelled leaf does not count a new attempt", acct.snapshot("headers").outbound_attempts_observed, 0);
+}
+
+{
+  const acct = createOutboundAccounting();
+  const ctx = acct.contextFor("dns");
+  const controller = new AbortController();
+  controller.abort("scan_deadline_exhausted");
+  ctx.signal = controller.signal;
+  ctx.assertCanIssue = () => { if (ctx.signal.aborted) throw new DOMException("Scan deadline exhausted", "AbortError"); };
+  let launched = false;
+  await withMockFetch(async () => {
+    let threw = false;
+    try { await dnsQuery("example.com", "A", { accounting: ctx }); }
+    catch (err) { threw = err?.name === "AbortError"; }
+    ok("B2 DNS cancellation propagates AbortError", threw);
+  }, async () => { launched = true; return jsonResponse({ Answer: [] }); });
+  eq("B2 DNS cancellation prevents physical DoH launch", launched, false);
+  eq("B2 DNS cancelled leaf does not count a new attempt", acct.snapshot("dns").outbound_attempts_observed, 0);
+}
+
 {
   const src = (...p) => fs.readFileSync(path.join(root, ...p), "utf8");
   const engineSrc = src("workers", "scan-api", "src", "engines", "scan-engine.js");
@@ -684,11 +738,35 @@ function d1Stub({ fail = false } = {}) {
     (s) => /headRes = await countedFetch\(headUrl,[\s\S]{0,120}accounting/.test(s) && /getRes = await countedFetch\(listUrl,[\s\S]{0,120}accounting/.test(s),
     (s) => s.replace(/countedFetch\(listUrl,/, "fetch(listUrl,"));
   sourceGuard("C1B scan-engine threads module contexts", engineSrc,
-    (s) => /runSslModule\(domain, \{ accounting: sslOutbound \}\)/.test(s) && /runSubdomainsModule\(domain, \{ accounting: subdomainsOutbound \}\)/.test(s) && /runBruteforceModule\(domain, \{ accounting: bruteforceOutbound \}\)/.test(s) && /runCloudStorageModule\(domain, modules, \{ accounting: cloudOutbound \}\)/.test(s),
-    (s) => s.replace('runSslModule(domain, { accounting: sslOutbound })', "runSslModule(domain)"));
+    (s) => /runSslModule\(domain, \{ accounting, signal \}\)/.test(s) && /runSubdomainsModule\(domain, \{ accounting, signal \}\)/.test(s) && /runBruteforceModule\(domain, \{ accounting, signal \}\)/.test(s) && /runCloudStorageModule\(domain, modules, \{ accounting, signal \}\)/.test(s),
+    (s) => s.replace('runSslModule(domain, { accounting, signal })', "runSslModule(domain)"));
   sourceGuard("C1B complete-set includes newly covered modules", budgetSrc,
     (s) => ["ssl", "subdomains", "dns_bruteforce", "cloud_storage_discovery"].every((m) => s.includes(`"${m}"`)),
     (s) => s.replace('"cloud_storage_discovery",', ""));
+  sourceGuard("B2 measured module caps exist", budgetSrc,
+    (s) => /SCAN_MODULE_BUDGETS/.test(s) && /ssl:\s*9_000/.test(s) && /subdomains:\s*12_000/.test(s) && /asset_exposure:\s*2_500/.test(s),
+    (s) => s.replace("asset_exposure:              2_500", "asset_exposure:              8_000"));
+  sourceGuard("B2 finalization reserve is explicit in diagnostics", budgetSrc,
+    (s) => /finalizationReserveMs:\s*5_000/.test(s) && /finalization_reserve_ms: deadline\?\.finalizationReserveMs/.test(s),
+    (s) => s.replace(/finalization_reserve_ms: deadline\?\.finalizationReserveMs \?\? null,\n/, ""));
+  sourceGuard("B2 capped runner aborts module child signal", engineSrc,
+    (s) => /controller\.abort\("module_budget_exhausted"\)/.test(s) && /ctx\.assertCanIssue/.test(s),
+    (s) => s.replace(/controller\.abort\("module_budget_exhausted"\);/g, ""));
+  sourceGuard("B2 sequential capped module errors preserve module-shaped results", engineSrc,
+    (s) => /takeoverThrown[\s\S]{0,260}takeover_probe_failed/.test(s) && /exposureThrown[\s\S]{0,260}exposure_probe_failed/.test(s) && /cloudThrown[\s\S]{0,260}cloud_storage_probe_failed/.test(s),
+    (s) => s.replace("cloud_storage_probe_failed", "cloud_storage_probe_missing"));
+  sourceGuard("B2 sequential capped module errors mark outbound incomplete", engineSrc,
+    (s) => /takeoverOutbound\?\.markIncomplete\?\.\("module_error"\)/.test(s) && /exposureOutbound\?\.markIncomplete\?\.\("module_error"\)/.test(s) && /cloudOutbound\?\.markIncomplete\?\.\("module_error"\)/.test(s),
+    (s) => s.replace('cloudOutbound?.markIncomplete?.("module_error");', ""));
+  sourceGuard("B2 incomplete outbound counts remain D1 null", budgetSrc,
+    (s) => /outbound_measurement_complete \? snap\.outbound_attempts_observed : null/.test(s),
+    (s) => s.replace("outbound_measurement_complete ? snap.outbound_attempts_observed : null", "outbound_attempts_observed"));
+  sourceGuard("B2 native counted fetches preserve caller and module signals", subdomainsSrc + "\n" + cloudSrc,
+    (s) => (s.match(/function combineSignals\(/g) || []).length >= 2 && !/accounting\?\.signal \|\| init\?\.signal/.test(s),
+    (s) => s.replace(/combineSignals\(init\?\.signal, accounting\?\.signal\)/g, "accounting?.signal || init?.signal"));
+  sourceGuard("B2 reserved mode is explicitly documented as not B2-covered", engineSrc,
+    (s) => /SCAN_CAPACITY_MODE=reserved experiment[\s\S]{0,260}not be treated as[\s\S]{0,120}B2 cancellation\/accounting guarantees/.test(s),
+    (s) => s.replace("not be treated as", "be treated as"));
   const frontendFiles = [];
   const walk = (dir) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {

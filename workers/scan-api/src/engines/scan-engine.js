@@ -41,7 +41,7 @@ import { recordPostureEvents } from "./posture-events.js";
 import { recordSpfRuaCorroboration } from "./spf-corroboration.js";
 import { buildAssetTimelineTrustMetadata, loadTimelineComparisonContext } from "./timeline-trust.js";
 import { runReservedScan } from "./reserved-scan.js";
-import { buildExecutionDiagnostics, createModuleTelemetry, createOutboundAccounting, createScanDeadline, markDeadlineDeferred, MODULE_SUBREQUEST_COST, raceModuleDeadline, resolveScanCapacity, skippedModuleResult } from "./scan-budget.js";
+import { buildExecutionDiagnostics, createModuleTelemetry, createOutboundAccounting, createScanDeadline, markDeadlineDeferred, MODULE_SUBREQUEST_COST, raceModuleDeadline, resolveScanCapacity, SCAN_MODULE_BUDGETS, skippedModuleResult } from "./scan-budget.js";
 import { computeScore, isEmailApplicable } from "./scoring.js";
 import { runSslModule } from "./ssl-scan.js";
 import { BRUTEFORCE_MAX_NAMES, filterWildcardBruteforceResults, runBruteforceModule, runSubdomainsModule } from "./subdomains-scan.js";
@@ -314,7 +314,53 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
   // Per-module telemetry collector (persisted at finalization; non-fatal).
   const telemetry = createModuleTelemetry(now);
   const outboundAccounting = createOutboundAccounting();
-  const outboundContext = (module) => outboundAccounting.contextFor(module);
+  const createChildSignal = () => {
+    const controller = new AbortController();
+    if (deadline.signal?.aborted) controller.abort(deadline.signal.reason);
+    else deadline.signal?.addEventListener("abort", () => controller.abort(deadline.signal.reason), { once: true });
+    return controller;
+  };
+  const outboundContext = (module, signal = null) => {
+    const ctx = outboundAccounting.contextFor(module);
+    ctx.signal = signal || null;
+    ctx.assertCanIssue = () => {
+      if (deadline.exceeded()) {
+        deadline.cancel?.("scan_deadline_exhausted");
+        throw new DOMException("Scan deadline exhausted", "AbortError");
+      }
+      if (ctx.signal?.aborted) throw new DOMException("Module budget exhausted", "AbortError");
+    };
+    return ctx;
+  };
+  const moduleCapFor = (module) => SCAN_MODULE_BUDGETS[module] ?? deadline.remainingMs();
+  const runCappedModule = async (module, { fallback, estimateMs = moduleCapFor(module), hardMs = moduleCapFor(module), run }) => {
+    let allocatedMs = 0;
+    let startedMs = null;
+    let ctx = null;
+    if (!deadline.canRun(estimateMs)) {
+      return { value: fallback(), ctx, allocatedMs, startedMs, timedOut: true, timeoutSource: "launch_gate" };
+    }
+    const controller = createChildSignal();
+    ctx = outboundContext(module, controller.signal);
+    startedMs = now();
+    let value = null, thrown = null;
+    try {
+      value = await raceModuleDeadline(
+        deadline,
+        () => run({ accounting: ctx, signal: controller.signal }),
+        () => {
+          controller.abort("module_budget_exhausted");
+          return fallback();
+        },
+        { hardMs, onStart: (capMs) => { allocatedMs = capMs; } },
+      );
+    } catch (err) {
+      thrown = err;
+    }
+    const timedOut = value?.outcome === "deadline_exceeded";
+    if (timedOut && !controller.signal.aborted) controller.abort("module_budget_exhausted");
+    return { value, thrown, ctx, allocatedMs, startedMs, timedOut, timeoutSource: timedOut ? "module_race" : null };
+  };
   const settleOutbound = (ctx, module, settled) => {
     if (!ctx) return null;
     if (settled?.status === "fulfilled" && telemetry.outcomeOf(settled.value) === "ok") {
@@ -363,6 +409,11 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     // Capacity mode (default "legacy" — the legacy branch below is byte-for-byte the
     // prior behaviour). "reserved" runs the separated exposure-first flow.
     const capacity = resolveScanCapacity(env);
+    // PR-B2 applies to the default queue-era scan path. The older
+    // SCAN_CAPACITY_MODE=reserved experiment has its own hard-50 subrequest
+    // validators and is not enabled in production; it must not be treated as
+    // covered by the B2 cancellation/accounting guarantees until a dedicated
+    // reserved-mode follow-up threads the same module-bound signals through it.
     const reservedMode = capacity.mode === "reserved";
 
     // Network module results — set by whichever path runs; both produce the same shape
@@ -385,53 +436,79 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       assetExposureResult = m.asset_exposure; criticalPrefixResult = m.critical_prefix_discovery;
       reservedBudget = reserved.budget;
     } else {
-      // ── Legacy path (unchanged): 8 core modules in parallel, then takeover, then
-      // asset exposure over the merged (CT + brute-force) subdomain list. ──
-      const dnsOutbound = outboundContext("dns");
-      const sslOutbound = outboundContext("ssl");
-      const headersOutbound = outboundContext("headers");
-      const emailOutbound = outboundContext("email_security");
-      const subdomainsOutbound = outboundContext("subdomains");
-      const techOutbound = outboundContext("technology_detection");
-      const whoisOutbound = outboundContext("whois_intelligence");
-      const bruteforceOutbound = outboundContext("dns_bruteforce");
+      // ── Queue-era default path: 8 core modules in parallel under measured
+      // per-module caps, then takeover and asset exposure over the merged
+      // (CT + brute-force) subdomain list. ──
+      const subdomainsFallback = () => markDeadlineDeferred({
+        count: 0, items: [], sensitive: [], source: "certificate_transparency_multi_source",
+        sources: { crt_sh: { count: 0, error: "module deadline exceeded" }, certspotter: { count: 0, error: "module deadline exceeded" } },
+        wildcard_dns: false, wildcard_dns_addresses: [], wildcard_test_host: null, wildcard_warning: null,
+      });
       const [dnsSettled, sslSettled, headersSettled, emailSettled, subdomainsSettled, techSettled, whoisSettled, bruteforceSettled] =
         await Promise.allSettled([
-          telemetry.run("dns",                  () => runDnsModule(domain, { accounting: dnsOutbound })),
-          telemetry.run("ssl",                  () => runSslModule(domain, { accounting: sslOutbound })),
-          telemetry.run("headers",              () => runHeadersModule(domain, { accounting: headersOutbound })),
-          telemetry.run("email_security",       () => runEmailModule(domain, { accounting: emailOutbound })),
-          telemetry.run("subdomains",           () => runSubdomainsModule(domain, { accounting: subdomainsOutbound })),
-          telemetry.run("technology_detection", () => runTechModule(domain, { accounting: techOutbound })),
-          telemetry.run("whois_intelligence",   () => runWhoisModule(domain, { accounting: whoisOutbound })),
-          telemetry.run("dns_bruteforce",       () => runBruteforceModule(domain, { accounting: bruteforceOutbound })),
+          runCappedModule("dns",                  { fallback: () => markDeadlineDeferred({ source: "dns" }), run: ({ accounting, signal }) => runDnsModule(domain, { accounting, signal }) }),
+          runCappedModule("ssl",                  { fallback: () => markDeadlineDeferred({ https_available: false, source: "tls_probe" }), run: ({ accounting, signal }) => runSslModule(domain, { accounting, signal }) }),
+          runCappedModule("headers",              { fallback: () => markDeadlineDeferred({ headers: {}, source: "http_headers" }), run: ({ accounting, signal }) => runHeadersModule(domain, { accounting, signal }) }),
+          runCappedModule("email_security",       { fallback: () => markDeadlineDeferred({ spf: {}, dmarc: {}, dkim: {}, source: "email_security" }), run: ({ accounting, signal }) => runEmailModule(domain, { accounting, signal }) }),
+          runCappedModule("subdomains",           { fallback: subdomainsFallback, run: ({ accounting, signal }) => runSubdomainsModule(domain, { accounting, signal }) }),
+          runCappedModule("technology_detection", { fallback: () => markDeadlineDeferred({ technologies: [], info_findings: [], source: "technology_detection" }), run: ({ accounting, signal }) => runTechModule(domain, { accounting, signal }) }),
+          runCappedModule("whois_intelligence",   { fallback: () => markDeadlineDeferred({ source: "rdap" }), run: ({ accounting, signal }) => runWhoisModule(domain, { accounting, signal }) }),
+          runCappedModule("dns_bruteforce",       { fallback: () => markDeadlineDeferred({ checked: 0, found: 0, items: [], source: "dns_bruteforce" }), run: ({ accounting, signal }) => runBruteforceModule(domain, { accounting, signal }) }),
         ]);
-      settleOutbound(dnsOutbound, "dns", dnsSettled);
-      settleOutbound(sslOutbound, "ssl", sslSettled);
-      settleOutbound(headersOutbound, "headers", headersSettled);
-      settleOutbound(emailOutbound, "email_security", emailSettled);
-      settleOutbound(subdomainsOutbound, "subdomains", subdomainsSettled);
-      settleOutbound(techOutbound, "technology_detection", techSettled);
-      settleOutbound(whoisOutbound, "whois_intelligence", whoisSettled);
-      settleOutbound(bruteforceOutbound, "dns_bruteforce", bruteforceSettled);
+      const settledValue = (s) => s.status === "fulfilled" ? s.value : null;
+      for (const [module, settled] of [
+        ["dns", dnsSettled],
+        ["ssl", sslSettled],
+        ["headers", headersSettled],
+        ["email_security", emailSettled],
+        ["subdomains", subdomainsSettled],
+        ["technology_detection", techSettled],
+        ["whois_intelligence", whoisSettled],
+        ["dns_bruteforce", bruteforceSettled],
+      ]) {
+        const wrapped = settledValue(settled);
+        const snap = wrapped?.thrown
+          ? (() => { wrapped.ctx?.markIncomplete?.("module_error"); return outboundAccounting.snapshot(module); })()
+          : wrapped?.timedOut
+          ? abandonOutbound(wrapped.ctx, module, wrapped.timeoutSource)
+          : settleOutboundValue(wrapped?.ctx, module, wrapped?.value);
+        telemetry.setOutbound(module, snap);
+        let row = telemetry.rows.find((r) => r.module === module);
+        if (!row && wrapped) {
+          telemetry.record(module, {
+            outcome: wrapped.thrown ? "error" : telemetry.outcomeOf(wrapped.value),
+            timeout: wrapped.timedOut || /timed out|timeout|abort/i.test(String(wrapped.thrown?.message || "")),
+            error_class: wrapped.thrown?.name || null,
+            duration_ms: wrapped.startedMs != null ? now() - wrapped.startedMs : null,
+            outbound: snap,
+            outbound_calls: snap?.outbound_measurement_complete ? snap.outbound_attempts_observed : null,
+          });
+          row = telemetry.rows.find((r) => r.module === module);
+        }
+        if (row && wrapped) {
+          row.allocated_ms = wrapped.startedMs != null ? wrapped.allocatedMs : 0;
+          row.timeout_source = wrapped.timeoutSource;
+          row.timeout = row.timeout || wrapped.timedOut;
+        }
+      }
 
-      dnsResult = dnsSettled.status === "fulfilled" ? dnsSettled.value : { error: customerSafeFailure("scan/dns", dnsSettled.reason, "DNS module failed") };
-      sslResult = sslSettled.status === "fulfilled" ? sslSettled.value : { error: customerSafeFailure("scan/ssl", sslSettled.reason, "SSL module failed") };
-      headersResult = headersSettled.status === "fulfilled" ? headersSettled.value : { error: customerSafeFailure("scan/headers", headersSettled.reason, "Headers module failed") };
-      emailResult = emailSettled.status === "fulfilled" ? emailSettled.value : { error: customerSafeFailure("scan/email", emailSettled.reason, "Email module failed") };
-      subdomainsResult = subdomainsSettled.status === "fulfilled"
-        ? subdomainsSettled.value
+      dnsResult = dnsSettled.status === "fulfilled" && !dnsSettled.value.thrown ? dnsSettled.value.value : { error: customerSafeFailure("scan/dns", dnsSettled.value?.thrown || dnsSettled.reason, "DNS module failed") };
+      sslResult = sslSettled.status === "fulfilled" && !sslSettled.value.thrown ? sslSettled.value.value : { error: customerSafeFailure("scan/ssl", sslSettled.value?.thrown || sslSettled.reason, "SSL module failed") };
+      headersResult = headersSettled.status === "fulfilled" && !headersSettled.value.thrown ? headersSettled.value.value : { error: customerSafeFailure("scan/headers", headersSettled.value?.thrown || headersSettled.reason, "Headers module failed") };
+      emailResult = emailSettled.status === "fulfilled" && !emailSettled.value.thrown ? emailSettled.value.value : { error: customerSafeFailure("scan/email", emailSettled.value?.thrown || emailSettled.reason, "Email module failed") };
+      subdomainsResult = subdomainsSettled.status === "fulfilled" && !subdomainsSettled.value.thrown
+        ? subdomainsSettled.value.value
         : { count: 0, items: [], sensitive: [], source: "certificate_transparency_multi_source",
             sources: { crt_sh: { count: 0, error: "module rejected" }, certspotter: { count: 0, error: "module rejected" } },
             wildcard_dns: false, wildcard_dns_addresses: [], wildcard_test_host: null, wildcard_warning: null,
-            error: customerSafeFailure("scan/subdomains", subdomainsSettled.reason, "Subdomain module failed") };
-      techResult = techSettled.status === "fulfilled" ? techSettled.value : { error: customerSafeFailure("scan/technology", techSettled.reason, "Technology module failed") };
-      whoisResult = whoisSettled.status === "fulfilled" ? whoisSettled.value : { error: customerSafeFailure("scan/whois", whoisSettled.reason, "WHOIS module failed") };
+            error: customerSafeFailure("scan/subdomains", subdomainsSettled.value?.thrown || subdomainsSettled.reason, "Subdomain module failed") };
+      techResult = techSettled.status === "fulfilled" && !techSettled.value.thrown ? techSettled.value.value : { error: customerSafeFailure("scan/technology", techSettled.value?.thrown || techSettled.reason, "Technology module failed") };
+      whoisResult = whoisSettled.status === "fulfilled" && !whoisSettled.value.thrown ? whoisSettled.value.value : { error: customerSafeFailure("scan/whois", whoisSettled.value?.thrown || whoisSettled.reason, "WHOIS module failed") };
 
-      const rawBruteforceResult = bruteforceSettled.status === "fulfilled"
-        ? bruteforceSettled.value
+      const rawBruteforceResult = bruteforceSettled.status === "fulfilled" && !bruteforceSettled.value.thrown
+        ? bruteforceSettled.value.value
         : { checked: 0, found: 0, items: [], source: "dns_bruteforce",
-            error: customerSafeFailure("scan/dns-bruteforce", bruteforceSettled.reason, "Brute-force module failed") };
+            error: customerSafeFailure("scan/dns-bruteforce", bruteforceSettled.value?.thrown || bruteforceSettled.reason, "Brute-force module failed") };
       bruteforceResult = filterWildcardBruteforceResults(rawBruteforceResult, subdomainsResult.wildcard_dns_addresses);
 
       const ctHostnames = new Set(subdomainsResult.items);
@@ -446,29 +523,33 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       // PR-A1: launched/allocated/started are telemetry-only observations.
       let takeoverAllocatedMs = null, takeoverStartedMs = null;
       let takeoverOutbound = null;
-      if (deadline.canRun(4_000)) {
-        takeoverStartedMs = now();
-        takeoverOutbound = outboundContext("subdomain_takeover");
-        try {
-          takeoverResult = await raceModuleDeadline(
-            deadline,
-            () => runTakeoverModule(domain, mergedSubdomainItems, { accounting: takeoverOutbound }),
-            () => markDeadlineDeferred({ checked: 0, potential_risks: 0, risks: [], cname_observations: [], source: "subdomain_cname_fingerprint" }),
-            { onStart: (capMs) => { takeoverAllocatedMs = capMs; } },
-          );
-        } catch (err) {
-          takeoverResult = { checked: 0, potential_risks: 0, risks: [], source: "subdomain_cname_fingerprint", error: customerSafeFailure("scan/takeover", err, "Takeover module failed") };
-        }
-      } else {
-        takeoverResult = markDeadlineDeferred({ checked: 0, potential_risks: 0, risks: [], cname_observations: [], source: "subdomain_cname_fingerprint" });
+      let takeoverThrown = null;
+      try {
+        const takeoverRun = await runCappedModule("subdomain_takeover", {
+          fallback: () => markDeadlineDeferred({ checked: 0, potential_risks: 0, risks: [], cname_observations: [], source: "subdomain_cname_fingerprint" }),
+          run: ({ accounting, signal }) => runTakeoverModule(domain, mergedSubdomainItems, { accounting, signal }),
+        });
+        takeoverThrown = takeoverRun.thrown;
+        takeoverResult = takeoverThrown
+          ? { checked: 0, potential_risks: 0, risks: [], cname_observations: [], source: "subdomain_cname_fingerprint", incomplete: true, incomplete_reason: "takeover_probe_failed", error: customerSafeFailure("scan/takeover", takeoverThrown, "Takeover module failed") }
+          : takeoverRun.value;
+        takeoverOutbound = takeoverRun.ctx;
+        takeoverStartedMs = takeoverRun.startedMs;
+        takeoverAllocatedMs = takeoverRun.allocatedMs;
+      } catch (err) {
+        takeoverThrown = err;
+        takeoverResult = { checked: 0, potential_risks: 0, risks: [], cname_observations: [], source: "subdomain_cname_fingerprint", incomplete: true, incomplete_reason: "takeover_probe_failed", error: customerSafeFailure("scan/takeover", err, "Takeover module failed") };
       }
       const takeoverTimedOut = takeoverResult?.outcome === "deadline_exceeded";
-      const takeoverOutboundSnapshot = takeoverTimedOut
+      const takeoverOutboundSnapshot = takeoverThrown
+        ? (() => { takeoverOutbound?.markIncomplete?.("module_error"); return outboundAccounting.snapshot("subdomain_takeover"); })()
+        : takeoverTimedOut
         ? abandonOutbound(takeoverOutbound, "subdomain_takeover", takeoverStartedMs != null ? "module_race" : "launch_gate")
         : settleOutboundValue(takeoverOutbound, "subdomain_takeover", takeoverResult);
       telemetry.record("subdomain_takeover", {
         outcome:        telemetry.outcomeOf(takeoverResult),
-        timeout:        takeoverTimedOut,
+        timeout:        takeoverTimedOut || /timed out|timeout|abort/i.test(String(takeoverThrown?.message || "")),
+        error_class:    takeoverThrown?.name || null,
         duration_ms:    takeoverStartedMs != null ? now() - takeoverStartedMs : null,
         allocated_ms:   takeoverStartedMs != null ? takeoverAllocatedMs : 0,
         timeout_source: takeoverTimedOut ? (takeoverStartedMs != null ? "module_race" : "launch_gate") : null,
@@ -482,38 +563,42 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       // bound it defers honestly rather than orphaning the scan.
       let exposureAllocatedMs = null, exposureStartedMs = null;
       let exposureOutbound = null;
-      if (deadline.canRun(6_000)) {
-        exposureStartedMs = now();
-        exposureOutbound = outboundContext("asset_exposure");
-        try {
-          assetExposureResult = await raceModuleDeadline(
-            deadline,
-            () => runExposureModule(domain, mergedSubdomainItems, { accounting: exposureOutbound }),
-            () => markDeadlineDeferred({ checked: 0, reachable: 0, assets: [], source: "http_probe" }),
-            { onStart: (capMs) => { exposureAllocatedMs = capMs; } },
-          );
-          if (!assetExposureResult.incomplete) {
-            assetExposureResult = annotateExposureInfrastructure(assetExposureResult, takeoverResult.cname_observations);
-            assetExposureResult = deduplicateExposureAssets(assetExposureResult, domain);
-          }
-        } catch (err) {
-          // A thrown exposure module never assessed the HTTP attack surface. Mark it
-          // incomplete (not just error) so buildScanQuality goes partial and the
-          // completion gate defers admin-surface verification — a failed probe must
-          // never read as a completed clean assessment. asset_exposure is non-core, so
-          // without this flag the scan would still certify "complete".
-          assetExposureResult = { checked: 0, reachable: 0, assets: [], source: "http_probe", incomplete: true, incomplete_reason: "exposure_probe_failed", error: customerSafeFailure("scan/asset-exposure", err, "Asset exposure module failed") };
+      let exposureThrown = null;
+      try {
+        const exposureRun = await runCappedModule("asset_exposure", {
+          fallback: () => markDeadlineDeferred({ checked: 0, reachable: 0, assets: [], source: "http_probe" }),
+          run: ({ accounting, signal }) => runExposureModule(domain, mergedSubdomainItems, { accounting, signal }),
+        });
+        exposureThrown = exposureRun.thrown;
+        assetExposureResult = exposureThrown
+          ? { checked: 0, reachable: 0, assets: [], source: "http_probe", incomplete: true, incomplete_reason: "exposure_probe_failed", error: customerSafeFailure("scan/asset-exposure", exposureThrown, "Asset exposure module failed") }
+          : exposureRun.value;
+        exposureOutbound = exposureRun.ctx;
+        exposureStartedMs = exposureRun.startedMs;
+        exposureAllocatedMs = exposureRun.allocatedMs;
+        if (!assetExposureResult.incomplete) {
+          assetExposureResult = annotateExposureInfrastructure(assetExposureResult, takeoverResult.cname_observations);
+          assetExposureResult = deduplicateExposureAssets(assetExposureResult, domain);
         }
-      } else {
-        assetExposureResult = markDeadlineDeferred({ checked: 0, reachable: 0, assets: [], source: "http_probe" });
+      } catch (err) {
+        exposureThrown = err;
+        // A thrown exposure module never assessed the HTTP attack surface. Mark it
+        // incomplete (not just error) so buildScanQuality goes partial and the
+        // completion gate defers admin-surface verification — a failed probe must
+        // never read as a completed clean assessment. asset_exposure is non-core, so
+        // without this flag the scan would still certify "complete".
+        assetExposureResult = { checked: 0, reachable: 0, assets: [], source: "http_probe", incomplete: true, incomplete_reason: "exposure_probe_failed", error: customerSafeFailure("scan/asset-exposure", err, "Asset exposure module failed") };
       }
       const exposureTimedOut = assetExposureResult?.outcome === "deadline_exceeded";
-      const exposureOutboundSnapshot = exposureTimedOut
+      const exposureOutboundSnapshot = exposureThrown
+        ? (() => { exposureOutbound?.markIncomplete?.("module_error"); return outboundAccounting.snapshot("asset_exposure"); })()
+        : exposureTimedOut
         ? abandonOutbound(exposureOutbound, "asset_exposure", exposureStartedMs != null ? "module_race" : "launch_gate")
         : settleOutboundValue(exposureOutbound, "asset_exposure", assetExposureResult);
       telemetry.record("asset_exposure", {
         outcome:        telemetry.outcomeOf(assetExposureResult),
-        timeout:        exposureTimedOut,
+        timeout:        exposureTimedOut || /timed out|timeout|abort/i.test(String(exposureThrown?.message || "")),
+        error_class:    exposureThrown?.name || null,
         duration_ms:    exposureStartedMs != null ? now() - exposureStartedMs : null,
         allocated_ms:   exposureStartedMs != null ? exposureAllocatedMs : 0,
         timeout_source: exposureTimedOut ? (exposureStartedMs != null ? "module_race" : "launch_gate") : null,
@@ -649,7 +734,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     const phase5Cost = MODULE_SUBREQUEST_COST.cve + MODULE_SUBREQUEST_COST.kev + 4;
     // Deadline first: if the enrichment trio can't finish in budget, defer it honestly
     // (partial scan) rather than risk the whole invocation being cancelled mid-write.
-    const phase5DeadlineBlocked = !deadline.canRun(8_000);
+    const phase5DeadlineBlocked = !deadline.canRun(SCAN_MODULE_BUDGETS.phase5_intelligence);
     await heartbeatScan(env, scanId, "phase5_intelligence", telemetry.rows.filter((r) => r.outcome === "ok").length);
     if (phase5DeadlineBlocked) {
       modules.cve_intelligence = markDeadlineDeferred({ technologies_checked: [], results: {}, total_cves: 0, critical_count: 0, high_count: 0, source: "nvd_api" });
@@ -673,18 +758,22 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     // allocation and observed wall time — recorded per module for diagnosability.
     let phase5AllocatedMs = null;
     const phase5StartedMs = now();
-    const cveOutbound = outboundContext("cve_intelligence");
-    const kevOutbound = outboundContext("known_exploited_vulnerabilities");
-    const emailIntelOutbound = outboundContext("email_security_intelligence");
+    const phase5Controller = createChildSignal();
+    const cveOutbound = outboundContext("cve_intelligence", phase5Controller.signal);
+    const kevOutbound = outboundContext("known_exploited_vulnerabilities", phase5Controller.signal);
+    const emailIntelOutbound = outboundContext("email_security_intelligence", phase5Controller.signal);
     const settled = await raceModuleDeadline(
       deadline,
       () => Promise.allSettled([
-        runCveModule(modules.technology_detection, { accounting: cveOutbound }),
-        runKevModule(modules.technology_detection, env, { accounting: kevOutbound }),
-        runEmailIntelModule(domain, modules.email_security, modules.dns, { accounting: emailIntelOutbound }),
+        runCveModule(modules.technology_detection, { accounting: cveOutbound, signal: phase5Controller.signal }),
+        runKevModule(modules.technology_detection, env, { accounting: kevOutbound, signal: phase5Controller.signal }),
+        runEmailIntelModule(domain, modules.email_security, modules.dns, { accounting: emailIntelOutbound, signal: phase5Controller.signal }),
       ]),
-      () => PHASE5_DEADLINE,
-      { onStart: (capMs) => { phase5AllocatedMs = capMs; } },
+      () => {
+        phase5Controller.abort("module_budget_exhausted");
+        return PHASE5_DEADLINE;
+      },
+      { hardMs: SCAN_MODULE_BUDGETS.phase5_intelligence, onStart: (capMs) => { phase5AllocatedMs = capMs; } },
     );
     if (settled === PHASE5_DEADLINE) {
       modules.cve_intelligence = markDeadlineDeferred({ technologies_checked: [], results: {}, total_cves: 0, critical_count: 0, high_count: 0, source: "nvd_api" });
@@ -755,24 +844,30 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     // enumeration; response bodies are only inspected for listing indicators.
     // Reserved mode: cloud-storage validation is budget-permitting enrichment.
     let cloudAllocatedMs = null, cloudStartedMs = null, cloudOutbound = null;
-    if (!deadline.canRun(4_000)) {
+    let cloudThrown = null;
+    if (!deadline.canRun(SCAN_MODULE_BUDGETS.cloud_storage_discovery)) {
       modules.cloud_storage_discovery = markDeadlineDeferred({ total: 0, checked: 0, findings: [] });
     } else if (reservedMode && reservedBudget && reservedBudget.wouldExceed(MODULE_SUBREQUEST_COST.cloud_storage)) {
       modules.cloud_storage_discovery = skippedModuleResult("cloud_storage", { total: 0, checked: 0, findings: [] });
     } else {
       if (reservedMode && reservedBudget) reservedBudget.spend("cloud_storage", MODULE_SUBREQUEST_COST.cloud_storage);
       // Bound the run so a slow validation cannot cross the cliff; defer honestly on the bound.
-      cloudStartedMs = now();
-      cloudOutbound = outboundContext("cloud_storage_discovery");
-      modules.cloud_storage_discovery = await raceModuleDeadline(
-        deadline,
-        () => runCloudStorageModule(domain, modules, { accounting: cloudOutbound }),
-        () => markDeadlineDeferred({ total: 0, checked: 0, findings: [] }),
-        { onStart: (capMs) => { cloudAllocatedMs = capMs; } },
-      );
+      const cloudRun = await runCappedModule("cloud_storage_discovery", {
+        fallback: () => markDeadlineDeferred({ total: 0, checked: 0, findings: [] }),
+        run: ({ accounting, signal }) => runCloudStorageModule(domain, modules, { accounting, signal }),
+      });
+      cloudThrown = cloudRun.thrown;
+      modules.cloud_storage_discovery = cloudThrown
+        ? { total: 0, checked: 0, findings: [], incomplete: true, incomplete_reason: "cloud_storage_probe_failed", error: customerSafeFailure("scan/cloud-storage", cloudThrown, "Cloud storage module failed") }
+        : cloudRun.value;
+      cloudStartedMs = cloudRun.startedMs;
+      cloudAllocatedMs = cloudRun.allocatedMs;
+      cloudOutbound = cloudRun.ctx;
     }
     const cloudTimedOut = modules.cloud_storage_discovery?.outcome === "deadline_exceeded";
-    const cloudOutboundSnapshot = cloudTimedOut
+    const cloudOutboundSnapshot = cloudThrown
+      ? (() => { cloudOutbound?.markIncomplete?.("module_error"); return outboundAccounting.snapshot("cloud_storage_discovery"); })()
+      : cloudTimedOut
       ? abandonOutbound(cloudOutbound, "cloud_storage_discovery", cloudStartedMs != null ? "module_race" : "launch_gate")
       : settleOutboundValue(cloudOutbound, "cloud_storage_discovery", modules.cloud_storage_discovery);
     // PR-A1: explicit row (previously left to the coarse finalization backfill) so
@@ -780,7 +875,8 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     // reserved-budget skip carries no allocation semantics (null, not 0).
     telemetry.record("cloud_storage_discovery", {
       outcome:        telemetry.outcomeOf(modules.cloud_storage_discovery),
-      timeout:        cloudTimedOut,
+      timeout:        cloudTimedOut || /timed out|timeout|abort/i.test(String(cloudThrown?.message || "")),
+      error_class:    cloudThrown?.name || null,
       duration_ms:    cloudStartedMs != null ? now() - cloudStartedMs : null,
       allocated_ms:   cloudStartedMs != null ? cloudAllocatedMs : (modules.cloud_storage_discovery?.skipped ? null : 0),
       timeout_source: cloudTimedOut ? (cloudStartedMs != null ? "module_race" : "launch_gate") : null,

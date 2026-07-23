@@ -21,7 +21,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const eng = (f) => import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", f)).href);
-const { createScanDeadline, markDeadlineDeferred, raceModuleDeadline, SCAN_DEADLINE_DEFAULTS } = await eng("scan-budget.js");
+const { createScanDeadline, markDeadlineDeferred, raceModuleDeadline, SCAN_DEADLINE_DEFAULTS, SCAN_MODULE_BUDGETS } = await eng("scan-budget.js");
 const { createFinalizeLatch, finalizeScanResult, buildScanQuality } = await eng("scan-engine.js");
 import fs from "node:fs";
 
@@ -59,13 +59,15 @@ const lastD1Status = (env) => { const w = env._d1[env._d1.length - 1]; return w 
 {
   const c = fakeClock();
   const dl = createScanDeadline({}, c.now);
-  eq("default budget = 21s", dl.budgetMs, 21_000);
-  ok("default budget is below the 30s waitUntil cliff", dl.budgetMs <= SCAN_DEADLINE_DEFAULTS.maxBudgetMs && dl.budgetMs < 30_000);
+  eq("default executable budget = 19s", dl.budgetMs, 19_000);
+  eq("default total ceiling = 24s", dl.totalCeilingMs, 24_000);
+  eq("default finalization reserve = 5s", dl.finalizationReserveMs, 5_000);
+  ok("default ceiling is below the 30s waitUntil cliff", dl.totalCeilingMs < 30_000);
   ok("fresh deadline not exceeded", dl.exceeded() === false);
-  ok("fresh deadline can run a 6s phase", dl.canRun(6_000) === true);
+  ok("fresh deadline can run measured subdomain cap", dl.canRun(SCAN_MODULE_BUDGETS.subdomains) === true);
   c.tick(16_000); // 16s elapsed
-  ok("at 16s, an 8s phase can NOT fit 21s budget", dl.canRun(8_000) === false);
-  ok("at 16s, a 4s phase still fits", dl.canRun(4_000) === true);
+  ok("at 16s, ssl cap can NOT fit 19s executable budget", dl.canRun(SCAN_MODULE_BUDGETS.ssl) === false);
+  ok("at 16s, asset exposure cap still fits", dl.canRun(SCAN_MODULE_BUDGETS.asset_exposure) === true);
   c.tick(6_000); // 22s elapsed → past budget
   ok("at 22s, deadline exceeded", dl.exceeded() === true);
   ok("at 22s, remaining is 0", dl.remainingMs() === 0);
@@ -231,8 +233,8 @@ const lastD1Status = (env) => { const w = env._d1[env._d1.length - 1]; return w 
   const c = fakeClock();
   const dl = createScanDeadline({}, c.now);
   c.tick(13_000); // a healthy 13s scan
-  ok("fast path: takeover (4s) still fits", dl.canRun(4_000) === true);
-  ok("fast path: exposure (6s) still fits", dl.canRun(6_000) === true);
+  ok("fast path: takeover measured cap still fits", dl.canRun(SCAN_MODULE_BUDGETS.subdomain_takeover) === true);
+  ok("fast path: exposure measured cap still fits", dl.canRun(SCAN_MODULE_BUDGETS.asset_exposure) === true);
   ok("fast path: deadline not exceeded", dl.exceeded() === false);
   // With every module completing normally, scan_quality is 'complete'.
   const modules = {
@@ -272,7 +274,7 @@ const neverTimer = { setTimer: () => ({}), clearTimer: () => { neverCleared++; }
   {
     const c = fakeClock();
     const dl = createScanDeadline({}, c.now);
-    c.tick(25_000); // past the 21s budget
+    c.tick(25_000); // past the executable budget
     let launched = 0;
     const res = await raceModuleDeadline(dl, async () => { launched++; return { real: true }; }, () => markDeadlineDeferred({}), { setTimer: () => { throw new Error("must not schedule"); }, clearTimer: () => {} });
     eq("no budget → deferred", res.outcome, "deadline_exceeded");
@@ -322,12 +324,12 @@ const neverTimer = { setTimer: () => ({}), clearTimer: () => { neverCleared++; }
 //     the engine still reaches terminal finalization; the scan finishes partial, not running.
 {
   const c = fakeClock();
-  const dl = createScanDeadline({}, c.now);          // 21s budget, measured from entry (t=0)
+  const dl = createScanDeadline({}, c.now);          // 19s executable budget, measured from entry (t=0)
   c.tick(14_000);                                    // Phase 1 + discovery consumed 14s
 
-  // Asset exposure launches (canRun true at 14s: 14+6<21) but its probes need ~8s and
-  // would finish at ~22s — past the deadline. The race bounds it to the 7s remaining.
-  ok("exposure is allowed to START at 14s", dl.canRun(6_000) === true);
+  // Asset exposure launches (14s + measured 2.5s cap < 19s) but its probes can need
+  // ~8s. The race bounds it inside the executable budget and protects finalisation.
+  ok("exposure is allowed to START at 14s", dl.canRun(SCAN_MODULE_BUDGETS.asset_exposure) === true);
   const exposure = await raceModuleDeadline(dl, () => new Promise(() => {}), () => markDeadlineDeferred({ checked: 0, reachable: 0, assets: [], source: "http_probe" }), syncTimer);
   eq("overrunning exposure is bounded → deferred", exposure.outcome, "deadline_exceeded");
 
@@ -347,8 +349,8 @@ const neverTimer = { setTimer: () => ({}), clearTimer: () => { neverCleared++; }
   eq("R2 terminal report written", env._r2.length, 1);
   eq("scan finished PARTIAL (honest), not clean", scanQuality.status, "partial");
   ok("the overran module is reported incomplete, not clean", modules.asset_exposure.incomplete === true);
-  // Reserved finalization headroom exists: budget 21s leaves >=6s to the ~30s cliff.
-  ok("finalization reserve >= 6s under the cliff", 30_000 - dl.budgetMs >= 6_000);
+  eq("explicit finalization reserve is surfaced", dl.finalizationReserveMs, SCAN_DEADLINE_DEFAULTS.finalizationReserveMs);
+  ok("total ceiling stays below the waitUntil cliff", dl.totalCeilingMs < 30_000);
 }
 
 // ── 11. Source wiring: the deadline is created at engine entry and BOUNDS each network
@@ -357,8 +359,9 @@ const neverTimer = { setTimer: () => ({}), clearTimer: () => { neverCleared++; }
   const src = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "engines", "scan-engine.js"), "utf8");
   ok("deadline created from injected clock at engine entry", /const deadline = createScanDeadline\(env, now\)/.test(src));
   ok("now() seam defaults to Date.now (true engine entry)", /opts\.now === "function" \? opts\.now : Date\.now/.test(src));
-  const raceCount = (src.match(/raceModuleDeadline\(/g) || []).length;
-  ok(`network phases are bounded by raceModuleDeadline (found ${raceCount} >= 4: takeover/exposure/phase5/cloud-storage)`, raceCount >= 4);
+  ok("measured module caps are imported by the engine", /SCAN_MODULE_BUDGETS/.test(src));
+  ok("engine uses a capped-module runner for network phases", /runCappedModule/.test(src));
+  ok("phase5 is bounded by measured cap", /hardMs: SCAN_MODULE_BUDGETS\.phase5_intelligence/.test(src));
   ok("finalize checks durable state, not a pre-write flag", /latch\.state === "finalized"/.test(src) && !/latch\.closed/.test(src));
   ok("success path throws to recovery when not durably finalized", /if \(!finalized\.finalized\)/.test(src));
 }
