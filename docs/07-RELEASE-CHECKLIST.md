@@ -82,8 +82,9 @@ npx wrangler deploy
 - [ ] **RECORD the printed `Current Version ID`** (rollback needs it): `________________`
 - [ ] Note the **previous** Version ID for rollback (from CHANGELOG's last entry): `________________`
 
-> Second `cybermeters-email` worker (only if changed):
-> `npx wrangler deploy --config ../email-ingest/wrangler.toml`
+> The `cybermeters-email` Worker requires a separate founder-approved deploy
+> whenever `workers/email-ingest/deploy-manifest.json` changes:
+> `npm run deploy --prefix workers/email-ingest`
 
 ## 5. Post-deploy smoke test (live)
 

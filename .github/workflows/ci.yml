@@ -29,8 +29,10 @@ jobs:
           fi
           echo "No obvious secrets in tracked files."
 
-      - name: Worker syntax check
-        run: node --check workers/scan-api/src/index.js
+      - name: Worker syntax checks (API + standalone email ingress)
+        run: |
+          node --check workers/scan-api/src/index.js
+          node --check workers/email-ingest/src/index.js
 
       - name: Validate scanner regression fixtures
         run: node scripts/validate-regression-fixtures.js
@@ -641,6 +643,9 @@ jobs:
       - name: Validate email worker equivalence (golden vs api worker)
         run: node scripts/validate-email-worker.js
 
+      - name: Validate email worker deploy traceability (closure stamp + pinned tooling)
+        run: node scripts/validate-email-worker-deploy-traceability.js
+
       - name: Validate log redaction (secrets never reach logs)
         run: node scripts/validate-log-redaction.js
 
@@ -760,6 +765,10 @@ jobs:
       - name: Worker bundle dry-run (Cloudflare packaging + import graph)
         working-directory: workers/scan-api
         run: npx wrangler deploy --dry-run
+
+      - name: Email Worker bundle dry-run (standalone routed ingress)
+        working-directory: workers/email-ingest
+        run: npm run dry-run
 
       - name: Validate OpenAPI spec
         run: node scripts/validate-openapi.js

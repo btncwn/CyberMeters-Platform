@@ -3,10 +3,11 @@
 # handleInboundEmail + src/lib service modules as the api worker (single source
 # of truth — code is imported from ../scan-api/src, bundled at deploy).
 #
-# Deploy (reuses the scan-api wrangler install):
-#   cd workers/scan-api && npx wrangler deploy --config ../email-ingest/wrangler.toml
+# Deploy (reuses the exact Wrangler version pinned by scan-api/package-lock.json):
+#   npm run deploy --prefix workers/email-ingest
 # Secrets required BEFORE the Email Routing repoint:
-#   npx wrangler secret put RESEND_API_KEY --config ../email-ingest/wrangler.toml
+#   workers/scan-api/node_modules/.bin/wrangler secret put RESEND_API_KEY \
+#     --config workers/email-ingest/wrangler.toml
 name = "cybermeters-email"
 main = "src/index.js"
 compatibility_date = "2026-06-18"
@@ -24,7 +25,9 @@ binding = "METRICS"
 dataset = "cybermeters_metrics"
 
 [vars]
-APP_VERSION = "2026.07.08"
+# Closure-derived release stamp. CI requires the suffix to match
+# deploy-manifest.json, so a stale shared-source bundle is visible at /health.
+APP_VERSION = "2026.07.23-gate3a.8a8ee422ae94"
 # Tags this worker's metric datapoints (trailing blob — additive, see lib/metrics.js).
 WORKER_NAME = "email-ingest"
 RUA_INBOUND_DOMAIN = "reports.cybermeters.com"
