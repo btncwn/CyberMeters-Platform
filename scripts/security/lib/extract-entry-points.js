@@ -304,7 +304,7 @@ export function extractEventHandlers() {
       method: "EMAIL", path: "email()", path_kind: "event",
       file: "workers/scan-api/src/email/inbound.js", line: 1,
       scope: "email", auth_guards: ["cloudflare-email-routing", "dmarc-trust"], scope_helpers: [], authed: true,
-      note: "Cloudflare Email Routing inbound — sender trust is header-From + DMARC record-not-drop; recipient domain resolves the target workspace.",
+      note: "Cloudflare Email Routing inbound — sender identity and report-body claims are unauthenticated observational metadata; the recipient endpoint resolves the target workspace/domain and the central authority contract excludes inbound evidence.",
     });
   }
   return out;

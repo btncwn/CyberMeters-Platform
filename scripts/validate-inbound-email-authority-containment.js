@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 //
-// PR-5.5 Gate 1 — inbound-email authority containment.
+// PR-5.5 Gates 1–2 — inbound authority containment + honest trust semantics.
 //
 // A well-formed forged RUA report is still stored and visible as observational
 // evidence, but gains no authority over hosted DNS, managed cases, canonical
@@ -24,8 +24,11 @@ const {
 const { ingestTlsRptReport } = await imp("lib/tlsrpt-ingest.js");
 const {
   DMARC_AUTHORITY_EVIDENCE_SCOPE,
+  DMARC_EXTERNAL_AUTOMATION_EVIDENCE_SCOPE,
   DMARC_OBSERVATIONAL_EVIDENCE_SCOPE,
+  buildAggregateReportTrustSemantics,
   isDmarcAuthorityEligibleSource,
+  isDmarcExternalAutomationEligibleSource,
 } = await imp("lib/dmarc-authority.js");
 const {
   evaluateRampReadiness,
@@ -176,7 +179,7 @@ const forged = await ingestDmarcReport(env, {
   source: "inbound_email",
   enforceDomainMatch: true,
   provenance: {
-    auth_verdict: "unverified",
+    auth_verdict: "sender_domain_claimed",
     reporter_domain: "attacker.example",
     envelope_from: "attacker@attacker.example",
   },
@@ -200,7 +203,7 @@ await ingestDmarcReport(env, {
   domainId: "d-advance",
   source: "inbound_email",
   enforceDomainMatch: true,
-  provenance: { auth_verdict: "unverified", reporter_domain: "attacker.example" },
+  provenance: { auth_verdict: "sender_domain_claimed", reporter_domain: "attacker.example" },
   xmlString: dmarcXml("forged-advance-1", "advance.example",
     [{ ip: "198.51.100.77", count: 500, pass: true }], "none"),
 });
@@ -227,8 +230,10 @@ const rollbackRate = await getHostedDmarcPassRate(env, "ws1", "victim.example");
 const advanceRate = await getHostedDmarcPassRate(env, "ws1", "advance.example");
 ok("inbound-only hosted rollback rate fails closed to no authority",
   rollbackRate.total === 0 && rollbackRate.pass_rate === null &&
-  rollbackRate.evidence_scope === DMARC_AUTHORITY_EVIDENCE_SCOPE &&
-  rollbackRate.inbound_automation_suspended === true);
+  rollbackRate.evidence_scope === DMARC_EXTERNAL_AUTOMATION_EVIDENCE_SCOPE &&
+  rollbackRate.inbound_automation_suspended === true &&
+  rollbackRate.external_automation_suspended === true &&
+  rollbackRate.corroboration_required === true);
 ok("inbound-only hosted advance rate fails closed to no authority",
   advanceRate.total === 0 && advanceRate.pass_rate === null);
 
@@ -388,12 +393,29 @@ ok("forged inbound report remains visible in the DMARC observational summary",
   summary.body.readiness.authoritative === false &&
   summary.body.business_risk.authoritative === false);
 const history = await route("/api/workspaces/ws1/domains/victim.example/dmarc-reports");
-ok("forged report history is honestly labelled unverified observational evidence",
+ok("forged report history is honestly labelled claimed/unverified observational evidence",
   history.status === 200 && history.body.reports.length === 1 &&
   history.body.reports[0].source === "inbound_email" &&
-  history.body.reports[0].auth_verdict === "unverified" &&
+  history.body.reports[0].auth_verdict === "sender_domain_claimed" &&
+  history.body.reports[0].transport_authenticated_sender === null &&
+  history.body.reports[0].report_producer_authenticated === false &&
+  history.body.reports[0].evidence_confidence === "unverified_observational" &&
+  history.body.reports[0].claimed_domain === "victim.example" &&
+  history.body.reports[0].authoritative_eligible === false &&
+  history.body.reports[0].external_automation_eligible === false &&
   history.body.reports[0].authoritative === false &&
   history.body.reports[0].evidence_scope === DMARC_OBSERVATIONAL_EVIDENCE_SCOPE);
+db.prepare(`UPDATE dmarc_aggregate_reports
+            SET auth_verdict='verified', reporter_domain='outlook.com'
+            WHERE external_report_id='forged-victim-1'`).run();
+const legacyHistory = await route("/api/workspaces/ws1/domains/victim.example/dmarc-reports");
+ok("legacy consumer-mailbox verified rows are never exposed as verified or authoritative",
+  legacyHistory.body.reports[0].auth_verdict === "sender_domain_claimed_recognised" &&
+  legacyHistory.body.reports[0].recognised_reporter_domain === true &&
+  legacyHistory.body.reports[0].transport_authenticated_sender === null &&
+  legacyHistory.body.reports[0].report_producer_authenticated === false &&
+  legacyHistory.body.reports[0].authoritative_eligible === false &&
+  legacyHistory.body.reports[0].authoritative === false);
 
 const tlsBody = JSON.stringify({
   "organization-name": "Attacker Reporter",
@@ -418,17 +440,23 @@ const tlsIngest = await ingestTlsRptReport(env, {
   workspaceId: "ws1",
   domain: "victim.example",
   enforceDomainMatch: true,
-  provenance: { auth_verdict: "unverified" },
+  provenance: { auth_verdict: "sender_domain_claimed", reporter_domain: "attacker.example" },
   jsonString: tlsBody,
 });
 ok("forged TLS-RPT remains ingested", tlsIngest.ok === true && tlsIngest.duplicate === false);
 const tlsHistory = await route("/api/workspaces/ws1/domains/victim.example/tls-rpt/reports");
-ok("TLS-RPT is visible only as unverified/non-authoritative observational evidence",
+ok("TLS-RPT is visible only as claimed/non-authoritative observational evidence",
   tlsHistory.status === 200 &&
   tlsHistory.body.summary.failed_sessions === 999999 &&
   tlsHistory.body.summary.authoritative === false &&
   tlsHistory.body.summary.evidence_scope === DMARC_OBSERVATIONAL_EVIDENCE_SCOPE &&
-  tlsHistory.body.reports[0].provenance === "unverified" &&
+  tlsHistory.body.reports[0].provenance === "sender_domain_claimed" &&
+  tlsHistory.body.reports[0].transport_authenticated_sender === null &&
+  tlsHistory.body.reports[0].report_producer_authenticated === false &&
+  tlsHistory.body.reports[0].evidence_confidence === "unverified_observational" &&
+  tlsHistory.body.reports[0].claimed_domain === "victim.example" &&
+  tlsHistory.body.reports[0].authoritative_eligible === false &&
+  tlsHistory.body.reports[0].external_automation_eligible === false &&
   tlsHistory.body.reports[0].authoritative === false);
 
 // ── Explicit non-inbound regression path remains eligible ────────────────────
@@ -444,9 +472,13 @@ const manual = await ingestDmarcReport(env, {
 });
 const manualRate = await getHostedDmarcPassRate(env, "ws1", "victim.example");
 const manualExecutive = await buildDmarcSenderIntelligenceEvidence(env, "ws1", "victim.example");
-ok("explicit manual-paste regression path remains authority-eligible",
-  manual.ok === true && manualRate.total === 20 && manualRate.pass_rate === 100 &&
+ok("explicit manual-paste regression path remains internally authority-eligible",
+  manual.ok === true &&
   manualExecutive?.imported_reports === 1 && manualExecutive?.total_messages === 20);
+ok("manual-paste aggregate data still cannot drive destructive external automation",
+  manualRate.total === 0 && manualRate.pass_rate === null &&
+  manualRate.external_automation_suspended === true &&
+  isDmarcExternalAutomationEligibleSource("manual_paste") === false);
 ok("source allow-list fails closed for inbound, null and unknown markers",
   isDmarcAuthorityEligibleSource("manual_paste") === true &&
   isDmarcAuthorityEligibleSource("signed_upload") === true &&
@@ -467,8 +499,56 @@ ok("omitted source is persisted as unknown rather than default-authoritative",
               WHERE external_report_id='unmarked-fail-closed-1'`).get()?.source === "unknown");
 const afterUnmarkedRate = await getHostedDmarcPassRate(env, "ws1", "victim.example");
 ok("omitted-source report has zero authority",
-  afterUnmarkedRate.total === manualRate.total &&
-  afterUnmarkedRate.pass_rate === manualRate.pass_rate);
+  afterUnmarkedRate.total === 0 &&
+  afterUnmarkedRate.pass_rate === null);
+
+// ── Gate 2 trust semantics: labels never manufacture producer authority ──────
+const recognisedHeaderFrom = buildAggregateReportTrustSemantics({
+  source: "inbound_email",
+  storedTransportVerdict: "verified", // legacy value from a public-mail allow-list match
+  reporterDomain: "outlook.com",
+  claimedDomain: "victim.example",
+});
+const unrecognisedHeaderFrom = buildAggregateReportTrustSemantics({
+  source: "inbound_email",
+  storedTransportVerdict: "sender_domain_claimed",
+  reporterDomain: "attacker.example",
+  claimedDomain: "victim.example",
+});
+const manualSubmission = buildAggregateReportTrustSemantics({
+  source: "manual_paste",
+  claimedDomain: "victim.example",
+});
+const signedSubmission = buildAggregateReportTrustSemantics({
+  source: "signed_upload",
+  claimedDomain: "victim.example",
+});
+ok("legacy consumer-mailbox verified label normalizes to claimed metadata only",
+  recognisedHeaderFrom.transport_sender_status === "sender_domain_claimed_recognised" &&
+  recognisedHeaderFrom.recognised_reporter_domain === true &&
+  recognisedHeaderFrom.transport_authenticated_sender === null &&
+  recognisedHeaderFrom.report_producer_authenticated === false);
+ok("authority contract is independent of transport/header-From labels",
+  recognisedHeaderFrom.authoritative_eligible === false &&
+  unrecognisedHeaderFrom.authoritative_eligible === false &&
+  recognisedHeaderFrom.external_automation_eligible === false &&
+  unrecognisedHeaderFrom.external_automation_eligible === false);
+ok("report-body domain remains an explicitly unverified claim",
+  recognisedHeaderFrom.report_body_identity.claimed_domain === "victim.example" &&
+  recognisedHeaderFrom.report_body_identity.independently_verified === false);
+ok("actor authentication is separate from report-producer authentication",
+  manualSubmission.actor_authenticated === true &&
+  manualSubmission.actor_authentication === "workspace_session" &&
+  signedSubmission.actor_authenticated === true &&
+  signedSubmission.actor_authentication === "scoped_ingest_token" &&
+  manualSubmission.report_producer_authenticated === false &&
+  signedSubmission.report_producer_authenticated === false);
+ok("customer-submitted content has bounded internal authority but no external authority",
+  manualSubmission.evidence_confidence === "customer_submitted_unverified_content" &&
+  manualSubmission.authoritative_eligible === true &&
+  manualSubmission.external_automation_eligible === false &&
+  signedSubmission.authoritative_eligible === true &&
+  signedSubmission.external_automation_eligible === false);
 
 // ── Mutation guards: deleting any consumer gate is CI-red ────────────────────
 function guard(name, rel, predicate, mutate) {
@@ -495,7 +575,11 @@ function guardEveryOccurrence(name, rel, token, expected) {
 }
 const hasRepGate = (source) => source.includes('dmarcAuthoritySourceSql("rep")');
 const removeRepGate = (source) => source.replace(/\s*AND \$\{dmarcAuthoritySourceSql\("rep"\)\}/, "");
-guard("hosted-DMARC DNS automation", "engines/hosted-dmarc.js", hasRepGate, removeRepGate);
+const hasExternalRepGate = (source) => source.includes('dmarcExternalAutomationSourceSql("rep")');
+const removeExternalRepGate = (source) =>
+  source.replace(/\s*AND \$\{dmarcExternalAutomationSourceSql\("rep"\)\}/, "");
+guard("hosted-DMARC DNS automation", "engines/hosted-dmarc.js",
+  hasExternalRepGate, removeExternalRepGate);
 guard("managed-case recovery and sender alerts", "engines/email-protection-lifecycle.js", hasRepGate, removeRepGate);
 guard("hosted policy-impact alert", "engines/dmarc-impact.js", hasRepGate, removeRepGate);
 guard("SPF corroboration authoritative alert", "engines/spf-corroboration.js", hasRepGate, removeRepGate);

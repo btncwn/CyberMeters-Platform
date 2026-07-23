@@ -1295,36 +1295,40 @@ results.push(securityContract("dmarc_xml_safety_rejections", () =>
 // ── Inbound RUA sender provenance (forged-report hardening, migration 066) ────
 // The inbound handler embeds the RUA address in a PUBLIC DMARC record, so an
 // attacker can email a forged report whose XML domain matches. These contracts
-// lock the trust model: only a single, unambiguous header-From from a recognised
-// reporter is 'verified'; forged Authentication-Results / DKIM header lines,
-// duplicate-From injection, and body-injected headers can NEVER grant trust.
+// lock the honest metadata model: header-From is only a claimed sender, and a
+// recognised public-mail domain remains metadata. Forged Authentication-Results
+// / DKIM header lines, duplicate-From injection, and body-injected headers can
+// NEVER grant transport authentication or report authority.
 const buildInboundRaw = (headers, body = "aggregate report body") => headers.join("\r\n") + "\r\n\r\n" + body;
 const runInboundProv = (raw, msg, dom = "cybermeters.com") => scanner.deriveInboundReportProvenance(raw, msg, dom);
 
-results.push(securityContract("dmarc_inbound_provenance_known_reporter_verified", () => {
+results.push(securityContract("dmarc_inbound_provenance_known_reporter_claimed_only", () => {
   const raw = buildInboundRaw([
     "From: noreply-dmarc-support@google.com",
     "To: cmrua_abc123@reports.cybermeters.com",
     "Subject: Report Domain: cybermeters.com",
   ]);
   const p = runInboundProv(raw, { from: "mailer-daemon@bounce.google.com" });
-  return p.auth_verdict === "verified" && p.reporter_domain === "google.com" &&
+  return p.auth_verdict === "sender_domain_claimed_recognised" &&
+    p.reporter_domain === "google.com" &&
     p.envelope_from === "mailer-daemon@bounce.google.com" &&
-    JSON.parse(p.auth_evidence).basis === "known_reporter_header_from";
+    JSON.parse(p.auth_evidence).basis === "recognised_reporter_domain_metadata" &&
+    JSON.parse(p.auth_evidence).transport_authenticated_sender === null;
 }));
 
-results.push(securityContract("dmarc_inbound_provenance_unknown_sender_unverified", () => {
+results.push(securityContract("dmarc_inbound_provenance_unknown_sender_claimed_only", () => {
   const raw = buildInboundRaw([
     "From: reports@evil-attacker.test",
     "To: cmrua_abc123@reports.cybermeters.com",
   ]);
   const p = runInboundProv(raw, { from: "reports@evil-attacker.test" });
-  return p.auth_verdict === "unverified" && p.reporter_domain === "evil-attacker.test";
+  return p.auth_verdict === "sender_domain_claimed" &&
+    p.reporter_domain === "evil-attacker.test";
 }));
 
 results.push(securityContract("dmarc_inbound_provenance_forged_ar_header_not_trusted", () => {
   // Attacker injects a fake Authentication-Results claiming a Google DKIM pass.
-  // Verdict must stay 'unverified'; the forged d= is recorded as evidence only.
+  // Verdict stays a sender claim; the forged d= is recorded as evidence only.
   const raw = buildInboundRaw([
     "From: reports@evil-attacker.test",
     "Authentication-Results: mx.cloudflare.net; dkim=pass header.d=google.com; spf=pass; dmarc=pass",
@@ -1332,19 +1336,22 @@ results.push(securityContract("dmarc_inbound_provenance_forged_ar_header_not_tru
   ]);
   const p = runInboundProv(raw, { from: "reports@evil-attacker.test" });
   const ev = JSON.parse(p.auth_evidence);
-  return p.auth_verdict === "unverified" && p.reporter_domain === "evil-attacker.test" &&
-    ev.dkim_d === "google.com" && ev.basis === null;
+  return p.auth_verdict === "sender_domain_claimed" &&
+    p.reporter_domain === "evil-attacker.test" &&
+    ev.self_asserted_dkim_d === "google.com" && ev.basis === null &&
+    ev.transport_authenticated_sender === null;
 }));
 
 results.push(securityContract("dmarc_inbound_provenance_duplicate_from_not_verified", () => {
-  // Two From headers (injection) must never be classifiable as verified.
+  // Two From headers (injection) must never become a recognised sender claim.
   const raw = buildInboundRaw([
     "From: reports@evil-attacker.test",
     "From: noreply-dmarc-support@google.com",
     "To: cmrua_abc123@reports.cybermeters.com",
   ]);
   const p = runInboundProv(raw, { from: "reports@evil-attacker.test" });
-  return p.auth_verdict === "unverified" && p.reporter_domain !== "google.com";
+  return p.auth_verdict === "sender_domain_claimed" &&
+    p.reporter_domain !== "google.com";
 }));
 
 results.push(securityContract("dmarc_inbound_provenance_body_injection_ignored", () => {
@@ -1354,7 +1361,8 @@ results.push(securityContract("dmarc_inbound_provenance_body_injection_ignored",
     "From: noreply-dmarc-support@google.com\r\n" +
     "Authentication-Results: x; dkim=pass header.d=google.com\r\n";
   const p = runInboundProv(raw, { from: "reports@evil-attacker.test" });
-  return p.auth_verdict === "unverified" && p.reporter_domain === "evil-attacker.test";
+  return p.auth_verdict === "sender_domain_claimed" &&
+    p.reporter_domain === "evil-attacker.test";
 }));
 
 results.push(securityContract("dmarc_known_reporter_suffix_and_boundaries", () =>
@@ -1371,8 +1379,10 @@ results.push(securityContract("dmarc_inbound_provenance_never_throws", () => {
   const a = scanner.deriveInboundReportProvenance(null, null, null);
   const b = scanner.deriveInboundReportProvenance("garbage no headers", {}, "cybermeters.com");
   const c = scanner.deriveInboundReportProvenance("", { from: 123 }, "");
-  return a.auth_verdict === "unverified" && a.reporter_domain === null && a.envelope_from === null &&
-    b.auth_verdict === "unverified" && c.auth_verdict === "unverified";
+  return a.auth_verdict === "sender_identity_unavailable" &&
+    a.reporter_domain === null && a.envelope_from === null &&
+    b.auth_verdict === "sender_identity_unavailable" &&
+    c.auth_verdict === "sender_identity_unavailable";
 }));
 results.push(await asyncSecurityContract("dmarc_sender_rollup_totals", async () => {
   const inserts = [];

@@ -1,63 +1,83 @@
 # Q7 — DMARC / TLS-RPT public report address: trust-boundary disposition
 
-**Status: RECLASSIFIED to P3 — documented protocol trust limitation (not P2).**
-Evidence-backed; the one missing bounded control (per-endpoint inbound rate limit) has been added.
-Machine-checked by `scripts/validate-q7-dmarc-report-trust.js`.
+**Status: P0 authority path contained by PR-5.5 Gate 1; Gate 2 formalizes honest
+trust semantics. Inbound evidence remains observational.**
+
+Machine-checked by `scripts/validate-q7-dmarc-report-trust.js` and
+`scripts/validate-inbound-email-authority-containment.js`.
 
 ## The finding
 
-The DMARC aggregate (`rua=`) and TLS-RPT (`rua=`) addresses are, by protocol, **public
-unauthenticated inboxes** — the customer publishes the address in their own DNS so that
-mailbox providers worldwide (Google, Microsoft, Yahoo, …) can send reports. There is no
-sender authentication the protocol itself provides: legitimate reports arrive from an
-open set of providers. Anyone who reads a target's DMARC/TLS-RPT record can therefore
-send a **forged report** to that endpoint. This cannot be "fixed" by inventing sender
-authentication the protocol does not have.
+DMARC aggregate (`rua=`) and TLS-RPT (`rua=`) addresses are public,
+attacker-addressable inboxes by protocol. Anyone who reads a target's published
+record can submit a forged report whose body names that target domain.
 
-The question for disposition is not "is the endpoint public?" (it must be) but "can a
-forged report gain any **downstream authority**?"
+Cloudflare Email Routing does not expose a trusted `Authentication-Results`
+value to this Worker. Header-From, envelope From, Authentication-Results, the
+reporter organisation, and the report-body domain are therefore untrusted claims
+at this boundary. Matching header-From against a recognised public-mail domain
+does not authenticate the sender or report producer.
 
-## Why it is P3, not P2 — proof that a forged report has no authority
+Before Gate 1, forged inbound DMARC records could reach authoritative consumers,
+including hosted-DMARC automation that PATCHes a real Cloudflare TXT record.
+That was a live P0 security-boundary defect, not a bounded P3 noise issue.
 
-A forged report is bounded to **workspace+domain-scoped observed telemetry**. Every
-authority question is NO (traced through the full ingest pipeline and every consumer):
+## Gate 1 containment and Gate 2 contract
+
+`workers/scan-api/src/lib/dmarc-authority.js` is the single authority contract.
+It separates:
+
+- the authenticated submitting actor;
+- the explicit ingestion source;
+- inbound transport-sender authentication;
+- the report body's claimed domain;
+- bounded evidence confidence;
+- authoritative eligibility; and
+- the stricter eligibility required for destructive/external automation.
+
+Inbound email is never authority-eligible. Missing or unknown source provenance
+also fails closed. Recognised reporter-domain membership is metadata only and is
+independent of every authority decision.
+
+The existing authenticated and scoped customer-submission paths
+(`manual_paste`, `signed_upload`) retain their internal-authority behavior, but
+they do not authenticate the report producer or content. Destructive/external
+automation additionally requires independent corroboration. That corroboration
+model does not exist, so no aggregate-report source may currently drive
+hosted-DMARC auto-rollback, autopilot advancement, or a Cloudflare TXT change.
+
+## Authority disposition after containment
 
 | Authority | Verdict | Why |
 |---|---|---|
-| Cross-tenant write | **NO** | `workspace_id`+`domain` come *only* from the endpoint row (localpart→`dmarc_ingest_endpoints`, or token hash), never from the report body. Every INSERT binds that pair. `enforceDomainMatch` rejects a report whose policy domain ≠ the bound domain. |
-| Trusted "verified" state | **NO** | `auth_verdict` is stored but **never read back for any decision** (0 `SELECT … auth_verdict`). The customer-facing "rua verified" derives from the **live DNS record**, not the ingest verdict. |
-| Score / health / BRI credit | **NO** | No scoring/posture engine reads `dmarc_aggregate_*` / `email_sender_sources` / `tlsrpt_*`. A forged "all-passing" report cannot raise a score or turn a domain healthy — its novel source IPs enter as `classification='unknown'`, which *raises* findings, the opposite of the attacker's goal. |
-| Case / remediation closure (attacker benefit) | **NO (bounded)** | Ingestion can open an "observed sender — needs review" case (noise in the victim's *own* workspace) and, only if the customer has already advanced a case to `awaiting_verification` on `automated` support and a clean window has aged in, mark that case verified. It changes **no external state** (no DNS, no enforcement, no score) and grants the attacker no capability. |
-| Alert/workflow as trusted fact | **NO (bounded)** | Alerts are emitted as *"externally observed"* monitoring bookkeeping; nothing is treated as a verified fact. |
+| Cross-tenant write | **NO** | Workspace and domain bindings come from the endpoint or authenticated route, never from the report body. |
+| Producer or sender “verified” state | **NO** | Inbound transport authentication is unavailable. Legacy `verified` values are normalized to `sender_domain_claimed_recognised`, which is metadata only. |
+| Hosted-DMARC DNS automation | **NO** | The external-automation contract has no eligible source until independent corroboration exists. |
+| Case auto-verification or recovery from inbound | **NO** | Authoritative lifecycle consumers use the central source gate; inbound and unknown sources are excluded. |
+| Authoritative readiness, business risk, or Executive evidence from inbound | **NO** | Every aggregate-report reader used by these consumers is source-gated. |
+| Authoritative alerts from inbound | **NO** | Sender lifecycle, hosted impact, and SPF-corroboration consumers exclude inbound and unknown report sources. |
+| Observational storage and display | **YES** | Reports remain ingested, deduplicated, stored, and shown as “reported to us” evidence with `authoritative: false`. |
 
-Because a forged report is **non-authoritative observed telemetry that cannot cross a
-tenant boundary or create verified/healthy/score/closure authority**, the residual risk
-is (a) monitoring noise in the victim's own workspace and (b) storage/parse volume — a
-hostile-input/DoS surface, not an integrity or confidentiality breach. That is a P3.
+The mutation validator removes each consumer gate and proves that attacker-chosen
+pass/fail counts regain the prohibited outcome. With the gates present, the same
+forged fixtures cause zero DNS change, case transition, authoritative score/risk
+change, or authoritative alert.
 
-## Bounded controls (verified present)
+## Bounded controls
 
-Parser safety (XXE: `<!DOCTYPE>`/`<!ENTITY>`/`<?xml-stylesheet>` rejected; regex parser,
-no XML library, no entity expansion, no network I/O; TLS-RPT via guarded `JSON.parse`);
-2 MB XML cap; 5000-record cap; 25 MB raw-email cap; 10 MB compressed/decompressed caps;
-100× decompression-ratio (zip-bomb) cap; single-entry ZIP with magic-byte validation;
-≤25 MIME parts; content-type/attachment selection; natural-key dedupe; endpoint-derived
-tenant/domain binding on every write; append-only audit provenance; malformed input
-fails closed; parser errors never leak internals (stable customer-safe drop reasons).
+The existing parser and ingestion controls remain separate from this Gate 2
+change: XML unsafe-construct rejection, decoded-size and record caps, TLS-RPT
+guarded JSON parsing and array caps, raw/compressed/decompressed email caps,
+compression-ratio caps, bounded MIME selection, endpoint-derived tenant/domain
+binding, natural-key dedupe, safe drop reasons, and audit metadata.
 
-## The one control that was missing — now added
+The inbound per-endpoint limiter is also unchanged in Gate 2. Limiter and parser
+hardening are later founder-gated work and are not evidence of report authority.
 
-The **inbound-email path had no application-layer rate limit** (the token
-`/api/dmarc-ingest` path already had one: 120/hr per endpoint, fail-closed). A per-endpoint
-inbound rate limit (120/hr, keyed on the endpoint id) now bounds the cross-message forged
-flood that per-message caps cannot. It **fails OPEN** — a rate-limit-store outage must
-never drop legitimate customer evidence — and a limited drop is audited (append-only)
-rather than surfaced as a misleading "malformed report" notification. Legitimate reporters
-send a handful of reports/day per endpoint, far below the ceiling.
+## Residual limitation
 
-## Residual limitation (documented, accepted)
-
-Sender authentication for DMARC/TLS-RPT aggregate reports does not exist at the protocol
-level; a forged report from an attacker-controlled domain is ingested and recorded as
-`unverified`. This is inherent and safe by the above: it is bounded, non-authoritative,
-tenant-isolated telemetry. No further code change is warranted.
+Inbound aggregate reports remain unauthenticated observational claims. They may
+create storage, parsing, and customer-noise risk, and a recognised public-mail
+header-From still cannot establish producer authority. Reports are retained for
+observational value, clearly labelled non-authoritative, while all
+inbound-driven authoritative and external outcomes remain suspended.

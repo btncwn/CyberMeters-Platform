@@ -332,12 +332,11 @@ async function extractTlsRptFromAttachment(filename, bytes, caps = RUA_DEFAULT_C
  * when it cannot find authentication results rather than guessing.
  */
 
-// Recognised mailbox providers that originate DMARC aggregate (RUA) reports and
-// publish enforcing DMARC — so a delivered message with one of these as its
-// header-From could not have been spoofed past Cloudflare's inbound enforcement.
-// Deliberately conservative: an unlisted legitimate reporter is merely marked
-// 'unverified' (safe, non-breaking) — it is never rejected. Extend as real
-// invited-user report traffic reveals other high-volume reporters.
+// Public mailbox domains commonly seen in DMARC aggregate (RUA) traffic.
+// Membership is descriptive metadata only. Header-From is attacker-controlled,
+// and Cloudflare Email Routing does not expose a trusted Authentication-Results
+// value to this Worker, so this list MUST NOT authenticate a sender, report
+// producer, or report-body claim and MUST NOT grant authority.
 const KNOWN_DMARC_REPORTERS = [
   "google.com", "microsoft.com", "outlook.com", "hotmail.com",
   "yahoo.com", "yahooinc.com", "yahoo.co.jp", "aol.com",
@@ -362,9 +361,8 @@ function extractEmailDomainFromHeader(value) {
   return normalizeInboundRecipientDomain(m[1].slice(at + 1));
 }
 
-// The trust anchor. Returns the header-From domain ONLY when the top-level header
-// block contains exactly ONE From header — absent or duplicated From (a header
-// injection attempt) yields null so it can never be classified 'verified'.
+// Extract a claimed header-From domain only when the top-level header block has
+// exactly ONE From header. This is forensic metadata, never a trust anchor.
 function extractSingleFromDomain(headerBlock) {
   const unfolded = String(headerBlock || "").replace(/\r?\n[ \t]+/g, " ");
   const froms = unfolded.split(/\r?\n/).filter((l) => /^from\s*:/i.test(l));
@@ -372,16 +370,19 @@ function extractSingleFromDomain(headerBlock) {
   return extractEmailDomainFromHeader(froms[0].replace(/^from\s*:/i, ""));
 }
 
-// Best-effort provenance for one inbound RUA email. NEVER throws and NEVER blocks
-// ingestion — worst case it returns an 'unverified' verdict with null fields.
+// Best-effort transport metadata for one inbound RUA email. NEVER throws and
+// NEVER blocks ingestion. No value returned here grants report authority.
 //
-// Trust model: only the RFC5322 header-From domain is trusted, because Cloudflare
-// enforces the header-From domain's DMARC policy BEFORE this Worker runs. The
-// message body is fully attacker-controlled, and even Authentication-Results /
-// DKIM header lines can be forged by the sender, so those tokens are recorded as
-// UNTRUSTED evidence only and never used to grant a 'verified' verdict.
+// Header-From, envelope From, Authentication-Results and DKIM header lines are
+// all sender-controlled at this boundary. They may be retained as bounded
+// forensic claims, but transport_authenticated_sender remains unknown.
 function deriveInboundReportProvenance(rawLatin1, message, boundDomain) {
-  const out = { envelope_from: null, reporter_domain: null, auth_verdict: "unverified", auth_evidence: null };
+  const out = {
+    envelope_from: null,
+    reporter_domain: null,
+    auth_verdict: "sender_identity_unavailable",
+    auth_evidence: null,
+  };
   try {
     // Only the top-level header block (before the first blank line) is inspected
     // for auth signals; the body may contain forged header-like lines.
@@ -401,17 +402,25 @@ function deriveInboundReportProvenance(rawLatin1, message, boundDomain) {
     // the header block so body-injected Authentication-Results cannot even appear.
     const auth = parseEmailAuthHeaders(headerBlock, boundDomain || headerFromDomain || "");
 
-    const matched = Boolean(headerFromDomain && isKnownDmarcReporter(headerFromDomain));
-    out.auth_verdict = matched ? "verified" : "unverified";
+    const recognisedReporterDomain = Boolean(
+      headerFromDomain && isKnownDmarcReporter(headerFromDomain),
+    );
+    out.auth_verdict = recognisedReporterDomain
+      ? "sender_domain_claimed_recognised"
+      : ((headerFromDomain || envelopeFromDomain)
+        ? "sender_domain_claimed"
+        : "sender_identity_unavailable");
     out.reporter_domain = headerFromDomain || envelopeFromDomain || null;
     out.auth_evidence = JSON.stringify({
-      header_from: headerFromDomain || null,
-      envelope_from: envelopeFromDomain || null,
-      dkim: auth ? auth.dkim : null,
-      dkim_d: auth ? auth.dkim_domain : null,
-      spf: auth ? auth.spf : null,
-      dmarc: auth ? auth.dmarc : null,
-      basis: matched ? "known_reporter_header_from" : null,
+      claimed_header_from: headerFromDomain || null,
+      claimed_envelope_from: envelopeFromDomain || null,
+      self_asserted_dkim: auth ? auth.dkim : null,
+      self_asserted_dkim_d: auth ? auth.dkim_domain : null,
+      self_asserted_spf: auth ? auth.spf : null,
+      self_asserted_dmarc: auth ? auth.dmarc : null,
+      transport_authenticated_sender: null,
+      recognised_reporter_domain: recognisedReporterDomain,
+      basis: recognisedReporterDomain ? "recognised_reporter_domain_metadata" : null,
     }).slice(0, 500);
   } catch { /* provenance is best-effort; ingestion must proceed regardless */ }
   return out;
@@ -529,12 +538,10 @@ export async function handleInboundEmail(message, env, _ctx, deps = {}) {
     if (!raw) { await drop(endpoint, "attachment_too_large", recipient); return; }
 
     const rawLatin1 = _bytesToLatin1(raw);
-    // Who really sent this report? Cloudflare rejects inbound mail that fails the
-    // sender's DMARC before we run, so a recognised reporter's header-From cannot
-    // be spoofed. Best-effort, never throws, never blocks ingestion — a forged
-    // report from an attacker-controlled domain is still ingested but recorded as
-    // 'unverified' so it is auditable and purgeable (enforceDomainMatch alone
-    // cannot distinguish it from a real report).
+    // Record bounded sender claims without authenticating them. A recognised
+    // public-mail header-From is metadata only; it grants no report authority.
+    // The report remains auditable and purgeable, while enforceDomainMatch only
+    // checks the body claim against the endpoint binding.
     const provenance = deriveInboundReportProvenance(rawLatin1, message, endpoint.domain);
 
     const parts = parseMimeParts(rawLatin1);
@@ -607,8 +614,7 @@ export async function handleInboundEmail(message, env, _ctx, deps = {}) {
         decompressed_size: ext.decompressed_size,
         message_count: result.messages,
         record_count: result.records,
-        // Sender provenance — 'unverified' flags a report from a source that is
-        // not a recognised major reporter (still ingested; auditable/purgeable).
+        // Sender transport status is a claimed identity label, not authority.
         auth_verdict: provenance.auth_verdict,
         reporter_domain: provenance.reporter_domain,
         envelope_from: provenance.envelope_from,
