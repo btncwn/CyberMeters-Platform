@@ -454,6 +454,9 @@ jobs:
       - name: Validate hosted DMARC lifecycle (pass-rate + readiness + auto-rollback runtime)
         run: node scripts/validate-hosted-dmarc-lifecycle.js
 
+      - name: Validate inbound-email authority containment (forged reports remain observational)
+        run: node scripts/validate-inbound-email-authority-containment.js
+
       - name: Validate DMARC graduated-reject ramp (9-step ladder + tag diff + configurable thresholds)
         run: node scripts/validate-dmarc-graduated-ramp.js
 

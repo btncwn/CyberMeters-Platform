@@ -4,6 +4,7 @@
 // ingest time. Manual sender classification is translated into the observed
 // vocabulary by the canonical resolver when classified_at is set.
 import { resolveEffectiveClassification } from "./sender-classification.js";
+import { dmarcAuthoritySourceSql } from "../lib/dmarc-authority.js";
 
 export const IMPACT_MIN_MESSAGES = 50;
 export const IMPACT_WINDOW_DAYS = 7;
@@ -67,6 +68,7 @@ async function loadImpactRows(env, workspaceId, domain, { startEpoch, endEpoch }
                 AND rep.date_range_begin IS NOT NULL
                 AND rep.date_range_begin >= ?
                 AND rep.date_range_begin < ?
+                AND ${dmarcAuthoritySourceSql("rep")}
               GROUP BY r.source_ip, s.provider_guess, s.classification, s.auto_classification, s.classified_at`)
     .bind(workspaceId, domain, startEpoch, endEpoch).all();
   return rows.results || [];

@@ -52,6 +52,7 @@
 // `monitoring_changed`) and carry to_recurrence_type = null, so
 // findConditionOccurrence cannot match them and no alert path exists at all.
 import { emitLifecycleAlert } from "./alert-consumers.js";
+import { dmarcAuthoritySourceSql } from "../lib/dmarc-authority.js";
 import {
   assertedClassification, isCustomerDisposition, isObservedClassification,
   resolveEffectiveClassification,
@@ -616,8 +617,12 @@ export async function senderWindowVolumes(env, workspaceId, domain, { now = new 
                        SUM(CASE WHEN r.spf_aligned_result = 'pass' OR r.dkim_aligned_result = 'pass'
                                 THEN 0 ELSE r.message_count END) AS window_failed
                 FROM dmarc_aggregate_records r
-                JOIN dmarc_aggregate_reports rep ON rep.id = r.report_id
+                JOIN dmarc_aggregate_reports rep
+                  ON rep.id = r.report_id
+                 AND rep.workspace_id = r.workspace_id
+                 AND rep.domain = r.domain
                 WHERE r.workspace_id = ? AND r.domain = ? AND rep.date_range_end >= ?
+                  AND ${dmarcAuthoritySourceSql("rep")}
                 GROUP BY r.source_ip`)
       .bind(workspaceId, domain, windowStart)
       .all();

@@ -28,6 +28,7 @@
 import { ipContainedInAnyCidr } from "./spf-resolver.js";
 import { emitManagedAlert } from "./managed-alerts.js";
 import { resolveRemediation } from "./remediation-registry.js";
+import { dmarcAuthoritySourceSql } from "../lib/dmarc-authority.js";
 
 export const SPF_CORROBORATION_TIER = Object.freeze({
   UNAUTHORISED_CONFIRMED: "unauthorised_confirmed",     // complete + not-contained + enforcing (-all) policy
@@ -162,20 +163,27 @@ export async function recordSpfRuaCorroboration(scanId, domainId, domain, module
   let emitted = 0;
 
   for (const { workspace_id } of (wsRows.results || [])) {
-    // Recent RUA fail-sources for this domain, grouped per source IP (bounded window).
+    // Recent authority-eligible RUA fail-sources for this domain, grouped per
+    // source IP (bounded window). Inbound email reports remain visible
+    // observational telemetry, but cannot mint a canonical alert.
     const sources = await env.cybermeters_db
       .prepare(
-        `SELECT source_ip,
-                MAX(spf_result)  AS spf_result,
-                MAX(spf_domain)  AS spf_domain,
-                MAX(header_from) AS header_from,
-                SUM(message_count) AS message_count
-           FROM dmarc_aggregate_records
-          WHERE workspace_id = ? AND domain = ?
-            AND LOWER(spf_result) = 'fail'
-            AND source_ip IS NOT NULL AND source_ip != ''
-            AND created_at >= datetime('now', '-30 days')
-          GROUP BY source_ip
+        `SELECT r.source_ip,
+                MAX(r.spf_result)  AS spf_result,
+                MAX(r.spf_domain)  AS spf_domain,
+                MAX(r.header_from) AS header_from,
+                SUM(r.message_count) AS message_count
+           FROM dmarc_aggregate_records r
+           JOIN dmarc_aggregate_reports rep
+             ON rep.id = r.report_id
+            AND rep.workspace_id = r.workspace_id
+            AND rep.domain = r.domain
+          WHERE r.workspace_id = ? AND r.domain = ?
+            AND LOWER(r.spf_result) = 'fail'
+            AND r.source_ip IS NOT NULL AND r.source_ip != ''
+            AND r.created_at >= datetime('now', '-30 days')
+            AND ${dmarcAuthoritySourceSql("rep")}
+          GROUP BY r.source_ip
           LIMIT 200`
       )
       .bind(workspace_id, domain)

@@ -262,15 +262,49 @@ export function classifySender(evidence = {}) {
   };
 }
 
-export async function classifyWorkspaceDomainSenders(env, workspaceId, domain) {
+export async function classifyWorkspaceDomainSenders(env, workspaceId, domain, { reportSources = null } = {}) {
   if (!env?.cybermeters_db || !workspaceId || !domain) return { classified: 0 };
-  const rows = await env.cybermeters_db
-    .prepare(`SELECT id, workspace_id, domain, source_ip, provider_guess, provider_confidence,
-                     header_from, total_messages, aligned_messages, failed_messages,
-                     spf_aligned_messages, dkim_aligned_messages
-              FROM email_sender_sources
-              WHERE workspace_id = ? AND domain = ?`)
-    .bind(workspaceId, domain).all();
+  let rows;
+  if (Array.isArray(reportSources)) {
+    const sources = reportSources.filter((source) => typeof source === "string" && source.length > 0);
+    if (sources.length === 0) return { classified: 0 };
+    const placeholders = sources.map(() => "?").join(", ");
+    rows = await env.cybermeters_db
+      .prepare(`SELECT s.id, s.workspace_id, s.domain, s.source_ip,
+                       s.provider_guess, s.provider_confidence,
+                       MAX(r.header_from) AS header_from,
+                       SUM(r.message_count) AS total_messages,
+                       SUM(CASE WHEN r.spf_aligned_result = 'pass' OR r.dkim_aligned_result = 'pass'
+                                THEN r.message_count ELSE 0 END) AS aligned_messages,
+                       SUM(CASE WHEN r.spf_aligned_result = 'pass' OR r.dkim_aligned_result = 'pass'
+                                THEN 0 ELSE r.message_count END) AS failed_messages,
+                       SUM(CASE WHEN r.spf_aligned_result = 'pass' THEN r.message_count ELSE 0 END)
+                         AS spf_aligned_messages,
+                       SUM(CASE WHEN r.dkim_aligned_result = 'pass' THEN r.message_count ELSE 0 END)
+                         AS dkim_aligned_messages
+                FROM email_sender_sources s
+                JOIN dmarc_aggregate_records r
+                  ON r.workspace_id = s.workspace_id
+                 AND r.domain = s.domain
+                 AND r.source_ip = s.source_ip
+                JOIN dmarc_aggregate_reports rep
+                  ON rep.id = r.report_id
+                 AND rep.workspace_id = r.workspace_id
+                 AND rep.domain = r.domain
+                WHERE s.workspace_id = ? AND s.domain = ?
+                  AND rep.source IN (${placeholders})
+                GROUP BY s.id, s.workspace_id, s.domain, s.source_ip,
+                         s.provider_guess, s.provider_confidence, s.header_from`)
+      .bind(workspaceId, domain, ...sources).all();
+  } else {
+    rows = await env.cybermeters_db
+      .prepare(`SELECT id, workspace_id, domain, source_ip, provider_guess, provider_confidence,
+                       header_from, total_messages, aligned_messages, failed_messages,
+                       spf_aligned_messages, dkim_aligned_messages
+                FROM email_sender_sources
+                WHERE workspace_id = ? AND domain = ?`)
+      .bind(workspaceId, domain).all();
+  }
   let classified = 0;
   for (const row of rows.results || []) {
     const result = classifySender({ ...row, protected_domain: domain });

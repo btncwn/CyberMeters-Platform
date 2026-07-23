@@ -7,6 +7,7 @@
 // matches, or null so the main router continues.
 import { ALERT_CHANNEL_MAX_PER_WORKSPACE, alertChannelToApi, deliverWorkspaceAlert, validateAlertChannelInput } from "../engines/alerts.js";
 import { computeBecExposureScore } from "../engines/bec.js";
+import { DMARC_OBSERVATIONAL_EVIDENCE_SCOPE } from "../lib/dmarc-authority.js";
 import { assessImpactRollback, comparePolicyImpact, forecastPolicyImpact } from "../engines/dmarc-impact.js";
 import { applyChangeTransition, buildChangeReviewQueue, changeRequestToApi, newChangeRequestId } from "../engines/dmarc-change-workflow.js";
 import { dnsQuery } from "../engines/dns.js";
@@ -313,7 +314,13 @@ export async function emailProtectionRoutes(rctx) {
           return json({
             record: impactState.record,
             policy_management_available: policyAllowed,
-            compliance: { pass_rate: rate.pass_rate, total_messages: rate.total, window_days: 7 },
+            compliance: {
+              pass_rate: rate.pass_rate,
+              total_messages: rate.total,
+              window_days: 7,
+              evidence_scope: rate.evidence_scope,
+              inbound_automation_suspended: rate.inbound_automation_suspended === true,
+            },
             readiness,
             projected_impact: impactState.projected_impact,
             impact_assessment: impactState.impact_assessment,
@@ -917,8 +924,14 @@ export async function emailProtectionRoutes(rctx) {
             failed_sessions: fail,
             success_rate: totalSessions > 0 ? Math.round((succ / totalSessions) * 100) : null,
             top_failures: topFailures,
+            evidence_scope: DMARC_OBSERVATIONAL_EVIDENCE_SCOPE,
+            authoritative: false,
           },
-          reports,
+          reports: reports.map((report) => ({
+            ...report,
+            evidence_scope: DMARC_OBSERVATIONAL_EVIDENCE_SCOPE,
+            authoritative: false,
+          })),
         });
       } catch (e) {
         return serverError("tls-rpt-reports", e, "TLS-RPT reports could not be loaded.");
@@ -1257,12 +1270,22 @@ export async function emailProtectionRoutes(rctx) {
 
         return json({
           domain, period_days: days,
+          evidence_scope: DMARC_OBSERVATIONAL_EVIDENCE_SCOPE,
+          authoritative: false,
           traffic: { total_messages: totalMsgs, aligned_messages: alignedMsgs, failed_messages: failedMsgs, pass_rate: passRate },
           senders: { total: sSummary.total_senders, trusted: sSummary.trusted_senders, unknown: sSummary.unknown_senders,
                      suspicious: sSummary.suspicious_senders, threat: sSummary.threat_senders, ignored: sSummary.ignored_senders },
           disposition,
-          readiness,
-          business_risk: businessRisk,
+          readiness: {
+            ...readiness,
+            evidence_scope: DMARC_OBSERVATIONAL_EVIDENCE_SCOPE,
+            authoritative: false,
+          },
+          business_risk: {
+            ...businessRisk,
+            evidence_scope: DMARC_OBSERVATIONAL_EVIDENCE_SCOPE,
+            authoritative: false,
+          },
           cybermeters_correlation: {
             external_attack_surface_note: "Email impersonation risk should be reviewed alongside exposed assets, SaaS exposure, and third-party dependencies.",
             linked_modules: ["assets", "saas_exposure", "vendors", "business_risk"],
@@ -1345,6 +1368,7 @@ export async function emailProtectionRoutes(rctx) {
         const rows = await env.cybermeters_db
           .prepare(`SELECT rep.id, rep.org_name, rep.date_range_begin, rep.date_range_end,
                            rep.message_count, rep.record_count, rep.policy_p, rep.created_at,
+                           rep.source, rep.auth_verdict, rep.reporter_domain,
                            COALESCE(SUM(CASE WHEN r.spf_aligned_result = 'pass' OR r.dkim_aligned_result = 'pass'
                                              THEN r.message_count ELSE 0 END), 0) AS aligned_messages
                     FROM dmarc_aggregate_reports rep
@@ -1369,11 +1393,20 @@ export async function emailProtectionRoutes(rctx) {
             pass_rate: msgs > 0 ? Math.round((aligned / msgs) * 1000) / 10 : null,
             policy_applied: r.policy_p || null,
             received_at: r.created_at || null,
+            source: r.source || null,
+            auth_verdict: r.source === "inbound_email"
+              ? (r.auth_verdict || "unverified")
+              : (r.auth_verdict || null),
+            reporter_domain: r.reporter_domain || null,
+            evidence_scope: DMARC_OBSERVATIONAL_EVIDENCE_SCOPE,
+            authoritative: false,
           };
         });
 
         return json({
           domain,
+          evidence_scope: DMARC_OBSERVATIONAL_EVIDENCE_SCOPE,
+          authoritative: false,
           totals: {
             reports: Number(totals?.reports || 0),
             reporters: Number(totals?.reporters || 0),

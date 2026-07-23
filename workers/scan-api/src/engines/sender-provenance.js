@@ -5,9 +5,13 @@
 // from index.js (monolith decomposition, Phase 1c). loadLatestDomainEmailModules +
 // loadBecBrandEvidence are module-internal.
 import { RUA_INBOUND_DOMAIN_DEFAULT } from "../lib/dmarc-ingest.js";
+import {
+  DMARC_AUTHORITY_EVIDENCE_SCOPE,
+  dmarcAuthoritySourceSql,
+} from "../lib/dmarc-authority.js";
 import { brandCandidateToApi, loadWorkspaceBrandProfile } from "./brand-protection.js";
 import { remediationAction } from "./email-analysis.js";
-import { buildDmarcEnforcementReadiness, loadEmailSenderSources, summarizeEmailSenders } from "./rua-routing.js";
+import { buildDmarcEnforcementReadiness, summarizeEmailSenders } from "./rua-routing.js";
 
 // ── Inbound RUA sender provenance (forged-report hardening) ───────────────────
 //
@@ -175,6 +179,47 @@ async function loadBecBrandEvidence(env, workspaceId, domain) {
   }
 }
 
+// Authority-only sender view for readiness, BEC risk and executive evidence.
+// The cumulative email_sender_sources rows deliberately remain observational:
+// inbound reports still appear in the customer sender/report surfaces. Counts
+// used for authority are rebuilt from parent reports whose explicit source is
+// eligible; inbound, NULL and unknown sources are excluded by construction.
+async function loadAuthorityEligibleDmarcSenders(env, workspaceId, domain) {
+  const rows = await env.cybermeters_db
+    .prepare(`SELECT r.source_ip,
+                     COALESCE(s.classification, 'unknown') AS classification,
+                     SUM(r.message_count) AS total_messages,
+                     SUM(CASE WHEN r.spf_aligned_result = 'pass' OR r.dkim_aligned_result = 'pass'
+                              THEN r.message_count ELSE 0 END) AS aligned_messages,
+                     SUM(CASE WHEN r.spf_aligned_result = 'pass' OR r.dkim_aligned_result = 'pass'
+                              THEN 0 ELSE r.message_count END) AS failed_messages
+              FROM dmarc_aggregate_records r
+              JOIN dmarc_aggregate_reports rep
+                ON rep.id = r.report_id
+               AND rep.workspace_id = r.workspace_id
+               AND rep.domain = r.domain
+              LEFT JOIN email_sender_sources s
+                ON s.workspace_id = r.workspace_id
+               AND s.domain = r.domain
+               AND s.source_ip = r.source_ip
+              WHERE r.workspace_id = ? AND r.domain = ?
+                AND ${dmarcAuthoritySourceSql("rep")}
+              GROUP BY r.source_ip, s.classification
+              ORDER BY total_messages DESC`)
+    .bind(workspaceId, domain).all();
+  return (rows.results || []).map((row) => {
+    const total = Number(row.total_messages || 0);
+    const aligned = Number(row.aligned_messages || 0);
+    return {
+      ...row,
+      total_messages: total,
+      aligned_messages: aligned,
+      failed_messages: Number(row.failed_messages || 0),
+      pass_rate: total > 0 ? Math.round((aligned / total) * 1000) / 10 : 0,
+    };
+  });
+}
+
 export async function loadBecExposureEvidence(env, workspaceId, domain) {
   const [domainRow, senders, reportWindow, latestEndpoint, modules, brand] = await Promise.all([
     env.cybermeters_db
@@ -183,7 +228,7 @@ export async function loadBecExposureEvidence(env, workspaceId, domain) {
                 JOIN workspace_domains wd ON wd.domain_id = d.id
                 WHERE wd.workspace_id = ? AND d.domain = ? LIMIT 1`)
       .bind(workspaceId, domain).first(),
-    loadEmailSenderSources(env, workspaceId, domain).catch(() => []),
+    loadAuthorityEligibleDmarcSenders(env, workspaceId, domain).catch(() => []),
     env.cybermeters_db
       .prepare(`SELECT COUNT(*) AS imported_reports,
                        SUM(message_count) AS report_messages,
@@ -191,12 +236,15 @@ export async function loadBecExposureEvidence(env, workspaceId, domain) {
                        MAX(date_range_end) AS last_report_epoch,
                        (SELECT policy_p FROM dmarc_aggregate_reports
                         WHERE workspace_id = ? AND domain = ?
+                          AND ${dmarcAuthoritySourceSql("dmarc_aggregate_reports")}
                         ORDER BY created_at DESC LIMIT 1) AS latest_policy_p,
                        (SELECT policy_pct FROM dmarc_aggregate_reports
                         WHERE workspace_id = ? AND domain = ?
+                          AND ${dmarcAuthoritySourceSql("dmarc_aggregate_reports")}
                         ORDER BY created_at DESC LIMIT 1) AS latest_policy_pct
-                FROM dmarc_aggregate_reports
-                WHERE workspace_id = ? AND domain = ?`)
+                FROM dmarc_aggregate_reports rep
+                WHERE workspace_id = ? AND domain = ?
+                  AND ${dmarcAuthoritySourceSql("rep")}`)
       .bind(workspaceId, domain, workspaceId, domain, workspaceId, domain).first().catch(() => null),
     env.cybermeters_db
       .prepare(`SELECT domain, address_local, status, last_used_at, last_inbound_at,
@@ -210,15 +258,8 @@ export async function loadBecExposureEvidence(env, workspaceId, domain) {
   ]);
 
   const sSummary = summarizeEmailSenders(senders);
-  const dmarcRows = await env.cybermeters_db
-    .prepare(`SELECT SUM(r.message_count) AS total_messages,
-                     SUM(CASE WHEN r.spf_aligned_result='pass' OR r.dkim_aligned_result='pass'
-                              THEN r.message_count ELSE 0 END) AS aligned_messages
-              FROM dmarc_aggregate_records r
-              WHERE r.workspace_id = ? AND r.domain = ?`)
-    .bind(workspaceId, domain).first().catch(() => null);
-  const totalMessages = Number(dmarcRows?.total_messages || sSummary.total_messages || 0);
-  const alignedMessages = Number(dmarcRows?.aligned_messages || sSummary.aligned_messages || 0);
+  const totalMessages = Number(sSummary.total_messages || 0);
+  const alignedMessages = Number(sSummary.aligned_messages || 0);
   const failedMessages = Math.max(0, totalMessages - alignedMessages) || sSummary.failed_messages || 0;
   const passRate = totalMessages > 0 ? Math.round((alignedMessages / totalMessages) * 1000) / 10 : sSummary.overall_pass_rate;
   const highVolFailed = senders.filter((s) => (s.total_messages || 0) >= 50 &&
@@ -271,6 +312,8 @@ export async function loadBecExposureEvidence(env, workspaceId, domain) {
     domain_verification_status: domainRow?.verification_status || null,
     dns_status_known: Boolean(modules?.email_security || domainRow?.verification_status),
     enforcement_readiness_blockers: readiness.blockers || [],
+    evidence_scope: DMARC_AUTHORITY_EVIDENCE_SCOPE,
+    inbound_reports_authoritative: false,
     brand,
   };
 }
@@ -279,10 +322,12 @@ export async function loadBecExposureEvidence(env, workspaceId, domain) {
 export async function buildDmarcSenderIntelligenceEvidence(env, workspaceId, domain) {
   if (!workspaceId || !domain) return null;
   try {
-    const senders = await loadEmailSenderSources(env, workspaceId, domain);
+    const senders = await loadAuthorityEligibleDmarcSenders(env, workspaceId, domain);
     const window = await env.cybermeters_db
       .prepare(`SELECT COUNT(*) AS c, MIN(date_range_begin) AS minb, MAX(date_range_end) AS maxe
-                FROM dmarc_aggregate_reports WHERE workspace_id = ? AND domain = ?`)
+                FROM dmarc_aggregate_reports rep
+                WHERE workspace_id = ? AND domain = ?
+                  AND ${dmarcAuthoritySourceSql("rep")}`)
       .bind(workspaceId, domain).first();
     const imported = window?.c || 0;
     if (imported === 0 && senders.length === 0) return null;
@@ -302,6 +347,8 @@ export async function buildDmarcSenderIntelligenceEvidence(env, workspaceId, dom
       failed_messages: summary.failed_messages,
       pass_rate: summary.overall_pass_rate,
       readiness_stage: readiness.ready_for_reject ? "reject_ready" : readiness.ready_for_quarantine ? "quarantine_ready" : "monitoring",
+      evidence_scope: DMARC_AUTHORITY_EVIDENCE_SCOPE,
+      inbound_reports_authoritative: false,
     };
   } catch { return null; }
 }
