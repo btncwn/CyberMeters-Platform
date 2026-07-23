@@ -56,19 +56,61 @@ export function scanCompletionQualityDisclosure(scanQuality) {
   };
 }
 
-export function buildScanCompletionPresentation({ domain, score, riskLevel, scanQuality } = {}) {
+// Converts the already-resolved backend signal states into completion copy. This
+// function does not derive a verdict: it only presents the canonical state/message
+// pairs. Unknown states fail closed as non-healthy. "Other checks completed
+// normally" is safe only when scan_quality is complete and exactly one signal is
+// non-healthy; otherwise every attributable limitation is stated without it.
+export function signalMonitoringDisclosure(monitoringStates, { otherChecksCompleted = false } = {}) {
+  const entries = Object.values(monitoringStates?.signals ?? {});
+  const nonHealthy = entries.filter((entry) =>
+    entry?.state !== "monitoring_healthy"
+  );
+  if (nonHealthy.length === 0) return null;
+
+  const messages = [...new Set(nonHealthy.map((entry) =>
+    String(entry?.message || "Monitoring evidence was incomplete in this run.").trim()
+  ).filter(Boolean))];
+  if (messages.length === 0) return "Monitoring evidence was incomplete in this run.";
+
+  const disclosure = messages.join(" ");
+  return otherChecksCompleted && nonHealthy.length === 1
+    ? `${disclosure} Other checks completed normally.`
+    : disclosure;
+}
+
+export function buildScanCompletionPresentation({
+  domain,
+  score,
+  riskLevel,
+  scanQuality,
+  monitoringStates = null,
+} = {}) {
   const quality = scanCompletionQualityDisclosure(scanQuality);
+  const signalDisclosure = signalMonitoringDisclosure(monitoringStates, {
+    otherChecksCompleted: quality.complete,
+  });
   if (quality.complete) {
+    if (signalDisclosure) {
+      return {
+        ...quality,
+        disclosure: signalDisclosure,
+        description: `Scan completed for ${domain} — score ${score}, risk ${riskLevel}. ${signalDisclosure}`,
+        message: `Score: ${score} · ${riskLevel} risk · ${signalDisclosure}`,
+      };
+    }
     return {
       ...quality,
       description: `Scan completed for ${domain} — score ${score}, risk ${riskLevel}`,
       message: `Score: ${score} · ${riskLevel} risk`,
     };
   }
+  const disclosure = signalDisclosure || quality.disclosure;
   return {
     ...quality,
-    description: `Scan completed for ${domain} — score ${score} (provisional). ${quality.disclosure}`,
-    message: `Score: ${score} (provisional) · ${quality.disclosure}`,
+    disclosure,
+    description: `Scan completed for ${domain} — score ${score} (provisional). ${disclosure}`,
+    message: `Score: ${score} (provisional) · ${disclosure}`,
   };
 }
 

@@ -530,6 +530,9 @@ jobs:
       - name: Validate CT provider resilience (timeouts + bounded retry + health telemetry + mutations)
         run: node scripts/validate-ct-provider-resilience.js
 
+      - name: Validate per-signal monitoring states (CT fallback + incomplete attribution + wording + mutations)
+        run: node scripts/validate-signal-monitoring-state.js
+
       - name: Validate scan deadline + partial finalization (waitUntil-cancellation guard)
         run: node scripts/validate-scan-deadline.js
 

@@ -196,7 +196,7 @@ const lifecycleArgs = {
   ok("scan engine passes quality to asset email delivery",
     /sendAssetChangeAlert\([^)]*scanQuality\?\.status\)/.test(scanEngine));
   ok("scan engine passes quality to in-app notification delivery",
-    /createNotificationsForDomain\([^)]*scanQuality\?\.status\)/.test(scanEngine));
+    /createNotificationsForDomain\([\s\S]{0,260}scanQuality\?\.status,\s*monitoringStates,\s*\)/.test(scanEngine));
   ok("both scan-completed audit writes use canonical completion copy",
     (scanEngine.match(/description:\s*completion\.description/g) || []).length === 2);
   ok("first-scan lifecycle email receives the current scan quality",

@@ -310,7 +310,8 @@ function d1Stub({ fail = false } = {}) {
   ok("engine whitelists trigger origins (fail-safe null)",
     /opts\.trigger === "manual" \|\| opts\.trigger === "scheduled"/.test(engineSrc));
   ok("completed report embeds execution_diagnostics with CT provider health",
-    /report\.execution_diagnostics = buildExecutionDiagnostics\(\{[\s\S]{0,220}providerHealth: ctCache\.healthSnapshot\(\),[\s\S]{0,30}\}\);/.test(engineSrc));
+    /const providerHealth = ctCache\.healthSnapshot\(\);/.test(engineSrc) &&
+      /report\.execution_diagnostics = buildExecutionDiagnostics\(\{[\s\S]{0,220}providerHealth,[\s\S]{0,30}\}\);/.test(engineSrc));
   ok("failed report embeds execution_diagnostics with CT provider health",
     /execution_diagnostics: buildExecutionDiagnostics\(\{[\s\S]{0,220}providerHealth: ctCache\.healthSnapshot\(\),[\s\S]{0,30}\}\),/.test(engineSrc));
   ok("finalisation wall time recorded as D1 pseudo-row",
@@ -469,9 +470,14 @@ function d1Stub({ fail = false } = {}) {
 {
   const acct = createOutboundAccounting();
   const ctx = acct.contextFor("known_exploited_vulnerabilities");
-  const env = { cybermeters_reports: { get: async () => ({ text: async () => JSON.stringify({ fetched_at_ms: Date.now(), vulnerabilities: [] }) }) } };
+  // Freeze producer and consumer to the same instant. Reading Date.now() inside
+  // obj.text() happens after getKevCatalogue captures its default clock, so a
+  // millisecond boundary can otherwise make the fixture timestamp appear future
+  // dated and exercise the stale fallback nondeterministically.
+  const kevNow = Date.parse("2026-07-23T12:00:00.000Z");
+  const env = { cybermeters_reports: { get: async () => ({ text: async () => JSON.stringify({ fetched_at_ms: kevNow, vulnerabilities: [] }) }) } };
   await withMockFetch(async () => {
-    const cat = await getKevCatalogue(env, { accounting: ctx });
+    const cat = await getKevCatalogue(env, { accounting: ctx, now: () => kevNow });
     eq("C1A KEV cache source", cat.source, "r2_cache");
   }, async () => { throw new Error("origin fetch should not happen on cache hit"); });
   ctx.markSettled();
