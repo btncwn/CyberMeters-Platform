@@ -39,8 +39,9 @@ const realFetch = globalThis.fetch;
 const realNow = Date.now;
 const realRandom = Math.random;
 const realConsoleError = console.error;
+const NOW = "2026-07-23T12:00:00.000Z";
 
-Date.now = () => Date.parse("2026-07-23T12:00:00.000Z");
+Date.now = () => Date.parse(NOW);
 Math.random = () => 0.123456789;
 console.error = () => {};
 
