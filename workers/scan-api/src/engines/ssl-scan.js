@@ -16,7 +16,24 @@ import { normalizeCertificateSanNames, normalizeDiscoveredHostname, parseCertifi
 // scan past its ~21s deadline and starved the later deadline-gated modules
 // (docs/CHRONIC-PARTIAL-SCAN-ROOT-CAUSE.md). Returns the 11 cert_* fields; on any
 // failure they stay null/0 exactly as before (best-effort — the scan still completes).
-export async function resolveCertificateTransparency(domain) {
+function recordFetchError(accounting, err) {
+  accounting?.recordError?.(err);
+  throw err;
+}
+
+async function countedFetch(url, init, accounting = null) {
+  accounting?.recordAttempt?.();
+  try {
+    const res = await fetch(url, init);
+    accounting?.recordCompleted?.();
+    return res;
+  } catch (err) {
+    recordFetchError(accounting, err);
+  }
+}
+
+export async function resolveCertificateTransparency(domain, opts = {}) {
+  const accounting = opts.accounting || null;
   let cert_expiry_days = null;
   let cert_age_days    = null;
   let cert_not_before  = null;
@@ -29,12 +46,13 @@ export async function resolveCertificateTransparency(domain) {
   let cert_shared_san_count = 0;
   let cert_san_names   = [];
   try {
-    const crtRes = await fetch(
+    const crtRes = await countedFetch(
       `https://crt.sh/?q=${encodeURIComponent(domain)}&output=json`,
       {
         headers: { Accept: "application/json", "User-Agent": "CyberMeters/1.0" },
         signal:  AbortSignal.timeout(8_000),
-      }
+      },
+      accounting
     );
     if (crtRes.ok) {
       const ct = crtRes.headers.get("content-type") || "";
@@ -86,12 +104,13 @@ export async function resolveCertificateTransparency(domain) {
   // for a host that plainly serves a valid certificate.
   if (cert_not_after == null) {
     try {
-      const csRes = await fetch(
+      const csRes = await countedFetch(
         `https://api.certspotter.com/v1/issuances?domain=${encodeURIComponent(domain)}&include_subdomains=false&expand=dns_names&expand=issuer`,
         {
           headers: { Accept: "application/json", "User-Agent": "CyberMeters/1.0" },
           signal:  AbortSignal.timeout(8_000),
-        }
+        },
+        accounting
       );
       if (csRes.ok && (csRes.headers.get("content-type") || "").includes("json")) {
         const issuances = await csRes.json();
@@ -131,16 +150,18 @@ export async function resolveCertificateTransparency(domain) {
   };
 }
 
-export async function runSslModule(domain) {
+export async function runSslModule(domain, opts = {}) {
+  const accounting = opts.accounting || null;
   // Launch the Certificate Transparency lookup CONCURRENTLY with the reachability
   // probes below. The two are independent, so awaiting the promise at the end makes
   // the module's wall-time max(reachability, CT) instead of their sum.
-  const certPromise = resolveCertificateTransparency(domain);
+  const certPromise = resolveCertificateTransparency(domain, { accounting });
 
   // Try HTTPS on the bare domain
   const httpsRes = await safeFetch(`https://${domain}`, {
     method: "HEAD",
     redirect: "manual",
+    accounting,
   });
   const httpsOk = httpsRes !== null && httpsRes.status < 500;
 
@@ -151,6 +172,7 @@ export async function runSslModule(domain) {
     wwwRes = await safeFetch(`https://www.${domain}`, {
       method: "HEAD",
       redirect: "manual",
+      accounting,
     });
     wwwHttpsOk = wwwRes !== null && wwwRes.status < 500;
   }
@@ -182,7 +204,7 @@ export async function runSslModule(domain) {
   // Follow up to 2 hops to handle intermediate http→http→https chains
   // (e.g. http://google.com → 301 → http://www.google.com → 301 → https://www.google.com).
   const httpOrigUrl = `http://${domain}`;
-  const httpRes = await safeFetch(httpOrigUrl, { method: "HEAD", redirect: "manual" });
+  const httpRes = await safeFetch(httpOrigUrl, { method: "HEAD", redirect: "manual", accounting });
   let httpRedirectsToHttps = false;
   // http_redirect_validated starts false — only set true when safeFetch returns a
   // response (not null).  A null response means the fetch was blocked or timed out
@@ -212,7 +234,7 @@ export async function runSslModule(domain) {
         http_redirect_chain = { original_url: httpOrigUrl, final_url: loc1, redirect_count: 1, http_redirect_validated: true };
       } else {
         // First hop stayed on HTTP — follow one more hop to catch http→http→https
-        const hop2 = await safeFetch(loc1, { method: "HEAD", redirect: "manual" });
+        const hop2 = await safeFetch(loc1, { method: "HEAD", redirect: "manual", accounting });
         if (hop2) {
           const rawLoc2 = hop2.headers.get("location") || "";
           let loc2;

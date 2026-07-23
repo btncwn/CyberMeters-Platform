@@ -194,12 +194,16 @@ function isAbortError(err) {
 
 export const OUTBOUND_FULLY_INSTRUMENTED_MODULES = Object.freeze(new Set([
   "dns",
+  "ssl",
   "headers",
   "email_security",
+  "subdomains",
   "technology_detection",
   "whois_intelligence",
+  "dns_bruteforce",
   "subdomain_takeover",
   "asset_exposure",
+  "cloud_storage_discovery",
   "cve_intelligence",
   "known_exploited_vulnerabilities",
   "email_security_intelligence",

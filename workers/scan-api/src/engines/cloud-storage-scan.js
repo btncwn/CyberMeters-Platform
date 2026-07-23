@@ -165,7 +165,20 @@ async function readResponseTextLimit(response, limit = 8192) {
   return new TextDecoder().decode(out);
 }
 
-async function validateCloudStorageCandidate(candidate) {
+async function countedFetch(url, init, accounting = null) {
+  accounting?.recordAttempt?.();
+  try {
+    const res = await fetch(url, init);
+    accounting?.recordCompleted?.();
+    return res;
+  } catch (err) {
+    accounting?.recordError?.(err);
+    throw err;
+  }
+}
+
+async function validateCloudStorageCandidate(candidate, opts = {}) {
+  const accounting = opts.accounting || null;
   const result = {
     validation_method: "HEAD",
     status_code: null,
@@ -179,7 +192,7 @@ async function validateCloudStorageCandidate(candidate) {
   if (!headUrl) return result;
   let headRes = null;
   try {
-    headRes = await fetch(headUrl, { method: "HEAD", redirect: "manual", signal: AbortSignal.timeout(6_000) });
+    headRes = await countedFetch(headUrl, { method: "HEAD", redirect: "manual", signal: AbortSignal.timeout(6_000) }, accounting);
     result.status_code = headRes.status;
     result.provider_headers_present = cloudProviderHeadersPresent(candidate.provider, headRes.headers);
   } catch {
@@ -189,7 +202,7 @@ async function validateCloudStorageCandidate(candidate) {
   const listUrl = buildCloudStorageValidationUrl(candidate, true);
   if (!listUrl) return result;
   try {
-    const getRes = await fetch(listUrl, { method: "GET", redirect: "manual", signal: AbortSignal.timeout(6_000) });
+    const getRes = await countedFetch(listUrl, { method: "GET", redirect: "manual", signal: AbortSignal.timeout(6_000) }, accounting);
     result.validation_method = "HEAD+GET";
     result.status_code = getRes.status;
     result.provider_headers_present = result.provider_headers_present || cloudProviderHeadersPresent(candidate.provider, getRes.headers);
@@ -243,7 +256,8 @@ function cloudStorageFindingFromCandidate(candidate) {
   return null;
 }
 
-export async function runCloudStorageModule(domain, modules) {
+export async function runCloudStorageModule(domain, modules, opts = {}) {
+  const accounting = opts.accounting || null;
   try {
     const candidates = [];
     const seenCandidates = new Set();
@@ -285,7 +299,7 @@ export async function runCloudStorageModule(domain, modules) {
     const findings = [];
     const validatedCandidates = [];
     for (const candidate of candidates.slice(0, 5)) {
-      const validation = await validateCloudStorageCandidate(candidate);
+      const validation = await validateCloudStorageCandidate(candidate, { accounting });
       const enriched = { ...candidate, validation };
       validatedCandidates.push(enriched);
       const findingBase = cloudStorageFindingFromCandidate(enriched);

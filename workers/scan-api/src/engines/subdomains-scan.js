@@ -78,7 +78,20 @@ function isSensitiveSubdomain(hostname, domain) {
 // If one source fails the other still contributes — scan never aborts.
 // Per-source counts and errors are exposed in modules.subdomains.sources.
 
-export async function runSubdomainsModule(domain) {
+async function countedFetch(url, init, accounting = null) {
+  accounting?.recordAttempt?.();
+  try {
+    const res = await fetch(url, init);
+    accounting?.recordCompleted?.();
+    return res;
+  } catch (err) {
+    accounting?.recordError?.(err);
+    throw err;
+  }
+}
+
+export async function runSubdomainsModule(domain, opts = {}) {
+  const accounting = opts.accounting || null;
   const SOURCE    = "certificate_transparency_multi_source";
   const PER_CAP   = 200;   // max unique names from each CT source
   const MERGE_CAP = 300;   // cap on the merged deduplicated set
@@ -108,7 +121,7 @@ export async function runSubdomainsModule(domain) {
     // If the hard cap fires first the scan continues with an empty result;
     // the inner work is abandoned (Cloudflare GC's the hanging fetch).
     return await Promise.race([
-      _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP),
+      _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, { accounting }),
       new Promise((resolve) =>
         setTimeout(() =>
           resolve(emptyResult("Subdomain discovery timed out (15s hard cap)")),
@@ -130,28 +143,31 @@ export async function runSubdomainsModule(domain) {
  *   • CertSpotter     ( 8 s)
  * Total worst-case I/O = max(6, 12) = 12 s (well under the 15 s hard cap).
  */
-async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP) {
+async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}) {
+  const accounting = opts.accounting || null;
   const wildcardLabel = `cybermeters-wildcard-check-${Math.random().toString(36).slice(2, 10)}`;
   const wildcardHost  = `${wildcardLabel}.${domain}`;
 
   // ── Fire all 4 network calls in parallel ────────────────────────────────
   const [wASettled, wAAAASettled, crtShSettled, certSpotterSettled] =
     await Promise.allSettled([
-      dnsQuery(wildcardHost, "A"),
-      dnsQuery(wildcardHost, "AAAA"),
-      fetch(
+      dnsQuery(wildcardHost, "A", { accounting }),
+      dnsQuery(wildcardHost, "AAAA", { accounting }),
+      countedFetch(
         `https://crt.sh/?q=${encodeURIComponent("%." + domain)}&output=json`,
         {
           headers: { Accept: "application/json", "User-Agent": RDAP_UA },
           signal:  AbortSignal.timeout(12_000),
-        }
+        },
+        accounting
       ),
-      fetch(
+      countedFetch(
         `https://api.certspotter.com/v1/issuances?domain=${encodeURIComponent(domain)}&include_subdomains=true&expand=dns_names`,
         {
           headers: { Accept: "application/json", "User-Agent": RDAP_UA },
           signal:  AbortSignal.timeout(8_000),
-        }
+        },
+        accounting
       ),
     ]);
 
@@ -313,7 +329,8 @@ const MAIL_SUBDOMAIN_LABELS = [
  * Returns any names that resolve, with source = "dns_bruteforce".
  * Hard-capped at BRUTEFORCE_TIMEOUT_MS — returns whatever has resolved by then.
  */
-export async function runBruteforceModule(domain) {
+export async function runBruteforceModule(domain, opts = {}) {
+  const accounting = opts.accounting || null;
   const HARD_CAP_MS = BRUTEFORCE_TIMEOUT_MS;
 
   const empty = (error = null) => ({
@@ -330,7 +347,7 @@ export async function runBruteforceModule(domain) {
     const settled = await Promise.race([
       Promise.allSettled(
         candidates.map((host) =>
-          dnsQuery(host, "A").then((r) => ({ host, answers: r.Answer || [] }))
+          dnsQuery(host, "A", { accounting }).then((r) => ({ host, answers: r.Answer || [] }))
         )
       ),
       // Hard cap: resolve with an empty-array sentinel so the race always resolves
@@ -363,7 +380,7 @@ export async function runBruteforceModule(domain) {
       const mxSettled = await Promise.race([
         Promise.allSettled(
           mailCandidates.map((host) =>
-            dnsQuery(host, "MX").then((r) => ({ host, answers: r.Answer || [] }))
+            dnsQuery(host, "MX", { accounting }).then((r) => ({ host, answers: r.Answer || [] }))
           )
         ),
         new Promise((resolve) => setTimeout(() => resolve([]), HARD_CAP_MS)),
