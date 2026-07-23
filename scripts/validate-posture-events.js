@@ -77,13 +77,20 @@ function harness(prevReport) {
   return { db, env };
 }
 
-async function record(env, modules) {
-  await recordPostureEvents("scan_current", "dom_1", "example.co.uk", modules, env, { currentReport: report(modules) });
+async function record(env, modules, options = {}) {
+  await recordPostureEvents("scan_current", "dom_1", "example.co.uk", modules, env, { currentReport: report(modules, options) });
 }
 
-const report = (modules) => ({ domain: "example.co.uk", scan_quality: { status: "complete" }, timeline_trust: buildAssetTimelineTrustMetadata(), modules });
+const report = (modules, options = {}) => ({ domain: "example.co.uk", scan_quality: { status: options.scanQuality ?? "complete" }, timeline_trust: buildAssetTimelineTrustMetadata(), modules });
+const CIDRA = "ip4:c0000200/24";
+const CIDRB = "ip4:cb007100/24";
 const email = ({ spfPresent = true, spfRecord = "v=spf1 include:example.net -all", dmarcPresent = true, dmarcPolicy = "none", dkimPresent = true } = {}) => ({
-  spf: { present: spfPresent, record: spfRecord },
+  spf: {
+    present: spfPresent,
+    record: spfRecord,
+    resolution_status: "complete",
+    resolved_pass_authorisations: spfPresent ? [CIDRA] : [],
+  },
   dmarc: { present: dmarcPresent, policy: dmarcPolicy },
   dkim: { present: dkimPresent },
 });
@@ -108,6 +115,29 @@ const rowsFor = (db, eventType) => rows(db).filter((row) => row.event_type === e
   ok("SPF present -> absent emits one event", events.length === 1);
   ok("SPF present -> absent severity is high", events[0]?.severity === "high");
   ok("SPF description is customer-safe", events[0]?.description === "SPF record changed for example.co.uk");
+}
+
+// 1b. SPF per-signal completeness: unrelated partial scan quality does NOT silence
+//     a complete SPF resolved-set change.
+{
+  const root = "v=spf1 include:example.net -all";
+  const prevSpf = { present: true, record: root, resolution_status: "complete", resolved_pass_authorisations: [CIDRA] };
+  const currSpf = { present: true, record: root, resolution_status: "complete", resolved_pass_authorisations: [CIDRA, CIDRB] };
+  const { db, env } = harness(report(modules({ email_security: { ...email(), spf: prevSpf } }), { scanQuality: "partial" }));
+  await record(env, modules({ email_security: { ...email(), spf: currSpf }, admin_evidence_status: "unavailable" }), { scanQuality: "partial" });
+  const events = rowsFor(db, "email_spf_authorization_changed");
+  ok("SPF resolved-set change emits under unrelated partial scan", events.length === 1);
+  ok("SPF resolved-set event carries added CIDR under partial scan", events[0]?.description.includes(CIDRB));
+}
+
+// 1c. Incomplete SPF evidence never produces a root-record or resolved-set change.
+{
+  const prevSpf = { present: true, record: "v=spf1 include:old.example -all", resolution_status: "complete", resolved_pass_authorisations: [CIDRA] };
+  const currSpf = { present: true, record: "v=spf1 include:new.example -all", resolution_status: "temperror", resolved_pass_authorisations: null };
+  const { db, env } = harness(report(modules({ email_security: { ...email(), spf: prevSpf } })));
+  await record(env, modules({ email_security: { ...email(), spf: currSpf } }));
+  ok("current incomplete SPF emits no root-record event", rowsFor(db, "email_spf_changed").length === 0);
+  ok("current incomplete SPF emits no authorization event", rowsFor(db, "email_spf_authorization_changed").length === 0);
 }
 
 // 2. DMARC none -> reject is an improvement and emits low severity.
@@ -160,6 +190,14 @@ const rowsFor = (db, eventType) => rows(db).filter((row) => row.event_type === e
   const resolved = rowsFor(db, "exposed_service_resolved");
   ok("prior service + current assessed_healthy → exactly one resolved", resolved.length === 1);
   ok("resolved service severity is low", resolved[0]?.severity === "low");
+}
+
+// 5c. Non-SPF posture events still require whole-scan comparability; a partial scan
+//     with a DMARC change is suppressed while a complete SPF event may pass separately.
+{
+  const { db, env } = harness(report(modules({ email_security: email({ dmarcPolicy: "none" }) })));
+  await record(env, modules({ email_security: email({ dmarcPolicy: "reject" }) }), { scanQuality: "partial" });
+  ok("DMARC change remains suppressed when whole scan is partial", rowsFor(db, "email_dmarc_policy_changed").length === 0);
 }
 
 // 6. Previous scan row exists but R2 report is missing: no baseline, no events.

@@ -104,6 +104,7 @@ async function main() {
     ["evt_005", "scan1", "email_dmarc_policy_changed", "example.co.uk", "medium", "DMARC changed", "2026-07-08T12:04:00.000Z"],
     ["evt_006", "scan1", "dns_ip_changed", "www.example.co.uk", "high", "IP changed", "2026-07-08T12:05:00.000Z"],
     ["evt_007", "scan1", "email_spf_changed", "example.co.uk", "high", "SPF changed", "2026-07-08T12:06:00.000Z"],
+    ["evt_007b", "scan1", "email_spf_authorization_changed", "example.co.uk", "medium", "SPF authorised senders changed", "2026-07-08T12:06:30.000Z"],
     ["evt_008", "scan1", "unknown_custom_event", "mystery.example.co.uk", "critical", "Mystery", "2026-07-08T12:07:00.000Z"],
   ];
   for (const event of events) insertEvent.run(...event);
@@ -134,7 +135,7 @@ async function main() {
 
   const email = await call("/api/workspaces/ws1/exposure/feed?category=email");
   ok("category=email returns only email events",
-    email.data?.events?.length === 2 && email.data.events.every((event) => event.category === "email" && event.event_type.startsWith("email_")));
+    email.data?.events?.length === 3 && email.data.events.every((event) => event.category === "email" && event.event_type.startsWith("email_")));
 
   const dnsIp = await call("/api/workspaces/ws1/exposure/feed?event_type=dns_ip_changed");
   ok("event_type=dns_ip_changed narrows to that type",
@@ -146,16 +147,16 @@ async function main() {
 
   const since = await call("/api/workspaces/ws1/exposure/feed?since=2026-07-08T12:05:00.000Z");
   ok("since filter narrows by created_at lower bound",
-    since.data?.events?.length === 3 && since.data.events.at(-1)?.id === "evt_006");
+    since.data?.events?.length === 4 && since.data.events.at(-1)?.id === "evt_006");
 
   const page1 = await call("/api/workspaces/ws1/exposure/feed?limit=3");
   ok("pagination limit=3 returns 3 events", page1.data?.events?.length === 3);
   ok("pagination total is full filtered total and has_more is true",
-    page1.data?.pagination?.total === 8 && page1.data?.pagination?.has_more === true);
+    page1.data?.pagination?.total === 9 && page1.data?.pagination?.has_more === true);
 
   const page2 = await call("/api/workspaces/ws1/exposure/feed?limit=3&offset=3");
   ok("pagination offset=3 returns the next page",
-    page2.data?.events?.length === 3 && page2.data.events[0]?.id === "evt_005");
+    page2.data?.events?.length === 3 && page2.data.events[0]?.id === "evt_006");
 
   const unknown = feed.data?.events?.find((event) => event.event_type === "unknown_custom_event");
   ok("unknown event_type falls back safely to asset category", unknown?.category === "asset");

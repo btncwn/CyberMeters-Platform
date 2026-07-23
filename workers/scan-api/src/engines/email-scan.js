@@ -5,7 +5,7 @@
 import { dnsQuery } from "./dns.js";
 import { deriveDmarcState } from "./dmarc-state.js";
 import { DKIM_PROVIDER_SELECTORS, DKIM_SELECTORS, buildDkimDetail, buildDmarcPolicyJourney, buildEmailRemediationActions, findDkimInResults, inferEmailProvider, normalizeDnsTxtValue, parseBimiRecord, parseDmarcRecord, parseSpfRecord } from "./email-analysis.js";
-import { makeDohSpfLookup, resolveSpfAuthorization } from "./spf-resolver.js";
+import { makeDohSpfLookup, resolveSpfAuthorization, SPF_RESOLUTION_STATUS } from "./spf-resolver.js";
 
 export const DMARC_OBSERVATION_STATUS = Object.freeze({
   OBSERVED: "observed",
@@ -139,13 +139,22 @@ export async function runEmailModule(domain, opts = {}) {
   // enforces RFC 7208 lookup/void limits and fails SAFE (temperror) on any transient
   // DNS error. resolution_status is recorded SEPARATELY so a partial/temperror set is
   // never treated as exhaustive by the posture-events comparator.
-  const spfAuthorization = await resolveSpfAuthorization({
-    domain,
-    rootRecord: spfRecord,
-    recordCount: spfRecs.length,
-    lookup: makeDohSpfLookup((name, type) => dnsQuery(name, type, { accounting }), normalizeDnsTxtValue),
-    nowIso: new Date().toISOString(),
-  }).catch(() => null);
+  const spfAuthorization = spfObservationStatus === DMARC_OBSERVATION_STATUS.OBSERVED
+    ? await resolveSpfAuthorization({
+      domain,
+      rootRecord: spfRecord,
+      recordCount: spfRecs.length,
+      lookup: makeDohSpfLookup((name, type) => dnsQuery(name, type, { accounting }), normalizeDnsTxtValue),
+      nowIso: new Date().toISOString(),
+    }).catch(() => null)
+    : {
+      resolution_status: SPF_RESOLUTION_STATUS.TEMPERROR,
+      resolved_pass_authorisations: null,
+      unresolved_mechanisms: [],
+      lookup_count: null,
+      void_lookup_count: null,
+      resolved_at: new Date().toISOString(),
+    };
   const dmarcDetail = dmarcEvidence.dmarc_detail;
   const dkim = {
     present:          dkimSelector !== null,
