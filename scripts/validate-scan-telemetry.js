@@ -27,6 +27,9 @@ const { makeReservedProbeFetch } = await eng("reserved-probe.js");
 const { getKevCatalogue } = await eng("vuln-intel.js");
 const { runWhoisModule } = await eng("whois-scan.js");
 const { runHeadersModule } = await eng("headers-scan.js");
+const { runSslModule } = await eng("ssl-scan.js");
+const { runSubdomainsModule, runBruteforceModule } = await eng("subdomains-scan.js");
+const { runCloudStorageModule } = await eng("cloud-storage-scan.js");
 
 let pass = 0, fail = 0;
 const ok = (n, c, d = "") => { c ? pass++ : fail++; if (!c) console.log(`FAIL ${n}${d ? " — " + d : ""}`); };
@@ -470,6 +473,102 @@ function d1Stub({ fail = false } = {}) {
 }
 
 {
+  const acct = createOutboundAccounting();
+  const ctx = acct.contextFor("ssl");
+  await withMockFetch(async () => {
+    await runSslModule("example.com", { accounting: ctx });
+  }, async (url) => {
+    const u = String(url);
+    if (u.startsWith("https://crt.sh/")) {
+      return jsonResponse([{ not_after: "2999-01-01T00:00:00Z", not_before: "2026-01-01T00:00:00Z", common_name: "example.com", name_value: "example.com" }]);
+    }
+    if (u === "https://example.com") return new Response("", { status: 200 });
+    if (u === "http://example.com") return new Response("", { status: 301, headers: { location: "https://example.com" } });
+    return new Response("", { status: 200 });
+  });
+  ctx.markSettled();
+  eq("C1B SSL CT + HTTPS + HTTP attempts counted", acct.snapshot("ssl").outbound_attempts_observed, 3);
+}
+
+{
+  const acct = createOutboundAccounting();
+  const ctx = acct.contextFor("ssl");
+  await withMockFetch(async () => {
+    await runSslModule("example.com", { accounting: ctx });
+  }, async (url) => {
+    const u = String(url);
+    if (u.startsWith("https://crt.sh/")) return jsonResponse([]);
+    if (u.startsWith("https://api.certspotter.com/")) {
+      return jsonResponse([{ not_after: "2999-01-01T00:00:00Z", not_before: "2026-01-01T00:00:00Z", dns_names: ["example.com"], issuer: { name: "Test CA" } }]);
+    }
+    if (u === "https://example.com") return new Response("", { status: 200 });
+    if (u === "http://example.com") return new Response("", { status: 301, headers: { location: "http://www.example.com" } });
+    if (u === "http://www.example.com/") return new Response("", { status: 301, headers: { location: "https://www.example.com" } });
+    return new Response("", { status: 200 });
+  });
+  ctx.markSettled();
+  eq("C1B SSL CT fallback and explicit redirect hop counted", acct.snapshot("ssl").outbound_attempts_observed, 5);
+}
+
+{
+  const acct = createOutboundAccounting();
+  const ctx = acct.contextFor("subdomains");
+  await withMockFetch(async () => {
+    await runSubdomainsModule("example.com", { accounting: ctx });
+  }, async (url) => {
+    const u = String(url);
+    if (u.includes("dns-query")) return jsonResponse({ Status: 0, Answer: [] });
+    if (u.startsWith("https://crt.sh/")) return jsonResponse([{ name_value: "www.example.com\napi.example.com", common_name: "www.example.com" }]);
+    if (u.startsWith("https://api.certspotter.com/")) return jsonResponse([{ dns_names: ["app.example.com"] }]);
+    return jsonResponse([]);
+  });
+  ctx.markSettled();
+  eq("C1B subdomain wildcard DNS + both CT providers counted", acct.snapshot("subdomains").outbound_attempts_observed, 4);
+}
+
+{
+  const acct = createOutboundAccounting();
+  const ctx = acct.contextFor("dns_bruteforce");
+  await withMockFetch(async () => {
+    await runBruteforceModule("example.com", { accounting: ctx });
+  }, async () => jsonResponse({ Status: 0, Answer: [] }));
+  ctx.markSettled();
+  eq("C1B DNS brute-force A + MX calls counted", acct.snapshot("dns_bruteforce").outbound_attempts_observed, 23);
+}
+
+{
+  const acct = createOutboundAccounting();
+  const ctx = acct.contextFor("cloud_storage_discovery");
+  await withMockFetch(async () => {
+    await runCloudStorageModule("example.com", { subdomains: { items: ["assets.s3.amazonaws.com"] } }, { accounting: ctx });
+  }, async (url, init) => {
+    if (init?.method === "HEAD") return new Response("", { status: 200, headers: { "x-amz-request-id": "req-1" } });
+    return new Response("<ListBucketResult><Contents /></ListBucketResult>", { status: 200, headers: { "x-amz-request-id": "req-2" } });
+  });
+  ctx.markSettled();
+  eq("C1B cloud-storage HEAD + GET validation counted", acct.snapshot("cloud_storage_discovery").outbound_attempts_observed, 2);
+}
+
+{
+  const telem = createModuleTelemetry(steppingClock());
+  const acct = createOutboundAccounting();
+  const sslCtx = acct.contextFor("ssl");
+  const subCtx = acct.contextFor("subdomains");
+  sslCtx.recordAttempt();
+  sslCtx.markSettled();
+  subCtx.recordAttempt();
+  subCtx.markSettled();
+  const sslSnap = acct.snapshot("ssl");
+  const subSnap = acct.snapshot("subdomains");
+  telem.record("ssl", { outcome: "ok", outbound: sslSnap, outbound_calls: sslSnap.outbound_measurement_complete ? sslSnap.outbound_attempts_observed : null });
+  telem.record("subdomains", { outcome: "ok", outbound: subSnap, outbound_calls: subSnap.outbound_measurement_complete ? subSnap.outbound_attempts_observed : null });
+  const env = d1Stub();
+  await persistModuleTelemetry("scan_c1b_isolation", telem, env);
+  eq("C1B SSL measured integer persists independently", env._calls[0].args[6], 1);
+  eq("C1B subdomains measured integer persists independently", env._calls[1].args[6], 1);
+}
+
+{
   const telem = createModuleTelemetry(steppingClock());
   const acct = createOutboundAccounting();
   const ctx = acct.contextFor("cve_intelligence");
@@ -566,6 +665,30 @@ function d1Stub({ fail = false } = {}) {
   sourceGuard("C1A rejected modules cannot be marked complete", engineSrc,
     (s) => /settled\?\.status === "fulfilled" && telemetry\.outcomeOf\(settled\.value\) === "ok"[\s\S]{0,220}ctx\.markIncomplete/.test(s),
     (s) => s.replace('settled?.status === "fulfilled" && telemetry.outcomeOf(settled.value) === "ok"', "true"));
+  const sslSrc = src("workers", "scan-api", "src", "engines", "ssl-scan.js");
+  const subdomainsSrc = src("workers", "scan-api", "src", "engines", "subdomains-scan.js");
+  const cloudSrc = src("workers", "scan-api", "src", "engines", "cloud-storage-scan.js");
+  sourceGuard("C1B SSL safeFetch leaves carry accounting", sslSrc,
+    (s) => /safeFetch\(`https:\/\/\$\{domain\}`,[\s\S]{0,140}accounting/.test(s) && /safeFetch\(httpOrigUrl,[\s\S]{0,120}accounting/.test(s) && /safeFetch\(loc1,[\s\S]{0,120}accounting/.test(s),
+    (s) => s.replace(/,\s*accounting/g, ""));
+  sourceGuard("C1B SSL CT native fetches are counted", sslSrc,
+    (s) => /countedFetch\(\s*`https:\/\/crt\.sh\/\?q=/.test(s) && /countedFetch\(\s*`https:\/\/api\.certspotter\.com\/v1\/issuances/.test(s),
+    (s) => s.replace(/countedFetch\(/g, "fetch("));
+  sourceGuard("C1B subdomain CT and wildcard DNS carry accounting", subdomainsSrc,
+    (s) => /dnsQuery\(wildcardHost, "A", \{ accounting \}\)/.test(s) && /dnsQuery\(wildcardHost, "AAAA", \{ accounting \}\)/.test(s) && /countedFetch\(\s*`https:\/\/crt\.sh\/\?q=/.test(s) && /countedFetch\(\s*`https:\/\/api\.certspotter\.com\/v1\/issuances/.test(s),
+    (s) => s.replace('dnsQuery(wildcardHost, "A", { accounting })', 'dnsQuery(wildcardHost, "A")'));
+  sourceGuard("C1B brute-force DNS leaves carry accounting", subdomainsSrc,
+    (s) => /dnsQuery\(host, "A", \{ accounting \}\)/.test(s) && /dnsQuery\(host, "MX", \{ accounting \}\)/.test(s),
+    (s) => s.replace('dnsQuery(host, "MX", { accounting })', 'dnsQuery(host, "MX")'));
+  sourceGuard("C1B cloud-storage validation fetches are counted", cloudSrc,
+    (s) => /headRes = await countedFetch\(headUrl,[\s\S]{0,120}accounting/.test(s) && /getRes = await countedFetch\(listUrl,[\s\S]{0,120}accounting/.test(s),
+    (s) => s.replace(/countedFetch\(listUrl,/, "fetch(listUrl,"));
+  sourceGuard("C1B scan-engine threads module contexts", engineSrc,
+    (s) => /runSslModule\(domain, \{ accounting: sslOutbound \}\)/.test(s) && /runSubdomainsModule\(domain, \{ accounting: subdomainsOutbound \}\)/.test(s) && /runBruteforceModule\(domain, \{ accounting: bruteforceOutbound \}\)/.test(s) && /runCloudStorageModule\(domain, modules, \{ accounting: cloudOutbound \}\)/.test(s),
+    (s) => s.replace('runSslModule(domain, { accounting: sslOutbound })', "runSslModule(domain)"));
+  sourceGuard("C1B complete-set includes newly covered modules", budgetSrc,
+    (s) => ["ssl", "subdomains", "dns_bruteforce", "cloud_storage_discovery"].every((m) => s.includes(`"${m}"`)),
+    (s) => s.replace('"cloud_storage_discovery",', ""));
   const frontendFiles = [];
   const walk = (dir) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {

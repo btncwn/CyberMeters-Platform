@@ -388,26 +388,32 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       // ── Legacy path (unchanged): 8 core modules in parallel, then takeover, then
       // asset exposure over the merged (CT + brute-force) subdomain list. ──
       const dnsOutbound = outboundContext("dns");
+      const sslOutbound = outboundContext("ssl");
       const headersOutbound = outboundContext("headers");
       const emailOutbound = outboundContext("email_security");
+      const subdomainsOutbound = outboundContext("subdomains");
       const techOutbound = outboundContext("technology_detection");
       const whoisOutbound = outboundContext("whois_intelligence");
+      const bruteforceOutbound = outboundContext("dns_bruteforce");
       const [dnsSettled, sslSettled, headersSettled, emailSettled, subdomainsSettled, techSettled, whoisSettled, bruteforceSettled] =
         await Promise.allSettled([
           telemetry.run("dns",                  () => runDnsModule(domain, { accounting: dnsOutbound })),
-          telemetry.run("ssl",                  () => runSslModule(domain)),
+          telemetry.run("ssl",                  () => runSslModule(domain, { accounting: sslOutbound })),
           telemetry.run("headers",              () => runHeadersModule(domain, { accounting: headersOutbound })),
           telemetry.run("email_security",       () => runEmailModule(domain, { accounting: emailOutbound })),
-          telemetry.run("subdomains",           () => runSubdomainsModule(domain)),
+          telemetry.run("subdomains",           () => runSubdomainsModule(domain, { accounting: subdomainsOutbound })),
           telemetry.run("technology_detection", () => runTechModule(domain, { accounting: techOutbound })),
           telemetry.run("whois_intelligence",   () => runWhoisModule(domain, { accounting: whoisOutbound })),
-          telemetry.run("dns_bruteforce",       () => runBruteforceModule(domain)),
+          telemetry.run("dns_bruteforce",       () => runBruteforceModule(domain, { accounting: bruteforceOutbound })),
         ]);
       settleOutbound(dnsOutbound, "dns", dnsSettled);
+      settleOutbound(sslOutbound, "ssl", sslSettled);
       settleOutbound(headersOutbound, "headers", headersSettled);
       settleOutbound(emailOutbound, "email_security", emailSettled);
+      settleOutbound(subdomainsOutbound, "subdomains", subdomainsSettled);
       settleOutbound(techOutbound, "technology_detection", techSettled);
       settleOutbound(whoisOutbound, "whois_intelligence", whoisSettled);
+      settleOutbound(bruteforceOutbound, "dns_bruteforce", bruteforceSettled);
 
       dnsResult = dnsSettled.status === "fulfilled" ? dnsSettled.value : { error: customerSafeFailure("scan/dns", dnsSettled.reason, "DNS module failed") };
       sslResult = sslSettled.status === "fulfilled" ? sslSettled.value : { error: customerSafeFailure("scan/ssl", sslSettled.reason, "SSL module failed") };
@@ -748,7 +754,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     // candidates from observed ASM/CNAME/header signals. No guessing or listing
     // enumeration; response bodies are only inspected for listing indicators.
     // Reserved mode: cloud-storage validation is budget-permitting enrichment.
-    let cloudAllocatedMs = null, cloudStartedMs = null;
+    let cloudAllocatedMs = null, cloudStartedMs = null, cloudOutbound = null;
     if (!deadline.canRun(4_000)) {
       modules.cloud_storage_discovery = markDeadlineDeferred({ total: 0, checked: 0, findings: [] });
     } else if (reservedMode && reservedBudget && reservedBudget.wouldExceed(MODULE_SUBREQUEST_COST.cloud_storage)) {
@@ -757,22 +763,29 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       if (reservedMode && reservedBudget) reservedBudget.spend("cloud_storage", MODULE_SUBREQUEST_COST.cloud_storage);
       // Bound the run so a slow validation cannot cross the cliff; defer honestly on the bound.
       cloudStartedMs = now();
+      cloudOutbound = outboundContext("cloud_storage_discovery");
       modules.cloud_storage_discovery = await raceModuleDeadline(
         deadline,
-        () => runCloudStorageModule(domain, modules),
+        () => runCloudStorageModule(domain, modules, { accounting: cloudOutbound }),
         () => markDeadlineDeferred({ total: 0, checked: 0, findings: [] }),
         { onStart: (capMs) => { cloudAllocatedMs = capMs; } },
       );
     }
+    const cloudTimedOut = modules.cloud_storage_discovery?.outcome === "deadline_exceeded";
+    const cloudOutboundSnapshot = cloudTimedOut
+      ? abandonOutbound(cloudOutbound, "cloud_storage_discovery", cloudStartedMs != null ? "module_race" : "launch_gate")
+      : settleOutboundValue(cloudOutbound, "cloud_storage_discovery", modules.cloud_storage_discovery);
     // PR-A1: explicit row (previously left to the coarse finalization backfill) so
     // the launched/deferred/skipped distinction and timing are diagnosable. A
     // reserved-budget skip carries no allocation semantics (null, not 0).
     telemetry.record("cloud_storage_discovery", {
       outcome:        telemetry.outcomeOf(modules.cloud_storage_discovery),
-      timeout:        modules.cloud_storage_discovery?.outcome === "deadline_exceeded",
+      timeout:        cloudTimedOut,
       duration_ms:    cloudStartedMs != null ? now() - cloudStartedMs : null,
       allocated_ms:   cloudStartedMs != null ? cloudAllocatedMs : (modules.cloud_storage_discovery?.skipped ? null : 0),
-      timeout_source: modules.cloud_storage_discovery?.outcome === "deadline_exceeded" ? (cloudStartedMs != null ? "module_race" : "launch_gate") : null,
+      timeout_source: cloudTimedOut ? (cloudStartedMs != null ? "module_race" : "launch_gate") : null,
+      outbound:       cloudOutboundSnapshot,
+      outbound_calls: cloudOutboundSnapshot?.outbound_measurement_complete ? cloudOutboundSnapshot.outbound_attempts_observed : null,
     });
     for (const f of modules.cloud_storage_discovery.findings || []) {
       findings.push(f);
