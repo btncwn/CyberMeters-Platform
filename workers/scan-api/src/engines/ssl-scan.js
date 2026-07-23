@@ -3,55 +3,28 @@
 // Transparency (crt.sh + certspotter fallback), SAN discovery. Extracted verbatim from
 // index.js (monolith decomposition, Phase 1c) — no logic change.
 import { safeFetch } from "../lib/http.js";
+import { customerSafeFailure } from "../lib/errors.js";
+import { createCertificateTransparencyCache } from "./ct-provider-cache.js";
 import { normalizeCertificateSanNames, normalizeDiscoveredHostname, parseCertificateSanNames } from "./hostnames.js";
 
 // ── Module 2: SSL Detection ───────────────────────────────────────────────────
 
-// Certificate Transparency lookup (crt.sh + certspotter fallback). Extracted from
-// runSslModule VERBATIM (same calls, same field logic, same timeouts) so it can run
-// CONCURRENTLY with the HTTPS reachability probes: the two are independent (cert
-// data comes from CT logs, not from reaching the origin), and running them
+// Certificate Transparency lookup (crt.sh + certspotter fallback). The certificate
+// field logic remains the extracted behavior; provider I/O now comes from the shared
+// per-scan cache. It runs CONCURRENTLY with HTTPS probes because certificate data
+// comes from CT logs, not from reaching the origin, and running them
 // sequentially made the SSL module's wall-time the SUM of both chains — up to ~16s
 // of CT lookups on top of reachability, which on a slow-crt.sh day pushed the whole
 // scan past its ~21s deadline and starved the later deadline-gated modules
 // (docs/CHRONIC-PARTIAL-SCAN-ROOT-CAUSE.md). Returns the 11 cert_* fields; on any
 // failure they stay null/0 exactly as before (best-effort — the scan still completes).
-function recordFetchError(accounting, err) {
-  accounting?.recordError?.(err);
-  throw err;
-}
-
-function combineSignals(...signals) {
-  const active = signals.filter(Boolean);
-  if (active.length === 0) return undefined;
-  if (active.length === 1) return active[0];
-  if (typeof AbortSignal.any === "function") return AbortSignal.any(active);
-  const controller = new AbortController();
-  const abort = () => {
-    const aborted = active.find((s) => s.aborted);
-    controller.abort(aborted?.reason);
-  };
-  for (const signal of active) {
-    if (signal.aborted) { abort(); break; }
-    signal.addEventListener("abort", abort, { once: true });
-  }
-  return controller.signal;
-}
-
-async function countedFetch(url, init, accounting = null) {
-  accounting?.assertCanIssue?.();
-  accounting?.recordAttempt?.();
-  try {
-    const res = await fetch(url, { ...init, signal: combineSignals(init?.signal, accounting?.signal) });
-    accounting?.recordCompleted?.();
-    return res;
-  } catch (err) {
-    recordFetchError(accounting, err);
-  }
-}
-
 export async function resolveCertificateTransparency(domain, opts = {}) {
   const accounting = opts.accounting || null;
+  const ctCache = opts.ctCache || createCertificateTransparencyCache({ signal: opts.signal });
+  const rootDomain = String(domain || "").trim().toLowerCase().replace(/\.$/, "");
+  const coversRootDomain = (names) => parseCertificateSanNames(names).some((name) =>
+    name.replace(/^\*\./, "") === rootDomain
+  );
   let cert_expiry_days = null;
   let cert_age_days    = null;
   let cert_not_before  = null;
@@ -63,57 +36,55 @@ export async function resolveCertificateTransparency(domain, opts = {}) {
   let cert_wildcard_san_count = 0;
   let cert_shared_san_count = 0;
   let cert_san_names   = [];
+  const ct_sources = { crt_sh: null, certspotter: null };
   try {
-    const crtRes = await countedFetch(
-      `https://crt.sh/?q=${encodeURIComponent(domain)}&output=json`,
-      {
-        headers: { Accept: "application/json", "User-Agent": "CyberMeters/1.0" },
-        signal:  AbortSignal.timeout(8_000),
-      },
-      accounting
-    );
-    if (crtRes.ok) {
-      const ct = crtRes.headers.get("content-type") || "";
-      if (ct.includes("json")) {
-        const certs = await crtRes.json();
-        if (Array.isArray(certs)) {
-          const now = Date.now();
-          // Keep only certs that are currently valid (not yet expired).
-          // Sort by not_after descending so the longest-lived cert comes first —
-          // that is the one most likely still active on the server.
-          const valid = certs
-            .filter(c => c.not_after && new Date(c.not_after).getTime() > now)
-            .sort((a, b) => new Date(b.not_after).getTime() - new Date(a.not_after).getTime());
-          if (valid.length > 0) {
-            const selected = valid[0];
-            const rawSanNames = parseCertificateSanNames(selected.name_value || selected.common_name || domain);
-            cert_not_before  = selected.not_before || null;
-            cert_not_after   = valid[0].not_after;
-            cert_expiry_days = Math.floor(
-              (new Date(cert_not_after).getTime() - now) / 86_400_000
-            );
-            const notBeforeMs = cert_not_before ? new Date(cert_not_before).getTime() : NaN;
-            cert_age_days = Number.isFinite(notBeforeMs)
-              ? Math.max(0, Math.floor((now - notBeforeMs) / 86_400_000))
-              : null;
-            cert_issuer    = selected.issuer_name || null;
-            cert_subject   = selected.common_name || domain;
-            cert_san_names = normalizeCertificateSanNames(
-              selected.name_value || selected.common_name || domain,
-              domain
-            );
-            cert_san_count = cert_san_names.length;
-            cert_raw_san_count = rawSanNames.length;
-            cert_wildcard_san_count = rawSanNames.filter((name) => name.includes("*")).length;
-            cert_shared_san_count = rawSanNames.filter((name) =>
-              !normalizeDiscoveredHostname(name.replace(/^\*\./, ""), domain)
-            ).length;
-          }
-        }
+    const crtResult = await ctCache.get(domain, "crt_sh", { accounting });
+    ct_sources.crt_sh = {
+      count: crtResult.status === "available" ? crtResult.data.length : 0,
+      error: crtResult.status === "unavailable" ? crtResult.error : null,
+    };
+    if (crtResult.status === "available") {
+      const certs = crtResult.data.filter((certificate) =>
+        coversRootDomain(certificate.name_value || certificate.common_name || domain)
+      );
+      const now = Date.now();
+      // Keep only certs that are currently valid (not yet expired).
+      // Sort by not_after descending so the longest-lived cert comes first —
+      // that is the one most likely still active on the server.
+      const valid = certs
+        .filter(c => c.not_after && new Date(c.not_after).getTime() > now)
+        .sort((a, b) => new Date(b.not_after).getTime() - new Date(a.not_after).getTime());
+      if (valid.length > 0) {
+        const selected = valid[0];
+        const rawSanNames = parseCertificateSanNames(selected.name_value || selected.common_name || domain);
+        cert_not_before  = selected.not_before || null;
+        cert_not_after   = valid[0].not_after;
+        cert_expiry_days = Math.floor(
+          (new Date(cert_not_after).getTime() - now) / 86_400_000
+        );
+        const notBeforeMs = cert_not_before ? new Date(cert_not_before).getTime() : NaN;
+        cert_age_days = Number.isFinite(notBeforeMs)
+          ? Math.max(0, Math.floor((now - notBeforeMs) / 86_400_000))
+          : null;
+        cert_issuer    = selected.issuer_name || null;
+        cert_subject   = selected.common_name || domain;
+        cert_san_names = normalizeCertificateSanNames(
+          selected.name_value || selected.common_name || domain,
+          domain
+        );
+        cert_san_count = cert_san_names.length;
+        cert_raw_san_count = rawSanNames.length;
+        cert_wildcard_san_count = rawSanNames.filter((name) => name.includes("*")).length;
+        cert_shared_san_count = rawSanNames.filter((name) =>
+          !normalizeDiscoveredHostname(name.replace(/^\*\./, ""), domain)
+        ).length;
       }
     }
-  } catch {
-    // crt.sh unavailable — cert expiry data omitted, scan still completes
+  } catch (err) {
+    ct_sources.crt_sh = {
+      count: 0,
+      error: customerSafeFailure("scan/ct/crt-sh-consume", err, "parse error"),
+    };
   }
 
   // Fallback: crt.sh is frequently slow/flaky, so if it yielded no usable
@@ -122,49 +93,51 @@ export async function resolveCertificateTransparency(domain, opts = {}) {
   // for a host that plainly serves a valid certificate.
   if (cert_not_after == null) {
     try {
-      const csRes = await countedFetch(
-        `https://api.certspotter.com/v1/issuances?domain=${encodeURIComponent(domain)}&include_subdomains=false&expand=dns_names&expand=issuer`,
-        {
-          headers: { Accept: "application/json", "User-Agent": "CyberMeters/1.0" },
-          signal:  AbortSignal.timeout(8_000),
-        },
-        accounting
-      );
-      if (csRes.ok && (csRes.headers.get("content-type") || "").includes("json")) {
-        const issuances = await csRes.json();
-        if (Array.isArray(issuances)) {
-          const now = Date.now();
-          const valid = issuances
-            .filter((c) => c.not_after && new Date(c.not_after).getTime() > now)
-            .sort((a, b) => new Date(b.not_after).getTime() - new Date(a.not_after).getTime());
-          if (valid.length > 0) {
-            const selected = valid[0];
-            const dnsNames = Array.isArray(selected.dns_names) ? selected.dns_names : [];
-            cert_not_before  = selected.not_before || null;
-            cert_not_after   = selected.not_after;
-            cert_expiry_days = Math.floor((new Date(cert_not_after).getTime() - now) / 86_400_000);
-            const notBeforeMs = cert_not_before ? new Date(cert_not_before).getTime() : NaN;
-            cert_age_days = Number.isFinite(notBeforeMs)
-              ? Math.max(0, Math.floor((now - notBeforeMs) / 86_400_000))
-              : null;
-            cert_issuer    = (selected.issuer && selected.issuer.name) || null;
-            cert_subject   = domain;
-            cert_san_names = normalizeCertificateSanNames(dnsNames.join(" "), domain);
-            cert_san_count = cert_san_names.length;
-            cert_raw_san_count = dnsNames.length;
-            cert_wildcard_san_count = dnsNames.filter((n) => n.includes("*")).length;
-          }
+      const certSpotterResult = await ctCache.get(domain, "certspotter", { accounting });
+      ct_sources.certspotter = {
+        count: certSpotterResult.status === "available" ? certSpotterResult.data.length : 0,
+        error: certSpotterResult.status === "unavailable" ? certSpotterResult.error : null,
+      };
+      if (certSpotterResult.status === "available") {
+        const issuances = certSpotterResult.data.filter((issuance) =>
+          coversRootDomain(
+            (Array.isArray(issuance.dns_names) ? issuance.dns_names : []).join(" ")
+          )
+        );
+        const now = Date.now();
+        const valid = issuances
+          .filter((c) => c.not_after && new Date(c.not_after).getTime() > now)
+          .sort((a, b) => new Date(b.not_after).getTime() - new Date(a.not_after).getTime());
+        if (valid.length > 0) {
+          const selected = valid[0];
+          const dnsNames = Array.isArray(selected.dns_names) ? selected.dns_names : [];
+          cert_not_before  = selected.not_before || null;
+          cert_not_after   = selected.not_after;
+          cert_expiry_days = Math.floor((new Date(cert_not_after).getTime() - now) / 86_400_000);
+          const notBeforeMs = cert_not_before ? new Date(cert_not_before).getTime() : NaN;
+          cert_age_days = Number.isFinite(notBeforeMs)
+            ? Math.max(0, Math.floor((now - notBeforeMs) / 86_400_000))
+            : null;
+          cert_issuer    = (selected.issuer && selected.issuer.name) || null;
+          cert_subject   = domain;
+          cert_san_names = normalizeCertificateSanNames(dnsNames.join(" "), domain);
+          cert_san_count = cert_san_names.length;
+          cert_raw_san_count = dnsNames.length;
+          cert_wildcard_san_count = dnsNames.filter((n) => n.includes("*")).length;
         }
       }
-    } catch {
-      // certspotter unavailable too — cert data stays null; page reads "unknown"
+    } catch (err) {
+      ct_sources.certspotter = {
+        count: 0,
+        error: customerSafeFailure("scan/ct/certspotter-consume", err, "parse error"),
+      };
     }
   }
 
   return {
     cert_expiry_days, cert_age_days, cert_not_before, cert_not_after,
     cert_issuer, cert_subject, cert_san_count, cert_raw_san_count,
-    cert_wildcard_san_count, cert_shared_san_count, cert_san_names,
+    cert_wildcard_san_count, cert_shared_san_count, cert_san_names, ct_sources,
   };
 }
 
@@ -173,7 +146,11 @@ export async function runSslModule(domain, opts = {}) {
   // Launch the Certificate Transparency lookup CONCURRENTLY with the reachability
   // probes below. The two are independent, so awaiting the promise at the end makes
   // the module's wall-time max(reachability, CT) instead of their sum.
-  const certPromise = resolveCertificateTransparency(domain, { accounting });
+  const certPromise = resolveCertificateTransparency(domain, {
+    accounting,
+    signal: opts.signal,
+    ctCache: opts.ctCache,
+  });
 
   // Try HTTPS on the bare domain
   const httpsRes = await safeFetch(`https://${domain}`, {
@@ -272,7 +249,7 @@ export async function runSslModule(domain, opts = {}) {
   const {
     cert_expiry_days, cert_age_days, cert_not_before, cert_not_after,
     cert_issuer, cert_subject, cert_san_count, cert_raw_san_count,
-    cert_wildcard_san_count, cert_shared_san_count, cert_san_names,
+    cert_wildcard_san_count, cert_shared_san_count, cert_san_names, ct_sources,
   } = await certPromise;
 
   return {
@@ -306,5 +283,6 @@ export async function runSslModule(domain, opts = {}) {
     cert_wildcard_san_count,
     cert_shared_san_count,
     cert_san_names,
+    ct_sources,
   };
 }

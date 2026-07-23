@@ -18,6 +18,7 @@ import { runDnsModule } from "./dns-scan.js";
 import { runEmailModule } from "./email-scan.js";
 import { runHeadersModule } from "./headers-scan.js";
 import { makeReservedProbeFetch } from "./reserved-probe.js";
+import { createCertificateTransparencyCache } from "./ct-provider-cache.js";
 import {
   CRITICAL_PREFIXES_MANDATORY, MODULE_SUBREQUEST_COST, SubrequestBudget,
   computeExposureCap, deferredCapacityAsset, skippedModuleResult,
@@ -94,9 +95,10 @@ async function gateModule(budget, name, run, skipExtra = {}) {
 }
 
 // ── Full reserved scan: produces the complete network-module set (real or skipped) ──
-export async function runReservedScan(domain, { capacity }) {
+export async function runReservedScan(domain, { capacity, ctCache = null }) {
   const budget = new SubrequestBudget({ limit: capacity.limit, safetyMargin: capacity.safetyMargin });
   const dnsCache = new Map();
+  const sharedCtCache = ctCache || createCertificateTransparencyCache();
 
   // Stage 1: minimal root/www discovery (A only) — enough to know the domain resolves
   // and to seed the exposure list + the shared cache. ~2 calls.
@@ -119,10 +121,10 @@ export async function runReservedScan(domain, { capacity }) {
 
   // Stage 6: remaining modules, budget-gated (customer-critical exposure already done).
   const dns                  = await gateModule(budget, "dns", () => runDnsModule(domain), { resolves });
-  const ssl                  = await gateModule(budget, "ssl", () => runSslModule(domain));
+  const ssl                  = await gateModule(budget, "ssl", () => runSslModule(domain, { ctCache: sharedCtCache }));
   const headers              = await gateModule(budget, "headers", () => runHeadersModule(domain));
   const email_security       = await gateModule(budget, "email_security", () => runEmailModule(domain));
-  const subdomains           = await gateModule(budget, "subdomains", () => runSubdomainsModule(domain), { count: 0, items: [], wildcard_dns: false, wildcard_dns_addresses: [] });
+  const subdomains           = await gateModule(budget, "subdomains", () => runSubdomainsModule(domain, { ctCache: sharedCtCache }), { count: 0, items: [], wildcard_dns: false, wildcard_dns_addresses: [] });
   const technology_detection = await gateModule(budget, "technology_detection", () => runTechModule(domain));
   const whois_intelligence   = await gateModule(budget, "whois_intelligence", () => runWhoisModule(domain));
 
