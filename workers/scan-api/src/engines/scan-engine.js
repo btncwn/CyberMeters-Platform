@@ -16,6 +16,7 @@ import { annotateExposureInfrastructure, deduplicateExposureAssets, runAdminSurf
 import { buildDseFindings } from "./dse-findings.js";
 import { upsertAssetInventory } from "./asset-inventory.js";
 import { upsertBrandAssets, upsertIdentityAssets } from "./asset-persistence.js";
+import { buildScanCompletionPresentation } from "./assessment-presentation.js";
 import { runTyposquatModule } from "./brand-typosquat.js";
 import { computeAndPersistWorkspaceBrs, computeBusinessRiskScore, expandFindingIds } from "./business-risk.js";
 import { getCyberEssentialsSnapshot } from "./ce-readiness.js";
@@ -1548,13 +1549,13 @@ function buildCanonicalUrlProfile(modules) {
     // Reads asset_events written by Phase 8, deduped via asset_alert_records.
     // Fully non-fatal — swallows all errors.
     try {
-      await sendAssetChangeAlert(domainId, domain, scanId, env);
+      await sendAssetChangeAlert(domainId, domain, scanId, env, scanQuality?.status);
     } catch { /* non-fatal */ }
 
     // Phase 10: Notification Events — create in-app notifications for scan
     // completion and any critical/high findings. Non-fatal.
     try {
-      await createNotificationsForDomain(domainId, domain, scanId, score, risk_level, findings, env);
+      await createNotificationsForDomain(domainId, domain, scanId, score, risk_level, findings, env, scanQuality?.status);
       
       const wsRows = await env.cybermeters_db
         .prepare("SELECT workspace_id FROM workspace_domains WHERE domain_id = ?")
@@ -1577,6 +1578,9 @@ function buildCanonicalUrlProfile(modules) {
 
     // Phase 11: Audit — scan completed. Fire per-workspace. Non-fatal.
     try {
+      const completion = buildScanCompletionPresentation({
+        domain, score, riskLevel: risk_level, scanQuality: scanQuality?.status,
+      });
       const wsRows = await env.cybermeters_db
         .prepare("SELECT workspace_id FROM workspace_domains WHERE domain_id = ?")
         .bind(domainId)
@@ -1587,11 +1591,13 @@ function buildCanonicalUrlProfile(modules) {
           event_type:  "scan_completed",
           entity_type: "scan",
           entity_id:   scanId,
-          description: `Scan completed for ${domain} — score ${score}, risk ${risk_level}`,
+          description: completion.description,
           metadata:    { scan_id: scanId, domain, domain_id: domainId, score, risk_level },
         });
         // Lifecycle: first scan completed (once per workspace+domain via dedupe).
-        await sendLifecycleEmail(env, { type: "lifecycle_first_scan_completed", workspace_id, domain }).catch(() => {});
+        await sendLifecycleEmail(env, {
+          type: "lifecycle_first_scan_completed", workspace_id, domain, scan_quality: scanQuality?.status,
+        }).catch(() => {});
       }
       // Also fire a workspace-agnostic event if domain has no workspaces
       if ((wsRows.results || []).length === 0) {
@@ -1599,7 +1605,7 @@ function buildCanonicalUrlProfile(modules) {
           event_type:  "scan_completed",
           entity_type: "scan",
           entity_id:   scanId,
-          description: `Scan completed for ${domain} — score ${score}, risk ${risk_level}`,
+          description: completion.description,
           metadata:    { scan_id: scanId, domain, domain_id: domainId, score, risk_level },
         });
       }

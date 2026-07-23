@@ -1,6 +1,7 @@
 // ── Audit + notification event writers ──────────────────────────────────────
 // One module by measurement, not taste: the two writers reference each other
 // (createNotificationsForDomain), so splitting them would create a lib cycle.
+import { buildScanCompletionPresentation } from "../engines/assessment-presentation.js";
 import { createId } from "./util.js";
 
 /**
@@ -88,7 +89,7 @@ function sanitizeAuditMetadata(metadata) {
   return sanitized;
 }
 
-async function createNotificationsForDomain(domainId, domain, scanId, score, risk_level, findings, env) {
+async function createNotificationsForDomain(domainId, domain, scanId, score, risk_level, findings, env, scanQuality = null) {
   try {
     const wsResult = await env.cybermeters_db
       .prepare("SELECT workspace_id FROM workspace_domains WHERE domain_id = ?")
@@ -100,6 +101,7 @@ async function createNotificationsForDomain(domainId, domain, scanId, score, ris
     const criticalCount = findings.filter(f => f.severity === "critical").length;
     const highCount     = findings.filter(f => f.severity === "high").length;
     const meta          = { scan_id: scanId, domain, score, risk_level };
+    const completion    = buildScanCompletionPresentation({ domain, score, riskLevel: risk_level, scanQuality });
 
     for (const wsId of workspaceIds) {
       // Scan completed notification
@@ -107,7 +109,7 @@ async function createNotificationsForDomain(domainId, domain, scanId, score, ris
         type:     "scan_completed",
         severity: criticalCount > 0 ? "critical" : highCount > 0 ? "high" : "info",
         title:    `Scan completed for ${domain}`,
-        message:  `Score: ${score} · ${risk_level} risk${criticalCount > 0 ? ` · ${criticalCount} critical finding${criticalCount !== 1 ? "s" : ""}` : ""}${highCount > 0 ? ` · ${highCount} high finding${highCount !== 1 ? "s" : ""}` : ""}`,
+        message:  `${completion.message}${criticalCount > 0 ? ` · ${criticalCount} critical finding${criticalCount !== 1 ? "s" : ""}` : ""}${highCount > 0 ? ` · ${highCount} high finding${highCount !== 1 ? "s" : ""}` : ""}`,
         metadata: meta,
       });
 

@@ -1,6 +1,7 @@
 // ── Lifecycle email service ──────────────────────────────────────────────────
 // Build/send/dedupe/retry for customer lifecycle email via Resend. Fail-open:
 // a failed send is recorded and retried by the hourly cron, never thrown.
+import { scanCompletionQualityDisclosure } from "../engines/assessment-presentation.js";
 import { createId, isValidEmail, normalizeApiResponseData, pageMeta, paginationParams } from "./util.js";
 
 const EMAIL_SENDER_KEYS = new Set(["ALERT_EMAIL_FROM", "SAFE_EMAIL_FROM", "HELLO_EMAIL_FROM"]);
@@ -166,7 +167,7 @@ function _lifecycleHtml({ heading, paras, ctaLabel, ctaUrl }) {
 // Pure, testable: build subject + html + text for a lifecycle type. `origin`
 // must be an https FRONTEND_URL origin (or null → links omitted). Never embeds
 // secrets; user-supplied values (domain, workspace name) are HTML-escaped.
-function buildLifecycleEmail(type, { origin = null, wsName = null, domain = null } = {}) {
+function buildLifecycleEmail(type, { origin = null, wsName = null, domain = null, scanQuality = null } = {}) {
   const link = (path) => (origin ? `${origin}${path}` : null);
   const ws = wsName ? escapeEmailHtml(wsName) : "your workspace";
   const dom = domain ? escapeEmailHtml(domain) : "your domain";
@@ -204,15 +205,18 @@ function buildLifecycleEmail(type, { origin = null, wsName = null, domain = null
       ];
       ctaLabel = "Run first scan"; ctaPath = "/scans/new";
       break;
-    case "lifecycle_first_scan_completed":
+    case "lifecycle_first_scan_completed": {
+      const quality = scanCompletionQualityDisclosure(scanQuality);
       subject = "Your first CyberMeters scan is complete";
       heading = "Your first scan is complete";
       paras = [
         `Your first scan for ${dom} has finished.`,
         "Review your results: findings are issues worth acting on, while observations are informational signals about your external footprint.",
+        ...(quality.disclosure ? [quality.disclosure] : []),
       ];
       ctaLabel = "Review your dashboard"; ctaPath = "/dashboard";
       break;
+    }
     case "lifecycle_payment_failed":
       subject = "Action needed: your CyberMeters payment could not be processed";
       heading = "Your payment could not be processed";
@@ -252,7 +256,7 @@ function buildLifecycleEmail(type, { origin = null, wsName = null, domain = null
  * UNIQUE dedupe_key, then delivers through the strict customer-email path. Never
  * throws, never sends to unverified/missing addresses, never leaks internals.
  */
-async function sendLifecycleEmail(env, { type, user_id = null, workspace_id = null, domain = null, to = null, wsName = null, ref = null } = {}) {
+async function sendLifecycleEmail(env, { type, user_id = null, workspace_id = null, domain = null, to = null, wsName = null, ref = null, scan_quality = null } = {}) {
   try {
     if (!LIFECYCLE_TYPES.has(type)) return { skipped: "unknown_type" };
 
@@ -304,7 +308,7 @@ async function sendLifecycleEmail(env, { type, user_id = null, workspace_id = nu
     }
 
     const origin = getEmailFrontendOrigin(env);
-    const { subject, html, text } = buildLifecycleEmail(type, { origin, wsName: name, domain });
+    const { subject, html, text } = buildLifecycleEmail(type, { origin, wsName: name, domain, scanQuality: scan_quality });
     const res = await sendCustomerEmail(subject, text, html, env, "HELLO_EMAIL_FROM", [email]);
 
     await env.cybermeters_db
@@ -337,13 +341,22 @@ async function sendLifecycleEmail(env, { type, user_id = null, workspace_id = nu
 async function retryFailedLifecycleEmails(env) {
   try {
     const rows = await env.cybermeters_db
-      .prepare(`SELECT id, type, user_id, workspace_id, domain
-                FROM lifecycle_email_events
-                WHERE status = 'failed'
-                  AND type != 'lifecycle_payment_failed'
-                  AND type != 'lifecycle_weekly_digest'
-                  AND created_at > datetime('now', '-3 days')
-                ORDER BY created_at ASC
+      .prepare(`SELECT le.id, le.type, le.user_id, le.workspace_id, le.domain,
+                       CASE WHEN le.type = 'lifecycle_first_scan_completed' THEN (
+                         SELECT s.scan_quality
+                         FROM scans s
+                         WHERE s.workspace_id = le.workspace_id
+                           AND lower(s.domain) = lower(le.domain)
+                           AND s.status = 'completed'
+                         ORDER BY s.created_at ASC, s.id ASC
+                         LIMIT 1
+                       ) ELSE NULL END AS scan_quality
+                FROM lifecycle_email_events le
+                WHERE le.status = 'failed'
+                  AND le.type != 'lifecycle_payment_failed'
+                  AND le.type != 'lifecycle_weekly_digest'
+                  AND le.created_at > datetime('now', '-3 days')
+                ORDER BY le.created_at ASC
                 LIMIT 10`)
       .all().catch(() => null);
     for (const row of (rows?.results || [])) {
@@ -352,6 +365,7 @@ async function retryFailedLifecycleEmails(env) {
         user_id:      row.user_id ?? null,
         workspace_id: row.workspace_id ?? null,
         domain:       row.domain ?? null,
+        scan_quality: row.scan_quality ?? null,
       }).catch(() => {});
     }
   } catch (e) {

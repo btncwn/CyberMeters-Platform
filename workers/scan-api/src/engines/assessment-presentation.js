@@ -35,6 +35,43 @@ export const ASSESSMENT_MESSAGES = Object.freeze({
   unknown:  "Legacy assessment — coverage quality unavailable.",
 });
 
+// Scan-completion delivery needs a self-contained caveat because some channels
+// (asset alerts and first-scan lifecycle email) do not render a score. These are
+// presentation strings over the existing quality enum, not a new customer-state
+// model. Only an explicit complete quality may omit the caveat.
+export const SCAN_COMPLETION_DISCLOSURES = Object.freeze({
+  complete: null,
+  partial:  "Partial scan — some checks did not complete this run; results may be incomplete.",
+  degraded: "Degraded scan — some checks or evidence sources did not complete normally; results may be incomplete.",
+  unknown:  "Scan coverage was not confirmed for this run; results may be incomplete.",
+});
+
+export function scanCompletionQualityDisclosure(scanQuality) {
+  const quality = normalizeQuality(scanQuality);
+  const complete = quality === SCAN_QUALITY.COMPLETE;
+  return {
+    quality,
+    complete,
+    disclosure: complete ? null : SCAN_COMPLETION_DISCLOSURES[quality],
+  };
+}
+
+export function buildScanCompletionPresentation({ domain, score, riskLevel, scanQuality } = {}) {
+  const quality = scanCompletionQualityDisclosure(scanQuality);
+  if (quality.complete) {
+    return {
+      ...quality,
+      description: `Scan completed for ${domain} — score ${score}, risk ${riskLevel}`,
+      message: `Score: ${score} · ${riskLevel} risk`,
+    };
+  }
+  return {
+    ...quality,
+    description: `Scan completed for ${domain} — score ${score} (provisional). ${quality.disclosure}`,
+    message: `Score: ${score} (provisional) · ${quality.disclosure}`,
+  };
+}
+
 // Shown when a scope has NO complete assessment to establish authoritative posture.
 export const POSTURE_NOT_ESTABLISHED_MESSAGE = "Current posture not yet established.";
 
