@@ -316,7 +316,11 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
   // Per-module telemetry collector (persisted at finalization; non-fatal).
   const telemetry = createModuleTelemetry(now);
   const outboundAccounting = createOutboundAccounting();
-  const ctCache = createCertificateTransparencyCache({ signal: deadline.signal });
+  const ctCache = createCertificateTransparencyCache({
+    signal: deadline.signal,
+    remainingMs: () => deadline.remainingMs(),
+    now,
+  });
   const createChildSignal = () => {
     const controller = new AbortController();
     if (deadline.signal?.aborted) controller.abort(deadline.signal.reason);
@@ -1143,7 +1147,13 @@ function buildCanonicalUrlProfile(modules) {
     // PR-A1: additive execution diagnostics — versioned, R2-only, built AFTER the
     // telemetry backfill so both scan modes get full module coverage. No runtime
     // consumer reads this block; scan_quality/events/alerts are untouched.
-    report.execution_diagnostics = buildExecutionDiagnostics({ executionContext, trigger, deadline, telemetry });
+    report.execution_diagnostics = buildExecutionDiagnostics({
+      executionContext,
+      trigger,
+      deadline,
+      telemetry,
+      providerHealth: ctCache.healthSnapshot(),
+    });
 
     // Heartbeat: entering finalization. A cancellation after this is a finalize-time
     // failure (the reconciler is the backstop), not a mid-scan orphan.
@@ -1641,7 +1651,13 @@ function buildCanonicalUrlProfile(modules) {
       failed_at:           failedAt,
       // PR-A1: additive diagnostics on the failed report too — a failed scan's
       // execution timing is exactly what a diagnosis needs. Observational only.
-      execution_diagnostics: buildExecutionDiagnostics({ executionContext, trigger, deadline, telemetry }),
+      execution_diagnostics: buildExecutionDiagnostics({
+        executionContext,
+        trigger,
+        deadline,
+        telemetry,
+        providerHealth: ctCache.healthSnapshot(),
+      }),
     };
     await finalizeScanResult(latch, {
       scanId, report: failedReport, score: 0, rating: "unknown", status: "failed", env,
