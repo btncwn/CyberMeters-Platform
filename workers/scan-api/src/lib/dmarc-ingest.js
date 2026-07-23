@@ -290,7 +290,8 @@ async function ingestDmarcReport(env, opts = {}) {
     ingestEndpointId = null, domainId = null, enforceDomainMatch = false,
     provenance = null,
   } = opts;
-  // Inbound sender provenance (null for authenticated manual/signed paths).
+  // Inbound sender-claim metadata (null for authenticated customer-submission
+  // paths). It does not authenticate the report producer or report body.
   const prov = provenance && typeof provenance === "object" ? provenance : {};
 
   if (!workspaceId || !domain) {

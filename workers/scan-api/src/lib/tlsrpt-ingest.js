@@ -4,6 +4,7 @@
 // JSON, so there is no XXE surface, but the input is still fully untrusted:
 // size + array caps, JSON.parse in try/catch, never throws.
 import { createId } from "./util.js";
+import { normalizeTransportSenderStatus } from "./dmarc-authority.js";
 
 const MAX_JSON_BYTES = 2 * 1024 * 1024; // 2 MB decoded — same order as the DMARC cap
 const MAX_POLICIES = 1000;
@@ -104,8 +105,12 @@ export async function ingestTlsRptReport(env, opts = {}) {
     .bind(workspaceId, domain, rep.external_report_id).first();
   if (dup) return { ok: true, duplicate: true, sessions, failures: rep.failure_count };
 
-  // Provenance: only a recognised reporter (header-From we trust) is 'verified'.
-  const prov = provenance && provenance.auth_verdict === "verified" ? "verified" : (provenance ? "unverified" : null);
+  // Transport metadata only. Header-From and recognised public-mail membership
+  // do not authenticate the report producer and never grant report authority.
+  // Legacy "verified" inputs are normalized to an honest claimed-identity label.
+  const prov = provenance
+    ? normalizeTransportSenderStatus(provenance.auth_verdict, provenance.reporter_domain)
+    : null;
 
   const reportRowId = createId("tlsr");
   await env.cybermeters_db

@@ -72,16 +72,26 @@ db.prepare("INSERT INTO user_sessions (id,user_id,token_hash,expires_at) VALUES 
 const r1 = await ingestTlsRptReport(env, { workspaceId: "ws_a", domain: "acme.co.uk", jsonString: report("rep-100"), enforceDomainMatch: true, provenance: { auth_verdict: "verified" } });
 ok("ingest stores a report", r1.ok && r1.duplicate === false && r1.sessions === 103);
 ok("report row persisted", db.prepare("SELECT COUNT(*) c FROM tlsrpt_aggregate_reports WHERE workspace_id='ws_a'").get().c === 1);
-ok("provenance recorded verified", db.prepare("SELECT provenance p FROM tlsrpt_aggregate_reports WHERE external_report_id='rep-100'").get().p === "verified");
+ok("legacy verified provenance is normalized to claimed-recognised metadata",
+  db.prepare("SELECT provenance p FROM tlsrpt_aggregate_reports WHERE external_report_id='rep-100'").get().p ===
+    "sender_domain_claimed_recognised");
 const r1b = await ingestTlsRptReport(env, { workspaceId: "ws_a", domain: "acme.co.uk", jsonString: report("rep-100"), enforceDomainMatch: true });
 ok("duplicate report is a no-op (dedup by report-id)", r1b.ok && r1b.duplicate === true && db.prepare("SELECT COUNT(*) c FROM tlsrpt_aggregate_reports").get().c === 1);
 const rMis = await ingestTlsRptReport(env, { workspaceId: "ws_a", domain: "acme.co.uk", jsonString: report("rep-x", { policyDomain: "evil.example" }), enforceDomainMatch: true });
 ok("domain-mismatch report is rejected", rMis.ok === false && rMis.error === "domain_mismatch");
 {
   const withFails = report("rep-f", { failures: [{ "result-type": "validation-failure", "failed-session-count": 4 }] });
-  await ingestTlsRptReport(env, { workspaceId: "ws_a", domain: "acme.co.uk", jsonString: withFails, enforceDomainMatch: true, provenance: { auth_verdict: "unverified" } });
+  await ingestTlsRptReport(env, {
+    workspaceId: "ws_a",
+    domain: "acme.co.uk",
+    jsonString: withFails,
+    enforceDomainMatch: true,
+    provenance: { auth_verdict: "sender_domain_claimed", reporter_domain: "attacker.example" },
+  });
   ok("failure detail rows stored", db.prepare("SELECT COUNT(*) c FROM tlsrpt_failure_details WHERE workspace_id='ws_a' AND result_type='validation-failure'").get().c === 1);
-  ok("untrusted header-From → provenance unverified", db.prepare("SELECT provenance p FROM tlsrpt_aggregate_reports WHERE external_report_id='rep-f'").get().p === "unverified");
+  ok("untrusted header-From is stored only as a claimed sender",
+    db.prepare("SELECT provenance p FROM tlsrpt_aggregate_reports WHERE external_report_id='rep-f'").get().p ===
+      "sender_domain_claimed");
 }
 
 // ── 3. Inbound routing via the real email handler ────────────────────────────
@@ -112,6 +122,15 @@ const call = async (p, token) => { const res = await worker.default.fetch(new Re
 const rep = await call("/api/workspaces/ws_a/domains/acme.co.uk/tls-rpt/reports", TOKEN);
 ok("read endpoint returns a summary", rep.status === 200 && rep.body.summary && typeof rep.body.summary.success_rate === "number");
 ok("summary counts the ingested reports", rep.body.summary.report_count >= 3);
+ok("read endpoint exposes no producer-authenticated or authoritative inbound evidence",
+  rep.body.reports.every((row) =>
+    row.transport_authenticated_sender === null &&
+    row.report_producer_authenticated === false &&
+    row.authoritative_eligible === false &&
+    row.external_automation_eligible === false &&
+    row.authoritative === false &&
+    row.evidence_confidence === "unverified_observational" &&
+    row.provenance !== "verified"));
 ok("non-member is denied (403)", (await call("/api/workspaces/ws_b/domains/acme.co.uk/tls-rpt/reports", TOKEN)).status === 403);
 ok("unauthenticated is rejected (401)", (await call("/api/workspaces/ws_a/domains/acme.co.uk/tls-rpt/reports")).status === 401);
 

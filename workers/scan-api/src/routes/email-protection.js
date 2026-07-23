@@ -7,7 +7,10 @@
 // matches, or null so the main router continues.
 import { ALERT_CHANNEL_MAX_PER_WORKSPACE, alertChannelToApi, deliverWorkspaceAlert, validateAlertChannelInput } from "../engines/alerts.js";
 import { computeBecExposureScore } from "../engines/bec.js";
-import { DMARC_OBSERVATIONAL_EVIDENCE_SCOPE } from "../lib/dmarc-authority.js";
+import {
+  DMARC_OBSERVATIONAL_EVIDENCE_SCOPE,
+  buildAggregateReportTrustSemantics,
+} from "../lib/dmarc-authority.js";
 import { assessImpactRollback, comparePolicyImpact, forecastPolicyImpact } from "../engines/dmarc-impact.js";
 import { applyChangeTransition, buildChangeReviewQueue, changeRequestToApi, newChangeRequestId } from "../engines/dmarc-change-workflow.js";
 import { dnsQuery } from "../engines/dns.js";
@@ -903,6 +906,7 @@ export async function emailProtectionRoutes(rctx) {
 
         const reports = (await env.cybermeters_db
           .prepare(`SELECT id, org_name, external_report_id, date_range_begin, date_range_end, policy_type,
+                           policy_domain,
                            total_successful_sessions, total_failure_sessions, failure_count, provenance, created_at
                     FROM tlsrpt_aggregate_reports WHERE workspace_id = ? AND domain = ?
                     ORDER BY created_at DESC LIMIT 50`)
@@ -927,11 +931,20 @@ export async function emailProtectionRoutes(rctx) {
             evidence_scope: DMARC_OBSERVATIONAL_EVIDENCE_SCOPE,
             authoritative: false,
           },
-          reports: reports.map((report) => ({
-            ...report,
-            evidence_scope: DMARC_OBSERVATIONAL_EVIDENCE_SCOPE,
-            authoritative: false,
-          })),
+          reports: reports.map((report) => {
+            const trust = buildAggregateReportTrustSemantics({
+              source: "inbound_email",
+              storedTransportVerdict: report.provenance,
+              claimedDomain: report.policy_domain,
+            });
+            return {
+              ...report,
+              provenance: trust.transport_sender_status,
+              ...trust,
+              evidence_scope: DMARC_OBSERVATIONAL_EVIDENCE_SCOPE,
+              authoritative: false,
+            };
+          }),
         });
       } catch (e) {
         return serverError("tls-rpt-reports", e, "TLS-RPT reports could not be loaded.");
@@ -1367,7 +1380,7 @@ export async function emailProtectionRoutes(rctx) {
 
         const rows = await env.cybermeters_db
           .prepare(`SELECT rep.id, rep.org_name, rep.date_range_begin, rep.date_range_end,
-                           rep.message_count, rep.record_count, rep.policy_p, rep.created_at,
+                           rep.message_count, rep.record_count, rep.policy_domain, rep.policy_p, rep.created_at,
                            rep.source, rep.auth_verdict, rep.reporter_domain,
                            COALESCE(SUM(CASE WHEN r.spf_aligned_result = 'pass' OR r.dkim_aligned_result = 'pass'
                                              THEN r.message_count ELSE 0 END), 0) AS aligned_messages
@@ -1382,6 +1395,12 @@ export async function emailProtectionRoutes(rctx) {
         const reports = (rows.results || []).map((r) => {
           const msgs = Math.max(0, Number(r.message_count || 0));
           const aligned = Math.min(msgs, Math.max(0, Number(r.aligned_messages || 0)));
+          const trust = buildAggregateReportTrustSemantics({
+            source: r.source,
+            storedTransportVerdict: r.auth_verdict,
+            reporterDomain: r.reporter_domain,
+            claimedDomain: r.policy_domain,
+          });
           return {
             id: r.id,
             reporter: r.org_name || "Unknown reporter",
@@ -1393,11 +1412,12 @@ export async function emailProtectionRoutes(rctx) {
             pass_rate: msgs > 0 ? Math.round((aligned / msgs) * 1000) / 10 : null,
             policy_applied: r.policy_p || null,
             received_at: r.created_at || null,
-            source: r.source || null,
-            auth_verdict: r.source === "inbound_email"
-              ? (r.auth_verdict || "unverified")
-              : (r.auth_verdict || null),
+            source: trust.source,
+            // Backward-compatible field name with honest transport semantics.
+            // It never means report-producer verification.
+            auth_verdict: trust.transport_sender_status,
             reporter_domain: r.reporter_domain || null,
+            ...trust,
             evidence_scope: DMARC_OBSERVATIONAL_EVIDENCE_SCOPE,
             authoritative: false,
           };

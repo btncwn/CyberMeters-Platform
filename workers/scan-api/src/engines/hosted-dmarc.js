@@ -7,8 +7,8 @@
 // are module-internal.
 import { RUA_INBOUND_DOMAIN_DEFAULT, normalizeInboundRecipientDomain } from "../lib/dmarc-ingest.js";
 import {
-  DMARC_AUTHORITY_EVIDENCE_SCOPE,
-  dmarcAuthoritySourceSql,
+  DMARC_EXTERNAL_AUTOMATION_EVIDENCE_SCOPE,
+  dmarcExternalAutomationSourceSql,
 } from "../lib/dmarc-authority.js";
 import { createAuditEvent } from "../lib/events.js";
 // PR-B3: this engine no longer holds a sender. Every alert it used to deliver
@@ -775,13 +775,14 @@ export function shouldAutoRollback({ baseline_pass_rate, current_pass_rate, tota
   return (baseline_pass_rate - current_pass_rate) >= dropPp;
 }
 
-// 7-day DMARC pass rate from authority-eligible aggregate records. DMARC passes
-// when either aligned mechanism passes.
+// 7-day DMARC pass rate from externally corroborated aggregate records. DMARC
+// passes when either aligned mechanism passes.
 //
-// PR-5.5 Gate 1 containment: inbound-email reports are public, unauthenticated
-// observational telemetry. Until Gate 2 provides an authenticated evidence
-// contract, they MUST NOT drive auto-rollback, autopilot advancement, or any
-// Cloudflare TXT PATCH. Missing/unknown report sources fail closed here too.
+// PR-5.5 Gate 2 authority contract: no current report source has the additional
+// independent corroboration required for destructive/external automation.
+// Therefore aggregate reports MUST NOT drive auto-rollback, autopilot
+// advancement, or any Cloudflare TXT PATCH. This suspension is deliberately
+// separate from the internal-authority contract and fails closed.
 export async function getHostedDmarcPassRate(env, workspaceId, domain, { sinceDays = 7 } = {}) {
   try {
     const row = await env.cybermeters_db
@@ -795,27 +796,33 @@ export async function getHostedDmarcPassRate(env, workspaceId, domain, { sinceDa
                  AND rep.domain = r.domain
                 WHERE r.workspace_id = ? AND r.domain = ?
                   AND r.created_at >= datetime('now', ?)
-                  AND ${dmarcAuthoritySourceSql("rep")}`)
+                  AND ${dmarcExternalAutomationSourceSql("rep")}`)
       .bind(workspaceId, domain, `-${Math.max(1, sinceDays)} days`).first();
     const total = Number(row?.total || 0);
     if (!total) return {
       total: 0,
       pass_rate: null,
-      evidence_scope: DMARC_AUTHORITY_EVIDENCE_SCOPE,
+      evidence_scope: DMARC_EXTERNAL_AUTOMATION_EVIDENCE_SCOPE,
       inbound_automation_suspended: true,
+      external_automation_suspended: true,
+      corroboration_required: true,
     };
     return {
       total,
       pass_rate: Math.round((Number(row?.aligned || 0) / total) * 1000) / 10,
-      evidence_scope: DMARC_AUTHORITY_EVIDENCE_SCOPE,
+      evidence_scope: DMARC_EXTERNAL_AUTOMATION_EVIDENCE_SCOPE,
       inbound_automation_suspended: true,
+      external_automation_suspended: true,
+      corroboration_required: true,
     };
   } catch {
     return {
       total: 0,
       pass_rate: null,
-      evidence_scope: DMARC_AUTHORITY_EVIDENCE_SCOPE,
+      evidence_scope: DMARC_EXTERNAL_AUTOMATION_EVIDENCE_SCOPE,
       inbound_automation_suspended: true,
+      external_automation_suspended: true,
+      corroboration_required: true,
     };
   }
 }

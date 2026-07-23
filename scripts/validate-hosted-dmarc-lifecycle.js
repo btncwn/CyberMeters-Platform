@@ -46,7 +46,7 @@ const rec = (ws, domain, msgs, aligned, agedDays = 0, source = "manual_paste") =
       aligned ? "pass" : "fail", aligned ? "pass" : "fail", `-${agedDays} days`);
 };
 
-// ── getHostedDmarcPassRate: windowed pass-rate + tenant scope ─────────────────
+// ── getHostedDmarcPassRate: external automation remains suspended ────────────
 rec("ws_a", "acme.co.uk", 98, true);      // in-window aligned
 rec("ws_a", "acme.co.uk", 2, false);      // in-window failing
 rec("ws_a", "acme.co.uk", 1000, true, 30); // OUT of the 7-day window (must be ignored)
@@ -56,14 +56,18 @@ rec("ws_a", "acme.co.uk", 1_000_000, false, 0, "unknown_source"); // unknown: fa
 rec("ws_c", "signed.example", 99, true, 0, "signed_upload");      // existing explicit path
 
 const pr = await getHostedDmarcPassRate(env, "ws_a", "acme.co.uk", { sinceDays: 7 });
-ok("pass-rate computed from in-window records only", pr.total === 100 && pr.pass_rate === 98);
-ok("out-of-window records excluded (30d-old row ignored)", pr.total === 100);
+ok("aggregate reports cannot produce a hosted-DNS automation pass rate",
+  pr.total === 0 && pr.pass_rate === null);
+ok("external automation contract requires corroboration and fails closed",
+  pr.external_automation_suspended === true && pr.corroboration_required === true);
 ok("forged inbound and unknown-source records have zero hosted-DNS authority",
-  pr.total === 100 && pr.pass_rate === 98 && pr.inbound_automation_suspended === true);
+  pr.total === 0 && pr.pass_rate === null && pr.inbound_automation_suspended === true);
 const prB = await getHostedDmarcPassRate(env, "ws_b", "acme.co.uk", { sinceDays: 7 });
-ok("tenant-scoped: ws_b sees only its own records (not ws_a's)", prB.total === 500 && prB.pass_rate === 0);
+ok("another tenant also fails closed while external automation is suspended",
+  prB.total === 0 && prB.pass_rate === null);
 const prSigned = await getHostedDmarcPassRate(env, "ws_c", "signed.example", { sinceDays: 7 });
-ok("explicit signed-upload regression path remains eligible", prSigned.total === 99 && prSigned.pass_rate === 100);
+ok("signed upload does not bypass destructive-automation corroboration",
+  prSigned.total === 0 && prSigned.pass_rate === null);
 const prEmpty = await getHostedDmarcPassRate(env, "ws_none", "nope.co", { sinceDays: 7 });
 ok("no data → null pass-rate (honest, not a fake number)", prEmpty.total === 0 && prEmpty.pass_rate === null);
 
@@ -89,10 +93,10 @@ ok("small drop → no rollback", shouldAutoRollback({ baseline_pass_rate: 99, cu
 ok("low volume → no rollback (too little evidence)", shouldAutoRollback({ baseline_pass_rate: 99, current_pass_rate: 50, total_messages: 5 }) === false);
 ok("missing measurement → no rollback", shouldAutoRollback({ baseline_pass_rate: null, current_pass_rate: 50, total_messages: 500 }) === false);
 
-// ── End-to-end: readiness reflects the real ingested pass-rate ────────────────
+// ── End-to-end: suspended evidence cannot satisfy readiness ───────────────────
 const e2eReady = evaluateRampReadiness({ pass_rate: pr.pass_rate, total_messages: pr.total, days_since_change: 7 });
-ok("readiness consumes the real windowed pass-rate (98% → not ready under a 99% bar; reasoned either way)",
-   typeof e2eReady.ready === "boolean" && Array.isArray(e2eReady.reasons));
+ok("suspended aggregate evidence cannot advance hosted-DMARC",
+   e2eReady.ready === false && Array.isArray(e2eReady.reasons) && e2eReady.reasons.length > 0);
 
 console.log(`\nHosted DMARC lifecycle: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("hosted-dmarc-lifecycle validation FAILED"); process.exit(1); }
