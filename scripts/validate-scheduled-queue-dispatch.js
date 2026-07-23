@@ -27,7 +27,7 @@
 //   E. Static/config contracts — SCHEDULED_DISPATCH_MODE pinned OFF (PR-B1A),
 //      SCAN_DISPATCH_MODE untouched, settlement wired in the queue handler,
 //      queue branch never invokes the engine from cron, cron/migration
-//      invariants (no migration 100).
+//      invariants (migration 100 remains unrelated to scheduled dispatch).
 //
 // Mutation directions (reverting the guard reddens the named assertion):
 //   - flag helper accepts a non-exact value            → A1 fails
@@ -637,11 +637,21 @@ ok("E3 queue handler injects onScheduledScanSettled: settleScheduledQueueScan",
     start > -1 && dispatchIdx > -1 && engineIdx > dispatchIdx);
 }
 
-// E5 — cron registration and migration surface unchanged: hourly cron, and NO
-// migration 100 exists (PR-B1 is code-only by founder decision).
+// E5 — cron registration and the scheduled-Queue migration surface remain
+// unchanged. PR-5.5 Gate 3B now owns migration 100, so preserve PR-B1's
+// code-only invariant by proving that migration is the aggregate-email ingest
+// migration and does not touch scan/schedule Queue tables.
 ok("E5 hourly cron unchanged", /crons = \["0 \* \* \* \*"\]/.test(wranglerSrc));
-ok("E5b no migration 100 exists",
-  !fs.readdirSync(path.join(root, "database", "migrations")).some((f) => /^100-/.test(f)));
+{
+  const migration100Files = fs.readdirSync(path.join(root, "database", "migrations"))
+    .filter((f) => /^100-/.test(f));
+  const migration100 = migration100Files.length === 1
+    ? fs.readFileSync(path.join(root, "database", "migrations", migration100Files[0]), "utf8")
+    : "";
+  ok("E5b migration 100 is aggregate-ingest-only (scheduled Queue remains code-only)",
+    migration100Files[0] === "100-aggregate-report-ingest-state.sql" &&
+    !/\b(?:scans|scheduled_scans|scan_dispatch)\b/i.test(migration100));
+}
 
 console.log(`\nscheduled-queue-dispatch: ${passed} passed, ${failed} failed`);
 if (failed) { console.error("scheduled-queue-dispatch validation FAILED"); process.exit(1); }
