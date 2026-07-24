@@ -10,6 +10,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { gzipSync } from "node:zlib";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const inboundPath = path.join(
@@ -24,6 +25,7 @@ const inboundSource = fs.readFileSync(inboundPath, "utf8");
 const {
   RUA_ATTACHMENT_MAX_BYTES,
   RUA_ENCODED_ATTACHMENT_MAX_BYTES,
+  RUA_MAX_MIME_DEPTH,
   RUA_MAX_MIME_PARTS,
   RUA_MIME_BUFFER_MAX_BYTES,
   RUA_MIME_ENTITY_MAX_BYTES,
@@ -31,6 +33,7 @@ const {
   RUA_PARSER_MAX_RETAINED_BYTES,
   RUA_RAW_EMAIL_MAX_BYTES,
   _base64ToBytes,
+  extractDmarcXmlFromAttachment,
   handleInboundEmail,
   parseMimeMessageStream,
 } = await import(pathToFileURL(inboundPath).href);
@@ -49,12 +52,14 @@ function namedEnvelopeHolds(source) {
   return /const RUA_RAW_EMAIL_MAX_BYTES\s+=/.test(source) &&
     /const RUA_MIME_HEADER_MAX_BYTES\s+=/.test(source) &&
     /const RUA_MAX_MIME_PARTS\s+=/.test(source) &&
+    /const RUA_MAX_MIME_DEPTH\s+=/.test(source) &&
     /const RUA_ENCODED_ATTACHMENT_MAX_BYTES\s+=/.test(source) &&
     /const RUA_ATTACHMENT_MAX_BYTES\s+=/.test(source) &&
     /const RUA_MIME_BUFFER_MAX_BYTES\s+=/.test(source) &&
     /message\.rawSize > RUA_RAW_EMAIL_MAX_BYTES/.test(source) &&
     /rootHeaderBuffer\.length \+ text\.length > RUA_MIME_HEADER_MAX_BYTES/.test(source) &&
     /state\.entityCount > RUA_MAX_MIME_PARTS/.test(source) &&
+    /childDepth > this\.maxDepth/.test(source) &&
     /leafLength > RUA_ENCODED_ATTACHMENT_MAX_BYTES/.test(source) &&
     /decodedLength > maxDecodedBytes/.test(source);
 }
@@ -73,14 +78,23 @@ function noWholeBodyMaterialisation(source) {
 
 function onePartBufferInvariant(source) {
   return /class StreamingMultipartParser/.test(source) &&
-    /this\.buffer\.length \+ text\.length > RUA_MIME_BUFFER_MAX_BYTES/.test(source) &&
-    /this\.searchFrom = Math\.max\(0, this\.buffer\.length - this\.marker\.length - 4\)/.test(
+    /this\.buffer\.length \+ text\.length > maximum/.test(source) &&
+    /this\.searchFrom = Math\.max\(\s*0,\s*this\.buffer\.length - this\.marker\.length - 4,\s*\)/.test(
       source,
     ) &&
+    /this\.mode === "child"/.test(source) &&
+    /this\.child\.push\(incoming\)/.test(source) &&
+    /const firstBody = this\.buffer\.slice[\s\S]{0,120}this\.buffer = ""[\s\S]{0,500}this\.child = new StreamingMultipartParser/.test(
+      source,
+    ) &&
+    /this\.buffer = this\.buffer\.slice\(-keep\)/.test(source) &&
+    /this\.mode === "candidate"/.test(source) &&
+    /_decodeMimeCandidate\(/.test(source) &&
     /if \(state\.parts\.length\)/.test(source) &&
     /throw new Error\("multiple_tlsrpt_attachments"\)/.test(source) &&
     /throw new Error\("multiple_dmarc_attachments"\)/.test(source) &&
-    /throw new Error\("unsupported_nested_multipart"\)/.test(source) &&
+    /throw new Error\("mime_nesting_too_deep"\)/.test(source) &&
+    !/throw new Error\("unsupported_nested_multipart"\)/.test(source) &&
     !/_parseMultipartBody/.test(source);
 }
 
@@ -104,6 +118,7 @@ function auditedExitContract(source) {
     "unterminated_multipart",
     "header_too_large",
     "multiple_tlsrpt_attachments",
+    "mime_nesting_too_deep",
     "invalid_base64",
   ];
   return reasons.every((reason) => source.includes(`case "${reason}"`)) &&
@@ -129,6 +144,7 @@ ok("raw envelope is lower than the former 25 MiB ceiling",
 ok("header, part and encoded limits are concrete named bounds",
   RUA_MIME_HEADER_MAX_BYTES === 64 * 1024 &&
     RUA_MAX_MIME_PARTS === 25 &&
+    RUA_MAX_MIME_DEPTH === 5 &&
     RUA_ENCODED_ATTACHMENT_MAX_BYTES === 3 * 1024 * 1024);
 ok("maximum retained MIME buffer is algebraically bounded",
   RUA_MIME_BUFFER_MAX_BYTES > RUA_MIME_ENTITY_MAX_BYTES &&
@@ -379,6 +395,201 @@ await expectAudited(
   "part-count overflow",
   messageWithRaw(streamFromText(tooManyParts, 37), tooManyParts.length),
   "mime_complexity_exceeded",
+);
+
+// Gate 4.1 regression: genuine Microsoft reports commonly wrap an empty/plain
+// alternative and an HTML body inside related/alternative, with the gzip report
+// as a sibling of that human-readable branch at the mixed root.
+const microsoftXml = `<?xml version="1.0" encoding="UTF-8"?>
+<feedback>
+  <report_metadata>
+    <org_name>Microsoft</org_name>
+    <email>dmarcreport@microsoft.com</email>
+    <report_id>MICROSOFT-GATE-4-1</report_id>
+    <date_range><begin>1761000000</begin><end>1761086400</end></date_range>
+  </report_metadata>
+  <policy_published>
+    <domain>victim.example</domain><adkim>r</adkim><aspf>r</aspf>
+    <p>none</p><sp>none</sp><pct>100</pct>
+  </policy_published>
+  <record>
+    <row>
+      <source_ip>203.0.113.80</source_ip><count>2</count>
+      <policy_evaluated>
+        <disposition>none</disposition><dkim>pass</dkim><spf>pass</spf>
+      </policy_evaluated>
+    </row>
+    <identifiers><header_from>victim.example</header_from></identifiers>
+    <auth_results>
+      <dkim><domain>victim.example</domain><selector>outlook</selector><result>pass</result></dkim>
+      <spf><domain>victim.example</domain><result>pass</result></spf>
+    </auth_results>
+  </record>
+</feedback>`;
+const microsoftGzip = gzipSync(Buffer.from(microsoftXml)).toString("base64");
+const microsoftHtml = Buffer.from(
+  `<html><body>${"Microsoft Outlook aggregate report ".repeat(420)}</body></html>`,
+).toString("base64");
+const microsoftMime = [
+  "From: dmarcreport@microsoft.com",
+  "To: cmrua_gate4abcd@reports.cybermeters.com",
+  "Subject: DMARC aggregate report",
+  'Content-Type: multipart/mixed; boundary="mixed-gate41"',
+  "",
+  "--mixed-gate41",
+  'Content-Type: multipart/related; boundary="related-gate41"',
+  "",
+  "--related-gate41",
+  'Content-Type: multipart/alternative; boundary="alternative-gate41"',
+  "",
+  "--alternative-gate41",
+  "Content-Type: text/plain; charset=utf-8",
+  "Content-Transfer-Encoding: base64",
+  "",
+  "",
+  "--alternative-gate41",
+  "Content-Type: text/html; charset=utf-8",
+  "Content-Transfer-Encoding: base64",
+  "",
+  microsoftHtml,
+  "--alternative-gate41--",
+  "--related-gate41--",
+  "--mixed-gate41",
+  'Content-Type: application/gzip; name="victim.example.xml.gz"',
+  'Content-Disposition: attachment; filename="victim.example.xml.gz"',
+  "Content-Transfer-Encoding: base64",
+  "",
+  microsoftGzip,
+  "--mixed-gate41--",
+  "",
+].join("\r\n");
+
+const microsoftParsed = await parseMimeMessageStream(
+  streamFromText(microsoftMime, 113),
+);
+ok("Microsoft mixed/related/alternative envelope finds one gzip report",
+  microsoftParsed.parts.length === 1 &&
+  microsoftParsed.parts[0].filename === "victim.example.xml.gz");
+ok("Microsoft nested human-readable branches stay within the bounded tree",
+  microsoftParsed.stats.max_depth === 3 &&
+  microsoftParsed.stats.entity_count === 5 &&
+  microsoftParsed.stats.max_buffered_bytes <= RUA_MIME_BUFFER_MAX_BYTES);
+const microsoftExtracted = await extractDmarcXmlFromAttachment(
+  microsoftParsed.parts[0].filename,
+  microsoftParsed.parts[0].bytes,
+);
+ok("Microsoft gzip attachment decodes to the intended DMARC report",
+  microsoftExtracted.error == null &&
+  microsoftExtracted.xml.includes("MICROSOFT-GATE-4-1") &&
+  microsoftExtracted.decompressed_size === Buffer.byteLength(microsoftXml));
+ok("Microsoft regression fixture mirrors a small legitimate envelope",
+  Buffer.byteLength(microsoftMime) > 10 * 1024 &&
+  Buffer.byteLength(microsoftMime) < 30 * 1024 &&
+  microsoftExtracted.decompressed_size < 4 * 1024);
+
+const nestedAttachmentMime = [
+  'Content-Type: multipart/mixed; boundary="outer-attachment"',
+  "",
+  "--outer-attachment",
+  'Content-Type: multipart/related; boundary="inner-attachment"',
+  "",
+  "--inner-attachment",
+  'Content-Type: application/gzip; name="nested.xml.gz"',
+  'Content-Disposition: attachment; filename="nested.xml.gz"',
+  "Content-Transfer-Encoding: base64",
+  "",
+  microsoftGzip,
+  "--inner-attachment--",
+  "--outer-attachment--",
+  "",
+].join("\r\n");
+const nestedAttachmentParsed = await parseMimeMessageStream(
+  streamFromText(nestedAttachmentMime, 71),
+);
+ok("report attachment is located inside a bounded nested multipart",
+  nestedAttachmentParsed.parts.length === 1 &&
+  nestedAttachmentParsed.parts[0].filename === "nested.xml.gz" &&
+  nestedAttachmentParsed.stats.max_depth === 2);
+
+const duplicateAcrossDepthMime = nestedAttachmentMime.replace(
+  "--outer-attachment--\r\n",
+  [
+    "--outer-attachment",
+    'Content-Type: application/gzip; name="second.xml.gz"',
+    'Content-Disposition: attachment; filename="second.xml.gz"',
+    "Content-Transfer-Encoding: base64",
+    "",
+    microsoftGzip,
+    "--outer-attachment--",
+    "",
+  ].join("\r\n"),
+);
+await expectAudited(
+  "duplicate report attachments across nesting levels",
+  messageWithRaw(
+    streamFromText(duplicateAcrossDepthMime, 79),
+    Buffer.byteLength(duplicateAcrossDepthMime),
+  ),
+  "multiple_dmarc_attachments",
+);
+
+// Required Gate 4.1 mutation: maxDepth=1 is the previous "reject all nested
+// multipart" behaviour. The exact genuine fixture must turn RED.
+let rejectAllNestingReason = null;
+try {
+  await parseMimeMessageStream(
+    streamFromText(microsoftMime, 113),
+    RUA_RAW_EMAIL_MAX_BYTES,
+    1,
+  );
+} catch (error) {
+  rejectAllNestingReason = error?.message;
+}
+ok("reject-all-nesting mutation turns the Microsoft fixture RED",
+  rejectAllNestingReason === "mime_nesting_too_deep");
+
+function nestedMime(depth) {
+  const lines = [
+    'Content-Type: multipart/mixed; boundary="depth-1"',
+    "",
+  ];
+  for (let level = 1; level < depth; level += 1) {
+    lines.push(
+      `--depth-${level}`,
+      `Content-Type: multipart/mixed; boundary="depth-${level + 1}"`,
+      "",
+    );
+  }
+  lines.push(
+    `--depth-${depth}`,
+    "Content-Type: text/plain",
+    "",
+    "ignored",
+    `--depth-${depth}--`,
+  );
+  for (let level = depth - 1; level >= 1; level -= 1) {
+    lines.push(`--depth-${level}--`);
+  }
+  lines.push("");
+  return lines.join("\r\n");
+}
+
+const overDepthMime = nestedMime(RUA_MAX_MIME_DEPTH + 1);
+let overDepthReason = null;
+try {
+  await parseMimeMessageStream(streamFromText(overDepthMime, 29));
+} catch (error) {
+  overDepthReason = error?.message;
+}
+ok("nesting deeper than the named cap is rejected",
+  overDepthReason === "mime_nesting_too_deep");
+await expectAudited(
+  "over-depth nested multipart",
+  messageWithRaw(
+    streamFromText(overDepthMime, 29),
+    Buffer.byteLength(overDepthMime),
+  ),
+  "mime_nesting_too_deep",
 );
 
 // Direct stream parser sanity: a small valid multipart retains one candidate

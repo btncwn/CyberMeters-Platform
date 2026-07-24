@@ -41,6 +41,12 @@ const ok = (name, condition) => {
 ok("offline preflight imports the canonical streamed MIME parser",
   /parseMimeMessageStream/.test(preflightSource) &&
   /workers\/scan-api\/src\/email\/inbound\.js/.test(preflightSource));
+ok("offline preflight derives authority from the canonical source gate",
+  /buildAggregateReportTrustSemantics/.test(preflightSource) &&
+  /source:\s*"inbound_email"/.test(preflightSource) &&
+  /automation_eligible: trust\.external_automation_eligible/.test(
+    preflightSource,
+  ));
 ok("offline preflight has no production mutation or network primitive",
   !/\b(?:fetch|wrangler|d1 execute|send_email|cybermeters_db)\b/i.test(
     preflightSource,
@@ -62,7 +68,10 @@ ok("future successful audits persist safe envelope diagnostics",
   /raw_email_size: parsedMessage\.stats\.total_bytes/.test(inbound) &&
   /encoded_attachment_size: tlsSel\.part\.encoded_size/.test(inbound) &&
   /encoded_attachment_size: sel\.part\.encoded_size/.test(inbound) &&
-  (inbound.match(/nested_multipart: false/g) || []).length >= 2);
+  (inbound.match(/nested_multipart: parsedMessage\.stats\.max_depth > 1/g) || [])
+    .length >= 2 &&
+  (inbound.match(/mime_max_depth: parsedMessage\.stats\.max_depth/g) || [])
+    .length >= 2);
 ok("production parser exposes encoded and transfer-decoded sizes without content",
   /encoded_size: leafLength/.test(inbound) &&
   /transfer_decoded_size: bytes\.length/.test(inbound));
@@ -72,6 +81,11 @@ ok("Email Routing contract is exact-address only and rejects catch-all guidance"
   /only exact per-address Email Routing rules may target this/.test(inbound) &&
   /Never enable catch-all routing/.test(inbound) &&
   !/should send \*@reports\.cybermeters\.com/.test(inbound));
+ok("legacy nested-multipart reason is read-compatible but never live-emitted",
+  /case "unsupported_nested_multipart": return "unsupported_nested_multipart"/
+    .test(inbound) &&
+  !/throw new Error\("unsupported_nested_multipart"\)/.test(inbound) &&
+  /throw new Error\("mime_nesting_too_deep"\)/.test(inbound));
 
 const migration = runbook.indexOf("### 1. Apply migration 100");
 const scanDeploy = runbook.indexOf("### 2. Deploy `cybermeters-platform`");
@@ -88,10 +102,12 @@ ok("runbook verifies migration 099, migration 100 schema, and historical rows",
   runbook.includes("tlsrpt_signature") &&
   runbook.includes("dmarc_missing_claims") &&
   runbook.includes("tlsrpt_missing_claims"));
-ok("runbook keeps the evidence gap as a hard pre-deploy blocker",
-  runbook.includes("BLOCKED pending original `.eml`") &&
-  runbook.includes("BLOCKED: no delivery path/sample") &&
-  runbook.includes("not yet proven envelope-fit"));
+ok("runbook records mandatory Microsoft acceptance and provider corpus backlog",
+  runbook.includes("ACCEPT — Microsoft genuine") &&
+  runbook.includes("Provider-report corpus backlog") &&
+  runbook.includes("Original Google and Yahoo RFC822 reports have not been captured") &&
+  runbook.includes("Synthetic Google/Yahoo fixtures are regression support only") &&
+  runbook.includes("BLOCKED: no delivery path/sample"));
 ok("runbook live acceptance checks observational complete claims and DNS non-change",
   runbook.includes("source_scope=observational") &&
   runbook.includes("ingest_state=complete") &&
@@ -149,12 +165,18 @@ try {
   let result = null;
   try { result = JSON.parse(preflight.stdout); } catch { /* asserted below */ }
   ok("real production parser preflight accepts a strict captured envelope",
-    preflight.status === 0 && result?.outcome === "PASS");
-  ok("PASS reports exact raw, encoded, decoded, and nesting evidence",
+    preflight.status === 0 &&
+    result?.outcome === "ACCEPT" &&
+    result?.success === true &&
+    result?.authority === "observational/non-authoritative" &&
+    result?.automation_eligible === false &&
+    result?.limit_hit === null);
+  ok("ACCEPT reports exact raw, encoded, decoded, and nesting evidence",
     result?.raw_email_bytes === Buffer.byteLength(eml) &&
     result?.encoded_attachment_bytes === encoded.length &&
     result?.decoded_report_body_bytes === Buffer.byteLength(xml) &&
-    result?.nested_multipart === false);
+    result?.nested_multipart === "not_present" &&
+    result?.exactly_one_report_attachment === true);
 
   const nested = [
     "Content-Type: multipart/mixed; boundary=outer",
@@ -165,25 +187,101 @@ try {
     "--inner",
     "Content-Type: text/plain",
     "",
-    "nested",
+    "human-readable branch",
     "--inner--",
+    "--outer",
+    'Content-Type: application/xml; name="report.xml"',
+    'Content-Disposition: attachment; filename="report.xml"',
+    "Content-Transfer-Encoding: base64",
+    "",
+    encoded,
     "--outer--",
     "",
   ].join("\r\n");
   const nestedPath = path.join(temp, "nested.eml");
   fs.writeFileSync(nestedPath, nested);
-  const rejected = spawnSync(process.execPath, [
+  const nestedAccepted = spawnSync(process.execPath, [
     path.join(root, preflightRelative),
     "--file", nestedPath,
     "--expect-domain", "blackbullbarbers.co.uk",
   ], { encoding: "utf8" });
-  let rejectedResult = null;
-  try { rejectedResult = JSON.parse(rejected.stdout); } catch { /* asserted */ }
-  ok("nested real envelope is an explicit audited-reject simulation",
-    rejected.status === 2 &&
-    rejectedResult?.outcome === "AUDITED_REJECT" &&
-    rejectedResult?.audited_reason === "unsupported_nested_multipart" &&
-    rejectedResult?.terminal_audit_event === "dmarc_inbound_email_dropped");
+  let nestedResult = null;
+  try {
+    nestedResult = JSON.parse(nestedAccepted.stdout);
+  } catch { /* asserted below */ }
+  ok("bounded nested envelope is accepted with one observational attachment",
+    nestedAccepted.status === 0 &&
+    nestedResult?.outcome === "ACCEPT" &&
+    nestedResult?.nested_multipart === "accepted_bounded" &&
+    nestedResult?.exactly_one_report_attachment === true &&
+    nestedResult?.automation_eligible === false);
+
+  const deep = [
+    "Content-Type: multipart/mixed; boundary=depth-1",
+    "",
+  ];
+  for (let level = 1; level <= 5; level += 1) {
+    deep.push(
+      `--depth-${level}`,
+      `Content-Type: multipart/mixed; boundary=depth-${level + 1}`,
+      "",
+    );
+  }
+  deep.push(
+    "--depth-6",
+    "Content-Type: text/plain",
+    "",
+    "too deep",
+    "--depth-6--",
+  );
+  for (let level = 5; level >= 1; level -= 1) {
+    deep.push(`--depth-${level}--`);
+  }
+  deep.push("");
+  const deepPath = path.join(temp, "over-depth.eml");
+  fs.writeFileSync(deepPath, deep.join("\r\n"));
+  const deepRejected = spawnSync(process.execPath, [
+    path.join(root, preflightRelative),
+    "--file", deepPath,
+    "--expect-domain", "blackbullbarbers.co.uk",
+  ], { encoding: "utf8" });
+  let deepResult = null;
+  try { deepResult = JSON.parse(deepRejected.stdout); } catch { /* asserted */ }
+  ok("nesting beyond depth five emits only mime_nesting_too_deep",
+    deepRejected.status === 2 &&
+    deepResult?.outcome === "AUDITED_REJECT" &&
+    deepResult?.parser_reason === "mime_nesting_too_deep" &&
+    deepResult?.audited_reason === "mime_nesting_too_deep" &&
+    deepResult?.nested_multipart === "present_rejected_over_depth");
+
+  const duplicate = eml.replace(
+    `--${boundary}--\r\n`,
+    [
+      `--${boundary}`,
+      'Content-Type: application/xml; name="second.xml"',
+      'Content-Disposition: attachment; filename="second.xml"',
+      "Content-Transfer-Encoding: base64",
+      "",
+      encoded,
+      `--${boundary}--`,
+      "",
+    ].join("\r\n"),
+  );
+  const duplicatePath = path.join(temp, "duplicate.eml");
+  fs.writeFileSync(duplicatePath, duplicate);
+  const duplicateRejected = spawnSync(process.execPath, [
+    path.join(root, preflightRelative),
+    "--file", duplicatePath,
+    "--expect-domain", "blackbullbarbers.co.uk",
+  ], { encoding: "utf8" });
+  let duplicateResult = null;
+  try {
+    duplicateResult = JSON.parse(duplicateRejected.stdout);
+  } catch { /* asserted */ }
+  ok("duplicate report candidates are audited-rejected",
+    duplicateRejected.status === 2 &&
+    duplicateResult?.outcome === "AUDITED_REJECT" &&
+    duplicateResult?.audited_reason === "multiple_dmarc_attachments");
 } finally {
   fs.rmSync(temp, { recursive: true, force: true });
 }

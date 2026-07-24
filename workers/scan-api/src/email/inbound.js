@@ -18,6 +18,9 @@ const RUA_ATTACHMENT_MAX_BYTES   = 2 * 1024 * 1024;
 const RUA_DECOMPRESSED_MAX_BYTES = 2 * 1024 * 1024;
 const RUA_MAX_COMPRESSION_RATIO = 100;              // out/in ratio cap (bomb guard)
 const RUA_MAX_MIME_PARTS        = 25;               // abuse guard
+// Root multipart is depth 1. Five levels admit common provider wrappers such
+// as mixed → related → alternative while rejecting adversarial deep nesting.
+const RUA_MAX_MIME_DEPTH        = 5;
 const RUA_MIME_HEADER_MAX_BYTES = 64 * 1024;
 // 2 MiB decoded base64 expands to ~2.67 MiB; 3 MiB admits normal line folding.
 // The entity bound includes its separately bounded headers.
@@ -31,16 +34,19 @@ const RUA_MIME_BUFFER_MAX_BYTES =
   RUA_MIME_ENTITY_MAX_BYTES + RUA_STREAM_CONVERSION_CHUNK_BYTES + 206;
 const BASE64_DECODE_CHUNK_CHARS = 32 * 1024;         // divisible by four
 // Conservative app-owned per-invocation envelope (not a runtime measurement):
-// raw bytes + worst-case two-byte MIME string + decoded attachment + bounded
-// decompression chunks/output/decoded text + header/chunk scratch. Streaming
-// implementations below may retain less, but must never add an unbounded term.
+// raw envelope + ONE candidate MIME entity (counted as a conservative two-byte
+// JS string) + decoded attachment + bounded decompression chunks/output/decoded
+// text + a bounded header/chunk tail per nesting level. Parent parsers retain no
+// entity body while a child is active. Implementations below may retain less,
+// but must never add an unbounded term.
 const RUA_PARSER_MAX_RETAINED_BYTES =
   RUA_RAW_EMAIL_MAX_BYTES +
   (2 * RUA_MIME_BUFFER_MAX_BYTES) +
   RUA_ATTACHMENT_MAX_BYTES +
   (3 * RUA_DECOMPRESSED_MAX_BYTES) +
-  (2 * RUA_MIME_HEADER_MAX_BYTES) +
-  (2 * RUA_STREAM_CONVERSION_CHUNK_BYTES);
+  ((RUA_MAX_MIME_DEPTH + 1) * RUA_MIME_HEADER_MAX_BYTES) +
+  ((RUA_MAX_MIME_DEPTH + 2) * RUA_STREAM_CONVERSION_CHUNK_BYTES) +
+  (RUA_MAX_MIME_DEPTH * 206);
 
 const RUA_DEFAULT_CAPS = {
   attachmentMax: RUA_ATTACHMENT_MAX_BYTES,
@@ -297,6 +303,7 @@ function normalizeInboundDropReason(reason) {
     case "invalid_mime":             return "invalid_mime";
     case "mime_complexity_exceeded": return "mime_complexity_exceeded";
     case "unsupported_nested_multipart": return "unsupported_nested_multipart";
+    case "mime_nesting_too_deep":    return "mime_nesting_too_deep";
     case "unsupported_transfer_encoding": return "unsupported_transfer_encoding";
     case "report_row_limit_exceeded": return "report_row_limit_exceeded";
     case "unsupported_attachment":
@@ -421,12 +428,13 @@ function _newMimeState() {
     parts: [],
     candidateKind: null,
     entityCount: 0,
+    maxDepth: 0,
     maxBufferedBytes: 0,
     totalBytes: 0,
   };
 }
 
-function _parseMimeEntity(headerText, rawBody, bodyStart, bodyEnd, state) {
+function _describeMimeEntity(headerText, state) {
   if (headerText.length > RUA_MIME_HEADER_MAX_BYTES) {
     throw _limitExceeded(
       "header_too_large",
@@ -440,17 +448,19 @@ function _parseMimeEntity(headerText, rawBody, bodyStart, bodyEnd, state) {
   const ctypeRaw = headers["content-type"] || "";
   const contentType = ctypeRaw.split(";")[0].trim().toLowerCase();
   if (contentType.startsWith("multipart/")) {
-    // Nested multipart would require retaining an outer entity while buffering
-    // an inner part. Reject it so the production invariant remains exactly one
-    // bounded MIME entity buffered at a time.
-    throw new Error("unsupported_nested_multipart");
+    return {
+      kind: "multipart",
+      boundary: _mimeParam(ctypeRaw, "boundary"),
+    };
   }
 
   const encoding = (headers["content-transfer-encoding"] || "7bit").trim().toLowerCase();
   const filename = _mimeParam(headers["content-disposition"], "filename") ||
     _mimeParam(ctypeRaw, "name");
   if (!_isDmarcAttachment(contentType, filename) &&
-      !_isTlsRptAttachment(contentType, filename)) return;
+      !_isTlsRptAttachment(contentType, filename)) {
+    return { kind: "ignored" };
+  }
 
   // Keep exactly one decoded report candidate. A second candidate is rejected
   // from its headers before its encoded body is decoded or retained separately.
@@ -465,10 +475,20 @@ function _parseMimeEntity(headerText, rawBody, bodyStart, bodyEnd, state) {
     }
     throw new Error("multiple_attachments");
   }
+  return {
+    kind: "candidate",
+    candidateKind,
+    contentType,
+    encoding,
+    filename,
+  };
+}
+
+function _decodeMimeCandidate(descriptor, rawBody, bodyStart, bodyEnd, state) {
   const leafEnd = _withoutTrailingLineBreakEnd(rawBody, bodyStart, bodyEnd);
   const leafLength = leafEnd - bodyStart;
   let bytes;
-  if (encoding === "base64") {
+  if (descriptor.encoding === "base64") {
     if (leafLength > RUA_ENCODED_ATTACHMENT_MAX_BYTES) {
       throw _limitExceeded(
         "attachment_too_large",
@@ -484,7 +504,7 @@ function _parseMimeEntity(headerText, rawBody, bodyStart, bodyEnd, state) {
       bodyStart,
       leafEnd,
     );
-  } else if (["7bit", "8bit", "binary"].includes(encoding)) {
+  } else if (["7bit", "8bit", "binary"].includes(descriptor.encoding)) {
     if (leafLength > RUA_ATTACHMENT_MAX_BYTES) {
       throw _limitExceeded(
         "attachment_too_large",
@@ -497,54 +517,53 @@ function _parseMimeEntity(headerText, rawBody, bodyStart, bodyEnd, state) {
   } else {
     throw new Error("unsupported_transfer_encoding");
   }
-  state.candidateKind = candidateKind;
+  state.candidateKind = descriptor.candidateKind;
   // Safe envelope diagnostics for the offline Gate 5 preflight. These counts
   // describe only the selected attachment body; no header or body content is
   // retained beyond the existing bounded parser state.
   state.parts.push({
-    contentType,
-    encoding,
-    filename,
+    contentType: descriptor.contentType,
+    encoding: descriptor.encoding,
+    filename: descriptor.filename,
     bytes,
     encoded_size: leafLength,
     transfer_decoded_size: bytes.length,
   });
 }
 
-function _parseMimeEntityString(rawLatin1, state, end = rawLatin1.length) {
-  if (typeof rawLatin1 !== "string") throw new Error("invalid_mime");
-  if (end > RUA_MIME_ENTITY_MAX_BYTES) {
-    throw _limitExceeded(
-      "attachment_too_large",
-      "mime_entity_bytes",
-      end,
-      RUA_MIME_ENTITY_MAX_BYTES,
-    );
+function _parseMimeEntity(headerText, rawBody, bodyStart, bodyEnd, state) {
+  const descriptor = _describeMimeEntity(headerText, state);
+  if (descriptor.kind === "multipart") throw new Error("invalid_mime");
+  if (descriptor.kind === "candidate") {
+    _decodeMimeCandidate(descriptor, rawBody, bodyStart, bodyEnd, state);
   }
-  const separator = _headerBoundary(rawLatin1, end);
-  if (!separator) throw new Error("truncated_mime");
-  const headerText = rawLatin1.slice(0, separator.index);
-  _parseMimeEntity(
-    headerText,
-    rawLatin1,
-    separator.index + separator.length,
-    end,
-    state,
-  );
 }
 
 class StreamingMultipartParser {
-  constructor(boundary, state) {
+  constructor(
+    boundary,
+    state,
+    depth = 1,
+    maxDepth = RUA_MAX_MIME_DEPTH,
+  ) {
     if (!boundary || boundary.length > 200 || /[\r\n]/.test(boundary)) {
       throw new Error("invalid_mime");
     }
+    if (!Number.isInteger(depth) || depth < 1 || depth > maxDepth) {
+      throw new Error("mime_nesting_too_deep");
+    }
     this.marker = `--${boundary}`;
     this.state = state;
+    this.depth = depth;
+    this.maxDepth = maxDepth;
     this.buffer = "";
     this.started = false;
     this.closed = false;
-    this.partHeaderComplete = false;
+    this.mode = "preamble";
+    this.descriptor = null;
+    this.child = null;
     this.searchFrom = 0;
+    this.state.maxDepth = Math.max(this.state.maxDepth, depth);
   }
 
   beginPart() {
@@ -557,41 +576,21 @@ class StreamingMultipartParser {
         RUA_MAX_MIME_PARTS,
       );
     }
-    this.partHeaderComplete = false;
+    this.mode = "headers";
+    this.descriptor = null;
+    this.child = null;
+    this.searchFrom = 0;
   }
 
-  push(text) {
-    if (this.closed || !text) return;
-    if (this.started && !this.partHeaderComplete &&
-        this.buffer.length + text.length > RUA_MIME_HEADER_MAX_BYTES + 4) {
-      const allowed = RUA_MIME_HEADER_MAX_BYTES + 4 - this.buffer.length;
-      if (allowed <= 0) {
-        throw _limitExceeded(
-          "header_too_large",
-          "mime_header_bytes",
-          this.buffer.length + text.length,
-          RUA_MIME_HEADER_MAX_BYTES,
-        );
-      }
-      this.push(text.slice(0, allowed));
-      if (!this.partHeaderComplete) {
-        throw _limitExceeded(
-          "header_too_large",
-          "mime_header_bytes",
-          this.buffer.length,
-          RUA_MIME_HEADER_MAX_BYTES,
-        );
-      }
-      this.push(text.slice(allowed));
-      return;
-    }
+  append(text, maximum = RUA_MIME_BUFFER_MAX_BYTES) {
+    if (!text) return;
     if (text.length > RUA_STREAM_CONVERSION_CHUNK_BYTES ||
-        this.buffer.length + text.length > RUA_MIME_BUFFER_MAX_BYTES) {
+        this.buffer.length + text.length > maximum) {
       throw _limitExceeded(
         "attachment_too_large",
         "retained_mime_buffer_bytes",
         this.buffer.length + text.length,
-        RUA_MIME_BUFFER_MAX_BYTES,
+        maximum,
       );
     }
     this.buffer += text;
@@ -599,9 +598,109 @@ class StreamingMultipartParser {
       this.state.maxBufferedBytes,
       this.buffer.length,
     );
-    if (this.started && !this.partHeaderComplete) {
-      const header = _headerBoundary(this.buffer);
-      if (header) {
+  }
+
+  trimDiscardTail() {
+    const keep = this.marker.length + 8;
+    if (this.buffer.length > keep) {
+      this.buffer = this.buffer.slice(-keep);
+      this.searchFrom = 0;
+    }
+  }
+
+  consumeBoundary(boundaryIndex) {
+    const line = _afterMimeBoundaryLine(this.buffer, boundaryIndex, this.marker);
+    const remainder = this.buffer.slice(line.cursor);
+    this.buffer = "";
+    this.searchFrom = 0;
+    this.descriptor = null;
+    this.child = null;
+    if (line.closing) {
+      this.closed = true;
+      this.mode = "closed";
+      return remainder;
+    }
+    this.beginPart();
+    this.buffer = remainder;
+    return null;
+  }
+
+  push(text) {
+    if (this.closed) return text || "";
+    let incoming = text || "";
+
+    for (;;) {
+      if (this.mode === "child") {
+        const remainder = this.child.push(incoming);
+        incoming = "";
+        if (!this.child.closed) return "";
+        this.child = null;
+        this.mode = "discard";
+        incoming = remainder;
+        continue;
+      }
+
+      if (incoming) {
+        const maximum = this.mode === "headers"
+          ? RUA_MIME_HEADER_MAX_BYTES + 4
+          : RUA_MIME_BUFFER_MAX_BYTES;
+        if (this.mode === "headers" &&
+            this.buffer.length + incoming.length > maximum) {
+          const allowed = maximum - this.buffer.length;
+          if (allowed <= 0) {
+            throw _limitExceeded(
+              "header_too_large",
+              "mime_header_bytes",
+              this.buffer.length + incoming.length,
+              RUA_MIME_HEADER_MAX_BYTES,
+            );
+          }
+          this.append(incoming.slice(0, allowed), maximum);
+          incoming = incoming.slice(allowed);
+        } else {
+          this.append(incoming, maximum);
+          incoming = "";
+        }
+      }
+
+      if (this.mode === "preamble") {
+        const boundaryIndex = _findMimeBoundary(
+          this.buffer,
+          this.marker,
+          this.searchFrom,
+        );
+        if (boundaryIndex < 0) {
+          this.trimDiscardTail();
+          return "";
+        }
+        this.buffer = this.buffer.slice(boundaryIndex);
+        const first = _afterMimeBoundaryLine(this.buffer, 0, this.marker);
+        const remainder = this.buffer.slice(first.cursor);
+        this.buffer = "";
+        this.started = true;
+        if (first.closing) {
+          this.closed = true;
+          this.mode = "closed";
+          return remainder;
+        }
+        this.beginPart();
+        this.buffer = remainder;
+        continue;
+      }
+
+      if (this.mode === "headers") {
+        const header = _headerBoundary(this.buffer);
+        if (!header) {
+          if (this.buffer.length > RUA_MIME_HEADER_MAX_BYTES) {
+            throw _limitExceeded(
+              "header_too_large",
+              "mime_header_bytes",
+              this.buffer.length,
+              RUA_MIME_HEADER_MAX_BYTES,
+            );
+          }
+          return "";
+        }
         if (header.index > RUA_MIME_HEADER_MAX_BYTES) {
           throw _limitExceeded(
             "header_too_large",
@@ -610,67 +709,102 @@ class StreamingMultipartParser {
             RUA_MIME_HEADER_MAX_BYTES,
           );
         }
-        this.partHeaderComplete = true;
-      }
-    }
-    for (;;) {
-      const boundaryIndex = _findMimeBoundary(this.buffer, this.marker, this.searchFrom);
-      if (boundaryIndex < 0) {
-        this.searchFrom = Math.max(0, this.buffer.length - this.marker.length - 4);
-        if (this.started && this.buffer.length > RUA_MIME_ENTITY_MAX_BYTES) {
-          throw _limitExceeded(
-            "attachment_too_large",
-            "mime_entity_bytes",
-            this.buffer.length,
-            RUA_MIME_ENTITY_MAX_BYTES,
+        const headerText = this.buffer.slice(0, header.index);
+        const firstBody = this.buffer.slice(header.index + header.length);
+        this.buffer = "";
+        const descriptor = _describeMimeEntity(headerText, this.state);
+        if (descriptor.kind === "multipart") {
+          const childDepth = this.depth + 1;
+          if (childDepth > this.maxDepth) {
+            throw new Error("mime_nesting_too_deep");
+          }
+          this.child = new StreamingMultipartParser(
+            descriptor.boundary,
+            this.state,
+            childDepth,
+            this.maxDepth,
           );
+          this.mode = "child";
+          incoming = firstBody;
+          continue;
         }
-        if (!this.started && this.buffer.length > this.marker.length + 8) {
-          // Preamble is not evidence. Retain only enough tail to match a marker
-          // split across the next stream chunk.
-          this.buffer = this.buffer.slice(-(this.marker.length + 8));
-          this.searchFrom = 0;
-        }
-        return;
-      }
-
-      if (!this.started) {
-        this.buffer = this.buffer.slice(boundaryIndex);
-        this.searchFrom = 0;
-        const first = _afterMimeBoundaryLine(this.buffer, 0, this.marker);
-        this.buffer = this.buffer.slice(first.cursor);
-        this.started = true;
-        if (first.closing) { this.closed = true; this.buffer = ""; }
-        else {
-          this.beginPart();
-          const header = _headerBoundary(this.buffer);
-          if (header) this.partHeaderComplete = true;
-        }
+        this.descriptor = descriptor;
+        this.mode = descriptor.kind === "candidate" ? "candidate" : "discard";
+        incoming = firstBody;
         continue;
       }
 
-      const entityEnd = _withoutTrailingLineBreakEnd(this.buffer, 0, boundaryIndex);
-      const line = _afterMimeBoundaryLine(this.buffer, boundaryIndex, this.marker);
-      if (entityEnd > 0) _parseMimeEntityString(this.buffer, this.state, entityEnd);
-      else throw new Error("truncated_mime");
-      this.buffer = this.buffer.slice(line.cursor);
-      this.searchFrom = 0;
-      if (line.closing) {
-        this.closed = true;
-        this.buffer = "";
-        return;
+      if (this.mode === "candidate" || this.mode === "discard") {
+        const boundaryIndex = _findMimeBoundary(
+          this.buffer,
+          this.marker,
+          this.searchFrom,
+        );
+        if (boundaryIndex < 0) {
+          this.searchFrom = Math.max(
+            0,
+            this.buffer.length - this.marker.length - 4,
+          );
+          if (this.mode === "candidate") {
+            if (this.buffer.length > RUA_MIME_ENTITY_MAX_BYTES) {
+              throw _limitExceeded(
+                "attachment_too_large",
+                "mime_entity_bytes",
+                this.buffer.length,
+                RUA_MIME_ENTITY_MAX_BYTES,
+              );
+            }
+          } else {
+            // Preamble, human-readable leaves, and nested multipart epilogues
+            // are not evidence. Stream-discard them while retaining only the
+            // delimiter tail needed across chunk boundaries.
+            this.trimDiscardTail();
+          }
+          return "";
+        }
+
+        if (this.mode === "candidate") {
+          const entityEnd = _withoutTrailingLineBreakEnd(
+            this.buffer,
+            0,
+            boundaryIndex,
+          );
+          _decodeMimeCandidate(
+            this.descriptor,
+            this.buffer,
+            0,
+            entityEnd,
+            this.state,
+          );
+        }
+        const remainder = this.consumeBoundary(boundaryIndex);
+        if (this.closed) return remainder;
+        continue;
       }
-      this.beginPart();
+
+      throw new Error("invalid_mime");
     }
   }
 
   finish() {
+    if (this.child && !this.child.closed) this.child.finish();
+    if (this.started && !this.closed && this.mode === "headers") {
+      throw new Error("truncated_mime");
+    }
     if (!this.started || !this.closed) throw new Error("unterminated_multipart");
   }
 }
 
-async function parseMimeMessageStream(stream, maxBytes = RUA_RAW_EMAIL_MAX_BYTES) {
+async function parseMimeMessageStream(
+  stream,
+  maxBytes = RUA_RAW_EMAIL_MAX_BYTES,
+  maxDepth = RUA_MAX_MIME_DEPTH,
+) {
   if (!stream || typeof stream.getReader !== "function") throw new Error("invalid_mime");
+  if (!Number.isInteger(maxDepth) || maxDepth < 1 ||
+      maxDepth > RUA_MAX_MIME_DEPTH) {
+    throw new Error("mime_nesting_too_deep");
+  }
   let reader;
   try { reader = stream.getReader(); }
   catch { throw new Error("stream_read_error"); }
@@ -724,7 +858,12 @@ async function parseMimeMessageStream(stream, maxBytes = RUA_RAW_EMAIL_MAX_BYTES
           const ctypeRaw = rootHeaders["content-type"] || "";
           const contentType = ctypeRaw.split(";")[0].trim().toLowerCase();
           if (contentType.startsWith("multipart/")) {
-            multipart = new StreamingMultipartParser(_mimeParam(ctypeRaw, "boundary"), state);
+            multipart = new StreamingMultipartParser(
+              _mimeParam(ctypeRaw, "boundary"),
+              state,
+              1,
+              maxDepth,
+            );
             multipart.push(firstBody);
           } else {
             state.entityCount = 1;
@@ -763,6 +902,7 @@ async function parseMimeMessageStream(stream, maxBytes = RUA_RAW_EMAIL_MAX_BYTES
       total_bytes: state.totalBytes,
       max_buffered_bytes: state.maxBufferedBytes,
       entity_count: state.entityCount,
+      max_depth: state.maxDepth,
     },
   };
 }
@@ -1121,7 +1261,8 @@ export async function handleInboundEmail(message, env, _ctx, deps = {}) {
           raw_email_size: parsedMessage.stats.total_bytes,
           encoded_attachment_size: tlsSel.part.encoded_size,
           mime_part_count: parsedMessage.stats.entity_count,
-          nested_multipart: false,
+          nested_multipart: parsedMessage.stats.max_depth > 1,
+          mime_max_depth: parsedMessage.stats.max_depth,
           auth_verdict: provenance.auth_verdict, reporter_domain: provenance.reporter_domain,
         },
       }).catch(() => {});
@@ -1173,7 +1314,8 @@ export async function handleInboundEmail(message, env, _ctx, deps = {}) {
         raw_email_size: parsedMessage.stats.total_bytes,
         encoded_attachment_size: sel.part.encoded_size,
         mime_part_count: parsedMessage.stats.entity_count,
-        nested_multipart: false,
+        nested_multipart: parsedMessage.stats.max_depth > 1,
+        mime_max_depth: parsedMessage.stats.max_depth,
         message_count: result.messages,
         record_count: result.records,
         // Sender transport status is a claimed identity label, not authority.
@@ -1222,6 +1364,7 @@ export {
   RUA_ATTACHMENT_MAX_BYTES,
   RUA_DECOMPRESSED_MAX_BYTES,
   RUA_ENCODED_ATTACHMENT_MAX_BYTES,
+  RUA_MAX_MIME_DEPTH,
   RUA_MAX_MIME_PARTS,
   RUA_MIME_BUFFER_MAX_BYTES,
   RUA_MIME_ENTITY_MAX_BYTES,
