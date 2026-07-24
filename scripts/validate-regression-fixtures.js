@@ -2184,7 +2184,8 @@ results.push(securityContract("rua_drop_reason_normalization_stable", () => {
     "unsupported_recipient_domain", "invalid_base64", "report_row_limit_exceeded",
     "email_too_large", "stream_read_error", "truncated_mime", "unterminated_multipart",
     "header_too_large", "invalid_mime", "mime_complexity_exceeded",
-    "unsupported_nested_multipart", "unsupported_transfer_encoding",
+    "unsupported_nested_multipart", "mime_nesting_too_deep",
+    "unsupported_transfer_encoding",
     "multiple_tlsrpt_attachments"]);
   const cases = {
     invalid_recipient: "endpoint_not_found", unknown_address: "endpoint_not_found",
@@ -2199,6 +2200,7 @@ results.push(securityContract("rua_drop_reason_normalization_stable", () => {
     unterminated_multipart: "unterminated_multipart", header_too_large: "header_too_large",
     invalid_mime: "invalid_mime", mime_complexity_exceeded: "mime_complexity_exceeded",
     unsupported_nested_multipart: "unsupported_nested_multipart",
+    mime_nesting_too_deep: "mime_nesting_too_deep",
     unsupported_transfer_encoding: "unsupported_transfer_encoding",
     multiple_tlsrpt_attachments: "multiple_tlsrpt_attachments",
     something_unexpected: "parse_error",

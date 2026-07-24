@@ -302,6 +302,7 @@ function normalizeInboundDropReason(reason) {
     case "header_too_large":         return "header_too_large";
     case "invalid_mime":             return "invalid_mime";
     case "mime_complexity_exceeded": return "mime_complexity_exceeded";
+    case "unsupported_nested_multipart": return "unsupported_nested_multipart";
     case "mime_nesting_too_deep":    return "mime_nesting_too_deep";
     case "unsupported_transfer_encoding": return "unsupported_transfer_encoding";
     case "report_row_limit_exceeded": return "report_row_limit_exceeded";
