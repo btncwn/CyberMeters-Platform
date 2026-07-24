@@ -1261,7 +1261,8 @@ export async function handleInboundEmail(message, env, _ctx, deps = {}) {
           raw_email_size: parsedMessage.stats.total_bytes,
           encoded_attachment_size: tlsSel.part.encoded_size,
           mime_part_count: parsedMessage.stats.entity_count,
-          nested_multipart: false,
+          nested_multipart: parsedMessage.stats.max_depth > 1,
+          mime_max_depth: parsedMessage.stats.max_depth,
           auth_verdict: provenance.auth_verdict, reporter_domain: provenance.reporter_domain,
         },
       }).catch(() => {});
@@ -1313,7 +1314,8 @@ export async function handleInboundEmail(message, env, _ctx, deps = {}) {
         raw_email_size: parsedMessage.stats.total_bytes,
         encoded_attachment_size: sel.part.encoded_size,
         mime_part_count: parsedMessage.stats.entity_count,
-        nested_multipart: false,
+        nested_multipart: parsedMessage.stats.max_depth > 1,
+        mime_max_depth: parsedMessage.stats.max_depth,
         message_count: result.messages,
         record_count: result.records,
         // Sender transport status is a claimed identity label, not authority.

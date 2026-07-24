@@ -18,6 +18,7 @@ import {
   RUA_ATTACHMENT_MAX_BYTES,
   RUA_DECOMPRESSED_MAX_BYTES,
   RUA_ENCODED_ATTACHMENT_MAX_BYTES,
+  RUA_MAX_MIME_DEPTH,
   RUA_MAX_MIME_PARTS,
   RUA_MIME_HEADER_MAX_BYTES,
   RUA_RAW_EMAIL_MAX_BYTES,
@@ -32,6 +33,9 @@ import {
   dmarcReportDomainMatches,
   parseDmarcAggregateXml,
 } from "../workers/scan-api/src/lib/dmarc-ingest.js";
+import {
+  buildAggregateReportTrustSemantics,
+} from "../workers/scan-api/src/lib/dmarc-authority.js";
 import { parseTlsRptReport } from "../workers/scan-api/src/lib/tlsrpt-ingest.js";
 
 const argv = process.argv.slice(2);
@@ -74,6 +78,7 @@ const limits = {
   raw_email_bytes: RUA_RAW_EMAIL_MAX_BYTES,
   root_or_part_header_bytes: RUA_MIME_HEADER_MAX_BYTES,
   mime_parts: RUA_MAX_MIME_PARTS,
+  mime_depth: RUA_MAX_MIME_DEPTH,
   encoded_attachment_bytes: RUA_ENCODED_ATTACHMENT_MAX_BYTES,
   transfer_decoded_attachment_bytes: RUA_ATTACHMENT_MAX_BYTES,
   decoded_report_body_bytes: RUA_DECOMPRESSED_MAX_BYTES,
@@ -91,7 +96,7 @@ function finish(outcome, details = {}) {
     ...details,
   };
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-  if (outcome !== "PASS") process.exitCode = 2;
+  if (outcome !== "ACCEPT") process.exitCode = 2;
 }
 
 function reject(reason, details = {}) {
@@ -124,9 +129,11 @@ try {
       observed: error.observed ?? null,
       maximum: error.maximum ?? null,
     } : null,
-    nested_multipart: error?.message === "unsupported_nested_multipart"
-      ? "present_rejected"
-      : "unknown_on_reject",
+    nested_multipart: error?.message === "mime_nesting_too_deep"
+      ? "present_rejected_over_depth"
+      : (error?.message === "unsupported_nested_multipart"
+        ? "legacy_reason_only"
+        : "unknown_on_reject"),
   });
   process.exit();
 }
@@ -137,7 +144,10 @@ if (tlsSelection.error) {
     report_type: "tlsrpt",
     raw_email_bytes: message.stats.total_bytes,
     mime_entity_count: message.stats.entity_count,
-    nested_multipart: false,
+    mime_max_depth: message.stats.max_depth,
+    nested_multipart: message.stats.max_depth > 1
+      ? "accepted_bounded"
+      : "not_present",
   });
   process.exit();
 }
@@ -146,6 +156,9 @@ let reportType;
 let part;
 let extraction;
 let claimedDomains = [];
+let parsedBody = null;
+let policyDomain = null;
+let orgName = null;
 if (tlsSelection.part) {
   reportType = "tlsrpt";
   part = tlsSelection.part;
@@ -156,6 +169,7 @@ if (tlsSelection.part) {
       reject(parsed.error, envelopeDetails());
       process.exit();
     }
+    parsedBody = parsed.report;
     claimedDomains = parsed.report.policies
       .map((policy) => String(policy.policy_domain || "").toLowerCase())
       .filter(Boolean);
@@ -163,6 +177,7 @@ if (tlsSelection.part) {
       reject("domain_mismatch", envelopeDetails());
       process.exit();
     }
+    policyDomain = expectedDomain;
   }
 } else {
   reportType = "dmarc";
@@ -172,7 +187,10 @@ if (tlsSelection.part) {
       report_type: reportType,
       raw_email_bytes: message.stats.total_bytes,
       mime_entity_count: message.stats.entity_count,
-      nested_multipart: false,
+      mime_max_depth: message.stats.max_depth,
+      nested_multipart: message.stats.max_depth > 1
+        ? "accepted_bounded"
+        : "not_present",
     });
     process.exit();
   }
@@ -184,6 +202,9 @@ if (tlsSelection.part) {
       reject(parsed.error, envelopeDetails());
       process.exit();
     }
+    parsedBody = parsed;
+    policyDomain = parsed.policy_published.domain;
+    orgName = parsed.metadata.org_name;
     claimedDomains = [parsed.policy_published.domain];
     if (!dmarcReportDomainMatches(parsed, expectedDomain)) {
       reject("domain_mismatch", envelopeDetails());
@@ -204,7 +225,17 @@ function envelopeDetails() {
     content_transfer_encoding: part?.encoding ?? null,
     mime_entity_count: message.stats.entity_count,
     max_parser_buffer_bytes: message.stats.max_buffered_bytes,
-    nested_multipart: false,
+    mime_max_depth: message.stats.max_depth,
+    nested_multipart: message.stats.max_depth > 1
+      ? "accepted_bounded"
+      : "not_present",
+    report_attachment_count: message.parts.length,
+    exactly_one_report_attachment: message.parts.length === 1,
+    archive: extraction?.attachment_type ?? null,
+    body_parsed: parsedBody != null,
+    xml_parsed: reportType === "dmarc" && parsedBody != null,
+    policy_domain: policyDomain,
+    org_name: orgName,
     claimed_domains: claimedDomains,
   };
 }
@@ -232,8 +263,20 @@ if (extraction?.error) {
     } : null,
   });
 } else {
-  finish("PASS", {
+  const trust = buildAggregateReportTrustSemantics({
+    source: "inbound_email",
+    claimedDomain: policyDomain,
+  });
+  finish("ACCEPT", {
     ...envelopeDetails(),
+    success: true,
+    authority: trust.authoritative_eligible
+      ? "authoritative"
+      : "observational/non-authoritative",
+    authoritative_eligible: trust.authoritative_eligible,
+    evidence_confidence: trust.evidence_confidence,
+    automation_eligible: trust.external_automation_eligible,
+    limit_hit: null,
     terminal_audit_event: reportType === "tlsrpt"
       ? "tlsrpt_inbound_email_received"
       : "dmarc_inbound_email_received",
