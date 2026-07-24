@@ -1,6 +1,6 @@
 // ── Inbound DMARC (RUA) email module ─────────────────────────────────────────
 // Sprint 9 phase-1 extraction: the email() handler plus its exclusive parsing
-// layer (MIME split, gzip/zip bomb-capped decompression, sender provenance)
+// layer (streamed MIME, gzip/zip bomb-capped decompression, sender provenance)
 // moved out of the monolith. Shared app services are imported from the
 // src/lib/ service modules — the Sprint 9 index ⇄ inbound cycle was dissolved
 // in Sprint 10 Stage A; this module no longer imports index.js.
@@ -9,11 +9,38 @@ import { ingestTlsRptReport } from "../lib/tlsrpt-ingest.js";
 import { createAuditEvent, createNotificationEvent } from "../lib/events.js";
 import { sendLifecycleEmail } from "../lib/lifecycle-email.js";
 
-const RUA_RAW_EMAIL_MAX_BYTES   = 25 * 1024 * 1024; // Cloudflare inbound ceiling
-const RUA_ATTACHMENT_MAX_BYTES  = 10 * 1024 * 1024; // compressed attachment cap
-const RUA_DECOMPRESSED_MAX_BYTES = 10 * 1024 * 1024; // decompressed output cap
+// Gate 4 memory envelope: DMARC XML and TLS-RPT JSON are each capped at 2 MiB
+// after decoding. A 4 MiB raw message therefore leaves room for base64 expansion
+// and MIME headers while keeping one streamed entity + decoded attachment far
+// below the Worker's 128 MiB isolate ceiling under concurrent deliveries.
+const RUA_RAW_EMAIL_MAX_BYTES    = 4 * 1024 * 1024;
+const RUA_ATTACHMENT_MAX_BYTES   = 2 * 1024 * 1024;
+const RUA_DECOMPRESSED_MAX_BYTES = 2 * 1024 * 1024;
 const RUA_MAX_COMPRESSION_RATIO = 100;              // out/in ratio cap (bomb guard)
 const RUA_MAX_MIME_PARTS        = 25;               // abuse guard
+const RUA_MIME_HEADER_MAX_BYTES = 64 * 1024;
+// 2 MiB decoded base64 expands to ~2.67 MiB; 3 MiB admits normal line folding.
+// The entity bound includes its separately bounded headers.
+const RUA_ENCODED_ATTACHMENT_MAX_BYTES = 3 * 1024 * 1024;
+const RUA_MIME_ENTITY_MAX_BYTES =
+  RUA_ENCODED_ATTACHMENT_MAX_BYTES + RUA_MIME_HEADER_MAX_BYTES;
+const RUA_STREAM_CONVERSION_CHUNK_BYTES = 32 * 1024;
+// A stream chunk may contain the delimiter immediately after the maximum entity.
+// This is the absolute retained MIME buffer ceiling, checked before concatenation.
+const RUA_MIME_BUFFER_MAX_BYTES =
+  RUA_MIME_ENTITY_MAX_BYTES + RUA_STREAM_CONVERSION_CHUNK_BYTES + 206;
+const BASE64_DECODE_CHUNK_CHARS = 32 * 1024;         // divisible by four
+// Conservative app-owned per-invocation envelope (not a runtime measurement):
+// raw bytes + worst-case two-byte MIME string + decoded attachment + bounded
+// decompression chunks/output/decoded text + header/chunk scratch. Streaming
+// implementations below may retain less, but must never add an unbounded term.
+const RUA_PARSER_MAX_RETAINED_BYTES =
+  RUA_RAW_EMAIL_MAX_BYTES +
+  (2 * RUA_MIME_BUFFER_MAX_BYTES) +
+  RUA_ATTACHMENT_MAX_BYTES +
+  (3 * RUA_DECOMPRESSED_MAX_BYTES) +
+  (2 * RUA_MIME_HEADER_MAX_BYTES) +
+  (2 * RUA_STREAM_CONVERSION_CHUNK_BYTES);
 
 const RUA_DEFAULT_CAPS = {
   attachmentMax: RUA_ATTACHMENT_MAX_BYTES,
@@ -53,9 +80,9 @@ function extractInboundLocalpart(recipient, expectedDomain = null) {
 }
 
 // ── byte/string helpers (latin1-safe; MIME headers + base64 are ASCII) ────────
-function _latin1ToBytes(str) {
-  const out = new Uint8Array(str.length);
-  for (let i = 0; i < str.length; i++) out[i] = str.charCodeAt(i) & 0xff;
+function _latin1ToBytes(str, start = 0, end = str.length) {
+  const out = new Uint8Array(end - start);
+  for (let i = start; i < end; i++) out[i - start] = str.charCodeAt(i) & 0xff;
   return out;
 }
 function _bytesToLatin1(bytes) {
@@ -63,39 +90,70 @@ function _bytesToLatin1(bytes) {
   for (let i = 0; i < bytes.length; i += CH) s += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
   return s;
 }
-function _base64ToBytes(b64) {
-  const compact = String(b64).replace(/\s/g, "");
-  if (!compact ||
-      compact.length % 4 === 1 ||
-      !/^[A-Za-z0-9+/]*={0,2}$/.test(compact) ||
-      /=/.test(compact.slice(0, -2))) {
-    throw new Error("invalid_base64");
+function _isBase64Code(code) {
+  return (code >= 65 && code <= 90) || (code >= 97 && code <= 122) ||
+    (code >= 48 && code <= 57) || code === 43 || code === 47;
+}
+
+// Validate and size base64 before allocating decoded output. Decoding then uses
+// fixed 32 KiB encoded chunks, avoiding simultaneous full-size compact and
+// atob-result strings.
+function _base64ToBytes(
+  input,
+  maxDecodedBytes = RUA_ATTACHMENT_MAX_BYTES,
+  maxEncodedBytes = RUA_ENCODED_ATTACHMENT_MAX_BYTES,
+  start = 0,
+  end = typeof input === "string" ? input.length : 0,
+) {
+  if (typeof input !== "string" || start < 0 || end < start ||
+      end > input.length || end - start > maxEncodedBytes) {
+    throw new Error("attachment_too_large");
   }
-  try {
-    return _latin1ToBytes(atob(compact));
-  } catch {
-    throw new Error("invalid_base64");
+  let encodedChars = 0;
+  let padding = 0;
+  let sawPadding = false;
+  for (let i = start; i < end; i++) {
+    const code = input.charCodeAt(i);
+    if (code === 9 || code === 10 || code === 13 || code === 32) continue;
+    if (code === 61) {
+      sawPadding = true;
+      padding += 1;
+      if (padding > 2) throw new Error("invalid_base64");
+    } else {
+      if (!_isBase64Code(code) || sawPadding) throw new Error("invalid_base64");
+    }
+    encodedChars += 1;
   }
+  if (!encodedChars || encodedChars % 4 === 1) throw new Error("invalid_base64");
+  const decodedLength = Math.floor((encodedChars * 3) / 4) - padding;
+  if (decodedLength < 0) throw new Error("invalid_base64");
+  if (decodedLength > maxDecodedBytes) throw new Error("attachment_too_large");
+
+  const out = new Uint8Array(decodedLength);
+  let encodedChunk = "";
+  let offset = 0;
+  const flush = () => {
+    if (!encodedChunk) return;
+    let decoded;
+    try { decoded = atob(encodedChunk); }
+    catch { throw new Error("invalid_base64"); }
+    if (offset + decoded.length > out.length) throw new Error("invalid_base64");
+    for (let i = 0; i < decoded.length; i++) out[offset + i] = decoded.charCodeAt(i);
+    offset += decoded.length;
+    encodedChunk = "";
+  };
+  for (let i = start; i < end; i++) {
+    const code = input.charCodeAt(i);
+    if (code === 9 || code === 10 || code === 13 || code === 32) continue;
+    encodedChunk += input[i];
+    if (encodedChunk.length === BASE64_DECODE_CHUNK_CHARS) flush();
+  }
+  flush();
+  if (offset !== decodedLength) throw new Error("invalid_base64");
+  return out;
 }
 function _readU16(b, o) { return b[o] | (b[o + 1] << 8); }
 function _readU32(b, o) { return (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0; }
-
-// Read a ReadableStream fully into bytes, aborting past maxBytes. Returns null
-// if the cap is exceeded (caller drops the message).
-async function readStreamCapped(stream, maxBytes) {
-  const reader = stream.getReader();
-  const chunks = []; let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > maxBytes) { try { await reader.cancel(); } catch { /* ignore */ } return null; }
-    chunks.push(value);
-  }
-  const out = new Uint8Array(total); let o = 0;
-  for (const c of chunks) { out.set(c, o); o += c.byteLength; }
-  return out;
-}
 
 // Decompress via the platform DecompressionStream with a hard output cap.
 async function _inflateWithCap(bytes, format, maxOut) {
@@ -201,13 +259,22 @@ function normalizeInboundDropReason(reason) {
     case "no_dmarc_attachment":     return "no_dmarc_attachment";
     case "multiple_attachments":
     case "multiple_dmarc_attachments": return "multiple_dmarc_attachments";
-    case "email_too_large":
+    case "multiple_tlsrpt_attachments": return "multiple_tlsrpt_attachments";
+    case "email_too_large":          return "email_too_large";
     case "attachment_too_large":
     case "zip_too_large":           return "attachment_too_large";
     case "decompressed_too_large":  return "decompressed_too_large";
     case "compression_ratio_exceeded": return "compression_ratio_exceeded";
     case "domain_mismatch":         return "domain_mismatch";
     case "invalid_base64":          return "invalid_base64";
+    case "stream_read_error":        return "stream_read_error";
+    case "truncated_mime":           return "truncated_mime";
+    case "unterminated_multipart":   return "unterminated_multipart";
+    case "header_too_large":         return "header_too_large";
+    case "invalid_mime":             return "invalid_mime";
+    case "mime_complexity_exceeded": return "mime_complexity_exceeded";
+    case "unsupported_nested_multipart": return "unsupported_nested_multipart";
+    case "unsupported_transfer_encoding": return "unsupported_transfer_encoding";
     case "report_row_limit_exceeded": return "report_row_limit_exceeded";
     case "unsupported_attachment":
     case "empty_attachment":        return "unsupported_attachment";
@@ -225,6 +292,7 @@ function inboundDropCustomerMessage(reason) {
       return "It was sent to a CyberMeters reporting address that is no longer active. Update the rua address in your DMARC record to your current reporting address.";
     case "domain_mismatch":
       return "It was a report for a different domain than the one this reporting address belongs to.";
+    case "email_too_large":
     case "attachment_too_large":
     case "decompressed_too_large":
     case "compression_ratio_exceeded":
@@ -240,7 +308,7 @@ function inboundDropCustomerMessage(reason) {
 // Sanitize internal platform errors (e.g. Cloudflare subrequest-budget messages)
 // before they can surface to customers. Genuine findings pass through unchanged.
 
-// ── minimal MIME parsing (no external lib) ────────────────────────────────────
+// ── bounded streaming MIME parsing (no external lib) ─────────────────────────
 function _parseMimeHeaders(headerText) {
   const headers = {};
   const lines = headerText.replace(/\r\n/g, "\n").split("\n");
@@ -259,44 +327,376 @@ function _mimeParam(value, name) {
   const m = value.match(new RegExp(name + '\\s*=\\s*"([^"]*)"|' + name + '\\s*=\\s*([^;\\s]+)', "i"));
   return m ? (m[1] ?? m[2] ?? null) : null;
 }
-// Returns flat leaf parts: { contentType, encoding, filename, bytes }.
-function parseMimeParts(rawLatin1, depth = 0) {
-  const parts = [];
-  if (depth > 3 || typeof rawLatin1 !== "string") return parts;
-  const sep = rawLatin1.indexOf("\r\n\r\n") >= 0 ? "\r\n\r\n" : "\n\n";
-  const splitIdx = rawLatin1.indexOf(sep);
-  const headerText = splitIdx >= 0 ? rawLatin1.slice(0, splitIdx) : rawLatin1;
-  const body = splitIdx >= 0 ? rawLatin1.slice(splitIdx + sep.length) : "";
+
+function _headerBoundary(raw, end = raw.length) {
+  const crlf = raw.indexOf("\r\n\r\n");
+  const lf = raw.indexOf("\n\n");
+  const boundedCrlf = crlf >= 0 && crlf + 4 <= end ? crlf : -1;
+  const boundedLf = lf >= 0 && lf + 2 <= end ? lf : -1;
+  if (boundedCrlf < 0) {
+    return boundedLf < 0 ? null : { index: boundedLf, length: 2 };
+  }
+  if (boundedLf < 0 || boundedCrlf <= boundedLf) {
+    return { index: boundedCrlf, length: 4 };
+  }
+  return { index: boundedLf, length: 2 };
+}
+
+function _isDmarcAttachment(contentType, filename) {
+  const n = (filename || "").toLowerCase();
+  const ct = (contentType || "").toLowerCase();
+  const extOk = n.endsWith(".gz") || n.endsWith(".gzip") ||
+    n.endsWith(".zip") || n.endsWith(".xml");
+  const ctOk = ["application/gzip", "application/x-gzip", "application/zip",
+    "application/x-zip-compressed", "text/xml", "application/xml"].includes(ct);
+  return extOk || ctOk || (ct === "application/octet-stream" && extOk);
+}
+
+function _isTlsRptAttachment(contentType, filename) {
+  const n = (filename || "").toLowerCase();
+  const ct = (contentType || "").toLowerCase();
+  return ct === "application/tlsrpt+gzip" || ct === "application/tlsrpt+json" ||
+    n.endsWith(".json") || n.endsWith(".json.gz");
+}
+
+function _withoutTrailingLineBreakEnd(value, start, end) {
+  if (end - start >= 2 && value[end - 2] === "\r" && value[end - 1] === "\n") {
+    return end - 2;
+  }
+  if (end > start && value[end - 1] === "\n") return end - 1;
+  return end;
+}
+
+function _findMimeBoundary(body, marker, from = 0) {
+  let index = body.indexOf(marker, from);
+  while (index >= 0) {
+    const atLineStart = index === 0 || body[index - 1] === "\n";
+    const after = index + marker.length;
+    // A marker ending exactly at the current stream chunk is incomplete: its
+    // closing "--" or line ending may arrive in the next chunk.
+    const validEnd = body.startsWith("--", after) ||
+      body.startsWith("\r\n", after) || body[after] === "\n";
+    if (atLineStart && validEnd) return index;
+    index = body.indexOf(marker, index + marker.length);
+  }
+  return -1;
+}
+
+function _afterMimeBoundaryLine(body, index, marker) {
+  let cursor = index + marker.length;
+  const closing = body.startsWith("--", cursor);
+  if (closing) cursor += 2;
+  while (body[cursor] === " " || body[cursor] === "\t") cursor += 1;
+  if (body.startsWith("\r\n", cursor)) cursor += 2;
+  else if (body[cursor] === "\n") cursor += 1;
+  else if (cursor !== body.length) throw new Error("invalid_mime");
+  return { cursor, closing };
+}
+
+function _newMimeState() {
+  return {
+    parts: [],
+    candidateKind: null,
+    entityCount: 0,
+    maxBufferedBytes: 0,
+    totalBytes: 0,
+  };
+}
+
+function _parseMimeEntity(headerText, rawBody, bodyStart, bodyEnd, state) {
+  if (headerText.length > RUA_MIME_HEADER_MAX_BYTES) {
+    throw new Error("header_too_large");
+  }
+
   const headers = _parseMimeHeaders(headerText);
   const ctypeRaw = headers["content-type"] || "";
-  const ctype = ctypeRaw.toLowerCase();
-  const boundary = _mimeParam(ctypeRaw, "boundary");
-  if (ctype.startsWith("multipart/") && boundary) {
-    for (const seg of body.split("--" + boundary)) {
-      if (parts.length >= RUA_MAX_MIME_PARTS) break;
-      const s = seg.replace(/^\r?\n/, "");
-      if (!s || s.startsWith("--")) continue; // preamble / closing boundary
-      for (const p of parseMimeParts(s, depth + 1)) parts.push(p);
-    }
-    return parts;
+  const contentType = ctypeRaw.split(";")[0].trim().toLowerCase();
+  if (contentType.startsWith("multipart/")) {
+    // Nested multipart would require retaining an outer entity while buffering
+    // an inner part. Reject it so the production invariant remains exactly one
+    // bounded MIME entity buffered at a time.
+    throw new Error("unsupported_nested_multipart");
   }
-  const encoding = (headers["content-transfer-encoding"] || "7bit").toLowerCase();
-  const filename = _mimeParam(headers["content-disposition"], "filename") || _mimeParam(ctypeRaw, "name");
-  const bytes = encoding === "base64" ? _base64ToBytes(body) : _latin1ToBytes(body.replace(/\r?\n$/, ""));
-  parts.push({ contentType: ctype.split(";")[0].trim(), encoding, filename, bytes });
-  return parts;
+
+  const encoding = (headers["content-transfer-encoding"] || "7bit").trim().toLowerCase();
+  const filename = _mimeParam(headers["content-disposition"], "filename") ||
+    _mimeParam(ctypeRaw, "name");
+  if (!_isDmarcAttachment(contentType, filename) &&
+      !_isTlsRptAttachment(contentType, filename)) return;
+
+  // Keep exactly one decoded report candidate. A second candidate is rejected
+  // from its headers before its encoded body is decoded or retained separately.
+  const candidateKind = _isTlsRptAttachment(contentType, filename) ? "tlsrpt" : "dmarc";
+  if (state.parts.length) {
+    const firstKind = state.candidateKind;
+    if (candidateKind === "tlsrpt" && firstKind === "tlsrpt") {
+      throw new Error("multiple_tlsrpt_attachments");
+    }
+    if (candidateKind === "dmarc" && firstKind === "dmarc") {
+      throw new Error("multiple_dmarc_attachments");
+    }
+    throw new Error("multiple_attachments");
+  }
+  const leafEnd = _withoutTrailingLineBreakEnd(rawBody, bodyStart, bodyEnd);
+  const leafLength = leafEnd - bodyStart;
+  let bytes;
+  if (encoding === "base64") {
+    if (leafLength > RUA_ENCODED_ATTACHMENT_MAX_BYTES) {
+      throw new Error("attachment_too_large");
+    }
+    bytes = _base64ToBytes(
+      rawBody,
+      RUA_ATTACHMENT_MAX_BYTES,
+      RUA_ENCODED_ATTACHMENT_MAX_BYTES,
+      bodyStart,
+      leafEnd,
+    );
+  } else if (["7bit", "8bit", "binary"].includes(encoding)) {
+    if (leafLength > RUA_ATTACHMENT_MAX_BYTES) throw new Error("attachment_too_large");
+    bytes = _latin1ToBytes(rawBody, bodyStart, leafEnd);
+  } else {
+    throw new Error("unsupported_transfer_encoding");
+  }
+  state.candidateKind = candidateKind;
+  state.parts.push({ contentType, encoding, filename, bytes });
 }
+
+function _parseMimeEntityString(rawLatin1, state, end = rawLatin1.length) {
+  if (typeof rawLatin1 !== "string") throw new Error("invalid_mime");
+  if (end > RUA_MIME_ENTITY_MAX_BYTES) {
+    throw new Error("attachment_too_large");
+  }
+  const separator = _headerBoundary(rawLatin1, end);
+  if (!separator) throw new Error("truncated_mime");
+  const headerText = rawLatin1.slice(0, separator.index);
+  _parseMimeEntity(
+    headerText,
+    rawLatin1,
+    separator.index + separator.length,
+    end,
+    state,
+  );
+}
+
+class StreamingMultipartParser {
+  constructor(boundary, state) {
+    if (!boundary || boundary.length > 200 || /[\r\n]/.test(boundary)) {
+      throw new Error("invalid_mime");
+    }
+    this.marker = `--${boundary}`;
+    this.state = state;
+    this.buffer = "";
+    this.started = false;
+    this.closed = false;
+    this.partHeaderComplete = false;
+    this.searchFrom = 0;
+  }
+
+  beginPart() {
+    this.state.entityCount += 1;
+    if (this.state.entityCount > RUA_MAX_MIME_PARTS) {
+      throw new Error("mime_complexity_exceeded");
+    }
+    this.partHeaderComplete = false;
+  }
+
+  push(text) {
+    if (this.closed || !text) return;
+    if (this.started && !this.partHeaderComplete &&
+        this.buffer.length + text.length > RUA_MIME_HEADER_MAX_BYTES + 4) {
+      const allowed = RUA_MIME_HEADER_MAX_BYTES + 4 - this.buffer.length;
+      if (allowed <= 0) throw new Error("header_too_large");
+      this.push(text.slice(0, allowed));
+      if (!this.partHeaderComplete) throw new Error("header_too_large");
+      this.push(text.slice(allowed));
+      return;
+    }
+    if (text.length > RUA_STREAM_CONVERSION_CHUNK_BYTES ||
+        this.buffer.length + text.length > RUA_MIME_BUFFER_MAX_BYTES) {
+      throw new Error("attachment_too_large");
+    }
+    this.buffer += text;
+    this.state.maxBufferedBytes = Math.max(
+      this.state.maxBufferedBytes,
+      this.buffer.length,
+    );
+    if (this.started && !this.partHeaderComplete) {
+      const header = _headerBoundary(this.buffer);
+      if (header) {
+        if (header.index > RUA_MIME_HEADER_MAX_BYTES) throw new Error("header_too_large");
+        this.partHeaderComplete = true;
+      }
+    }
+    for (;;) {
+      const boundaryIndex = _findMimeBoundary(this.buffer, this.marker, this.searchFrom);
+      if (boundaryIndex < 0) {
+        this.searchFrom = Math.max(0, this.buffer.length - this.marker.length - 4);
+        if (this.started && this.buffer.length > RUA_MIME_ENTITY_MAX_BYTES) {
+          throw new Error("attachment_too_large");
+        }
+        if (!this.started && this.buffer.length > this.marker.length + 8) {
+          // Preamble is not evidence. Retain only enough tail to match a marker
+          // split across the next stream chunk.
+          this.buffer = this.buffer.slice(-(this.marker.length + 8));
+          this.searchFrom = 0;
+        }
+        return;
+      }
+
+      if (!this.started) {
+        this.buffer = this.buffer.slice(boundaryIndex);
+        this.searchFrom = 0;
+        const first = _afterMimeBoundaryLine(this.buffer, 0, this.marker);
+        this.buffer = this.buffer.slice(first.cursor);
+        this.started = true;
+        if (first.closing) { this.closed = true; this.buffer = ""; }
+        else {
+          this.beginPart();
+          const header = _headerBoundary(this.buffer);
+          if (header) this.partHeaderComplete = true;
+        }
+        continue;
+      }
+
+      const entityEnd = _withoutTrailingLineBreakEnd(this.buffer, 0, boundaryIndex);
+      const line = _afterMimeBoundaryLine(this.buffer, boundaryIndex, this.marker);
+      if (entityEnd > 0) _parseMimeEntityString(this.buffer, this.state, entityEnd);
+      else throw new Error("truncated_mime");
+      this.buffer = this.buffer.slice(line.cursor);
+      this.searchFrom = 0;
+      if (line.closing) {
+        this.closed = true;
+        this.buffer = "";
+        return;
+      }
+      this.beginPart();
+    }
+  }
+
+  finish() {
+    if (!this.started || !this.closed) throw new Error("unterminated_multipart");
+  }
+}
+
+async function parseMimeMessageStream(stream, maxBytes = RUA_RAW_EMAIL_MAX_BYTES) {
+  if (!stream || typeof stream.getReader !== "function") throw new Error("invalid_mime");
+  let reader;
+  try { reader = stream.getReader(); }
+  catch { throw new Error("stream_read_error"); }
+  const state = _newMimeState();
+  let rootHeaderBuffer = "";
+  let rootHeaderText = null;
+  let rootHeaders = null;
+  let multipart = null;
+  let leafBody = "";
+
+  try {
+    for (;;) {
+      let read;
+      try { read = await reader.read(); }
+      catch { throw new Error("stream_read_error"); }
+      const { done, value } = read;
+      if (done) break;
+      if (!(value instanceof Uint8Array)) throw new Error("invalid_mime");
+      state.totalBytes += value.byteLength;
+      if (state.totalBytes > maxBytes) throw new Error("email_too_large");
+      for (let offset = 0; offset < value.byteLength;
+        offset += RUA_STREAM_CONVERSION_CHUNK_BYTES) {
+        const text = _bytesToLatin1(value.subarray(
+          offset,
+          Math.min(value.byteLength, offset + RUA_STREAM_CONVERSION_CHUNK_BYTES),
+        ));
+
+        if (rootHeaderText == null) {
+          if (rootHeaderBuffer.length + text.length > RUA_MIME_HEADER_MAX_BYTES) {
+            throw new Error("header_too_large");
+          }
+          rootHeaderBuffer += text;
+          const separator = _headerBoundary(rootHeaderBuffer);
+          if (!separator) continue;
+          rootHeaderText = rootHeaderBuffer.slice(0, separator.index);
+          const firstBody = rootHeaderBuffer.slice(separator.index + separator.length);
+          rootHeaderBuffer = "";
+          rootHeaders = _parseMimeHeaders(rootHeaderText);
+          const ctypeRaw = rootHeaders["content-type"] || "";
+          const contentType = ctypeRaw.split(";")[0].trim().toLowerCase();
+          if (contentType.startsWith("multipart/")) {
+            multipart = new StreamingMultipartParser(_mimeParam(ctypeRaw, "boundary"), state);
+            multipart.push(firstBody);
+          } else {
+            state.entityCount = 1;
+            leafBody = firstBody;
+          }
+          continue;
+        }
+
+        if (multipart) multipart.push(text);
+        else {
+          if (leafBody.length + text.length > RUA_MIME_ENTITY_MAX_BYTES) {
+            throw new Error("attachment_too_large");
+          }
+          leafBody += text;
+          state.maxBufferedBytes = Math.max(state.maxBufferedBytes, leafBody.length);
+        }
+      }
+    }
+  } catch (error) {
+    try { await reader.cancel(); } catch { /* ignore */ }
+    throw error;
+  }
+
+  if (rootHeaderText == null) throw new Error("truncated_mime");
+  if (multipart) multipart.finish();
+  else _parseMimeEntity(rootHeaderText, leafBody, 0, leafBody.length, state);
+  return {
+    headerText: rootHeaderText,
+    parts: state.parts,
+    stats: {
+      total_bytes: state.totalBytes,
+      max_buffered_bytes: state.maxBufferedBytes,
+      entity_count: state.entityCount,
+    },
+  };
+}
+
+// Bounded compatibility helper retained for existing internal test consumers.
+// Production ingress uses parseMimeMessageStream(); this helper likewise feeds
+// one fixed-size slice at a time and never splits/materialises all MIME parts.
+function parseMimeParts(rawLatin1) {
+  if (typeof rawLatin1 !== "string") throw new Error("invalid_mime");
+  if (rawLatin1.length > RUA_RAW_EMAIL_MAX_BYTES) throw new Error("email_too_large");
+  const separator = _headerBoundary(rawLatin1);
+  if (!separator) throw new Error("truncated_mime");
+  if (separator.index > RUA_MIME_HEADER_MAX_BYTES) throw new Error("header_too_large");
+
+  const state = _newMimeState();
+  const headerText = rawLatin1.slice(0, separator.index);
+  const headers = _parseMimeHeaders(headerText);
+  const ctypeRaw = headers["content-type"] || "";
+  const contentType = ctypeRaw.split(";")[0].trim().toLowerCase();
+  const bodyStart = separator.index + separator.length;
+  if (contentType.startsWith("multipart/")) {
+    const parser = new StreamingMultipartParser(_mimeParam(ctypeRaw, "boundary"), state);
+    for (let offset = bodyStart; offset < rawLatin1.length;
+      offset += RUA_STREAM_CONVERSION_CHUNK_BYTES) {
+      parser.push(rawLatin1.slice(
+        offset,
+        Math.min(rawLatin1.length, offset + RUA_STREAM_CONVERSION_CHUNK_BYTES),
+      ));
+    }
+    parser.finish();
+  } else {
+    state.entityCount = 1;
+    _parseMimeEntity(headerText, rawLatin1, bodyStart, rawLatin1.length, state);
+  }
+  return state.parts;
+}
+
 // Choose exactly one DMARC report attachment. Zero or more-than-one → error
 // (deterministic, documented MVP behaviour).
 function selectDmarcAttachment(parts) {
-  const candidates = (parts || []).filter((p) => {
-    const n = (p.filename || "").toLowerCase();
-    const ct = (p.contentType || "").toLowerCase();
-    const extOk = n.endsWith(".gz") || n.endsWith(".gzip") || n.endsWith(".zip") || n.endsWith(".xml");
-    const ctOk = ["application/gzip", "application/x-gzip", "application/zip",
-      "application/x-zip-compressed", "text/xml", "application/xml"].includes(ct);
-    return extOk || ctOk || (ct === "application/octet-stream" && extOk);
-  });
+  const candidates = (parts || []).filter((p) =>
+    _isDmarcAttachment(p.contentType, p.filename));
   if (candidates.length === 0) return { error: "no_dmarc_attachment" };
   if (candidates.length > 1) return { error: "multiple_attachments" };
   return { part: candidates[0] };
@@ -307,14 +707,10 @@ function selectDmarcAttachment(parts) {
 // so the handler can route to the JSON path; absence of a match just means "not
 // TLS-RPT, try DMARC" (returns { part: null }, never an error).
 function selectTlsRptAttachment(parts) {
-  const candidates = (parts || []).filter((p) => {
-    const n = (p.filename || "").toLowerCase();
-    const ct = (p.contentType || "").toLowerCase();
-    const ctOk = ct === "application/tlsrpt+gzip" || ct === "application/tlsrpt+json";
-    const extOk = n.endsWith(".json") || n.endsWith(".json.gz");
-    return ctOk || extOk;
-  });
+  const candidates = (parts || []).filter((p) =>
+    _isTlsRptAttachment(p.contentType, p.filename));
   if (candidates.length === 0) return { part: null };
+  if (candidates.length > 1) return { error: "multiple_tlsrpt_attachments" };
   return { part: candidates[0] };
 }
 
@@ -558,33 +954,37 @@ export async function handleInboundEmail(message, env, _ctx, deps = {}) {
     }
 
     if (typeof message.rawSize === "number" && message.rawSize > RUA_RAW_EMAIL_MAX_BYTES) {
-      await drop(endpoint, "attachment_too_large", recipient); return;
+      await drop(endpoint, "email_too_large", recipient); return;
     }
-    const raw = await readStreamCapped(message.raw, RUA_RAW_EMAIL_MAX_BYTES);
-    if (!raw) { await drop(endpoint, "attachment_too_large", recipient); return; }
-
-    const rawLatin1 = _bytesToLatin1(raw);
-    // Record bounded sender claims without authenticating them. A recognised
-    // public-mail header-From is metadata only; it grants no report authority.
-    // The report remains auditable and purgeable, while enforceDomainMatch only
-    // checks the body claim against the endpoint binding.
-    const provenance = deriveInboundReportProvenance(rawLatin1, message, endpoint.domain);
-
-    let parts;
+    let parsedMessage;
     try {
-      parts = parseMimeParts(rawLatin1);
-    } catch (error) {
-      await drop(
-        endpoint,
-        error?.message === "invalid_base64" ? "invalid_base64" : "parse_error",
-        recipient,
+      parsedMessage = await parseMimeMessageStream(
+        message.raw,
+        RUA_RAW_EMAIL_MAX_BYTES,
       );
+    } catch (error) {
+      await drop(endpoint, error?.message || "parse_error", recipient);
       return;
     }
+    const parts = parsedMessage.parts;
+
+    // Record bounded sender claims from root headers only. A recognised public-
+    // mail header-From is metadata, not authority; retaining the message body is
+    // unnecessary and would defeat the streaming memory boundary.
+    const provenance = deriveInboundReportProvenance(
+      parsedMessage.headerText,
+      message,
+      endpoint.domain,
+    );
 
     // Route by attachment type: TLS-RPT (JSON) → its own parser; DMARC XML falls
     // through to the existing path, byte-for-byte unchanged.
     const tlsSel = selectTlsRptAttachment(parts);
+    if (tlsSel.error) {
+      activeKind = "TLS-RPT";
+      await drop(endpoint, tlsSel.error, recipient, "TLS-RPT");
+      return;
+    }
     if (tlsSel.part) {
       activeKind = "TLS-RPT";
       const tlsExt = await extractTlsRptFromAttachment(tlsSel.part.filename, tlsSel.part.bytes, caps);
@@ -703,6 +1103,16 @@ export async function handleInboundEmail(message, env, _ctx, deps = {}) {
 
 // Exported for index.js re-export → the test harnesses.
 export {
+  RUA_ATTACHMENT_MAX_BYTES,
+  RUA_DECOMPRESSED_MAX_BYTES,
+  RUA_ENCODED_ATTACHMENT_MAX_BYTES,
+  RUA_MAX_MIME_PARTS,
+  RUA_MIME_BUFFER_MAX_BYTES,
+  RUA_MIME_ENTITY_MAX_BYTES,
+  RUA_MIME_HEADER_MAX_BYTES,
+  RUA_PARSER_MAX_RETAINED_BYTES,
+  RUA_RAW_EMAIL_MAX_BYTES,
+  _base64ToBytes,
   deriveInboundReportProvenance,
   extractDmarcXmlFromAttachment,
   extractEmailDomainFromHeader,
@@ -712,7 +1122,9 @@ export {
   isKnownDmarcReporter,
   normalizeInboundDropReason,
   parseInboundRecipient,
+  parseMimeMessageStream,
   parseMimeParts,
   selectDmarcAttachment,
+  selectTlsRptAttachment,
   unzipSingleEntryXmlBytes,
 };
