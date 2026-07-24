@@ -37,6 +37,7 @@ import { findingRemediation, getRemediationById, remediationRegistryFingerprint 
 import { verificationSupportForMethod } from "./managed-case-model.js";
 import { CYBER_MOT_DOMAINS } from "./cyber-mot-domains.js";
 import { createId } from "../lib/util.js";
+import { normalizeSignalMonitoringStates } from "./signal-monitoring-state.js";
 
 export const SNAPSHOT_SCHEMA_VERSION = "1";
 export const SNAPSHOT_BUILDER_VERSION = "2026-07-17.1";
@@ -138,6 +139,10 @@ export function composeSnapshot({
   const assessedAt = report?.completed_at || null;
   const scanQuality = report?.scan_quality ?? null;
   const qualityStatus = scanQuality?.status ?? null;
+  // Freeze the canonical monitoring contract beside the assessment. Missing
+  // legacy/provider provenance is normalised to evidence_incomplete, never to a
+  // healthy default, so every snapshot-native consumer sees the same limitation.
+  const monitoringStates = normalizeSignalMonitoringStates(report?.monitoring_states);
 
   // Normalise exactly as the canonical read paths do (routes/scans.js /report,
   // deriveScanBusinessRisk) so the frozen findings equal what those paths served.
@@ -152,6 +157,8 @@ export function composeSnapshot({
     score: report?.cyber_metrics_score ?? null,
     scanQuality: qualityStatus,
     status: "completed",
+    monitoringStates,
+    requireMonitoring: true,
   });
 
   // ── Finding → domain attribution ──────────────────────────────────────────
@@ -393,8 +400,11 @@ export function composeSnapshot({
       // The numeric and category breakdown are internal metrics for methodology
       // and trend purposes only.
       business_risk_indicator: {
-        band: businessRisk?.band ?? null,
-        explanation: businessRisk?.summary ?? null,
+        band: assessment.authoritative ? (businessRisk?.band ?? null) : null,
+        explanation: assessment.authoritative
+          ? (businessRisk?.summary ?? null)
+          : "Business Risk Indicator is not authoritative because monitoring evidence or scan coverage was incomplete.",
+        provisional: !assessment.authoritative,
         methodology_disclosure:
           "The Business Risk Indicator is derived from externally observed scan evidence " +
           "across weighted categories (email, service health, customer trust, brand exposure, " +
@@ -407,11 +417,21 @@ export function composeSnapshot({
       },
       evidence_completeness: {
         scan_quality: qualityStatus,
+        assessment_quality: assessment.quality,
+        monitoring_state: assessment.coverage?.monitoring_state ?? null,
+        monitoring_degraded_signals: Object.entries(monitoringStates.signals)
+          .filter(([, entry]) => entry.state !== "monitoring_healthy")
+          .map(([signal, entry]) => ({
+            signal,
+            state: entry.state,
+            message: entry.message,
+          })),
         modules_skipped: skippedModules,
         warnings: Array.isArray(scanQuality?.warnings) ? scanQuality.warnings : [],
       },
       not_fully_assessed: notFullyAssessed,
     },
+    monitoring_states: monitoringStates,
     domains: domainEntries,
     observed_findings: observedFindings,
     observations,

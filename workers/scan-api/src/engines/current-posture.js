@@ -22,7 +22,11 @@ import { normalizeQuality, resolveAssessmentPresentation, POSTURE_NOT_ESTABLISHE
 //     latest_provisional: {scan_id, score, scan_quality, created_at} | null }
 export async function getAuthoritativeCurrentPosture(env, { workspaceId = null, domainId = null } = {}) {
   const from = workspaceId
-    ? "FROM scans s JOIN workspace_domains wd ON wd.domain_id = s.domain_id WHERE wd.workspace_id = ?"
+    // A linked domain may belong to several workspaces. Only the scan's explicit
+    // workspace attribution may grant this read; joining through
+    // workspace_domains would let one tenant's posture request fetch another
+    // tenant's immutable report now that monitoring provenance is R2-backed.
+    ? "FROM scans s WHERE s.workspace_id = ?"
     : "FROM scans s WHERE s.domain_id = ?";
   const bind = workspaceId || domainId;
   if (!bind) return { state: "not_established", authoritative: null, latest_provisional: null };
@@ -70,15 +74,54 @@ export function isComparableAssessment(scanQuality) {
 // quality/provisional/authoritative/comparable/message.
 export async function getCurrentPosturePresentation(env, scope) {
   const posture = await getAuthoritativeCurrentPosture(env, scope);
-  const present = (row) => row
-    ? resolveAssessmentPresentation({ score: row.score, scanQuality: row.scan_quality, status: "completed" })
+  const presentations = new Map();
+  const present = async (row) => {
+    if (!row) return null;
+    if (presentations.has(row.scan_id)) return presentations.get(row.scan_id);
+
+    let monitoringStates;
+    // A raw "complete" scan row is only a candidate for authority. The immutable
+    // report carries provider/signal provenance; missing R2, malformed JSON, or
+    // absent provenance fails toward provisional. Non-complete rows are already
+    // provisional and do not need an R2 read to prove it again.
+    if (normalizeQuality(row.scan_quality) === "complete") {
+      try {
+        const object = await env.cybermeters_reports.get(`reports/${row.scan_id}.json`);
+        const report = object ? await object.json() : null;
+        monitoringStates = report?.monitoring_states ?? null;
+      } catch {
+        monitoringStates = null;
+      }
+    }
+    const value = resolveAssessmentPresentation({
+      score: row.score,
+      scanQuality: row.scan_quality,
+      status: "completed",
+      ...(normalizeQuality(row.scan_quality) === "complete"
+        ? { monitoringStates, requireMonitoring: true }
+        : {}),
+    });
+    presentations.set(row.scan_id, value);
+    return value;
+  };
+
+  const candidateAuthoritative = await present(posture.authoritative);
+  const latestRaw = posture.latest_provisional ?? posture.authoritative;
+  const latestPresentation = await present(latestRaw);
+  const authoritative = candidateAuthoritative?.authoritative
+    ? candidateAuthoritative
     : null;
+  const latestProvisional =
+    latestPresentation && !latestPresentation.authoritative
+      ? latestPresentation
+      : null;
+  const established = authoritative != null;
   return {
-    state:               posture.state,                    // 'established' | 'not_established'
-    authoritative:       present(posture.authoritative),   // canonical fields or null
-    authoritative_scan_id: posture.authoritative?.scan_id ?? null,
-    latest_provisional:  present(posture.latest_provisional),
-    latest_provisional_scan_id: posture.latest_provisional?.scan_id ?? null,
-    posture_message:     posture.state === "not_established" ? POSTURE_NOT_ESTABLISHED_MESSAGE : null,
+    state: established ? "established" : "not_established",
+    authoritative,
+    authoritative_scan_id: established ? (posture.authoritative?.scan_id ?? null) : null,
+    latest_provisional: latestProvisional,
+    latest_provisional_scan_id: latestProvisional ? (latestRaw?.scan_id ?? null) : null,
+    posture_message: established ? null : POSTURE_NOT_ESTABLISHED_MESSAGE,
   };
 }

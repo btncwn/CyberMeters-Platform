@@ -216,8 +216,16 @@ export async function computePortfolioDomainRows(db, workspaceIds, opts = {}) {
     // Overall score/rating comes from the canonical presentation resolver — the same
     // decision the Dashboard, Scorecard and PDF render. This engine does not own a band
     // ladder and must never grow one.
+    const domainCoverageLimited = matrixWithCases.some((entry) =>
+      ["partial", "degraded", "unknown"].includes(String(entry.coverage || "").toLowerCase())
+    );
     const presentation = resolveAssessmentPresentation({
-      score: scan?.score ?? null, scanQuality: scan?.scan_quality ?? null, status: scan ? "completed" : null,
+      score: scan?.score ?? null,
+      scanQuality:
+        scan?.scan_quality === "complete" && domainCoverageLimited
+          ? "degraded"
+          : (scan?.scan_quality ?? null),
+      status: scan ? "completed" : null,
     });
 
     return {

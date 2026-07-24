@@ -113,6 +113,96 @@ export const SIGNAL_MONITORING_WORDING = Object.freeze({
   }),
 });
 
+const RECOGNISED_MONITORING_STATES = new Set(Object.values(SIGNAL_MONITORING_STATES));
+
+// Normalise persisted/read monitoring evidence at the trust boundary. A missing
+// signal, missing state, or future/unrecognised state is evidence_incomplete —
+// never monitoring_healthy. This lets every downstream coverage consumer use the
+// same fail-closed contract instead of inventing its own optimistic fallback.
+export function normalizeSignalMonitoringStates(monitoringStates) {
+  const signals = {};
+  for (const [signal, definition] of Object.entries(SIGNAL_MONITORING_DEFINITIONS)) {
+    const raw = monitoringStates?.signals?.[signal];
+    const recognised = RECOGNISED_MONITORING_STATES.has(raw?.state);
+    const state = recognised
+      ? raw.state
+      : SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE;
+    signals[signal] = {
+      state,
+      message: String(
+        (recognised ? raw?.message : null) ||
+        SIGNAL_MONITORING_WORDING[signal]?.[state] ||
+        "Monitoring evidence was incomplete in this run."
+      ),
+      evidence: raw?.evidence ?? {
+        modules: [...definition.modules],
+        incomplete_modules: [...definition.modules],
+        providers: Object.fromEntries(
+          definition.providers.map((provider) => [provider, "unknown"])
+        ),
+      },
+    };
+  }
+  return {
+    version: monitoringStates?.version || SIGNAL_MONITORING_STATE_VERSION,
+    signals,
+  };
+}
+
+// Aggregate a declared set of signal dependencies without turning monitoring
+// health into a security verdict. The result answers only whether the evidence
+// coverage required by a consumer was complete. State precedence is deliberately
+// fail-closed: incomplete provenance outranks explicit provider unavailability,
+// which outranks partial degradation.
+export function resolveSignalMonitoringCoverage(monitoringStates, signalNames = []) {
+  const names = [...new Set(
+    (Array.isArray(signalNames) ? signalNames : [])
+      .map((name) => String(name || "").trim())
+      .filter(Boolean)
+  )];
+  if (names.length === 0) {
+    return {
+      state: SIGNAL_MONITORING_STATES.MONITORING_HEALTHY,
+      complete: true,
+      signals: {},
+      messages: [],
+    };
+  }
+
+  const normalised = normalizeSignalMonitoringStates(monitoringStates);
+  const signals = {};
+  for (const name of names) {
+    const entry = normalised.signals[name];
+    signals[name] = entry ?? {
+      state: SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE,
+      message: "Required monitoring evidence was not recorded in this run.",
+      evidence: null,
+    };
+  }
+
+  const states = Object.values(signals).map((entry) => entry.state);
+  let state = SIGNAL_MONITORING_STATES.MONITORING_HEALTHY;
+  if (states.includes(SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE)) {
+    state = SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE;
+  } else if (states.includes(SIGNAL_MONITORING_STATES.SIGNAL_UNAVAILABLE)) {
+    state = SIGNAL_MONITORING_STATES.SIGNAL_UNAVAILABLE;
+  } else if (states.includes(SIGNAL_MONITORING_STATES.MONITORING_DEGRADED)) {
+    state = SIGNAL_MONITORING_STATES.MONITORING_DEGRADED;
+  }
+
+  return {
+    state,
+    complete: state === SIGNAL_MONITORING_STATES.MONITORING_HEALTHY,
+    signals,
+    messages: [...new Set(
+      Object.values(signals)
+        .filter((entry) => entry.state !== SIGNAL_MONITORING_STATES.MONITORING_HEALTHY)
+        .map((entry) => String(entry.message || "").trim())
+        .filter(Boolean)
+    )],
+  };
+}
+
 function nonEmptyError(value) {
   return value != null && String(value).trim() !== "";
 }
@@ -198,11 +288,22 @@ function resolveSignalState(definition, modules, skipped, providerHealth) {
     moduleEvidenceState(modules, moduleName, skipped)
   );
   const combinedModules = combineModuleStates(moduleStates);
+  const providerState = providerEvidenceState(definition.providers, providerHealth);
+  // For an explicitly provider-backed signal, preserve the provider-specific
+  // cause even when its owning module is also (correctly) marked incomplete.
+  // Otherwise a total provider blackout would be flattened to the less useful
+  // evidence_incomplete state and the canonical signal_unavailable fact would
+  // be lost before persistence.
+  if (
+    providerState === SIGNAL_MONITORING_STATES.SIGNAL_UNAVAILABLE ||
+    providerState === SIGNAL_MONITORING_STATES.MONITORING_DEGRADED
+  ) {
+    return providerState;
+  }
   if (combinedModules !== SIGNAL_MONITORING_STATES.MONITORING_HEALTHY) {
     return combinedModules;
   }
-  return providerEvidenceState(definition.providers, providerHealth)
-    ?? SIGNAL_MONITORING_STATES.MONITORING_HEALTHY;
+  return providerState ?? SIGNAL_MONITORING_STATES.MONITORING_HEALTHY;
 }
 
 export function deriveSignalMonitoringStates({

@@ -455,9 +455,10 @@ const certModulesFor = (subdomains) => ({
 
     const report = { scan_quality: q, modules, findings: [], completed_at: "2026-07-16T00:00:00Z" };
     const cert = resolveCyberMotDomainStates(report, { scanId: "s1" }).find((d) => d.domain_key === "certificates_trust");
-    eq("MUTANT: Certificates & Trust reports ASSESSED_HEALTHY off zero certificate evidence",
-      cert.state, CYBER_MOT_STATES.ASSESSED_HEALTHY);
-    ok("MUTANT: and tells the customer no material issue was observed", /no material issue observed/i.test(cert.summary));
+    eq("MUTANT: the canonical provider-provenance gate still prevents false healthy",
+      cert.state, CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT);
+    ok("MUTANT: no healthy wording escapes through the independent coverage gate",
+      !/no material issue observed/i.test(cert.summary));
   } finally {
     fs.rmSync(tmp, { force: true });
     fs.rmSync(dir, { recursive: true, force: true });

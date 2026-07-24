@@ -13,6 +13,10 @@
 // participate in trend deltas. NULL/legacy quality = 'unknown', NEVER 'complete'.
 
 import { riskLevelForScore } from "./scoring.js";
+import {
+  SIGNAL_MONITORING_DEFINITIONS,
+  resolveSignalMonitoringCoverage,
+} from "./signal-monitoring-state.js";
 
 export const SCAN_QUALITY = Object.freeze({
   COMPLETE: "complete", PARTIAL: "partial", DEGRADED: "degraded", UNKNOWN: "unknown",
@@ -86,9 +90,23 @@ export function buildScanCompletionPresentation({
   scanQuality,
   monitoringStates = null,
 } = {}) {
-  const quality = scanCompletionQualityDisclosure(scanQuality);
+  const rawQuality = scanCompletionQualityDisclosure(scanQuality);
+  const monitoringCoverage = monitoringStates
+    ? resolveSignalMonitoringCoverage(
+        monitoringStates,
+        Object.keys(SIGNAL_MONITORING_DEFINITIONS)
+      )
+    : null;
+  // A scan may finish all core execution without collecting every decisive
+  // provider-backed signal. Keep the execution success, but coverage-cap the
+  // customer-facing score/risk conclusion.
+  const effectiveQuality =
+    rawQuality.complete && monitoringCoverage && !monitoringCoverage.complete
+      ? SCAN_QUALITY.DEGRADED
+      : rawQuality.quality;
+  const quality = scanCompletionQualityDisclosure(effectiveQuality);
   const signalDisclosure = signalMonitoringDisclosure(monitoringStates, {
-    otherChecksCompleted: quality.complete,
+    otherChecksCompleted: rawQuality.complete,
   });
   if (quality.complete) {
     if (signalDisclosure) {
@@ -121,8 +139,28 @@ export const POSTURE_NOT_ESTABLISHED_MESSAGE = "Current posture not yet establis
 // (or report.scan_quality.status). `status` is the D1 scan status; a non-completed
 // scan yields no usable score. `coverage` is optional detail (e.g. modules_skipped)
 // passed through untouched for callers that want to render specifics.
-export function resolveAssessmentPresentation({ score = null, scanQuality = null, status = null, coverage = null } = {}) {
-  const quality  = normalizeQuality(scanQuality);
+export function resolveAssessmentPresentation({
+  score = null,
+  scanQuality = null,
+  status = null,
+  coverage = null,
+  monitoringStates = undefined,
+  requireMonitoring = false,
+} = {}) {
+  const rawQuality = normalizeQuality(scanQuality);
+  const monitoringEvaluated = requireMonitoring || monitoringStates !== undefined;
+  const monitoringCoverage = monitoringEvaluated
+    ? resolveSignalMonitoringCoverage(
+        monitoringStates,
+        Object.keys(SIGNAL_MONITORING_DEFINITIONS)
+      )
+    : null;
+  const quality =
+    rawQuality === SCAN_QUALITY.COMPLETE &&
+    monitoringCoverage &&
+    !monitoringCoverage.complete
+      ? SCAN_QUALITY.DEGRADED
+      : rawQuality;
   const complete = quality === "complete";
   // A score is only usable when the scan actually completed.
   const completed = status == null || String(status).toLowerCase() === "completed";
@@ -138,7 +176,14 @@ export function resolveAssessmentPresentation({ score = null, scanQuality = null
     provisional:    !complete,
     authoritative:  complete,
     comparable:     complete,
-    coverage:       coverage ?? null,
+    coverage: monitoringEvaluated
+      ? {
+          ...(coverage ?? {}),
+          raw_scan_quality: rawQuality,
+          monitoring_state: monitoringCoverage.state,
+          monitoring_signals: monitoringCoverage.signals,
+        }
+      : (coverage ?? null),
     message:        ASSESSMENT_MESSAGES[quality],
   };
 }

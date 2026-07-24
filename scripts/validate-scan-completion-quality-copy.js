@@ -25,6 +25,10 @@ async function loadPresentationModule() {
     .replace(
       'import { riskLevelForScore } from "./scoring.js";',
       'const riskLevelForScore = (score) => score >= 90 ? "excellent" : "unknown";',
+    )
+    .replace(
+      'from "./signal-monitoring-state.js";',
+      `from "${pathToFileURL(path.join(worker, "engines", "signal-monitoring-state.js")).href}";`,
     );
   if (!source.includes(gate)) throw new Error("scan-completion quality gate mutation target missing");
   const mutated = source.replace(gate, "const complete = true;");
