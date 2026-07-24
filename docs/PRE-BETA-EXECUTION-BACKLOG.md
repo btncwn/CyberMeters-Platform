@@ -92,20 +92,53 @@ RUA corroboration (unauthorised source, tier, dedupe, fail-honest wording, no
 limits, TempError/PermError, CIDR v4/v6, `a`/`mx`, nested includes, old-complete vs
 new-incomplete suppression).
 
-### 5. Provider isolation + monitoring-degraded customer state — [IMPL]
+### 5. Provider isolation + monitoring-degraded customer state — [CLOSED — LIVE]
 crt.sh isolation; CertSpotter fallback semantics; shared per-scan CT cache (kill the
 duplicate ssl+subdomains lookups); per-provider timeout + health telemetry;
 provider unavailable ≠ no findings; provider failure ≠ healthy; bounded
-retry/backoff; circuit-breaker/bounded degradation. Canonical customer states:
-`monitoring healthy · monitoring degraded · signal unavailable · evidence incomplete ·
-recovered` with signal-specific wording ("We could not fully verify certificate
-transparency data in this run. Other checks completed normally.").
+retry/backoff; per-invocation hard timeout + two-attempt ceiling. Canonical beta customer
+states: `monitoring healthy · monitoring degraded · signal unavailable · evidence incomplete`
+with signal-specific wording ("We could not fully verify certificate transparency data in
+this run. Other checks completed normally."). A cross-scan circuit breaker and a cross-run
+`recovered` monitoring state are post-beta work, not Item 5 launch blockers; no recovery
+claim is made.
 **Includes: `cybermeters-email` inbound Worker reliability/security acceptance**
 (per-address Email Routing only — never catch-all; DMARC-trust gating; RUA/TLS-RPT
 parser safety; header-From trust boundary). Plus the reliability live matrix (fast
 healthy · slow TLS · crt.sh down · NXDOMAIN · HTTP timeout · odd DNS · rate-limited
 provider · large SPF chain · partial-but-SPF-complete · complete-after-partial ·
-recovery · no duplicate alert).
+no duplicate alert).
+**Finding (24 Jul 2026, Gate 5 prep — hosted-DMARC RUA routing drift, monitoring-loss):**
+the autopilot manages a customer's DNS RUA token but NOT the matching Email Routing rule, so
+DNS can advertise a `cmrua_<hex>@reports.cybermeters.com` mailbox with no route → reports
+fall to the disabled catch-all and are silently dropped. cybermeters.com dropped its OWN
+DMARC reports this way (published `adfcbad7...`, no rule); contained 24 Jul by adding the
+literal rule → `cybermeters-email`. Also an orphan rule `15127b...` matches no live domain.
+Product fix owed: autopilot must create/verify the ingest rule on every RUA set/rotation and
+reconcile on a schedule (belongs with automation re-enablement — currently Gate-1/2
+suspended); clean up the orphan under item 13 after reachability proof. Detail:
+[[hosted-dmarc-rua-routing-drift]].
+
+**Founder closure decision (24 Jul 2026): Item 5 launch blockers CLOSED.**
+
+- **Email/DMARC inbound hardening Gates 1–5 — LIVE-ACCEPTED.** Main
+  `4f5b2a7c`; scan-api `7e2b91f1`; email `f1308762`, APP_VERSION
+  `2026.07.24-gate4.1.8e25b5b44574`; migration 100 applied. Forged inbound evidence
+  remains observational/non-authoritative and cannot drive DNS, case verification,
+  readiness, business risk or authoritative alerts; the captured genuine Microsoft
+  nested-multipart report is accepted.
+- **CT-blackout false-healthy P0 — FIXED + LIVE (PR #300).** Main `c296fea7`;
+  scan-api `5aea078f` (rollback `7e2b91f1`); email closure rebuild `27e93b06`,
+  APP_VERSION `2026.07.24-item5-ct.85f0fefdf9dc` (rollback `f1308762`). A controlled
+  total-blackout canary resolves Attack Surface to `evidence_insufficient` /
+  `signal_unavailable`, caps the score as provisional and suppresses rating/authoritative
+  BRI; the monitoring state reaches the immutable snapshot and Executive PDF path.
+- **Founder de-scope:** cross-scan circuit breaker and cross-run `recovered` state move
+  post-beta. The per-invocation hard timeout and two-attempt ceiling already bound
+  degradation, and CyberMeters makes no recovery claim.
+- **Non-blocking follow-up:** direct HTTP 429 and real slow-TLS fixtures; naturally
+  observed live CT-blackout evidence with a new production snapshot. Controlled/simulated
+  acceptance passed; the natural live event remains pending.
 
 ### 6. Executive PDF Content Depth & Context Completeness Audit — [DES→IMPL]
 NOT a renderer-failure hunt. Trace: available scan evidence → canonical report
@@ -180,6 +213,25 @@ queued founder episode (Option B — fold honest signal into Shadow IT; preserve
 pipeline). Frontend surfaces (`VendorsPage`, `WorkspaceSupplyChainPage`,
 `ThirdPartyPage`, `SaasExposurePage`, duplicate lifecycle pages) — **no deletion before
 reachability proof**.
+**Named candidate — `reserved-scan.js` (reserved-mode orchestration):** imported by
+`scan-engine.js:46` and conditionally dispatched, but `SCAN_CAPACITY_MODE` defaults to
+`legacy` (`scan-budget.js:30`) and is unset in wrangler.toml → **not executed in production**
+(flag-gated/dormant, NOT an orphan — the anti-orphan guard sees it as wired). The comment
+"legacy until BBB live acceptance passes" marks it a staged experiment, not abandoned code.
+Adjudicate one of three, do not just delete: (a) activate + live-accept reserved-mode; (b)
+**remove — likely superseded**, since PR-B2's deadline/budget architecture (24s ceiling / 19s
+budget / 5s reserve + outbound accounting) probably already solves the subrequest-budget
+starvation that reserved-mode was built for; or (c) keep + document explicitly as an
+intentional flag-gated experiment. NOTE: `reserved-probe.js` is a DIFFERENT file and is LIVE
+(SSRF-safe prober used by asset-intel / brand-http-enrichment / managed-verification) — do
+NOT remove it.
+**Registry-drift target (noted 24 Jul 2026):** a scan module is registered by hand in four
+separate places (`TELEMETRY_TRACKED_MODULES`, `OUTBOUND_FULLY_INSTRUMENTED_MODULES`,
+`MODULE_SUBREQUEST_COST`, launch-gate/`canRun`). The reachability audit must confirm every live
+module appears consistently in all four (a module launched but missing from telemetry/outbound/
+budget/snapshot-downstream is a silent-drift defect). Long-term ideal is a single canonical
+`registerScanModule(descriptor)` that derives the four sets — noted as DRIFT DEBT only, not
+scheduled now.
 
 ### 14. Founder manual security acceptance — [ACC]
 A6 production viewer spot-check · live Microsoft SSO + MFA-with-SSO · password-reset
@@ -214,9 +266,46 @@ dashboard, alerts, cases, reports, PDFs, lifecycle emails, legal, MSP materials.
 
 ### 18. Final public-beta exit review
 All blocks simultaneously green: reliability (items 1–5) · detection integrity
-(6–12) · security (14–15) · commercial/legal (16) · operations (monitoring, backup/
-restore drill, incident response, rollback, support) · claims (17). Then the first two
-controlled invitations — never an open launch.
+(6–12) · **module source-fidelity + freshness (19)** · security (14–15) ·
+commercial/legal (16) · operations (monitoring, backup/
+restore drill, incident response, rollback, support) · claims (17). **Final reflective
+step before invitations: re-read the local-only strategic positioning review**
+(`local/STRATEGY-THREE-PILLARS-REVIEW.md`, gitignored per the anti-imitability law) and
+confirm the product is going to market as the intended system-of-record + channel, not a
+thin scanner wrapper — any pillar whose foundation is not LIVE-ACCEPTED, whose public
+claims overclaim, or that the first cohort does not exercise with real events is a
+pre-invitation blocker. Then the first two controlled invitations — never an open launch.
+
+### 19. [LAW] Live source-fidelity & freshness acceptance — all 14 probe modules — [ACC]
+**Permanent founder law (24 Jul 2026): no scan module is trusted to return correct data
+by assumption.** Fixtures prove a module's *logic*; they do not prove it reads the *correct
+and current* value from the real external source. This is the source-fidelity + freshness
+link of the Detection Depth Law made explicit — it does NOT replace items 3–13, it
+consolidates them; do not build a second governance system around it.
+
+Scope: the 14 live probe modules — `dns`, `ssl`, `headers`, `email_security`, `subdomains`,
+`technology_detection`, `whois_intelligence`, `dns_bruteforce`, `subdomain_takeover`,
+`asset_exposure`, `cve_intelligence`, `known_exploited_vulnerabilities`,
+`email_security_intelligence`, `cloud_storage_discovery` — plus the derived
+`historical_changes` / identity-correlation phases. Per module, on record:
+- **Source correctness** — queries the right authoritative source (authoritative resolver /
+  live CT / live cert / current CVE+KEV catalog / live WHOIS / real HTTP), not a stale
+  cache, mirror, mock, or silently-degraded fallback treated as truth.
+- **Freshness** — feed/cache age is bounded and surfaced; a stale or unreachable source
+  yields an honest evidence-insufficient / monitoring-degraded state (item 5), never a
+  confident wrong answer.
+- **Ground-truth cross-check** — output compared against an independent live oracle
+  (dig / openssl / whois / NVD+KEV catalog / curl) on a founder-controlled domain, matching
+  within a documented tolerance. Divergence is a defect, not noise.
+- **Live acceptance** — proven on a founder-controlled domain with a real observation, per
+  the Detection Depth Law's four proofs (fixture · mutation · e2e trace · founder live
+  acceptance). CI-green is NOT this.
+
+**Precedence:** executes after item 5 closes and folds into items 6–13 as each module is
+worked; consolidated as a hard gate inside item 18's detection-integrity block. **Although
+listed last, this is a LAUNCH-BLOCKER — a module returning wrong or stale data is a
+materially-misleading security result (harm class 3); it must be green BEFORE the two
+invitations, never a post-launch activity.**
 
 ---
 
@@ -233,6 +322,21 @@ controlled invitations — never an open launch.
 - Sharp override OV-1 (`docs/DEPENDENCY-OVERRIDES.md`): review 2026-10-31; remove when
   wrangler/miniflare ships sharp ≥ 0.35.0; rerun clean install + build + scheduled
   smoke at removal.
+- **No module is assumed correct (founder law, 24 Jul 2026):** every scan module's live
+  source-fidelity + freshness is proven against an independent oracle before public beta
+  (item 19). Fixtures prove logic, not that the live feed is accurate and current. A module
+  returning wrong or stale data is a class-3 launch-blocker, not a backlog nicety.
+- **Evidence-Grade acceptance bar (founder law v2, 24 Jul 2026 — `docs/EVIDENCE-GRADE-LAW.md`):**
+  the remaining detection items (6 Exec PDF, 7 DMARCbis, 8 Brand IDN, 9 Certs, 10 Attack
+  Surface, 11 Website/Identity/Shadow IT, 12 Related Changes) are accepted ONLY when every
+  customer-facing signal meets its pre-declared **grade contract** (observable_ceiling /
+  beta_target / minimum_publishable / degrade_behavior / required_corroboration). Two axes:
+  Evidence Grade L0–L5 + Corroboration Status. Externally unobservable internal signals cap at
+  L0-attestation (never dressed up). Every verdict carries `source_type` + standard provenance
+  and cites its authority (RFC clause / CIS item / CE·NCSC·ISO control), distinguishing a
+  standard requirement from `product_policy`. Reframes the bar; does NOT reorder. Defensibility
+  = accurate grading + cited provenance + honest limits, NOT universal L5. First pilot: item 6
+  (minimal-viable subset), expand as signals demand.
 
 ## Today's honest status line
 

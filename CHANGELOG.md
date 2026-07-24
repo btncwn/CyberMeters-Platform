@@ -5,6 +5,78 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## v2026.07.24-2 — Item 5 CT-blackout false-healthy P0 containment — deployed 2026-07-24; **LIVE-ACCEPTED (controlled blackout)**
+
+- **Release tag:** `v2026.07.24-2` (deployed commit = main merge
+  `c296fea7ff994b9abc51420d626cdc60cec46c64`, PR #300; reviewed head
+  `c0b0ceff8c586a3cb5063782cbfd12aeb465a939`). **scan-api live Worker Version ID:**
+  `5aea078f-06ff-4a20-af20-fb444dee0ae4`; **rollback:**
+  `7e2b91f1-78c4-4542-bb43-666c1dbd8b8a`. **email live Worker Version ID:**
+  `27e93b06-7f3e-4c23-afb1-307245fd11eb`; **rollback:**
+  `f1308762-e1d3-4398-933d-aa61ee5b4a07`.
+- **Version/closure:** scan-api APP_VERSION remained `2026.07.13`; the email Worker was
+  rebuilt behaviour-unchanged because its real runtime import graph reaches the canonical
+  Cyber MOT domain definitions. Email APP_VERSION
+  `2026.07.24-item5-ct.85f0fefdf9dc`; closure SHA-256
+  `85f0fefdf9dc38d664ce60aa4fd46393c5ba4ffd122acf0dddf571c440babcab`.
+- **Migration:** none in PR #300 and none applied during this cutover. Migration
+  `100-aggregate-report-ingest-state.sql` remained applied from the Gates 1–5 release.
+- **P0 fixed:** a total crt.sh + CertSpotter outage can no longer leave the subdomains
+  evidence looking complete or allow any CT-dependent negative conclusion to resolve
+  healthy. Provider provenance now fails toward `evidence_insufficient`; the canonical
+  monitoring state is frozen into the immutable snapshot; score presentation is
+  provisional/non-authoritative and rating plus authoritative BRI are suppressed.
+- **Acceptance evidence:** controlled total-blackout canary on founder domain
+  `cybermeters.com` → CT `signal_unavailable`, Attack Surface
+  `evidence_insufficient`, coverage `degraded`, provisional score, null rating and BRI,
+  monitoring limitation present in the Executive PDF path. Official artifact verifier
+  15/15; P0 validator 42/42; removing the resolver propagation gate turned the mutation
+  RED. A genuine founder-domain report with crt.sh unavailable and CertSpotter available
+  replayed through the deployed source as `monitoring_degraded` /
+  `evidence_insufficient`, with rating/BRI suppressed. No provider outage was induced:
+  naturally observed post-deploy total-blackout evidence with a new production snapshot
+  remains a non-blocking live-event follow-up.
+- **Production reconciliation:** both scan-api hosts converged on `5aea078f…` with D1+R2
+  ready; email `/health` and `/ready` converged on the closure stamp; `workers_dev=true`
+  remained set for both Workers. No stale active scans, pending ingest claims, partial
+  snapshots or completed snapshots missing integrity metadata. Both literal founder RUA
+  routes still target `cybermeters-email`; catch-all remains disabled/drop.
+
+## v2026.07.24-1 — Item 5 PR-5.5 email/DMARC inbound hardening Gates 1–5 — deployed 2026-07-24; **LIVE-ACCEPTED**
+
+- **Release tag:** `v2026.07.24-1` (deployed commit = main merge
+  `4f5b2a7c197f2855a3124d955e30df4f583915e0`; PRs #293–#299).
+  **scan-api live Worker Version ID:**
+  `7e2b91f1-78c4-4542-bb43-666c1dbd8b8a`; **rollback:**
+  `9f0aa21a-1582-466f-83ba-404e2382d2fe`. **email live Worker Version ID:**
+  `f1308762-e1d3-4398-933d-aa61ee5b4a07`; **rollback:**
+  `a90a59c7-5e13-41dc-90be-728f26fc2ebd`.
+- **Version/closure:** scan-api APP_VERSION remained `2026.07.13`; email APP_VERSION
+  `2026.07.24-gate4.1.8e25b5b44574`; email import-closure SHA-256
+  `8e25b5b44574b434c1b0e74349dd9f6e2be92b462f4de756c44fa80b4e8a704a`.
+- **Migration:** additive migration `100-aggregate-report-ingest-state.sql` applied before
+  either Worker deployment. It adds TLS-RPT source provenance and the atomic
+  `aggregate_report_ingest_claims` state machine/indexes; all pre-migration report and child
+  counts/signatures were preserved.
+- **Authority containment:** inbound-email RUA/TLS-RPT evidence remains explicitly
+  observational/non-authoritative. It cannot drive hosted-DMARC TXT rollback/advancement,
+  case auto-verification/recovery, authoritative readiness/business-risk/executive evidence
+  or authoritative alerts. External automation remains suspended; no transport/header-From
+  label grants report-producer authority.
+- **Reliability/parser closure:** the standalone Email Routing Worker has mandatory shared
+  rate limiting; ingestion is atomic/repairable with non-null, source-scoped dedupe and
+  bounded D1 row use; terminal failures are audited; MIME processing retains bounded
+  buffers and supports legitimate nested Microsoft multipart structures; DMARC XML schema,
+  singleton, count, domain and XXE/entity guards fail closed.
+- **Live acceptance evidence:** a founder-controlled forged DMARC aggregate report was
+  ingested and visible as observational evidence while producing zero DNS PATCH,
+  auto-rollback, autopilot advancement, case verification/recovery, authoritative score/BRI
+  change or authoritative alert. The captured genuine Microsoft/Outlook RFC822 report was
+  accepted through the live path: gzip located/decoded, XML parsed, `org_name=Outlook.com`,
+  `policy_domain=blackbullbarbers.co.uk`, atomic exactly-once persistence, no duplicate
+  artifact. Both literal RUA routes target `cybermeters-email`; catch-all remains
+  disabled/drop.
+
 ## v2026.07.22-8 — PR-A1: additive scan execution timing telemetry — deployed 2026-07-22; **LIVE-ACCEPTED (manual + scheduled)**
 
 - **Release tag:** `v2026.07.22-8` (deployed commit = main HEAD `6c97757`, PR #280 squash of head `a2ba7e8`). **Live Worker Version ID:** `b3460e96-0ebf-4589-bf09-782f17f2a14b` (deployed 15:54Z CF-authoritative; `/health` 200 with matching deployment id + `/ready` 200; cron + both Queue attachments registered; `SCAN_DISPATCH_MODE` remains `"queue"`). **Rollback:** `793c040c-a36e-41b1-9aeb-d8833d5d1eba` (v2026.07.22-7). **Migration:** none — **100 remains unused, proven**: every repository consumer of `scan_module_telemetry` was enumerated (purge list, two row-counting validators, tenant-resources listing); none SELECTs any column the new fields would need, and a mutation assertion pins the D1 INSERT at exactly 10 bound parameters so the new fields can never silently drift into D1 without a migration.
