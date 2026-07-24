@@ -18,7 +18,8 @@ const scriptPath = fileURLToPath(import.meta.url);
 const root = path.join(path.dirname(scriptPath), "..");
 const engines = path.join(root, "workers", "scan-api", "src", "engines");
 const eng = (file) => pathToFileURL(path.join(engines, file)).href;
-const mutation = process.argv.includes("--mutation=drop-domain-signal-gate");
+const mutationArg = process.argv.find((arg) => arg.startsWith("--mutation="));
+const mutation = mutationArg?.slice("--mutation=".length) || null;
 
 async function loadDomainResolver() {
   const sourcePath = path.join(engines, "cyber-mot-domains.js");
@@ -33,14 +34,27 @@ async function loadDomainResolver() {
       'from "./signal-monitoring-state.js";',
       `from "${eng("signal-monitoring-state.js")}";`
     );
-  const target =
-    "    if (signalCoverageLimited) {\n" +
-    "      base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;";
-  const replacement =
-    "    if (false) {\n" +
-    "      base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;";
+  let target;
+  let replacement;
+  if (mutation === "drop-domain-signal-gate") {
+    target =
+      "    if (signalCoverageLimited) {\n" +
+      "      base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;";
+    replacement =
+      "    if (false) {\n" +
+      "      base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;";
+  } else if (mutation === "generic-domain-wording") {
+    target =
+      "    const signalCoverageMessage = signalCoverageLimited\n" +
+      "      ? (d.monitoring_degradation_message || monitoringCoverage.messages.join(\" \"))\n" +
+      "      : \"\";";
+    replacement =
+      "    const signalCoverageMessage = monitoringCoverage.messages.join(\" \");";
+  } else {
+    throw new Error(`unknown mutation: ${mutation}`);
+  }
   const mutated = source.replace(target, replacement);
-  if (mutated === source) throw new Error("mutation target missing: domain signal gate");
+  if (mutated === source) throw new Error(`mutation target missing: ${mutation}`);
   return import(
     `data:text/javascript;base64,${Buffer.from(mutated).toString("base64")}#ct-blackout`
   );
@@ -188,6 +202,22 @@ eq("Shadow IT keeps its bounded monitoring-only posture",
   CYBER_MOT_STATES.MONITORING_ONLY);
 eq("Shadow IT records degraded CT-dependent coverage",
   byKey(domains, "shadow_it_unmanaged_technology").coverage, "degraded");
+ok("Identity explains its own incomplete enumeration without leaking CT-provider wording",
+  /Identity-surface enumeration was incomplete this run/.test(
+    byKey(domains, "identity_exposure").summary
+  ) &&
+  !/certificate transparency/i.test(byKey(domains, "identity_exposure").summary));
+ok("Shadow IT explains incomplete technology coverage without leaking CT-provider wording",
+  /Technology observation coverage was incomplete this run/.test(
+    byKey(domains, "shadow_it_unmanaged_technology").summary
+  ) &&
+  !/certificate transparency/i.test(
+    byKey(domains, "shadow_it_unmanaged_technology").summary
+  ));
+ok("Certificates keeps the CT-specific degradation wording where it is accurate",
+  /certificate transparency data was unavailable/i.test(
+    byKey(domains, "certificates_trust").summary
+  ));
 eq("unrelated Website Security remains independently assessed",
   byKey(domains, "website_security").state, CYBER_MOT_STATES.ASSESSED_HEALTHY);
 eq("unrelated Email Protection remains independently assessed",
@@ -352,17 +382,28 @@ ok("PDF never renders a healthy/high CyberMeters assessment band",
 // The mutation deletes the one generic domain signal gate. The original false-
 // healthy fixture then returns immediately, so this validator must turn RED.
 if (!mutation) {
-  const mutated = spawnSync(
+  const mutatedGate = spawnSync(
     process.execPath,
     [scriptPath, "--mutation=drop-domain-signal-gate"],
     { cwd: root, encoding: "utf8" }
   );
   ok("mutation dropping CT coverage propagation turns validation RED",
-    mutated.status !== 0 &&
-    mutated.stdout.includes(
+    mutatedGate.status !== 0 &&
+    mutatedGate.stdout.includes(
       "FAIL resolver propagation: invisible blackout can never produce healthy Attack Surface"
     ),
-    `status=${mutated.status} stdout=${JSON.stringify(mutated.stdout.slice(0, 500))}`);
+    `status=${mutatedGate.status} stdout=${JSON.stringify(mutatedGate.stdout.slice(0, 500))}`);
+  const mutatedWording = spawnSync(
+    process.execPath,
+    [scriptPath, "--mutation=generic-domain-wording"],
+    { cwd: root, encoding: "utf8" }
+  );
+  ok("mutation restoring generic CT wording on every domain turns validation RED",
+    mutatedWording.status !== 0 &&
+    mutatedWording.stdout.includes(
+      "FAIL Identity explains its own incomplete enumeration without leaking CT-provider wording"
+    ),
+    `status=${mutatedWording.status} stdout=${JSON.stringify(mutatedWording.stdout.slice(0, 500))}`);
 }
 
 console.log(`\nct-blackout-evidence-honesty: ${pass} passed, ${fail} failed`);

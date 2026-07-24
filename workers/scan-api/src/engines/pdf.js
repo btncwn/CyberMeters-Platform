@@ -693,8 +693,9 @@ const METHODOLOGY_LABELS = Object.freeze({
   business_risk_methodology_version: "Business Risk Indicator methodology",
   ce_readiness_methodology_version: "Cyber Essentials readiness methodology",
   ce_readiness_methodology_revision: "Cyber Essentials readiness methodology revision",
+  ce_question_set_version: "Cyber Essentials current question set",
   remediation_registry_fingerprint: "Canonical remediation registry fingerprint",
-  ce_question_set_versions: "Cyber Essentials question set versions",
+  ce_question_set_versions: "Cyber Essentials answered question set versions",
 });
 
 function methodologyLabel(key) {
@@ -758,7 +759,10 @@ function sectionEvidenceGradeAppendix(w, snap) {
     const printable = Array.isArray(value)
       ? value.join(", ")
       : (value && typeof value === "object" ? JSON.stringify(value) : value);
-    w.proseKeep(`${methodologyLabel(key)}: ${printable == null || printable === "" ? "Not recorded" : printable}`, {
+    const missingLabel = key === "ce_question_set_versions"
+      ? "No questionnaire answers recorded"
+      : "Not recorded";
+    w.proseKeep(`${methodologyLabel(key)}: ${printable == null || printable === "" ? missingLabel : printable}`, {
       size: 7,
       indent: 10,
       color: "0.35 0.38 0.44",
