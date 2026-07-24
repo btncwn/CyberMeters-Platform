@@ -102,10 +102,12 @@ ok("runbook verifies migration 099, migration 100 schema, and historical rows",
   runbook.includes("tlsrpt_signature") &&
   runbook.includes("dmarc_missing_claims") &&
   runbook.includes("tlsrpt_missing_claims"));
-ok("runbook keeps the evidence gap as a hard pre-deploy blocker",
-  runbook.includes("BLOCKED pending original `.eml`") &&
-  runbook.includes("BLOCKED: no delivery path/sample") &&
-  runbook.includes("not yet proven envelope-fit"));
+ok("runbook records mandatory Microsoft acceptance and provider corpus backlog",
+  runbook.includes("ACCEPT — Microsoft genuine") &&
+  runbook.includes("Provider-report corpus backlog") &&
+  runbook.includes("Original Google and Yahoo RFC822 reports have not been captured") &&
+  runbook.includes("Synthetic Google/Yahoo fixtures are regression support only") &&
+  runbook.includes("BLOCKED: no delivery path/sample"));
 ok("runbook live acceptance checks observational complete claims and DNS non-change",
   runbook.includes("source_scope=observational") &&
   runbook.includes("ingest_state=complete") &&

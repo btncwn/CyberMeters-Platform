@@ -23,8 +23,9 @@ Do not apply migration 100 or deploy either Worker unless all of these are true:
 1. The founder has approved one exact Gate 5 main SHA and the worktree contains
    that SHA.
 2. CI is green on that SHA.
-3. A genuine, original RFC822 (`.eml`) report from each report format actually
-   received by the founder domains passes the offline preflight below.
+3. The captured genuine Microsoft DMARC RFC822 (`.eml`) passes the offline
+   preflight below. A genuine sample remains required for any other report
+   format already captured by the founder; do not substitute synthetic proof.
 4. The exact per-address Email Routing rules needed for acceptance exist and
    target `cybermeters-email`; no catch-all rule targets the Worker.
 5. The pre-migration integrity snapshot has been saved.
@@ -46,7 +47,7 @@ Those dimensions cannot be reconstructed honestly from D1 report rows.
 
 | Domain / type | Received evidence | Raw RFC822 max | Encoded attachment max | Transfer-decoded attachment max | Decoded body max | Nested multipart | Preflight |
 | --- | --- | ---: | ---: | ---: | ---: | --- | --- |
-| `blackbullbarbers.co.uk` DMARC | 6 genuine provider receipts, 10–22 July (Google, Microsoft, Yahoo); one additional controlled E2E receipt | Not historically recorded | Not historically recorded | 778 bytes for genuine reports; 1,160 bytes including E2E | 2,157 bytes | Not historically recorded | **BLOCKED pending original `.eml`** |
+| `blackbullbarbers.co.uk` DMARC | 6 genuine provider receipts, 10–22 July (Google, Microsoft, Yahoo); captured original Microsoft/Outlook RFC822 | 18,004 bytes | 872 bytes | 637 bytes | 2,628 bytes | Yes, bounded depth 3 | **ACCEPT — Microsoft genuine** |
 | `blackbullbarbers.co.uk` TLS-RPT | No stored/received reports | n/a | n/a | n/a | n/a | n/a | No real sample exists |
 | `cybermeters.com` DMARC | No stored/received reports | n/a | n/a | n/a | n/a | n/a | **BLOCKED: no delivery path/sample** |
 | `cybermeters.com` TLS-RPT | No stored/received reports | n/a | n/a | n/a | n/a | n/a | No real sample exists |
@@ -60,9 +61,26 @@ The active `blackbullbarbers.co.uk` endpoint has a literal per-address Worker
 rule. Cloudflare's catch-all rule is disabled and drops rather than invoking the
 Worker.
 
-No original report was present in the repository or connected founder mailbox.
-Consequently the 4 MiB raw / 3 MiB encoded / 2 MiB decoded limits are promising
-against the stored decoded-size evidence, but **not yet proven envelope-fit**.
+The captured Microsoft/Outlook report proves envelope fit for the mandatory
+provider case: one gzip attachment, XML parsed, `org_name = Outlook.com`,
+`policy_domain = blackbullbarbers.co.uk`, bounded nesting accepted, no limit
+hit, and observational/non-authoritative semantics. The `.eml` remains local
+founder evidence and is not committed.
+
+### Provider-report corpus backlog
+
+Original Google and Yahoo RFC822 reports have not been captured. They do not
+indefinitely block this Gate 5 cutover because the mandatory genuine Microsoft
+case is accepted. On the first genuine arrival from each provider:
+
+1. save the original `.eml` without forwarding or rewriting it;
+2. run the same read-only preflight and record only bounded envelope metadata;
+3. add a deterministic structural regression fixture reproducing its MIME
+   shape without committing customer report content; and
+4. treat any genuine rejection as a monitoring-loss defect.
+
+Synthetic Google/Yahoo fixtures are regression support only and are never
+genuine-provider acceptance evidence.
 
 Gate 5 adds safe size/nesting fields to future successful receipt audits:
 `raw_email_size`, `encoded_attachment_size`, `compressed_size`,
@@ -93,8 +111,12 @@ Expected success:
 {
   "mode": "offline_read_only",
   "production_mutated": false,
-  "outcome": "PASS",
-  "nested_multipart": false
+  "outcome": "ACCEPT",
+  "success": true,
+  "nested_multipart": "accepted_bounded",
+  "authority": "observational/non-authoritative",
+  "automation_eligible": false,
+  "limit_hit": null
 }
 ```
 
