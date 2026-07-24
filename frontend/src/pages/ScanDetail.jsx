@@ -1500,7 +1500,7 @@ export default function ScanDetail() {
                       ? <span className="font-bold text-brand-600">{scan.score} / 100</span>
                       : '—'
                   } />
-                  <KV label="Security Rating" value={
+                  <KV label="CyberMeters assessment band" value={
                     scan.rating
                       ? <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${(RISK_CFG[scan.rating] || RISK_CFG.unknown).pill}`}>
                           {(RISK_CFG[scan.rating] || RISK_CFG.unknown).label}

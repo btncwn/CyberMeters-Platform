@@ -254,6 +254,9 @@ eq("snapshot persists canonical CT signal_unavailable",
 eq("snapshot freezes Attack Surface evidence_insufficient",
   byKey(snapshot.domains, "attack_surface").state,
   CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT);
+eq("CT blackout lowers Attack Surface Evidence Grade to L0",
+  byKey(snapshot.domains, "attack_surface").evidence_grade?.grade,
+  "L0");
 eq("snapshot assessment completeness is coverage-capped",
   snapshot.overall.assessment.quality, "degraded");
 ok("snapshot assessment message states degraded evidence",
@@ -278,6 +281,8 @@ ok("overall summary cannot hide the low-coverage domain",
       entry.domain_key === "attack_surface" &&
       entry.state === "evidence_insufficient"
   ));
+eq("overall eight-domain Evidence Grade is capped by the CT-insufficient domain",
+  snapshot.overall.evidence_grade?.grade, "L0");
 
 const read = {
   status: "ok",
@@ -334,9 +339,13 @@ ok("PDF path renders the canonical CT coverage limitation",
 ok("PDF labels the score provisional and BRI non-authoritative",
   pdfText.includes("Provisional Score") &&
   pdfText.includes("Business Risk Indicator: NOT AUTHORITATIVE"));
-ok("PDF never renders a healthy/high security rating",
-  !pdfText.includes("Security rating: excellent") &&
-  !pdfText.includes("Security rating: Excellent"));
+ok("PDF renders the canonical low-confidence basis before the provisional number",
+  pdfText.indexOf("Evidence confidence: Low") >= 0 &&
+  pdfText.indexOf("Evidence confidence: Low") < pdfText.indexOf("96 / 100"));
+ok("PDF never renders a healthy/high CyberMeters assessment band",
+  !pdfText.includes("CyberMeters assessment band: excellent") &&
+  !pdfText.includes("CyberMeters assessment band: Excellent") &&
+  !/Security rating:/i.test(pdfText));
 
 // The mutation deletes the one generic domain signal gate. The original false-
 // healthy fixture then returns immediately, so this validator must turn RED.

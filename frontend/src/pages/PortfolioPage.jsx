@@ -187,7 +187,7 @@ function WorkspaceTable({ rows, loading, error, onRetry }) {
               <th className="text-center">Domains</th>
               <th className="text-center">Assets</th>
               <th className="text-center">Score</th>
-              <th className="text-center">Security Rating</th>
+              <th className="text-center">CyberMeters assessment band</th>
               <th className="text-center">Critical</th>
               <th className="text-center">High</th>
               <th className="text-left">Last Scan</th>

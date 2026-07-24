@@ -1,5 +1,5 @@
 import CyberMotDomains from './CyberMotDomains'
-import { Minus, CheckCircle, Target, FileText, Lock, Eye } from 'lucide-react'
+import { Minus, CheckCircle, Target, FileText, Lock, Eye, Info } from 'lucide-react'
 import { bandMeta } from '../lib/score-presentation'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -44,6 +44,32 @@ function fmtDate(str) {
   return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 }
 
+const EVIDENCE_CONFIDENCE = {
+  L0: 'Low',
+  L1: 'Low',
+  L2: 'Medium',
+  L3: 'High',
+  L4: 'High',
+  L5: 'High',
+}
+
+function EvidenceConfidence({ assertion, className = '' }) {
+  if (!assertion?.grade) return null
+  const confidence = EVIDENCE_CONFIDENCE[assertion.grade] || 'Low'
+  const limits = assertion.limits?.length
+    ? assertion.limits.join(' ')
+    : 'No additional limit was recorded.'
+  return (
+    <div className={`rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 ${className}`}>
+      <p className="text-[11px] leading-relaxed text-slate-600">
+        <span className="font-semibold text-slate-800">Evidence confidence: {confidence}</span>
+        {' · '}Basis: {assertion.basis}
+        {' · '}Limits: {limits}
+      </p>
+    </div>
+  )
+}
+
 function ScoreRing({ score, rating, size = 132 }) {
   const r = (size / 2) - 10
   const circ = 2 * Math.PI * r
@@ -72,6 +98,7 @@ function ScoreRing({ score, rating, size = 132 }) {
       <span className={`text-xs font-bold px-3 py-1 rounded-full border mt-2 ${cfg.pill}`}>
         {cfg.label}
       </span>
+      <span className="mt-1 text-[10px] font-semibold text-gray-400">CyberMeters assessment band</span>
     </div>
   )
 }
@@ -166,6 +193,26 @@ function SectionCard({ icon: Icon, title, count, children }) {
 
 export default function ExecutiveReportV2({ report }) {
   if (!report) return null
+  if (report.report_availability?.status === 'historical_scan_no_canonical_snapshot') {
+    return (
+      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6" role="status">
+        <div className="flex items-start gap-3">
+          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-white text-slate-500 shadow-sm">
+            <Info className="h-4 w-4" />
+          </div>
+          <div>
+            <h2 className="text-sm font-bold text-slate-900">Historical scan report</h2>
+            <p className="mt-1 text-sm leading-relaxed text-slate-600">
+              {report.report_availability.message}
+            </p>
+            <p className="mt-2 text-xs text-slate-400">
+              The original scan record remains available; this is a reporting-format boundary, not data loss.
+            </p>
+          </div>
+        </div>
+      </div>
+    )
+  }
   const cms = report.cyber_metrics_score || {}
   const bri = report.business_risk_indicator || {}
   const summary = report.executive_summary || {}
@@ -190,11 +237,13 @@ export default function ExecutiveReportV2({ report }) {
               </p>
             )}
             {cms.message && <p className="text-xs text-amber-600 mt-2">{cms.message}</p>}
+            <EvidenceConfidence assertion={cms.evidence_grade} className="mt-3 max-w-xl" />
           </div>
           <div className="flex items-center gap-8">
             <ScoreRing score={cms.value} rating={cms.rating} />
             <div className="max-w-xs">
               <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-1">Business Risk Indicator</p>
+              <EvidenceConfidence assertion={bri.evidence_grade} className="mb-2" />
               {bri.band
                 ? <span className={`text-xs font-bold px-3 py-1 rounded-full border ${BRI_PILL[bri.band] || 'bg-gray-100 text-gray-500 border-gray-200'}`}>{String(bri.band).toUpperCase()}</span>
                 : <span className="text-xs text-gray-400">Not available</span>}
@@ -202,7 +251,12 @@ export default function ExecutiveReportV2({ report }) {
             </div>
           </div>
         </div>
-        {summary.summary && <p className="text-sm text-gray-600 mt-4 leading-relaxed">{summary.summary}</p>}
+        {summary.summary && (
+          <div className="mt-4">
+            <EvidenceConfidence assertion={summary.evidence_grade} className="mb-2" />
+            <p className="text-sm text-gray-600 leading-relaxed">{summary.summary}</p>
+          </div>
+        )}
       </div>
 
       {/* Eight canonical domains — backend-owned states, rendered verbatim */}

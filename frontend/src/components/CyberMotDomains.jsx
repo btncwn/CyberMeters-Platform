@@ -28,18 +28,45 @@ const TONE = {
   gray:  'bg-gray-50 text-gray-600 border-gray-200',
 }
 
+const EVIDENCE_CONFIDENCE = {
+  L0: 'Low',
+  L1: 'Low',
+  L2: 'Medium',
+  L3: 'High',
+  L4: 'High',
+  L5: 'High',
+}
+
+function EvidenceConfidenceLine({ assertion }) {
+  if (!assertion?.grade) return null
+  const limits = assertion.limits?.length
+    ? assertion.limits.join(' ')
+    : 'No additional limit was recorded.'
+  return (
+    <div className="mt-1 rounded-lg border border-slate-100 bg-slate-50 px-2.5 py-1.5 text-[11px] leading-relaxed text-slate-500">
+      <span className="font-semibold text-slate-700">
+        Evidence confidence: {EVIDENCE_CONFIDENCE[assertion.grade] || 'Low'}
+      </span>
+      {' · '}Basis: {assertion.basis}
+      {' · '}Limits: {limits}
+    </div>
+  )
+}
+
 function DomainRow({ d }) {
   const meta = STATE_META[d.state] || { label: d.state || 'unknown', tone: 'gray' }
+  const conclusionLabel = d.conclusion_label || meta.label
   const provisional = d.coverage && d.coverage !== 'complete' && d.state === 'issue_detected'
   return (
     <div className="flex items-start justify-between gap-3 py-2.5 border-b border-gray-100 last:border-0">
       <div className="min-w-0">
         <div className="text-sm font-semibold text-gray-900">{d.display_name}</div>
+        <EvidenceConfidenceLine assertion={d.evidence_grade} />
         <div className="text-xs text-gray-500 mt-0.5 leading-relaxed">{d.summary || d.description}</div>
       </div>
       <div className="flex-shrink-0 text-right">
         <span className={`inline-block text-[11px] font-medium px-2 py-0.5 rounded-md border ${TONE[meta.tone]}`}>
-          {meta.label}{provisional ? ' · provisional' : ''}
+          {conclusionLabel}{provisional ? ' · provisional' : ''}
         </span>
         {typeof d.finding_count === 'number' && d.finding_count > 0 && (
           <div className="text-[11px] text-gray-400 mt-1">{d.finding_count} finding{d.finding_count === 1 ? '' : 's'}</div>
