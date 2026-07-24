@@ -649,6 +649,9 @@ jobs:
       - name: Validate email parser hardening (Gate 4 structural memory + audited exits)
         run: node scripts/validate-email-parser-hardening.js
 
+      - name: Validate Gate 5 cutover preparation (offline preflight + ordered rollback-safe runbook)
+        run: node scripts/validate-gate5-cutover-prep.js
+
       - name: Validate email worker deploy traceability (closure stamp + pinned tooling)
         run: node scripts/validate-email-worker-deploy-traceability.js
 

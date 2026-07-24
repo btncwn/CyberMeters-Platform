@@ -48,6 +48,14 @@ const RUA_DEFAULT_CAPS = {
   ratioMax: RUA_MAX_COMPRESSION_RATIO,
 };
 
+function _limitExceeded(reason, name, observed, maximum) {
+  const error = new Error(reason);
+  error.limit_name = name;
+  error.observed = observed;
+  error.maximum = maximum;
+  return error;
+}
+
 // Opaque, non-guessable inbound localpart. Deliberately contains NO workspace id
 // or domain — knowledge of the address must not leak tenancy.
 
@@ -106,8 +114,16 @@ function _base64ToBytes(
   end = typeof input === "string" ? input.length : 0,
 ) {
   if (typeof input !== "string" || start < 0 || end < start ||
-      end > input.length || end - start > maxEncodedBytes) {
+      end > input.length) {
     throw new Error("attachment_too_large");
+  }
+  if (end - start > maxEncodedBytes) {
+    throw _limitExceeded(
+      "attachment_too_large",
+      "encoded_attachment_bytes",
+      end - start,
+      maxEncodedBytes,
+    );
   }
   let encodedChars = 0;
   let padding = 0;
@@ -127,7 +143,14 @@ function _base64ToBytes(
   if (!encodedChars || encodedChars % 4 === 1) throw new Error("invalid_base64");
   const decodedLength = Math.floor((encodedChars * 3) / 4) - padding;
   if (decodedLength < 0) throw new Error("invalid_base64");
-  if (decodedLength > maxDecodedBytes) throw new Error("attachment_too_large");
+  if (decodedLength > maxDecodedBytes) {
+    throw _limitExceeded(
+      "attachment_too_large",
+      "transfer_decoded_attachment_bytes",
+      decodedLength,
+      maxDecodedBytes,
+    );
+  }
 
   const out = new Uint8Array(decodedLength);
   let encodedChunk = "";
@@ -405,7 +428,12 @@ function _newMimeState() {
 
 function _parseMimeEntity(headerText, rawBody, bodyStart, bodyEnd, state) {
   if (headerText.length > RUA_MIME_HEADER_MAX_BYTES) {
-    throw new Error("header_too_large");
+    throw _limitExceeded(
+      "header_too_large",
+      "mime_header_bytes",
+      headerText.length,
+      RUA_MIME_HEADER_MAX_BYTES,
+    );
   }
 
   const headers = _parseMimeHeaders(headerText);
@@ -442,7 +470,12 @@ function _parseMimeEntity(headerText, rawBody, bodyStart, bodyEnd, state) {
   let bytes;
   if (encoding === "base64") {
     if (leafLength > RUA_ENCODED_ATTACHMENT_MAX_BYTES) {
-      throw new Error("attachment_too_large");
+      throw _limitExceeded(
+        "attachment_too_large",
+        "encoded_attachment_bytes",
+        leafLength,
+        RUA_ENCODED_ATTACHMENT_MAX_BYTES,
+      );
     }
     bytes = _base64ToBytes(
       rawBody,
@@ -452,19 +485,41 @@ function _parseMimeEntity(headerText, rawBody, bodyStart, bodyEnd, state) {
       leafEnd,
     );
   } else if (["7bit", "8bit", "binary"].includes(encoding)) {
-    if (leafLength > RUA_ATTACHMENT_MAX_BYTES) throw new Error("attachment_too_large");
+    if (leafLength > RUA_ATTACHMENT_MAX_BYTES) {
+      throw _limitExceeded(
+        "attachment_too_large",
+        "transfer_decoded_attachment_bytes",
+        leafLength,
+        RUA_ATTACHMENT_MAX_BYTES,
+      );
+    }
     bytes = _latin1ToBytes(rawBody, bodyStart, leafEnd);
   } else {
     throw new Error("unsupported_transfer_encoding");
   }
   state.candidateKind = candidateKind;
-  state.parts.push({ contentType, encoding, filename, bytes });
+  // Safe envelope diagnostics for the offline Gate 5 preflight. These counts
+  // describe only the selected attachment body; no header or body content is
+  // retained beyond the existing bounded parser state.
+  state.parts.push({
+    contentType,
+    encoding,
+    filename,
+    bytes,
+    encoded_size: leafLength,
+    transfer_decoded_size: bytes.length,
+  });
 }
 
 function _parseMimeEntityString(rawLatin1, state, end = rawLatin1.length) {
   if (typeof rawLatin1 !== "string") throw new Error("invalid_mime");
   if (end > RUA_MIME_ENTITY_MAX_BYTES) {
-    throw new Error("attachment_too_large");
+    throw _limitExceeded(
+      "attachment_too_large",
+      "mime_entity_bytes",
+      end,
+      RUA_MIME_ENTITY_MAX_BYTES,
+    );
   }
   const separator = _headerBoundary(rawLatin1, end);
   if (!separator) throw new Error("truncated_mime");
@@ -495,7 +550,12 @@ class StreamingMultipartParser {
   beginPart() {
     this.state.entityCount += 1;
     if (this.state.entityCount > RUA_MAX_MIME_PARTS) {
-      throw new Error("mime_complexity_exceeded");
+      throw _limitExceeded(
+        "mime_complexity_exceeded",
+        "mime_parts",
+        this.state.entityCount,
+        RUA_MAX_MIME_PARTS,
+      );
     }
     this.partHeaderComplete = false;
   }
@@ -505,15 +565,34 @@ class StreamingMultipartParser {
     if (this.started && !this.partHeaderComplete &&
         this.buffer.length + text.length > RUA_MIME_HEADER_MAX_BYTES + 4) {
       const allowed = RUA_MIME_HEADER_MAX_BYTES + 4 - this.buffer.length;
-      if (allowed <= 0) throw new Error("header_too_large");
+      if (allowed <= 0) {
+        throw _limitExceeded(
+          "header_too_large",
+          "mime_header_bytes",
+          this.buffer.length + text.length,
+          RUA_MIME_HEADER_MAX_BYTES,
+        );
+      }
       this.push(text.slice(0, allowed));
-      if (!this.partHeaderComplete) throw new Error("header_too_large");
+      if (!this.partHeaderComplete) {
+        throw _limitExceeded(
+          "header_too_large",
+          "mime_header_bytes",
+          this.buffer.length,
+          RUA_MIME_HEADER_MAX_BYTES,
+        );
+      }
       this.push(text.slice(allowed));
       return;
     }
     if (text.length > RUA_STREAM_CONVERSION_CHUNK_BYTES ||
         this.buffer.length + text.length > RUA_MIME_BUFFER_MAX_BYTES) {
-      throw new Error("attachment_too_large");
+      throw _limitExceeded(
+        "attachment_too_large",
+        "retained_mime_buffer_bytes",
+        this.buffer.length + text.length,
+        RUA_MIME_BUFFER_MAX_BYTES,
+      );
     }
     this.buffer += text;
     this.state.maxBufferedBytes = Math.max(
@@ -523,7 +602,14 @@ class StreamingMultipartParser {
     if (this.started && !this.partHeaderComplete) {
       const header = _headerBoundary(this.buffer);
       if (header) {
-        if (header.index > RUA_MIME_HEADER_MAX_BYTES) throw new Error("header_too_large");
+        if (header.index > RUA_MIME_HEADER_MAX_BYTES) {
+          throw _limitExceeded(
+            "header_too_large",
+            "mime_header_bytes",
+            header.index,
+            RUA_MIME_HEADER_MAX_BYTES,
+          );
+        }
         this.partHeaderComplete = true;
       }
     }
@@ -532,7 +618,12 @@ class StreamingMultipartParser {
       if (boundaryIndex < 0) {
         this.searchFrom = Math.max(0, this.buffer.length - this.marker.length - 4);
         if (this.started && this.buffer.length > RUA_MIME_ENTITY_MAX_BYTES) {
-          throw new Error("attachment_too_large");
+          throw _limitExceeded(
+            "attachment_too_large",
+            "mime_entity_bytes",
+            this.buffer.length,
+            RUA_MIME_ENTITY_MAX_BYTES,
+          );
         }
         if (!this.started && this.buffer.length > this.marker.length + 8) {
           // Preamble is not evidence. Retain only enough tail to match a marker
@@ -599,7 +690,14 @@ async function parseMimeMessageStream(stream, maxBytes = RUA_RAW_EMAIL_MAX_BYTES
       if (done) break;
       if (!(value instanceof Uint8Array)) throw new Error("invalid_mime");
       state.totalBytes += value.byteLength;
-      if (state.totalBytes > maxBytes) throw new Error("email_too_large");
+      if (state.totalBytes > maxBytes) {
+        throw _limitExceeded(
+          "email_too_large",
+          "raw_email_bytes",
+          state.totalBytes,
+          maxBytes,
+        );
+      }
       for (let offset = 0; offset < value.byteLength;
         offset += RUA_STREAM_CONVERSION_CHUNK_BYTES) {
         const text = _bytesToLatin1(value.subarray(
@@ -609,7 +707,12 @@ async function parseMimeMessageStream(stream, maxBytes = RUA_RAW_EMAIL_MAX_BYTES
 
         if (rootHeaderText == null) {
           if (rootHeaderBuffer.length + text.length > RUA_MIME_HEADER_MAX_BYTES) {
-            throw new Error("header_too_large");
+            throw _limitExceeded(
+              "header_too_large",
+              "mime_header_bytes",
+              rootHeaderBuffer.length + text.length,
+              RUA_MIME_HEADER_MAX_BYTES,
+            );
           }
           rootHeaderBuffer += text;
           const separator = _headerBoundary(rootHeaderBuffer);
@@ -633,7 +736,12 @@ async function parseMimeMessageStream(stream, maxBytes = RUA_RAW_EMAIL_MAX_BYTES
         if (multipart) multipart.push(text);
         else {
           if (leafBody.length + text.length > RUA_MIME_ENTITY_MAX_BYTES) {
-            throw new Error("attachment_too_large");
+            throw _limitExceeded(
+              "attachment_too_large",
+              "mime_entity_bytes",
+              leafBody.length + text.length,
+              RUA_MIME_ENTITY_MAX_BYTES,
+            );
           }
           leafBody += text;
           state.maxBufferedBytes = Math.max(state.maxBufferedBytes, leafBody.length);
@@ -849,9 +957,9 @@ function deriveInboundReportProvenance(rawLatin1, message, boundDomain) {
 // stores raw payloads. Permanent invalid mail has a required append-only audit;
 // if neither a terminal nor transient audit can be persisted, the invocation
 // throws rather than reporting silent success.
-// Operator routing: private beta may use exact per-address routes; public beta
-// should send *@reports.cybermeters.com to this Worker. D1 address_local lookup
-// authorizes known recipients, and unknown localparts are safely dropped.
+// Operator routing: only exact per-address Email Routing rules may target this
+// Worker. Never enable catch-all routing. D1 address_local lookup is a second
+// recipient gate, not permission to broaden the Cloudflare routing boundary.
 export async function handleInboundEmail(message, env, _ctx, deps = {}) {
   if (typeof deps.consumeApiRateLimit !== "function" ||
       typeof deps.rateLimitScopeId !== "function") {
@@ -1010,6 +1118,10 @@ export async function handleInboundEmail(message, env, _ctx, deps = {}) {
           domain: endpoint.domain, recipient_localpart: localpart, source: "inbound_email",
           attachment_type: tlsExt.attachment_type, compressed_size: tlsExt.compressed_size,
           decompressed_size: tlsExt.decompressed_size, sessions: tlsResult.sessions, failures: tlsResult.failures,
+          raw_email_size: parsedMessage.stats.total_bytes,
+          encoded_attachment_size: tlsSel.part.encoded_size,
+          mime_part_count: parsedMessage.stats.entity_count,
+          nested_multipart: false,
           auth_verdict: provenance.auth_verdict, reporter_domain: provenance.reporter_domain,
         },
       }).catch(() => {});
@@ -1058,6 +1170,10 @@ export async function handleInboundEmail(message, env, _ctx, deps = {}) {
         attachment_type: ext.attachment_type,
         compressed_size: ext.compressed_size,
         decompressed_size: ext.decompressed_size,
+        raw_email_size: parsedMessage.stats.total_bytes,
+        encoded_attachment_size: sel.part.encoded_size,
+        mime_part_count: parsedMessage.stats.entity_count,
+        nested_multipart: false,
         message_count: result.messages,
         record_count: result.records,
         // Sender transport status is a claimed identity label, not authority.
@@ -1118,6 +1234,7 @@ export {
   extractEmailDomainFromHeader,
   extractInboundLocalpart,
   extractSingleFromDomain,
+  extractTlsRptFromAttachment,
   gunzipXmlBytes,
   isKnownDmarcReporter,
   normalizeInboundDropReason,
