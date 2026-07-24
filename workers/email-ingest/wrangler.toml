@@ -30,7 +30,7 @@ dataset = "cybermeters_metrics"
 [vars]
 # Closure-derived release stamp. CI requires the suffix to match
 # deploy-manifest.json, so a stale shared-source bundle is visible at /health.
-APP_VERSION = "2026.07.24-item5-ct.85f0fefdf9dc"
+APP_VERSION = "2026.07.24-item6-evidence.3c5667899baf"
 # Tags this worker's metric datapoints (trailing blob — additive, see lib/metrics.js).
 WORKER_NAME = "email-ingest"
 RUA_INBOUND_DOMAIN = "reports.cybermeters.com"
