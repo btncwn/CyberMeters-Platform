@@ -247,17 +247,21 @@ async function main() {
      pdfRes.text.includes("it is not a certification") && (v2Res.data.limitations?.length ?? 0) >= 3);
   // Evidence-Grade Law pilot: formal grade/source/provenance/methodology details
   // belong in the technical appendix, not in the human conclusion blocks.
+  const appendixIndex = pdfRes.text.indexOf("Technical Appendix - Evidence Grade & Provenance");
+  const customerBody = appendixIndex >= 0 ? pdfRes.text.slice(0, appendixIndex) : pdfRes.text;
+  const technicalAppendix = appendixIndex >= 0 ? pdfRes.text.slice(appendixIndex) : "";
   ok("assessed_at rendered; formal grade, provenance and methodology versions live in the technical appendix",
      pdfRes.text.includes("Assessed on 15 July 2026") &&
      v2Res.data.assessed_at === truth.snapshot.as_of &&
-     pdfRes.text.includes("Technical Appendix - Evidence Grade & Provenance") &&
-     pdfRes.text.includes(`Snapshot provenance: ${truth.snapshot.provenance}`) &&
+     appendixIndex >= 0 &&
+     pdfRes.text.includes("Snapshot provenance: Created when the scan completed") &&
      pdfRes.text.includes(truth.methodology.cyber_mot_resolver_version) &&
      v2Res.data.methodology?.cyber_mot_resolver_version === truth.methodology.cyber_mot_resolver_version);
   const appendixHumanLabels = [
     "Evidence source: CyberMeters product policy",
     "Repeated observation: No",
     "Grade legend",
+    "Evidence grades describe the strength of evidence, not the security level.",
     "L0-L1: limited or externally-unverified evidence",
     "L2: retained and reproducible",
     "L3+: complete effective-state with stronger provenance",
@@ -267,10 +271,23 @@ async function main() {
      !pdfRes.text.includes("source_type=") &&
      !pdfRes.text.includes("repeat_confirmed="),
      appendixHumanLabels.filter((text) => !pdfRes.text.includes(text)).join(", "));
-  const scoreBasisIndex = pdfRes.text.indexOf("Evidence confidence:");
+  ok("SMB-facing body uses Evidence strength, one explainer and no RFC-number citations",
+     (pdfRes.text.match(/Evidence strength:/g) || []).length === 9 &&
+     customerBody.includes("Evidence strength: Limited") &&
+     customerBody.includes("How to read this report") &&
+     customerBody.includes("it is NOT your security score") &&
+     !customerBody.includes("Evidence confidence:") &&
+     !/\bRFC\s+\d+\b/.test(customerBody) &&
+     /\bRFC\s+\d+\b/.test(technicalAppendix));
+  ok("each domain renders one Limits block and no duplicate Limitation row",
+     (domainSection.match(/Limits:/g) || []).length === 8 &&
+     !domainSection.includes("Limitation:"));
+  const scoreBasisIndex = pdfRes.text.indexOf("Score basis:");
   const scoreNumberIndex = pdfRes.text.indexOf(`${score} / 100`);
   ok("score explanation is rendered before the number",
-     scoreBasisIndex >= 0 && scoreNumberIndex > scoreBasisIndex);
+     pdfRes.text.indexOf("Evidence strength:") >= 0 &&
+     scoreBasisIndex > pdfRes.text.indexOf("Evidence strength:") &&
+     scoreNumberIndex > scoreBasisIndex);
   const cert = truth.domains.find((d) => d.domain_key === "certificates_trust");
   const ce = truth.domains.find((d) => d.domain_key === "cyber_essentials_readiness");
   ok("certificate conclusion is CT-bounded and never claims live-certificate verification",
@@ -532,14 +549,38 @@ async function main() {
       {
         name: "limitations dropped from the PDF",
         file: srcPath("engines", "pdf.js"),
-        from: "  for (const l of snap.limitations || []) w.proseKeep(`- ${l}`, { size: 8, color: \"0.35 0.38 0.44\" });",
+        from: "  for (const l of snap.limitations || []) w.proseKeep(`- ${customerBodyText(l)}`, { size: 8, color: \"0.35 0.38 0.44\" });",
         to:   "  ;",
       },
       {
         name: "score number rendered before its evidence basis",
         file: srcPath("engines", "pdf.js"),
-        from: "  evidenceConfidenceBlock(w, o.assessment_evidence_grade);",
+        from: "  evidenceBasisLine(w, \"Score basis\", o.assessment_evidence_grade);",
         to:   "  ;",
+      },
+      {
+        name: "Limited evidence is relabelled as Low confidence",
+        file: srcPath("engines", "pdf.js"),
+        from: "  L0: \"Limited\",\n  L1: \"Limited\",",
+        to:   "  L0: \"Low\",\n  L1: \"Low\",",
+      },
+      {
+        name: "How-to-read evidence-strength explainer is dropped",
+        file: srcPath("engines", "pdf.js"),
+        from: "  w.callout(\"How to read this report\", HOW_TO_READ_REPORT);",
+        to:   "  ;",
+      },
+      {
+        name: "RFC-number citations leak back into the SMB-facing body",
+        file: srcPath("engines", "pdf.js"),
+        from: "    ? (customerBodyText(assertion.basis) || \"No basis recorded.\")",
+        to:   "    ? (String(assertion.basis) || \"No basis recorded.\")",
+      },
+      {
+        name: "domain limitations are duplicated below their Evidence-strength block",
+        file: srcPath("engines", "pdf.js"),
+        from: "    // The canonical limitations are already included once in the domain's\n    // Evidence-strength block. Do not repeat them as separate \"Limitation:\" rows.",
+        to:   "    for (const l of d.limitations || []) w.proseKeep(`Limitation: ${customerBodyText(l)}`, { size: 8, indent: 10, color: \"0.35 0.38 0.44\" });",
       },
       {
         name: "product-policy band relabelled as Security rating",

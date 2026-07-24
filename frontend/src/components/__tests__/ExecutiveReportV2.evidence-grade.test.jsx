@@ -1,12 +1,13 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import ExecutiveReportV2 from '../ExecutiveReportV2'
+import { CYBER_MOT_DISPLAY_ORDER } from '../../lib/cyberMotDisplay'
 
 const evidence = {
   grade: 'L1',
   source_type: 'product_policy',
-  basis: 'CyberMeters product-policy assessment over frozen scan evidence.',
-  limits: ['External observation only.'],
+  basis: 'CyberMeters product-policy assessment over frozen RFC 7208 scan evidence.',
+  limits: ['External RFC 7208 observation only.'],
   repeat_confirmed: false,
 }
 
@@ -33,7 +34,7 @@ describe('ExecutiveReportV2 Evidence-Grade pilot', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
-  it('shows evidence basis before the score and labels the product-policy band honestly', () => {
+  it('explains evidence strength once, keeps bases before conclusions, and labels the band honestly', () => {
     const { container } = render(
       <ExecutiveReportV2
         report={{
@@ -54,7 +55,14 @@ describe('ExecutiveReportV2 Evidence-Grade pilot', () => {
             evidence_grade: { ...evidence, grade: 'L0' },
             priority_actions: [],
           },
-          cyber_mot_domains: [],
+          cyber_mot_domains: CYBER_MOT_DISPLAY_ORDER.map((domain) => ({
+            ...domain,
+            state: 'evidence_insufficient',
+            coverage: 'partial',
+            summary: 'Further evidence is required.',
+            finding_count: 0,
+            evidence_grade: evidence,
+          })),
           observed_findings: [],
           observations: [],
           remediation_actions: [],
@@ -64,7 +72,17 @@ describe('ExecutiveReportV2 Evidence-Grade pilot', () => {
     )
 
     const text = container.textContent
-    expect(text.indexOf('Evidence confidence: Low')).toBeLessThan(text.indexOf('85'))
+    expect(screen.getByText('How to read this report')).toBeInTheDocument()
+    expect(screen.getByText(/Evidence strength shows how strongly/)).toHaveTextContent(
+      'A domain we could not fully assess is shown as evidence-insufficient, not as low-risk.'
+    )
+    expect(text.indexOf('Evidence strength: Limited')).toBeLessThan(text.indexOf('85'))
+    expect(screen.getAllByText('Evidence strength: Limited')).toHaveLength(9)
+    expect(text.indexOf('Score basis:')).toBeLessThan(text.indexOf('85'))
+    expect(text).toContain('Business Risk Indicator basis:')
+    expect(text).toContain('Eight-domain summary basis:')
+    expect(text).not.toContain('Evidence confidence:')
+    expect(text).not.toContain('RFC 7208')
     expect(screen.getByText('CyberMeters assessment band')).toBeInTheDocument()
     expect(screen.queryByText(/Security Rating/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/\bL[0-5]\b/)).not.toBeInTheDocument()

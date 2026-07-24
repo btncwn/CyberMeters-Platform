@@ -339,9 +339,11 @@ ok("PDF path renders the canonical CT coverage limitation",
 ok("PDF labels the score provisional and BRI non-authoritative",
   pdfText.includes("Provisional Score") &&
   pdfText.includes("Business Risk Indicator: NOT AUTHORITATIVE"));
-ok("PDF renders the canonical low-confidence basis before the provisional number",
-  pdfText.indexOf("Evidence confidence: Low") >= 0 &&
-  pdfText.indexOf("Evidence confidence: Low") < pdfText.indexOf("96 / 100"));
+ok("PDF renders the canonical Limited-strength basis before the provisional number",
+  pdfText.indexOf("Evidence strength: Limited") >= 0 &&
+  pdfText.indexOf("Score basis:") > pdfText.indexOf("Evidence strength: Limited") &&
+  pdfText.indexOf("Score basis:") < pdfText.indexOf("96 / 100") &&
+  !pdfText.includes("Evidence confidence: Low"));
 ok("PDF never renders a healthy/high CyberMeters assessment band",
   !pdfText.includes("CyberMeters assessment band: excellent") &&
   !pdfText.includes("CyberMeters assessment band: Excellent") &&
