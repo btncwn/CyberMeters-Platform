@@ -179,11 +179,14 @@ const cleanComplete = () => ({
   // PARTIAL answers (has_answers but not complete) → customer_input_required, never healthy.
   const rPartial = resolveCyberMotDomainStates(cleanComplete(), { cyberEssentials: { has_answers: true, complete: false, status: "likely_ready", top_gaps: [] } });
   ok("16: CE with PARTIAL answers → customer_input_required (never healthy)", byKey(rPartial, "cyber_essentials_readiness").state === CYBER_MOT_STATES.CUSTOMER_INPUT_REQUIRED);
-  // COMPLETE questionnaire + gaps → issue_detected; complete + ready → healthy.
+  // COMPLETE questionnaire + gaps → issue_detected; a favourable 2-of-5
+  // external indicator still leaves the full five-control domain insufficient.
   const r2 = resolveCyberMotDomainStates(cleanComplete(), { cyberEssentials: { has_answers: true, complete: true, status: "not_ready", top_gaps: [{},{}] } });
   ok("16: CE complete + gaps → issue_detected", byKey(r2, "cyber_essentials_readiness").state === CYBER_MOT_STATES.ISSUE_DETECTED);
   const r3 = resolveCyberMotDomainStates(cleanComplete(), { cyberEssentials: { has_answers: true, complete: true, status: "likely_ready", top_gaps: [] } });
-  ok("16: CE complete + ready → assessed_healthy", byKey(r3, "cyber_essentials_readiness").state === CYBER_MOT_STATES.ASSESSED_HEALTHY);
+  ok("16: CE complete + favourable 2-of-5 indicator → evidence_insufficient",
+    byKey(r3, "cyber_essentials_readiness").state === CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT &&
+    byKey(r3, "cyber_essentials_readiness").coverage === "partial");
 }
 
 // 17. Website Security — no web evidence does not produce healthy.
