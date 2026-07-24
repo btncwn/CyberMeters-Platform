@@ -251,10 +251,22 @@ async function main() {
      pdfRes.text.includes("Assessed on 15 July 2026") &&
      v2Res.data.assessed_at === truth.snapshot.as_of &&
      pdfRes.text.includes("Technical Appendix - Evidence Grade & Provenance") &&
-     pdfRes.text.includes("source_type=product_policy") &&
      pdfRes.text.includes(`Snapshot provenance: ${truth.snapshot.provenance}`) &&
      pdfRes.text.includes(truth.methodology.cyber_mot_resolver_version) &&
      v2Res.data.methodology?.cyber_mot_resolver_version === truth.methodology.cyber_mot_resolver_version);
+  const appendixHumanLabels = [
+    "Evidence source: CyberMeters product policy",
+    "Repeated observation: No",
+    "Grade legend",
+    "L0-L1: limited or externally-unverified evidence",
+    "L2: retained and reproducible",
+    "L3+: complete effective-state with stronger provenance",
+  ];
+  ok("technical appendix uses customer-facing labels and a grade legend",
+     appendixHumanLabels.every((text) => pdfRes.text.includes(text)) &&
+     !pdfRes.text.includes("source_type=") &&
+     !pdfRes.text.includes("repeat_confirmed="),
+     appendixHumanLabels.filter((text) => !pdfRes.text.includes(text)).join(", "));
   const scoreBasisIndex = pdfRes.text.indexOf("Evidence confidence:");
   const scoreNumberIndex = pdfRes.text.indexOf(`${score} / 100`);
   ok("score explanation is rendered before the number",

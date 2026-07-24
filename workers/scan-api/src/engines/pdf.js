@@ -561,21 +561,32 @@ function sectionMethodology(w, snap) {
   for (const l of snap.limitations || []) w.proseKeep(`- ${l}`, { size: 8, color: "0.35 0.38 0.44" });
 }
 
+const EVIDENCE_SOURCE_LABELS = Object.freeze({
+  normative_protocol: "Normative protocol",
+  configuration_baseline: "Configuration baseline",
+  assurance_scheme: "Assurance scheme",
+  management_framework: "Management framework",
+  customer_attestation: "Customer attestation",
+  product_policy: "CyberMeters product policy",
+});
+
 function appendixEvidenceAssertion(w, label, assertion) {
   if (!assertion?.grade) return;
   const limits = Array.isArray(assertion.limits) ? assertion.limits : [];
   const limitsText = limits.join(" ");
+  const sourceLabel = EVIDENCE_SOURCE_LABELS[assertion.source_type] || "Not recorded";
   // Keep each appendix assertion together when it can fit on one page. The
   // estimate deliberately errs high: an assertion heading must never be
   // orphaned at the footer with its basis beginning on the next page.
   const estimatedHeight =
-    12 +
+    23 +
     (Math.max(1, Math.ceil(String(assertion.basis || "").length / 80)) * 11) +
     (limitsText ? Math.max(1, Math.ceil(limitsText.length / 80)) * 11 : 0);
   w.keepTogether(estimatedHeight);
+  w.text(`${label}: ${assertion.grade}`, { size: 8, bold: true });
   w.text(
-    `${label}: ${assertion.grade} · source_type=${assertion.source_type || "product_policy"} · repeat_confirmed=${assertion.repeat_confirmed === true ? "true" : "false"}`,
-    { size: 8, bold: true }
+    `Evidence source: ${sourceLabel} · Repeated observation: ${assertion.repeat_confirmed === true ? "Yes" : "No"}`,
+    { size: 7, indent: 10, color: "0.35 0.38 0.44" }
   );
   w.proseKeep(`Basis: ${assertion.basis || "No basis recorded."}`, {
     size: 7,
@@ -596,6 +607,10 @@ function sectionEvidenceGradeAppendix(w, snap) {
   const methodology = snap.methodology || {};
   const overall = snap.overall || {};
   w.heading("Technical Appendix - Evidence Grade & Provenance");
+  w.text("Grade legend", { size: 8, bold: true });
+  w.text("L0-L1: limited or externally-unverified evidence", { size: 7, indent: 10, color: "0.35 0.38 0.44" });
+  w.text("L2: retained and reproducible", { size: 7, indent: 10, color: "0.35 0.38 0.44" });
+  w.text("L3+: complete effective-state with stronger provenance", { size: 7, indent: 10, color: "0.35 0.38 0.44" });
   w.text(`Snapshot provenance: ${s.provenance || "not recorded"}`, { size: 8, bold: true });
   w.text(`Snapshot ID: ${s.snapshot_id || "not recorded"}`, { size: 8 });
   w.text("Methodology versions", { size: 9, bold: true });
