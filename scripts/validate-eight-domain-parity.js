@@ -67,11 +67,13 @@ const cleanComplete = () => ({
     byKey(r, "cyber_essentials_readiness").state === CYBER_MOT_STATES.CUSTOMER_INPUT_REQUIRED);
 }
 
-// A2. Workspace with a COMPLETE questionnaire → the readiness verdict (ready→healthy, gaps→issue).
+// A2. Workspace with a COMPLETE questionnaire → gaps remain issues; a
+// favourable 2-of-5 external indicator cannot make the full domain healthy.
 {
   const ready = resolveCyberMotDomainStates(cleanComplete(), { cyberEssentials: { has_answers: true, complete: true, status: "likely_ready", top_gaps: [] } });
-  ok("A2: CE complete + likely_ready → assessed_healthy",
-    byKey(ready, "cyber_essentials_readiness").state === HEALTHY);
+  ok("A2: CE complete + favourable 2-of-5 indicator → evidence_insufficient",
+    byKey(ready, "cyber_essentials_readiness").state === CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT &&
+    byKey(ready, "cyber_essentials_readiness").coverage === "partial");
   const gaps = resolveCyberMotDomainStates(cleanComplete(), { cyberEssentials: { has_answers: true, complete: true, status: "not_ready", top_gaps: [{}, {}] } });
   ok("A2: CE complete + not_ready + gaps → issue_detected",
     byKey(gaps, "cyber_essentials_readiness").state === CYBER_MOT_STATES.ISSUE_DETECTED &&

@@ -207,11 +207,13 @@ async function main() {
   // suite exists to avoid.
   // M5.d: the invented executive "strengths" copy is deleted with the legacy
   // PDF brain. The not-checked disclosure now travels as the Certificates &
-  // Trust domain's own limitation, frozen in the snapshot and rendered
-  // verbatim (pdf.js sectionDomains prints d.limitations).
+  // Trust domain's own limitation, frozen in the snapshot and rendered once
+  // through the domain Evidence-strength block.
   const pdfSrc = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "engines", "pdf.js"), "utf8");
-  ok("the PDF renders per-domain limitations verbatim (carrier of the not-checked disclosure)",
-    /d\.limitations/.test(pdfSrc) && /Limitation: /.test(pdfSrc));
+  ok("the PDF renders per-domain Evidence-strength limits without a duplicate Limitation row",
+    /domainEvidenceStrengthBlock/.test(pdfSrc) &&
+    /assertionLimits/.test(pdfSrc) &&
+    !/w\.proseKeep\(`Limitation:/.test(pdfSrc));
   ok("no PDF copy claims certificates are 'fully validated'",
     !/fully\s+(?:validated|verified)/i.test(pdfSrc));
   const domSrc = fs.readFileSync(path.join(root, "workers", "scan-api", "src", "engines", "cyber-mot-domains.js"), "utf8");

@@ -235,7 +235,9 @@ const cat = (r, k) => r.categories.find((c) => c.key === k);
   ok("the PDF renders the snapshot's external coverage statement", /external_coverage_statement/.test(pdf));
   ok("the PDF has NO per-control score rendering path",
     !/catAssessable|catScore|categories\[/.test(pdf) && !/\/ 100'\).*control/i.test(pdf));
-  ok("the PDF renders per-domain limitations verbatim from the snapshot", /d\.limitations/.test(pdf));
+  ok("the PDF carries legacy and current per-domain limitations through one Evidence-strength block",
+    /fallbackLimits:\s*d\.limitations/.test(pdf) &&
+    /assertionLimits/.test(pdf));
   ok("the PDF module never reads cyber_essentials_answers or builds readiness",
     !/cyber_essentials_answers|buildCyberEssentialsReadiness/.test(pdf));
 }

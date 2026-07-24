@@ -140,7 +140,7 @@ export default function WorkspaceScorecard() {
           )}
           {sc?.risk_rating && (
             <div className="card px-5 py-3 text-center">
-              <p className="label mb-1">Security Rating</p>
+              <p className="label mb-1">CyberMeters assessment band</p>
               <RatingBadge rating={sc.risk_rating} />
             </div>
           )}

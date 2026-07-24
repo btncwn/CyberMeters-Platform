@@ -24,6 +24,11 @@ const { composeSnapshot } = await import(pathToFileURL(path.join(root, "workers/
 let passed = 0, failed = 0;
 const ok = (n, c) => { c ? passed++ : (failed++, console.error("  ✗ " + n)); };
 const txt = (u8) => new TextDecoder().decode(u8);
+const assessmentDomainSection = (text) => {
+  const start = text.indexOf("Eight-Domain Cyber MOT");
+  const end = text.indexOf("Observed Findings", start);
+  return start >= 0 ? text.slice(start, end >= 0 ? end : undefined) : "";
+};
 
 function snapWith(findings = []) {
   return composeSnapshot({
@@ -42,10 +47,11 @@ const readOf = (snap) => ({ status: "ok", snapshot: snap, row: { id: "s1" }, int
     { id: "f2", finding_type: "observation", module: "attack_surface", title: "Two subdomains observed", description: "Informational.", severity: "info" },
   ]);
   const t = txt(buildScanReportPdf({ domain: "acme.co.uk" }, readOf(snap), { mode: "cybermeters", attribution: "full" }, null));
+  const domainText = assessmentDomainSection(t);
 
   const EIGHT = ["Email Protection", "Brand Protection", "Attack Surface", "Certificates & Trust", "Cyber Essentials Readiness", "Website Security", "Identity Exposure", "Shadow IT & Unmanaged Technology"];
-  ok("all eight domains appear in the Assessment PDF", EIGHT.every((d) => t.includes(d)));
-  ok("a domain with no evidence is still present (not omitted)", t.includes("Shadow IT & Unmanaged Technology"));
+  ok("all eight domains appear in the Assessment PDF", EIGHT.every((d) => domainText.includes(d)));
+  ok("a domain with no evidence is still present (not omitted)", domainText.includes("Shadow IT & Unmanaged Technology"));
   ok("per-domain finding renders with severity + explanation", t.includes("DMARC policy is p=none") && t.includes("[HIGH]"));
   ok("findings and observations are distinct (observation shown, not as a finding)", t.includes("Two subdomains observed"));
   ok("no fabricated finding text for an empty assessment", !txt(buildScanReportPdf({ domain: "x" }, readOf(snapWith([])), { mode: "cybermeters" }, null)).includes("[HIGH]"));
@@ -77,11 +83,14 @@ const readOf = (snap) => ({ status: "ok", snapshot: snap, row: { id: "s1" }, int
   const mutated = JSON.parse(JSON.stringify(snap));
   mutated.domains = mutated.domains.filter((d) => d.domain_key !== "shadow_it_unmanaged_technology");
   const mutText = txt(buildScanReportPdf({ domain: "x" }, readOf(mutated), { mode: "cybermeters" }, null));
-  ok("MUTATION: a domain omitted from the snapshot is detectable (Shadow IT absent)", !mutText.includes("Shadow IT & Unmanaged Technology"));
+  const mutDomainText = assessmentDomainSection(mutText);
+  ok("MUTATION: a domain omitted from the snapshot is detectable (Shadow IT absent)", !mutDomainText.includes("Shadow IT & Unmanaged Technology"));
   // The healthy snapshot has all eight — the content test above already asserts this,
   // so the omission mutation would fail that assertion. Confirm the guard fires:
   const eightCount = (t) => ["Email Protection", "Brand Protection", "Attack Surface", "Certificates & Trust", "Cyber Essentials Readiness", "Website Security", "Identity Exposure", "Shadow IT & Unmanaged Technology"].filter((d) => t.includes(d)).length;
-  ok("MUTATION caught: omitted-domain render has <8 domains", eightCount(mutText) < 8 && eightCount(txt(buildScanReportPdf({ domain: "x" }, readOf(snap), { mode: "cybermeters" }, null))) === 8);
+  ok("MUTATION caught: omitted-domain render has <8 domains",
+    eightCount(mutDomainText) < 8 &&
+    eightCount(assessmentDomainSection(txt(buildScanReportPdf({ domain: "x" }, readOf(snap), { mode: "cybermeters" }, null)))) === 8);
 
   // 2. Attribution can never be removed: even a descriptor claiming attribution:"none"
   //    still yields a CyberMeters footer (co_brand/fallback = full; unknown → full).

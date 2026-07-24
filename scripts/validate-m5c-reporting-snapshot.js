@@ -151,7 +151,8 @@ function makeReport(scanId, domainId, domain, opts = {}) {
 async function main() {
   const snapEngine = await import(pathToFileURL(srcPath("engines", "report-snapshot.js")).href);
   const { buildScanReportSnapshot, composeSnapshot, snapshotSha256Hex, verificationCeiling,
-          SNAPSHOT_SCHEMA_VERSION, SNAPSHOT_BUILDER_VERSION } = snapEngine;
+          SNAPSHOT_SCHEMA_VERSION, SNAPSHOT_BUILDER_VERSION, EVIDENCE_GRADES,
+          EVIDENCE_SOURCE_TYPES } = snapEngine;
   const { resolveCyberMotDomainStates, CYBER_MOT_RESOLVER_VERSION } = await import(pathToFileURL(srcPath("engines", "cyber-mot-domains.js")).href);
   const { CYBER_MOT_DOMAIN_KEYS } = await import(pathToFileURL(srcPath("engines", "cyber-mot-state-history.js")).href);
   const { deriveScanBusinessRisk, BUSINESS_RISK_METHODOLOGY_VERSION } = await import(pathToFileURL(srcPath("engines", "business-risk.js")).href);
@@ -283,6 +284,101 @@ async function main() {
   ok("per-answer question_set_version travels",
      JSON.stringify(ceDomain?.questionnaire?.question_set_versions) === JSON.stringify(["2026-07-16"]));
 
+  // ═══ Evidence-Grade Law v2 — minimal-viable Item 6 contract ═══════════════
+  const EVIDENCE_KEYS = ["basis", "grade", "limits", "repeat_confirmed", "source_type"];
+  const validEvidenceAssertion = (assertion) =>
+    assertion &&
+    JSON.stringify(Object.keys(assertion).sort()) === JSON.stringify(EVIDENCE_KEYS) &&
+    EVIDENCE_GRADES.includes(assertion.grade) &&
+    EVIDENCE_SOURCE_TYPES.includes(assertion.source_type) &&
+    typeof assertion.basis === "string" && assertion.basis.length > 0 &&
+    Array.isArray(assertion.limits) && assertion.limits.length > 0 &&
+    assertion.limits.every((limit) => typeof limit === "string" && limit.length > 0) &&
+    assertion.repeat_confirmed === false;
+  const visibleAssertions = [
+    snap1?.overall?.assessment_evidence_grade,
+    snap1?.overall?.business_risk_indicator?.evidence_grade,
+    snap1?.overall?.evidence_grade,
+    snap1?.overall?.evidence_completeness?.evidence_grade,
+    ...(snap1?.domains || []).flatMap((domain) => [
+      domain.evidence_grade,
+      domain.cyber_essentials?.evidence_grade,
+      domain.questionnaire?.evidence_grade,
+    ].filter(Boolean)),
+    ...(snap1?.observed_findings || []).map((item) => item.evidence_grade),
+    ...(snap1?.observations || []).map((item) => item.evidence_grade),
+    ...(snap1?.remediation_actions || []).map((item) => item.evidence_grade),
+    ...Object.values(snap1?.monitoring_states?.signals || {}).map((signal) => signal.evidence_grade),
+  ];
+  ok("every pilot customer-visible assertion carries exactly the five Evidence-Grade fields",
+     visibleAssertions.length > 20 && visibleAssertions.every(validEvidenceAssertion));
+  ok("Evidence Grade stays separate from detector finding.confidence",
+     snap1?.observed_findings?.every((item) =>
+       Object.prototype.hasOwnProperty.call(item, "confidence") &&
+       item.evidence_grade &&
+       !Object.prototype.hasOwnProperty.call(item.evidence_grade, "confidence")));
+  ok("repeat_confirmed defaults false everywhere (completion/persistence never implies repeat observation)",
+     visibleAssertions.every((assertion) => assertion.repeat_confirmed === false));
+  ok("score/band and BRI are explicitly CyberMeters product_policy assertions",
+     snap1?.overall?.assessment_evidence_grade?.source_type === "product_policy" &&
+     snap1?.overall?.business_risk_indicator?.evidence_grade?.source_type === "product_policy");
+  ok("CE full-domain conclusion is L0 and can never render assessed_healthy",
+     ceDomain?.state !== "assessed_healthy" &&
+     ceDomain?.evidence_grade?.grade === "L0");
+  ok("CE named external indicator is separate L1 product_policy over exactly 2 of 5",
+     ceDomain?.cyber_essentials?.evidence_grade?.grade === "L1" &&
+     ceDomain?.cyber_essentials?.evidence_grade?.source_type === "product_policy" &&
+     /2 of 5/.test(ceDomain.cyber_essentials.evidence_grade.basis));
+  ok("CE internal questionnaire remains L0 customer_attestation, never scheme conformance",
+     ceDomain?.questionnaire?.evidence_grade?.grade === "L0" &&
+     ceDomain?.questionnaire?.evidence_grade?.source_type === "customer_attestation");
+  const favourableCeSnapshot = composeSnapshot({
+    snapshotId: "snap-ce-favourable",
+    workspaceId: "ws1",
+    domainId: "dom1",
+    scanId: "scan-ce-favourable",
+    domain: "shared.example",
+    report: report1,
+    cyberEssentials: {
+      has_answers: true,
+      complete: true,
+      status: "likely_ready",
+      top_gaps: [],
+    },
+    ceReadiness: null,
+    caseRows: [],
+    questionSetVersions: ["2026-07-16"],
+    supersedesSnapshotId: null,
+    builtAt: "2026-07-16T12:00:00.000Z",
+  });
+  const favourableCeDomain = favourableCeSnapshot.domains
+    .find((domain) => domain.domain_key === "cyber_essentials_readiness");
+  ok("favourable 2-of-5 CE indicator still leaves the full domain evidence-insufficient",
+     favourableCeDomain?.state === "evidence_insufficient" &&
+     favourableCeDomain?.coverage === "partial" &&
+     favourableCeDomain?.evidence_grade?.grade === "L0" &&
+     /2 of 5/.test(favourableCeDomain?.state_reason || ""));
+  const certDomain = snap1?.domains?.find((d) => d.domain_key === "certificates_trust");
+  ok("Certificates & Trust records CT-only scope and never claims the observed cert is live",
+     certDomain?.live_certificate_verified === false &&
+     /observed Certificate Transparency evidence/.test(certDomain?.state_reason || "") &&
+     certDomain?.evidence_grade?.grade === "L1" &&
+     certDomain?.evidence_grade?.limits?.some((limit) => /OCSP/.test(limit)));
+  const gradeRank = Object.fromEntries(EVIDENCE_GRADES.map((grade, rank) => [grade, rank]));
+  const expectedOverallGrade = (snap1?.domains || []).reduce(
+    (lowest, domain) =>
+      gradeRank[domain.evidence_grade.grade] < gradeRank[lowest]
+        ? domain.evidence_grade.grade
+        : lowest,
+    "L5"
+  );
+  ok("overall eight-domain Evidence Grade is the minimum constituent-domain grade",
+     snap1?.overall?.evidence_grade?.grade === expectedOverallGrade &&
+     expectedOverallGrade === "L0");
+  ok("score/band and BRI composite grades also use the minimum decisive domain grade",
+     snap1?.overall?.assessment_evidence_grade?.grade === expectedOverallGrade &&
+     snap1?.overall?.business_risk_indicator?.evidence_grade?.grade === expectedOverallGrade);
+
   // Questionnaire isolation: the builder may read answers ONLY for their version stamp.
   const builderSrc = fs.readFileSync(srcPath("engines", "report-snapshot.js"), "utf8")
     .replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
@@ -310,6 +406,44 @@ async function main() {
      resP.status === "completed" && snapP &&
      snapP.domains.every((d) => d.state !== "assessed_healthy"));
   ok("partial scan is not trend-comparable", snapP?.domains.every((d) => d.trend?.comparable_basis === false));
+  ok("missing/degraded evidence lowers the score and overall evidence conclusions",
+     snapP?.overall?.assessment_evidence_grade?.grade === "L0" &&
+     snapP?.overall?.evidence_grade?.grade === "L0");
+
+  const resolvedSpfReport = makeReport("scan_spf_l3", "dom1", "shared.example");
+  resolvedSpfReport.modules.email_security = {
+    spf: {
+      present: true,
+      resolution_status: "complete",
+      resolved_pass_authorisations: ["192.0.2.0/24"],
+    },
+  };
+  resolvedSpfReport.findings = [{
+    id: "spf_effective_policy",
+    title: "SPF effective-policy observation",
+    description: "Resolved PASS-authorisation set retained.",
+    severity: "info",
+    module: "email_security",
+    finding_type: "observation",
+    evidence: [{ type: "dns_resolution_chain" }],
+  }];
+  const resolvedSpfSnapshot = composeSnapshot({
+    snapshotId: "snap-spf-l3", workspaceId: "ws1", domainId: "dom1",
+    scanId: "scan_spf_l3", domain: "shared.example", report: resolvedSpfReport,
+    cyberEssentials: ceSnap1, ceReadiness: null, caseRows: [],
+    questionSetVersions: [], supersedesSnapshotId: null,
+    builtAt: "2026-07-16T12:00:00.000Z",
+  });
+  const resolvedSpfFinding = resolvedSpfSnapshot.observations
+    .find((finding) => finding.finding_id === "spf_effective_policy");
+  const gradedEmailDomain = resolvedSpfSnapshot.domains
+    .find((domain) => domain.domain_key === "email_protection");
+  ok("signal audit: retained SPF effective-state path can reach L3",
+     resolvedSpfFinding?.evidence_grade?.grade === "L3" &&
+     /RFC 7208/.test(resolvedSpfFinding.evidence_grade.basis));
+  ok("signal audit: Email domain still uses the lowest decisive DNS input, not blanket L3",
+     gradedEmailDomain?.evidence_grade?.grade === "L1" &&
+     /lowest decisive input/.test(gradedEmailDomain.evidence_grade.basis));
 
   // ═══ E. Remediation ════════════════════════════════════════════════════════
   const spfAction = snap1?.remediation_actions?.find((a) => a.finding_ids.includes("email_missing_spf"));
@@ -678,6 +812,48 @@ async function main() {
         file: srcPath("engines", "report-snapshot.js"),
         from: "      cyber_metrics_score: assessment.display_score,",
         to:   "      cyber_metrics_score: (questionSetVersions.length ? 100 : assessment.display_score),",
+      },
+      {
+        name: "customer-visible finding loses its Evidence-Grade assertion",
+        file: srcPath("engines", "report-snapshot.js"),
+        from: "      evidence_grade: findingEvidenceGrade(f, report),",
+        to:   "      evidence_grade: null,",
+      },
+      {
+        name: "overall eight-domain grade hides the lowest constituent domain",
+        file: srcPath("engines", "report-snapshot.js"),
+        from: "    grade: lowestEvidenceGrade(domainEntries.map((entry) => entry.evidence_grade)),",
+        to:   "    grade: \"L5\",",
+      },
+      {
+        name: "score and BRI composite grades hide the lowest constituent domain",
+        file: srcPath("engines", "report-snapshot.js"),
+        from: "  let grade = lowestEvidenceGrade(domainEntries.map((entry) => entry.evidence_grade));",
+        to:   "  let grade = \"L5\";",
+      },
+      {
+        name: "completed scan is mistaken for repeat-confirmed evidence",
+        file: srcPath("engines", "report-snapshot.js"),
+        from: "    repeat_confirmed: repeat_confirmed === true,",
+        to:   "    repeat_confirmed: true,",
+      },
+      {
+        name: "Cyber Essentials full-domain conclusion promoted back to healthy",
+        file: srcPath("engines", "cyber-mot-domains.js"),
+        from: "          base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;\n          base.coverage = provisional ? quality : \"partial\";",
+        to:   "          base.state = CYBER_MOT_STATES.ASSESSED_HEALTHY;\n          base.coverage = provisional ? quality : \"complete\";",
+      },
+      {
+        name: "CT observation relabelled as a live certificate verification",
+        file: srcPath("engines", "report-snapshot.js"),
+        from: "      entry.live_certificate_verified = false;",
+        to:   "      entry.live_certificate_verified = true;",
+      },
+      {
+        name: "score/band dressed as normative protocol rather than product policy",
+        file: srcPath("engines", "report-snapshot.js"),
+        from: "    source_type: \"product_policy\",\n    basis: `${label} applies CyberMeters methodology",
+        to:   "    source_type: \"normative_protocol\",\n    basis: `${label} applies CyberMeters methodology",
       },
       {
         name: "customer attestation relabelled as Verified",

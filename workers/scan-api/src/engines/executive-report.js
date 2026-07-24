@@ -46,16 +46,19 @@ export function buildExecutiveReportV2({ scan, workspace = null, read }) {
       comparable: assessment.comparable ?? null,
       quality: assessment.quality ?? null,
       message: assessment.message ?? null,
+      evidence_grade: overall.assessment_evidence_grade ?? null,
     },
     // An indicator — band + explanation — never a second score.
     business_risk_indicator: {
       band: bri.band ?? null,
       explanation: bri.explanation ?? null,
       methodology_disclosure: bri.methodology_disclosure ?? null,
+      evidence_grade: bri.evidence_grade ?? null,
     },
 
     executive_summary: {
       summary: overall.summary ?? null,
+      evidence_grade: overall.evidence_grade ?? null,
       observed_findings_count: observed.length,
       observations_count: observations.length,
       not_fully_assessed: overall.not_fully_assessed ?? [],

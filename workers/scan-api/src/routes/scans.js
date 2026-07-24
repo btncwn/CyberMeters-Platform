@@ -19,7 +19,7 @@ import { prepareLogoXObject } from "../engines/pdf-image.js";
 import { checkScanLimit, checkScheduledScanLimit, domainLimitRejection, getAccountUsage, getEffectiveDomainState, getEntitlementUsage, getPlanLimits, getWorkspaceBillingUserId } from "../engines/plan-usage.js";
 import { buildScanQuality, runScanEngine } from "../engines/scan-engine.js";
 import { findingRemediation } from "../engines/remediation-registry.js";
-import { readScanReportSnapshot } from "../engines/report-snapshot.js";
+import { historicalReportSnapshotAvailability, readScanReportSnapshot } from "../engines/report-snapshot.js";
 import { createAuditEvent } from "../lib/events.js";
 import { DOMAIN_VERIFICATION_REQUIRED, isWorkspaceDomainVerified } from "../lib/domain-verification.js";
 import { createId, isValidDomain, parseBoundedInteger } from "../lib/util.js";
@@ -530,7 +530,24 @@ export async function scanRoutes(rctx) {
       try {
         const read = await readScanReportSnapshot(env, scanId, { allowReconstruction: true });
         if (read.status === "building") return json({ error: "Report not ready" }, 409);
-        if (read.status === "not_found") return json({ error: "Report not found" }, 404);
+        if (read.status === "not_found") {
+          const availability = historicalReportSnapshotAvailability(scan);
+          if (availability) {
+            return json({
+              version: "3.0",
+              report_type: "executive_scan_report",
+              domain: {
+                id: scan.domain_id ?? null,
+                name: scan.domain ?? null,
+                scan_id: scan.id,
+                scanned_at: scan.created_at ?? null,
+                completed_at: null,
+              },
+              report_availability: availability,
+            });
+          }
+          return json({ error: "Report not found" }, 404);
+        }
         if (read.status !== "ok") {
           return serverError("api", new Error(`snapshot ${read.status} (${read.reason}) for scan ${scanId}`));
         }

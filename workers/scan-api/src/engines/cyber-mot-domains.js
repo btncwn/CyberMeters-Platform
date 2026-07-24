@@ -51,7 +51,10 @@ import { resolveSignalMonitoringCoverage } from "./signal-monitoring-state.js";
 // `.3` (24 July 2026): domain conclusions now consume their declared signal
 // monitoring dependencies. Missing/degraded CT provenance cannot support a
 // healthy negative conclusion, while positive findings remain visible.
-export const CYBER_MOT_RESOLVER_VERSION = "2026-07-24.3";
+// `.4` (24 July 2026): Evidence-Grade Law pilot. A favourable 2-of-5 external
+// Cyber Essentials indicator can no longer promote the full five-control
+// domain to assessed_healthy; three controls remain customer-attestation-only.
+export const CYBER_MOT_RESOLVER_VERSION = "2026-07-24.4";
 
 // Fixed canonical enum — the resolver contract layer. UI maps these to friendly
 // labels; the source state stays stable.
@@ -276,9 +279,16 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
           base.coverage = "degraded";
           base.summary = `${signalCoverageMessage} Indicative readiness cannot be confirmed from incomplete external evidence.`;
         } else {
-          base.state = CYBER_MOT_STATES.ASSESSED_HEALTHY;
-          base.coverage = provisional ? quality : "complete";
-          base.summary = "Indicative readiness looks on track (estimate, not certification).";
+          // Evidence-Grade Law: the named external indicator covers only 2 of 5
+          // controls. Access Control, Malware Protection and Security Update
+          // Management remain L0 customer attestation, so the FULL domain can
+          // never be labelled healthy even when the external indicator is
+          // favourable and every questionnaire answer is complete.
+          base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;
+          base.coverage = provisional ? quality : "partial";
+          base.summary =
+            "External indicator found no material issue in 2 of 5 control areas; " +
+            "the full Cyber Essentials conclusion remains evidence-insufficient because 3 controls are attestation-only.";
         }
       } else {
         base.state = CYBER_MOT_STATES.CUSTOMER_INPUT_REQUIRED;

@@ -122,14 +122,17 @@ const norm = (s) => s.replace(/\s+/g, " ").trim();
   const bytes = render(mkSnap({ complete: false, pad: 6 }));
   const pages = pageTexts(bytes).map(norm);
   ok("B: report spans multiple pages (pagination actually exercised)", pages.length >= 2);
-  // Every domain limitation must be fully contained within a single page.
+  // Every domain limitation is carried once inside the Evidence-strength
+  // Limits block and must be fully contained within a single page.
   const allLimits = [SHADOW_LIMIT];
   let allWhole = true;
   for (const lim of allLimits) {
-    const whole = pages.some((p) => p.includes(norm(`Limitation: ${lim}`)));
+    const whole = pages.some((p) => p.includes(norm(`Limits: ${lim}`)));
     if (!whole) allWhole = false;
   }
   ok("B: the Shadow IT limitation renders as ONE unsplit block on a single page", allWhole);
+  ok("B: domain limitations are not duplicated as separate Limitation rows",
+     !pages.some((p) => p.includes(norm(`Limitation: ${SHADOW_LIMIT}`))));
   // Specifically the founder defect: 'No' must not be the last word of a page with
   // 'internal-network' opening the next.
   const splitAfterNo = pages.some((p, i) => i + 1 < pages.length && /\bIt has no\s*$/.test(p) && /^internal-network/.test(pages[i + 1]));
@@ -277,7 +280,8 @@ const norm = (s) => s.replace(/\s+/g, " ").trim();
   const t = latin1(render(snap, { logoImage: LOGO_IMAGE }));
   ok("copy: all eight domains still present", DOMAINS.every((d) => t.includes(d)));
   ok("copy: canonical logo image still embedded", t.includes("/Subtype /Image") && t.includes("/Im0 Do"));
-  ok("copy: two-page fixture remains balanced", (t.match(/\/Type \/Page \/Parent/g) || []).length === 2);
+  ok("copy: three-page fixture remains balanced with the page-one explainer",
+     (t.match(/\/Type \/Page \/Parent/g) || []).length === 3);
 }
 
 // ── Typographic punctuation → ASCII (trust-closure episode) ──────────────────

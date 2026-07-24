@@ -188,6 +188,10 @@ async function main() {
   const wsPdfRes = await call("GET", "/api/workspaces/ws1/report");
   ok("all four migrated surfaces render", repRes.status === 200 && v2Res.status === 200 && pdfRes.status === 200 && wsPdfRes.status === 200,
      `${repRes.status}/${v2Res.status}/${pdfRes.status}/${wsPdfRes.status}`);
+  ok("post-M5.c snapshot-backed report view remains fully available",
+     v2Res.status === 200 &&
+     !!v2Res.data?.snapshot_id &&
+     !v2Res.data?.report_availability);
 
   const score = truth?.overall?.cyber_metrics_score;
   const band = truth?.overall?.score_band;
@@ -200,7 +204,8 @@ async function main() {
   ok("band IDENTICAL across surfaces",
      repRes.data?.risk_level === band &&
      v2Res.data?.cyber_metrics_score?.rating === band &&
-     pdfRes.text.includes(`Security rating: ${band}`));
+     pdfRes.text.includes(`CyberMeters assessment band: ${band}`) &&
+     !/Security rating:/i.test(pdfRes.text));
   ok("BRI band IDENTICAL and never a second score",
      repRes.data?.business_risk?.band === briBand &&
      v2Res.data?.business_risk_indicator?.band === briBand &&
@@ -213,9 +218,13 @@ async function main() {
   ok("exactly eight canonical domains in fixed order on JSON surfaces",
      keys(repRes.data?.cyber_mot_domains) === canonical && keys(v2Res.data?.cyber_mot_domains) === canonical);
   const names = ["Email Protection", "Brand Protection", "Attack Surface", "Certificates & Trust", "Cyber Essentials Readiness", "Website Security", "Identity Exposure", "Shadow IT"];
+  const domainSection = pdfRes.text.slice(
+    pdfRes.text.indexOf("Eight-Domain Cyber MOT"),
+    pdfRes.text.indexOf("Observed Findings")
+  );
   ok("scan PDF renders all eight domains in order",
-     names.every((n) => pdfRes.text.includes(n)) &&
-     names.every((n, i) => i === 0 || pdfRes.text.indexOf(names[i - 1]) < pdfRes.text.indexOf(n)));
+     names.every((n) => domainSection.includes(n)) &&
+     names.every((n, i) => i === 0 || domainSection.indexOf(names[i - 1]) < domainSection.indexOf(n)));
   ok("no five-pillar output survives",
      !("intelligence_engines" in (v2Res.data ?? {})) && !v2Res.text.includes("Business Email Intelligence"));
   ok("no Vendor Risk / Supply Chain customer report sections",
@@ -236,16 +245,63 @@ async function main() {
      JSON.stringify(v2Res.data.limitations).includes("not a certification"));
   ok("limitations rendered on both PDF and JSON surfaces",
      pdfRes.text.includes("it is not a certification") && (v2Res.data.limitations?.length ?? 0) >= 3);
-  // Founder A5 correction: internal resolver/methodology VERSION identifiers are no
-  // longer printed in the customer-facing PDF body (implementation noise) — but they
-  // remain in the snapshot/JSON methodology for traceability, and the customer-facing
-  // assessed_at date is still rendered. This keeps the renderer snapshot-native while
-  // removing the version string from the visible report.
-  ok("assessed_at rendered on PDF; version identifiers removed from visible body but retained in metadata",
+  // Evidence-Grade Law pilot: formal grade/source/provenance/methodology details
+  // belong in the technical appendix, not in the human conclusion blocks.
+  const appendixIndex = pdfRes.text.indexOf("Technical Appendix - Evidence Grade & Provenance");
+  const customerBody = appendixIndex >= 0 ? pdfRes.text.slice(0, appendixIndex) : pdfRes.text;
+  const technicalAppendix = appendixIndex >= 0 ? pdfRes.text.slice(appendixIndex) : "";
+  ok("assessed_at rendered; formal grade, provenance and methodology versions live in the technical appendix",
      pdfRes.text.includes("Assessed on 15 July 2026") &&
      v2Res.data.assessed_at === truth.snapshot.as_of &&
-     !pdfRes.text.includes(truth.methodology.cyber_mot_resolver_version) &&
+     appendixIndex >= 0 &&
+     pdfRes.text.includes("Snapshot provenance: Created when the scan completed") &&
+     pdfRes.text.includes(truth.methodology.cyber_mot_resolver_version) &&
      v2Res.data.methodology?.cyber_mot_resolver_version === truth.methodology.cyber_mot_resolver_version);
+  const appendixHumanLabels = [
+    "Evidence source: CyberMeters product policy",
+    "Repeated observation: No",
+    "Grade legend",
+    "Evidence grades describe the strength of evidence, not the security level.",
+    "L0-L1: limited or externally-unverified evidence",
+    "L2: retained and reproducible",
+    "L3+: complete effective-state with stronger provenance",
+  ];
+  ok("technical appendix uses customer-facing labels and a grade legend",
+     appendixHumanLabels.every((text) => pdfRes.text.includes(text)) &&
+     !pdfRes.text.includes("source_type=") &&
+     !pdfRes.text.includes("repeat_confirmed="),
+     appendixHumanLabels.filter((text) => !pdfRes.text.includes(text)).join(", "));
+  ok("SMB-facing body uses Evidence strength, one explainer and no RFC-number citations",
+     (pdfRes.text.match(/Evidence strength:/g) || []).length === 9 &&
+     customerBody.includes("Evidence strength: Limited") &&
+     customerBody.includes("How to read this report") &&
+     customerBody.includes("it is NOT your security score") &&
+     !customerBody.includes("Evidence confidence:") &&
+     !/\bRFC\s+\d+\b/.test(customerBody) &&
+     /\bRFC\s+\d+\b/.test(technicalAppendix));
+  ok("each domain renders one Limits block and no duplicate Limitation row",
+     (domainSection.match(/Limits:/g) || []).length === 8 &&
+     !domainSection.includes("Limitation:"));
+  const scoreBasisIndex = pdfRes.text.indexOf("Score basis:");
+  const scoreNumberIndex = pdfRes.text.indexOf(`${score} / 100`);
+  ok("score explanation is rendered before the number",
+     pdfRes.text.indexOf("Evidence strength:") >= 0 &&
+     scoreBasisIndex > pdfRes.text.indexOf("Evidence strength:") &&
+     scoreNumberIndex > scoreBasisIndex);
+  const cert = truth.domains.find((d) => d.domain_key === "certificates_trust");
+  const ce = truth.domains.find((d) => d.domain_key === "cyber_essentials_readiness");
+  ok("certificate conclusion is CT-bounded and never claims live-certificate verification",
+     cert?.live_certificate_verified === false &&
+     /No material issue in the observed Certificate Transparency evidence/.test(cert?.state_reason || "") &&
+     pdfRes.text.includes("No material issue in observed CT evidence"));
+  ok("full Cyber Essentials domain never renders healthy over the 2-of-5 external indicator",
+     ce?.state !== "assessed_healthy" &&
+     ce?.evidence_grade?.grade === "L0" &&
+     ce?.evidence_grade?.limits?.some((limit) => /2 of 5|three|attestation/i.test(limit)),
+     JSON.stringify(ce));
+  ok("overall eight-domain summary carries the minimum domain grade",
+     truth.overall?.evidence_grade?.grade === "L0" &&
+     v2Res.data?.executive_summary?.evidence_grade?.grade === "L0");
   const spfAction = v2Res.data.remediation_actions.find((a) => a.remediation_id === "email.spf.publish");
   ok("one remediation action carries its finding linkage + ceiling",
      !!spfAction && spfAction.finding_ids.includes("email_missing_spf") && !!spfAction.verification_ceiling);
@@ -280,6 +336,32 @@ async function main() {
   ok("later requests serve the SAME immutable reconstruction",
      oldRep2.data?.snapshot_id === oldRep.data?.snapshot_id &&
      db.prepare("SELECT COUNT(*) c FROM scan_report_snapshots WHERE scan_id='scanOld'").get().c === 1);
+
+  // A genuinely pre-M5.c report without the completion timestamp required for
+  // honest reconstruction cannot produce a canonical snapshot. The Executive
+  // view returns a calm historical boundary (200), while the technical report
+  // remains honestly unavailable — never a fabricated snapshot.
+  seedScan("scanPreSnapshot", "ws1", "dom1", "2026-06-01 08:00:00");
+  const preSnapshotReport = makeReport(
+    "scanPreSnapshot",
+    "dom1",
+    "shared.example",
+    "2026-06-01T08:00:00.000Z"
+  );
+  delete preSnapshotReport.completed_at;
+  store.set("reports/scanPreSnapshot.json", JSON.stringify(preSnapshotReport));
+  const preSnapshotExecutive = await call("GET", "/api/scans/scanPreSnapshot/executive-report-v2");
+  const preSnapshotTechnical = await call("GET", "/api/scans/scanPreSnapshot/report");
+  ok("pre-snapshot completed scan returns an honest non-error availability state",
+     preSnapshotExecutive.status === 200 &&
+     preSnapshotExecutive.data?.report_availability?.status === "historical_scan_no_canonical_snapshot" &&
+     /predates the canonical report snapshot/.test(preSnapshotExecutive.data?.report_availability?.message || "") &&
+     /17 July 2026 onward/.test(preSnapshotExecutive.data?.report_availability?.message || ""));
+  ok("pre-snapshot availability state does not fabricate a snapshot or imply data loss",
+     !preSnapshotExecutive.data?.snapshot_id &&
+     !/data loss|something went wrong|retry/i.test(preSnapshotExecutive.data?.report_availability?.message || "") &&
+     preSnapshotTechnical.status === 404 &&
+     db.prepare("SELECT COUNT(*) c FROM scan_report_snapshots WHERE scan_id='scanPreSnapshot'").get().c === 0);
 
   // ═══ Live-mutation-after-completion: history cannot be rewritten ═══════════
   const pdfBefore = pdfRes.text;
@@ -467,8 +549,56 @@ async function main() {
       {
         name: "limitations dropped from the PDF",
         file: srcPath("engines", "pdf.js"),
-        from: "  for (const l of snap.limitations || []) w.proseKeep(`- ${l}`, { size: 8, color: \"0.35 0.38 0.44\" });",
+        from: "  for (const l of snap.limitations || []) w.proseKeep(`- ${customerBodyText(l)}`, { size: 8, color: \"0.35 0.38 0.44\" });",
         to:   "  ;",
+      },
+      {
+        name: "score number rendered before its evidence basis",
+        file: srcPath("engines", "pdf.js"),
+        from: "  evidenceBasisLine(w, \"Score basis\", o.assessment_evidence_grade);",
+        to:   "  ;",
+      },
+      {
+        name: "Limited evidence is relabelled as Low confidence",
+        file: srcPath("engines", "pdf.js"),
+        from: "  L0: \"Limited\",\n  L1: \"Limited\",",
+        to:   "  L0: \"Low\",\n  L1: \"Low\",",
+      },
+      {
+        name: "How-to-read evidence-strength explainer is dropped",
+        file: srcPath("engines", "pdf.js"),
+        from: "  w.callout(\"How to read this report\", HOW_TO_READ_REPORT);",
+        to:   "  ;",
+      },
+      {
+        name: "RFC-number citations leak back into the SMB-facing body",
+        file: srcPath("engines", "pdf.js"),
+        from: "    ? (customerBodyText(assertion.basis) || \"No basis recorded.\")",
+        to:   "    ? (String(assertion.basis) || \"No basis recorded.\")",
+      },
+      {
+        name: "domain limitations are duplicated below their Evidence-strength block",
+        file: srcPath("engines", "pdf.js"),
+        from: "    // The canonical limitations are already included once in the domain's\n    // Evidence-strength block. Do not repeat them as separate \"Limitation:\" rows.",
+        to:   "    for (const l of d.limitations || []) w.proseKeep(`Limitation: ${customerBodyText(l)}`, { size: 8, indent: 10, color: \"0.35 0.38 0.44\" });",
+      },
+      {
+        name: "product-policy band relabelled as Security rating",
+        file: srcPath("engines", "pdf.js"),
+        from: "  if (o.score_band) w.text(`CyberMeters assessment band: ${o.score_band}`, { size: 11 });",
+        to:   "  if (o.score_band) w.text(`Security rating: ${o.score_band}`, { size: 11 });",
+      },
+      {
+        name: "Evidence-Grade technical appendix dropped",
+        file: srcPath("engines", "pdf.js"),
+        from: "  sectionEvidenceGradeAppendix(w, snap);",
+        to:   "  ;",
+      },
+      {
+        name: "pre-snapshot historical boundary mapped back to a red report error",
+        file: srcPath("routes", "scans.js"),
+        from: "          const availability = historicalReportSnapshotAvailability(scan);",
+        to:   "          const availability = null;",
       },
       {
         name: "schema-version gate dropped from the shared helper",

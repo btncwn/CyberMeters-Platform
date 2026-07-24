@@ -278,6 +278,23 @@ function makeWriter({ accentHex = BRAND_HEX, footerText = DEFAULT_FOOTER } = {})
   const raw = (op) => { buf += op; };
   // A thin horizontal rule at the cursor (cover dividers / section separators).
   const rule = (color = "0.80 0.83 0.87") => { ensure(6); y -= 4; buf += `${color} rg ${MARGIN} ${y} ${PAGE_W - 2 * MARGIN} 0.7 re f\n`; y -= 2; };
+  // Bounded explanatory callout used once on page 1. Presentation-only: the
+  // copy explains how to interpret snapshot facts and never derives a verdict.
+  const callout = (title, body) => {
+    const lines = wrapLines(body, 84);
+    const height = 18 + 13 + (lines.length * 11) + 8;
+    ensure(height);
+    const bottom = y - height;
+    buf += `q 0.96 0.98 1 rg ${MARGIN} ${bottom} ${PAGE_W - 2 * MARGIN} ${height} re f `;
+    buf += `0.69 0.80 0.94 RG 0.8 w ${MARGIN} ${bottom} ${PAGE_W - 2 * MARGIN} ${height} re S Q\n`;
+    y -= 9;
+    text(title, { size: 9, bold: true, color: "0.08 0.22 0.40", indent: 10, gap: 4 });
+    for (const line of lines) {
+      text(line, { size: 8, color: "0.25 0.35 0.48", indent: 10, gap: 3 });
+    }
+    y = bottom;
+    gap(6);
+  };
   // Large display text for the cover (wordmark / report title).
   const display = (str, { size = 22, bold = true, color = "0.08 0.10 0.14", gap: g = 8 } = {}) => {
     ensure(size + g); y -= size + g;
@@ -292,7 +309,7 @@ function makeWriter({ accentHex = BRAND_HEX, footerText = DEFAULT_FOOTER } = {})
     y -= g;
   };
   const finish = () => { if (buf) { pages.push(buf + footer()); buf = ""; } return pages; };
-  return { text, prose, proseKeep, keepTogether, heading, gap, newPage, finish, raw, rule, display, image, roomLeft, atPageTop };
+  return { text, prose, proseKeep, keepTogether, heading, gap, newPage, finish, raw, rule, callout, display, image, roomLeft, atPageTop };
 }
 
 // Customer-safe state labels for the canonical domain states. Display mapping
@@ -315,17 +332,136 @@ const stateLabel = (s) => STATE_LABEL[s] || "Unknown";
 // One implementation of each report section, consumed by BOTH PDF builders so
 // the scan PDF and the workspace executive PDF can never disagree on meaning.
 
+const HUMAN_EVIDENCE_STRENGTH = Object.freeze({
+  L0: "Limited",
+  L1: "Limited",
+  L2: "Medium",
+  L3: "High",
+  L4: "High",
+  L5: "High",
+});
+
+const HOW_TO_READ_REPORT =
+  "Evidence strength shows how strongly the available evidence supports a conclusion - it is NOT your security score. " +
+  "Limited evidence is normal for external assessment and does not mean weak security. " +
+  "A domain we could not fully assess is shown as evidence-insufficient, not as low-risk.";
+
+// RFC identifiers remain intact in the technical appendix. The SMB-facing body
+// uses protocol names so the conclusion stays readable without losing meaning.
+// This is presentation-only: the canonical snapshot strings are not changed.
+function customerBodyText(value) {
+  return String(value || "")
+    .replace(/\s*\(RFC\s+\d+\)/gi, "")
+    .replace(/\bRFC 7208 SPF\b/gi, "SPF")
+    .replace(/\bRFC 9989 DMARC\b/gi, "DMARC")
+    .replace(/\bRFC 6376 DKIM\b/gi, "DKIM")
+    .replace(/\bRFC 8461 MTA-STS\b/gi, "MTA-STS")
+    .replace(/\bRFC 8460 TLS reporting\b/gi, "TLS reporting")
+    .replace(/\bHSTS RFC 6797\b/gi, "HSTS")
+    .replace(/\bRFC\s+7208\b/gi, "the SPF protocol")
+    .replace(/\bRFC\s+6376\b/gi, "the DKIM protocol")
+    .replace(/\bRFC\s+9989\b/gi, "the DMARC protocol")
+    .replace(/\bRFC\s+8461\b/gi, "the MTA-STS protocol")
+    .replace(/\bRFC\s+8460\b/gi, "the TLS reporting protocol")
+    .replace(/\bRFC\s+9162\b/gi, "the Certificate Transparency protocol")
+    .replace(/\bRFC\s+1035\b/gi, "the DNS protocol")
+    .replace(/\bRFC\s+9110\b/gi, "the HTTP protocol")
+    .replace(/\bRFC\s+6797\b/gi, "the HSTS standard")
+    .replace(/\bRFC\s+\d+\b/gi, "the applicable protocol")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([,.;:])/g, "$1")
+    .trim();
+}
+
+function evidenceStrength(assertion) {
+  return HUMAN_EVIDENCE_STRENGTH[assertion?.grade] || "Limited";
+}
+
+function assertionLimits(assertions) {
+  return [...new Set(
+    assertions
+      .flatMap((assertion) => Array.isArray(assertion?.limits) ? assertion.limits : [])
+      .map(customerBodyText)
+      .filter(Boolean)
+  )];
+}
+
+// One compact, readable per-domain block. The full unabridged formal assertion
+// remains in the technical appendix below.
+function domainEvidenceStrengthBlock(w, assertion, { indent = 0, fallbackLimits = [] } = {}) {
+  const hasGrade = Boolean(assertion?.grade);
+  const limits = hasGrade
+    ? assertionLimits([assertion])
+    : [...new Set((fallbackLimits || []).map(customerBodyText).filter(Boolean))];
+  w.text(`Evidence strength: ${hasGrade ? evidenceStrength(assertion) : "Not recorded"}`, {
+    size: 8,
+    bold: true,
+    indent,
+    color: "0.25 0.32 0.42",
+  });
+  w.proseKeep(`Basis: ${hasGrade
+    ? (customerBodyText(assertion.basis) || "No basis recorded.")
+    : "Evidence-Grade metadata was not recorded in this historical snapshot."}`, {
+    size: 7,
+    indent,
+    color: "0.35 0.38 0.44",
+    width: indent ? 96 : 104,
+  });
+  w.proseKeep(
+    `Limits: ${limits.length ? limits.join(" ") : "No additional limit was recorded."}`,
+    {
+      size: 7,
+      indent,
+      color: "0.35 0.38 0.44",
+      width: indent ? 96 : 104,
+    }
+  );
+}
+
+function evidenceBasisLine(w, label, assertion) {
+  if (!assertion?.grade) return;
+  w.proseKeep(
+    `${label}: ${customerBodyText(assertion.basis) || "No basis recorded."}`,
+    { size: 8, color: "0.35 0.38 0.44", width: 104 }
+  );
+}
+
+function overallEvidenceStrength(w, assertions) {
+  const primary = assertions.find((assertion) => assertion?.grade);
+  if (!primary) return;
+  const limits = assertionLimits(assertions);
+  w.text(`Evidence strength: ${evidenceStrength(primary)}`, {
+    size: 9,
+    bold: true,
+    color: "0.25 0.32 0.42",
+  });
+  w.proseKeep(
+    `Limits: ${limits.length
+      ? limits.join(" ")
+      : "No additional limit was recorded."}`,
+    { size: 8, color: "0.35 0.38 0.44", width: 104 }
+  );
+}
+
 function sectionOverall(w, snap) {
   const o = snap.overall || {};
+  const bri = o.business_risk_indicator || {};
+  const ec0 = o.evidence_completeness || {};
+  w.callout("How to read this report", HOW_TO_READ_REPORT);
+  overallEvidenceStrength(w, [
+    o.evidence_grade,
+    o.assessment_evidence_grade,
+    bri.evidence_grade,
+  ]);
+  // Explanation first, number second.
+  evidenceBasisLine(w, "Score basis", o.assessment_evidence_grade);
   const scoreText = o.cyber_metrics_score == null
     ? "Not available for this assessment"
     : `${o.cyber_metrics_score} / 100`;
   w.text(`${o.assessment?.provisional ? "Provisional Score" : "Cyber Metrics Score"}: ${scoreText}`, { size: 14, bold: true });
-  if (o.score_band) w.text(`Security rating: ${o.score_band}`, { size: 11 });
-  if (o.assessment?.message) w.prose(o.assessment.message, { size: 9, color: "0.45 0.35 0.10" });
+  if (o.score_band) w.text(`CyberMeters assessment band: ${o.score_band}`, { size: 11 });
+  if (o.assessment?.message) w.prose(customerBodyText(o.assessment.message), { size: 9, color: "0.45 0.35 0.10" });
   w.gap(4);
-  const bri = o.business_risk_indicator || {};
-  const ec0 = o.evidence_completeness || {};
   // Coverage is incomplete when the snapshot's OWN frozen facts say so: a non-complete
   // scan quality, any skipped module, or any domain still needing further evidence /
   // customer input / monitoring. This reads only frozen snapshot facts — it never
@@ -336,6 +472,7 @@ function sectionOverall(w, snap) {
     (ec0.monitoring_state && ec0.monitoring_state !== "monitoring_healthy") ||
     (Array.isArray(ec0.modules_skipped) && ec0.modules_skipped.length > 0) ||
     (Array.isArray(o.not_fully_assessed) && o.not_fully_assessed.length > 0);
+  evidenceBasisLine(w, "Business Risk Indicator basis", bri.evidence_grade);
   if (bri.band) {
     // An indicator: band + explanation. Never a second numeric score.
     w.text(`Business Risk Indicator: ${String(bri.band).toUpperCase()}`, { size: 11, bold: true });
@@ -346,13 +483,17 @@ function sectionOverall(w, snap) {
     if (coverageIncomplete) {
       w.proseKeep("No major gaps were identified in the evidence available. Coverage is incomplete - some checks did not run or still need customer input - so this provisional indicator is not confirmation that no other material gaps exist.", { size: 9 });
     } else if (bri.explanation) {
-      w.proseKeep(bri.explanation, { size: 9 });
+      w.proseKeep(customerBodyText(bri.explanation), { size: 9 });
     }
   } else if (bri.provisional) {
     w.text("Business Risk Indicator: NOT AUTHORITATIVE", { size: 11, bold: true });
-    if (bri.explanation) w.proseKeep(bri.explanation, { size: 9 });
+    if (bri.explanation) w.proseKeep(customerBodyText(bri.explanation), { size: 9 });
   }
-  if (o.summary) { w.gap(2); w.prose(o.summary, { size: 10 }); }
+  if (o.summary) {
+    w.gap(2);
+    evidenceBasisLine(w, "Eight-domain summary basis", o.evidence_grade);
+    w.prose(customerBodyText(o.summary), { size: 10 });
+  }
   const ec = o.evidence_completeness || {};
   if (ec.scan_quality && ec.scan_quality !== "complete") {
     w.prose(`Evidence completeness: ${ec.scan_quality}` +
@@ -361,7 +502,7 @@ function sectionOverall(w, snap) {
   }
   const monitoringLimitations = Object.values(snap.monitoring_states?.signals ?? {})
     .filter((entry) => entry?.state !== "monitoring_healthy")
-    .map((entry) => String(entry?.message || "").trim())
+    .map((entry) => customerBodyText(entry?.message))
     .filter(Boolean);
   if (monitoringLimitations.length > 0) {
     w.prose(
@@ -397,10 +538,15 @@ function sectionDomains(w, snap, { detail = "full" } = {}) {
     const wf = d.managed_workflow || {};
     const hs = highestSev(findings);
 
-    // Keep the domain heading with its state + first line of context — never orphan it.
+    // Keep the domain heading with its conclusion + first line of context.
     w.keepTogether(30);
-    w.text(`${d.display_name}: ${stateLabel(d.state)}`, { size: 11, bold: true });
-    if (d.state_reason) w.prose(d.state_reason, { size: 9, indent: 10, color: "0.25 0.28 0.33" });
+    w.text(d.display_name, { size: 11, bold: true });
+    domainEvidenceStrengthBlock(w, d.evidence_grade, {
+      indent: 10,
+      fallbackLimits: d.limitations,
+    });
+    w.text(`Conclusion: ${d.conclusion_label || stateLabel(d.state)}`, { size: 9, bold: true, indent: 10 });
+    if (d.state_reason) w.prose(customerBodyText(d.state_reason), { size: 9, indent: 10, color: "0.25 0.28 0.33" });
 
     // One-line evidence posture per domain (both detail levels).
     const posture = [];
@@ -414,7 +560,7 @@ function sectionDomains(w, snap, { detail = "full" } = {}) {
       // managed-case linkage — honest evidence, never invented detail.
       for (const f of findings) {
         w.text(`[${String(f.severity || "").toUpperCase()}] ${f.title || "Finding"}`, { size: 9, bold: true, indent: 10 });
-        if (f.explanation) w.prose(f.explanation, { size: 8, indent: 18, color: "0.25 0.28 0.33" });
+        if (f.explanation) w.prose(customerBodyText(f.explanation), { size: 8, indent: 18, color: "0.25 0.28 0.33" });
         const meta = [];
         if (f.verification_support) meta.push(`Verification: ${f.verification_support}`);
         if (f.managed_case_id) meta.push(`Managed case: ${f.managed_case_status || "linked"}`);
@@ -423,7 +569,7 @@ function sectionDomains(w, snap, { detail = "full" } = {}) {
       }
       for (const o of observations) {
         w.text(o.title || "Observation", { size: 8, indent: 10, color: "0.25 0.28 0.33" });
-        if (o.explanation) w.prose(o.explanation, { size: 7, indent: 18, color: "0.35 0.38 0.44" });
+        if (o.explanation) w.prose(customerBodyText(o.explanation), { size: 7, indent: 18, color: "0.35 0.38 0.44" });
       }
     } else {
       // Concise (Executive): the single most relevant action, if any.
@@ -431,13 +577,10 @@ function sectionDomains(w, snap, { detail = "full" } = {}) {
       if (top?.title) w.text(`Top item: ${top.title}`, { size: 8, indent: 10, color: "0.25 0.28 0.33" });
     }
 
-    // Honest-scope limitations travel with each domain (e.g. Certificates &
-    // Trust: chain/root/OCSP/revocation are NOT checked) — frozen snapshot facts.
-    // proseKeep renders each limitation as ONE unsplittable block, so a sentence can
-    // never break mid-word across a page boundary (the "No" | "internal..." defect).
-    for (const l of d.limitations || []) w.proseKeep(`Limitation: ${l}`, { size: 8, indent: 10, color: "0.35 0.38 0.44" });
+    // The canonical limitations are already included once in the domain's
+    // Evidence-strength block. Do not repeat them as separate "Limitation:" rows.
     const ceStmt = d.cyber_essentials?.external_coverage_statement;
-    if (ceStmt) w.proseKeep(ceStmt, { size: 8, indent: 10, color: "0.35 0.38 0.44" });
+    if (ceStmt) w.proseKeep(customerBodyText(ceStmt), { size: 8, indent: 10, color: "0.35 0.38 0.44" });
     // Clear separation between domains (visual hierarchy).
     w.gap(6);
   }
@@ -450,13 +593,13 @@ function sectionFindings(w, snap) {
   if (!findings.length) w.text("No material findings were observed in this assessment.", { size: 10 });
   for (const f of findings) {
     w.text(`[${String(f.severity || "").toUpperCase()}] ${f.title}`, { size: 10, bold: true });
-    if (f.explanation) w.prose(f.explanation, { size: 9, indent: 10, color: "0.25 0.28 0.33" });
+    if (f.explanation) w.prose(customerBodyText(f.explanation), { size: 9, indent: 10, color: "0.25 0.28 0.33" });
   }
   w.heading(`Observations (${observations.length})`);
   if (!observations.length) w.text("No additional observations.", { size: 10 });
   for (const f of observations) {
     w.text(`${f.title}`, { size: 10 });
-    if (f.explanation) w.prose(f.explanation, { size: 9, indent: 10, color: "0.25 0.28 0.33" });
+    if (f.explanation) w.prose(customerBodyText(f.explanation), { size: 9, indent: 10, color: "0.25 0.28 0.33" });
   }
 }
 
@@ -469,7 +612,7 @@ function sectionRemediation(w, snap) {
     // report's call to action and must read as a prominent, unbroken block.
     w.keepTogether(28);
     w.text(`${a.priority ? `[${String(a.priority).toUpperCase()}] ` : ""}${a.title}`, { size: 11, bold: true });
-    if (a.action) w.prose(a.action, { size: 9, indent: 10 });
+    if (a.action) w.prose(customerBodyText(a.action), { size: 9, indent: 10 });
     if (a.finding_ids?.length > 1) {
       w.text(`Resolves ${a.finding_ids.length} related findings.`, { size: 8, indent: 10, color: "0.35 0.38 0.44" });
     }
@@ -523,11 +666,123 @@ function sectionMethodology(w, snap) {
   if (s.provenance === "reconstructed_on_demand") {
     w.proseKeep(`This report was reconstructed on ${pdfUtcDate(s.built_at, true)} from the immutable evidence recorded at assessment time.`, { size: 9, color: "0.45 0.35 0.10" });
   }
-  // Internal resolver / methodology version identifiers are NOT printed in the
-  // customer-facing body — they remain in the snapshot's methodology metadata for
-  // traceability. (Founder A5 finding #5: implementation/version noise removed.)
+  // Formal version identifiers belong in the technical appendix below, not in
+  // the main human narrative.
   w.gap(2);
-  for (const l of snap.limitations || []) w.proseKeep(`- ${l}`, { size: 8, color: "0.35 0.38 0.44" });
+  for (const l of snap.limitations || []) w.proseKeep(`- ${customerBodyText(l)}`, { size: 8, color: "0.35 0.38 0.44" });
+}
+
+const EVIDENCE_SOURCE_LABELS = Object.freeze({
+  normative_protocol: "Normative protocol",
+  configuration_baseline: "Configuration baseline",
+  assurance_scheme: "Assurance scheme",
+  management_framework: "Management framework",
+  customer_attestation: "Customer attestation",
+  product_policy: "CyberMeters product policy",
+});
+
+const SNAPSHOT_PROVENANCE_LABELS = Object.freeze({
+  scan_finalize: "Created when the scan completed",
+  reconstructed_on_demand: "Reconstructed from retained scan-time evidence",
+});
+
+const METHODOLOGY_LABELS = Object.freeze({
+  snapshot_builder_version: "Snapshot builder",
+  cyber_mot_resolver_version: "Cyber MOT resolver",
+  cyber_metrics_score_methodology_version: "Cyber Metrics Score methodology",
+  business_risk_methodology_version: "Business Risk Indicator methodology",
+  ce_readiness_methodology_version: "Cyber Essentials readiness methodology",
+  ce_readiness_methodology_revision: "Cyber Essentials readiness methodology revision",
+  remediation_registry_fingerprint: "Canonical remediation registry fingerprint",
+  ce_question_set_versions: "Cyber Essentials question set versions",
+});
+
+function methodologyLabel(key) {
+  if (METHODOLOGY_LABELS[key]) return METHODOLOGY_LABELS[key];
+  return String(key || "")
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function appendixEvidenceAssertion(w, label, assertion) {
+  if (!assertion?.grade) return;
+  const limits = Array.isArray(assertion.limits) ? assertion.limits : [];
+  const limitsText = limits.join(" ");
+  const sourceLabel = EVIDENCE_SOURCE_LABELS[assertion.source_type] || "Not recorded";
+  // Keep each appendix assertion together when it can fit on one page. The
+  // estimate deliberately errs high: an assertion heading must never be
+  // orphaned at the footer with its basis beginning on the next page.
+  const estimatedHeight =
+    23 +
+    (Math.max(1, Math.ceil(String(assertion.basis || "").length / 80)) * 11) +
+    (limitsText ? Math.max(1, Math.ceil(limitsText.length / 80)) * 11 : 0);
+  w.keepTogether(estimatedHeight);
+  w.text(`${label}: ${assertion.grade}`, { size: 8, bold: true });
+  w.text(
+    `Evidence source: ${sourceLabel} · Repeated observation: ${assertion.repeat_confirmed === true ? "Yes" : "No"}`,
+    { size: 7, indent: 10, color: "0.35 0.38 0.44" }
+  );
+  w.proseKeep(`Basis: ${assertion.basis || "No basis recorded."}`, {
+    size: 7,
+    indent: 10,
+    color: "0.35 0.38 0.44",
+  });
+  if (limits.length) {
+    w.proseKeep(`Limits: ${limitsText}`, {
+      size: 7,
+      indent: 10,
+      color: "0.35 0.38 0.44",
+    });
+  }
+}
+
+function sectionEvidenceGradeAppendix(w, snap) {
+  const s = snap.snapshot || {};
+  const methodology = snap.methodology || {};
+  const overall = snap.overall || {};
+  w.heading("Technical Appendix - Evidence Grade & Provenance");
+  w.text("Grade legend", { size: 8, bold: true });
+  w.text("Evidence grades describe the strength of evidence, not the security level.", { size: 7, indent: 10, color: "0.35 0.38 0.44" });
+  w.text("L0-L1: limited or externally-unverified evidence", { size: 7, indent: 10, color: "0.35 0.38 0.44" });
+  w.text("L2: retained and reproducible", { size: 7, indent: 10, color: "0.35 0.38 0.44" });
+  w.text("L3+: complete effective-state with stronger provenance", { size: 7, indent: 10, color: "0.35 0.38 0.44" });
+  w.text(
+    `Snapshot provenance: ${SNAPSHOT_PROVENANCE_LABELS[s.provenance] || "Not recorded"}`,
+    { size: 8, bold: true }
+  );
+  w.text(`Snapshot ID: ${s.snapshot_id || "not recorded"}`, { size: 8 });
+  w.text("Methodology versions", { size: 9, bold: true });
+  for (const [key, value] of Object.entries(methodology)) {
+    const printable = Array.isArray(value)
+      ? value.join(", ")
+      : (value && typeof value === "object" ? JSON.stringify(value) : value);
+    w.proseKeep(`${methodologyLabel(key)}: ${printable == null || printable === "" ? "Not recorded" : printable}`, {
+      size: 7,
+      indent: 10,
+      color: "0.35 0.38 0.44",
+    });
+  }
+
+  appendixEvidenceAssertion(w, "Cyber Metrics Score / CyberMeters assessment band", overall.assessment_evidence_grade);
+  appendixEvidenceAssertion(w, "Business Risk Indicator", overall.business_risk_indicator?.evidence_grade);
+  appendixEvidenceAssertion(w, "Eight-domain summary", overall.evidence_grade);
+
+  for (const domain of snap.domains || []) {
+    appendixEvidenceAssertion(w, `Domain - ${domain.display_name}`, domain.evidence_grade);
+    appendixEvidenceAssertion(w, `${domain.display_name} - external indicator`, domain.cyber_essentials?.evidence_grade);
+    appendixEvidenceAssertion(w, `${domain.display_name} - questionnaire`, domain.questionnaire?.evidence_grade);
+  }
+  for (const finding of snap.observed_findings || []) {
+    appendixEvidenceAssertion(w, `Finding - ${finding.title || finding.finding_id || "unnamed"}`, finding.evidence_grade);
+  }
+  for (const observation of snap.observations || []) {
+    appendixEvidenceAssertion(w, `Observation - ${observation.title || observation.finding_id || "unnamed"}`, observation.evidence_grade);
+  }
+  for (const action of snap.remediation_actions || []) {
+    appendixEvidenceAssertion(w, `Remediation - ${action.title || action.remediation_id || "unnamed"}`, action.evidence_grade);
+  }
 }
 
 // Branding footer. Accepts either the v2 descriptor ({ mode, display_name }) or
@@ -626,6 +881,7 @@ export function buildScanReportPdf(scan, read, branding = null, logoImage = null
   sectionRemediation(w, snap);
   sectionRelatedChanges(w, relatedChanges);
   sectionMethodology(w, snap);
+  sectionEvidenceGradeAppendix(w, snap);
   const streams = w.finish();
   if (logoImage) return assemblePdfWithImage(streams, logoImage);
   return new TextEncoder().encode(assemblePdf(streams));
@@ -696,6 +952,7 @@ export function buildWorkspaceExecutivePdf({ workspaceName, reads = [], branding
       sectionDomains(w, r.snapshot, { detail: "concise" });
       sectionRemediation(w, r.snapshot);
       sectionMethodology(w, r.snapshot);
+      sectionEvidenceGradeAppendix(w, r.snapshot);
     });
   }
   if (unavailable.length) {

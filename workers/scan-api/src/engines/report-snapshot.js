@@ -40,7 +40,267 @@ import { createId } from "../lib/util.js";
 import { normalizeSignalMonitoringStates } from "./signal-monitoring-state.js";
 
 export const SNAPSHOT_SCHEMA_VERSION = "1";
-export const SNAPSHOT_BUILDER_VERSION = "2026-07-17.1";
+export const SNAPSHOT_BUILDER_VERSION = "2026-07-24.1";
+export const CANONICAL_REPORT_SNAPSHOT_AVAILABLE_FROM = "2026-07-17";
+export const CANONICAL_REPORT_SNAPSHOT_AVAILABLE_FROM_DISPLAY = "17 July 2026";
+
+// Compatibility-only availability state. It is intentionally NOT a substitute
+// snapshot and contains no security conclusion. Completed legacy scans that
+// cannot be reconstructed should render this calm historical boundary rather
+// than a red operational error or an implication of data loss.
+export function historicalReportSnapshotAvailability(scan) {
+  if (scan?.status !== "completed" || !scan?.created_at) return null;
+  const raw = String(scan.created_at);
+  const createdAt = new Date(
+    /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(raw) ? raw.replace(" ", "T") + "Z" : raw
+  );
+  const boundary = new Date(`${CANONICAL_REPORT_SNAPSHOT_AVAILABLE_FROM}T00:00:00.000Z`);
+  if (Number.isNaN(createdAt.getTime()) || createdAt >= boundary) return null;
+  return {
+    status: "historical_scan_no_canonical_snapshot",
+    available_from: CANONICAL_REPORT_SNAPSHOT_AVAILABLE_FROM,
+    message:
+      `This scan predates the canonical report snapshot; a full evidence-graded report is available ` +
+      `for scans from ${CANONICAL_REPORT_SNAPSHOT_AVAILABLE_FROM_DISPLAY} onward.`,
+  };
+}
+
+// Evidence-Grade Law v2 — minimal-viable Item 6 pilot.
+//
+// These five fields are the complete pilot contract. Corroboration status and
+// full standard-provenance fields remain deliberately out of scope until a
+// signal-level contract requires them. The detector's existing
+// finding.confidence is a separate axis and is never read or overwritten here.
+export const EVIDENCE_GRADES = Object.freeze(["L0", "L1", "L2", "L3", "L4", "L5"]);
+export const EVIDENCE_SOURCE_TYPES = Object.freeze([
+  "normative_protocol",
+  "configuration_baseline",
+  "assurance_scheme",
+  "management_framework",
+  "customer_attestation",
+  "product_policy",
+]);
+const EVIDENCE_GRADE_RANK = Object.freeze(
+  Object.fromEntries(EVIDENCE_GRADES.map((grade, rank) => [grade, rank]))
+);
+const EVIDENCE_SOURCE_TYPE_SET = new Set(EVIDENCE_SOURCE_TYPES);
+
+export function evidenceGrade({
+  grade = "L0",
+  source_type = "product_policy",
+  basis = "The assertion has no recorded external evidence basis.",
+  limits = [],
+  repeat_confirmed = false,
+} = {}) {
+  const safeGrade = Object.prototype.hasOwnProperty.call(EVIDENCE_GRADE_RANK, grade)
+    ? grade
+    : "L0";
+  const safeSourceType = EVIDENCE_SOURCE_TYPE_SET.has(source_type)
+    ? source_type
+    : "product_policy";
+  const normalizedLimits = [...new Set(
+    (Array.isArray(limits) ? limits : [limits])
+      .map((limit) => String(limit || "").trim())
+      .filter(Boolean)
+  )];
+  return {
+    grade: safeGrade,
+    source_type: safeSourceType,
+    basis: String(basis || "The assertion has no recorded external evidence basis."),
+    limits: normalizedLimits.length
+      ? normalizedLimits
+      : ["Limited to the evidence and scope recorded in this snapshot; no unobserved state is implied."],
+    // Re-observation is a separate attribute. The pilot never infers it from a
+    // completed scan, historical persistence, or detector confidence.
+    repeat_confirmed: repeat_confirmed === true,
+  };
+}
+
+function lowerGrade(left, right) {
+  const l = Object.prototype.hasOwnProperty.call(EVIDENCE_GRADE_RANK, left) ? left : "L0";
+  const r = Object.prototype.hasOwnProperty.call(EVIDENCE_GRADE_RANK, right) ? right : "L0";
+  return EVIDENCE_GRADE_RANK[l] <= EVIDENCE_GRADE_RANK[r] ? l : r;
+}
+
+function lowestEvidenceGrade(assertions = []) {
+  if (!assertions.length) return "L0";
+  return assertions.reduce(
+    (lowest, assertion) => lowerGrade(lowest, assertion?.grade),
+    "L5"
+  );
+}
+
+const DOMAIN_EVIDENCE_BASIS = Object.freeze({
+  brand_protection:
+    "One external candidate observation under CyberMeters product policy. A lookalike candidate is not proof of abuse.",
+  attack_surface:
+    "Single external observations from Certificate Transparency (RFC 9162), DNS (RFC 1035) and HTTP (RFC 9110), evaluated under CyberMeters product policy.",
+  certificates_trust:
+    "Certificate Transparency (RFC 9162) records that a certificate or precertificate was logged; it does not establish which certificate a server currently presents.",
+  cyber_essentials_readiness:
+    "CyberMeters external indicator over 2 of 5 Cyber Essentials control areas, combined with customer attestation for internally observable controls. This is product policy, not NCSC/IASME scheme conformance.",
+  website_security:
+    "Single external HTTP observations evaluated against RFC 9110, HSTS RFC 6797 and Content Security Policy Level 3 under CyberMeters product policy.",
+  identity_exposure:
+    "Single external observations of public login and identity-facing surfaces under CyberMeters product policy.",
+  shadow_it_unmanaged_technology:
+    "Single external technology observations; approval, ownership and authorisation remain customer classifications rather than CyberMeters observations.",
+});
+
+function findingEvidenceGrade(finding, report) {
+  const id = String(finding?.id || "").toLowerCase();
+  const moduleName = String(finding?.module || "").toLowerCase();
+  const retainedEvidence = Array.isArray(finding?.evidence) && finding.evidence.length > 0;
+  let grade = retainedEvidence ? "L1" : "L0";
+  let sourceType = "product_policy";
+  let basis = "CyberMeters product-policy interpretation of an externally observed scan signal.";
+  const limits = [];
+
+  if (/spf/.test(id)) {
+    sourceType = "normative_protocol";
+    const spf = report?.modules?.email_security?.spf;
+    const effectiveResolved =
+      spf?.present === true &&
+      spf?.resolution_status === "complete" &&
+      Array.isArray(spf?.resolved_pass_authorisations);
+    grade = retainedEvidence ? (effectiveResolved ? "L3" : "L1") : "L0";
+    basis = effectiveResolved
+      ? "RFC 7208 SPF observation with the include/redirect/a/mx PASS-authorisation chain resolved and retained."
+      : "RFC 7208 SPF DNS observation; an unresolved or absent effective chain cannot exceed a single observation.";
+    if (!effectiveResolved) limits.push("The complete effective SPF authorisation chain was not resolved for this assertion.");
+  } else if (/dmarc/.test(id)) {
+    sourceType = "normative_protocol";
+    basis = "RFC 9989 DMARC DNS-policy observation.";
+    limits.push("This snapshot does not prove a complete RFC 9989 organisational-domain policy tree-walk or receiver enforcement.");
+  } else if (/dkim/.test(id)) {
+    sourceType = "normative_protocol";
+    basis = "RFC 6376 DKIM selector observation.";
+    limits.push("Only the selectors recorded by the scan were checked; a non-match is not proof that DKIM is absent.");
+  } else if (/mta[_-]?sts/.test(id)) {
+    sourceType = "normative_protocol";
+    basis = "RFC 8461 MTA-STS DNS and policy observation.";
+  } else if (/tlsrpt|tls[_-]?rpt/.test(id)) {
+    sourceType = "normative_protocol";
+    basis = "RFC 8460 TLS reporting DNS observation.";
+  } else if (/^(cert_|certificate_)/.test(id) || moduleName === "certificate_intelligence") {
+    sourceType = /expir|soon|risk|anomal|weak/.test(id) ? "product_policy" : "normative_protocol";
+    basis = sourceType === "product_policy"
+      ? "CyberMeters product-policy threshold applied to a Certificate Transparency observation under RFC 9162."
+      : "Certificate Transparency observation under RFC 9162.";
+    limits.push(
+      "Certificate Transparency proves logging, not which certificate is live; chain validity, root trust, OCSP and revocation were not verified."
+    );
+  } else if (/^(header_|https_|redirect_|canonical_|ssl_|tech_)/.test(id)) {
+    sourceType = /weak|risk|score|grade|expir/.test(id) ? "product_policy" : "normative_protocol";
+    basis = sourceType === "product_policy"
+      ? "CyberMeters product-policy interpretation of an HTTP/TLS observation."
+      : "External HTTP observation under RFC 9110, HSTS RFC 6797 or Content Security Policy Level 3, as applicable.";
+  } else if (/^brand_/.test(id) || moduleName === "brand_monitoring") {
+    basis = DOMAIN_EVIDENCE_BASIS.brand_protection;
+    limits.push("A candidate or similarity signal is not proof of impersonation, malicious intent or abuse.");
+  } else if (/^identity_/.test(id) || moduleName === "identity_discovery") {
+    basis = DOMAIN_EVIDENCE_BASIS.identity_exposure;
+    limits.push("No leaked-credential, breached-password, stealer-log, dark-web or compromise evidence is claimed.");
+  } else if (/^(asset_|subdomain_|admin_|takeover_|exposure_|dse_|cve_|kev_|cloud_|dns_)/.test(id)) {
+    basis = DOMAIN_EVIDENCE_BASIS.attack_surface;
+    limits.push("External observation does not establish internal ownership, intent or complete asset coverage.");
+  }
+
+  if (!retainedEvidence) {
+    limits.unshift("No raw evidence item was retained on this finding assertion, so it remains L0.");
+  }
+  return evidenceGrade({
+    grade,
+    source_type: sourceType,
+    basis,
+    limits,
+  });
+}
+
+function domainEvidenceGrade(entry, report) {
+  const limits = [...(entry?.limitations || [])];
+  let grade = "L1";
+  let basis = DOMAIN_EVIDENCE_BASIS[entry?.domain_key] ||
+    "Single external observations evaluated under CyberMeters product policy.";
+
+  if (entry?.domain_key === "email_protection") {
+    const spf = report?.modules?.email_security?.spf;
+    const spfEffective =
+      spf?.present === true &&
+      spf?.resolution_status === "complete" &&
+      Array.isArray(spf?.resolved_pass_authorisations);
+    basis =
+      `Email conclusion uses the lowest decisive input: DNS observations under RFC 7208, RFC 6376, RFC 9989, RFC 8461 and RFC 8460 are L1; ` +
+      `the retained SPF effective-state path is ${spfEffective ? "L3" : "not established above L1"}. RUA remains observational.`;
+    limits.push(
+      "A complete RFC 9989 organisational-domain tree-walk is not recorded for every DMARC assertion; DKIM selector coverage is bounded."
+    );
+  }
+
+  if (entry?.domain_key === "cyber_essentials_readiness") {
+    // Full-domain CE conclusion is always L0 in this pilot: three internally
+    // observable control areas remain attestation-only. The named 2-of-5
+    // external indicator below carries its own L1 assertion.
+    grade = "L0";
+    limits.push(
+      "Cyber Essentials Requirements for IT Infrastructure v3.3 (effective 27 April 2026) covers five controls; CyberMeters externally indicates only 2 of 5 and does not certify scheme conformance."
+    );
+  } else if (entry?.domain_key === "shadow_it_unmanaged_technology") {
+    // Observation is L1; the domain's classification/authorisation conclusion is
+    // bounded by customer classification at L0, so the composite is L0.
+    grade = "L0";
+    limits.push("Approval, ownership and removal classifications are customer-attested and not externally verified.");
+  }
+
+  const incompleteState = [
+    "provisional",
+    "degraded",
+    "unavailable",
+    "not_configured",
+    "customer_input_required",
+    "not_yet_assessed",
+    "evidence_insufficient",
+  ].includes(entry?.state);
+  const monitoringIncomplete = Object.values(entry?.monitoring_signals || {})
+    .some((signal) => signal?.state !== "monitoring_healthy");
+  if (incompleteState || entry?.coverage !== "complete" || monitoringIncomplete) {
+    grade = "L0";
+    limits.push("Decisive evidence was missing, degraded, provider-unavailable or not fully assessed in this snapshot.");
+  }
+
+  return evidenceGrade({
+    grade,
+    source_type: "product_policy",
+    basis,
+    limits,
+  });
+}
+
+function assessmentEvidenceGrade({ assessment, domainEntries, methodologyVersion, label }) {
+  const degradedDomains = domainEntries.filter((entry) => entry?.evidence_grade?.grade === "L0");
+  const limits = [
+    `${label} is a CyberMeters product-policy indicator, not an external standard, certification or assurance opinion.`,
+  ];
+  // Score/band and BRI are composite conclusions. Their ceiling is therefore
+  // the lowest decisive constituent-domain grade, never the average or the
+  // highest-confidence input.
+  let grade = lowestEvidenceGrade(domainEntries.map((entry) => entry.evidence_grade));
+  if (assessment?.authoritative !== true) {
+    grade = lowerGrade(grade, "L0");
+    limits.push("Scan coverage or monitoring/provider evidence was incomplete, so the conclusion is provisional.");
+  }
+  if (degradedDomains.length) {
+    limits.push(
+      `Lower-grade domain conclusions remain visible: ${degradedDomains.map((entry) => entry.display_name).join(", ")}.`
+    );
+  }
+  return evidenceGrade({
+    grade,
+    source_type: "product_policy",
+    basis: `${label} applies CyberMeters methodology ${methodologyVersion || "unversioned"} to frozen scan-time evidence.`,
+    limits,
+  });
+}
 
 // The versions this code can faithfully interpret. Readers FAIL CLOSED on any
 // other value (mig 093 designed the column for exactly this gate): a future v2
@@ -143,6 +403,16 @@ export function composeSnapshot({
   // legacy/provider provenance is normalised to evidence_incomplete, never to a
   // healthy default, so every snapshot-native consumer sees the same limitation.
   const monitoringStates = normalizeSignalMonitoringStates(report?.monitoring_states);
+  for (const [signal, entry] of Object.entries(monitoringStates.signals)) {
+    entry.evidence_grade = evidenceGrade({
+      grade: entry.state === "monitoring_healthy" ? "L1" : "L0",
+      source_type: "product_policy",
+      basis: `CyberMeters monitoring-coverage policy applied to the frozen ${signal} module/provider execution provenance.`,
+      limits: entry.state === "monitoring_healthy"
+        ? ["Monitoring health describes evidence collection in this run; it is not a security-health verdict."]
+        : [entry.message, "Incomplete monitoring coverage cannot support a healthy negative conclusion."],
+    });
+  }
 
   // Normalise exactly as the canonical read paths do (routes/scans.js /report,
   // deriveScanBusinessRisk) so the frozen findings equal what those paths served.
@@ -214,6 +484,7 @@ export function composeSnapshot({
       module: f.module ?? null,
       confidence: f.confidence ?? null,
       evidence_quality: f.evidence_quality ?? null,
+      evidence_grade: findingEvidenceGrade(f, report),
       // Evidence stays in the immutable source artefact; the snapshot references it.
       evidence_ref: {
         source: "scan_report",
@@ -269,6 +540,16 @@ export function composeSnapshot({
       case_status: linkedCase?.status ?? null,
       owner_type: linkedCase?.owner_type ?? null,
       owner_ref: linkedCase?.owner_ref ?? null,
+      evidence_grade: evidenceGrade({
+        grade: lowestEvidenceGrade(items.map((item) => item.evidence_grade)),
+        source_type: "product_policy",
+        basis:
+          `Canonical remediation ${remId} is CyberMeters product policy applied to the linked observed finding evidence.`,
+        limits: [
+          ...items.flatMap((item) => item.evidence_grade?.limits || []),
+          verificationCeiling(support),
+        ],
+      }),
     });
   }
   remediationActions.sort((a, b) => (SEV_ORDER[b.priority] ?? 0) - (SEV_ORDER[a.priority] ?? 0) || String(a.remediation_id).localeCompare(String(b.remediation_id)));
@@ -327,12 +608,28 @@ export function composeSnapshot({
             total_control_count: ceReadiness.total_control_count ?? null,
             non_assessable_controls: ceReadiness.non_assessable_controls ?? [],
             limitations: ceReadiness.limitations ?? [],
+            evidence_grade: evidenceGrade({
+              grade: ceReadiness.assessable === true ? "L1" : "L0",
+              source_type: "product_policy",
+              basis:
+                "CyberMeters external indicator over 2 of 5 Cyber Essentials control areas; scheme reference is NCSC Cyber Essentials Requirements for IT Infrastructure v3.3, effective 27 April 2026.",
+              limits: [
+                "This is a CyberMeters product-policy indicator, not NCSC/IASME scheme conformance or certification.",
+                "Access Control, Malware Protection and Security Update Management require customer attestation and are not scored by this external indicator.",
+              ],
+            }),
           }
         : null;
       entry.questionnaire = {
         has_answers: cyberEssentials?.has_answers ?? false,
         complete: cyberEssentials?.complete ?? false,
         question_set_versions: questionSetVersions ?? [],
+        evidence_grade: evidenceGrade({
+          grade: "L0",
+          source_type: "customer_attestation",
+          basis: "Customer-supplied Cyber Essentials questionnaire answers.",
+          limits: ["Customer attestation is not externally verified by CyberMeters."],
+        }),
       };
       if (reconstruction) {
         // The CE questionnaire has no history table, so readiness AT SCAN TIME
@@ -344,9 +641,31 @@ export function composeSnapshot({
         entry.summary = ceUnavailable;
         entry.state_reason = ceUnavailable;
         entry.cyber_essentials = null;
-        entry.questionnaire = { unavailable: true, reason: ceUnavailable };
+        entry.questionnaire = {
+          unavailable: true,
+          reason: ceUnavailable,
+          evidence_grade: evidenceGrade({
+            grade: "L0",
+            source_type: "customer_attestation",
+            basis: "No historical customer-attestation state can be reconstructed for this scan.",
+            limits: [ceUnavailable],
+          }),
+        };
       }
     }
+    if (d.domain_key === "certificates_trust") {
+      // RFC 9162 establishes that a certificate/precertificate was logged. The
+      // scan did not capture the certificate actively presented by the live
+      // service, so this hard false prevents a CT observation being rendered as
+      // a live-certificate verification claim.
+      entry.live_certificate_verified = false;
+      if (entry.state === "assessed_healthy") {
+        entry.summary = "No material issue in the observed Certificate Transparency evidence.";
+        entry.state_reason = entry.summary;
+        entry.conclusion_label = "No material issue in observed CT evidence";
+      }
+    }
+    entry.evidence_grade = domainEvidenceGrade(entry, report);
     return entry;
   });
 
@@ -362,7 +681,33 @@ export function composeSnapshot({
   const skippedModules = Array.isArray(scanQuality?.modules_skipped) ? scanQuality.modules_skipped : [];
   const notFullyAssessed = domainEntries
     .filter((d) => !["assessed_healthy", "issue_detected"].includes(d.state))
-    .map((d) => ({ domain_key: d.domain_key, state: d.state, reason: d.state_reason }));
+    .map((d) => ({
+      domain_key: d.domain_key,
+      state: d.state,
+      reason: d.state_reason,
+      evidence_grade: d.evidence_grade,
+    }));
+  const overallEvidenceGrade = evidenceGrade({
+    grade: lowestEvidenceGrade(domainEntries.map((entry) => entry.evidence_grade)),
+    source_type: "product_policy",
+    basis:
+      "The eight-domain conclusion uses the lowest decisive constituent-domain Evidence Grade; a lower-grade or insufficient domain cannot be hidden by higher-grade domains.",
+    limits: domainEntries
+      .filter((entry) => entry.evidence_grade?.grade === "L0")
+      .map((entry) => `${entry.display_name}: ${entry.state_reason}`),
+  });
+  const scoreEvidenceGrade = assessmentEvidenceGrade({
+    assessment,
+    domainEntries,
+    methodologyVersion: CYBER_METRICS_SCORE_METHODOLOGY_VERSION,
+    label: "Cyber Metrics Score and CyberMeters assessment band",
+  });
+  const businessRiskEvidenceGrade = assessmentEvidenceGrade({
+    assessment,
+    domainEntries,
+    methodologyVersion: BUSINESS_RISK_METHODOLOGY_VERSION,
+    label: "Business Risk Indicator",
+  });
 
   return {
     snapshot: {
@@ -395,7 +740,10 @@ export function composeSnapshot({
       cyber_metrics_score: assessment.display_score,
       score_band: assessment.display_rating,
       assessment,
+      assessment_evidence_grade: scoreEvidenceGrade,
       summary: overallSummary,
+      // Composite grade is the LOWEST decisive domain grade.
+      evidence_grade: overallEvidenceGrade,
       // An indicator — a band plus explanation — never a second competing score.
       // The numeric and category breakdown are internal metrics for methodology
       // and trend purposes only.
@@ -409,6 +757,7 @@ export function composeSnapshot({
           "The Business Risk Indicator is derived from externally observed scan evidence " +
           "across weighted categories (email, service health, customer trust, brand exposure, " +
           "supply-chain signals). It is an indicator band with an explanation, not a score.",
+        evidence_grade: businessRiskEvidenceGrade,
         internal_metrics: {
           score: businessRisk?.score ?? null,
           categories: businessRisk?.categories ?? null,
@@ -428,6 +777,14 @@ export function composeSnapshot({
           })),
         modules_skipped: skippedModules,
         warnings: Array.isArray(scanQuality?.warnings) ? scanQuality.warnings : [],
+        evidence_grade: evidenceGrade({
+          grade: assessment.authoritative ? "L1" : "L0",
+          source_type: "product_policy",
+          basis: "Frozen scan-quality and signal-monitoring provenance for this assessment.",
+          limits: assessment.authoritative
+            ? ["Evidence completeness describes recorded coverage, not the absence of undiscovered issues."]
+            : ["One or more decisive checks, providers or monitoring signals were incomplete or degraded."],
+        }),
       },
       not_fully_assessed: notFullyAssessed,
     },

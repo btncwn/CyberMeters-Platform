@@ -252,7 +252,7 @@ function SummaryBar({ scan, risk, emailIntel, remPlan, kev, cve }) {
       isText: true,
     },
     {
-      label:   'Security Rating',
+      label:   'CyberMeters assessment band',
       isPill:  true,
       pillCls: rlStyle.pill,
       pillTxt: riskLvl,
