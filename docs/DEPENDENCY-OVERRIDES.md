@@ -1,8 +1,8 @@
 # Dependency Overrides Register
 
-Temporary, tracked `overrides` in `workers/scan-api/package.json`. Every override here
-is a **deliberate deviation from a dependency's declared graph** and must carry an owner,
-a review date, upstream tracking, and an explicit removal criterion. An override without a
+Temporary, tracked `overrides` in workspace `package.json` files. Every override here is a
+**deliberate deviation from a dependency's declared graph** and must carry an owner, a
+review date, upstream tracking, and an explicit removal criterion. An override without a
 removal criterion is a permanent fork and is not permitted.
 
 ---
@@ -82,3 +82,81 @@ Remove `OV-1` when a supported `wrangler` (and its bundled `miniflare`) declares
 
 If all four hold, delete this record's ACTIVE status and note the closing wrangler/miniflare
 version.
+
+---
+
+## OV-2 — `react-router` forced to `8.3.0` (frontend runtime, CI security)
+
+| Field | Value |
+| --- | --- |
+| **Status** | ACTIVE — temporary compatibility override |
+| **Introduced** | 2026-07-24 (branch `chore/deps-clear-audit-advisories`) |
+| **Owner** | CyberMeters engineering (founder-owned) |
+| **Review date** | 2026-08-31 (and on every React Router release) |
+| **Scope** | `frontend/package.json` `overrides` + dependency/lockfile compatibility bumps only. No application source change and no deploy. |
+
+### What it does
+
+```json
+"overrides": {
+  "react-router": "8.3.0"
+}
+```
+
+The exact pin prevents the security boundary from drifting. `react-router-dom` is pinned
+to `7.18.1`; its declared exact `react-router: 7.18.1` dependency is replaced with the
+first fixed `react-router`, `8.3.0`.
+
+### Why it exists
+
+There is no single, clean `react-router-dom` release that clears the current advisory set:
+
+- `react-router-dom` / `react-router` `7.18.1` fixes the open-redirect and SSR hydration
+  advisories present in the former `6.30.4` graph.
+- `react-router` `>=7.12.0 <8.3.0` is affected by high-severity
+  **GHSA-qwww-vcr4-c8h2**, fixed in `8.3.0`.
+- `react-router-dom@8.3.0` does not exist. The latest DOM compatibility package is
+  `7.18.1`, and it declares `react-router: 7.18.1` exactly.
+
+GHSA-qwww-vcr4-c8h2 only affects unstable RSC APIs. CyberMeters is a client-rendered Vite
+SPA and has no RSC, SSR hydration, server-action or React Router framework-mode path, so
+there is no identified production reachability for that advisory. The override still
+installs the fixed router instead of suppressing or weakening `npm audit`.
+
+### Compatibility evidence vs `react-router-dom`'s declared contract
+
+1. `react-router-dom@7.18.1` is a compatibility wrapper: its built entry imports
+   `react-router/dom` and re-exports `react-router`. `react-router@8.3.0` exports both
+   entry points.
+2. The fixed router requires Node `>=22.22.0` and React/ReactDOM `>=19.2.7`. CI uses Node
+   24; React and ReactDOM are pinned to `19.2.7`.
+3. `lucide-react` moved from `0.395.0` to the nearest React-19-compatible release,
+   `0.397.0`; `npm ls` reports no invalid peer dependency.
+4. Frontend TypeScript checking, all 448 Vitest tests with coverage, and the Vite
+   production build pass with this graph.
+5. `npm audit --audit-level=high` reports **0 vulnerabilities**.
+
+This remains a temporary override because `react-router-dom@7.18.1` did not declare or
+test against router 8.3.0, even though its compatibility wrapper and CyberMeters' used API
+surface validate successfully.
+
+### Upstream tracking
+
+- High advisory: **GHSA-qwww-vcr4-c8h2** (`react-router >=7.12.0 <8.3.0`; unstable RSC).
+- Earlier fixed advisories: **GHSA-wrjc-x8rr-h8h6**,
+  **GHSA-337j-9hxr-rhxg**, and **GHSA-jjmj-jmhj-qwj2**.
+- Upstream fix awaited: a supported `react-router-dom` release whose declared
+  `react-router` dependency is `>=8.3.0`, or a supported 7.x backport that clears all
+  advisories.
+
+### Removal criterion
+
+Remove `OV-2` when a supported `react-router-dom` declares a router version unaffected by
+all four advisories. Verify removal by:
+
+1. deleting only the `react-router` override,
+2. installing the supported DOM/router pair with no invalid or overridden dependency,
+3. keeping `npm audit --audit-level=high` at 0 vulnerabilities,
+4. passing frontend typecheck, coverage tests, production build, and E2E CI.
+
+If all four hold, mark this record closed and note the closing DOM/router versions.
