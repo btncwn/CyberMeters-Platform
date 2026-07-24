@@ -32,7 +32,13 @@ export async function executiveDashboardRoutes(rctx) {
       if (!access) return json({ error: "Forbidden" }, 403);
       try {
         const posture = await getCurrentPosturePresentation(env, { workspaceId: wsId });
-        const authScanId = posture?.authoritative_scan_id ?? null;
+        // A provider-degraded completed scan is not an authoritative score, but
+        // its domain evidence is still useful. Resolve the latest provisional
+        // report so unrelated domains retain their own completed conclusions.
+        const authScanId =
+          posture?.authoritative_scan_id ??
+          posture?.latest_provisional_scan_id ??
+          null;
         let report = null;
         if (authScanId) {
           const obj = await env.cybermeters_reports.get(`reports/${authScanId}.json`);

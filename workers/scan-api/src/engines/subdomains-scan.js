@@ -243,6 +243,12 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
       wildcard_test_host: wildcardHost,
       wildcard_warning:   wildcardWarning,
       ct_error: `Both CT sources failed — crt.sh: ${sources.crt_sh.error}; certspotter: ${sources.certspotter.error}`,
+      // Keep the external outage non-fatal to the overall scan, while making
+      // this module ineligible to support a "no subdomains found" conclusion.
+      // The canonical monitoring-state resolver carries the provider-specific
+      // signal; this module-level flag is defence in depth for older consumers.
+      incomplete: true,
+      incomplete_reason: "ct_sources_unavailable",
       error:    null,   // never block core scan quality for external CT failures
     };
   }
@@ -250,6 +256,7 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
   // ── Merge, cap, sort ─────────────────────────────────────────────────
   const items     = [...seen].slice(0, MERGE_CAP).sort();
   const sensitive = items.filter((h) => isSensitiveSubdomain(h, domain));
+  const ctCoverageDegraded = !!(sources.crt_sh?.error || sources.certspotter?.error);
 
   return {
     count:              items.length,
@@ -261,6 +268,9 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
     wildcard_dns_addresses: wildcardDnsAddresses,
     wildcard_test_host: wildcardHost,
     wildcard_warning:   wildcardWarning,
+    ...(ctCoverageDegraded
+      ? { incomplete: true, incomplete_reason: "ct_source_degraded" }
+      : {}),
     error:              null,
   };
 }

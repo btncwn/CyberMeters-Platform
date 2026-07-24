@@ -1,10 +1,10 @@
 {
   "schema": "cybermeters.email-worker-deploy-manifest/v1",
   "entrypoint": "workers/email-ingest/src/index.js",
-  "app_version": "2026.07.24-gate4.1.8e25b5b44574",
-  "closure_sha256": "8e25b5b44574b434c1b0e74349dd9f6e2be92b462f4de756c44fa80b4e8a704a",
-  "closure_file_count": 68,
-  "scan_api_file_count": 66,
+  "app_version": "2026.07.24-item5-ct.85f0fefdf9dc",
+  "closure_sha256": "85f0fefdf9dc38d664ce60aa4fd46393c5ba4ffd122acf0dddf571c440babcab",
+  "closure_file_count": 69,
+  "scan_api_file_count": 67,
   "files": [
     "shared/cyber-essentials-questions.js",
     "workers/email-ingest/src/index.js",
@@ -58,6 +58,7 @@
     "workers/scan-api/src/engines/scoring.js",
     "workers/scan-api/src/engines/security-headers-config.js",
     "workers/scan-api/src/engines/sender-classification.js",
+    "workers/scan-api/src/engines/signal-monitoring-state.js",
     "workers/scan-api/src/engines/vendor-risk.js",
     "workers/scan-api/src/engines/whois-scan.js",
     "workers/scan-api/src/lib/aggregate-report-ingest.js",

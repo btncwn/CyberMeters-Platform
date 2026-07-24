@@ -45,6 +45,10 @@ async function loadPresentationModule() {
     .replace(
       'import { riskLevelForScore } from "./scoring.js";',
       'const riskLevelForScore = (score) => score >= 90 ? "excellent" : "unknown";'
+    )
+    .replace(
+      'from "./signal-monitoring-state.js";',
+      `from "${pathToFileURL(statePath).href}";`
     );
   const mutated = source.replace(
     'entry?.state !== "monitoring_healthy"',
@@ -248,8 +252,10 @@ const allComplete = derive();
     degraded.message.includes(
       "We could not fully verify certificate transparency data in this run. Other checks completed normally."
     ));
-  ok("degraded monitoring does not rewrite score/rating semantics",
-    degraded.message.startsWith("Score: 95 · excellent risk"));
+  ok("degraded monitoring coverage-caps score/rating semantics",
+    degraded.quality === "degraded" &&
+      degraded.message.startsWith("Score: 95 (provisional)") &&
+      !degraded.message.includes("excellent risk"));
   ok("degraded monitoring never presents as an unqualified healthy completion",
     degraded.disclosure != null && !/monitoring healthy/i.test(degraded.message));
 
@@ -328,7 +334,7 @@ const allComplete = derive();
     /createNotificationsForDomain\([\s\S]{0,240}scanQuality\?\.status,\s*monitoringStates,\s*\)/.test(engine) &&
       /buildScanCompletionPresentation\(\{[\s\S]{0,180}monitoringStates,[\s\S]{0,30}\}\)/.test(events));
   eq("authenticated report API exposes monitoring_states in both lifecycle branches",
-    (routes.match(/monitoring_states:\s*raw\.monitoring_states \?\? null/g) || []).length,
+    (routes.match(/monitoring_states:\s*(?:snap\.monitoring_states \?\? )?raw\.monitoring_states \?\? null/g) || []).length,
     2);
   ok("no migration 100 was created",
     !fs.existsSync(path.join(root, "database", "migrations", "100-signal-monitoring-state.sql")));

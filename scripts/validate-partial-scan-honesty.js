@@ -19,6 +19,23 @@ const { getAuthoritativeCurrentPosture, isComparableAssessment } = await eng("cu
 const { createFinalizeLatch, finalizeScanResult } = await eng("scan-engine.js");
 const { buildExecutiveReportV2 } = await eng("executive-report.js");
 const { composeSnapshot } = await eng("report-snapshot.js");
+const healthyMonitoringStates = {
+  version: "signal-monitoring-state-v1",
+  signals: Object.fromEntries([
+    "dns",
+    "certificate_transparency",
+    "website_security",
+    "email_protection",
+    "attack_surface",
+    "technology_visibility",
+    "vulnerability_intelligence",
+    "registration_data",
+  ].map((signal) => [signal, {
+    state: "monitoring_healthy",
+    message: `${signal} checks completed normally in this run.`,
+    evidence: { modules: [], incomplete_modules: [], providers: {} },
+  }])),
+};
 // M5.d: the executive report is a pure view over the canonical snapshot; the
 // partial-scan honesty now lives in the snapshot's frozen assessment.
 const mkRead = (rawReport, scanId = "s_partial") => ({
@@ -26,7 +43,12 @@ const mkRead = (rawReport, scanId = "s_partial") => ({
   snapshot: composeSnapshot({
     snapshotId: "snap_" + scanId, workspaceId: "ws_p", domainId: "dom_p", scanId,
     domain: rawReport.domain ?? "example.co.uk",
-    report: { status: "completed", completed_at: "2026-07-14T10:00:00Z", ...rawReport },
+    report: {
+      status: "completed",
+      completed_at: "2026-07-14T10:00:00Z",
+      monitoring_states: healthyMonitoringStates,
+      ...rawReport,
+    },
     cyberEssentials: null, ceReadiness: null, caseRows: [], questionSetVersions: [],
     supersedesSnapshotId: null, builtAt: "2026-07-14T10:00:05Z",
   }),

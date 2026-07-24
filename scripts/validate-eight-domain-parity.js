@@ -29,6 +29,20 @@ const ok = (n, c, d = "") => { c ? pass++ : fail++; if (!c) console.log(`FAIL ${
 const byKey = (arr, k) => arr.find((x) => x.domain_key === k);
 const KEYS = ["email_protection","brand_protection","attack_surface","certificates_trust","cyber_essentials_readiness","website_security","identity_exposure","shadow_it_unmanaged_technology"];
 const HEALTHY = CYBER_MOT_STATES.ASSESSED_HEALTHY;
+const healthyCtMonitoring = () => ({
+  version: "signal-monitoring-state-v1",
+  signals: {
+    certificate_transparency: {
+      state: "monitoring_healthy",
+      message: "Certificate transparency checks completed normally in this run.",
+      evidence: {
+        modules: ["subdomains"],
+        incomplete_modules: [],
+        providers: { crt_sh: "available", certspotter: "available" },
+      },
+    },
+  },
+});
 
 // A complete scan, all required+relevant modules assessed cleanly, no findings.
 const cleanComplete = () => ({
@@ -40,6 +54,7 @@ const cleanComplete = () => ({
     certificate_intelligence: {}, identity_discovery: {},
     saas_exposure: { count: 1 }, technology_detection: { count: 3 },
   },
+  monitoring_states: healthyCtMonitoring(),
   findings: [],
 });
 

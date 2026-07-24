@@ -69,6 +69,7 @@ export function buildExecutiveReportV2({ scan, workspace = null, read }) {
     },
 
     cyber_mot_domains: snap.domains ?? [],
+    monitoring_states: snap.monitoring_states ?? null,
     observed_findings: observed,
     observations,
     remediation_actions: actions,

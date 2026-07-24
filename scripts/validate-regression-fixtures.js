@@ -1152,6 +1152,23 @@ const execRawReport = {
   status: "completed", cyber_metrics_score: 77, risk_level: "good",
   started_at: "2026-06-27T09:55:00.000Z", completed_at: "2026-06-27T10:01:00.000Z",
   scan_quality: { status: "complete", modules_skipped: [], warnings: [] },
+  monitoring_states: {
+    version: "signal-monitoring-state-v1",
+    signals: Object.fromEntries([
+      "dns",
+      "certificate_transparency",
+      "website_security",
+      "email_protection",
+      "attack_surface",
+      "technology_visibility",
+      "vulnerability_intelligence",
+      "registration_data",
+    ].map((signal) => [signal, {
+      state: "monitoring_healthy",
+      message: `${signal} checks completed normally in this run.`,
+      evidence: { modules: [], incomplete_modules: [], providers: {} },
+    }])),
+  },
   findings: [
     { id: "dns_no_resolution", module: "dns", finding_type: "finding", severity: "critical", confidence: 90, score_impact: -30, title: "Domain Does Not Resolve", description: "No DNS response was observed.", recommendation: "Restore DNS resolution." },
     { id: "email_dkim_not_detected", module: "email_security", finding_type: "observation", severity: "info", confidence: 60, score_impact: 0, title: "DKIM Could Not Be Verified Using Common Selectors", description: "A custom selector may exist." },

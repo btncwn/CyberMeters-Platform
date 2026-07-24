@@ -332,6 +332,8 @@ function sectionOverall(w, snap) {
   // recomputes the score or band.
   const coverageIncomplete =
     (ec0.scan_quality && ec0.scan_quality !== "complete") ||
+    (ec0.assessment_quality && ec0.assessment_quality !== "complete") ||
+    (ec0.monitoring_state && ec0.monitoring_state !== "monitoring_healthy") ||
     (Array.isArray(ec0.modules_skipped) && ec0.modules_skipped.length > 0) ||
     (Array.isArray(o.not_fully_assessed) && o.not_fully_assessed.length > 0);
   if (bri.band) {
@@ -346,6 +348,9 @@ function sectionOverall(w, snap) {
     } else if (bri.explanation) {
       w.proseKeep(bri.explanation, { size: 9 });
     }
+  } else if (bri.provisional) {
+    w.text("Business Risk Indicator: NOT AUTHORITATIVE", { size: 11, bold: true });
+    if (bri.explanation) w.proseKeep(bri.explanation, { size: 9 });
   }
   if (o.summary) { w.gap(2); w.prose(o.summary, { size: 10 }); }
   const ec = o.evidence_completeness || {};
@@ -353,6 +358,16 @@ function sectionOverall(w, snap) {
     w.prose(`Evidence completeness: ${ec.scan_quality}` +
       (ec.modules_skipped?.length ? ` (skipped: ${ec.modules_skipped.join(", ")})` : ""),
       { size: 9, color: "0.45 0.35 0.10" });
+  }
+  const monitoringLimitations = Object.values(snap.monitoring_states?.signals ?? {})
+    .filter((entry) => entry?.state !== "monitoring_healthy")
+    .map((entry) => String(entry?.message || "").trim())
+    .filter(Boolean);
+  if (monitoringLimitations.length > 0) {
+    w.prose(
+      `Monitoring coverage: ${[...new Set(monitoringLimitations)].join(" ")}`,
+      { size: 9, color: "0.45 0.35 0.10" }
+    );
   }
 }
 

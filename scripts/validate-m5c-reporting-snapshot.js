@@ -127,6 +127,23 @@ function makeReport(scanId, domainId, domain, opts = {}) {
     started_at: "2026-07-16T10:00:00.000Z", completed_at: opts.completedAt ?? "2026-07-16T10:05:00.000Z",
     findings, recommendations: [],
     scan_quality: { status: quality, modules_skipped: opts.skipped ?? [], warnings: [] },
+    monitoring_states: {
+      version: "signal-monitoring-state-v1",
+      signals: Object.fromEntries([
+        "dns",
+        "certificate_transparency",
+        "website_security",
+        "email_protection",
+        "attack_surface",
+        "technology_visibility",
+        "vulnerability_intelligence",
+        "registration_data",
+      ].map((signal) => [signal, {
+        state: "monitoring_healthy",
+        message: `${signal} checks completed normally in this run.`,
+        evidence: { modules: [], incomplete_modules: [], providers: {} },
+      }])),
+    },
     modules,
   };
 }

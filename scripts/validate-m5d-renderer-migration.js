@@ -85,6 +85,23 @@ function makeReport(scanId, domainId, domain, completedAt) {
     ],
     recommendations: [],
     scan_quality: { status: "complete", modules_skipped: [], warnings: [] },
+    monitoring_states: {
+      version: "signal-monitoring-state-v1",
+      signals: Object.fromEntries([
+        "dns",
+        "certificate_transparency",
+        "website_security",
+        "email_protection",
+        "attack_surface",
+        "technology_visibility",
+        "vulnerability_intelligence",
+        "registration_data",
+      ].map((signal) => [signal, {
+        state: "monitoring_healthy",
+        message: `${signal} checks completed normally in this run.`,
+        evidence: { modules: [], incomplete_modules: [], providers: {} },
+      }])),
+    },
     modules: {
       dns: { has_mx: true }, email_security: {}, headers: {}, ssl: {},
       subdomains: { count: 1 }, certificate_intelligence: {},
