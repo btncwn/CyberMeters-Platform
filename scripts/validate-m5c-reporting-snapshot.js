@@ -157,6 +157,7 @@ async function main() {
   const { CYBER_MOT_DOMAIN_KEYS } = await import(pathToFileURL(srcPath("engines", "cyber-mot-state-history.js")).href);
   const { deriveScanBusinessRisk, BUSINESS_RISK_METHODOLOGY_VERSION } = await import(pathToFileURL(srcPath("engines", "business-risk.js")).href);
   const { CYBER_METRICS_SCORE_METHODOLOGY_VERSION } = await import(pathToFileURL(srcPath("engines", "scoring.js")).href);
+  const { CE_QUESTION_SET_VERSION } = await import(pathToFileURL(srcPath("lib", "cyber-essentials.js")).href);
   const { remediationRegistryFingerprint, listRegisteredFindingTypes, resolveRemediation } = await import(pathToFileURL(srcPath("engines", "remediation-registry.js")).href);
   // The whole worker: real fetch handler (route contract tests) + the purge engine.
   const workerMod = await import(pathToFileURL(srcPath("index.js")).href);
@@ -244,6 +245,7 @@ async function main() {
      snap1?.methodology?.cyber_metrics_score_methodology_version === CYBER_METRICS_SCORE_METHODOLOGY_VERSION &&
      snap1?.methodology?.business_risk_methodology_version === BUSINESS_RISK_METHODOLOGY_VERSION &&
      snap1?.methodology?.snapshot_builder_version === SNAPSHOT_BUILDER_VERSION &&
+     snap1?.methodology?.ce_question_set_version === CE_QUESTION_SET_VERSION &&
      JSON.stringify(snap1?.methodology?.ce_question_set_versions) === JSON.stringify(["2026-07-16"]) &&
      snap1?.methodology?.remediation_registry_fingerprint === remediationRegistryFingerprint());
   ok("snapshot schema version stamped", snap1?.snapshot?.snapshot_schema_version === SNAPSHOT_SCHEMA_VERSION);
@@ -409,6 +411,45 @@ async function main() {
   ok("missing/degraded evidence lowers the score and overall evidence conclusions",
      snapP?.overall?.assessment_evidence_grade?.grade === "L0" &&
      snapP?.overall?.evidence_grade?.grade === "L0");
+
+  // Domain-local grade isolation: a partial scan caused by the subdomain module
+  // must not erase intact Email evidence. Overall remains L0 because Attack
+  // Surface lost one of ITS decisive inputs.
+  const isolatedPartialReport = makeReport("scan_grade_isolation", "dom1", "shared.example", {
+    quality: "partial",
+    skipped: ["subdomains"],
+    findings: [],
+    completedAt: "2026-07-16T11:30:00.000Z",
+  });
+  isolatedPartialReport.modules.subdomains = {
+    count: 0,
+    incomplete: true,
+    incomplete_reason: "ct_sources_unavailable",
+  };
+  const isolatedPartialSnapshot = composeSnapshot({
+    snapshotId: "snap-grade-isolation",
+    workspaceId: "ws1",
+    domainId: "dom1",
+    scanId: isolatedPartialReport.scan_id,
+    domain: "shared.example",
+    report: isolatedPartialReport,
+    cyberEssentials: ceSnap1,
+    ceReadiness: null,
+    caseRows: [],
+    questionSetVersions: ["2026-07-16"],
+    supersedesSnapshotId: null,
+    builtAt: "2026-07-16T11:30:01.000Z",
+  });
+  const isolatedEmail = isolatedPartialSnapshot.domains
+    .find((domain) => domain.domain_key === "email_protection");
+  const isolatedAttackSurface = isolatedPartialSnapshot.domains
+    .find((domain) => domain.domain_key === "attack_surface");
+  ok("domain-local grade isolation preserves intact Email evidence on a subdomain-partial scan",
+     isolatedEmail?.state === "provisional" &&
+     isolatedEmail?.evidence_grade?.grade === "L1");
+  ok("domain-local grade isolation still caps the affected Attack Surface domain and overall conclusion",
+     isolatedAttackSurface?.evidence_grade?.grade === "L0" &&
+     isolatedPartialSnapshot.overall?.evidence_grade?.grade === "L0");
 
   const resolvedSpfReport = makeReport("scan_spf_l3", "dom1", "shared.example");
   resolvedSpfReport.modules.email_security = {
@@ -844,6 +885,12 @@ async function main() {
         to:   "          base.state = CYBER_MOT_STATES.ASSESSED_HEALTHY;\n          base.coverage = provisional ? quality : \"complete\";",
       },
       {
+        name: "unrelated partial module globally caps every domain Evidence Grade",
+        file: srcPath("engines", "report-snapshot.js"),
+        from: "  if (intrinsicallyInsufficientState || ownRequiredEvidenceIncomplete || monitoringIncomplete) {",
+        to:   "  if (entry?.coverage !== \"complete\" || intrinsicallyInsufficientState || ownRequiredEvidenceIncomplete || monitoringIncomplete) {",
+      },
+      {
         name: "CT observation relabelled as a live certificate verification",
         file: srcPath("engines", "report-snapshot.js"),
         from: "      entry.live_certificate_verified = false;",
@@ -872,6 +919,12 @@ async function main() {
         file: srcPath("engines", "report-snapshot.js"),
         from: "      cyber_mot_resolver_version: CYBER_MOT_RESOLVER_VERSION,",
         to:   "      cyber_mot_resolver_version: null,",
+      },
+      {
+        name: "current Cyber Essentials question-set stamp dropped from the snapshot",
+        file: srcPath("engines", "report-snapshot.js"),
+        from: "      ce_question_set_version: CE_QUESTION_SET_VERSION,",
+        to:   "      ce_question_set_version: null,",
       },
       {
         name: "supersession chain severed",

@@ -32,6 +32,7 @@ import { resolveAssessmentPresentation } from "./assessment-presentation.js";
 import { deriveScanBusinessRisk, BUSINESS_RISK_METHODOLOGY_VERSION } from "./business-risk.js";
 import { CYBER_METRICS_SCORE_METHODOLOGY_VERSION } from "./scoring.js";
 import { buildCyberEssentialsReadiness, getCyberEssentialsSnapshot } from "./ce-readiness.js";
+import { CE_QUESTION_SET_VERSION } from "../lib/cyber-essentials.js";
 import { applyEvidenceQuality, isActionableFinding, normalizeFindingSchema } from "./findings.js";
 import { findingRemediation, getRemediationById, remediationRegistryFingerprint } from "./remediation-registry.js";
 import { verificationSupportForMethod } from "./managed-case-model.js";
@@ -40,7 +41,7 @@ import { createId } from "../lib/util.js";
 import { normalizeSignalMonitoringStates } from "./signal-monitoring-state.js";
 
 export const SNAPSHOT_SCHEMA_VERSION = "1";
-export const SNAPSHOT_BUILDER_VERSION = "2026-07-24.1";
+export const SNAPSHOT_BUILDER_VERSION = "2026-07-25.1";
 export const CANONICAL_REPORT_SNAPSHOT_AVAILABLE_FROM = "2026-07-17";
 export const CANONICAL_REPORT_SNAPSHOT_AVAILABLE_FROM_DISPLAY = "17 July 2026";
 
@@ -233,7 +234,7 @@ function domainEvidenceGrade(entry, report) {
       `Email conclusion uses the lowest decisive input: DNS observations under RFC 7208, RFC 6376, RFC 9989, RFC 8461 and RFC 8460 are L1; ` +
       `the retained SPF effective-state path is ${spfEffective ? "L3" : "not established above L1"}. RUA remains observational.`;
     limits.push(
-      "A complete RFC 9989 organisational-domain tree-walk is not recorded for every DMARC assertion; DKIM selector coverage is bounded."
+      "A complete organisational-domain tree-walk under RFC 9989 is not recorded for every DMARC assertion; DKIM selector coverage is bounded."
     );
   }
 
@@ -252,8 +253,7 @@ function domainEvidenceGrade(entry, report) {
     limits.push("Approval, ownership and removal classifications are customer-attested and not externally verified.");
   }
 
-  const incompleteState = [
-    "provisional",
+  const intrinsicallyInsufficientState = [
     "degraded",
     "unavailable",
     "not_configured",
@@ -263,7 +263,28 @@ function domainEvidenceGrade(entry, report) {
   ].includes(entry?.state);
   const monitoringIncomplete = Object.values(entry?.monitoring_signals || {})
     .some((signal) => signal?.state !== "monitoring_healthy");
-  if (incompleteState || entry?.coverage !== "complete" || monitoringIncomplete) {
+  const definition = CYBER_MOT_DOMAINS.find(
+    (candidate) => candidate.domain_key === entry?.domain_key
+  );
+  const skipped = new Set(report?.scan_quality?.modules_skipped || []);
+  const requiredModules = Array.isArray(definition?.required) && definition.required.length
+    ? definition.required
+    : (definition?.modules || []);
+  const ownRequiredEvidenceIncomplete = requiredModules.some((name) => {
+    const moduleResult = report?.modules?.[name];
+    return moduleResult == null ||
+      moduleResult.error ||
+      moduleResult.skipped === true ||
+      moduleResult.incomplete === true ||
+      skipped.has(name);
+  });
+
+  // `entry.coverage` and the `provisional` state can reflect a DIFFERENT
+  // module's failure. Evidence Grade is domain-local: Email, for example, keeps
+  // its own grade when SPF/DMARC/DKIM evidence is intact but subdomain discovery
+  // was skipped. A domain is capped only by its own required modules, its own
+  // declared monitoring dependencies, or an intrinsically insufficient state.
+  if (intrinsicallyInsufficientState || ownRequiredEvidenceIncomplete || monitoringIncomplete) {
     grade = "L0";
     limits.push("Decisive evidence was missing, degraded, provider-unavailable or not fully assessed in this snapshot.");
   }
@@ -732,6 +753,7 @@ export function composeSnapshot({
       business_risk_methodology_version: BUSINESS_RISK_METHODOLOGY_VERSION,
       ce_readiness_methodology_version: ceReadiness?.readiness_methodology_version ?? null,
       ce_readiness_methodology_revision: ceReadiness?.readiness_methodology_revision ?? null,
+      ce_question_set_version: CE_QUESTION_SET_VERSION,
       remediation_registry_fingerprint: remediationRegistryFingerprint(),
       ce_question_set_versions: questionSetVersions ?? [],
     },

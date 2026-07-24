@@ -17,7 +17,7 @@ import Spinner from '../components/Spinner'
 import ErrorAlert from '../components/ErrorAlert'
 import ExecutiveReportV2 from '../components/ExecutiveReportV2'
 import CyberMotDomains from '../components/CyberMotDomains'
-import { bandMeta } from '../lib/score-presentation'
+import { assessmentBandLabel, bandMeta } from '../lib/score-presentation'
 
 const ACTIVE  = new Set(['queued', 'running', 'processing'])
 const POLL_MS = 4000
@@ -1500,7 +1500,10 @@ export default function ScanDetail() {
                       ? <span className="font-bold text-brand-600">{scan.score} / 100</span>
                       : '—'
                   } />
-                  <KV label="CyberMeters assessment band" value={
+                  <KV label={assessmentBandLabel({
+                    assessment: report?.assessment,
+                    scanQuality: scan.scan_quality,
+                  })} value={
                     scan.rating
                       ? <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${(RISK_CFG[scan.rating] || RISK_CFG.unknown).pill}`}>
                           {(RISK_CFG[scan.rating] || RISK_CFG.unknown).label}

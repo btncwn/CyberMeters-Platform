@@ -105,6 +105,7 @@ export const CYBER_MOT_DOMAINS = Object.freeze([
     modules: ["subdomains", "admin_surface_detection", "cloud_storage_discovery", "dns"],
     required: ["subdomains", "dns"],
     monitoring_signals: ["certificate_transparency"],
+    monitoring_degradation_message: "Attack-surface and subdomain discovery coverage was incomplete this run.",
     match: (f) => /^(asset_|subdomain_|admin_|takeover_|exposure_|dse_|cve_|kev_|cloud_|dns_)/.test(f.id || ""),
     maturity: "M3", managed_status: "managed_case",
     limitations: ["External observation only; no internal-network discovery. Subdomain coverage depends on public Certificate Transparency logs."],
@@ -126,6 +127,7 @@ export const CYBER_MOT_DOMAINS = Object.freeze([
     description: "An indicative estimate of your likely Cyber Essentials readiness — not a certification.",
     modules: [], // derived from external signals + the questionnaire, not a scan module
     monitoring_signals: ["certificate_transparency"],
+    monitoring_degradation_message: "External-control indicator coverage was incomplete this run.",
     match: () => false,
     maturity: "M2", managed_status: "recommendations",
     limitations: ["Indicative readiness estimate, not certification. CyberMeters does not certify Cyber Essentials."],
@@ -147,6 +149,7 @@ export const CYBER_MOT_DOMAINS = Object.freeze([
     modules: ["identity_discovery"],
     required: ["identity_discovery"],
     monitoring_signals: ["certificate_transparency"],
+    monitoring_degradation_message: "Identity-surface enumeration was incomplete this run.",
     match: (f) => /^identity_/.test(f.id || "") || f.module === "identity_discovery",
     maturity: "M1", managed_status: "monitoring",
     limitations: ["Covers spoofing, impersonation and exposed login/identity-provider surfaces. It does not include leaked-credential, breached-password or dark-web monitoring."],
@@ -157,6 +160,7 @@ export const CYBER_MOT_DOMAINS = Object.freeze([
     description: "Externally visible SaaS, cloud services, email senders and internet-facing technologies that may sit outside the known technology inventory.",
     modules: ["saas_exposure", "third_party_discovery", "technology_detection", "cloud_storage_discovery", "vendor_relationships"],
     monitoring_signals: ["certificate_transparency"],
+    monitoring_degradation_message: "Technology observation coverage was incomplete this run.",
     match: () => false, // observation-only; not attributed authoritative findings this episode
     maturity: "M0", managed_status: "monitoring",
     limitations: ["Externally observed technology only. Approved-inventory comparison is not yet configured, so items are shown as observed, not authorised or unauthorised. No internal-network, endpoint, CASB or EDR visibility."],
@@ -204,7 +208,14 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
       d.monitoring_signals
     );
     const signalCoverageLimited = !monitoringCoverage.complete;
-    const signalCoverageMessage = monitoringCoverage.messages.join(" ");
+    // The signal/provider message remains canonical monitoring provenance, but a
+    // domain conclusion must explain the effect in that domain's own language.
+    // Certificates deliberately keeps the CT-specific wording because CT is the
+    // evidence being assessed there; Identity/Shadow/CE/ASM describe the coverage
+    // consequence instead of exposing a nonsensical provider sentence.
+    const signalCoverageMessage = signalCoverageLimited
+      ? (d.monitoring_degradation_message || monitoringCoverage.messages.join(" "))
+      : "";
     const base = {
       domain_key: d.domain_key,
       display_name: d.display_name,
@@ -312,7 +323,7 @@ export function resolveCyberMotDomainStates(report, opts = {}) {
       base.state = CYBER_MOT_STATES.MONITORING_ONLY;
       base.coverage = signalCoverageLimited ? "degraded" : (provisional ? quality : "complete");
       base.summary = observed > 0
-        ? `${observed} externally observed technologies/services (approved-inventory comparison not yet configured).`
+        ? `${observed} externally observed ${observed === 1 ? "technology/service" : "technologies/services"} (approved-inventory comparison not yet configured).`
         : "Externally observed technology monitoring active (approved-inventory comparison not yet configured).";
       if (signalCoverageLimited) {
         base.summary += ` ${signalCoverageMessage}`;

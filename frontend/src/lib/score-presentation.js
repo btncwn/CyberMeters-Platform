@@ -52,3 +52,13 @@ export function metaForScore(score) {
   const band = scoreBand(score);
   return band ? BAND_META[band] : BAND_META.unknown;
 }
+
+// ScanDetail still displays the retained raw band for a provisional assessment,
+// but its label must carry the same completeness caveat as the score. Prefer the
+// canonical snapshot assessment; scanQuality is a legacy fallback while the
+// snapshot is loading or for an older response.
+export function assessmentBandLabel({ assessment = null, scanQuality = null } = {}) {
+  const provisional = assessment?.provisional === true ||
+    (assessment == null && ["partial", "degraded"].includes(String(scanQuality || "").toLowerCase()));
+  return provisional ? "Provisional assessment band" : "CyberMeters assessment band";
+}

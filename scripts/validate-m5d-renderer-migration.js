@@ -118,6 +118,9 @@ async function main() {
   const { hashToken, hashPassword } = workerMod;
   const rs = await import(pathToFileURL(srcPath("engines", "report-snapshot.js")).href);
   const { CYBER_MOT_DOMAIN_KEYS } = await import(pathToFileURL(srcPath("engines", "cyber-mot-state-history.js")).href);
+  const { assessmentBandLabel } = await import(
+    pathToFileURL(path.join(root, "frontend", "src", "lib", "score-presentation.js")).href
+  );
 
   const db = buildDb();
   const writeLog = [];
@@ -279,6 +282,9 @@ async function main() {
      !customerBody.includes("Evidence confidence:") &&
      !/\bRFC\s+\d+\b/.test(customerBody) &&
      /\bRFC\s+\d+\b/.test(technicalAppendix));
+  ok("DMARC plain-language substitution remains grammatical",
+     customerBody.includes("A complete organisational-domain tree-walk under the DMARC protocol") &&
+     !customerBody.includes("A complete the DMARC protocol organisational-domain tree-walk"));
   ok("each domain renders one Limits block and no duplicate Limitation row",
      (domainSection.match(/Limits:/g) || []).length === 8 &&
      !domainSection.includes("Limitation:"));
@@ -290,6 +296,7 @@ async function main() {
      scoreNumberIndex > scoreBasisIndex);
   const cert = truth.domains.find((d) => d.domain_key === "certificates_trust");
   const ce = truth.domains.find((d) => d.domain_key === "cyber_essentials_readiness");
+  const shadow = truth.domains.find((d) => d.domain_key === "shadow_it_unmanaged_technology");
   ok("certificate conclusion is CT-bounded and never claims live-certificate verification",
      cert?.live_certificate_verified === false &&
      /No material issue in the observed Certificate Transparency evidence/.test(cert?.state_reason || "") &&
@@ -299,12 +306,80 @@ async function main() {
      ce?.evidence_grade?.grade === "L0" &&
      ce?.evidence_grade?.limits?.some((limit) => /2 of 5|three|attestation/i.test(limit)),
      JSON.stringify(ce));
+  ok("one observed Shadow IT technology/service is rendered in the singular",
+     /1 externally observed technology\/service\b/.test(shadow?.state_reason || "") &&
+     !/1 externally observed technologies\/services\b/.test(pdfRes.text));
+  ok("appendix stamps the current CE question set and explains the absence of answer versions",
+     technicalAppendix.includes("Cyber Essentials current question set: 2026-07-16") &&
+     technicalAppendix.includes("Cyber Essentials answered question set versions: No questionnaire answers recorded") &&
+     !technicalAppendix.includes("Cyber Essentials question set versions: Not recorded"));
   ok("overall eight-domain summary carries the minimum domain grade",
      truth.overall?.evidence_grade?.grade === "L0" &&
      v2Res.data?.executive_summary?.evidence_grade?.grade === "L0");
+  ok("Scan Information qualifies a retained band when the canonical assessment is provisional",
+     assessmentBandLabel({
+       assessment: { provisional: true },
+       scanQuality: "complete",
+     }) === "Provisional assessment band" &&
+     assessmentBandLabel({
+       assessment: { provisional: false },
+       scanQuality: "complete",
+     }) === "CyberMeters assessment band");
   const spfAction = v2Res.data.remediation_actions.find((a) => a.remediation_id === "email.spf.publish");
   ok("one remediation action carries its finding linkage + ceiling",
      !!spfAction && spfAction.finding_ids.includes("email_missing_spf") && !!spfAction.verification_ceiling);
+
+  // Completed questionnaire + favourable external indicator through the REAL
+  // snapshot/API paths. Full CE remains evidence-insufficient (L0); the named
+  // external indicator remains a separate 2-of-5 L1 product-policy assertion.
+  db.prepare("INSERT INTO workspaces (id, owner_user_id, name) VALUES ('wsCE','u1','CE Fixture')").run();
+  db.prepare("INSERT INTO workspace_members (id, workspace_id, user_id, role) VALUES ('m-wsCE','wsCE','u1','admin')").run();
+  db.prepare("INSERT INTO domains (id, user_id, domain) VALUES ('domCE','u1','ce.example')").run();
+  db.prepare("INSERT INTO workspace_domains (workspace_id, domain_id) VALUES ('wsCE','domCE')").run();
+  db.prepare("INSERT INTO scans (id, workspace_id, domain_id, domain, score, rating, status, scan_quality, created_at) VALUES ('scanCE','wsCE','domCE','ce.example',95,'excellent','completed','complete','2026-07-17 10:00:00')").run();
+  const reportCE = makeReport("scanCE", "domCE", "ce.example", "2026-07-17T10:00:00.000Z");
+  reportCE.cyber_metrics_score = 95;
+  reportCE.risk_level = "excellent";
+  reportCE.findings = [];
+  store.set("reports/scanCE.json", JSON.stringify(reportCE));
+  const ceBuild = await rs.buildScanReportSnapshot(env, {
+    workspaceId: "wsCE",
+    domainId: "domCE",
+    scanId: "scanCE",
+    domain: "ce.example",
+    report: reportCE,
+    cyberEssentials: {
+      has_answers: true,
+      complete: true,
+      status: "likely_ready",
+      top_gaps: [],
+    },
+    assessedAt: reportCE.completed_at,
+  });
+  const ceSnapRes = await call("GET", "/api/scans/scanCE/snapshot");
+  const ceReportRes = await call("GET", "/api/scans/scanCE/report");
+  const ceExecutiveRes = await call("GET", "/api/scans/scanCE/executive-report-v2");
+  const ceApiDomains = [
+    ceSnapRes.data?.snapshot?.domains,
+    ceReportRes.data?.cyber_mot_domains,
+    ceExecutiveRes.data?.cyber_mot_domains,
+  ].map((domains) => domains?.find((domain) => domain.domain_key === "cyber_essentials_readiness"));
+  ok("completed-questionnaire CE fixture builds and serves through all canonical API surfaces",
+     ceBuild.status === "completed" &&
+     ceSnapRes.status === 200 &&
+     ceReportRes.status === 200 &&
+     ceExecutiveRes.status === 200);
+  ok("completed questionnaire cannot promote the full CE domain above evidence_insufficient/L0",
+     ceApiDomains.every((domain) =>
+       domain?.state === "evidence_insufficient" &&
+       domain?.evidence_grade?.grade === "L0" &&
+       domain?.questionnaire?.complete === true));
+  ok("CE API preserves the separate 2-of-5 L1 product-policy external indicator",
+     ceApiDomains.every((domain) =>
+       domain?.cyber_essentials?.assessable_control_count === 2 &&
+       domain?.cyber_essentials?.total_control_count === 5 &&
+       domain?.cyber_essentials?.evidence_grade?.grade === "L1" &&
+       domain?.cyber_essentials?.evidence_grade?.source_type === "product_policy"));
 
   // ═══ Reconstruction (founder policy) — pre-093 scan, first authorised read ═
   const oldRep = await call("GET", "/api/scans/scanOld/report");
@@ -587,6 +662,30 @@ async function main() {
         file: srcPath("engines", "pdf.js"),
         from: "  if (o.score_band) w.text(`CyberMeters assessment band: ${o.score_band}`, { size: 11 });",
         to:   "  if (o.score_band) w.text(`Security rating: ${o.score_band}`, { size: 11 });",
+      },
+      {
+        name: "provisional Scan Information band loses its qualifier",
+        file: path.join(root, "frontend", "src", "lib", "score-presentation.js"),
+        from: "  return provisional ? \"Provisional assessment band\" : \"CyberMeters assessment band\";",
+        to:   "  return \"CyberMeters assessment band\";",
+      },
+      {
+        name: "DMARC plain-language substitution grammar regresses",
+        file: srcPath("engines", "report-snapshot.js"),
+        from: "A complete organisational-domain tree-walk under RFC 9989 is not recorded",
+        to:   "A complete RFC 9989 organisational-domain tree-walk is not recorded",
+      },
+      {
+        name: "Shadow IT singular count uses plural wording",
+        file: srcPath("engines", "cyber-mot-domains.js"),
+        from: "${observed} externally observed ${observed === 1 ? \"technology/service\" : \"technologies/services\"}",
+        to:   "${observed} externally observed technologies/services",
+      },
+      {
+        name: "completed questionnaire promotes the full CE API domain to healthy",
+        file: srcPath("engines", "cyber-mot-domains.js"),
+        from: "          base.state = CYBER_MOT_STATES.EVIDENCE_INSUFFICIENT;\n          base.coverage = provisional ? quality : \"partial\";",
+        to:   "          base.state = CYBER_MOT_STATES.ASSESSED_HEALTHY;\n          base.coverage = provisional ? quality : \"complete\";",
       },
       {
         name: "Evidence-Grade technical appendix dropped",
