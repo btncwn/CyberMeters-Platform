@@ -447,9 +447,13 @@ export async function establishDmarcPolicyBaseline(env, {
 
   // Hash the exact bounded R2 protocol object. Only the digest is copied to
   // D1; raw DNS remains single-source in the immutable scan report.
-  const evidenceFingerprint = await sha256Hex(
-    JSON.stringify(policy_evidence),
-  );
+  // P3 seals the immutable protocol object before the report write. Reuse that
+  // exact fingerprint so D1 lifecycle references reconcile with both R2
+  // artifacts. P2 reports without a seal retain the original fallback.
+  const evidenceFingerprint =
+    typeof policy_evidence.evidence_fingerprint === "string"
+      ? policy_evidence.evidence_fingerprint
+      : await sha256Hex(JSON.stringify(policy_evidence));
   const possibleCandidates = [
     {
       record_id: domainMarkerId,

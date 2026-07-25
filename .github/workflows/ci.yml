@@ -789,6 +789,12 @@ jobs:
       - name: Validate DMARCbis P2 load-bearing mutations
         run: node scripts/validate-dmarcbis-p2-mutations.js
 
+      - name: Validate DMARCbis P3 snapshot and additive API dual readers
+        run: node scripts/validate-dmarcbis-p3.js
+
+      - name: Validate DMARCbis P3 load-bearing mutations
+        run: node scripts/validate-dmarcbis-p3-mutations.js
+
       - name: DMARCbis P1 tr46 Worker bundle gate (no Node compatibility flags)
         working-directory: workers/scan-api
         run: npx wrangler deploy --dry-run --config ../../scripts/fixtures/wrangler-dmarcbis-p1.toml

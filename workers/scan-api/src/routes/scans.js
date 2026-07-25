@@ -25,6 +25,7 @@ import { DOMAIN_VERIFICATION_REQUIRED, isWorkspaceDomainVerified } from "../lib/
 import { createId, isValidDomain, parseBoundedInteger } from "../lib/util.js";
 import { activeScanConflictBody, isUniqueConstraintError } from "../lib/scan-admission.js";
 import { dispatchAdmittedScan, isQueueDispatchMode } from "../engines/scan-dispatch.js";
+import { dmarcPolicyApiProjection } from "../engines/dmarcbis-contract.js";
 
 export async function scanRoutes(rctx) {
   const { request, env, ctx, url, json, serverError, corsHeaders,
@@ -600,6 +601,7 @@ export async function scanRoutes(rctx) {
           snapshot: read.snapshot,
           superseded_by: read.supersededBy,
           integrity: read.integrity,
+          ...dmarcPolicyApiProjection(read.dmarcPolicy),
         });
       } catch (err) {
         return serverError("api", err);
@@ -736,6 +738,7 @@ export async function scanRoutes(rctx) {
           },
           snapshot_id: read.row.id,
           snapshot_provenance: snap.snapshot?.provenance ?? null,
+          ...dmarcPolicyApiProjection(read.dmarcPolicy),
           ...(raw.started_at ? { started_at: raw.started_at } : {}),
           ...(raw.completed_at ? { completed_at: raw.completed_at } : {}),
         });

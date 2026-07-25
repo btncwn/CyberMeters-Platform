@@ -39,9 +39,13 @@ import { verificationSupportForMethod } from "./managed-case-model.js";
 import { CYBER_MOT_DOMAINS } from "./cyber-mot-domains.js";
 import { createId } from "../lib/util.js";
 import { normalizeSignalMonitoringStates } from "./signal-monitoring-state.js";
+import {
+  readDmarcPolicyEvidenceFromSnapshot,
+  sealDmarcPolicyEvidence,
+} from "./dmarcbis-contract.js";
 
 export const SNAPSHOT_SCHEMA_VERSION = "1";
-export const SNAPSHOT_BUILDER_VERSION = "2026-07-25.1";
+export const SNAPSHOT_BUILDER_VERSION = "2026-07-25.2";
 export const CANONICAL_REPORT_SNAPSHOT_AVAILABLE_FROM = "2026-07-17";
 export const CANONICAL_REPORT_SNAPSHOT_AVAILABLE_FROM_DISPLAY = "17 July 2026";
 
@@ -409,6 +413,7 @@ export function composeSnapshot({
   scanId,
   domain,
   report,
+  dmarcPolicyEvidence = null,
   cyberEssentials,   // resolver snapshot: { has_answers, complete, status, top_gaps }
   ceReadiness,       // full buildCyberEssentialsReadiness output, or null
   caseRows,          // workspace managed_cases rows (one bounded query)
@@ -810,6 +815,11 @@ export function composeSnapshot({
       },
       not_fully_assessed: notFullyAssessed,
     },
+    protocol_evidence: {
+      ...(dmarcPolicyEvidence
+        ? { dmarc: dmarcPolicyEvidence }
+        : {}),
+    },
     monitoring_states: monitoringStates,
     domains: domainEntries,
     observed_findings: observedFindings,
@@ -953,9 +963,13 @@ export async function buildScanReportSnapshot(env, opts = {}) {
       questionSetVersions = (r?.results || []).map((x) => x.question_set_version);
     } catch { questionSetVersions = []; }
 
+    const dmarcPolicyEvidence = await sealDmarcPolicyEvidence(
+      report?.modules?.dmarc_core ?? null,
+    );
     const snapshot = composeSnapshot({
       snapshotId, workspaceId, domainId, scanId, domain,
       report,
+      dmarcPolicyEvidence,
       // Reconstruction: CE readiness at scan time is unknowable — the resolver's
       // own not_assessed path yields evidence_insufficient, never a guess.
       cyberEssentials: reconstruction ? { status: "not_assessed" } : cyberEssentials,
@@ -1126,6 +1140,16 @@ export async function readScanReportSnapshot(env, scanId, opts = {}) {
   if (String(snapshot?.snapshot?.snapshot_schema_version) !== String(row.snapshot_schema_version)) {
     return { status: "integrity_error", row, reason: "schema_version_row_body_mismatch" };
   }
+  const dmarcPolicy = await readDmarcPolicyEvidenceFromSnapshot(snapshot);
+  if (["unsupported_schema", "invalid_contract", "integrity_error"].includes(
+    dmarcPolicy.status,
+  )) {
+    return {
+      status: "integrity_error",
+      row,
+      reason: `dmarc_${dmarcPolicy.reason}`,
+    };
+  }
 
   let supersededBy = null;
   if (includeSuccessor) {
@@ -1147,6 +1171,7 @@ export async function readScanReportSnapshot(env, scanId, opts = {}) {
     snapshot,
     raw,
     row,
+    dmarcPolicy,
     supersededBy,
     integrity: { checksum_sha256: row.checksum_sha256, verified: !!row.checksum_sha256 },
   };
@@ -1183,4 +1208,57 @@ export async function readLatestWorkspaceSnapshots(env, workspaceId, opts = {}) 
     else out.push({ status: read.status === "ok" ? "integrity_error" : read.status, domain_id: r.domain_id, scan_id: r.scan_id, reason: read.reason ?? "workspace_mismatch" });
   }
   return out;
+}
+
+// Latest completed snapshot for one tenant-owned domain. This is the bounded
+// read used by Email Protection and Hosted-DMARC technical projections: one D1
+// lookup and one integrity-gated R2 read, never a workspace-wide fan-out.
+// Repair/reconstruction is deliberately disabled because these routes are
+// read-only and must not create historical artifacts as a side effect.
+export async function readLatestDomainDmarcPolicyEvidence(
+  env,
+  workspaceId,
+  domainId,
+) {
+  if (!workspaceId || !domainId) {
+    return { status: "not_available", evidence: null, reason: "missing_identity" };
+  }
+  const row = await env.cybermeters_db
+    .prepare(
+      `SELECT s.scan_id
+       FROM scan_report_snapshots s
+       JOIN workspaces w ON w.id = s.workspace_id AND w.deleted_at IS NULL
+       WHERE s.workspace_id = ? AND s.domain_id = ? AND s.status = 'completed'
+       ORDER BY s.assessed_at DESC, s.id DESC
+       LIMIT 1`
+    )
+    .bind(workspaceId, domainId)
+    .first()
+    .catch(() => null);
+  if (!row?.scan_id) {
+    return { status: "not_available", evidence: null, reason: "no_snapshot" };
+  }
+  const read = await readScanReportSnapshot(env, row.scan_id, {
+    repair: false,
+    allowReconstruction: false,
+    includeSuccessor: false,
+  });
+  if (read.status !== "ok") {
+    return {
+      status: "not_available",
+      evidence: null,
+      reason: read.reason || read.status,
+    };
+  }
+  if (
+    read.row.workspace_id !== workspaceId ||
+    read.row.domain_id !== domainId
+  ) {
+    return {
+      status: "not_available",
+      evidence: null,
+      reason: "workspace_domain_mismatch",
+    };
+  }
+  return read.dmarcPolicy;
 }
