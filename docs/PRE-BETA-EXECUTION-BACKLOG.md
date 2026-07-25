@@ -188,16 +188,27 @@ founder-controlled live acceptance (new/removed/reappeared asset, admin surface,
 takeover candidate, KEV signal).
 
 ### 11. Website / Identity / Shadow IT domain closures
-Website: header/technology completeness (fetch-failed ≠ missing; 52x/530; CSP/HSTS/
+Three **separately-accepted** sub-items — each is LIVE-ACCEPTED independently and on its
+own evidence. There is **no lumped "Item 11 PASS"**; a verdict is recorded per sub-item.
+The sub-items are **not equal effort**: 11A and 11B are build-plus-accept, while 11C is
+verify-only against already-deployed code (lighter).
+
+**11A. Website Security — [IMPL] + live acceptance.**
+Header/technology completeness (fetch-failed ≠ missing; 52x/530; CSP/HSTS/
 Permissions/Referrer/XCTO/frame; confidence), change intelligence (added/removed/
 weakened/strengthened; false-diff suppression), managed lifecycle acceptance.
-Identity: evidence source + scope audit (no dark-web/endpoint overclaim; unavailable ≠
+
+**11B. Identity Exposure — [IMPL] + live acceptance.**
+Evidence source + scope audit (no dark-web/endpoint overclaim; unavailable ≠
 low risk), lifecycle acceptance, wording tiers (observed exposure ≠ confirmed
-compromise ≠ validity unknown). Shadow IT: **[ACC]** — the wording/field-mapping fixes
-are DEPLOYED (v2026.07.20-4/-5); verify against the live product (approved-but-
-owner-missing wording, owner status, evidence source, affected domain, no workspace-
-UUID leakage, CTA destination, footer, approved ≠ suspicious, WC ≠ action), then the
-full approved-inventory acceptance and claim boundaries (external evidence only).
+compromise ≠ validity unknown).
+
+**11C. Shadow IT — [ACC]** (live verification only — already deployed; lighter than
+11A/11B). The wording/field-mapping fixes are DEPLOYED (v2026.07.20-4/-5); verify against
+the live product (approved-but-owner-missing wording, owner status, evidence source,
+affected domain, no workspace-UUID leakage, CTA destination, footer, approved ≠
+suspicious, WC ≠ action), then the full approved-inventory acceptance and claim
+boundaries (external evidence only).
 
 ### 12. Related Changes B2/B3 — [IMPL]
 B2 correlation quality (stronger cross-domain rules, bounded temporal windows, evidence
@@ -254,6 +265,13 @@ live products/prices for the LOCKED ladder, webhook verification, portal
 (switch-plans + prorate + ToS/Privacy replicated from sandbox), invoice/VAT display,
 cancellation live acceptance. **Requires creating a real entitled MSP account so the
 MSP portfolio surface can finally be customer-accepted.**
+**This item requires its OWN security acceptance — "Stripe test-mode worked" is NOT
+enough.** Going to real money and live webhook secrets opens new IDOR/entitlement/authz
+surface. Minimum security-acceptance scope: webhook authenticity + replay · entitlement-
+transition correctness · cross-tenant billing access · portal ownership · subscription
+downgrade/cancel races · MSP-portfolio authorisation · invoice/billing-email data
+boundaries · IDOR/BOLA around billing resources. (The item-15 pentest PASS is then
+re-validated against this cutover at item 18 — see item 18.)
 
 ### 17. Full public-claims truth audit
 Map every public claim to the proven rung of the status ladder
@@ -265,11 +283,21 @@ internal / endpoint claims, no "RFC compliant" without fixture+live proof, no
 dashboard, alerts, cases, reports, PDFs, lifecycle emails, legal, MSP materials.
 
 ### 18. Final public-beta exit review
-All blocks simultaneously green: reliability (items 1–5) · detection integrity
-(6–12) · **module source-fidelity + freshness (19)** · security (14–15) ·
+All blocks simultaneously green: reliability (items 1–5) · detection depth
+(6–12) + reachability & dead-code integrity (13) · **module source-fidelity + freshness
+(19)** · security (14–15) ·
 commercial/legal (16) · operations (monitoring, backup/
-restore drill, incident response, rollback, support) · claims (17). **Final reflective
-step before invitations: re-read the local-only strategic positioning review**
+restore drill, incident response, rollback, support) · claims (17). This exit review is
+also the **Item-19 aggregate reconciliation** (the two are one gate — see item 19), and
+its "final regression/reconciliation" re-checks that every prior acceptance is still valid
+against the current build. In particular it **must RE-VALIDATE that the Item-15 pentest
+still holds AFTER the Item-16 billing cutover** — a pentest PASS at item 15 can be
+invalidated by new IDOR/entitlement/authz surface introduced by item 16's Stripe live
+cutover. This re-validation closes via **one of**: an independent-pentester delta retest of
+item 16 · a pre-agreed billing-cutover retest scope · an explicit pentester
+change-impact review — **NOT internal regression alone** (too weak for the
+billing/entitlement surface). **Final reflective step before invitations: re-read the
+local-only strategic positioning review**
 (`local/STRATEGY-THREE-PILLARS-REVIEW.md`, gitignored per the anti-imitability law) and
 confirm the product is going to market as the intended system-of-record + channel, not a
 thin scanner wrapper — any pillar whose foundation is not LIVE-ACCEPTED, whose public
@@ -301,8 +329,14 @@ Scope: the 14 live probe modules — `dns`, `ssl`, `headers`, `email_security`, 
   the Detection Depth Law's four proofs (fixture · mutation · e2e trace · founder live
   acceptance). CI-green is NOT this.
 
-**Precedence:** executes after item 5 closes and folds into items 6–13 as each module is
-worked; consolidated as a hard gate inside item 18's detection-integrity block. **Although
+**Precedence:** executes after item 5 closes and **closes PER-ITEM alongside each 7–13
+acceptance** — the module's source-fidelity/freshness proof and its independent-oracle
+cross-check are recorded as that item is worked, so there is no big data-truth surprise
+deferred to the end. The **retroactive Evidence-Grade grading audit** (per
+`docs/EVIDENCE-GRADE-LAW.md`) **also folds per-item** in the same way: both cross-cutting
+gates close item-by-item, not only at the end. The per-item results are then **consolidated
+as one aggregate reconciliation**, which **IS** item 18's exit "final
+regression/reconciliation" gate — they are a single gate, not two. **Although
 listed last, this is a LAUNCH-BLOCKER — a module returning wrong or stale data is a
 materially-misleading security result (harm class 3); it must be green BEFORE the two
 invitations, never a post-launch activity.**
