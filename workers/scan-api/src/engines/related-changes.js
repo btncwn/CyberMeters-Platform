@@ -1,7 +1,9 @@
 // ── M6 Phase B1: Related Changes — orchestrator, persistence & read surface ──
 //
-// Runs as scan-finalize Phase 8x (AFTER the case-producing lifecycle phases 8a/8k–8n,
-// BEFORE the Phase 8o snapshot freeze) so a scan's clusters are frozen into its report.
+// Runs as scan-finalize Phase 8x (AFTER the case-producing lifecycle phases 8a/8k–8n
+// and P4's immutable DMARC phase 8p). The canonical snapshot is already durable;
+// the existing report route freezes this summary separately in the snapshot row's
+// related_changes_json sidecar the first time the report is rendered.
 // Composes the read-only adapter (related-changes-adapter.js) and the deterministic
 // rules engine (related-changes-rules.js), then persists clusters + evidence pointers
 // per migration 098. (design note §4, §7, §8.)
@@ -41,6 +43,8 @@ export async function computeClusterKey(registrableDomain, ruleId) {
 export const CUSTOMER_STATES = Object.freeze(["new", "expected", "unrelated", "unexpected_confirmed"]);
 // Customer-settable states — 'new' is a system-assigned initial state, never a target.
 export const CUSTOMER_FEEDBACK_STATES = Object.freeze(["expected", "unrelated", "unexpected_confirmed"]);
+export const RELATED_CHANGES_CAUSALITY_NOTICE =
+  "These changes were observed close together and may be related. CyberMeters has not established that one caused the other or that they indicate compromise.";
 
 // ── Window ───────────────────────────────────────────────────────────────────
 // The bounded window is [previous-complete-scan time, this-scan time]. A complete
@@ -341,6 +345,14 @@ export async function createCaseFromRelatedChange(env, workspaceId, id, { userId
   const detail = await getRelatedChange(env, workspaceId, id);
   if (!detail) return { ok: false, code: "not_found" };
   const { cluster, evidence } = detail;
+  // Item 7 P4 activates timeline/correlation only. A cluster containing a
+  // DMARCbis lifecycle event remains non-caseable until P5 adds the approved
+  // manual-condition and canonical-remediation contract.
+  if ((evidence || []).some((item) =>
+    item.source_table === "email_protection_events" &&
+    String(item.source_event_type || "").startsWith("dmarc_"))) {
+    return { ok: false, code: "dmarc_case_deferred" };
+  }
   const families = [...new Set((evidence || []).map((e) => e.producer_family))];
 
   const target = baseCaseForCluster(families, domainKey && caseType ? { domain_key: domainKey, case_type: caseType } : null);
@@ -353,7 +365,7 @@ export async function createCaseFromRelatedChange(env, workspaceId, id, { userId
     source_finding_type: "related_change",
     source_finding_id: cluster.id,
     title: `Related change on ${cluster.registrable_domain} — requires verification`,
-    summary: `${cluster.signal_family_count} independent signal families changed together on ${cluster.registrable_domain} in the same period. This is a related change, not a confirmed compromise — confirm whether it was planned.`,
+    summary: `${cluster.signal_family_count} independent signal families changed together on ${cluster.registrable_domain} in the same period. ${RELATED_CHANGES_CAUSALITY_NOTICE}`,
     severity: "medium",
     actor: { actor_type: userId ? "customer" : "system", actor_id: userId },
   };
@@ -368,7 +380,7 @@ export async function createCaseFromRelatedChange(env, workspaceId, id, { userId
   return { ok: true, case: res.case };
 }
 
-// ── Snapshot summary (frozen into the report at Phase 8o / lazily) ───────────
+// ── Snapshot-row sidecar summary (frozen lazily on first report render) ──────
 /**
  * buildRelatedChangesSummary — a short, honest summary object for freezing into the
  * scan report snapshot and rendering in the PDF. Counts only; no attack language.
@@ -396,7 +408,7 @@ export async function buildRelatedChangesSummary(env, workspaceId) {
   return {
     schema: "related_changes.v1",
     total: items.length,
-    note: "Related changes are correlated observations that may be connected. Change is not compromise; confirm whether each was planned.",
+    note: RELATED_CHANGES_CAUSALITY_NOTICE,
     items,
   };
 }

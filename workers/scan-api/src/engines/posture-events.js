@@ -128,15 +128,25 @@ export function buildPostureDiffEvents(domain, prevModules, currentModules, opts
   const previousEmail = prevModules?.email_security || {};
   const currentEmail = currentModules?.email_security || {};
 
-  const prevPolicy = policyValue(previousEmail);
-  const currPolicy = policyValue(currentEmail);
-  if (prevPolicy && currPolicy && prevPolicy !== currPolicy) {
-    pushEvent(events, {
-      event_type: "email_dmarc_policy_changed",
-      hostname: domain,
-      severity: dmarcSeverity(prevPolicy, currPolicy),
-      description: `DMARC policy changed: ${prevPolicy} → ${currPolicy}`,
-    });
+  // The coarse RFC-7489-era event remains readable for legacy reports, but a
+  // scan carrying canonical DMARCbis evidence is owned by P4's immutable
+  // snapshot comparison. Running both would duplicate one DNS observation in
+  // Related Changes and, worse, the legacy projection cannot distinguish
+  // absence from unavailable or exact policy from inheritance.
+  const hasCanonicalDmarcbis =
+    prevModules?.dmarc_core != null ||
+    currentModules?.dmarc_core != null;
+  if (!hasCanonicalDmarcbis) {
+    const prevPolicy = policyValue(previousEmail);
+    const currPolicy = policyValue(currentEmail);
+    if (prevPolicy && currPolicy && prevPolicy !== currPolicy) {
+      pushEvent(events, {
+        event_type: "email_dmarc_policy_changed",
+        hostname: domain,
+        severity: dmarcSeverity(prevPolicy, currPolicy),
+        description: `DMARC policy changed: ${prevPolicy} → ${currPolicy}`,
+      });
+    }
   }
 
   const prevDkimPresent = boolState(previousEmail?.dkim?.present);

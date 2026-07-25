@@ -37,6 +37,7 @@ import { buildEmailRemediationActions, buildEmailTransportDetails } from "./emai
 import { runEmailIntelModule } from "./email-intel.js";
 import { applyDmarcbisEmailCompatibilityProjection, runEmailModule } from "./email-scan.js";
 import { establishDmarcPolicyBaseline } from "./email-protection-lifecycle.js";
+import { recordDmarcPolicyLifecycle } from "./dmarcbis-lifecycle.js";
 import {
   attachDmarcbisExternalResult,
   budgetRefusedDmarcbisExternal,
@@ -1748,39 +1749,6 @@ function buildCanonicalUrlProfile(modules) {
       }
     } catch { /* non-fatal — readiness catches up on the next scan */ }
 
-    // Phase 8x: M6 Phase B1 Related Changes — deterministic same-entity/same-window
-    // correlation over the change-event producers written by the phases above. Runs
-    // AFTER the lifecycle/case phases (8a, 8k–8n) so it sees this scan's producer rows,
-    // and BEFORE Phase 8o so its clusters are frozen into the snapshot. It reads only
-    // existing producer rows (adapter, no table moves), correlates with the registered
-    // deterministic rules, and persists clusters + evidence POINTERS (mig 098). No
-    // automatic case or alert is created (design §8) — the rule decides, the customer
-    // confirms. Runs only on a complete scan with a complete previous scan (the
-    // posture-events evidence floor). Non-fatal.
-    try {
-      const rcWsRows = await env.cybermeters_db
-        .prepare('SELECT workspace_id FROM workspace_domains WHERE domain_id = ?')
-        .bind(domainId)
-        .all();
-      for (const { workspace_id } of (rcWsRows.results || [])) {
-        await correlateRelatedChanges(env, {
-          workspaceId: workspace_id, domainId, scanId,
-          scanQuality: scanQuality?.status, assessedAt: completedAt,
-        });
-      }
-    } catch (err) {
-      // Non-fatal — correlation catches up on the next scan. But a silent failure must
-      // still be VISIBLE to operators, so emit ONE sanitized line. It carries only the
-      // scan id (the operational correlation key) and the error TYPE — never the error
-      // message (which could carry a D1/query fragment), never raw evidence, customer
-      // data or internal rule thresholds. Routed through redactedJson as a backstop, and
-      // itself wrapped so logging can never break finalize.
-      try {
-        console.warn("[related-changes] correlation phase failed (non-fatal): " +
-          redactedJson({ scan_id: scanId, error: err?.name || "Error" }));
-      } catch { /* logging must never break finalize */ }
-    }
-
     // Phase 8o: Canonical reporting snapshot (M5.c) — one completed Cyber MOT →
     // one immutable eight-domain snapshot (D1 index + R2 JSON). Runs AFTER the
     // lifecycle/case phases (8a, 8k–8n) so the managed-workflow summaries and
@@ -1807,6 +1775,57 @@ function buildCanonicalUrlProfile(modules) {
           cyberEssentials: ceSnap, assessedAt: completedAt,
         });
       } catch { /* non-fatal — the snapshot row records its own failure reason */ }
+    }
+
+    // Phase 8p: DMARCbis immutable lifecycle comparison. P4 reads the current
+    // snapshot written above and its append-only predecessor through the one
+    // integrity-gated snapshot reader. It appends only bounded evidence
+    // pointers/fingerprints to migration 088; raw DNS remains in R2. No alert,
+    // managed case, remediation activation, or monitoring-recovered event is
+    // invoked here. A failed/missing snapshot suppresses transitions honestly.
+    if (workspaceId) {
+      try {
+        await recordDmarcPolicyLifecycle(env, {
+          workspace_id: workspaceId,
+          domain_id: domainId,
+          domain,
+          scan_id: scanId,
+        });
+      } catch { /* non-fatal — the next complete pair can establish continuity */ }
+    }
+
+    // Phase 8x: M6 Phase B1 Related Changes — deterministic same-entity/same-window
+    // correlation over the change-event producers written by the phases above. Runs
+    // AFTER the lifecycle/case phases (8a, 8k–8p) so it sees this scan's producer rows.
+    // The canonical snapshot is already durable; the existing report route freezes
+    // Related Changes separately in the snapshot row's related_changes_json sidecar.
+    // It reads only existing producer rows (adapter, no table moves), correlates with
+    // registered deterministic rules, and persists clusters + evidence POINTERS
+    // (mig 098). No automatic case or alert is created (design §8) — the rule decides,
+    // the customer confirms. Runs only on a complete scan with a complete previous scan
+    // (the posture-events evidence floor). Non-fatal.
+    try {
+      const rcWsRows = await env.cybermeters_db
+        .prepare('SELECT workspace_id FROM workspace_domains WHERE domain_id = ?')
+        .bind(domainId)
+        .all();
+      for (const { workspace_id } of (rcWsRows.results || [])) {
+        await correlateRelatedChanges(env, {
+          workspaceId: workspace_id, domainId, scanId,
+          scanQuality: scanQuality?.status, assessedAt: completedAt,
+        });
+      }
+    } catch (err) {
+      // Non-fatal — correlation catches up on the next scan. But a silent failure must
+      // still be VISIBLE to operators, so emit ONE sanitized line. It carries only the
+      // scan id (the operational correlation key) and the error TYPE — never the error
+      // message (which could carry a D1/query fragment), never raw evidence, customer
+      // data or internal rule thresholds. Routed through redactedJson as a backstop, and
+      // itself wrapped so logging can never break finalize.
+      try {
+        console.warn("[related-changes] correlation phase failed (non-fatal): " +
+          redactedJson({ scan_id: scanId, error: err?.name || "Error" }));
+      } catch { /* logging must never break finalize */ }
     }
 
     // Phase 9: Asset Change Alert — one grouped email per workspace per scan.

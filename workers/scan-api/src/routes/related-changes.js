@@ -11,6 +11,7 @@ import {
   listRelatedChanges, getRelatedChange, setRelatedChangeCustomerState,
   linkRelatedChangeToCase, createCaseFromRelatedChange, getAssessmentContext,
   CUSTOMER_STATES, CUSTOMER_FEEDBACK_STATES,
+  RELATED_CHANGES_CAUSALITY_NOTICE,
 } from "../engines/related-changes.js";
 import { parseBoundedInteger } from "../lib/util.js";
 
@@ -75,6 +76,7 @@ export async function relatedChangesRoutes(rctx) {
         assessment,
         count: rows.length,
         related_changes: rows.map(clusterToApi),
+        scope_note: RELATED_CHANGES_CAUSALITY_NOTICE,
       });
     } catch {
       return json({ error: "Database error" }, 500);
@@ -95,6 +97,7 @@ export async function relatedChangesRoutes(rctx) {
     return json({
       related_change: clusterToApi(detail.cluster),
       can_manage: canManage,
+      scope_note: RELATED_CHANGES_CAUSALITY_NOTICE,
       evidence: detail.evidence.map((e) => ({
         producer_family: e.producer_family,
         source_table: e.source_table,
@@ -135,7 +138,11 @@ export async function relatedChangesRoutes(rctx) {
         caseType: body.case_type ?? null,
       });
       if (!res.ok) {
-        const status = res.code === "not_found" ? 404 : res.code === "no_base_case_type" ? 409 : 400;
+        const status = res.code === "not_found"
+          ? 404
+          : ["no_base_case_type", "dmarc_case_deferred"].includes(res.code)
+            ? 409
+            : 400;
         return json({ error: res.code }, status);
       }
       return json({ ok: true, case_id: res.case.id, case_type: res.case.case_type }, 201);
