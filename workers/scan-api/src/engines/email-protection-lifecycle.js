@@ -1,30 +1,35 @@
 // ── Email Protection managed lifecycle (PR-B3) ──────────────────────────────
-// The ONE canonical owner of Email Protection alerting. Two record families, one
+// The ONE canonical owner of Email Protection continuity. Three record families, one
 // domain_key, one append-only event source:
 //   hosted_dns_entries    (mig 071) → our managed DMARC/TLS-RPT/MTA-STS records
 //   email_sender_sources  (mig 054) → who receivers report is sending as you
+//   dmarc_policy_condition (P4 app vocabulary) → immutable DNS-policy transitions
 //
 // ── Why one engine and one table ────────────────────────────────────────────
 // LIFECYCLE_EVENT_SOURCES maps one domain_key to exactly one {table, fk,
-// type_column}. Both families are `email_protection`, so a second table is not
+// type_column}. All families are `email_protection`, so a second table is not
 // expressible: one family would silently resolve no occurrence forever — the
 // exact production defect PR-B1 found in Brand Protection and Attack Surface.
-// record_id is generic and the two id namespaces ('hd-' / 'esender_') are
-// disjoint, which is a CI-asserted invariant because the database cannot hold it.
+// record_id is generic and the three id namespaces ('hd-' / 'esender_' / 'dmarc:')
+// are disjoint, which is CI-asserted because the database cannot hold it.
 //
 // ── Why Email Protection was harder than B1/B2 ──────────────────────────────
 // B1 and B2 wired alerts onto lifecycles that already existed. Email had NONE.
 // So this engine creates the transition semantics — and that is precisely why it
 // may only grade conditions the platform can already evidence:
 //
-//   • Posture (SPF/DKIM/DMARC/BIMI/MTA-STS) is NOT alertable here and must never
-//     be. It is recomputed per scan into the R2 blob (scan-engine.js) plus
+//   • Legacy exact-lookup posture (SPF/DKIM/BIMI/MTA-STS and the old DMARC
+//     projection) is NOT alertable here. It is recomputed per scan into the R2
+//     blob (scan-engine.js) plus
 //     `findings` rows that get a FRESH RANDOM ID every scan and carry no
 //     workspace_id and no state. There is nothing to attribute an occurrence to.
 //     Worse, email-scan.js probes phase-2 DKIM selectors ONLY if SPF resolution
 //     succeeded — so a flaky SPF lookup silently narrows the DKIM probe set and
 //     can flip DKIM to "not detected" with nothing having changed at the
 //     customer. A blob diff cannot tell that apart from a real regression.
+//     DMARCbis is the narrow exception: P4 compares two immutable canonical
+//     snapshots and appends a stable condition occurrence. P5 alone may
+//     activate the approved alert subset; this module does not emit one in P4.
 //
 //   • Sender thresholds NEVER read email_sender_sources.failed_messages /
 //     total_messages. Those columns are CUMULATIVE LIFETIME counters
@@ -71,19 +76,35 @@ import {
   EMAIL_CASE_RECURRENCES, EMAIL_RECOVERY_VERIFIES,
   openOrReopenEmailCase, verifyEmailCaseFromRecovery,
 } from "./email-protection-cases.js";
+import {
+  DMARC_LIFECYCLE_SUBTYPES,
+  DMARC_POLICY_CONDITION_RECORD_TYPE,
+  DMARC_RELATED_CHANGES_SUBTYPES,
+  EMAIL_EVENT_DMARC_CONDITION_CLEARED,
+  EMAIL_EVENT_DMARC_DOMAIN_BASELINE,
+  EMAIL_EVENT_DMARC_MONITORING_DEGRADED,
+  EMAIL_EVENT_DMARC_POLICY_TRANSITION,
+} from "./dmarcbis-lifecycle-contract.js";
+export {
+  DMARC_LIFECYCLE_SUBTYPES,
+  DMARC_POLICY_CONDITION_RECORD_TYPE,
+  DMARC_RELATED_CHANGES_SUBTYPES,
+  EMAIL_EVENT_DMARC_CONDITION_CLEARED,
+  EMAIL_EVENT_DMARC_DOMAIN_BASELINE,
+  EMAIL_EVENT_DMARC_MONITORING_DEGRADED,
+  EMAIL_EVENT_DMARC_POLICY_TRANSITION,
+};
 
 export const EMAIL_PROTECTION_DOMAIN_KEY = "email_protection";
 
 // The two record families sharing the event source.
 export const HOSTED_RECORD_TYPE = "hosted_dns_entry";
 export const SENDER_RECORD_TYPE = "email_sender_source";
-export const DMARC_POLICY_CONDITION_RECORD_TYPE = "dmarc_policy_condition";
 
 // Non-alertable event types. Each is a real fact worth keeping, and none may
 // ever alert. They are deliberately NOT `monitoring_changed`: the resolver only
 // looks at that value, so these are unreachable by the alert path by design.
 export const EMAIL_EVENT_BASELINE               = "baseline_established";
-export const EMAIL_EVENT_DMARC_DOMAIN_BASELINE  = "dmarc_domain_baseline_established";
 export const EMAIL_EVENT_HOSTED_RECONNECTED     = "hosted_record_reconnected";
 export const EMAIL_EVENT_HOSTED_POLICY_CHANGED  = "hosted_policy_changed";
 export const EMAIL_EVENT_HOSTED_ROLLED_BACK_MANUAL = "hosted_rolled_back_manual";
@@ -97,6 +118,9 @@ export const EMAIL_EVENT_CASE_REOPENED         = "case_reopened";
 export const NON_ALERTABLE_EVENT_TYPES = Object.freeze([
   EMAIL_EVENT_BASELINE,
   EMAIL_EVENT_DMARC_DOMAIN_BASELINE,
+  EMAIL_EVENT_DMARC_POLICY_TRANSITION,
+  EMAIL_EVENT_DMARC_MONITORING_DEGRADED,
+  EMAIL_EVENT_DMARC_CONDITION_CLEARED,
   EMAIL_EVENT_HOSTED_RECONNECTED,
   EMAIL_EVENT_HOSTED_POLICY_CHANGED,
   EMAIL_EVENT_HOSTED_ROLLED_BACK_MANUAL,
@@ -323,6 +347,15 @@ export async function dmarcPolicyConditionRecordId({
   return `dmarc:${domain_id}:${type}:${digest}`;
 }
 
+export async function dmarcDomainBaselineRecordId({
+  domain_id,
+  author_domain,
+} = {}) {
+  const author = canonicalDmarcConditionSubject(author_domain);
+  if (!domain_id || !author) return null;
+  return `dmarc:${domain_id}:domain_baseline:${await sha256Hex(author)}`;
+}
+
 function primaryPolicyWalkEntries(policyEvidence) {
   return (Array.isArray(policyEvidence?.lookup_path)
     ? policyEvidence.lookup_path
@@ -431,9 +464,10 @@ export async function establishDmarcPolicyBaseline(env, {
 
   const authorDomain =
     canonicalDmarcConditionSubject(policy_evidence.author_domain || domain);
-  const domainMarkerSubject = await sha256Hex(authorDomain);
-  const domainMarkerId =
-    `dmarc:${domain_id}:domain_baseline:${domainMarkerSubject}`;
+  const domainMarkerId = await dmarcDomainBaselineRecordId({
+    domain_id,
+    author_domain: authorDomain,
+  });
   const conditions = deriveDmarcPolicyConditions(policy_evidence);
   const conditionRows = [];
   for (const condition of conditions) {
@@ -454,6 +488,33 @@ export async function establishDmarcPolicyBaseline(env, {
     typeof policy_evidence.evidence_fingerprint === "string"
       ? policy_evidence.evidence_fingerprint
       : await sha256Hex(JSON.stringify(policy_evidence));
+  // The domain marker is the first-complete-evaluation flood guard. Once it
+  // exists, a condition first observed on a later complete scan is NOT
+  // baselined: P4 must compare immutable snapshots and, when proven, append the
+  // real occurrence. Baselining every condition's first appearance would erase
+  // every future DMARC regression before the transition evaluator saw it.
+  const existingDomainMarker = await env.cybermeters_db
+    .prepare(`SELECT id FROM email_protection_events
+              WHERE workspace_id = ? AND record_type = ?
+                AND record_id = ? AND event_type = ?
+              LIMIT 1`)
+    .bind(
+      workspace_id,
+      DMARC_POLICY_CONDITION_RECORD_TYPE,
+      domainMarkerId,
+      EMAIL_EVENT_DMARC_DOMAIN_BASELINE,
+    )
+    .first()
+    .catch(() => null);
+  if (existingDomainMarker) {
+    return {
+      established: true,
+      inserted: 0,
+      conditions: conditionRows.length,
+      baseline_exists: true,
+    };
+  }
+
   const possibleCandidates = [
     {
       record_id: domainMarkerId,
@@ -563,7 +624,7 @@ export async function establishDmarcPolicyBaseline(env, {
 export function emailProtectionEventToApi(row = {}) {
   let detail = null;
   try { detail = row.detail_json ? JSON.parse(row.detail_json) : null; } catch { detail = null; }
-  return {
+  const base = {
     id: row.id,
     record_id: row.record_id,
     record_type: row.record_type,
@@ -575,6 +636,56 @@ export function emailProtectionEventToApi(row = {}) {
     recurrence_type: detail?.to_recurrence_type ?? null,
     reason: detail?.reason ?? null,
   };
+  if (row.record_type !== DMARC_POLICY_CONDITION_RECORD_TYPE) return base;
+  const baselineWording = row.event_type === EMAIL_EVENT_DMARC_DOMAIN_BASELINE
+    ? "A DMARC monitoring baseline was established."
+    : row.event_type === EMAIL_EVENT_BASELINE
+      ? "A DMARC condition present at the first complete observation was baselined."
+      : null;
+  const baselineGrade = baselineWording
+    ? {
+        observable_ceiling: "L5",
+        beta_target: "L4",
+        minimum_publishable: "L2",
+        degrade_behavior:
+          "Treat the first complete observation as baseline history, never as a newly proven change.",
+        required_corroboration: ["later complete re-observation for change"],
+        grade: "L2",
+        source_type: "dns_policy_baseline",
+        basis:
+          "Append-only first-complete DMARC observation with methodology and evidence fingerprint.",
+        limits: [
+          "A baseline is not an alert occurrence and does not prove receiver enforcement.",
+        ],
+        repeat_confirmed: false,
+      }
+    : null;
+  return {
+    ...base,
+    subtype: detail?.subtype ??
+      (row.event_type === EMAIL_EVENT_DMARC_DOMAIN_BASELINE
+        ? "baseline_established"
+        : row.event_type),
+    summary: detail?.customer_wording ?? baselineWording,
+    condition_type: detail?.condition_type ?? null,
+    subject_key: detail?.subject_key ?? detail?.entity ?? null,
+    transition_completeness:
+      detail?.transition_completeness ?? null,
+    evidence_grade: detail?.evidence_grade ?? baselineGrade,
+    evidence: detail?.before_snapshot_id || detail?.after_snapshot_id
+      ? {
+          before_scan_id: detail?.before_scan_id ?? null,
+          after_scan_id: detail?.after_scan_id ?? null,
+          before_snapshot_id: detail?.before_snapshot_id ?? null,
+          after_snapshot_id: detail?.after_snapshot_id ?? null,
+          before_evidence_fingerprint:
+            detail?.before_evidence_fingerprint ?? null,
+          after_evidence_fingerprint:
+            detail?.after_evidence_fingerprint ?? null,
+          methodology_version: detail?.methodology_version ?? null,
+        }
+      : null,
+  };
 }
 
 // Tenant-scoped, BOUNDED and deterministic. `created_at` is second-precision so it ties
@@ -584,12 +695,8 @@ export function emailProtectionEventToApi(row = {}) {
 export async function listEmailProtectionEvents(env, workspaceId, {
   record_id = null, record_type = null, limit = 50, offset = 0,
 } = {}) {
-  // P2 persists DMARC baselines for future continuity but does not activate a
-  // customer timeline surface. P4 removes this read boundary when immutable
-  // before/after transition events and their wording are ready together.
-  if (record_type === DMARC_POLICY_CONDITION_RECORD_TYPE) return [];
-  const where = ["workspace_id = ?", "record_type <> ?"];
-  const binds = [workspaceId, DMARC_POLICY_CONDITION_RECORD_TYPE];
+  const where = ["workspace_id = ?"];
+  const binds = [workspaceId];
   if (record_id) { where.push("record_id = ?"); binds.push(String(record_id)); }
   if (record_type) { where.push("record_type = ?"); binds.push(String(record_type)); }
   const rows = await env.cybermeters_db
@@ -607,9 +714,8 @@ export async function listEmailProtectionEvents(env, workspaceId, {
 // paging back through months of it needs to know there IS a back, and the has_more
 // heuristic (count >= limit) guesses wrong on an exact-multiple final page.
 export async function countEmailProtectionEvents(env, workspaceId, { record_id = null, record_type = null } = {}) {
-  if (record_type === DMARC_POLICY_CONDITION_RECORD_TYPE) return 0;
-  const where = ["workspace_id = ?", "record_type <> ?"];
-  const binds = [workspaceId, DMARC_POLICY_CONDITION_RECORD_TYPE];
+  const where = ["workspace_id = ?"];
+  const binds = [workspaceId];
   if (record_id) { where.push("record_id = ?"); binds.push(String(record_id)); }
   if (record_type) { where.push("record_type = ?"); binds.push(String(record_type)); }
   const row = await env.cybermeters_db

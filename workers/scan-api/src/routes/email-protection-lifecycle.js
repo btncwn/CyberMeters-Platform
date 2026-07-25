@@ -10,23 +10,29 @@
 // than inventing a record to match them: mig 088 created NO state table. The events ARE
 // the history, and the current state lives on the parent rows (`hosted_dns_entries`,
 // `email_sender_sources`) which their own endpoints already serve. So the resource here
-// is the history itself, filterable by the two record types 088 defines.
+// is the history itself, filterable by migration 088's two original record types
+// plus P4's additive dmarc_policy_condition application vocabulary.
 //
 // Shaped like routes/certificates-lifecycle.js otherwise — auth, then role, then the
 // soft-delete gate. Non-enumerating: an unknown record id yields an empty history, never
 // a hint that it exists in another tenant.
 import {
   listEmailProtectionEvents, countEmailProtectionEvents,
-  HOSTED_RECORD_TYPE, SENDER_RECORD_TYPE,
+  HOSTED_RECORD_TYPE, SENDER_RECORD_TYPE, DMARC_POLICY_CONDITION_RECORD_TYPE,
 } from "../engines/email-protection-lifecycle.js";
 import { pageMeta, paginationParams } from "../lib/util.js";
 
 const EMAIL_LIFECYCLE_SCOPE_NOTE =
   "Receiver-reported and externally observed email evidence only. This is the history of what CyberMeters recorded and when — "
-  + "a hosted record disconnecting or reconnecting, a sender's condition beginning, recovering or returning. "
+  + "a hosted record disconnecting or reconnecting, a sender's condition beginning, recovering or returning, and DMARC policy changes derived from complete immutable observations. "
+  + "A published DMARC preference does not prove receiver enforcement. Related timing does not establish causality or compromise. "
   + "A customer classification is recorded as the customer's own assertion and is never presented as a CyberMeters observation.";
 
-const RECORD_TYPES = Object.freeze([HOSTED_RECORD_TYPE, SENDER_RECORD_TYPE]);
+const RECORD_TYPES = Object.freeze([
+  HOSTED_RECORD_TYPE,
+  SENDER_RECORD_TYPE,
+  DMARC_POLICY_CONDITION_RECORD_TYPE,
+]);
 
 export async function emailProtectionLifecycleRoutes(rctx) {
   const { request, env, url, json, requireAuth, requireWorkspaceRole } = rctx;

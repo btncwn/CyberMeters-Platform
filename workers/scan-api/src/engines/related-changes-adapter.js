@@ -16,6 +16,7 @@
 //   asset          — asset_events (asset-inventory event types)      host:<fqdn>
 //   cert           — asset_events (certificate_* event types)        host:<fqdn>
 //   email_config   — asset_events (email_* event types)              domain:<root>
+//                  — email_protection_events (DMARCbis P4)           domain:<root>
 //   email_sender   — email_sender_sources (new source by first_seen) domain:<root>
 //   identity       — identity_assets (new/changed login/IdP surface) host:<fqdn>
 //   brand          — workspace_brand_assets + brand_abuse_campaigns  brand-target:<root>
@@ -33,6 +34,11 @@
 //     cluster mixing materialising + resolving events would be mixed noise (§4.5).
 
 import { getRegisteredDomain } from "./whois-scan.js";
+import {
+  DMARC_POLICY_CONDITION_RECORD_TYPE,
+  DMARC_RELATED_CHANGES_SUBTYPES,
+  EMAIL_EVENT_DMARC_POLICY_TRANSITION,
+} from "./dmarcbis-lifecycle-contract.js";
 
 export const SIGNAL_FAMILY = Object.freeze({
   ASSET: "asset",
@@ -72,6 +78,26 @@ const ASSET_EVENT_MAP = Object.freeze({
   certificate_growth_detected:       { family: SIGNAL_FAMILY.CERT, direction: "changed" },
   certificate_sensitive_host_detected: { family: SIGNAL_FAMILY.CERT, direction: "degraded" },
   certificate_expiring_soon:         { family: SIGNAL_FAMILY.CERT, direction: "degraded" },
+});
+
+const DMARC_RELATED_SUBTYPES = new Set(DMARC_RELATED_CHANGES_SUBTYPES);
+const DMARC_DIRECTION = Object.freeze({
+  record_created: "appeared",
+  record_removed: "degraded",
+  record_became_malformed: "degraded",
+  multiple_records_detected: "degraded",
+  policy_changed: "changed",
+  policy_inherited: "changed",
+  inheritance_source_changed: "changed",
+  organisational_domain_changed: "changed",
+  subdomain_policy_changed: "changed",
+  non_existent_subdomain_policy_changed: "changed",
+  enforcement_strengthened: "changed",
+  enforcement_weakened: "degraded",
+  external_rua_added: "appeared",
+  external_rua_removed: "changed",
+  external_rua_authorised: "changed",
+  external_rua_unauthorised: "degraded",
 });
 
 export function hostEntityKey(hostname) {
@@ -147,6 +173,65 @@ export async function collectChangeEvents(env, { workspaceId, windowStart, windo
       });
     }
   } catch { /* producer absent / query error — degrade to no events from this source */ }
+
+  // DMARCbis P4 reuses migration 088's Email Protection occurrence source. It
+  // remains in the existing email_config family: a coarse legacy DMARC event
+  // and its canonical replacement are the SAME evidence family and therefore
+  // can never satisfy the two-independent-family correlation floor together.
+  // Only complete, allowlisted material subtypes are projected. Raw DNS stays
+  // in the immutable snapshots referenced by the event detail.
+  try {
+    const rows = await db
+      .prepare(
+        `SELECT id, event_type, detail_json, created_at
+         FROM email_protection_events
+         WHERE workspace_id = ? AND record_type = ?
+           AND created_at >= ? AND created_at <= ?`,
+      )
+      .bind(
+        workspaceId,
+        DMARC_POLICY_CONDITION_RECORD_TYPE,
+        start,
+        end,
+      )
+      .all();
+    for (const row of rows.results || []) {
+      let detail = null;
+      try { detail = JSON.parse(row.detail_json || "null"); } catch { detail = null; }
+      const subtype = String(detail?.subtype || "");
+      if (
+        !DMARC_RELATED_SUBTYPES.has(subtype) ||
+        detail?.related_changes_eligible !== true ||
+        detail?.transition_completeness !== "complete"
+      ) {
+        continue;
+      }
+      // Actionable rows use monitoring_changed for the existing occurrence
+      // resolver; informational rows use dmarc_policy_transition. No other
+      // migration-088 event type can enter correlation.
+      if (
+        row.event_type !== "monitoring_changed" &&
+        row.event_type !== EMAIL_EVENT_DMARC_POLICY_TRANSITION
+      ) {
+        continue;
+      }
+      const author = String(detail?.author_domain || "");
+      const afterSnapshotId = String(detail?.after_snapshot_id || "");
+      if (!author || !afterSnapshotId) continue;
+      events.push({
+        producer_family: SIGNAL_FAMILY.EMAIL_CONFIG,
+        entity_key: domainEntityKey(author),
+        registrable_domain: registrableOf(author),
+        event_type: `dmarc_${subtype}`,
+        direction: DMARC_DIRECTION[subtype] || "changed",
+        observed_at: row.created_at,
+        source_table: "email_protection_events",
+        source_record_id: String(row.id),
+        evidence_ref:
+          `snapshot:${afterSnapshotId}#protocol_evidence.dmarc`,
+      });
+    }
+  } catch { /* non-fatal */ }
 
   // 4. email_sender_sources → email_sender family (new sender by first_seen in window).
   try {
@@ -314,5 +399,21 @@ export async function collectChangeEvents(env, { workspaceId, windowStart, windo
     }
   } catch { /* non-fatal */ }
 
-  return events;
+  // P2/P3 scans could have written the coarse asset_events DMARC diff before
+  // P4 retired that producer. During the bounded upgrade window, prefer the
+  // canonical immutable-snapshot event for the same registrable domain and
+  // drop the coarse copy. Keeping both would not satisfy the two-family floor,
+  // but it would still inflate independent_producer_count and cite one DNS
+  // observation twice.
+  const canonicalDmarcRoots = new Set(events
+    .filter((event) =>
+      event.source_table === "email_protection_events" &&
+      String(event.event_type || "").startsWith("dmarc_"))
+    .map((event) => event.registrable_domain));
+  return events.filter((event) =>
+    !(
+      event.source_table === "asset_events" &&
+      event.event_type === "email_dmarc_policy_changed" &&
+      canonicalDmarcRoots.has(event.registrable_domain)
+    ));
 }

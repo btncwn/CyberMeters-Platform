@@ -43,8 +43,6 @@ import {
   deriveDmarcPolicyConditions,
   dmarcPolicyConditionRecordId,
   establishDmarcPolicyBaseline,
-  listEmailProtectionEvents,
-  countEmailProtectionEvents,
 } from "../workers/scan-api/src/engines/email-protection-lifecycle.js";
 import { parseDmarcbisPolicyRecord } from "../workers/scan-api/src/engines/dmarcbis-parser.js";
 import { parseDmarcAggregateXml } from "../workers/scan-api/src/lib/dmarc-ingest.js";
@@ -692,14 +690,9 @@ class LifecycleDb {
   eq("soft-deleted/unlinked workspace is rejected",
     inactive.skipped, "workspace_or_domain_inactive");
   eq("inactive workspace receives no event", db.events.length, beforeInactive);
-  eq("P2 DMARC baselines are not exposed on the existing history API",
-    await listEmailProtectionEvents(env, "ws-a", {
-      record_type: "dmarc_policy_condition",
-    }), []);
-  eq("P2 DMARC baselines are not counted on the existing history API",
-    await countEmailProtectionEvents(env, "ws-a", {
-      record_type: "dmarc_policy_condition",
-    }), 0);
+  // P4 activates the migration-088 DMARC timeline read surface. P2 continues
+  // to prove only that its first-observation rows are non-occurrence baselines;
+  // P4's real D1/R2 validator owns visibility, pagination, and wording.
 }
 
 // ── RFC 9990 aggregate metadata + RFC 7489 history compatibility ────────────
