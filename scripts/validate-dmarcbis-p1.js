@@ -184,6 +184,20 @@ function runtimeGrade(result) {
   const noFallback = parseDmarcbisPolicyRecord("v=DMARC1; p=invalid");
   eq("invalid policy without a valid rua performs no DMARC processing", noFallback.policy_mode, "no_processing_invalid_policy");
   ok("invalid policy without rua is not a policy source", !noFallback.valid_for_discovery);
+  const invalidSpWithValidPAndRua = parseDmarcbisPolicyRecord(
+    "v=DMARC1; p=reject; sp=invalid; rua=mailto:dmarc@example.test",
+  );
+  eq("RFC 9989 §4.10.1 invalid sp is not rescued by valid p",
+    invalidSpWithValidPAndRua.policy_mode, "invalid_policy_fallback_none");
+  ok("RFC 9989 §4.10.1 invalid sp plus valid rua remains a fallback source",
+    invalidSpWithValidPAndRua.valid_for_discovery);
+  const invalidNpWithValidPNoRua = parseDmarcbisPolicyRecord(
+    "v=DMARC1; p=reject; np=invalid",
+  );
+  eq("RFC 9989 §4.10.1 invalid np is not ignored in favor of valid p",
+    invalidNpWithValidPNoRua.policy_mode, "no_processing_invalid_policy");
+  ok("RFC 9989 §4.10.1 invalid np without rua is not a policy source",
+    !invalidNpWithValidPNoRua.valid_for_discovery);
   const defaults = parseDmarcbisPolicyRecord("v=DMARC1");
   eq("missing p defaults to none", defaults.p.normalized, "none");
   eq("missing t defaults to n", defaults.t.normalized, "n");

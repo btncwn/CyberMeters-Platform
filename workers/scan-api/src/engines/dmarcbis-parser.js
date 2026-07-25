@@ -403,6 +403,10 @@ export function parseDmarcbisPolicyRecord(record, index = 0) {
   const fo = parseFoTag(initial);
   const rua = parseUriTag(initial, "rua");
   const ruf = parseUriTag(initial, "ruf");
+  // RFC 9989 §4.10.1 applies this rule to the policy-tag set, not only p:
+  // after §4.7's p=none default, an invalid p OR a present invalid sp/np uses
+  // fallback p=none when at least one rua URI is syntactically valid; otherwise
+  // no DMARC processing applies. A valid p never rescues an invalid sp or np.
   const invalidPolicyTag = [p, sp, np].some((tag) => tag.validity === "invalid");
   const validRua = rua.some((uri) => uri.syntax_valid);
   // RFC 9989 §4.8 requires syntax errors after the valid version tag to use
