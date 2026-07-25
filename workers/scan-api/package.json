@@ -12,5 +12,8 @@
   "type": "module",
   "overrides": {
     "sharp": "0.35.3"
+  },
+  "dependencies": {
+    "tr46": "6.0.0"
   }
 }

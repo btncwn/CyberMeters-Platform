@@ -1,0 +1,4 @@
+name = "cybermeters-dmarcbis-p1-bundle-check"
+main = "dmarcbis-p1-worker-entry.js"
+compatibility_date = "2026-06-18"
+workers_dev = true

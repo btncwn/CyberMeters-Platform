@@ -774,6 +774,16 @@ jobs:
         working-directory: workers/scan-api
         run: npm audit --audit-level=high
 
+      - name: Validate DMARCbis P1 protocol fixtures (pure injected DNS / no production caller)
+        run: node scripts/validate-dmarcbis-p1.js
+
+      - name: Validate DMARCbis P1 load-bearing mutations
+        run: node scripts/validate-dmarcbis-p1-mutations.js
+
+      - name: DMARCbis P1 tr46 Worker bundle gate (no Node compatibility flags)
+        working-directory: workers/scan-api
+        run: npx wrangler deploy --dry-run --config ../../scripts/fixtures/wrangler-dmarcbis-p1.toml
+
       - name: Worker bundle dry-run (Cloudflare packaging + import graph)
         working-directory: workers/scan-api
         run: npx wrangler deploy --dry-run
