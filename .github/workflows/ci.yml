@@ -21,6 +21,13 @@ jobs:
       - name: Show Node version
         run: node --version && npm --version
 
+      # Runtime validators import the production scan-engine graph. DMARCbis P2
+      # makes that graph reach the pinned tr46 dependency, so install Worker
+      # dependencies before the first validator rather than only before bundling.
+      - name: Install worker deps
+        working-directory: workers/scan-api
+        run: npm ci || npm install
+
       - name: Secret scan (tracked files)
         run: |
           if git grep -nIE '(-----BEGIN [A-Z ]*PRIVATE KEY-----|AKIA[0-9A-Z]{16}|sk_live_[0-9a-zA-Z]{24})' -- ':!.github/**' ':!*.md'; then
@@ -765,10 +772,6 @@ jobs:
 
       - name: Validate certificate standing-condition dedupe (occurrence identity — unchanged state never re-emits + mutations)
         run: node scripts/validate-cert-standing-condition-dedupe.js
-
-      - name: Install worker deps
-        working-directory: workers/scan-api
-        run: npm ci || npm install
 
       - name: Audit worker dependencies
         working-directory: workers/scan-api
