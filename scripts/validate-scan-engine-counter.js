@@ -94,18 +94,55 @@ async function runEngineLedger(mode, {
     }
     return respond(s, { dmarcRua, authorizeExternal });
   };
-  const stmt = { bind: () => stmt, run: async () => ({ meta: {}, success: true }), all: async () => ({ results: [] }), first: async () => null };
   let report = null;
+  let snapshot = null;
+  const r2 = new Map();
+  const makeStatement = (sql, args = []) => ({
+    bind: (...bound) => makeStatement(sql, bound),
+    run: async () => ({
+      meta: {
+        changes:
+          /INSERT OR IGNORE INTO scan_report_snapshots/.test(sql) ||
+          /UPDATE scan_report_snapshots[\s\S]*SET status = 'completed'/.test(sql)
+            ? 1
+            : 0,
+      },
+      success: true,
+    }),
+    all: async () => ({ results: [] }),
+    first: async () => {
+      if (
+        /SELECT id FROM workspaces WHERE id = \? AND deleted_at IS NULL/.test(sql)
+      ) {
+        return { id: args[0] };
+      }
+      return null;
+    },
+  });
   const env = {
-    cybermeters_db: { prepare: () => stmt, batch: async () => [] },
+    cybermeters_db: {
+      prepare: (sql) => makeStatement(sql),
+      batch: async () => [],
+    },
     cybermeters_reports: {
       put: async (key, body) => {
+        r2.set(String(key), String(body));
         if (String(key) === `reports/scan_${mode}.json`) {
           try { report = JSON.parse(String(body)); } catch { /* malformed fixture */ }
+        } else if (String(key).startsWith(
+          `reports/snapshots/ws_test/scan_${mode}/`,
+        )) {
+          try { snapshot = JSON.parse(String(body)); } catch { /* malformed fixture */ }
         }
         return {};
       },
-      get: async () => null,
+      get: async (key) => {
+        const body = r2.get(String(key));
+        return body == null ? null : {
+          text: async () => body,
+          json: async () => JSON.parse(body),
+        };
+      },
       delete: async () => ({}),
     },
     SCAN_CAPACITY_MODE: mode,
@@ -117,12 +154,12 @@ async function runEngineLedger(mode, {
   let threw = null;
   try { await runScanEngine(`scan_${mode}`, "dom_test", "ws_test", "example.com", env); } catch (e) { threw = e; }
   globalThis.fetch = realFetch;
-  return { counter, threw, report };
+  return { counter, threw, report, snapshot };
 }
 
 // ── Section B: legacy engine ledger (unchanged after Commit 3) ────────────────
 {
-  const { counter, threw, report } = await runEngineLedger("legacy");
+  const { counter, threw, report, snapshot } = await runEngineLedger("legacy");
   console.log(`legacy engine ledger:   total=${counter.total} ${JSON.stringify(counter.byCategory)}`);
   eq("legacy: runScanEngine completed", threw, null);
   ok("legacy: counter observed the real engine's outbound calls", counter.total > 0, `total ${counter.total}`);
@@ -138,6 +175,17 @@ async function runEngineLedger(mode, {
     report?.modules?.dmarc_core?.rua_authorisation_completeness, "not_applicable");
   eq("legacy: compatibility projection never invents inherited/exact policy",
     report?.modules?.email_security?.dmarc?.policy, null);
+  eq("legacy: outer canonical snapshot schema remains v1",
+    snapshot?.snapshot?.snapshot_schema_version, "1");
+  eq("legacy: real engine writes the nested DMARCbis snapshot block",
+    snapshot?.protocol_evidence?.dmarc?.schema, "dmarc-policy.v2");
+  ok("legacy: report protocol evidence carries a SHA-256 fingerprint",
+    /^[a-f0-9]{64}$/.test(
+      report?.modules?.dmarc_core?.evidence_fingerprint || "",
+    ));
+  eq("legacy: report and snapshot use the exact same canonical protocol object",
+    JSON.stringify(snapshot?.protocol_evidence?.dmarc),
+    JSON.stringify(report?.modules?.dmarc_core));
   for (const resolver of ["cloudflare-dns.com", "dns.google"]) {
     eq(
       `legacy: shared cache issues exact DMARC once to ${resolver}`,

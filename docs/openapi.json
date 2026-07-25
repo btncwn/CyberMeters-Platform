@@ -1152,6 +1152,72 @@
         }
       }
     },
+    "/api/workspaces/{workspaceId}/domains/{domain}/dmarc-summary": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/workspaceId"
+        },
+        {
+          "name": "domain",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "get": {
+        "tags": [
+          "Domains"
+        ],
+        "summary": "Get aggregate DMARC intelligence plus the latest immutable DMARC policy evidence",
+        "operationId": "getDmarcSummary",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/DmarcPolicyEvidenceProjection"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/workspaces/{workspaceId}/domains/{domain}/hosted-dmarc": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/workspaceId"
+        },
+        {
+          "name": "domain",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "get": {
+        "tags": [
+          "Domains"
+        ],
+        "summary": "Get Hosted-DMARC state plus a read-only immutable DMARC policy interpretation",
+        "operationId": "getDomainHostedDmarc",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/DmarcPolicyEvidenceProjection"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
     "/api/domains/{domainId}/detail": {
       "parameters": [
         {
@@ -1225,7 +1291,7 @@
         "operationId": "getScanReport",
         "responses": {
           "200": {
-            "$ref": "#/components/responses/Ok"
+            "$ref": "#/components/responses/DmarcPolicyEvidenceProjection"
           },
           "403": {
             "$ref": "#/components/responses/Forbidden"
@@ -1253,7 +1319,7 @@
         "operationId": "getScanReportSnapshot",
         "responses": {
           "200": {
-            "$ref": "#/components/responses/Ok"
+            "$ref": "#/components/responses/DmarcPolicyEvidenceProjection"
           },
           "403": {
             "$ref": "#/components/responses/Forbidden"
@@ -1800,6 +1866,419 @@
       }
     },
     "schemas": {
+      "DmarcPolicyEvidence": {
+        "type": "object",
+        "description": "Immutable DMARCbis policy observation and requested-policy derivation. This object records DNS evidence and provenance; it does not prove receiver enforcement.",
+        "additionalProperties": true,
+        "properties": {
+          "schema": {
+            "type": "string",
+            "const": "dmarc-policy.v2"
+          },
+          "methodology_version": {
+            "type": "string",
+            "const": "rfc9989-treewalk-v1"
+          },
+          "parser_version": {
+            "type": "string"
+          },
+          "resolver_profile": {
+            "type": "string",
+            "const": "primary-plus-decisive-corroboration-v1"
+          },
+          "idna_profile": {
+            "type": "object"
+          },
+          "author_domain": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "submitted_domain": {
+            "type": "string"
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "observation_state": {
+            "type": "string",
+            "enum": [
+              "absent",
+              "present_valid",
+              "present_valid_with_defaults",
+              "present_invalid",
+              "multiple",
+              "unavailable",
+              "incomplete_oversized",
+              "resolver_disagreement"
+            ]
+          },
+          "record_validity": {
+            "type": "string",
+            "enum": [
+              "valid",
+              "valid_with_defaults",
+              "invalid",
+              "indeterminate",
+              "not_applicable"
+            ]
+          },
+          "raw_records": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {}
+          },
+          "parsed_tags": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {}
+          },
+          "lookup_path": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "organisational_domain": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "organisational_domain_provenance": {
+            "type": "string",
+            "enum": [
+              "psd_n",
+              "below_psd_y",
+              "highest_valid_record",
+              "exact_shortcut",
+              "fallback_initial_target",
+              "unresolved"
+            ]
+          },
+          "policy_source_domain": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "policy_source_kind": {
+            "type": "string",
+            "enum": [
+              "exact",
+              "organisational",
+              "psd",
+              "none",
+              "unknown"
+            ]
+          },
+          "declared_policy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "none",
+              "quarantine",
+              "reject",
+              null
+            ]
+          },
+          "effective_requested_policy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Requested policy after the RFC 9989 testing adjustment. It is not observed receiver enforcement.",
+            "enum": [
+              "none",
+              "quarantine",
+              "reject",
+              null
+            ]
+          },
+          "effective_policy_tag": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "p",
+              "sp",
+              "np",
+              null
+            ]
+          },
+          "inheritance_reason": {
+            "type": "string",
+            "enum": [
+              "exact_p",
+              "organisational_p",
+              "organisational_sp",
+              "organisational_np",
+              "psd_p",
+              "psd_sp",
+              "psd_np",
+              "invalid_policy_fallback_none",
+              "none",
+              "unknown"
+            ]
+          },
+          "testing_adjustment": {
+            "type": "string",
+            "enum": [
+              "none",
+              "one_level_below",
+              "no_effect_on_none",
+              "not_applicable",
+              "unknown"
+            ]
+          },
+          "p": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "sp": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "np": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "t": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "psd": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "domain_existence": {
+            "type": "string",
+            "enum": [
+              "exists",
+              "nonexistent",
+              "unknown",
+              "not_required"
+            ]
+          },
+          "legacy_pct": {
+            "type": "object",
+            "description": "Raw RFC 7489-era pct evidence. applied_to_effective_policy is always false.",
+            "properties": {
+              "observed": {
+                "type": "boolean"
+              },
+              "raw": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "numeric": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "semantics": {
+                "type": "string",
+                "const": "rfc7489_legacy"
+              },
+              "applied_to_effective_policy": {
+                "type": "boolean",
+                "const": false
+              }
+            },
+            "required": [
+              "observed",
+              "raw",
+              "numeric",
+              "semantics",
+              "applied_to_effective_policy"
+            ]
+          },
+          "rua_destinations": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object"
+            }
+          },
+          "ruf_destinations": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object"
+            }
+          },
+          "external_rua_authorisation": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "policy_completeness": {
+            "$ref": "#/components/schemas/DmarcCompleteness"
+          },
+          "organisational_domain_completeness": {
+            "$ref": "#/components/schemas/DmarcCompleteness"
+          },
+          "existence_completeness": {
+            "$ref": "#/components/schemas/DmarcCompleteness"
+          },
+          "rua_authorisation_completeness": {
+            "$ref": "#/components/schemas/DmarcCompleteness"
+          },
+          "core_completeness": {
+            "$ref": "#/components/schemas/DmarcCompleteness"
+          },
+          "monitoring_state": {
+            "type": "string",
+            "enum": [
+              "monitoring_healthy",
+              "monitoring_degraded"
+            ]
+          },
+          "provider_state": {
+            "type": "string"
+          },
+          "corroboration_state": {
+            "type": "string",
+            "enum": [
+              "not_applicable",
+              "unavailable",
+              "corroborated",
+              "resolver_disagreement"
+            ]
+          },
+          "receiver_enforcement_observed": {
+            "type": "boolean",
+            "const": false
+          },
+          "evidence_grade": {
+            "type": "object"
+          },
+          "limits": {
+            "type": "object"
+          },
+          "evidence_fingerprint_algorithm": {
+            "type": "string",
+            "const": "sha256"
+          },
+          "evidence_canonicalization": {
+            "type": "string",
+            "const": "json-stringify-v1"
+          },
+          "evidence_fingerprint": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        },
+        "required": [
+          "schema",
+          "methodology_version",
+          "parser_version",
+          "resolver_profile",
+          "idna_profile",
+          "author_domain",
+          "submitted_domain",
+          "observed_at",
+          "observation_state",
+          "record_validity",
+          "raw_records",
+          "parsed_tags",
+          "lookup_path",
+          "organisational_domain",
+          "organisational_domain_provenance",
+          "policy_source_domain",
+          "policy_source_kind",
+          "declared_policy",
+          "effective_requested_policy",
+          "effective_policy_tag",
+          "inheritance_reason",
+          "p",
+          "sp",
+          "np",
+          "t",
+          "psd",
+          "domain_existence",
+          "legacy_pct",
+          "rua_destinations",
+          "ruf_destinations",
+          "policy_completeness",
+          "organisational_domain_completeness",
+          "existence_completeness",
+          "rua_authorisation_completeness",
+          "core_completeness",
+          "monitoring_state",
+          "provider_state",
+          "corroboration_state",
+          "receiver_enforcement_observed",
+          "evidence_grade",
+          "limits",
+          "evidence_fingerprint_algorithm",
+          "evidence_canonicalization",
+          "evidence_fingerprint"
+        ]
+      },
+      "DmarcCompleteness": {
+        "type": "string",
+        "enum": [
+          "complete",
+          "incomplete",
+          "unavailable",
+          "not_applicable"
+        ]
+      },
+      "DmarcPolicyEvidenceProjection": {
+        "type": "object",
+        "description": "Additive DMARCbis fields returned alongside each route's existing response. dmarc_policy_evidence is absent for legacy or unavailable snapshots.",
+        "additionalProperties": true,
+        "properties": {
+          "dmarc_policy_evidence_status": {
+            "type": "string",
+            "enum": [
+              "current",
+              "legacy_snapshot",
+              "not_available"
+            ]
+          },
+          "dmarc_policy_evidence": {
+            "$ref": "#/components/schemas/DmarcPolicyEvidence"
+          },
+          "dmarc_methodology_notice": {
+            "type": "string"
+          },
+          "dmarc_policy_evidence_unavailable_reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "dmarc_policy_evidence_status"
+        ]
+      },
       "Error": {
         "type": "object",
         "description": "Customer-safe error envelope. Every error carries a machine `code` (snake_case), a human-readable `message`, and the `error` field (machine code or human string). Raw stack traces / internal detail are never returned.",
@@ -1991,6 +2470,16 @@
       }
     },
     "responses": {
+      "DmarcPolicyEvidenceProjection": {
+        "description": "Success with the route's existing fields plus the additive immutable DMARCbis evidence projection.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/DmarcPolicyEvidenceProjection"
+            }
+          }
+        }
+      },
       "Ok": {
         "description": "Success",
         "content": {

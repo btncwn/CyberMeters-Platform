@@ -25,6 +25,11 @@ import { RUA_INBOUND_DOMAIN_DEFAULT, ingestDmarcReport, normalizeInboundRecipien
 import { createAuditEvent } from "../lib/events.js";
 import { getEmailFrontendOrigin } from "../lib/lifecycle-email.js";
 import { createId } from "../lib/util.js";
+import {
+  dmarcPolicyApiProjection,
+  hostedDmarcReadOnlyProjection,
+} from "../engines/dmarcbis-contract.js";
+import { readLatestDomainDmarcPolicyEvidence } from "../engines/report-snapshot.js";
 
 const MTA_STS_POLICY_BOUNDARY = "CyberMeters manages the MTA-STS DNS policy ID. Your organisation or web provider hosts the HTTPS policy file.";
 
@@ -306,7 +311,24 @@ export async function emailProtectionRoutes(rctx) {
         const policyAllowed = planAllowsHostedPolicyManagement(ownerPlan);
 
         if (request.method === "GET" && !sub) {
-          if (!existing) return json({ record: null, policy_management_available: policyAllowed });
+          const dmarcPolicyRead =
+            await readLatestDomainDmarcPolicyEvidence(
+              env,
+              workspaceId,
+              domainId,
+            );
+          const dmarcPolicyProjection =
+            dmarcPolicyApiProjection(dmarcPolicyRead);
+          const hostedDmarcInterpretation =
+            hostedDmarcReadOnlyProjection(dmarcPolicyRead);
+          if (!existing) {
+            return json({
+              record: null,
+              policy_management_available: policyAllowed,
+              ...dmarcPolicyProjection,
+              hosted_dmarc_interpretation: hostedDmarcInterpretation,
+            });
+          }
           const rate = await getHostedDmarcPassRate(env, workspaceId, domain);
           const changeMs = parseServerMsHosted(existing.last_change_at);
           const readiness = evaluateRampReadiness({
@@ -328,6 +350,8 @@ export async function emailProtectionRoutes(rctx) {
             readiness,
             projected_impact: impactState.projected_impact,
             impact_assessment: impactState.impact_assessment,
+            ...dmarcPolicyProjection,
+            hosted_dmarc_interpretation: hostedDmarcInterpretation,
           });
         }
 
@@ -1241,6 +1265,12 @@ export async function emailProtectionRoutes(rctx) {
         if (!access) return json({ error: "Forbidden" }, 403);
         const domainId = await resolveWorkspaceDomain(env, workspaceId, domain);
         if (!domainId) return json({ error: "Domain not found in this workspace" }, 404);
+        const dmarcPolicyRead =
+          await readLatestDomainDmarcPolicyEvidence(
+            env,
+            workspaceId,
+            domainId,
+          );
 
         const days = Math.min(365, Math.max(1, parseInt(url.searchParams.get("days") || "30", 10) || 30));
         const cutoff = Math.floor(Date.now() / 1000) - days * 86400;
@@ -1318,6 +1348,7 @@ export async function emailProtectionRoutes(rctx) {
             correlation_status: "placeholder",
           },
           report_remediation_actions: buildDmarcReportRemediationActions(senders, readiness),
+          ...dmarcPolicyApiProjection(dmarcPolicyRead),
         });
       } catch (e) {
         return serverError("dmarc-summary", e, "Could not build DMARC summary.");

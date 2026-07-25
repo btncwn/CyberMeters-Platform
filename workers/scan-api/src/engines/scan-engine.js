@@ -45,6 +45,7 @@ import {
   runDmarcbisExternalRuaPhase,
   unavailableDmarcbisCore,
 } from "./dmarcbis-production.js";
+import { sealDmarcPolicyEvidence } from "./dmarcbis-contract.js";
 import { isActionableFinding, normalizeFindingSchema } from "./findings.js";
 import { runHeadersModule } from "./headers-scan.js";
 import { runHistoricalModule } from "./historical-scan.js";
@@ -1349,6 +1350,11 @@ function buildCanonicalUrlProfile(modules) {
     // Additive only — existing fields are preserved; missing fields default to
     // null / [] so every finding exposes a consistent shape to consumers.
     const normalizedFindings = findings.map(normalizeFindingSchema);
+
+    // Item 7 P3: seal the one canonical DMARCbis protocol object before the
+    // immutable scan report is written. The snapshot copies this same object;
+    // the fingerprint excludes only itself and is reused by lifecycle refs.
+    modules.dmarc_core = await sealDmarcPolicyEvidence(modules.dmarc_core);
 
     // Build full structured report
     const report = {
