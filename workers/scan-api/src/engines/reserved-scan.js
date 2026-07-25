@@ -1,12 +1,13 @@
 // ── Reserved-mode scan orchestration (Tier-1, SCAN_CAPACITY_MODE=reserved) ─────
-// A separated flow that runs the customer-critical ASSET EXPOSURE probe FIRST — before
-// the heavy DNS-posture / DKIM-sweep / CT / brute-force modules can consume the ~50-class
-// Worker subrequest budget — then runs the remaining modules only if the runtime budget
-// still permits. The legacy path (default) does not import or execute any of this.
+// A separated flow that reserves the customer-critical DMARC core before the
+// exposure envelope and before heavy DNS-posture / DKIM-sweep / CT /
+// brute-force modules can consume the ~50-class Worker subrequest budget. The
+// legacy path (default) does not import or execute any of this.
 //
-// Order:  minimal root/www DNS → critical-prefix A lookups → dedupe + prioritise
-//         → RESERVED ASSET EXPOSURE (SSRF-safe prober, live-metered) → admin_surface
-//         (derived downstream, zero network) → remaining modules only if budget permits.
+// Order:  minimal root/www DNS → RESERVED DMARC CORE → critical-prefix A
+//         lookups → dedupe + prioritise → RESERVED ASSET EXPOSURE (SSRF-safe
+//         prober, live-metered) → admin_surface (derived downstream, zero
+//         network) → remaining modules only if budget permits.
 //
 // A module that does not fit is SKIPPED before issuing any fetch and reported honestly
 // ({skipped:true, skip_reason:"subrequest_budget"}) — never a fake clean / zero result.
@@ -16,12 +17,13 @@ import { annotateExposureInfrastructure, deduplicateExposureAssets, runExposureM
 import { dnsResolveACached } from "./dns.js";
 import { runDnsModule } from "./dns-scan.js";
 import { runEmailModule } from "./email-scan.js";
+import { runDmarcbisCore } from "./dmarcbis-production.js";
 import { runHeadersModule } from "./headers-scan.js";
 import { makeReservedProbeFetch } from "./reserved-probe.js";
 import { createCertificateTransparencyCache } from "./ct-provider-cache.js";
 import {
   CRITICAL_PREFIXES_MANDATORY, MODULE_SUBREQUEST_COST, SubrequestBudget,
-  computeExposureCap, deferredCapacityAsset, skippedModuleResult,
+  computeExposureCap, deferredCapacityAsset, makeDnsCache, skippedModuleResult,
 } from "./scan-budget.js";
 import { runSslModule } from "./ssl-scan.js";
 import { filterWildcardBruteforceResults, runBruteforceModule, runSubdomainsModule } from "./subdomains-scan.js";
@@ -95,9 +97,15 @@ async function gateModule(budget, name, run, skipExtra = {}) {
 }
 
 // ── Full reserved scan: produces the complete network-module set (real or skipped) ──
-export async function runReservedScan(domain, { capacity, ctCache = null }) {
+export async function runReservedScan(domain, {
+  capacity,
+  ctCache = null,
+  dnsCache: suppliedDnsCache = null,
+  signal = null,
+  now = Date.now,
+} = {}) {
   const budget = new SubrequestBudget({ limit: capacity.limit, safetyMargin: capacity.safetyMargin });
-  const dnsCache = new Map();
+  const dnsCache = suppliedDnsCache || makeDnsCache();
   const sharedCtCache = ctCache || createCertificateTransparencyCache();
 
   // Stage 1: minimal root/www discovery (A only) — enough to know the domain resolves
@@ -106,25 +114,38 @@ export async function runReservedScan(domain, { capacity, ctCache = null }) {
   await dnsResolveACached(`www.${domain}`, dnsCache);                budget.spend("discovery");
   const resolves = hasAnswer(rootA);
 
-  // Stage 2: critical-prefix discovery (deterministic, CT-independent). 8 A lookups.
+  // Stage 2: reserve and execute the guaranteed DMARC core BEFORE exposure.
+  // Reservation is the conservative logical maximum; cache hits reduce physical
+  // provider attempts but never increase exposure capacity optimistically.
+  budget.spend("dmarc_core", MODULE_SUBREQUEST_COST.dmarc_core);
+  const dmarcCore = await runDmarcbisCore(domain, {
+    cache: dnsCache,
+    signal,
+    now,
+  });
+
+  // Stage 3: critical-prefix discovery (deterministic, CT-independent). 8 A lookups.
   const criticalPrefixResult = await runCriticalPrefixDiscovery(domain, dnsCache);
   budget.spend("critical_prefix", criticalPrefixResult.checked);
 
-  // Stage 3: prioritise (root → www → critical). CT is NOT here — it is post-exposure.
+  // Stage 4: prioritise (root → www → critical). CT is NOT here — it is post-exposure.
   const ordered = prioritiseExposureHosts(domain, { criticalHits: criticalPrefixResult.items });
 
-  // Stage 4: RESERVED EXPOSURE, live-metered (each real prober fetch decrements budget).
+  // Stage 5: RESERVED EXPOSURE, live-metered (each real prober fetch decrements budget).
   const consumedBeforeExposure = budget.consumed;
   const cap = computeExposureCap({ limit: capacity.limit, safetyMargin: capacity.safetyMargin, consumed: consumedBeforeExposure, perHostCost: capacity.perHostCost });
   const fetcher = makeReservedProbeFetch({ cache: dnsCache, maxHops: capacity.maxProbeRedirectHops, onOutbound: () => budget.spend("exposure") });
   let assetExposureResult = await runReservedExposureModule(domain, ordered, { cap, fetcher });
 
   // Stage 6: remaining modules, budget-gated (customer-critical exposure already done).
-  const dns                  = await gateModule(budget, "dns", () => runDnsModule(domain), { resolves });
+  const dns                  = await gateModule(budget, "dns", () => runDnsModule(domain, { cache: dnsCache }), { resolves });
   const ssl                  = await gateModule(budget, "ssl", () => runSslModule(domain, { ctCache: sharedCtCache }));
   const headers              = await gateModule(budget, "headers", () => runHeadersModule(domain));
-  const email_security       = await gateModule(budget, "email_security", () => runEmailModule(domain));
-  const subdomains           = await gateModule(budget, "subdomains", () => runSubdomainsModule(domain, { ctCache: sharedCtCache }), { count: 0, items: [], wildcard_dns: false, wildcard_dns_addresses: [] });
+  const email_security       = await gateModule(budget, "email_security", () => runEmailModule(domain, {
+    cache: dnsCache,
+    dmarcOwnedByCore: true,
+  }));
+  const subdomains           = await gateModule(budget, "subdomains", () => runSubdomainsModule(domain, { cache: dnsCache, ctCache: sharedCtCache }), { count: 0, items: [], wildcard_dns: false, wildcard_dns_addresses: [] });
   const technology_detection = await gateModule(budget, "technology_detection", () => runTechModule(domain));
   const whois_intelligence   = await gateModule(budget, "whois_intelligence", () => runWhoisModule(domain));
 
@@ -135,9 +156,9 @@ export async function runReservedScan(domain, { capacity, ctCache = null }) {
     ...ctItems,
     ...criticalPrefixResult.items.filter((h) => !ctSet.has(String(h).toLowerCase())),
   ];
-  const subdomain_takeover = await gateModule(budget, "subdomain_takeover", () => runTakeoverModule(domain, mergedSubdomainItems), { checked: 0, potential_risks: 0, risks: [] });
+  const subdomain_takeover = await gateModule(budget, "subdomain_takeover", () => runTakeoverModule(domain, mergedSubdomainItems, { cache: dnsCache }), { checked: 0, potential_risks: 0, risks: [] });
   const dns_bruteforce = await gateModule(budget, "dns_bruteforce", async () => {
-    const raw = await runBruteforceModule(domain);
+    const raw = await runBruteforceModule(domain, { cache: dnsCache });
     return filterWildcardBruteforceResults(raw, subdomains?.wildcard_dns_addresses || []);
   }, { checked: 0, found: 0, items: [] });
 
@@ -150,12 +171,14 @@ export async function runReservedScan(domain, { capacity, ctCache = null }) {
   return {
     resolves,
     modules: {
-      dns, ssl, headers, email_security, subdomains, technology_detection, whois_intelligence,
+      dns, ssl, headers, email_security, dmarc_core: dmarcCore,
+      subdomains, technology_detection, whois_intelligence,
       subdomain_takeover, dns_bruteforce,
       asset_exposure: assetExposureResult,
       critical_prefix_discovery: criticalPrefixResult,
     },
     mergedSubdomainItems,
     budget,
+    dnsCache,
   };
 }

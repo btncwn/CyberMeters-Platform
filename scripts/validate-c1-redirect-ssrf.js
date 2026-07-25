@@ -173,8 +173,9 @@ guard("ssrf decodes IPv4-mapped IPv6", ssrfSrc,
   (s) => s.replace("if (v4mappedDotted) return hostIsPrivateOrReserved(v4mappedDotted[1]);", ""));
 // defaultProbeFetch actually uses the SSRF-safe core (not native follow)
 guard("defaultProbeFetch uses the SSRF-safe core", aiSrc,
-  (s) => /const defaultProbeFetch = makeSsrfSafeProbeFetch\(/.test(s) && !/function defaultProbeFetch\(url\) \{\s*return fetch\(url, \{\s*method:\s*"GET",\s*redirect:\s*"follow"/.test(s),
-  (s) => s.replace("const defaultProbeFetch = makeSsrfSafeProbeFetch(", 'function defaultProbeFetch(url) { return fetch(url, { redirect: "follow" }); } const _x = (('));
+  (s) => /function makeDefaultProbeFetch\(cache = null\) \{[\s\S]{0,160}return makeSsrfSafeProbeFetch\(\{/.test(s) &&
+    !/function defaultProbeFetch\(url\) \{\s*return fetch\(url, \{\s*method:\s*"GET",\s*redirect:\s*"follow"/.test(s),
+  (s) => s.replace("return makeSsrfSafeProbeFetch({", 'return function defaultProbeFetch(url) { return fetch(url, { redirect: "follow" }); }; void ({'));
 
 console.log(`\nC1 redirect SSRF: ${pass}/${pass + fail} passed`);
 if (fail) { console.error("c1-redirect-ssrf validation FAILED"); process.exit(1); }

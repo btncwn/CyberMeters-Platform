@@ -80,6 +80,7 @@ function isSensitiveSubdomain(hostname, domain) {
 
 export async function runSubdomainsModule(domain, opts = {}) {
   const accounting = opts.accounting || null;
+  const cache = opts.cache || null;
   const ctCache = opts.ctCache || createCertificateTransparencyCache({ signal: opts.signal });
   const SOURCE    = "certificate_transparency_multi_source";
   const PER_CAP   = 200;   // max unique names from each CT source
@@ -108,7 +109,7 @@ export async function runSubdomainsModule(domain, opts = {}) {
     // If the hard cap fires first the scan continues with an empty result;
     // the inner work is abandoned (Cloudflare GC's the hanging fetch).
     return await Promise.race([
-      _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, { accounting, ctCache }),
+      _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, { accounting, cache, ctCache }),
       new Promise((resolve) =>
         setTimeout(() =>
           resolve(emptyResult("Subdomain discovery timed out (15s hard cap)")),
@@ -131,6 +132,7 @@ export async function runSubdomainsModule(domain, opts = {}) {
  */
 async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}) {
   const accounting = opts.accounting || null;
+  const cache = opts.cache || null;
   const ctCache = opts.ctCache;
   const wildcardLabel = `cybermeters-wildcard-check-${Math.random().toString(36).slice(2, 10)}`;
   const wildcardHost  = `${wildcardLabel}.${domain}`;
@@ -138,8 +140,8 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
   // ── Fire all 4 network calls in parallel ────────────────────────────────
   const [wASettled, wAAAASettled, crtShSettled, certSpotterSettled] =
     await Promise.allSettled([
-      dnsQuery(wildcardHost, "A", { accounting }),
-      dnsQuery(wildcardHost, "AAAA", { accounting }),
+      dnsQuery(wildcardHost, "A", { accounting, cache }),
+      dnsQuery(wildcardHost, "AAAA", { accounting, cache }),
       ctCache.get(domain, "crt_sh", { accounting }),
       ctCache.get(domain, "certspotter", { accounting }),
     ]);
@@ -307,6 +309,7 @@ const MAIL_SUBDOMAIN_LABELS = [
  */
 export async function runBruteforceModule(domain, opts = {}) {
   const accounting = opts.accounting || null;
+  const cache = opts.cache || null;
   const HARD_CAP_MS = BRUTEFORCE_TIMEOUT_MS;
 
   const empty = (error = null) => ({
@@ -323,7 +326,7 @@ export async function runBruteforceModule(domain, opts = {}) {
     const settled = await Promise.race([
       Promise.allSettled(
         candidates.map((host) =>
-          dnsQuery(host, "A", { accounting }).then((r) => ({ host, answers: r.Answer || [] }))
+          dnsQuery(host, "A", { accounting, cache }).then((r) => ({ host, answers: r.Answer || [] }))
         )
       ),
       // Hard cap: resolve with an empty-array sentinel so the race always resolves
@@ -356,7 +359,7 @@ export async function runBruteforceModule(domain, opts = {}) {
       const mxSettled = await Promise.race([
         Promise.allSettled(
           mailCandidates.map((host) =>
-            dnsQuery(host, "MX", { accounting }).then((r) => ({ host, answers: r.Answer || [] }))
+            dnsQuery(host, "MX", { accounting, cache }).then((r) => ({ host, answers: r.Answer || [] }))
           )
         ),
         new Promise((resolve) => setTimeout(() => resolve([]), HARD_CAP_MS)),

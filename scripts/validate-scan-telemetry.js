@@ -757,19 +757,19 @@ function d1Stub({ fail = false } = {}) {
       /accounting\?\.recordError\?\.\(err\)/.test(s),
     (s) => s.replace("  accounting?.recordAttempt?.();", ""));
   sourceGuard("C1B subdomain CT and wildcard DNS carry accounting", subdomainsSrc,
-    (s) => /dnsQuery\(wildcardHost, "A", \{ accounting \}\)/.test(s) &&
-      /dnsQuery\(wildcardHost, "AAAA", \{ accounting \}\)/.test(s) &&
+    (s) => /dnsQuery\(wildcardHost, "A", \{ accounting, cache \}\)/.test(s) &&
+      /dnsQuery\(wildcardHost, "AAAA", \{ accounting, cache \}\)/.test(s) &&
       /ctCache\.get\(domain, "crt_sh", \{ accounting \}\)/.test(s) &&
       /ctCache\.get\(domain, "certspotter", \{ accounting \}\)/.test(s),
-    (s) => s.replace('dnsQuery(wildcardHost, "A", { accounting })', 'dnsQuery(wildcardHost, "A")'));
+    (s) => s.replace('dnsQuery(wildcardHost, "A", { accounting, cache })', 'dnsQuery(wildcardHost, "A", { cache })'));
   sourceGuard("C1B brute-force DNS leaves carry accounting", subdomainsSrc,
-    (s) => /dnsQuery\(host, "A", \{ accounting \}\)/.test(s) && /dnsQuery\(host, "MX", \{ accounting \}\)/.test(s),
-    (s) => s.replace('dnsQuery(host, "MX", { accounting })', 'dnsQuery(host, "MX")'));
+    (s) => /dnsQuery\(host, "A", \{ accounting, cache \}\)/.test(s) && /dnsQuery\(host, "MX", \{ accounting, cache \}\)/.test(s),
+    (s) => s.replace('dnsQuery(host, "MX", { accounting, cache })', 'dnsQuery(host, "MX", { cache })'));
   sourceGuard("C1B cloud-storage validation fetches are counted", cloudSrc,
     (s) => /headRes = await countedFetch\(headUrl,[\s\S]{0,120}accounting/.test(s) && /getRes = await countedFetch\(listUrl,[\s\S]{0,120}accounting/.test(s),
     (s) => s.replace(/countedFetch\(listUrl,/, "fetch(listUrl,"));
   sourceGuard("C1B scan-engine threads module contexts", engineSrc,
-    (s) => /runSslModule\(domain, \{ accounting, signal, ctCache \}\)/.test(s) && /runSubdomainsModule\(domain, \{ accounting, signal, ctCache \}\)/.test(s) && /runBruteforceModule\(domain, \{ accounting, signal \}\)/.test(s) && /runCloudStorageModule\(domain, modules, \{ accounting, signal \}\)/.test(s),
+    (s) => /runSslModule\(domain, \{ accounting, signal, ctCache \}\)/.test(s) && /runSubdomainsModule\(domain, \{ accounting, signal, cache: dnsCache, ctCache \}\)/.test(s) && /runBruteforceModule\(domain, \{ accounting, signal, cache: dnsCache \}\)/.test(s) && /runCloudStorageModule\(domain, modules, \{ accounting, signal \}\)/.test(s),
     (s) => s.replace('runSslModule(domain, { accounting, signal, ctCache })', "runSslModule(domain)"));
   sourceGuard("C1B complete-set includes newly covered modules", budgetSrc,
     (s) => ["ssl", "subdomains", "dns_bruteforce", "cloud_storage_discovery"].every((m) => s.includes(`"${m}"`)),

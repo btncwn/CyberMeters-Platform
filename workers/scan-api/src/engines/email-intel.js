@@ -204,10 +204,11 @@ export async function fetchMtaSts(domain, opts = {}) {
  */
 async function checkTlsRpt(domain, opts = {}) {
   const accounting = opts.accounting || null;
+  const cache = opts.cache || null;
   const recordName = `_smtp._tls.${domain}`;
   const result = { enabled: false, record_name: recordName, record: null, reporting_uris: [], errors: [] };
   try {
-    const res     = await dnsQuery(recordName, "TXT", { accounting });
+    const res     = await dnsQuery(recordName, "TXT", { accounting, cache });
     const answers = res?.Answer || [];
     for (const ans of answers) {
       const txt = ans.data || "";
@@ -527,6 +528,7 @@ export function buildEmailIntelFindings(spf, dmarc, dkim, mtaSts, tlsRpt) {
  */
 export async function runEmailIntelModule(domain, emailMod, dnsModule, opts = {}) {
   const accounting = opts.accounting || null;
+  const cache = opts.cache || null;
   // Step 1: Enrich existing results — no extra DNS calls needed
   const spf   = enrichSpf(emailMod);
   const dmarc = enrichDmarc(emailMod);
@@ -535,7 +537,7 @@ export async function runEmailIntelModule(domain, emailMod, dnsModule, opts = {}
   // Step 2: MTA-STS + TLS-RPT in parallel (both are fast, independent)
   const [mtaStsSettled, tlsRptSettled] = await Promise.allSettled([
     fetchMtaSts(domain, { accounting }),
-    checkTlsRpt(domain, { accounting }),
+    checkTlsRpt(domain, { accounting, cache }),
   ]);
   const mtaSts = mtaStsSettled.status === "fulfilled"
     ? mtaStsSettled.value

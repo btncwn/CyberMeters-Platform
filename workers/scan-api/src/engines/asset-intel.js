@@ -97,14 +97,20 @@ function isProbeTimeout(err) {
 // asset that 302'd to an internal address (or whose A record pointed at a private IP)
 // was followed — the redirect-time SSRF the string input-gate cannot see.
 //
-// SSRF DNS cost: each hop resolves A+AAAA uncached (the legacy path has no per-scan
-// resolver cache), so exposure spends ~2 extra DoH per probed host. The Worker
-// subrequest-budget guard backstops any exhaustion honestly (probe_status:not_executed,
-// never a false clean). Reserved mode uses the cached + metered resolver instead.
-const defaultProbeFetch = makeSsrfSafeProbeFetch({
-  resolver: (name, type, opts = {}) => dnsQuery(name, type, { accounting: opts.accounting || null }).catch(() => null),
-  timeoutMs: 8_000,
-});
+// SSRF DNS cost: each hop resolves A+AAAA through the invocation-scoped DNS question
+// cache supplied by runScanEngine. A direct/legacy caller without a cache retains the
+// old uncached behaviour. The Worker subrequest-budget guard backstops any exhaustion
+// honestly (probe_status:not_executed, never a false clean).
+function makeDefaultProbeFetch(cache = null) {
+  return makeSsrfSafeProbeFetch({
+    resolver: (name, type, opts = {}) => dnsQuery(name, type, {
+      accounting: opts.accounting || null,
+      cache,
+    }).catch(() => null),
+    timeoutMs: 8_000,
+  });
+}
+const defaultProbeFetch = makeDefaultProbeFetch();
 
 // Cloudflare-edge error statuses: 520–527 (origin connection/response failures),
 // 530 (1xxx accompanying code, incl. 1016 origin DNS error). These are synthesised
@@ -478,11 +484,14 @@ export async function runExposureModule(domain, subdomains, opts = {}) {
   }
 
   const targets = subdomains.slice(0, 50);
+  const probeOpts = typeof opts.fetcher === "function" || !opts.cache
+    ? opts
+    : { ...opts, fetcher: makeDefaultProbeFetch(opts.cache) };
 
   // All probes run in parallel; individual failures return reachable:false records.
   // opts (e.g. opts.fetcher for the reserved SSRF-safe prober) is passed through; the
   // legacy caller passes nothing, so probeAsset uses its default native fetcher.
-  const settled = await Promise.allSettled(targets.map((host) => probeAsset(host, opts)));
+  const settled = await Promise.allSettled(targets.map((host) => probeAsset(host, probeOpts)));
 
   const assets = settled
     .filter((r) => r.status === "fulfilled")

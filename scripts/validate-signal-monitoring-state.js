@@ -91,6 +91,7 @@ function completeModules() {
     ssl: { https_probe_executed: true },
     headers: {},
     email_security: {},
+    dmarc_core: { core_completeness: "complete", outcome: "available" },
     email_security_intelligence: {},
     dns_bruteforce: {},
     subdomain_takeover: {},

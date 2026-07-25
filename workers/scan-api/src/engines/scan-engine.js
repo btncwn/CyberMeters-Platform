@@ -35,7 +35,16 @@ import { runDnsModule } from "./dns-scan.js";
 import { runDomainSecurityEnrichmentModule } from "./domain-enrichment.js";
 import { buildEmailRemediationActions, buildEmailTransportDetails } from "./email-analysis.js";
 import { runEmailIntelModule } from "./email-intel.js";
-import { runEmailModule } from "./email-scan.js";
+import { applyDmarcbisEmailCompatibilityProjection, runEmailModule } from "./email-scan.js";
+import { establishDmarcPolicyBaseline } from "./email-protection-lifecycle.js";
+import {
+  attachDmarcbisExternalResult,
+  budgetRefusedDmarcbisExternal,
+  DMARCBIS_EXTERNAL_HOST_RESERVATION,
+  runDmarcbisCore,
+  runDmarcbisExternalRuaPhase,
+  unavailableDmarcbisCore,
+} from "./dmarcbis-production.js";
 import { isActionableFinding, normalizeFindingSchema } from "./findings.js";
 import { runHeadersModule } from "./headers-scan.js";
 import { runHistoricalModule } from "./historical-scan.js";
@@ -44,7 +53,7 @@ import { recordPostureEvents } from "./posture-events.js";
 import { recordSpfRuaCorroboration } from "./spf-corroboration.js";
 import { buildAssetTimelineTrustMetadata, loadTimelineComparisonContext } from "./timeline-trust.js";
 import { runReservedScan } from "./reserved-scan.js";
-import { buildExecutionDiagnostics, createModuleTelemetry, createOutboundAccounting, createScanDeadline, markDeadlineDeferred, MODULE_SUBREQUEST_COST, raceModuleDeadline, resolveScanCapacity, SCAN_MODULE_BUDGETS, skippedModuleResult } from "./scan-budget.js";
+import { buildExecutionDiagnostics, createModuleTelemetry, createOutboundAccounting, createScanDeadline, makeDnsCache, markDeadlineDeferred, MODULE_SUBREQUEST_COST, raceModuleDeadline, resolveScanCapacity, SCAN_MODULE_BUDGETS, skippedModuleResult } from "./scan-budget.js";
 import { computeScore, isEmailApplicable } from "./scoring.js";
 import { runSslModule } from "./ssl-scan.js";
 import { BRUTEFORCE_MAX_NAMES, filterWildcardBruteforceResults, runBruteforceModule, runSubdomainsModule } from "./subdomains-scan.js";
@@ -86,7 +95,9 @@ export function computeScanBudget(bruteforceChecked) {
     dns:                        17,
     ssl:                        4,
     headers:                    2,
-    email_security:             23,
+    email_security:             22,
+    dmarc_core:                 10,
+    dmarc_external_rua:         11,
     ct_discovery:               4,
     dns_bruteforce:             typeof bruteforceChecked === "number" ? bruteforceChecked : BRUTEFORCE_MAX_NAMES,
     asset_exposure:             0,
@@ -119,7 +130,7 @@ export function buildScanQuality(modules = {}) {
   // third-party services. When those services are rate-limited (CertSpotter HTTP 429
   // on shared Worker IPs) or slow, it is an external service failure — not a domain
   // security failure. DNS, SSL, Headers, Email directly assess the domain's own config.
-  const coreModules = ["dns", "ssl", "headers", "email_security"];
+  const coreModules = ["dns", "ssl", "headers", "email_security", "dmarc_core"];
   const coreIncomplete = coreModules.filter((name) => modules[name]?.error);
 
   // Classify modules that actually timed out or were skipped via the CAA budget sentinel.
@@ -299,7 +310,8 @@ export async function persistModuleTelemetry(scanId, telemetry, env) {
 // finalization from the modules object for any not captured by the live wrapper
 // (reserved-mode results, deferred phases) so both scan modes get full coverage.
 const TELEMETRY_TRACKED_MODULES = Object.freeze([
-  "dns", "ssl", "headers", "email_security", "subdomains", "technology_detection",
+  "dns", "ssl", "headers", "email_security", "dmarc_core", "dmarc_external_rua",
+  "subdomains", "technology_detection",
   "whois_intelligence", "dns_bruteforce", "subdomain_takeover", "asset_exposure",
   "cve_intelligence", "known_exploited_vulnerabilities", "email_security_intelligence",
   "cloud_storage_discovery",
@@ -317,6 +329,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
   // Per-module telemetry collector (persisted at finalization; non-fatal).
   const telemetry = createModuleTelemetry(now);
   const outboundAccounting = createOutboundAccounting();
+  const dnsCache = makeDnsCache();
   const ctCache = createCertificateTransparencyCache({
     signal: deadline.signal,
     remainingMs: () => deadline.remainingMs(),
@@ -427,24 +440,32 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
     // Network module results — set by whichever path runs; both produce the same shape
     // so the modules object and everything downstream are identical.
     let dnsResult, sslResult, headersResult, emailResult, subdomainsResult,
-        techResult, whoisResult, bruteforceResult, takeoverResult, assetExposureResult;
+        techResult, whoisResult, bruteforceResult, takeoverResult, assetExposureResult,
+        dmarcCoreResult;
     let criticalPrefixResult = null;
     let reservedBudget = null;
 
     if (reservedMode) {
-      // ── Reserved path (isolated in reserved-scan.js): customer-critical ASSET
-      // EXPOSURE runs FIRST within a live-metered budget; the remaining modules run
-      // only if the runtime budget permits and are otherwise SKIPPED honestly. Never
-      // starves exposure. admin_surface is derived downstream (zero network). ──
-      const reserved = await runReservedScan(domain, { capacity, ctCache });
+      // ── Reserved path (isolated in reserved-scan.js): root/www then the
+      // guaranteed DMARC core are reserved before customer-critical ASSET
+      // EXPOSURE. Remaining modules run only if budget permits and otherwise
+      // skip honestly. admin_surface is derived downstream (zero network). ──
+      const reserved = await runReservedScan(domain, {
+        capacity,
+        ctCache,
+        dnsCache,
+        signal: deadline.signal,
+        now,
+      });
       const m = reserved.modules;
       dnsResult = m.dns; sslResult = m.ssl; headersResult = m.headers; emailResult = m.email_security;
+      dmarcCoreResult = m.dmarc_core;
       subdomainsResult = m.subdomains; techResult = m.technology_detection; whoisResult = m.whois_intelligence;
       bruteforceResult = m.dns_bruteforce; takeoverResult = m.subdomain_takeover;
       assetExposureResult = m.asset_exposure; criticalPrefixResult = m.critical_prefix_discovery;
       reservedBudget = reserved.budget;
     } else {
-      // ── Queue-era default path: 8 core modules in parallel under measured
+      // ── Queue-era default path: 9 core modules in parallel under measured
       // per-module caps, then takeover and asset exposure over the merged
       // (CT + brute-force) subdomain list. ──
       const subdomainsFallback = () => markDeadlineDeferred({
@@ -452,16 +473,25 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
         sources: { crt_sh: { count: 0, error: "module deadline exceeded" }, certspotter: { count: 0, error: "module deadline exceeded" } },
         wildcard_dns: false, wildcard_dns_addresses: [], wildcard_test_host: null, wildcard_warning: null,
       });
-      const [dnsSettled, sslSettled, headersSettled, emailSettled, subdomainsSettled, techSettled, whoisSettled, bruteforceSettled] =
+      const [dnsSettled, sslSettled, headersSettled, emailSettled, dmarcSettled, subdomainsSettled, techSettled, whoisSettled, bruteforceSettled] =
         await Promise.allSettled([
-          runCappedModule("dns",                  { fallback: () => markDeadlineDeferred({ source: "dns" }), run: ({ accounting, signal }) => runDnsModule(domain, { accounting, signal }) }),
+          runCappedModule("dns",                  { fallback: () => markDeadlineDeferred({ source: "dns" }), run: ({ accounting, signal }) => runDnsModule(domain, { accounting, signal, cache: dnsCache }) }),
           runCappedModule("ssl",                  { fallback: () => markDeadlineDeferred({ https_available: false, source: "tls_probe" }), run: ({ accounting, signal }) => runSslModule(domain, { accounting, signal, ctCache }) }),
           runCappedModule("headers",              { fallback: () => markDeadlineDeferred({ headers: {}, source: "http_headers" }), run: ({ accounting, signal }) => runHeadersModule(domain, { accounting, signal }) }),
-          runCappedModule("email_security",       { fallback: () => markDeadlineDeferred({ spf: {}, dmarc: {}, dkim: {}, source: "email_security" }), run: ({ accounting, signal }) => runEmailModule(domain, { accounting, signal }) }),
-          runCappedModule("subdomains",           { fallback: subdomainsFallback, run: ({ accounting, signal }) => runSubdomainsModule(domain, { accounting, signal, ctCache }) }),
+          runCappedModule("email_security",       { fallback: () => markDeadlineDeferred({ spf: {}, dmarc: {}, dkim: {}, source: "email_security" }), run: ({ accounting, signal }) => runEmailModule(domain, { accounting, signal, cache: dnsCache, dmarcOwnedByCore: true }) }),
+          runCappedModule("dmarc_core",           {
+            fallback: () => unavailableDmarcbisCore(domain, "core_launch_refused"),
+            run: ({ accounting, signal }) => runDmarcbisCore(domain, {
+              accounting,
+              signal,
+              cache: dnsCache,
+              now,
+            }),
+          }),
+          runCappedModule("subdomains",           { fallback: subdomainsFallback, run: ({ accounting, signal }) => runSubdomainsModule(domain, { accounting, signal, cache: dnsCache, ctCache }) }),
           runCappedModule("technology_detection", { fallback: () => markDeadlineDeferred({ technologies: [], info_findings: [], source: "technology_detection" }), run: ({ accounting, signal }) => runTechModule(domain, { accounting, signal }) }),
           runCappedModule("whois_intelligence",   { fallback: () => markDeadlineDeferred({ source: "rdap" }), run: ({ accounting, signal }) => runWhoisModule(domain, { accounting, signal }) }),
-          runCappedModule("dns_bruteforce",       { fallback: () => markDeadlineDeferred({ checked: 0, found: 0, items: [], source: "dns_bruteforce" }), run: ({ accounting, signal }) => runBruteforceModule(domain, { accounting, signal }) }),
+          runCappedModule("dns_bruteforce",       { fallback: () => markDeadlineDeferred({ checked: 0, found: 0, items: [], source: "dns_bruteforce" }), run: ({ accounting, signal }) => runBruteforceModule(domain, { accounting, signal, cache: dnsCache }) }),
         ]);
       const settledValue = (s) => s.status === "fulfilled" ? s.value : null;
       for (const [module, settled] of [
@@ -469,6 +499,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
         ["ssl", sslSettled],
         ["headers", headersSettled],
         ["email_security", emailSettled],
+        ["dmarc_core", dmarcSettled],
         ["subdomains", subdomainsSettled],
         ["technology_detection", techSettled],
         ["whois_intelligence", whoisSettled],
@@ -504,6 +535,12 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       sslResult = sslSettled.status === "fulfilled" && !sslSettled.value.thrown ? sslSettled.value.value : { error: customerSafeFailure("scan/ssl", sslSettled.value?.thrown || sslSettled.reason, "SSL module failed") };
       headersResult = headersSettled.status === "fulfilled" && !headersSettled.value.thrown ? headersSettled.value.value : { error: customerSafeFailure("scan/headers", headersSettled.value?.thrown || headersSettled.reason, "Headers module failed") };
       emailResult = emailSettled.status === "fulfilled" && !emailSettled.value.thrown ? emailSettled.value.value : { error: customerSafeFailure("scan/email", emailSettled.value?.thrown || emailSettled.reason, "Email module failed") };
+      dmarcCoreResult = dmarcSettled.status === "fulfilled" && !dmarcSettled.value.thrown
+        ? dmarcSettled.value.value
+        : unavailableDmarcbisCore(
+          domain,
+          dmarcSettled.value?.thrown ? "core_provider_error" : "core_module_failed",
+        );
       subdomainsResult = subdomainsSettled.status === "fulfilled" && !subdomainsSettled.value.thrown
         ? subdomainsSettled.value.value
         : { count: 0, items: [], sensitive: [], source: "certificate_transparency_multi_source",
@@ -535,7 +572,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       try {
         const takeoverRun = await runCappedModule("subdomain_takeover", {
           fallback: () => markDeadlineDeferred({ checked: 0, potential_risks: 0, risks: [], cname_observations: [], source: "subdomain_cname_fingerprint" }),
-          run: ({ accounting, signal }) => runTakeoverModule(domain, mergedSubdomainItems, { accounting, signal }),
+          run: ({ accounting, signal }) => runTakeoverModule(domain, mergedSubdomainItems, { accounting, signal, cache: dnsCache }),
         });
         takeoverThrown = takeoverRun.thrown;
         takeoverResult = takeoverThrown
@@ -575,7 +612,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       try {
         const exposureRun = await runCappedModule("asset_exposure", {
           fallback: () => markDeadlineDeferred({ checked: 0, reachable: 0, assets: [], source: "http_probe" }),
-          run: ({ accounting, signal }) => runExposureModule(domain, mergedSubdomainItems, { accounting, signal }),
+          run: ({ accounting, signal }) => runExposureModule(domain, mergedSubdomainItems, { accounting, signal, cache: dnsCache }),
         });
         exposureThrown = exposureRun.thrown;
         assetExposureResult = exposureThrown
@@ -615,11 +652,20 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       });
     }
 
+    emailResult = applyDmarcbisEmailCompatibilityProjection(
+      domain,
+      emailResult,
+      dmarcCoreResult,
+    );
+
     const modules = {
       dns:                       dnsResult,
       ssl:                       sslResult,
       headers:                   headersResult,
       email_security:            emailResult,
+      // Technical R2 evidence in P2. P3 adds the versioned snapshot/API dual
+      // readers; existing exact-record fields remain on email_security.
+      dmarc_core:                dmarcCoreResult,
       subdomains:                subdomainsResult,
       subdomain_takeover:        takeoverResult,
       asset_exposure:            assetExposureResult,
@@ -775,7 +821,11 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       () => Promise.allSettled([
         runCveModule(modules.technology_detection, { accounting: cveOutbound, signal: phase5Controller.signal }),
         runKevModule(modules.technology_detection, env, { accounting: kevOutbound, signal: phase5Controller.signal }),
-        runEmailIntelModule(domain, modules.email_security, modules.dns, { accounting: emailIntelOutbound, signal: phase5Controller.signal }),
+        runEmailIntelModule(domain, modules.email_security, modules.dns, {
+          accounting: emailIntelOutbound,
+          signal: phase5Controller.signal,
+          cache: dnsCache,
+        }),
       ]),
       () => {
         phase5Controller.abort("module_budget_exhausted");
@@ -836,6 +886,176 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
         modules.email_security_intelligence
       );
     }
+
+    // Optional RFC 9990 external-RUA phase. Core evidence is already durable in
+    // memory before this gate. Launch requires the whole 600 ms slot, complete
+    // default-path outbound accounting (or the reserved ledger), and one full
+    // 11-question host reservation. Refusal is explicit and issues no question.
+    const ruaSet = modules.dmarc_core?.rua_destinations;
+    let externalGateReason = null;
+    let externalAccountingSnapshot = null;
+    let externalCapacityRemaining = null;
+    if (!Array.isArray(ruaSet)) {
+      externalGateReason = "core_dependency_unavailable";
+    } else if (ruaSet.length > 0 && modules.dmarc_core?.core_completeness !== "complete") {
+      externalGateReason = "core_dependency_unavailable";
+    } else if (ruaSet.length > 0 && !deadline.canRun(SCAN_MODULE_BUDGETS.dmarc_external_rua)) {
+      externalGateReason = "deadline_budget";
+    } else if (ruaSet.length > 0 && reservedMode) {
+      externalCapacityRemaining = reservedBudget?.remaining?.() ?? 0;
+      if (!reservedBudget || reservedBudget.wouldExceed(DMARCBIS_EXTERNAL_HOST_RESERVATION)) {
+        externalGateReason = "subrequest_budget";
+      }
+    } else if (ruaSet.length > 0) {
+      externalAccountingSnapshot = outboundAccounting.aggregate({
+        required: [
+          "dns", "ssl", "headers", "email_security", "dmarc_core",
+          "subdomains", "technology_detection", "whois_intelligence",
+          "dns_bruteforce", "subdomain_takeover", "asset_exposure",
+          "cve_intelligence", "known_exploited_vulnerabilities",
+          "email_security_intelligence",
+        ],
+      });
+      if (!externalAccountingSnapshot
+        .subrequest_capacity_accounting_complete) {
+        externalGateReason = "outbound_accounting_incomplete";
+      } else {
+        externalCapacityRemaining = Math.max(
+          0,
+          capacity.limit - capacity.safetyMargin
+            - externalAccountingSnapshot.outbound_attempts_observed,
+        );
+        if (externalCapacityRemaining < DMARCBIS_EXTERNAL_HOST_RESERVATION) {
+          externalGateReason = "subrequest_budget";
+        }
+      }
+    }
+
+    let externalRuaResult;
+    if (!Array.isArray(ruaSet) || ruaSet.length === 0 || externalGateReason) {
+      externalRuaResult = await budgetRefusedDmarcbisExternal(
+        modules.dmarc_core,
+        ruaSet?.length === 0 ? "not_applicable" : externalGateReason,
+      );
+      telemetry.record("dmarc_external_rua", {
+        outcome: externalRuaResult.rua_authorisation_completeness === "not_applicable"
+          ? "ok"
+          : "skipped",
+        allocated_ms: ruaSet?.length === 0 ? null : 0,
+        timeout_source: externalGateReason === "deadline_budget" ? "launch_gate" : null,
+        outbound: null,
+      });
+    } else {
+      let reservedHostUnits = 0;
+      const externalStartedAt = now();
+      const fallback = await budgetRefusedDmarcbisExternal(
+        modules.dmarc_core,
+        "provider_timeout",
+      );
+      const externalRun = await runCappedModule("dmarc_external_rua", {
+        fallback: () => fallback,
+        run: ({ accounting, signal }) => runDmarcbisExternalRuaPhase(
+          modules.dmarc_core,
+          {
+            accounting,
+            signal,
+            cache: dnsCache,
+            now,
+            // A second unique host starts only when the full measured host
+            // schedule remains. The first host owns the phase reservation.
+            reserveHost: ({ questions, ordinal }) => {
+              if (questions !== DMARCBIS_EXTERNAL_HOST_RESERVATION) return false;
+              const phaseRemaining = SCAN_MODULE_BUDGETS.dmarc_external_rua
+                - Math.max(0, now() - externalStartedAt);
+              if (ordinal > 1 && phaseRemaining < 575) return false;
+              if (reservedMode) {
+                if (reservedBudget.wouldExceed(questions)) return false;
+                reservedBudget.spend("dmarc_external_rua", questions);
+                return true;
+              }
+              if (reservedHostUnits + questions > externalCapacityRemaining) return false;
+              reservedHostUnits += questions;
+              return true;
+            },
+          },
+        ),
+      });
+      if (externalRun.startedMs == null) {
+        externalGateReason = "deadline_budget";
+        externalRuaResult = await budgetRefusedDmarcbisExternal(
+          modules.dmarc_core,
+          externalGateReason,
+        );
+      } else if (externalRun.thrown) {
+        externalRuaResult = {
+          ...fallback,
+          assessment_reason: "provider_error",
+        };
+      } else {
+        externalRuaResult = externalRun.value;
+      }
+      const externalOutbound = externalRun.startedMs == null
+        ? null
+        : externalRun.thrown
+        ? (() => {
+          externalRun.ctx?.markIncomplete?.("module_error");
+          return outboundAccounting.snapshot("dmarc_external_rua");
+        })()
+        : externalRuaResult?.assessment_reason === "provider_timeout"
+          ? abandonOutbound(externalRun.ctx, "dmarc_external_rua", "module_race")
+          : settleOutboundValue(
+            externalRun.ctx,
+            "dmarc_external_rua",
+            externalRuaResult,
+          );
+      telemetry.record("dmarc_external_rua", {
+        outcome: externalRuaResult.rua_authorisation_completeness === "complete"
+          || externalRuaResult.rua_authorisation_completeness === "not_applicable"
+          ? "ok"
+          : "degraded",
+        timeout: ["provider_timeout", "deadline_budget"].includes(
+          externalRuaResult?.assessment_reason,
+        ),
+        error_class: externalRun.thrown?.name || null,
+        duration_ms: externalRun.startedMs != null ? now() - externalRun.startedMs : null,
+        allocated_ms: externalRun.allocatedMs,
+        timeout_source:
+          externalRuaResult?.assessment_reason === "provider_timeout"
+            ? "module_race"
+            : externalRuaResult?.assessment_reason === "deadline_budget"
+              ? "launch_gate"
+              : null,
+        outbound: externalOutbound,
+        outbound_calls: externalOutbound?.outbound_measurement_complete
+          ? externalOutbound.outbound_attempts_observed
+          : null,
+      });
+    }
+    externalRuaResult = {
+      ...externalRuaResult,
+      launch_gate: {
+        reason: externalGateReason,
+        accounting_complete:
+          externalAccountingSnapshot?.subrequest_capacity_accounting_complete
+          ?? (reservedMode ? true : ruaSet?.length === 0 ? true : null),
+        observed_outbound_attempts:
+          externalAccountingSnapshot?.outbound_attempts_observed ?? null,
+        accounting_cutoff:
+          externalAccountingSnapshot?.subrequest_capacity_accounting_cutoff
+          ?? null,
+        capacity_remaining: externalCapacityRemaining,
+        required_host_units: DMARCBIS_EXTERNAL_HOST_RESERVATION,
+      },
+    };
+    modules.dmarc_core = attachDmarcbisExternalResult(
+      modules.dmarc_core,
+      externalRuaResult,
+    );
+    modules.email_security = applyDmarcbisEmailCompatibilityProjection(
+      domain,
+      modules.email_security,
+      modules.dmarc_core,
+    );
 
     // Phase 6: Risk intelligence + Remediation plan (pure computation — no I/O)
     // Risk module enriches all findings with business-impact language and risk categories.
@@ -1319,6 +1539,21 @@ function buildCanonicalUrlProfile(modules) {
         )
         .run();
     }
+
+    // P2 DMARCbis lifecycle reuse: establish only non-alertable baselines in
+    // migration 088's existing Email Protection occurrence source. P4 owns
+    // customer timeline transitions; P5 owns alerts and case eligibility.
+    // The terminal R2 report is already durable, so detail stores only bounded
+    // references/fingerprints and never duplicates raw DNS evidence in D1.
+    try {
+      await establishDmarcPolicyBaseline(env, {
+        workspace_id: workspaceId,
+        domain_id: domainId,
+        domain,
+        scan_id: scanId,
+        policy_evidence: modules.dmarc_core,
+      });
+    } catch { /* non-fatal — baseline catches up on the next complete scan */ }
 
     // Phase 8: Asset Inventory Upsert — runs AFTER completion status is written.
     // Failure here cannot leave the scan stuck in "running".

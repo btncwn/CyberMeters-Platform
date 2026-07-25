@@ -30,7 +30,11 @@ export const SIGNAL_MONITORING_DEFINITIONS = Object.freeze({
     providers: Object.freeze([]),
   }),
   email_protection: Object.freeze({
-    modules: Object.freeze(["email_security", "email_security_intelligence"]),
+    modules: Object.freeze([
+      "email_security",
+      "dmarc_core",
+      "email_security_intelligence",
+    ]),
     providers: Object.freeze([]),
   }),
   attack_surface: Object.freeze({

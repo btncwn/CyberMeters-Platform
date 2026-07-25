@@ -298,7 +298,10 @@ export async function runTakeoverModule(domain, subdomains, opts = {}) {
   const source = "subdomain_cname_fingerprint";
   const fetchImpl = typeof opts.fetcher === "function" ? opts.fetcher : null;
   const accounting = opts.accounting || null;
-  const dnsImpl = typeof opts.dnsQueryImpl === "function" ? opts.dnsQueryImpl : (name, type) => dnsQuery(name, type, { accounting });
+  const cache = opts.cache || null;
+  const dnsImpl = typeof opts.dnsQueryImpl === "function"
+    ? opts.dnsQueryImpl
+    : (name, type) => dnsQuery(name, type, { accounting, cache });
 
   if (!subdomains || subdomains.length === 0) {
     return { checked: 0, potential_risks: 0, risks: [], checked_hosts: [], lookup_failed_hosts: [], unconfirmed: [], source, error: null };

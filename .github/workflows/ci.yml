@@ -774,11 +774,17 @@ jobs:
         working-directory: workers/scan-api
         run: npm audit --audit-level=high
 
-      - name: Validate DMARCbis P1 protocol fixtures (pure injected DNS / no production caller)
+      - name: Validate DMARCbis P1 protocol fixtures (pure injected DNS core)
         run: node scripts/validate-dmarcbis-p1.js
 
       - name: Validate DMARCbis P1 load-bearing mutations
         run: node scripts/validate-dmarcbis-p1-mutations.js
+
+      - name: Validate DMARCbis P2 integration (budget / cache / lifecycle / aggregate compatibility)
+        run: node scripts/validate-dmarcbis-p2.js
+
+      - name: Validate DMARCbis P2 load-bearing mutations
+        run: node scripts/validate-dmarcbis-p2-mutations.js
 
       - name: DMARCbis P1 tr46 Worker bundle gate (no Node compatibility flags)
         working-directory: workers/scan-api

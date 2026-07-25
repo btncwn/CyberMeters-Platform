@@ -27,6 +27,8 @@ const DMARC_MAX_RECORDS   = 5000;            // defensive row cap
 const DMARC_MAX_MESSAGES_PER_RECORD = 10_000_000;
 const DMARC_MAX_EPOCH_SECONDS = 4_102_444_800; // 2100-01-01T00:00:00Z
 const DMARC_MAX_REPORT_WINDOW_SECONDS = 366 * 24 * 60 * 60;
+const DMARC_AGGREGATE_PARSER_VERSION = "dmarc-aggregate-rfc9990-v1";
+const DMARC_RFC9990_NAMESPACE = "urn:ietf:params:xml:ns:dmarc-2.0";
 
 function _xmlDecodeEntities(s) {
   const raw = String(s);
@@ -199,6 +201,8 @@ function _enumValue(container, tag, allowed, { required = true } = {}) {
 
 const DMARC_POLICY_VALUES = new Set(["none", "quarantine", "reject"]);
 const DMARC_ALIGNMENT_VALUES = new Set(["r", "s"]);
+const DMARC_DISCOVERY_METHOD_VALUES = new Set(["psl", "treewalk"]);
+const DMARC_TESTING_VALUES = new Set(["n", "y"]);
 const DMARC_EVALUATED_VALUES = new Set(["pass", "fail"]);
 const DMARC_DKIM_RESULTS = new Set([
   "none", "pass", "fail", "policy", "neutral", "temperror", "permerror",
@@ -213,6 +217,7 @@ const DMARC_SUPPORTED_DEFAULT_NAMESPACES = new Set([
 
 const DMARC_CRITICAL_ELEMENT_PARENTS = new Map([
   ["feedback", new Set([null])],
+  ["version", new Set(["feedback"])],
   ["report_metadata", new Set(["feedback"])],
   ["policy_published", new Set(["feedback"])],
   ["record", new Set(["feedback"])],
@@ -236,6 +241,10 @@ const DMARC_CRITICAL_ELEMENT_PARENTS = new Map([
   ["aspf", new Set(["policy_published"])],
   ["p", new Set(["policy_published"])],
   ["sp", new Set(["policy_published"])],
+  ["np", new Set(["policy_published"])],
+  ["fo", new Set(["policy_published"])],
+  ["testing", new Set(["policy_published"])],
+  ["discovery_method", new Set(["policy_published"])],
   ["pct", new Set(["policy_published"])],
   ["dkim", new Set(["policy_evaluated", "auth_results"])],
   ["spf", new Set(["policy_evaluated", "auth_results"])],
@@ -340,15 +349,24 @@ function parseDmarcAggregateXml(xml) {
     if (namespaceMatches.length > 1) {
       _schemaFailure("unsupported_namespace", "The DMARC default namespace is ambiguous.");
     }
+    let xmlNamespace = null;
     if (namespaceMatches.length === 1) {
-      const namespace = namespaceMatches[0][1] ?? namespaceMatches[0][2] ?? "";
-      if (!DMARC_SUPPORTED_DEFAULT_NAMESPACES.has(namespace)) {
+      xmlNamespace = namespaceMatches[0][1] ?? namespaceMatches[0][2] ?? "";
+      if (!DMARC_SUPPORTED_DEFAULT_NAMESPACES.has(xmlNamespace)) {
         _schemaFailure("unsupported_namespace", "The DMARC default namespace is unsupported.");
       }
     }
     const feedback = root[2];
     if (/<\/?feedback(?:\s|>)/i.test(feedback)) {
       _schemaFailure("invalid_structure", "DMARC feedback must appear exactly once.");
+    }
+    const formatVersion = _xmlText(feedback, "version", {
+      required: false,
+      maxLength: 16,
+    });
+    // RFC 9990 §3.1.1.2: when present, version MUST be exactly 1.0.
+    if (formatVersion != null && formatVersion !== "1.0") {
+      _schemaFailure("unsupported_version", "DMARC aggregate report version must be 1.0.");
     }
     const metaBlock = _singleXmlBlock(feedback, "report_metadata");
     const policyBlock = _singleXmlBlock(feedback, "policy_published");
@@ -383,6 +401,13 @@ function parseDmarcAggregateXml(xml) {
       report_id: _xmlText(metaBlock, "report_id", { required: true, maxLength: 256 }),
       date_range_begin: begin,
       date_range_end: end,
+      report_format_version: formatVersion,
+      xml_namespace: xmlNamespace,
+      schema_conformance:
+        xmlNamespace === DMARC_RFC9990_NAMESPACE
+          ? "rfc9990_profile_accepted_not_full_xsd"
+          : "legacy_rfc7489_profile_accepted",
+      parser_version: DMARC_AGGREGATE_PARSER_VERSION,
     };
 
     const policy_published = {
@@ -395,13 +420,31 @@ function parseDmarcAggregateXml(xml) {
       aspf: _enumValue(policyBlock, "aspf", DMARC_ALIGNMENT_VALUES, { required: false }),
       p: _enumValue(policyBlock, "p", DMARC_POLICY_VALUES),
       sp: _enumValue(policyBlock, "sp", DMARC_POLICY_VALUES, { required: false }),
+      np: _enumValue(policyBlock, "np", DMARC_POLICY_VALUES, { required: false }),
+      fo: _xmlText(policyBlock, "fo", { required: false, maxLength: 128 }),
       pct: _boundedDmarcInteger(policyBlock, "pct", {
         min: 0,
         max: 100,
         required: false,
         code: "invalid_policy",
       }),
+      testing: _enumValue(policyBlock, "testing", DMARC_TESTING_VALUES, {
+        required: false,
+      }),
+      // RFC 9990 currently defines psl/treewalk. Preserve a bounded future/raw
+      // token instead of silently losing it or assigning current semantics.
+      discovery_method: _xmlText(policyBlock, "discovery_method", {
+        required: false,
+        maxLength: 32,
+        normalize: (text) => text.toLowerCase(),
+      }),
     };
+    policy_published.discovery_method_state =
+      policy_published.discovery_method == null
+        ? "absent"
+        : DMARC_DISCOVERY_METHOD_VALUES.has(policy_published.discovery_method)
+          ? "recognized"
+          : "unknown_preserved";
 
     const records = [];
     for (const rec of recordBlocks) {
@@ -942,8 +985,11 @@ async function ingestDmarcReport(env, opts = {}) {
                 (id, workspace_id, domain, org_name, report_email, external_report_id,
                  date_range_begin, date_range_end, policy_domain, policy_adkim, policy_aspf,
                  policy_p, policy_sp, policy_pct, record_count, message_count, raw_hash, source,
-                 envelope_from, reporter_domain, auth_verdict, auth_evidence, created_at)
+                 envelope_from, reporter_domain, auth_verdict, auth_evidence,
+                 report_format_version, xml_namespace, discovery_method, policy_np,
+                 policy_testing, policy_fo, schema_conformance, parser_version, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                        ?, ?, ?, ?, ?, ?, ?, ?,
                         datetime('now'))
                 ON CONFLICT(id) DO UPDATE SET
                   workspace_id = excluded.workspace_id,
@@ -966,14 +1012,25 @@ async function ingestDmarcReport(env, opts = {}) {
                   envelope_from = excluded.envelope_from,
                   reporter_domain = excluded.reporter_domain,
                   auth_verdict = excluded.auth_verdict,
-                  auth_evidence = excluded.auth_evidence`)
+                  auth_evidence = excluded.auth_evidence,
+                  report_format_version = excluded.report_format_version,
+                  xml_namespace = excluded.xml_namespace,
+                  discovery_method = excluded.discovery_method,
+                  policy_np = excluded.policy_np,
+                  policy_testing = excluded.policy_testing,
+                  policy_fo = excluded.policy_fo,
+                  schema_conformance = excluded.schema_conformance,
+                  parser_version = excluded.parser_version`)
       .bind(reportId, workspaceId, domain, m.org_name || null, m.email || null,
         identity.external_report_id, m.date_range_begin || null, m.date_range_end || null,
         pol.domain || null, pol.adkim || null, pol.aspf || null, pol.p || null,
         pol.sp || null, pol.pct ?? null, parsed.records.length, messageCount,
         identity.raw_hash, source, prov.envelope_from ?? null,
         prov.reporter_domain ?? null, prov.auth_verdict ?? null,
-        prov.auth_evidence ?? null),
+        prov.auth_evidence ?? null, m.report_format_version ?? null,
+        m.xml_namespace ?? null, pol.discovery_method ?? null, pol.np ?? null,
+        pol.testing ?? null, pol.fo ?? null, m.schema_conformance ?? null,
+        m.parser_version ?? DMARC_AGGREGATE_PARSER_VERSION),
   ];
 
   for (const r of parsed.records) {

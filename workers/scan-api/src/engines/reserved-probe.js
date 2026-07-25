@@ -9,8 +9,7 @@
 // A blocked target returns null (the caller skips it). fetch() errors (including the
 // "Too many subrequests" budget throw) propagate so probeAsset can classify them.
 import { resolvesToPrivateIp, urlIsBlockedTarget } from "../lib/ssrf.js";
-import { dnsQuery, dnsResolveACached } from "./dns.js";
-import { dnsCacheKey } from "./scan-budget.js";
+import { dnsQuery } from "./dns.js";
 
 export const RESERVED_MAX_REDIRECT_HOPS = 3;   // follow up to 3 redirects; cap the 4th
 
@@ -23,12 +22,28 @@ export const RESERVED_MAX_REDIRECT_HOPS = 3;   // follow up to 3 redirects; cap 
 // real exhaustion (not_executed), and Tier-2's live counter makes `consumed` exact.
 function makeSsrfResolver(cache, onOutbound, accounting = null) {
   return async (name, type) => {
-    const key = dnsCacheKey(name, type);
-    if (cache && cache.has(key)) return cache.get(key);      // cache hit → no outbound call
-    let ans = null;
-    try { onOutbound?.(); ans = await dnsQuery(name, type, { accounting }); } catch { ans = null; }
-    if (cache) cache.set(key, ans);
-    return ans;
+    // Meter at the leaf's recordAttempt hook, which runs only for a physical
+    // cache miss. Reading the Map directly would expose the cache's in-flight
+    // entry wrapper instead of a DNS answer and could falsely bypass the SSRF
+    // rebinding guard.
+    const meteredAccounting = {
+      signal: accounting?.signal || null,
+      assertCanIssue: () => accounting?.assertCanIssue?.(),
+      recordAttempt: () => {
+        onOutbound?.();
+        accounting?.recordAttempt?.();
+      },
+      recordCompleted: () => accounting?.recordCompleted?.(),
+      recordError: (error) => accounting?.recordError?.(error),
+    };
+    try {
+      return await dnsQuery(name, type, {
+        accounting: meteredAccounting,
+        cache,
+      });
+    } catch {
+      return null;
+    }
   };
 }
 

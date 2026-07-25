@@ -52,6 +52,7 @@ export function buildCaaFromAnswers(answers) {
 
 export async function runDnsModule(domain, opts = {}) {
   const accounting = opts.accounting || null;
+  const cache = opts.cache || null;
   // CAA and DNSSEC trust evidence run here alongside A/AAAA/NS/MX.
   // Placing CAA in the DNS module avoids adding subrequests to later phases
   // where the free-plan 50-subrequest budget may already be exhausted.
@@ -68,23 +69,23 @@ export async function runDnsModule(domain, opts = {}) {
     googleCaaRes,
     dsRes, dnskeyRes, rrsigARes,
   ] = await Promise.allSettled([
-    dnsQuery(domain, "A", { accounting }),
-    dnsQuery(domain, "AAAA", { accounting }),
-    dnsQuery(domain, "NS", { accounting }),
-    dnsQuery(domain, "MX", { accounting }),
-    dnsQuery(domain, "CAA", { accounting }),
-    dnsQueryGoogle(domain, "A", { accounting }),
-    dnsQueryGoogle(domain, "AAAA", { accounting }),
-    dnsQueryGoogle(domain, "MX", { accounting }),
-    dnsQueryGoogle(domain, "TXT", { accounting }),
-    dnsQueryGoogle(`_dmarc.${domain}`, "TXT", { accounting }),
-    dnsQueryQuad9(domain, "A", { accounting }).then((r) => ({ status: "fulfilled", value: r })).catch(() => ({ status: "rejected" })),
-    dnsQuery(domain, "TXT", { accounting }),
-    dnsQuery(`_dmarc.${domain}`, "TXT", { accounting }),
-    dnsQueryGoogle(domain, "CAA", { accounting }),
-    dnsQueryDnssec(domain, "DS", { accounting }),
-    dnsQueryDnssec(domain, "DNSKEY", { accounting }),
-    dnsQueryDnssec(domain, "A", { accounting }),
+    dnsQuery(domain, "A", { accounting, cache }),
+    dnsQuery(domain, "AAAA", { accounting, cache }),
+    dnsQuery(domain, "NS", { accounting, cache }),
+    dnsQuery(domain, "MX", { accounting, cache }),
+    dnsQuery(domain, "CAA", { accounting, cache }),
+    dnsQueryGoogle(domain, "A", { accounting, cache }),
+    dnsQueryGoogle(domain, "AAAA", { accounting, cache }),
+    dnsQueryGoogle(domain, "MX", { accounting, cache }),
+    dnsQueryGoogle(domain, "TXT", { accounting, cache }),
+    dnsQueryGoogle(`_dmarc.${domain}`, "TXT", { accounting, cache }),
+    dnsQueryQuad9(domain, "A", { accounting, cache }).then((r) => ({ status: "fulfilled", value: r })).catch(() => ({ status: "rejected" })),
+    dnsQuery(domain, "TXT", { accounting, cache }),
+    dnsQuery(`_dmarc.${domain}`, "TXT", { accounting, cache }),
+    dnsQueryGoogle(domain, "CAA", { accounting, cache }),
+    dnsQueryDnssec(domain, "DS", { accounting, cache }),
+    dnsQueryDnssec(domain, "DNSKEY", { accounting, cache }),
+    dnsQueryDnssec(domain, "A", { accounting, cache }),
   ]);
 
   const pick = (r) =>
