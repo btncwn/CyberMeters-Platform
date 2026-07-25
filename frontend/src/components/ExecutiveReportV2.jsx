@@ -1,4 +1,5 @@
 import CyberMotDomains from './CyberMotDomains'
+import DmarcPolicyEvidenceCard from './DmarcPolicyEvidenceCard'
 import { Minus, CheckCircle, Target, FileText, Lock, Eye, Info } from 'lucide-react'
 import { bandMeta } from '../lib/score-presentation'
 import {
@@ -295,6 +296,13 @@ export default function ExecutiveReportV2({ report }) {
 
       {/* Eight canonical domains — backend-owned states, rendered verbatim */}
       <CyberMotDomains domains={report.cyber_mot_domains} />
+
+      {report.dmarc_policy_presentation && (
+        <DmarcPolicyEvidenceCard
+          presentation={report.dmarc_policy_presentation}
+          showTechnical
+        />
+      )}
 
       {summary.priority_actions?.length > 0 && (
         <SectionCard icon={Target} title="Priority Actions" count={summary.priority_actions.length}>

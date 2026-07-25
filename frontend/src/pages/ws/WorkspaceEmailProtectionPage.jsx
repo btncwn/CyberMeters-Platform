@@ -6,6 +6,7 @@ import {
   Copy, Check, AlertTriangle, CheckCircle, ChevronDown, Info, RefreshCw, Globe,
   ArrowRight, Megaphone, Upload, Users, Filter, Gauge, X, Inbox,
 } from 'lucide-react'
+import DmarcPolicyEvidenceCard from '../../components/DmarcPolicyEvidenceCard'
 import { api, BASE } from '../../api'
 import { useWorkspace } from '../../hooks/useWorkspace'
 import WsPage, { NoWorkspaceSelected } from '../../components/WsPage'
@@ -72,9 +73,9 @@ function DnsValue({ value }) {
 // ── DMARC policy journey ──────────────────────────────────────────────────────
 const JOURNEY_STAGES = [
   { stage: 'missing',             label: 'No DMARC' },
-  { stage: 'monitoring',          label: 'Monitoring' },
-  { stage: 'partial_enforcement', label: 'Quarantine' },
-  { stage: 'full_enforcement',    label: 'Reject' },
+  { stage: 'monitoring',          label: 'No-action policy' },
+  { stage: 'partial_enforcement', label: 'Quarantine requested' },
+  { stage: 'full_enforcement',    label: 'Rejection requested' },
 ]
 
 function DmarcJourney({ journey }) {
@@ -95,7 +96,7 @@ function DmarcJourney({ journey }) {
         </div>
         <div>
           <span className="eyebrow">DMARC Policy Journey</span>
-          <h2 className="section-title leading-tight">Where you are on the path to enforcement</h2>
+          <h2 className="section-title leading-tight">Where you are on the requested-policy journey</h2>
         </div>
       </div>
 
@@ -331,9 +332,9 @@ function DmarcCard({ dmarc, detail }) {
   const align = (m) => (m === 's' ? 'Strict' : m === 'r' ? 'Relaxed' : m || '—')
   return (
     <AuthCard icon={ShieldCheck} title="DMARC" status={status} statusKind={kind}>
-      <KV k="Policy (p)" v={policy ? <code className="mono">{policy}</code> : 'Not set'} />
+      <KV k="Exact-record policy (p)" v={policy ? <code className="mono">{policy}</code> : 'Not set'} />
       <KV k="Subdomain policy (sp)" v={detail?.subdomain_policy ? <code className="mono">{detail.subdomain_policy}</code> : 'Inherits main'} />
-      {typeof detail?.percentage === 'number' && <KV k="Coverage (pct)" v={`${detail.percentage}%`} />}
+      {typeof detail?.percentage === 'number' && <KV k="Legacy pct (not applied by DMARCbis)" v={`${detail.percentage}%`} />}
       <KV k="Alignment" v={`DKIM ${align(detail?.adkim)} · SPF ${align(detail?.aspf)}`} />
       {detail?.rua?.length > 0 && <KV k="Aggregate reports (rua)" v={detail.rua.join(', ')} mono />}
       {detail?.ruf?.length > 0 && <KV k="Forensic reports (ruf)" v={detail.ruf.join(', ')} mono />}
@@ -497,8 +498,8 @@ function GuidedRemediation({ stage, hasReports, readiness, senders, actions, onG
     {
       key: 'classify', title: 'Classify who sends email as you',
       hint: unknownCount > 0
-        ? `${unknownCount} sender${unknownCount === 1 ? '' : 's'} still need${unknownCount === 1 ? 's' : ''} classification. Confirm which senders are yours so enforcement never blocks legitimate mail.`
-        : 'Confirm which senders are yours so enforcement never blocks legitimate mail.',
+        ? `${unknownCount} sender${unknownCount === 1 ? '' : 's'} still need${unknownCount === 1 ? 's' : ''} classification. Confirm which senders are yours before requesting stronger handling, because receivers retain final discretion.`
+        : 'Confirm which senders are yours before requesting stronger handling, because receivers retain final discretion.',
       done: hasReports && senderList.length > 0 && unknownCount === 0, target: 'sender-inventory', cta: 'Review senders',
     },
     {
@@ -510,13 +511,13 @@ function GuidedRemediation({ stage, hasReports, readiness, senders, actions, onG
       target: 'sender-inventory', cta: 'Review failing senders',
     },
     {
-      key: 'quarantine', title: 'Move your policy to quarantine',
-      hint: 'Messages that fail authentication go to spam instead of the inbox — real protection starts here.',
+      key: 'quarantine', title: 'Consider requesting quarantine',
+      hint: 'A quarantine policy asks receivers to quarantine messages that fail DMARC. Receiver handling is not proven by publication.',
       done: enforcing, target: 'dmarc-setup', cta: 'Open DMARC setup',
     },
     {
-      key: 'reject', title: 'Enforce with reject',
-      hint: 'Messages that fail authentication are refused outright. This is full protection against spoofing.',
+      key: 'reject', title: 'Consider requesting rejection',
+      hint: 'A reject policy asks receivers to reject messages that fail DMARC. It does not prove every receiver applied that request.',
       done: stage === 'full_enforcement', target: 'dmarc-setup', cta: 'Open DMARC setup',
     },
   ]
@@ -656,7 +657,12 @@ function DifferentiatorBlock({ wsId }) {
 }
 
 // ── Multi-domain summary ──────────────────────────────────────────────────────
-const STAGE_LABEL = { missing: 'No DMARC', monitoring: 'Monitoring', partial_enforcement: 'Quarantine', full_enforcement: 'Reject' }
+const STAGE_LABEL = {
+  missing: 'No DMARC',
+  monitoring: 'No-action policy',
+  partial_enforcement: 'Quarantine requested',
+  full_enforcement: 'Rejection requested',
+}
 
 const BEC_DOT = { critical: 'text-red-700', high: 'text-red-700', medium: 'text-amber-700', low: 'text-brand-700', minimal: 'text-brand-700' }
 function MultiDomainSummary({ rows, selectedDomain, onSelect }) {
@@ -768,11 +774,11 @@ const RISK = {
 }
 const RISK_RANK = { critical: 0, high: 1, medium: 2, low: 3 }
 
-// ── Enforcement readiness: Monitoring → Quarantine Review → Reject Review ──────
+// ── Policy-change readiness: no-action → quarantine review → reject review ─────
 function EnforcementReadiness({ readiness }) {
   if (!readiness) return null
   const stages = [
-    { key: 'monitoring', label: 'Monitoring' },
+    { key: 'monitoring', label: 'No-action policy' },
     { key: 'quarantine', label: 'Quarantine Review' },
     { key: 'reject',     label: 'Reject Review' },
   ]
@@ -795,8 +801,8 @@ function EnforcementReadiness({ readiness }) {
           <Gauge className="w-4 h-4 text-white" />
         </div>
         <div className="flex-1">
-          <span className="eyebrow">Enforcement readiness</span>
-          <h2 className="section-title leading-tight">Are you ready to tighten policy?</h2>
+          <span className="eyebrow">Policy-change readiness</span>
+          <h2 className="section-title leading-tight">Is the evidence ready for a stronger policy request?</h2>
         </div>
         {hasScore && (
           <div className="flex flex-col items-end mr-1">
@@ -853,7 +859,7 @@ function EnforcementReadiness({ readiness }) {
           {readiness.explanation && <p className="text-sm text-gray-700 leading-relaxed mb-3">{readiness.explanation}</p>}
           {readiness.blockers?.length > 0 && (
             <div className="mb-3">
-              <p className="text-[11px] font-bold uppercase tracking-wide text-gray-500 mb-1.5">What's blocking enforcement</p>
+              <p className="text-[11px] font-bold uppercase tracking-wide text-gray-500 mb-1.5">What blocks a stronger policy request</p>
               <ul className="space-y-1.5">
                 {readiness.blockers.map((b, i) => (
                   <li key={i} className="flex items-start gap-1.5 text-sm text-gray-700">
@@ -2094,6 +2100,7 @@ function ManagedDmarcCard({ wsId, domain, endpointReady }) {
         policyAllowed: Boolean(r?.policy_management_available),
         compliance: r?.compliance || null,
         readiness: r?.readiness || null,
+        interpretation: r?.hosted_dmarc_interpretation || null,
       })
     } catch { setRec(null); setRamp(null) }
   }, [wsId, domain])
@@ -2209,13 +2216,25 @@ function ManagedDmarcCard({ wsId, domain, endpointReady }) {
             </div>
           )}
 
-          {/* ── Self-Driving DMARC: policy ramp (Phase B) ── */}
-          {rec.status === 'connected' && rec.policy_step && (
+          {rec.status === 'connected' &&
+            ramp?.interpretation?.automation_status === 'suspended' && (
+            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+              <p className="text-sm font-bold text-amber-900">Managed policy automation is suspended</p>
+              <p className="mt-1 text-xs leading-relaxed text-amber-800">
+                CyberMeters can show snapshot-derived policy evidence and suggested DNS changes, but it will not advance or roll back the DMARC policy automatically. Suggested DNS change — not applied by CyberMeters.
+              </p>
+            </div>
+          )}
+
+          {/* Legacy hosted-policy controls remain hidden while the approved
+              Item 7 read-only interpretation says automation is suspended. */}
+          {rec.status === 'connected' && rec.policy_step &&
+            ramp?.interpretation?.automation_status !== 'suspended' && (
             <div className="pt-5 mt-4 border-t border-brand-100 space-y-5">
               <div className="flex items-end justify-between gap-3 flex-wrap">
                 <div>
                   <h4 className="text-base font-bold text-gray-900">Enforcement journey</h4>
-                  <p className="text-sm text-gray-500 mt-0.5">Move safely from monitoring to blocking spoofed mail.</p>
+                  <p className="text-sm text-gray-500 mt-0.5">Review evidence before requesting stronger receiver handling. Publication does not prove receiver action.</p>
                 </div>
                 {ramp?.compliance && (
                   <div className="text-right">
@@ -2235,7 +2254,7 @@ function ManagedDmarcCard({ wsId, domain, endpointReady }) {
 
               {/* Ladder track — generous, legible steps */}
               <div className="flex items-stretch gap-1.5 overflow-x-auto pb-1">
-                {['Monitor', 'Quarantine 5%', 'Quarantine 25%', 'Quarantine 50%', 'Quarantine', 'Reject 10%', 'Reject 25%', 'Reject 50%', 'Reject'].map((label, i) => {
+                {['No action', 'Quarantine 5%', 'Quarantine 25%', 'Quarantine 50%', 'Quarantine', 'Reject 10%', 'Reject 25%', 'Reject 50%', 'Reject'].map((label, i) => {
                   const state = i === rec.policy_step.index ? 'current' : i < rec.policy_step.index ? 'done' : 'future'
                   return (
                     <div key={label} className={`flex-1 min-w-[92px] rounded-xl border px-3 py-2.5 text-center ${
@@ -2259,7 +2278,7 @@ function ManagedDmarcCard({ wsId, domain, endpointReady }) {
               {!ramp?.policyAllowed ? (
                 <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3.5">
                   <p className="text-sm text-gray-700">
-                    Monitoring is free. <span className="font-bold">Policy changes and Self-Driving DMARC are on paid plans</span> — upgrade to move toward enforcement from here.
+                    No-action policy monitoring is free. <span className="font-bold">Managed policy-change tools are on paid plans</span> — upgrade to review a stronger requested policy.
                   </p>
                 </div>
               ) : (
@@ -2798,7 +2817,7 @@ function ZoneHeader({ n, title, hint }) {
 // compliance rate (technical), the policy state, AND the business impersonation
 // exposure (business) — the last of which point-tools do not translate. Leads
 // with meaning, ends with the single next action.
-function EmailPostureHero({ wsId, domain, dmarc, policyJourney, onGoto }) {
+function EmailPostureHero({ wsId, domain, dmarc, policyJourney, dmarcPresentation, onGoto }) {
   const [bec, setBec] = useState(null)
   const [liveDns, setLiveDns] = useState(null)
   const [rescan, setRescan] = useState(null) // null | 'starting' | 'started' | 'error'
@@ -2836,9 +2855,19 @@ function EmailPostureHero({ wsId, domain, dmarc, policyJourney, onGoto }) {
   // The scan is "stale" whenever live DNS disagrees with it — nudge a re-scan
   // so compliance/exposure catch up to the current record.
   const staleScan = liveDmarcHealthy && livePolicyStage != null && livePolicyStage !== scanStage
-  const stageLabel = { missing: 'No DMARC', monitoring: 'Monitoring (p=none)',
-    partial_enforcement: 'Quarantine', full_enforcement: 'Reject' }[stage] || 'Unknown'
-  const enforcing = ['partial_enforcement', 'full_enforcement'].includes(stage)
+  const currentPresentation = dmarcPresentation?.status === 'current'
+  const effectiveRequestedPolicy =
+    currentPresentation
+      ? dmarcPresentation?.policy?.effective_requested
+      : null
+  const stageLabel = currentPresentation
+    ? (dmarcPresentation?.policy?.effective_requested_label || 'Not determined')
+    : ({ missing: 'No DMARC', monitoring: 'No-action policy',
+        partial_enforcement: 'Quarantine requested',
+        full_enforcement: 'Rejection requested' }[stage] || 'Unknown')
+  const strongerRequested = currentPresentation
+    ? ['quarantine', 'reject'].includes(effectiveRequestedPolicy)
+    : ['partial_enforcement', 'full_enforcement'].includes(stage)
   const cCol = !hasCompliance ? 'text-gray-400' : passRate >= 95 ? 'text-brand-700'
     : passRate >= 80 ? 'text-amber-600' : 'text-red-700'
   const sev = bec ? becSev(bec.exposure_level) : null
@@ -2846,7 +2875,7 @@ function EmailPostureHero({ wsId, domain, dmarc, policyJourney, onGoto }) {
   const next = staleScan ? { label: `Re-scan ${domain}`, rescan: true }
     : scanStage === 'missing' ? { label: 'Publish a DMARC record', to: 'dmarc-setup' }
     : !hasCompliance ? { label: 'Connect DMARC reporting', to: 'connect-reporting' }
-    : !enforcing ? { label: 'Move toward enforcement', to: 'dmarc-setup' }
+    : !strongerRequested ? { label: 'Review a stronger policy', to: 'dmarc-setup' }
     : (passRate != null && passRate < 95) ? { label: 'Fix sender alignment', to: 'sender-inventory' }
     : { label: 'Review sender inventory', to: 'sender-inventory' }
 
@@ -2866,7 +2895,7 @@ function EmailPostureHero({ wsId, domain, dmarc, policyJourney, onGoto }) {
         </div>
         <div className="min-w-0">
           <span className="eyebrow">Email protection posture</span>
-          <h2 className="section-title leading-tight truncate">Are attackers able to spoof {domain}?</h2>
+          <h2 className="section-title leading-tight truncate">What did CyberMeters observe for {domain}?</h2>
         </div>
       </div>
 
@@ -2886,7 +2915,7 @@ function EmailPostureHero({ wsId, domain, dmarc, policyJourney, onGoto }) {
         <div className="md:border-l md:border-gray-100 md:pl-5">
           <p className="text-sm font-semibold text-gray-900">DMARC policy</p>
           <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
-            {pill(stageLabel, enforcing ? 'ok' : stage === 'missing' ? 'bad' : 'warn')}
+            {pill(stageLabel, strongerRequested ? 'ok' : stage === 'missing' ? 'bad' : 'warn')}
             {staleScan && (
               <span className="inline-flex items-center gap-1 text-xs font-semibold text-brand-700">
                 <CheckCircle className="w-3 h-3" /> Live in DNS
@@ -2894,10 +2923,12 @@ function EmailPostureHero({ wsId, domain, dmarc, policyJourney, onGoto }) {
             )}
           </div>
           <p className="text-xs text-gray-500 mt-2 leading-relaxed">
-            {staleScan ? 'Your DMARC record is published and was just verified in live DNS — your last scan predates it. Re-scan to refresh compliance and exposure.'
-              : stage === 'missing' ? 'No policy — receivers have no instruction for spoofed mail.'
-              : enforcing ? 'Enforcing — messages that fail authentication are actively blocked.'
-              : 'Monitor-only — reports are collected, but spoofed mail is not yet blocked.'}
+            {currentPresentation
+              ? dmarcPresentation.policy?.message
+              : staleScan ? 'Your DMARC record is published and was just observed in live DNS — your last scan predates it. Re-scan for a complete current policy assessment.'
+              : stage === 'missing' ? 'No exact-domain policy was observed in the legacy scan projection.'
+              : strongerRequested ? 'The published policy requests stronger receiver handling; actual receiver handling was not observed.'
+              : 'The legacy scan projection shows a no-action policy.'}
           </p>
         </div>
         {/* Business exposure — the layer point-tools do not translate */}
@@ -3652,7 +3683,19 @@ export default function WorkspaceEmailProtectionPage() {
             domain={selectedDomain}
             dmarc={dmarc}
             policyJourney={es?.policy_journey}
+            dmarcPresentation={
+              dmarc?.dmarc_policy_presentation ||
+              report?.dmarc_policy_presentation
+            }
             onGoto={(target) => document.getElementById(target)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+          />
+
+          <DmarcPolicyEvidenceCard
+            presentation={
+              dmarc?.dmarc_policy_presentation ||
+              report?.dmarc_policy_presentation
+            }
+            showTechnical
           />
 
           {/* 0. Connection status, checklist, ingestion + metrics — the customer answer */}
@@ -3672,7 +3715,7 @@ export default function WorkspaceEmailProtectionPage() {
           {/* 0c. DMARC report ingestion status (reports_received vs DNS verified) */}
           <DmarcIngestionStatus wsId={wsId} domain={selectedDomain} onGotoSetup={gotoSetup} onGotoSenders={gotoSenders} />
 
-          <ZoneHeader n="2" title="Path to enforcement" hint="Where you are, and the ordered steps to safely block spoofing." />
+          <ZoneHeader n="2" title="Requested-policy journey" hint="Where you are, and the evidence to review before requesting stronger receiver handling." />
 
           {/* 1. DMARC journey */}
           <DmarcJourney journey={es.policy_journey} />

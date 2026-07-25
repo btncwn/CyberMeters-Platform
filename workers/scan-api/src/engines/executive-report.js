@@ -9,6 +9,7 @@
 // from readScanReportSnapshot): same snapshot in, same report out. The only
 // live inputs a route may add around it are presentation metadata under the
 // documented frozen-vs-live policy (branding, workspace display name).
+import { dmarcPolicyApiProjection } from "./dmarcbis-contract.js";
 
 export function buildExecutiveReportV2({ scan, workspace = null, read }) {
   const snap = read.snapshot;
@@ -79,6 +80,7 @@ export function buildExecutiveReportV2({ scan, workspace = null, read }) {
     unmapped_finding_types: snap.unmapped_finding_types ?? [],
     evidence_completeness: overall.evidence_completeness ?? null,
     limitations: snap.limitations ?? [],
+    ...dmarcPolicyApiProjection(read.dmarcPolicy),
     snapshot_id: s.snapshot_id ?? read.row?.id ?? null,
     integrity: read.integrity ?? null,
   };

@@ -2252,6 +2252,78 @@
           "not_applicable"
         ]
       },
+      "DmarcPolicyPresentation": {
+        "type": "object",
+        "description": "Backend-owned, snapshot-derived DMARC customer presentation. Renderers display these labels and messages without independently parsing DNS or deriving policy. Legacy snapshots contain only the retained historical-methodology notice.",
+        "additionalProperties": true,
+        "properties": {
+          "schema": {
+            "type": "string",
+            "const": "dmarc-policy-presentation.v1"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "current",
+              "legacy_snapshot",
+              "not_available",
+              "unsupported_schema",
+              "invalid_contract",
+              "integrity_error"
+            ]
+          },
+          "headline": {
+            "type": "string"
+          },
+          "customer_message": {
+            "type": "string"
+          },
+          "historical_notice": {
+            "type": "string"
+          },
+          "unavailable_reason": {
+            "type": "string"
+          },
+          "observation": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "policy": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "legacy_pct": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "external_rua": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "completeness": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "monitoring": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "evidence_grade": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "technical_appendix": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "schema",
+          "status",
+          "headline",
+          "customer_message"
+        ]
+      },
       "DmarcPolicyEvidenceProjection": {
         "type": "object",
         "description": "Additive DMARCbis fields returned alongside each route's existing response. dmarc_policy_evidence is absent for legacy or unavailable snapshots.",
@@ -2268,6 +2340,9 @@
           "dmarc_policy_evidence": {
             "$ref": "#/components/schemas/DmarcPolicyEvidence"
           },
+          "dmarc_policy_presentation": {
+            "$ref": "#/components/schemas/DmarcPolicyPresentation"
+          },
           "dmarc_methodology_notice": {
             "type": "string"
           },
@@ -2276,7 +2351,8 @@
           }
         },
         "required": [
-          "dmarc_policy_evidence_status"
+          "dmarc_policy_evidence_status",
+          "dmarc_policy_presentation"
         ]
       },
       "Error": {

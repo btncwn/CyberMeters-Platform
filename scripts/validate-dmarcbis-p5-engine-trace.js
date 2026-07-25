@@ -17,6 +17,12 @@ const enginePath = (name) => pathToFileURL(path.join(
 const { runScanEngine } = await import(enginePath("scan-engine.js"));
 const { createDmarcPolicyCase } =
   await import(enginePath("dmarcbis-managed-lifecycle.js"));
+const { readScanReportSnapshot } =
+  await import(enginePath("report-snapshot.js"));
+const { buildExecutiveReportV2 } =
+  await import(enginePath("executive-report.js"));
+const { buildScanReportPdf } =
+  await import(enginePath("pdf.js"));
 
 let pass = 0;
 let fail = 0;
@@ -335,6 +341,45 @@ eq("stable repeat creates no duplicate verification event",
      WHERE case_id = ? AND to_status = 'verified'`,
   ).get(opened.case?.id).n, 1);
 ok("faithful trace exercised real outbound provider paths", outbound > 0);
+
+// P6 presentation proof over the exact immutable evidence produced by the real
+// final run above. No renderer receives or re-runs the resolver.
+const p6Read = await readScanReportSnapshot(env, "scan-p5-stable", {
+  repair: false,
+  allowReconstruction: false,
+  includeSuccessor: false,
+});
+eq("P6 faithful trace reads the canonical snapshot", p6Read.status, "ok");
+eq("P6 faithful trace reads current DMARCbis evidence",
+  p6Read.dmarcPolicy?.status, "current");
+const p6Executive = buildExecutiveReportV2({
+  scan: {
+    id: "scan-p5-stable",
+    domain_id: "dom",
+    domain: "example.com",
+  },
+  workspace: { id: "ws", name: "Trace" },
+  read: p6Read,
+});
+eq("P6 Executive Report uses backend-owned presentation",
+  p6Executive.dmarc_policy_presentation?.status, "current");
+eq("P6 Executive Report preserves the real requested policy",
+  p6Executive.dmarc_policy_presentation?.policy?.effective_requested,
+  "reject");
+eq("P6 Executive Report never claims receiver enforcement",
+  p6Executive.dmarc_policy_presentation?.policy
+    ?.receiver_enforcement_observed, false);
+const p6Pdf = new TextDecoder().decode(buildScanReportPdf(
+  { id: "scan-p5-stable", domain: "example.com" },
+  p6Read,
+));
+ok("P6 PDF renders real runScanEngine DMARC evidence",
+  p6Pdf.includes("DMARC Policy Evidence") &&
+  p6Pdf.includes("Rejection requested"));
+ok("P6 PDF renders the real technical appendix",
+  p6Pdf.includes("Technical Appendix - DMARC Policy") &&
+  p6Pdf.includes("rfc9989-treewalk-v1"));
+if (!fail) console.log("P6 faithful customer projection passed");
 
 console.log(`\nDMARCbis P5 runScanEngine trace: ${pass} passed, ${fail} failed`);
 if (!fail) console.log("DMARCbis P5 runScanEngine trace passed");

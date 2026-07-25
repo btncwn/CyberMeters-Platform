@@ -15,6 +15,7 @@
 // frozen-vs-live policy — white-label branding (logo/company name/accent) and
 // the workspace display name. No clock is read here; every date printed comes
 // from the snapshot (as_of / built_at) or an explicit caller argument.
+import { buildDmarcPolicyPresentation } from "./dmarcbis-presentation.js";
 
 // Typographic → ASCII transliteration (trust-closure episode, July 2026).
 // The stream encoder is ASCII-only, and the old behaviour replaced EVERY
@@ -659,6 +660,123 @@ function sectionRelatedChanges(w, summary) {
   }
 }
 
+// Item 7 P6: snapshot-derived DMARC policy presentation. All text and labels
+// are produced by the backend presentation contract; this PDF performs no
+// protocol interpretation.
+function sectionDmarcPolicy(w, presentation) {
+  if (!presentation) return;
+  w.heading("DMARC Policy Evidence");
+  w.text(presentation.headline || "DMARC policy evidence", {
+    size: 10,
+    bold: true,
+  });
+  if (presentation.customer_message) {
+    w.proseKeep(presentation.customer_message, {
+      size: 9,
+      color: "0.25 0.32 0.42",
+    });
+  }
+  if (presentation.status !== "current") return;
+
+  const policy = presentation.policy || {};
+  w.text(
+    `Effective requested policy: ${policy.effective_requested_label || "Not determined"}`,
+    { size: 9, bold: true },
+  );
+  if (policy.message) {
+    w.proseKeep(policy.message, {
+      size: 8,
+      color: "0.35 0.38 0.44",
+    });
+  }
+  if (policy.inheritance_message) {
+    w.proseKeep(policy.inheritance_message, {
+      size: 8,
+      color: "0.35 0.38 0.44",
+    });
+  }
+  if (policy.testing_message) {
+    w.proseKeep(policy.testing_message, {
+      size: 8,
+      color: "0.45 0.35 0.10",
+    });
+  }
+  if (presentation.legacy_pct?.message) {
+    w.proseKeep(presentation.legacy_pct.message, {
+      size: 8,
+      color: "0.45 0.35 0.10",
+    });
+  }
+  if (presentation.monitoring?.message) {
+    w.proseKeep(presentation.monitoring.message, {
+      size: 8,
+      color: presentation.monitoring.state === "monitoring_degraded"
+        ? "0.45 0.35 0.10"
+        : "0.35 0.38 0.44",
+    });
+  }
+  for (const destination of presentation.external_rua?.destinations || []) {
+    w.text(
+      `${destination.status_label}: ${destination.uri || "destination not recorded"}`,
+      { size: 8, bold: true },
+    );
+    w.proseKeep(destination.message, {
+      size: 7,
+      indent: 10,
+      color: "0.35 0.38 0.44",
+    });
+  }
+  appendixEvidenceAssertion(
+    w,
+    "DMARC policy conclusion",
+    presentation.evidence_grade,
+  );
+}
+
+function sectionDmarcTechnicalAppendix(w, presentation) {
+  if (presentation?.status !== "current" ||
+      !presentation.technical_appendix) return;
+  const appendix = presentation.technical_appendix;
+  w.heading("Technical Appendix - DMARC Policy");
+  for (const fact of appendix.facts || []) {
+    w.proseKeep(`${fact.label}: ${fact.value}`, {
+      size: 7,
+      color: "0.35 0.38 0.44",
+    });
+  }
+  if (appendix.lookup_path?.length) {
+    w.text("Ordered DNS lookup evidence", { size: 8, bold: true });
+    for (const [index, step] of appendix.lookup_path.entries()) {
+      const q = step?.question || {};
+      const used = step?.logically_used === false ? "not used" : "used";
+      w.proseKeep(
+        `${index + 1}. ${q.type || "DNS"} ${q.name || "name not recorded"} - ${step?.outcome || "outcome not recorded"} - ${used}`,
+        { size: 7, indent: 10, color: "0.35 0.38 0.44" },
+      );
+    }
+  }
+  if (appendix.raw_records?.length) {
+    w.text("Observed DMARC record data", { size: 8, bold: true });
+    for (const record of appendix.raw_records) {
+      const raw = record?.raw ?? record?.value ?? record;
+      w.proseKeep(String(raw), {
+        size: 7,
+        indent: 10,
+        color: "0.35 0.38 0.44",
+      });
+    }
+  }
+  if (appendix.parsed_tags?.length) {
+    w.text("Parsed tags", { size: 8, bold: true });
+    for (const tag of appendix.parsed_tags) {
+      w.proseKeep(
+        `${tag?.name || "unknown"}=${tag?.raw_value ?? "not recorded"}${tag?.normalized != null ? ` (normalised: ${tag.normalized})` : ""}`,
+        { size: 7, indent: 10, color: "0.35 0.38 0.44" },
+      );
+    }
+  }
+}
+
 function sectionMethodology(w, snap) {
   const s = snap.snapshot || {};
   w.heading("Methodology & Limitations");
@@ -874,6 +992,7 @@ function brandingHeader(w, branding, title, subtitle, logoImage = null) {
 export function buildScanReportPdf(scan, read, branding = null, logoImage = null, relatedChanges = null) {
   const snap = read.snapshot;
   const s = snap.snapshot || {};
+  const dmarcPresentation = buildDmarcPolicyPresentation(read.dmarcPolicy);
   const w = makeWriter({
     accentHex: branding?.accent || BRAND_HEX,
     footerText: footerFor(branding),
@@ -881,11 +1000,13 @@ export function buildScanReportPdf(scan, read, branding = null, logoImage = null
   brandingHeader(w, branding, "External Security Assessment", `${s.domain || scan?.domain || ""} - assessed ${pdfUtcDate(s.as_of, true)}`, logoImage);
   sectionOverall(w, snap);
   sectionDomains(w, snap);
+  sectionDmarcPolicy(w, dmarcPresentation);
   sectionFindings(w, snap);
   sectionRemediation(w, snap);
   sectionRelatedChanges(w, relatedChanges);
   sectionMethodology(w, snap);
   sectionEvidenceGradeAppendix(w, snap);
+  sectionDmarcTechnicalAppendix(w, dmarcPresentation);
   const streams = w.finish();
   if (logoImage) return assemblePdfWithImage(streams, logoImage);
   return new TextEncoder().encode(assemblePdf(streams));
@@ -954,9 +1075,13 @@ export function buildWorkspaceExecutivePdf({ workspaceName, reads = [], branding
       w.text(`Assessed ${pdfUtcDate(r.snapshot.snapshot.as_of, true)}`, { size: 9, color: "0.35 0.38 0.44" });
       w.gap(2);
       sectionDomains(w, r.snapshot, { detail: "concise" });
+      const dmarcPresentation =
+        buildDmarcPolicyPresentation(r.dmarcPolicy);
+      sectionDmarcPolicy(w, dmarcPresentation);
       sectionRemediation(w, r.snapshot);
       sectionMethodology(w, r.snapshot);
       sectionEvidenceGradeAppendix(w, r.snapshot);
+      sectionDmarcTechnicalAppendix(w, dmarcPresentation);
     });
   }
   if (unavailable.length) {

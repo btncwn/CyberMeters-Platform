@@ -5,6 +5,7 @@
 // and projects it additively onto technical API responses.
 import { DMARCBIS_IDNA_PROFILE } from "./dmarcbis-idna.js";
 import { DMARCBIS_PARSER_VERSION } from "./dmarcbis-parser.js";
+import { buildDmarcPolicyPresentation } from "./dmarcbis-presentation.js";
 import { DMARCBIS_METHODOLOGY_VERSION } from "./dmarcbis-resolver.js";
 
 export const DMARCBIS_POLICY_EVIDENCE_SCHEMA = "dmarc-policy.v2";
@@ -318,6 +319,7 @@ export function dmarcPolicyApiProjection(read) {
   const status = read?.status || "not_available";
   const projection = {
     dmarc_policy_evidence_status: status,
+    dmarc_policy_presentation: buildDmarcPolicyPresentation(read),
   };
   if (status === "current" && read?.evidence) {
     projection.dmarc_policy_evidence = read.evidence;

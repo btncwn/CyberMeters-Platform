@@ -16,6 +16,7 @@ import StatusBadge from '../components/StatusBadge'
 import Spinner from '../components/Spinner'
 import ErrorAlert from '../components/ErrorAlert'
 import ExecutiveReportV2 from '../components/ExecutiveReportV2'
+import DmarcPolicyEvidenceCard from '../components/DmarcPolicyEvidenceCard'
 import CyberMotDomains from '../components/CyberMotDomains'
 import { assessmentBandLabel, bandMeta } from '../lib/score-presentation'
 
@@ -744,7 +745,7 @@ function HeadersPanel({ headers, httpsAvailable }) {
 
 // ── Email Security Panel ─────────────────────────────────────────────────────
 
-function EmailPanel({ email }) {
+function EmailPanel({ email, dmarcPresentation = null }) {
   if (!email || email.error) {
     return <div className="px-6 py-4 text-sm text-gray-400">{email?.error || 'No email security data'}</div>
   }
@@ -760,6 +761,14 @@ function EmailPanel({ email }) {
 
   return (
     <div className="divide-y divide-gray-50">
+      {dmarcPresentation && (
+        <div className="p-4">
+          <DmarcPolicyEvidenceCard
+            presentation={dmarcPresentation}
+            showTechnical
+          />
+        </div>
+      )}
       {/* SPF */}
       <div className="px-6 py-3">
         <div className="flex items-center justify-between mb-0.5">
@@ -780,7 +789,7 @@ function EmailPanel({ email }) {
       {/* DMARC */}
       <div className="px-6 py-3">
         <div className="flex items-center justify-between mb-0.5">
-          <span className="text-sm text-gray-700 font-medium">DMARC Policy</span>
+          <span className="text-sm text-gray-700 font-medium">Legacy exact-domain DMARC projection</span>
           <div className="flex items-center gap-2">
             {dmarc?.policy && (
               <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${dmarcPolicyColor}`}>
@@ -804,6 +813,9 @@ function EmailPanel({ email }) {
         </p>
         <p className="text-[11px] text-gray-500 mt-0.5">
           Failure reports: {dmarcDetail?.has_failure_reporting ? dmarcDetail.ruf.join(', ') : 'Not configured'}
+        </p>
+        <p className="text-[10px] text-gray-400 mt-1">
+          The exact-domain fields above are retained for compatibility. The snapshot-derived DMARC policy evidence shows inheritance, testing adjustments and current DMARCbis meaning.
         </p>
       </div>
 
@@ -1212,7 +1224,10 @@ function ReportView({ report, waivers = {}, onWaive = null, onUnwaive = null }) 
       {/* Email Security */}
       <div className="card overflow-hidden">
         <SectionHeader icon={Mail} title="Email Security (SPF · DMARC · DKIM)" />
-        <EmailPanel email={modules?.email_security} />
+        <EmailPanel
+          email={modules?.email_security}
+          dmarcPresentation={report?.dmarc_policy_presentation}
+        />
       </div>
     </div>
   )
