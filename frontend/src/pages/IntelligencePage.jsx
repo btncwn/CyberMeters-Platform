@@ -7,6 +7,7 @@ import {
   ChevronRight, TrendingUp, TrendingDown, Info, Globe, Lock,
   ExternalLink,
 } from 'lucide-react'
+import DmarcPolicyEvidenceCard from '../components/DmarcPolicyEvidenceCard'
 import { api } from '../api'
 import Spinner from '../components/Spinner'
 import ErrorAlert from '../components/ErrorAlert'
@@ -523,7 +524,7 @@ function EmailControl({ label, status, statusCls, detail, mono, warning }) {
   )
 }
 
-function EmailIntelSection({ intel }) {
+function EmailIntelSection({ intel, dmarcPresentation = null }) {
   if (!intel || intel.error) {
     return (
       <div className="card overflow-hidden">
@@ -545,8 +546,8 @@ function EmailIntelSection({ intel }) {
 
   // Build a human-readable DMARC detail line
   const dmarcDetail = [
-    dmarc?.policy          && `Policy: ${dmarc.policy}`,
-    dmarc?.pct != null     && `pct=${dmarc.pct}%`,
+    dmarc?.policy          && `Legacy exact p: ${dmarc.policy}`,
+    dmarc?.pct != null     && `Legacy pct=${dmarc.pct}% (not applied by DMARCbis)`,
     dmarc?.subdomain_policy && `sp=${dmarc.subdomain_policy}`,
     dmarc?.rua             && `Reports → ${dmarc.rua}`,
   ].filter(Boolean).join(' · ')
@@ -564,6 +565,14 @@ function EmailIntelSection({ intel }) {
           </span>
         }
       />
+      {dmarcPresentation && (
+        <div className="border-b border-gray-100 p-4">
+          <DmarcPolicyEvidenceCard
+            presentation={dmarcPresentation}
+            showTechnical
+          />
+        </div>
+      )}
 
       {/* Score + breakdown */}
       <div className="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-gray-100">
@@ -1150,7 +1159,10 @@ export default function IntelligencePage() {
             <div className="lg:col-span-2 space-y-6">
               <RiskIntelligenceSection risk={modules.risk_intelligence} />
               <RemediationSection      plan={modules.remediation_plan} />
-              <EmailIntelSection       intel={modules.email_security_intelligence} />
+              <EmailIntelSection
+                intel={modules.email_security_intelligence}
+                dmarcPresentation={report.dmarc_policy_presentation}
+              />
               <CveIntelSection         cve={modules.cve_intelligence} />
             </div>
 

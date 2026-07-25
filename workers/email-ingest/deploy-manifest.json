@@ -1,10 +1,10 @@
 {
   "schema": "cybermeters.email-worker-deploy-manifest/v1",
   "entrypoint": "workers/email-ingest/src/index.js",
-  "app_version": "2026.07.25-item7-p5.b571d659667d",
-  "closure_sha256": "b571d659667dc88d86fa4d02a85c7644ee809e9497bd32a6b8abe804af92d3ad",
-  "closure_file_count": 74,
-  "scan_api_file_count": 72,
+  "app_version": "2026.07.25-item7-p6.f4149b9fb474",
+  "closure_sha256": "f4149b9fb4748481d1ca0e5527c8800aa188efe06234d119a16a12e973fdb6ae",
+  "closure_file_count": 75,
+  "scan_api_file_count": 73,
   "files": [
     "shared/cyber-essentials-questions.js",
     "workers/email-ingest/src/index.js",
@@ -33,6 +33,7 @@
     "workers/scan-api/src/engines/dmarcbis-idna.js",
     "workers/scan-api/src/engines/dmarcbis-lifecycle-contract.js",
     "workers/scan-api/src/engines/dmarcbis-parser.js",
+    "workers/scan-api/src/engines/dmarcbis-presentation.js",
     "workers/scan-api/src/engines/dmarcbis-resolver.js",
     "workers/scan-api/src/engines/dns.js",
     "workers/scan-api/src/engines/email-analysis.js",

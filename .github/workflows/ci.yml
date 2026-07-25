@@ -810,8 +810,14 @@ jobs:
       - name: Validate DMARCbis P5 load-bearing mutations
         run: node scripts/validate-dmarcbis-p5-mutations.js
 
-      - name: Validate DMARCbis P5 faithful runScanEngine managed-lifecycle trace
+      - name: Validate DMARCbis P5/P6 faithful runScanEngine managed-lifecycle and customer-projection trace
         run: node scripts/validate-dmarcbis-p5-engine-trace.js
+
+      - name: Validate DMARCbis P6 customer surfaces, Executive Report, PDF and historical parity
+        run: node scripts/validate-dmarcbis-p6.js
+
+      - name: Validate DMARCbis P6 load-bearing mutations
+        run: node scripts/validate-dmarcbis-p6-mutations.js
 
       - name: DMARCbis P1 tr46 Worker bundle gate (no Node compatibility flags)
         working-directory: workers/scan-api
