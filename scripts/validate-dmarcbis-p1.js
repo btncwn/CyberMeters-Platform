@@ -898,17 +898,23 @@ function destinationOrg(zone, host, org, policy = "v=DMARC1; p=none; psd=n") {
     !longNameDns.questions.some((question) => question.purpose === "external_rua_authorization"));
 }
 
-// P1 boundary: no production caller until P2.
+// P1 purity boundary remains load-bearing after P2 adds a production adapter.
 {
   const fs = await import("node:fs");
+  const resolverSource = fs.readFileSync(
+    new URL("../workers/scan-api/src/engines/dmarcbis-resolver.js", import.meta.url),
+    "utf8",
+  );
   const scanEngine = fs.readFileSync(
     new URL("../workers/scan-api/src/engines/scan-engine.js", import.meta.url),
     "utf8",
   );
-  ok("P1 canonical resolver has no production runScanEngine caller",
-    !scanEngine.includes("dmarcbis-resolver"));
-  ok("P1 does not modify the legacy production DMARC decision before P2",
-    scanEngine.includes("runEmailModule"));
+  ok("P1 resolver remains pure and performs no production fetch",
+    !/\bfetch\s*\(/.test(resolverSource) &&
+      !resolverSource.includes('from "./dns.js"'));
+  ok("P2 scan engine calls the bounded production adapter, not resolver internals",
+    scanEngine.includes('from "./dmarcbis-production.js"') &&
+      !scanEngine.includes('from "./dmarcbis-resolver.js"'));
 }
 
 console.log(`\nDMARCbis P1 fixtures: ${pass} passed, ${fail} failed`);

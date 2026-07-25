@@ -85,12 +85,22 @@ export function buildDmarcEvidenceFromDnsResult(settledResult, options = {}) {
 
 export async function runEmailModule(domain, opts = {}) {
   const accounting = opts.accounting || null;
-  // Phase 1 — fire SPF + DMARC + BIMI + generic DKIM selectors in parallel.
+  const cache = opts.cache || null;
+  // A runScanEngine caller sets dmarcOwnedByCore only after launching P2's
+  // independently capped canonical peer. The legacy exact lookup remains the
+  // compatibility fallback for the two lightweight direct callers (free domain
+  // preview and authenticated benchmark), whose separate budgets are outside
+  // this PR. This prevents a third scan-engine lookup without silently changing
+  // those existing response contracts.
+  const dmarcOwnedByCore = opts.dmarcOwnedByCore === true;
+  const dmarcLookup = dmarcOwnedByCore
+    ? Promise.resolve(null)
+    : dnsQuery(`_dmarc.${domain}`, "TXT", { accounting, cache });
   const [spfRes, dmarcRes, bimiRes, ...dkimPhase1] = await Promise.allSettled([
-    dnsQuery(domain, "TXT", { accounting }),
-    dnsQuery(`_dmarc.${domain}`, "TXT", { accounting }),
-    dnsQuery(`default._bimi.${domain}`, "TXT", { accounting }),
-    ...DKIM_SELECTORS.map((sel) => dnsQuery(`${sel}._domainkey.${domain}`, "TXT", { accounting })),
+    dnsQuery(domain, "TXT", { accounting, cache }),
+    dmarcLookup,
+    dnsQuery(`default._bimi.${domain}`, "TXT", { accounting, cache }),
+    ...DKIM_SELECTORS.map((sel) => dnsQuery(`${sel}._domainkey.${domain}`, "TXT", { accounting, cache })),
   ]);
 
   // SPF — look for v=spf1 in root TXT records
@@ -100,7 +110,9 @@ export async function runEmailModule(domain, opts = {}) {
 
   // DMARC — _dmarc.<domain> TXT. ADR-003 requires failed/unexecuted lookups to
   // remain distinct from an observed zero-record result before canonical state derivation.
-  const dmarcEvidence = buildDmarcEvidenceFromDnsResult(dmarcRes);
+  const dmarcEvidence = dmarcOwnedByCore
+    ? buildDmarcEvidenceFromDnsResult({ status: "not_yet_assessed" })
+    : buildDmarcEvidenceFromDnsResult(dmarcRes);
   const dmarcRecs = dmarcEvidence.dmarc_records;
   const hasDMARC = dmarcRecs.length > 0;
 
@@ -122,7 +134,7 @@ export async function runEmailModule(domain, opts = {}) {
     if (providerExtras.length > 0) {
       phase2Selectors = providerExtras;
       const phase2Results = await Promise.allSettled(
-        phase2Selectors.map((sel) => dnsQuery(`${sel}._domainkey.${domain}`, "TXT", { accounting }))
+        phase2Selectors.map((sel) => dnsQuery(`${sel}._domainkey.${domain}`, "TXT", { accounting, cache }))
       );
       dkimSettled.push(...phase2Results);
       dkimSelector = findDkimInResults(phase2Selectors, phase2Results);
@@ -144,7 +156,7 @@ export async function runEmailModule(domain, opts = {}) {
       domain,
       rootRecord: spfRecord,
       recordCount: spfRecs.length,
-      lookup: makeDohSpfLookup((name, type) => dnsQuery(name, type, { accounting }), normalizeDnsTxtValue),
+      lookup: makeDohSpfLookup((name, type) => dnsQuery(name, type, { accounting, cache }), normalizeDnsTxtValue),
       nowIso: new Date().toISOString(),
     }).catch(() => null)
     : {
@@ -203,6 +215,12 @@ export async function runEmailModule(domain, opts = {}) {
   Object.defineProperty(result, "dmarc_state", {
     value: dmarcEvidence.dmarc_state,
     enumerable: false,
+    configurable: true,
+  });
+  Object.defineProperty(result, "_bimi_record", {
+    value: bimiRecord,
+    enumerable: false,
+    configurable: true,
   });
   // A1: SPF/DKIM observation status as NON-ENUMERABLE backend evidence — read
   // directly by the in-memory truth consumers (scoring, email-intel). Kept off the
@@ -211,5 +229,87 @@ export async function runEmailModule(domain, opts = {}) {
   Object.defineProperty(result, "spf_evidence_status", { value: spfObservationStatus, enumerable: false });
   Object.defineProperty(result, "dkim_evidence_status", { value: dkimObservationStatus, enumerable: false });
   result.remediation_actions = buildEmailRemediationActions(domain, details);
+  return result;
+}
+
+function exactPolicyRecordSet(policyEvidence) {
+  return policyEvidence?.lookup_path?.find(
+    (entry) =>
+      entry?.question?.ordinal === 1 &&
+      entry?.question?.purpose === "policy_tree_walk" &&
+      entry?.question?.resolver === "primary",
+  )?.record_set ?? null;
+}
+
+// Apply the legacy exact-record fields and ADR-003 consumer state from one
+// canonical DMARCbis result. Inherited values never populate `dmarc.policy`.
+// Multiple records retain their count but no arbitrary record is selected.
+export function applyDmarcbisEmailCompatibilityProjection(
+  domain,
+  emailResult,
+  policyEvidence,
+) {
+  const result = emailResult && typeof emailResult === "object"
+    ? emailResult
+    : { spf: {}, dkim: {} };
+  const alreadyProjected = Object.prototype.hasOwnProperty.call(
+    result,
+    "dmarc_policy_evidence",
+  );
+  const exactSet = exactPolicyRecordSet(policyEvidence);
+  const candidates = Array.isArray(exactSet?.candidates) ? exactSet.candidates : [];
+  const sole = candidates.length === 1 ? candidates[0] : null;
+  const exactRecord = sole?.value || null;
+  const exactDetail = parseDmarcRecord(exactRecord, candidates.length);
+  // The compatibility policy remains the exact record's p. A parent p/sp/np is
+  // available only in dmarc_core until the additive v2 API lands in P3.
+  result.dmarc = {
+    present: candidates.length > 0,
+    policy: exactSet?.selected?.p?.normalized ?? null,
+    record: candidates.length === 1 ? exactRecord : null,
+    record_count: candidates.length,
+  };
+  result.dmarc_detail = exactDetail;
+  result.policy_journey = buildDmarcPolicyJourney(exactDetail);
+  result.bimi_readiness = parseBimiRecord(result._bimi_record || null, exactDetail);
+  Object.defineProperty(result, "dmarc_state", {
+    // Preserve the shipped exact-record ADR-003 projection until P6 migrates
+    // customer wording. Inherited DMARCbis values remain only in dmarc_core;
+    // they never backfill legacy exact fields or silently change old scoring.
+    value: policyEvidence?.core_completeness === "complete"
+      ? deriveDmarcState({
+        assessed: true,
+        evidence_status: "observed",
+        dmarc: exactDetail,
+        policy_source: "observed_dns",
+        last_observed: policyEvidence?.observed_at ?? null,
+      })
+      : deriveDmarcState({
+        assessed: true,
+        evidence_status: "unavailable",
+        dmarc: exactDetail,
+        policy_source: "observed_dns",
+        last_observed: policyEvidence?.observed_at ?? null,
+      }),
+    enumerable: false,
+    configurable: true,
+  });
+  Object.defineProperty(result, "dmarc_policy_evidence", {
+    value: policyEvidence,
+    enumerable: false,
+    configurable: true,
+  });
+  // A budget-deferred Email peer has no SPF/DKIM detail. Keep that deferral
+  // honest instead of fabricating missing-SPF/DKIM remediation from absent
+  // module output; DMARC's canonical technical evidence still remains present.
+  if (!alreadyProjected && result.spf_detail && result.dkim_detail) {
+    result.remediation_actions = buildEmailRemediationActions(domain, {
+      spf_detail: result.spf_detail,
+      dmarc_detail: exactDetail,
+      dkim_detail: result.dkim_detail,
+      bimi_readiness: result.bimi_readiness,
+      policy_journey: result.policy_journey,
+    });
+  }
   return result;
 }

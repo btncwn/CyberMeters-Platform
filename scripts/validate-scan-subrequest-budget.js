@@ -40,7 +40,10 @@ const DEFAULT_LIMIT          = 50;
 const SAFETY_MARGIN          = 5;
 const PER_HOST_COST          = 2;   // C_h = 1 GET + 1 budgeted redirect hop
 const MAX_PROBE_REDIRECT_HOPS = 3;  // a single host consumes <= 4 external subrequests
-// CT-independent core reservation (single-hop): DNS 9 + critical-prefix 8 + SSL 4 + Headers 4 + Email 10
+// Historical Tier-1 reference-model reservation. The production reserved-mode
+// order is asserted separately by validate-reserved-scan.js and now reserves
+// DMARC core before exposure; this constant remains the pre-existing comparison
+// model for the original capacity episode.
 const CORE_CT_INDEPENDENT    = 9 + 8 + 4 + 4 + 10; // = 35
 const CT_COST                = { hit: 0, unavailable: 0, miss: 4 };
 

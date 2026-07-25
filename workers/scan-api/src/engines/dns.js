@@ -2,6 +2,7 @@
 // DoH resolvers (Cloudflare / Google / Quad9) + resolver cross-check.
 // Pure module: depends only on global fetch/AbortSignal. Extracted verbatim from
 // index.js (monolith decomposition, Phase 1). Behavior-preserving — no logic change.
+import { dnsCacheKey } from "./scan-budget.js";
 
 function combineSignals(...signals) {
   const active = signals.filter(Boolean);
@@ -20,14 +21,43 @@ function combineSignals(...signals) {
   return controller.signal;
 }
 
-export async function dnsQuery(name, type, opts = {}) {
+function cacheDecorated(value, disposition) {
+  if (!value || typeof value !== "object") return value;
+  return { ...value, cache_disposition: disposition };
+}
+
+// Invocation-scoped question dedupe. The promise is inserted before it is
+// awaited, matching the shared CT-cache law: concurrent DNS/Email/DMARC
+// consumers share one physical provider attempt. Rejections are deliberately
+// cached as rejections for this invocation; a failed lookup must not be retried
+// by a second consumer and then misrepresented as one coherent observation.
+async function runCachedDnsQuestion(cache, key, producer) {
+  if (!cache) return producer();
+  const existing = cache.get(key);
+  if (existing?.promise) {
+    const disposition = existing.settled ? "completed_hit" : "in_flight_hit";
+    return cacheDecorated(await existing.promise, disposition);
+  }
+  // Backwards-compatible read for a caller-provided legacy value cache.
+  if (existing !== undefined) return cacheDecorated(existing, "completed_hit");
+
+  const entry = { promise: null, settled: false };
+  entry.promise = Promise.resolve()
+    .then(producer)
+    .finally(() => { entry.settled = true; });
+  cache.set(key, entry);
+  return cacheDecorated(await entry.promise, "miss");
+}
+
+async function fetchCloudflareDns(name, type, opts, dnssecProfile) {
   opts.accounting?.assertCanIssue?.();
   opts.accounting?.recordAttempt?.();
   let attemptInFlight = true;
   let res;
+  const doDnssec = dnssecProfile === "do1";
   try {
     res = await fetch(
-      `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}`,
+      `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}${doDnssec ? "&do=1" : ""}`,
       {
         headers: { Accept: "application/dns-json" },
         signal: combineSignals(opts.signal, opts.accounting?.signal, AbortSignal.timeout(6_000)),
@@ -39,91 +69,96 @@ export async function dnsQuery(name, type, opts = {}) {
     if (attemptInFlight) opts.accounting?.recordError?.(err);
     throw err;
   }
-  if (!res.ok) throw new Error(`DoH ${res.status} for ${type} ${name}`);
+  if (!res.ok) {
+    throw new Error(
+      `${doDnssec ? "DoH DNSSEC" : "DoH"} ${res.status} for ${type} ${name}`,
+    );
+  }
   return res.json();
+}
+
+export async function dnsQuery(name, type, opts = {}) {
+  const key = dnsCacheKey(name, type, "cloudflare", "default");
+  return runCachedDnsQuestion(
+    opts.cache,
+    key,
+    () => fetchCloudflareDns(name, type, opts, "default"),
+  );
 }
 
 // Single-resolver A lookup with an optional per-scan cache (dnsCacheKey format
-// "name|A"). Used by the critical-prefix discovery pass: strict — one resolver,
+// "resolver|name|A|dnssec-profile"). Used by the critical-prefix discovery pass:
+// strict — one resolver,
 // A-only, no cross-check — and budget-safe (never throws; returns null on failure).
 // The cache guarantees each (name,"A") is resolved at most once per scan.
 export async function dnsResolveACached(name, cache = null, opts = {}) {
-  const key = `${String(name).toLowerCase()}|A`;
-  if (cache && cache.has(key)) return cache.get(key);
-  let answer = null;
   try {
-    answer = await dnsQuery(name, "A", opts);
+    return await dnsQuery(name, "A", { ...opts, cache });
   } catch {
-    answer = null;
+    return null;
   }
-  if (cache) cache.set(key, answer);
-  return answer;
 }
 
 export async function dnsQueryDnssec(name, type, opts = {}) {
-  opts.accounting?.assertCanIssue?.();
-  opts.accounting?.recordAttempt?.();
-  let attemptInFlight = true;
-  let res;
-  try {
-    res = await fetch(
-      `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}&do=1`,
-      {
-        headers: { Accept: "application/dns-json" },
-        signal: combineSignals(opts.signal, opts.accounting?.signal, AbortSignal.timeout(6_000)),
-      }
-    );
-    opts.accounting?.recordCompleted?.();
-    attemptInFlight = false;
-  } catch (err) {
-    if (attemptInFlight) opts.accounting?.recordError?.(err);
-    throw err;
-  }
-  if (!res.ok) throw new Error(`DoH DNSSEC ${res.status} for ${type} ${name}`);
-  return res.json();
+  const key = dnsCacheKey(name, type, "cloudflare", "do1");
+  return runCachedDnsQuestion(
+    opts.cache,
+    key,
+    () => fetchCloudflareDns(name, type, opts, "do1"),
+  );
 }
 
 export async function dnsQueryGoogle(name, type, opts = {}) {
-  opts.accounting?.assertCanIssue?.();
-  opts.accounting?.recordAttempt?.();
-  let attemptInFlight = true;
-  let res;
-  try {
-    res = await fetch(
-      `https://dns.google/resolve?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}`,
-      { signal: combineSignals(opts.signal, opts.accounting?.signal, AbortSignal.timeout(6_000)) }
-    );
-    opts.accounting?.recordCompleted?.();
-    attemptInFlight = false;
-  } catch (err) {
-    if (attemptInFlight) opts.accounting?.recordError?.(err);
-    throw err;
-  }
-  if (!res.ok) throw new Error(`Google DoH ${res.status} for ${type} ${name}`);
-  return res.json();
+  const key = dnsCacheKey(name, type, "google", "default");
+  return runCachedDnsQuestion(opts.cache, key, async () => {
+    opts.accounting?.assertCanIssue?.();
+    opts.accounting?.recordAttempt?.();
+    let attemptInFlight = true;
+    let res;
+    try {
+      res = await fetch(
+        `https://dns.google/resolve?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}`,
+        { signal: combineSignals(opts.signal, opts.accounting?.signal, AbortSignal.timeout(6_000)) }
+      );
+      opts.accounting?.recordCompleted?.();
+      attemptInFlight = false;
+    } catch (err) {
+      if (attemptInFlight) opts.accounting?.recordError?.(err);
+      throw err;
+    }
+    if (!res.ok) throw new Error(`Google DoH ${res.status} for ${type} ${name}`);
+    return res.json();
+  });
 }
 
 export async function dnsQueryQuad9(name, type, opts = {}) {
   // Quad9 DoH — optional third resolver for A/AAAA agreement checks.
   // Never throws: failure returns null so budget-safe.
-  let attemptInFlight = false;
+  const key = dnsCacheKey(name, type, "quad9", "default");
   try {
-    opts.accounting?.assertCanIssue?.();
-    opts.accounting?.recordAttempt?.();
-    attemptInFlight = true;
-    const res = await fetch(
-      `https://dns.quad9.net/dns-query?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}`,
-      {
-        headers: { Accept: "application/dns-json" },
-        signal: combineSignals(opts.signal, opts.accounting?.signal, AbortSignal.timeout(5_000)),
+    return await runCachedDnsQuestion(opts.cache, key, async () => {
+      let attemptInFlight = false;
+      try {
+        opts.accounting?.assertCanIssue?.();
+        opts.accounting?.recordAttempt?.();
+        attemptInFlight = true;
+        const res = await fetch(
+          `https://dns.quad9.net/dns-query?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}`,
+          {
+            headers: { Accept: "application/dns-json" },
+            signal: combineSignals(opts.signal, opts.accounting?.signal, AbortSignal.timeout(5_000)),
+          }
+        );
+        opts.accounting?.recordCompleted?.();
+        attemptInFlight = false;
+        if (!res.ok) return null;
+        return res.json();
+      } catch (err) {
+        if (attemptInFlight) opts.accounting?.recordError?.(err);
+        return null;
       }
-    );
-    opts.accounting?.recordCompleted?.();
-    attemptInFlight = false;
-    if (!res.ok) return null;
-    return res.json();
-  } catch (err) {
-    if (attemptInFlight) opts.accounting?.recordError?.(err);
+    });
+  } catch {
     return null;
   }
 }

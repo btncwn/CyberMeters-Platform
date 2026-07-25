@@ -60,7 +60,9 @@ export const MODULE_SUBREQUEST_COST = Object.freeze({
   dns:                  18,   // full DNS posture (A/AAAA/MX/NS/TXT/DMARC/CAA + cross-checks)
   ssl:                  6,
   headers:              6,
-  email_security:       24,   // SPF/DMARC/BIMI + DKIM selector sweep
+  email_security:       24,   // SPF/BIMI + DKIM selector sweep (conservative pre-DMARCbis estimate retained)
+  dmarc_core:           10,   // RFC 9989: <=8 tree + <=1 existence + <=1 corroboration
+  dmarc_external_rua:   11,   // one fully admitted RFC 9990 destination host
   subdomains:           6,    // CT: crt.sh + CertSpotter + wildcard
   technology_detection: 4,
   whois_intelligence:   4,
@@ -122,6 +124,8 @@ export const SCAN_MODULE_BUDGETS = Object.freeze({
   dns:                           750,
   dns_bruteforce:                750,
   email_security:                750,
+  dmarc_core:                    750,
+  dmarc_external_rua:            600,
   technology_detection:          500,
   whois_intelligence:          2_000,
   headers:                     1_200,
@@ -225,6 +229,8 @@ export const OUTBOUND_FULLY_INSTRUMENTED_MODULES = Object.freeze(new Set([
   "ssl",
   "headers",
   "email_security",
+  "dmarc_core",
+  "dmarc_external_rua",
   "subdomains",
   "technology_detection",
   "whois_intelligence",
@@ -300,6 +306,49 @@ export function createOutboundAccounting() {
   return {
     contextFor,
     snapshot,
+    aggregate({ exclude = [], required = [] } = {}) {
+      const excluded = new Set((Array.isArray(exclude) ? exclude : [exclude]).map(String));
+      const names = new Set([
+        ...modules.keys(),
+        ...(Array.isArray(required) ? required : [required]).map(String),
+      ]);
+      const rows = [...names]
+        .filter((module) => !excluded.has(module))
+        .map((module) => ({ module, ...snapshot(module) }));
+      const complete = rows.every((row) => row.outbound_measurement_complete);
+      // Capacity launch accounting asks a narrower question than telemetry:
+      // did every normally returned, fully instrumented module expose its
+      // physical attempt count? A module can return honest incomplete security
+      // evidence (for example one DNS provider was unavailable) while its
+      // subrequest count is still final. `module_incomplete` is stamped only
+      // after the module promise settles; abandoned/error/timeout/unlaunched
+      // contexts remain ineligible.
+      const capacityComplete = rows.every((row) =>
+        row.outbound_measurement_complete ||
+        row.outbound_measurement_cutoff === "module_incomplete");
+      return {
+        outbound_attempts_observed: rows.reduce(
+          (sum, row) => sum + Number(row.outbound_attempts_observed || 0),
+          0,
+        ),
+        outbound_measurement_complete: complete,
+        subrequest_capacity_accounting_complete: capacityComplete,
+        subrequest_capacity_accounting_cutoff: capacityComplete
+          ? null
+          : rows
+            .filter((row) =>
+              !row.outbound_measurement_complete &&
+              row.outbound_measurement_cutoff !== "module_incomplete")
+            .map((row) =>
+              `${row.module}:${row.outbound_measurement_cutoff || "unavailable"}`),
+        outbound_measurement_cutoff: complete
+          ? null
+          : rows
+            .filter((row) => !row.outbound_measurement_complete)
+            .map((row) => `${row.module}:${row.outbound_measurement_cutoff || "unavailable"}`),
+        modules: rows,
+      };
+    },
     attemptsForD1(module) {
       const snap = snapshot(module);
       return snap.outbound_measurement_complete ? snap.outbound_attempts_observed : null;
@@ -430,8 +479,18 @@ export function buildExecutionDiagnostics({
 // Per-scan DNS answer cache — resolve each (name,type) exactly once across core DNS,
 // the critical-prefix pass, brute-force and takeover.
 export function makeDnsCache() { return new Map(); }
-export function dnsCacheKey(name, type) {
-  return `${String(name).toLowerCase()}|${String(type).toUpperCase()}`;
+export function dnsCacheKey(
+  name,
+  type,
+  resolver = "cloudflare",
+  dnssecProfile = "default",
+) {
+  return [
+    String(resolver || "cloudflare").toLowerCase(),
+    String(name || "").replace(/\.$/, "").toLowerCase(),
+    String(type || "").toUpperCase(),
+    String(dnssecProfile || "default").toLowerCase(),
+  ].join("|");
 }
 
 // Customer-safe "not checked because of the budget cap" record — distinct from

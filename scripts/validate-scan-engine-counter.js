@@ -44,55 +44,179 @@ const realFetch = globalThis.fetch;
 }
 
 // ── Faithful engine run with an outbound counter (per mode) ───────────────────
-function respond(url) {
+function respond(url, { dmarcRua = false, authorizeExternal = false } = {}) {
   const cat = classifyRequest(url);
   if (cat === "doh") {
     let name = "", type = "A";
     try { const u = new URL(url); name = u.searchParams.get("name") || ""; type = u.searchParams.get("type") || "A"; } catch {}
     if (type === "A" && name === "example.com") return new Response(JSON.stringify({ Answer: [{ data: "93.184.216.34" }] }), { status: 200, headers: { "content-type": "application/dns-json" } });
+    if (dmarcRua && type === "TXT" && name === "_dmarc.example.com") {
+      return new Response(JSON.stringify({
+        Answer: [{ type: 16, data: "v=DMARC1; p=reject; rua=mailto:agg@reports.vendor.test" }],
+      }), { status: 200, headers: { "content-type": "application/dns-json" } });
+    }
+    if (dmarcRua && type === "TXT" && name === "_dmarc.vendor.test") {
+      return new Response(JSON.stringify({
+        Answer: [{ type: 16, data: "v=DMARC1; p=none; psd=n" }],
+      }), { status: 200, headers: { "content-type": "application/dns-json" } });
+    }
+    if (authorizeExternal && type === "TXT" &&
+        name === "example.com._report._dmarc.reports.vendor.test") {
+      return new Response(JSON.stringify({
+        Answer: [{ type: 16, data: "v=DMARC1" }],
+      }), { status: 200, headers: { "content-type": "application/dns-json" } });
+    }
     return new Response(JSON.stringify({ Answer: [] }), { status: 200, headers: { "content-type": "application/dns-json" } });
   }
   if (cat === "ct") return new Response(JSON.stringify([{ name_value: "admin.example.com" }]), { status: 200, headers: { "content-type": "application/json" } });
   if (cat === "exposure") return new Response("<title>Admin</title>", { status: 200, headers: { "content-type": "text/html", server: "nginx" } });
   return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
 }
-async function runEngineLedger(mode) {
-  const counter = { total: 0, byCategory: {} };
+async function runEngineLedger(mode, {
+  dmarcRua = false,
+  authorizeExternal = false,
+  subrequestLimit = null,
+} = {}) {
+  const counter = { total: 0, byCategory: {}, dnsQuestions: [] };
   globalThis.fetch = async (url) => {
     const s = String(url);
     counter.total += 1;
     const cat = classifyRequest(s);
     counter.byCategory[cat] = (counter.byCategory[cat] || 0) + 1;
-    return respond(s);
+    if (cat === "doh") {
+      const u = new URL(s);
+      counter.dnsQuestions.push({
+        resolver: u.hostname,
+        name: u.searchParams.get("name"),
+        type: u.searchParams.get("type"),
+        dnssec: u.searchParams.get("do") === "1",
+      });
+    }
+    return respond(s, { dmarcRua, authorizeExternal });
   };
   const stmt = { bind: () => stmt, run: async () => ({ meta: {}, success: true }), all: async () => ({ results: [] }), first: async () => null };
-  const env = { cybermeters_db: { prepare: () => stmt, batch: async () => [] }, cybermeters_reports: { put: async () => ({}), get: async () => null, delete: async () => ({}) }, SCAN_CAPACITY_MODE: mode, APP_VERSION: "test" };
+  let report = null;
+  const env = {
+    cybermeters_db: { prepare: () => stmt, batch: async () => [] },
+    cybermeters_reports: {
+      put: async (key, body) => {
+        if (String(key) === `reports/scan_${mode}.json`) {
+          try { report = JSON.parse(String(body)); } catch { /* malformed fixture */ }
+        }
+        return {};
+      },
+      get: async () => null,
+      delete: async () => ({}),
+    },
+    SCAN_CAPACITY_MODE: mode,
+    ...(subrequestLimit == null ? {} : {
+      SCAN_SUBREQUEST_LIMIT: String(subrequestLimit),
+    }),
+    APP_VERSION: "test",
+  };
   let threw = null;
   try { await runScanEngine(`scan_${mode}`, "dom_test", "ws_test", "example.com", env); } catch (e) { threw = e; }
   globalThis.fetch = realFetch;
-  return { counter, threw };
+  return { counter, threw, report };
 }
 
 // ── Section B: legacy engine ledger (unchanged after Commit 3) ────────────────
 {
-  const { counter } = await runEngineLedger("legacy");
+  const { counter, threw, report } = await runEngineLedger("legacy");
   console.log(`legacy engine ledger:   total=${counter.total} ${JSON.stringify(counter.byCategory)}`);
+  eq("legacy: runScanEngine completed", threw, null);
   ok("legacy: counter observed the real engine's outbound calls", counter.total > 0, `total ${counter.total}`);
   ok("legacy: observed DoH (real DNS fan-out incl. brute-force)", (counter.byCategory.doh || 0) >= 10, `doh ${counter.byCategory.doh}`);
   ok("legacy: observed HTTP(S) probe calls", (counter.byCategory.exposure || 0) > 0);
   ok("legacy: exceeds the 50-class ceiling (the root defect)", counter.total > 50, `total ${counter.total}`);
   ok("legacy: total === sum of categories", counter.total === Object.values(counter.byCategory).reduce((a, b) => a + b, 0));
+  eq("legacy: real report carries DMARCbis v2 core evidence",
+    report?.modules?.dmarc_core?.schema, "dmarc-policy.v2");
+  eq("legacy: no-policy fixture still completes the core",
+    report?.modules?.dmarc_core?.core_completeness, "complete");
+  eq("legacy: zero RUA is explicitly not applicable",
+    report?.modules?.dmarc_core?.rua_authorisation_completeness, "not_applicable");
+  eq("legacy: compatibility projection never invents inherited/exact policy",
+    report?.modules?.email_security?.dmarc?.policy, null);
+  for (const resolver of ["cloudflare-dns.com", "dns.google"]) {
+    eq(
+      `legacy: shared cache issues exact DMARC once to ${resolver}`,
+      counter.dnsQuestions.filter((q) =>
+        q.resolver === resolver &&
+        q.name === "_dmarc.example.com" &&
+        q.type === "TXT" &&
+        q.dnssec === false).length,
+      1,
+    );
+  }
 }
 
 // ── Section C: reserved engine ledger (faithful) ──────────────────────────────
 {
-  const { counter, threw } = await runEngineLedger("reserved");
+  const { counter, threw, report } = await runEngineLedger("reserved");
   console.log(`reserved engine ledger: total=${counter.total} ${JSON.stringify(counter.byCategory)}`);
   if (threw) console.log(`(reserved engine returned after discovery: ${String(threw).slice(0, 80)})`);
   ok("reserved: counter observed the real engine's outbound calls", counter.total > 0, `total ${counter.total}`);
   ok("reserved: observed DoH (core DNS + critical-prefix + SSRF resolution)", (counter.byCategory.doh || 0) > 0);
   ok("reserved: observed HTTP(S) probe calls (headers/ssl/reserved exposure)", (counter.byCategory.exposure || 0) > 0);
   ok("reserved: total === sum of categories", counter.total === Object.values(counter.byCategory).reduce((a, b) => a + b, 0));
+  eq("reserved: core evidence was produced before capacity deferrals",
+    report?.modules?.dmarc_core?.core_completeness, "complete");
+  if (!report?.modules?.dmarc_core) {
+    console.log(`reserved report diagnostic: ${JSON.stringify(report)?.slice(0, 800)}`);
+  }
+}
+
+// ── Section D: real engine traces for the optional RFC 9990 phase ───────────
+{
+  const coreOnly = await runEngineLedger("legacy", {
+    dmarcRua: true,
+    authorizeExternal: true,
+    subrequestLimit: 50,
+  });
+  eq("core-only degraded trace completes runScanEngine", coreOnly.threw, null);
+  eq("core-only degraded trace preserves complete core",
+    coreOnly.report?.modules?.dmarc_core?.core_completeness, "complete");
+  eq("core-only degraded trace marks external authorization incomplete",
+    coreOnly.report?.modules?.dmarc_core?.rua_authorisation_completeness,
+    "incomplete");
+  eq("core-only degraded trace records deterministic subrequest refusal",
+    coreOnly.report?.modules?.dmarc_core?.external_rua_authorisation
+      ?.launch_gate?.reason,
+    "subrequest_budget");
+  eq("launch refusal issues zero RFC 9990 authorization questions",
+    coreOnly.counter.dnsQuestions.filter((question) =>
+      String(question.name).includes("._report._dmarc.")).length,
+    0);
+
+  const completeExternal = await runEngineLedger("legacy", {
+    dmarcRua: true,
+    authorizeExternal: true,
+    subrequestLimit: 200,
+  });
+  eq("complete external trace completes runScanEngine",
+    completeExternal.threw, null);
+  eq("complete external trace publishes complete authorization",
+    completeExternal.report?.modules?.dmarc_core
+      ?.rua_authorisation_completeness,
+    "complete");
+  eq("complete external trace records authorized destination",
+    completeExternal.report?.modules?.dmarc_core
+      ?.external_rua_authorisation?.destinations?.[0]?.authorization_status,
+    "authorized");
+  eq("complete external trace corroborates the authorization record",
+    completeExternal.counter.dnsQuestions.filter((question) =>
+      String(question.name).includes("._report._dmarc.")).length,
+    2);
+  if (completeExternal.report?.modules?.dmarc_core
+      ?.rua_authorisation_completeness !== "complete") {
+    console.log("external gate diagnostic: " + JSON.stringify({
+      gate: completeExternal.report?.modules?.dmarc_core
+        ?.external_rua_authorisation?.launch_gate,
+      telemetry: completeExternal.report?.execution_diagnostics?.modules
+        ?.filter((row) => row?.outbound?.outbound_measurement_complete === false),
+    }));
+  }
 }
 
 console.log(`\nscan-engine-counter: ${pass} passed, ${fail} failed`);

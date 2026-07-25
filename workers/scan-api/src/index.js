@@ -334,8 +334,10 @@ function evaluateRegressionFixtures(fixtures = SCANNER_REGRESSION_FIXTURES) {
 //                         Was: 11 — missed DNSSEC (3) + CAA Google cross-check (1) + TXT cross-checks (2)
 //   ssl             — 4  (HTTPS + www-HTTPS fallback + HTTP + crt.sh)
 //   headers         — 2  (HTTPS + HTTP fallback)
-//   email_security  — 23 (TXT root + _dmarc + BIMI + 19 DKIM selector probes + up to 3 Phase 2 provider extras)
-//                         Was: 15 — DKIM expanded from 13 → 19 selectors in Sprint 9D but estimate never updated
+//   email_security  — 22 in runScanEngine (TXT root + BIMI + 19 DKIM selectors + up to
+//                         3 Phase 2 provider extras); lightweight direct callers retain
+//                         the legacy exact _dmarc lookup (23) until separately budgeted
+//   dmarc_core      — 10 logical questions, independently capped at 750 ms
 //   ct_discovery    — 4  (wildcard A + AAAA DoH + crt.sh + CertSpotter)
 //   dns_bruteforce  — actual checked count (capped at BRUTEFORCE_MAX_NAMES = 15)
 //   asset_exposure  — 0  (variable; up to 50×2 HTTP probes; tracked separately from exposure result)

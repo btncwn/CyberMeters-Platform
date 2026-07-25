@@ -2,11 +2,10 @@
 //
 // Reserved-mode two-stage discovery + dynamic exposure proof (Tier-1 Commit 3).
 //
-// Proves the reserved orchestration: critical-prefix discovery (CT-independent),
-// priority ordering, the dynamic exposure cap as final authority, deferred_capacity
-// overflow, runtime-exhaustion → not_executed, admin_surface zero-HTTP, DNS cache
-// de-duplication, and scan_quality partial when any host is deferred. Legacy remains
-// the default (proven unchanged by the legacy suites + scan-engine counter). Node 24+.
+// Proves the reserved orchestration: the DMARC core reservation precedes
+// exposure, critical-prefix discovery is CT-independent, the dynamic exposure
+// cap remains final authority, deferred capacity is honest, and the invocation
+// DNS cache is shared. Legacy remains the default. Node 24+.
 //
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -62,13 +61,13 @@ eq("default capacity mode is legacy", resolveScanCapacity({}).mode, "legacy");
   ok("reused www answer is the cached one", reused && reused.Answer[0].data === "1.1.1.1");
 }
 
-// ── 3. exposure fits after MINIMAL discovery (root+www+critical), not projected 35 ─
+// ── 3. exposure fits after root/www + guaranteed DMARC core + critical ──────
 {
-  // Pre-exposure consumption is now MEASURED: root(1) + www(1) + 8 critical-prefix = ~10,
-  // because the heavy modules run AFTER exposure. So the cap easily fits the priority hosts.
-  const consumedBeforeExposure = 10;
+  // Reserved-mode conservative ledger: root(1) + www(1) + DMARC core(10)
+  // + eight critical-prefix A questions = 20 before exposure.
+  const consumedBeforeExposure = 20;
   const cap = computeExposureCap({ limit: 50, safetyMargin: 5, consumed: consumedBeforeExposure, perHostCost: 2 });
-  ok("after minimal discovery, cap comfortably fits 5 priority hosts", cap >= 5, `cap ${cap}`);
+  eq("DMARC-first reserved ledger leaves a 12-host projected cap", cap, 12);
   const ord = prioritiseExposureHosts("bbb.co.uk", { criticalHits: ["admin.bbb.co.uk"], ctHosts: ["email.bbb.co.uk", "www.email.bbb.co.uk"] });
   ok("priority order: root, www first", ord[0].host === "bbb.co.uk" && ord[1].host === "www.bbb.co.uk");
   ok("critical-prefix (admin) ordered before CT-only hosts", ord.findIndex((h) => h.src === "critical_prefix") < ord.findIndex((h) => h.src === "ct"));

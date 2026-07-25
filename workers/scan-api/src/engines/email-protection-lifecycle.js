@@ -53,7 +53,10 @@
 // findConditionOccurrence cannot match them and no alert path exists at all.
 import { emitLifecycleAlert } from "./alert-consumers.js";
 import { dmarcAuthoritySourceSql } from "../lib/dmarc-authority.js";
-import { aggregateReportCompleteSql } from "../lib/aggregate-report-ingest.js";
+import {
+  aggregateReportCompleteSql,
+  sha256Hex,
+} from "../lib/aggregate-report-ingest.js";
 import {
   assertedClassification, isCustomerDisposition, isObservedClassification,
   resolveEffectiveClassification,
@@ -74,11 +77,13 @@ export const EMAIL_PROTECTION_DOMAIN_KEY = "email_protection";
 // The two record families sharing the event source.
 export const HOSTED_RECORD_TYPE = "hosted_dns_entry";
 export const SENDER_RECORD_TYPE = "email_sender_source";
+export const DMARC_POLICY_CONDITION_RECORD_TYPE = "dmarc_policy_condition";
 
 // Non-alertable event types. Each is a real fact worth keeping, and none may
 // ever alert. They are deliberately NOT `monitoring_changed`: the resolver only
 // looks at that value, so these are unreachable by the alert path by design.
 export const EMAIL_EVENT_BASELINE               = "baseline_established";
+export const EMAIL_EVENT_DMARC_DOMAIN_BASELINE  = "dmarc_domain_baseline_established";
 export const EMAIL_EVENT_HOSTED_RECONNECTED     = "hosted_record_reconnected";
 export const EMAIL_EVENT_HOSTED_POLICY_CHANGED  = "hosted_policy_changed";
 export const EMAIL_EVENT_HOSTED_ROLLED_BACK_MANUAL = "hosted_rolled_back_manual";
@@ -91,6 +96,7 @@ export const EMAIL_EVENT_CASE_REOPENED         = "case_reopened";
 
 export const NON_ALERTABLE_EVENT_TYPES = Object.freeze([
   EMAIL_EVENT_BASELINE,
+  EMAIL_EVENT_DMARC_DOMAIN_BASELINE,
   EMAIL_EVENT_HOSTED_RECONNECTED,
   EMAIL_EVENT_HOSTED_POLICY_CHANGED,
   EMAIL_EVENT_HOSTED_ROLLED_BACK_MANUAL,
@@ -293,6 +299,248 @@ export async function appendEmailProtectionEvent(env, {
   return id;
 }
 
+const DMARC_CONDITION_TYPES = new Set([
+  "missing",
+  "malformed",
+  "multiple",
+  "weak",
+  "unauthorised_rua",
+]);
+
+function canonicalDmarcConditionSubject(subject) {
+  return String(subject || "").trim().replace(/\.$/, "").toLowerCase();
+}
+
+export async function dmarcPolicyConditionRecordId({
+  domain_id,
+  condition_type,
+  subject_key,
+} = {}) {
+  const type = String(condition_type || "");
+  const subject = canonicalDmarcConditionSubject(subject_key);
+  if (!domain_id || !DMARC_CONDITION_TYPES.has(type) || !subject) return null;
+  const digest = await sha256Hex(subject);
+  return `dmarc:${domain_id}:${type}:${digest}`;
+}
+
+function primaryPolicyWalkEntries(policyEvidence) {
+  return (Array.isArray(policyEvidence?.lookup_path)
+    ? policyEvidence.lookup_path
+    : [])
+    .filter((entry) =>
+      entry?.question?.resolver === "primary" &&
+      entry?.question?.purpose === "policy_tree_walk");
+}
+
+// P2 establishes only non-alertable lifecycle baselines. P4 owns transition
+// events and P5 owns alert/case eligibility. Every subject is derived from the
+// complete canonical resolver output; no raw RRset is copied to D1.
+export function deriveDmarcPolicyConditions(policyEvidence) {
+  if (policyEvidence?.core_completeness !== "complete") return [];
+  const conditions = [];
+  const seen = new Set();
+  const add = (condition_type, subject_key, detail = {}) => {
+    const subject = canonicalDmarcConditionSubject(subject_key);
+    const key = `${condition_type}|${subject}`;
+    if (!DMARC_CONDITION_TYPES.has(condition_type) || !subject || seen.has(key)) return;
+    seen.add(key);
+    conditions.push({ condition_type, subject_key: subject, ...detail });
+  };
+
+  for (const entry of primaryPolicyWalkEntries(policyEvidence)) {
+    const rawState = entry?.record_set?.raw_state;
+    const qname = entry?.question?.name;
+    if (["multiple", "multiple_mixed", "multiple_invalid"].includes(rawState)) {
+      add("multiple", qname, { record_state: rawState });
+    } else if ([
+      "single_invalid",
+      "single_invalid_duplicate_tag",
+    ].includes(rawState)) {
+      add("malformed", qname, { record_state: rawState });
+    }
+  }
+
+  const hasRecordDefect = conditions.some((condition) =>
+    condition.condition_type === "malformed" ||
+    condition.condition_type === "multiple");
+  if (!policyEvidence.policy_source_domain && !hasRecordDefect) {
+    add("missing", policyEvidence.author_domain, {
+      record_state: policyEvidence.observation_state,
+    });
+  } else if (policyEvidence.effective_requested_policy === "none") {
+    add("weak", policyEvidence.author_domain, {
+      policy_source_domain: policyEvidence.policy_source_domain,
+      effective_policy_tag: policyEvidence.effective_policy_tag,
+      inheritance_reason: policyEvidence.inheritance_reason,
+    });
+  }
+
+  if (policyEvidence.rua_authorisation_completeness === "complete") {
+    const destinations =
+      policyEvidence.external_rua_authorisation?.destinations || [];
+    for (const destination of destinations) {
+      if (destination?.authorization_status !== "unauthorized") continue;
+      add(
+        "unauthorised_rua",
+        destination.authorization_query_name,
+        {
+          destination_uri: destination.normalized_uri || null,
+          authorization_status: destination.authorization_status,
+        },
+      );
+    }
+  }
+  return conditions;
+}
+
+async function deterministicDmarcEventId(workspaceId, recordId, eventType) {
+  return `epe-${(await sha256Hex(
+    `${workspaceId}|${recordId}|${eventType}`,
+  )).slice(0, 24)}`;
+}
+
+// Reuses migration 088 exactly: one active workspace/domain membership read,
+// one bounded existing-event read, then one batch. INSERT OR IGNORE plus
+// deterministic baseline IDs makes concurrent scan retries idempotent.
+export async function establishDmarcPolicyBaseline(env, {
+  workspace_id,
+  domain_id,
+  domain,
+  scan_id,
+  policy_evidence,
+} = {}) {
+  if (!env?.cybermeters_db || !workspace_id || !domain_id || !domain || !scan_id) {
+    return { skipped: "incomplete_context" };
+  }
+  if (policy_evidence?.core_completeness !== "complete") {
+    return { skipped: "core_incomplete" };
+  }
+
+  const live = await env.cybermeters_db
+    .prepare(`SELECT wd.domain_id
+              FROM workspace_domains wd
+              JOIN workspaces w ON w.id = wd.workspace_id
+              JOIN domains d ON d.id = wd.domain_id
+              WHERE wd.workspace_id = ? AND wd.domain_id = ?
+                AND w.deleted_at IS NULL AND lower(d.domain) = lower(?)
+              LIMIT 1`)
+    .bind(workspace_id, domain_id, domain)
+    .first()
+    .catch(() => null);
+  if (!live) return { skipped: "workspace_or_domain_inactive" };
+
+  const authorDomain =
+    canonicalDmarcConditionSubject(policy_evidence.author_domain || domain);
+  const domainMarkerSubject = await sha256Hex(authorDomain);
+  const domainMarkerId =
+    `dmarc:${domain_id}:domain_baseline:${domainMarkerSubject}`;
+  const conditions = deriveDmarcPolicyConditions(policy_evidence);
+  const conditionRows = [];
+  for (const condition of conditions) {
+    const recordId = await dmarcPolicyConditionRecordId({
+      domain_id,
+      condition_type: condition.condition_type,
+      subject_key: condition.subject_key,
+    });
+    if (recordId) conditionRows.push({ ...condition, record_id: recordId });
+  }
+
+  // Hash the exact bounded R2 protocol object. Only the digest is copied to
+  // D1; raw DNS remains single-source in the immutable scan report.
+  const evidenceFingerprint = await sha256Hex(
+    JSON.stringify(policy_evidence),
+  );
+  const possibleCandidates = [
+    {
+      record_id: domainMarkerId,
+      event_type: EMAIL_EVENT_DMARC_DOMAIN_BASELINE,
+      detail: {
+        entity: authorDomain,
+        domain_id,
+        author_domain: authorDomain,
+        scan_id,
+        methodology_version: policy_evidence.methodology_version ?? null,
+        core_completeness: "complete",
+        evidence_fingerprint: evidenceFingerprint,
+        to_recurrence_type: null,
+      },
+    },
+    ...conditionRows.map((condition) => ({
+      record_id: condition.record_id,
+      event_type: EMAIL_EVENT_BASELINE,
+      detail: {
+        entity: condition.subject_key,
+        domain_id,
+        author_domain: authorDomain,
+        condition_type: condition.condition_type,
+        subject_key: condition.subject_key,
+        scan_id,
+        methodology_version: policy_evidence.methodology_version ?? null,
+        core_completeness: "complete",
+        rua_authorisation_completeness:
+          policy_evidence.rua_authorisation_completeness ?? null,
+        evidence_fingerprint: evidenceFingerprint,
+        policy_source_domain: condition.policy_source_domain ?? null,
+        effective_policy_tag: condition.effective_policy_tag ?? null,
+        inheritance_reason: condition.inheritance_reason ?? null,
+        destination_uri: condition.destination_uri ?? null,
+        authorization_status: condition.authorization_status ?? null,
+        record_state: condition.record_state ?? null,
+        to_recurrence_type: null,
+      },
+    })),
+  ];
+  const placeholders = possibleCandidates.map(() => "?").join(", ");
+  const prior = await env.cybermeters_db
+    .prepare(`SELECT record_id, event_type
+              FROM email_protection_events
+              WHERE workspace_id = ? AND record_type = ?
+                AND record_id IN (${placeholders})`)
+    .bind(
+      workspace_id,
+      DMARC_POLICY_CONDITION_RECORD_TYPE,
+      ...possibleCandidates.map((candidate) => candidate.record_id),
+    )
+    .all()
+    .catch(() => ({ results: [] }));
+  const existing = new Set(
+    (prior.results || []).map((row) => `${row.record_id}|${row.event_type}`),
+  );
+  const candidates = possibleCandidates.filter((candidate) =>
+    !existing.has(`${candidate.record_id}|${candidate.event_type}`));
+
+  if (candidates.length === 0) {
+    return { established: true, inserted: 0, conditions: conditionRows.length };
+  }
+  const statements = [];
+  for (const candidate of candidates) {
+    const id = await deterministicDmarcEventId(
+      workspace_id,
+      candidate.record_id,
+      candidate.event_type,
+    );
+    statements.push(env.cybermeters_db
+      .prepare(`INSERT OR IGNORE INTO email_protection_events
+          (id, record_id, record_type, workspace_id, actor_type, actor_id,
+           event_type, detail_json, created_at)
+        VALUES (?, ?, ?, ?, 'system', NULL, ?, ?, datetime('now'))`)
+      .bind(
+        id,
+        candidate.record_id,
+        DMARC_POLICY_CONDITION_RECORD_TYPE,
+        workspace_id,
+        candidate.event_type,
+        safeJson(candidate.detail),
+      ));
+  }
+  await env.cybermeters_db.batch(statements);
+  return {
+    established: true,
+    inserted: statements.length,
+    conditions: conditionRows.length,
+  };
+}
+
 // ── Read accessors — the customer-facing shape ──────────────────────────────
 // Mig 088 had NO read helper of any kind: `email_protection_events` was read only by the
 // alert pipeline (findConditionOccurrence) and the private lastGradedCondition, and the
@@ -332,8 +580,12 @@ export function emailProtectionEventToApi(row = {}) {
 export async function listEmailProtectionEvents(env, workspaceId, {
   record_id = null, record_type = null, limit = 50, offset = 0,
 } = {}) {
-  const where = ["workspace_id = ?"];
-  const binds = [workspaceId];
+  // P2 persists DMARC baselines for future continuity but does not activate a
+  // customer timeline surface. P4 removes this read boundary when immutable
+  // before/after transition events and their wording are ready together.
+  if (record_type === DMARC_POLICY_CONDITION_RECORD_TYPE) return [];
+  const where = ["workspace_id = ?", "record_type <> ?"];
+  const binds = [workspaceId, DMARC_POLICY_CONDITION_RECORD_TYPE];
   if (record_id) { where.push("record_id = ?"); binds.push(String(record_id)); }
   if (record_type) { where.push("record_type = ?"); binds.push(String(record_type)); }
   const rows = await env.cybermeters_db
@@ -351,8 +603,9 @@ export async function listEmailProtectionEvents(env, workspaceId, {
 // paging back through months of it needs to know there IS a back, and the has_more
 // heuristic (count >= limit) guesses wrong on an exact-multiple final page.
 export async function countEmailProtectionEvents(env, workspaceId, { record_id = null, record_type = null } = {}) {
-  const where = ["workspace_id = ?"];
-  const binds = [workspaceId];
+  if (record_type === DMARC_POLICY_CONDITION_RECORD_TYPE) return 0;
+  const where = ["workspace_id = ?", "record_type <> ?"];
+  const binds = [workspaceId, DMARC_POLICY_CONDITION_RECORD_TYPE];
   if (record_id) { where.push("record_id = ?"); binds.push(String(record_id)); }
   if (record_type) { where.push("record_type = ?"); binds.push(String(record_type)); }
   const row = await env.cybermeters_db
