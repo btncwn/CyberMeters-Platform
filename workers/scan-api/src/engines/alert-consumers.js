@@ -131,9 +131,10 @@ const RECURRENCE_SEVERITY = Object.freeze({
   // independent stop: even a future caller that hand-rolled a monitoring_changed
   // row for one of them would be refused as an unmapped recurrence.
   //
-  // NOT PRESENT, and must never be: SPF/DKIM/DMARC/BIMI/MTA-STS posture. It has
-  // no persisted identity — per-scan `findings` rows take a fresh random id every
-  // scan — so no occurrence can be attributed to it. See email-protection-lifecycle.js.
+  // NOT PRESENT, and must never be: legacy SPF/DKIM/DMARC/BIMI/MTA-STS posture.
+  // Those per-scan `findings` rows take a fresh random id every scan. Item 7 is
+  // the narrow DMARC exception because P4 supplies a stable migration-088
+  // condition identity and a complete immutable before/after occurrence.
   email_protection: Object.freeze({
     // INHERIT: the band comes from senderAlertBand(classification) — the B2
     // pattern. An `unauthorised` sender is `high` and a `suspicious`/`unknown`
@@ -159,6 +160,15 @@ const RECURRENCE_SEVERITY = Object.freeze({
     // with no change to the grade a customer sees. The manual half is not here at
     // all — a customer's own rollback is not a risk alert.
     hosted_rolled_back_auto: "high",
+    // DMARCbis P5 inherits the established finding severities: a lost, malformed
+    // or multiple policy record is high; a less restrictive requested policy is
+    // medium. External RUA authorisation is medium because it is a reporting
+    // destination configuration gap, not proof of spoofing or receiver handling.
+    record_removed: "high",
+    record_became_malformed: "high",
+    multiple_records_detected: "high",
+    enforcement_weakened: "medium",
+    external_rua_unauthorised: "medium",
   }),
   // ── Website Security (corrective phase) ───────────────────────────────────
   // Every grade INHERITS, and that is the honest choice rather than a shortcut.
@@ -325,6 +335,28 @@ export function alertKindFor(domain_key, recurrence) {
 // baseline (the activation watermark suppresses it) and a plain reappearance
 // alerts only through the classification-aware recurrences below.
 const RECURRENCE_COPY = Object.freeze({
+  email_protection: Object.freeze({
+    record_removed: Object.freeze({
+      what_changed: () =>
+        "The previously observed applicable DMARC record is no longer present.",
+    }),
+    record_became_malformed: Object.freeze({
+      what_changed: () =>
+        "The observed DMARC record changed into a form that cannot be used.",
+    }),
+    multiple_records_detected: Object.freeze({
+      what_changed: () =>
+        "Multiple DMARC policy records are now present at the same DNS name.",
+    }),
+    enforcement_weakened: Object.freeze({
+      what_changed: () =>
+        "The requested DMARC policy became less restrictive.",
+    }),
+    external_rua_unauthorised: Object.freeze({
+      what_changed: () =>
+        "An external aggregate-report destination does not have valid authorisation.",
+    }),
+  }),
   shadow_it_unmanaged_technology: Object.freeze({
     owner_missing: Object.freeze({
       what_changed: () => "An approved service does not have an assigned owner.",

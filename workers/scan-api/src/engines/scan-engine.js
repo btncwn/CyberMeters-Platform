@@ -39,6 +39,10 @@ import { applyDmarcbisEmailCompatibilityProjection, runEmailModule } from "./ema
 import { establishDmarcPolicyBaseline } from "./email-protection-lifecycle.js";
 import { recordDmarcPolicyLifecycle } from "./dmarcbis-lifecycle.js";
 import {
+  emitDmarcPolicyAlerts,
+  verifyDmarcPolicyCasesForScan,
+} from "./dmarcbis-managed-lifecycle.js";
+import {
   attachDmarcbisExternalResult,
   budgetRefusedDmarcbisExternal,
   DMARCBIS_EXTERNAL_HOST_RESERVATION,
@@ -1780,18 +1784,35 @@ function buildCanonicalUrlProfile(modules) {
     // Phase 8p: DMARCbis immutable lifecycle comparison. P4 reads the current
     // snapshot written above and its append-only predecessor through the one
     // integrity-gated snapshot reader. It appends only bounded evidence
-    // pointers/fingerprints to migration 088; raw DNS remains in R2. No alert,
-    // managed case, remediation activation, or monitoring-recovered event is
-    // invoked here. A failed/missing snapshot suppresses transitions honestly.
+    // pointers/fingerprints to migration 088; raw DNS remains in R2.
+    //
+    // P5 may alert only on the five founder-approved complete actionable
+    // descriptors returned by that write. The alert resolver re-reads the
+    // append-only occurrence before publishing. It never opens a case.
+    // Separately, awaiting-verification DMARC cases may be verified only by this
+    // scan's later, integrity-verified, whole-scan-complete DNS snapshot. Neither
+    // path reads RUA reports or treats scan completion alone as verification.
+    // Failed/missing snapshots and incomplete components suppress honestly.
     if (workspaceId) {
       try {
-        await recordDmarcPolicyLifecycle(env, {
+        const dmarcLifecycle = await recordDmarcPolicyLifecycle(env, {
           workspace_id: workspaceId,
           domain_id: domainId,
           domain,
           scan_id: scanId,
         });
+        await emitDmarcPolicyAlerts(env, {
+          workspace_id: workspaceId,
+          lifecycle_result: dmarcLifecycle,
+        });
       } catch { /* non-fatal — the next complete pair can establish continuity */ }
+      try {
+        await verifyDmarcPolicyCasesForScan(env, {
+          workspace_id: workspaceId,
+          domain_id: domainId,
+          scan_id: scanId,
+        });
+      } catch { /* non-fatal — only a later complete re-observation may verify */ }
     }
 
     // Phase 8x: M6 Phase B1 Related Changes — deterministic same-entity/same-window

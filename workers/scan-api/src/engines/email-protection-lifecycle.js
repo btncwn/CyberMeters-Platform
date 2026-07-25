@@ -130,8 +130,11 @@ export const NON_ALERTABLE_EVENT_TYPES = Object.freeze([
   EMAIL_EVENT_CASE_REOPENED,
 ]);
 
-// The six actionable recurrences. Their severities live in RECURRENCE_SEVERITY
-// (alert-consumers.js) — never here, so there is one ladder to audit.
+// Actionable recurrences. Their severities live in RECURRENCE_SEVERITY
+// (alert-consumers.js) — never here, so there is one ladder to audit. The five
+// `dmarc_*` policy conditions below are produced only by P4's complete immutable
+// snapshot comparison and activated by P5's narrow alert bridge. Legacy
+// RFC-7489 posture finding IDs remain absent and unalertable.
 export const EMAIL_RECURRENCES = Object.freeze([
   "hosted_record_disconnected",
   "hosted_impact_regression",
@@ -139,6 +142,11 @@ export const EMAIL_RECURRENCES = Object.freeze([
   "sender_unrecognised",
   "sender_classification_worsened",
   "sender_unauthorised_failures_active",
+  "record_removed",
+  "record_became_malformed",
+  "multiple_records_detected",
+  "enforcement_weakened",
+  "external_rua_unauthorised",
 ]);
 
 // finding_type → the Canonical Remediation Registry. Prefixed `email_` so they
@@ -152,6 +160,11 @@ export const EMAIL_RECURRENCE_FINDING_TYPE = Object.freeze({
   sender_unrecognised:                 "email_sender_unrecognised",
   sender_classification_worsened:      "email_sender_unrecognised",
   sender_unauthorised_failures_active: "email_sender_unauthorised_failures",
+  record_removed:                      "dmarc_exact_record_removed",
+  record_became_malformed:             "dmarc_invalid_record",
+  multiple_records_detected:           "dmarc_multiple_records",
+  enforcement_weakened:                "email_dmarc_policy_none",
+  external_rua_unauthorised:           "dmarc_external_rua_unauthorised",
 });
 
 // ── Sender evidence policy (founder-approved, 15 July 2026) ──────────────────
