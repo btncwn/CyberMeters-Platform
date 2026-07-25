@@ -4,7 +4,9 @@
 // Runs the real production engine twice against in-memory D1/R2 and mocked
 // providers. The first complete DMARCbis scan establishes a baseline; the
 // second weakens the requested policy and must append one immutable migration-
-// 088 occurrence only after its canonical snapshot is durable.
+// 088 occurrence only after its canonical snapshot is durable. From P5 onward,
+// the downstream canonical consumer also emits the one approved alert while
+// preserving P4's no-auto-case boundary.
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -250,18 +252,18 @@ eq("real engine occurrence references current scan",
 ok("real engine occurrence has both immutable fingerprints",
   /^[a-f0-9]{64}$/.test(detail.before_evidence_fingerprint || "") &&
   /^[a-f0-9]{64}$/.test(detail.after_evidence_fingerprint || ""));
-eq("real engine path created no P4 DMARC occurrence alert",
+eq("real engine path emits one downstream P5 DMARC occurrence alert",
   db.prepare(
     `SELECT COUNT(*) AS n FROM notification_events
      WHERE metadata_json LIKE '%enforcement_weakened%'
         OR dedupe_key LIKE '%enforcement_weakened%'`,
-  ).get().n, 0);
-eq("real engine path delivered no P4 DMARC occurrence alert",
+  ).get().n, 1);
+eq("real engine path records canonical downstream delivery outcomes",
   db.prepare(
     `SELECT COUNT(*) AS n FROM alert_deliveries
      WHERE alert_kind = 'enforcement_weakened'
         OR dedupe_key LIKE '%enforcement_weakened%'`,
-  ).get().n, 0);
+  ).get().n, 5);
 eq("real engine path created no managed case",
   db.prepare("SELECT COUNT(*) AS n FROM managed_cases").get().n, 0);
 ok("faithful trace exercised real outbound provider paths", outbound > 0);

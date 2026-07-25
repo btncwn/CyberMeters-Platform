@@ -74,9 +74,12 @@ const cases = await import(eng("email-protection-cases.js"));
 const model = await import(eng("managed-case-model.js"));
 const registry = await import(eng("remediation-registry.js"));
 
-// ════ 1. THE SIX RECURRENCES — the map, asserted rather than described ═══════
+// ════ 1. ALL RECURRENCES — the map, asserted rather than described ══════════
 // Every one is stated: does it open a case, what remediation, what method. A recurrence
 // that silently stops opening a case, or whose registry method changes, fails here.
+// Item 7 P5's five DMARC policy recurrences deliberately do NOT enter the
+// legacy auto-case set: they are manual/case-eligible through the universal
+// route and have their own later-complete-DNS verifier.
 {
   const expected = {
     hosted_record_disconnected:          { opens: true,  method: "dns_recheck",        support: "automated" },
@@ -85,8 +88,14 @@ const registry = await import(eng("remediation-registry.js"));
     sender_unrecognised:                 { opens: true,  method: "manual_attestation", support: "manual" },
     sender_classification_worsened:      { opens: true,  method: "manual_attestation", support: "manual" },
     sender_unauthorised_failures_active: { opens: true,  method: "receiver_reports",   support: "automated" },
+    record_removed:                      { opens: false, method: "dns_recheck",        support: "automated" },
+    record_became_malformed:             { opens: false, method: "dns_recheck",        support: "automated" },
+    multiple_records_detected:           { opens: false, method: "dns_recheck",        support: "automated" },
+    enforcement_weakened:                { opens: false, method: "dns_recheck",        support: "automated" },
+    external_rua_unauthorised:           { opens: false, method: "dns_recheck",        support: "automated" },
   };
-  eq("all SIX recurrences are accounted for", lifecycle.EMAIL_RECURRENCES.length, 6);
+  eq("all eleven recurrences are accounted for",
+    lifecycle.EMAIL_RECURRENCES.length, 11);
   for (const r of lifecycle.EMAIL_RECURRENCES) {
     const e = expected[r];
     ok(`${r}: is mapped in this suite`, Boolean(e));

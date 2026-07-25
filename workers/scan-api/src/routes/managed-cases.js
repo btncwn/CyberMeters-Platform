@@ -12,6 +12,10 @@ import {
   CANONICAL_DOMAIN_KEYS, isValidDomainKey, createManagedCase,
   verificationSupportForCase, isActiveWorkspaceMember, availableTransitionsForCase,
 } from "../engines/managed-case-model.js";
+import {
+  createDmarcPolicyCase,
+  isDmarcPolicyCaseRequest,
+} from "../engines/dmarcbis-managed-lifecycle.js";
 import { newCaseEventId } from "../engines/case-workflow.js";
 import { parseBoundedInteger } from "../lib/util.js";
 
@@ -115,6 +119,37 @@ export async function managedCasesRoutes(rctx) {
   if (request.method === "POST" && !caseId) {
     let body = {};
     try { body = await request.json(); } catch { body = {}; }
+    // Item 7 P5: DMARC policy conditions are manual/case-eligible, never
+    // auto-opened. The stable occurrence id is the only caller-controlled
+    // evidence pointer; title, severity, domain, remediation and source scan are
+    // derived from the latest tenant-scoped, integrity-verified complete
+    // snapshot. This prevents the generic route from turning caller assertions
+    // or stale/incomplete evidence into an authoritative DMARC case.
+    if (isDmarcPolicyCaseRequest(body)) {
+      if (body.case_type !== "email_case") {
+        return json({ error: "domain_case_type_mismatch" }, 400);
+      }
+      const result = await createDmarcPolicyCase(env, {
+        workspace_id: wsId,
+        record_id: body.source_finding_id,
+        actor: { actor_type: "customer", actor_id: user.id },
+      });
+      if (!result.ok) {
+        const status =
+          result.code === "condition_not_found" ||
+          result.code === "workspace_inactive" ||
+          result.code === "domain_ineligible"
+            ? 404
+            : result.code === "invalid_dmarc_condition"
+              ? 400
+              : 409;
+        return json({ error: result.code }, status);
+      }
+      return json(
+        { case: caseToUniversalApi(result.case), created: result.created },
+        result.created ? 201 : 200,
+      );
+    }
     const entry = caseTypeEntry(body.case_type);
     // The generic factory is for the six base-lifecycle domains; ASM/Brand cases
     // are opened by their own engines (bespoke dedup/evidence).

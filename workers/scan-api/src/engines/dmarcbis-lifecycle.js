@@ -915,18 +915,45 @@ function conditionKey(condition) {
   return `${condition.condition_type}|${canonicalName(condition.subject_key)}`;
 }
 
-function conditionResolutionComplete(conditionType, before, after) {
+export function isDmarcPolicyConditionComplete(conditionType, evidence) {
   if (["malformed", "multiple"].includes(conditionType)) {
-    return exactComplete(before) && exactComplete(after);
+    return exactComplete(evidence);
   }
   if (["missing", "weak"].includes(conditionType)) {
-    return policyComplete(before) && policyComplete(after);
+    return policyComplete(evidence);
   }
   if (conditionType === "unauthorised_rua") {
-    return before.rua_authorisation_completeness === "complete" &&
-      after.rua_authorisation_completeness === "complete";
+    return policyComplete(evidence) &&
+      evidence.rua_authorisation_completeness === "complete";
   }
   return false;
+}
+
+function conditionResolutionComplete(conditionType, before, after) {
+  return isDmarcPolicyConditionComplete(conditionType, before) &&
+    isDmarcPolicyConditionComplete(conditionType, after);
+}
+
+function actionableEventDescriptors(candidates) {
+  return candidates
+    .filter((candidate) =>
+      candidate.event_type === "monitoring_changed" &&
+      candidate.detail?.transition_completeness === "complete" &&
+      candidate.detail?.to_recurrence_type)
+    .map((candidate) => ({
+      event_id: candidate.id,
+      record_id: candidate.record_id,
+      recurrence_type: candidate.detail.to_recurrence_type,
+      condition_type: candidate.detail.condition_type,
+      entity: candidate.detail.entity,
+      author_domain: candidate.detail.author_domain,
+      after_scan_id: candidate.detail.after_scan_id,
+      after_snapshot_id: candidate.detail.after_snapshot_id,
+      after_evidence_fingerprint:
+        candidate.detail.after_evidence_fingerprint,
+      transition_completeness:
+        candidate.detail.transition_completeness,
+    }));
 }
 
 // Production writer: one tenant/membership gate, two bounded snapshot reads, and
@@ -1114,7 +1141,12 @@ export async function recordDmarcPolicyLifecycle(env, {
   }
 
   if (candidates.length === 0) {
-    return { ran: true, reason: "no_transition", inserted: 0 };
+    return {
+      ran: true,
+      reason: "no_transition",
+      inserted: 0,
+      actionable_events: [],
+    };
   }
   const statements = candidates.map((candidate) =>
     env.cybermeters_db
@@ -1143,5 +1175,9 @@ export async function recordDmarcPolicyLifecycle(env, {
       0,
     ),
     candidates: candidates.length,
+    // P5 consumes only this bounded descriptor list. emitLifecycleAlert then
+    // re-reads the append-only row through the canonical occurrence resolver;
+    // no alert trusts this write result as occurrence proof.
+    actionable_events: actionableEventDescriptors(candidates),
   };
 }
