@@ -3,7 +3,7 @@
 // candidate risk scoring + variant classification). Extracted verbatim from index.js
 // (monolith decomposition, Phase 1c).
 import { createId } from "../lib/util.js";
-import { BRAND_SUSPICIOUS_TLDS, brandSimilarityScore, normalizeBrandVariantType, scoreBrandCandidateRisk } from "./brand-protection.js";
+import { BRAND_SUSPICIOUS_TLDS, brandSimilarityScore, buildBrandIdnEvidence, normalizeBrandVariantType, scoreBrandCandidateRisk } from "./brand-protection.js";
 import { HIGH_RISK_BRAND_KEYWORDS, extractBrandParts } from "./brand-typosquat.js";
 
 // ── Identity Asset Discovery ──────────────────────────────────────────────────
@@ -172,22 +172,30 @@ export async function upsertBrandAssets(domainId, brandMod, env) {
     for (const c of brandMod.domains) {
       try {
         const similarity = brandSimilarityScore(c.candidate_domain, inferredBrand);
+        const idn = buildBrandIdnEvidence(c.candidate_domain, inferredBrand);
+        const candidateSld = c.candidate_domain.split('.')[0];
+        const containsBrandKeyword = !idn.analysis.is_homograph && candidateSld.includes(inferredBrand);
+        const looksLikeLogin = !idn.analysis.is_homograph &&
+          HIGH_RISK_BRAND_KEYWORDS.some((keyword) => candidateSld.includes(keyword));
         const risk = scoreBrandCandidateRisk({
           variant_type: c.variant_type,
           similarity_score: similarity,
-          contains_brand_keyword: c.candidate_domain.split('.')[0].includes(inferredBrand),
+          contains_brand_keyword: containsBrandKeyword,
           suspicious_tld: BRAND_SUSPICIOUS_TLDS.has(c.candidate_domain.split('.').pop()),
-          looks_like_login: HIGH_RISK_BRAND_KEYWORDS.some((keyword) => c.candidate_domain.split('.')[0].includes(keyword)),
+          looks_like_login: looksLikeLogin,
+          idn_visual_confusable: idn.analysis.is_homograph,
+          mixed_script: idn.analysis.mixed_script,
+          whole_script_confusable: idn.analysis.whole_script_confusable,
           classification: "unreviewed",
         });
-        const candidateSld = c.candidate_domain.split('.')[0];
         const evidence = [
           { signal: "similar_to_brand", value: similarity },
           { signal: "variant_type", value: normalizeBrandVariantType(c.variant_type) },
+          ...idn.evidence,
         ];
-        if (candidateSld.includes(inferredBrand)) evidence.push({ signal: "contains_brand_keyword", value: true });
+        if (containsBrandKeyword) evidence.push({ signal: "contains_brand_keyword", value: true });
         if (BRAND_SUSPICIOUS_TLDS.has(c.candidate_domain.split('.').pop())) evidence.push({ signal: "suspicious_tld", value: true });
-        if (HIGH_RISK_BRAND_KEYWORDS.some((keyword) => candidateSld.includes(keyword))) evidence.push({ signal: "looks_like_login", value: true });
+        if (looksLikeLogin) evidence.push({ signal: "looks_like_login", value: true });
         await env.cybermeters_db
           .prepare(
             `INSERT INTO workspace_brand_assets

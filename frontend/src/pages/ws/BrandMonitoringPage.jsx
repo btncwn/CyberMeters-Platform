@@ -28,6 +28,8 @@ function isRecent(v, days = 7) {
 }
 function humanize(s) { return String(s).replace(/[_-]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) }
 const TYPO_VARIANTS = ['typo', 'typosquat', 'homoglyph', 'lookalike', 'misspelling', 'addition', 'omission', 'transposition', 'replacement', 'bitsquat']
+function isIdnCandidate(c) { return c?.variant_type === 'homoglyph_idn' || c?.idn_homograph?.visually_confusable === true }
+function variantLabel(c) { return isIdnCandidate(c) ? 'Visually confusable IDN' : (c?.variant_type || 'lookalike').replace(/_/g, ' ') }
 
 // Normalise a candidate across new + legacy field names; never invents data.
 function normCandidate(c) {
@@ -50,13 +52,19 @@ function normCandidate(c) {
 const EVIDENCE_SIGNAL_LABELS = {
   ct_observed: 'Seen in certificate log',
   nested_host: 'Subdomain of a lookalike',
+  idn_visual_confusable: 'Visually confusable IDN',
+  confusable_skeleton_match: 'Confusable character match',
+  punycode_decoded: 'Punycode decoded',
+  mixed_script: 'Mixed writing scripts',
+  whole_script_confusable: 'Whole-script confusable',
 }
 
 // Evidence badges — only emitted when the underlying signal genuinely exists.
 function evidenceBadges(c) {
   const out = []
   const variant = String(c.variant_type || '').toLowerCase()
-  if (variant === 'nested_host') out.push('Subdomain of a lookalike')
+  if (isIdnCandidate(c)) out.push('Visually confusable IDN')
+  else if (variant === 'nested_host') out.push('Subdomain of a lookalike')
   else if (TYPO_VARIANTS.some(v => variant.includes(v))) out.push('Similar spelling')
   if (c._dns === true) out.push('DNS active')
   if (c._https === true) out.push('HTTPS active')
@@ -138,7 +146,10 @@ function CandidateRow({ c, busy, onClassify }) {
           {open ? <ChevronDown className="w-4 h-4 text-gray-400 flex-shrink-0" /> : <ChevronRight className="w-4 h-4 text-gray-300 flex-shrink-0" />}
           <span className="min-w-0">
             <span className="block mono text-sm text-gray-900 truncate">{c.candidate_domain || '—'}</span>
-            <span className="block text-xs text-gray-400 capitalize">{(c.variant_type || 'lookalike').replace(/_/g, ' ')}</span>
+            {c.unicode_domain && c.unicode_domain !== c.candidate_domain && (
+              <span className="block mono text-xs text-gray-600 truncate">{c.unicode_domain}</span>
+            )}
+            <span className="block text-xs text-gray-400">{variantLabel(c)}</span>
           </span>
         </button>
         <div className="col-span-4 sm:col-span-2"><RiskBadge level={c.risk_level} /></div>
@@ -160,13 +171,15 @@ function CandidateRow({ c, busy, onClassify }) {
             <div>
               <p className="text-sm font-semibold text-gray-900">Why this matters</p>
               <p className="text-xs text-gray-500 leading-relaxed mt-0.5">
-                This domain resembles your protected brand and could be used for phishing, supplier impersonation or invoice fraud.
+                {isIdnCandidate(c)
+                  ? 'This internationalised domain is visually confusable with your protected brand. That is a lookalike signal, not proof of abuse.'
+                  : 'This domain resembles your protected brand and could be used for phishing, supplier impersonation or invoice fraud.'}
               </p>
             </div>
             <dl className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
               <div><dt className="text-gray-400">Risk</dt><dd className="mt-0.5"><RiskBadge level={c.risk_level} /></dd></div>
               <div><dt className="text-gray-400">Similarity</dt><dd className="mt-0.5 font-semibold text-gray-700">{c.similarity_score != null ? `${Math.round(c.similarity_score * (c.similarity_score <= 1 ? 100 : 1))}%` : '—'}</dd></div>
-              <div><dt className="text-gray-400">Variant</dt><dd className="mt-0.5 font-semibold text-gray-700 capitalize">{(c.variant_type || '—').replace(/_/g, ' ')}</dd></div>
+              <div><dt className="text-gray-400">Variant</dt><dd className="mt-0.5 font-semibold text-gray-700">{variantLabel(c)}</dd></div>
               <div><dt className="text-gray-400">Last seen</dt><dd className="mt-0.5 font-semibold text-gray-700">{lastSeen || '—'}</dd></div>
             </dl>
             {badges.length > 0 && (

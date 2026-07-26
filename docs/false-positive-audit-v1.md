@@ -141,7 +141,9 @@ No finding ID. Brand monitoring `domains[]` array.
 
 ### Trigger
 
-`runTyposquatModule` generates up to 40 candidates algorithmically at scan time. DNS validation is deferred.
+`runTyposquatModule` generates up to 44 candidates algorithmically at scan time:
+the existing 40-candidate ASCII family budget plus a dedicated, bounded maximum
+of four validated IDN-homograph candidates. DNS validation is deferred.
 
 ### False Positive Scenario
 
