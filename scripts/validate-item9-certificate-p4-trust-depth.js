@@ -22,6 +22,10 @@ const fixture = JSON.parse(fs.readFileSync(path.join(
   "fixtures",
   "item9-p4-certificate-trust-depth.json",
 ), "utf8"));
+const FIXTURE_DAY_MS = 86_400_000;
+const futureExpiry = (offsetDays) =>
+  new Date(Date.parse(fixture.observed_at) + (offsetDays * FIXTURE_DAY_MS))
+    .toISOString();
 
 let pass = 0;
 let fail = 0;
@@ -279,13 +283,13 @@ eq("CT timeout does not erase active service",
 const historicalOnly = buildCertificateTrustL2({
   issuer: "Current CA",
   subject: fixture.domain,
-  expires_at: "2027-01-01T00:00:00.000Z",
+  expires_at: futureExpiry(150),
   days_until_expiry: 150,
 }, {
   history: [{
     issuer: "Historical CA",
     subject: fixture.domain,
-    expires_at: "2027-02-01T00:00:00.000Z",
+    expires_at: futureExpiry(180),
     evidence_json: "{}",
   }],
 });
