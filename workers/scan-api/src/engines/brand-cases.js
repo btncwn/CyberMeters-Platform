@@ -64,6 +64,38 @@ function normalizeDomain(domain) {
   return String(domain || "").trim().toLowerCase();
 }
 
+function timestampMs(value) {
+  if (!value) return null;
+  const raw = String(value);
+  const explicitUtc = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(raw)
+    ? `${raw.replace(" ", "T")}Z`
+    : raw;
+  const parsed = Date.parse(explicitUtc);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function earliestTimestamp(left, right) {
+  const values = [left, right].filter(Boolean);
+  if (!values.length) return new Date().toISOString();
+  return values.reduce((earliest, value) => {
+    const current = timestampMs(earliest);
+    const candidate = timestampMs(value);
+    if (candidate === null) return earliest;
+    return current === null || candidate < current ? value : earliest;
+  });
+}
+
+function latestTimestamp(left, right) {
+  const values = [left, right].filter(Boolean);
+  if (!values.length) return new Date().toISOString();
+  return values.reduce((latest, value) => {
+    const current = timestampMs(latest);
+    const candidate = timestampMs(value);
+    if (candidate === null) return latest;
+    return current === null || candidate > current ? value : latest;
+  });
+}
+
 function candidateKey(candidate) {
   return `${candidate.brand_profile_id || "profile"}:${normalizeDomain(candidate.candidate_domain)}`;
 }
@@ -84,6 +116,25 @@ function candidateCanOpenCase(candidate, profile) {
   return { ok: true, candidate: api };
 }
 
+function brandAlertContext(candidate = {}) {
+  const idn = candidate.idn_homograph?.visually_confusable === true;
+  const display = idn && candidate.unicode_domain
+    ? `${candidate.unicode_domain} (${candidate.candidate_domain})`
+    : candidate.candidate_domain;
+  return {
+    entity_type: "domain",
+    entity_display: display || candidate.candidate_domain || null,
+    monitored_domain: candidate.protected_domain || null,
+    evidence_source: {
+      label: idn ? "Visually confusable IDN lookalike" : "Externally observed Brand lookalike",
+      detail: idn
+        ? "Lookalike signal under CyberMeters product policy; not proof of abuse."
+        : "External lookalike evidence under CyberMeters product policy; not proof of abuse.",
+      last_seen_at: candidate.last_seen_at || null,
+    },
+  };
+}
+
 export function brandCaseToApi(row = {}) {
   const evidence = evidenceToApi(parseJson(row.evidence_json, null), row._latestEvidenceBundle || null);
   return {
@@ -102,6 +153,14 @@ export function brandCaseToApi(row = {}) {
     last_verified_at: row.last_verified_at || null,
     resolved_at: row.resolved_at || null,
     reopened_count: Number(row.reopened_count || 0),
+    campaign_id: row._campaignId || null,
+    lifecycle: {
+      first_seen_at: row.created_at || null,
+      last_changed_at: row.updated_at || null,
+      reappeared: Number(row.reopened_count || 0) > 0,
+      reappearance_count: Number(row.reopened_count || 0),
+      technically_resolved: row.status === "resolved",
+    },
     created_at: row.created_at || null,
     updated_at: row.updated_at || null,
     age_hours: row.age_hours,
@@ -181,6 +240,39 @@ async function getLatestEvidenceBundle(env, workspaceId, caseId) {
 async function attachLatestEvidenceBundle(env, row) {
   if (!row) return row;
   return { ...row, _latestEvidenceBundle: await getLatestEvidenceBundle(env, row.workspace_id, row.id) };
+}
+
+async function attachBrandCampaignId(env, row) {
+  if (!row) return row;
+  const events = await env.cybermeters_db
+    .prepare(`SELECT detail_json FROM managed_case_events
+              WHERE workspace_id = ? AND case_id = ? AND detail_json LIKE '%"campaign_id"%'
+              ORDER BY created_at DESC LIMIT 20`)
+    .bind(row.workspace_id, row.id)
+    .all();
+  for (const event of events.results || []) {
+    const campaignId = parseJson(event.detail_json, {})?.campaign_id;
+    if (typeof campaignId === "string" && campaignId) return { ...row, _campaignId: campaignId };
+  }
+  return row;
+}
+
+async function attachBrandCampaignIds(env, workspaceId, rows) {
+  if (!rows.length) return rows;
+  const placeholders = rows.map(() => "?").join(",");
+  const events = await env.cybermeters_db
+    .prepare(`SELECT case_id, detail_json, created_at FROM managed_case_events
+              WHERE workspace_id = ? AND case_id IN (${placeholders})
+                AND detail_json LIKE '%"campaign_id"%'
+              ORDER BY created_at ASC`)
+    .bind(workspaceId, ...rows.map((row) => row.id))
+    .all();
+  const campaignByCase = new Map();
+  for (const event of events.results || []) {
+    const campaignId = parseJson(event.detail_json, {})?.campaign_id;
+    if (typeof campaignId === "string" && campaignId) campaignByCase.set(event.case_id, campaignId);
+  }
+  return rows.map((row) => ({ ...row, _campaignId: campaignByCase.get(row.id) || null }));
 }
 
 async function insertEvidenceBundle(env, caseRow, bundle, { maxRetries = 5 } = {}) {
@@ -329,7 +421,7 @@ export async function getBrandCase(env, workspaceId, caseId) {
     .prepare(`SELECT * FROM managed_cases WHERE id = ? AND workspace_id = ? AND case_type = ?`)
     .bind(caseId, workspaceId, BRAND_CASE_TYPE)
     .first();
-  return attachLatestEvidenceBundle(env, row);
+  return attachLatestEvidenceBundle(env, await attachBrandCampaignId(env, row));
 }
 
 export async function listBrandCases(env, workspaceId, { status = null, limit = 50 } = {}) {
@@ -340,7 +432,8 @@ export async function listBrandCases(env, workspaceId, { status = null, limit = 
     .prepare(`SELECT * FROM managed_cases WHERE ${where.join(" AND ")} ORDER BY created_at ASC LIMIT ?`)
     .bind(...binds, Math.max(1, Math.min(200, Number(limit || 50))))
     .all();
-  const hydrated = await Promise.all((rows.results || []).map((row) => attachLatestEvidenceBundle(env, row)));
+  const withCampaigns = await attachBrandCampaignIds(env, workspaceId, rows.results || []);
+  const hydrated = await Promise.all(withCampaigns.map((row) => attachLatestEvidenceBundle(env, row)));
   return buildCaseQueue(hydrated).map(brandCaseToApi);
 }
 
@@ -444,21 +537,36 @@ export async function createBrandCaseForCandidate(env, workspaceId, candidateRow
       const reopened = await applyBrandTransition(env, linkedCase, "reappeared", {
         actor_type: "system",
         action: "reappeared",
-        detail: { candidate_domain: candidateRow.candidate_domain, campaign_id: linked.campaign_id },
+        detail: {
+          candidate_domain: candidateRow.candidate_domain,
+          campaign_id: linked.campaign_id,
+          campaign_match_basis: linked.match_basis,
+        },
       });
       if (reopened.ok) {
         const confirmed = await applyBrandTransition(env, reopened.case, "confirmed_abuse", {
           actor_type: "system",
           reason: "Previously resolved brand abuse candidate reappeared.",
           action: "campaign_relinked",
-          detail: { campaign_id: linked.campaign_id },
+          detail: {
+            campaign_id: linked.campaign_id,
+            campaign_match_basis: linked.match_basis,
+          },
         });
         if (confirmed.ok) {
+          const alertContext = brandAlertContext(gate.candidate);
           await emitCaseLifecycleAlert(env, confirmed.case, {
             domain_key: "brand_protection",
             recurrence: "case_reappeared",
             from_recurrence_type: "case_resolved",
-            detail: { campaign_id: linked.campaign_id },
+            detail: {
+              campaign_id: linked.campaign_id,
+              campaign_match_basis: linked.match_basis,
+              candidate_variant: gate.candidate.variant_type,
+              unicode_domain: gate.candidate.unicode_domain || null,
+              evidence_statement: "Lookalike signal; not proof of abuse.",
+            },
+            ...alertContext,
           });
           return { opened: false, case: confirmed.case, reappeared: true };
         }
@@ -487,20 +595,61 @@ export async function createBrandCaseForCandidate(env, workspaceId, candidateRow
     )
     .run();
   const row = await getBrandCase(env, workspaceId, id);
+  let linked = null;
+  let campaignLinkState = "not_linked";
+  try {
+    linked = await linkBrandCampaign(env, workspaceId, candidateRow, row, {
+      createIfMissing: false,
+      incrementReopened: false,
+    });
+    campaignLinkState = linked ? "linked" : "no_shared_infrastructure";
+  } catch (error) {
+    // Optional grouping must not orphan a newly-created case event. It also must
+    // not pretend a failed lookup proved there was no related campaign.
+    campaignLinkState = "unavailable";
+    console.error("[brand-case] campaign lookup unavailable", JSON.stringify({
+      workspace_id: workspaceId,
+      case_id: row.id,
+      reason: error?.message || "unknown",
+    }));
+  }
   await writeBrandCaseEvent(env, row, {
     actor_type: actor_id ? "customer" : "system",
     actor_id,
     from_status: null,
     to_status: "detected",
     action: "opened",
-    detail: { candidate_id: candidateRow.id, candidate_domain: candidateRow.candidate_domain },
+    detail: {
+      candidate_id: candidateRow.id,
+      candidate_domain: candidateRow.candidate_domain,
+      campaign_id: linked?.campaign_id || null,
+      campaign_match_basis: linked?.match_basis || null,
+      campaign_link_state: campaignLinkState,
+      candidate_variant: gate.candidate.variant_type,
+      unicode_domain: gate.candidate.unicode_domain || null,
+    },
   });
+  const alertContext = brandAlertContext(gate.candidate);
   await emitCaseLifecycleAlert(env, row, {
     domain_key: "brand_protection",
     recurrence: "case_opened",
-    detail: { candidate_id: candidateRow.id, candidate_domain: candidateRow.candidate_domain },
+    detail: {
+      candidate_id: candidateRow.id,
+      candidate_domain: candidateRow.candidate_domain,
+      campaign_id: linked?.campaign_id || null,
+      campaign_match_basis: linked?.match_basis || null,
+      campaign_link_state: campaignLinkState,
+      candidate_variant: gate.candidate.variant_type,
+      unicode_domain: gate.candidate.unicode_domain || null,
+      evidence_statement: "Lookalike signal; not proof of abuse.",
+    },
+    ...alertContext,
   });
-  return { opened: true, case: row, candidate: gate.candidate };
+  return {
+    opened: true,
+    case: { ...row, _campaignId: linked?.campaign_id || null },
+    candidate: gate.candidate,
+  };
 }
 
 export async function createBrandCasesForWorkspace(env, workspaceId) {
@@ -637,23 +786,97 @@ export async function verifyBrandCandidateGone(candidateDomain, { verifier = nul
   }
 }
 
-export async function linkBrandCampaign(env, workspaceId, candidateRow, caseRow) {
-  const campaignId = newBrandCampaignId();
+export async function linkBrandCampaign(
+  env,
+  workspaceId,
+  candidateRow,
+  caseRow,
+  { createIfMissing = true, incrementReopened = true } = {},
+) {
   const domain = normalizeDomain(candidateRow.candidate_domain || caseRow.domain);
   const ips = candidateRow.ip_address ? [candidateRow.ip_address] : [];
-  await env.cybermeters_db
-    .prepare(`INSERT INTO brand_abuse_campaigns
-      (id, workspace_id, brand_profile_id, linked_domains, linked_ips, shared_certs,
-       shared_favicon_hashes, first_seen_at, last_seen_at, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, '[]', '[]', datetime('now'), datetime('now'), datetime('now'), datetime('now'))`)
-    .bind(campaignId, workspaceId, candidateRow.brand_profile_id || null, safeJson([domain], "[]"), safeJson(ips, "[]"))
-    .run();
-  await env.cybermeters_db
-    .prepare(`UPDATE managed_cases SET reopened_count = reopened_count + 1, updated_at = datetime('now')
-              WHERE id = ? AND workspace_id = ?`)
-    .bind(caseRow.id, workspaceId)
-    .run();
-  return { campaign_id: campaignId };
+  const profile = await loadWorkspaceBrandProfile(env, workspaceId);
+  const profileId = candidateRow.brand_profile_id || profile?.id || null;
+  const rows = await env.cybermeters_db
+    .prepare(`SELECT id, linked_domains, linked_ips, shared_certs,
+                     shared_favicon_hashes, first_seen_at, last_seen_at
+              FROM brand_abuse_campaigns
+              WHERE workspace_id = ?
+                AND ((? IS NOT NULL AND brand_profile_id = ?)
+                  OR (? IS NULL AND brand_profile_id IS NULL))
+              ORDER BY last_seen_at DESC, created_at DESC LIMIT 50`)
+    .bind(workspaceId, profileId, profileId, profileId)
+    .all();
+  let campaign = null;
+  let matchBasis = null;
+  for (const row of rows.results || []) {
+    const domains = parseJson(row.linked_domains, []) || [];
+    const exact = domains.some((linked) => normalizeDomain(linked) === domain);
+    const sharedIp = ips.length > 0 && (parseJson(row.linked_ips, []) || [])
+      .some((linked) => ips.includes(String(linked)));
+    // Campaign linkage is evidence-led: visual similarity to the same brand is
+    // not evidence that two domains share an operator. With the evidence the
+    // platform currently persists, only exact reappearance or an observed shared
+    // IP can establish a cluster. Certificate/favicon arrays remain preserved for
+    // future real observations, but are never populated from inference.
+    if (exact || sharedIp) {
+      campaign = row;
+      matchBasis = exact ? "same_domain_reappearance" : "shared_ip";
+      break;
+    }
+  }
+
+  if (!campaign && !createIfMissing) return null;
+
+  let campaignId;
+  if (campaign) {
+    campaignId = campaign.id;
+    const domains = [...new Set([...(parseJson(campaign.linked_domains, []) || []), domain])];
+    const linkedIps = [...new Set([...(parseJson(campaign.linked_ips, []) || []), ...ips])];
+    await env.cybermeters_db
+      .prepare(`UPDATE brand_abuse_campaigns
+                SET linked_domains = ?, linked_ips = ?, first_seen_at = ?,
+                    last_seen_at = ?, updated_at = datetime('now')
+                WHERE id = ? AND workspace_id = ?`)
+      .bind(
+        safeJson(domains, "[]"),
+        safeJson(linkedIps, "[]"),
+        earliestTimestamp(campaign.first_seen_at, candidateRow.first_seen),
+        latestTimestamp(campaign.last_seen_at, candidateRow.last_seen),
+        campaignId,
+        workspaceId,
+      )
+      .run();
+  } else {
+    campaignId = newBrandCampaignId();
+    await env.cybermeters_db
+      .prepare(`INSERT INTO brand_abuse_campaigns
+        (id, workspace_id, brand_profile_id, linked_domains, linked_ips, shared_certs,
+         shared_favicon_hashes, first_seen_at, last_seen_at, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, '[]', '[]', ?, ?, datetime('now'), datetime('now'))`)
+      .bind(
+        campaignId,
+        workspaceId,
+        profileId,
+        safeJson([domain], "[]"),
+        safeJson(ips, "[]"),
+        candidateRow.first_seen || new Date().toISOString(),
+        candidateRow.last_seen || new Date().toISOString(),
+      )
+      .run();
+  }
+  if (incrementReopened) {
+    await env.cybermeters_db
+      .prepare(`UPDATE managed_cases SET reopened_count = reopened_count + 1, updated_at = datetime('now')
+                WHERE id = ? AND workspace_id = ?`)
+      .bind(caseRow.id, workspaceId)
+      .run();
+  }
+  return {
+    campaign_id: campaignId,
+    reused: Boolean(campaign),
+    match_basis: matchBasis || "new_reappearance_campaign",
+  };
 }
 
 export async function runBrandTakedownFollowupSweep(env, { verifier = null, now = new Date().toISOString() } = {}) {
@@ -712,6 +935,14 @@ export async function runBrandTakedownFollowupSweep(env, { verifier = null, now 
         await emitCaseLifecycleAlert(env, done.case, {
           domain_key: "brand_protection",
           recurrence: "case_resolved",
+          entity_type: "domain",
+          entity_display: done.case.domain,
+          monitored_domain: done.case.asset_ref || null,
+          evidence_source: {
+            label: "Completed DNS verification",
+            detail: "CyberMeters observed no A or MX records in the completed verification.",
+            last_seen_at: new Date().toISOString(),
+          },
         });
       }
     } else {

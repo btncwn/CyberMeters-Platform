@@ -33,6 +33,11 @@ const directUnicode = idn.analyzeIdnHomograph("\u0430pple.com", "apple");
 ok("direct Unicode input is detected", directUnicode.is_homograph);
 eq("Unicode and punycode inputs share one canonical A-label",
   directUnicode.candidate_alabel, cyrillicApple.candidate_alabel);
+const decomposed = idn.encodeIdnHostname("cafe\u0301.example");
+const composed = idn.encodeIdnHostname("caf\u00e9.example");
+ok("decomposed and composed Unicode hostnames both encode", decomposed.ok && composed.ok);
+eq("NFC-equivalent Unicode hostnames share one canonical A-label",
+  decomposed.alabel, composed.alabel);
 
 // Greek omicron, a common whole-label substitution.
 const greekEncoded = idn.encodeIdnHostname("g\u03bfogle.com");
@@ -61,6 +66,11 @@ ok("confusable plus one edit remains detectable for a five-character brand", one
 eq("one-edit skeleton distance is explicit", oneEdit.skeleton_distance, 1);
 const shortOneEdit = idn.analyzeIdnHomograph("\u0430cm3.com", "acme");
 ok("short-brand one-edit near match is refused", !shortOneEdit.is_homograph);
+eq("two-character brands generate no speculative IDN candidates",
+  idn.generateIdnHomographCandidates("ai", "com"), []);
+const shortExact = idn.analyzeIdnHomograph("\u0430i.com", "ai");
+ok("short-brand core accepts only an exact mapped skeleton", shortExact.is_homograph &&
+  shortExact.skeleton_distance === 0);
 
 // False-positive controls: internationalisation alone is never a verdict.
 const legitimate = idn.analyzeIdnHomograph("xn--bcher-kva.de", "apple");
@@ -69,6 +79,9 @@ const unrelated = idn.analyzeIdnHomograph("xn--e1afmkfd.xn--p1ai", "apple");
 ok("unrelated all-IDN hostname is not a homograph", !unrelated.is_homograph);
 const malformed = idn.analyzeIdnHomograph("xn--.com", "apple");
 ok("malformed A-label fails closed", !malformed.is_homograph && Boolean(malformed.error));
+const malformedJoiner = idn.analyzeIdnHomograph("a\u200dpple.com", "apple");
+ok("disallowed joiner hostname fails closed", !malformedJoiner.is_homograph &&
+  Boolean(malformedJoiner.error));
 
 // NFC is deterministic and unmapped characters are retained, never deleted.
 const retained = idn.confusableSkeleton("b\u00fccher");
@@ -85,4 +98,3 @@ eq("IDN skeleton path lifts the canonical fixture to 100",
 console.log(`\nBrand IDN/homograph PR-A: ${pass}/${pass + fail} passed`);
 if (fail) process.exit(1);
 console.log("Brand IDN/homograph PR-A validation passed");
-

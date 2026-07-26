@@ -332,6 +332,9 @@ export function brandCandidateToApi(row, profile = null) {
         !evidence.some((existing) => existing.signal === item.signal)) evidence.push({ signal: item.signal, value: item.value });
   }
   const closed = ["owned", "ignored", "false_positive"].includes(classification);
+  const observationState = dnsActive === true || httpsActive === true || mxPresent === true
+    ? "active"
+    : (dnsActive === false ? "inactive" : "unverified");
   return {
     id: row.id,
     candidate_domain: candidateDomain,
@@ -343,6 +346,7 @@ export function brandCandidateToApi(row, profile = null) {
     risk_level: risk.risk_level,
     risk_reasons: risk.reasons,
     status: row.status || "unverified",
+    observation_state: observationState,
     classification,
     action_required: !closed && (["critical", "high"].includes(risk.risk_level) ||
       ["suspicious", "confirmed_abuse"].includes(classification)),
@@ -360,6 +364,17 @@ export function brandCandidateToApi(row, profile = null) {
       scripts: idn.analysis.scripts,
       skeleton_distance: idn.analysis.skeleton_distance,
     } : null,
+    lifecycle: {
+      first_seen_at: firstSeen,
+      last_seen_at: row.last_seen || null,
+      observation_state: observationState,
+      evidence_completeness: {
+        dns: dnsActive !== null,
+        https: httpsActive !== null,
+        mx: mxPresent !== null,
+      },
+      login_surface_observed: liveLoginObserved,
+    },
     registrar_or_whois_summary: typeof row.registrar_or_whois_summary === "string"
       ? row.registrar_or_whois_summary.slice(0, 500) : null,
     evidence,

@@ -34,7 +34,10 @@ const eq = (n, g, w) => ok(`${n} (got ${JSON.stringify(g)}, want ${JSON.stringif
 globalThis.fetch = async () => new Response(JSON.stringify({ id: "m1" }), { status: 200 });
 AbortSignal.timeout = () => undefined;
 
-const { emitCaseLifecycleAlert, severityForRecurrence, isMappedRecurrence, INHERIT_SEVERITY, alertKindFor } =
+const {
+  emitCaseLifecycleAlert, severityForRecurrence, isMappedRecurrence, INHERIT_SEVERITY,
+  alertKindFor, describeRecurrenceEvent, lifecycleRecordLink,
+} =
   await import(eng("alert-consumers.js"));
 const { findConditionOccurrence, LIFECYCLE_EVENT_SOURCES, MONITORING_CHANGED, parseUtcMs } = await import(eng("alert-occurrence.js"));
 const { observationIsAfterWatermark } = await import(eng("managed-alerts.js"));
@@ -387,6 +390,50 @@ const reset = () => { db.exec("DELETE FROM notification_events; DELETE FROM mana
   const bogus = { ...db.prepare("SELECT * FROM managed_cases WHERE id='case_h'").get(), severity: "catastrophic" };
   const r2 = await emitCaseLifecycleAlert(env, bogus, { domain_key: "attack_surface", recurrence: "case_opened" });
   eq("an unrecognised inherited severity fails closed", r2.skipped, "unmapped_recurrence");
+}
+
+// ── 8b. Brand lifecycle copy, evidence context and deep link ───────────────
+{
+  const openedCopy = describeRecurrenceEvent(
+    "brand_protection",
+    "case_opened",
+    "аpple.com (xn--pple-43d.com)",
+  );
+  const reappearedCopy = describeRecurrenceEvent(
+    "brand_protection",
+    "case_reappeared",
+    "аpple.com (xn--pple-43d.com)",
+  );
+  ok("Brand opened copy describes review threshold without maliciousness claim",
+    /managed Brand Protection review/.test(openedCopy) &&
+    !/(confirmed phishing|malicious|attacker)/i.test(openedCopy));
+  ok("Brand reappearance copy says observed again, not first observed",
+    /observed again/.test(reappearedCopy) &&
+    !/first observed/i.test(reappearedCopy));
+  eq("Brand alerts deep-link to the tenant-authenticated case surface",
+    lifecycleRecordLink(env, "brand_protection", "case_brand"),
+    "https://app.example/ws/brand-monitoring?case=case_brand");
+
+  reset(); activate("ws1", "brand_protection");
+  const c = mkCase("case_brand", "ws1", "brand_protection", "high");
+  await emitCaseLifecycleAlert(env, c, {
+    domain_key: "brand_protection",
+    recurrence: "case_opened",
+    entity_type: "domain",
+    entity_display: "аpple.com (xn--pple-43d.com)",
+    monitored_domain: "apple.com",
+    evidence_source: {
+      label: "Visually confusable IDN lookalike",
+      detail: "Lookalike signal; not proof of abuse.",
+    },
+  });
+  const metadata = JSON.parse(notifs("ws1")[0].metadata_json || "{}");
+  eq("Brand alert preserves the Unicode/A-label customer display",
+    metadata.entity_display, "аpple.com (xn--pple-43d.com)");
+  eq("Brand alert carries the protected domain separately",
+    metadata.monitored_domain, "apple.com");
+  ok("Brand alert evidence remains explicitly fail-honest",
+    /not proof of abuse/i.test(metadata.evidence_source?.detail || ""));
 }
 
 // ── 9. Tenant isolation ───────────────────────────────────────────────────

@@ -41,7 +41,7 @@ Find blackbullbarbers.co.uk's seven incomplete modules; explain why it has been 
 **Exit:** root cause proven · complete scans reproducible OR a safe per-signal design ready · monitoring never silently disappears · SPF production acceptance repeatable. **No other engine's "live" acceptance completes until this closes.**
 
 ### Phase 1 — Brand Protection Hardening
-- **PR-A (IDN/Unicode homograph core):** IDNA/punycode round-trip · NFC · script detection · TR39 confusable skeleton · mixed-script · brand skeleton comparison · legitimate-IDN FP guards · deterministic fixtures · mutation tests.
+- **PR-A (IDN/Unicode homograph core):** IDNA/punycode round-trip · NFC · script detection · bounded UTS #39-inspired product-policy skeleton (not complete UTS #39) · mixed-script · brand skeleton comparison · legitimate-IDN FP guards · deterministic fixtures · mutation tests.
 - **PR-B (discovery + prioritisation):** deterministic IDN candidate generation · passive CT/SAN punycode discovery · eTLD+1 · DNS/MX/HTTP/TLS activity · nested `login`/`password`/`m365`/`office365` · redirect/login-surface evidence · severity weighting · fail-honest copy.
 - **PR-C (campaign + lifecycle):** infrastructure reuse · campaign clustering · reappearance · evidence history · alert/case/takedown lifecycle · report/PDF.
 - **Exit gate — no strong claim until tested:** Cyrillic/Greek confusable · mixed-script · whole-script confusable · raw punycode input · CT-discovered IDN · DNS-active/HTTP-inactive · login-active lookalike · removed/reappeared lookalike · legitimate-international-domain FP control. (Design ready: `docs/DETECTION-DEPTH-AUDIT.md §15`.)

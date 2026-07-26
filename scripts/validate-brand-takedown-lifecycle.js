@@ -220,6 +220,42 @@ row = await brandCases.getBrandCase(env, "ws1", opened.case.id);
 ok("reappeared candidate links a campaign and reopens confirmed-abuse workflow", reopened.opened === false && row.status === "confirmed_abuse" && row.reopened_count >= 1);
 const campaignCount = db.prepare("SELECT COUNT(*) AS n FROM brand_abuse_campaigns WHERE workspace_id='ws1'").get().n;
 ok("reappearance creates campaign linkage", campaignCount === 1);
+db.prepare(`INSERT INTO workspace_brand_assets
+  (id, workspace_id, domain, candidate_domain, variant_type, risk_level, risk_reasons,
+   dns_resolves, https_available, ip_address, status, first_seen, last_seen, created_at, updated_at,
+   brand_profile_id, similarity_score, classification, last_checked_at, mx_present, evidence_json)
+  VALUES
+  ('bra-idn-shared','ws1','example.com','xn--xample-2of.com','homoglyph_idn','critical','["visually_confusable_idn"]',
+   1,1,'203.0.113.10','active',datetime('now','-10 days'),datetime('now','-5 days'),datetime('now'),datetime('now'),
+   'bp1',100,'unreviewed',datetime('now'),0,'[{"signal":"idn_visual_confusable","value":true}]'),
+  ('bra-idn-visual-only','ws1','example.com','xn--eample-bsf.com','homoglyph_idn','critical','["visually_confusable_idn"]',
+   1,1,'203.0.113.99','active',datetime('now'),datetime('now'),datetime('now'),datetime('now'),
+   'bp1',100,'unreviewed',datetime('now'),0,'[{"signal":"idn_visual_confusable","value":true}]')`).run();
+
+const sharedInfra = await brandCases.createBrandCaseForCandidateId(env, "ws1", "bra-idn-shared");
+const visualOnly = await brandCases.createBrandCaseForCandidateId(env, "ws1", "bra-idn-visual-only");
+ok("new IDN candidate reuses a campaign only with observed shared infrastructure",
+  sharedInfra.opened && sharedInfra.case._campaignId &&
+  sharedInfra.case._campaignId === row._campaignId &&
+  sharedInfra.case.reopened_count === 0);
+ok("visual similarity alone does not claim common campaign ownership",
+  visualOnly.opened && !visualOnly.case._campaignId &&
+  db.prepare("SELECT COUNT(*) AS n FROM brand_abuse_campaigns WHERE workspace_id='ws1'").get().n === 1);
+const linkedDomains = JSON.parse(db.prepare(
+  "SELECT linked_domains FROM brand_abuse_campaigns WHERE workspace_id='ws1'"
+).get().linked_domains);
+ok("campaign history retains both domains linked by shared IP evidence",
+  linkedDomains.includes("examp1e-login.com") &&
+  linkedDomains.includes("xn--xample-2of.com") &&
+  !linkedDomains.includes("xn--eample-bsf.com"));
+const campaignWindow = db.prepare(
+  "SELECT first_seen_at, last_seen_at FROM brand_abuse_campaigns WHERE workspace_id='ws1'"
+).get();
+ok("campaign observation window expands without regressing its latest evidence",
+  Date.parse(campaignWindow.first_seen_at + "Z") <
+    Date.parse(db.prepare("SELECT first_seen FROM workspace_brand_assets WHERE id='bra-live'").get().first_seen + "Z") &&
+  Date.parse(campaignWindow.last_seen_at + "Z") >=
+    Date.parse(db.prepare("SELECT last_seen FROM workspace_brand_assets WHERE id='bra-live'").get().last_seen + "Z"));
 // PR-B1: Brand alerts now go through the canonical pipeline, so the kind is the
 // namespaced `brand_protection.case_reappeared` (alertKindFor) rather than the old
 // hand-rolled `brand_case_reappeared`, and notification_events.type carries it.
@@ -235,12 +271,18 @@ const legacyKind = db.prepare("SELECT COUNT(*) AS n FROM notification_events WHE
 ok("the legacy hand-rolled kind is no longer written", legacyKind === 0);
 
 const cases = await brandCases.listBrandCases(env, "ws1");
-ok("case list is tenant scoped to ws1", cases.length === 1 && cases[0].workspace_id === "ws1");
+ok("case list is tenant scoped to ws1", cases.length === 3 &&
+  cases.every((caseRow) => caseRow.workspace_id === "ws1"));
+ok("case API exposes evidence-linked campaign and recurrence separately",
+  cases.find((caseRow) => caseRow.domain === "examp1e-login.com")?.lifecycle?.reappearance_count === 1 &&
+  cases.find((caseRow) => caseRow.domain === "xn--xample-2of.com")?.campaign_id === row._campaignId &&
+  cases.find((caseRow) => caseRow.domain === "xn--eample-bsf.com")?.campaign_id === null);
 const foreignCases = await brandCases.listBrandCases(env, "ws2");
 ok("case list does not bleed into another tenant", foreignCases.length === 0);
 
 const apiList = await call(env, "GET", "/api/workspaces/ws1/brand/cases", "tok_admin");
-ok("brand cases API returns admin workspace case", apiList.status === 200 && apiList.data?.cases?.[0]?.domain === "examp1e-login.com");
+ok("brand cases API returns admin workspace cases", apiList.status === 200 &&
+  apiList.data?.cases?.some((caseRow) => caseRow.domain === "examp1e-login.com"));
 const apiForeign = await call(env, "GET", "/api/workspaces/ws1/brand/cases", "tok_foreign");
 ok("brand cases API rejects foreign tenant read", apiForeign.status === 403);
 const apiAnon = await call(env, "GET", "/api/workspaces/ws1/brand/cases", null);
