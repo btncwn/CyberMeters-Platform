@@ -28,7 +28,8 @@ const { upsertCertificateObservation } = await import(pathToFileURL(path.join(
   "cert-events.js",
 )).href);
 
-const NOW = Date.parse("2026-07-26T13:00:00.000Z");
+const NOW = "2026-07-26T13:00:00.000Z";
+const NOW_MS = Date.parse(NOW);
 let pass = 0;
 let fail = 0;
 const ok = (name, condition, detail = "") => {
@@ -216,7 +217,7 @@ try {
       "example.com",
       env,
       {
-        now: () => NOW,
+        now: () => NOW_MS,
         executionContext: "queue",
         trigger: "manual",
       },

@@ -10,6 +10,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const engines = path.join(root, "workers", "scan-api", "src", "engines");
+const NOW = "2026-07-26T13:00:00.000Z";
 let pass = 0;
 let fail = 0;
 let sequence = 0;
@@ -70,7 +71,7 @@ const unavailableProviders = {
 };
 const options = (providerHealth) => ({
   providerHealth,
-  observedAt: "2026-07-26T13:00:00.000Z",
+  observedAt: NOW,
   engineVersion: "item9-p2-mutation",
 });
 
@@ -110,7 +111,7 @@ await withMutant(
     const result = mutant.deriveCertificateSignalCompletenessFromModules({
       modules: completeModules(),
       providerHealth: healthyProviders,
-      observedAt: "2026-07-26T13:00:00.000Z",
+      observedAt: NOW,
       engineVersion: "item9-p2-mutation",
     });
     ok("MUTANT CT-as-live-leaf makes the CT-only fixture red",
@@ -130,7 +131,7 @@ await withMutant(
     const result = mutant.deriveCertificateSignalCompletenessFromModules({
       modules: completeModules(),
       providerHealth: unavailableProviders,
-      observedAt: "2026-07-26T13:00:00.000Z",
+      observedAt: NOW,
       engineVersion: "item9-p2-mutation",
     });
     ok("MUTANT collapsed sibling completeness makes active-service fixture red",
@@ -182,7 +183,7 @@ await withMutant(
     const result = mutant.deriveCertificateSignalCompletenessFromModules({
       modules: completeModules(),
       providerHealth: healthyProviders,
-      observedAt: "2026-07-26T13:00:00.000Z",
+      observedAt: NOW,
       engineVersion: "item9-p2-mutation",
     });
     ok("MUTANT CT multiplicity as parallel live set makes fixture red",
