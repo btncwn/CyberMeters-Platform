@@ -12,18 +12,19 @@
 // The raw store is referenced (current/previous observation ids), never copied,
 // and a replacement never overwrites the old certificate's evidence.
 //
-// Honesty (permanent). External observation only: no live TLS handshake, no
-// chain/root/OCSP/revocation, no private-key possession, no real X.509
-// fingerprint or serial (they stay unknown). An unexpired certificate is NOT
-// "fully trusted". A customer-asserted "renewed" is NOT externally verified —
-// verification requires a NEW distinct certificate observed on the expected
-// hostname(s), with acceptable coverage and a later expiry. Incomplete coverage
-// cannot verify. Follow-up uses the Universal Managed-Case Model
+// Honesty (permanent). Only declared per-signal evidence is consumed. Current
+// production observations are CT issuance evidence; future live-TLS evidence is
+// eligible only when explicitly graded publishable by the canonical completeness
+// model. Neither path establishes chain/root/OCSP/revocation/private-key state.
+// An unexpired certificate is NOT "fully trusted". A customer-asserted "renewed"
+// is NOT externally verified — closure requires a LATER CyberMeters observation
+// of a NEW live-serving certificate on the expected hostname(s), with acceptable
+// coverage and a later expiry. Follow-up uses the Universal Managed-Case Model
 // (certificate_case → cert.* canonical remediation).
 
 import { emitLifecycleAlert } from "./alert-consumers.js";
+import { hashToken } from "../lib/auth-crypto.js";
 import { createManagedCase, canTransitionCase, canonicalPhaseFor, verificationSupportForCase } from "./managed-case-model.js";
-import { newCaseEventId } from "./case-workflow.js";
 import { assessRenewal, renewalAlertBand, renewalRequiresCase } from "./certificate-policy.js";
 import { buildMonitoringTransitionDetail, isMonitoringTransition } from "./alert-occurrence.js";
 
@@ -34,6 +35,176 @@ function newId(prefix) {
 function parseJson(v, fallback = null) { try { return v ? JSON.parse(v) : fallback; } catch { return fallback; } }
 function safeJson(v, fallback = null) { try { return v == null ? fallback : JSON.stringify(v); } catch { return fallback; } }
 function lc(s) { return String(s || "").trim().toLowerCase(); }
+function isoMs(v) {
+  const n = Date.parse(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+const INCOMPLETE_SIGNAL_STATES = new Set(["signal_unavailable", "evidence_incomplete"]);
+const RENEWAL_WORKFLOW_STATES = new Set([
+  "planned", "in_progress", "awaiting_replacement", "awaiting_verification",
+]);
+
+function signalFromObservation(observation, signal) {
+  const evidence = parseJson(observation?.evidence_json, {}) || {};
+  const item = evidence?.signal_completeness?.signals?.[signal];
+  if (!item || typeof item !== "object") {
+    return {
+      signal,
+      comparable: false,
+      publishable: false,
+      observation: "unknown",
+      value: null,
+      reason: "signal_completeness_not_observed",
+    };
+  }
+  const observationState = String(item.observation || "unknown");
+  const completenessState = String(item.completeness_state || "evidence_incomplete");
+  const comparable =
+    !INCOMPLETE_SIGNAL_STATES.has(completenessState) &&
+    (observationState === "present" || observationState === "absent") &&
+    item.value !== null &&
+    item.value !== undefined;
+  return {
+    signal,
+    comparable,
+    publishable: item.publishable === true,
+    complete: item.complete === true,
+    observation: observationState,
+    value: comparable ? item.value : null,
+    completeness_state: completenessState,
+    observation_scope: item.observation_scope || "unobserved",
+    achieved_grade: item.achieved_grade || "L0",
+    source_type: item.source_type || null,
+    provenance: item.provenance || null,
+    authorities: Array.isArray(item.authorities) ? item.authorities : [],
+    reason: comparable ? null : "signal_evidence_not_comparable",
+  };
+}
+
+function scalarChanged(previous, current) {
+  return previous.comparable && current.comparable &&
+    String(previous.value) !== String(current.value);
+}
+
+function stringSet(value) {
+  if (!Array.isArray(value)) return null;
+  return [...new Set(value.map(lc).filter(Boolean))].sort();
+}
+
+function setChanged(previous, current) {
+  if (!previous.comparable || !current.comparable) return false;
+  const before = stringSet(previous.value);
+  const after = stringSet(current.value);
+  return before !== null && after !== null && safeJson(before) !== safeJson(after);
+}
+
+function leafIdentity(signal) {
+  if (!signal?.comparable) return null;
+  if (typeof signal.value === "string") return String(signal.value);
+  if (signal.value && typeof signal.value === "object") {
+    return String(signal.value.certificate_identity || signal.value.fingerprint_sha256 || "").trim() || null;
+  }
+  return null;
+}
+
+function evidencePair(previous, current) {
+  return {
+    previous: {
+      value: previous.value,
+      completeness_state: previous.completeness_state,
+      observation_scope: previous.observation_scope,
+      achieved_grade: previous.achieved_grade,
+      publishable: previous.publishable,
+      provenance: previous.provenance,
+    },
+    current: {
+      value: current.value,
+      completeness_state: current.completeness_state,
+      observation_scope: current.observation_scope,
+      achieved_grade: current.achieved_grade,
+      publishable: current.publishable,
+      provenance: current.provenance,
+    },
+  };
+}
+
+// Pure, signal-isolated change derivation. A missing issuer cannot suppress a
+// reliable SAN/expiry diff, and a composite certificate_key change alone is not
+// enough to invent a replacement when every changed component is incomplete.
+export function deriveCertificateRenewalTransition(previous, current, {
+  previousReadiness = "unknown",
+  currentReadiness = "unknown",
+  renewalStatus = "not_started",
+} = {}) {
+  const before = {
+    leaf: signalFromObservation(previous, "leaf"),
+    issuer: signalFromObservation(previous, "issuer"),
+    san: signalFromObservation(previous, "san"),
+    expiry: signalFromObservation(previous, "expiry"),
+    wildcard: signalFromObservation(previous, "wildcard"),
+  };
+  const after = {
+    leaf: signalFromObservation(current, "leaf"),
+    issuer: signalFromObservation(current, "issuer"),
+    san: signalFromObservation(current, "san"),
+    expiry: signalFromObservation(current, "expiry"),
+    wildcard: signalFromObservation(current, "wildcard"),
+  };
+  const changed = {
+    leaf: Boolean(
+      leafIdentity(before.leaf) &&
+      leafIdentity(after.leaf) &&
+      leafIdentity(before.leaf) !== leafIdentity(after.leaf)
+    ),
+    issuer: scalarChanged(before.issuer, after.issuer),
+    san: setChanged(before.san, after.san),
+    expiry: scalarChanged(before.expiry, after.expiry),
+    wildcard: scalarChanged(before.wildcard, after.wildcard),
+  };
+  const surrogateChanged = Boolean(
+    previous?.certificate_key &&
+    current?.certificate_key &&
+    previous.certificate_key !== current.certificate_key
+  );
+  const replacement = surrogateChanged && Object.values(changed).some(Boolean);
+  const beforeExpiry = isoMs(before.expiry.value);
+  const afterExpiry = isoMs(after.expiry.value);
+  const expiryAdvanced =
+    changed.expiry &&
+    beforeExpiry !== null &&
+    afterExpiry !== null &&
+    afterExpiry > beforeExpiry;
+  const renewalContext =
+    RENEWAL_WORKFLOW_STATES.has(renewalStatus) ||
+    ["high", "critical", "expired"].includes(previousReadiness);
+  const renewalFailed =
+    replacement &&
+    changed.expiry &&
+    beforeExpiry !== null &&
+    afterExpiry !== null &&
+    afterExpiry <= beforeExpiry &&
+    renewalContext;
+
+  return {
+    relation: replacement ? "replaced" : (surrogateChanged ? "evidence_insufficient" : "same"),
+    replacement,
+    renewed: replacement && expiryAdvanced,
+    renewal_failed: renewalFailed,
+    expiry_advanced: expiryAdvanced,
+    band_changed: previousReadiness !== currentReadiness,
+    previous_readiness: previousReadiness,
+    current_readiness: currentReadiness,
+    changed,
+    evidence: {
+      leaf: changed.leaf ? evidencePair(before.leaf, after.leaf) : null,
+      issuer: changed.issuer ? evidencePair(before.issuer, after.issuer) : null,
+      san: changed.san ? evidencePair(before.san, after.san) : null,
+      expiry: changed.expiry ? evidencePair(before.expiry, after.expiry) : null,
+      wildcard: changed.wildcard ? evidencePair(before.wildcard, after.wildcard) : null,
+    },
+  };
+}
 
 // ── Coverage model ──────────────────────────────────────────────────────────
 // Expected (customer-declared) hostnames vs observed SANs, kept SEPARATE. A
@@ -108,19 +279,42 @@ export const CERT_EVENT_TYPES = Object.freeze([
   "renewal_planned", "renewal_started", "replacement_expected", "replacement_recorded",
   "verification_requested", "verified_replaced", "verification_failed", "exception_set",
   "exception_cleared", "retired", "reopened", "monitoring_changed", "case_linked",
+  "renewal_band_changed", "replaced", "renewed", "renewal_failed",
+  "issuer_changed", "san_changed", "wildcard_changed",
   // "the already-open case was touched again for the same recurrence" — its own type
   // BECAUSE it is not a monitoring change: it records no transition and carries no
   // to_recurrence_type. See the append site below, and shadow-it-inventory.js.
   "case_recurrence_noted",
 ]);
 
-async function appendEvent(env, rec, { actor_type = "system", actor_id = null, event_type, detail = null }) {
-  await env.cybermeters_db
-    .prepare(`INSERT INTO certificate_lifecycle_events
+async function deterministicEventId(prefix, parts) {
+  const digest = await hashToken(JSON.stringify(parts));
+  return `${prefix}-${digest.slice(0, 32)}`;
+}
+
+async function appendEvent(env, rec, {
+  actor_type = "system",
+  actor_id = null,
+  event_type,
+  detail = null,
+  dedupe_key = null,
+}) {
+  const id = dedupe_key
+    ? await deterministicEventId("cle", [
+      "certificate-lifecycle-event-v1",
+      rec.workspace_id,
+      rec.id,
+      event_type,
+      dedupe_key,
+    ])
+    : newId("cle");
+  const result = await env.cybermeters_db
+    .prepare(`INSERT OR IGNORE INTO certificate_lifecycle_events
       (id, lifecycle_id, workspace_id, actor_type, actor_id, event_type, detail_json, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`)
-    .bind(newId("cle"), rec.id, rec.workspace_id, actor_type, actor_id, event_type, safeJson(detail))
+    .bind(id, rec.id, rec.workspace_id, actor_type, actor_id, event_type, safeJson(detail))
     .run();
+  return { id, inserted: (result?.meta?.changes ?? 1) > 0 };
 }
 
 // Derive the machine-stable overall lifecycle_state from the sub-states. Renewal
@@ -145,11 +339,14 @@ function deriveLifecycleState(rec) {
 }
 
 // ── Correlation / upsert ────────────────────────────────────────────────────
-// Read the workspace's raw certificate_observations, pick the CURRENT certificate
-// per monitored domain, and upsert one lifecycle record per host. Observation
-// fields (identity/issuer/expiry/SANs) refresh; ownership/planning/verification
-// persist. Replacement = a new certificate_identity → previous observation
-// preserved, new one becomes current. Soft-deleted workspaces are skipped.
+// Read the workspace's raw certificate_observations, pick the most recently
+// RE-OBSERVED certificate per monitored domain, and upsert one lifecycle record
+// per host. A certificate with a farther-future expiry is not automatically the
+// current one: that old rule hid failed/shorter replacements forever.
+//
+// Replacement needs both a new surrogate key and at least one independently
+// comparable changed signal. Incomplete issuer/SAN/expiry/wildcard evidence can
+// neither manufacture nor suppress a reliable sibling diff.
 export async function correlateCertificateLifecycle(env, workspaceId, { now = new Date().toISOString() } = {}) {
   const ws = await env.cybermeters_db
     .prepare(`SELECT id FROM workspaces WHERE id = ? AND deleted_at IS NULL`)
@@ -170,22 +367,38 @@ export async function correlateCertificateLifecycle(env, workspaceId, { now = ne
     if (!byDomain.has(r.domain_id)) byDomain.set(r.domain_id, []);
     byDomain.get(r.domain_id).push(r);
   }
+  const existingRows = (await env.cybermeters_db
+    .prepare(`SELECT * FROM certificate_lifecycle WHERE workspace_id = ?`)
+    .bind(workspaceId).all().catch(() => ({ results: [] }))).results || [];
+  const lifecycleByHost = new Map(
+    existingRows.map((row) => [`${row.domain_id}\n${lc(row.primary_hostname)}`, row])
+  );
 
   let created = 0, replaced = 0;
-  const seenIds = new Set();
   for (const [domainId, obs] of byDomain) {
-    // Current certificate = furthest-future expiry (matches the observation
-    // engine's own "best cert" selection); ties break on most-recent last_seen.
-    obs.sort((a, b) => (String(b.expires_at || "") .localeCompare(String(a.expires_at || ""))) || (String(b.last_seen || "").localeCompare(String(a.last_seen || ""))));
+    // Current = most recently observed in a real scan. Deterministic ties prefer
+    // the latest first_seen, then expiry, then stable id.
+    obs.sort((a, b) =>
+      String(b.last_seen || "").localeCompare(String(a.last_seen || "")) ||
+      String(b.first_seen || "").localeCompare(String(a.first_seen || "")) ||
+      String(b.expires_at || "").localeCompare(String(a.expires_at || "")) ||
+      String(a.id || "").localeCompare(String(b.id || ""))
+    );
     const current = obs[0];
-    const primaryHostname = current.hostname || current.subject || domainId;
-    const observedSans = parseJson(current.evidence_json, {})?.san_hostnames || [];
-    const renewal = assessRenewal(current.expires_at, now);
+    const primaryHostname = current.hostname || domainId;
+    const currentIssuerSignal = signalFromObservation(current, "issuer");
+    const currentSanSignal = signalFromObservation(current, "san");
+    const currentExpirySignal = signalFromObservation(current, "expiry");
+    const observedSans = currentSanSignal.comparable && Array.isArray(currentSanSignal.value)
+      ? stringSet(currentSanSignal.value)
+      : [];
+    const currentExpiry = currentExpirySignal.comparable
+      ? String(currentExpirySignal.value || "") || null
+      : null;
+    const renewal = assessRenewal(currentExpiry, now);
     const firstSeen = obs.reduce((min, o) => (o.first_seen && (!min || o.first_seen < min) ? o.first_seen : min), null) || now;
 
-    const existing = await env.cybermeters_db
-      .prepare(`SELECT * FROM certificate_lifecycle WHERE workspace_id = ? AND domain_id = ? AND primary_hostname = ?`)
-      .bind(workspaceId, domainId, primaryHostname).first().catch(() => null);
+    const existing = lifecycleByHost.get(`${domainId}\n${lc(primaryHostname)}`) || null;
 
     if (!existing) {
       const id = newId("cl");
@@ -199,30 +412,71 @@ export async function correlateCertificateLifecycle(env, workspaceId, { now = ne
            ownership_status, renewal_status, renewal_readiness, renewal_due_at, renewal_start_by,
            monitoring_status, lifecycle_state, first_seen_at, last_seen_at, created_at, updated_at)
           VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, NULL, ?, NULL, ?, ?, '[]', ?, ?, ?, 'missing', 'not_started', ?, ?, ?, 'observed', 'observed', ?, ?, ?, ?)`)
-        .bind(id, workspaceId, domainId, primaryHostname, current.certificate_key, current.id, current.issuer,
-          current.expires_at, renewal.days_remaining, safeJson(observedSans, "[]"), coverage.status, safeJson(coverage),
-          renewal.readiness, current.expires_at, renewal.renewal_start_by, firstSeen, current.last_seen || now, now, now)
+        .bind(
+          id, workspaceId, domainId, primaryHostname, current.certificate_key, current.id,
+          currentIssuerSignal.comparable ? currentIssuerSignal.value : null,
+          currentExpiry, renewal.days_remaining, safeJson(observedSans, "[]"), coverage.status, safeJson(coverage),
+          renewal.readiness, currentExpiry, renewal.renewal_start_by,
+          firstSeen, current.last_seen || now, now, now
+        )
         .run();
-      await appendEvent(env, rec, { event_type: "observed", detail: { created: true, issuer: current.issuer, days_remaining: renewal.days_remaining, readiness: renewal.readiness } });
+      await appendEvent(env, rec, {
+        event_type: "observed",
+        detail: {
+          created: true,
+          observation_id: current.id,
+          certificate_identity: current.certificate_key,
+          issuer: currentIssuerSignal.comparable ? currentIssuerSignal.value : null,
+          days_remaining: renewal.days_remaining,
+          readiness: renewal.readiness,
+          evidence_scope: currentExpirySignal.observation_scope || "unobserved",
+        },
+        dedupe_key: `observed:${current.id}`,
+      });
       created++;
       continue;
     }
 
-    // Replacement detection — a NEW certificate identity for this host. The old
-    // observation is PRESERVED (previous_certificate_observation_id); its evidence
-    // is never overwritten.
-    const identityChanged = existing.certificate_identity && existing.certificate_identity !== current.certificate_key;
+    const previous = obs.find((item) => item.id === existing.current_certificate_observation_id) || null;
+    const candidateChanged = Boolean(
+      previous &&
+      existing.certificate_identity &&
+      existing.certificate_identity !== current.certificate_key
+    );
+    const transition = candidateChanged
+      ? deriveCertificateRenewalTransition(previous, current, {
+        previousReadiness: existing.renewal_readiness || "unknown",
+        currentReadiness: renewal.readiness,
+        renewalStatus: existing.renewal_status,
+      })
+      : {
+        relation: "same",
+        replacement: false,
+        renewed: false,
+        renewal_failed: false,
+        band_changed: existing.renewal_readiness !== renewal.readiness,
+        changed: {},
+        evidence: {},
+      };
+
+    // A changed composite key with no independently comparable component is not
+    // promoted into current lifecycle state. The raw observation remains
+    // append-only for a future complete re-observation to reconcile.
+    if (candidateChanged && !transition.replacement) continue;
+
     const expectedHosts = parseJson(existing.expected_hostnames_json, []) || [];
-    const coverage = computeCoverage(expectedHosts, observedSans);
+    const coverage = currentSanSignal.comparable
+      ? computeCoverage(expectedHosts, observedSans)
+      : { status: "unknown", covered: [], missing: [], unexpected: [], wildcard_present: false };
     const coverageChanged = existing.coverage_status !== coverage.status;
     const set = {
       certificate_identity: current.certificate_key,
       current_certificate_observation_id: current.id,
-      issuer: current.issuer,
-      not_after: current.expires_at,
+      issuer: currentIssuerSignal.comparable ? currentIssuerSignal.value : null,
+      not_after: currentExpiry,
       days_remaining: renewal.days_remaining,
       renewal_readiness: renewal.readiness,
-      renewal_due_at: current.expires_at,
+      renewal_due_at: currentExpiry,
       renewal_start_by: renewal.renewal_start_by,
       observed_sans_json: safeJson(observedSans, "[]"),
       coverage_status: coverage.status,
@@ -231,45 +485,196 @@ export async function correlateCertificateLifecycle(env, workspaceId, { now = ne
       monitoring_status: existing.monitoring_status === "no_longer_observed" ? "reappeared" : "observed",
       updated_at: now,
     };
-    if (identityChanged) {
+    if (transition.replacement) {
       set.previous_certificate_observation_id = existing.current_certificate_observation_id || null;
       set.replacement_detected_at = now;
+      set.renewal_status = "awaiting_verification";
+      set.verification_status = "not_verified";
+      set.verification_method = null;
+      set.verification_detail_json = null;
+      set.verified_at = null;
       replaced++;
     }
     const cols = Object.keys(set);
     await env.cybermeters_db
       .prepare(`UPDATE certificate_lifecycle SET ${cols.map((c) => `${c} = ?`).join(", ")} WHERE id = ? AND workspace_id = ?`)
       .bind(...cols.map((c) => set[c]), existing.id, workspaceId).run();
-    if (identityChanged) await appendEvent(env, existing, { event_type: "replacement_detected", detail: { previous_identity: existing.certificate_identity, new_identity: current.certificate_key, previous_not_after: existing.not_after, new_not_after: current.expires_at } });
-    if (coverageChanged) await appendEvent(env, existing, { event_type: "coverage_changed", detail: { from: existing.coverage_status, to: coverage.status, missing: coverage.missing, unexpected: coverage.unexpected } });
-    seenIds.add(existing.id);
+
+    if (transition.replacement) {
+      const relationKey = `${previous.id}->${current.id}`;
+      const relationDetail = {
+        previous_observation_id: previous.id,
+        current_observation_id: current.id,
+        previous_identity: previous.certificate_key,
+        new_identity: current.certificate_key,
+        relation: "replaced",
+        changed_signals: Object.entries(transition.changed).filter(([, changed]) => changed).map(([signal]) => signal),
+        evidence: transition.evidence,
+        detection_wording: "Observed certificate replacement; multiplicity or change alone is not evidence of maliciousness.",
+      };
+      await appendEvent(env, existing, {
+        event_type: "replaced",
+        detail: relationDetail,
+        dedupe_key: relationKey,
+      });
+      if (transition.renewed) {
+        await appendEvent(env, existing, {
+          event_type: "renewed",
+          detail: {
+            ...relationDetail,
+            previous_not_after: transition.evidence.expiry?.previous?.value || null,
+            new_not_after: transition.evidence.expiry?.current?.value || null,
+            serving_state: transition.evidence.leaf?.current?.observation_scope === "live_tls"
+              ? "live_tls_observed"
+              : "not_established",
+          },
+          dedupe_key: relationKey,
+        });
+      }
+      if (transition.renewal_failed) {
+        await appendEvent(env, existing, {
+          event_type: "renewal_failed",
+          detail: {
+            ...relationDetail,
+            reason: "replacement_expiry_not_advanced",
+            verification_result: "failed",
+          },
+          dedupe_key: relationKey,
+        });
+      }
+      for (const [signal, eventType] of [
+        ["issuer", "issuer_changed"],
+        ["san", "san_changed"],
+        ["wildcard", "wildcard_changed"],
+      ]) {
+        if (!transition.changed[signal]) continue;
+        await appendEvent(env, existing, {
+          event_type: eventType,
+          detail: {
+            previous_observation_id: previous.id,
+            current_observation_id: current.id,
+            evidence: transition.evidence[signal],
+            interpretation: "Observed change; intent, compromise and maliciousness are not inferred.",
+          },
+          dedupe_key: relationKey,
+        });
+      }
+    }
+    if (transition.band_changed && currentExpirySignal.comparable) {
+      await appendEvent(env, existing, {
+        event_type: "renewal_band_changed",
+        detail: {
+          from: existing.renewal_readiness || "unknown",
+          to: renewal.readiness,
+          days_remaining: renewal.days_remaining,
+          observation_id: current.id,
+          evidence: evidencePair(
+            previous ? signalFromObservation(previous, "expiry") : signalFromObservation(null, "expiry"),
+            currentExpirySignal
+          ),
+        },
+        dedupe_key: `${current.id}:${existing.renewal_readiness || "unknown"}->${renewal.readiness}`,
+      });
+    }
+    if (coverageChanged) {
+      await appendEvent(env, existing, {
+        event_type: "coverage_changed",
+        detail: {
+          from: existing.coverage_status,
+          to: coverage.status,
+          missing: coverage.missing,
+          unexpected: coverage.unexpected,
+          evidence_signal: "san",
+        },
+        dedupe_key: `${current.id}:${existing.coverage_status}->${coverage.status}`,
+      });
+    }
+
+    // The first replacement observation never verifies. A later complete,
+    // method-appropriate observation of the SAME new certificate may reconcile
+    // the lifecycle and its linked case through the canonical machine.
+    if (!transition.replacement && existing.previous_certificate_observation_id) {
+      const updated = { ...existing, ...set };
+      const previousReplacement = obs.find((item) => item.id === existing.previous_certificate_observation_id) || null;
+      await reconcileReplacementFromReobservation(env, updated, {
+        current,
+        previous: previousReplacement,
+        now,
+      });
+    }
   }
 
   const monitoring = await evaluateCertificateLifecycleMonitoring(env, workspaceId, { now });
   return { correlated: byDomain.size, created, replaced, monitoring };
 }
 
-// ── Verification contract (external-observation only) ───────────────────────
-// A customer "renewed" is never enough. A positive verification requires the
-// CURRENT observed certificate to be a genuine, distinct replacement:
-//   * a NEW certificate identity (differs from the previous cert), AND
-//   * served on the expected hostname(s) — coverage acceptable, AND
-//   * expiry moved forward (new not_after later than the previous), AND
-//   * not otherwise failed/inconclusive.
-// Incomplete coverage or no distinct new cert → inconclusive (blocks). Expiry
-// not advanced → failed. Returns a STRUCTURED evidence record either way.
-export function buildVerificationEvidence(rec, { current, previous, coverage, now = new Date().toISOString() }) {
-  const previous_identity = previous?.certificate_key || rec.previous_identity || null;
-  const new_identity = current?.certificate_key || rec.certificate_identity || null;
-  const previous_not_after = previous?.expires_at || rec.previous_not_after || null;
-  const new_not_after = current?.expires_at || rec.not_after || null;
+// ── Verification contract (later CyberMeters re-observation only) ───────────
+// A customer "renewed" is never enough, and neither is the scan that FIRST saw a
+// replacement. Positive verification requires a later observation of the same
+// new live leaf, with publishable live-TLS leaf/SAN/expiry evidence, acceptable
+// hostname coverage and a later expiry than the prior live leaf.
+function verificationSignal(observation, name) {
+  const signal = signalFromObservation(observation, name);
+  const liveTls = signal.observation_scope === "live_tls";
+  return {
+    ...signal,
+    method_appropriate:
+      signal.comparable &&
+      signal.publishable &&
+      signal.completeness_state === "monitoring_healthy" &&
+      signal.observation === "present" &&
+      liveTls,
+  };
+}
+
+export function buildVerificationEvidence(rec, { current, previous, now = new Date().toISOString() }) {
+  const previousLeaf = verificationSignal(previous, "leaf");
+  const currentLeaf = verificationSignal(current, "leaf");
+  const previousExpiry = verificationSignal(previous, "expiry");
+  const currentExpiry = verificationSignal(current, "expiry");
+  const currentSan = verificationSignal(current, "san");
+  const previous_identity = leafIdentity(previousLeaf);
+  const new_identity = leafIdentity(currentLeaf);
+  const previous_not_after = previousExpiry.method_appropriate ? String(previousExpiry.value) : null;
+  const new_not_after = currentExpiry.method_appropriate ? String(currentExpiry.value) : null;
   const distinct = Boolean(new_identity && previous_identity && new_identity !== previous_identity);
-  const forward = Boolean(new_not_after && previous_not_after && Date.parse(new_not_after) > Date.parse(previous_not_after));
-  const cov = coverage?.status || rec.coverage_status || "unknown";
+  const forward = Boolean(
+    new_not_after &&
+    previous_not_after &&
+    isoMs(new_not_after) !== null &&
+    isoMs(previous_not_after) !== null &&
+    isoMs(new_not_after) > isoMs(previous_not_after)
+  );
+  const methodAppropriate =
+    previousLeaf.method_appropriate &&
+    currentLeaf.method_appropriate &&
+    previousExpiry.method_appropriate &&
+    currentExpiry.method_appropriate &&
+    currentSan.method_appropriate;
+  const expected = parseJson(rec.expected_hostnames_json, []) || [];
+  const observedSans = currentSan.method_appropriate && Array.isArray(currentSan.value)
+    ? stringSet(currentSan.value)
+    : [];
+  const derivedCoverage = methodAppropriate
+    ? computeCoverage(expected, observedSans)
+    : { status: "unknown", covered: [], missing: [], unexpected: [], wildcard_present: false };
+  const cov = methodAppropriate ? derivedCoverage.status : "unknown";
   const coverageOk = coverageAcceptable(cov);
+  const firstObservedAt = current?.first_seen || null;
+  const reobservedAt = current?.last_seen || null;
+  const detectedAt = rec.replacement_detected_at || null;
+  const laterReobservation = Boolean(
+    isoMs(firstObservedAt) !== null &&
+    isoMs(reobservedAt) !== null &&
+    isoMs(detectedAt) !== null &&
+    isoMs(reobservedAt) > isoMs(firstObservedAt) &&
+    isoMs(reobservedAt) > isoMs(detectedAt)
+  );
 
   let verification_result;
-  if (!distinct) verification_result = "inconclusive";        // no genuinely new certificate observed
+  if (!laterReobservation) verification_result = "inconclusive";
+  else if (!methodAppropriate) verification_result = "inconclusive";
+  else if (!distinct) verification_result = "inconclusive";   // no genuinely new live leaf observed
   else if (!coverageOk) verification_result = "inconclusive";  // incomplete coverage cannot verify
   else if (!forward) verification_result = "failed";           // new cert but expiry not advanced
   else verification_result = "verified";
@@ -277,18 +682,77 @@ export function buildVerificationEvidence(rec, { current, previous, coverage, no
   return {
     verification_method: "external_observation",
     verification_result,
-    evidence_type: "certificate_observation",
-    observed_at: now,
+    evidence_type: "certificate_reobservation",
+    observed_at: reobservedAt || now,
     previous_identity, new_identity, previous_not_after, new_not_after,
     distinct_certificate: distinct, expiry_advanced: forward,
+    later_reobservation: laterReobservation,
+    replacement_detected_at: detectedAt,
+    first_observed_at: firstObservedAt,
+    reobserved_at: reobservedAt,
+    method_appropriate_evidence: methodAppropriate,
+    live_serving_evidence: methodAppropriate,
     coverage_status: cov, coverage_result: coverageOk ? "acceptable" : "insufficient",
-    expected_hostnames: parseJson(rec.expected_hostnames_json, []) || [],
-    observed_sans: parseJson(rec.observed_sans_json, []) || [],
+    expected_hostnames: expected,
+    observed_sans: observedSans,
     issuer: rec.issuer || null,
+    signal_evidence: {
+      previous_leaf: previousLeaf,
+      current_leaf: currentLeaf,
+      previous_expiry: previousExpiry,
+      current_expiry: currentExpiry,
+      current_san: currentSan,
+    },
     // Permanent honesty: chain/root/OCSP/revocation/private-key are NOT part of
-    // this evidence and remain unknown (no live TLS).
+    // this evidence and remain unknown even when the leaf is observed live.
     unknown_signals: ["chain_valid", "root_trusted", "ocsp", "revocation", "private_key_possession", "x509_fingerprint", "serial_number"],
   };
+}
+
+async function reconcileReplacementFromReobservation(env, rec, { current, previous, now }) {
+  if (!current || !previous || !rec.replacement_detected_at) {
+    return { ok: false, skipped: "replacement_context_incomplete" };
+  }
+  const evidence = buildVerificationEvidence(rec, { current, previous, now });
+  if (evidence.verification_result === "inconclusive") {
+    return { ok: false, skipped: "reobservation_inconclusive", evidence };
+  }
+
+  const verified = evidence.verification_result === "verified";
+  const nextStatus = verified ? "verified_replaced" : "failed";
+  if (rec.verification_status !== nextStatus) {
+    await env.cybermeters_db
+      .prepare(`UPDATE certificate_lifecycle
+                SET verification_status = ?, verification_method = 'external_observation',
+                    verification_detail_json = ?, verified_at = ?,
+                    renewal_status = ?, lifecycle_state = ?, updated_at = ?
+                WHERE id = ? AND workspace_id = ?`)
+      .bind(
+        nextStatus,
+        safeJson(evidence),
+        verified ? evidence.observed_at : null,
+        verified ? "verified" : "awaiting_verification",
+        verified ? "verified_replaced" : "review_required",
+        now,
+        rec.id,
+        rec.workspace_id
+      )
+      .run();
+    await appendEvent(env, rec, {
+      event_type: verified ? "verified_replaced" : "verification_failed",
+      detail: evidence,
+      dedupe_key: `${current.id}:${evidence.verification_result}`,
+    });
+  }
+  if (verified) {
+    await verifyCertificateCaseFromObservation(
+      env,
+      { ...rec, verification_status: nextStatus, renewal_status: "verified" },
+      evidence,
+      now
+    ).catch(() => {});
+  }
+  return { ok: true, verified, evidence };
 }
 
 // ── Monitoring evaluator ────────────────────────────────────────────────────
@@ -371,7 +835,11 @@ export async function evaluateCertificateLifecycleMonitoring(env, workspaceId, {
 
     // Owner-missing transition event.
     if (ownership_status === "missing" && rec.ownership_status && rec.ownership_status !== "missing") {
-      await appendEvent(env, rec, { event_type: "owner_missing", detail: { readiness: renewal.readiness } });
+      await appendEvent(env, rec, {
+        event_type: "owner_missing",
+        detail: { readiness: renewal.readiness },
+        dedupe_key: `${rec.current_certificate_observation_id || "unknown"}:${renewal.readiness}`,
+      });
     }
 
     // ── Monitoring transition (append-only) ──────────────────────────────────
@@ -404,11 +872,22 @@ export async function evaluateCertificateLifecycleMonitoring(env, workspaceId, {
       recurrence_type: recurrence_type === "none" ? null : recurrence_type,
       recurrence_band: nextBand,
     };
-    if (isMonitoringTransition(
+    const monitoringChanged = isMonitoringTransition(
       { monitoring_status: rec.monitoring_status, recurrence_type: rec.recurrence_type, recurrence_band: prevBand },
       nextMonitoring,
-    )) {
-      await appendEvent(env, rec, {
+    );
+    let occurrenceId = null;
+    if (monitoringChanged) {
+      const transitionKey = [
+        rec.evaluated_at || rec.created_at || "first",
+        rec.monitoring_status || "unknown",
+        rec.recurrence_type || "none",
+        prevBand || "none",
+        nextMonitoring.monitoring_status || "unknown",
+        nextMonitoring.recurrence_type || "none",
+        nextBand || "none",
+      ].join(":");
+      const occurrence = await appendEvent(env, rec, {
         event_type: "monitoring_changed",
         detail: buildMonitoringTransitionDetail({
           from_monitoring_status: rec.monitoring_status ?? null,
@@ -419,7 +898,9 @@ export async function evaluateCertificateLifecycleMonitoring(env, workspaceId, {
           reason: monitoring_reason,
           entity: rec.primary_hostname,
         }),
+        dedupe_key: transitionKey,
       }).catch(() => { /* history is best-effort; it must not break the evaluator */ });
+      occurrenceId = occurrence?.id || null;
     }
 
     await env.cybermeters_db
@@ -433,25 +914,37 @@ export async function evaluateCertificateLifecycleMonitoring(env, workspaceId, {
       .run();
 
     if (required_case_action !== "none") {
-      const acted = await openOrReopenCertificateCase(env, { ...rec, ownership_status, days_remaining: renewal.days_remaining }, { recurrence: recurrence_type, action: required_case_action, now });
+      const acted = await openOrReopenCertificateCase(
+        env,
+        { ...rec, ownership_status, days_remaining: renewal.days_remaining },
+        {
+          recurrence: recurrence_type,
+          action: required_case_action,
+          now,
+          conditionChanged: monitoringChanged,
+          occurrenceId,
+        }
+      );
       // Tell the customer — through the ONE canonical pipeline, from the same
       // deterministic decision that just opened/reopened the case. Detection is not
       // repeated here. The condition-start and occurrence identity come from the
       // append-only monitoring_changed event, so hourly re-evaluation of the same
       // occurrence dedupes and pre-existing state stays silent. Never sends directly.
-      await emitLifecycleAlert(env, {
-        workspace_id: workspaceId, domain_key: "certificates_trust",
-        record_id: rec.id, entity: rec.primary_hostname, hostname: rec.primary_hostname,
-        recurrence: recurrence_type,
-        // renewal_overdue INHERITS its grade from the band: 30-8 => high, 7-1 =>
-        // critical. Every other certificate recurrence has a static severity and
-        // ignores this. A null band on an inherit recurrence fails closed in
-        // emitLifecycleAlert rather than alerting at an invented grade.
-        record_severity: nextBand,
-        finding_type: (RECURRENCE_CASE[recurrence_type] || {}).finding_type || null,
-        case_id: rec.linked_case_id || null,
-      }).catch(() => { /* alerting must never break the evaluator */ });
-      if (acted?.ok) cases++;
+      if (acted?.ok && !acted?.deduped) {
+        await emitLifecycleAlert(env, {
+          workspace_id: workspaceId, domain_key: "certificates_trust",
+          record_id: rec.id, entity: rec.primary_hostname, hostname: rec.primary_hostname,
+          recurrence: recurrence_type,
+          // renewal_overdue INHERITS its grade from the band: 30-8 => high, 7-1 =>
+          // critical. Every other certificate recurrence has a static severity and
+          // ignores this. A null band on an inherit recurrence fails closed in
+          // emitLifecycleAlert rather than alerting at an invented grade.
+          record_severity: nextBand,
+          finding_type: (RECURRENCE_CASE[recurrence_type] || {}).finding_type || null,
+          case_id: acted.case?.id || rec.linked_case_id || null,
+        }).catch(() => { /* alerting must never break the evaluator */ });
+        cases++;
+      }
     }
   }
   return { evaluated: recs.length, cases, expired: expiredCount };
@@ -460,20 +953,56 @@ export async function evaluateCertificateLifecycleMonitoring(env, workspaceId, {
 // Open a new certificate_case OR reopen/update the EXISTING linked case through
 // the universal transition validator (never a separate table, never a bare dedup
 // return). A resolved/monitoring case is reopened via canTransitionCase.
-export async function openOrReopenCertificateCase(env, rec, { recurrence, action, now = new Date().toISOString() } = {}) {
+async function appendManagedCaseEvent(env, kase, {
+  from_status,
+  to_status,
+  action,
+  detail,
+  dedupe_key,
+}) {
+  const id = await deterministicEventId("mce", [
+    "certificate-managed-case-event-v1",
+    kase.workspace_id,
+    kase.id,
+    action,
+    dedupe_key,
+  ]);
+  const result = await env.cybermeters_db
+    .prepare(`INSERT OR IGNORE INTO managed_case_events
+      (id, case_id, workspace_id, actor_type, actor_id, from_status, to_status, action, detail_json, created_at)
+      VALUES (?, ?, ?, 'system', NULL, ?, ?, ?, ?, datetime('now'))`)
+    .bind(id, kase.id, kase.workspace_id, from_status, to_status, action, safeJson(detail))
+    .run();
+  return { id, inserted: (result?.meta?.changes ?? 1) > 0 };
+}
+
+export async function openOrReopenCertificateCase(env, rec, {
+  recurrence,
+  action,
+  now = new Date().toISOString(),
+  conditionChanged = true,
+  occurrenceId = null,
+} = {}) {
   const cfg = RECURRENCE_CASE[recurrence] || { finding_type: "certificate_expiring_soon" };
   if (!rec.linked_case_id) {
     return linkCertificateCase(env, rec, {
       actor: { actor_type: "system", actor_id: null }, finding_type: cfg.finding_type,
       title: `Certificate follow-up: ${rec.primary_hostname} (${String(recurrence || "review").replace(/_/g, " ")})`,
       summary: `Managed certificate for ${rec.primary_hostname} needs attention: ${String(recurrence || "review").replace(/_/g, " ")}.`,
+      occurrenceId,
     });
   }
   const kase = await env.cybermeters_db
     .prepare(`SELECT * FROM managed_cases WHERE id = ? AND workspace_id = ?`).bind(rec.linked_case_id, rec.workspace_id).first().catch(() => null);
   if (!kase) {
     await env.cybermeters_db.prepare(`UPDATE certificate_lifecycle SET linked_case_id = NULL WHERE id = ? AND workspace_id = ?`).bind(rec.id, rec.workspace_id).run();
-    return linkCertificateCase(env, rec, { actor: { actor_type: "system", actor_id: null }, finding_type: cfg.finding_type, title: `Certificate follow-up: ${rec.primary_hostname}`, summary: `Recurrence: ${recurrence}.` });
+    return linkCertificateCase(env, rec, {
+      actor: { actor_type: "system", actor_id: null },
+      finding_type: cfg.finding_type,
+      title: `Certificate follow-up: ${rec.primary_hostname}`,
+      summary: `Recurrence: ${recurrence}.`,
+      occurrenceId,
+    });
   }
   const phase = canonicalPhaseFor(kase.case_type, kase.status);
   if (phase === "verified" || phase === "monitoring") {
@@ -483,29 +1012,43 @@ export async function openOrReopenCertificateCase(env, rec, { recurrence, action
       await env.cybermeters_db
         .prepare(`UPDATE managed_cases SET status = ?, reopened_at = ?, reopened_count = ?, updated_at = ? WHERE id = ? AND workspace_id = ?`)
         .bind(n.status, n.reopened_at || now, Number(n.reopened_count || 0), n.updated_at, kase.id, kase.workspace_id).run();
-      await env.cybermeters_db
-        .prepare(`INSERT INTO managed_case_events (id, case_id, workspace_id, actor_type, actor_id, from_status, to_status, action, detail_json, created_at)
-                  VALUES (?, ?, ?, 'system', NULL, ?, ?, ?, ?, datetime('now'))`)
-        .bind(newCaseEventId(), kase.id, kase.workspace_id, kase.status, n.status, decision.event.action, safeJson({ recurrence, lifecycle: rec.id })).run();
-      await appendEvent(env, rec, { event_type: "reopened", detail: { case_id: kase.id, recurrence } });
-      return { ok: true, reopened: true };
+      const eventKey = occurrenceId || `${rec.current_certificate_observation_id || "unknown"}:${recurrence}:${kase.status}`;
+      await appendManagedCaseEvent(env, kase, {
+        from_status: kase.status,
+        to_status: n.status,
+        action: decision.event.action,
+        detail: { recurrence, lifecycle: rec.id, occurrence_id: occurrenceId },
+        dedupe_key: eventKey,
+      });
+      await appendEvent(env, rec, {
+        event_type: "reopened",
+        detail: { case_id: kase.id, recurrence, occurrence_id: occurrenceId },
+        dedupe_key: `${kase.id}:${eventKey}`,
+      });
+      return { ok: true, reopened: true, case: n };
     }
   }
-  // Active case → append a recurrence event (update, not a bare dedup return).
-  await env.cybermeters_db
-    .prepare(`INSERT INTO managed_case_events (id, case_id, workspace_id, actor_type, actor_id, from_status, to_status, action, detail_json, created_at)
-              VALUES (?, ?, ?, 'system', NULL, ?, ?, 'certificate_recurrence', ?, datetime('now'))`)
-    .bind(newCaseEventId(), kase.id, kase.workspace_id, kase.status, kase.status, safeJson({ recurrence, lifecycle: rec.id })).run();
-  // NOT `monitoring_changed`: no monitoring state changed here. This records "the
-  // already-open case was touched again for the same recurrence", on every evaluation
-  // pass for as long as the condition persists. See shadow-it-inventory.js — the three
-  // domains carried the identical row, and all three are corrected together rather than
-  // fixing the one that was reported and leaving its siblings to be found later.
-  await appendEvent(env, rec, { event_type: "case_recurrence_noted", detail: { case_id: kase.id, recurrence, updated_case: true } });
-  return { ok: true, updated: true };
+
+  // An unchanged active recurrence is already represented by the linked case and
+  // its append-only occurrence. Re-evaluation is a no-op, not a fresh audit row.
+  if (!conditionChanged) return { ok: true, deduped: true, case: kase };
+
+  const eventKey = occurrenceId || `${rec.evaluated_at || rec.created_at || now}:${recurrence}`;
+  await appendManagedCaseEvent(env, kase, {
+    from_status: kase.status,
+    to_status: kase.status,
+    action: "certificate_recurrence",
+    detail: { recurrence, lifecycle: rec.id, occurrence_id: occurrenceId },
+    dedupe_key: eventKey,
+  });
+  await appendEvent(env, rec, {
+    event_type: "case_recurrence_noted", detail: { case_id: kase.id, recurrence, updated_case: true, occurrence_id: occurrenceId },
+    dedupe_key: `${kase.id}:${eventKey}`,
+  });
+  return { ok: true, updated: true, case: kase };
 }
 
-async function linkCertificateCase(env, rec, { actor, finding_type, title, summary } = {}) {
+async function linkCertificateCase(env, rec, { actor, finding_type, title, summary, occurrenceId = null } = {}) {
   const result = await createManagedCase(env, {
     workspace_id: rec.workspace_id,
     domain_key: "certificates_trust",
@@ -521,8 +1064,18 @@ async function linkCertificateCase(env, rec, { actor, finding_type, title, summa
   await env.cybermeters_db
     .prepare(`UPDATE certificate_lifecycle SET linked_case_id = ?, updated_at = datetime('now') WHERE id = ? AND workspace_id = ?`)
     .bind(result.case.id, rec.id, rec.workspace_id).run();
-  await appendEvent(env, rec, { actor_type: actor?.actor_type || "system", actor_id: actor?.actor_id || null, event_type: "case_linked", detail: { case_id: result.case.id, remediation_id: result.case.remediation_id } });
-  return { ok: true, case: result.case };
+  await appendEvent(env, rec, {
+    actor_type: actor?.actor_type || "system",
+    actor_id: actor?.actor_id || null,
+    event_type: "case_linked",
+    detail: {
+      case_id: result.case.id,
+      remediation_id: result.case.remediation_id,
+      occurrence_id: occurrenceId,
+    },
+    dedupe_key: result.case.id,
+  });
+  return { ok: true, created: result.created, case: result.case };
 }
 
 // ── Workflow service ────────────────────────────────────────────────────────
@@ -548,7 +1101,7 @@ export async function certificateLifecycleAction(env, workspaceId, id, action, o
   const rec = await loadRecord(env, workspaceId, id);
   if (!rec) return { ok: false, code: "not_found" }; // same for foreign + nonexistent
   const actor = { actor_type: "customer", actor_id: opts.actor_id || null };
-  const now = new Date().toISOString();
+  const now = opts.now || new Date().toISOString();
   const set = { updated_at: now };
   let eventType = "monitoring_changed", detail = { action };
   // Set by verify_replacement when — and only when — a real external observation verified
@@ -606,19 +1159,27 @@ export async function certificateLifecycleAction(env, workspaceId, id, action, o
       eventType = "replacement_recorded"; detail = { note: "customer_asserted_not_verified" };
       break;
     case "request_verification": {
-      // Attempt external verification from the current observed evidence.
+      // Re-evaluate CyberMeters' persisted observation evidence. The customer
+      // asks us to look; they do not supply or conclude the verification.
       const current = rec.current_certificate_observation_id
-        ? await env.cybermeters_db.prepare(`SELECT certificate_key, expires_at FROM certificate_observations WHERE id = ? AND workspace_id = ?`).bind(rec.current_certificate_observation_id, workspaceId).first().catch(() => null)
+        ? await env.cybermeters_db
+          .prepare(`SELECT id, certificate_key, issuer, expires_at, first_seen, last_seen, evidence_json
+                    FROM certificate_observations WHERE id = ? AND workspace_id = ?`)
+          .bind(rec.current_certificate_observation_id, workspaceId).first().catch(() => null)
         : null;
       const previous = rec.previous_certificate_observation_id
-        ? await env.cybermeters_db.prepare(`SELECT certificate_key, expires_at FROM certificate_observations WHERE id = ? AND workspace_id = ?`).bind(rec.previous_certificate_observation_id, workspaceId).first().catch(() => null)
+        ? await env.cybermeters_db
+          .prepare(`SELECT id, certificate_key, issuer, expires_at, first_seen, last_seen, evidence_json
+                    FROM certificate_observations WHERE id = ? AND workspace_id = ?`)
+          .bind(rec.previous_certificate_observation_id, workspaceId).first().catch(() => null)
         : null;
-      const coverage = computeCoverage(parseJson(rec.expected_hostnames_json, []) || [], parseJson(rec.observed_sans_json, []) || []);
-      const evidence = buildVerificationEvidence(rec, { current, previous, coverage, now });
+      const evidence = buildVerificationEvidence(rec, { current, previous, now });
       set.verification_detail_json = safeJson(evidence);
       set.verification_method = "external_observation";
       if (evidence.verification_result === "verified") {
-        set.verification_status = "verified_replaced"; set.verified_at = now; set.renewal_status = "verified";
+        set.verification_status = "verified_replaced";
+        set.verified_at = evidence.observed_at;
+        set.renewal_status = "verified";
         eventType = "verified_replaced"; detail = evidence;
         // The LINKED CASE follows the observation — M5.b.
         //
@@ -668,7 +1229,15 @@ export async function certificateLifecycleAction(env, workspaceId, id, action, o
     .prepare(`UPDATE certificate_lifecycle SET ${cols.map((c) => `${c} = ?`).join(", ")} WHERE id = ? AND workspace_id = ?`)
     .bind(...cols.map((c) => set[c]), id, workspaceId).run();
   const updated = { ...rec, ...set };
-  await appendEvent(env, updated, { actor_type: "customer", actor_id: actor.actor_id, event_type: eventType, detail });
+  await appendEvent(env, updated, {
+    actor_type: "customer",
+    actor_id: actor.actor_id,
+    event_type: eventType,
+    detail,
+    dedupe_key: action === "request_verification"
+      ? `${rec.current_certificate_observation_id || "none"}:${detail?.verification_result || "requested"}:${detail?.reobserved_at || "none"}`
+      : null,
+  });
   if (verifyCaseFromObservation) {
     await verifyCertificateCaseFromObservation(env, updated, verifyCaseFromObservation.evidence, now).catch(() => {});
   }
@@ -695,18 +1264,29 @@ export async function certificateLifecycleAction(env, workspaceId, id, action, o
  * Never throws: a case-layer failure must not undo the record's own honest verification.
  */
 async function verifyCertificateCaseFromObservation(env, rec, evidence, now) {
+  if (
+    evidence?.verification_result !== "verified" ||
+    evidence?.later_reobservation !== true ||
+    evidence?.method_appropriate_evidence !== true ||
+    evidence?.live_serving_evidence !== true
+  ) {
+    return { skipped: "verification_evidence_not_sufficient" };
+  }
   if (!rec.linked_case_id) return { skipped: "no_linked_case" };
   const kase = await env.cybermeters_db
     .prepare(`SELECT * FROM managed_cases WHERE id = ? AND workspace_id = ?`)
     .bind(rec.linked_case_id, rec.workspace_id).first().catch(() => null);
   if (!kase) return { skipped: "no_linked_case" };
 
+  const evidenceKey = `${rec.current_certificate_observation_id || evidence.new_identity}:${evidence.reobserved_at || evidence.observed_at}`;
   const noteOnCase = async (action, detail) => {
-    await env.cybermeters_db
-      .prepare(`INSERT INTO managed_case_events (id, case_id, workspace_id, actor_type, actor_id, from_status, to_status, action, detail_json, created_at)
-                VALUES (?, ?, ?, 'system', NULL, ?, ?, ?, ?, datetime('now'))`)
-      .bind(newCaseEventId(), kase.id, rec.workspace_id, kase.status, kase.status, action, safeJson(detail))
-      .run().catch(() => {});
+    await appendManagedCaseEvent(env, kase, {
+      from_status: kase.status,
+      to_status: kase.status,
+      action,
+      detail,
+      dedupe_key: evidenceKey,
+    }).catch(() => {});
   };
 
   // The registry decides, per finding — not this function, and not the domain.
@@ -721,6 +1301,9 @@ async function verifyCertificateCaseFromObservation(env, rec, evidence, now) {
   }
 
   const phase = canonicalPhaseFor(kase.case_type, kase.status);
+  if (phase === "verified") {
+    return { ok: true, verified: true, deduped: true, case_id: kase.id };
+  }
   if (phase !== "awaiting_verification") {
     await noteOnCase("replacement_observed", { phase, reason: "case_not_awaiting_verification" });
     return { skipped: "case_not_awaiting_verification", phase };
@@ -754,10 +1337,13 @@ async function verifyCertificateCaseFromObservation(env, rec, evidence, now) {
   await env.cybermeters_db
     .prepare(`UPDATE managed_cases SET status = ?, verified_at = ?, last_verified_at = ?, updated_at = ? WHERE id = ? AND workspace_id = ?`)
     .bind(n.status, n.verified_at || now, now, n.updated_at, kase.id, rec.workspace_id).run();
-  await env.cybermeters_db
-    .prepare(`INSERT INTO managed_case_events (id, case_id, workspace_id, actor_type, actor_id, from_status, to_status, action, detail_json, created_at)
-              VALUES (?, ?, ?, 'system', NULL, ?, ?, ?, ?, datetime('now'))`)
-    .bind(newCaseEventId(), kase.id, rec.workspace_id, kase.status, n.status, decision.event.action, safeJson(caseEvidence)).run();
+  await appendManagedCaseEvent(env, kase, {
+    from_status: kase.status,
+    to_status: n.status,
+    action: decision.event.action,
+    detail: caseEvidence,
+    dedupe_key: evidenceKey,
+  });
   return { ok: true, verified: true, case_id: kase.id };
 }
 

@@ -67,7 +67,45 @@ for (const [d, host] of [["d1","example.com"],["d2","expired.com"],["d3","cover.
 }
 let oc = 0;
 function seedCert(ws, domainId, key, { issuer = "Let's Encrypt", subject = null, sans = [], expires, first = "2026-06-01T00:00:00Z", last = "2026-07-15T00:00:00Z" }) {
-  const ev = JSON.stringify({ issuer, san_hostnames: sans, expires_at: expires });
+  const scopedSignal = (value, signal) => ({
+    completeness_state: "monitoring_healthy",
+    complete: true,
+    observation: "present",
+    value,
+    observation_scope: "ct_issuance",
+    achieved_grade: "L1",
+    publishable: false,
+    source_type: "normative_protocol",
+    provenance: [{ source: "legacy-lifecycle-fixture", method: `ct_${signal}` }],
+  });
+  const ev = JSON.stringify({
+    issuer,
+    san_hostnames: sans,
+    expires_at: expires,
+    signal_completeness: {
+      signals: {
+        issuer: scopedSignal(issuer, "issuer"),
+        san: scopedSignal(sans, "san"),
+        expiry: scopedSignal(expires, "expiry"),
+        leaf: {
+          completeness_state: "evidence_incomplete",
+          observation: "unknown",
+          value: null,
+          observation_scope: "live_tls",
+          achieved_grade: "L0",
+          publishable: false,
+        },
+        wildcard: {
+          completeness_state: "evidence_incomplete",
+          observation: "unknown",
+          value: null,
+          observation_scope: "ct_issuance",
+          achieved_grade: "L0",
+          publishable: false,
+        },
+      },
+    },
+  });
   db.prepare(`INSERT INTO certificate_observations (id, workspace_id, domain_id, scan_id, certificate_key, subject, issuer, san_count, expires_at, first_seen, last_seen, evidence_json, created_at, updated_at)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),datetime('now'))`)
     .run(`co-${++oc}`, ws, domainId, "scan1", key, subject, issuer, sans.length, expires, first, last, ev);
@@ -125,8 +163,8 @@ ok("previous observation preserved (points at old cert)", Boolean(d1b.previous_c
 ok("replacement_detected_at set", Boolean(d1b.replacement_detected_at));
 eq("both raw observations still exist (old never overwritten)",
   db.prepare("SELECT COUNT(*) AS n FROM certificate_observations WHERE workspace_id='ws1' AND domain_id='d1'").get().n, 2);
-ok("a replacement_detected event was appended",
-  (await listCertificateLifecycleEvents(env, "ws1", d1.certificate_lifecycle_id)).some((e) => e.event_type === "replacement_detected"));
+ok("a canonical replaced event was appended",
+  (await listCertificateLifecycleEvents(env, "ws1", d1.certificate_lifecycle_id)).some((e) => e.event_type === "replaced"));
 
 // ── 6. Verification contract — external observation only ────────────────────
 await certificateLifecycleAction(env, "ws1", d1.certificate_lifecycle_id, "set_expected_hostnames", { actor_id: "admin", expected_hostnames: ["example.com","www.example.com"] });
@@ -134,15 +172,15 @@ const recorded = await certificateLifecycleAction(env, "ws1", d1.certificate_lif
 eq("recorded replacement → awaiting_verification (NOT verified)", recorded.item.renewal_status, "awaiting_verification");
 eq("recorded replacement stays not_verified", recorded.item.verification_status, "not_verified");
 const verified = await certificateLifecycleAction(env, "ws1", d1.certificate_lifecycle_id, "request_verification", { actor_id: "admin" });
-eq("distinct new cert + coverage + forward expiry → verified_replaced", verified.item.verification_status, "verified_replaced");
+eq("CT-only first observation remains inconclusive", verified.item.verification_status, "inconclusive");
 eq("verified verification_method is external_observation", verified.item.verification_method, "external_observation");
 ok("verification evidence keeps chain/root/OCSP/revocation unknown",
   verified.item.verification_detail && ["chain_valid","root_trusted","ocsp","revocation"].every((s) => verified.item.verification_detail.unknown_signals.includes(s)));
 
 // verify unit contract — failed / inconclusive branches
 const recStub = { expected_hostnames_json: '["a.com"]', observed_sans_json: '["a.com"]', issuer: "X", coverage_status: "complete", certificate_identity: "new" };
-eq("distinct + acceptable + NOT forward → failed",
-  buildVerificationEvidence(recStub, { current: { certificate_key: "new", expires_at: "2026-01-01T00:00:00Z" }, previous: { certificate_key: "old", expires_at: "2027-01-01T00:00:00Z" }, coverage: { status: "complete" }, now: NOW }).verification_result, "failed");
+eq("raw rows without method-appropriate re-observation stay inconclusive",
+  buildVerificationEvidence(recStub, { current: { certificate_key: "new", expires_at: "2026-01-01T00:00:00Z" }, previous: { certificate_key: "old", expires_at: "2027-01-01T00:00:00Z" }, coverage: { status: "complete" }, now: NOW }).verification_result, "inconclusive");
 eq("no distinct new cert → inconclusive",
   buildVerificationEvidence(recStub, { current: { certificate_key: "same", expires_at: "2027-01-01T00:00:00Z" }, previous: { certificate_key: "same", expires_at: "2026-01-01T00:00:00Z" }, coverage: { status: "complete" }, now: NOW }).verification_result, "inconclusive");
 eq("incomplete coverage → inconclusive (cannot verify)",

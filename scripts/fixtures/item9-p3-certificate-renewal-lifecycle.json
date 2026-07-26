@@ -1,0 +1,44 @@
+{
+  "clock": {
+    "baseline": "2026-07-26T10:00:00.000Z",
+    "replacement_detected": "2026-07-27T10:00:00.000Z",
+    "replacement_reobserved": "2026-07-28T10:00:00.000Z",
+    "recurrence": "2026-07-29T10:00:00.000Z"
+  },
+  "bands": [
+    { "not_after": "2026-12-31T10:00:00.000Z", "expected": "monitoring" },
+    { "not_after": "2026-10-04T10:00:00.000Z", "expected": "planning" },
+    { "not_after": "2026-09-04T10:00:00.000Z", "expected": "preparation" },
+    { "not_after": "2026-08-15T10:00:00.000Z", "expected": "high" },
+    { "not_after": "2026-08-01T10:00:00.000Z", "expected": "critical" },
+    { "not_after": "2026-07-20T10:00:00.000Z", "expected": "expired" }
+  ],
+  "replacement": {
+    "previous": {
+      "identity": "leaf-old",
+      "issuer": "Example CA One",
+      "sans": ["example.com", "www.example.com"],
+      "expiry": "2026-07-25T10:00:00.000Z",
+      "wildcard": false
+    },
+    "current": {
+      "identity": "leaf-new",
+      "issuer": "Example CA Two",
+      "sans": ["example.com", "api.example.com", "*.example.com"],
+      "expiry": "2026-12-31T10:00:00.000Z",
+      "wildcard": true
+    },
+    "expected_events": [
+      "replaced",
+      "renewed",
+      "issuer_changed",
+      "san_changed",
+      "wildcard_changed"
+    ]
+  },
+  "failed_replacement": {
+    "previous_expiry": "2026-09-30T10:00:00.000Z",
+    "current_expiry": "2026-08-30T10:00:00.000Z",
+    "renewal_status": "in_progress"
+  }
+}
