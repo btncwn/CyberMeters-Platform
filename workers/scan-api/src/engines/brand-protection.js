@@ -5,6 +5,7 @@
 // (monolith decomposition, Phase 1c). BRAND_VARIANT_TYPES/BRAND_RISK_LEVELS/
 // BRAND_EVIDENCE_SIGNALS, safeJsonArray and brandProtectedDomains are module-internal.
 import { HIGH_RISK_BRAND_KEYWORDS, extractBrandParts } from "./brand-typosquat.js";
+import { analyzeIdnHomograph, levenshteinDistance } from "./idn-homograph.js";
 import { isValidDomain, parseBoundedInteger } from "../lib/util.js";
 
 // ── Brand Monitoring — Typosquat & Brand Asset Tracking ──────────────────────
@@ -55,21 +56,19 @@ export function brandSimilarityScore(candidateDomain, brandName) {
   const candidate = String(candidateDomain || "").toLowerCase().split(".")[0].replace(/[^a-z0-9]/g, "").slice(0, 100);
   const brand = String(brandName || "").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 100);
   if (!candidate || !brand) return null;
-  const previous = Array.from({ length: brand.length + 1 }, (_, i) => i);
-  for (let i = 1; i <= candidate.length; i++) {
-    let diagonal = previous[0];
-    previous[0] = i;
-    for (let j = 1; j <= brand.length; j++) {
-      const above = previous[j];
-      previous[j] = Math.min(
-        previous[j] + 1,
-        previous[j - 1] + 1,
-        diagonal + (candidate[i - 1] === brand[j - 1] ? 0 : 1),
-      );
-      diagonal = above;
-    }
-  }
-  return Math.max(0, Math.round((1 - previous[brand.length] / Math.max(candidate.length, brand.length)) * 100));
+  const asciiDistance = levenshteinDistance(candidate, brand);
+  const asciiScore = Math.max(0, Math.round((1 - asciiDistance / Math.max(candidate.length, brand.length)) * 100));
+  // Additive path: existing ASCII scoring remains byte-for-byte equivalent.
+  // A validated IDN homograph may lift the score through its confusable
+  // skeleton; unrelated/malformed IDNs retain the legacy ASCII result.
+  const rawCandidate = String(candidateDomain || "");
+  if (!/[^\x00-\x7f]/.test(rawCandidate) && !/(^|\.)xn--/i.test(rawCandidate)) return asciiScore;
+  const idn = analyzeIdnHomograph(candidateDomain, brandName);
+  return idn.is_homograph ? Math.max(asciiScore, idn.similarity_score) : asciiScore;
+}
+
+export function brandIdnHomographAnalysis(candidateDomain, brandName) {
+  return analyzeIdnHomograph(candidateDomain, brandName);
 }
 
 export function scoreBrandCandidateRisk(candidate = {}) {
