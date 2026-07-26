@@ -163,6 +163,13 @@ The alert's core reappearance claim was therefore unsupported. The alert pipelin
 stays enabled. P3 will make reappearance depend on the new confirmed-removal
 lifecycle instead of legacy `inactive`; it will not suppress an alert class.
 
+The reviewed 14–15 July disappearance/reappearance record predates the ct_error
+disappearance guard added on 19 July 2026 in commit `7b35330` / PR #182. That
+specific mechanism is already closed and must not be treated as a currently-live
+defect. The remaining live gap is that one otherwise-complete scan can still map
+not-observed to legacy inactive / asset_no_longer_seen before confirmed-removal
+evidence exists.
+
 ### Scope Boundaries
 
 - P1: this note, the pure signal resolver, the pure removal policy, deterministic
