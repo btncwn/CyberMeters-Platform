@@ -1,5 +1,5 @@
 {
-  "model_version": "certificate-signal-completeness-v1",
+  "model_version": "certificate-signal-completeness-v2",
   "module_budget_ms": 9000,
   "module_subrequest_cap": 6,
   "scenarios": [

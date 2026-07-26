@@ -243,7 +243,7 @@ try {
   const completeness = intelligence?.signal_completeness;
   const signals = completeness?.signals || {};
   eq("production caller attaches the P1 model",
-    completeness?.model_version, "certificate-signal-completeness-v1");
+    completeness?.model_version, "certificate-signal-completeness-v2");
   eq("isolated crt.sh failure degrades only CT completeness",
     signals.certificate_transparency?.completeness_state,
     "monitoring_degraded");
@@ -261,8 +261,33 @@ try {
     signals.chain?.observation, "unknown");
   eq("multiple CT records never claim a parallel live certificate set",
     signals.parallel_certificate_set?.observation, "unknown");
+  eq("P4 current DNS CAA absence is independently assessed",
+    signals.caa?.completeness_state, "monitoring_healthy");
+  eq("P4 current DNS CAA absence is not confused with a lookup failure",
+    signals.caa?.observation, "absent");
+  eq("P4 hostname match stays unknown without a peer leaf",
+    signals.hostname_match?.observation, "unknown");
+  eq("P4 intermediate validity stays unknown without a presented chain",
+    signals.intermediate_validity?.observation, "unknown");
+  eq("P4 certificate algorithm stays unknown without live leaf metadata",
+    signals.certificate_algorithm?.observation, "unknown");
+  eq("P4 trust-store acceptance stays unknown without declared validation",
+    signals.trust_store_validation?.observation, "unknown");
+  eq("P4 revocation stays independently unknown without validated OCSP",
+    signals.revocation_assurance?.observation, "unknown");
+  eq("P4 production trace does not claim revocation collection support",
+    completeness?.assurance_families?.revocation_assurance?.supported, false);
+  eq("P4 production trace labels CT issuance without a live leaf as CT-only",
+    completeness?.summary?.ct_only, true);
+  eq("P4 missing revocation does not erase CT issuer",
+    signals.issuer?.observation, "present");
+  eq("P4 missing revocation does not erase active service",
+    signals.active_service?.observation, "present");
   eq("legacy live-certificate flag remains honest",
     intelligence?.live_certificate_verified, false);
+  eq("SSL declares the additive P4 evidence schema",
+    report.modules?.ssl?.certificate_evidence?.schema_version,
+    "external-certificate-observation-v2");
   eq("SSL declares that live leaf collection was unavailable",
     report.modules?.ssl?.certificate_evidence?.live_tls?.leaf_collected,
     false);
@@ -316,7 +341,7 @@ try {
     const evidence = JSON.parse(row.evidence_json || "{}");
     eq(`${row.workspace_id}: D1 evidence persists the P1 model`,
       evidence.signal_completeness?.model_version,
-      "certificate-signal-completeness-v1");
+      "certificate-signal-completeness-v2");
     eq(`${row.workspace_id}: persisted CT state is scoped and degraded`,
       evidence.signal_completeness?.signals
         ?.certificate_transparency?.completeness_state,
@@ -325,6 +350,17 @@ try {
       evidence.signal_completeness?.signals
         ?.active_service?.completeness_state,
       "monitoring_healthy");
+    eq(`${row.workspace_id}: persisted CAA state remains independent`,
+      evidence.signal_completeness?.signals?.caa?.observation,
+      "absent");
+    eq(`${row.workspace_id}: persisted trust-store state remains unknown`,
+      evidence.signal_completeness?.signals
+        ?.trust_store_validation?.observation,
+      "unknown");
+    eq(`${row.workspace_id}: persisted revocation state remains unknown`,
+      evidence.signal_completeness?.signals
+        ?.revocation_assurance?.observation,
+      "unknown");
   }
 
   const beforeUnavailablePersistence = db.prepare(

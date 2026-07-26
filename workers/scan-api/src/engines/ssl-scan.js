@@ -291,12 +291,44 @@ export async function runSslModule(domain, opts = {}) {
     // This is metadata over evidence already collected above: it performs no probe
     // and intentionally refuses to present CT issuance as a live TLS certificate.
     certificate_evidence: {
-      schema_version: "external-certificate-observation-v1",
+      schema_version: "external-certificate-observation-v2",
       observed_at: observedAt,
       live_tls: {
+        // Legacy booleans remain for historical readers. The structured fields
+        // below are the P4 trust-policy contract and are deliberately absent until
+        // a compatible peer-certificate collector supplies real handshake evidence.
         leaf_collected: false,
         chain_collected: false,
         trust_store_context: null,
+        leaf_certificate: {
+          collection_performed: false,
+          collection_complete: false,
+          certificate_identity: null,
+        },
+        presented_chain: {
+          collection_performed: false,
+          collection_complete: false,
+          presentation_state: "unknown",
+          intermediates: [],
+        },
+        hostname_match: {
+          assessment_performed: false,
+          result: "unknown",
+          reference_hostname: domain,
+        },
+        trust_store_validation: {
+          validation_performed: false,
+          validation_result: "unknown",
+          certificate_identity: null,
+          trust_store_context: null,
+        },
+        revocation_assurance: {
+          assessment_performed: false,
+          stapled_ocsp: null,
+          response_validated: false,
+          status: "unknown",
+          certificate_identity: null,
+        },
         reason: "worker_http_fetch_does_not_expose_peer_certificate",
       },
       ct_projection: {

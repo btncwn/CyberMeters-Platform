@@ -94,19 +94,19 @@ await withMutant(
 
 await withMutant(
   "certificate-signal-completeness.js",
-  (source) => source.replace(
-    `leaf: evidence({
-      completeness_state: SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE,
-      observation: CERTIFICATE_OBSERVATION_STATES.UNKNOWN,
-      observation_scope: "live_tls",
-      achieved_grade: "L0",`,
-    `leaf: evidence({
-      completeness_state: SIGNAL_MONITORING_STATES.MONITORING_HEALTHY,
-      observation: CERTIFICATE_OBSERVATION_STATES.PRESENT,
-      value: ssl.cert_subject || ssl.cert_issuer,
-      observation_scope: "live_tls",
-      achieved_grade: "L2",`,
-  ),
+  (source) => source
+    .replace(
+      "completeness_state: trust.leafCollected\n        ? SIGNAL_MONITORING_STATES.MONITORING_HEALTHY",
+      "completeness_state: trust.leafCollected || selectedCtCertificate\n        ? SIGNAL_MONITORING_STATES.MONITORING_HEALTHY",
+    )
+    .replace(
+      "observation: trust.leafCollected\n        ? CERTIFICATE_OBSERVATION_STATES.PRESENT",
+      "observation: trust.leafCollected || selectedCtCertificate\n        ? CERTIFICATE_OBSERVATION_STATES.PRESENT",
+    )
+    .replace(
+      "value: trust.leafCollected ? { ...trust.leaf } : null,",
+      "value: trust.leafCollected ? { ...trust.leaf } : { certificate_identity: ssl.cert_subject },",
+    ),
   async (mutant) => {
     const result = mutant.deriveCertificateSignalCompletenessFromModules({
       modules: completeModules(),

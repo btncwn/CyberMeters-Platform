@@ -1,7 +1,8 @@
 // ── Item 9 Certificates & Trust per-signal evidence contract ────────────────
 //
-// Pure model only (P1): no probes, persistence, scoring, alerts, cases, reports or
-// production caller. The production integration is intentionally deferred to P2.
+// P1 introduced the pure nine-signal model; P2 connected its compatibility
+// adapter to certificate intelligence and existing JSON persistence. P4 extends
+// that same model with trust-policy depth. This file still performs no I/O.
 //
 // Completeness reuses the ONE canonical monitoring-state vocabulary. Observation
 // is a separate axis so unavailable/incomplete evidence can never collapse to
@@ -10,7 +11,7 @@
 import { SIGNAL_MONITORING_STATES } from "./signal-monitoring-state.js";
 
 export const CERTIFICATE_SIGNAL_COMPLETENESS_VERSION =
-  "certificate-signal-completeness-v1";
+  "certificate-signal-completeness-v2";
 export const MAX_PARALLEL_OBSERVATION_WINDOW_MS = 9_000;
 
 export const CERTIFICATE_SIGNAL_KEYS = Object.freeze([
@@ -23,6 +24,12 @@ export const CERTIFICATE_SIGNAL_KEYS = Object.freeze([
   "wildcard",
   "parallel_certificate_set",
   "active_service",
+  "caa",
+  "hostname_match",
+  "intermediate_validity",
+  "certificate_algorithm",
+  "trust_store_validation",
+  "revocation_assurance",
 ]);
 
 export const CERTIFICATE_OBSERVATION_STATES = Object.freeze({
@@ -120,6 +127,24 @@ const RFC_5280_VALIDITY = authority({
   interpretation: "Defines the certificate validity period.",
   url: "https://www.rfc-editor.org/rfc/rfc5280.html#section-4.1.2.5",
 });
+const RFC_5280_INTERMEDIATE_VALIDITY = authority({
+  standard_id: "RFC 5280",
+  standard_version: "May 2008",
+  section: "§6.1",
+  requirement_type: "protocol_profile",
+  interpretation:
+    "Certification-path processing requires every certificate in the prospective path to be valid at the time in question.",
+  url: "https://www.rfc-editor.org/rfc/rfc5280.html#section-6.1",
+});
+const RFC_5280_ALGORITHMS = authority({
+  standard_id: "RFC 5280",
+  standard_version: "May 2008",
+  section: "§§4.1.1.2, 4.1.2.3 and 6.1",
+  requirement_type: "protocol_profile",
+  interpretation:
+    "Defines certificate signature and subject-public-key algorithm identifiers used during path processing; strength classification requires a declared policy.",
+  url: "https://www.rfc-editor.org/rfc/rfc5280.html#section-4.1",
+});
 const RFC_5280_SAN = authority({
   standard_id: "RFC 5280",
   standard_version: "May 2008",
@@ -163,6 +188,24 @@ const RFC_9162_CT = authority({
     "Defines CT certificate/precertificate logging; a log entry does not prove live service presentation.",
   url: "https://www.rfc-editor.org/rfc/rfc9162.html",
 });
+const RFC_8659_CAA = authority({
+  standard_id: "RFC 8659",
+  standard_version: "November 2019",
+  section: "§§3–4",
+  requirement_type: "protocol_requirement",
+  interpretation:
+    "Defines the relevant CAA RRset and issue/issuewild authorization properties. RFC 6844 is obsoleted and is not used as the current authority.",
+  url: "https://www.rfc-editor.org/rfc/rfc8659.html",
+});
+const RFC_6960_OCSP = authority({
+  standard_id: "RFC 6960",
+  standard_version: "June 2013",
+  section: "§§2.2, 2.4 and 4.2.2",
+  requirement_type: "protocol_requirement",
+  interpretation:
+    "Defines signed OCSP responses, good/revoked/unknown status and response-time validity semantics; an absent or unvalidated response is not a good status.",
+  url: "https://www.rfc-editor.org/rfc/rfc6960.html",
+});
 const RFC_6962_CT_LEGACY = authority({
   standard_id: "RFC 6962",
   standard_version: "June 2013",
@@ -181,6 +224,28 @@ const CABF_TLS_BR = authority({
   interpretation:
     "Applies to issuance and management of publicly trusted TLS server certificates; it is not a live-service verdict by itself.",
   url: "https://cabforum.org/working-groups/server/baseline-requirements/requirements/",
+  accessed_at: "2026-07-26",
+});
+const CABF_TLS_BR_CAA = authority({
+  standard_id: "CA/Browser Forum TLS Baseline Requirements",
+  standard_version: "2.2.8 (16 June 2026)",
+  section: "§4.2.2.1",
+  requirement_type: "industry_baseline",
+  source_type: "configuration_baseline",
+  interpretation:
+    "Requires public CAs to retrieve and process CAA during issuance; observing a domain's current RRset does not prove how a past issuance was processed.",
+  url: "https://cabforum.org/working-groups/server/baseline-requirements/requirements/#4221-caa-record-processing",
+  accessed_at: "2026-07-26",
+});
+const CABF_TLS_BR_KEY_SIZES = authority({
+  standard_id: "CA/Browser Forum TLS Baseline Requirements",
+  standard_version: "2.2.8 (16 June 2026)",
+  section: "§6.1.5 and §7.1.3.2.1",
+  requirement_type: "industry_baseline",
+  source_type: "configuration_baseline",
+  interpretation:
+    "Defines permitted public-key sizes and certificate-signature algorithm requirements for publicly trusted TLS certificates; CyberMeters reports only observed weakness predicates, not blanket compliance.",
+  url: "https://cabforum.org/working-groups/server/baseline-requirements/requirements/#615-key-sizes",
   accessed_at: "2026-07-26",
 });
 const PARALLEL_PRODUCT_POLICY = authority({
@@ -202,6 +267,16 @@ const ACTIVE_SERVICE_PRODUCT_POLICY = authority({
   interpretation:
     "An HTTP response over TLS establishes a reachable service observation, not the identity or trust state of the served certificate.",
   url: "docs/ITEM-9-CERTIFICATES-TRUST-DEPTH-DESIGN.md",
+});
+const TRUST_SIGNAL_PRODUCT_POLICY = authority({
+  standard_id: "CyberMeters External Certificate Trust Policy",
+  standard_version: "item9-p4",
+  section: "evidence-separated trust signal interpretation",
+  requirement_type: "product_policy",
+  source_type: "product_policy",
+  interpretation:
+    "Reports observed trust signals independently and never turns missing chain, hostname, algorithm, trust-store or revocation evidence into a healthy result.",
+  url: "docs/ITEM-9-P4-CERTIFICATE-TRUST-POLICY-DEPTH.md",
 });
 
 function contract({
@@ -366,6 +441,98 @@ export const CERTIFICATE_SIGNAL_CONTRACTS = Object.freeze({
     ],
     assurance_family: "active_service_observation",
   }),
+  caa: contract({
+    observable_ceiling: "L5",
+    beta_target: "L3",
+    minimum_publishable: "L1",
+    degrade_behavior: "show_unknown_when_dns_caa_lookup_is_unavailable",
+    required_corroboration: ["independent-path"],
+    source_type: "normative_protocol",
+    observation_scope: "dns_policy",
+    authorities: [RFC_8659_CAA, CABF_TLS_BR_CAA, TRUST_SIGNAL_PRODUCT_POLICY],
+    limitations: [
+      "CAA is an issuance-authorization DNS policy; presence or absence is not a live certificate trust verdict.",
+      "The current RRset does not prove which CAA policy applied when a historical certificate was issued.",
+      "A lookup failure is unavailable evidence and is never reported as no CAA record.",
+    ],
+    assurance_family: "issuance_policy",
+  }),
+  hostname_match: contract({
+    observable_ceiling: "L5",
+    beta_target: "L4",
+    minimum_publishable: "L3",
+    degrade_behavior: "show_unknown_without_live_presented_identifiers",
+    required_corroboration: ["independent-source"],
+    source_type: "normative_protocol",
+    observation_scope: "live_tls",
+    authorities: [RFC_5280_SAN, RFC_9525_IDENTITY, CABF_TLS_BR, TRUST_SIGNAL_PRODUCT_POLICY],
+    limitations: [
+      "Hostname matching requires the identifiers from the certificate presented by the live endpoint.",
+      "CT SANs cannot establish whether the live service presents a matching or mismatching certificate.",
+    ],
+    assurance_family: "external_tls_validation",
+  }),
+  intermediate_validity: contract({
+    observable_ceiling: "L5",
+    beta_target: "L4",
+    minimum_publishable: "L3",
+    degrade_behavior: "retain_observed_expiry_only_never_infer_all_valid",
+    required_corroboration: ["independent-path"],
+    source_type: "normative_protocol",
+    observation_scope: "live_tls",
+    authorities: [RFC_5280_INTERMEDIATE_VALIDITY, CABF_TLS_BR, TRUST_SIGNAL_PRODUCT_POLICY],
+    limitations: [
+      "An unexpired leaf does not establish that every presented intermediate is within its validity period.",
+      "Absence of an expired intermediate can be stated only when the relevant presented chain was collected completely.",
+    ],
+    assurance_family: "external_tls_validation",
+  }),
+  certificate_algorithm: contract({
+    observable_ceiling: "L5",
+    beta_target: "L4",
+    minimum_publishable: "L3",
+    degrade_behavior: "retain_observed_weakness_never_infer_conformity",
+    required_corroboration: ["independent-source"],
+    source_type: "configuration_baseline",
+    observation_scope: "live_tls",
+    authorities: [RFC_5280_ALGORITHMS, CABF_TLS_BR_KEY_SIZES, TRUST_SIGNAL_PRODUCT_POLICY],
+    limitations: [
+      "A known weak algorithm or key size can be reported from observed certificate metadata.",
+      "No known weak predicate observed is not a blanket standards-compliance or private-key-security conclusion.",
+    ],
+    assurance_family: "external_tls_validation",
+  }),
+  trust_store_validation: contract({
+    observable_ceiling: "L5",
+    beta_target: "L4",
+    minimum_publishable: "L4",
+    degrade_behavior: "show_unknown_without_declared_trust_store_context",
+    required_corroboration: ["independent-path"],
+    source_type: "normative_protocol",
+    observation_scope: "live_tls",
+    authorities: [RFC_5280_CHAIN, TRUST_SIGNAL_PRODUCT_POLICY],
+    limitations: [
+      "Trusted-root acceptance is meaningful only for the named and versioned trust store and validation policy.",
+      "Acceptance by one declared store does not establish universal client trust or internal keystore health.",
+    ],
+    assurance_family: "external_tls_validation",
+  }),
+  revocation_assurance: contract({
+    observable_ceiling: "L5",
+    beta_target: "L4",
+    minimum_publishable: "L2",
+    degrade_behavior: "degrade_revocation_only_keep_sibling_signals",
+    required_corroboration: ["independent-path"],
+    source_type: "normative_protocol",
+    observation_scope: "live_tls",
+    authorities: [RFC_6960_OCSP, RFC_5280_CHAIN, CABF_TLS_BR, TRUST_SIGNAL_PRODUCT_POLICY],
+    limitations: [
+      "A stapled OCSP response must be validated for status, signature and response-time semantics before its status is relied upon.",
+      "Missing or unavailable revocation evidence affects this signal only and never erases leaf, SAN, issuer, expiry or live-service observations.",
+      "An RFC 6960 good response is a scoped status response, not proof of issuance, certificate validity, private-key security or absence of compromise.",
+    ],
+    assurance_family: "revocation_assurance",
+  }),
 });
 
 function cleanString(value) {
@@ -450,6 +617,93 @@ function hasDeclaredTrustStoreContext(value) {
 function chainClaimsTrustValidation(value) {
   const result = cleanString(value?.validation_result).toLowerCase();
   return result && result !== "not_performed" && result !== "unknown";
+}
+
+function trustSignalValidationError(signal, value) {
+  if (!value || typeof value !== "object") {
+    return "A resolved trust signal requires structured evidence.";
+  }
+
+  if (signal === "chain") {
+    const state = cleanString(value.presentation_state).toLowerCase();
+    if (
+      !["presented_complete", "presented_incomplete"].includes(state) &&
+      !Array.isArray(value.presented_chain)
+    ) {
+      return "Presented-chain evidence requires an explicit complete or incomplete presentation state.";
+    }
+  }
+
+  if (signal === "hostname_match") {
+    const result = cleanString(value.result).toLowerCase();
+    if (!["matched", "mismatched"].includes(result)) {
+      return "Hostname validation requires an explicit matched or mismatched result.";
+    }
+    if (!cleanString(value.reference_hostname)) {
+      return "Hostname validation requires the reference hostname.";
+    }
+    if (
+      !Array.isArray(value.presented_identifiers) ||
+      value.presented_identifiers.length === 0
+    ) {
+      return "Hostname validation requires the identifiers observed in the live-presented certificate.";
+    }
+  }
+
+  if (signal === "intermediate_validity") {
+    const status = cleanString(value.status).toLowerCase();
+    if (!["valid", "expired"].includes(status)) {
+      return "Intermediate validity requires an explicit valid or expired status.";
+    }
+    if (
+      status === "expired" &&
+      (!Array.isArray(value.expired_intermediates) ||
+        value.expired_intermediates.length === 0)
+    ) {
+      return "An expired-intermediate result requires the observed expired intermediate evidence.";
+    }
+  }
+
+  if (signal === "certificate_algorithm") {
+    const status = cleanString(value.status).toLowerCase();
+    if (!["weak", "no_known_weakness_observed"].includes(status)) {
+      return "Algorithm evidence requires a weak or no-known-weakness-observed result.";
+    }
+    if (
+      status === "weak" &&
+      (!Array.isArray(value.weaknesses) || value.weaknesses.length === 0)
+    ) {
+      return "A weak-algorithm result requires at least one observed weakness predicate.";
+    }
+  }
+
+  if (signal === "trust_store_validation") {
+    const result = cleanString(value.validation_result).toLowerCase();
+    if (!["valid", "invalid"].includes(result)) {
+      return "Trust-store validation requires an explicit valid or invalid result.";
+    }
+    if (!hasDeclaredTrustStoreContext(value)) {
+      return "Trust-store validation requires a declared trust-store name and version.";
+    }
+    if (!cleanString(value.certificate_identity)) {
+      return "Trust-store validation requires the identity of the validated leaf certificate.";
+    }
+  }
+
+  if (signal === "revocation_assurance") {
+    const status = cleanString(value.status).toLowerCase();
+    if (!["good", "revoked", "unknown"].includes(status)) {
+      return "Revocation evidence requires an RFC 6960 good, revoked or unknown status.";
+    }
+    if (value.response_validated !== true) {
+      return "A revocation status requires validation of the response signature and time semantics.";
+    }
+    if (!cleanString(value.certificate_identity)) {
+      return "A revocation status requires the identity of the certificate checked.";
+    }
+  }
+
+  return null;
 }
 
 function validateParallelCertificateSet(value, completenessState) {
@@ -592,6 +846,26 @@ function resolveOneSignal(signal, rawInput, {
   }
 
   if (
+    [
+      "chain",
+      "hostname_match",
+      "intermediate_validity",
+      "certificate_algorithm",
+      "trust_store_validation",
+      "revocation_assurance",
+    ].includes(signal) &&
+    observation === CERTIFICATE_OBSERVATION_STATES.PRESENT
+  ) {
+    const validationError = trustSignalValidationError(signal, value);
+    if (validationError) {
+      completenessState = SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE;
+      observation = CERTIFICATE_OBSERVATION_STATES.UNKNOWN;
+      value = null;
+      reasons.push(validationError);
+    }
+  }
+
+  if (
     signal === "parallel_certificate_set" &&
     observation === CERTIFICATE_OBSERVATION_STATES.PRESENT
   ) {
@@ -696,6 +970,12 @@ export function deriveCertificateSignalCompleteness({
         limitation:
           "External TLS evidence is scoped to the presented certificate/service context and does not establish internal key assurance.",
       },
+      issuance_policy: {
+        model_supported: true,
+        signal_keys: ["caa"],
+        limitation:
+          "CAA is current DNS issuance-policy evidence and does not establish live serving, past issuance authorization or certificate trust.",
+      },
       internal_key_assurance: {
         supported: false,
         completeness_state: SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE,
@@ -707,10 +987,22 @@ export function deriveCertificateSignalCompleteness({
           "External handshakes, CT records and expiry data cannot establish internal private-key, keystore or inventory assurance.",
       },
       revocation_assurance: {
-        supported: false,
-        completeness_state: SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE,
-        stapled_ocsp: CERTIFICATE_OBSERVATION_STATES.UNKNOWN,
-        revocation_status: CERTIFICATE_OBSERVATION_STATES.UNKNOWN,
+        model_supported: true,
+        supported:
+          signals.revocation_assurance.observation ===
+          CERTIFICATE_OBSERVATION_STATES.PRESENT,
+        signal_key: "revocation_assurance",
+        completeness_state: signals.revocation_assurance.completeness_state,
+        stapled_ocsp:
+          signals.revocation_assurance.observation === CERTIFICATE_OBSERVATION_STATES.PRESENT
+            ? (signals.revocation_assurance.value?.stapled_ocsp === true
+              ? CERTIFICATE_OBSERVATION_STATES.PRESENT
+              : CERTIFICATE_OBSERVATION_STATES.ABSENT)
+            : CERTIFICATE_OBSERVATION_STATES.UNKNOWN,
+        revocation_status:
+          signals.revocation_assurance.observation === CERTIFICATE_OBSERVATION_STATES.PRESENT
+            ? signals.revocation_assurance.value?.status ?? CERTIFICATE_OBSERVATION_STATES.UNKNOWN
+            : CERTIFICATE_OBSERVATION_STATES.UNKNOWN,
         limitation:
           "Missing OCSP or revocation evidence affects this family only and never erases independently reliable certificate signals.",
       },
@@ -727,6 +1019,19 @@ export function deriveCertificateSignalCompleteness({
       live_chain_assessed:
         signals.chain.observation_scope === "live_tls" &&
         signals.chain.observation !== CERTIFICATE_OBSERVATION_STATES.UNKNOWN,
+      ct_issuance_observed:
+        signals.certificate_transparency.observation_scope === "ct_issuance" &&
+        signals.certificate_transparency.observation === CERTIFICATE_OBSERVATION_STATES.PRESENT,
+      live_serving_certificate_observed:
+        signals.leaf.observation_scope === "live_tls" &&
+        signals.leaf.observation === CERTIFICATE_OBSERVATION_STATES.PRESENT,
+      ct_only:
+        signals.certificate_transparency.observation_scope === "ct_issuance" &&
+        signals.certificate_transparency.observation === CERTIFICATE_OBSERVATION_STATES.PRESENT &&
+        !(
+          signals.leaf.observation_scope === "live_tls" &&
+          signals.leaf.observation === CERTIFICATE_OBSERVATION_STATES.PRESENT
+        ),
     },
   };
 }
@@ -797,10 +1102,193 @@ function evidence({
   };
 }
 
-// Pure compatibility adapter for deterministic tests and the later P2 caller.
-// Current production modules contain CT issuance fields and HTTP reachability, but
-// no live TLS leaf/chain capture. The adapter therefore refuses to manufacture live
-// evidence from those CT fields.
+function certificateAlgorithmAssessment(leaf) {
+  const publicKeyAlgorithm = cleanString(
+    leaf?.public_key_algorithm ?? leaf?.key_algorithm
+  );
+  const rawPublicKeySize =
+    leaf?.public_key_size_bits ?? leaf?.key_size_bits ?? null;
+  const publicKeySizeBits =
+    rawPublicKeySize === null || rawPublicKeySize === ""
+      ? Number.NaN
+      : Number(rawPublicKeySize);
+  const signatureAlgorithm = cleanString(leaf?.signature_algorithm);
+  const normalizedKey = publicKeyAlgorithm.toLowerCase();
+  const normalizedSignature = signatureAlgorithm.toLowerCase();
+  const weaknesses = [];
+
+  if (normalizedSignature.includes("md5")) {
+    weaknesses.push("md5_certificate_signature_observed");
+  }
+  if (normalizedSignature.includes("sha1") || normalizedSignature.includes("sha-1")) {
+    weaknesses.push("sha1_certificate_signature_observed");
+  }
+  if (normalizedKey.includes("rsa") && Number.isFinite(publicKeySizeBits) && publicKeySizeBits < 2048) {
+    weaknesses.push("rsa_public_key_below_2048_bits");
+  }
+  if (
+    (normalizedKey.includes("ec") || normalizedKey.includes("ecdsa")) &&
+    Number.isFinite(publicKeySizeBits) &&
+    publicKeySizeBits < 256
+  ) {
+    weaknesses.push("elliptic_curve_public_key_below_256_bits");
+  }
+  if (
+    normalizedKey &&
+    !normalizedKey.includes("rsa") &&
+    !normalizedKey.includes("ec") &&
+    !normalizedKey.includes("ecdsa")
+  ) {
+    weaknesses.push("public_key_algorithm_outside_tls_br_2_2_8_profile");
+  }
+
+  const metadataComplete = Boolean(
+    publicKeyAlgorithm &&
+    Number.isFinite(publicKeySizeBits) &&
+    signatureAlgorithm
+  );
+  if (!metadataComplete && weaknesses.length === 0) return null;
+
+  return {
+    status: weaknesses.length > 0 ? "weak" : "no_known_weakness_observed",
+    public_key_algorithm: publicKeyAlgorithm || null,
+    public_key_size_bits: Number.isFinite(publicKeySizeBits)
+      ? publicKeySizeBits
+      : null,
+    signature_algorithm: signatureAlgorithm || null,
+    weaknesses,
+    policy_context: {
+      name: "CA/Browser Forum TLS Baseline Requirements",
+      version: "2.2.8 (16 June 2026)",
+      sections: ["6.1.5", "7.1.3.2.1"],
+      interpretation: "observed_predicates_only_not_blanket_compliance",
+    },
+  };
+}
+
+function intermediateValidityAssessment(chain, observedAt) {
+  const intermediates = Array.isArray(chain?.intermediates)
+    ? chain.intermediates
+    : [];
+  const observedAtMs = Date.parse(observedAt || "");
+  const expired = intermediates.filter((certificate) => {
+    const notAfterMs = Date.parse(certificate?.not_after || "");
+    return Number.isFinite(observedAtMs) &&
+      Number.isFinite(notAfterMs) &&
+      notAfterMs < observedAtMs;
+  });
+  if (expired.length > 0) {
+    return {
+      status: "expired",
+      expired_intermediates: expired.map((certificate) => ({
+        certificate_identity: cleanString(certificate?.certificate_identity) || null,
+        subject: cleanString(certificate?.subject) || null,
+        issuer: cleanString(certificate?.issuer) || null,
+        not_after: cleanString(certificate?.not_after) || null,
+      })),
+      observed_intermediate_count: intermediates.length,
+    };
+  }
+  if (
+    chain?.collection_performed === true &&
+    chain?.collection_complete === true &&
+    cleanString(chain?.presentation_state) === "presented_complete" &&
+    intermediates.every((certificate) =>
+      Number.isFinite(Date.parse(certificate?.not_after || ""))
+    )
+  ) {
+    return {
+      status: "valid",
+      expired_intermediates: [],
+      observed_intermediate_count: intermediates.length,
+    };
+  }
+  return null;
+}
+
+function liveTrustEvidence({
+  ssl,
+  modules,
+  observedAt,
+}) {
+  const liveTls = ssl?.certificate_evidence?.live_tls || {};
+  const leaf = liveTls.leaf_certificate || liveTls.leaf || null;
+  const chain = liveTls.presented_chain || liveTls.chain || null;
+  const hostnameMatch = liveTls.hostname_match || null;
+  const trustValidation = liveTls.trust_store_validation || null;
+  const revocation = liveTls.revocation_assurance || liveTls.revocation || null;
+  const leafCollected = Boolean(
+    leaf &&
+    leaf.collection_performed === true &&
+    leaf.collection_complete === true &&
+    cleanString(leaf.certificate_identity)
+  );
+  const chainObserved = Boolean(
+    chain &&
+    chain.collection_performed === true &&
+    chain.collection_complete === true &&
+    ["presented_complete", "presented_incomplete"].includes(
+      cleanString(chain.presentation_state)
+    )
+  );
+  const hostnameObserved = Boolean(
+    hostnameMatch &&
+    hostnameMatch.assessment_performed === true &&
+    ["matched", "mismatched"].includes(cleanString(hostnameMatch.result))
+  );
+  const algorithm = certificateAlgorithmAssessment(leaf);
+  const intermediateValidity = intermediateValidityAssessment(chain, observedAt);
+  const trustStoreObserved = Boolean(
+    trustValidation &&
+    trustValidation.validation_performed === true &&
+    ["valid", "invalid"].includes(cleanString(trustValidation.validation_result))
+  );
+  const revocationObserved = Boolean(
+    revocation &&
+    revocation.assessment_performed === true &&
+    revocation.response_validated === true &&
+    ["good", "revoked", "unknown"].includes(cleanString(revocation.status))
+  );
+
+  const caa = modules?.dns?.caa ?? null;
+  const caaCrossCheck = modules?.dns?.cross_checks?.caa ?? null;
+  const caaObserved = Boolean(
+    caa &&
+    !cleanString(caa.error) &&
+    typeof caa.present === "boolean"
+  );
+  const caaUnavailable = Boolean(caa && cleanString(caa.error));
+  const caaIndependent =
+    caaCrossCheck?.primary_resolver?.status === "ok" &&
+    caaCrossCheck?.google_resolver?.status === "ok";
+
+  return {
+    liveTls,
+    leaf,
+    chain,
+    hostnameMatch,
+    trustValidation,
+    revocation,
+    algorithm,
+    intermediateValidity,
+    leafCollected,
+    chainObserved,
+    hostnameObserved,
+    trustStoreObserved,
+    revocationObserved,
+    caa,
+    caaCrossCheck,
+    caaObserved,
+    caaUnavailable,
+    caaIndependent,
+  };
+}
+
+// Pure compatibility adapter for deterministic tests and the production caller.
+// The adapter consumes explicitly declared live-TLS evidence when a compatible
+// collector supplies it. Current Cloudflare fetches expose only CT issuance and
+// HTTP reachability, so the default production path remains honestly unknown
+// for peer-certificate, chain, hostname, trust-store and revocation signals.
 export function deriveCertificateSignalCompletenessFromModules({
   modules = {},
   monitoringStates = null,
@@ -809,6 +1297,7 @@ export function deriveCertificateSignalCompletenessFromModules({
   engineVersion = null,
 } = {}) {
   const ssl = modules?.ssl || {};
+  const trust = liveTrustEvidence({ ssl, modules, observedAt });
   const ctState = currentCtState({ monitoringStates, providerHealth, modules });
   const selectedCtCertificate = Boolean(
     cleanString(ssl.cert_not_after) ||
@@ -822,24 +1311,46 @@ export function deriveCertificateSignalCompletenessFromModules({
   const ctMethod = "logged_issuance_projection";
   const evidenceBySignal = {
     leaf: evidence({
-      completeness_state: SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE,
-      observation: CERTIFICATE_OBSERVATION_STATES.UNKNOWN,
+      completeness_state: trust.leafCollected
+        ? SIGNAL_MONITORING_STATES.MONITORING_HEALTHY
+        : SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE,
+      observation: trust.leafCollected
+        ? CERTIFICATE_OBSERVATION_STATES.PRESENT
+        : CERTIFICATE_OBSERVATION_STATES.UNKNOWN,
+      value: trust.leafCollected ? { ...trust.leaf } : null,
       observation_scope: "live_tls",
-      achieved_grade: "L0",
+      achieved_grade: trust.leafCollected ? "L3" : "L0",
       source_type: "normative_protocol",
-      source: "not_collected",
-      method: "live_tls_leaf_not_implemented",
-      reasons: ["The current scan modules did not capture the leaf certificate served in a TLS handshake."],
+      source: trust.leafCollected
+        ? cleanString(trust.leaf.source) || "declared_live_tls_collector"
+        : "not_collected",
+      method: trust.leafCollected
+        ? cleanString(trust.leaf.method) || "live_tls_leaf_capture"
+        : "live_tls_leaf_not_available",
+      reasons: trust.leafCollected
+        ? []
+        : ["The current scan modules did not capture the leaf certificate served in a TLS handshake."],
     }),
     chain: evidence({
-      completeness_state: SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE,
-      observation: CERTIFICATE_OBSERVATION_STATES.UNKNOWN,
+      completeness_state: trust.chainObserved
+        ? SIGNAL_MONITORING_STATES.MONITORING_HEALTHY
+        : SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE,
+      observation: trust.chainObserved
+        ? CERTIFICATE_OBSERVATION_STATES.PRESENT
+        : CERTIFICATE_OBSERVATION_STATES.UNKNOWN,
+      value: trust.chainObserved ? { ...trust.chain } : null,
       observation_scope: "live_tls",
-      achieved_grade: "L0",
+      achieved_grade: trust.chainObserved ? "L3" : "L0",
       source_type: "normative_protocol",
-      source: "not_collected",
-      method: "live_tls_chain_not_implemented",
-      reasons: ["The current scan modules did not capture or validate a live certification path."],
+      source: trust.chainObserved
+        ? cleanString(trust.chain.source) || "declared_live_tls_collector"
+        : "not_collected",
+      method: trust.chainObserved
+        ? cleanString(trust.chain.method) || "presented_chain_capture"
+        : "live_tls_chain_not_available",
+      reasons: trust.chainObserved
+        ? []
+        : ["The current scan modules did not capture a live presented chain."],
     }),
     san: evidence({
       completeness_state: Array.isArray(ssl.cert_san_names)
@@ -964,6 +1475,160 @@ export function deriveCertificateSignalCompletenessFromModules({
       source_type: "product_policy",
       source: "ssl_https_head_probe",
       method: "http_response_over_tls",
+    }),
+    caa: evidence({
+      completeness_state: trust.caaUnavailable
+        ? SIGNAL_MONITORING_STATES.SIGNAL_UNAVAILABLE
+        : trust.caaObserved && trust.caaIndependent &&
+            trust.caaCrossCheck?.resolver_agreement_score === 100
+          ? SIGNAL_MONITORING_STATES.MONITORING_HEALTHY
+          : trust.caaObserved
+            ? SIGNAL_MONITORING_STATES.MONITORING_DEGRADED
+            : SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE,
+      observation: trust.caaObserved
+        ? (trust.caa.present
+          ? CERTIFICATE_OBSERVATION_STATES.PRESENT
+          : CERTIFICATE_OBSERVATION_STATES.ABSENT)
+        : CERTIFICATE_OBSERVATION_STATES.UNKNOWN,
+      value: trust.caaObserved
+        ? {
+            present: trust.caa.present,
+            records: Array.isArray(trust.caa.records) ? [...trust.caa.records] : [],
+            issuers: Array.isArray(trust.caa.issuers) ? [...trust.caa.issuers] : [],
+            wildcard_issuers: Array.isArray(trust.caa.wildcard_issuers)
+              ? [...trust.caa.wildcard_issuers]
+              : [],
+            iodef: Array.isArray(trust.caa.iodef) ? [...trust.caa.iodef] : [],
+            resolver_agreement_score:
+              trust.caaCrossCheck?.resolver_agreement_score ?? null,
+          }
+        : null,
+      observation_scope: "dns_policy",
+      achieved_grade: trust.caaObserved
+        ? (trust.caaIndependent ? "L3" : "L1")
+        : "L0",
+      source_type: "normative_protocol",
+      source: "dns_scan_caa",
+      method: "rfc8659_relevant_rrset_observation",
+      corroboration_status: trust.caaIndependent
+        ? "independent-path"
+        : "none",
+      reasons: trust.caaUnavailable
+        ? ["CAA lookup was unavailable; this is not evidence that the RRset is absent."]
+        : [],
+    }),
+    hostname_match: evidence({
+      completeness_state: trust.hostnameObserved
+        ? SIGNAL_MONITORING_STATES.MONITORING_HEALTHY
+        : SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE,
+      observation: trust.hostnameObserved
+        ? CERTIFICATE_OBSERVATION_STATES.PRESENT
+        : CERTIFICATE_OBSERVATION_STATES.UNKNOWN,
+      value: trust.hostnameObserved ? { ...trust.hostnameMatch } : null,
+      observation_scope: "live_tls",
+      achieved_grade: trust.hostnameObserved ? "L4" : "L0",
+      source_type: "normative_protocol",
+      source: trust.hostnameObserved
+        ? cleanString(trust.hostnameMatch.source) || "declared_live_tls_collector"
+        : "not_collected",
+      method: trust.hostnameObserved
+        ? cleanString(trust.hostnameMatch.method) || "rfc9525_hostname_validation"
+        : "hostname_validation_not_available",
+      reasons: trust.hostnameObserved
+        ? []
+        : ["Hostname matching was not performed against a certificate presented by the live endpoint."],
+    }),
+    intermediate_validity: evidence({
+      completeness_state: trust.intermediateValidity
+        ? (trust.chain?.collection_complete === true
+          ? SIGNAL_MONITORING_STATES.MONITORING_HEALTHY
+          : SIGNAL_MONITORING_STATES.MONITORING_DEGRADED)
+        : SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE,
+      observation: trust.intermediateValidity
+        ? CERTIFICATE_OBSERVATION_STATES.PRESENT
+        : CERTIFICATE_OBSERVATION_STATES.UNKNOWN,
+      value: trust.intermediateValidity,
+      observation_scope: "live_tls",
+      achieved_grade: trust.intermediateValidity
+        ? (trust.chain?.collection_complete === true ? "L4" : "L3")
+        : "L0",
+      source_type: "normative_protocol",
+      source: trust.intermediateValidity
+        ? cleanString(trust.chain?.source) || "declared_live_tls_collector"
+        : "not_collected",
+      method: trust.intermediateValidity
+        ? "rfc5280_presented_intermediate_validity"
+        : "intermediate_validity_not_available",
+      reasons: trust.intermediateValidity
+        ? []
+        : ["The validity periods of the relevant presented intermediates were not completely observed."],
+    }),
+    certificate_algorithm: evidence({
+      completeness_state: trust.algorithm
+        ? (trust.leaf?.collection_complete === true
+          ? SIGNAL_MONITORING_STATES.MONITORING_HEALTHY
+          : SIGNAL_MONITORING_STATES.MONITORING_DEGRADED)
+        : SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE,
+      observation: trust.algorithm
+        ? CERTIFICATE_OBSERVATION_STATES.PRESENT
+        : CERTIFICATE_OBSERVATION_STATES.UNKNOWN,
+      value: trust.algorithm,
+      observation_scope: "live_tls",
+      achieved_grade: trust.algorithm
+        ? (trust.leaf?.collection_complete === true ? "L4" : "L3")
+        : "L0",
+      source_type: "configuration_baseline",
+      source: trust.algorithm
+        ? cleanString(trust.leaf?.source) || "declared_live_tls_collector"
+        : "not_collected",
+      method: trust.algorithm
+        ? "tls_br_2_2_8_observed_algorithm_predicates"
+        : "certificate_algorithm_not_available",
+      reasons: trust.algorithm?.status === "weak"
+        ? ["One or more declared weak certificate algorithm predicates were observed."]
+        : [],
+    }),
+    trust_store_validation: evidence({
+      completeness_state: trust.trustStoreObserved
+        ? SIGNAL_MONITORING_STATES.MONITORING_HEALTHY
+        : SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE,
+      observation: trust.trustStoreObserved
+        ? CERTIFICATE_OBSERVATION_STATES.PRESENT
+        : CERTIFICATE_OBSERVATION_STATES.UNKNOWN,
+      value: trust.trustStoreObserved ? { ...trust.trustValidation } : null,
+      observation_scope: "live_tls",
+      achieved_grade: trust.trustStoreObserved ? "L4" : "L0",
+      source_type: "normative_protocol",
+      source: trust.trustStoreObserved
+        ? cleanString(trust.trustValidation.source) || "declared_live_tls_validator"
+        : "not_collected",
+      method: trust.trustStoreObserved
+        ? cleanString(trust.trustValidation.method) || "rfc5280_path_validation"
+        : "trust_store_validation_not_available",
+      reasons: trust.trustStoreObserved
+        ? []
+        : ["No path-validation result with a declared trust-store context was available."],
+    }),
+    revocation_assurance: evidence({
+      completeness_state: trust.revocationObserved
+        ? SIGNAL_MONITORING_STATES.MONITORING_HEALTHY
+        : SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE,
+      observation: trust.revocationObserved
+        ? CERTIFICATE_OBSERVATION_STATES.PRESENT
+        : CERTIFICATE_OBSERVATION_STATES.UNKNOWN,
+      value: trust.revocationObserved ? { ...trust.revocation } : null,
+      observation_scope: "live_tls",
+      achieved_grade: trust.revocationObserved ? "L4" : "L0",
+      source_type: "normative_protocol",
+      source: trust.revocationObserved
+        ? cleanString(trust.revocation.source) || "declared_ocsp_validator"
+        : "not_collected",
+      method: trust.revocationObserved
+        ? cleanString(trust.revocation.method) || "rfc6960_response_validation"
+        : "ocsp_revocation_not_available",
+      reasons: trust.revocationObserved
+        ? []
+        : ["No validated OCSP or revocation result was available; only revocation assurance is incomplete."],
     }),
   };
 
