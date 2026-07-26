@@ -10,6 +10,7 @@
 // live inputs a route may add around it are presentation metadata under the
 // documented frozen-vs-live policy (branding, workspace display name).
 import { dmarcPolicyApiProjection } from "./dmarcbis-contract.js";
+import { certificateAssuranceFromSnapshot } from "./certificate-customer-presentation.js";
 
 export function buildExecutiveReportV2({ scan, workspace = null, read }) {
   const snap = read.snapshot;
@@ -73,6 +74,7 @@ export function buildExecutiveReportV2({ scan, workspace = null, read }) {
     },
 
     cyber_mot_domains: snap.domains ?? [],
+    certificate_assurance: certificateAssuranceFromSnapshot(snap),
     monitoring_states: snap.monitoring_states ?? null,
     observed_findings: observed,
     observations,

@@ -6,6 +6,8 @@
 // Response when a route matches, or null so the main router continues.
 import { buildCaConcentrationAnalytics, buildCertificateLifecycleIntelligence, detectSelfSignedCertificate, mapCertificateAuthorityOwner, normalizeCertificateIssuer } from "../engines/cert-analysis.js";
 import { buildCertificateTrustL2 } from "../engines/cert-trust-l2.js";
+import { buildCertificateCustomerPresentation } from "../engines/certificate-customer-presentation.js";
+import { listCertificateLifecycle } from "../engines/certificate-lifecycle.js";
 import { assignManagedCaseOwner, getManagedCase, listManagedCaseEvents, listManagedCases, managedCaseToApi, transitionManagedCase, verifyManagedCaseById } from "../engines/asm-cases.js";
 import { remapToThirdPartyCategory } from "../engines/discovery-scan.js";
 import { computeWorkspaceVendorRisk, confidenceToScore, normalizeVendorKey, normalizeVendorRiskCategory, signalWeightForVendor } from "../engines/vendor-risk.js";
@@ -794,6 +796,16 @@ export async function attackSurfaceRoutes(rctx) {
       const access = await requireWorkspaceRole(user, wsId, "workspace:read", env);
       if (!access) return json({ error: "Forbidden" }, 403);
 
+      // Soft-deleted workspaces are nonexistent to certificate customer
+      // surfaces. This is explicit here because the route reads R2 reports as
+      // well as D1 rows and must not rely on a downstream writer guard.
+      const activeWorkspace = await env.cybermeters_db
+        .prepare("SELECT id FROM workspaces WHERE id = ? AND deleted_at IS NULL")
+        .bind(wsId)
+        .first()
+        .catch(() => null);
+      if (!activeWorkspace) return json({ error: "Workspace not found" }, 404);
+
       // 1. Get domain IDs for workspace
       let domainIds;
       try {
@@ -934,21 +946,35 @@ export async function attackSurfaceRoutes(rctx) {
         return json({ workspace_id: wsId, total: 0, certificates: [] });
       }
 
-      // Latest completed scan per domain
-      const scanResults = await Promise.allSettled(
-        domainIds.map((did) =>
-          env.cybermeters_db
-            .prepare(
-              "SELECT id, domain_id FROM scans WHERE domain_id = ? " +
-              "AND status = 'completed' ORDER BY created_at DESC LIMIT 1"
-            )
-            .bind(did)
-            .first()
-        )
-      );
-      const scanRows = scanResults
-        .map((r) => (r.status === "fulfilled" && r.value ? r.value : null))
-        .filter(Boolean);
+      // One workspace-scoped query for the latest completed scan per protected
+      // domain. Avoids the former per-domain N+1 and prevents a caller-provided
+      // workspace from ever selecting a scan outside its own domain links.
+      let scanRows = [];
+      try {
+        const latest = await env.cybermeters_db
+          .prepare(
+            `SELECT id, domain_id
+             FROM (
+               SELECT s.id, s.domain_id,
+                      ROW_NUMBER() OVER (
+                        PARTITION BY s.domain_id
+                        ORDER BY s.created_at DESC, s.id DESC
+                      ) AS row_rank
+               FROM scans s
+               JOIN workspace_domains wd
+                 ON wd.domain_id = s.domain_id
+                AND wd.workspace_id = ?
+               WHERE s.status = 'completed'
+                 AND s.workspace_id = ?
+             )
+             WHERE row_rank = 1`
+          )
+          .bind(wsId, wsId)
+          .all();
+        scanRows = latest.results || [];
+      } catch {
+        return json({ error: "Database error" }, 500);
+      }
 
       // Fetch R2 reports in parallel
 	      const r2Results = await Promise.allSettled(
@@ -957,16 +983,20 @@ export async function attackSurfaceRoutes(rctx) {
 
 	      const caConcentrationByDomain = new Map();
 	      const certificateHistoryByDomain = new Map();
+	      const lifecycleByDomain = new Map();
 	      try {
-	        const observed = await env.cybermeters_db
-	          .prepare(
-	            `SELECT domain_id, subject, issuer, san_count, expires_at,
-	                    first_seen, last_seen, evidence_json
-	             FROM certificate_observations
-	             WHERE workspace_id = ?`
-	          )
-	          .bind(wsId)
-	          .all();
+	        const [observed, lifecycle] = await Promise.all([
+	          env.cybermeters_db
+	            .prepare(
+	              `SELECT domain_id, subject, issuer, san_count, expires_at,
+	                      first_seen, last_seen, evidence_json
+	               FROM certificate_observations
+	               WHERE workspace_id = ?`
+	            )
+	            .bind(wsId)
+	            .all(),
+	          listCertificateLifecycle(env, wsId, { limit: 500 }),
+	        ]);
 	        const byDomain = new Map();
 	        for (const row of (observed.results || [])) {
 	          if (!row.domain_id) continue;
@@ -979,6 +1009,10 @@ export async function attackSurfaceRoutes(rctx) {
 	            source: "historical_certificate_observations",
 	          }));
 	        }
+	        for (const row of (lifecycle || [])) {
+	          if (!row.domain_id || lifecycleByDomain.has(row.domain_id)) continue;
+	          lifecycleByDomain.set(row.domain_id, row);
+	        }
 	      } catch { /* certificate_observations may not exist in older environments */ }
 
 	      const certificates = [];
@@ -989,6 +1023,20 @@ export async function attackSurfaceRoutes(rctx) {
 
         const ci = report?.modules?.certificate_intelligence;
         if (!ci) continue;
+
+        const lifecycle = lifecycleByDomain.get(scanRows[i]?.domain_id) || null;
+        const assurance = buildCertificateCustomerPresentation({
+          signalCompleteness: ci.signal_completeness || null,
+          lifecycle,
+          absenceReason:
+            "Per-signal certificate evidence was not recorded for this scan. No favourable state is inferred.",
+        });
+        // The lifecycle JOIN has both current and previous immutable observation
+        // evidence, so prefer its relationship projection when present. Signal
+        // presentation still comes from this scan's canonical P1-P4 model.
+        if (lifecycle?.certificate_assurance?.relationship) {
+          assurance.relationship = lifecycle.certificate_assurance.relationship;
+        }
 
         const certificate = {
           domain:                       report.domain || null,
@@ -1019,6 +1067,8 @@ export async function attackSurfaceRoutes(rctx) {
           wildcard_warning:             ci.wildcard_warning || null,
           ct_sources:                   ci.ct_sources || {},
           suspicious_certificate_signals: ci.suspicious_certificate_signals || [],
+          signal_completeness:           ci.signal_completeness || null,
+          certificate_assurance:         assurance,
           scan_id:                      scanRows[i]?.id || null,
         };
         Object.assign(certificate, buildCertificateTrustL2(certificate, {

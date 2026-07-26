@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest'
 import {
   READINESS_META, COVERAGE_META, OWNERSHIP_META, VERIFICATION_META, TONE_CLASS,
   readinessMeta, coverageMeta, ownershipMeta, verificationMeta, toneClass,
-  daysRemainingLabel, isAwaitingVerification, CERT_LIFECYCLE_SCOPE_NOTE,
+  daysRemainingLabel, isAwaitingVerification, certificateRelationshipMessage,
+  CERT_LIFECYCLE_SCOPE_NOTE,
 } from '../certificateLifecycleDisplay'
 
 describe('certificateLifecycleDisplay — canonical presentation of server-owned certificate states', () => {
@@ -67,9 +68,20 @@ describe('certificateLifecycleDisplay — canonical presentation of server-owned
     expect(isAwaitingVerification(null)).toBe(false)
   })
 
+  it('renders only the backend-owned replacement/parallel relationship wording', () => {
+    expect(certificateRelationshipMessage({
+      certificate_assurance: {
+        relationship: {
+          customer_message: 'One canonical transition-context explanation.',
+        },
+      },
+    })).toBe('One canonical transition-context explanation.')
+    expect(certificateRelationshipMessage({ replacement_detected_at: '2026-07-26' })).toBeNull()
+  })
+
   it('carries the honest external-scope note (unknown chain/root/OCSP, recorded != verified)', () => {
     expect(CERT_LIFECYCLE_SCOPE_NOTE).toMatch(/externally observed/i)
-    expect(CERT_LIFECYCLE_SCOPE_NOTE).toMatch(/chain, root, ocsp/i)
+    expect(CERT_LIFECYCLE_SCOPE_NOTE).toMatch(/chain, root acceptance, ocsp/i)
     expect(CERT_LIFECYCLE_SCOPE_NOTE).toMatch(/not verified until/i)
   })
 })

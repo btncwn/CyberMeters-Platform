@@ -16,6 +16,7 @@
 // the workspace display name. No clock is read here; every date printed comes
 // from the snapshot (as_of / built_at) or an explicit caller argument.
 import { buildDmarcPolicyPresentation } from "./dmarcbis-presentation.js";
+import { certificateAssuranceFromSnapshot } from "./certificate-customer-presentation.js";
 
 // Typographic → ASCII transliteration (trust-closure episode, July 2026).
 // The stream encoder is ASCII-only, and the old behaviour replaced EVERY
@@ -587,6 +588,73 @@ function sectionDomains(w, snap, { detail = "full" } = {}) {
   }
 }
 
+function sectionCertificateAssurance(w, snap, { detail = "full" } = {}) {
+  const assurance = certificateAssuranceFromSnapshot(snap);
+  const summary = assurance.summary || {};
+  w.heading("Certificate Evidence & Trust");
+  if (assurance.historical_notice) {
+    w.proseKeep(customerBodyText(assurance.historical_notice), {
+      size: 9,
+      color: "0.45 0.35 0.10",
+    });
+  }
+  w.proseKeep(customerBodyText(assurance.scope_note), {
+    size: 8,
+    color: "0.35 0.38 0.44",
+  });
+  for (const [label, value] of [
+    ["CT issuance", summary.ct_issuance],
+    ["Live TLS certificate", summary.live_tls_certificate],
+    ["Declared trust-store validation", summary.trust_store_validation],
+    ["OCSP / revocation assurance", summary.revocation_assurance],
+  ]) {
+    w.text(`${label}: ${String(value?.state || "not_observed").replaceAll("_", " ")}`, {
+      size: 9,
+      bold: true,
+    });
+    if (value?.message) {
+      w.proseKeep(customerBodyText(value.message), {
+        size: 8,
+        indent: 10,
+        color: "0.25 0.28 0.33",
+      });
+    }
+  }
+  if (summary.trust_ceiling) {
+    w.callout("Trust evidence ceiling", customerBodyText(summary.trust_ceiling));
+  }
+  if (assurance.relationship?.customer_message) {
+    w.text("Certificate relationship", { size: 9, bold: true });
+    w.proseKeep(customerBodyText(assurance.relationship.customer_message), {
+      size: 8,
+      indent: 10,
+      color: "0.25 0.28 0.33",
+    });
+  }
+  if (assurance.lifecycle?.customer_message) {
+    w.proseKeep(
+      `Lifecycle evidence: ${customerBodyText(assurance.lifecycle.customer_message)}`,
+      { size: 8, color: "0.35 0.38 0.44" },
+    );
+  }
+  if (detail === "full") {
+    for (const key of assurance.signal_order || []) {
+      const signal = assurance.signals?.[key];
+      if (!signal) continue;
+      w.keepTogether(28);
+      w.text(`${signal.label}: ${signal.state_label || signal.state || "Not observed"}`, {
+        size: 8,
+        bold: true,
+      });
+      w.proseKeep(customerBodyText(signal.customer_message), {
+        size: 7,
+        indent: 10,
+        color: "0.35 0.38 0.44",
+      });
+    }
+  }
+}
+
 function sectionFindings(w, snap) {
   const findings = snap.observed_findings || [];
   const observations = snap.observations || [];
@@ -905,6 +973,49 @@ function sectionEvidenceGradeAppendix(w, snap) {
   for (const action of snap.remediation_actions || []) {
     appendixEvidenceAssertion(w, `Remediation - ${action.title || action.remediation_id || "unnamed"}`, action.evidence_grade);
   }
+
+  const certificateAssurance = certificateAssuranceFromSnapshot(snap);
+  w.text("Certificate signal evidence contracts", { size: 9, bold: true });
+  for (const key of certificateAssurance.signal_order || []) {
+    const signal = certificateAssurance.signals?.[key];
+    if (!signal) continue;
+    const grade = signal.evidence_grade || {};
+    const authorities = (signal.cited_authorities || [])
+      .map((authority) => [
+        authority.standard_id || authority.id || authority.authority,
+        authority.standard_version || authority.version,
+        authority.section,
+        authority.requirement_type,
+      ].filter(Boolean).join(" / "))
+      .filter(Boolean);
+    const provenance = signal.provenance && typeof signal.provenance === "object"
+      ? Object.entries(signal.provenance)
+          .filter(([, value]) => value != null && value !== "")
+          .map(([name, value]) => `${name}: ${typeof value === "object" ? JSON.stringify(value) : value}`)
+          .join("; ")
+      : (signal.provenance || "Not recorded");
+    w.keepTogether(72);
+    w.text(`${signal.label}: ${signal.state_label || signal.state || "Not observed"}`, {
+      size: 8,
+      bold: true,
+    });
+    w.text(
+      `Evidence grade: ${grade.achieved || "L0"} (ceiling ${grade.observable_ceiling || "not recorded"}; beta target ${grade.beta_target || "not recorded"}; minimum publishable ${grade.minimum_publishable || "not recorded"})`,
+      { size: 7, indent: 10, color: "0.35 0.38 0.44" },
+    );
+    w.proseKeep(
+      `Source type: ${signal.source_type || "Not recorded"}. Provenance: ${provenance}.`,
+      { size: 7, indent: 10, color: "0.35 0.38 0.44" },
+    );
+    w.proseKeep(
+      `Required corroboration: ${(signal.required_corroboration || []).join(", ") || "None recorded"}. Degrade behaviour: ${grade.degrade_behavior || "Not recorded"}.`,
+      { size: 7, indent: 10, color: "0.35 0.38 0.44" },
+    );
+    w.proseKeep(
+      `Cited authorities: ${authorities.join("; ") || "Not recorded"}.`,
+      { size: 7, indent: 10, color: "0.35 0.38 0.44" },
+    );
+  }
 }
 
 // Branding footer. Accepts either the v2 descriptor ({ mode, display_name }) or
@@ -1000,6 +1111,7 @@ export function buildScanReportPdf(scan, read, branding = null, logoImage = null
   brandingHeader(w, branding, "External Security Assessment", `${s.domain || scan?.domain || ""} - assessed ${pdfUtcDate(s.as_of, true)}`, logoImage);
   sectionOverall(w, snap);
   sectionDomains(w, snap);
+  sectionCertificateAssurance(w, snap);
   sectionDmarcPolicy(w, dmarcPresentation);
   sectionFindings(w, snap);
   sectionRemediation(w, snap);
@@ -1075,6 +1187,7 @@ export function buildWorkspaceExecutivePdf({ workspaceName, reads = [], branding
       w.text(`Assessed ${pdfUtcDate(r.snapshot.snapshot.as_of, true)}`, { size: 9, color: "0.35 0.38 0.44" });
       w.gap(2);
       sectionDomains(w, r.snapshot, { detail: "concise" });
+      sectionCertificateAssurance(w, r.snapshot, { detail: "concise" });
       const dmarcPresentation =
         buildDmarcPolicyPresentation(r.dmarcPolicy);
       sectionDmarcPolicy(w, dmarcPresentation);

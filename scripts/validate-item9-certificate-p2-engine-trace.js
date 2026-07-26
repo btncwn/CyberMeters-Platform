@@ -27,6 +27,39 @@ const { upsertCertificateObservation } = await import(pathToFileURL(path.join(
   "engines",
   "cert-events.js",
 )).href);
+const p5Trace = process.argv.includes("--p5");
+const { readScanReportSnapshot } = await import(pathToFileURL(path.join(
+  root,
+  "workers",
+  "scan-api",
+  "src",
+  "engines",
+  "report-snapshot.js",
+)).href);
+const { buildScanReportPdf, buildWorkspaceExecutivePdf } = await import(pathToFileURL(path.join(
+  root,
+  "workers",
+  "scan-api",
+  "src",
+  "engines",
+  "pdf.js",
+)).href);
+const { scanRoutes } = await import(pathToFileURL(path.join(
+  root,
+  "workers",
+  "scan-api",
+  "src",
+  "routes",
+  "scans.js",
+)).href);
+const { attackSurfaceRoutes } = await import(pathToFileURL(path.join(
+  root,
+  "workers",
+  "scan-api",
+  "src",
+  "routes",
+  "attack-surface.js",
+)).href);
 
 const NOW = "2026-07-26T13:00:00.000Z";
 const NOW_MS = Date.parse(NOW);
@@ -363,6 +396,142 @@ try {
       "unknown");
   }
 
+  if (p5Trace) {
+    const snapshotRow = db.prepare(
+      `SELECT id, r2_key, checksum_sha256
+       FROM scan_report_snapshots
+       WHERE scan_id = 'scan-item9-p2' AND status = 'completed'`,
+    ).get();
+    ok("P5 trace: runScanEngine finalizes the immutable snapshot",
+      Boolean(snapshotRow?.id && snapshotRow?.r2_key));
+    const frozenBody = store.get(snapshotRow?.r2_key);
+    const read = await readScanReportSnapshot(env, "scan-item9-p2", {
+      repair: false,
+    });
+    eq("P5 trace: snapshot integrity read succeeds", read.status, "ok");
+    const snapshotAssurance = read.snapshot?.certificate_assurance;
+    eq("P5 trace: snapshot freezes the customer presentation schema",
+      snapshotAssurance?.schema, "certificate-customer-presentation-v1");
+    eq("P5 trace: CT-only fact survives scan -> persistence -> snapshot",
+      snapshotAssurance?.summary?.ct_only, true);
+    eq("P5 trace: CT issuance is presented as observed",
+      snapshotAssurance?.signals?.certificate_transparency?.state, "observed");
+    ok("P5 trace: CT issuance does not become live-serving",
+      snapshotAssurance?.signals?.leaf?.state !== "observed" &&
+      snapshotAssurance?.summary?.live_tls_certificate?.state !== "observed");
+    ok("P5 trace: unavailable live trust siblings remain non-favourable",
+      ["unknown", "unavailable", "incomplete", "not_observed"].includes(
+        snapshotAssurance?.signals?.trust_store_validation?.state,
+      ) &&
+      ["unknown", "unavailable", "incomplete", "not_observed"].includes(
+        snapshotAssurance?.signals?.revocation_assurance?.state,
+      ));
+    ok("P5 trace: independently reliable active-service sibling survives",
+      snapshotAssurance?.signals?.active_service?.state === "observed");
+    ok("P5 trace: evidence grade/source/provenance survive persistence",
+      snapshotAssurance?.signals?.certificate_transparency?.evidence_grade?.achieved &&
+      snapshotAssurance?.signals?.certificate_transparency?.source_type &&
+      snapshotAssurance?.signals?.certificate_transparency?.provenance?.source &&
+      snapshotAssurance?.signals?.certificate_transparency?.cited_authorities?.length);
+
+    const routeJson = (body, status = 200) => jsonResponse(body, status);
+    const serverError = (_scope, error) =>
+      routeJson({ error: String(error?.message || error) }, 500);
+    const scanApi = async (pathname) => {
+      const request = new Request(`https://api.cybermeters.com${pathname}`);
+      const response = await scanRoutes({
+        request,
+        env,
+        ctx: { waitUntil() {} },
+        url: new URL(request.url),
+        json: routeJson,
+        serverError,
+        corsHeaders: {},
+        requireAuth: async () => ({ id: "usr" }),
+        requireScanReadAccess: async () => true,
+      });
+      return {
+        status: response.status,
+        body: await response.json(),
+      };
+    };
+    const snapshotApi = await scanApi(
+      "/api/scans/scan-item9-p2/snapshot",
+    );
+    const reportApi = await scanApi(
+      "/api/scans/scan-item9-p2/report",
+    );
+    const executiveApi = await scanApi(
+      "/api/scans/scan-item9-p2/executive-report-v2",
+    );
+    eq("P5 trace: snapshot API renders", snapshotApi.status, 200);
+    eq("P5 trace: report API renders", reportApi.status, 200);
+    eq("P5 trace: Executive Report API renders", executiveApi.status, 200);
+    for (const [surface, value] of [
+      ["snapshot API", snapshotApi.body?.certificate_assurance],
+      ["report API", reportApi.body?.certificate_assurance],
+      ["Executive Report", executiveApi.body?.certificate_assurance],
+    ]) {
+      eq(`P5 trace: ${surface} matches frozen certificate semantics`,
+        JSON.stringify(value), JSON.stringify(snapshotAssurance));
+    }
+
+    const certificateRequest = new Request(
+      "https://api.cybermeters.com/api/workspaces/ws-a/certificates",
+    );
+    const certificateResponse = await attackSurfaceRoutes({
+      request: certificateRequest,
+      env,
+      url: new URL(certificateRequest.url),
+      json: routeJson,
+      requireAuth: async () => ({ id: "usr" }),
+      requireWorkspaceRole: async () => true,
+    });
+    const certificateApi = await certificateResponse.json();
+    eq("P5 trace: certificate inventory API renders",
+      certificateResponse.status, 200);
+    eq("P5 trace: certificate inventory retains CT-only distinction",
+      certificateApi.certificates?.[0]?.certificate_assurance?.summary?.ct_only,
+      true);
+    ok("P5 trace: certificate inventory does not promote CT to live leaf",
+      certificateApi.certificates?.[0]?.certificate_assurance
+        ?.signals?.leaf?.state !== "observed");
+
+    const pdfText = new TextDecoder().decode(buildScanReportPdf(
+      { id: "scan-item9-p2", domain: "example.com" },
+      read,
+    ));
+    for (const phrase of [
+      "Certificate Evidence & Trust",
+      "CT issuance observed",
+      "Declared trust-store validation",
+      "OCSP / revocation assurance",
+      "Evidence grade:",
+      "Cited authorities:",
+    ]) {
+      ok(`P5 trace: PDF renders ${phrase}`, pdfText.includes(phrase));
+    }
+    ok("P5 trace: PDF keeps CT and live-serving as separate states",
+      pdfText.includes("CT issuance observed") &&
+      pdfText.includes("Live TLS certificate: incomplete"));
+    const executivePdfText = new TextDecoder().decode(
+      buildWorkspaceExecutivePdf({
+        workspaceName: "Active A",
+        reads: [read],
+        generatedAt: NOW,
+      }),
+    );
+    ok("P5 trace: Executive PDF renders the same CT-only distinction",
+      executivePdfText.includes("Certificate Evidence & Trust") &&
+      executivePdfText.includes("CT issuance observed") &&
+      executivePdfText.includes("Live TLS certificate: incomplete"));
+    ok("P5 trace: Executive PDF retains evidence provenance appendix",
+      executivePdfText.includes("Evidence grade:") &&
+      executivePdfText.includes("Cited authorities:"));
+    eq("P5 trace: report rendering does not rewrite immutable R2 bytes",
+      store.get(snapshotRow?.r2_key), frozenBody);
+  }
+
   const beforeUnavailablePersistence = db.prepare(
     "SELECT COUNT(*) AS n FROM certificate_observations WHERE domain_id = 'dom'",
   ).get().n;
@@ -434,6 +603,34 @@ try {
   eq("unmapped tenant evidence is byte-unchanged",
     otherTenant?.evidence_json, sentinelEvidence);
 
+  if (p5Trace) {
+    const callCertificateInventory = async (workspaceId) => {
+      const request = new Request(
+        `https://api.cybermeters.com/api/workspaces/${workspaceId}/certificates`,
+      );
+      const response = await attackSurfaceRoutes({
+        request,
+        env,
+        url: new URL(request.url),
+        json: (body, status = 200) => jsonResponse(body, status),
+        requireAuth: async () => ({ id: "usr" }),
+        requireWorkspaceRole: async () => true,
+      });
+      return {
+        status: response.status,
+        body: await response.json(),
+      };
+    };
+    const isolated = await callCertificateInventory("ws-other");
+    eq("P5 trace: unlinked tenant cannot read another tenant's certificate",
+      isolated.status, 200);
+    eq("P5 trace: unlinked tenant inventory stays empty despite sentinel row",
+      isolated.body?.total, 0);
+    const deleted = await callCertificateInventory("ws-deleted");
+    eq("P5 trace: soft-deleted workspace certificate surface is closed",
+      deleted.status, 404);
+  }
+
   const indexSource = fs.readFileSync(path.join(
     root,
     "workers",
@@ -456,6 +653,6 @@ try {
   db.close();
 }
 
-console.log(`\nItem 9 P2 runScanEngine trace: ${pass} passed, ${fail} failed`);
-if (!fail) console.log("Item 9 P2 runScanEngine trace passed");
+console.log(`\nItem 9 ${p5Trace ? "P5 customer-surface" : "P2"} runScanEngine trace: ${pass} passed, ${fail} failed`);
+if (!fail) console.log(`Item 9 ${p5Trace ? "P5 customer-surface" : "P2"} runScanEngine trace passed`);
 process.exit(fail ? 1 : 0);

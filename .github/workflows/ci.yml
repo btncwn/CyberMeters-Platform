@@ -581,6 +581,15 @@ jobs:
       - name: Validate Item 9 P4 faithful runScanEngine trace (trust signals + budget + shared CT + tenant persistence)
         run: node scripts/validate-item9-certificate-p4-engine-trace.js
 
+      - name: Validate Item 9 P5 certificate customer-surface parity (API + snapshot + report + PDF + legacy)
+        run: node scripts/validate-item9-certificate-p5-customer-parity.js
+
+      - name: Validate Item 9 P5 certificate customer-surface mutations
+        run: node scripts/validate-item9-certificate-p5-mutations.js
+
+      - name: Validate Item 9 P5 faithful runScanEngine to persistence, snapshot, API, report and PDF trace
+        run: node scripts/validate-item9-certificate-p5-engine-trace.js
+
       - name: Validate scan deadline + partial finalization (waitUntil-cancellation guard)
         run: node scripts/validate-scan-deadline.js
 

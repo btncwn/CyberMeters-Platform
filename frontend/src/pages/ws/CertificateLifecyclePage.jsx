@@ -12,7 +12,8 @@ import { useWorkspace } from '../../hooks/useWorkspace'
 import { NoWorkspaceSelected } from '../../components/WsPage'
 import {
   readinessMeta, coverageMeta, ownershipMeta, verificationMeta, toneClass,
-  daysRemainingLabel, isAwaitingVerification, CERT_LIFECYCLE_SCOPE_NOTE,
+  daysRemainingLabel, isAwaitingVerification, certificateRelationshipMessage,
+  CERT_LIFECYCLE_SCOPE_NOTE,
 } from '../../lib/certificateLifecycleDisplay'
 
 function Pill({ meta }) {
@@ -145,7 +146,11 @@ export default function CertificateLifecyclePage() {
                   <td className="py-2 px-3">
                     <div className="font-medium text-slate-700">{it.primary_hostname}</div>
                     <div className="text-xs text-slate-400">{it.issuer || 'Issuer unknown'}</div>
-                    {it.replacement_detected_at && <div className="text-xs text-blue-600 mt-0.5">Replacement observed</div>}
+                    {certificateRelationshipMessage(it) && (
+                      <div className="mt-0.5 max-w-xs text-xs leading-relaxed text-blue-700">
+                        {certificateRelationshipMessage(it)}
+                      </div>
+                    )}
                     {it.linked_case_id && (
                       <Link to={`/ws/cases/${encodeURIComponent(it.linked_case_id)}`} className="text-xs text-amber-600 hover:underline">
                         Open case →
