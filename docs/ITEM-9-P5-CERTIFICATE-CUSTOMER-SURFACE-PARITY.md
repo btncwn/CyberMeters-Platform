@@ -127,7 +127,10 @@ is not relabelled as `product_policy`.
 - Existing route fields remain unchanged; P5 fields are additive.
 - The certificate inventory latest-scan read is changed from N+1 queries to one
   workspace-scoped window query. R2 report reads remain parallel and bounded by
-  the workspace’s protected domains.
+  the workspace’s protected domains. Legacy scans with no
+  `scans.workspace_id` remain readable only when the mandatory
+  `workspace_domains` JOIN proves membership in the requested workspace;
+  scans attributed to another workspace remain excluded.
 
 ## After
 

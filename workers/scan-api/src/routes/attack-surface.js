@@ -949,6 +949,8 @@ export async function attackSurfaceRoutes(rctx) {
       // One workspace-scoped query for the latest completed scan per protected
       // domain. Avoids the former per-domain N+1 and prevents a caller-provided
       // workspace from ever selecting a scan outside its own domain links.
+      // Historical scans predate scans.workspace_id, so a NULL attribution is
+      // accepted only through the mandatory workspace_domains ownership JOIN.
       let scanRows = [];
       try {
         const latest = await env.cybermeters_db
@@ -965,7 +967,7 @@ export async function attackSurfaceRoutes(rctx) {
                  ON wd.domain_id = s.domain_id
                 AND wd.workspace_id = ?
                WHERE s.status = 'completed'
-                 AND s.workspace_id = ?
+                 AND (s.workspace_id = ? OR s.workspace_id IS NULL)
              )
              WHERE row_rank = 1`
           )
