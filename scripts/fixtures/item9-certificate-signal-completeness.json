@@ -1,0 +1,166 @@
+{
+  "observed_at": "2026-07-26T10:00:00.000Z",
+  "engine_version": "item9-p1-fixture",
+  "mixed_independent_signals": {
+    "leaf": {
+      "completeness_state": "monitoring_healthy",
+      "observation": "present",
+      "value": {
+        "certificate_identity": "sha256:leaf-a",
+        "serial_number": "01A1"
+      },
+      "observation_scope": "live_tls",
+      "achieved_grade": "L3",
+      "source_type": "normative_protocol",
+      "source": "injected_tls_handshake",
+      "method": "presented_leaf_capture",
+      "corroboration_status": "independent-source"
+    },
+    "chain": {
+      "completeness_state": "signal_unavailable",
+      "observation": "absent",
+      "value": {
+        "validation_result": "invalid"
+      },
+      "observation_scope": "live_tls",
+      "achieved_grade": "L4",
+      "source_type": "normative_protocol",
+      "source": "injected_tls_handshake",
+      "method": "presented_chain_capture",
+      "reasons": [
+        "Chain collection timed out."
+      ]
+    },
+    "san": {
+      "completeness_state": "monitoring_healthy",
+      "observation": "present",
+      "value": [
+        "example.com",
+        "www.example.com"
+      ],
+      "observation_scope": "live_tls",
+      "achieved_grade": "L3",
+      "source_type": "normative_protocol",
+      "source": "injected_tls_handshake",
+      "method": "presented_leaf_san_parse"
+    },
+    "issuer": {
+      "completeness_state": "monitoring_healthy",
+      "observation": "present",
+      "value": "Example Issuing CA",
+      "observation_scope": "live_tls",
+      "achieved_grade": "L3",
+      "source_type": "normative_protocol",
+      "source": "injected_tls_handshake",
+      "method": "presented_leaf_issuer_parse"
+    },
+    "expiry": {
+      "completeness_state": "monitoring_healthy",
+      "observation": "present",
+      "value": "2026-10-26T10:00:00.000Z",
+      "observation_scope": "live_tls",
+      "achieved_grade": "L3",
+      "source_type": "normative_protocol",
+      "source": "injected_tls_handshake",
+      "method": "presented_leaf_validity_parse"
+    },
+    "certificate_transparency": {
+      "completeness_state": "monitoring_degraded",
+      "observation": "present",
+      "value": {
+        "crt_sh": "unavailable",
+        "certspotter": "available"
+      },
+      "observation_scope": "ct_issuance",
+      "achieved_grade": "L1",
+      "source_type": "normative_protocol",
+      "source": "shared_ct_provider_cache",
+      "method": "shared_provider_query",
+      "provider": "certspotter"
+    },
+    "wildcard": {
+      "completeness_state": "monitoring_healthy",
+      "observation": "absent",
+      "value": false,
+      "observation_scope": "live_tls",
+      "achieved_grade": "L3",
+      "source_type": "normative_protocol",
+      "source": "injected_tls_handshake",
+      "method": "presented_leaf_wildcard_parse"
+    },
+    "parallel_certificate_set": {
+      "completeness_state": "monitoring_healthy",
+      "observation": "present",
+      "value": {
+        "protected_hostname": "example.com",
+        "observation_window": {
+          "started_at": "2026-07-26T09:59:58.000Z",
+          "ended_at": "2026-07-26T10:00:02.000Z"
+        },
+        "observations": [
+          {
+            "protected_hostname": "example.com",
+            "source": "injected_tls_handshake",
+            "endpoint_context": "203.0.113.10:443/ipv4",
+            "certificate_identity": "sha256:leaf-a",
+            "observed_at": "2026-07-26T10:00:00.000Z",
+            "completeness_state": "monitoring_healthy"
+          },
+          {
+            "protected_hostname": "example.com",
+            "source": "injected_tls_handshake",
+            "endpoint_context": "[2001:db8::10]:443/ipv6",
+            "certificate_identity": "sha256:leaf-b",
+            "observed_at": "2026-07-26T10:00:01.000Z",
+            "completeness_state": "monitoring_healthy"
+          }
+        ]
+      },
+      "observation_scope": "live_tls_endpoint_set",
+      "achieved_grade": "L3",
+      "source_type": "product_policy",
+      "source": "injected_parallel_endpoint_set",
+      "method": "simultaneous_endpoint_certificate_capture",
+      "corroboration_status": "independent-source"
+    },
+    "active_service": {
+      "completeness_state": "monitoring_healthy",
+      "observation": "present",
+      "value": true,
+      "observation_scope": "live_http_service",
+      "achieved_grade": "L1",
+      "source_type": "product_policy",
+      "source": "injected_https_probe",
+      "method": "http_response_over_tls",
+      "corroboration_status": "repeated"
+    }
+  },
+  "current_modules_ct_only": {
+    "modules": {
+      "ssl": {
+        "https_probe_executed": true,
+        "https_available": true,
+        "cert_subject": "CN=example.com",
+        "cert_issuer": "Example Logged CA",
+        "cert_not_after": "2026-11-26T10:00:00.000Z",
+        "cert_san_names": [
+          "example.com",
+          "*.example.com"
+        ],
+        "cert_wildcard_san_count": 1
+      },
+      "certificate_intelligence": {
+        "parallel_evidence_complete": true,
+        "parallel_certificate_observed": true
+      }
+    },
+    "providerHealth": {
+      "crt_sh": {
+        "outcome": "available"
+      },
+      "certspotter": {
+        "outcome": "available"
+      }
+    }
+  }
+}
