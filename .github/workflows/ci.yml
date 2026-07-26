@@ -568,6 +568,12 @@ jobs:
       - name: Validate Item 9 certificate per-signal completeness mutations
         run: node scripts/validate-item9-certificate-signal-completeness-mutations.js
 
+      - name: Validate Item 10 Attack Surface per-signal completeness and removal policy (pure fixtures; no production caller)
+        run: node scripts/validate-item10-attack-surface-p1.js
+
+      - name: Validate Item 10 Attack Surface per-signal completeness and removal-policy mutations
+        run: node scripts/validate-item10-attack-surface-p1-mutations.js
+
       - name: Validate Item 9 P2 certificate production integration (deadlines + shared CT + signal isolation)
         run: node scripts/validate-item9-certificate-p2-integration.js
 
