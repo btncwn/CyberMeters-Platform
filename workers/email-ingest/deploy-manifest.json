@@ -1,10 +1,10 @@
 {
   "schema": "cybermeters.email-worker-deploy-manifest/v1",
   "entrypoint": "workers/email-ingest/src/index.js",
-  "app_version": "2026.07.25-item7-p6.f4149b9fb474",
-  "closure_sha256": "f4149b9fb4748481d1ca0e5527c8800aa188efe06234d119a16a12e973fdb6ae",
-  "closure_file_count": 75,
-  "scan_api_file_count": 73,
+  "app_version": "2026.07.26-item8-prb.71d1f48a3689",
+  "closure_sha256": "71d1f48a3689fa5474daf85b35413d1f6637fd80094aefced00011d94ad3c264",
+  "closure_file_count": 76,
+  "scan_api_file_count": 74,
   "files": [
     "shared/cyber-essentials-questions.js",
     "workers/email-ingest/src/index.js",
@@ -43,6 +43,7 @@
     "workers/scan-api/src/engines/findings.js",
     "workers/scan-api/src/engines/headers-scan.js",
     "workers/scan-api/src/engines/hostnames.js",
+    "workers/scan-api/src/engines/idn-homograph.js",
     "workers/scan-api/src/engines/managed-alerts.js",
     "workers/scan-api/src/engines/managed-case-model.js",
     "workers/scan-api/src/engines/pdf-image.js",

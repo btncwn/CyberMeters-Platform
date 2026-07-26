@@ -632,6 +632,12 @@ jobs:
       - name: Validate Brand IDN/homograph PR-A mutations (punycode decode / skeleton mapping)
         run: node scripts/validate-brand-idn-homograph-mutations.js
 
+      - name: Validate Brand IDN discovery PR-B (generation / CT expansion / own-IDN exclusion / corroboration)
+        run: node scripts/validate-brand-idn-discovery.js
+
+      - name: Validate Brand IDN discovery PR-B mutation (customer-owned exclusion)
+        run: node scripts/validate-brand-idn-discovery-mutations.js
+
       - name: Validate brand HTTP/TLS enrichment (SSRF-safe live probe / tri-state https / login-surface honesty / tenant isolation)
         run: node scripts/validate-brand-http-enrichment.js
 

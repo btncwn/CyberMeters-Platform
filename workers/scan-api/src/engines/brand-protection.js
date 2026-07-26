@@ -15,7 +15,7 @@ import { isValidDomain, parseBoundedInteger } from "../lib/util.js";
 // 50-subrequest budget — scan already uses ~47 by the time Phase 7 runs).
 
 const BRAND_VARIANT_TYPES = new Set([
-  "homoglyph", "typosquat", "substitution", "insertion", "omission",
+  "homoglyph", "homoglyph_idn", "typosquat", "substitution", "insertion", "omission",
   "transposition", "hyphenation", "tld_variation", "keyword_abuse",
   "nested_host", "unknown",
 ]);
@@ -31,6 +31,8 @@ const BRAND_EVIDENCE_SIGNALS = new Set([
   "similar_to_brand", "variant_type", "dns_active", "mx_present", "https_active",
   "newly_seen", "suspicious_tld", "contains_brand_keyword", "looks_like_login",
   "possible_mail_abuse", "known_owned_domain_match", "ct_observed", "nested_host",
+  "idn_visual_confusable", "confusable_skeleton_match", "punycode_decoded",
+  "mixed_script", "whole_script_confusable", "unicode_domain",
 ]);
 
 function safeJsonArray(value) {
@@ -71,6 +73,20 @@ export function brandIdnHomographAnalysis(candidateDomain, brandName) {
   return analyzeIdnHomograph(candidateDomain, brandName);
 }
 
+export function buildBrandIdnEvidence(candidateDomain, brandName) {
+  const analysis = analyzeIdnHomograph(candidateDomain, brandName);
+  if (!analysis.is_homograph) return { analysis, evidence: [] };
+  const evidence = [
+    { signal: "idn_visual_confusable", value: true },
+    { signal: "confusable_skeleton_match", value: true },
+    { signal: "unicode_domain", value: analysis.candidate_unicode },
+  ];
+  if (analysis.punycode_decoded) evidence.push({ signal: "punycode_decoded", value: true });
+  if (analysis.mixed_script) evidence.push({ signal: "mixed_script", value: true });
+  if (analysis.whole_script_confusable) evidence.push({ signal: "whole_script_confusable", value: true });
+  return { analysis, evidence };
+}
+
 export function scoreBrandCandidateRisk(candidate = {}) {
   const classification = BRAND_CLASSIFICATIONS.has(candidate.classification)
     ? candidate.classification : "unreviewed";
@@ -81,8 +97,9 @@ export function scoreBrandCandidateRisk(candidate = {}) {
   const reasons = [];
   let score = 0;
   const variant = normalizeBrandVariantType(candidate.variant_type);
+  const idnHomograph = variant === "homoglyph_idn" || candidate.idn_visual_confusable === true;
   const variantWeight = {
-    homoglyph: 25, substitution: 22, typosquat: 20, omission: 20,
+    homoglyph: 25, homoglyph_idn: 28, substitution: 22, typosquat: 20, omission: 20,
     insertion: 18, transposition: 18, hyphenation: 15,
     tld_variation: 18, keyword_abuse: 20, nested_host: 20, unknown: 5,
   }[variant];
@@ -103,6 +120,11 @@ export function scoreBrandCandidateRisk(candidate = {}) {
   if (candidate.suspicious_tld === true) { score += 10; reasons.push("suspicious_tld"); }
   if (candidate.looks_like_login === true) { score += 12; reasons.push("looks_like_login"); }
   if (candidate.newly_seen === true) { score += 5; reasons.push("newly_seen"); }
+  if (candidate.idn_visual_confusable === true) {
+    reasons.push("idn_visual_confusable");
+    if (candidate.mixed_script === true) { score += 6; reasons.push("mixed_script"); }
+    if (candidate.whole_script_confusable === true) { score += 8; reasons.push("whole_script_confusable"); }
+  }
   // A certificate NAMING this host was observed in a public CT log — real external
   // evidence the host was provisioned, stronger than a pure generated permutation.
   const ctObserved = candidate.ct_observed === true;
@@ -125,9 +147,20 @@ export function scoreBrandCandidateRisk(candidate = {}) {
       reasons.push("registered_with_mail_capability");
     } else if (ctObserved && !confirmedLive) {
       // A logged certificate is strong, but reserve "critical" for a lookalike
-      // confirmed live and mail/serving-capable. Cap CT-only evidence at "high".
-      score = Math.min(score, 84);
+      // confirmed live and mail/serving-capable. For IDN homographs, the frozen
+      // Item 8 corroboration contract keeps bare CT presence at low until an
+      // activity check succeeds; CT proves naming/provisioning, not live abuse.
+      score = Math.min(score, idnHomograph ? 39 : 84);
       reasons.push("certificate_observed_not_yet_live");
+      if (idnHomograph) reasons.push("idn_candidate_not_yet_live");
+    }
+    if (idnHomograph && confirmedLive &&
+        candidate.mx_present !== true && candidate.https_active !== true &&
+        candidate.looks_like_login !== true) {
+      // DNS activity confirms the registration is live, but is not equivalent to
+      // a serving/login/mail capability. Keep DNS-only IDNs below critical.
+      score = Math.min(score, 84);
+      reasons.push("idn_dns_only_not_critical");
     }
   }
 
@@ -246,13 +279,15 @@ export function brandCandidateToApi(row, profile = null) {
     : brandSimilarityScore(candidateDomain, brandName);
   const classification = BRAND_CLASSIFICATIONS.has(row?.classification) ? row.classification : "unreviewed";
   const variant = normalizeBrandVariantType(row?.variant_type);
+  const idn = buildBrandIdnEvidence(candidateDomain, brandName);
   const sld = candidateDomain.split(".")[0];
   const tld = candidateDomain.split(".").slice(1).join(".");
   const brandToken = String(brandName || "").toLowerCase().replace(/[^a-z0-9]/g, "");
   const dnsActive = row?.dns_resolves == null ? null : Boolean(row.dns_resolves);
   const httpsActive = row?.https_available == null ? null : Boolean(row.https_available);
   const mxPresent = row?.mx_present == null ? null : Boolean(row.mx_present);
-  const containsBrandKeyword = Boolean(brandToken && sld.replace(/[^a-z0-9]/g, "").includes(brandToken));
+  const containsBrandKeyword = Boolean(!idn.analysis.is_homograph && brandToken &&
+    sld.replace(/[^a-z0-9]/g, "").includes(brandToken));
   const suspiciousTld = BRAND_SUSPICIOUS_TLDS.has(tld.split(".").pop());
   const firstSeen = row?.first_seen || null;
   const newlySeen = firstSeen ? Date.now() - new Date(firstSeen).getTime() <= 30 * 86400000 : false;
@@ -265,11 +300,15 @@ export function brandCandidateToApi(row, profile = null) {
   const persistedSignals = safeJsonArray(row?.evidence_json);
   const ctObserved = persistedSignals.some((item) => item?.signal === "ct_observed" && item.value === true);
   const liveLoginObserved = persistedSignals.some((item) => item?.signal === "looks_like_login" && item.value === true);
-  const looksLikeLogin = liveLoginObserved || HIGH_RISK_BRAND_KEYWORDS.some((keyword) => sld.includes(keyword));
+  const looksLikeLogin = liveLoginObserved ||
+    (!idn.analysis.is_homograph && HIGH_RISK_BRAND_KEYWORDS.some((keyword) => sld.includes(keyword)));
   const risk = scoreBrandCandidateRisk({
     variant_type: variant, similarity_score: similarity, dns_active: dnsActive,
     https_active: httpsActive, mx_present: mxPresent, contains_brand_keyword: containsBrandKeyword,
     suspicious_tld: suspiciousTld, looks_like_login: looksLikeLogin, ct_observed: ctObserved,
+    idn_visual_confusable: idn.analysis.is_homograph,
+    mixed_script: idn.analysis.mixed_script,
+    whole_script_confusable: idn.analysis.whole_script_confusable,
     classification,
   });
 
@@ -285,6 +324,7 @@ export function brandCandidateToApi(row, profile = null) {
   if (looksLikeLogin) evidence.push({ signal: "looks_like_login", value: true });
   if (ctObserved) evidence.push({ signal: "ct_observed", value: true });
   if (variant === "nested_host") evidence.push({ signal: "nested_host", value: true });
+  for (const item of idn.evidence) evidence.push(item);
   if (mxPresent) evidence.push({ signal: "possible_mail_abuse", value: true });
   if (classification === "owned") evidence.push({ signal: "known_owned_domain_match", value: true });
   for (const item of safeJsonArray(row?.evidence_json)) {
@@ -295,6 +335,7 @@ export function brandCandidateToApi(row, profile = null) {
   return {
     id: row.id,
     candidate_domain: candidateDomain,
+    unicode_domain: idn.analysis.is_homograph ? idn.analysis.candidate_unicode : null,
     protected_domain: row.domain || profile?.primary_domain || null,
     variant_type: variant,
     similarity_score: similarity,
@@ -311,6 +352,14 @@ export function brandCandidateToApi(row, profile = null) {
     dns_active: dnsActive,
     https_active: httpsActive,
     mx_present: mxPresent,
+    idn_homograph: idn.analysis.is_homograph ? {
+      visually_confusable: true,
+      punycode_decoded: idn.analysis.punycode_decoded,
+      mixed_script: idn.analysis.mixed_script,
+      whole_script_confusable: idn.analysis.whole_script_confusable,
+      scripts: idn.analysis.scripts,
+      skeleton_distance: idn.analysis.skeleton_distance,
+    } : null,
     registrar_or_whois_summary: typeof row.registrar_or_whois_summary === "string"
       ? row.registrar_or_whois_summary.slice(0, 500) : null,
     evidence,

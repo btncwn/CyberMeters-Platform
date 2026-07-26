@@ -80,6 +80,34 @@ const CONFUSABLE_MAP = new Map([
   ["\u0585", "o"], // օ
 ]);
 
+// Generation is deliberately narrower than detection. Detection accepts the
+// bounded table above; generation emits at most a handful of high-confidence
+// Latin-to-Cyrillic substitutions so scan-time population and later DNS/HTTP
+// enrichment stay predictable. The first substitution for "apple" is the
+// canonical Cyrillic-a fixture: аpple.com -> xn--pple-43d.com.
+const IDN_GENERATION_CONFUSABLES = Object.freeze({
+  a: ["\u0430"],
+  b: ["\u0432"],
+  c: ["\u0441"],
+  d: ["\u0501"],
+  e: ["\u0435"],
+  h: ["\u04bb"],
+  i: ["\u0456"],
+  j: ["\u0458"],
+  k: ["\u043a"],
+  l: ["\u04cf"],
+  m: ["\u043c"],
+  o: ["\u043e"],
+  p: ["\u0440"],
+  q: ["\u051b"],
+  s: ["\u0455"],
+  t: ["\u0442"],
+  w: ["\u051d"],
+  x: ["\u0445"],
+  y: ["\u0443"],
+});
+export const BRAND_IDN_GENERATION_LIMIT = 4;
+
 const SCRIPT_PATTERNS = [
   ["Latin", /\p{Script=Latin}/u],
   ["Cyrillic", /\p{Script=Cyrillic}/u],
@@ -159,6 +187,72 @@ export function encodeIdnHostname(value) {
   } catch {
     return { ok: false, submitted, alabel: null, error: "idna_conversion_error" };
   }
+}
+
+/**
+ * Generate a bounded set of validated A-label homographs for an ASCII brand.
+ * Every result is round-tripped through the same pinned IDNA profile and must
+ * pass the canonical skeleton gate before it can enter the candidate pipeline.
+ * A whole-script candidate is added only when every alphabetic character has a
+ * high-confidence Cyrillic mapping; digits and hyphens are retained.
+ */
+export function generateIdnHomographCandidates(
+  brandName,
+  tld,
+  limit = BRAND_IDN_GENERATION_LIMIT,
+) {
+  const brand = normalizeBrandInput(brandName);
+  const suffix = normalizeHostnameInput(tld);
+  const boundedLimit = Math.max(0, Math.min(BRAND_IDN_GENERATION_LIMIT, Number(limit) || 0));
+  if (boundedLimit === 0 || brand.length < 3 || !suffix ||
+      !/^[a-z0-9-]+$/.test(brand) || !/[a-z]/.test(brand)) return [];
+
+  const own = encodeIdnHostname(`${brand}.${suffix}`);
+  if (!own.ok) return [];
+  const out = [];
+  const seen = new Set([own.alabel]);
+  const add = (unicodeLabel) => {
+    if (out.length >= boundedLimit) return;
+    const encoded = encodeIdnHostname(`${unicodeLabel}.${suffix}`);
+    if (!encoded.ok || seen.has(encoded.alabel)) return;
+    const analysis = analyzeIdnHomograph(encoded.alabel, brand);
+    if (!analysis.is_homograph) return;
+    seen.add(encoded.alabel);
+    out.push({
+      candidate_domain: encoded.alabel,
+      unicode_domain: encoded.unicode,
+      variant_type: "homoglyph_idn",
+      idn_homograph: analysis,
+    });
+  };
+
+  // Single-character mixed-script forms first. This keeps the canonical
+  // Cyrillic-a fixture in the bounded set for brands such as "apple".
+  for (let i = 0; i < brand.length && out.length < boundedLimit; i++) {
+    for (const replacement of (IDN_GENERATION_CONFUSABLES[brand[i]] || [])) {
+      add(brand.slice(0, i) + replacement + brand.slice(i + 1));
+    }
+  }
+
+  // Whole-script form, when the bounded table can represent every letter.
+  if (out.length < boundedLimit) {
+    let changed = false;
+    let complete = true;
+    let whole = "";
+    for (const char of brand) {
+      if (/[a-z]/.test(char)) {
+        const replacement = IDN_GENERATION_CONFUSABLES[char]?.[0];
+        if (!replacement) { complete = false; break; }
+        whole += replacement;
+        changed = true;
+      } else {
+        whole += char;
+      }
+    }
+    if (complete && changed) add(whole);
+  }
+
+  return out;
 }
 
 export function confusableSkeleton(value) {

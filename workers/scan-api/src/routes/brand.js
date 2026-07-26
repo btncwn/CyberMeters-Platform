@@ -4,7 +4,7 @@
 // Extracted near-verbatim from index.js (router split, Phase 2 PR #3).
 // Receives the per-request routeCtx from index.js; returns a Response when a
 // route matches, or null so the main router continues.
-import { BRAND_CLASSIFICATIONS, BRAND_SUSPICIOUS_TLDS, brandCandidateToApi, brandClassificationAuditMetadata, brandProfileToApi, brandSimilarityScore, buildBrandProfileDomainScope, buildBrandProtectionSummary, legacyBrandAssetToApi, loadWorkspaceBrandProfile, normalizeBrandVariantType, parseBrandCandidateListParams, scoreBrandCandidateRisk, validateBrandProfileInput } from "../engines/brand-protection.js";
+import { BRAND_CLASSIFICATIONS, BRAND_SUSPICIOUS_TLDS, brandCandidateToApi, brandClassificationAuditMetadata, brandProfileToApi, brandSimilarityScore, buildBrandIdnEvidence, buildBrandProfileDomainScope, buildBrandProtectionSummary, legacyBrandAssetToApi, loadWorkspaceBrandProfile, normalizeBrandVariantType, parseBrandCandidateListParams, scoreBrandCandidateRisk, validateBrandProfileInput } from "../engines/brand-protection.js";
 import { approveBrandTakedown, brandCaseToApi, createBrandCaseForCandidateId, createBrandCasesForWorkspace, getBrandCase, listBrandCaseEvents, listBrandCases, recaptureBrandEvidenceBundle, recordBrandTakedownSubmission, reviewBrandCase, transitionBrandCase } from "../engines/brand-cases.js";
 import { extractBrandParts, generateTyposquatCandidates, HIGH_RISK_BRAND_KEYWORDS } from "../engines/brand-typosquat.js";
 import { dnsQuery } from "../engines/dns.js";
@@ -387,23 +387,31 @@ export async function brandRoutes(rctx) {
         // deliberately NOT set here; that is the enrichment helper's sole job.
         for (const c of allCandidates) {
           const similarity   = brandSimilarityScore(c.candidate_domain, brand);
+          const idn          = buildBrandIdnEvidence(c.candidate_domain, brand);
           const candidateSld = c.candidate_domain.split('.')[0];
+          const containsBrandKeyword = !idn.analysis.is_homograph && candidateSld.includes(brand);
+          const looksLikeLogin = !idn.analysis.is_homograph &&
+            HIGH_RISK_BRAND_KEYWORDS.some((keyword) => candidateSld.includes(keyword));
           const risk = scoreBrandCandidateRisk({
             variant_type: c.variant_type,
             similarity_score: similarity,
             dns_active: null,
-            contains_brand_keyword: candidateSld.includes(brand),
+            contains_brand_keyword: containsBrandKeyword,
             suspicious_tld: BRAND_SUSPICIOUS_TLDS.has(c.candidate_domain.split('.').pop()),
-            looks_like_login: HIGH_RISK_BRAND_KEYWORDS.some((keyword) => candidateSld.includes(keyword)),
+            looks_like_login: looksLikeLogin,
+            idn_visual_confusable: idn.analysis.is_homograph,
+            mixed_script: idn.analysis.mixed_script,
+            whole_script_confusable: idn.analysis.whole_script_confusable,
             classification: "unreviewed",
           });
           const evidence = [
             { signal: "similar_to_brand", value: similarity },
             { signal: "variant_type", value: normalizeBrandVariantType(c.variant_type) },
+            ...idn.evidence,
           ];
-          if (candidateSld.includes(brand)) evidence.push({ signal: "contains_brand_keyword", value: true });
+          if (containsBrandKeyword) evidence.push({ signal: "contains_brand_keyword", value: true });
           if (BRAND_SUSPICIOUS_TLDS.has(c.candidate_domain.split('.').pop())) evidence.push({ signal: "suspicious_tld", value: true });
-          if (HIGH_RISK_BRAND_KEYWORDS.some((keyword) => candidateSld.includes(keyword))) evidence.push({ signal: "looks_like_login", value: true });
+          if (looksLikeLogin) evidence.push({ signal: "looks_like_login", value: true });
           try {
             await env.cybermeters_db
               .prepare(

@@ -3,6 +3,7 @@
 // generation with risk scoring, and the typosquat scan roll-up. Extracted verbatim from
 // index.js (monolith decomposition, Phase 1c). MED_RISK_BRAND_KEYWORDS, TYPOSQUAT_HOMOGLYPHS,
 // _typosquatRisk and MAX_BRAND_CANDIDATES are module-internal.
+import { generateIdnHomographCandidates } from "./idn-homograph.js";
 
 /**
  * extractBrandParts(domain)
@@ -57,7 +58,10 @@ const TYPOSQUAT_HOMOGLYPHS = {
 function _typosquatRisk(sld, variantType) {
   let score = 0;
   const reasons = [];
-  const s = sld.toLowerCase();
+  // Never derive keyword meaning from a punycode A-label: the encoded bytes can
+  // accidentally contain strings such as "app" that are absent from the
+  // displayed Unicode label.
+  const s = variantType === 'homoglyph_idn' ? '' : sld.toLowerCase();
 
   for (const kw of HIGH_RISK_BRAND_KEYWORDS) {
     if (s.includes(kw)) { score += 3; reasons.push(`contains '${kw}'`); }
@@ -81,6 +85,10 @@ function _typosquatRisk(sld, variantType) {
     // scoreBrandCandidateRisk, whose registration-reality gate caps unregistered
     // candidates at 'low' and lifts DNS/MX-confirmed ones.
     score += 4; reasons.push('exact brand name on a different top-level domain');
+  } else if (variantType === 'homoglyph_idn') {
+    // Generated-only severity remains below high: registration/activity
+    // corroboration belongs to the canonical persisted risk scorer.
+    score += 4; reasons.push('visually-confusable IDN homograph');
   }
 
   const risk_level = score >= 7 ? 'critical' : score >= 5 ? 'high' : score >= 2 ? 'medium' : 'low';
@@ -88,15 +96,16 @@ function _typosquatRisk(sld, variantType) {
 }
 
 /** Maximum candidates returned by generateTyposquatCandidates. */
-const MAX_BRAND_CANDIDATES = 40;
+const MAX_BRAND_CANDIDATES = 44;
 
 // Per-family floors inside MAX_BRAND_CANDIDATES. Without them the ~50 keyword
 // variants plus the TLD swaps would out-score and silently crowd out every
 // homoglyph/typo variant for longer brands — a coverage regression, not a
 // ranking choice. Quotas sum to the cap; unused quota backfills by score.
-const BRAND_FAMILY_QUOTAS = { tld: 10, keyword: 14, character: 16 };
+const BRAND_FAMILY_QUOTAS = { tld: 10, keyword: 14, character: 16, idn: 4 };
 
 function _variantFamily(variantType) {
+  if (variantType === 'homoglyph_idn') return 'idn';
   if (variantType === 'tld_variation') return 'tld';
   if (variantType === 'hyphen_keyword' || variantType === 'prefix_keyword') return 'keyword';
   return 'character';
@@ -113,6 +122,7 @@ function _variantFamily(variantType) {
  *   6. Hyphen keyword append   (brand-login.tld)
  *   7. Prefix keyword prepend  (login-brand.tld)
  *   8. TLD substitution        (brand.co — exact brand label on a confusable TLD)
+ *   9. IDN homograph           (аpple.com → xn--pple-43d.com)
  * Returns up to MAX_BRAND_CANDIDATES items sorted by descending risk score,
  * with per-family floors so no variant family is silently crowded out.
  * The customer's own registered domain is never emitted.
@@ -134,31 +144,43 @@ export function generateTyposquatCandidates(brand, tld) {
     items.push({ candidate_domain, variant_type: variantType, risk_level, risk_reasons, _score });
   }
 
-  // 1. Homoglyph substitution
+  // 1. IDN homographs. The pure IDN module validates A-label/U-label round-trip
+  // and the confusable-skeleton gate before any candidate enters this list.
+  for (const candidate of generateIdnHomographCandidates(brand, tld)) {
+    if (seen.has(candidate.candidate_domain)) continue;
+    seen.add(candidate.candidate_domain);
+    const { risk_level, risk_reasons, _score } = _typosquatRisk(
+      candidate.candidate_domain.split('.')[0],
+      candidate.variant_type,
+    );
+    items.push({ ...candidate, risk_level, risk_reasons, _score });
+  }
+
+  // 2. ASCII homoglyph substitution
   for (let i = 0; i < brand.length; i++) {
     for (const sub of (TYPOSQUAT_HOMOGLYPHS[brand[i]] || [])) {
       add(brand.slice(0, i) + sub + brand.slice(i + 1), 'substitution');
     }
   }
 
-  // 2. Omission
+  // 3. Omission
   for (let i = 0; i < brand.length; i++) {
     add(brand.slice(0, i) + brand.slice(i + 1), 'omission');
   }
 
-  // 3. Duplication
+  // 4. Duplication
   for (let i = 0; i < brand.length; i++) {
     add(brand.slice(0, i) + brand[i] + brand[i] + brand.slice(i + 1), 'duplication');
   }
 
-  // 4. Transposition
+  // 5. Transposition
   for (let i = 0; i < brand.length - 1; i++) {
     const arr = brand.split('');
     [arr[i], arr[i + 1]] = [arr[i + 1], arr[i]];
     add(arr.join(''), 'transposition');
   }
 
-  // 5. Keyboard-adjacent substitutions (qwerty layout)
+  // 6. Keyboard-adjacent substitutions (qwerty layout)
   const KEYBOARD_ADJACENT = {
     a: 'sqzw', b: 'vghn', c: 'xdfv', d: 'serfcx', e: 'wsdr',
     f: 'drtgvc', g: 'ftyhbv', h: 'gyujnb', i: 'ujko', j: 'huikmn',
@@ -172,13 +194,13 @@ export function generateTyposquatCandidates(brand, tld) {
     }
   }
 
-  // 6 & 7. Keyword variants (high-risk first, then medium-risk)
+  // 7 & 8. Keyword variants (high-risk first, then medium-risk)
   for (const kw of [...HIGH_RISK_BRAND_KEYWORDS, ...MED_RISK_BRAND_KEYWORDS]) {
     add(`${brand}-${kw}`, 'hyphen_keyword');
     add(`${kw}-${brand}`, 'prefix_keyword');
   }
 
-  // 8. TLD substitution — the exact brand label on a confusable TLD.
+  // 9. TLD substitution — the exact brand label on a confusable TLD.
   for (const swapTld of CONFUSABLE_TLD_SWAPS) {
     if (swapTld === tld) continue;
     add(brand, 'tld_variation', swapTld);
@@ -191,7 +213,7 @@ export function generateTyposquatCandidates(brand, tld) {
 
   // Family-quota selection inside the cap, then score-ordered backfill of any
   // unused quota, so every variant family stays represented.
-  const counts   = { tld: 0, keyword: 0, character: 0 };
+  const counts   = { tld: 0, keyword: 0, character: 0, idn: 0 };
   const selected = [];
   const overflow = [];
   for (const item of items) {

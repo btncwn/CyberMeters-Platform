@@ -119,16 +119,18 @@ eq("tld_variation is canonical", normalizeBrandVariantType("tld_variation"), "tl
 {
   // Long brand: total candidate space far exceeds the cap. Without quotas the
   // keyword + TLD variants (scores 3–4) eject nearly every character variant
-  // (score ≤2): the pre-quota outcome was 1 character variant in the top 40.
+  // (score ≤2): the pre-quota outcome was 1 character variant in the ASCII 40.
   const long = generateTyposquatCandidates("cybermeters", "com");
-  const fam = (v) => v === "tld_variation" ? "tld"
+  const fam = (v) => v === "homoglyph_idn" ? "idn"
+    : v === "tld_variation" ? "tld"
     : (v === "hyphen_keyword" || v === "prefix_keyword") ? "keyword" : "character";
-  const counts = { tld: 0, keyword: 0, character: 0 };
+  const counts = { tld: 0, keyword: 0, character: 0, idn: 0 };
   for (const c of long) counts[fam(c.variant_type)]++;
-  ok("cap respected", long.length <= 40, `got ${long.length}`);
+  ok("bounded additive cap respected", long.length <= 44, `got ${long.length}`);
   ok("character variants keep a floor (≥8)", counts.character >= 8, `got ${counts.character}`);
   ok("keyword variants keep a floor (≥8)", counts.keyword >= 8, `got ${counts.keyword}`);
   ok("tld swaps keep a floor (≥5)", counts.tld >= 5, `got ${counts.tld}`);
+  ok("IDN family receives a bounded dedicated floor", counts.idn >= 1 && counts.idn <= 4, `got ${counts.idn}`);
 }
 
 // ── 7. Determinism, dedupe, contract fields ──────────────────────────────────
@@ -136,7 +138,7 @@ eq("tld_variation is canonical", normalizeBrandVariantType("tld_variation"), "tl
   const again = generateTyposquatCandidates("acme", "com");
   eq("deterministic output", again, acme);
   eq("no duplicate candidates", acmeDomains.size, acme.length);
-  ok("cap respected for acme", acme.length <= 40);
+  ok("bounded additive cap respected for acme", acme.length <= 44);
   ok("scan-time contract fields preserved",
     acme.every((c) => c.confidence === 40 && c.validation_quality === "weak"));
   ok("internal _score never leaks", acme.every((c) => !("_score" in c)));

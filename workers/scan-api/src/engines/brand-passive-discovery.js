@@ -30,8 +30,9 @@ import {
 } from "./brand-typosquat.js";
 import {
   brandSimilarityScore, scoreBrandCandidateRisk, normalizeBrandVariantType,
-  BRAND_SUSPICIOUS_TLDS,
+  BRAND_SUSPICIOUS_TLDS, buildBrandIdnEvidence,
 } from "./brand-protection.js";
+import { encodeIdnHostname, generateIdnHomographCandidates } from "./idn-homograph.js";
 
 // Bounded work — deliberately small. The daily cron shares one Worker invocation
 // with every other scheduled task, and crt.sh is a courtesy public service, so
@@ -40,6 +41,7 @@ export const BRAND_CT_WORKSPACES_PER_DAY = 3;   // workspaces swept per daily ru
 export const BRAND_CT_HOST_CAP           = 50;  // discovered hosts persisted per workspace per run
 export const BRAND_CT_QUERY_TIMEOUT_MS   = 12_000;
 export const BRAND_CT_MAX_CT_ENTRIES     = 5_000; // CT rows parsed per query (crt.sh can return many)
+export const BRAND_CT_QUERY_CAP          = 4; // literal brand + at most three IDN A-label forms
 
 // Classifications the customer has closed — never resurrect them with a new row.
 const CLOSED_CLASSIFICATIONS = "('owned','ignored','false_positive')";
@@ -56,6 +58,30 @@ export function brandCtQueryUrl(brand) {
   return `https://crt.sh/?q=${encodeURIComponent("%" + token + "%")}&output=json`;
 }
 
+/**
+ * Bounded CT query plan. The literal token preserves the existing ASCII/nested
+ * discovery path; exact generated A-label forms close the punycode blind spot.
+ * No free-form Unicode is sent and crt.sh remains the fixed destination.
+ */
+export function brandCtQueryUrls(brand, tld) {
+  const urls = [];
+  const literal = brandCtQueryUrl(brand);
+  if (literal) urls.push(literal);
+  for (const candidate of generateIdnHomographCandidates(brand, tld)) {
+    if (urls.length >= BRAND_CT_QUERY_CAP) break;
+    urls.push(`https://crt.sh/?q=${encodeURIComponent("%" + candidate.candidate_domain + "%")}&output=json`);
+  }
+  return [...new Set(urls)].slice(0, BRAND_CT_QUERY_CAP);
+}
+
+/** Canonical A-label form used for dedupe and own-domain exclusion. */
+export function canonicalBrandHostname(value) {
+  const hostname = normalizeHostname(value);
+  if (!hostname) return null;
+  const encoded = encodeIdnHostname(hostname);
+  return encoded.ok ? encoded.alabel : null;
+}
+
 /** Parse a crt.sh JSON body into a deduped list of bare hostnames (wildcards stripped). */
 export function parseCtResponseHostnames(rawData) {
   if (!Array.isArray(rawData)) return [];
@@ -66,7 +92,7 @@ export function parseCtResponseHostnames(rawData) {
       String(entry?.common_name || ""),
     ];
     for (const raw of names) {
-      const h = normalizeHostname(String(raw || "").replace(/^\*\./, "")); // drop wildcard prefix
+      const h = canonicalBrandHostname(String(raw || "").replace(/^\*\./, "")); // drop wildcard prefix
       if (h) out.add(h);
     }
   }
@@ -83,7 +109,8 @@ export function buildLookalikeBaseSet(brand, tld) {
   for (const c of generateTyposquatCandidates(brand, tld)) {
     // Generated candidates are registrable (sld.tld or brand.swaptld); their own
     // registrable form is themselves.
-    set.add(getRegisteredDomain(c.candidate_domain));
+    const canonical = canonicalBrandHostname(c.candidate_domain);
+    if (canonical) set.add(getRegisteredDomain(canonical));
   }
   return set;
 }
@@ -99,20 +126,35 @@ export function buildLookalikeBaseSet(brand, tld) {
  * @param lookalikeBases  Set from buildLookalikeBaseSet
  */
 export function filterDiscoveredHosts(fqdns, { brand, tld, ownRegistrables, lookalikeBases }) {
-  const own = ownRegistrables instanceof Set ? ownRegistrables : new Set(ownRegistrables || []);
+  const own = new Set();
+  for (const domain of (ownRegistrables instanceof Set ? ownRegistrables : new Set(ownRegistrables || []))) {
+    const canonical = canonicalBrandHostname(domain);
+    if (canonical) own.add(getRegisteredDomain(canonical));
+  }
+  const bases = new Set();
+  for (const domain of (lookalikeBases instanceof Set ? lookalikeBases : new Set(lookalikeBases || []))) {
+    const canonical = canonicalBrandHostname(domain);
+    if (canonical) bases.add(getRegisteredDomain(canonical));
+  }
   const kept = [];
   const seen = new Set();
-  for (const fqdn of fqdns) {
+  for (const rawFqdn of fqdns) {
+    const fqdn = canonicalBrandHostname(rawFqdn);
+    if (!fqdn) continue;
     if (seen.has(fqdn)) continue;
     const reg = getRegisteredDomain(fqdn);
     if (own.has(reg)) continue;              // the customer's own domain — never a lookalike
-    if (!lookalikeBases.has(reg)) continue;  // strict: base must be a generated lookalike
+    if (!bases.has(reg)) continue;            // strict: base must be a generated lookalike
+    const idn = buildBrandIdnEvidence(reg, brand);
     seen.add(fqdn);
     kept.push({
       candidate_domain: fqdn,
       registrable: reg,
-      variant_type: fqdn === reg ? "tld_variation" : "nested_host",
+      variant_type: fqdn === reg
+        ? (idn.analysis.is_homograph ? "homoglyph_idn" : "tld_variation")
+        : "nested_host",
       is_nested: fqdn !== reg,
+      idn_homograph: idn.analysis,
     });
   }
   kept.sort((a, b) => a.candidate_domain.localeCompare(b.candidate_domain));
@@ -130,18 +172,23 @@ export function filterDiscoveredHosts(fqdns, { brand, tld, ownRegistrables, look
 export function buildDiscoveredCandidateRisk(host, brand) {
   const sld = host.registrable.split(".")[0];
   const similarity = brandSimilarityScore(host.registrable, brand);
+  const idn = buildBrandIdnEvidence(host.registrable, brand);
   const risk = scoreBrandCandidateRisk({
     variant_type: host.variant_type,
     similarity_score: similarity,
     contains_brand_keyword: sld.includes(brand) || host.candidate_domain.includes(brand),
     suspicious_tld: BRAND_SUSPICIOUS_TLDS.has(host.registrable.split(".").pop()),
     ct_observed: true,
+    idn_visual_confusable: idn.analysis.is_homograph,
+    mixed_script: idn.analysis.mixed_script,
+    whole_script_confusable: idn.analysis.whole_script_confusable,
     classification: "unreviewed",
   });
   const evidence = [
     { signal: "ct_observed", value: true },
     { signal: "variant_type", value: normalizeBrandVariantType(host.variant_type) },
     { signal: "similar_to_brand", value: similarity },
+    ...idn.evidence,
   ];
   if (host.is_nested) evidence.push({ signal: "nested_host", value: true });
   return { similarity, risk, evidence };
@@ -156,7 +203,15 @@ export function buildDiscoveredCandidateRisk(host, brand) {
  */
 export async function discoverBrandCandidatesForWorkspace(env, workspaceId, opts = {}) {
   const fetchImpl = opts.fetchImpl || fetch;
-  const stats = { queried: false, discovered: 0, inserted: 0, dropped_out_of_scope: 0 };
+  const stats = {
+    queried: false,
+    queries_attempted: 0,
+    queries_succeeded: 0,
+    query_failures: 0,
+    discovered: 0,
+    inserted: 0,
+    dropped_out_of_scope: 0,
+  };
 
   // Resolve the workspace's primary domain + all owned registrables (own domains
   // are always dropped from discovery).
@@ -172,7 +227,8 @@ export async function discoverBrandCandidatesForWorkspace(env, workspaceId, opts
       const dom = String(r.domain || "").toLowerCase();
       if (!dom) continue;
       if (!primaryDomain) primaryDomain = dom;
-      ownRegistrables.add(getRegisteredDomain(dom));
+      const canonical = canonicalBrandHostname(dom);
+      if (canonical) ownRegistrables.add(getRegisteredDomain(canonical));
     }
   } catch {
     return stats;
@@ -180,27 +236,36 @@ export async function discoverBrandCandidatesForWorkspace(env, workspaceId, opts
   if (!primaryDomain) return stats;
 
   const { brand, tld } = extractBrandParts(primaryDomain);
-  const url = brandCtQueryUrl(brand);
-  if (!url) return stats;
+  const urls = brandCtQueryUrls(brand, tld);
+  if (urls.length === 0) return stats;
 
-  // Single bounded CT query (fixed host — no user-controlled host, no SSRF surface).
-  let rawData;
-  try {
-    const res = await fetchImpl(url, {
-      headers: { Accept: "application/json", "User-Agent": RDAP_UA },
-      signal: AbortSignal.timeout(opts.timeoutMs || BRAND_CT_QUERY_TIMEOUT_MS),
-    });
+  // Bounded CT queries (fixed host — no user-controlled host, no SSRF surface).
+  // A partial query failure does not discard successful observations.
+  const discoveredHostnames = new Set();
+  for (const url of urls) {
     stats.queried = true;
-    if (!res || !res.ok) return stats;                         // transient — retry next run
-    const ct = res.headers?.get?.("content-type") || "";
-    if (ct && !ct.includes("json")) return stats;
-    rawData = await res.json();
-  } catch {
-    stats.queried = true;
-    return stats;                                              // network/parse error — non-fatal
+    stats.queries_attempted++;
+    try {
+      const res = await fetchImpl(url, {
+        headers: { Accept: "application/json", "User-Agent": RDAP_UA },
+        signal: AbortSignal.timeout(opts.timeoutMs || BRAND_CT_QUERY_TIMEOUT_MS),
+      });
+      if (!res || !res.ok) { stats.query_failures++; continue; }
+      const ct = res.headers?.get?.("content-type") || "";
+      if (ct && !ct.includes("json")) { stats.query_failures++; continue; }
+      const body = await res.json();
+      if (!Array.isArray(body)) { stats.query_failures++; continue; }
+      stats.queries_succeeded++;
+      // Parse each bounded response independently so a full literal-brand result
+      // cannot crowd later IDN-query observations out of the global set.
+      for (const hostname of parseCtResponseHostnames(body)) discoveredHostnames.add(hostname);
+    } catch {
+      stats.query_failures++;
+    }
   }
+  if (stats.queries_succeeded === 0) return stats;
 
-  const hosts = parseCtResponseHostnames(rawData);
+  const hosts = [...discoveredHostnames];
   const lookalikeBases = buildLookalikeBaseSet(brand, tld);
   const kept = filterDiscoveredHosts(hosts, { brand, tld, ownRegistrables, lookalikeBases });
   stats.discovered = kept.length;
