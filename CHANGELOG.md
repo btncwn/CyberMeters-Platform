@@ -5,6 +5,62 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## Item 8 Brand IDN/homograph — deployed 2026-07-26; **ENGINEERING LIVE · LIVE FIXTURE ACCEPTANCE DEFERRED TO ITEM 14**
+
+Documentation-only reconciliation of the Item 8 production deployment. Merge and
+deploy do not constitute live acceptance: **merge ≠ live-accepted, deploy ≠
+fixture-acceptance. Item 8 is NOT YET LIVE ACCEPTED.**
+
+- **Release identity:** deployed main SHA
+  `b8304cac14bb811ba83be72e002377c60c44e1c4`. Engineering spans PRs #315 (PR-A),
+  #316 (PR-B), #317 (PR-C) and **#318 (PR-D corrective)**. No new release tag was
+  present on `origin/main` when this documentation-only reconciliation was
+  prepared; no tag is fabricated here.
+- **Migration:** none. Production latest migration remains
+  `101-dmarcbis-aggregate-metadata.sql`. `brand_abuse_campaigns` reuses the
+  existing migration `077`; no `brand`/IDN schema change was introduced.
+- **scan-api (`cybermeters-platform`):** Cloudflare deployment
+  `21906603-0648-4ecb-a4e4-10b20b285386`; production Worker Version ID
+  `d3aa2ac0-500b-4e35-9adc-bf3591607408`; 100% traffic; health/readiness passed;
+  immediate rollback deployment `590d80c3-199e-4b2f-b653-c2c77097eca4` (version
+  `c58719c9-163f-4f77-9b4b-26f056befad0`).
+- **email-ingest (`cybermeters-email`):** Cloudflare deployment
+  `456fb820-440b-4543-aa47-1ab61a33edbe`; production Worker Version ID
+  `f4423b41-73de-4b89-92d2-1d933e8ab653`; 100% traffic; health/readiness passed;
+  closure stamp `2026.07.26-item8-prd.140b49a1f90f`; immediate rollback deployment
+  `7c596867-ca3c-4a10-9120-cadb2ee4f523` (version
+  `e3e0e3e2-3b58-47f5-a3be-b7fa79333e11`).
+- All deployment/rollback IDs above were read directly from Cloudflare at deploy
+  time; they must be re-read from Cloudflare (never from this document) before any
+  future rollback.
+- **Production smoke:** both scan-api hosts (`api.cybermeters.com` and
+  `cybermeters-platform.ttrnn47.workers.dev`) served the same new deployment id;
+  `/ready` returned `d1:true, r2:true`; the protected route returned `401`;
+  `workers_dev = true` remained available on both Workers; email-ingest `/ready`
+  returned `d1:true`.
+- **D1 reconciliation:** no schema change; latest migration `101`; Brand tables
+  healthy; `workspace_brand_assets` readable with `1040` rows at acceptance time.
+- **Corrective fixes now LIVE (PR-D #318):** **B1** — passive CT discovery no
+  longer drops a certificate observation on an already-generated candidate
+  (`INSERT OR IGNORE` → shared classification-safe, CAS-guarded merge helper),
+  closing a silent monitoring gap. **B2b** — the passive discovery sweep now
+  excludes soft-deleted workspaces (`JOIN workspaces … AND w.deleted_at IS NULL`),
+  closing a tenant-hygiene leak. A new bounded, authenticated, fail-closed
+  `POST /api/workspaces/{id}/brand/discovery` route (**B2a**) is present.
+- **Claim boundary:** the founder-controlled, paid Brand IDN fixture live
+  acceptance (synthetic `.com` protected brand, registered IDN lookalikes, real
+  DNS/TLS/CT, CT→DNS→HTTPS evidence ladder, recurrence, campaign boundary, surface
+  parity and tenant isolation) is **DEFERRED**. Its **primary execution gate is
+  Item 14 (Founder security acceptance)** and its **final confirmation is Item 18
+  (Exit review)**. **Item 19 is not the fixture gate** — Item 19 is the separate
+  Source-Fidelity / no-module-assumed-correct law work. During Items 9–13 no domain
+  purchase, CT fixture, DNS/TLS change or other paid acceptance action is taken.
+  Pre-approved Item 8 backlog: **8-A** MSP parity BLOCKED until a real entitled MSP
+  account exists (never inferred from a `401`); **8-B** capacity-limited wider IDN/
+  script/TLD matrix and shared-IP campaign live proof; **8-C** the confusable map
+  recorded at its declared evidence grade (a bounded CyberMeters product-policy
+  subset — not UTS #39 or full IDNA conformance).
+
 ## Item 7 DMARCbis P1–P6 — deployed and founder-accepted 2026-07-26; **LIVE-ACCEPTED — PASS WITH BACKLOG**
 
 - **Release identity:** deployed main SHA
