@@ -22,7 +22,6 @@
 // customer's own acme.com is dropped (the generator never emits the own domain).
 
 import { RDAP_UA } from "../lib/http.js";
-import { createId } from "../lib/util.js";
 import { getRegisteredDomain } from "./whois-scan.js";
 import { normalizeHostname } from "./hostnames.js";
 import {
@@ -32,6 +31,7 @@ import {
   brandSimilarityScore, scoreBrandCandidateRisk, normalizeBrandVariantType,
   BRAND_SUSPICIOUS_TLDS, buildBrandIdnEvidence,
 } from "./brand-protection.js";
+import { persistBrandCandidateObservation } from "./asset-persistence.js";
 import { encodeIdnHostname, generateIdnHomographCandidates } from "./idn-homograph.js";
 
 // Bounded work — deliberately small. The daily cron shares one Worker invocation
@@ -42,9 +42,10 @@ export const BRAND_CT_HOST_CAP           = 50;  // discovered hosts persisted pe
 export const BRAND_CT_QUERY_TIMEOUT_MS   = 12_000;
 export const BRAND_CT_MAX_CT_ENTRIES     = 5_000; // CT rows parsed per query (crt.sh can return many)
 export const BRAND_CT_QUERY_CAP          = 4; // literal brand + at most three IDN A-label forms
+export const BRAND_CT_RESPONSE_MAX_BYTES = 1_000_000;
 
 // Classifications the customer has closed — never resurrect them with a new row.
-const CLOSED_CLASSIFICATIONS = "('owned','ignored','false_positive')";
+const CLOSED_CLASSIFICATIONS = "('owned','ignored','benign','false_positive','dismissed')";
 
 /**
  * The crt.sh identity-search URL for a brand token, or null when the token is too
@@ -97,6 +98,65 @@ export function parseCtResponseHostnames(rawData) {
     }
   }
   return [...out];
+}
+
+function boundedCtString(value, max) {
+  const text = String(value ?? "").trim();
+  return text ? text.slice(0, max) : null;
+}
+
+/**
+ * Strict CT observations used for persistence. A hostname alone is insufficient
+ * positive evidence: require a stable crt.sh entry id or certificate serial so
+ * malformed/incomplete upstream rows fail honestly.
+ */
+export function parseCtResponseObservations(rawData) {
+  if (!Array.isArray(rawData)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const entry of rawData.slice(0, BRAND_CT_MAX_CT_ENTRIES)) {
+    const entryId = boundedCtString(entry?.id ?? entry?.min_cert_id, 100);
+    const serialNumber = boundedCtString(entry?.serial_number, 128);
+    if (!entryId && !serialNumber) continue;
+    const metadata = {
+      source: "crt.sh",
+      entry_id: entryId,
+      serial_number: serialNumber,
+      issuer_name: boundedCtString(entry?.issuer_name, 256),
+      entry_timestamp: boundedCtString(entry?.entry_timestamp, 64),
+      not_before: boundedCtString(entry?.not_before, 64),
+      not_after: boundedCtString(entry?.not_after, 64),
+    };
+    const names = [
+      ...String(entry?.name_value || "").split(/\n/),
+      String(entry?.common_name || ""),
+    ];
+    for (const raw of names) {
+      const hostname = canonicalBrandHostname(String(raw || "").replace(/^\*\./, ""));
+      if (!hostname) continue;
+      const key = `${hostname}:${entryId || ""}:${serialNumber || ""}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ hostname, metadata });
+    }
+  }
+  return out;
+}
+
+async function readBoundedCtJson(response) {
+  const declared = Number(response?.headers?.get?.("content-length"));
+  if (Number.isFinite(declared) && declared > BRAND_CT_RESPONSE_MAX_BYTES) {
+    throw new Error("ct_response_too_large");
+  }
+  if (typeof response?.text === "function") {
+    const text = await response.text();
+    if (new TextEncoder().encode(text).byteLength > BRAND_CT_RESPONSE_MAX_BYTES) {
+      throw new Error("ct_response_too_large");
+    }
+    return JSON.parse(text);
+  }
+  // Test/compatibility fallback. Production Fetch Response always exposes text().
+  return response?.json?.();
 }
 
 /**
@@ -169,7 +229,7 @@ export function filterDiscoveredHosts(fqdns, { brand, tld, ownRegistrables, look
  * never 'critical': a logged certificate is strong, but "critical" is reserved for
  * a lookalike confirmed live and mail/serving-capable.
  */
-export function buildDiscoveredCandidateRisk(host, brand) {
+export function buildDiscoveredCandidateRisk(host, brand, ctMetadata = []) {
   const sld = host.registrable.split(".")[0];
   const similarity = brandSimilarityScore(host.registrable, brand);
   const idn = buildBrandIdnEvidence(host.registrable, brand);
@@ -190,26 +250,39 @@ export function buildDiscoveredCandidateRisk(host, brand) {
     { signal: "similar_to_brand", value: similarity },
     ...idn.evidence,
   ];
+  for (const metadata of ctMetadata) {
+    evidence.push({ signal: "ct_observation", value: metadata });
+  }
   if (host.is_nested) evidence.push({ signal: "nested_host", value: true });
   return { similarity, risk, evidence };
 }
 
 /**
  * Discover + persist nested/lookalike hosts for ONE workspace. Tenant-scoped:
- * every read and write is filtered by workspace_id. INSERT OR IGNORE never
- * clobbers a scan-, refresh- or customer-classified row; discovered candidates
- * arrive with dns_resolves NULL so the existing DNS sweep validates them.
- * Non-fatal per host. Returns bounded stats.
+ * every read and write is filtered by workspace_id. The canonical candidate
+ * persistence helper inserts or merges CT evidence without clobbering customer
+ * classification or validation state; discovered candidates arrive with
+ * dns_resolves NULL so the existing DNS sweep validates them. Non-fatal per
+ * host. Returns bounded stats.
  */
 export async function discoverBrandCandidatesForWorkspace(env, workspaceId, opts = {}) {
   const fetchImpl = opts.fetchImpl || fetch;
   const stats = {
     queried: false,
+    attempted: 0,
+    observed: 0,
     queries_attempted: 0,
     queries_succeeded: 0,
     query_failures: 0,
     discovered: 0,
     inserted: 0,
+    merged: 0,
+    updated: 0,
+    excluded: 0,
+    skipped: 0,
+    failed: 0,
+    partial: false,
+    incomplete: false,
     dropped_out_of_scope: 0,
   };
 
@@ -220,8 +293,11 @@ export async function discoverBrandCandidatesForWorkspace(env, workspaceId, opts
   try {
     const rows = await env.cybermeters_db.prepare(
       `SELECT d.domain AS domain, d.created_at AS created_at
-         FROM workspace_domains wd JOIN domains d ON d.id = wd.domain_id
-        WHERE wd.workspace_id = ? ORDER BY d.created_at ASC`
+         FROM workspaces w
+         JOIN workspace_domains wd ON wd.workspace_id = w.id
+         JOIN domains d ON d.id = wd.domain_id
+        WHERE w.id = ? AND w.deleted_at IS NULL
+        ORDER BY d.created_at ASC`
     ).bind(workspaceId).all();
     for (const r of (rows?.results || [])) {
       const dom = String(r.domain || "").toLowerCase();
@@ -231,17 +307,27 @@ export async function discoverBrandCandidatesForWorkspace(env, workspaceId, opts
       if (canonical) ownRegistrables.add(getRegisteredDomain(canonical));
     }
   } catch {
+    stats.failed++;
+    stats.incomplete = true;
     return stats;
   }
-  if (!primaryDomain) return stats;
+  if (!primaryDomain) {
+    stats.skipped++;
+    stats.incomplete = true;
+    return stats;
+  }
 
   const { brand, tld } = extractBrandParts(primaryDomain);
   const urls = brandCtQueryUrls(brand, tld);
-  if (urls.length === 0) return stats;
+  if (urls.length === 0) {
+    stats.skipped++;
+    stats.incomplete = true;
+    return stats;
+  }
 
   // Bounded CT queries (fixed host — no user-controlled host, no SSRF surface).
   // A partial query failure does not discard successful observations.
-  const discoveredHostnames = new Set();
+  const discoveredObservations = new Map();
   for (const url of urls) {
     stats.queried = true;
     stats.queries_attempted++;
@@ -253,43 +339,71 @@ export async function discoverBrandCandidatesForWorkspace(env, workspaceId, opts
       if (!res || !res.ok) { stats.query_failures++; continue; }
       const ct = res.headers?.get?.("content-type") || "";
       if (ct && !ct.includes("json")) { stats.query_failures++; continue; }
-      const body = await res.json();
+      const body = await readBoundedCtJson(res);
       if (!Array.isArray(body)) { stats.query_failures++; continue; }
       stats.queries_succeeded++;
       // Parse each bounded response independently so a full literal-brand result
       // cannot crowd later IDN-query observations out of the global set.
-      for (const hostname of parseCtResponseHostnames(body)) discoveredHostnames.add(hostname);
+      const observations = parseCtResponseObservations(body);
+      const strictHosts = new Set(observations.map((item) => item.hostname));
+      const incompleteHosts = parseCtResponseHostnames(body)
+        .filter((hostname) => !strictHosts.has(hostname));
+      stats.skipped += incompleteHosts.length;
+      if (incompleteHosts.length > 0) stats.incomplete = true;
+      for (const observation of observations) {
+        const values = discoveredObservations.get(observation.hostname) || [];
+        if (!values.some((value) =>
+          value.entry_id === observation.metadata.entry_id &&
+          value.serial_number === observation.metadata.serial_number)) {
+          values.push(observation.metadata);
+        }
+        discoveredObservations.set(observation.hostname, values);
+      }
     } catch {
       stats.query_failures++;
     }
   }
-  if (stats.queries_succeeded === 0) return stats;
+  stats.attempted = stats.queries_attempted;
+  stats.partial = stats.query_failures > 0 && stats.queries_succeeded > 0;
+  stats.incomplete ||= stats.query_failures > 0;
+  stats.failed = stats.query_failures;
+  if (stats.queries_succeeded === 0) {
+    stats.incomplete = true;
+    return stats;
+  }
 
-  const hosts = [...discoveredHostnames];
+  const hosts = [...discoveredObservations.keys()];
   const lookalikeBases = buildLookalikeBaseSet(brand, tld);
   const kept = filterDiscoveredHosts(hosts, { brand, tld, ownRegistrables, lookalikeBases });
   stats.discovered = kept.length;
+  stats.observed = stats.discovered;
   stats.dropped_out_of_scope = hosts.length - kept.length;
+  stats.excluded = stats.dropped_out_of_scope;
 
-  const now = new Date().toISOString();
+  const now = opts.now || new Date().toISOString();
   for (const host of kept) {
-    const { similarity, risk, evidence } = buildDiscoveredCandidateRisk(host, brand);
-    try {
-      await env.cybermeters_db.prepare(
-        `INSERT OR IGNORE INTO workspace_brand_assets
-           (id, workspace_id, domain, candidate_domain, variant_type,
-            similarity_score, risk_level, risk_reasons, evidence_json,
-            dns_resolves, https_available, ip_address, status,
-            first_seen, last_seen, last_checked_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, 'unverified', ?, ?, NULL, ?, ?)`
-      ).bind(
-        createId("bra"), workspaceId, primaryDomain, host.candidate_domain, host.variant_type,
-        similarity, risk.risk_level, JSON.stringify(risk.reasons), JSON.stringify(evidence),
-        now, now, now, now,
-      ).run();
-      // .changes is not reliably exposed on D1; count discovered as the honest metric.
-      stats.inserted++;
-    } catch { /* isolated — the batch continues */ }
+    const { similarity, evidence } = buildDiscoveredCandidateRisk(
+      host, brand, discoveredObservations.get(host.candidate_domain) || [],
+    );
+    const persisted = await persistBrandCandidateObservation(env, {
+      workspaceId,
+      domain: primaryDomain,
+      candidateDomain: host.candidate_domain,
+      variantType: host.variant_type,
+      similarity,
+      evidence,
+      now,
+    });
+    if (persisted.status === "inserted") stats.inserted++;
+    else if (persisted.status === "merged") {
+      stats.merged++;
+      stats.updated++;
+    } else if (persisted.status === "unchanged") {
+      stats.skipped++;
+    } else {
+      stats.failed++;
+      stats.incomplete = true;
+    }
   }
   return stats;
 }
@@ -306,24 +420,33 @@ export async function runBrandPassiveDiscoverySweep(env, opts = {}) {
   let rows;
   try {
     rows = await env.cybermeters_db.prepare(
-      `SELECT workspace_id, COUNT(*) AS candidates
-         FROM workspace_brand_assets
-        WHERE (classification IS NULL OR classification NOT IN ${CLOSED_CLASSIFICATIONS})
-        GROUP BY workspace_id
-        ORDER BY candidates DESC, workspace_id ASC`
+      `SELECT a.workspace_id, COUNT(*) AS candidates
+         FROM workspace_brand_assets a
+         JOIN workspaces w ON w.id = a.workspace_id AND w.deleted_at IS NULL
+        WHERE (a.classification IS NULL OR a.classification NOT IN ${CLOSED_CLASSIFICATIONS})
+        GROUP BY a.workspace_id
+        ORDER BY candidates DESC, a.workspace_id ASC`
     ).all();
   } catch {
-    return { workspaces: 0, discovered: 0, inserted: 0, skipped_workspaces: 0 };
+    return { workspaces: 0, discovered: 0, inserted: 0, merged: 0, updated: 0,
+      failed: 1, partial: false, incomplete: true, skipped_workspaces: 0 };
   }
   const all = rows?.results || [];
   const selected = all.slice(0, perDay);
   const skipped = Math.max(0, all.length - selected.length);
 
-  let discovered = 0, inserted = 0;
+  let discovered = 0, inserted = 0, merged = 0, updated = 0, failed = 0;
+  let partial = false, incomplete = false;
   for (const w of selected) {
     const s = await discoverBrandCandidatesForWorkspace(env, w.workspace_id, opts);
     discovered += s.discovered;
     inserted += s.inserted;
+    merged += s.merged;
+    updated += s.updated;
+    failed += s.failed;
+    partial ||= s.partial;
+    incomplete ||= s.incomplete;
   }
-  return { workspaces: selected.length, discovered, inserted, skipped_workspaces: skipped };
+  return { workspaces: selected.length, discovered, inserted, merged, updated,
+    failed, partial, incomplete, skipped_workspaces: skipped };
 }

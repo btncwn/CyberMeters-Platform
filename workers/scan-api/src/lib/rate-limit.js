@@ -58,10 +58,9 @@ export async function consumeApiRateLimit(
   windowSeconds = 3600,
   options = {},
 ) {
-  // D1-backed rate limiting is adequate for early launch and intentionally
-  // fails open if the table or query is unavailable. The read/update sequence
-  // is not fully atomic under high concurrency; Gate 3B owns atomicity and is
-  // deliberately not part of this wiring change.
+  // D1-backed rate limiting is adequate for early launch. Existing callers
+  // retain the legacy read/update path and fail-open default; expensive actions
+  // may explicitly request the atomic UPSERT path and fail-closed behaviour.
   if (!Number.isFinite(limit) || limit >= 999999) return null;
   const activeScopes = scopes.filter((scope) => scope.scope && scope.scope_id);
   if (activeScopes.length === 0) return null;
@@ -69,6 +68,35 @@ export async function consumeApiRateLimit(
   const { window_start, reset_at } = getRateLimitWindow(windowSeconds);
 
   try {
+    if (options.atomic === true) {
+      // Expensive manual security actions need a real concurrency/burst claim,
+      // not the legacy read-then-increment approximation. One UPSERT returns the
+      // post-increment count atomically for each scope/window.
+      for (const scope of activeScopes) {
+        const id = rateLimitId(scope.scope, scope.scope_id, action, window_start);
+        const row = await env.cybermeters_db
+          .prepare(
+            `INSERT INTO api_rate_limits
+               (id, scope, scope_id, action, window_start, window_seconds,
+                request_count, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, 1, datetime('now'), datetime('now'))
+             ON CONFLICT(id) DO UPDATE SET
+               request_count = api_rate_limits.request_count + 1,
+               updated_at = datetime('now')
+             RETURNING request_count`,
+          )
+          .bind(id, scope.scope, scope.scope_id, action, window_start, windowSeconds)
+          .first();
+        if ((row?.request_count ?? limit + 1) > limit) {
+          return {
+            status: 429,
+            body: rateLimitExceeded(action, limit, windowSeconds, reset_at),
+          };
+        }
+      }
+      return null;
+    }
+
     for (const scope of activeScopes) {
       const row = await env.cybermeters_db
         .prepare(

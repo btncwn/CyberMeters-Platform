@@ -168,25 +168,45 @@ eq("empty brand refused", brandCtQueryUrl(""), null);
 {
   const db = new DatabaseSync(":memory:");
   db.exec(`
+    CREATE TABLE workspaces (id TEXT PRIMARY KEY, deleted_at TEXT);
     CREATE TABLE workspace_domains (workspace_id TEXT, domain_id TEXT);
     CREATE TABLE domains (id TEXT PRIMARY KEY, domain TEXT, created_at TEXT);
     CREATE TABLE workspace_brand_assets (
       id TEXT PRIMARY KEY, workspace_id TEXT, domain TEXT, candidate_domain TEXT, variant_type TEXT,
       similarity_score INTEGER, risk_level TEXT, risk_reasons TEXT, evidence_json TEXT,
-      dns_resolves INTEGER, https_available INTEGER, ip_address TEXT, status TEXT,
+      dns_resolves INTEGER, https_available INTEGER, mx_present INTEGER, ip_address TEXT, status TEXT,
       classification TEXT, first_seen TEXT, last_seen TEXT, last_checked_at TEXT, created_at TEXT, updated_at TEXT,
       UNIQUE (workspace_id, domain, candidate_domain));
   `);
+  db.prepare("INSERT INTO workspaces VALUES (?,NULL)").run("ws1");
+  db.prepare("INSERT INTO workspaces VALUES (?,NULL)").run("ws2");
+  db.prepare("INSERT INTO workspaces VALUES (?,?)").run("ws_deleted", "2026-07-25T00:00:00Z");
   db.prepare("INSERT INTO domains VALUES (?,?,?)").run("d1", "acme.com", "2026-01-01T00:00:00Z");
   db.prepare("INSERT INTO workspace_domains VALUES (?,?)").run("ws1", "d1");
   db.prepare("INSERT INTO domains VALUES (?,?,?)").run("d2", "other.com", "2026-01-01T00:00:00Z");
   db.prepare("INSERT INTO workspace_domains VALUES (?,?)").run("ws2", "d2");
+  db.prepare("INSERT INTO domains VALUES (?,?,?)").run("d3", "deleted.com", "2026-01-01T00:00:00Z");
+  db.prepare("INSERT INTO workspace_domains VALUES (?,?)").run("ws_deleted", "d3");
   // Give both workspaces a seed candidate so the sweep selects them.
   for (const [ws, dom] of [["ws1", "acme.com"], ["ws2", "other.com"]]) {
     db.prepare(`INSERT INTO workspace_brand_assets (id, workspace_id, domain, candidate_domain, variant_type, dns_resolves, status, classification, first_seen, last_seen, created_at, updated_at)
                 VALUES (?,?,?,?,?,NULL,'unverified','unreviewed',?,?,?,?)`)
       .run("seed_" + ws, ws, dom, "seed." + dom, "tld_variation", "t", "t", "t", "t");
   }
+  for (let i = 0; i < 5; i++) {
+    db.prepare(`INSERT INTO workspace_brand_assets (id, workspace_id, domain, candidate_domain, variant_type, dns_resolves, status, classification, first_seen, last_seen, created_at, updated_at)
+                VALUES (?,?,?,?,?,NULL,'unverified','unreviewed',?,?,?,?)`)
+      .run(`deleted_${i}`, "ws_deleted", "deleted.com", `candidate${i}.deleted.net`, "tld_variation", "t", "t", "t", "t");
+  }
+  db.prepare(`INSERT INTO workspace_brand_assets
+    (id, workspace_id, domain, candidate_domain, variant_type, similarity_score,
+     risk_level, risk_reasons, evidence_json, dns_resolves, https_available,
+     status, classification, first_seen, last_seen, created_at, updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,NULL,NULL,'unverified','unreviewed',?,?,?,?)`)
+    .run("generated_acme_co", "ws1", "acme.com", "acme.co", "tld_variation", 100,
+      "low", "[]", JSON.stringify([{ signal: "generated_only", value: true }]),
+      "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z",
+      "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z");
 
   const env = { cybermeters_db: {
     prepare(sql) {
@@ -202,9 +222,9 @@ eq("empty brand refused", brandCtQueryUrl(""), null);
   } };
 
   const ctBody = [
-    { name_value: "office365password.acme.co\nlogin.acme.net", common_name: "acme.co" },
-    { name_value: "www.acme.com", common_name: "acme.com" },        // own → dropped
-    { name_value: "unrelated-acme-inc.com" },                        // base not a lookalike → dropped
+    { id: 101, name_value: "office365password.acme.co\nlogin.acme.net", common_name: "acme.co" },
+    { id: 102, name_value: "www.acme.com", common_name: "acme.com" },        // own → dropped
+    { id: 103, name_value: "unrelated-acme-inc.com" },                        // base not a lookalike → dropped
   ];
   const fetchImpl = async () => ({ ok: true, headers: { get: () => "application/json" }, json: async () => ctBody });
 
@@ -221,6 +241,12 @@ eq("empty brand refused", brandCtQueryUrl(""), null);
   ok("persisted nested host carries ct_observed evidence",
     JSON.parse(ws1rows.find((r) => r.candidate_domain === "office365password.acme.co")?.evidence_json || "[]")
       .some((e) => e.signal === "ct_observed"));
+  const collided = db.prepare("SELECT id, evidence_json, first_seen, last_seen FROM workspace_brand_assets WHERE workspace_id='ws1' AND candidate_domain='acme.co'").get();
+  eq("B1 collision keeps the canonical candidate id", collided?.id, "generated_acme_co");
+  ok("B1 collision merges ct_observed into the existing generated row",
+    JSON.parse(collided?.evidence_json || "[]").some((e) => e.signal === "ct_observed" && e.value === true));
+  eq("B1 collision preserves first_seen", collided?.first_seen, "2026-01-01T00:00:00Z");
+  ok("B1 collision refreshes last_seen monotonically", collided?.last_seen > "2026-01-01T00:00:00Z");
 
   // Tenant isolation: nothing landed in ws2 from ws1's discovery.
   const ws2leak = db.prepare("SELECT COUNT(*) c FROM workspace_brand_assets WHERE workspace_id='ws2' AND candidate_domain LIKE '%acme%'").get().c;
@@ -233,17 +259,28 @@ eq("empty brand refused", brandCtQueryUrl(""), null);
   eq("second discovery is idempotent (no duplicate rows)", after, before);
 
   // Sweep bound: with perDay=1 and two eligible workspaces, one is deferred (logged, not silent).
-  const sweep = await runBrandPassiveDiscoverySweep(env, { fetchImpl, workspacesPerDay: 1 });
+  const sweepFetches = [];
+  const sweep = await runBrandPassiveDiscoverySweep(env, {
+    fetchImpl: async (url) => {
+      sweepFetches.push(url);
+      return fetchImpl(url);
+    },
+    workspacesPerDay: 1,
+  });
   eq("sweep respects the per-day workspace cap", sweep.workspaces, 1);
   ok("sweep reports the deferred workspace count (no silent truncation)", sweep.skipped_workspaces >= 1, `got ${sweep.skipped_workspaces}`);
+  ok("B2b deleted top-count workspace cannot consume the bounded slot",
+    sweepFetches.every((url) => !decodeURIComponent(url).includes("deleted")));
 }
 
 // ── 8. Transient CT failure never fabricates state ───────────────────────────
 {
   const db = new DatabaseSync(":memory:");
-  db.exec(`CREATE TABLE workspace_domains (workspace_id TEXT, domain_id TEXT);
+  db.exec(`CREATE TABLE workspaces (id TEXT PRIMARY KEY, deleted_at TEXT);
+           CREATE TABLE workspace_domains (workspace_id TEXT, domain_id TEXT);
            CREATE TABLE domains (id TEXT PRIMARY KEY, domain TEXT, created_at TEXT);
-           CREATE TABLE workspace_brand_assets (id TEXT PRIMARY KEY, workspace_id TEXT, domain TEXT, candidate_domain TEXT, variant_type TEXT, similarity_score INTEGER, risk_level TEXT, risk_reasons TEXT, evidence_json TEXT, dns_resolves INTEGER, https_available INTEGER, ip_address TEXT, status TEXT, classification TEXT, first_seen TEXT, last_seen TEXT, last_checked_at TEXT, created_at TEXT, updated_at TEXT, UNIQUE(workspace_id,domain,candidate_domain));`);
+           CREATE TABLE workspace_brand_assets (id TEXT PRIMARY KEY, workspace_id TEXT, domain TEXT, candidate_domain TEXT, variant_type TEXT, similarity_score INTEGER, risk_level TEXT, risk_reasons TEXT, evidence_json TEXT, dns_resolves INTEGER, https_available INTEGER, mx_present INTEGER, ip_address TEXT, status TEXT, classification TEXT, first_seen TEXT, last_seen TEXT, last_checked_at TEXT, created_at TEXT, updated_at TEXT, UNIQUE(workspace_id,domain,candidate_domain));`);
+  db.prepare("INSERT INTO workspaces VALUES (?,NULL)").run("ws1");
   db.prepare("INSERT INTO domains VALUES (?,?,?)").run("d1", "acme.com", "t");
   db.prepare("INSERT INTO workspace_domains VALUES (?,?)").run("ws1", "d1");
   const env = { cybermeters_db: { prepare(sql){ const st=db.prepare(sql); return { bind:(...a)=>({ all:async()=>({results:st.all(...a)}), run:async()=>st.run(...a), first:async()=>st.get(...a)??null }) }; } } };
