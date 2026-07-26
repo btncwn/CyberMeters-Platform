@@ -597,6 +597,10 @@ function sectionCertificateAssurance(w, snap, { detail = "full" } = {}) {
       size: 9,
       color: "0.45 0.35 0.10",
     });
+    // Historical snapshots contain no per-signal contract to render. Keep the
+    // disclosure compact and do not manufacture fifteen technical rows from
+    // fields that were never frozen.
+    return;
   }
   w.proseKeep(customerBodyText(assurance.scope_note), {
     size: 8,
@@ -976,6 +980,16 @@ function sectionEvidenceGradeAppendix(w, snap) {
 
   const certificateAssurance = certificateAssuranceFromSnapshot(snap);
   w.text("Certificate signal evidence contracts", { size: 9, bold: true });
+  if (certificateAssurance.status !== "current") {
+    w.proseKeep(
+      customerBodyText(
+        certificateAssurance.historical_notice ||
+          "Certificate signal evidence contracts were not recorded in this historical snapshot.",
+      ),
+      { size: 7, indent: 10, color: "0.35 0.38 0.44" },
+    );
+    return;
+  }
   for (const key of certificateAssurance.signal_order || []) {
     const signal = certificateAssurance.signals?.[key];
     if (!signal) continue;
