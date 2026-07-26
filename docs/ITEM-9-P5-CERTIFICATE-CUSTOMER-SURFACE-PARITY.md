@@ -120,6 +120,10 @@ is not relabelled as `product_policy`.
   unknown, unavailable or incomplete.
 - Snapshot size grows additively. Lifecycle reads are capped at 100 records and
   use one bounded JOIN.
+- The standalone email Worker bundles the shared PDF/report import closure.
+  P5 therefore changes that runtime artefact as a demonstrated shared-contract
+  effect. Its closure-derived version/manifest must be stamped, while deployment
+  remains separately founder-gated.
 - Existing route fields remain unchanged; P5 fields are additive.
 - The certificate inventory latest-scan read is changed from N+1 queries to one
   workspace-scoped window query. R2 report reads remain parallel and bounded by
@@ -155,6 +159,8 @@ No schema change and no migration. Migration `102` is not created or applied.
   labels CT/HTTPS/expiry evidence as healthy trust.
 - The Lifecycle page renders the canonical relationship explanation instead of
   a standalone replacement label.
+- The email Worker closure manifest records the real shared PDF/report artefact
+  change; this is traceability, not a deployment or a symmetry-only release.
 
 ### Tests and Regression
 
@@ -175,7 +181,8 @@ Focused P5 PR only. Merge is founder-gated after Claude pre-merge review.
 
 ### Deployment IDs
 
-Not deployed — founder-gated.
+Scan API and email Worker artefacts are not deployed — founder-gated. The email
+artefact changed because it bundles the shared PDF/report closure.
 
 ### Production Proof
 
