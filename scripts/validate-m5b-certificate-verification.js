@@ -184,15 +184,50 @@ globalThis.fetch = async () => new Response("{}", { status: 200 });
 // A lifecycle record awaiting verification, with a linked case, and a genuinely NEW
 // certificate observed on the expected hostname.
 function seedReplacement(db, { remediation_id = "cert.expiry.expired", distinct = true, coverageOk = true } = {}) {
-  db.prepare(`INSERT INTO certificate_observations (id,workspace_id,domain_id,certificate_key,expires_at,first_seen,last_seen)
-              VALUES ('obs-old','ws1','d1','KEY-OLD','2026-07-01T00:00:00Z',datetime('now'),datetime('now'))`).run();
+  const liveEvidence = ({ identity, expiry, sans }) => JSON.stringify({
+    san_hostnames: sans,
+    expires_at: expiry,
+    signal_completeness: {
+      signals: {
+        leaf: {
+          completeness_state: "monitoring_healthy", complete: true,
+          observation: "present", value: { certificate_identity: identity },
+          observation_scope: "live_tls", achieved_grade: "L3", publishable: true,
+          source_type: "normative_protocol", provenance: [{ source: "m5b-live-fixture" }],
+        },
+        san: {
+          completeness_state: "monitoring_healthy", complete: true,
+          observation: "present", value: sans,
+          observation_scope: "live_tls", achieved_grade: "L3", publishable: true,
+          source_type: "normative_protocol", provenance: [{ source: "m5b-live-fixture" }],
+        },
+        expiry: {
+          completeness_state: "monitoring_healthy", complete: true,
+          observation: "present", value: expiry,
+          observation_scope: "live_tls", achieved_grade: "L3", publishable: true,
+          source_type: "normative_protocol", provenance: [{ source: "m5b-live-fixture" }],
+        },
+      },
+    },
+  });
+  db.prepare(`INSERT INTO certificate_observations
+              (id,workspace_id,domain_id,certificate_key,expires_at,first_seen,last_seen,evidence_json)
+              VALUES ('obs-old','ws1','d1','KEY-OLD','2026-07-01T00:00:00Z',
+                      '2026-01-01T00:00:00Z','2026-06-30T00:00:00Z',?)`)
+    .run(liveEvidence({ identity: "KEY-OLD", expiry: "2026-07-01T00:00:00Z", sans: ["acme.example.com"] }));
   // "No new certificate" is not two rows with the same key — the store is unique on
   // certificate_key, so the real shape is: current still points at the SAME observation.
   if (distinct) {
-    db.prepare(`INSERT INTO certificate_observations (id,workspace_id,domain_id,certificate_key,expires_at,first_seen,last_seen)
-                VALUES ('obs-new','ws1','d1','KEY-NEW','2099-07-01T00:00:00Z',datetime('now'),datetime('now'))`).run();
+    const newSans = coverageOk ? ["acme.example.com"] : ["other.example.com"];
+    db.prepare(`INSERT INTO certificate_observations
+                (id,workspace_id,domain_id,certificate_key,expires_at,first_seen,last_seen,evidence_json)
+                VALUES ('obs-new','ws1','d1','KEY-NEW','2099-07-01T00:00:00Z',
+                        '2026-07-20T00:00:00Z','2026-07-22T00:00:00Z',?)`)
+      .run(liveEvidence({ identity: "KEY-NEW", expiry: "2099-07-01T00:00:00Z", sans: newSans }));
   }
   const currentObs = distinct ? "obs-new" : "obs-old";
+  const currentKey = distinct ? "KEY-NEW" : "KEY-OLD";
+  const currentExpiry = distinct ? "2099-07-01T00:00:00Z" : "2026-07-01T00:00:00Z";
   db.prepare(`INSERT INTO managed_cases (id,workspace_id,case_type,domain_key,finding_id,source_finding_type,remediation_id,status,severity,created_at,updated_at)
               VALUES ('mc-cert','ws1','certificate_case','certificates_trust','certificate:acme.example.com','x',?, 'awaiting_verification','high',datetime('now'),datetime('now'))`)
     .run(remediation_id);
@@ -204,12 +239,13 @@ function seedReplacement(db, { remediation_id = "cert.expiry.expired", distinct 
        current_certificate_observation_id,previous_certificate_observation_id,
        expected_hostnames_json,observed_sans_json,coverage_status,ownership_status,
        renewal_status,renewal_readiness,verification_status,monitoring_status,material_change,
-       lifecycle_state,linked_case_id,first_seen_at,last_seen_at,created_at,updated_at)
-     VALUES ('cl-1','ws1','d1','acme.example.com','KEY-NEW','2099-07-01T00:00:00Z',
+       lifecycle_state,linked_case_id,replacement_detected_at,first_seen_at,last_seen_at,created_at,updated_at)
+     VALUES ('cl-1','ws1','d1','acme.example.com',?,?,
              ?,'obs-old',?,?,?, 'known',
              'awaiting_verification','ok','not_verified','observed',0,
-             'awaiting_verification','mc-cert',datetime('now'),datetime('now'),datetime('now'),datetime('now'))`)
-    .run(currentObs,
+             'awaiting_verification','mc-cert','2026-07-21T00:00:00Z',
+             '2026-01-01T00:00:00Z','2026-07-22T00:00:00Z',datetime('now'),datetime('now'))`)
+    .run(currentKey, currentExpiry, currentObs,
          JSON.stringify(["acme.example.com"]),
          JSON.stringify(coverageOk ? ["acme.example.com"] : ["other.example.com"]),
          coverageOk ? "complete" : "partial");
