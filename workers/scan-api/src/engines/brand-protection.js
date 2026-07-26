@@ -21,7 +21,7 @@ const BRAND_VARIANT_TYPES = new Set([
 ]);
 export const BRAND_CLASSIFICATIONS = new Set([
   "unreviewed", "monitoring", "suspicious", "owned", "ignored",
-  "confirmed_abuse", "false_positive",
+  "confirmed_abuse", "false_positive", "benign", "dismissed",
 ]);
 const BRAND_RISK_LEVELS = new Set(["critical", "high", "medium", "low", "info"]);
 export const BRAND_SUSPICIOUS_TLDS = new Set([
@@ -90,7 +90,7 @@ export function buildBrandIdnEvidence(candidateDomain, brandName) {
 export function scoreBrandCandidateRisk(candidate = {}) {
   const classification = BRAND_CLASSIFICATIONS.has(candidate.classification)
     ? candidate.classification : "unreviewed";
-  if (["owned", "ignored", "false_positive"].includes(classification)) {
+  if (["owned", "ignored", "benign", "false_positive", "dismissed"].includes(classification)) {
     return { score: 0, risk_level: "info", reasons: [`classification_${classification}`] };
   }
 
@@ -331,7 +331,7 @@ export function brandCandidateToApi(row, profile = null) {
     if (BRAND_EVIDENCE_SIGNALS.has(item?.signal) && ["string", "number", "boolean"].includes(typeof item.value) &&
         !evidence.some((existing) => existing.signal === item.signal)) evidence.push({ signal: item.signal, value: item.value });
   }
-  const closed = ["owned", "ignored", "false_positive"].includes(classification);
+  const closed = ["owned", "ignored", "benign", "false_positive", "dismissed"].includes(classification);
   const observationState = dnsActive === true || httpsActive === true || mxPresent === true
     ? "active"
     : (dnsActive === false ? "inactive" : "unverified");

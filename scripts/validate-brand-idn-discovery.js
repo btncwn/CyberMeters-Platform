@@ -185,17 +185,19 @@ ok("customer surface never claims confirmed phishing",
 {
   const db = new DatabaseSync(":memory:");
   db.exec(`
+    CREATE TABLE workspaces (id TEXT PRIMARY KEY, deleted_at TEXT);
     CREATE TABLE workspace_domains (workspace_id TEXT, domain_id TEXT);
     CREATE TABLE domains (id TEXT PRIMARY KEY, domain TEXT, created_at TEXT);
     CREATE TABLE workspace_brand_assets (
       id TEXT PRIMARY KEY, workspace_id TEXT, domain TEXT, candidate_domain TEXT,
       variant_type TEXT, similarity_score INTEGER, risk_level TEXT,
       risk_reasons TEXT, evidence_json TEXT, dns_resolves INTEGER,
-      https_available INTEGER, ip_address TEXT, status TEXT, classification TEXT,
+      https_available INTEGER, mx_present INTEGER, ip_address TEXT, status TEXT, classification TEXT,
       first_seen TEXT, last_seen TEXT, last_checked_at TEXT, created_at TEXT,
       updated_at TEXT, UNIQUE (workspace_id, domain, candidate_domain)
     );
   `);
+  db.prepare("INSERT INTO workspaces VALUES (?,NULL)").run("ws1");
   db.prepare("INSERT INTO domains VALUES (?,?,?)").run("d1", "apple.com", "2026-01-01T00:00:00Z");
   db.prepare("INSERT INTO workspace_domains VALUES (?,?)").run("ws1", "d1");
   const env = { cybermeters_db: {
@@ -214,7 +216,7 @@ ok("customer surface never claims confirmed phishing",
   const fetchImpl = async (url) => {
     requested.push(decodeURIComponent(url));
     const body = decodeURIComponent(url).includes("xn--pple-43d.com")
-      ? [{ name_value: "login.xn--pple-43d.com", common_name: "xn--pple-43d.com" }]
+      ? [{ id: 201, name_value: "login.xn--pple-43d.com", common_name: "xn--pple-43d.com" }]
       : [];
     return {
       ok: true,

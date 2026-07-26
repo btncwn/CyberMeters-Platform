@@ -1101,6 +1101,141 @@
         }
       }
     },
+    "/api/workspaces/{workspaceId}/brand/discovery": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/workspaceId"
+        }
+      ],
+      "post": {
+        "tags": [
+          "Workspaces"
+        ],
+        "summary": "Run bounded passive Brand discovery",
+        "operationId": "runBrandPassiveDiscovery",
+        "description": "Authenticated analyst action for an active workspace with a persisted Brand profile and verified protected domain. Reuses the scheduled CT discovery engine. Results are bounded and may be explicitly partial/incomplete when the external CT source is unavailable. A CT observation is a lookalike signal, not proof of abuse.",
+        "responses": {
+          "200": {
+            "description": "Bounded discovery result, including inserted/merged and partial/incomplete counts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "workspace_id",
+                    "attempted",
+                    "observed",
+                    "inserted",
+                    "merged",
+                    "updated",
+                    "excluded",
+                    "skipped",
+                    "failed",
+                    "partial",
+                    "incomplete",
+                    "bounds",
+                    "evidence_boundary"
+                  ],
+                  "properties": {
+                    "workspace_id": {
+                      "type": "string"
+                    },
+                    "attempted": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "observed": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "inserted": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "merged": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "updated": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "excluded": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "skipped": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "failed": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "partial": {
+                      "type": "boolean"
+                    },
+                    "incomplete": {
+                      "type": "boolean"
+                    },
+                    "bounds": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "query_cap": {
+                          "type": "integer"
+                        },
+                        "candidate_cap": {
+                          "type": "integer"
+                        },
+                        "timeout_ms_per_query": {
+                          "type": "integer"
+                        },
+                        "retries": {
+                          "type": "integer"
+                        }
+                      }
+                    },
+                    "evidence_boundary": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "429": {
+            "description": "Per-user or per-workspace discovery rate/concurrency limit reached",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "All bounded CT queries failed; no empty/healthy conclusion is returned",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/domains/{domainId}/verification": {
       "parameters": [
         {

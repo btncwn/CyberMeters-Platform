@@ -9,12 +9,18 @@ import { approveBrandTakedown, brandCaseToApi, createBrandCaseForCandidateId, cr
 import { extractBrandParts, generateTyposquatCandidates, HIGH_RISK_BRAND_KEYWORDS } from "../engines/brand-typosquat.js";
 import { dnsQuery } from "../engines/dns.js";
 import { enrichBrandCandidatesDns, BRAND_DNS_MANUAL_BATCH_SIZE } from "../engines/brand-dns-enrichment.js";
+import { BRAND_CT_HOST_CAP, BRAND_CT_QUERY_CAP, discoverBrandCandidatesForWorkspace } from "../engines/brand-passive-discovery.js";
 import { createAuditEvent } from "../lib/events.js";
+import { isWorkspaceDomainVerified } from "../lib/domain-verification.js";
 import { createId } from "../lib/util.js";
+
+export const BRAND_MANUAL_DISCOVERY_TIMEOUT_MS = 2_500;
+export const BRAND_MANUAL_DISCOVERY_BURST_LIMIT = 1;
+export const BRAND_MANUAL_DISCOVERY_HOURLY_LIMIT = 4;
 
 export async function brandRoutes(rctx) {
   const { request, env, url, json,
-          requireAuth, requireWorkspaceRole } = rctx;
+          requireAuth, requireWorkspaceRole, consumeApiRateLimit } = rctx;
     // ── Brand Protection Intelligence v1 ──────────────────────────────────────
     // Persistent workflow APIs. These are additive; the legacy Brand Monitoring
     // routes below retain their response contracts for the existing frontend.
@@ -26,23 +32,141 @@ export async function brandRoutes(rctx) {
     const brandCandidatesMatch = url.pathname.match(
       /^\/api\/workspaces\/([^/]+)\/brand\/candidates(?:\/([^/]+)(?:\/(classify))?)?$/
     );
-    if (brandProfileMatch || brandSummaryV1Match || brandCasesMatch || brandCandidatesMatch) {
-      const wsId = (brandProfileMatch || brandSummaryV1Match || brandCasesMatch || brandCandidatesMatch)[1];
+    const brandDiscoveryMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/brand\/discovery$/);
+    if (brandProfileMatch || brandSummaryV1Match || brandCasesMatch || brandCandidatesMatch || brandDiscoveryMatch) {
+      const wsId = (brandProfileMatch || brandSummaryV1Match || brandCasesMatch || brandCandidatesMatch || brandDiscoveryMatch)[1];
       const user = await requireAuth(request, env);
       if (!user) return json({ error: "Unauthorized" }, 401);
       const isProfileWrite = Boolean(brandProfileMatch && request.method === "POST");
       const isCaseWrite = Boolean(brandCasesMatch && request.method !== "GET");
       const isClassificationWrite = Boolean(brandCandidatesMatch?.[3] === "classify" && request.method === "POST");
+      const isDiscoveryWrite = Boolean(brandDiscoveryMatch && request.method === "POST");
       const permission = isProfileWrite ? "workspace:manage"
         : isCaseWrite ? "workspace:manage"
-        : isClassificationWrite ? "workspace:manage" : "workspace:read";
+        : isClassificationWrite ? "workspace:manage"
+          : isDiscoveryWrite ? "domain:add" : "workspace:read";
       const access = await requireWorkspaceRole(user, wsId, permission, env);
       if (!access) return json({ error: "Forbidden" }, 403);
 
       try {
         const workspace = await env.cybermeters_db
-          .prepare("SELECT id FROM workspaces WHERE id = ? LIMIT 1").bind(wsId).first();
+          .prepare("SELECT id FROM workspaces WHERE id = ? AND deleted_at IS NULL LIMIT 1").bind(wsId).first();
         if (!workspace) return json({ error: "Workspace not found" }, 404);
+
+        // POST /brand/discovery — bounded authenticated passive CT refresh.
+        // This invokes the exact discovery/persistence function used by cron;
+        // it is a customer product path, not an acceptance-only backdoor.
+        if (brandDiscoveryMatch) {
+          if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
+          const profile = await env.cybermeters_db
+            .prepare(
+              `SELECT p.id, p.primary_domain, d.id AS domain_id
+                 FROM workspace_brand_profiles p
+                 JOIN domains d ON d.domain = p.primary_domain
+                 JOIN workspace_domains wd
+                   ON wd.workspace_id = p.workspace_id AND wd.domain_id = d.id
+                WHERE p.workspace_id = ? LIMIT 1`
+            )
+            .bind(wsId).first();
+          if (!profile) {
+            return json({
+              error: "brand_profile_required",
+              message: "Configure a protected Brand profile before running passive discovery.",
+            }, 409);
+          }
+          if (!await isWorkspaceDomainVerified(env, wsId, profile.domain_id)) {
+            return json({
+              error: "domain_verification_required",
+              message: "Verify the protected domain before running Brand discovery.",
+            }, 403);
+          }
+
+          // The atomic one-minute claim is both the concurrency guard and burst
+          // bound. The hourly budget limits frequency. Both fail closed because
+          // CT fan-out is an expensive external security action.
+          const scopes = [
+            { scope: "user", scope_id: user.id },
+            { scope: "workspace", scope_id: wsId },
+          ];
+          const burst = await consumeApiRateLimit(
+            env, scopes, "brand_passive_discovery_burst",
+            BRAND_MANUAL_DISCOVERY_BURST_LIMIT, 60,
+            { failClosed: true, atomic: true },
+          );
+          if (burst) return json(burst.body, burst.status);
+          const hourly = await consumeApiRateLimit(
+            env, scopes, "brand_passive_discovery",
+            BRAND_MANUAL_DISCOVERY_HOURLY_LIMIT, 3600,
+            { failClosed: true, atomic: true },
+          );
+          if (hourly) return json(hourly.body, hourly.status);
+
+          await createAuditEvent(env, {
+            workspace_id: wsId,
+            user_id: user.id,
+            event_type: "brand_passive_discovery_requested",
+            entity_type: "brand_profile",
+            entity_id: profile.id,
+            description: "Requested bounded passive Brand discovery",
+            metadata: {
+              query_cap: BRAND_CT_QUERY_CAP,
+              host_cap: BRAND_CT_HOST_CAP,
+              timeout_ms_per_query: BRAND_MANUAL_DISCOVERY_TIMEOUT_MS,
+              retries: 0,
+            },
+            required: true,
+          });
+
+          const stats = await discoverBrandCandidatesForWorkspace(env, wsId, {
+            timeoutMs: BRAND_MANUAL_DISCOVERY_TIMEOUT_MS,
+          });
+          const summary = {
+            workspace_id: wsId,
+            attempted: stats.attempted,
+            observed: stats.observed,
+            inserted: stats.inserted,
+            merged: stats.merged,
+            updated: stats.updated,
+            excluded: stats.excluded,
+            skipped: stats.skipped,
+            failed: stats.failed,
+            partial: stats.partial === true,
+            incomplete: stats.incomplete === true,
+            bounds: {
+              query_cap: BRAND_CT_QUERY_CAP,
+              candidate_cap: BRAND_CT_HOST_CAP,
+              timeout_ms_per_query: BRAND_MANUAL_DISCOVERY_TIMEOUT_MS,
+              retries: 0,
+            },
+            evidence_boundary: "A lookalike signal is not proof of abuse.",
+          };
+          await createAuditEvent(env, {
+            workspace_id: wsId,
+            user_id: user.id,
+            event_type: "brand_passive_discovery_completed",
+            entity_type: "brand_profile",
+            entity_id: profile.id,
+            description: "Completed bounded passive Brand discovery",
+            metadata: {
+              attempted: summary.attempted,
+              observed: summary.observed,
+              inserted: summary.inserted,
+              merged: summary.merged,
+              excluded: summary.excluded,
+              failed: summary.failed,
+              partial: summary.partial,
+              incomplete: summary.incomplete,
+            },
+          });
+          if (stats.queries_succeeded === 0 && stats.query_failures > 0) {
+            return json({
+              error: "brand_discovery_upstream_unavailable",
+              message: "Passive Brand discovery was incomplete because the external CT source was unavailable.",
+              ...summary,
+            }, 502);
+          }
+          return json(summary);
+        }
 
         // GET /brand/profile — persisted profile or explicitly low-confidence
         // inference from real workspace domains. Inference is never persisted.
@@ -345,7 +469,7 @@ export async function brandRoutes(rctx) {
       let ws;
       try {
         ws = await env.cybermeters_db
-          .prepare('SELECT id FROM workspaces WHERE id = ?')
+          .prepare('SELECT id FROM workspaces WHERE id = ? AND deleted_at IS NULL')
           .bind(wsId)
           .first();
       } catch {

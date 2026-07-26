@@ -626,6 +626,12 @@ jobs:
       - name: Validate brand passive discovery (CT nested-host discovery / membership filter / CT-observed honesty / tenant isolation)
         run: node scripts/validate-brand-passive-discovery.js
 
+      - name: Validate Brand passive discovery PR-D corrective (CT merge / active scheduling / authenticated bounded trigger)
+        run: node scripts/validate-brand-passive-discovery-corrective.js
+
+      - name: Validate Brand passive discovery PR-D load-bearing mutations
+        run: node scripts/validate-brand-passive-discovery-corrective-mutations.js
+
       - name: Validate Brand IDN/homograph PR-A (IDNA round-trip / skeleton / script / negatives / ASCII compatibility)
         run: node scripts/validate-brand-idn-homograph.js
 
