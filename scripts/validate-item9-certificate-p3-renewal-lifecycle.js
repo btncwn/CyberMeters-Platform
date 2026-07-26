@@ -109,7 +109,8 @@ function ctOnlyObservation(input) {
   return { ...row, evidence_json: JSON.stringify(evidence) };
 }
 
-const clock = fixture.clock;
+const NOW = "2026-07-26T10:00:00.000Z";
+const clock = { ...fixture.clock, baseline: NOW };
 const oldSpec = fixture.replacement.previous;
 const newSpec = fixture.replacement.current;
 const oldPure = observation({
