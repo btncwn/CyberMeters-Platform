@@ -5,6 +5,45 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## Item 7 DMARCbis P1–P6 — deployed and founder-accepted 2026-07-26; **LIVE-ACCEPTED — PASS WITH BACKLOG**
+
+- **Release identity:** deployed main SHA
+  `70bfcdb4ef8c9879410d77b34a923d91d123272c` (P1–P6, PRs #308–#313).
+  No new release tag was present on `origin/main` when this documentation-only
+  reconciliation was prepared; no tag is fabricated here.
+- **Migration 101:** `101-dmarcbis-aggregate-metadata.sql` applied before the
+  dependent Workers. It added exactly eight nullable `TEXT` columns to
+  `dmarc_aggregate_reports`; the existing aggregate-report row count remained
+  `17`; no `dmarc_policy_%` table was introduced.
+- **scan-api:** Cloudflare deployment
+  `590d80c3-199e-4b2f-b653-c2c77097eca4`; production Worker Version ID
+  `c58719c9-163f-4f77-9b4b-26f056befad0`; 100% traffic; health/readiness passed;
+  immediate rollback version `52f952e5-cf3d-454d-a402-e748a6719a6b`.
+- **email-ingest:** Cloudflare deployment
+  `7c596867-ca3c-4a10-9120-cadb2ee4f523`; production Worker Version ID
+  `e3e0e3e2-3b58-47f5-a3be-b7fa79333e11`; 100% traffic; health/readiness passed;
+  closure `2026.07.25-item7-p6.f4149b9fb474`; immediate rollback version
+  `25db66ff-a47e-4769-bbda-80a76b30639d`.
+- **Founder-controlled live core:** the isolated
+  `dmarc-test.blackbullbarbers.co.uk` namespace proved organisational
+  inheritance to requested `p=none`, exact precedence to requested `p=reject`,
+  raw legacy `pct=100` retention without RFC 9989 policy application, exact
+  removal back to complete/corroborated organisational inheritance, historical
+  snapshot/PDF preservation and per-scan UI/PDF policy parity. The production
+  apex and production DMARC/email records were not changed; `cybermeters.com`
+  was not changed.
+- **Claim boundary:** this acceptance does not prove receiver enforcement, live
+  aggregate-report ingestion, a positive authorised external-RUA scenario, the
+  full child/deep-label matrix, second-tenant live isolation, or the DMARC
+  alert/manual-case live lifecycle. Named Backlog 7-A through 7-I records those
+  residuals; Item 7 core is closed and Item 8 is next active.
+- **Evidence:** founder Phase 1 deployment report
+  `/Users/turhanacar/Desktop/CyberMeters-Item7-P7-Core/04-phase1-deployment-report.txt`,
+  SHA-256
+  `5164341abf446624aa8eb2d9f86bfdda33d65d997277e080bd66787efd4370c8`.
+  Full acceptance scope and all retained evidence hashes are recorded in
+  `docs/DMARCBIS-ACCEPTANCE-GUIDE.md`.
+
 ## v2026.07.24-2 — Item 5 CT-blackout false-healthy P0 containment — deployed 2026-07-24; **LIVE-ACCEPTED (controlled blackout)**
 
 - **Release tag:** `v2026.07.24-2` (deployed commit = main merge

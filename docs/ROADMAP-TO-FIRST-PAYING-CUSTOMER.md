@@ -5,10 +5,26 @@ Version: July 2026 (r2 — founder-approved revision)
 
 Canonical location: `docs/ROADMAP-TO-FIRST-PAYING-CUSTOMER.md`. This file is the single authoritative copy. Do not maintain parallel copies outside the repository.
 
-Current canonical episode: **Posture Timeline Trust & Actionability** (the founder-approved **RESCOPE of M6** — see the Pre-Public-Beta Gate Sequence below). **M5 Completion Across All Eight Domains is engineering-complete: M5.a–M5.g all CLOSED.** **Phase A of the episode (timeline-trust) is deployed and production-accepted (18 July 2026), code-only with no migration.** Post-Phase-A, M6 is canonically split into **B1 — Deterministic Related Changes (pre-public-beta)**, **B2 — Customer baselines & unusualness (post-beta)**, and **B3 — Statistical/AI Behaviour Intelligence (post-revenue)** — see `docs/M6-PHASE-B1-RELATED-CHANGES-DESIGN.md`. **B1 is founder-approved in principle and not started** (begins in a fresh session/worktree after this docs canonicalisation + authenticated acceptance).
+Current canonical episode (reconciled 26 July 2026): **frozen pre-beta backlog
+Item 8 — Brand IDN/homograph**. Item 7 — DMARCbis / RFC 9989 is
+**LIVE-ACCEPTED — PASS WITH BACKLOG** and closed for its accepted core behaviour.
+Its explicitly deferred work remains Backlog 7-A through 7-I in
+`docs/PRE-BETA-EXECUTION-BACKLOG.md`; those residuals do not make the accepted core
+exhaustive and do not silently reopen it. This documentation reconciliation starts
+no Item 8 implementation.
+
+Historical episode context (recorded 18 July 2026): **Posture Timeline Trust &
+Actionability** was the founder-approved **RESCOPE of M6** — see the
+Pre-Public-Beta Gate Sequence below. **M5 Completion Across All Eight Domains is
+engineering-complete: M5.a–M5.g all CLOSED.** **Phase A of the episode
+(timeline-trust) was deployed and production-accepted (18 July 2026), code-only with
+no migration.** Post-Phase-A, M6 was canonically split into **B1 — Deterministic
+Related Changes (pre-public-beta)**, **B2 — Customer baselines & unusualness
+(post-beta)**, and **B3 — Statistical/AI Behaviour Intelligence (post-revenue)** —
+see `docs/M6-PHASE-B1-RELATED-CHANGES-DESIGN.md`.
 
 - **M5.a–M5.g** — managed-case verticals, CE honesty/hygiene, Certificates verify-by-observation + reconciliation, Unified Reporting snapshot + renderer migration, eight-domain parity, maturity ledger, and the final CI closure — **ALL CLOSED**.
-- **M6** — gated by **M6.0**. **M6.0-A** (competitive differentiation hypothesis) **PASSED**. **M6.0-B** (sensor sufficiency + real-data empirical proof) **RAN 2026-07-18 (read-only, no code) and the founder ruled RESCOPE**: the GO criteria were not met (only one of the needed ≥2 correlation use cases is sensor-sufficient — UC1 Brand weaponisation needs four prohibited new sensors/stores, and UC2 Email's core transition is already shipped by `posture-events.js`). M6 "External Behaviour Intelligence Engine" is therefore **rescoped to the episode "Posture Timeline Trust & Actionability"** (plan: `docs/EPISODE-PLAN-posture-timeline-trust.md`), which is the **CURRENT ACTIVE EPISODE — Phase A deployed + production-accepted 18 July 2026, Phase B not started**.
+- **M6** — gated by **M6.0**. **M6.0-A** (competitive differentiation hypothesis) **PASSED**. **M6.0-B** (sensor sufficiency + real-data empirical proof) **RAN 2026-07-18 (read-only, no code) and the founder ruled RESCOPE**: the GO criteria were not met (only one of the needed ≥2 correlation use cases is sensor-sufficient — UC1 Brand weaponisation needs four prohibited new sensors/stores, and UC2 Email's core transition is already shipped by `posture-events.js`). M6 "External Behaviour Intelligence Engine" was therefore **rescoped to the episode "Posture Timeline Trust & Actionability"** (plan: `docs/EPISODE-PLAN-posture-timeline-trust.md`); this bullet preserves the historical phase decision and does not override the current frozen-backlog status above.
 - **Cross-source correlation** is canonicalised by `docs/M6-PHASE-B1-RELATED-CHANGES-DESIGN.md`. The correct framing is **correlation across eligible evidence producers, mapped to affected customer-facing Cyber MOT areas** — never "correlation across the eight domains". **Cyber Essentials Readiness and Website Security summaries are DERIVED OUTPUTS, not independent corroborating inputs** (a raw HTTP/TLS/header signal enters once; the result maps back to Website Security). **B1** (deterministic Related Changes, pre-beta) is founder-approved and covers a broad producer scope — Attack Surface, Certificates, app-probe/login/admin, Identity Exposure, Email configuration, one bounded Email sender-behaviour rule, Brand Protection, and provenance-safe Shadow IT. The registrable-domain resolver is **UK-scoped (not full-PSL) today** — sufficient for the UK private beta; a full Public Suffix List upgrade is a gated prerequisite before any non-UK customer. **B2 (baselines/unusualness) and B3 (statistical/AI behaviour intelligence) remain DEFERRED** — post-beta and post-revenue respectively, founder-gated.
 - **M7** — Pricing + Billing Alignment — remains the following gate (after the rescoped episode).
 
