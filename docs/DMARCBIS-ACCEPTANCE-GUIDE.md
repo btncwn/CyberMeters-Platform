@@ -1,17 +1,21 @@
 # CyberMeters Item 7 — DMARCbis acceptance guide
 
-Status: Design only; implementation hold
-Founder ruling: 25 July 2026
+Status: LIVE-ACCEPTED — PASS WITH BACKLOG
+Founder rulings: 25–26 July 2026
 Canonical design baseline: `0d9881faf8eac248ed1c6b4e37670b1c1832dbc5`
-Production acceptance authorised now: No
+Canonical implementation/deployment SHA: `70bfcdb4ef8c9879410d77b34a923d91d123272c`
+Production acceptance verdict: LIVE-ACCEPTED — PASS WITH BACKLOG
 
-This guide is the future founder-controlled acceptance plan for the design in:
+Sections 1–10 preserve the founder-controlled acceptance plan for the design in:
 
 - [`adr/ADR-004-dmarcbis.md`](adr/ADR-004-dmarcbis.md)
 - [`DMARCBIS-IMPLEMENTATION-GUIDE.md`](DMARCBIS-IMPLEMENTATION-GUIDE.md)
 
-It does not authorise DNS changes, deployment, scans, report ingestion, alerts,
-cases, or customer side effects. `MERGED` does not mean `LIVE-ACCEPTED`.
+Section 11 is the executed acceptance record. It supersedes prospective/hold
+statements only for the explicitly accepted core scope. It does not authorise a
+rerun, cleanup, DNS change, deployment, report ingestion, alert, case or other
+customer side effect. `MERGED` did not mean `LIVE-ACCEPTED`; the founder verdict
+recorded below does.
 
 ## 1. Evidence markings
 
@@ -21,8 +25,8 @@ cases, or customer side effects. `MERGED` does not mean `LIVE-ACCEPTED`.
 - **[ACCEPTANCE REQUIREMENT]** — future evidence needed for a pass.
 - **[NOT DIRECTLY VERIFIED]** — not proven during this design-only episode.
 
-All live outcomes in this document are **[NOT DIRECTLY VERIFIED]** until the
-future acceptance run records them.
+Prospective live outcomes in sections 1–10 remain **[NOT DIRECTLY VERIFIED]**
+unless section 11 explicitly records them as founder-verified production evidence.
 
 ## 2. Authority and safety boundary
 
@@ -655,41 +659,151 @@ Immediate rollback/hold if any occurs:
 - any Hosted-DMARC/customer DNS mutation;
 - unrelated customer side effect.
 
-## 11. Acceptance record and closure
+## 11. Executed acceptance record and closure
 
-The final founder acceptance record must include:
+### 11.1 Founder verdict and accepted boundary
 
-- exact code/release and deployment identities;
-- migration identity/result, if any;
-- designated zone/generator/workspace identities;
-- every pre-change, mutation, propagation, and rollback evidence bundle;
-- production scan IDs;
-- R2 report keys/hashes;
-- canonical snapshot IDs/hashes;
-- Email event/occurrence IDs;
-- alert IDs;
-- manual case IDs;
-- Related Changes cluster IDs;
-- API/UI/Executive/PDF parity captures;
-- D1/R2 reconciliation result;
-- mutation/regression result;
-- rollback rehearsal result;
-- residual limitations, especially incomplete external RUA coverage;
-- explicit founder `PASS` or `FAIL`.
+Founder verdict (26 July 2026):
 
-Item 7 remains open if any required gate is incomplete. Engineering completion,
-merge, migration, or deployment cannot substitute for founder live acceptance.
+**LIVE-ACCEPTED — PASS WITH BACKLOG**
 
-## 12. Current hold statement
+Item 7 is closed in the frozen pre-beta backlog for the founder-accepted core:
 
-No acceptance action described here has started.
+- RFC 9989 organisational-domain discovery and inherited requested policy;
+- exact-domain requested-policy precedence;
+- exact-record removal and restoration of organisational inheritance;
+- complete policy/core evidence with available and corroborated DNS observations
+  in the controlled run;
+- preservation of legacy `pct` as observed evidence without applying it to
+  RFC 9989 effective-policy semantics;
+- customer wording that does not claim receiver enforcement;
+- immutable historical snapshot/PDF meaning;
+- per-scan UI/PDF policy-conclusion parity.
 
-No code, generated code, dependency installation, migration, PR, deployment,
-production scan, production mutation, DNS change, report injection, alert, case,
-or rollback was performed while producing this guide.
+This is not exhaustive DMARCbis acceptance. It does not prove receiver
+enforcement, malicious activity, live aggregate-report ingestion, a positive
+authorised external-RUA result, full RFC 9990 coverage, every child/deep-label
+case, alert/case lifecycle acceptance or second-tenant live isolation.
 
-PR #232 and founder governance documents were not touched. Hosted-DMARC
-automation was not reactivated. Item 8 was not started.
+### 11.2 Production deployment
 
-STOP pending Claude review and explicit founder approval of the revised
-three-document design.
+- Migration `101-dmarcbis-aggregate-metadata.sql` applied successfully.
+- It added exactly eight nullable `TEXT` columns to
+  `dmarc_aggregate_reports`.
+- The columns are `report_format_version`, `xml_namespace`,
+  `discovery_method`, `policy_np`, `policy_testing`, `policy_fo`,
+  `schema_conformance` and `parser_version`; none has a default or backfill.
+- Aggregate-report row count remained `17`.
+- No `dmarc_policy_%` tables were introduced.
+- Deployed main SHA:
+  `70bfcdb4ef8c9879410d77b34a923d91d123272c`.
+- scan-api production version:
+  `c58719c9-163f-4f77-9b4b-26f056befad0`.
+- scan-api Cloudflare deployment:
+  `590d80c3-199e-4b2f-b653-c2c77097eca4`.
+- scan-api immediate rollback version:
+  `52f952e5-cf3d-454d-a402-e748a6719a6b`.
+- email-ingest production version:
+  `e3e0e3e2-3b58-47f5-a3be-b7fa79333e11`.
+- email-ingest Cloudflare deployment:
+  `7c596867-ca3c-4a10-9120-cadb2ee4f523`.
+- email-ingest immediate rollback version:
+  `25db66ff-a47e-4769-bbda-80a76b30639d`.
+- email-ingest closure:
+  `2026.07.25-item7-p6.f4149b9fb474`.
+- Both Workers received 100% production traffic and passed health/readiness
+  checks.
+
+### 11.3 Founder-controlled acceptance environment
+
+- Workspace: `Turhan Workspace`.
+- Workspace ID:
+  `workspace_2aaf14fb-cf28-49d4-bde0-5eb645eda1a8`.
+- Isolated namespace: `dmarc-test.blackbullbarbers.co.uk`.
+- The Cloudflare Pages custom domain became Active with SSL enabled.
+- CyberMeters ownership verification passed.
+- The domain was onboarded within the remaining Professional-plan domain slot.
+- The first production scan, customer UI, notification emails and Executive PDF
+  were generated successfully.
+- `cybermeters.com`, the `blackbullbarbers.co.uk` apex, production
+  `_dmarc.blackbullbarbers.co.uk`, MX, SPF, DKIM, website and production email
+  configuration were not mutated.
+
+### 11.4 Live DMARC sequence
+
+1. **Initial inherited state.** No exact record existed at
+   `_dmarc.dmarc-test.blackbullbarbers.co.uk`. RFC 9989 discovery found
+   `_dmarc.blackbullbarbers.co.uk`; effective requested policy was `p=none`,
+   source kind `organisational`, inheritance reason `organisational_p`.
+2. **Exact strong-policy state.** The controlled exact TXT value was
+   `v=DMARC1; p=reject; pct=100; rua=mailto:cmrua_693b2fde41882445c71195637c562eb6@reports.cybermeters.com`.
+   Exact policy took precedence: effective requested policy `p=reject`, source
+   kind `exact`, inheritance reason `exact_p`; core and policy completeness were
+   `complete`, provider state `available`, corroboration `corroborated`.
+   `pct=100` remained raw legacy evidence and did not alter RFC 9989 derivation.
+   Customer wording made no receiver-enforcement claim.
+3. **Exact-record removal.** The controlled exact TXT was removed. The next
+   production scan observed NXDOMAIN at the exact DMARC owner and returned to
+   organisational `p=none` with `organisational_p`; core and policy completeness
+   remained `complete`, provider state `available`, corroboration
+   `corroborated`.
+4. **Historical integrity.** The earlier `p=reject` snapshot/PDF remained
+   preserved. The later inherited `p=none` scan did not rewrite it. UI and PDF
+   showed the same policy conclusion for each corresponding scan.
+
+The founder verdict and inspected local P7 evidence bundle did not supply
+production scan IDs, snapshot IDs, R2 keys or their hashes. None are fabricated
+here. Direct API/D1/R2 identity reconciliation is explicitly Backlog 7-H.
+
+### 11.5 Evidence artifacts
+
+These founder-local paths are evidence references, not repository artifacts:
+
+- `/Users/turhanacar/Desktop/CyberMeters-Item7-P7-Core/00-p7-release-baseline.txt`
+  — SHA-256
+  `1590d040a83fbded69b88de7afef35e70323a353f7126423aee6c67b4ef9c6f9`.
+- `/Users/turhanacar/Desktop/CyberMeters-Item7-P7-Core/01-safe-https-target.txt`
+  — SHA-256
+  `4385e4c30e220930b93513ee2348250a59cd711e5b5a0b28a9905aebb667094b`.
+- `/Users/turhanacar/Desktop/CyberMeters-Item7-P7-Core/02-domain-capacity-scope.txt`
+  — SHA-256
+  `e7107983307aeff6d394040d491f17c9910e732b7789ff62922b5abb74c5586a`.
+- `/Users/turhanacar/Desktop/CyberMeters-Item7-P7-Core/04-d1-pre-migration.sql`
+  — SHA-256
+  `8c505309476de8267be7a9332d8fd244820de230ad699e8ae89f2f5e66d53c07`.
+- `/Users/turhanacar/Desktop/CyberMeters-Item7-P7-Core/04-migration-101-output.txt`
+  — SHA-256
+  `821a1721d52532dba779bb0eabfc896572a883ab24baf4c69c65f458ed5a55d9`.
+- `/Users/turhanacar/Desktop/CyberMeters-Item7-P7-Core/04-phase1-deployment-report.txt`
+  — SHA-256
+  `5164341abf446624aa8eb2d9f86bfdda33d65d997277e080bd66787efd4370c8`.
+
+### 11.6 Deferred scope
+
+Backlog 7-A through 7-I is canonical in
+`docs/PRE-BETA-EXECUTION-BACKLOG.md`:
+
+- 7-A — full-monitoring DMARC alert acceptance;
+- 7-B — DMARC managed-case live lifecycle;
+- 7-C — RUA destination authorisation;
+- 7-D — Hosted-DMARC routing automation and reconciliation;
+- 7-E — child and deep-label RFC 9989 live scenarios;
+- 7-F — second-tenant isolation acceptance;
+- 7-G — presentation and minor UX defects;
+- 7-H — full parity and reconciliation expansion;
+- 7-I — cleanup of the isolated acceptance namespace.
+
+Hosted-DMARC remains suspended and suggestion-only. Cleanup is not authorised by
+this record. Orphan routing cleanup remains Item 13. Item 8 is the next active
+frozen-backlog item, but no Item 8 implementation was started by this
+documentation reconciliation.
+
+## 12. Final status
+
+Item 7 — DMARCbis / RFC 9989:
+
+**LIVE-ACCEPTED — PASS WITH BACKLOG**
+
+The accepted core remains closed unless a future evidenced regression affects
+that behaviour. Deferred work proceeds only as its named backlog scope receives
+separate founder authorisation.

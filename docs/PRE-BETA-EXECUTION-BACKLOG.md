@@ -152,17 +152,88 @@ branding without content loss; whether the PDF is merely a poorer summary of the
 dashboard. Founder reviews the fresh post-#263 PDF from item 1. No renderer-corruption
 claims without a concrete failing artefact.
 
-### 7. DMARCbis design + runtime remediation — [DES→IMPL]
-Design first (`pct` storage/enforcement/legacy display; `np`, `t`; inheritance;
-tree-walk org-domain; external `rua` authorisation; multiple/malformed records; event
-subtypes; snapshot compatibility; PDF wording; API contract), then RFC 9989/9990/9991
-parser/derivation with fixtures (org-domain exact, subdomain without record, inherited
-`sp`, `np`, multiple, malformed, external `rua` authorised/unauthorised, tree-walk,
-non-existent subdomain, legacy `pct`, transitional) and live acceptance (controlled
-policy change · RUA ingest · canonical state · impact forecast · change-request
-workflow · hosted DMARC · report/PDF · no alert duplication).
+### 7. DMARCbis design + runtime remediation — [CLOSED — LIVE-ACCEPTED · PASS WITH BACKLOG]
+Founder verdict (26 July 2026): **LIVE-ACCEPTED — PASS WITH BACKLOG**. P1–P6,
+migration 101 and both Workers are live. The founder-controlled core run on the
+isolated `dmarc-test.blackbullbarbers.co.uk` namespace proved RFC 9989
+organisational-policy inheritance (`p=none`), exact-policy precedence (`p=reject`),
+legacy `pct=100` preservation without current-policy application, exact-record
+removal back to complete/corroborated organisational inheritance, UI/PDF parity and
+historical snapshot/PDF integrity. The run did not mutate `cybermeters.com`, the
+`blackbullbarbers.co.uk` apex or its production DMARC/email records. It did not prove
+receiver enforcement, live RUA ingestion, full RFC 9990 destination authorisation or
+every possible DMARCbis scenario.
 
-### 8. Brand IDN/homograph — PR-A / PR-B / PR-C — [IMPL] + live acceptance
+The following named residuals are explicit backlog. They do not reopen the accepted
+Item 7 core unless a future regression affects that accepted behaviour:
+
+#### Backlog 7-A — Full-monitoring DMARC alert acceptance
+Prove live automatic DMARC alert creation only when complete monitoring evidence
+supports a qualifying actionable regression: strong-to-weaker policy, exact-record
+removal that weakens the effective requested policy, invalid/malformed state,
+multiple records, deduplication and recurrence after resolution. Incomplete
+monitoring evidence must not infer or emit a DMARC change alert and must remain
+fail-honest.
+
+#### Backlog 7-B — DMARC managed-case live lifecycle
+Prove founder-controlled manual case creation from a qualifying DMARC regression;
+never auto-open a case. Prove workspace-scoped condition lookup, IDOR protection,
+verification only from a later complete scan, recurrence after resolution and
+historical case/evidence integrity.
+
+#### Backlog 7-C — RUA destination authorisation
+Implement and prove authorised external-RUA validation where applicable. Distinguish
+`authorised`, `unauthorised`, `not_assessed` and
+`incomplete`/provider-unavailable. Unassessed is never authorised, and a published
+`rua` URI never proves report ingestion.
+
+#### Backlog 7-D — Hosted-DMARC routing automation and reconciliation
+When separately approved automation is re-enabled, setting or rotating a hosted RUA
+address must create and verify the exact corresponding ingest routing rule and
+periodic reconciliation must detect drift. Hosted-DMARC remains suspended now.
+Orphan routing cleanup remains Item 13 work and must not be silently folded into
+this backlog.
+
+#### Backlog 7-E — Child and deep-label RFC 9989 live scenarios
+Prove additional founder-controlled child and deep-label author domains, inherited
+`sp` where applicable, equal-policy inheritance suppression and exact-versus-
+organisational precedence across additional label depth. The accepted core run did
+not include them because the current Professional workspace had one remaining
+domain slot.
+
+#### Backlog 7-F — Second-tenant isolation acceptance
+Prove DMARC projection, alerts, cases, verification, snapshots and presentation
+under a second workspace/tenant, with no cross-tenant read, write, alert, case access
+or evidence leakage.
+
+#### Backlog 7-G — Presentation and minor UX defects
+Triage raw or implementation-facing alert vocabulary such as
+`boundary_protection` or `secure_configuration` appearing as customer-facing
+“Affected Domain”; generic or mismatched alert copy; remaining UI/PDF terminology
+inconsistencies; and technical-appendix DMARC data rendered as `[object Object]`.
+Any transient or false HTTPS/TLS finding caused by incomplete scan/provider
+conditions belongs to the relevant engine and must not be attributed to the accepted
+DMARCbis resolver.
+
+#### Backlog 7-H — Full parity and reconciliation expansion
+Extend live acceptance beyond founder-reviewed UI/PDF evidence to direct API
+projection comparison, D1/R2 evidence reconciliation, alert occurrence rows,
+managed-case evidence references, notification occurrence linkage, and repeated-scan
+performance/timeout behaviour. Presentation remains backend-owned; renderers must
+not independently re-derive DMARC state.
+
+#### Backlog 7-I — Cleanup of isolated acceptance namespace
+Do not clean up now. A separately approved task must decide whether to retain or
+remove the `dmarc-test.blackbullbarbers.co.uk` Pages custom domain, `dmarc-test`
+CNAME, `_cybermeters.dmarc-test` ownership TXT and CyberMeters workspace-domain row.
+Preserve acceptance evidence first. Never remove or mutate the
+`blackbullbarbers.co.uk` apex, production `_dmarc.blackbullbarbers.co.uk`,
+production MX/SPF/DKIM records or `status.cybermeters.com`.
+
+### 8. Brand IDN/homograph — PR-A / PR-B / PR-C — [ACTIVE · IMPL + live acceptance]
+Item 8 is the next active frozen-backlog item. This Item 7 reconciliation starts no
+Item 8 implementation.
+
 PR-A normalisation + confusable core (NFC, punycode round-trip, mixed-script,
 skeleton, allowlists, deterministic fixtures + mutation). PR-B candidate generation +
 passive CT/SAN discovery (bounded volume, nested hostnames, dedupe, activity checks,
