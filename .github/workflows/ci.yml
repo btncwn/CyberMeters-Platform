@@ -554,6 +554,15 @@ jobs:
       - name: Validate Item 9 certificate per-signal completeness mutations
         run: node scripts/validate-item9-certificate-signal-completeness-mutations.js
 
+      - name: Validate Item 9 P2 certificate production integration (deadlines + shared CT + signal isolation)
+        run: node scripts/validate-item9-certificate-p2-integration.js
+
+      - name: Validate Item 9 P2 certificate production integration mutations
+        run: node scripts/validate-item9-certificate-p2-mutations.js
+
+      - name: Validate Item 9 P2 faithful runScanEngine trace (budget + persistence + tenant isolation)
+        run: node scripts/validate-item9-certificate-p2-engine-trace.js
+
       - name: Validate scan deadline + partial finalization (waitUntil-cancellation guard)
         run: node scripts/validate-scan-deadline.js
 

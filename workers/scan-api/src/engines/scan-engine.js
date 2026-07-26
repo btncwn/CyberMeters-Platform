@@ -1321,7 +1321,16 @@ function buildCanonicalUrlProfile(modules) {
     // Phase 7h: Certificate Intelligence — pure computation, zero I/O.
     // Correlates modules.ssl + modules.subdomains (CT data) to produce
     // expiry status, sensitive-host inventory, and suspicious signal list.
-    modules.certificate_intelligence = runCertificateIntelligenceModule(modules, domain);
+    modules.certificate_intelligence = runCertificateIntelligenceModule(
+      modules,
+      domain,
+      {
+        monitoringStates,
+        providerHealth,
+        observedAt: new Date(now()).toISOString(),
+        engineVersion: env.APP_VERSION ?? "unknown",
+      },
+    );
     if (modules.dns) {
       modules.dns.operational_resilience = buildDnsOperationalResilience({
         nameservers: modules.dns.nameservers || [],

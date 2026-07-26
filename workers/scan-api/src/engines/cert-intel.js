@@ -11,6 +11,7 @@ import {
   mapCertificateAuthorityOwner,
   normalizeCertificateIssuer,
 } from "./cert-analysis.js";
+import { deriveCertificateSignalCompletenessFromModules } from "./certificate-signal-completeness.js";
 import { normalizeHostname } from "./hostnames.js";
 
 // ── Certificate Intelligence ─────────────────────────────────────────────────
@@ -94,7 +95,23 @@ export function buildCertificateOwnershipAssessment(ssl, domain) {
  *     newly_observed_hosts, suspicious_certificate_signals,
  *     certificate_risk_level, source: "ssl_ct_correlation", error: null }
  */
-export function runCertificateIntelligenceModule(modules, domain) {
+function attachSignalCompleteness(result, modules, opts) {
+  return {
+    ...result,
+    signal_completeness: deriveCertificateSignalCompletenessFromModules({
+      modules: { ...modules, certificate_intelligence: result },
+      monitoringStates: opts.monitoringStates ?? null,
+      providerHealth: opts.providerHealth ?? null,
+      observedAt:
+        opts.observedAt ??
+        modules?.ssl?.certificate_evidence?.observed_at ??
+        null,
+      engineVersion: opts.engineVersion ?? null,
+    }),
+  };
+}
+
+export function runCertificateIntelligenceModule(modules, domain, opts = {}) {
   try {
     const ssl      = modules?.ssl       || {};
     const subMod   = modules?.subdomains || {};
@@ -103,7 +120,10 @@ export function runCertificateIntelligenceModule(modules, domain) {
     // ── Certificate expiry data ───────────────────────────────────────────
     const days_until_expiry = ssl.cert_expiry_days ?? null;
     const expires_at        = ssl.cert_not_after   ?? null;
-    const https_available   = ssl.https_available  ?? false;
+    const activeServiceObserved =
+      ssl.https_probe_executed === true &&
+      typeof ssl.https_available === "boolean";
+    const https_available = activeServiceObserved ? ssl.https_available : null;
     const certificate_ownership = buildCertificateOwnershipAssessment(ssl, domain);
 
     // ── CT hostname inventory ─────────────────────────────────────────────
@@ -148,7 +168,7 @@ export function runCertificateIntelligenceModule(modules, domain) {
     // ── Suspicious signal detection ───────────────────────────────────────
     const suspicious_certificate_signals = [];
 
-    if (!https_available) {
+    if (https_available === false) {
       suspicious_certificate_signals.push({
         signal:      "no_https",
         severity:    "high",
@@ -233,7 +253,7 @@ export function runCertificateIntelligenceModule(modules, domain) {
     const hasCertificateDetail = ssl.cert_issuer != null
       || ssl.cert_not_after != null || ssl.cert_expiry_days != null;
 
-    if (hasCritical || !https_available) certificate_risk_level = "critical";
+    if (hasCritical || https_available === false) certificate_risk_level = "critical";
     else if (hasHigh)                    certificate_risk_level = "high";
     else if (hasMedium)                  certificate_risk_level = "medium";
     else if (!hasCertificateDetail)      certificate_risk_level = "unknown";
@@ -254,9 +274,14 @@ export function runCertificateIntelligenceModule(modules, domain) {
 	    });
 	    const ca_concentration = buildCaConcentrationAnalytics(issuer ? [issuer] : []);
 
-	    return {
+	    return attachSignalCompleteness({
 	      total_certificates_seen,
-	      certificate_status:    https_available ? "valid" : "unavailable",
+	      certificate_status:
+          https_available === true
+            ? "valid"
+            : https_available === false
+              ? "unavailable"
+              : "unknown",
 	      issuer,
 	      issuer_normalized,
 	      ca_owner,
@@ -293,9 +318,9 @@ export function runCertificateIntelligenceModule(modules, domain) {
       // ctBlackout above: this defers the domain instead of letting it read clean.
       ...(ctBlackout ? { incomplete: true, incomplete_reason: "ct_sources_unavailable" } : {}),
       error:                 null,
-    };
+    }, modules, opts);
   } catch (err) {
-    return {
+    return attachSignalCompleteness({
 	      total_certificates_seen:    0,
 	      certificate_status:         "unknown",
 	      issuer:                     null,
@@ -335,6 +360,6 @@ export function runCertificateIntelligenceModule(modules, domain) {
       certificate_risk_level:     "unknown",
       source:                     "ssl_ct_correlation",
       error:                      err?.message ?? "Certificate intelligence failed",
-    };
+    }, modules, opts);
   }
 }

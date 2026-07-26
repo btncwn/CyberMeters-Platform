@@ -143,6 +143,9 @@ export async function resolveCertificateTransparency(domain, opts = {}) {
 
 export async function runSslModule(domain, opts = {}) {
   const accounting = opts.accounting || null;
+  const observedAt = typeof opts.now === "function"
+    ? new Date(opts.now()).toISOString()
+    : new Date().toISOString();
   // Launch the Certificate Transparency lookup CONCURRENTLY with the reachability
   // probes below. The two are independent, so awaiting the promise at the end makes
   // the module's wall-time max(reachability, CT) instead of their sum.
@@ -284,5 +287,34 @@ export async function runSslModule(domain, opts = {}) {
     cert_shared_san_count,
     cert_san_names,
     ct_sources,
+    // Item 9 P2: explicit collection scope for the per-signal certificate model.
+    // This is metadata over evidence already collected above: it performs no probe
+    // and intentionally refuses to present CT issuance as a live TLS certificate.
+    certificate_evidence: {
+      schema_version: "external-certificate-observation-v1",
+      observed_at: observedAt,
+      live_tls: {
+        leaf_collected: false,
+        chain_collected: false,
+        trust_store_context: null,
+        reason: "worker_http_fetch_does_not_expose_peer_certificate",
+      },
+      ct_projection: {
+        source: "shared_ct_provider_cache",
+        selected_certificate_observed: Boolean(
+          cert_not_after || cert_issuer || cert_subject
+        ),
+      },
+      parallel_certificate_set: {
+        collection_performed: false,
+        observation_scope: "live_tls_endpoint_set",
+        reason: "simultaneous_endpoint_certificate_set_not_collected",
+      },
+      active_service: {
+        probe_executed: httpsProbeExecuted,
+        https_available: httpsAvailable,
+        endpoint_context: wwwHttpsOk ? `www.${domain}` : domain,
+      },
+    },
   };
 }

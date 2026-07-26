@@ -95,6 +95,19 @@ export async function certConditionEventId({ workspaceId, domainId, scanId, even
   return `asev_${digest.slice(0, 32)}`;
 }
 
+async function loadActiveCertificateWorkspaces(env, domainId) {
+  const result = await env.cybermeters_db
+    .prepare(
+      `SELECT wd.workspace_id
+       FROM workspace_domains wd
+       JOIN workspaces w ON w.id = wd.workspace_id
+       WHERE wd.domain_id = ? AND w.deleted_at IS NULL`
+    )
+    .bind(domainId)
+    .all();
+  return result.results || [];
+}
+
 /**
  * insertCertificateEvents(scanId, domainId, certMod, env)
  *
@@ -114,11 +127,7 @@ export async function insertCertificateEvents(scanId, domainId, certMod, env, op
 
   let wsRows;
   try {
-    const r = await env.cybermeters_db
-      .prepare("SELECT workspace_id FROM workspace_domains WHERE domain_id = ?")
-      .bind(domainId)
-      .all();
-    wsRows = r.results || [];
+    wsRows = await loadActiveCertificateWorkspaces(env, domainId);
   } catch {
     return;
   }
@@ -272,6 +281,20 @@ export async function insertCertificateEvents(scanId, domainId, certMod, env, op
  */
 export async function upsertCertificateObservation(scanId, domainId, certMod, env, opts = {}) {
   if (!certMod || certMod.error) return;
+  // The table is certificate-identity history, not a scan-level CT health log.
+  // Once P2 completeness is present, require a positive CT-scoped certificate
+  // field before deriving a certificate key. A provider blackout must remain in
+  // the raw scan evidence and must not create an "unknown" pseudo-certificate,
+  // churn event or false healthy/alertable persistence record.
+  const signalCompleteness = certMod.signal_completeness;
+  if (signalCompleteness?.signals) {
+    const identitySignals = ["san", "issuer", "expiry"];
+    const hasObservedCertificateIdentity = identitySignals.some(
+      (signal) =>
+        signalCompleteness.signals?.[signal]?.observation === "present"
+    );
+    if (!hasObservedCertificateIdentity) return;
+  }
   const comparison = await loadTimelineComparisonContext(env, {
     scanId,
     domainId,
@@ -281,11 +304,7 @@ export async function upsertCertificateObservation(scanId, domainId, certMod, en
 
   let wsRows;
   try {
-    const r = await env.cybermeters_db
-      .prepare("SELECT workspace_id FROM workspace_domains WHERE domain_id = ?")
-      .bind(domainId)
-      .all();
-    wsRows = r.results || [];
+    wsRows = await loadActiveCertificateWorkspaces(env, domainId);
   } catch {
     return;
   }
@@ -313,6 +332,7 @@ export async function upsertCertificateObservation(scanId, domainId, certMod, en
 	    ca_concentration_signal: certMod.ca_concentration ?? buildCaConcentrationAnalytics(issuer !== "unknown" ? [issuer] : []),
 	    certificate_status: certMod.certificate_status ?? null,
 	    source: certMod.source ?? "ssl_ct_correlation",
+	    signal_completeness: certMod.signal_completeness ?? null,
 	  });
 
   const certificateKey = await hashToken([

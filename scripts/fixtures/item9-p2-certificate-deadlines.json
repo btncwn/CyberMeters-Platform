@@ -1,0 +1,34 @@
+{
+  "model_version": "certificate-signal-completeness-v1",
+  "module_budget_ms": 9000,
+  "module_subrequest_cap": 6,
+  "scenarios": [
+    {
+      "name": "complete",
+      "crt_sh": "available",
+      "certspotter": "available",
+      "expected_ct_state": "monitoring_healthy",
+      "expected_issuer_state": "monitoring_healthy",
+      "expected_active_service_state": "monitoring_healthy",
+      "expected_active_service_observation": "present"
+    },
+    {
+      "name": "degraded",
+      "crt_sh": "unavailable",
+      "certspotter": "available",
+      "expected_ct_state": "monitoring_degraded",
+      "expected_issuer_state": "monitoring_degraded",
+      "expected_active_service_state": "monitoring_healthy",
+      "expected_active_service_observation": "present"
+    },
+    {
+      "name": "provider-timeout",
+      "crt_sh": "timeout",
+      "certspotter": "timeout",
+      "expected_ct_state": "signal_unavailable",
+      "expected_issuer_state": "evidence_incomplete",
+      "expected_active_service_state": "monitoring_healthy",
+      "expected_active_service_observation": "present"
+    }
+  ]
+}
