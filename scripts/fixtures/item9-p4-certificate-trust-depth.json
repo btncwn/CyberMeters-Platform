@@ -1,0 +1,105 @@
+{
+  "observed_at": "2026-07-26T15:00:00.000Z",
+  "engine_version": "item9-p4-fixture",
+  "domain": "example.com",
+  "provider_health": {
+    "crt_sh": { "outcome": "available" },
+    "certspotter": { "outcome": "available" }
+  },
+  "base_modules": {
+    "ssl": {
+      "https_available": true,
+      "https_probe_executed": true,
+      "cert_not_after": "2026-11-30T00:00:00.000Z",
+      "cert_issuer": "Fixture Public CA",
+      "cert_subject": "example.com",
+      "cert_san_names": ["example.com", "www.example.com"],
+      "cert_wildcard_san_count": 0,
+      "certificate_evidence": {
+        "schema_version": "external-certificate-observation-v2",
+        "observed_at": "2026-07-26T15:00:00.000Z",
+        "live_tls": {
+          "leaf_certificate": {
+            "collection_performed": true,
+            "collection_complete": true,
+            "certificate_identity": "sha256:fixture-leaf",
+            "subject": "example.com",
+            "issuer": "Fixture Public CA",
+            "san_names": ["example.com", "www.example.com"],
+            "not_after": "2026-11-30T00:00:00.000Z",
+            "public_key_algorithm": "RSA",
+            "public_key_size_bits": 2048,
+            "signature_algorithm": "sha256WithRSAEncryption",
+            "source": "fixture_live_tls"
+          },
+          "presented_chain": {
+            "collection_performed": true,
+            "collection_complete": true,
+            "presentation_state": "presented_complete",
+            "intermediates": [
+              {
+                "certificate_identity": "sha256:fixture-intermediate",
+                "subject": "Fixture Intermediate CA",
+                "issuer": "Fixture Root CA",
+                "not_after": "2030-01-01T00:00:00.000Z"
+              }
+            ],
+            "source": "fixture_live_tls"
+          },
+          "hostname_match": {
+            "assessment_performed": true,
+            "result": "matched",
+            "reference_hostname": "example.com",
+            "presented_identifiers": ["example.com", "www.example.com"],
+            "source": "fixture_live_tls"
+          },
+          "trust_store_validation": {
+            "validation_performed": true,
+            "validation_result": "valid",
+            "certificate_identity": "sha256:fixture-leaf",
+            "trust_store_context": {
+              "name": "fixture-public-root-store",
+              "version": "2026-07-26"
+            },
+            "source": "fixture_path_validator"
+          },
+          "revocation_assurance": {
+            "assessment_performed": true,
+            "stapled_ocsp": true,
+            "response_validated": true,
+            "status": "good",
+            "certificate_identity": "sha256:fixture-leaf",
+            "this_update": "2026-07-26T14:00:00.000Z",
+            "next_update": "2026-07-27T14:00:00.000Z",
+            "source": "fixture_ocsp_validator"
+          }
+        }
+      }
+    },
+    "dns": {
+      "caa": {
+        "present": true,
+        "records": ["0 issue \"fixture-ca.example\""],
+        "issuers": ["fixture-ca.example"],
+        "wildcard_issuers": [],
+        "iodef": [],
+        "error": null
+      },
+      "cross_checks": {
+        "caa": {
+          "primary_resolver": { "status": "ok" },
+          "google_resolver": { "status": "ok" },
+          "resolver_agreement_score": 100
+        }
+      }
+    },
+    "subdomains": {
+      "items": ["www.example.com"],
+      "sensitive": [],
+      "sources": {
+        "crt_sh": { "count": 1, "error": null },
+        "certspotter": { "count": 1, "error": null }
+      }
+    }
+  }
+}

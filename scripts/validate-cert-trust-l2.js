@@ -72,10 +72,8 @@ const forbiddenTypes = new Set(["weak_key", "weak_signature", "untrusted_chain",
 async function main() {
   const { buildCertificateTrustL2 } = await import(pathToFileURL(certL2Path).href);
 
-  // The parallel-certificate anomaly compares expires_at against Date.now(),
-  // so "currently valid" fixtures MUST be expressed relative to the run time.
-  // Fixed calendar dates rotted: the original current-cert expiry
-  // (2026-07-20T00:00:00Z) passed and the anomaly silently stopped firing.
+  // Expiry fixtures remain relative to the run time. Historical/CT certificate
+  // multiplicity is explicitly not simultaneous live-serving evidence.
   const DAY = 86_400_000;
   const iso = (offsetDays) => new Date(Date.now() + offsetDays * DAY).toISOString();
   const history = [
@@ -90,7 +88,7 @@ async function main() {
     {
       issuer: "CN=Parallel CA,O=Parallel Trust",
       subject: "example.co.uk",
-      expires_at: iso(250), // currently valid — the parallel issuer
+      expires_at: iso(250), // currently valid historical issuance
       first_seen: "2026-02-01T00:00:00.000Z",
       last_seen: "2026-02-10T00:00:00.000Z",
       evidence_json: JSON.stringify({ san_hostnames: ["example.co.uk"] }),
@@ -111,7 +109,44 @@ async function main() {
   ok("unexpected issuer anomaly is emitted", result.anomalies.some((a) => a.type === "unexpected_issuer"));
   ok("unexpected SAN anomaly is emitted", result.anomalies.some((a) => a.type === "unexpected_san"));
   ok("unexpected wildcard anomaly is emitted", result.anomalies.some((a) => a.type === "unexpected_wildcard"));
-  ok("parallel certificate anomaly is emitted", result.anomalies.some((a) => a.type === "parallel_certificate"));
+  ok("historical/CT multiplicity is not a parallel live set",
+    !result.anomalies.some((a) => a.type === "parallel_certificate"));
+  const simultaneous = buildCertificateTrustL2({
+    signal_completeness: {
+      signals: {
+        parallel_certificate_set: {
+          observation: "present",
+          observation_scope: "live_tls_endpoint_set",
+          value: {
+            observation_window: {
+              started_at: "2026-07-26T12:00:00.000Z",
+              ended_at: "2026-07-26T12:00:01.000Z",
+            },
+            observations: [
+              {
+                protected_hostname: "example.co.uk",
+                source: "endpoint_a",
+                endpoint_context: "192.0.2.1:443",
+                certificate_identity: "sha256:a",
+                observed_at: "2026-07-26T12:00:00.000Z",
+                completeness_state: "monitoring_healthy",
+              },
+              {
+                protected_hostname: "example.co.uk",
+                source: "endpoint_b",
+                endpoint_context: "192.0.2.2:443",
+                certificate_identity: "sha256:b",
+                observed_at: "2026-07-26T12:00:01.000Z",
+                completeness_state: "monitoring_healthy",
+              },
+            ],
+          },
+        },
+      },
+    },
+  }, { history: [] });
+  ok("canonical simultaneous live evidence can emit parallel observation",
+    simultaneous.anomalies.some((a) => a.type === "parallel_certificate"));
   ok("findings include reasons/evidence/confidence", result.findings.every((f) => f.confidence && Array.isArray(f.reasons) && Array.isArray(f.evidence)));
   ok("forbidden fabricated finding types are not emitted", result.findings.every((f) => !forbiddenTypes.has(f.type)));
   ok("trust path chain/root/ocsp remain unknown", result.trust_path.chain_valid === "unknown" && result.trust_path.root_trusted === "unknown" && result.trust_path.ocsp === "unknown");

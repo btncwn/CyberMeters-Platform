@@ -234,34 +234,38 @@ function buildAnomalies(cert, rows) {
     });
   }
 
-  const now = Date.now();
-  const currentAsRow = {
-    issuer: currentIssuer,
-    subject: cert.subject || null,
-    expires_at: cert.expires_at || null,
-    first_seen: null,
-  };
-  const activeRows = [currentAsRow, ...rows].filter((row) => {
-    const expiry = Date.parse(row.expires_at || "");
-    return Number.isFinite(expiry) && expiry >= now;
-  });
-  const activeIssuers = new Set(activeRows.map((row) => normaliseString(row.issuer)).filter(Boolean));
-  if (activeRows.length >= 2 && activeIssuers.size >= 2) {
+  // A parallel set is a simultaneous LIVE endpoint observation. Multiple
+  // unexpired CT issuances or historical rows do not establish simultaneous
+  // serving and must never manufacture this anomaly.
+  const parallelSignal =
+    cert?.signal_completeness?.signals?.parallel_certificate_set;
+  if (
+    parallelSignal?.observation === "present" &&
+    parallelSignal?.observation_scope === "live_tls_endpoint_set" &&
+    Array.isArray(parallelSignal?.value?.observations) &&
+    parallelSignal.value.observations.length >= 2
+  ) {
     anomalies.push({
       type: "parallel_certificate",
-      severity: "low",
-      confidence: "medium",
-      title: "Parallel valid certificates observed",
-      reasons: ["Certificate history contains multiple currently unexpired certificates for this domain from different issuers."],
-      evidence: activeRows.slice(0, 10).map((row) => ({
-        source: "certificate_observations",
-        issuer: row.issuer,
-        subject: row.subject,
-        expires_at: row.expires_at,
-        observed_via: "history",
+      severity: "info",
+      confidence: "high",
+      title: "Multiple simultaneously served certificates observed",
+      reasons: [
+        "Multiple non-identical certificate identities were observed for the protected hostname within one bounded live endpoint window.",
+        "Multiplicity is reported without inferring misconfiguration or maliciousness.",
+      ],
+      evidence: parallelSignal.value.observations.slice(0, 10).map((row) => ({
+        source: row.source || "live_tls_endpoint_set",
+        protected_hostname: row.protected_hostname || null,
+        endpoint_context: row.endpoint_context || null,
+        certificate_identity: row.certificate_identity || null,
+        observed_at: row.observed_at || null,
+        completeness_state: row.completeness_state || null,
+        observed_via: "live_tls_endpoint_set",
       })),
-      first_seen: activeRows.map((row) => row.first_seen).filter(Boolean).sort()[0] || null,
-      prior: [...activeIssuers].sort(),
+      first_seen:
+        parallelSignal.value.observation_window?.started_at ?? null,
+      prior: [],
     });
   }
 
@@ -337,14 +341,16 @@ export function buildCertificateTrustL2(cert, options = {}) {
   for (const anomaly of anomalies) {
     addFinding(findings, {
       ...anomaly,
-      observed_via: anomaly.type === "parallel_certificate" ? "history" : "ct",
+      observed_via: anomaly.type === "parallel_certificate"
+        ? "live_tls_endpoint_set"
+        : "ct",
       remediation: anomaly.type === "unexpected_issuer"
         ? ["Confirm the issuer change was expected and tied to a planned renewal or hosting change."]
         : anomaly.type === "unexpected_wildcard"
           ? ["Confirm wildcard coverage is intentional and documented."]
           : anomaly.type === "unexpected_san"
             ? ["Review newly observed SAN names and remove unintended certificate coverage."]
-            : ["Review parallel certificates and retire any certificates that are no longer required."],
+            : ["Confirm whether the observed endpoint-specific certificate multiplicity is expected; multiplicity alone is not a fault."],
     });
   }
 

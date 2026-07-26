@@ -169,14 +169,16 @@ const derive = (evidenceBySignal) => deriveCertificateSignalCompleteness({
   engineVersion: fixture.engine_version,
 });
 
-// ── Exact nine-signal vocabulary and per-signal Evidence-Grade contract ─────
-eq("the model exposes exactly nine independent signals", CERTIFICATE_SIGNAL_KEYS.length, 9);
+// ── The original nine-signal P1 vocabulary remains stable; later Item 9 depth
+// adds independent signals additively after this prefix. ─────────────────────
+const P1_SIGNAL_KEYS = CERTIFICATE_SIGNAL_KEYS.slice(0, 9);
+eq("the model retains the nine original independent signals", P1_SIGNAL_KEYS.length, 9);
 eq(
   "the simultaneous signal has the canonical unambiguous name",
-  CERTIFICATE_SIGNAL_KEYS[7],
+  P1_SIGNAL_KEYS[7],
   "parallel_certificate_set"
 );
-for (const signal of CERTIFICATE_SIGNAL_KEYS) {
+for (const signal of P1_SIGNAL_KEYS) {
   const contract = CERTIFICATE_SIGNAL_CONTRACTS[signal];
   ok(`${signal}: contract exists`, Boolean(contract));
   for (const field of [
@@ -214,7 +216,7 @@ ok("CA/B Forum BR carries its access date", cabfAuthorities.every((row) =>
 
 // ── Mixed evidence: one failed signal cannot erase reliable siblings ────────
 const mixed = derive(fixture.mixed_independent_signals);
-for (const signal of CERTIFICATE_SIGNAL_KEYS) {
+for (const signal of P1_SIGNAL_KEYS) {
   const gradeContract = mixed.signals[signal].grade_contract;
   for (const field of [
     "observable_ceiling",

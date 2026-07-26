@@ -572,6 +572,15 @@ jobs:
       - name: Validate Item 9 P3 faithful multi-scan runScanEngine trace (renewal + dedupe + CT/live honesty)
         run: node scripts/validate-item9-certificate-p3-engine-trace.js
 
+      - name: Validate Item 9 P4 certificate trust-policy depth (CAA + chain + hostname + algorithms + trust store + revocation)
+        run: node scripts/validate-item9-certificate-p4-trust-depth.js
+
+      - name: Validate Item 9 P4 certificate trust-policy depth mutations
+        run: node scripts/validate-item9-certificate-p4-mutations.js
+
+      - name: Validate Item 9 P4 faithful runScanEngine trace (trust signals + budget + shared CT + tenant persistence)
+        run: node scripts/validate-item9-certificate-p4-engine-trace.js
+
       - name: Validate scan deadline + partial finalization (waitUntil-cancellation guard)
         run: node scripts/validate-scan-deadline.js
 
