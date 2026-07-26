@@ -24,6 +24,22 @@ import { createAuditEvent } from "../lib/events.js";
 import { sendLifecycleEmail } from "../lib/lifecycle-email.js";
 import { createId, parseBoundedInteger } from "../lib/util.js";
 
+export function portfolioBrandAlertPresentation(row = {}) {
+  let evidence = [];
+  try {
+    const parsed = JSON.parse(row.evidence_json || "[]");
+    evidence = Array.isArray(parsed) ? parsed : [];
+  } catch { evidence = []; }
+  const isIdn = row.variant_type === "homoglyph_idn" ||
+    evidence.some((item) => item?.signal === "idn_visual_confusable" && item.value === true);
+  return {
+    title: `${isIdn ? "IDN lookalike" : "Brand risk"}: ${row.candidate_domain}`,
+    description: isIdn
+      ? "Active visually confusable IDN lookalike resolving via DNS. This is a lookalike signal, not proof of abuse."
+      : `Active lookalike candidate (${row.variant_type ?? "unknown variant"}) resolving via DNS`,
+  };
+}
+
 export async function portfolioRoutes(rctx) {
   const { request, env, url, json, serverError, corsHeaders,
           requireAuth, requireWorkspaceRole, getAccessibleWorkspaceIds } = rctx;
@@ -300,7 +316,8 @@ export async function portfolioRoutes(rctx) {
           // Active brand risks that resolve via DNS
           db.prepare(`
             SELECT ba.workspace_id, w.name AS workspace_name,
-                   ba.candidate_domain, ba.risk_level, ba.variant_type, ba.updated_at
+                   ba.candidate_domain, ba.risk_level, ba.variant_type,
+                   ba.evidence_json, ba.updated_at
             FROM workspace_brand_assets ba
             JOIN workspaces w ON w.id = ba.workspace_id
             WHERE ba.status = 'active' AND ba.dns_resolves = 1
@@ -358,13 +375,14 @@ export async function portfolioRoutes(rctx) {
 
         for (const r of (brandRes.status === 'fulfilled' ? (brandRes.value?.results ?? []) : [])) {
           const sev = (r.risk_level === 'critical' || r.risk_level === 'high') ? r.risk_level : 'medium';
+          const presentation = portfolioBrandAlertPresentation(r);
           alerts.push({
             workspace_id:   r.workspace_id,
             workspace_name: r.workspace_name,
             type:           'brand_risk',
             severity:       sev,
-            title:          `Brand risk: ${r.candidate_domain}`,
-            description:    `Active typosquat candidate (${r.variant_type ?? 'unknown variant'}) resolving via DNS`,
+            title:          presentation.title,
+            description:    presentation.description,
             created_at:     r.updated_at,
           });
         }

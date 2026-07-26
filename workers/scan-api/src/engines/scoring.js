@@ -1085,19 +1085,30 @@ export function computeScore(modules, domain) {
   let brandScoreDeduction = 0;
   for (const c of (brandMod?.domains || [])) {
     if (!['high', 'critical'].includes(c.risk_level)) continue;
-    const findingId = c.variant_type === 'substitution'
+    const isIdn = c.variant_type === 'homoglyph_idn' ||
+      c.idn_homograph?.is_homograph === true ||
+      c.idn_homograph?.visually_confusable === true;
+    const findingId = isIdn || c.variant_type === 'substitution'
       ? 'brand_homoglyph_detected'
       : (c.variant_type === 'hyphen_keyword' || c.variant_type === 'prefix_keyword')
         ? 'brand_lookalike_detected'
         : 'brand_typosquat_detected';
     const scoreImpact = c.risk_level === 'critical' ? -5 : -3;
+    const riskSignals = (c.risk_reasons || []).join(', ') || 'none';
     findings.push({
       id:          findingId,
-      title:       `Brand lookalike domain detected: ${c.candidate_domain}`,
+      title:       isIdn
+        ? `Visually confusable IDN lookalike observed: ${c.candidate_domain}`
+        : `Brand lookalike domain detected: ${c.candidate_domain}`,
       severity:    c.risk_level === 'critical' ? 'critical' : 'high',
-      description: `The domain ${c.candidate_domain} is a ${c.variant_type.replace(/_/g, ' ')} variant of your brand. Risk signals: ${(c.risk_reasons || []).join(', ') || 'none'}.`,
+      description: isIdn
+        ? `The domain ${c.candidate_domain} is visually confusable with the protected brand under CyberMeters' bounded product policy. This is a lookalike signal, not proof of abuse. Observed risk signals: ${riskSignals}.`
+        : `The domain ${c.candidate_domain} is a ${c.variant_type.replace(/_/g, ' ')} variant of your brand. Risk signals: ${riskSignals}.`,
       evidence: [
         { label: 'Candidate Domain', value: c.candidate_domain },
+        ...(isIdn && c.unicode_domain
+          ? [{ label: 'Unicode Display Form', value: c.unicode_domain }]
+          : []),
         { label: 'Variant Type',     value: c.variant_type     },
         { label: 'Risk Level',       value: c.risk_level       },
       ],

@@ -285,6 +285,8 @@ const LIFECYCLE_LINK_BUILDERS = Object.freeze({
   // every other builder here.
   shadow_it_unmanaged_technology: (origin, recordId) =>
     `${origin}/ws/shadow-it?item=${encodeURIComponent(recordId)}`,
+  brand_protection: (origin, recordId) =>
+    `${origin}/ws/brand-monitoring?case=${encodeURIComponent(recordId)}`,
 });
 
 /**
@@ -335,6 +337,20 @@ export function alertKindFor(domain_key, recurrence) {
 // baseline (the activation watermark suppresses it) and a plain reappearance
 // alerts only through the classification-aware recurrences below.
 const RECURRENCE_COPY = Object.freeze({
+  brand_protection: Object.freeze({
+    case_opened: Object.freeze({
+      what_changed: (entity) =>
+        `${entity} reached the evidence threshold for a managed Brand Protection review.`,
+    }),
+    case_reappeared: Object.freeze({
+      what_changed: (entity) =>
+        `${entity} was observed again after its earlier case was technically resolved.`,
+    }),
+    case_resolved: Object.freeze({
+      what_changed: (entity) =>
+        `${entity} had no A or MX records in CyberMeters' completed DNS verification.`,
+    }),
+  }),
   email_protection: Object.freeze({
     record_removed: Object.freeze({
       what_changed: () =>
@@ -454,6 +470,7 @@ export function recommendationForRecurrence(domain_key, recurrence, entityDispla
 export async function emitCaseLifecycleAlert(env, caseRow, {
   domain_key, recurrence, from_recurrence_type = null,
   finding_type = null, link = null, detail = null, actor_type = "system", actor_id = null,
+  entity_type = null, entity_display = null, monitored_domain = null, evidence_source = null,
 } = {}) {
   try {
     if (!caseRow?.id || !caseRow?.workspace_id || !domain_key || !recurrence) {
@@ -491,6 +508,10 @@ export async function emitCaseLifecycleAlert(env, caseRow, {
       case_id: caseRow.id,
       link,
       hostname: caseRow.domain || null,
+      entity_type,
+      entity_display,
+      monitored_domain,
+      evidence_source,
     });
   } catch (err) {
     // No persisted event => no alert. Never throws: alerting must not break the

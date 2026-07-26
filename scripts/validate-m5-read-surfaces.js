@@ -365,6 +365,7 @@ for (const [label, p] of [
     ["website_security", "wsc-1", "condition=wsc-1"],
     ["cyber_essentials_readiness", "cec-1", "control=cec-1"],
     ["email_protection", "hd-1", "lifecycle=hd-1"],
+    ["brand_protection", "case-1", "case=case-1"],
   ];
   for (const [domain, recId, query] of cases) {
     const link = lifecycleRecordLink(linkEnv, domain, recId);
@@ -380,7 +381,7 @@ for (const [label, p] of [
   // Unknown domains get null, and null is honest: managed-alerts falls back to the
   // notifications list, which is where the customer would have gone anyway.
   eq("a domain with no read surface links nowhere rather than somewhere wrong",
-    lifecycleRecordLink(linkEnv, "brand_protection", "x"), null);
+    lifecycleRecordLink(linkEnv, "attack_surface", "x"), null);
   eq("a missing record id links nowhere", lifecycleRecordLink(linkEnv, "website_security", null), null);
   // No origin configured => no link, never a relative string that resolves against an
   // email client's own host.

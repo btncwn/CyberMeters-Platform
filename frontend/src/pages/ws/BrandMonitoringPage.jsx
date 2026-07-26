@@ -67,8 +67,12 @@ function evidenceBadges(c) {
   else if (variant === 'nested_host') out.push('Subdomain of a lookalike')
   else if (TYPO_VARIANTS.some(v => variant.includes(v))) out.push('Similar spelling')
   if (c._dns === true) out.push('DNS active')
+  else if (c._dns === false) out.push('DNS inactive')
+  else out.push('DNS not yet checked')
   if (c._https === true) out.push('HTTPS active')
+  else if (c._https === false) out.push('No HTTPS response observed')
   if (c._mx === true) out.push('MX present')
+  else if (c._mx === false) out.push('No MX observed')
   if (c._new) out.push('Newly seen')
   for (const e of c._evidence) {
     const signal = typeof e === 'object' ? e.signal : null
@@ -138,6 +142,7 @@ function CandidateRow({ c, busy, onClassify }) {
   const cm = classMeta(c)
   const badges = evidenceBadges(c)
   const closed = cm.tone === 'closed'
+  const firstSeen = fmtDate(c.first_seen_at)
   const lastSeen = fmtDate(c.last_seen_at || c.last_checked_at || c.first_seen_at)
   return (
     <div className={`border-b border-gray-100 ${closed ? 'opacity-70' : ''}`}>
@@ -176,10 +181,11 @@ function CandidateRow({ c, busy, onClassify }) {
                   : 'This domain resembles your protected brand and could be used for phishing, supplier impersonation or invoice fraud.'}
               </p>
             </div>
-            <dl className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+            <dl className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
               <div><dt className="text-gray-400">Risk</dt><dd className="mt-0.5"><RiskBadge level={c.risk_level} /></dd></div>
               <div><dt className="text-gray-400">Similarity</dt><dd className="mt-0.5 font-semibold text-gray-700">{c.similarity_score != null ? `${Math.round(c.similarity_score * (c.similarity_score <= 1 ? 100 : 1))}%` : '—'}</dd></div>
               <div><dt className="text-gray-400">Variant</dt><dd className="mt-0.5 font-semibold text-gray-700">{variantLabel(c)}</dd></div>
+              <div><dt className="text-gray-400">First seen</dt><dd className="mt-0.5 font-semibold text-gray-700">{firstSeen || '—'}</dd></div>
               <div><dt className="text-gray-400">Last seen</dt><dd className="mt-0.5 font-semibold text-gray-700">{lastSeen || '—'}</dd></div>
             </dl>
             {badges.length > 0 && (
@@ -346,7 +352,7 @@ const CASE_CHIP = {
 function ManagedBrandCases({ cases, busyId, onReview, onApprove, onSubmit }) {
   if (!cases?.length) return null
   return (
-    <section className="card p-5 mb-6">
+    <section id="managed-brand-cases" className="card p-5 mb-6 scroll-mt-20">
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
         <div>
           <span className="eyebrow">Managed takedown cases</span>
@@ -355,14 +361,14 @@ function ManagedBrandCases({ cases, busyId, onReview, onApprove, onSubmit }) {
             Human review controls classification and approval. CyberMeters only marks removal after technical verification.
           </p>
         </div>
-        <span className="text-xs text-gray-400">{cases.length} active</span>
+        <span className="text-xs text-gray-400">{cases.length} case{cases.length === 1 ? '' : 's'}</span>
       </div>
       <div className="space-y-3">
         {cases.map((c) => {
           const status = String(c.status || '').replace(/_/g, ' ')
           const bundleReady = c.evidence?.bundle
           return (
-            <div key={c.id} className="rounded-xl border border-gray-200 p-4">
+            <div key={c.id} id={`case-${c.id}`} className="rounded-xl border border-gray-200 p-4 scroll-mt-20">
               <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
@@ -375,6 +381,17 @@ function ManagedBrandCases({ cases, busyId, onReview, onApprove, onSubmit }) {
                   <p className="text-xs text-gray-500 mt-1">
                     Protected brand: <span className="mono">{c.asset_ref || '—'}</span>
                   </p>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-gray-500">
+                    {c.lifecycle?.first_seen_at && <span>Case opened {fmtDate(c.lifecycle.first_seen_at)}</span>}
+                    {c.lifecycle?.reappearance_count > 0 && (
+                      <span className="font-semibold text-red-700">
+                        Reappeared {c.lifecycle.reappearance_count} time{c.lifecycle.reappearance_count === 1 ? '' : 's'}
+                      </span>
+                    )}
+                    {c.campaign_id && (
+                      <span>Evidence-linked campaign <span className="mono">{c.campaign_id}</span></span>
+                    )}
+                  </div>
                   {bundleReady && (
                     <div className="mt-3 rounded-lg bg-gray-50 border border-gray-100 p-3 text-xs text-gray-600">
                       <p className="font-semibold text-gray-800">Evidence bundle ready</p>
@@ -459,6 +476,14 @@ export default function BrandMonitoringPage() {
   }, [wsId])
 
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    const target = new URLSearchParams(window.location.search).get('case')
+    if (!target || !cases.some(c => c.id === target)) return
+    window.requestAnimationFrame(() => {
+      document.getElementById(`case-${target}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    })
+  }, [cases])
 
   async function handleSave(payload) {
     setSaving(true)
