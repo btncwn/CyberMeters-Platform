@@ -43,9 +43,13 @@ import {
   readDmarcPolicyEvidenceFromSnapshot,
   sealDmarcPolicyEvidence,
 } from "./dmarcbis-contract.js";
+import {
+  buildCertificateCustomerPresentation,
+  buildCertificateLifecycleAssurance,
+} from "./certificate-customer-presentation.js";
 
 export const SNAPSHOT_SCHEMA_VERSION = "1";
-export const SNAPSHOT_BUILDER_VERSION = "2026-07-25.2";
+export const SNAPSHOT_BUILDER_VERSION = "2026-07-26.1";
 export const CANONICAL_REPORT_SNAPSHOT_AVAILABLE_FROM = "2026-07-17";
 export const CANONICAL_REPORT_SNAPSHOT_AVAILABLE_FROM_DISPLAY = "17 July 2026";
 
@@ -356,6 +360,57 @@ export const STALE_BUILDING_MINUTES = 30;
 
 // Defensive bound on the workspace case read — one query, never per-row.
 const CASE_READ_LIMIT = 2000;
+const CERTIFICATE_LIFECYCLE_READ_LIMIT = 100;
+
+async function loadCertificateLifecycleRecordsForSnapshot(
+  env,
+  workspaceId,
+  domainId,
+) {
+  const result = await env.cybermeters_db
+    .prepare(
+      `SELECT cl.*,
+              current_observation.evidence_json AS current_observation_evidence_json,
+              previous_observation.evidence_json AS previous_observation_evidence_json
+       FROM certificate_lifecycle cl
+       LEFT JOIN certificate_observations current_observation
+         ON current_observation.id = cl.current_certificate_observation_id
+        AND current_observation.workspace_id = cl.workspace_id
+       LEFT JOIN certificate_observations previous_observation
+         ON previous_observation.id = cl.previous_certificate_observation_id
+        AND previous_observation.workspace_id = cl.workspace_id
+       WHERE cl.workspace_id = ? AND cl.domain_id = ?
+       ORDER BY (cl.days_remaining IS NULL), cl.days_remaining ASC,
+                cl.last_seen_at DESC
+       LIMIT ?`
+    )
+    .bind(workspaceId, domainId, CERTIFICATE_LIFECYCLE_READ_LIMIT)
+    .all();
+  return (result?.results || []).map((row) => ({
+    certificate_lifecycle_id: row.id,
+    domain_id: row.domain_id,
+    primary_hostname: row.primary_hostname || null,
+    certificate_identity: row.certificate_identity || null,
+    current_certificate_observation_id:
+      row.current_certificate_observation_id || null,
+    previous_certificate_observation_id:
+      row.previous_certificate_observation_id || null,
+    issuer: row.issuer || null,
+    not_before: row.not_before || null,
+    not_after: row.not_after || null,
+    days_remaining: row.days_remaining ?? null,
+    renewal_readiness: row.renewal_readiness || null,
+    renewal_status: row.renewal_status || null,
+    replacement_detected_at: row.replacement_detected_at || null,
+    replacement_recorded_at: row.replacement_recorded_at || null,
+    coverage_status: row.coverage_status || null,
+    verification_status: row.verification_status || null,
+    lifecycle_state: row.lifecycle_state || null,
+    first_seen_at: row.first_seen_at || null,
+    last_seen_at: row.last_seen_at || null,
+    certificate_assurance: buildCertificateLifecycleAssurance(row),
+  }));
+}
 
 export function snapshotR2Key(workspaceId, scanId, snapshotId) {
   return `reports/snapshots/${workspaceId}/${scanId}/${snapshotId}.json`;
@@ -418,6 +473,7 @@ export function composeSnapshot({
   ceReadiness,       // full buildCyberEssentialsReadiness output, or null
   caseRows,          // workspace managed_cases rows (one bounded query)
   questionSetVersions, // distinct answer question_set_version values (mig 092)
+  certificateLifecycleRecords = null, // null = unavailable; [] = observed empty
   supersedesSnapshotId,
   builtAt,
   reconstruction = false, // strict historical reconstruction (founder policy)
@@ -734,6 +790,43 @@ export function composeSnapshot({
     methodologyVersion: BUSINESS_RISK_METHODOLOGY_VERSION,
     label: "Business Risk Indicator",
   });
+  const certificateAssurance = buildCertificateCustomerPresentation({
+    signalCompleteness:
+      report?.modules?.certificate_intelligence?.signal_completeness ?? null,
+    absenceReason:
+      "Per-signal certificate assurance was not recorded by this scan. Missing fields are not interpreted as favourable results.",
+  });
+  const lifecycleRelationship = Array.isArray(certificateLifecycleRecords)
+    ? certificateLifecycleRecords.find(
+        (record) => record?.certificate_assurance?.relationship,
+      )?.certificate_assurance?.relationship
+    : null;
+  if (lifecycleRelationship) {
+    // Reuse the lifecycle engine's canonical current/previous observation
+    // projection. Do not reconstruct replacement semantics in the renderer.
+    certificateAssurance.relationship = lifecycleRelationship;
+  }
+  certificateAssurance.lifecycle = reconstruction
+    ? {
+        status: "unavailable",
+        records: [],
+        customer_message:
+          "Certificate lifecycle state at scan time cannot be reconstructed from scan-time report evidence and is not inferred from current records.",
+      }
+    : Array.isArray(certificateLifecycleRecords)
+      ? {
+          status: "recorded",
+          records: certificateLifecycleRecords,
+          customer_message: certificateLifecycleRecords.length
+            ? "Certificate lifecycle records were frozen with this report snapshot."
+            : "No certificate lifecycle record was observed for this protected domain when the snapshot was built.",
+        }
+      : {
+          status: "unavailable",
+          records: [],
+          customer_message:
+            "Certificate lifecycle records were unavailable when this snapshot was built. This is not interpreted as no lifecycle activity.",
+        };
 
   return {
     snapshot: {
@@ -821,6 +914,7 @@ export function composeSnapshot({
         : {}),
     },
     monitoring_states: monitoringStates,
+    certificate_assurance: certificateAssurance,
     domains: domainEntries,
     observed_findings: observedFindings,
     observations,
@@ -963,6 +1057,20 @@ export async function buildScanReportSnapshot(env, opts = {}) {
       questionSetVersions = (r?.results || []).map((x) => x.question_set_version);
     } catch { questionSetVersions = []; }
 
+    let certificateLifecycleRecords = null;
+    if (!reconstruction) {
+      try {
+        certificateLifecycleRecords =
+          await loadCertificateLifecycleRecordsForSnapshot(
+            env,
+            workspaceId,
+            domainId,
+          );
+      } catch {
+        certificateLifecycleRecords = null;
+      }
+    }
+
     const dmarcPolicyEvidence = await sealDmarcPolicyEvidence(
       report?.modules?.dmarc_core ?? null,
     );
@@ -973,7 +1081,7 @@ export async function buildScanReportSnapshot(env, opts = {}) {
       // Reconstruction: CE readiness at scan time is unknowable — the resolver's
       // own not_assessed path yields evidence_insufficient, never a guess.
       cyberEssentials: reconstruction ? { status: "not_assessed" } : cyberEssentials,
-      ceReadiness, caseRows, questionSetVersions,
+      ceReadiness, caseRows, questionSetVersions, certificateLifecycleRecords,
       supersedesSnapshotId,
       builtAt: new Date().toISOString(),
       reconstruction,

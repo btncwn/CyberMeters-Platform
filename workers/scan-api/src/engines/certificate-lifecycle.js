@@ -27,6 +27,7 @@ import { hashToken } from "../lib/auth-crypto.js";
 import { createManagedCase, canTransitionCase, canonicalPhaseFor, verificationSupportForCase } from "./managed-case-model.js";
 import { assessRenewal, renewalAlertBand, renewalRequiresCase } from "./certificate-policy.js";
 import { buildMonitoringTransitionDetail, isMonitoringTransition } from "./alert-occurrence.js";
+import { buildCertificateLifecycleAssurance } from "./certificate-customer-presentation.js";
 
 function newId(prefix) {
   const uuid = (globalThis.crypto?.randomUUID?.() || "").replace(/-/g, "");
@@ -1241,8 +1242,10 @@ export async function certificateLifecycleAction(env, workspaceId, id, action, o
   if (verifyCaseFromObservation) {
     await verifyCertificateCaseFromObservation(env, updated, verifyCaseFromObservation.evidence, now).catch(() => {});
   }
-  const fresh = await loadRecord(env, workspaceId, id);
-  return { ok: true, item: certificateLifecycleToApi(fresh) };
+  // Re-read through the API projection JOIN so action responses carry the same
+  // frozen current/previous evidence presentation as list/detail responses.
+  const fresh = await getCertificateLifecycle(env, workspaceId, id);
+  return { ok: true, item: fresh };
 }
 
 /**
@@ -1403,23 +1406,52 @@ export function certificateLifecycleToApi(row) {
     last_seen_at: row.last_seen_at,
     created_at: row.created_at,
     updated_at: row.updated_at,
+    // P5 presentation-only projection over the current/previous canonical
+    // observation evidence. The raw append-only identities and lifecycle state
+    // above remain authoritative.
+    certificate_assurance: buildCertificateLifecycleAssurance(row),
     // Permanent honest-scope reminder carried to the client.
-    scope_note: "Externally observed certificate only — no live TLS, chain, root, OCSP, revocation or private-key check. Unexpired is not the same as fully trusted; a recorded renewal is not verified until a distinct new certificate is observed with acceptable coverage and a later expiry.",
+    scope_note: "Externally observed certificate evidence only. Live leaf, presented chain, hostname match, declared trust-store validation and revocation are separate signals and may remain unknown or unavailable. An unexpired certificate is not the same as fully trusted evidence; a recorded renewal is not verified until CyberMeters' later method-appropriate re-observation supports it.",
   };
 }
 
-export async function listCertificateLifecycle(env, workspaceId, { renewal_readiness = null, lifecycle_state = null, coverage_status = null, limit = 100 } = {}) {
-  const where = ["workspace_id = ?"]; const binds = [workspaceId];
-  if (renewal_readiness) { where.push("renewal_readiness = ?"); binds.push(renewal_readiness); }
-  if (lifecycle_state) { where.push("lifecycle_state = ?"); binds.push(lifecycle_state); }
-  if (coverage_status) { where.push("coverage_status = ?"); binds.push(coverage_status); }
+const CERTIFICATE_LIFECYCLE_API_SELECT = `
+  SELECT cl.*,
+         current_observation.evidence_json AS current_observation_evidence_json,
+         previous_observation.evidence_json AS previous_observation_evidence_json
+  FROM certificate_lifecycle cl
+  LEFT JOIN certificate_observations current_observation
+    ON current_observation.id = cl.current_certificate_observation_id
+   AND current_observation.workspace_id = cl.workspace_id
+  LEFT JOIN certificate_observations previous_observation
+    ON previous_observation.id = cl.previous_certificate_observation_id
+   AND previous_observation.workspace_id = cl.workspace_id`;
+
+export async function listCertificateLifecycle(env, workspaceId, {
+  renewal_readiness = null,
+  lifecycle_state = null,
+  coverage_status = null,
+  domain_id = null,
+  limit = 100,
+} = {}) {
+  const where = ["cl.workspace_id = ?"]; const binds = [workspaceId];
+  if (renewal_readiness) { where.push("cl.renewal_readiness = ?"); binds.push(renewal_readiness); }
+  if (lifecycle_state) { where.push("cl.lifecycle_state = ?"); binds.push(lifecycle_state); }
+  if (coverage_status) { where.push("cl.coverage_status = ?"); binds.push(coverage_status); }
+  if (domain_id) { where.push("cl.domain_id = ?"); binds.push(domain_id); }
   const rows = (await env.cybermeters_db
-    .prepare(`SELECT * FROM certificate_lifecycle WHERE ${where.join(" AND ")} ORDER BY (days_remaining IS NULL), days_remaining ASC, last_seen_at DESC LIMIT ?`)
+    .prepare(`${CERTIFICATE_LIFECYCLE_API_SELECT}
+              WHERE ${where.join(" AND ")}
+              ORDER BY (cl.days_remaining IS NULL), cl.days_remaining ASC,
+                       cl.last_seen_at DESC LIMIT ?`)
     .bind(...binds, Math.max(1, Math.min(500, Number(limit) || 100))).all().catch(() => ({ results: [] }))).results || [];
   return rows.map(certificateLifecycleToApi);
 }
 export async function getCertificateLifecycle(env, workspaceId, id) {
-  const row = await loadRecord(env, workspaceId, id);
+  const row = await env.cybermeters_db
+    .prepare(`${CERTIFICATE_LIFECYCLE_API_SELECT}
+              WHERE cl.id = ? AND cl.workspace_id = ?`)
+    .bind(id, workspaceId).first().catch(() => null);
   return row ? certificateLifecycleToApi(row) : null;
 }
 export async function listCertificateLifecycleEvents(env, workspaceId, id) {

@@ -71,5 +71,9 @@ export function isAwaitingVerification(item) {
   return item?.renewal_status === 'awaiting_verification' && item?.verification_status !== 'verified_replaced'
 }
 
+export function certificateRelationshipMessage(item) {
+  return item?.certificate_assurance?.relationship?.customer_message || null
+}
+
 export const CERT_LIFECYCLE_SCOPE_NOTE =
-  'Externally observed certificates only — no live TLS handshake, and chain, root, OCSP, revocation and private-key status are not checked and remain unknown. An unexpired certificate is not the same as fully trusted. A recorded renewal is not verified until CyberMeters observes a distinct new certificate on the expected hostnames with a later expiry.'
+  'Externally observed certificate evidence only. Live leaf, presented chain, root acceptance, OCSP/revocation, hostname match and declared trust-store validation are separate signals and may remain unknown or unavailable. An unexpired certificate is not the same as a fully trusted result. A recorded renewal is not verified until CyberMeters later re-observes method-appropriate evidence.'

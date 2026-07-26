@@ -26,6 +26,10 @@ import { createId, isValidDomain, parseBoundedInteger } from "../lib/util.js";
 import { activeScanConflictBody, isUniqueConstraintError } from "../lib/scan-admission.js";
 import { dispatchAdmittedScan, isQueueDispatchMode } from "../engines/scan-dispatch.js";
 import { dmarcPolicyApiProjection } from "../engines/dmarcbis-contract.js";
+import {
+  buildCertificateCustomerPresentation,
+  certificateAssuranceApiProjection,
+} from "../engines/certificate-customer-presentation.js";
 
 export async function scanRoutes(rctx) {
   const { request, env, ctx, url, json, serverError, corsHeaders,
@@ -601,6 +605,7 @@ export async function scanRoutes(rctx) {
           snapshot: read.snapshot,
           superseded_by: read.supersededBy,
           integrity: read.integrity,
+          ...certificateAssuranceApiProjection(read.snapshot),
           ...dmarcPolicyApiProjection(read.dmarcPolicy),
         });
       } catch (err) {
@@ -677,6 +682,12 @@ export async function scanRoutes(rctx) {
           recommendations: Array.isArray(raw.recommendations) ? raw.recommendations : [],
           scan_quality: raw.scan_quality ?? buildScanQuality(normalisedModules),
           monitoring_states: raw.monitoring_states ?? null,
+          certificate_assurance: buildCertificateCustomerPresentation({
+            signalCompleteness:
+              normalisedModules.certificate_intelligence?.signal_completeness ?? null,
+            absenceReason:
+              "Per-signal certificate assurance has not yet been recorded for this scan. Missing fields are not interpreted as favourable results.",
+          }),
           modules: normalisedModules,
           business_risk: null,
           ...(raw.started_at ? { started_at: raw.started_at } : {}),
@@ -738,6 +749,7 @@ export async function scanRoutes(rctx) {
           },
           snapshot_id: read.row.id,
           snapshot_provenance: snap.snapshot?.provenance ?? null,
+          ...certificateAssuranceApiProjection(snap),
           ...dmarcPolicyApiProjection(read.dmarcPolicy),
           ...(raw.started_at ? { started_at: raw.started_at } : {}),
           ...(raw.completed_at ? { completed_at: raw.completed_at } : {}),
