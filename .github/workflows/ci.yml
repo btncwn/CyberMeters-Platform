@@ -613,6 +613,12 @@ jobs:
       - name: Validate Item 10 P5 Attack Surface customer-surface mutations
         run: node scripts/validate-item10-attack-surface-p5-mutations.js
 
+      - name: Validate Item 10 P5 pagination-independent domain projection
+        run: node scripts/validate-item10-attack-surface-p5-pagination-corrective.js
+
+      - name: Validate Item 10 P5 pagination corrective mutations
+        run: node scripts/validate-item10-attack-surface-p5-pagination-corrective-mutations.js
+
       - name: Validate Item 9 P2 certificate production integration (deadlines + shared CT + signal isolation)
         run: node scripts/validate-item9-certificate-p2-integration.js
 

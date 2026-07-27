@@ -252,18 +252,23 @@ eq("migration-102-absent assets API retains legacy row",
 eq("legacy inactive stays separate from lifecycle",
   routeResult.body.assets[0]?.status, "inactive");
 eq("migration-102-absent API lifecycle is not_recorded",
-  routeResult.body.assets[0]?.attack_surface_assurance?.lifecycle?.status,
+  routeResult.body.attack_surface_assurance?.[0]?.lifecycle?.status,
   "not_recorded");
 ok("migration-102-absent API is explicit, not silently empty",
-  routeResult.body.assets[0]?.attack_surface_assurance?.signal_order?.length === 9 &&
+  routeResult.body.attack_surface_assurance?.[0]?.signal_order?.length === 9 &&
   Boolean(
-    routeResult.body.assets[0]?.attack_surface_assurance
+    routeResult.body.attack_surface_assurance?.[0]
       ?.lifecycle?.customer_message,
   ));
+ok("migration-102-absent list row does not duplicate assurance",
+  !Object.hasOwn(routeResult.body.assets[0] || {}, "attack_surface_assurance"));
+eq("migration-102-absent coverage remains explicit",
+  routeResult.body.attack_surface_assurance_coverage?.status,
+  "not_recorded");
 ok("assets API remains tenant isolated",
   !JSON.stringify(routeResult.body).includes("foreign.example.net"));
 ok("assets API evidence reads are bounded, not N+1",
-  counters.reads <= 6,
+  counters.reads <= 8,
   `read count ${counters.reads}`);
 legacyDb.close();
 

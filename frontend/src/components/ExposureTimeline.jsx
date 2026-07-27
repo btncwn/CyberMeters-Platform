@@ -137,6 +137,7 @@ function EventRow({ event }) {
 export default function ExposureTimeline({ workspaceId }) {
   const [events,   setEvents]   = useState([])
   const [assurance, setAssurance] = useState([])
+  const [assuranceCoverage, setAssuranceCoverage] = useState(null)
   const [total,    setTotal]    = useState(null)
   const [loading,  setLoading]  = useState(false)
   const [error,    setError]    = useState(null)
@@ -156,6 +157,7 @@ export default function ExposureTimeline({ workspaceId }) {
       const data = await api.getExposureFeed(workspaceId, params)
       const incoming = data.events || []
       setAssurance(data.attack_surface_assurance || [])
+      setAssuranceCoverage(data.attack_surface_assurance_coverage || null)
       setEvents(prev => append ? [...prev, ...incoming] : incoming)
       setOffset(currentOffset + incoming.length)
       setTotal(data.pagination?.total ?? null)
@@ -177,7 +179,10 @@ export default function ExposureTimeline({ workspaceId }) {
 
   return (
     <div className="space-y-4">
-      <AttackSurfaceAssurance presentations={assurance} />
+      <AttackSurfaceAssurance
+        presentations={assurance}
+        coverage={assuranceCoverage}
+      />
       <div className="card p-6">
       {/* Header + filters */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
