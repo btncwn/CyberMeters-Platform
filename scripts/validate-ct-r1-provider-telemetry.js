@@ -31,6 +31,8 @@ const { runSubdomainsModule } = subdomainsModule;
 const { analyzeCtProviderTelemetry, READ_QUERY } = await import(pathToFileURL(
   path.join(root, "scripts/analyze-ct-provider-telemetry.js")
 ).href);
+const NOW = "2026-07-27T12:00:00.000Z";
+const NOW_MS = Date.parse(NOW);
 
 let passed = 0;
 let failed = 0;
@@ -87,7 +89,7 @@ function providerFetcher(spec) {
 }
 
 function telemetryClock() {
-  let now = Date.parse("2026-07-27T12:00:00.000Z");
+  let now = NOW_MS;
   return () => {
     const value = now;
     now += 7;
@@ -103,10 +105,18 @@ async function executeModules(spec, captureTelemetry) {
     telemetryNow: telemetryClock(),
     timeoutSignal: () => undefined,
   });
-  const [ssl, subdomains] = await Promise.all([
-    resolveCertificateTransparency("example.com", { ctCache }),
-    runSubdomainsModule("example.com", { ctCache }),
-  ]);
+  const realDateNow = Date.now;
+  Date.now = () => NOW_MS;
+  let ssl;
+  let subdomains;
+  try {
+    [ssl, subdomains] = await Promise.all([
+      resolveCertificateTransparency("example.com", { ctCache }),
+      runSubdomainsModule("example.com", { ctCache }),
+    ]);
+  } finally {
+    Date.now = realDateNow;
+  }
   const modules = { ssl, subdomains };
   const scanQuality = buildScanQuality(modules);
   return {
