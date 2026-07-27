@@ -1,0 +1,39 @@
+{
+  "domain": "example.com",
+  "hostname": "admin.example.com",
+  "asset_id": "asset-admin",
+  "finding": {
+    "id": "asset_exposure_sensitive_tool",
+    "module": "asset_exposure",
+    "title": "Sensitive management tool exposed",
+    "description": "Grafana is reachable from the public internet.",
+    "severity": "high",
+    "affected_hosts": ["admin.example.com"]
+  },
+  "clock": {
+    "first_negative": "2026-07-27T10:00:00.000Z",
+    "unavailable": "2026-07-28T10:00:00.000Z",
+    "second_negative": "2026-07-29T10:00:00.000Z",
+    "confirmed_removed": "2026-07-30T10:00:00.000Z",
+    "later_reobservation": "2026-07-31T10:00:00.000Z",
+    "reappeared": "2026-08-01T10:00:00.000Z"
+  },
+  "expected_case_transitions": [
+    "open",
+    "triage",
+    "owner_assigned",
+    "remediation_in_progress",
+    "verification_requested",
+    "verifying",
+    "resolved",
+    "reopened",
+    "remediation_in_progress"
+  ],
+  "removal_contract": {
+    "required_qualifying_observations": 3,
+    "required_dns_state": "absent",
+    "allowed_http_states": ["not_observed", "absent"],
+    "first_confirmation_verifies": false,
+    "later_complete_publishable_reobservation_verifies": true
+  }
+}

@@ -9,14 +9,13 @@ import { emitCaseLifecycleAlert } from "./alert-consumers.js";
 import {
   buildCaseQueue,
   newCaseEventId,
-  newManagedCaseId,
 } from "./case-workflow.js";
 import { createAuditEvent } from "../lib/events.js";
+import { hashToken } from "../lib/auth-crypto.js";
 import { normalizeDiscoveredHostname } from "./hostnames.js";
 import { MANAGED_VERIFICATION_PROFILE, findingTypeOf, isSupportedVerification, runManagedVerificationProbe } from "./managed-verification.js";
-import { findingRemediation } from "./remediation-registry.js";
 import { ASM_CASE_TYPE, ASM_CASE_MACHINE, ASM_CASE_STATES, SYSTEM_ONLY_CASE_STATES } from "./asm-case-machine.js";
-import { canTransitionCase, assignCaseOwner } from "./managed-case-model.js";
+import { canTransitionCase, assignCaseOwner, createManagedCase } from "./managed-case-model.js";
 
 // Re-exported from the neutral machine module so existing importers are unchanged.
 export { ASM_CASE_TYPE, ASM_CASE_MACHINE, ASM_CASE_STATES, SYSTEM_ONLY_CASE_STATES };
@@ -203,13 +202,38 @@ export function managedCaseToApi(row = {}) {
   };
 }
 
-async function writeCaseEvent(env, caseRow, { actor_type = "system", actor_id = null, from_status = null, to_status = null, action, detail = null } = {}) {
-  await env.cybermeters_db
-    .prepare(`INSERT INTO managed_case_events
+async function deterministicCaseEventId(caseRow, action, dedupeKey) {
+  const digest = await hashToken(JSON.stringify([
+    "asm-managed-case-event-v1",
+    caseRow.workspace_id,
+    caseRow.id,
+    action,
+    dedupeKey,
+  ]));
+  return `mce-${digest.slice(0, 32)}`;
+}
+
+async function writeCaseEvent(env, caseRow, {
+  actor_type = "system",
+  actor_id = null,
+  from_status = null,
+  to_status = null,
+  action,
+  detail = null,
+  dedupe_key = null,
+} = {}) {
+  const eventId = dedupe_key
+    ? await deterministicCaseEventId(caseRow, action, dedupe_key)
+    : newCaseEventId();
+  const result = await env.cybermeters_db
+    .prepare(`INSERT OR IGNORE INTO managed_case_events
       (id, case_id, workspace_id, actor_type, actor_id, from_status, to_status, action, detail_json, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`)
-    .bind(newCaseEventId(), caseRow.id, caseRow.workspace_id, actor_type, actor_id, from_status, to_status, action, safeJson(detail))
+    .bind(eventId, caseRow.id, caseRow.workspace_id, actor_type, actor_id, from_status, to_status, action, safeJson(detail))
     .run();
+  if ((result?.meta?.changes ?? 1) === 0) {
+    return { inserted: false, id: eventId };
+  }
   await createAuditEvent(env, {
     workspace_id: caseRow.workspace_id,
     user_id: actor_id,
@@ -220,6 +244,7 @@ async function writeCaseEvent(env, caseRow, { actor_type = "system", actor_id = 
     description: `Managed case ${action.replace(/_/g, " ")} for ${caseRow.domain || caseRow.asset_ref || caseRow.id}`,
     metadata: { case_id: caseRow.id, domain: caseRow.domain, finding_id: caseRow.finding_id, from_status, to_status, detail },
   });
+  return { inserted: true, id: eventId };
 }
 
 async function updateCaseStatus(env, caseRow, to, ctx = {}) {
@@ -236,22 +261,25 @@ async function updateCaseStatus(env, caseRow, to, ctx = {}) {
   });
   if (!result.ok) return result;
   const next = result.case;
-  await env.cybermeters_db
+  const write = await env.cybermeters_db
     .prepare(`UPDATE managed_cases
       SET status = ?, reason = ?, risk_accepted_until = ?, last_verified_at = ?,
           resolved_at = ?, reopened_count = ?, updated_at = ?,
           verified_at = ?, action_started_at = ?, awaiting_verification_at = ?,
           reopened_at = ?, accepted_at = ?, closed_at = ?
-      WHERE id = ? AND workspace_id = ?`)
+      WHERE id = ? AND workspace_id = ? AND status = ?`)
     .bind(
       next.status, next.reason || null, next.risk_accepted_until || null,
       next.last_verified_at || null, next.resolved_at || null,
       Number(next.reopened_count || 0), next.updated_at,
       next.verified_at || null, next.action_started_at || null, next.awaiting_verification_at || null,
       next.reopened_at || null, next.accepted_at || null, next.closed_at || null,
-      next.id, next.workspace_id,
+      next.id, next.workspace_id, caseRow.status,
     )
     .run();
+  if (Number(write?.meta?.changes ?? 1) !== 1) {
+    return { ok: false, code: "transition_conflict", error: "Case changed before this transition could be persisted." };
+  }
   await writeCaseEvent(env, next, {
     actor_type: ctx.actor_type || "system",
     actor_id: ctx.actor_id || null,
@@ -259,6 +287,7 @@ async function updateCaseStatus(env, caseRow, to, ctx = {}) {
     to_status: to,
     action: ctx.action || "transition",
     detail: ctx.detail || { reason: ctx.reason || null },
+    dedupe_key: ctx.dedupe_key || null,
   });
   return { ok: true, case: next };
 }
@@ -366,49 +395,34 @@ async function openCaseForFinding(env, { workspaceId, domainId, scanId, domain, 
     return { opened: false, case: existing };
   }
 
-  // Universal-case linkage: attach the canonical domain_key, the source finding
-  // type + scan, and the canonical remediation_id (null when no remediation).
-  const remediationId = findingRemediation({ id: finding.id, finding_type: "finding" })?.remediation_id ?? null;
-  const row = {
-    id: newManagedCaseId(),
+  // ASM now uses the universal creation primitive as required by the shared
+  // managed-case substrate. The registry supplies ASM's `open` initial state,
+  // canonical remediation linkage, tenant/domain eligibility and durable dedupe.
+  const created = await createManagedCase(env, {
     workspace_id: workspaceId,
-    case_type: ASM_CASE_TYPE,
     domain_key: "attack_surface",
-    domain,
-    finding_id: finding.id,
+    case_type: ASM_CASE_TYPE,
     source_finding_type: finding.id,
+    source_finding_id: finding.id,
     source_scan_id: scanId,
-    remediation_id: remediationId,
+    domain,
     asset_ref: assetRefForFinding(finding, domain),
+    title: finding.title || "Review external exposure",
+    summary: finding.description || null,
     severity: finding.severity || "medium",
-    status: "open",
-    evidence_json: safeJson({ scan_id: scanId, domain_id: domainId, finding }),
-    recommended_actions_json: safeJson(recommendationSnapshot(finding, recommendations), "[]"),
-  };
-  await env.cybermeters_db
-    .prepare(`INSERT INTO managed_cases
-      (id, workspace_id, case_type, domain_key, domain, finding_id, source_finding_type,
-       source_scan_id, remediation_id, asset_ref, severity, status,
-       evidence_json, recommended_actions_json, created_by, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, 'system', datetime('now'), datetime('now'))`)
-    .bind(row.id, row.workspace_id, row.case_type, row.domain_key, row.domain, row.finding_id,
-      row.source_finding_type, row.source_scan_id, row.remediation_id, row.asset_ref, row.severity,
-      row.evidence_json, row.recommended_actions_json)
-    .run();
-  await writeCaseEvent(env, row, {
-    actor_type: "system",
-    from_status: null,
-    to_status: "open",
-    action: "opened",
-    detail: { scan_id: scanId, domain_id: domainId, finding_id: finding.id },
+    evidence: { scan_id: scanId, domain_id: domainId, finding },
+    recommended_actions: recommendationSnapshot(finding, recommendations),
+    actor: { actor_type: "system", actor_id: null },
   });
-  await emitCaseLifecycleAlert(env, row, {
+  if (!created.ok || !created.case) return { opened: false, case: null, code: created.code };
+  if (!created.created) return { opened: false, case: created.case };
+  await emitCaseLifecycleAlert(env, created.case, {
     domain_key: "attack_surface",
     recurrence: "case_opened",
     finding_type: finding.id,
     detail: { scan_id: scanId, domain_id: domainId, finding_id: finding.id },
   });
-  return { opened: true, case: row };
+  return { opened: true, case: created.case };
 }
 
 export async function createManagedAsmCasesForScan(scanId, domainId, domain, findings = [], recommendations = [], env) {
@@ -487,7 +501,142 @@ function relevantModuleForCase(caseRow) {
   return parseJson(caseRow.evidence_json)?.finding?.module || null;
 }
 
-export async function verifyManagedAsmCasesForScan(scanId, domainId, domain, findings = [], env, { modules = null, scanQuality = null } = {}) {
+const COMPLETE_HTTP_NEGATIVES = new Set(["not_observed", "absent"]);
+
+function lifecycleObservationKey(workspaceId, hostname) {
+  return `${workspaceId}:${normaliseDomain(hostname)}`;
+}
+
+// Pure P3 decision. Asset-removal evidence is used only when every structured
+// affected host maps to a non-root workspace asset in this scan and none of
+// those assets was actively observed. DNS-only/HTTP-only hosts therefore stay
+// on their module-specific finding contract instead of becoming "asset absent".
+export function assessAssetLifecycleCaseVerification({
+  caseRow,
+  hosts = [],
+  observations = [],
+  scanId,
+  scanQuality,
+  scanPublished = false,
+} = {}) {
+  const byHost = new Map((observations || []).map((row) => [
+    lifecycleObservationKey(row.workspace_id, row.hostname),
+    row,
+  ]));
+  const rows = hosts
+    .map((host) => byHost.get(lifecycleObservationKey(caseRow?.workspace_id, host)))
+    .filter(Boolean);
+  if (hosts.length === 0 || rows.length !== hosts.length) {
+    return { applicable: false, decision: "module_specific" };
+  }
+  if (rows.some((row) => row.observation_state === "observed")) {
+    return { applicable: false, decision: "module_specific" };
+  }
+  const evidenceBase = {
+    scan_id: scanId,
+    asset_ids: rows.map((row) => row.asset_id),
+    hostnames: rows.map((row) => row.hostname),
+    policy_versions: [...new Set(rows.map((row) => row.policy_version).filter(Boolean))],
+  };
+  if (rows.some((row) => row.scan_id !== scanId)) {
+    return { applicable: true, decision: "deferred", reason: "no_current_lifecycle_observation", evidence: evidenceBase };
+  }
+  if (rows.some((row) => [
+    "observation_unavailable",
+    "observation_incomplete",
+    "not_assessed",
+  ].includes(row.observation_state))) {
+    return { applicable: true, decision: "deferred", reason: "lifecycle_evidence_incomplete", evidence: evidenceBase };
+  }
+  if (rows.some((row) =>
+    row.observation_state !== "not_observed" ||
+    row.dns_state !== "absent" ||
+    !COMPLETE_HTTP_NEGATIVES.has(row.http_state)
+  )) {
+    return { applicable: true, decision: "deferred", reason: "active_source_contract_not_met", evidence: evidenceBase };
+  }
+  if (scanQuality?.status !== "complete") {
+    return { applicable: true, decision: "deferred", reason: "scan_not_complete", evidence: evidenceBase };
+  }
+  if (scanPublished !== true) {
+    return { applicable: true, decision: "deferred", reason: "scan_not_publishable", evidence: evidenceBase };
+  }
+  if (rows.some((row) =>
+    row.lifecycle_state !== "confirmed_removed" ||
+    !row.confirmed_removed_at
+  )) {
+    return { applicable: true, decision: "deferred", reason: "removal_not_confirmed", evidence: evidenceBase };
+  }
+  if (rows.some((row) =>
+    !Number.isFinite(Date.parse(row.observed_at)) ||
+    Date.parse(row.observed_at) <= Date.parse(row.confirmed_removed_at)
+  )) {
+    return { applicable: true, decision: "deferred", reason: "later_reobservation_required", evidence: evidenceBase };
+  }
+  return {
+    applicable: true,
+    decision: "verified_removed",
+    evidence: {
+      ...evidenceBase,
+      later_reobservation: true,
+      complete_publishable_reobservation: true,
+      observations: rows.map((row) => ({
+        asset_id: row.asset_id,
+        hostname: row.hostname,
+        observation_id: row.observation_id,
+        observed_at: row.observed_at,
+        confirmed_removed_at: row.confirmed_removed_at,
+        dns_state: row.dns_state,
+        http_state: row.http_state,
+      })),
+    },
+  };
+}
+
+async function deferManagedAsmCase(env, row, {
+  scanId,
+  module,
+  reason,
+  detail = null,
+} = {}) {
+  const eventDetail = {
+    scan_id: scanId,
+    module,
+    reason,
+    ...(detail || {}),
+  };
+  const dedupeKey = `${scanId}:${reason}`;
+  if (row.status === "verifying") {
+    return updateCaseStatus(env, row, "verification_requested", {
+      actor_type: "system",
+      action: "verification_deferred",
+      detail: eventDetail,
+      dedupe_key: dedupeKey,
+    });
+  }
+  await writeCaseEvent(env, row, {
+    actor_type: "system",
+    from_status: row.status,
+    to_status: row.status,
+    action: "verification_deferred",
+    detail: eventDetail,
+    dedupe_key: dedupeKey,
+  });
+  return { ok: true, case: row };
+}
+
+export async function verifyManagedAsmCasesForScan(
+  scanId,
+  domainId,
+  domain,
+  findings = [],
+  env,
+  {
+    modules = null,
+    scanQuality = null,
+    scanPublished = false,
+  } = {},
+) {
   try {
     const present = new Set(findings.filter(isAsmManagedFinding).map((f) => f.id));
     const cleanDomain = normaliseDomain(domain);
@@ -496,12 +645,73 @@ export async function verifyManagedAsmCasesForScan(scanId, domainId, domain, fin
       .prepare(`SELECT mc.*
                 FROM managed_cases mc
                 JOIN workspace_domains wd ON wd.workspace_id = mc.workspace_id
+                JOIN workspaces w ON w.id = mc.workspace_id AND w.deleted_at IS NULL
                WHERE wd.domain_id = ?
                  AND mc.case_type = ?
                  AND mc.domain = ?
-                 AND mc.status IN ('verification_requested', 'verifying')`)
+                 AND mc.status IN ('verification_requested', 'verifying')
+               ORDER BY mc.workspace_id, mc.id
+               LIMIT 200`)
       .bind(domainId, ASM_CASE_TYPE, cleanDomain)
       .all();
+    // One bounded read for every eligible case/asset in the scan, never one read
+    // per case. Migration 102 is additive, but verification must fail closed
+    // during a staged rollout: known legacy assets become explicitly unavailable
+    // lifecycle evidence instead of falling back to one-scan disappearance.
+    let lifecycleRows;
+    try {
+      lifecycleRows = await env.cybermeters_db
+        .prepare(`SELECT wa.workspace_id, wa.id AS asset_id, wa.hostname,
+                         wa.lifecycle_state, wa.confirmed_removed_at,
+                         alo.id AS observation_id, alo.scan_id,
+                         alo.observation_state, alo.dns_state, alo.http_state,
+                         alo.policy_version, alo.observed_at
+                  FROM workspace_assets wa
+                  JOIN workspace_domains wd
+                    ON wd.workspace_id = wa.workspace_id AND wd.domain_id = ?
+                  JOIN workspaces w
+                    ON w.id = wa.workspace_id AND w.deleted_at IS NULL
+                  LEFT JOIN asset_lifecycle_observations alo
+                    ON alo.workspace_id = wa.workspace_id
+                   AND alo.asset_id = wa.id
+                   AND alo.scan_id = ?
+                  WHERE wa.hostname <> ?
+                    AND (wa.domain_id = ? OR wa.hostname LIKE ?)
+                  ORDER BY wa.workspace_id, wa.hostname
+                  LIMIT 500`)
+        .bind(domainId, scanId, cleanDomain, domainId, `%.${cleanDomain}`)
+        .all();
+    } catch {
+      const legacyRows = await env.cybermeters_db
+        .prepare(`SELECT wa.workspace_id, wa.id AS asset_id, wa.hostname
+                  FROM workspace_assets wa
+                  JOIN workspace_domains wd
+                    ON wd.workspace_id = wa.workspace_id AND wd.domain_id = ?
+                  JOIN workspaces w
+                    ON w.id = wa.workspace_id AND w.deleted_at IS NULL
+                  WHERE wa.hostname <> ?
+                    AND (wa.domain_id = ? OR wa.hostname LIKE ?)
+                  ORDER BY wa.workspace_id, wa.hostname
+                  LIMIT 500`)
+        .bind(domainId, cleanDomain, domainId, `%.${cleanDomain}`)
+        .all()
+        .catch(() => ({ results: [] }));
+      lifecycleRows = {
+        results: (legacyRows.results || []).map((asset) => ({
+          ...asset,
+          lifecycle_state: "not_assessed",
+          confirmed_removed_at: null,
+          observation_id: null,
+          scan_id: null,
+          observation_state: "observation_unavailable",
+          dns_state: "unavailable",
+          http_state: "unavailable",
+          policy_version: null,
+          observed_at: null,
+        })),
+      };
+    }
+    const currentLifecycleRows = lifecycleRows.results || [];
     let resolved = 0, failed = 0, deferred = 0;
     for (const row of (rows.results || [])) {
       // Completeness guard (fail-closed): never resolve/fail off a scan that cannot be
@@ -509,20 +719,35 @@ export async function verifyManagedAsmCasesForScan(scanId, domainId, domain, fin
       // the next complete scan.
       const relevantModule = relevantModuleForCase(row);
       if (!gate.canVerify(relevantModule)) {
-        await writeCaseEvent(env, row, {
-          actor_type: "system",
-          from_status: row.status,
-          to_status: row.status,
-          action: "verification_deferred",
-          detail: {
-            scan_id: scanId,
-            module: relevantModule,
-            reason: !gate.haveEvidence ? "no_completeness_evidence"
-              : gate.scanPartial ? "scan_partial"
-              : !relevantModule ? "unknown_detecting_module"
-              : gate.incomplete.has(relevantModule) ? "module_incomplete"
-              : "module_did_not_run",
-          },
+        const reason = !gate.haveEvidence ? "no_completeness_evidence"
+          : gate.scanPartial ? "scan_partial"
+          : !relevantModule ? "unknown_detecting_module"
+          : gate.incomplete.has(relevantModule) ? "module_incomplete"
+          : "module_did_not_run";
+        await deferManagedAsmCase(env, row, {
+          scanId,
+          module: relevantModule,
+          reason,
+        });
+        deferred++;
+        continue;
+      }
+      const caseEvidence = parseJson(row.evidence_json, null);
+      const hosts = verificationHostsForCase(row, caseEvidence?.finding || {}, caseEvidence);
+      const lifecycleDecision = assessAssetLifecycleCaseVerification({
+        caseRow: row,
+        hosts,
+        observations: currentLifecycleRows,
+        scanId,
+        scanQuality,
+        scanPublished,
+      });
+      if (lifecycleDecision.applicable && lifecycleDecision.decision === "deferred") {
+        await deferManagedAsmCase(env, row, {
+          scanId,
+          module: relevantModule,
+          reason: lifecycleDecision.reason,
+          detail: { lifecycle: lifecycleDecision.evidence },
         });
         deferred++;
         continue;
@@ -552,18 +777,33 @@ export async function verifyManagedAsmCasesForScan(scanId, domainId, domain, fin
           });
         }
       } else {
+        const lifecycleEvidence = lifecycleDecision.decision === "verified_removed"
+          ? lifecycleDecision.evidence
+          : null;
         const ok = await updateCaseStatus(env, current, "resolved", {
           actor_type: "system",
           action: "verified_resolved",
-          detail: { scan_id: scanId, expected: "finding_absent", observed: "finding_absent" },
+          detail: {
+            scan_id: scanId,
+            expected: "finding_absent",
+            observed: "finding_absent",
+            lifecycle: lifecycleEvidence,
+          },
           // Structured verification evidence (module-completeness already gated
           // above, so this is a re-check of the specific exposure, not a bare scan).
           evidence: {
             verification_method: "rescan",
             verification_result: "fixed",
-            evidence_type: "scan_absence",
+            evidence_type: lifecycleEvidence
+              ? "asset_lifecycle_reobservation"
+              : "scan_absence",
             observed_at: new Date().toISOString(),
-            observation: { scan_id: scanId, finding_id: current.finding_id, absent: true, module_complete: true },
+            observation: lifecycleEvidence || {
+              scan_id: scanId,
+              finding_id: current.finding_id,
+              absent: true,
+              module_complete: true,
+            },
           },
         });
         if (ok.ok) {

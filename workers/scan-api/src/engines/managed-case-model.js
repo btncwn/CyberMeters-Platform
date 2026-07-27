@@ -132,6 +132,7 @@ function baseEntry(domain_key, case_type) {
     case_type, domain_key,
     machine: BASE_CASE_MACHINE,
     states: ALL_BASE_STATES,
+    initial_state: "detected",
     phase: BASE_PHASE,
     system_only: BASE_SYSTEM_ONLY_STATES,
     verified_states: new Set(["verified"]),
@@ -305,12 +306,14 @@ export const CASE_TYPE_REGISTRY = Object.freeze({
   [ASM_CASE_TYPE]: {
     case_type: ASM_CASE_TYPE, domain_key: "attack_surface",
     machine: ASM_CASE_MACHINE, states: ASM_CASE_STATES, phase: ASM_PHASE,
+    initial_state: "open",
     system_only: SYSTEM_ONLY_CASE_STATES, verified_states: new Set(["resolved"]),
     verification_support: "automated", base: false,
   },
   [BRAND_CASE_TYPE]: {
     case_type: BRAND_CASE_TYPE, domain_key: "brand_protection",
     machine: BRAND_CASE_MACHINE, states: BRAND_CASE_STATES, phase: BRAND_PHASE,
+    initial_state: "detected",
     system_only: BRAND_SYSTEM_ONLY_STATES, verified_states: new Set(["resolved"]),
     verification_support: "automated", base: false,
   },
@@ -609,10 +612,12 @@ export function isCanonicalEventType(type) {
 }
 
 // ── Universal case-creation primitive ───────────────────────────────────────
-// createManagedCase — the ONE way the six base-lifecycle domains (and future
-// domain workflows) open a case. Enforces valid domain/case_type + their match,
+// createManagedCase — the ONE way registered domain workflows open a case.
+// Existing bespoke machines keep their own registry-owned initial state (ASM
+// `open`; Brand `detected`) while base-lifecycle domains use `detected`.
+// Enforces valid domain/case_type + their match,
 // an active (non-soft-deleted) workspace and domain link, canonical remediation
-// linkage (or explicit null), initial state `detected`, deduplication against an
+// linkage (or explicit null), registry-owned initial state, deduplication against an
 // open case for the same source, source finding/scan linkage, a creation
 // timestamp, an append-only `case_created` event, and tenant integrity. Pure of
 // side effects beyond the two writes. Returns { ok, created, case } or
@@ -620,7 +625,7 @@ export function isCanonicalEventType(type) {
 export async function createManagedCase(env, {
   workspace_id, domain_key, case_type, source_finding_type = null, source_finding_id = null,
   source_scan_id = null, domain = null, asset_ref = null, title = null, summary = null,
-  severity = "medium", priority = null, evidence = null, actor = {},
+  severity = "medium", priority = null, evidence = null, recommended_actions = null, actor = {},
 } = {}) {
   if (!workspace_id) return { ok: false, code: "workspace_required" };
   if (!isValidDomainKey(domain_key)) return { ok: false, code: "invalid_domain_key" };
@@ -652,35 +657,65 @@ export async function createManagedCase(env, {
   const findingKey = source_finding_id || source_finding_type || null;
   // Deduplicate against an OPEN case for the same source (non-terminal).
   if (findingKey) {
+    const domainClause = domain ? "AND domain = ?" : "";
     const existing = await env.cybermeters_db
       .prepare(`SELECT * FROM managed_cases
                 WHERE workspace_id = ? AND case_type = ? AND finding_id = ?
+                  ${domainClause}
                   AND status NOT IN ('rejected','false_positive','closed_no_action','superseded','closed')
                 LIMIT 1`)
-      .bind(workspace_id, case_type, findingKey).first().catch(() => null);
+      .bind(workspace_id, case_type, findingKey, ...(domain ? [domain] : []))
+      .first().catch(() => null);
     if (existing) return { ok: true, created: false, case: existing };
   }
 
   const id = newManagedCaseId();
   const now = new Date().toISOString();
-  const initialStatus = "detected";
+  // The registry owns the persisted starting state. Base/Brand cases begin at
+  // `detected`; the backward-compatible ASM machine begins at `open`.
+  const initialStatus = entry.initial_state || entry.states?.[0];
+  if (!initialStatus || !entry.states.includes(initialStatus)) {
+    return { ok: false, code: "invalid_initial_state" };
+  }
   const row = {
     id, workspace_id, case_type, domain_key, domain, finding_id: findingKey,
     source_finding_type, source_scan_id, remediation_id, asset_ref,
     title, summary, severity: severity || "medium", priority,
     status: initialStatus, evidence_json: evidence ? JSON.stringify(evidence) : null,
+    recommended_actions_json: recommended_actions
+      ? JSON.stringify(recommended_actions)
+      : null,
     created_at: now, updated_at: now,
   };
-  await env.cybermeters_db
-    .prepare(`INSERT INTO managed_cases
+  // INSERT OR IGNORE closes the read→insert race against the existing partial
+  // unique index. Only the winning writer appends case_created.
+  const inserted = await env.cybermeters_db
+    .prepare(`INSERT OR IGNORE INTO managed_cases
       (id, workspace_id, case_type, domain_key, domain, finding_id, source_finding_type,
        source_scan_id, remediation_id, asset_ref, title, summary, severity, priority,
-       status, evidence_json, created_by, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+       status, evidence_json, recommended_actions_json, created_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .bind(id, workspace_id, case_type, domain_key, domain, findingKey, source_finding_type,
       source_scan_id, remediation_id, asset_ref, title, summary, row.severity, priority,
-      initialStatus, row.evidence_json, actor.actor_id || "system", now, now)
+      initialStatus, row.evidence_json, row.recommended_actions_json,
+      actor.actor_id || "system", now, now)
     .run();
+  if ((inserted?.meta?.changes ?? 1) === 0) {
+    const domainClause = domain ? "AND domain = ?" : "";
+    const existing = findingKey
+      ? await env.cybermeters_db
+        .prepare(`SELECT * FROM managed_cases
+                  WHERE workspace_id = ? AND case_type = ? AND finding_id = ?
+                    ${domainClause}
+                    AND status NOT IN ('rejected','false_positive','closed_no_action','superseded','closed')
+                  LIMIT 1`)
+        .bind(workspace_id, case_type, findingKey, ...(domain ? [domain] : []))
+        .first().catch(() => null)
+      : null;
+    return existing
+      ? { ok: true, created: false, case: existing }
+      : { ok: false, code: "case_insert_conflict" };
+  }
   // Append-only case_created event (canonical taxonomy).
   await env.cybermeters_db
     .prepare(`INSERT INTO managed_case_events
