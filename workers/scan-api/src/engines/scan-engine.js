@@ -12,9 +12,11 @@ import { redactedJson } from "../lib/redact.js";
 import { processAlertsForWorkspace } from "./alerts.js";
 import { createManagedAsmCasesForScan, verifyManagedAsmCasesForScan } from "./asm-cases.js";
 import { sendAssetChangeAlert } from "./asset-alert-delivery.js";
-import { annotateExposureInfrastructure, deduplicateExposureAssets, runAdminSurfaceModule, runExposureModule, runRemediationModule, runRiskModule } from "./asset-intel.js";
+import { annotateExposureInfrastructure, deduplicateExposureAssets, runAdminSurfaceModule, runExposureModule, runRemediationModule, runRiskModule, unavailableRemovalObservations } from "./asset-intel.js";
 import { buildDseFindings } from "./dse-findings.js";
 import { upsertAssetInventory } from "./asset-inventory.js";
+import { loadKnownAssetRecheckHosts, persistAttackSurfaceLifecycle } from "./attack-surface-lifecycle.js";
+import { deriveAttackSurfaceSignalCompleteness } from "./attack-surface-signal-completeness.js";
 import { upsertBrandAssets, upsertIdentityAssets } from "./asset-persistence.js";
 import { buildScanCompletionPresentation } from "./assessment-presentation.js";
 import { runTyposquatModule } from "./brand-typosquat.js";
@@ -324,9 +326,9 @@ const TELEMETRY_TRACKED_MODULES = Object.freeze([
 ]);
 
 export async function runScanEngine(scanId, domainId, workspaceId, domain, env, opts = {}) {
-  const startedAt = new Date().toISOString();
   // Injectable clock (tests drive it deterministically); production uses Date.now.
   const now = typeof opts.now === "function" ? opts.now : Date.now;
+  const startedAt = new Date(now()).toISOString();
   // Wall-clock budget below the ~30s waitUntil-cancellation cliff. Expensive network
   // phases refuse to launch once spent, reserving headroom to finalize honestly.
   const deadline = createScanDeadline(env, now);
@@ -433,6 +435,10 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       .bind(scanId)
       .run();
 
+    // Existing identities are rechecked through the same active DNS + SSRF-safe
+    // HTTP paths. This is one bounded read and CT is only discovery provenance.
+    const knownAssetHosts = await loadKnownAssetRecheckHosts(env, domainId, domain);
+
     // Capacity mode (default "legacy" — the legacy branch below is byte-for-byte the
     // prior behaviour). "reserved" runs the separated exposure-first flow.
     const capacity = resolveScanCapacity(env);
@@ -460,6 +466,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
         capacity,
         ctCache,
         dnsCache,
+        knownAssetHosts,
         signal: deadline.signal,
         now,
       });
@@ -568,6 +575,10 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
         .map((i) => i.hostname)
         .filter((h) => h && !ctHostnames.has(h));
       const mergedSubdomainItems = [...subdomainsResult.items, ...bruteNewItems];
+      const exposureTargets = [...new Set([
+        ...knownAssetHosts,
+        ...mergedSubdomainItems,
+      ].map((host) => String(host || "").toLowerCase()).filter(Boolean))];
 
       // Takeover: canRun() gates the launch; raceModuleDeadline BOUNDS the run so an
       // overrun cannot cross the ~30s cliff. On the bound it defers honestly.
@@ -617,12 +628,18 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
       let exposureThrown = null;
       try {
         const exposureRun = await runCappedModule("asset_exposure", {
-          fallback: () => markDeadlineDeferred({ checked: 0, reachable: 0, assets: [], source: "http_probe" }),
-          run: ({ accounting, signal }) => runExposureModule(domain, mergedSubdomainItems, { accounting, signal, cache: dnsCache }),
+          fallback: () => markDeadlineDeferred({
+            checked: 0,
+            reachable: 0,
+            assets: [],
+            removal_observations: unavailableRemovalObservations(knownAssetHosts, "asset_exposure_deadline"),
+            source: "http_probe",
+          }),
+          run: ({ accounting, signal }) => runExposureModule(domain, exposureTargets, { accounting, signal, cache: dnsCache }),
         });
         exposureThrown = exposureRun.thrown;
         assetExposureResult = exposureThrown
-          ? { checked: 0, reachable: 0, assets: [], source: "http_probe", incomplete: true, incomplete_reason: "exposure_probe_failed", error: customerSafeFailure("scan/asset-exposure", exposureThrown, "Asset exposure module failed") }
+          ? { checked: 0, reachable: 0, assets: [], removal_observations: unavailableRemovalObservations(knownAssetHosts), source: "http_probe", incomplete: true, incomplete_reason: "exposure_probe_failed", error: customerSafeFailure("scan/asset-exposure", exposureThrown, "Asset exposure module failed") }
           : exposureRun.value;
         exposureOutbound = exposureRun.ctx;
         exposureStartedMs = exposureRun.startedMs;
@@ -638,7 +655,7 @@ export async function runScanEngine(scanId, domainId, workspaceId, domain, env, 
         // completion gate defers admin-surface verification — a failed probe must
         // never read as a completed clean assessment. asset_exposure is non-core, so
         // without this flag the scan would still certify "complete".
-        assetExposureResult = { checked: 0, reachable: 0, assets: [], source: "http_probe", incomplete: true, incomplete_reason: "exposure_probe_failed", error: customerSafeFailure("scan/asset-exposure", err, "Asset exposure module failed") };
+        assetExposureResult = { checked: 0, reachable: 0, assets: [], removal_observations: unavailableRemovalObservations(knownAssetHosts), source: "http_probe", incomplete: true, incomplete_reason: "exposure_probe_failed", error: customerSafeFailure("scan/asset-exposure", err, "Asset exposure module failed") };
       }
       const exposureTimedOut = assetExposureResult?.outcome === "deadline_exceeded";
       const exposureOutboundSnapshot = exposureThrown
@@ -1253,6 +1270,8 @@ function buildCanonicalUrlProfile(modules) {
     // Phase 7b: Admin surface detection — pure fingerprint pass over HTTP probe
     // results already collected by runExposureModule.  Zero additional I/O.
     modules.admin_surface_detection = runAdminSurfaceModule(modules);
+    modules.attack_surface_signal_completeness =
+      deriveAttackSurfaceSignalCompleteness(modules);
 
     // Phase 7b-ii: Canonical URL profile — pure computation from existing SSL/headers data.
     modules._domain = domain;
@@ -1358,7 +1377,7 @@ function buildCanonicalUrlProfile(modules) {
     //   collaboration | cloud | cdn | security | certificate_authority
     modules.vendor_relationships = runVendorRelationshipModule(modules);
 
-    const completedAt = new Date().toISOString();
+    const completedAt = new Date(now()).toISOString();
 
     // Sprint 9A: Normalise all findings to v2 schema before report assembly.
     // Additive only — existing fields are preserved; missing fields default to
@@ -1579,7 +1598,19 @@ function buildCanonicalUrlProfile(modules) {
     // Failure here cannot leave the scan stuck in "running".
     // Uses D1 batch() to minimise round-trips.
     try {
-      await upsertAssetInventory(scanId, domainId, domain, modules, env, { currentReport: report });
+      await upsertAssetInventory(scanId, domainId, domain, modules, env, {
+        currentReport: report,
+        observedAt: completedAt,
+      });
+      await persistAttackSurfaceLifecycle({
+        env,
+        scanId,
+        domainId,
+        domain,
+        signalCompleteness: modules.attack_surface_signal_completeness,
+        assetExposure: modules.asset_exposure,
+        observedAt: completedAt,
+      });
     } catch { /* non-fatal — inventory update will catch up on next scan */ }
 
     // Phase 8a.0: Managed ASM cases — opens cases for new exposure findings,

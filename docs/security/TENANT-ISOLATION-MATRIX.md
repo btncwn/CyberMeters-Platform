@@ -11,9 +11,9 @@ data cannot be silently omitted.
 
 ## Counts
 
-- **schema tables:** 88
-- **classified:** 88
-- **tenant owned tables:** 84
+- **schema tables:** 90
+- **classified:** 90
+- **tenant owned tables:** 86
 - **infra or identity tables:** 4
 - **unclassified:** 0
 - **resource classes:** 32
@@ -43,7 +43,7 @@ data cannot be silently omitted.
 | invitations | core | direct(workspace_id) | 1 | ✓ | ✓ |
 | domains | core | user(user_id), direct(workspace_id) | 2 | ✓ | ✓ |
 | scans | core | direct(workspace_id), via_scan(scan_id) | 3 | ✓ | ✓ |
-| assets | attack_surface | direct(workspace_id), via_scan(scan_id) | 2 | ✓ | ✓ |
+| assets | attack_surface | direct(workspace_id), via_scan(scan_id) | 4 | ✓ | ✓ |
 | asset_events | attack_surface | direct(workspace_id) | 2 | — | — |
 | findings | reporting | via_scan(scan_id) | 3 | ✓ | — |
 | reports_snapshots | reporting | via_scan(scan_id), direct(workspace_id) | 4 | ✓ | ✓ |
@@ -104,6 +104,8 @@ _ⁿᵗ = non-tenant (global infrastructure / identity root)._
 | `api_tokens` | direct(workspace_id) | api_tokens |
 | `asset_alert_records` | direct(workspace_id) | asset_events |
 | `asset_events` | direct(workspace_id) | asset_events |
+| `asset_lifecycle_observations` | direct(workspace_id) | assets |
+| `attack_surface_signal_observations` | direct(workspace_id) | assets |
 | `audit_events` | direct(workspace_id) | audit_log |
 | `brand_abuse_campaigns` | direct(workspace_id) | brand |
 | `brand_evidence_bundles` | direct(workspace_id) | brand |

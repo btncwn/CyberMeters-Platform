@@ -44,7 +44,7 @@ export async function runCriticalPrefixDiscovery(domain, cache, prefixes = CRITI
   return { source: "critical_prefix_dns", checked: prefixes.length, found: items.length, items };
 }
 
-export function prioritiseExposureHosts(domain, { criticalHits = [], ctHosts = [], bruteHosts = [] } = {}) {
+export function prioritiseExposureHosts(domain, { knownHosts = [], criticalHits = [], ctHosts = [], bruteHosts = [] } = {}) {
   const ordered = [];
   const seen = new Set();
   const add = (host, src) => {
@@ -53,6 +53,7 @@ export function prioritiseExposureHosts(domain, { criticalHits = [], ctHosts = [
   };
   add(domain, "root");
   add(`www.${domain}`, "www");
+  for (const h of knownHosts) add(h, "known_asset");
   for (const h of criticalHits) add(h, "critical_prefix");
   for (const h of ctHosts) add(h, "ct");
   for (const h of bruteHosts) add(h, "brute");
@@ -60,13 +61,33 @@ export function prioritiseExposureHosts(domain, { criticalHits = [], ctHosts = [
 }
 
 // Reserved exposure: probe up to the dynamic cap by priority; overflow → deferred_capacity.
-export async function runReservedExposureModule(domain, orderedHosts, { cap, fetcher }) {
+export async function runReservedExposureModule(domain, orderedHosts, {
+  cap,
+  fetcher,
+  cache = null,
+  signal = null,
+  dnsAccounting = null,
+}) {
   const safeCap = Math.max(0, cap | 0);
   const toProbe = orderedHosts.slice(0, safeCap);
   const overflow = orderedHosts.slice(safeCap);
 
-  const probed = await runExposureModule(domain, toProbe.map((h) => h.host), { fetcher });
+  const probed = await runExposureModule(domain, toProbe.map((h) => h.host), {
+    fetcher,
+    cache,
+    signal,
+    dnsAccounting,
+  });
   const deferred = overflow.map((h) => deferredCapacityAsset(h.host, "projected_subrequest_budget"));
+  const deferredObservations = overflow.map((row) => ({
+    host: row.host,
+    signal_states: {
+      dns_resolution: { state: "not_assessed", reason: "projected_subrequest_budget" },
+      http_https_service: { state: "not_assessed", reason: "projected_subrequest_budget" },
+    },
+    active_sources: ["dns_resolution", "http_https_service"],
+    passive_sources: [],
+  }));
   const assets = [...(probed.assets || []), ...deferred];
   const incompleteFromProbe = probed.incomplete === true;
   const incomplete = incompleteFromProbe || deferred.length > 0;
@@ -74,6 +95,10 @@ export async function runReservedExposureModule(domain, orderedHosts, { cap, fet
   return {
     ...probed,
     assets,
+    removal_observations: [
+      ...(probed.removal_observations || []),
+      ...deferredObservations,
+    ],
     checked: orderedHosts.length,
     reachable: assets.filter((a) => a.reachable === true).length,
     host_cap: safeCap,
@@ -101,6 +126,7 @@ export async function runReservedScan(domain, {
   capacity,
   ctCache = null,
   dnsCache: suppliedDnsCache = null,
+  knownAssetHosts = [],
   signal = null,
   now = Date.now,
 } = {}) {
@@ -129,13 +155,32 @@ export async function runReservedScan(domain, {
   budget.spend("critical_prefix", criticalPrefixResult.checked);
 
   // Stage 4: prioritise (root → www → critical). CT is NOT here — it is post-exposure.
-  const ordered = prioritiseExposureHosts(domain, { criticalHits: criticalPrefixResult.items });
+  const ordered = prioritiseExposureHosts(domain, {
+    knownHosts: knownAssetHosts,
+    criticalHits: criticalPrefixResult.items,
+  });
 
   // Stage 5: RESERVED EXPOSURE, live-metered (each real prober fetch decrements budget).
   const consumedBeforeExposure = budget.consumed;
   const cap = computeExposureCap({ limit: capacity.limit, safetyMargin: capacity.safetyMargin, consumed: consumedBeforeExposure, perHostCost: capacity.perHostCost });
   const fetcher = makeReservedProbeFetch({ cache: dnsCache, maxHops: capacity.maxProbeRedirectHops, onOutbound: () => budget.spend("exposure") });
-  let assetExposureResult = await runReservedExposureModule(domain, ordered, { cap, fetcher });
+  let assetExposureResult = await runReservedExposureModule(domain, ordered, {
+    cap,
+    fetcher,
+    cache: dnsCache,
+    signal,
+    dnsAccounting: {
+      signal,
+      assertCanIssue: () => {
+        if (budget.wouldExceed(1)) {
+          throw new Error("Projected subrequest budget exhausted");
+        }
+      },
+      recordAttempt: () => budget.spend("exposure"),
+      recordCompleted: () => {},
+      recordError: () => {},
+    },
+  });
 
   // Stage 6: remaining modules, budget-gated (customer-critical exposure already done).
   const dns                  = await gateModule(budget, "dns", () => runDnsModule(domain, { cache: dnsCache }), { resolves });

@@ -1084,6 +1084,7 @@ const WORKSPACE_PURGE_TABLES = [
   "dmarc_aggregate_records", "dmarc_aggregate_reports", "email_sender_sources",
   "brand_abuse_campaigns",
   "dmarc_ingest_endpoints", "workspace_brand_assets", "workspace_brand_profiles",
+  "attack_surface_signal_observations", "asset_lifecycle_observations",
   "asset_events", "asset_alert_records", "workspace_assets",
   "managed_case_events", "brand_evidence_bundles", "managed_cases",
   "certificate_observations", "identity_assets", "historical_scores",

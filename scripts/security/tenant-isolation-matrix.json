@@ -167,7 +167,9 @@
       "domain": "attack_surface",
       "tables": [
         "workspace_assets",
-        "hidden_assets"
+        "hidden_assets",
+        "attack_surface_signal_observations",
+        "asset_lifecycle_observations"
       ],
       "ownership": {
         "workspace_assets": {
@@ -177,6 +179,14 @@
         "hidden_assets": {
           "model": "via_scan",
           "column": "scan_id"
+        },
+        "attack_surface_signal_observations": {
+          "model": "direct",
+          "column": "workspace_id"
+        },
+        "asset_lifecycle_observations": {
+          "model": "direct",
+          "column": "workspace_id"
         }
       },
       "non_tenant": false,
@@ -949,6 +959,8 @@
     "api_tokens": "api_tokens",
     "asset_alert_records": "asset_events",
     "asset_events": "asset_events",
+    "asset_lifecycle_observations": "assets",
+    "attack_surface_signal_observations": "assets",
     "audit_events": "audit_log",
     "brand_abuse_campaigns": "brand",
     "brand_evidence_bundles": "brand",
@@ -1032,9 +1044,9 @@
     "workspaces": "workspaces"
   },
   "counts": {
-    "schema_tables": 88,
-    "classified": 88,
-    "tenant_owned_tables": 84,
+    "schema_tables": 90,
+    "classified": 90,
+    "tenant_owned_tables": 86,
     "infra_or_identity_tables": 4,
     "unclassified": 0,
     "resource_classes": 32,

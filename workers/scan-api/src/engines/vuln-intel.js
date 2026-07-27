@@ -74,9 +74,25 @@ function normalizeTechnology(tech) {
   return null;
 }
 
-/** Query NVD for HIGH+ CVEs for a single technology.  Returns [] on any failure. */
+function combineLookupSignals(...signals) {
+  const active = signals.filter(Boolean);
+  if (active.length === 0) return undefined;
+  if (active.length === 1) return active[0];
+  if (typeof AbortSignal.any === "function") return AbortSignal.any(active);
+  const controller = new AbortController();
+  const abort = () => controller.abort(active.find((signal) => signal.aborted)?.reason);
+  for (const signal of active) {
+    if (signal.aborted) { abort(); break; }
+    signal.addEventListener("abort", abort, { once: true });
+  }
+  return controller.signal;
+}
+
+/** Query NVD for HIGH+ CVEs for one technology with an explicit provider outcome. */
 async function lookupCvesForTechnology(techName, maxResults = 5, opts = {}) {
-  if (!ALLOWED_CVE_TECHNOLOGIES.has(techName)) return [];
+  if (!ALLOWED_CVE_TECHNOLOGIES.has(techName)) {
+    return { status: "complete", cves: [] };
+  }
   const accounting = opts.accounting || null;
   const keyword = CVE_KEYWORD_MAP[techName] || techName;
   const url = new URL("https://services.nvd.nist.gov/rest/json/cves/2.0");
@@ -86,10 +102,12 @@ async function lookupCvesForTechnology(techName, maxResults = 5, opts = {}) {
   try {
     const res = await safeFetch(url.toString(), {
       headers: { "User-Agent": "CyberMeters-Scanner/1.0" },
-      signal:  AbortSignal.timeout(10_000),
+      signal:  combineLookupSignals(opts.signal, AbortSignal.timeout(10_000)),
       accounting,
     });
-    if (!res || res.status !== 200) return [];
+    if (!res || res.status !== 200) {
+      return { status: "unavailable", cves: [] };
+    }
     const data = await res.json();
     const cves = [];
     for (const item of (data.vulnerabilities || []).slice(0, maxResults)) {
@@ -122,9 +140,9 @@ async function lookupCvesForTechnology(techName, maxResults = 5, opts = {}) {
         });
       }
     }
-    return cves;
+    return { status: "complete", cves };
   } catch {
-    return [];
+    return { status: "unavailable", cves: [] };
   }
 }
 
@@ -157,10 +175,16 @@ export async function runCveModule(techModule, opts = {}) {
   // Limit to 3 to bound runtime (NVD free tier: no API key → 5 req/30s)
   const toCheck = [...candidates].slice(0, 3);
   const results = {};
+  const lookupStatuses = {};
   let totalCves = 0, criticalCount = 0, highCount = 0;
 
   for (const tech of toCheck) {
-    const cves = await lookupCvesForTechnology(tech, 5, { accounting });
+    const lookup = await lookupCvesForTechnology(tech, 5, {
+      accounting,
+      signal: opts.signal || null,
+    });
+    const cves = lookup.cves;
+    lookupStatuses[tech] = { status: lookup.status };
     if (cves.length > 0) {
       results[tech] = cves;
       totalCves   += cves.length;
@@ -177,6 +201,7 @@ export async function runCveModule(techModule, opts = {}) {
 
   return {
     technologies_checked: toCheck,
+    lookup_statuses: lookupStatuses,
     results,
     total_cves:     totalCves,
     critical_count: criticalCount,

@@ -28,25 +28,9 @@ function normalizeIpAddressList(value) {
   return raw.split(",").map((item) => item.trim()).filter(Boolean).sort().join(", ");
 }
 
-// ── Disappearance-confirmation gate ──────────────────────────────────────────
-// A previously-seen host's ABSENCE from the current scan only proves it is "no
-// longer seen" when the discovery that would have re-found it actually completed.
-// CT enumeration (crt.sh + CertSpotter) is DELIBERATELY excluded from scan_quality
-// (external CT rate-limits must never fail a domain's own scan — see
-// scan-engine.js buildScanQuality), so a rate-limited/failed CT run still yields
-// scan_quality "complete" and passes the comparability gate — yet modules.subdomains
-// .items has collapsed to (near-)empty. Retiring every CT-discovered subdomain as
-// "asset_no_longer_seen" from that degraded set is a false mass-disappearance (and
-// it seeds a false asset_reappeared on the next healthy scan).
-//
-// Per the disappearance contract, unavailable / failed / incomplete / PARTIAL
-// discovery evidence must preserve uncertainty and never manufacture disappearance.
-// So the inactive/asset_no_longer_seen sweep may run ONLY when the discovery
-// evidence is intact: the subdomains module present with no top-level error, no
-// ct_error (both CT sources failed), no per-source error (partial coverage), and no
-// dns_bruteforce error. Otherwise fail neutral — leave prior assets untouched; a
-// genuine disappearance is confirmed on the next fully-healthy scan. CT source
-// reliability itself is the separate app-probe programme, not this gate.
+// Historical CT-completeness predicate retained for compatibility validators and
+// older report interpretation. Item 10 P2 no longer uses this predicate to mutate
+// asset lifecycle: CT/passive discovery cannot advance confirmed removal.
 export function subdomainDiscoveryComplete(modules) {
   const sub = modules?.subdomains;
   if (!sub) return false;                        // no discovery module → cannot anchor disappearance
@@ -90,17 +74,13 @@ function isExternalRedirectTarget(value, domain) {
 // Uses D1 batch() to minimise round-trips.
 
 export async function upsertAssetInventory(scanId, domainId, domain, modules, env, opts = {}) {
-  const now = new Date().toISOString();
+  const now = new Date(opts.observedAt || Date.now()).toISOString();
   const comparison = await loadTimelineComparisonContext(env, {
     scanId,
     domainId,
     currentReport: opts.currentReport,
   }).catch(() => ({ comparable: false, comparison_status: "unavailable" }));
   const canEmitTimelineEvents = comparison.comparable === true;
-  // Disappearance-confirmation gate: a host may only be retired (inactive +
-  // asset_no_longer_seen) when the discovery that would have re-found it completed
-  // intact. Degraded/partial CT enumeration must never manufacture disappearance.
-  const canConfirmDisappearance = canEmitTimelineEvents && subdomainDiscoveryComplete(modules);
 
   // ── Collect all discovered hostnames from this scan ───────────────────────
   const wildcardDns = modules?.subdomains?.wildcard_dns === true;
@@ -253,7 +233,12 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
   let wsRows;
   try {
     const r = await env.cybermeters_db
-      .prepare(`SELECT workspace_id FROM workspace_domains WHERE domain_id = ?`)
+      .prepare(
+        `SELECT wd.workspace_id
+         FROM workspace_domains wd
+         JOIN workspaces w ON w.id = wd.workspace_id
+         WHERE wd.domain_id = ? AND w.deleted_at IS NULL`
+      )
       .bind(domainId)
       .all();
     wsRows = r.results || [];
@@ -273,11 +258,8 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
   // ── For each workspace: diff against existing assets, batch-upsert ────────
   for (const { workspace_id } of wsRows) {
     try {
-      // Fetch existing assets + recent events in a single batch round-trip.
-      // recent_events is used to suppress flip-flop alert noise:
-      //   • asset_no_longer_seen is only emitted if last_seen was > 2 h ago
-      //     AND no asset_no_longer_seen already fired for this hostname today.
-      //   • asset_reappeared is only emitted if it hasn't fired today.
+      // Fetch existing assets + recent change events in a single batch round-trip.
+      // The recent set suppresses duplicate DNS/IP/CNAME/redirect change events.
       // Existing assets are matched by hostname (root or *.root), not by
       // domain_id lineage: deleting and re-adding a domain issues a NEW
       // domain_id, and rows written under the old id would otherwise be
@@ -311,9 +293,6 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
         (recentEvtResult.results || []).map((r) => `${r.event_type}:${r.hostname}`)
       );
 
-      const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
-
-      const currentHostnames = new Set(finalAssets.map((a) => a.hostname));
       const stmts = [];
 
       // Upsert each discovered asset
@@ -446,7 +425,7 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
             env.cybermeters_db
               .prepare(
                 `UPDATE workspace_assets
-                 SET last_seen = ?, status = 'active', domain_id = ?,
+                 SET last_seen = ?, domain_id = ?,
                      risk_level = COALESCE(?, risk_level),
                      cloud_provider = COALESCE(?, cloud_provider),
                      ip_addresses = COALESCE(?, ip_addresses),
@@ -468,73 +447,6 @@ export async function upsertAssetInventory(scanId, domainId, domain, modules, en
                 workspace_id, asset.hostname
               )
           );
-          // Asset reappeared after being inactive — suppress if already fired today
-          if (canEmitTimelineEvents &&
-              existing.status === "inactive" &&
-              !recentEvtSet.has(`asset_reappeared:${asset.hostname}`)) {
-            recentEvtSet.add(`asset_reappeared:${asset.hostname}`);
-            stmts.push(
-              env.cybermeters_db
-                .prepare(
-                  `INSERT INTO asset_events
-                     (id, workspace_id, domain_id, asset_id, scan_id,
-                      event_type, hostname, severity, description, created_at)
-                   VALUES (?,?,?,?,?,'asset_reappeared',?,'medium',?,?)`
-                )
-                .bind(
-                  createId("evt"), workspace_id, domainId,
-                  existing.id, scanId,
-                  asset.hostname,
-                  `Asset reappeared after being absent: ${asset.hostname}`,
-                  now
-                )
-            );
-          }
-        }
-      }
-
-      // Mark assets from a previous scan that are no longer visible.
-      // Flip-flop noise reduction:
-      //   • Only mark inactive (and emit event) if last_seen was > 2 h ago.
-      //     This prevents CT-source flakiness from toggling asset state within
-      //     the same scan day.
-      //   • Skip the event if asset_no_longer_seen already fired for this
-      //     hostname in the last 24 h.
-      for (const [hostname, existing] of existingMap) {
-        if (canConfirmDisappearance && !currentHostnames.has(hostname) && existing.status === "active") {
-          const lastSeenMs = existing.last_seen ? new Date(existing.last_seen).getTime() : 0;
-          const ageMs = Date.now() - lastSeenMs;
-          if (ageMs < TWO_HOURS_MS) continue; // Too recent — skip to avoid flip-flop
-
-          stmts.push(
-            env.cybermeters_db
-              .prepare(
-                `UPDATE workspace_assets
-                 SET status = 'inactive', domain_id = ?, updated_at = ?
-                 WHERE workspace_id = ? AND hostname = ?`
-              )
-              .bind(domainId, now, workspace_id, hostname)
-          );
-
-          if (!recentEvtSet.has(`asset_no_longer_seen:${hostname}`)) {
-            recentEvtSet.add(`asset_no_longer_seen:${hostname}`);
-            stmts.push(
-              env.cybermeters_db
-                .prepare(
-                  `INSERT INTO asset_events
-                     (id, workspace_id, domain_id, asset_id, scan_id,
-                      event_type, hostname, severity, description, created_at)
-                   VALUES (?,?,?,?,?,'asset_no_longer_seen',?,'low',?,?)`
-                )
-                .bind(
-                  createId("evt"), workspace_id, domainId,
-                  existing.id, scanId,
-                  hostname,
-                  `Asset no longer seen in latest scan: ${hostname}`,
-                  now
-                )
-            );
-          }
         }
       }
 

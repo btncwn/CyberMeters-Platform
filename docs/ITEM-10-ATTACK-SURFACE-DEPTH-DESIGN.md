@@ -2,11 +2,11 @@
 
 Date: 27 July 2026
 
-Canonical base: `aa5ed1aea4c601fa9f6f3265b28636352c1c720b`
-(`origin/main`, after Item 9 P5 and PR #325)
+Canonical base: `3910dbb86c2a0e7ea7be612e8bd5584ff949f738`
+(`origin/main`, Item 10 P1 merged through PR #326)
 
-Status: P1 design and pure contract; no production caller, migration, deploy or live
-acceptance
+Status: P2 production integration implemented; CI/PR review pending. No merge,
+deploy or live acceptance.
 
 ## Before
 
@@ -113,10 +113,10 @@ The constants and both-source requirement are mutation-pinned in P1.
 #### Migration 102 proposal
 
 The current schema cannot represent `not_observed`, `confirmed_removed` and
-`observation_unavailable` without ambiguity. P2/P3 therefore require additive
+`observation_unavailable` without ambiguity. P2 therefore requires additive
 `102-attack-surface-observation-lifecycle.sql` before the production writer.
 
-Migration 102 will:
+Migration 102 does:
 
 1. add explicit projection columns to `workspace_assets`:
    - `lifecycle_state`:
@@ -136,7 +136,8 @@ Migration 102 will:
    second lifecycle truth;
 6. add workspace/time, scan and asset/time indexes, workspace FKs and uniqueness
    guards;
-7. update the canonical workspace purge inventory/order and migration validators;
+7. update the canonical workspace purge inventory/order and tenant-resource
+   inventory;
 8. backfill every existing asset to `not_assessed`, never infer new lifecycle
    meaning from `active` or `inactive`.
 
@@ -160,8 +161,8 @@ Read-only production evidence:
   origin, no CNAME takeover candidate and no confirmed admin surface.
 
 The alert's core reappearance claim was therefore unsupported. The alert pipeline
-stays enabled. P3 will make reappearance depend on the new confirmed-removal
-lifecycle instead of legacy `inactive`; it will not suppress an alert class.
+stays enabled. P2 makes reappearance depend on the new confirmed-removal
+lifecycle instead of legacy `inactive`; it does not suppress an alert class.
 
 The reviewed 14–15 July disappearance/reappearance record predates the ct_error
 disappearance guard added on 19 July 2026 in commit `7b35330` / PR #182. That
@@ -172,10 +173,13 @@ evidence exists.
 
 ### Scope Boundaries
 
-- P1: this note, the pure signal resolver, the pure removal policy, deterministic
-  fixtures and load-bearing mutations.
-- No P1 production import or caller.
-- No migration 102 file or schema mutation in P1.
+- P1 delivered this note, the pure signal resolver, the pure removal policy,
+  deterministic fixtures and load-bearing mutations.
+- P2 attaches the contract to production reports, adds the additive migration
+  and lifecycle writer, preserves provider truth and rechecks known assets
+  through the existing active DNS/SSRF-safe HTTP paths.
+- P2 does not add case close/reopen depth, implement the alert-quality verdict,
+  add customer-surface parity or perform live acceptance.
 - No alert disablement, entitlement change, score change or renderer change.
 - No new scanner breadth.
 - No production write, deployment, DNS/HTTP fixture change or live acceptance.
@@ -207,31 +211,125 @@ evidence exists.
 - Deterministic state/threshold fixtures and source mutations.
 - No runtime caller, schema, API, renderer or alert mutation.
 
-### P2 — production signal integration and provider truth
+### P2 — production signal integration, persistence and lifecycle
 
 - Attach the nine-signal block to new scan reports.
 - Preserve per-technology CVE provider outcomes.
 - Add bounded known-host active DNS/HTTP rechecks.
+- Add Migration 102 and append-only signal/lifecycle observations.
+- Replace the legacy one-scan inactive/event mutation with the deterministic
+  confirmed-removal projection.
+- Emit `asset_no_longer_seen` and `asset_reappeared` only through the existing
+  `asset_events` lifecycle/alert source at real threshold transitions.
 - Prove one incomplete signal does not collapse siblings through a real
-  `runScanEngine` trace.
+  multi-scan `runScanEngine` → persistence → lifecycle-event trace.
 
-### P3 — migration 102 and lifecycle writer
+### P3 — managed-case close/reopen depth
 
-- Apply the proposed additive schema in code only; production application remains
-  founder-gated.
-- Append observations and update projections transactionally/idempotently.
-- Replace one-pass disappearance/reappearance mutations with the declared policy.
-- Preserve legacy `status` semantics separately.
+- Founder-gated. Not started in P2.
+- Case close/reopen behaviour must consume supported lifecycle evidence through
+  the universal managed-case transition contract.
 
-### P4 — alert/customer-surface parity
+### P4 — alert-quality implementation
 
-- Gate `asset_reappeared` on `confirmed_removed -> observed`.
-- Keep the alert pipeline enabled and improve event copy/identity.
-- Add additive API, inventory, immutable snapshot, Executive Report/PDF and MSP
-  parity with historical-report fallbacks.
+- Founder-gated. Not started in P2.
+- The alert pipeline stays enabled; the scoped review verdict remains
+  `false_positive`.
 
-### P5 — engineering closure
+### P5 — customer-surface parity
 
-- Full validators, tenant isolation, purge coverage, mutation gate, frontend
-  coverage/build, Worker syntax, Wrangler dry-run and CI.
-- No deploy and no Item 14 live acceptance.
+- Founder-gated. Not started in P2.
+- Additive API/inventory/snapshot/report/PDF/MSP parity and historical fallbacks.
+
+## After — P2 Implementation Record
+
+### Files Changed
+
+- `attack-surface-lifecycle.js` owns bounded known-host loading and
+  workspace-scoped signal/lifecycle persistence.
+- `asset-intel.js` records independent targeted DNS and HTTP evidence while
+  reusing the shared DNS cache and canonical SSRF-safe probe.
+- `scan-engine.js` attaches the P1 nine-signal block, supplies known identities
+  to exposure, and invokes lifecycle persistence after inventory persistence.
+- `asset-inventory.js` no longer derives inactive/reappeared from one discovery
+  scan; ordinary inventory/DNS-change behaviour remains.
+- `vuln-intel.js` distinguishes completed zero-result NVD lookups from provider
+  unavailability.
+- `reserved-scan.js` admits known identities to its existing bounded exposure
+  envelope and live subrequest accounting.
+- Purge, tenant-resource inventory, CI and dedicated Item 10 P2 validators are
+  extended additively.
+- The standalone email Worker closure manifest/version stamp is refreshed
+  because it bundles the shared `asset-intel.js`; its deployment remains
+  `pending_founder_approval`.
+
+### Schema and Migrations
+
+Migration `102-attack-surface-observation-lifecycle.sql` is additive and has not
+been applied to production. It adds the five declared projection columns and
+the two declared append-only tables. `workspace_assets.status` remains a
+separate legacy projection. Existing rows default to `not_assessed`; neither
+legacy `active` nor `inactive` is reinterpreted.
+
+Rollback is application-code rollback. The additive columns/tables remain in
+place so recorded evidence is not destroyed. Purge order deletes both new
+workspace-scoped tables before `workspace_assets`.
+
+### Behavioural Changes
+
+- Every new report carries all nine independent Attack Surface signals.
+- Existing non-root hostname identities enter the existing exposure envelope
+  before passive/new candidates, subject to its unchanged cap.
+- Only active targeted DNS and HTTP outcomes can qualify removal. CT/passive
+  discovery never appears in the qualifying-source list.
+- The first qualifying negative remains `not_observed`; unavailable,
+  incomplete and not-assessed observations are appended without advancing or
+  resetting the sequence.
+- A positive active observation resets progress. After confirmed removal it
+  emits `asset_reappeared` with the same `workspace_assets.id`.
+- Legacy inactive and `asset_no_longer_seen` are produced only when the
+  deterministic threshold transitions to `confirmed_removed`.
+
+### Tests and Regression
+
+- Deterministic complete, degraded, provider-timeout and deadline fixtures.
+- Six required production-source mutations.
+- Direct lifecycle/persistence proof for threshold, CT exclusion, unavailable
+  neutrality, reset/reappearance, idempotency, soft-delete, tenant isolation,
+  purge order and bounded/no-per-asset reads.
+- Real five-scan `runScanEngine` → R2 report → D1 inventory → lifecycle event
+  trace.
+- Existing P1, exposure honesty, reserved subrequest, shared CT,
+  disappearance-history, timeline and purge/tenant validators remain required.
+
+### PR and Merge
+
+P2 PR pending. Merge is not authorised by this episode.
+
+### Deployment IDs
+
+None. P2 explicitly forbids deployment.
+
+### Production Proof
+
+None. DNS/TLS/CT fixtures and live acceptance are outside P2 and remain
+founder-gated.
+
+### Rollback
+
+Revert the P2 application commit. Do not delete observation history or overload
+legacy status during rollback.
+
+### Residual Risks
+
+- Migration 102 must be applied before any deployed P2 writer.
+- The bounded 50-host envelope honestly records overflow as not assessed; it
+  does not claim complete fleet-wide rechecking above the cap.
+- Customer-surface lifecycle parity, case close/reopen depth and the scoped
+  alert-quality implementation remain later founder-gated work.
+
+### Confirmation Later Phases Were Not Started
+
+P3 case close/reopen depth, P4 alert-quality implementation, P5
+customer-surface parity, Item 11, deployment and Item 14 live acceptance were
+not started.
