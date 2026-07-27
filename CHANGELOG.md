@@ -5,6 +5,121 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
+## v2026.07.27-1 — Free-Scan False-Healthy P1 containment (+ first production cutover of Item 9 and Item 10 P1–P3) — deployed 2026-07-27; **DEPLOYED · NOT LIVE-ACCEPTED**
+
+This cutover carried **three** engineering streams, only one of which it was opened
+for. **Deploy ≠ live acceptance:** Items 9 and 10 reached production here for the
+first time and remain **NOT LIVE-ACCEPTED**; their acceptance gate is Item 14.
+
+- **Release identity:** deployed main SHA
+  `07dffcc8f426c9463e06a6982ed02373e05d8aac` (merge of PR #332, reviewed head
+  `a2368b25629dbb74c536c64ea733d07135f8f8f4`, base `5debd769`). The merge commit's
+  parents are `5debd769` + `a2368b25`, so the reviewed tree is what shipped. Release
+  tag `v2026.07.27-1` is applied to the deployed commit.
+- **Migration:** **none applied.** `102-attack-surface-observation-lifecycle.sql` is
+  present in the repository and remains **UNAPPLIED**; the last recorded applied
+  migration is `101-dmarcbis-aggregate-metadata.sql`. Item 10 P3's asset-observation
+  lifecycle therefore runs **fail-closed and inert** in production
+  (`lifecycle_state: not_assessed`, `observation_state: observation_unavailable` →
+  verification deferred). That behaviour is CI-proven; it was **not** exercised live in
+  this cutover.
+- **scan-api (`cybermeters-platform`):** Cloudflare deployment
+  `c1029479-2835-449c-a38f-e24d0efff1c9`; production Worker Version ID
+  `4e360900-d3e3-4b76-acc9-816fd207e298`; rollback deployment
+  `21906603-0648-4ecb-a4e4-10b20b285386` (version
+  `d3aa2ac0-500b-4e35-9adc-bf3591607408`, the Item 8 PR-D cutover).
+- **email-ingest (`cybermeters-email`): not deployed in this cutover.** It remains on
+  version `f4423b41-73de-4b89-92d2-1d933e8ab653`, closure stamp
+  `2026.07.26-item8-prd.140b49a1f90f`, verified live at `/health`.
+- **Version:** scan-api `APP_VERSION` remains `2026.07.13`, unchanged and consistent
+  with every release since `v2026.07.24-1`. `GET /health` therefore reports a version
+  string older than the deployed code; the deployment id is the authoritative identity.
+- All deployment/rollback IDs above were read directly from Cloudflare
+  (`wrangler deployments list`); they must be re-read from Cloudflare — never from this
+  document — before any future rollback.
+
+**Why this cutover was opened — a deploy-channel gap found *after* merge, not before.**
+The Free-Scan P1 fix spans the frontend and the Worker, and those ship on **different
+channels**: Cloudflare Pages auto-deploys on merge to `main`, the Worker deploys
+manually. On merging PR #332 the new frontend went live immediately while the Worker
+still ran `d3aa2ac0`, which **cannot** emit the contract fields the fix introduced
+(`preview_state`, `evidence_coverage`, `module_evidence`, `monitoring_states` did not
+exist at base `5debd769`). The presentation adapter fails closed by design, so every
+public free scan rendered **"Evidence incomplete" with no score regardless of actual
+probe results** until this deploy. The direction was honest — it never showed false
+healthy — but reporting evidence as incomplete when it was in fact complete is untrue in
+the opposite direction, on the top-of-funnel surface. Neither pre-merge review caught
+it; both reviewed the diff's internal correctness rather than **new frontend against the
+old Worker contract**. Recorded as a standing review question for any PR that introduces
+backend contract fields consumed by the frontend.
+
+- **Free-Scan False-Healthy P1 (PR #332) — the reason for the cutover.** The anonymous
+  preview no longer reports a hard-coded `modules_scanned` list, and no longer derives a
+  healthy verdict from an empty findings count. `modules_scanned` is now **derived** from
+  the modules that actually reached `completed`; a no-issues conclusion requires zero
+  findings **and** complete evidence coverage **and** every module completed. A failed or
+  unavailable probe can no longer be absorbed into a clean-looking preview, and
+  `unavailable` is no longer collapsed into `failed`. Landing copy now separates the free
+  four-check preview from the managed eight-domain Cyber MOT explicitly.
+- **Item 9 Certificates & Trust depth (PRs #320–#324): first production cutover.**
+  Per-signal completeness, production integration, renewal lifecycle with case
+  close/reopen, trust-policy depth and customer-surface parity. **Observation ceiling
+  recorded:** Worker `fetch()` cannot observe live peer-chain, live hostname binding,
+  stapled OCSP or trust-store state, so those remain honestly `unknown` and never
+  synthesised as healthy. The consequence is a **coverage gap, not a false claim**: a
+  real live-TLS problem surfaces as "Unknown", not as "Issue". Whether a non-Worker TLS
+  probe can convert those Unknowns into observations is an Item 14 measurement; if it
+  cannot, Item 17 public claims must scope Certificates & Trust as CT-issuance-observed.
+- **Item 10 Attack Surface depth P1–P3: first production cutover, partly inert.** Asset
+  observation lifecycle, removal-confirmation policy (three qualifying observations, 24h
+  spacing, 48h window, active DNS/HTTP sources only — CT and passive sources explicitly
+  excluded from confirming removal) and verification deferral reasons. Inert pending
+  migration `102` as recorded above. **P4 and P5 are not built**; Item 10 is not
+  engineering-complete.
+
+- **Production proof (founder-controlled domain, side-effect-safe).** A real
+  `POST /api/free-scan` for `cybermeters.com` returned the full new contract:
+  `preview_state: issues_observed`, `evidence_coverage.complete: true`, all four
+  `module_evidence` entries `completed`, and `modules_scanned` equal to the derived
+  completed set. Score and rating are presented because coverage is genuinely complete
+  and the preview state is recognised — with an issues-observed headline, not a healthy
+  one. The free-scan path writes no scan record and sends no email; its only side effect
+  is the hashed-IP rate-limit counter.
+- **Production smoke:** `/health` served the new deployment id; `/api/workspaces` and
+  `/api/scans` returned `401` (auth gate intact); `/api/billing/plans` returned `200`.
+- **Not proven here (deliberate).** The degraded path — a genuinely failed or unavailable
+  probe — cannot be forced in production without breaking a dependency, so it is proven
+  only by the CI fixture (`scripts/fixtures/free-scan-all-probes-failed.json`: empty
+  `modules_scanned`, null score and rating, `evidence_incomplete`, no healthy/no-issues
+  copy) plus a 4-mutant source-mutation harness that hard-fails unless all four are
+  killed. Live proof of the degraded path, and of Items 9 and 10 generally, belongs to
+  Item 14. This cutover's deploy annotation was left empty, unlike prior cutovers that
+  carry the deployed SHA in the Cloudflare message; the binding above is the record.
+
+## Release-record reconstruction — Item 6 scan-api deploys (2026-07-24), previously unrecorded
+
+Two scan-api production deploys were never written up, even though one of them is
+already referenced downstream as Item 7's rollback baseline. Reconstructed here from the
+authoritative Cloudflare deployment history, not from recollection.
+
+- **Item 6 Evidence-Grade Executive report cutover** — deployed 2026-07-24T22:36:18Z;
+  Cloudflare deployment `30fe0105-44de-4f70-8794-3077f63682a2`; Worker Version ID
+  `b908634b-f848-4f8a-930d-c97edf2250e6`; deployed SHA
+  `0ca69d412f123eaf296e8e7c7f6a6fc0b9f047fb`.
+- **Item 6 focused closure cutover** — deployed 2026-07-24T23:44:38Z; Cloudflare
+  deployment `5ab2dbef-ba62-40b7-833c-109c0cccbfa7`; Worker Version ID
+  `52f952e5-cf3d-454d-a402-e748a6719a6b`; deployed SHA
+  `0e58fffe5d7361733a1a0c5ab15510d006328a15` (PRs #304, #306). This is the version the
+  Item 7 entry cites as its rollback baseline.
+- **Status:** Item 6 was founder-accepted on 2026-07-25 (**LIVE-ACCEPTED**). Nothing in
+  this section changes that status; it records the deployment identities that were
+  missing.
+- **Release-tag gap, stated rather than fabricated:** no release tag exists for the Item
+  6, Item 7 or Item 8 cutovers — the `vYYYY.MM.DD-n` sequence lapses after
+  `v2026.07.24-2` and resumes at `v2026.07.27-1`. **No tag is back-dated here.** Whether
+  to apply retroactive tags is a founder decision and belongs to the Item 18 exit-review
+  release-record preconditions.
+
 ## Item 8 Brand IDN/homograph — deployed 2026-07-26; **ENGINEERING LIVE · LIVE FIXTURE ACCEPTANCE DEFERRED TO ITEM 14**
 
 Documentation-only reconciliation of the Item 8 production deployment. Merge and
