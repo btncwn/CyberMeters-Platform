@@ -14,7 +14,8 @@ import {
   FREE_SCAN_MODULE_STATES,
   resolveFreeScanPreviewState,
 } from "../engines/free-scan-evidence.js";
-import { computeScore, riskLevelForScore } from "../engines/scoring.js";
+import { resolveAssessmentPresentation } from "../engines/assessment-presentation.js";
+import { computeScore } from "../engines/scoring.js";
 import { normalizeFindingSchema } from "../engines/findings.js";
 import { BILLING_PLAN_METADATA, getEffectiveDomainLimit, getPaymentGraceState, getPlanFeatures, normalizeBillingInterval, normalizePlan } from "../engines/entitlements.js";
 import { getPlanLimits, getWorkspaceBillingUserId } from "../engines/plan-usage.js";
@@ -242,13 +243,18 @@ export async function billingRoutes(rctx) {
         freeScanEvidence.module_evidence.every(
           (entry) => entry.state === FREE_SCAN_MODULE_STATES.COMPLETED,
         );
+      const scorePresentation = resolveAssessmentPresentation({
+        score: calculatedScore,
+        scanQuality: evidenceComplete ? "complete" : "partial",
+        status: "completed",
+      });
 
       return json({
         domain,
         // Null on any incomplete coverage: even a numerically clean subset must
         // not become a public score or risk grade.
-        score:            evidenceComplete ? calculatedScore : null,
-        risk_level:       evidenceComplete ? riskLevelForScore(calculatedScore) : null,
+        score:            evidenceComplete ? scorePresentation.display_score : null,
+        risk_level:       evidenceComplete ? scorePresentation.display_rating : null,
         severity_counts,
         total_findings:   normalised.length,
         preview_findings,
