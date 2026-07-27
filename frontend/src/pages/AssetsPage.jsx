@@ -474,6 +474,7 @@ export default function AssetsPage() {
   const [summary,      setSummary]      = useState(null)
   const [assets,       setAssets]       = useState([])
   const [assurance,    setAssurance]    = useState([])
+  const [assuranceCoverage, setAssuranceCoverage] = useState(null)
   const [timeline,     setTimeline]     = useState([])
   const [loading,      setLoading]      = useState(true)
   const [refreshing,   setRefreshing]   = useState(false)
@@ -495,6 +496,7 @@ export default function AssetsPage() {
       setSummary(sumData)
       setAssets(assetsData.assets || [])
       setAssurance(assetsData.attack_surface_assurance || [])
+      setAssuranceCoverage(assetsData.attack_surface_assurance_coverage || null)
       setTimeline(timelineData.timeline || [])
     } catch (e) {
       setError(e.message)
@@ -575,7 +577,10 @@ export default function AssetsPage() {
         <>
           <ManagedCasesPanel workspaceId={workspaceId} />
 
-          <AttackSurfaceAssurance presentations={assurance} />
+          <AttackSurfaceAssurance
+            presentations={assurance}
+            coverage={assuranceCoverage}
+          />
 
           {/* TEMPORARY integration mount of the reusable cross-domain CasesQueue.
               The Attack Surface page is NOT the permanent home for all-domain

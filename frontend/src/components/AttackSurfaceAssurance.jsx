@@ -105,7 +105,7 @@ function AssuranceProjection({ presentation }) {
   )
 }
 
-export default function AttackSurfaceAssurance({ presentations }) {
+export default function AttackSurfaceAssurance({ presentations, coverage = null }) {
   const rows = Array.isArray(presentations)
     ? presentations
     : (presentations ? [presentations] : [])
@@ -122,6 +122,15 @@ export default function AttackSurfaceAssurance({ presentations }) {
   }
   return (
     <div className="space-y-3">
+      {coverage?.truncated && (
+        <div className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-xs leading-relaxed text-amber-800">
+          <div className="flex items-center gap-2 font-semibold">
+            <AlertTriangle className="h-3.5 w-3.5" />
+            Partial lifecycle evidence
+          </div>
+          <p className="mt-1">{coverage.customer_message}</p>
+        </div>
+      )}
       {rows.map((presentation, index) => (
         <AssuranceProjection
           key={presentation.domain_id || `${presentation.schema}-${index}`}

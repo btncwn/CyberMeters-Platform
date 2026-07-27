@@ -31,6 +31,8 @@ const ASSET_LIFECYCLE_COLUMNS = `,
   lifecycle_state, last_observation_state, lifecycle_policy_version,
   confirmed_removed_at, last_observation_scan_id`;
 
+const ATTACK_SURFACE_LIFECYCLE_EVIDENCE_BOUND = 500;
+
 async function loadAssetPresentationRows(env, workspaceId, {
   assetId = null,
   status = null,
@@ -78,6 +80,102 @@ async function loadAssetPresentationRows(env, workspaceId, {
     return {
       rows: result.results || [],
       lifecycle_available: false,
+    };
+  }
+}
+
+function lifecycleEvidenceCoverage({
+  returned,
+  total,
+  bound,
+  lifecycleAvailable,
+}) {
+  const truncated = total > returned;
+  if (!lifecycleAvailable) {
+    return {
+      returned,
+      total,
+      bound,
+      truncated,
+      status: "not_recorded",
+      customer_message:
+        "Migration 102 lifecycle fields are not recorded. Asset identities were read only to preserve domain scope; no lifecycle conclusion is inferred.",
+    };
+  }
+  if (truncated) {
+    return {
+      returned,
+      total,
+      bound,
+      truncated: true,
+      status: "truncated",
+      customer_message:
+        `Lifecycle evidence is truncated: ${returned} of ${total} workspace assets were read within the ${bound}-asset bound. The displayed domain lifecycle is partial and is not presented as complete.`,
+    };
+  }
+  return {
+    returned,
+    total,
+    bound,
+    truncated: false,
+    status: "complete",
+    customer_message:
+      `Lifecycle evidence covers all ${total} workspace assets within the ${bound}-asset bound.`,
+  };
+}
+
+async function loadAttackSurfaceLifecycleEvidence(
+  env,
+  workspaceId,
+  bound = ATTACK_SURFACE_LIFECYCLE_EVIDENCE_BOUND,
+) {
+  const lifecycleColumns = `
+    id, domain_id, hostname, lifecycle_state, last_observation_state,
+    lifecycle_policy_version, confirmed_removed_at,
+    last_observation_scan_id`;
+  const baseColumns = "id, domain_id, hostname";
+  const read = async (columns) => {
+    const result = await env.cybermeters_db
+      .prepare(
+        `SELECT ${columns}, COUNT(*) OVER () AS lifecycle_total
+         FROM workspace_assets
+         WHERE workspace_id = ?
+         ORDER BY last_seen DESC, id
+         LIMIT ?`
+      )
+      .bind(workspaceId, bound)
+      .all();
+    const rows = result.results || [];
+    return {
+      rows,
+      total: Number(rows[0]?.lifecycle_total || 0),
+    };
+  };
+
+  try {
+    const result = await read(lifecycleColumns);
+    return {
+      rows: result.rows,
+      lifecycle_available: true,
+      coverage: lifecycleEvidenceCoverage({
+        returned: result.rows.length,
+        total: result.total,
+        bound,
+        lifecycleAvailable: true,
+      }),
+    };
+  } catch (error) {
+    if (!/no such column/i.test(String(error?.message || ""))) throw error;
+    const result = await read(baseColumns);
+    return {
+      rows: result.rows,
+      lifecycle_available: false,
+      coverage: lifecycleEvidenceCoverage({
+        returned: result.rows.length,
+        total: result.total,
+        bound,
+        lifecycleAvailable: false,
+      }),
     };
   }
 }
@@ -156,7 +254,7 @@ async function loadAttackSurfacePresentationEvidence(env, workspaceId) {
   };
 }
 
-function presentationContext(assetRows, lifecycleAvailable, evidence) {
+function presentationContext(lifecycleRows, lifecycleAvailable, evidence) {
   const signalsByDomain = new Map();
   for (const row of evidence.signal_rows) {
     let model = signalsByDomain.get(row.domain_id);
@@ -180,7 +278,7 @@ function presentationContext(assetRows, lifecycleAvailable, evidence) {
     ]),
   );
   const lifecycleByDomain = new Map();
-  for (const row of assetRows) {
+  for (const row of lifecycleRows) {
     if (!lifecycleByDomain.has(row.domain_id)) {
       lifecycleByDomain.set(row.domain_id, []);
     }
@@ -190,7 +288,7 @@ function presentationContext(assetRows, lifecycleAvailable, evidence) {
     });
   }
   const domainIds = new Set([
-    ...assetRows.map((row) => row.domain_id).filter(Boolean),
+    ...lifecycleRows.map((row) => row.domain_id).filter(Boolean),
     ...signalsByDomain.keys(),
     ...alertByDomain.keys(),
   ]);
@@ -233,27 +331,37 @@ function presentationContext(assetRows, lifecycleAvailable, evidence) {
   };
 }
 
-async function attachAttackSurfacePresentations(
+async function loadWorkspaceAttackSurfacePresentations(env, workspaceId) {
+  const [lifecycle, evidence] = await Promise.all([
+    loadAttackSurfaceLifecycleEvidence(env, workspaceId),
+    loadAttackSurfacePresentationEvidence(env, workspaceId),
+  ]);
+  const context = presentationContext(
+    lifecycle.rows,
+    lifecycle.lifecycle_available,
+    evidence,
+  );
+  return {
+    domains: context.domains,
+    coverage: lifecycle.coverage,
+  };
+}
+
+async function loadAssetAttackSurfacePresentation(
   env,
   workspaceId,
   assetResult,
+  asset,
 ) {
   const evidence = await loadAttackSurfacePresentationEvidence(
     env,
     workspaceId,
   );
-  const context = presentationContext(
+  return presentationContext(
     assetResult.rows,
     assetResult.lifecycle_available,
     evidence,
-  );
-  return {
-    assets: assetResult.rows.map((asset) => ({
-      ...asset,
-      attack_surface_assurance: context.forAsset(asset),
-    })),
-    domains: context.domains,
-  };
+  ).forAsset(asset);
 }
 
 export async function attackSurfaceRoutes(rctx) {
@@ -479,16 +587,15 @@ export async function attackSurfaceRoutes(rctx) {
 
         const events = collapseCustomerTimelineEvents(pageResult.results || []).map(enrichEvent);
         const total = totalResult.results?.[0]?.n ?? 0;
-        const assetRows = await loadAssetPresentationRows(env, wsId);
-        const assurance = await attachAttackSurfacePresentations(
+        const assurance = await loadWorkspaceAttackSurfacePresentations(
           env,
           wsId,
-          assetRows,
         );
         return json({
           workspace_id: wsId,
           events,
           attack_surface_assurance: assurance.domains,
+          attack_surface_assurance_coverage: assurance.coverage,
           pagination: pageMeta({ items: events, limit, offset, total }),
         });
       } catch {
@@ -529,16 +636,16 @@ export async function attackSurfaceRoutes(rctx) {
             status: statusFilter || null,
             limit,
           });
-          const assurance = await attachAttackSurfacePresentations(
+          const assurance = await loadWorkspaceAttackSurfacePresentations(
             env,
             wsId,
-            result,
           );
           return json({
             workspace_id: wsId,
-            count: assurance.assets.length,
-            assets: assurance.assets,
+            count: result.rows.length,
+            assets: result.rows,
             attack_surface_assurance: assurance.domains,
+            attack_surface_assurance_coverage: assurance.coverage,
           });
         } catch {
           return json({ error: "Database error" }, 500);
@@ -643,16 +750,19 @@ export async function attackSurfaceRoutes(rctx) {
             .bind(assetId, wsId)
             .all();
 
-          const assurance = await attachAttackSurfacePresentations(
+          const attackSurfaceAssurance = await loadAssetAttackSurfacePresentation(
             env,
             wsId,
             assetResult,
+            asset,
           );
           return json({
-            asset: assurance.assets[0],
+            asset: {
+              ...asset,
+              attack_surface_assurance: attackSurfaceAssurance,
+            },
             events: eventsResult.results,
-            attack_surface_assurance:
-              assurance.assets[0]?.attack_surface_assurance,
+            attack_surface_assurance: attackSurfaceAssurance,
           });
         } catch {
           return json({ error: "Database error" }, 500);

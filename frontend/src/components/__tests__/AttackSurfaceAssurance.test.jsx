@@ -62,4 +62,23 @@ describe('AttackSurfaceAssurance', () => {
     expect(screen.getByText(/Attack Surface evidence was not recorded/i)).toBeInTheDocument()
     expect(screen.getByText(/No favourable security or availability conclusion is inferred/i)).toBeInTheDocument()
   })
+
+  it('renders bounded lifecycle truncation as partial evidence', () => {
+    render(
+      <AttackSurfaceAssurance
+        presentations={[base]}
+        coverage={{
+          returned: 200,
+          total: 238,
+          bound: 200,
+          truncated: true,
+          status: 'truncated',
+          customer_message: 'Lifecycle evidence is truncated: 200 of 238 workspace assets were read within the 200-asset bound.',
+        }}
+      />,
+    )
+    expect(screen.getByText(/Partial lifecycle evidence/i)).toBeInTheDocument()
+    expect(screen.getByText(/200 of 238 workspace assets/i)).toBeInTheDocument()
+    expect(screen.queryByText(/^Healthy$/i)).not.toBeInTheDocument()
+  })
 })
