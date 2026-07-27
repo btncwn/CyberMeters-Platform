@@ -18,6 +18,37 @@ const feed = (events, over = {}) => ({
   pagination: { limit: 50, offset: 0, total: events.length, has_more: false, ...over },
 })
 
+const assurance = {
+  schema: 'attack-surface-customer-presentation-v1',
+  status: 'current',
+  signal_order: ['subdomain_discovery', 'dns_resolution'],
+  signals: {
+    subdomain_discovery: {
+      signal_key: 'subdomain_discovery',
+      label: 'Subdomain discovery',
+      state_label: 'Evidence unavailable',
+      customer_message: 'Subdomain discovery evidence was unavailable.',
+    },
+    dns_resolution: {
+      signal_key: 'dns_resolution',
+      label: 'DNS resolution',
+      state_label: 'Observed',
+      customer_message: 'DNS resolution evidence was observed.',
+    },
+  },
+  lifecycle: {
+    status: 'not_recorded',
+    records: [],
+    customer_message: 'Lifecycle evidence was not recorded.',
+  },
+  alert_eligibility: {
+    status: 'not_recorded',
+    decisions: [],
+    customer_message: 'Alert eligibility was not recorded.',
+  },
+  model_versions: {},
+}
+
 beforeEach(() => { api.getExposureFeed.mockReset() })
 
 describe('ExposureTimeline', () => {
@@ -29,6 +60,17 @@ describe('ExposureTimeline', () => {
     expect(screen.getByText('New subdomain')).toBeInTheDocument()
     // severity badge text present
     expect(screen.getByText('high')).toBeInTheDocument()
+  })
+
+  it('renders the same backend-owned ASM evidence projection above the feed', async () => {
+    api.getExposureFeed.mockResolvedValue({
+      ...feed([evt()]),
+      attack_surface_assurance: [assurance],
+    })
+    render(<ExposureTimeline workspaceId="ws1" />)
+    expect(await screen.findByText('Evidence unavailable')).toBeInTheDocument()
+    expect(screen.getByText('Observed')).toBeInTheDocument()
+    expect(screen.queryByText(/^Healthy$/i)).not.toBeInTheDocument()
   })
 
   it('renders the backend-owned human SPF CIDR without reintroducing machine hex', async () => {

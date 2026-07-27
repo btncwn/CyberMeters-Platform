@@ -17,6 +17,7 @@
 // from the snapshot (as_of / built_at) or an explicit caller argument.
 import { buildDmarcPolicyPresentation } from "./dmarcbis-presentation.js";
 import { certificateAssuranceFromSnapshot } from "./certificate-customer-presentation.js";
+import { attackSurfaceAssuranceFromSnapshot } from "./attack-surface-customer-presentation.js";
 
 // Typographic → ASCII transliteration (trust-closure episode, July 2026).
 // The stream encoder is ASCII-only, and the old behaviour replaced EVERY
@@ -659,6 +660,88 @@ function sectionCertificateAssurance(w, snap, { detail = "full" } = {}) {
   }
 }
 
+function sectionAttackSurfaceAssurance(w, snap, { detail = "full" } = {}) {
+  const assurance = attackSurfaceAssuranceFromSnapshot(snap);
+  w.heading("Attack Surface Evidence & Lifecycle");
+  if (assurance.historical_notice) {
+    w.proseKeep(customerBodyText(assurance.historical_notice), {
+      size: 9,
+      color: "0.45 0.35 0.10",
+    });
+    return;
+  }
+  w.proseKeep(customerBodyText(assurance.scope_note), {
+    size: 8,
+    color: "0.35 0.38 0.44",
+  });
+  const signalKeys = assurance.signal_order || [];
+  for (const key of detail === "full" ? signalKeys : signalKeys.slice(0, 9)) {
+    const signal = assurance.signals?.[key];
+    if (!signal) continue;
+    w.keepTogether(28);
+    w.text(`${signal.label}: ${signal.state_label || signal.state || "Not assessed"}`, {
+      size: 8,
+      bold: true,
+    });
+    w.proseKeep(customerBodyText(signal.customer_message), {
+      size: 7,
+      indent: 10,
+      color: "0.35 0.38 0.44",
+    });
+  }
+
+  w.text("Asset lifecycle", { size: 9, bold: true });
+  w.proseKeep(customerBodyText(assurance.lifecycle?.customer_message), {
+    size: 8,
+    indent: 10,
+    color: assurance.lifecycle?.status === "recorded"
+      ? "0.35 0.38 0.44"
+      : "0.45 0.35 0.10",
+  });
+  const lifecycleRecords = assurance.lifecycle?.records || [];
+  for (const record of lifecycleRecords.slice(0, detail === "full" ? 25 : 5)) {
+    w.text(
+      `${record.hostname || record.asset_id || "Asset"}: ${record.lifecycle_state_label}`,
+      { size: 8, bold: true },
+    );
+    w.proseKeep(
+      `${customerBodyText(record.lifecycle_message)} Latest evidence: ${record.last_observation_state_label}. ${customerBodyText(record.last_observation_message)}`,
+      { size: 7, indent: 10, color: "0.35 0.38 0.44" },
+    );
+  }
+  if (lifecycleRecords.length > (detail === "full" ? 25 : 5)) {
+    w.text(
+      `+${lifecycleRecords.length - (detail === "full" ? 25 : 5)} more lifecycle records retained in the canonical snapshot.`,
+      { size: 7, indent: 10, color: "0.35 0.38 0.44" },
+    );
+  }
+
+  w.text("ASM alert eligibility", { size: 9, bold: true });
+  w.proseKeep(customerBodyText(assurance.alert_eligibility?.customer_message), {
+    size: 8,
+    indent: 10,
+    color: assurance.alert_eligibility?.status === "recorded"
+      ? "0.35 0.38 0.44"
+      : "0.45 0.35 0.10",
+  });
+  for (const decision of assurance.alert_eligibility?.decisions || []) {
+    w.text(
+      `${decision.event_type || "ASM claim"}: ${decision.eligible ? "Alert eligible" : "Alert withheld"} (${decision.reason_code})`,
+      { size: 7, bold: true, indent: 10 },
+    );
+    w.proseKeep(customerBodyText(decision.reason_message), {
+      size: 7,
+      indent: 18,
+      color: "0.35 0.38 0.44",
+    });
+  }
+  const versions = assurance.model_versions || {};
+  w.proseKeep(
+    `Model versions - signals: ${versions.signal_completeness || "not recorded"}; lifecycle: ${versions.lifecycle_policy || "not recorded"}; alert eligibility: ${versions.alert_eligibility || "not recorded"}.`,
+    { size: 7, color: "0.35 0.38 0.44" },
+  );
+}
+
 function sectionFindings(w, snap) {
   const findings = snap.observed_findings || [];
   const observations = snap.observations || [];
@@ -1125,6 +1208,7 @@ export function buildScanReportPdf(scan, read, branding = null, logoImage = null
   brandingHeader(w, branding, "External Security Assessment", `${s.domain || scan?.domain || ""} - assessed ${pdfUtcDate(s.as_of, true)}`, logoImage);
   sectionOverall(w, snap);
   sectionDomains(w, snap);
+  sectionAttackSurfaceAssurance(w, snap);
   sectionCertificateAssurance(w, snap);
   sectionDmarcPolicy(w, dmarcPresentation);
   sectionFindings(w, snap);
@@ -1201,6 +1285,7 @@ export function buildWorkspaceExecutivePdf({ workspaceName, reads = [], branding
       w.text(`Assessed ${pdfUtcDate(r.snapshot.snapshot.as_of, true)}`, { size: 9, color: "0.35 0.38 0.44" });
       w.gap(2);
       sectionDomains(w, r.snapshot, { detail: "concise" });
+      sectionAttackSurfaceAssurance(w, r.snapshot, { detail: "concise" });
       sectionCertificateAssurance(w, r.snapshot, { detail: "concise" });
       const dmarcPresentation =
         buildDmarcPolicyPresentation(r.dmarcPolicy);

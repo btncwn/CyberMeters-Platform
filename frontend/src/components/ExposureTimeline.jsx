@@ -5,6 +5,7 @@ import {
   MonitorCheck, KeyRound, Boxes,
 } from 'lucide-react'
 import { api } from '../api'
+import AttackSurfaceAssurance from './AttackSurfaceAssurance'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Exposure Timeline feed — the chronological "what changed" stream that turns a
@@ -135,6 +136,7 @@ function EventRow({ event }) {
 
 export default function ExposureTimeline({ workspaceId }) {
   const [events,   setEvents]   = useState([])
+  const [assurance, setAssurance] = useState([])
   const [total,    setTotal]    = useState(null)
   const [loading,  setLoading]  = useState(false)
   const [error,    setError]    = useState(null)
@@ -153,6 +155,7 @@ export default function ExposureTimeline({ workspaceId }) {
       if (severity) params.severity = severity
       const data = await api.getExposureFeed(workspaceId, params)
       const incoming = data.events || []
+      setAssurance(data.attack_surface_assurance || [])
       setEvents(prev => append ? [...prev, ...incoming] : incoming)
       setOffset(currentOffset + incoming.length)
       setTotal(data.pagination?.total ?? null)
@@ -173,7 +176,9 @@ export default function ExposureTimeline({ workspaceId }) {
   const groups = groupByDay(events)
 
   return (
-    <div className="card p-6">
+    <div className="space-y-4">
+      <AttackSurfaceAssurance presentations={assurance} />
+      <div className="card p-6">
       {/* Header + filters */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
         <div className="flex items-center gap-2">
@@ -253,6 +258,7 @@ export default function ExposureTimeline({ workspaceId }) {
       {loading && events.length === 0 && (
         <div className="py-10 text-center"><RefreshCw className="w-5 h-5 text-gray-300 mx-auto animate-spin" /></div>
       )}
+      </div>
     </div>
   )
 }

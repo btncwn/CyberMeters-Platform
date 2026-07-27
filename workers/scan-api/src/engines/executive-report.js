@@ -11,6 +11,7 @@
 // documented frozen-vs-live policy (branding, workspace display name).
 import { dmarcPolicyApiProjection } from "./dmarcbis-contract.js";
 import { certificateAssuranceFromSnapshot } from "./certificate-customer-presentation.js";
+import { attackSurfaceAssuranceFromSnapshot } from "./attack-surface-customer-presentation.js";
 
 export function buildExecutiveReportV2({ scan, workspace = null, read }) {
   const snap = read.snapshot;
@@ -75,6 +76,7 @@ export function buildExecutiveReportV2({ scan, workspace = null, read }) {
 
     cyber_mot_domains: snap.domains ?? [],
     certificate_assurance: certificateAssuranceFromSnapshot(snap),
+    attack_surface_assurance: attackSurfaceAssuranceFromSnapshot(snap),
     monitoring_states: snap.monitoring_states ?? null,
     observed_findings: observed,
     observations,
