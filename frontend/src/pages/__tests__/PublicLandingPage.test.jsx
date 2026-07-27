@@ -36,11 +36,21 @@ describe('PublicLandingPage', () => {
     expect(screen.getByText(/IASME and approved Certification Bodies/i)).toBeInTheDocument()
   })
 
-  it('routes every primary call-to-action to the free Cyber MOT', () => {
+  it('routes the bounded preview calls-to-action to the free scan', () => {
     renderLanding()
-    const ctas = screen.getAllByRole('link', { name: /Cyber MOT/i })
+    const ctas = screen.getAllByRole('link', { name: /free preview/i })
       .filter(a => a.getAttribute('href') === '/free-scan')
-    expect(ctas.length).toBeGreaterThanOrEqual(2) // nav + hero + final CTA
+    expect(ctas.length).toBeGreaterThanOrEqual(3) // nav + hero + final CTA
+  })
+
+  it('describes the free scan as a four-check preview, not all-eight-domain coverage', () => {
+    renderLanding()
+    expect(screen.getByText(/This four-check preview is not the full eight-domain Cyber MOT/i)).toBeInTheDocument()
+    expect(screen.getByText(/free four-check website and email preview in under two minutes/i)).toBeInTheDocument()
+    expect(screen.getByText(/This is not the managed eight-domain posture/i)).toBeInTheDocument()
+    expect(screen.getByText(/managed Cyber MOT journey builds one posture across eight domains/i)).toBeInTheDocument()
+    expect(screen.queryByText(/See your real posture across all eight domains in two minutes/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/run your Cyber MOT.*under two minutes/i)).not.toBeInTheDocument()
   })
 
   it('leads with the exposure headline', () => {
