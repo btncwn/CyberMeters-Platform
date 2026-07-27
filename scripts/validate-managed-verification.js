@@ -56,7 +56,10 @@ function makeDb({ cases, links }) {
         const c = cases.get(id); if (c && c.workspace_id === ws) c.status = to;
         return { meta: { changes: 1 } };
       }
-      if (/INSERT INTO managed_case_events/.test(s)) { events.push(this._a); return { meta: { changes: 1 } }; }
+      if (/INSERT(?: OR IGNORE)? INTO managed_case_events/.test(s)) {
+        events.push(this._a);
+        return { meta: { changes: 1 } };
+      }
       if (/INSERT INTO notification_events/.test(s)) { notifications.push({ type: this._a[3] }); return { meta: { changes: 1 } }; }
       return { meta: { changes: 1 } };
     },

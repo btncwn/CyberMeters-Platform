@@ -373,6 +373,9 @@ not started. The separately founder-authorised P3 work is recorded below.
   durable R2/D1 scan finalisation. It adds no scanner or outbound work.
 - Dedicated fixture, deterministic integration, seven required mutations and a
   faithful multi-scan engine trace are CI-blocking.
+- Existing P2 mutation, managed-case model and managed-verification validators
+  now follow the shared factory, deterministic event and `INSERT OR IGNORE`
+  paths instead of asserting the superseded raw ASM insert shape.
 
 ### Schema and Migrations
 
@@ -424,6 +427,7 @@ delete append-only lifecycle or case history.
 - Existing P1/P2, ASM remediation, universal factory, managed-case,
   tenant/purge, alert-occurrence, deadline/subrequest and full regression gates
   remain required.
+- Managed-verification compatibility: 107/107 assertions.
 
 ### PR and Merge
 
