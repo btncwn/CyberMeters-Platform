@@ -15,7 +15,7 @@ const {
   buildAssetAlertEmail,
 } = await import(moduleUrl);
 
-const EXPECTED_ASSERTIONS = 32;
+const EXPECTED_ASSERTIONS = 38;
 let assertionsPassed = 0;
 let assertionFailures = 0;
 
@@ -95,6 +95,15 @@ assert(
 );
 
 const adminOnly = emailFor({ admin_surface_detected: 2 }, "high");
+equal(
+  "admin-only subject is exact and evidence-backed",
+  adminOnly.subject,
+  "⚠ CyberMeters: Admin surfaces observed on example.com",
+);
+assert(
+  "admin-only subject never claims new assets",
+  !/New assets?/i.test(adminOnly.subject),
+);
 assert(
   "admin-only email contains a text event-count row",
   adminOnly.text.includes("Admin surfaces observed: 2"),
@@ -104,6 +113,35 @@ assert(
   adminOnly.html.includes("Admin surfaces observed: 2"),
 );
 equal("admin-only email contains exactly one label row", textLabelRows(adminOnly).length, 1);
+
+const newAssetOnly = emailFor({ new_asset_discovered: 2 }, "high");
+equal(
+  "new-asset-only subject is exact and evidence-backed",
+  newAssetOnly.subject,
+  "⚠ CyberMeters: New assets observed on example.com",
+);
+
+const adminAndNewAsset = emailFor({
+  admin_surface_detected: 2,
+  new_asset_discovered: 1,
+}, "high");
+equal(
+  "mixed admin and new-asset subject is event-neutral",
+  adminAndNewAsset.subject,
+  "⚠ CyberMeters: Asset changes observed on example.com",
+);
+
+const criticalTakeover = emailFor({ takeover_risk_detected: 1 }, "critical");
+equal(
+  "critical takeover subject is preserved when takeover evidence exists",
+  criticalTakeover.subject,
+  "🚨 CyberMeters: Takeover risk on example.com",
+);
+const criticalWithoutTakeover = emailFor({ admin_surface_detected: 1 }, "critical");
+assert(
+  "critical severity alone never claims takeover",
+  !/Takeover risk/i.test(criticalWithoutTakeover.subject),
+);
 
 const certificateOnly = emailFor({
   certificate_new_detected: 1,

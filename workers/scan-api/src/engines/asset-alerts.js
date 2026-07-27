@@ -336,10 +336,17 @@ export function buildAssetAlertEmail(domain, workspaceId, scanId, counts, topHos
     ? `Top affected hostnames: ${hostList.join(", ")}`
     : null;
 
-  const subject = severity === "critical"
+  const takeoverCount = counts.takeover_risk_detected || 0;
+  const newAssetCount = counts.new_asset_discovered || 0;
+  const adminSurfaceCount = counts.admin_surface_detected || 0;
+  const subject = takeoverCount > 0
     ? `🚨 CyberMeters: Takeover risk on ${domain}`
-    : severity === "high"
-    ? `⚠ CyberMeters: New assets detected on ${domain}`
+    : newAssetCount > 0 && adminSurfaceCount > 0
+    ? `⚠ CyberMeters: Asset changes observed on ${domain}`
+    : adminSurfaceCount > 0
+    ? `⚠ CyberMeters: Admin surfaces observed on ${domain}`
+    : newAssetCount > 0
+    ? `⚠ CyberMeters: New assets observed on ${domain}`
     : `CyberMeters: Asset changes on ${domain}`;
 
   const text = [

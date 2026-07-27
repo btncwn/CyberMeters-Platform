@@ -152,7 +152,7 @@ const assetArgs = [
   const complete = buildAssetAlertEmail(...assetArgs, "complete");
   eq("complete asset-alert email is byte-unchanged",
     sha256(complete),
-    "25cf1ba2c302ab045570327eecdb4fcbd42b1876b6a9ed0134b41f3ff753bd82");
+    "bd35f9e4dc33e49178c09a7db273ff29f05524b9bcb5d930a5109e9dca995642");
   ok("complete asset-alert email has no quality caveat",
     !complete.text.includes("results may be incomplete") && !complete.html.includes("results may be incomplete"));
 

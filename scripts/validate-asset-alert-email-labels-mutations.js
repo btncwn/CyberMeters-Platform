@@ -13,8 +13,8 @@ const validator = path.join(
   "scripts/validate-asset-alert-email-labels.js",
 );
 const source = fs.readFileSync(sourceFile, "utf8");
-const EXPECTED_MUTANTS = 1;
-const EXPECTED_ASSERTIONS = 2;
+const EXPECTED_MUTANTS = 2;
+const EXPECTED_ASSERTIONS = 4;
 let mutantsKilled = 0;
 let mutantFailures = 0;
 let assertionsPassed = 0;
@@ -34,24 +34,24 @@ function mutateRequired(input, from, to, label) {
   return mutated;
 }
 
-const mutantSource = mutateRequired(
+const labelMutantSource = mutateRequired(
   source,
   `  admin_surface_detected: "Admin surfaces observed",\n`,
   "",
   "canonical admin-surface email label",
 );
-const mutantFile = path.join(
+const labelMutantFile = path.join(
   engines,
   `.asset-alerts.labels-mutant.${process.pid}.js`,
 );
-fs.writeFileSync(mutantFile, mutantSource);
+fs.writeFileSync(labelMutantFile, labelMutantSource);
 try {
   const child = spawnSync(process.execPath, [validator], {
     cwd: root,
     encoding: "utf8",
     env: {
       ...process.env,
-      ASSET_ALERT_LABELS_MODULE_URL: pathToFileURL(mutantFile).href,
+      ASSET_ALERT_LABELS_MODULE_URL: pathToFileURL(labelMutantFile).href,
     },
   });
   const killed = child.status !== 0;
@@ -66,7 +66,57 @@ try {
     console.error("FAIL removed canonical label mutant survived");
   }
 } finally {
-  fs.rmSync(mutantFile, { force: true });
+  fs.rmSync(labelMutantFile, { force: true });
+}
+
+const subjectMutantSource = mutateRequired(
+  source,
+  `  const takeoverCount = counts.takeover_risk_detected || 0;
+  const newAssetCount = counts.new_asset_discovered || 0;
+  const adminSurfaceCount = counts.admin_surface_detected || 0;
+  const subject = takeoverCount > 0
+    ? \`🚨 CyberMeters: Takeover risk on \${domain}\`
+    : newAssetCount > 0 && adminSurfaceCount > 0
+    ? \`⚠ CyberMeters: Asset changes observed on \${domain}\`
+    : adminSurfaceCount > 0
+    ? \`⚠ CyberMeters: Admin surfaces observed on \${domain}\`
+    : newAssetCount > 0
+    ? \`⚠ CyberMeters: New assets observed on \${domain}\`
+    : \`CyberMeters: Asset changes on \${domain}\`;`,
+    `  const subject = severity === "critical"
+    ? \`🚨 CyberMeters: Takeover risk on \${domain}\`
+    : severity === "high"
+    ? \`⚠ CyberMeters: New assets detected on \${domain}\`
+    : \`CyberMeters: Asset changes on \${domain}\`;`,
+  "canonical-count-backed subject selection",
+);
+const subjectMutantFile = path.join(
+  engines,
+  `.asset-alerts.subject-mutant.${process.pid}.js`,
+);
+fs.writeFileSync(subjectMutantFile, subjectMutantSource);
+try {
+  const child = spawnSync(process.execPath, [validator], {
+    cwd: root,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      ASSET_ALERT_LABELS_MODULE_URL: pathToFileURL(subjectMutantFile).href,
+    },
+  });
+  const killed = child.status !== 0;
+  assert(
+    "severity-only high-subject selection turns the suite red",
+    killed,
+    killed ? "" : "validator exited zero",
+  );
+  if (killed) mutantsKilled += 1;
+  else {
+    mutantFailures += 1;
+    console.error("FAIL severity-only high-subject mutant survived");
+  }
+} finally {
+  fs.rmSync(subjectMutantFile, { force: true });
 }
 
 console.log(
