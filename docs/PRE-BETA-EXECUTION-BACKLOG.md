@@ -258,6 +258,72 @@ noisy-but-true vs false-positive — **scoped review; the alert pipeline stays o
 founder-controlled live acceptance (new/removed/reappeared asset, admin surface,
 takeover candidate, KEV signal).
 
+### Evidence-integrity interlock — Free-Scan False-Healthy P1
+
+Mandatory, unnumbered interlock in the frozen execution order — **it does not renumber
+anything**. Sequenced **after Item 10 P3 and before Item 10 P4**:
+
+```text
+Item 10 P3
+→ Free-Scan False-Healthy P1
+→ SPF CIDR Evidence-Fidelity P1
+→ Item 10 P4
+```
+
+**Why it interrupts Item 10.** The anonymous free scan can render a green health verdict from
+probes that never succeeded. This is the platform's most basic law broken on its highest-traffic,
+unauthenticated surface — the same defect class as the `#105` unexecuted-probe P1 that was fixed
+in the authenticated path, still live in the public one. It is a **runtime correctness defect,
+not copy**: rewording it would conceal it. Surfaced by the Item 17 public-claims audit and
+escalated out of it by founder ruling.
+
+**Required behaviour**
+
+- The anonymous free scan must **never** derive `healthy` from a failed, unavailable, incomplete
+  or unknown probe.
+- `total_findings === 0` is **not** sufficient evidence of health — a zero-finding result over
+  incomplete evidence is not a clean result.
+- `modules_scanned` must be **derived from actual attempted/completed module state**, never a
+  fixed list.
+- A four-module free scan must **not** claim "all eight domains" (or any equivalent whole-product
+  coverage) anywhere in its copy or CTA.
+- `attempted` · `completed` · `failed` · `partial` · `incomplete` · `unavailable` must remain
+  **distinct** states end to end — collapsing any pair reintroduces the defect.
+
+**Required proof (runtime correction)**
+
+- Deterministic **failed** and **partial** free-scan fixtures.
+- **No-false-healthy mutations** — reintroduce each defect (health from a failed probe; health
+  from `total_findings === 0` alone; a hard-coded `modules_scanned`; a collapsed state pair) and
+  the suite must go red.
+- **Customer-copy parity** — the rendered result, the module list and the CTA agree with the
+  evidence actually obtained.
+
+**Gate separation (unchanged by this interlock)**
+
+```text
+Engineering merged  ≠  deployed  ≠  founder live acceptance
+```
+
+Each remains a separate gate with its own evidence; none inherits from another.
+
+### Evidence-fidelity interlock — SPF CIDR Evidence-Fidelity P1 (recorded, not implemented)
+
+Recorded here for ownership so it is not lost; **no implementation is authorised by this entry.**
+
+The SPF authorisation-change evidence can currently display a **hex-packed IPv4 CIDR** to the
+customer — a customer reads `added 1 [ip4:c0000200/24]` where the real value is
+`192.0.2.0/24`. Canonicalised authorisation strings are interpolated straight into the customer
+description, so the customer-facing evidence is unreadable rather than wrong-but-legible.
+
+This is a **separate, focused customer-evidence P1**. It is sequenced immediately after the
+Free-Scan False-Healthy P1 and before Item 10 P4.
+
+**The two runtime fixes must NOT be combined into one PR.** They touch different surfaces
+(anonymous free-scan result derivation vs authenticated SPF posture-event rendering), carry
+different proof obligations, and merging them would make either one impossible to review or
+revert independently.
+
 ### Reliability interlock — Scan Completion Rate: CT Provider Resilience
 This is a mandatory, unnumbered interlock in the frozen execution order. It is
 docs-governance only at this stage; R1, R2 and R3 implementation has not started.
