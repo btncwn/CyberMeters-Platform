@@ -158,4 +158,4 @@ console.log(
   `${mutantsKilled + mutantFailures} mutants killed; ` +
   `${assertionsPassed}/${assertionsPassed + assertionFailures} assertions passed`,
 );
-if (mutantFailures > 0 || assertionFailures > 0) process.exit(1);
+if (mutantsKilled !== 5 || mutantFailures > 0 || assertionFailures > 0) process.exit(1);
