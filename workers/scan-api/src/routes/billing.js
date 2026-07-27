@@ -8,7 +8,13 @@ import { runDnsModule } from "../engines/dns-scan.js";
 import { runEmailModule } from "../engines/email-scan.js";
 import { runHeadersModule } from "../engines/headers-scan.js";
 import { runSslModule } from "../engines/ssl-scan.js";
-import { computeScore } from "../engines/scoring.js";
+import {
+  buildFreeScanEvidence,
+  filterFreeScanFindings,
+  FREE_SCAN_MODULE_STATES,
+  resolveFreeScanPreviewState,
+} from "../engines/free-scan-evidence.js";
+import { computeScore, riskLevelForScore } from "../engines/scoring.js";
 import { normalizeFindingSchema } from "../engines/findings.js";
 import { BILLING_PLAN_METADATA, getEffectiveDomainLimit, getPaymentGraceState, getPlanFeatures, normalizeBillingInterval, normalizePlan } from "../engines/entitlements.js";
 import { getPlanLimits, getWorkspaceBillingUserId } from "../engines/plan-usage.js";
@@ -22,6 +28,12 @@ import { createId, isValidDomain } from "../lib/util.js";
 export async function billingRoutes(rctx) {
   const { request, env, url, json, serverError,
           requireAuth, requireWorkspaceRole, consumeApiRateLimit, rateLimitScopeId } = rctx;
+  const freeScanModuleRunners = rctx.freeScanModuleRunners ?? {
+    dns: runDnsModule,
+    ssl: runSslModule,
+    headers: runHeadersModule,
+    email_security: runEmailModule,
+  };
 
     // ── POST /api/free-scan ──────────────────────────────────────────────────
     // Public endpoint — no authentication required.
@@ -34,7 +46,9 @@ export async function billingRoutes(rctx) {
     //
     // Response shape:
     //   { domain, score, risk_level, severity_counts, total_findings,
-    //     preview_findings[5], hidden_count, scanned_at }
+    //     preview_findings[5], hidden_count, modules_attempted,
+    //     modules_scanned, module_evidence, monitoring_states,
+    //     evidence_coverage, preview_state, scanned_at }
     //
     // Each preview_finding: { id, title, severity, description, academy_slug }
     // Evidence, confidence, and remediation are intentionally omitted (gated).
@@ -109,18 +123,23 @@ export async function billingRoutes(rctx) {
       // Run 4 core modules in parallel — no subdomains, no brute-force, no tech, no WHOIS
       const scannedAt = new Date().toISOString();
       const [dnsR, sslR, headersR, emailR] = await Promise.allSettled([
-        runDnsModule(domain),
-        runSslModule(domain),
-        runHeadersModule(domain),
-        runEmailModule(domain),
+        freeScanModuleRunners.dns(domain),
+        freeScanModuleRunners.ssl(domain),
+        freeScanModuleRunners.headers(domain),
+        freeScanModuleRunners.email_security(domain),
       ]);
 
+      const freeScanEvidence = buildFreeScanEvidence({
+        dns: dnsR,
+        ssl: sslR,
+        headers: headersR,
+        email_security: emailR,
+      });
+
       const modules = {
-        dns:              dnsR.status === "fulfilled"     ? dnsR.value     : { error: "DNS check failed" },
-        ssl:              sslR.status === "fulfilled"     ? sslR.value     : { error: "SSL check failed" },
-        headers:          headersR.status === "fulfilled" ? headersR.value : { error: "Headers check failed" },
-        email_security:   emailR.status === "fulfilled"   ? emailR.value   : { error: "Email check failed" },
-        // Stub the remaining modules — computeScore handles missing gracefully
+        ...freeScanEvidence.modules,
+        // Explicit opt-outs keep the existing scoring engine from launching or
+        // inferring modules that the four-module preview never attempted.
         subdomains:        { count: 0, items: [] },
         subdomain_takeover:{ risks: [] },
         asset_exposure:    { assets: [] },
@@ -130,8 +149,25 @@ export async function billingRoutes(rctx) {
         brand_monitoring:     null, // opt-out: brand findings not applicable to quick domain preview
       };
 
-      const { score, risk_level, findings } = computeScore(modules, domain);
-      const normalised = findings.map(normalizeFindingSchema);
+      const { findings } = computeScore(modules, domain);
+      // A reliable sibling may still publish a finding when another module
+      // fails. Findings from failed/incomplete/unavailable modules themselves
+      // are suppressed; those outcomes describe missing evidence, not absence.
+      const eligibleFindings = filterFreeScanFindings(
+        findings,
+        freeScanEvidence.module_evidence,
+      );
+      const calculatedScore = Math.max(
+        0,
+        Math.min(
+          100,
+          100 + eligibleFindings.reduce(
+            (total, finding) => total + (Number(finding?.score_impact) || 0),
+            0,
+          ),
+        ),
+      );
+      const normalised = eligibleFindings.map(normalizeFindingSchema);
 
       // Sort by severity weight — critical first
       const SEV_WEIGHT = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
@@ -196,15 +232,33 @@ export async function billingRoutes(rctx) {
         academy_slug: resolveAcademySlug(f.id),
       }));
 
+      const previewState = resolveFreeScanPreviewState({
+        findingsCount: normalised.length,
+        coverage: freeScanEvidence.evidence_coverage,
+        moduleEvidence: freeScanEvidence.module_evidence,
+      });
+      const evidenceComplete =
+        freeScanEvidence.evidence_coverage.complete === true &&
+        freeScanEvidence.module_evidence.every(
+          (entry) => entry.state === FREE_SCAN_MODULE_STATES.COMPLETED,
+        );
+
       return json({
         domain,
-        score:            Math.max(0, Math.min(100, score)),
-        risk_level,
+        // Null on any incomplete coverage: even a numerically clean subset must
+        // not become a public score or risk grade.
+        score:            evidenceComplete ? calculatedScore : null,
+        risk_level:       evidenceComplete ? riskLevelForScore(calculatedScore) : null,
         severity_counts,
         total_findings:   normalised.length,
         preview_findings,
         hidden_count:     Math.max(0, normalised.length - PREVIEW_LIMIT),
-        modules_scanned:  ["dns", "ssl", "headers", "email_security"],
+        modules_attempted: freeScanEvidence.modules_attempted,
+        modules_scanned:   freeScanEvidence.modules_scanned,
+        module_evidence:   freeScanEvidence.module_evidence,
+        monitoring_states: freeScanEvidence.monitoring_states,
+        evidence_coverage: freeScanEvidence.evidence_coverage,
+        preview_state:     previewState,
         scanned_at:       scannedAt,
       });
     }

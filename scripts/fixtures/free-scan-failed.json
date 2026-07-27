@@ -1,0 +1,70 @@
+{
+  "name": "failed",
+  "domain": "example.com",
+  "module_outcomes": {
+    "dns": {
+      "kind": "fulfilled",
+      "value": {
+        "resolves": true,
+        "resolves_any": true,
+        "resolution_assessed": true,
+        "has_mx": true,
+        "cross_checks": {
+          "resolver_agreement_score": 100
+        },
+        "dnssec": {
+          "errors": {
+            "ds": null,
+            "dnskey": null,
+            "rrsig": null
+          },
+          "ds": { "present": true },
+          "dnskey": { "present": true },
+          "rrsig": { "present": true }
+        }
+      }
+    },
+    "ssl": {
+      "kind": "rejected",
+      "reason": "fixture TLS provider timeout"
+    },
+    "headers": {
+      "kind": "fulfilled",
+      "value": {
+        "accessible": true,
+        "headers_assessed": true,
+        "status_code": 200,
+        "final_https": true,
+        "validation_uncertain": false,
+        "http_redirects_to_https": true,
+        "values": {
+          "strict-transport-security": "max-age=31536000; includeSubDomains",
+          "content-security-policy": "default-src 'self'",
+          "x-frame-options": "DENY",
+          "x-content-type-options": "nosniff",
+          "referrer-policy": "strict-origin",
+          "permissions-policy": "camera=(), microphone=()"
+        },
+        "checked_paths": []
+      }
+    },
+    "email_security": {
+      "kind": "fulfilled",
+      "value": {
+        "spf_evidence_status": "observed",
+        "dkim_evidence_status": "observed",
+        "dmarc_state": { "evidence_status": "observed" },
+        "spf": { "present": true },
+        "dmarc": {
+          "present": true,
+          "policy": "reject",
+          "record": "v=DMARC1; p=reject"
+        },
+        "dkim": {
+          "present": true,
+          "selectors_probed": ["selector1"]
+        }
+      }
+    }
+  }
+}

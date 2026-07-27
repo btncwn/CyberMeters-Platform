@@ -28,6 +28,10 @@ import {
 } from 'lucide-react'
 import CyberMetersLogo from '../components/CyberMetersLogo'
 import { BASE } from '../api'
+import {
+  deriveFreeScanPresentation,
+  FREE_SCAN_STATE_LABELS,
+} from '../lib/freeScanPresentation'
 
 const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info']
 
@@ -43,27 +47,12 @@ function sevCfg(severity) {
   return SEVERITY_CFG[severity] ?? SEVERITY_CFG.info
 }
 
-const RISK_LEVEL_CFG = {
-  excellent: { label: 'Excellent',     text: 'text-brand-700',  ring: 'stroke-brand-500',  bg: 'bg-brand-50',  border: 'border-brand-100' },
-  good:      { label: 'Good',          text: 'text-green-700',  ring: 'stroke-green-500',  bg: 'bg-green-50',  border: 'border-green-100' },
-  moderate:  { label: 'Moderate',      text: 'text-amber-700',  ring: 'stroke-amber-400',  bg: 'bg-amber-50',  border: 'border-amber-100' },
-  critical:  { label: 'Critical Risk', text: 'text-red-700',    ring: 'stroke-red-500',    bg: 'bg-red-50',    border: 'border-red-100' },
-  high:      { label: 'High Risk',     text: 'text-orange-700', ring: 'stroke-orange-500', bg: 'bg-orange-50', border: 'border-orange-100' },
-  medium:    { label: 'Medium Risk',   text: 'text-amber-700',  ring: 'stroke-amber-400',  bg: 'bg-amber-50',  border: 'border-amber-100' },
-  low:       { label: 'Low Risk',      text: 'text-green-700',  ring: 'stroke-green-500',  bg: 'bg-green-50',  border: 'border-green-100' },
-  info:      { label: 'No Issues',     text: 'text-brand-700',  ring: 'stroke-brand-500',  bg: 'bg-brand-50',  border: 'border-brand-100' },
-}
-
-function riskCfg(riskLevel) {
-  return RISK_LEVEL_CFG[riskLevel] ?? RISK_LEVEL_CFG.moderate
-}
-
 const LOADING_MESSAGES = [
   'Checking email protection records...',
   'Reviewing website trust signals...',
   'Checking DNS configuration...',
   'Reading security headers...',
-  'Preparing your Cyber MOT report...',
+  'Preparing your security preview...',
 ]
 
 const EMAIL_KEYWORDS = [
@@ -156,8 +145,7 @@ function moduleLabel(moduleName) {
   return labels[moduleName] ?? String(moduleName || '').replace(/[_-]/g, ' ')
 }
 
-function ScoreGauge({ score, riskLevel }) {
-  const cfg = riskCfg(riskLevel)
+function ScoreGauge({ score }) {
   const value = scoreSafe(score)
   const radius = 54
   const circumference = 2 * Math.PI * radius
@@ -173,7 +161,7 @@ function ScoreGauge({ score, riskLevel }) {
             cy="64"
             r={radius}
             fill="none"
-            className={cfg.ring}
+            className="stroke-brand-500"
             strokeWidth="11"
             strokeLinecap="round"
             strokeDasharray={circumference}
@@ -182,25 +170,46 @@ function ScoreGauge({ score, riskLevel }) {
           />
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className={`text-4xl font-bold tabular-nums ${cfg.text}`}>{value}</span>
+          <span className="text-4xl font-bold tabular-nums text-brand-700">{value}</span>
           <span className="text-xs font-semibold text-gray-400">out of 100</span>
         </div>
       </div>
-      <span className={`mt-3 inline-flex items-center rounded-full border px-3 py-1 text-sm font-bold ${cfg.text} ${cfg.bg} ${cfg.border}`}>
-        {cfg.label}
+      <span className="mt-3 inline-flex items-center rounded-full border border-brand-100 bg-brand-50 px-3 py-1 text-sm font-bold text-brand-700">
+        Four-module preview score
       </span>
     </div>
   )
 }
 
-function SeverityBreakdown({ counts = {} }) {
+function EvidenceIncompleteGauge() {
+  return (
+    <div className="flex flex-col items-center text-center">
+      <div className="flex h-40 w-40 items-center justify-center rounded-full border-[11px] border-amber-100 bg-amber-50">
+        <AlertTriangle className="h-12 w-12 text-amber-600" />
+      </div>
+      <span className="mt-3 inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-sm font-bold text-amber-800">
+        Evidence incomplete
+      </span>
+    </div>
+  )
+}
+
+function SeverityBreakdown({ counts = {}, evidenceComplete = false }) {
   const total = SEVERITIES.reduce((sum, severity) => sum + (Number(counts[severity]) || 0), 0)
 
   if (total === 0) {
+    if (!evidenceComplete) {
+      return (
+        <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+          <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+          No findings were produced, but some checks did not complete
+        </div>
+      )
+    }
     return (
       <div className="flex items-center gap-2 rounded-xl border border-green-100 bg-green-50 px-4 py-3 text-sm font-semibold text-green-700">
         <CheckCircle className="h-4 w-4 flex-shrink-0" />
-        No issues found in these checks
+        No issues observed in the completed preview checks
       </div>
     )
   }
@@ -258,7 +267,7 @@ function FindingCard({ finding }) {
   )
 }
 
-function ResultSection({ icon: Icon, title, description, checks, findings }) {
+function ResultSection({ icon: Icon, title, description, checks, findings, signal }) {
   return (
     <section className="card p-5 sm:p-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -285,9 +294,13 @@ function ResultSection({ icon: Icon, title, description, checks, findings }) {
           findings.map((finding, index) => (
             <FindingCard key={finding.id || `${title}-${index}`} finding={finding} />
           ))
-        ) : (
+        ) : signal?.complete ? (
           <div className="rounded-xl border border-green-100 bg-green-50 px-4 py-3 text-sm font-semibold text-green-700">
-            No preview findings in this section.
+            No issues observed in this completed preview section.
+          </div>
+        ) : (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+            {signal?.message || 'Evidence was incomplete for this preview section.'}
           </div>
         )}
       </div>
@@ -330,7 +343,7 @@ function LoadingState({ domain, messageIdx }) {
         <SearchCheck className="h-8 w-8 text-brand-600" />
         <div className="absolute inset-0 rounded-2xl border-2 border-brand-200 opacity-30 animate-ping" />
       </div>
-      <h2 className="text-lg font-bold text-gray-900">Preparing Cyber MOT for {domain}</h2>
+      <h2 className="text-lg font-bold text-gray-900">Preparing security preview for {domain}</h2>
       <p className="mt-1 text-sm text-gray-500">This usually takes around two minutes or less.</p>
       <div className="mx-auto mt-6 h-1.5 w-full max-w-xs overflow-hidden rounded-full bg-gray-100">
         <div
@@ -413,7 +426,7 @@ export default function FreeScanPage() {
   }
 
   const groupedFindings = groupFindings(result?.preview_findings || [])
-  const modules = result?.modules_scanned || []
+  const presentation = deriveFreeScanPresentation(result)
 
   return (
     <div className="min-h-screen bg-[#EEF1F6] text-gray-900">
@@ -440,13 +453,13 @@ export default function FreeScanPage() {
               <div>
                 <span className="eyebrow inline-flex items-center gap-2 rounded-full border border-brand-100 bg-brand-50 px-3 py-1">
                   <Sparkles className="h-3.5 w-3.5" />
-                  Free Cyber MOT
+                  Free security preview
                 </span>
                 <h1 className="mt-5 max-w-3xl text-[34px] font-bold leading-[1.08] tracking-tight text-gray-900 sm:text-[48px]">
-                  Cyber MOT - the 2-minute security check for your business.
+                  A 2-minute website and email security preview.
                 </h1>
                 <p className="mt-5 max-w-2xl text-base leading-relaxed text-gray-600 sm:text-lg">
-                  Get a clear website and email security report for your domain. Built for UK small businesses that need practical answers without jargon.
+                  Preview four public DNS, TLS, header and email checks for your domain. Built for UK small businesses that need practical answers without jargon.
                 </p>
 
                 <form onSubmit={handleScan} className="mt-8 grid gap-3 sm:max-w-2xl sm:grid-cols-[1fr_auto]">
@@ -499,14 +512,14 @@ export default function FreeScanPage() {
               <div className="card-md p-5 sm:p-6">
                 <div className="flex items-center justify-between gap-4">
                   <div>
-                    <span className="eyebrow">Sample report</span>
-                    <h2 className="mt-1 text-xl font-bold tracking-tight text-gray-900">Plain-English Cyber MOT</h2>
+                    <span className="eyebrow">Sample preview</span>
+                    <h2 className="mt-1 text-xl font-bold tracking-tight text-gray-900">Plain-English website and email checks</h2>
                   </div>
                   <ShieldCheck className="h-8 w-8 text-brand-600" />
                 </div>
                 <div className="mt-6 grid grid-cols-3 gap-3">
                   {[
-                    { label: 'Score', value: '78/100' },
+                    { label: 'Preview', value: '78/100' },
                     { label: 'Email', value: 'Review' },
                     { label: 'Website', value: 'Good' },
                   ].map(item => (
@@ -544,7 +557,7 @@ export default function FreeScanPage() {
         <main ref={resultsRef} className="mx-auto max-w-6xl px-5 py-8 sm:py-10">
           <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <span className="eyebrow">Cyber MOT report</span>
+              <span className="eyebrow">Free security preview</span>
               <h1 className="mt-1 text-2xl font-bold tracking-tight text-gray-900 sm:text-3xl">{result.domain}</h1>
               <p className="mt-1 text-sm text-gray-500">
                 Website and email security check
@@ -559,7 +572,9 @@ export default function FreeScanPage() {
 
           <section className="card-md p-5 sm:p-6">
             <div className="grid gap-8 lg:grid-cols-[220px_1fr] lg:items-center">
-              <ScoreGauge score={result.score} riskLevel={result.risk_level} />
+              {presentation.showScore
+                ? <ScoreGauge score={result.score} />
+                : <EvidenceIncompleteGauge />}
               <div>
                 <div className="grid gap-4 sm:grid-cols-3">
                   <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
@@ -580,21 +595,40 @@ export default function FreeScanPage() {
                 </div>
                 <div className="mt-6">
                   <h2 className="mb-3 text-sm font-bold text-gray-900">Severity breakdown</h2>
-                  <SeverityBreakdown counts={result.severity_counts} />
+                  <SeverityBreakdown
+                    counts={result.severity_counts}
+                    evidenceComplete={presentation.coverageComplete}
+                  />
                 </div>
               </div>
             </div>
           </section>
 
-          {modules.length > 0 && (
-            <div className="mt-5 flex flex-wrap gap-2">
-              {modules.map(moduleName => (
-                <span key={moduleName} className="rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-semibold capitalize text-gray-600">
-                  {moduleLabel(moduleName)}
-                </span>
-              ))}
+          <div className="mt-5 flex flex-wrap gap-2" aria-label="Preview module outcomes">
+            {presentation.moduleEvidence.map(module => (
+              <span key={module.module} className="rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-semibold text-gray-600">
+                {module.label || moduleLabel(module.module)}: {FREE_SCAN_STATE_LABELS[module.state]}
+              </span>
+            ))}
+          </div>
+
+          <div className={`mt-5 rounded-2xl border p-5 ${
+            presentation.evidenceIncomplete
+              ? 'border-amber-200 bg-amber-50'
+              : presentation.issuesObserved
+                ? 'border-orange-200 bg-orange-50'
+                : 'border-green-100 bg-green-50'
+          }`}>
+            <div className="flex items-start gap-3">
+              {presentation.evidenceIncomplete || presentation.issuesObserved
+                ? <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-700" />
+                : <CheckCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-green-700" />}
+              <div>
+                <h2 className="font-bold text-gray-900">{presentation.headline}</h2>
+                <p className="mt-1 text-sm leading-relaxed text-gray-700">{presentation.summary}</p>
+              </div>
             </div>
-          )}
+          </div>
 
           <div className="mt-6 grid gap-5 lg:grid-cols-2">
             <ResultSection
@@ -603,6 +637,7 @@ export default function FreeScanPage() {
               description="Checks that help stop criminals sending convincing emails that appear to come from your business."
               checks={['DMARC', 'SPF', 'DKIM']}
               findings={groupedFindings.email}
+              signal={presentation.signals.email_protection}
             />
             <ResultSection
               icon={Globe}
@@ -610,25 +645,28 @@ export default function FreeScanPage() {
               description="Checks that show whether your public website and domain are using common trust and protection settings."
               checks={['TLS', 'Headers', 'DNS']}
               findings={groupedFindings.website}
+              signal={{
+                complete:
+                  presentation.signals.website_security.complete &&
+                  presentation.signals.dns.complete,
+                message: [
+                  presentation.signals.website_security.complete
+                    ? null
+                    : presentation.signals.website_security.message,
+                  presentation.signals.dns.complete
+                    ? null
+                    : presentation.signals.dns.message,
+                ].filter(Boolean).join(' '),
+              }}
             />
           </div>
-
-          {result.total_findings === 0 && (
-            <div className="mt-6 rounded-2xl border border-green-100 bg-green-50 p-6 text-center">
-              <CheckCircle className="mx-auto mb-3 h-10 w-10 text-green-600" />
-              <h2 className="text-lg font-bold text-green-900">Your Cyber MOT looks healthy</h2>
-              <p className="mx-auto mt-2 max-w-2xl text-sm leading-relaxed text-green-700">
-                No issues were found in the preview checks. A free account adds the full report, monitoring, and change alerts.
-              </p>
-            </div>
-          )}
 
           <div className="mt-6">
             <HiddenFindingsCta count={result.hidden_count} domain={result.domain} />
           </div>
 
           <section className="mt-6 rounded-2xl bg-gray-900 p-6 text-center sm:p-8">
-            <h2 className="text-2xl font-bold tracking-tight text-white">Turn this Cyber MOT into ongoing monitoring</h2>
+            <h2 className="text-2xl font-bold tracking-tight text-white">Turn this preview into ongoing monitoring</h2>
             <p className="mx-auto mt-3 max-w-2xl text-sm leading-relaxed text-gray-300">
               Create a free account to keep the report, view every finding, receive practical remediation guidance, and track changes over time.
             </p>

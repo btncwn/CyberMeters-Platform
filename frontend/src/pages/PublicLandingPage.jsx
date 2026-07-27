@@ -81,7 +81,7 @@ const STEPS = [
 ]
 
 const CHECKS = [
-  { icon: SearchCheck,  label: '2-minute Cyber MOT report' },
+  { icon: SearchCheck,  label: '2-minute website and email preview' },
   { icon: Globe,        label: 'Website security signals' },
   { icon: Mail,         label: 'Email protection checks' },
   { icon: ShieldCheck,  label: 'Cyber Essentials readiness gaps' },
@@ -132,7 +132,7 @@ function Nav() {
         </nav>
         <div className="flex items-center gap-2">
           <a href={`${APP_URL}/login`} className="hidden sm:inline text-sm font-medium text-gray-600 hover:text-gray-900 px-2">Sign in</a>
-          <Link to="/free-scan" className="btn-primary text-sm !rounded-full">Run your Cyber MOT <ArrowRight className="w-4 h-4" /></Link>
+          <Link to="/free-scan" className="btn-primary text-sm !rounded-full">Run free preview <ArrowRight className="w-4 h-4" /></Link>
         </div>
       </div>
     </header>
@@ -281,10 +281,10 @@ export default function PublicLandingPage() {
                 Know where your business is <span className="relative text-brand-800">exposed<span className="absolute left-0 right-0 -z-10 rounded-sm" style={{ bottom: '0.07em', height: '0.16em', background: '#D6EAE2' }} /></span> — before anyone else does.
               </h1>
               <p className="text-[1.18rem] text-gray-600 mt-5 leading-relaxed max-w-[34ch]">
-                CyberMeters checks the eight Cyber MOT domains, then tells you what to fix first. One clear posture. No jargon.
+                The managed Cyber MOT covers eight domains. The free entry point is a clearly bounded four-check website and email preview.
               </p>
               <div className="flex flex-wrap items-center gap-3.5 mt-8">
-                <Link to="/free-scan" className="btn-primary !rounded-full">Run your free Cyber MOT <ArrowRight className="w-4 h-4" /></Link>
+                <Link to="/free-scan" className="btn-primary !rounded-full">Run free preview <ArrowRight className="w-4 h-4" /></Link>
                 <a href="#how" className="btn-secondary !rounded-full">See how it works →</a>
               </div>
               <p className="text-sm text-gray-400 mt-4 flex items-center gap-2">
@@ -407,13 +407,13 @@ export default function PublicLandingPage() {
             style={{ background: 'linear-gradient(150deg,#00352A,#00543F)' }}>
             <div className="absolute inset-0 pointer-events-none" style={{ background: 'radial-gradient(600px 300px at 88% 10%, rgba(140,230,205,.20), transparent 60%)' }} />
             <div className="relative">
-              <h2 className="text-[clamp(1.9rem,4vw,3rem)] font-bold text-white tracking-tight max-w-[20ch] mx-auto sm:mx-0">Get your first Cyber MOT free.</h2>
+              <h2 className="text-[clamp(1.9rem,4vw,3rem)] font-bold text-white tracking-tight max-w-[20ch] mx-auto sm:mx-0">Try the free security preview.</h2>
               <p className="text-[1.12rem] mt-4 max-w-[44ch] mx-auto sm:mx-0" style={{ color: '#bfe6d8' }}>
-                See your real posture across all eight domains in two minutes. No card, no agent, no obligation — just a clear picture of where you stand.
+                Preview public DNS, TLS, website-header and email-protection signals in two minutes. This four-check preview is not the full eight-domain Cyber MOT.
               </p>
               <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3.5 mt-8">
                 <Link to="/free-scan" className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-white text-brand-800 font-semibold hover:bg-emerald-50 transition-colors">
-                  Run your free Cyber MOT <ArrowRight className="w-4 h-4" />
+                  Run free preview <ArrowRight className="w-4 h-4" />
                 </Link>
                 <a href={CONTACT} className="inline-flex items-center gap-2 px-6 py-3 rounded-full border font-semibold transition-colors"
                   style={{ borderColor: 'rgba(234,250,244,.35)', color: '#eafaf4' }}>

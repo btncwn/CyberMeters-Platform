@@ -562,6 +562,12 @@ jobs:
       - name: Validate per-signal monitoring states (CT fallback + incomplete attribution + wording + mutations)
         run: node scripts/validate-signal-monitoring-state.js
 
+      - name: Validate free-scan evidence honesty (FAILED/PARTIAL fixtures + real route-to-UI trace)
+        run: node scripts/validate-free-scan-false-healthy.js
+
+      - name: Validate free-scan false-healthy mutation kills (failed/zero-findings/fixed-list/state-collapse)
+        run: node scripts/validate-free-scan-false-healthy-mutations.js
+
       - name: Validate Item 9 certificate per-signal completeness (pure fixtures; no production caller)
         run: node scripts/validate-item9-certificate-signal-completeness.js
 
