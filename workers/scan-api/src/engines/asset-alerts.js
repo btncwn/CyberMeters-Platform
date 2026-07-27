@@ -3,6 +3,10 @@
 // customer alert email. Extracted verbatim from index.js (monolith decomposition, Phase 1c).
 import { escapeEmailHtml } from "../lib/lifecycle-email.js";
 import { scanCompletionQualityDisclosure } from "./assessment-presentation.js";
+import {
+  applyAssetRemovalConfirmation,
+  ASSET_REMOVAL_CONFIRMATION_POLICY,
+} from "./attack-surface-signal-completeness.js";
 
 // ── Asset Change Alert Engine ─────────────────────────────────────────────────
 //
@@ -20,7 +24,7 @@ import { scanCompletionQualityDisclosure } from "./assessment-presentation.js";
 //   certificate_new_detected / certificate_new_san_detected /
 //   certificate_new_issuer_detected → medium
 //   asset_reappeared        → medium
-//   asset_no_longer_seen    → info  (included in summary but does not trigger alone)
+//   asset_no_longer_seen    → info  (triggers only after evidence eligibility)
 
 export const ASSET_ALERT_EVENTS = new Set([
   "new_asset_discovered",
@@ -34,6 +38,228 @@ export const ASSET_ALERT_EVENTS = new Set([
   "certificate_new_san_detected",
   "certificate_new_issuer_detected",
 ]);
+
+export const ASSET_ALERT_ELIGIBILITY_VERSION = "asset-alert-eligibility-v1";
+export const ASSET_ALERT_WITHHELD_REASON =
+  "withheld_all_claims_unsupported";
+
+// Frozen, machine-readable vocabulary. Every per-claim decision and the
+// withheld-only delivery record uses one of these values; callers must never
+// substitute free text or an unlabelled false.
+export const ASSET_ALERT_ELIGIBILITY_REASON_CODES = Object.freeze([
+  "eligible_signal_observed",
+  "eligible_event_evidence",
+  "eligible_event_evidence_fallback",
+  "eligible_confirmed_removal",
+  "eligible_reappearance_after_confirmed_removal",
+  "withheld_signal_not_supported",
+  "withheld_lifecycle_schema_absent",
+  "withheld_evidence_lookup_unavailable",
+  "withheld_removal_confirmation_not_satisfied",
+  "withheld_reappearance_predecessor_unconfirmed",
+  ASSET_ALERT_WITHHELD_REASON,
+]);
+
+const CLAIM_SIGNAL_KEYS = Object.freeze({
+  new_asset_discovered: "subdomain_discovery",
+  takeover_risk_detected: "takeover_candidate",
+  cloud_storage_detected: "cloud_storage",
+  admin_surface_detected: "exposure_admin_surface",
+});
+
+const LIFECYCLE_CLAIMS = new Set([
+  "asset_no_longer_seen",
+  "asset_reappeared",
+]);
+
+const DIRECT_EVENT_CLAIMS = new Set([
+  "wildcard_dns_detected",
+  "certificate_new_detected",
+  "certificate_new_san_detected",
+  "certificate_new_issuer_detected",
+]);
+
+function safeSourceDetail(value) {
+  if (value && typeof value === "object") return value;
+  try {
+    return JSON.parse(value || "{}") || {};
+  } catch {
+    return {};
+  }
+}
+
+function activeRemovalEvidence(row) {
+  const detail = safeSourceDetail(row?.source_detail_json);
+  const activeSources = new Set(detail.active_sources || []);
+  const excludedSources = new Set(
+    ASSET_REMOVAL_CONFIRMATION_POLICY.passive_sources_excluded,
+  );
+  const confirmationSources = new Set(
+    [...activeSources].filter((source) => !excludedSources.has(source)),
+  );
+  return (
+    row?.policy_version === ASSET_REMOVAL_CONFIRMATION_POLICY.version &&
+    ASSET_REMOVAL_CONFIRMATION_POLICY.relevant_active_sources.every(
+      (source) => confirmationSources.has(source),
+    )
+  );
+}
+
+function lifecycleTransitionForEvent(event, rows) {
+  let current = {
+    lifecycle_state: "not_assessed",
+    qualifying_observations: [],
+    confirmed_removed_at: null,
+  };
+  let eventTransition = null;
+  const ordered = (rows || [])
+    .filter((row) => row?.asset_id === event?.asset_id)
+    .sort((a, b) => {
+      const time = Date.parse(a.observed_at) - Date.parse(b.observed_at);
+      return time || String(a.scan_id).localeCompare(String(b.scan_id));
+    });
+
+  for (const row of ordered) {
+    const isObserved = row.observation_state === "observed";
+    const acceptedNegative =
+      row.qualifies_removal === 1 &&
+      row.observation_state === "not_observed" &&
+      activeRemovalEvidence(row);
+    const signalStates = isObserved || acceptedNegative
+      ? {
+          dns_resolution: { state: row.dns_state },
+          http_https_service: { state: row.http_state },
+        }
+      : {
+          // A non-qualifying negative, unavailable, incomplete or passive-only
+          // observation remains history but cannot advance the threshold.
+          dns_resolution: { state: "not_assessed" },
+          http_https_service: { state: "not_assessed" },
+        };
+    const next = applyAssetRemovalConfirmation(current, {
+      scan_id: row.scan_id,
+      observed_at: row.observed_at,
+      signal_states: signalStates,
+    });
+    current = next;
+    if (row.scan_id === event.scan_id) eventTransition = next.transition;
+  }
+  return eventTransition;
+}
+
+function lifecycleReason(event, evidence) {
+  if (evidence.lifecycle_status === "schema_absent") {
+    return "withheld_lifecycle_schema_absent";
+  }
+  if (evidence.lifecycle_status !== "available") {
+    return "withheld_evidence_lookup_unavailable";
+  }
+  return event.event_type === "asset_no_longer_seen"
+    ? "withheld_removal_confirmation_not_satisfied"
+    : "withheld_reappearance_predecessor_unconfirmed";
+}
+
+function decisionForEvent(event, evidence) {
+  if (LIFECYCLE_CLAIMS.has(event.event_type)) {
+    const transition = lifecycleTransitionForEvent(
+      event,
+      evidence.lifecycle_observations,
+    );
+    if (event.event_type === "asset_no_longer_seen" &&
+        transition === "confirmed_removed") {
+      return { eligible: true, reason_code: "eligible_confirmed_removal" };
+    }
+    if (event.event_type === "asset_reappeared" && transition === "reappeared") {
+      return {
+        eligible: true,
+        reason_code: "eligible_reappearance_after_confirmed_removal",
+      };
+    }
+    return { eligible: false, reason_code: lifecycleReason(event, evidence) };
+  }
+
+  const signalKey = CLAIM_SIGNAL_KEYS[event.event_type];
+  if (signalKey) {
+    const signal = evidence.signal_states?.[signalKey];
+    if (signal) {
+      return signal.state === "observed"
+        ? { eligible: true, reason_code: "eligible_signal_observed" }
+        : { eligible: false, reason_code: "withheld_signal_not_supported" };
+    }
+    // Migration 102 absent, a failed evidence read, or an individual missing
+    // row must not silence an independently persisted detection event.
+    return {
+      eligible: true,
+      reason_code: "eligible_event_evidence_fallback",
+    };
+  }
+
+  if (DIRECT_EVENT_CLAIMS.has(event.event_type)) {
+    return { eligible: true, reason_code: "eligible_event_evidence" };
+  }
+
+  // ASSET_ALERT_EVENTS is frozen and exhaustive. Retain an explicit reason if
+  // a future caller evaluates an event before extending this policy.
+  return { eligible: false, reason_code: "withheld_signal_not_supported" };
+}
+
+function groupedDecisions(decisions, eligible) {
+  const grouped = new Map();
+  for (const decision of decisions.filter((item) => item.eligible === eligible)) {
+    const key = `${decision.event_type}:${decision.reason_code}`;
+    const current = grouped.get(key) || {
+      event_type: decision.event_type,
+      reason_code: decision.reason_code,
+      count: 0,
+    };
+    current.count += 1;
+    grouped.set(key, current);
+  }
+  return [...grouped.values()].sort((a, b) =>
+    a.event_type.localeCompare(b.event_type) ||
+    a.reason_code.localeCompare(b.reason_code));
+}
+
+export function evaluateAssetAlertEligibility(events, evidence = {}) {
+  const alertEvents = (events || []).filter((event) =>
+    ASSET_ALERT_EVENTS.has(event?.event_type));
+  const decisions = alertEvents.map((event) => {
+    const result = decisionForEvent(event, evidence);
+    return {
+      event_id: event.id || null,
+      event_type: event.event_type,
+      eligible: result.eligible,
+      reason_code: result.reason_code,
+    };
+  });
+  const eligibleEvents = [];
+  const withheldEvents = [];
+  for (const [index, event] of alertEvents.entries()) {
+    const decision = decisions[index];
+    (decision?.eligible ? eligibleEvents : withheldEvents).push(event);
+  }
+  return {
+    policy_version: ASSET_ALERT_ELIGIBILITY_VERSION,
+    eligible_events: eligibleEvents,
+    withheld_events: withheldEvents,
+    decisions,
+    record: {
+      policy_version: ASSET_ALERT_ELIGIBILITY_VERSION,
+      eligible: groupedDecisions(decisions, true),
+      withheld: groupedDecisions(decisions, false),
+    },
+  };
+}
+
+export function assetAlertCounts(events, eligibilityRecord = null) {
+  const counts = {};
+  for (const event of events || []) {
+    if (!ASSET_ALERT_EVENTS.has(event?.event_type)) continue;
+    counts[event.event_type] = (counts[event.event_type] || 0) + 1;
+  }
+  if (eligibilityRecord) counts._eligibility = eligibilityRecord;
+  return counts;
+}
 
 // Severity thresholds — highest matching rule wins.
 export function assetAlertSeverity(counts) {
@@ -50,11 +276,13 @@ export function assetAlertSeverity(counts) {
 }
 
 // Returns true when there is something worth emailing about.
-// asset_no_longer_seen alone is not alert-worthy.
+// A confirmed asset_no_longer_seen is alert-worthy at info severity. Eligibility
+// filters unsupported legacy/one-scan removal claims before this count gate.
 export function assetAlertWorthy(counts) {
   return (
     (counts.new_asset_discovered   || 0) > 0 ||
     (counts.asset_reappeared       || 0) > 0 ||
+    (counts.asset_no_longer_seen   || 0) > 0 ||
     (counts.takeover_risk_detected || 0) > 0 ||
     (counts.cloud_storage_detected || 0) > 0 ||
     (counts.wildcard_dns_detected  || 0) > 0 ||
