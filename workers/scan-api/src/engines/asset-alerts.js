@@ -39,6 +39,28 @@ export const ASSET_ALERT_EVENTS = new Set([
   "certificate_new_issuer_detected",
 ]);
 
+export const ASSET_ALERT_EMAIL_LABELS = Object.freeze({
+  new_asset_discovered: "New assets observed",
+  asset_reappeared: "Seen again",
+  asset_no_longer_seen: "No longer seen",
+  takeover_risk_detected: "Takeover candidates observed",
+  cloud_storage_detected: "Cloud storage references observed",
+  wildcard_dns_detected: "Wildcard DNS observed",
+  admin_surface_detected: "Admin surfaces observed",
+  certificate_new_detected: "New certificates observed",
+  certificate_new_san_detected: "New certificate names observed",
+  certificate_new_issuer_detected: "New certificate issuers observed",
+});
+
+const missingAssetAlertEmailLabels = [...ASSET_ALERT_EVENTS].filter(
+  (eventType) => !ASSET_ALERT_EMAIL_LABELS[eventType],
+);
+if (missingAssetAlertEmailLabels.length > 0) {
+  throw new Error(
+    `Missing customer-facing asset alert email labels: ${missingAssetAlertEmailLabels.join(", ")}`,
+  );
+}
+
 export const ASSET_ALERT_ELIGIBILITY_VERSION = "asset-alert-eligibility-v1";
 export const ASSET_ALERT_WITHHELD_REASON =
   "withheld_all_claims_unsupported";
@@ -303,19 +325,10 @@ export function buildAssetAlertEmail(domain, workspaceId, scanId, counts, topHos
   const color = SEVERITY_COLOR[severity] || SEVERITY_COLOR.info;
   const quality = scanCompletionQualityDisclosure(scanQuality);
 
-  const LABELS = {
-    new_asset_discovered:   "New assets discovered",
-    asset_reappeared:       "Assets reappeared",
-    asset_no_longer_seen:   "Assets no longer seen",
-    takeover_risk_detected: "Subdomain takeover risks",
-    cloud_storage_detected: "Cloud storage references",
-    wildcard_dns_detected:  "Wildcard DNS events",
-  };
-
   const lines = [];
-  for (const [type, label] of Object.entries(LABELS)) {
+  for (const type of ASSET_ALERT_EVENTS) {
     const n = counts[type] || 0;
-    if (n > 0) lines.push(`${label}: ${n}`);
+    if (n > 0) lines.push(`${ASSET_ALERT_EMAIL_LABELS[type]}: ${n}`);
   }
 
   const hostList = (topHostnames || []).slice(0, 5);
@@ -323,10 +336,17 @@ export function buildAssetAlertEmail(domain, workspaceId, scanId, counts, topHos
     ? `Top affected hostnames: ${hostList.join(", ")}`
     : null;
 
-  const subject = severity === "critical"
+  const takeoverCount = counts.takeover_risk_detected || 0;
+  const newAssetCount = counts.new_asset_discovered || 0;
+  const adminSurfaceCount = counts.admin_surface_detected || 0;
+  const subject = takeoverCount > 0
     ? `🚨 CyberMeters: Takeover risk on ${domain}`
-    : severity === "high"
-    ? `⚠ CyberMeters: New assets detected on ${domain}`
+    : newAssetCount > 0 && adminSurfaceCount > 0
+    ? `⚠ CyberMeters: Asset changes observed on ${domain}`
+    : adminSurfaceCount > 0
+    ? `⚠ CyberMeters: Admin surfaces observed on ${domain}`
+    : newAssetCount > 0
+    ? `⚠ CyberMeters: New assets observed on ${domain}`
     : `CyberMeters: Asset changes on ${domain}`;
 
   const text = [

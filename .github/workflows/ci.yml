@@ -607,6 +607,12 @@ jobs:
       - name: Validate Item 10 P4 ASM alert-quality source mutations
         run: node scripts/validate-item10-attack-surface-p4-alert-quality-mutations.js
 
+      - name: Validate canonical ASM alert email labels
+        run: node scripts/validate-asset-alert-email-labels.js
+
+      - name: Validate canonical ASM alert email-label mutations
+        run: node scripts/validate-asset-alert-email-labels-mutations.js
+
       - name: Validate Item 10 P5 Attack Surface customer-surface parity (API + snapshot + report + PDF + UI + legacy)
         run: node scripts/validate-item10-attack-surface-p5-customer-parity.js
 
