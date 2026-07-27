@@ -5,7 +5,55 @@ Internal release notes for CyberMeters. Newest first. `APP_VERSION` in
 release is git-tagged `vYYYY.MM.DD-n` and the deployment id is visible at
 `GET /health`.
 
-## v2026.07.27-2 — Migration 102 + Item 10 P3–P5 activation + SPF CIDR P1 cutover — deployed 2026-07-27; **DEPLOYED · NOT LIVE-ACCEPTED · KNOWN CORRECTIVE BLOCKER OPEN**
+## v2026.07.27-3 — Item 10 P5 pagination corrective — deployed 2026-07-27; **ITEM 10 ENGINEERING COMPLETE AND DEPLOYED · LIVE ACCEPTANCE DEFERRED TO ITEM 14**
+
+Closes the corrective blocker recorded under `v2026.07.27-2` below. With this cutover
+**Item 10 (Attack Surface depth) is ENGINEERING COMPLETE AND DEPLOYED**: P1 #326 · P2 #327 ·
+P3 #330 · P4 #335 · P5 #336 · pagination corrective **#338**. Founder live acceptance is
+**DEFERRED TO ITEM 14** — no production acceptance and no Item 14 PASS is claimed by this
+entry.
+
+- **Release identity:** deployed main SHA `b4fd347c53a9bd2acbaff2b87a17d567f19a3d2b`
+  (merge of PR #338, reviewed head `f330511b`, parents `26565746` + `f330511b`; exact-main
+  validate/sast/Pages all green). Release tag `v2026.07.27-3` on the deployed commit.
+- **Migration:** none in this cutover. Migration `102` remains applied and unchanged.
+- **scan-api (`cybermeters-platform`):** production Worker Version ID
+  `8d4e36f1-c193-48f4-a0e5-dac05e8807f8`, deploy message
+  `"Item 10 P5 pagination corrective PR #338 cutover b4fd347c…"`; **rollback:**
+  `5624f0a5-151f-4c8e-a6cd-ab00959cad05` (the `-2` cutover, Cloudflare-confirmed live
+  immediately before this deploy). **email-ingest: not deployed** (unchanged on
+  `f4423b41…`).
+- **What the corrective fixes in production:** the domain-level ASM assurance projection is
+  now fed by one independent workspace-scoped bounded query
+  (`LIMIT 500`, `COUNT(*) OVER ()` total) instead of the request's own paginated/filtered
+  rows; the response carries explicit
+  `attack_surface_assurance_coverage { returned, total, bound, truncated, status,
+  customer_message }`; truncation is stated, never silent; list rows no longer duplicate
+  the projection; the asset-detail endpoint keeps its asset-scoped projection and the
+  `asset.attack_surface_assurance` compatibility alias; the canonical presentation engine
+  is byte-unchanged.
+- **Production proof (side-effect-safe):** both scan-api hosts
+  (`api.cybermeters.com` and `cybermeters-platform.ttrnn47.workers.dev`) serve the same new
+  deployment id `8d4e36f1…`; `/ready` reports `d1:true, r2:true`; `/api/workspaces`,
+  `/api/scans` and `/api/workspaces/:id/assets` all return `401` (auth gates intact).
+  Read-only D1 confirms the parity inputs: the largest workspace still holds exactly
+  **238 assets** — the deployed code's coverage for it is
+  `returned: 238, total: 238, bound: 500, truncated: false` by construction.
+- **Proof boundary, stated honestly:** the authenticated parity behaviours — identical
+  top-level projection across `?limit=1` / default / `?status=active`, confirmed-removed
+  evidence surviving an active-only filter, no per-row duplication, asset-detail alias, and
+  the **83.4 % response-size reduction** (238-asset response 1,769,693 → 293,273 bytes) —
+  are proven by the corrective fixtures running the **real route handler** against a seeded
+  238-asset workspace plus a genuine 501-asset truncation case (33/33 assertions; 4/4
+  mutants killed). No founder session was available at deploy time, so authenticated live
+  smoke on the production workspace remains a founder-session action inside Item 14. A
+  `401` proves route liveness only, not the authenticated workflow.
+- **Lifecycle clock at this deploy:** `asset_lifecycle_observations` and
+  `attack_surface_signal_observations` still hold **0 rows** — no completed post-102 scan
+  has written yet. Each asset's `confirmed_removed` window starts at its first qualifying
+  post-deploy complete observation.
+
+## v2026.07.27-2 — Migration 102 + Item 10 P3–P5 activation + SPF CIDR P1 cutover — deployed 2026-07-27; **DEPLOYED · NOT LIVE-ACCEPTED · CORRECTIVE BLOCKER CLOSED BY v2026.07.27-3**
 
 The second production cutover of 2026-07-27. It applied the first schema change since
 migration `101`, activated the Item 10 lifecycle that the `-1` cutover had shipped inert, and
@@ -47,7 +95,7 @@ Item 10 is therefore **not** recorded as engineering-complete by this entry.
   qualifying post-deploy complete observation, not at deploy time**. Before scheduling the
   Item 14 ASM session, read the actual qualifying-observation timestamps from these tables.
 
-### KNOWN CORRECTIVE BLOCKER (open) — P5 domain projection is page-coupled and duplicated
+### KNOWN CORRECTIVE BLOCKER — P5 domain projection page-coupled and duplicated — **CLOSED by PR #338 / `v2026.07.27-3` above**
 
 Found in post-deploy review (GPT), verified in code and in production data (Claude). Both
 pre-merge reviews of PR #336 passed it; the parity harness proved all surfaces share one
@@ -66,10 +114,9 @@ projection *function* but never varied the projection's *input* across paginatio
 
 Not rollback-worthy: no schema or lifecycle data is corrupted, no wrong case transitions, no
 false-healthy wording — the defect silently narrows evidence scope and bloats responses.
-Rolling back would also remove the working P3–P5/SPF fixes. **A focused corrective PR
-(independent bounded evidence read + honest truncation metadata + single top-level
-projection) is required before Item 10 may be recorded engineering-complete; CT-R1 does not
-start before it.**
+Rolling back would also remove the working P3–P5/SPF fixes. The required focused corrective
+PR is **#338**, deployed as **`v2026.07.27-3`** (see the entry above); with it Item 10 is
+recorded ENGINEERING COMPLETE AND DEPLOYED, and CT-R1 is unblocked.
 
 ## v2026.07.27-1 — Free-Scan False-Healthy P1 containment (+ first production cutover of Item 9 and Item 10 P1–P3) — deployed 2026-07-27; **DEPLOYED · NOT LIVE-ACCEPTED**
 
