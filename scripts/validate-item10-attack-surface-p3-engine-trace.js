@@ -6,6 +6,9 @@ import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+// Frozen base clock: every engine invocation below receives an explicit
+// deterministic offset from this trace epoch; wall-clock time is never used.
+const NOW = "2026-07-27T00:00:00.000Z";
 const engine = (name) => pathToFileURL(path.join(
   root, "workers/scan-api/src/engines", name,
 )).href;
@@ -277,7 +280,7 @@ async function run(scanId, when, mode) {
 }
 
 try {
-  await run("scan-1", "2026-07-27T00:00:00.000Z", "negative");
+  await run("scan-1", NOW, "negative");
   eq("first real negative leaves the case awaiting verification",
     (await getManagedCase(env, "ws", originalCaseId)).status,
     "verification_requested");
