@@ -14,6 +14,7 @@ const original = fs.readFileSync(sourcePath, "utf8");
 let sequence = 0;
 let pass = 0;
 let fail = 0;
+let mutantsKilled = 0;
 
 const ok = (name, condition, detail = "") => {
   condition ? pass += 1 : fail += 1;
@@ -74,7 +75,9 @@ function zeroFindingSettlements(overrides = {}) {
     const ordinaryContractPassed =
       evidence.module_evidence.find((entry) => entry.module === "ssl")?.state === "failed" &&
       state === "evidence_incomplete";
-    ok("M1 makes failed-probe honesty contract RED", !ordinaryContractPassed);
+    const killed = !ordinaryContractPassed;
+    ok("M1 makes failed-probe honesty contract RED", killed);
+    if (killed) mutantsKilled += 1;
   }
 }
 
@@ -94,7 +97,9 @@ function zeroFindingSettlements(overrides = {}) {
       moduleEvidence: evidence.module_evidence,
     });
     const ordinaryContractPassed = state === "evidence_incomplete";
-    ok("M2 makes zero-findings evidence gate RED", !ordinaryContractPassed);
+    const killed = !ordinaryContractPassed;
+    ok("M2 makes zero-findings evidence gate RED", killed);
+    if (killed) mutantsKilled += 1;
   }
 }
 
@@ -111,7 +116,9 @@ function zeroFindingSettlements(overrides = {}) {
       ssl: { status: "rejected", reason: new Error("timeout") },
     }));
     const ordinaryContractPassed = !evidence.modules_scanned.includes("ssl");
-    ok("M3 makes derived-module-list contract RED", !ordinaryContractPassed);
+    const killed = !ordinaryContractPassed;
+    ok("M3 makes derived-module-list contract RED", killed);
+    if (killed) mutantsKilled += 1;
   }
 }
 
@@ -127,10 +134,15 @@ function zeroFindingSettlements(overrides = {}) {
     }));
     const ordinaryContractPassed =
       evidence.module_evidence.find((entry) => entry.module === "ssl")?.state === "unavailable";
-    ok("M4 makes distinct-state contract RED", !ordinaryContractPassed);
+    const killed = !ordinaryContractPassed;
+    ok("M4 makes distinct-state contract RED", killed);
+    if (killed) mutantsKilled += 1;
   }
 }
 
-console.log(`\nFree-scan false-healthy mutations: ${pass}/${pass + fail} passed`);
-if (fail) process.exit(1);
+console.log(
+  `\nFree-scan false-healthy mutations: ${mutantsKilled}/4 mutants killed; ` +
+  `${pass}/${pass + fail} assertions passed`,
+);
+if (fail || mutantsKilled !== 4) process.exit(1);
 console.log("Free-scan false-healthy mutation proof passed");

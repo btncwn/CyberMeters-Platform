@@ -74,8 +74,8 @@ const SERVICES = [
 ]
 
 const STEPS = [
-  { n: 'STEP 01', title: 'Scan', copy: 'Add a domain and run your Cyber MOT. No agent, no config — results in under two minutes.' },
-  { n: 'STEP 02', title: 'Understand', copy: 'One posture across eight domains. Every finding written for a business owner, not an engineer.' },
+  { n: 'STEP 01', title: 'Preview', copy: 'Start with a free four-check website and email preview in under two minutes. This is not the managed eight-domain posture.' },
+  { n: 'STEP 02', title: 'Understand', copy: 'The managed Cyber MOT journey builds one posture across eight domains. Every finding is written for a business owner, not an engineer.' },
   { n: 'STEP 03', title: 'Fix', copy: 'Guided remediation tells you what to fix first, and exactly which record or setting to change.' },
   { n: 'STEP 04', title: 'Monitor', copy: 'Schedule re-checks and get alerted the moment something changes — a new asset, an expiring cert, a spoof attempt.' },
 ]

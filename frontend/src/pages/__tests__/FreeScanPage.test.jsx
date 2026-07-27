@@ -51,6 +51,32 @@ function responseFor({ moduleState, coverageState }) {
   }
 }
 
+function allProbesFailedResponse() {
+  const payload = responseFor({
+    moduleState: 'unavailable',
+    coverageState: 'evidence_incomplete',
+  })
+  payload.module_evidence = [
+    { module: 'dns', label: 'DNS', attempted: true, state: 'failed' },
+    { module: 'ssl', label: 'TLS', attempted: true, state: 'unavailable' },
+    { module: 'headers', label: 'Headers', attempted: true, state: 'incomplete' },
+    { module: 'email_security', label: 'Email', attempted: true, state: 'unavailable' },
+  ]
+  payload.modules_scanned = []
+  payload.score = null
+  payload.risk_level = null
+  payload.preview_state = 'evidence_incomplete'
+  payload.monitoring_states.signals.dns = {
+    state: 'evidence_incomplete',
+    message: 'DNS checks did not complete in this run.',
+  }
+  payload.monitoring_states.signals.email_protection = {
+    state: 'signal_unavailable',
+    message: 'Email protection checks were unavailable in this run.',
+  }
+  return payload
+}
+
 async function renderResult(payload) {
   vi.stubGlobal('fetch', vi.fn(async () => ({
     ok: true,
@@ -109,5 +135,19 @@ describe('FreeScanPage evidence honesty', () => {
         expect.objectContaining({ method: 'POST' }),
       )
     })
+  })
+
+  it('renders the all-probes-failed contract without a score or healthy/no-issues verdict', async () => {
+    await renderResult(allProbesFailedResponse())
+
+    expect(screen.getByText('DNS: Failed')).toBeInTheDocument()
+    expect(screen.getByText('TLS: Unavailable')).toBeInTheDocument()
+    expect(screen.getByText('Headers: Incomplete')).toBeInTheDocument()
+    expect(screen.getByText('Email: Unavailable')).toBeInTheDocument()
+    expect(screen.queryByText(/Four-module preview score/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/out of 100/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/healthy/i)).not.toBeInTheDocument()
+    expect(screen.queryByText('Excellent')).not.toBeInTheDocument()
+    expect(screen.queryByText(/No issues observed/i)).not.toBeInTheDocument()
   })
 })

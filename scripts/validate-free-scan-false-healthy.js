@@ -143,6 +143,36 @@ try {
     partialUi.moduleEvidence.find((entry) => entry.module === "headers")?.state,
     "partial");
 
+  const allProbesFailed = await runRouteFixture(readFixture("all-probes-failed"));
+  eq("ALL-PROBES-FAILED fixture: real route returns 200",
+    allProbesFailed.status, 200);
+  eq("ALL-PROBES-FAILED fixture: all four modules remain non-complete",
+    allProbesFailed.body.module_evidence.every(
+      (entry) => ["failed", "unavailable", "incomplete"].includes(entry.state),
+    ), true);
+  eq("ALL-PROBES-FAILED fixture: no module is listed as scanned",
+    allProbesFailed.body.modules_scanned.length, 0);
+  eq("ALL-PROBES-FAILED fixture: score is null",
+    allProbesFailed.body.score, null);
+  eq("ALL-PROBES-FAILED fixture: risk level is null",
+    allProbesFailed.body.risk_level, null);
+  eq("ALL-PROBES-FAILED fixture: preview remains evidence-incomplete",
+    allProbesFailed.body.preview_state, "evidence_incomplete");
+
+  const allProbesFailedUi = deriveFreeScanPresentation(allProbesFailed.body);
+  eq("ALL-PROBES-FAILED route→UI: customer headline is evidence-incomplete",
+    allProbesFailedUi.headline, "Evidence incomplete");
+  eq("ALL-PROBES-FAILED route→UI: score is not displayable",
+    allProbesFailedUi.showScore, false);
+  eq("ALL-PROBES-FAILED route→UI: healthy/no-issues verdict is false",
+    allProbesFailedUi.noIssuesObserved, false);
+  ok("ALL-PROBES-FAILED route→UI: no healthy, Excellent, score, or no-issues copy",
+    !/healthy|excellent|no issues|no-issues|out of 100/i.test([
+      allProbesFailedUi.headline,
+      allProbesFailedUi.summary,
+      allProbesFailedUi.showScore ? String(allProbesFailed.body.score) : "",
+    ].join(" ")));
+
   const completeFixture = readFixture("failed");
   completeFixture.name = "complete";
   completeFixture.module_outcomes.ssl = {
@@ -271,6 +301,16 @@ try {
       coverage: partial.body.evidence_coverage,
       preview_state: partial.body.preview_state,
       ui_headline: partialUi.headline,
+    },
+    all_probes_failed: {
+      module_evidence: allProbesFailed.body.module_evidence,
+      modules_scanned: allProbesFailed.body.modules_scanned,
+      score: allProbesFailed.body.score,
+      risk_level: allProbesFailed.body.risk_level,
+      preview_state: allProbesFailed.body.preview_state,
+      ui_headline: allProbesFailedUi.headline,
+      ui_show_score: allProbesFailedUi.showScore,
+      ui_no_issues_observed: allProbesFailedUi.noIssuesObserved,
     },
   }, null, 2));
 } finally {
