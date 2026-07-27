@@ -6,9 +6,10 @@
 // probe failed or returned incomplete evidence.
 
 import {
-  deriveDeclaredSignalMonitoringStates,
   resolveSignalMonitoringCoverage,
+  SIGNAL_MONITORING_STATE_VERSION,
   SIGNAL_MONITORING_STATES,
+  SIGNAL_MONITORING_WORDING,
 } from "./signal-monitoring-state.js";
 
 export const FREE_SCAN_MODULE_STATES = Object.freeze({
@@ -52,6 +53,72 @@ const FINDING_CAPABLE_STATES = new Set([
   FREE_SCAN_MODULE_STATES.COMPLETED,
   FREE_SCAN_MODULE_STATES.PARTIAL,
 ]);
+
+function monitoringStateForExecutionState(state) {
+  if (state === FREE_SCAN_MODULE_STATES.COMPLETED) {
+    return SIGNAL_MONITORING_STATES.MONITORING_HEALTHY;
+  }
+  if (state === FREE_SCAN_MODULE_STATES.PARTIAL) {
+    return SIGNAL_MONITORING_STATES.MONITORING_DEGRADED;
+  }
+  if (state === FREE_SCAN_MODULE_STATES.UNAVAILABLE) {
+    return SIGNAL_MONITORING_STATES.SIGNAL_UNAVAILABLE;
+  }
+  return SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE;
+}
+
+function combineFreeScanMonitoringStates(states) {
+  if (states.includes(SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE)) {
+    return SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE;
+  }
+  if (
+    states.length > 0 &&
+    states.every((state) => state === SIGNAL_MONITORING_STATES.SIGNAL_UNAVAILABLE)
+  ) {
+    return SIGNAL_MONITORING_STATES.SIGNAL_UNAVAILABLE;
+  }
+  if (
+    states.includes(SIGNAL_MONITORING_STATES.SIGNAL_UNAVAILABLE) ||
+    states.includes(SIGNAL_MONITORING_STATES.MONITORING_DEGRADED)
+  ) {
+    return SIGNAL_MONITORING_STATES.MONITORING_DEGRADED;
+  }
+  return SIGNAL_MONITORING_STATES.MONITORING_HEALTHY;
+}
+
+function deriveFreeScanMonitoringStates(moduleEvidence) {
+  const stateByModule = new Map(
+    moduleEvidence.map((entry) => [
+      entry.module,
+      monitoringStateForExecutionState(entry.state),
+    ]),
+  );
+  const signals = {};
+  for (const [signal, definition] of Object.entries(FREE_SCAN_SIGNAL_DEFINITIONS)) {
+    const moduleStates = definition.modules.map((module) =>
+      stateByModule.get(module) ?? SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE
+    );
+    const state = combineFreeScanMonitoringStates(moduleStates);
+    signals[signal] = {
+      state,
+      message: SIGNAL_MONITORING_WORDING[signal]?.[state]
+        ?? "Monitoring evidence was incomplete in this run.",
+      evidence: {
+        modules: [...definition.modules],
+        incomplete_modules: definition.modules.filter(
+          (module) =>
+            stateByModule.get(module) ===
+              SIGNAL_MONITORING_STATES.EVIDENCE_INCOMPLETE,
+        ),
+        providers: {},
+      },
+    };
+  }
+  return {
+    version: SIGNAL_MONITORING_STATE_VERSION,
+    signals,
+  };
+}
 
 function nonEmptyError(value) {
   return value != null && String(value).trim() !== "";
@@ -159,10 +226,7 @@ export function buildFreeScanEvidence(settlements = {}) {
     return [entry.module, canonicalModuleEvidence(entry.state, value)];
   }));
 
-  const monitoringStates = deriveDeclaredSignalMonitoringStates({
-    modules,
-    definitions: FREE_SCAN_SIGNAL_DEFINITIONS,
-  });
+  const monitoringStates = deriveFreeScanMonitoringStates(moduleEvidence);
   const coverage = resolveSignalMonitoringCoverage(
     monitoringStates,
     Object.keys(FREE_SCAN_SIGNAL_DEFINITIONS),

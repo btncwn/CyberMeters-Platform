@@ -310,16 +310,15 @@ function resolveSignalState(definition, modules, skipped, providerHealth) {
   return providerState ?? SIGNAL_MONITORING_STATES.MONITORING_HEALTHY;
 }
 
-export function deriveDeclaredSignalMonitoringStates({
+export function deriveSignalMonitoringStates({
   modules = {},
   scanQuality = null,
   providerHealth = {},
-  definitions = SIGNAL_MONITORING_DEFINITIONS,
 } = {}) {
   const skipped = skippedModuleNames(scanQuality);
   const signals = {};
 
-  for (const [signal, definition] of Object.entries(definitions || {})) {
+  for (const [signal, definition] of Object.entries(SIGNAL_MONITORING_DEFINITIONS)) {
     const state = resolveSignalState(definition, modules || {}, skipped, providerHealth || {});
     const incompleteModules = definition.modules.filter((moduleName) =>
       moduleEvidenceState(modules || {}, moduleName, skipped) ===
@@ -346,17 +345,4 @@ export function deriveDeclaredSignalMonitoringStates({
     version: SIGNAL_MONITORING_STATE_VERSION,
     signals,
   };
-}
-
-export function deriveSignalMonitoringStates({
-  modules = {},
-  scanQuality = null,
-  providerHealth = {},
-} = {}) {
-  return deriveDeclaredSignalMonitoringStates({
-    modules,
-    scanQuality,
-    providerHealth,
-    definitions: SIGNAL_MONITORING_DEFINITIONS,
-  });
 }
