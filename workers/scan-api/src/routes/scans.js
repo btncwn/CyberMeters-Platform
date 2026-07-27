@@ -30,6 +30,10 @@ import {
   buildCertificateCustomerPresentation,
   certificateAssuranceApiProjection,
 } from "../engines/certificate-customer-presentation.js";
+import {
+  attackSurfaceAssuranceApiProjection,
+  buildAttackSurfaceCustomerPresentation,
+} from "../engines/attack-surface-customer-presentation.js";
 
 export async function scanRoutes(rctx) {
   const { request, env, ctx, url, json, serverError, corsHeaders,
@@ -606,6 +610,7 @@ export async function scanRoutes(rctx) {
           superseded_by: read.supersededBy,
           integrity: read.integrity,
           ...certificateAssuranceApiProjection(read.snapshot),
+          ...attackSurfaceAssuranceApiProjection(read.snapshot),
           ...dmarcPolicyApiProjection(read.dmarcPolicy),
         });
       } catch (err) {
@@ -688,6 +693,15 @@ export async function scanRoutes(rctx) {
             absenceReason:
               "Per-signal certificate assurance has not yet been recorded for this scan. Missing fields are not interpreted as favourable results.",
           }),
+          attack_surface_assurance: buildAttackSurfaceCustomerPresentation({
+            signalCompleteness:
+              normalisedModules.attack_surface_signal_completeness ?? null,
+            lifecycleAbsenceReason:
+              "Attack Surface lifecycle evidence has not yet been recorded for this scan. Legacy active/inactive status is not interpreted as confirmed removal.",
+            alertAbsenceReason:
+              "ASM alert eligibility has not yet been recorded for this scan. No alert outcome is inferred.",
+            asOf: raw.completed_at ?? null,
+          }),
           modules: normalisedModules,
           business_risk: null,
           ...(raw.started_at ? { started_at: raw.started_at } : {}),
@@ -750,6 +764,7 @@ export async function scanRoutes(rctx) {
           snapshot_id: read.row.id,
           snapshot_provenance: snap.snapshot?.provenance ?? null,
           ...certificateAssuranceApiProjection(snap),
+          ...attackSurfaceAssuranceApiProjection(snap),
           ...dmarcPolicyApiProjection(read.dmarcPolicy),
           ...(raw.started_at ? { started_at: raw.started_at } : {}),
           ...(raw.completed_at ? { completed_at: raw.completed_at } : {}),

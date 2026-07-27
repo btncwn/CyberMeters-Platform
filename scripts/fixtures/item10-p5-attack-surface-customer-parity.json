@@ -1,0 +1,97 @@
+{
+  "workspace_id": "ws-item10-p5",
+  "domain_id": "dom-item10-p5",
+  "domain": "example.com",
+  "scan_id": "scan-item10-p5",
+  "snapshot_id": "snap-item10-p5",
+  "observed_at": "2026-07-27T12:00:00.000Z",
+  "built_at": "2026-07-27T12:00:05.000Z",
+  "schema": "attack-surface-customer-presentation-v1",
+  "signal_keys": [
+    "subdomain_discovery",
+    "dns_resolution",
+    "http_https_service",
+    "technology",
+    "exposure_admin_surface",
+    "takeover_candidate",
+    "cve",
+    "kev",
+    "cloud_storage"
+  ],
+  "signal_states": [
+    "observed",
+    "not_observed",
+    "absent",
+    "unavailable",
+    "incomplete",
+    "not_assessed"
+  ],
+  "lifecycle_states": [
+    "not_assessed",
+    "observed",
+    "not_observed",
+    "confirmed_removed"
+  ],
+  "last_observation_states": [
+    "not_assessed",
+    "observed",
+    "not_observed",
+    "observation_unavailable",
+    "observation_incomplete"
+  ],
+  "lifecycle_records": [
+    {
+      "asset_id": "asset-not-assessed",
+      "hostname": "unassessed.example.com",
+      "lifecycle_state": "not_assessed",
+      "last_observation_state": "not_assessed",
+      "lifecycle_policy_version": "asset-removal-confirmation-v1",
+      "confirmed_removed_at": null,
+      "last_observation_scan_id": "scan-item10-p5"
+    },
+    {
+      "asset_id": "asset-observed",
+      "hostname": "www.example.com",
+      "lifecycle_state": "observed",
+      "last_observation_state": "observed",
+      "lifecycle_policy_version": "asset-removal-confirmation-v1",
+      "confirmed_removed_at": null,
+      "last_observation_scan_id": "scan-item10-p5"
+    },
+    {
+      "asset_id": "asset-not-observed",
+      "hostname": "quiet.example.com",
+      "lifecycle_state": "not_observed",
+      "last_observation_state": "not_observed",
+      "lifecycle_policy_version": "asset-removal-confirmation-v1",
+      "confirmed_removed_at": null,
+      "last_observation_scan_id": "scan-item10-p5"
+    },
+    {
+      "asset_id": "asset-confirmed-removed",
+      "hostname": "retired.example.com",
+      "lifecycle_state": "confirmed_removed",
+      "last_observation_state": "not_observed",
+      "lifecycle_policy_version": "asset-removal-confirmation-v1",
+      "confirmed_removed_at": "2026-07-27T11:59:00.000Z",
+      "last_observation_scan_id": "scan-item10-p5"
+    }
+  ],
+  "alert_eligibility": {
+    "policy_version": "asset-alert-eligibility-v1",
+    "eligible": [
+      {
+        "event_type": "admin_surface_detected",
+        "reason_code": "eligible_signal_observed",
+        "count": 1
+      }
+    ],
+    "withheld": [
+      {
+        "event_type": "asset_reappeared",
+        "reason_code": "withheld_reappearance_predecessor_unconfirmed",
+        "count": 1
+      }
+    ]
+  }
+}

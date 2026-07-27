@@ -47,9 +47,12 @@ import {
   buildCertificateCustomerPresentation,
   buildCertificateLifecycleAssurance,
 } from "./certificate-customer-presentation.js";
+import {
+  buildAttackSurfaceCustomerPresentation,
+} from "./attack-surface-customer-presentation.js";
 
 export const SNAPSHOT_SCHEMA_VERSION = "1";
-export const SNAPSHOT_BUILDER_VERSION = "2026-07-26.1";
+export const SNAPSHOT_BUILDER_VERSION = "2026-07-27.1";
 export const CANONICAL_REPORT_SNAPSHOT_AVAILABLE_FROM = "2026-07-17";
 export const CANONICAL_REPORT_SNAPSHOT_AVAILABLE_FROM_DISPLAY = "17 July 2026";
 
@@ -361,6 +364,7 @@ export const STALE_BUILDING_MINUTES = 30;
 // Defensive bound on the workspace case read — one query, never per-row.
 const CASE_READ_LIMIT = 2000;
 const CERTIFICATE_LIFECYCLE_READ_LIMIT = 100;
+const ATTACK_SURFACE_LIFECYCLE_READ_LIMIT = 500;
 
 async function loadCertificateLifecycleRecordsForSnapshot(
   env,
@@ -410,6 +414,33 @@ async function loadCertificateLifecycleRecordsForSnapshot(
     last_seen_at: row.last_seen_at || null,
     certificate_assurance: buildCertificateLifecycleAssurance(row),
   }));
+}
+
+async function loadAttackSurfaceLifecycleRecordsForSnapshot(
+  env,
+  workspaceId,
+  domainId,
+  scanId,
+) {
+  const result = await env.cybermeters_db
+    .prepare(
+      `SELECT id AS asset_id, hostname, lifecycle_state,
+              last_observation_state, lifecycle_policy_version,
+              confirmed_removed_at, last_observation_scan_id
+       FROM workspace_assets
+       WHERE workspace_id = ? AND domain_id = ?
+         AND last_observation_scan_id = ?
+       ORDER BY hostname, id
+       LIMIT ?`
+    )
+    .bind(
+      workspaceId,
+      domainId,
+      scanId,
+      ATTACK_SURFACE_LIFECYCLE_READ_LIMIT,
+    )
+    .all();
+  return result?.results || [];
 }
 
 export function snapshotR2Key(workspaceId, scanId, snapshotId) {
@@ -474,6 +505,7 @@ export function composeSnapshot({
   caseRows,          // workspace managed_cases rows (one bounded query)
   questionSetVersions, // distinct answer question_set_version values (mig 092)
   certificateLifecycleRecords = null, // null = unavailable; [] = observed empty
+  attackSurfaceLifecycleRecords = null, // null = unavailable; [] = recorded empty
   supersedesSnapshotId,
   builtAt,
   reconstruction = false, // strict historical reconstruction (founder policy)
@@ -827,6 +859,21 @@ export function composeSnapshot({
           customer_message:
             "Certificate lifecycle records were unavailable when this snapshot was built. This is not interpreted as no lifecycle activity.",
         };
+  const attackSurfaceAssurance = buildAttackSurfaceCustomerPresentation({
+    signalCompleteness:
+      report?.modules?.attack_surface_signal_completeness ?? null,
+    lifecycleRecords: reconstruction
+      ? null
+      : attackSurfaceLifecycleRecords,
+    absenceReason:
+      "Per-signal Attack Surface evidence was not recorded by this scan. Missing fields are not interpreted as favourable results.",
+    lifecycleAbsenceReason: reconstruction
+      ? "Attack Surface lifecycle state at scan time cannot be reconstructed from scan-time report evidence and is not inferred from current records."
+      : "Attack Surface lifecycle evidence was unavailable when this snapshot was built. Legacy active/inactive status is not interpreted as confirmed removal.",
+    alertAbsenceReason:
+      "ASM alert eligibility is evaluated after snapshot creation and was not frozen into this snapshot. No alert outcome is inferred.",
+    asOf: assessedAt,
+  });
 
   return {
     snapshot: {
@@ -915,6 +962,7 @@ export function composeSnapshot({
     },
     monitoring_states: monitoringStates,
     certificate_assurance: certificateAssurance,
+    attack_surface_assurance: attackSurfaceAssurance,
     domains: domainEntries,
     observed_findings: observedFindings,
     observations,
@@ -1071,6 +1119,23 @@ export async function buildScanReportSnapshot(env, opts = {}) {
       }
     }
 
+    let attackSurfaceLifecycleRecords = null;
+    if (!reconstruction) {
+      try {
+        attackSurfaceLifecycleRecords =
+          await loadAttackSurfaceLifecycleRecordsForSnapshot(
+            env,
+            workspaceId,
+            domainId,
+            scanId,
+          );
+      } catch {
+        // Migration 102 is founder-gated and may be absent. Preserve that fact
+        // as not_recorded rather than failing the immutable snapshot build.
+        attackSurfaceLifecycleRecords = null;
+      }
+    }
+
     const dmarcPolicyEvidence = await sealDmarcPolicyEvidence(
       report?.modules?.dmarc_core ?? null,
     );
@@ -1082,6 +1147,7 @@ export async function buildScanReportSnapshot(env, opts = {}) {
       // own not_assessed path yields evidence_insufficient, never a guess.
       cyberEssentials: reconstruction ? { status: "not_assessed" } : cyberEssentials,
       ceReadiness, caseRows, questionSetVersions, certificateLifecycleRecords,
+      attackSurfaceLifecycleRecords,
       supersedesSnapshotId,
       builtAt: new Date().toISOString(),
       reconstruction,

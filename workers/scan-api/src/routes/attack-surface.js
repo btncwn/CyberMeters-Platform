@@ -7,6 +7,7 @@
 import { buildCaConcentrationAnalytics, buildCertificateLifecycleIntelligence, detectSelfSignedCertificate, mapCertificateAuthorityOwner, normalizeCertificateIssuer } from "../engines/cert-analysis.js";
 import { buildCertificateTrustL2 } from "../engines/cert-trust-l2.js";
 import { buildCertificateCustomerPresentation } from "../engines/certificate-customer-presentation.js";
+import { buildAttackSurfaceCustomerPresentation } from "../engines/attack-surface-customer-presentation.js";
 import { listCertificateLifecycle } from "../engines/certificate-lifecycle.js";
 import { assignManagedCaseOwner, getManagedCase, listManagedCaseEvents, listManagedCases, managedCaseToApi, transitionManagedCase, verifyManagedCaseById } from "../engines/asm-cases.js";
 import { remapToThirdPartyCategory } from "../engines/discovery-scan.js";
@@ -14,6 +15,246 @@ import { computeWorkspaceVendorRisk, confidenceToScore, normalizeVendorKey, norm
 import { collapseCustomerTimelineEvents, countCustomerTimelineEventsByDay } from "../engines/timeline-trust.js";
 import { SEVERITY_RANK, enrichEvent, eventTypesForCategory } from "../lib/exposure-events.js";
 import { pageMeta, paginationParams, parseBoundedInteger } from "../lib/util.js";
+
+function parseJson(value, fallback = null) {
+  if (value && typeof value === "object") return value;
+  try { return value ? JSON.parse(value) : fallback; } catch { return fallback; }
+}
+
+const ASSET_PRESENTATION_COLUMNS = `
+  id, workspace_id, domain_id, hostname, asset_type, source,
+  first_seen, last_seen, status, wildcard_dns,
+  ip_addresses, cname, redirect_to, cloud_provider,
+  risk_level, metadata_json, created_at, updated_at`;
+
+const ASSET_LIFECYCLE_COLUMNS = `,
+  lifecycle_state, last_observation_state, lifecycle_policy_version,
+  confirmed_removed_at, last_observation_scan_id`;
+
+async function loadAssetPresentationRows(env, workspaceId, {
+  assetId = null,
+  status = null,
+  limit = 500,
+} = {}) {
+  const where = [
+    "workspace_id = ?",
+    ...(assetId ? ["id = ?"] : []),
+    ...(status ? ["status = ?"] : []),
+  ];
+  const binds = [
+    workspaceId,
+    ...(assetId ? [assetId] : []),
+    ...(status ? [status] : []),
+    limit,
+  ];
+  const suffix = assetId
+    ? "ORDER BY id LIMIT ?"
+    : "ORDER BY last_seen DESC, id LIMIT ?";
+  try {
+    const result = await env.cybermeters_db
+      .prepare(
+        `SELECT ${ASSET_PRESENTATION_COLUMNS}${ASSET_LIFECYCLE_COLUMNS}
+         FROM workspace_assets
+         WHERE ${where.join(" AND ")}
+         ${suffix}`
+      )
+      .bind(...binds)
+      .all();
+    return {
+      rows: result.results || [],
+      lifecycle_available: true,
+    };
+  } catch (error) {
+    if (!/no such column/i.test(String(error?.message || ""))) throw error;
+    const result = await env.cybermeters_db
+      .prepare(
+        `SELECT ${ASSET_PRESENTATION_COLUMNS}
+         FROM workspace_assets
+         WHERE ${where.join(" AND ")}
+         ${suffix}`
+      )
+      .bind(...binds)
+      .all();
+    return {
+      rows: result.results || [],
+      lifecycle_available: false,
+    };
+  }
+}
+
+async function loadAttackSurfacePresentationEvidence(env, workspaceId) {
+  const signalRead = env.cybermeters_db
+    .prepare(
+      `WITH scan_rows AS (
+         SELECT domain_id, scan_id, MAX(observed_at) AS observed_at
+         FROM attack_surface_signal_observations
+         WHERE workspace_id = ?
+         GROUP BY domain_id, scan_id
+       ),
+       latest AS (
+         SELECT domain_id, scan_id, observed_at
+         FROM (
+           SELECT domain_id, scan_id, observed_at,
+                  ROW_NUMBER() OVER (
+                    PARTITION BY domain_id
+                    ORDER BY observed_at DESC, scan_id DESC
+                  ) AS recency_rank
+           FROM scan_rows
+         )
+         WHERE recency_rank = 1
+       )
+       SELECT aso.domain_id, aso.scan_id, aso.signal_key, aso.state,
+              aso.reason, aso.evidence_count, aso.sources_json,
+              aso.limitations_json, aso.model_version, aso.observed_at
+       FROM attack_surface_signal_observations aso
+       JOIN latest
+         ON latest.domain_id = aso.domain_id
+        AND latest.scan_id = aso.scan_id
+       WHERE aso.workspace_id = ?
+       ORDER BY aso.domain_id, aso.signal_key`
+    )
+    .bind(workspaceId, workspaceId)
+    .all();
+  const alertRead = env.cybermeters_db
+    .prepare(
+      `SELECT domain_id, scan_id, event_counts, sent_at
+       FROM (
+         SELECT s.domain_id, aar.scan_id, aar.event_counts, aar.sent_at,
+                ROW_NUMBER() OVER (
+                  PARTITION BY s.domain_id
+                  ORDER BY aar.sent_at DESC, aar.id DESC
+                ) AS recency_rank
+         FROM asset_alert_records aar
+         JOIN scans s
+           ON s.id = aar.scan_id
+          AND s.workspace_id = aar.workspace_id
+         WHERE aar.workspace_id = ?
+       )
+       WHERE recency_rank = 1`
+    )
+    .bind(workspaceId)
+    .all();
+  const [signals, alerts] = await Promise.allSettled([
+    signalRead,
+    alertRead,
+  ]);
+  return {
+    signal_rows: signals.status === "fulfilled"
+      ? signals.value.results || []
+      : [],
+    signal_status: signals.status === "fulfilled"
+      ? "recorded"
+      : (/no such (?:table|column)/i.test(String(signals.reason?.message || ""))
+          ? "not_recorded"
+          : "unavailable"),
+    alert_rows: alerts.status === "fulfilled"
+      ? alerts.value.results || []
+      : [],
+    alert_status: alerts.status === "fulfilled"
+      ? "recorded"
+      : "unavailable",
+  };
+}
+
+function presentationContext(assetRows, lifecycleAvailable, evidence) {
+  const signalsByDomain = new Map();
+  for (const row of evidence.signal_rows) {
+    let model = signalsByDomain.get(row.domain_id);
+    if (!model) {
+      model = {
+        model_version: row.model_version || null,
+        observed_at: row.observed_at || null,
+        signals: {},
+      };
+      signalsByDomain.set(row.domain_id, model);
+    }
+    model.signals[row.signal_key] = row;
+  }
+  const alertByDomain = new Map(
+    evidence.alert_rows.map((row) => [
+      row.domain_id,
+      {
+        eligibility: parseJson(row.event_counts, {})?._eligibility || null,
+        observed_at: row.sent_at || null,
+      },
+    ]),
+  );
+  const lifecycleByDomain = new Map();
+  for (const row of assetRows) {
+    if (!lifecycleByDomain.has(row.domain_id)) {
+      lifecycleByDomain.set(row.domain_id, []);
+    }
+    lifecycleByDomain.get(row.domain_id).push({
+      ...row,
+      asset_id: row.id,
+    });
+  }
+  const domainIds = new Set([
+    ...assetRows.map((row) => row.domain_id).filter(Boolean),
+    ...signalsByDomain.keys(),
+    ...alertByDomain.keys(),
+  ]);
+
+  const build = (domainId, lifecycleRecords) => {
+    const signal = signalsByDomain.get(domainId) || null;
+    const alert = alertByDomain.get(domainId) || null;
+    return buildAttackSurfaceCustomerPresentation({
+      signalCompleteness: signal,
+      lifecycleRecords: lifecycleAvailable ? lifecycleRecords : null,
+      alertEligibility: alert?.eligibility || null,
+      absenceReason: evidence.signal_status === "unavailable"
+        ? "Attack Surface signal evidence could not be read. No favourable result is inferred."
+        : "Attack Surface per-signal evidence is not recorded for this scope. No favourable result is inferred.",
+      lifecycleAbsenceReason: lifecycleAvailable
+        ? null
+        : "Migration 102 lifecycle fields are not recorded. Legacy active/inactive status is not interpreted as observed, absent or confirmed removed.",
+      alertAbsenceReason: evidence.alert_status === "unavailable"
+        ? "ASM alert eligibility could not be read. No alert outcome is inferred."
+        : "No ASM alert-eligibility decision is recorded for this scope. No alert outcome is inferred.",
+      asOf: signal?.observed_at || alert?.observed_at || null,
+    });
+  };
+
+  const byDomain = new Map(
+    [...domainIds].map((domainId) => [
+      domainId,
+      build(domainId, lifecycleByDomain.get(domainId) || []),
+    ]),
+  );
+  return {
+    domains: [...byDomain.entries()].map(([domain_id, presentation]) => ({
+      domain_id,
+      ...presentation,
+    })),
+    forAsset: (asset) => build(
+      asset.domain_id,
+      lifecycleAvailable ? [{ ...asset, asset_id: asset.id }] : null,
+    ),
+  };
+}
+
+async function attachAttackSurfacePresentations(
+  env,
+  workspaceId,
+  assetResult,
+) {
+  const evidence = await loadAttackSurfacePresentationEvidence(
+    env,
+    workspaceId,
+  );
+  const context = presentationContext(
+    assetResult.rows,
+    assetResult.lifecycle_available,
+    evidence,
+  );
+  return {
+    assets: assetResult.rows.map((asset) => ({
+      ...asset,
+      attack_surface_assurance: context.forAsset(asset),
+    })),
+    domains: context.domains,
+  };
+}
 
 export async function attackSurfaceRoutes(rctx) {
   const { request, env, url, json,
@@ -238,9 +479,16 @@ export async function attackSurfaceRoutes(rctx) {
 
         const events = collapseCustomerTimelineEvents(pageResult.results || []).map(enrichEvent);
         const total = totalResult.results?.[0]?.n ?? 0;
+        const assetRows = await loadAssetPresentationRows(env, wsId);
+        const assurance = await attachAttackSurfacePresentations(
+          env,
+          wsId,
+          assetRows,
+        );
         return json({
           workspace_id: wsId,
           events,
+          attack_surface_assurance: assurance.domains,
           pagination: pageMeta({ items: events, limit, offset, total }),
         });
       } catch {
@@ -277,21 +525,21 @@ export async function attackSurfaceRoutes(rctx) {
         const statusFilter = url.searchParams.get("status");
         const limit        = parseBoundedInteger(url.searchParams.get("limit"), 200, 1, 500);
         try {
-          const where = statusFilter ? "AND status = ?" : "";
-          const binds = statusFilter ? [wsId, statusFilter, limit] : [wsId, limit];
-          const result = await env.cybermeters_db
-            .prepare(
-              `SELECT id, workspace_id, domain_id, hostname, asset_type, source,
-                      first_seen, last_seen, status, wildcard_dns,
-                      ip_addresses, cname, redirect_to, cloud_provider,
-                      risk_level, metadata_json, created_at, updated_at
-               FROM workspace_assets
-               WHERE workspace_id = ? ${where}
-               ORDER BY last_seen DESC LIMIT ?`
-            )
-            .bind(...binds)
-            .all();
-          return json({ workspace_id: wsId, count: result.results.length, assets: result.results });
+          const result = await loadAssetPresentationRows(env, wsId, {
+            status: statusFilter || null,
+            limit,
+          });
+          const assurance = await attachAttackSurfacePresentations(
+            env,
+            wsId,
+            result,
+          );
+          return json({
+            workspace_id: wsId,
+            count: assurance.assets.length,
+            assets: assurance.assets,
+            attack_surface_assurance: assurance.domains,
+          });
         } catch {
           return json({ error: "Database error" }, 500);
         }
@@ -378,17 +626,11 @@ export async function attackSurfaceRoutes(rctx) {
       {
         const assetId = sub.slice(1);   // strip leading "/"
         try {
-          const asset = await env.cybermeters_db
-            .prepare(
-              `SELECT id, workspace_id, domain_id, hostname, asset_type, source,
-                      first_seen, last_seen, status, wildcard_dns,
-                      ip_addresses, cname, redirect_to, cloud_provider,
-                      risk_level, metadata_json, created_at, updated_at
-               FROM workspace_assets
-               WHERE id = ? AND workspace_id = ?`
-            )
-            .bind(assetId, wsId)
-            .first();
+          const assetResult = await loadAssetPresentationRows(env, wsId, {
+            assetId,
+            limit: 1,
+          });
+          const asset = assetResult.rows[0] || null;
           if (!asset) return json({ error: "Asset not found" }, 404);
 
           const eventsResult = await env.cybermeters_db
@@ -401,7 +643,17 @@ export async function attackSurfaceRoutes(rctx) {
             .bind(assetId, wsId)
             .all();
 
-          return json({ asset, events: eventsResult.results });
+          const assurance = await attachAttackSurfacePresentations(
+            env,
+            wsId,
+            assetResult,
+          );
+          return json({
+            asset: assurance.assets[0],
+            events: eventsResult.results,
+            attack_surface_assurance:
+              assurance.assets[0]?.attack_surface_assurance,
+          });
         } catch {
           return json({ error: "Database error" }, 500);
         }

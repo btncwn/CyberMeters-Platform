@@ -10,6 +10,7 @@ import {
 import { api } from '../api'
 import Spinner from '../components/Spinner'
 import StatCard from '../components/StatCard'
+import AttackSurfaceAssurance from '../components/AttackSurfaceAssurance'
 
 // ── Formatters ─────────────────────────────────────────────────────────────────
 
@@ -40,12 +41,12 @@ function StatusPill({ status }) {
   if (status === 'active')
     return (
       <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">
-        Active
+        Legacy active
       </span>
     )
   return (
     <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-500">
-      Inactive
+      Legacy inactive
     </span>
   )
 }
@@ -296,6 +297,8 @@ function AssetDetailPanel({ workspaceId, assetId, onClose }) {
                 <div className="mono text-sm font-semibold text-gray-900 break-all">{data.asset.hostname}</div>
               </div>
 
+              <AttackSurfaceAssurance presentations={data.attack_surface_assurance || data.asset.attack_surface_assurance} />
+
               {/* Grid */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -396,7 +399,7 @@ function AssetDetailPanel({ workspaceId, assetId, onClose }) {
 const TIMELINE_COLS = [
   { key: 'new_asset_discovered',   label: 'New'       },
   { key: 'asset_reappeared',       label: 'Reappeared'},
-  { key: 'asset_no_longer_seen',   label: 'Gone'      },
+  { key: 'asset_no_longer_seen',   label: 'Removal event' },
   { key: 'takeover_risk_detected', label: 'Takeover'  },
   { key: 'wildcard_dns_detected',  label: 'Wildcard'  },
   { key: 'cloud_storage_detected', label: 'Cloud'     },
@@ -470,6 +473,7 @@ export default function AssetsPage() {
 
   const [summary,      setSummary]      = useState(null)
   const [assets,       setAssets]       = useState([])
+  const [assurance,    setAssurance]    = useState([])
   const [timeline,     setTimeline]     = useState([])
   const [loading,      setLoading]      = useState(true)
   const [refreshing,   setRefreshing]   = useState(false)
@@ -490,6 +494,7 @@ export default function AssetsPage() {
       ])
       setSummary(sumData)
       setAssets(assetsData.assets || [])
+      setAssurance(assetsData.attack_surface_assurance || [])
       setTimeline(timelineData.timeline || [])
     } catch (e) {
       setError(e.message)
@@ -570,6 +575,8 @@ export default function AssetsPage() {
         <>
           <ManagedCasesPanel workspaceId={workspaceId} />
 
+          <AttackSurfaceAssurance presentations={assurance} />
+
           {/* TEMPORARY integration mount of the reusable cross-domain CasesQueue.
               The Attack Surface page is NOT the permanent home for all-domain
               cases; the queue component is workspace-scoped and standalone, ready
@@ -582,8 +589,8 @@ export default function AssetsPage() {
           {summary && (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               <StatCard icon={Layers}        label="Total assets"     explanation="Active inventory across this workspace" value={summary.total_assets} />
-              <StatCard icon={Shield}        label="Active"           explanation="Assets currently responding"            value={summary.active_assets} />
-              <StatCard icon={Activity}      label="Inactive"         explanation="Discovered but not responding"          value={summary.inactive_assets} tone="neutral" />
+              <StatCard icon={Shield}        label="Legacy active"    explanation="Legacy inventory status; canonical observation is shown below" value={summary.active_assets} />
+              <StatCard icon={Activity}      label="Legacy inactive"  explanation="Legacy inventory status; not confirmed removal" value={summary.inactive_assets} tone="neutral" />
               <StatCard icon={Server}        label="Subdomains"       explanation="Hostnames mapped under your domains"    value={summary.subdomains} tone="info" />
               <StatCard icon={Globe}         label="Exposed services" explanation="Internet-facing services to review"     value={summary.exposed_services} warning={(summary.exposed_services ?? 0) > 0} />
               <StatCard icon={Cloud}         label="Cloud assets"     explanation="Cloud storage and buckets found"        value={summary.cloud_storage_assets} tone="info" />

@@ -656,7 +656,7 @@ const MUTATIONS = [
     name: "remove canonical timeline filter",
     file: "frontend/src/components/ExposureTimeline.jsx",
     mutate: (s) => s.replace("  { value: 'attack_surface',                 label: 'Attack Surface' },\n", ""),
-    expect: () => /const CATEGORY_FILTERS[\s\S]*attack_surface/.test(getSource("frontend/src/components/ExposureTimeline.jsx")) ? null : "canonical timeline filter missing",
+    expect: () => /const CATEGORY_FILTERS[\s\S]*\{\s*value:\s*['"]attack_surface['"]\s*,\s*label:\s*['"]Attack Surface['"]\s*\}/.test(getSource("frontend/src/components/ExposureTimeline.jsx")) ? null : "canonical timeline filter missing",
   },
 ];
 
