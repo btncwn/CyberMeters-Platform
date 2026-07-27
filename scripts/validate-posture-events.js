@@ -127,7 +127,9 @@ const rowsFor = (db, eventType) => rows(db).filter((row) => row.event_type === e
   await record(env, modules({ email_security: { ...email(), spf: currSpf }, admin_evidence_status: "unavailable" }), { scanQuality: "partial" });
   const events = rowsFor(db, "email_spf_authorization_changed");
   ok("SPF resolved-set change emits under unrelated partial scan", events.length === 1);
-  ok("SPF resolved-set event carries added CIDR under partial scan", events[0]?.description.includes(CIDRB));
+  ok("SPF resolved-set event writes a human CIDR under partial scan",
+    events[0]?.description.includes("203.0.113.0/24") &&
+    !events[0]?.description.includes(CIDRB));
 }
 
 // 1c. Incomplete SPF evidence never produces a root-record or resolved-set change.

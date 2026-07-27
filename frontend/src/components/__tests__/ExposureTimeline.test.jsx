@@ -31,6 +31,19 @@ describe('ExposureTimeline', () => {
     expect(screen.getByText('high')).toBeInTheDocument()
   })
 
+  it('renders the backend-owned human SPF CIDR without reintroducing machine hex', async () => {
+    api.getExposureFeed.mockResolvedValue(feed([
+      evt({
+        event_type: 'email_spf_authorization_changed',
+        title: 'SPF authorised senders changed',
+        description: 'SPF authorised sending sources changed for acme.co.uk: added 1 [192.0.2.0/24]',
+      }),
+    ]))
+    render(<ExposureTimeline workspaceId="ws1" />)
+    expect(await screen.findByText(/added 1 \[192\.0\.2\.0\/24\]/i)).toBeInTheDocument()
+    expect(screen.queryByText(/ip4:c0000200\/24/i)).not.toBeInTheDocument()
+  })
+
   it('shows the first-run empty state when there are no changes', async () => {
     api.getExposureFeed.mockResolvedValue(feed([]))
     render(<ExposureTimeline workspaceId="ws1" />)

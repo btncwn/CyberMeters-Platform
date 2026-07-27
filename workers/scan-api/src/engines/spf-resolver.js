@@ -100,6 +100,87 @@ export function canonicalizeCidr(token, family) {
   return `${family}:${network.toString(16)}/${prefix}`;
 }
 
+function ipv4ForDisplay(value) {
+  return [24n, 16n, 8n, 0n]
+    .map((shift) => Number((value >> shift) & 0xffn))
+    .join(".");
+}
+
+function ipv6ForDisplay(value) {
+  const groups = Array.from({ length: 8 }, (_, index) =>
+    Number((value >> BigInt((7 - index) * 16)) & 0xffffn).toString(16)
+  );
+
+  // RFC 5952 §4.2: compress the longest run of two or more zero hextets.
+  // When runs tie, the first run wins because bestStart changes only for a
+  // strictly longer run.
+  let bestStart = -1;
+  let bestLength = 0;
+  for (let start = 0; start < groups.length;) {
+    if (groups[start] !== "0") {
+      start += 1;
+      continue;
+    }
+    let end = start;
+    while (end < groups.length && groups[end] === "0") end += 1;
+    const length = end - start;
+    if (length >= 2 && length > bestLength) {
+      bestStart = start;
+      bestLength = length;
+    }
+    start = end;
+  }
+
+  if (bestStart < 0) return groups.join(":");
+  const left = groups.slice(0, bestStart).join(":");
+  const right = groups.slice(bestStart + bestLength).join(":");
+  if (!left && !right) return "::";
+  if (!left) return `::${right}`;
+  if (!right) return `${left}::`;
+  return `${left}::${right}`;
+}
+
+// Inverse presentation for the canonical machine form. Prefixes are NEVER
+// elided: host ranges remain /32 or /128 and the universal range remains /0.
+// Returning null for malformed or non-canonical input prevents display repair
+// from silently shifting/widening historical evidence.
+export function formatCanonicalCidrForDisplay(canonicalCidr) {
+  const canonical = String(canonicalCidr);
+  const match = /^(ip4|ip6):([0-9a-f]+)\/(\d+)$/.exec(canonical);
+  if (!match) return null;
+  const family = match[1];
+  const bits = family === "ip6" ? 128 : 32;
+  const prefix = Number(match[3]);
+  if (!Number.isInteger(prefix) || prefix < 0 || prefix > bits) return null;
+
+  let network;
+  try {
+    network = BigInt(`0x${match[2]}`);
+  } catch {
+    return null;
+  }
+  if (network < 0n || network >= (1n << BigInt(bits))) return null;
+
+  const address = family === "ip6"
+    ? ipv6ForDisplay(network)
+    : ipv4ForDisplay(network);
+  const display = `${address}/${prefix}`;
+
+  // Exact inverse guard: only a canonical network/prefix pair may be repaired.
+  return canonicalizeCidr(display, family) === canonical ? display : null;
+}
+
+// Non-destructive repair for append-only descriptions written before the
+// customer-display formatter existed. Only valid canonical SPF CIDR tokens are
+// replaced; all other bytes in the returned string are preserved.
+export function formatSpfAuthorizationDescriptionForDisplay(description) {
+  if (typeof description !== "string" || !description) return description;
+  return description.replace(
+    /\b(?:ip4|ip6):[0-9a-f]+\/\d+\b/g,
+    (canonical) => formatCanonicalCidrForDisplay(canonical) ?? canonical,
+  );
+}
+
 // Does a canonical CIDR contain a bare IP string? Used by PR-B membership tests.
 export function cidrContains(canonicalCidr, ipString) {
   const m = /^(ip4|ip6):([0-9a-f]+)\/(\d+)$/.exec(String(canonicalCidr));

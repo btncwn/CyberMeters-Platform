@@ -104,7 +104,15 @@ async function main() {
     ["evt_005", "scan1", "email_dmarc_policy_changed", "example.co.uk", "medium", "DMARC changed", "2026-07-08T12:04:00.000Z"],
     ["evt_006", "scan1", "dns_ip_changed", "www.example.co.uk", "high", "IP changed", "2026-07-08T12:05:00.000Z"],
     ["evt_007", "scan1", "email_spf_changed", "example.co.uk", "high", "SPF changed", "2026-07-08T12:06:00.000Z"],
-    ["evt_007b", "scan1", "email_spf_authorization_changed", "example.co.uk", "medium", "SPF authorised senders changed", "2026-07-08T12:06:30.000Z"],
+    [
+      "evt_007b",
+      "scan1",
+      "email_spf_authorization_changed",
+      "example.co.uk",
+      "medium",
+      "SPF authorised sending sources changed for example.co.uk: added 1 [ip4:c0000200/24]",
+      "2026-07-08T12:06:30.000Z",
+    ],
     ["evt_008", "scan1", "unknown_custom_event", "mystery.example.co.uk", "critical", "Mystery", "2026-07-08T12:07:00.000Z"],
   ];
   for (const event of events) insertEvent.run(...event);
@@ -128,6 +136,13 @@ async function main() {
   ok("feed request succeeds", feed.status === 200);
   ok("feed returns reverse chronological events", feed.data?.events?.[0]?.id === "evt_008" && feed.data?.events?.at(-1)?.id === "evt_001");
   ok("every feed event is enriched with category and title", feed.data?.events?.every((event) => event.category && event.title));
+  const legacySpf = feed.data?.events?.find((event) => event.id === "evt_007b");
+  ok("stored legacy SPF description renders with a human CIDR",
+    legacySpf?.description ===
+      "SPF authorised sending sources changed for example.co.uk: added 1 [192.0.2.0/24]");
+  ok("legacy display repair does not mutate the stored asset_events byte",
+    db.prepare("SELECT description FROM asset_events WHERE id = 'evt_007b'").get()?.description ===
+      "SPF authorised sending sources changed for example.co.uk: added 1 [ip4:c0000200/24]");
 
   const high = await call("/api/workspaces/ws1/exposure/feed?severity=high");
   ok("severity=high returns only high and critical events",
