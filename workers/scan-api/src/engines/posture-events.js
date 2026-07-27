@@ -5,7 +5,10 @@
 // non-fatal so scan completion never depends on timeline event generation.
 import { createId } from "../lib/util.js";
 import { loadTimelineComparisonContext } from "./timeline-trust.js";
-import { diffResolvedAuthorizations } from "./spf-resolver.js";
+import {
+  diffResolvedAuthorizations,
+  formatCanonicalCidrForDisplay,
+} from "./spf-resolver.js";
 
 function normalizeValue(value) {
   return String(value ?? "").trim();
@@ -96,20 +99,31 @@ export function buildSpfDiffEvents(domain, prevModules, currentModules) {
   // resolved fields can NEVER produce a false authorisation-change event.
   const spfDelta = diffResolvedAuthorizations(previousSpf, currentSpf);
   if (spfDelta && spfDelta.changed) {
-    // Persist the CANONICAL added/removed CIDRs in the description (bounded so a
-    // pathological record can never write an unbounded row) — asset_events has no
-    // structured-evidence column, and the counts alone would lose the actual ranges.
+    // Customer text uses the exact inverse display form while structured evidence
+    // retains canonical machine values for comparison. The 12-item cap is applied
+    // after formatting, so longer human IPv6 text remains deterministically bounded.
     const cap = 12;
     const listOf = (arr) => arr.slice(0, cap).join(", ") + (arr.length > cap ? ` (+${arr.length - cap} more)` : "");
+    const displayAdded = spfDelta.added.map(
+      (cidr) => formatCanonicalCidrForDisplay(cidr) ?? cidr,
+    );
+    const displayRemoved = spfDelta.removed.map(
+      (cidr) => formatCanonicalCidrForDisplay(cidr) ?? cidr,
+    );
     const parts = [];
-    if (spfDelta.added.length) parts.push(`added ${spfDelta.added.length} [${listOf(spfDelta.added)}]`);
-    if (spfDelta.removed.length) parts.push(`removed ${spfDelta.removed.length} [${listOf(spfDelta.removed)}]`);
+    if (spfDelta.added.length) parts.push(`added ${spfDelta.added.length} [${listOf(displayAdded)}]`);
+    if (spfDelta.removed.length) parts.push(`removed ${spfDelta.removed.length} [${listOf(displayRemoved)}]`);
     pushEvent(events, {
       event_type: "email_spf_authorization_changed",
       hostname: domain,
       severity: spfDelta.added.length > 0 ? "medium" : "low",
       description: `SPF authorised sending sources changed for ${domain}: ${parts.join("; ")}`,
-      evidence: { added: spfDelta.added, removed: spfDelta.removed },
+      evidence: {
+        added: spfDelta.added,
+        removed: spfDelta.removed,
+        added_display: displayAdded,
+        removed_display: displayRemoved,
+      },
     });
   }
 

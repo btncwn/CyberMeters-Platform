@@ -270,6 +270,13 @@ eq("pure helper contract passes before mutations", pureContract({ assessTimeline
 
 if (!process.argv.includes("--no-mutate")) {
   const original = fs.readFileSync(timelinePath, "utf8");
+  // Mutants run from a temporary directory; pin the new shared SPF presentation
+  // dependency to its real module URL so the existing Timeline Trust source
+  // mutations still exercise only their intended anchors.
+  const mutationSource = original.replace(
+    'from "./spf-resolver.js"',
+    `from "${pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "spf-resolver.js")).href}"`,
+  );
   const mutations = [
     {
       name: "allow partial current scan",
@@ -311,7 +318,7 @@ if (!process.argv.includes("--no-mutate")) {
     }
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "timeline-trust-mutant-"));
     const mutantPath = path.join(tmp, "timeline-trust.mjs");
-    fs.writeFileSync(mutantPath, original.replace(m.from, m.to));
+    fs.writeFileSync(mutantPath, mutationSource.replace(m.from, m.to));
     const mutant = await import(pathToFileURL(mutantPath).href + `?m=${encodeURIComponent(m.name)}`);
     const reason = pureContract(mutant);
     if (reason !== m.expected) {

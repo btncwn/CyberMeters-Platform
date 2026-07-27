@@ -4,6 +4,8 @@
 // whether a go-forward producer may emit a change event and what customer
 // surfaces should show.
 
+import { formatSpfAuthorizationDescriptionForDisplay } from "./spf-resolver.js";
+
 export const ASSET_TIMELINE_PRODUCER_VERSION = "asset-timeline-trust-v1";
 
 export const TIMELINE_COMPARISON_STATUS = Object.freeze({
@@ -214,13 +216,21 @@ function suppressPairedFlipFlops(events, windowMs) {
   return suppress;
 }
 
+// Customer projection only. Never writes back to asset_events and preserves the
+// original row object when no legacy SPF machine token needs repair.
+export function formatCustomerTimelineEventForDisplay(row) {
+  if (!row || typeof row !== "object") return row;
+  const description = formatSpfAuthorizationDescriptionForDisplay(row.description);
+  return description === row.description ? row : { ...row, description };
+}
+
 export function collapseCustomerTimelineEvents(rows, opts = {}) {
   const windowMs = opts.flipFlopWindowMs ?? DEFAULT_FLIP_FLOP_WINDOW_MS;
   const indexed = (rows || []).map((row, index) => ({ row, index }));
   const suppress = suppressPairedFlipFlops(indexed, windowMs);
   return indexed
     .filter((item) => !suppress.has(item.index))
-    .map((item) => item.row);
+    .map((item) => formatCustomerTimelineEventForDisplay(item.row));
 }
 
 export function filterCustomerTimelineEventsForScan(rows, scanId, opts = {}) {

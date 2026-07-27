@@ -2,6 +2,8 @@
 // Pure helpers for enriching asset_events rows with stable category/title data.
 // Used by the Exposure Timeline feed and digest surfaces.
 
+import { formatSpfAuthorizationDescriptionForDisplay } from "../engines/spf-resolver.js";
+
 export const SEVERITY_RANK = { info: 0, low: 1, medium: 2, high: 3, critical: 4 };
 
 export const EXPOSURE_EVENT_META = {
@@ -43,7 +45,12 @@ export function enrichEvent(row) {
       category: "asset",
       title: fallbackTitle(row?.event_type),
     };
-    return { ...row, category: meta.category, title: meta.title };
+    return {
+      ...row,
+      description: formatSpfAuthorizationDescriptionForDisplay(row?.description),
+      category: meta.category,
+      title: meta.title,
+    };
   } catch {
     return { ...(row || {}), category: "asset", title: "Unknown event" };
   }

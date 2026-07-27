@@ -8,13 +8,23 @@
 // change fires email_spf_authorization_changed; a DNS blip fires NOTHING).
 // CI-blocking. Requires Node 24+.
 //
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const R = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "spf-resolver.js")).href);
 const { buildPostureDiffEvents } = await import(pathToFileURL(path.join(root, "workers", "scan-api", "src", "engines", "posture-events.js")).href);
-const { resolveSpfAuthorization, diffResolvedAuthorizations, canonicalizeCidr, cidrContains, ipContainedInAnyCidr, SPF_RESOLUTION_STATUS } = R;
+const {
+  resolveSpfAuthorization,
+  diffResolvedAuthorizations,
+  canonicalizeCidr,
+  formatCanonicalCidrForDisplay,
+  formatSpfAuthorizationDescriptionForDisplay,
+  cidrContains,
+  ipContainedInAnyCidr,
+  SPF_RESOLUTION_STATUS,
+} = R;
 
 let pass = 0, fail = 0;
 const results = [];
@@ -47,6 +57,27 @@ ok("ip4 containment: /24 excludes non-member", cidrContains(canonicalizeCidr("19
 ok("ip6 containment: /32 contains member", cidrContains(canonicalizeCidr("2001:db8::/32", "ip6"), "2001:db8:dead:beef::1") === true);
 ok("ip6 containment: /32 excludes non-member", cidrContains(canonicalizeCidr("2001:db8::/32", "ip6"), "2001:db9::1") === false);
 ok("membership uses containment, not string equality", ipContainedInAnyCidr("10.0.0.7", [canonicalizeCidr("10.0.0.0/8", "ip4")]) === true);
+
+// ── Canonical machine form ↔ customer display form ──────────────────────────
+const cidrDisplayFixtures = JSON.parse(
+  fs.readFileSync(path.join(root, "scripts", "fixtures", "spf-cidr-display.json"), "utf8"),
+);
+for (const fixture of cidrDisplayFixtures) {
+  const canonical = canonicalizeCidr(fixture.input, fixture.family);
+  ok(`${fixture.name}: canonical machine form is pinned`,
+    canonical === fixture.canonical);
+  const display = formatCanonicalCidrForDisplay(canonical);
+  ok(`${fixture.name}: customer display form is exact`,
+    display === fixture.display);
+  ok(`${fixture.name}: display round-trips to the same canonical range`,
+    canonicalizeCidr(display, fixture.family) === canonical);
+}
+ok("display rejects a canonical token with host bits instead of silently shifting it",
+  formatCanonicalCidrForDisplay("ip4:c0000205/24") === null);
+ok("legacy description repair changes only valid canonical CIDR tokens",
+  formatSpfAuthorizationDescriptionForDisplay(
+    "added [ip4:c0000200/24]; invalid [ip4:c0000205/24]",
+  ) === "added [192.0.2.0/24]; invalid [ip4:c0000205/24]");
 
 // ── ip4/ip6 only, qualifier exclusion ────────────────────────────────────────
 {
@@ -228,7 +259,86 @@ const CIDRB = canonicalizeCidr("203.0.113.0/24", "ip4");
   ok("root unchanged → email_spf_changed does NOT fire", !events.some((e) => e.event_type === "email_spf_changed"));
   const authEvt = events.find((e) => e.event_type === "email_spf_authorization_changed");
   ok("authorization_changed carries canonical added CIDR evidence", authEvt?.evidence?.added?.includes(CIDRB));
-  ok("authorization_changed description embeds the canonical CIDR", authEvt?.description?.includes(CIDRB));
+  ok("authorization_changed carries additive display CIDR evidence",
+    authEvt?.evidence?.added_display?.includes("203.0.113.0/24"));
+  ok("authorization_changed description embeds the human CIDR",
+    authEvt?.description?.includes("203.0.113.0/24") &&
+    !authEvt?.description?.includes(CIDRB));
+}
+
+// Added + removed in one event preserves canonical evidence while customer text
+// uses RFC 5952/dotted-decimal display values. Added presence keeps severity medium.
+{
+  const previousV4 = canonicalizeCidr("192.0.2.0/24", "ip4");
+  const previousV6 = canonicalizeCidr("2001:db8::/32", "ip6");
+  const currentV4 = canonicalizeCidr("203.0.113.0/24", "ip4");
+  const currentV6 = canonicalizeCidr("2001:db9::/32", "ip6");
+  const prev = emailMod({
+    present: true,
+    record: "v=spf1 include:provider.example -all",
+    resolution_status: "complete",
+    resolved_pass_authorisations: [previousV4, previousV6],
+  });
+  const curr = emailMod({
+    present: true,
+    record: "v=spf1 include:provider.example -all",
+    resolution_status: "complete",
+    resolved_pass_authorisations: [currentV4, currentV6],
+  });
+  const authEvt = buildPostureDiffEvents("delta.example", prev, curr)
+    .find((event) => event.event_type === "email_spf_authorization_changed");
+  ok("added-and-removed delta emits one medium event",
+    authEvt?.severity === "medium");
+  ok("added-and-removed description shows human IPv4 and RFC 5952 IPv6",
+    authEvt?.description ===
+      "SPF authorised sending sources changed for delta.example: " +
+      "added 2 [203.0.113.0/24, 2001:db9::/32]; " +
+      "removed 2 [192.0.2.0/24, 2001:db8::/32]");
+  ok("added-and-removed evidence retains canonical machine arrays",
+    authEvt?.evidence?.added?.includes(currentV4) &&
+    authEvt?.evidence?.added?.includes(currentV6) &&
+    authEvt?.evidence?.removed?.includes(previousV4) &&
+    authEvt?.evidence?.removed?.includes(previousV6));
+  ok("added-and-removed evidence also carries display arrays",
+    authEvt?.evidence?.added_display?.includes("2001:db9::/32") &&
+    authEvt?.evidence?.removed_display?.includes("192.0.2.0/24"));
+}
+
+// The human form can be longer than packed hex, but the row remains bounded by
+// exactly 12 displayed entries plus an honest (+N more) suffix.
+{
+  const added = Array.from({ length: 15 }, (_, index) =>
+    canonicalizeCidr(
+      `abcd:bcde:cdef:def0:abcd:bcde:cdef:${(0x1000 + index).toString(16)}/128`,
+      "ip6",
+    )
+  ).sort();
+  const prev = emailMod({
+    present: true,
+    record: "v=spf1 include:provider.example -all",
+    resolution_status: "complete",
+    resolved_pass_authorisations: [],
+  });
+  const curr = emailMod({
+    present: true,
+    record: "v=spf1 include:provider.example -all",
+    resolution_status: "complete",
+    resolved_pass_authorisations: added,
+  });
+  const authEvt = buildPostureDiffEvents("bounded.example", prev, curr)
+    .find((event) => event.event_type === "email_spf_authorization_changed");
+  const displayedList = authEvt?.description
+    ?.match(/added 15 \[(.*) \(\+3 more\)\]/)?.[1]
+    ?.split(", ") || [];
+  ok("bounded event reports the full added count and (+N more) suffix",
+    authEvt?.description?.includes("added 15 [") &&
+    authEvt?.description?.includes("(+3 more)"));
+  ok("bounded event writes exactly 12 human CIDRs even when display is longer",
+    displayedList.length === 12 &&
+    authEvt?.evidence?.added_display?.[0]?.length > authEvt?.evidence?.added?.[0]?.length);
+  ok("bounded event keeps complete canonical and display evidence arrays",
+    authEvt?.evidence?.added?.length === 15 &&
+    authEvt?.evidence?.added_display?.length === 15);
 }
 
 // A DNS BLIP (temperror this scan) must fire NOTHING for the authorisation set.
