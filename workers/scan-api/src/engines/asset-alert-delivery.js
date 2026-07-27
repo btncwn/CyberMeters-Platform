@@ -2,7 +2,15 @@
 // Sends the per-scan asset-change alert (decides worthiness, builds + delivers email + webhook
 // channel alerts, records for retry) and the cron retry of previously-failed asset alerts.
 // Extracted verbatim from index.js (monolith decomposition, Phase 1c).
-import { ASSET_ALERT_EVENTS, assetAlertSeverity, assetAlertWorthy, buildAssetAlertEmail } from "./asset-alerts.js";
+import {
+  ASSET_ALERT_EVENTS,
+  ASSET_ALERT_WITHHELD_REASON,
+  assetAlertCounts,
+  assetAlertSeverity,
+  assetAlertWorthy,
+  buildAssetAlertEmail,
+  evaluateAssetAlertEligibility,
+} from "./asset-alerts.js";
 import { deliverWorkspaceAlert, sendTenantAlertEmail } from "./alerts.js";
 import { filterCustomerTimelineEventsForScan } from "./timeline-trust.js";
 import { createId } from "../lib/util.js";
@@ -32,6 +40,123 @@ export function deliveryOutcome(delivery) {
   if (delivery.sent) return { status: "sent", error: null };
   if (SUPPRESSED_DELIVERY_REASONS.has(delivery.reason)) return { status: "skipped", error: delivery.reason };
   return { status: "failed", error: delivery.reason || "send_failed" };
+}
+
+function evidenceReadStatus(error) {
+  return /no such (?:table|column)/i.test(String(error?.message || ""))
+    ? "schema_absent"
+    : "unavailable";
+}
+
+// Two bounded reads per workspace, never one read per event. The lifecycle
+// window needs at most the current row plus the three qualifying observations
+// required by the canonical removal policy.
+export async function loadAssetAlertEligibilityEvidence(
+  env,
+  workspaceId,
+  scanId,
+) {
+  const signalRead = env.cybermeters_db
+    .prepare(
+      `SELECT signal_key, state, reason, evidence_count, sources_json,
+              limitations_json, model_version
+       FROM attack_surface_signal_observations
+       WHERE workspace_id = ? AND scan_id = ?`
+    )
+    .bind(workspaceId, scanId)
+    .all();
+  const lifecycleRead = env.cybermeters_db
+    .prepare(
+      `WITH event_assets AS (
+         SELECT DISTINCT asset_id
+         FROM asset_events
+         WHERE workspace_id = ? AND scan_id = ?
+           AND event_type IN ('asset_no_longer_seen', 'asset_reappeared')
+           AND asset_id IS NOT NULL
+       ),
+       ranked AS (
+         SELECT alo.asset_id, alo.scan_id, alo.observation_state,
+                alo.dns_state, alo.http_state, alo.qualifies_removal,
+                alo.policy_version, alo.source_detail_json, alo.observed_at,
+                ROW_NUMBER() OVER (
+                  PARTITION BY alo.asset_id
+                  ORDER BY alo.observed_at DESC, alo.created_at DESC
+                ) AS recency_rank
+         FROM asset_lifecycle_observations alo
+         JOIN event_assets ea ON ea.asset_id = alo.asset_id
+         WHERE alo.workspace_id = ?
+       )
+       SELECT asset_id, scan_id, observation_state, dns_state, http_state,
+              qualifies_removal, policy_version, source_detail_json, observed_at
+       FROM ranked
+       WHERE recency_rank <= 4
+       ORDER BY asset_id, observed_at`
+    )
+    .bind(workspaceId, scanId, workspaceId)
+    .all();
+  const [signals, lifecycle] = await Promise.allSettled([
+    signalRead,
+    lifecycleRead,
+  ]);
+  const signalRows = signals.status === "fulfilled"
+    ? signals.value.results || []
+    : [];
+  return {
+    signal_status: signals.status === "fulfilled"
+      ? "available"
+      : evidenceReadStatus(signals.reason),
+    lifecycle_status: lifecycle.status === "fulfilled"
+      ? "available"
+      : evidenceReadStatus(lifecycle.reason),
+    signal_states: Object.fromEntries(
+      signalRows.map((row) => [row.signal_key, row]),
+    ),
+    lifecycle_observations: lifecycle.status === "fulfilled"
+      ? lifecycle.value.results || []
+      : [],
+  };
+}
+
+function hostnamesByType(events) {
+  const result = {};
+  for (const event of events || []) {
+    if (!event.hostname) continue;
+    if (!result[event.event_type]) result[event.event_type] = [];
+    result[event.event_type].push(event.hostname);
+  }
+  return result;
+}
+
+async function recordWithheldAlertDecision(
+  env,
+  recordId,
+  workspaceId,
+  scanId,
+  eligibility,
+) {
+  try {
+    await env.cybermeters_db
+      .prepare(
+        `UPDATE asset_alert_records
+         SET status = 'skipped', error = ?
+         WHERE id = ? AND workspace_id = ? AND scan_id = ?`
+      )
+      .bind(ASSET_ALERT_WITHHELD_REASON, recordId, workspaceId, scanId)
+      .run();
+    console.info("[asset-alert] claims withheld", JSON.stringify({
+      workspace_id: workspaceId,
+      scan_id: scanId,
+      reason_code: ASSET_ALERT_WITHHELD_REASON,
+      decisions: eligibility.record.withheld,
+    }));
+  } catch (error) {
+    console.error("[asset-alert] withheld decision not recorded", JSON.stringify({
+      workspace_id: workspaceId,
+      scan_id: scanId,
+      reason_code: ASSET_ALERT_WITHHELD_REASON,
+      error_type: error?.name || "Error",
+    }));
+  }
 }
 
 export async function sendAssetChangeAlert(domainId, domain, scanId, env, scanQuality = null) {
@@ -70,7 +195,8 @@ export async function sendAssetChangeAlert(domainId, domain, scanId, env, scanQu
     // collapse can suppress short-lived remove/reappear churn without mutating rows.
     const eventsResult = await env.cybermeters_db
       .prepare(
-        `SELECT id, workspace_id, domain_id, scan_id, event_type, hostname, created_at
+        `SELECT id, workspace_id, domain_id, asset_id, scan_id, event_type,
+                hostname, severity, created_at
          FROM asset_events
          WHERE scan_id = ?
             OR (domain_id = ? AND scan_id IS NOT NULL AND created_at >= datetime('now', '-24 hours'))`
@@ -91,32 +217,36 @@ export async function sendAssetChangeAlert(domainId, domain, scanId, env, scanQu
         const events = filterCustomerTimelineEventsForScan(byWorkspace.get(workspace_id) || [], scanId, { missingScanIdMatches: true });
         if (events.length === 0) continue;
 
-        // Count events by type
-        const counts = {};
-        const hostnamesByType = {};
-        for (const ev of events) {
-          if (!ASSET_ALERT_EVENTS.has(ev.event_type)) continue;
-          counts[ev.event_type] = (counts[ev.event_type] || 0) + 1;
-          if (ev.hostname) {
-            if (!hostnamesByType[ev.event_type]) hostnamesByType[ev.event_type] = [];
-            hostnamesByType[ev.event_type].push(ev.hostname);
-          }
-        }
-
-        if (!assetAlertWorthy(counts)) continue;
-
-        const severity = assetAlertSeverity(counts);
+        const alertEvents = events.filter((event) =>
+          ASSET_ALERT_EVENTS.has(event.event_type));
+        if (alertEvents.length === 0) continue;
+        const evidence = await loadAssetAlertEligibilityEvidence(
+          env,
+          workspace_id,
+          scanId,
+        );
+        const eligibility = evaluateAssetAlertEligibility(alertEvents, evidence);
+        const counts = assetAlertCounts(
+          eligibility.eligible_events,
+          eligibility.record,
+        );
+        const worthy = assetAlertWorthy(counts);
+        const severity = worthy ? assetAlertSeverity(counts) : "info";
+        const eligibleHostnamesByType = hostnamesByType(
+          eligibility.eligible_events,
+        );
 
         // Collect top hostnames — prioritise high-severity event types
         const topHostnames = [
-          ...(hostnamesByType.takeover_risk_detected || []),
-          ...(hostnamesByType.new_asset_discovered   || []),
-          ...(hostnamesByType.certificate_new_san_detected || []),
-          ...(hostnamesByType.certificate_new_detected || []),
-          ...(hostnamesByType.certificate_new_issuer_detected || []),
-          ...(hostnamesByType.cloud_storage_detected || []),
-          ...(hostnamesByType.wildcard_dns_detected  || []),
-          ...(hostnamesByType.asset_reappeared       || []),
+          ...(eligibleHostnamesByType.takeover_risk_detected || []),
+          ...(eligibleHostnamesByType.new_asset_discovered   || []),
+          ...(eligibleHostnamesByType.certificate_new_san_detected || []),
+          ...(eligibleHostnamesByType.certificate_new_detected || []),
+          ...(eligibleHostnamesByType.certificate_new_issuer_detected || []),
+          ...(eligibleHostnamesByType.cloud_storage_detected || []),
+          ...(eligibleHostnamesByType.wildcard_dns_detected  || []),
+          ...(eligibleHostnamesByType.asset_reappeared       || []),
+          ...(eligibleHostnamesByType.asset_no_longer_seen   || []),
         ].filter((v, i, a) => a.indexOf(v) === i).slice(0, 5);
 
         // Dedup: INSERT OR IGNORE — if this (workspace_id, scan_id) already has a
@@ -143,6 +273,17 @@ export async function sendAssetChangeAlert(domainId, domain, scanId, env, scanQu
 
         // meta.changes === 0 means the row already existed — skip email
         if (!insert.meta || insert.meta.changes === 0) continue;
+
+        if (!worthy) {
+          await recordWithheldAlertDecision(
+            env,
+            recId,
+            workspace_id,
+            scanId,
+            eligibility,
+          );
+          continue;
+        }
 
         // Build + send email
         const frontendOrigin = getEmailFrontendOrigin(env);

@@ -1,0 +1,113 @@
+{
+  "domain": "blackbullbarbers.co.uk",
+  "hostname": "www.email.blackbullbarbers.co.uk",
+  "recorded_incident": {
+    "removal_scan_id": "scan_f70fa932-10db-46ad-ae77-bb27e007a647",
+    "reappearance_scan_id": "scan_c36f8a98-0c10-4676-9678-6fab08624d7e",
+    "removal_event": {
+      "id": "evt-recorded-removal",
+      "asset_id": "asset-recorded",
+      "scan_id": "scan_f70fa932-10db-46ad-ae77-bb27e007a647",
+      "event_type": "asset_no_longer_seen",
+      "hostname": "www.email.blackbullbarbers.co.uk"
+    },
+    "reappearance_event": {
+      "id": "evt-recorded-reappearance",
+      "asset_id": "asset-recorded",
+      "scan_id": "scan_c36f8a98-0c10-4676-9678-6fab08624d7e",
+      "event_type": "asset_reappeared",
+      "hostname": "www.email.blackbullbarbers.co.uk"
+    },
+    "lifecycle_observations": [
+      {
+        "asset_id": "asset-recorded",
+        "scan_id": "scan_f70fa932-10db-46ad-ae77-bb27e007a647",
+        "observation_state": "observation_unavailable",
+        "dns_state": "unavailable",
+        "http_state": "unavailable",
+        "qualifies_removal": 0,
+        "policy_version": "asset-removal-confirmation-v1",
+        "source_detail_json": {
+          "active_sources": [],
+          "passive_sources": ["crt_sh", "certspotter"],
+          "provider_outcomes": {
+            "crt_sh": "fetch_failed",
+            "certspotter": "parse_error"
+          }
+        },
+        "observed_at": "2026-07-14T10:00:00.000Z"
+      },
+      {
+        "asset_id": "asset-recorded",
+        "scan_id": "scan_c36f8a98-0c10-4676-9678-6fab08624d7e",
+        "observation_state": "observed",
+        "dns_state": "observed",
+        "http_state": "not_observed",
+        "qualifies_removal": 0,
+        "policy_version": "asset-removal-confirmation-v1",
+        "source_detail_json": {
+          "active_sources": ["dns_resolution", "http_https_service"],
+          "passive_sources": ["crt_sh"],
+          "http_outcome": "cloudflare_530",
+          "takeover_candidate": false,
+          "admin_surface": false
+        },
+        "observed_at": "2026-07-15T10:05:00.000Z"
+      }
+    ]
+  },
+  "confirmed_removal": {
+    "asset_id": "asset-confirmed",
+    "event": {
+      "id": "evt-confirmed-removal",
+      "asset_id": "asset-confirmed",
+      "scan_id": "scan-confirmed-3",
+      "event_type": "asset_no_longer_seen",
+      "hostname": "retired.example.com"
+    },
+    "observations": [
+      {
+        "asset_id": "asset-confirmed",
+        "scan_id": "scan-confirmed-1",
+        "observation_state": "not_observed",
+        "dns_state": "absent",
+        "http_state": "not_observed",
+        "qualifies_removal": 1,
+        "policy_version": "asset-removal-confirmation-v1",
+        "source_detail_json": {
+          "active_sources": ["dns_resolution", "http_https_service"],
+          "passive_sources": []
+        },
+        "observed_at": "2026-07-20T10:00:00.000Z"
+      },
+      {
+        "asset_id": "asset-confirmed",
+        "scan_id": "scan-confirmed-2",
+        "observation_state": "not_observed",
+        "dns_state": "absent",
+        "http_state": "not_observed",
+        "qualifies_removal": 1,
+        "policy_version": "asset-removal-confirmation-v1",
+        "source_detail_json": {
+          "active_sources": ["dns_resolution", "http_https_service"],
+          "passive_sources": []
+        },
+        "observed_at": "2026-07-21T10:00:00.000Z"
+      },
+      {
+        "asset_id": "asset-confirmed",
+        "scan_id": "scan-confirmed-3",
+        "observation_state": "not_observed",
+        "dns_state": "absent",
+        "http_state": "not_observed",
+        "qualifies_removal": 1,
+        "policy_version": "asset-removal-confirmation-v1",
+        "source_detail_json": {
+          "active_sources": ["dns_resolution", "http_https_service"],
+          "passive_sources": []
+        },
+        "observed_at": "2026-07-22T10:00:00.000Z"
+      }
+    ]
+  }
+}
