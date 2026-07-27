@@ -314,6 +314,30 @@ export async function persistModuleTelemetry(scanId, telemetry, env) {
   }
 }
 
+// CT-R1: provider-attempt telemetry is collected in memory during module execution
+// and written only after terminal scan finalization. Per-row failure is non-fatal.
+export async function persistCtProviderTelemetry(scanId, rows, env) {
+  for (const r of (rows || []).slice(0, 8)) {
+    try {
+      await env.cybermeters_db
+        .prepare(
+          `INSERT INTO ct_provider_telemetry
+             (id, scan_id, module, provider, outcome, http_status, latency_ms,
+              result_count, started_at, completed_at, completeness_impact,
+              affected_signal, cache_state, cache_age_s)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .bind(
+          createId("ctpt"), scanId, r.module, r.provider, r.outcome,
+          r.http_status ?? null, r.latency_ms, r.result_count ?? null,
+          r.started_at, r.completed_at, r.completeness_impact ? 1 : 0,
+          r.affected_signal ?? null, "miss", null
+        )
+        .run();
+    } catch { /* non-fatal per row — telemetry cannot affect scan completion */ }
+  }
+}
+
 // The network/enrichment modules we expect a telemetry row for. Backfilled at
 // finalization from the modules object for any not captured by the live wrapper
 // (reserved-mode results, deferred phases) so both scan modes get full coverage.
@@ -1456,6 +1480,11 @@ function buildCanonicalUrlProfile(modules) {
     // Persist per-module telemetry (non-fatal; after the terminal status is written
     // so a telemetry failure can never leave the scan 'running').
     await persistModuleTelemetry(scanId, telemetry, env);
+    await persistCtProviderTelemetry(
+      scanId,
+      ctCache.telemetrySnapshot({ modules, scanQuality }),
+      env
+    );
 
     // Shared by the 091 state persistence below AND the M5.c snapshot build
     // (Phase 8o): both must resolve the eight domains from the SAME Cyber

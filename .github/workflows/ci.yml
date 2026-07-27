@@ -727,6 +727,15 @@ jobs:
       - name: Validate scan observability (heartbeat + module telemetry, non-fatal)
         run: node scripts/validate-scan-telemetry.js
 
+      - name: Validate CT-R1 provider telemetry (fixtures + schema + analyzer + governance)
+        run: node scripts/validate-ct-r1-provider-telemetry.js
+
+      - name: Validate CT-R1 faithful runScanEngine finalization trace
+        run: node scripts/validate-ct-r1-provider-telemetry-engine-trace.js
+
+      - name: Validate CT-R1 provider telemetry load-bearing mutations
+        run: node scripts/validate-ct-r1-provider-telemetry-mutations.js
+
       - name: Validate managed brand takedown lifecycle (evidence + approval + verification)
         run: node scripts/validate-brand-takedown-lifecycle.js
 

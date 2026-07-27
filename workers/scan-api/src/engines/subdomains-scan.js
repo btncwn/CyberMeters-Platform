@@ -142,8 +142,8 @@ async function _subdomainsCoreWork(domain, SOURCE, PER_CAP, MERGE_CAP, opts = {}
     await Promise.allSettled([
       dnsQuery(wildcardHost, "A", { accounting, cache }),
       dnsQuery(wildcardHost, "AAAA", { accounting, cache }),
-      ctCache.get(domain, "crt_sh", { accounting }),
-      ctCache.get(domain, "certspotter", { accounting }),
+      ctCache.get(domain, "crt_sh", { accounting, module: "subdomains" }),
+      ctCache.get(domain, "certspotter", { accounting, module: "subdomains" }),
     ]);
 
   // ── Wildcard DNS result ─────────────────────────────────────────────────

@@ -11,9 +11,9 @@ data cannot be silently omitted.
 
 ## Counts
 
-- **schema tables:** 90
-- **classified:** 90
-- **tenant owned tables:** 86
+- **schema tables:** 91
+- **classified:** 91
+- **tenant owned tables:** 87
 - **infra or identity tables:** 4
 - **unclassified:** 0
 - **resource classes:** 32
@@ -42,7 +42,7 @@ data cannot be silently omitted.
 | workspace_memberships | core | direct(workspace_id) | 1 | ✓ | ✓ |
 | invitations | core | direct(workspace_id) | 1 | ✓ | ✓ |
 | domains | core | user(user_id), direct(workspace_id) | 2 | ✓ | ✓ |
-| scans | core | direct(workspace_id), via_scan(scan_id) | 3 | ✓ | ✓ |
+| scans | core | direct(workspace_id), via_scan(scan_id) | 4 | ✓ | ✓ |
 | assets | attack_surface | direct(workspace_id), via_scan(scan_id) | 4 | ✓ | ✓ |
 | asset_events | attack_surface | direct(workspace_id) | 2 | — | — |
 | findings | reporting | via_scan(scan_id) | 3 | ✓ | — |
@@ -112,6 +112,7 @@ _ⁿᵗ = non-tenant (global infrastructure / identity root)._
 | `certificate_lifecycle` | direct(workspace_id) | certificates |
 | `certificate_lifecycle_events` | direct(workspace_id) | certificates |
 | `certificate_observations` | direct(workspace_id) | certificates |
+| `ct_provider_telemetry` | via_scan(scan_id) | scans |
 | `customer_profiles` | account(owner_user_id) | subscriptions |
 | `cyber_essentials_answers` | direct(workspace_id) | cyber_essentials |
 | `cyber_essentials_control_records` | direct(workspace_id) | cyber_essentials |
